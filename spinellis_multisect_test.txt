@@ -1,0 +1,133 @@
+Term selectivity:
+  [1] http       1282 files (  5%) -- HIGH discrimination
+  [2] request    3788 files ( 16%) -- moderate
+  [3] response    858 files (  4%) -- HIGH discrimination
+  [4] servlet     410 files (  2%) -- HIGH discrimination
+
+
+Multi-term intersection search: 4 positive terms
+  [1] http      (1282 files)
+  [2] request   (3788 files)
+  [3] response  (858 files)
+  [4] servlet   (410 files)
+
+??? FUNCTION-level matches (322 functions) ???
+
+  [1] (global)  (...org\apache\cocoon\components\jsp\JSPEngine.java, 0 lines)  [4/4] IDF:12.1
+      [1] L15  import javax.servlet.http.HttpServletRequest;
+      [2] L15  import javax.servlet.http.HttpServletRequest;
+      [3] L16  import javax.servlet.http.HttpServletResponse;
+      [4] L13  import javax.servlet.ServletContext;
+
+  [2] (global)  (...apache\cocoon\components\jsp\JSPEngineImpl.java, 0 lines)  [4/4] IDF:12.1
+      [1] L16  import javax.servlet.http.Cookie;
+      [2] L17  import javax.servlet.http.HttpServletRequest;
+      [3] L18  import javax.servlet.http.HttpServletResponse;
+      [4] L15  import javax.servlet.*;
+
+  [3] (global)  (...ts\jsp\JSPEngineImplNamedDispatcherInclude.java, 0 lines)  [4/4] IDF:12.1
+      [1] L17  import javax.servlet.http.Cookie;
+      [2] L18  import javax.servlet.http.HttpServletRequest;
+      [3] L19  import javax.servlet.http.HttpServletResponse;
+      [4] L16  import javax.servlet.*;
+
+  [4] (global)  (...che\cocoon\components\jsp\JSPEngineImplWLS.java, 0 lines)  [4/4] IDF:12.1
+      [1] L18  import javax.servlet.http.Cookie;
+      [2] L19  import javax.servlet.http.HttpServletRequest;
+      [3] L20  import javax.servlet.http.HttpServletResponse;
+      [4] L16  import javax.servlet.ServletContext;
+
+  [5] (global)  (cocoon\src\java\org\apache\cocoon\Constants.java, 0 lines)  [4/4] IDF:12.1
+      [1] L23  *        Apache Software Foundation (http://www.apache.org/)."
+      [2] L83  * The request parameter name to reload the configuration.
+      [3] L168  * The namespace prefix for the response logicsheet.
+      [4] L85  * FIXME(GP): Isn't this Servlet specific?
+
+  [6] (global)  (...\java\org\apache\cocoon\environment\Cookie.java, 0 lines)  [4/4] IDF:12.1
+      [1] L25  * fields to HTTP response headers to send cookies to the
+      [2] L31  * fields to HTTP request headers. Cookies can be retrieved
+      [3] L24  * {@link Response#addCookie} method, which adds
+      [4] L12  * Creates a cookie, a small amount of information sent by a servlet to
+
+  [7] (global)  (...\apache\cocoon\environment\http\HttpCookie.java, 0 lines)  [4/4] IDF:12.1
+      [1] L8  package org.apache.cocoon.environment.http;
+      [2] L33  * fields to HTTP request headers. Cookies can be retrieved
+      [3] L26  * {@link HttpResponse#addCookie} method, which adds
+      [4] L14  * Creates a cookie, a small amount of information sent by a servlet to
+
+  [8] (global)  (...he\cocoon\environment\http\HttpEnvironment.java, 0 lines)  [4/4] IDF:12.1
+      [1] L9  package org.apache.cocoon.environment.http;
+      [2] L17  import javax.servlet.http.HttpServletRequest;
+      [3] L18  import javax.servlet.http.HttpServletResponse;
+      [4] L16  import javax.servlet.ServletContext;
+
+  [9] (global)  (...java\org\apache\cocoon\environment\Request.java, 0 lines)  [4/4] IDF:12.1
+      [1] L177  * example, HTTP/1.1. For HTTP servlets, the value
+      [2] L16  * Defines an interface to provide client request information .
+      [3] L702  * the response is committed.
+      [4] L76  * the servlet, for example, "BASIC" or "SSL," or null if the servlet was
+
+  [10] (global)  (...\org\apache\cocoon\generation\JspGenerator.java, 0 lines)  [4/4] IDF:12.1
+      [1] L18  import org.apache.cocoon.environment.http.HttpEnvironment;
+      [2] L24  import javax.servlet.http.HttpServletRequest;
+      [3] L25  import javax.servlet.http.HttpServletResponse;
+      [4] L22  import javax.servlet.ServletContext;
+  ... +312 more
+
+??? FILE-level matches (7 files (207 suppressed ? covered by function matches)) ???
+
+  [1] ...\share\org\apache\catalina\connector\HttpRequestBase.java  (1230 lines)  [4/4] IDF:12.1
+      [1] L2 in (global)  * $Header: /home/cvspublic/jakarta-tomcat-4.0/catalina/src/share/org/apache/c...
+      [2] L2 in (global)  * $Header: /home/cvspublic/jakarta-tomcat-4.0/catalina/src/share/org/apache/c...
+      [3] L1098 in HttpRequestBase::doGetSession  // Create a new session if requested and the response is not committed
+      [4] L81 in (global)  import javax.servlet.RequestDispatcher;
+
+  [2] ...rg\apache\catalina\connector\warp\WarpRequestHandler.java  (432 lines)  [4/4] IDF:12.1
+      [1] L24 in (global)  *        Foundation <http://www.apache.org/>."                              *
+      [2] L67 in (global)  import javax.servlet.http.HttpServletRequest;
+      [3] L99 in WarpRequestHandler::handle  WarpResponse response=new WarpResponse();
+      [4] L66 in (global)  import javax.servlet.http.Cookie;
+
+  [3] ...na\src\share\org\apache\catalina\util\ssi\SsiInclude.java  (151 lines)  [4/4] IDF:12.1
+      [1] L29 in (global)  *        Apache Software Foundation (http://www.apache.org/)."
+      [2] L71 in (global)  import javax.servlet.RequestDispatcher;
+      [3] L106 in SsiInclude::getStream  new ResponseIncludeWrapper(super.res,
+      [4] L68 in (global)  import javax.servlet.ServletException;
+
+  [4] ...rc\share\org\apache\jasper\compiler\IncludeGenerator.java  (194 lines)  [4/4] IDF:12.1
+      [1] L28 in (global)  *        Apache Software Foundation (http://www.apache.org/)."
+      [2] L182 in IncludeGenerator::generate  writer.println("JspRuntimeLibrary.include(request, response, " +
+      [3] L182 in IncludeGenerator::generate  writer.println("JspRuntimeLibrary.include(request, response, " +
+      [4] L129 in IncludeGenerator::generate  public void generate(ServletWriter writer, Class phase) {
+
+  [5] ...tester\src\tester\org\apache\tester\GetInputStream01.java  (99 lines)  [4/4] IDF:12.1
+      [1] L24 in (global)  *        Foundation <http://www.apache.org/>."                              *
+      [2] L75 in GetInputStream01::service  public void service(ServletRequest request, ServletResponse response)
+      [3] L75 in GetInputStream01::service  public void service(ServletRequest request, ServletResponse response)
+      [4] L62 in (global)  import javax.servlet.*;
+
+  [6] jt4\tester\src\tester\org\apache\tester\GetParameter01.java  (99 lines)  [4/4] IDF:12.1
+      [1] L24 in (global)  *        Foundation <http://www.apache.org/>."                              *
+      [2] L66 in (global)  * Test retrieval of parameters.  The client is expected to send a request
+      [3] L75 in GetParameter01::service  public void service(ServletRequest request, ServletResponse response)
+      [4] L62 in (global)  import javax.servlet.*;
+
+  [7] ...ester\src\tester\org\apache\tester\GetParameterMap00.java  (128 lines)  [4/4] IDF:12.1
+      [1] L24 in (global)  *        Foundation <http://www.apache.org/>."                              *
+      [2] L76 in GetParameterMap00::service  public void service(ServletRequest request, ServletResponse response)
+      [3] L76 in GetParameterMap00::service  public void service(ServletRequest request, ServletResponse response)
+      [4] L63 in (global)  import javax.servlet.*;
+
+??? FOLDER-level matches (83 folders) ???
+  [1] jt4/webapps/tomcat-docs/appdev/sample/src/mypackage  (1 files)  [4/4] IDF:12.1
+  [2] jt4/catalina/docs/appdev/sample/src  (1 files)  [4/4] IDF:12.1
+  [3] jt4/webapps/tomcat-docs/appdev/sample/src  (1 files)  [4/4] IDF:12.1
+  [4] jt4/webapps/tomcat-docs/appdev/sample  (1 files)  [4/4] IDF:12.1
+  [5] jt4/webapps/tomcat-docs/appdev  (1 files)  [4/4] IDF:12.1
+  [6] jt4/webapps/tomcat-docs  (1 files)  [4/4] IDF:12.1
+  [7] cocoon/src/scratchpad/schecoon/src/org/apache/cocoon/scheme/servlet  (2 files)  [4/4] IDF:12.1
+  [8] jt4/catalina/docs/appdev/sample  (2 files)  [4/4] IDF:12.1
+  [9] jt4/catalina/docs/appdev  (2 files)  [4/4] IDF:12.1
+  [10] jt4/catalina/docs  (2 files)  [4/4] IDF:12.1
+  ... +73 more
+

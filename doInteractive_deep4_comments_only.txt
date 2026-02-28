@@ -1,0 +1,2862 @@
+
+C:\work\code_exam\Nodejs_port\code-exam>node src\index.js --index-path .CodeExam5 --extract doInteractive --deep 4 --comments-only   
+# src/commands/interactive.js@doInteractive
+// ========================================================================
+// Main REPL
+// ========================================================================
+  // Derive index name for prompt (e.g. ".spinellis" from "/work/ai_code_exam/.spinellis")
+    // Basic history support comes free with readline
+  // Persistent REPL state
+      // Check for output redirection: /command > file.txt  or  >> file.txt
+        // If redirect returned a Promise (async command like /claim),
+        // wait for it before prompting
+      // If dispatch returned a Promise (async command like /claim), wait for it
+  // Convenience: build args with current settings
+  // ------------------------------------------------------------------
+  // Dispatch
+  // ------------------------------------------------------------------
+    // Shell escape
+    // Exit
+    // Help
+    // Settings
+    // /max N shortcut
+    // /show-dupes toggle
+    // /clear-cache
+    // /rebuild-functions
+      // Clear caches that depend on function index
+    // ----- Strip surrounding quotes from arguments -----
+    // Interactive mode doesn't strip quotes the way the shell does for argv,
+    // so "http;servlet" arrives with literal quote characters.
+    // Handle both: "whole arg" and "quoted part" --in apache
+      // For /commands, strip quotes from quoted segments in the argument
+    // ----- Stats/info -----
+    // /files [filter]
+    // /paths <pattern>
+    // ----- Search -----
+    // ----- Functions/browse -----
+      // Trailing @ means "path only"
+    // /extract
+      // [N] selects from last match list
+      // Parse flags from the argument string
+    // /file, /show-file, /cat
+      // [N] selects from last file match list
+    // ----- Callers / call graph -----
+    // ----- Metrics / discovery -----
+    // ----- Phase 5: Multi-term intersection search -----
+      // Extract min=N option
+    // ----- Phase 8a: Claim search (LLM-based) -----
+      // Extract min=N option
+      // Extract temp=N option
+      // Check for --show-prompt flag
+      // Determine if it's @file or inline text
+      // Async — return promise so readline handler can await it
+    // ----- Phase 8b: LLM Analysis commands -----
+    // ----- Phase 4: Dedup commands -----
+        // No name — show funcstrings for struct-dupes
+    // ----- Default: hybrid search -----
+  // ------------------------------------------------------------------
+  // /functions dispatch — complex enough for its own function
+  // ------------------------------------------------------------------
+    // Special pattern "" from just "/funcs " -> null
+      // path@name syntax
+
+════════════════════════════════════════════════════════════════
+Callees of doInteractive (56 functions, depth 1/4):
+════════════════════════════════════════════════════════════════
+  doInteractive [recursive — skipped]
+
+# src/commands/interactive.js@parseRedirect (31 lines) [called by doInteractive]
+// ========================================================================
+// Output redirection: /command > file.txt  or  /command >> file.txt
+// ========================================================================
+/**
+ * Parse "> file" or ">> file" from the end of a command string.
+ * Returns { command, filePath, append } or null if no redirect found.
+ *
+ * Avoids false positives from regex patterns like /foo>bar/ by only
+ * matching > that is preceded by whitespace (or start of unquoted context)
+ * and followed by a filename.
+ */
+  // Match >> or > at end of command, with a filename after it
+  // Look for:  [space]>>[space]filename  or  [space]>[space]filename
+  // But NOT inside /regex/ patterns
+  // Safety: if the "command" part looks like it ends mid-regex, skip
+  // e.g., "/regex /foo" > bar  is legit, but "/regex /foo>" is suspicious
+  // Simple heuristic: don't redirect if there's an unclosed /regex/ pattern
+    // Odd number of leading slashes suggests we're inside a regex
+    // But /command is always a leading slash, so check more carefully
+    // If the redirect target looks like a path, it's probably legit
+  ────────────────────────────────────────────────────────────
+  Callees of parseRedirect (1 functions, depth 2/4):
+  ────────────────────────────────────────────────────────────
+    parseRedirect [recursive — skipped]
+
+  Tip: Comments can lie! Verify against actual code logic.
+
+# src/commands/interactive.js@withFileRedirect (59 lines) [called by doInteractive]
+/**
+ * Run a function with console.log redirected to a file.
+ * Returns the number of lines written.
+ */
+  // Save and replace console.log
+      // Format the same way console.log does: space-separated, newline at end
+      // Replace non-ASCII for Windows compatibility
+    // Also capture raw process.stdout.write (used by some commands)
+  // If fn() returned a Promise, keep redirect active until it resolves
+  ────────────────────────────────────────────────────────────
+  Callees of withFileRedirect (3 functions, depth 2/4):
+  ────────────────────────────────────────────────────────────
+    withFileRedirect [recursive — skipped]
+
+  # src/commands/interactive.js@installRedirect (21 lines) [called by withFileRedirect]
+        // Format the same way console.log does: space-separated, newline at end
+        // Replace non-ASCII for Windows compatibility
+      // Also capture raw process.stdout.write (used by some commands)
+    (no callees found for installRedirect)
+
+  # src/commands/interactive.js@restoreRedirect (142 lines) [called by withFileRedirect]
+    // If fn() returned a Promise, keep redirect active until it resolves
+  // ========================================================================
+  // Help text
+  // ========================================================================
+    ────────────────────────────────────────────────────────────
+    Callees of restoreRedirect (2 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      installRedirect [already shown above — skipped]
+      restoreRedirect [recursive — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  Tip: Comments can lie! Verify against actual code logic.
+
+# src/commands/interactive.js@dispatch (736 lines) [called by doInteractive]
+  // ------------------------------------------------------------------
+  // Dispatch
+  // ------------------------------------------------------------------
+    // Shell escape
+    // Exit
+    // Help
+    // Settings
+    // /max N shortcut
+    // /show-dupes toggle
+    // /clear-cache
+    // /rebuild-functions
+      // Clear caches that depend on function index
+    // ----- Strip surrounding quotes from arguments -----
+    // Interactive mode doesn't strip quotes the way the shell does for argv,
+    // so "http;servlet" arrives with literal quote characters.
+    // Handle both: "whole arg" and "quoted part" --in apache
+      // For /commands, strip quotes from quoted segments in the argument
+    // ----- Stats/info -----
+    // /files [filter]
+    // /paths <pattern>
+    // ----- Search -----
+    // ----- Functions/browse -----
+      // Trailing @ means "path only"
+    // /extract
+      // [N] selects from last match list
+      // Parse flags from the argument string
+    // /file, /show-file, /cat
+      // [N] selects from last file match list
+    // ----- Callers / call graph -----
+    // ----- Metrics / discovery -----
+    // ----- Phase 5: Multi-term intersection search -----
+      // Extract min=N option
+    // ----- Phase 8a: Claim search (LLM-based) -----
+      // Extract min=N option
+      // Extract temp=N option
+      // Check for --show-prompt flag
+      // Determine if it's @file or inline text
+      // Async — return promise so readline handler can await it
+    // ----- Phase 8b: LLM Analysis commands -----
+    // ----- Phase 4: Dedup commands -----
+        // No name — show funcstrings for struct-dupes
+    // ----- Default: hybrid search -----
+  ────────────────────────────────────────────────────────────
+  Callees of dispatch (51 functions, depth 2/4):
+  ────────────────────────────────────────────────────────────
+    dispatch [recursive — skipped]
+
+  # src/json-stream.js@FileScanner.close (15 lines) [called by dispatch]
+    (no full-line comments found in FileScanner.close)
+    ────────────────────────────────────────────────────────────
+    Callees of close (1 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      FileScanner.close [recursive — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/core/CodeSearchIndex.js@buildFunctionIndex (29 lines) [called by dispatch]
+      // Save
+    ────────────────────────────────────────────────────────────
+    Callees of buildFunctionIndex (3 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      buildFunctionIndex [recursive — skipped]
+
+    # src/core/CodeSearchIndex.js@buildIndex (178 lines) [called by buildFunctionIndex]
+      // ========================================================================
+      // Build Index
+      // ========================================================================
+      /**
+       * Build search index from a code directory, file, glob pattern, or @filelist.
+       * @param {string} codePath
+       * @param {object} [opts]
+       * @param {number} [opts.chunkSize=50]
+       * @param {boolean} [opts.showProgress=true]
+       * @param {boolean} [opts.skipSemantic=true]
+       * @returns {object} stats
+       */
+          // @file.txt - list of files
+          // Glob/wildcard pattern
+          // Single file or directory
+        // Filter out known binary/media files
+        // SHA1 file-level dedup
+            // Decode as UTF-8, replacing invalid bytes
+            // Normalize path separators to forward slash for index keys
+            // Track all paths for this hash
+            // Skip duplicate content
+        // Save literal index
+        // Build inverted index
+        // Build function index
+      ────────────────────────────────────────────────────────────
+      Callees of buildIndex (7 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        buildIndex [recursive — skipped]
+
+      # src/core/CodeSearchIndex.js@_commonPath (157 lines) [called by buildIndex]
+        /**
+         * Find common path prefix for an array of absolute paths.
+         */
+          // If result is a file, return its directory
+        // ========================================================================
+        // Search: Literal
+        // ========================================================================
+        /**
+         * Literal text search across all indexed files.
+         * @param {string} pattern - text or regex pattern
+         * @param {object} [opts]
+         * @param {boolean} [opts.caseSensitive=false]
+         * @param {boolean} [opts.useRegex=false]
+         * @param {number} [opts.maxResults=100]
+         * @param {number} [opts.contextLines=3]
+         * @returns {SearchResult[]}
+         */
+                // Get context
+                // Find containing function
+        // ========================================================================
+        // Search: Inverted Index (fast)
+        // ========================================================================
+        /**
+         * Fast search using inverted index.
+         * @param {string} pattern
+         * @param {object} [opts]
+         * @param {boolean} [opts.useRegex=false]
+         * @param {boolean} [opts.caseSensitive=false]
+         * @param {number} [opts.maxResults=100]
+         * @returns {SearchResult[]}
+         */
+
+      # src/glob.js@_globSync (34 lines) [called by buildIndex]
+      /**
+       * Expand a glob pattern into matching file paths.
+       * Supports: *, **, ? wildcards.
+       * @param {string} pattern - Glob pattern (forward slashes)
+       * @returns {string[]} - Matching absolute file paths
+       */
+        // Normalize to forward slashes
+        // Split into directory prefix (non-glob part) and glob suffix
+        // Handle Windows drive letters
+          // No glob - just check if path exists
+        // Convert glob pattern to a regex-like matcher
+
+      # src/core/CodeSearchIndex.js@_walkDir (30 lines) [called by buildIndex]
+        /**
+         * Recursively walk a directory, returning files with matching extensions.
+         * Skips common infrastructure directories that never contain project source.
+         * @param {string} dirPath
+         * @returns {string[]}
+         */
+                // Skip common infrastructure directories
+                // Check compound extensions (e.g., .d.ts) — match if the
+                // simple extension passes AND no compound exclusion blocks it
+
+      # src/core/CodeSearchIndex.js@_saveLiteralIndex (12 lines) [called by buildIndex]
+        // ========================================================================
+        // Save / Load literal index
+        // ========================================================================
+
+      # src/core/CodeSearchIndex.js@buildInvertedIndex (53 lines) [called by buildIndex]
+          // line -> { filepath -> [lineNumbers] }
+          // Filter out lines appearing in too many files
+          // Save
+        buildFunctionIndex [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/core/CodeSearchIndex.js@_parseFunctionsRegex (830 lines) [called by buildFunctionIndex]
+      /**
+       * Parse functions from a single file using regex patterns.
+       * @param {string} filepath
+       * @returns {Object} { funcName -> {start, end, type, base_name} }
+       */
+          // Track indentation for class scope
+            // Close previous function at line before this one
+              // Check if inside a class
+            // Close class scope if at same or less indent
+            // Handle duplicate function names
+              // If name contains ::, it's a method — even without a class declaration
+              // in this file (the class may be declared in a .h we didn't index)
+        // Close last function at end of file
+        // Post-process: fix truncated functions using brace counting.
+        // When inner constructs (object literal methods, nested functions) match
+        // patterns, the outer function gets prematurely terminated. Detect this
+        // by checking if the extracted body has unbalanced braces — more '{' than '}'.
+          // Only applies to functions whose start line contains '{'
+          // Count braces in current span
+          // If balanced (depth === 0), function boundaries are correct
+          // Unbalanced: scan forward from end to find matching '}'
+        // Re-sort overlapping: if a brace-expanded function now encloses others,
+        // those inner functions should be kept (they're real inner functions).
+        // No action needed — the function index supports overlapping ranges.
+        // Save
+      // ========================================================================
+      // Build Index
+      // ========================================================================
+      /**
+       * Build search index from a code directory, file, glob pattern, or @filelist.
+       * @param {string} codePath
+       * @param {object} [opts]
+       * @param {number} [opts.chunkSize=50]
+       * @param {boolean} [opts.showProgress=true]
+       * @param {boolean} [opts.skipSemantic=true]
+       * @returns {object} stats
+       */
+          // @file.txt - list of files
+          // Glob/wildcard pattern
+          // Single file or directory
+        // Filter out known binary/media files
+        // SHA1 file-level dedup
+            // Decode as UTF-8, replacing invalid bytes
+            // Normalize path separators to forward slash for index keys
+            // Track all paths for this hash
+            // Skip duplicate content
+        // Save literal index
+        // Build inverted index
+        // Build function index
+      /**
+       * Recursively walk a directory, returning files with matching extensions.
+       * Skips common infrastructure directories that never contain project source.
+       * @param {string} dirPath
+       * @returns {string[]}
+       */
+              // Skip common infrastructure directories
+              // Check compound extensions (e.g., .d.ts) — match if the
+              // simple extension passes AND no compound exclusion blocks it
+      /**
+       * Check if a filename should be excluded due to a compound extension.
+       * E.g., 'index.d.ts' is excluded when '.d.ts' is in _excludeCompound,
+       * even though path.extname() would return '.ts'.
+       * @param {string} filename - Just the filename (not full path)
+       * @returns {boolean}
+       */
+      /**
+       * Find common path prefix for an array of absolute paths.
+       */
+        // If result is a file, return its directory
+      // ========================================================================
+      // Search: Literal
+      // ========================================================================
+      /**
+       * Literal text search across all indexed files.
+       * @param {string} pattern - text or regex pattern
+       * @param {object} [opts]
+       * @param {boolean} [opts.caseSensitive=false]
+       * @param {boolean} [opts.useRegex=false]
+       * @param {number} [opts.maxResults=100]
+       * @param {number} [opts.contextLines=3]
+       * @returns {SearchResult[]}
+       */
+              // Get context
+              // Find containing function
+      // ========================================================================
+      // Search: Inverted Index (fast)
+      // ========================================================================
+      /**
+       * Fast search using inverted index.
+       * @param {string} pattern
+       * @param {object} [opts]
+       * @param {boolean} [opts.useRegex=false]
+       * @param {boolean} [opts.caseSensitive=false]
+       * @param {number} [opts.maxResults=100]
+       * @returns {SearchResult[]}
+       */
+      // ========================================================================
+      // Search: Hybrid (literal + semantic)
+      // ========================================================================
+        // Literal search first
+        // Semantic search would go here (Phase 8)
+      // ========================================================================
+      // Containing function lookup
+      // ========================================================================
+      /**
+       * Get sorted function boundaries for fast bisect-based lookup.
+       * Returns sorted array of [startLine, endLine, funcName].
+       */
+      /**
+       * Find containing function for a line number using bisect.
+       */
+        // Binary search: find rightmost boundary whose start <= lineNum
+      /**
+       * Find containing function/method for a given line.
+       * Uses function index if available (fast), else backward regex scan (slow).
+       */
+        // Try fast bisect path first
+        // Fallback: backward regex scan
+      // ========================================================================
+      // Function source extraction
+      // ========================================================================
+      /**
+       * Extract complete source code for a function.
+       */
+        // Case-insensitive filepath matching
+          // Try matching by base_name
+        // Brace-balance check at extraction time.
+        // Handles pre-built indexes where inner functions truncated the outer.
+        // If the stored range has unbalanced braces, extend to the matching '}'.
+            // Unbalanced — scan forward to find matching '}'
+        // Trim trailing comments belonging to next function
+        // Prepend preceding doc comment above function
+        // Strip leading blank lines from collected comments
+      ────────────────────────────────────────────────────────────
+      Callees of _parseFunctionsRegex (21 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _parseFunctionsRegex [recursive — skipped]
+
+      # src/core/CodeSearchIndex.js@_getPatternsForExt (147 lines) [called by _parseFunctionsRegex]
+        // ========================================================================
+        // Function Index (regex-based parsing)
+        // ========================================================================
+        /**
+         * Get regex patterns for detecting functions/classes by file extension.
+         * Returns array of [regex, funcType, nameGroupIndex] tuples.
+         */
+          // Pattern format: [regex_string, type, name_capture_group_index]
+          // We use named groups (?<name>...) for clarity, but track the group name.
+            // C++ constructor: ClassName::ClassName(args) {
+            // C++ destructor: ClassName::~ClassName() {
+            // C++ class method: return type + Class::Method(args) on SAME line
+            // C++ class method: return type + Class::Method( with args on NEXT line(s)
+            // e.g. "Region OcclusionTracker::ComputeVisibleRegionInScreen("
+            // C++ class method with return type on PREVIOUS line (Chromium/Google style):
+            //   ReturnType\n
+            //   ClassName::MethodName(args) const {\n
+            // Matches: Qualified::Name( at start of line (not preceded by = or return etc.)
+            // Plain C function: ReturnType funcname(args) {  (all on one line)
+            // Plain C function: ReturnType funcname( with args on next line(s)
+            // C++ class/struct — skip export macros like CC_EXPORT, BLINK_EXPORT, COMPONENT_EXPORT(viz)
+            // Export macros are ALL_CAPS words containing underscore, optionally with (args)
+            // Class method shorthand
+            // C# methods (similar to Java)
+        buildFunctionIndex [already shown above — skipped]
+        buildIndex [already shown above — skipped]
+
+      # src/core/CodeSearchIndex.js@_loadFunctionIndex (17 lines) [called by _parseFunctionsRegex]
+        (no full-line comments found in _loadFunctionIndex)
+
+      # src/core/CodeSearchIndex.js@_ensureFunctionIndex (20 lines) [called by _parseFunctionsRegex]
+        (no full-line comments found in _ensureFunctionIndex)
+        _commonPath [already shown above — skipped]
+        _globSync [already shown above — skipped]
+        _walkDir [already shown above — skipped]
+        _saveLiteralIndex [already shown above — skipped]
+        buildInvertedIndex [already shown above — skipped]
+
+      # src/core/CodeSearchIndex.js@walk (36 lines) [called by _parseFunctionsRegex]
+                // Skip common infrastructure directories
+                // Check compound extensions (e.g., .d.ts) — match if the
+                // simple extension passes AND no compound exclusion blocks it
+
+      # src/core/CodeSearchIndex.js@_isCompoundExcluded (12 lines) [called by _parseFunctionsRegex]
+        /**
+         * Check if a filename should be excluded due to a compound extension.
+         * E.g., 'index.d.ts' is excluded when '.d.ts' is in _excludeCompound,
+         * even though path.extname() would return '.ts'.
+         * @param {string} filename - Just the filename (not full path)
+         * @returns {boolean}
+         */
+
+      # src/commands/multisect.js@escapeRegex (4 lines) [called by _parseFunctionsRegex]
+        (no full-line comments found in escapeRegex)
+
+      # src/core/CodeSearchIndex.js@_findContainingFunction (46 lines) [called by _parseFunctionsRegex]
+        /**
+         * Find containing function/method for a given line.
+         * Uses function index if available (fast), else backward regex scan (slow).
+         */
+          // Try fast bisect path first
+          // Fallback: backward regex scan
+
+      # src/core/CodeSearchIndex.js@_ensureInvertedAvailable (10 lines) [called by _parseFunctionsRegex]
+        /**
+         * Ensure inverted index is available (in memory or on disk).
+         * @returns {boolean}
+         */
+
+      # src/core/CodeSearchIndex.js@forEachInvertedEntry (61 lines) [called by _parseFunctionsRegex]
+        /**
+         * Iterate every entry in the inverted index, either from memory or disk.
+         * 
+         * Normal mode: callback(line, locations) => false to stop early.
+         * Lazy mode (lazy=true): callback(line, valueAccessor) where valueAccessor has:
+         *   .parse()  - full JSON parse (returns locations array)
+         *   .count()  - fast count total occurrences without full parse (~10x faster)
+         * Lazy mode skips expensive JSON parsing until the callback actually needs the value.
+         *
+         * @param {function} callback
+         * @param {boolean} [showProgress=false]
+         * @param {boolean} [lazy=false] - lazy parse mode for on-disk streaming
+         */
+          // In-memory path (small indexes) — always eager, data already parsed
+          // On-disk streaming path (large indexes)
+                // Lazy mode: pass accessor that parses on demand
+                // Eager mode: parse immediately
+
+      # src/core/CodeSearchIndex.js@searchHybrid (28 lines) [called by _parseFunctionsRegex]
+        // ========================================================================
+        // Search: Hybrid (literal + semantic)
+        // ========================================================================
+          // Literal search first
+          // Semantic search would go here (Phase 8)
+
+      # src/core/CodeSearchIndex.js@_getFuncBoundaries (19 lines) [called by _parseFunctionsRegex]
+        // ========================================================================
+        // Containing function lookup
+        // ========================================================================
+        /**
+         * Get sorted function boundaries for fast bisect-based lookup.
+         * Returns sorted array of [startLine, endLine, funcName].
+         */
+
+      # src/core/CodeSearchIndex.js@_bisectFuncLookup (26 lines) [called by _parseFunctionsRegex]
+        /**
+         * Find containing function for a line number using bisect.
+         */
+          // Binary search: find rightmost boundary whose start <= lineNum
+
+      # src/core/CodeSearchIndex.js@getFunctionSource (144 lines) [called by _parseFunctionsRegex]
+        // ========================================================================
+        // Function source extraction
+        // ========================================================================
+        /**
+         * Extract complete source code for a function.
+         */
+          // Case-insensitive filepath matching
+            // Try matching by base_name
+          // Brace-balance check at extraction time.
+          // Handles pre-built indexes where inner functions truncated the outer.
+          // If the stored range has unbalanced braces, extend to the matching '}'.
+              // Unbalanced — scan forward to find matching '}'
+          // Trim trailing comments belonging to next function
+          // Prepend preceding doc comment above function
+          // Strip leading blank lines from collected comments
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/interactive.js@stripOuterQuotes (20 lines) [called by dispatch]
+  /**
+   * Strip surrounding quotes from a string.
+   * Interactive mode doesn't strip quotes the way the shell does for argv,
+   * so "http;servlet" arrives with literal quote characters.
+   */
+    ────────────────────────────────────────────────────────────
+    Callees of stripOuterQuotes (1 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      stripOuterQuotes [recursive — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/browse.js@doStats (59 lines) [called by dispatch]
+  // ========================================================================
+  // Stats
+  // ========================================================================
+    // File dedup stats
+    // Inverted index stats
+      // Large index on disk — count entries by streaming without loading
+        // Loaded as on-disk
+    // Function index stats
+    ────────────────────────────────────────────────────────────
+    Callees of doStats (4 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doStats [recursive — skipped]
+
+    # src/core/CodeSearchIndex.js@getInvertedIndexCount (22 lines) [called by doStats]
+      /**
+       * Count inverted index entries without loading into memory.
+       * Streams through the file counting top-level keys.
+       */
+      ────────────────────────────────────────────────────────────
+      Callees of getInvertedIndexCount (4 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        getInvertedIndexCount [recursive — skipped]
+
+      # src/json-stream.js@openJSONFile (18 lines) [called by getInvertedIndexCount]
+      /**
+       * Open a file for streaming JSON parsing.
+       * Returns a FileScanner for files >2GB, or a Buffer for smaller files.
+       * Caller must call closeSource() when done.
+       *
+       * @param {string} filepath
+       * @returns {{ src: ByteSource, size: number }}
+       */
+          // File too large for Buffer — use chunked file reader
+        // Small enough for Buffer (faster)
+
+      # src/json-stream.js@forEachEntry (34 lines) [called by getInvertedIndexCount]
+      // ========================================================================
+      // Public API
+      // ========================================================================
+      /**
+       * Iterate over top-level entries of a JSON object.
+       * Works with both Buffer (small files) and FileScanner (large files).
+       *
+       * @param {ByteSource} src   - Buffer or FileScanner
+       * @param {number} start     - Start offset
+       * @param {number} end       - End offset
+       * @param {function} callback - (key, valueStart, valueEnd) => void
+       */
+        // Skip to opening brace
+          // Parse key
+          // Skip : 
+          // Find value boundaries
+
+      # src/json-stream.js@closeSource (14 lines) [called by getInvertedIndexCount]
+      /**
+       * Close a source returned by openJSONFile.
+       */
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/core/CodeSearchIndex.js@_loadInvertedIndex (29 lines) [called by doStats]
+          // For large files: don't load into memory, stream on demand
+      ────────────────────────────────────────────────────────────
+      Callees of _loadInvertedIndex (2 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _loadInvertedIndex [recursive — skipped]
+
+      # src/core/CodeSearchIndex.js@_markInvertedOnDisk (22 lines) [called by _loadInvertedIndex]
+        /**
+         * Mark the inverted index as too large for memory; will stream from disk.
+         */
+
+      Tip: Comments can lie! Verify against actual code logic.
+      _loadFunctionIndex [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/interactive.js@iargs (12 lines) [called by dispatch]
+    // Convenience: build args with current settings
+    ────────────────────────────────────────────────────────────
+    Callees of iargs (2 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      iargs [recursive — skipped]
+
+    # src/commands/interactive.js@makeIArgs (29 lines) [called by iargs]
+    // ========================================================================
+    // makeIArgs — builds a fake args object for do*() dispatch
+    // ========================================================================
+      ────────────────────────────────────────────────────────────
+      Callees of makeIArgs (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        makeIArgs [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/browse.js@doIndexExtensions (43 lines) [called by dispatch]
+      // Count lines for this extension
+    ────────────────────────────────────────────────────────────
+    Callees of doIndexExtensions (1 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doIndexExtensions [recursive — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/core/CodeSearchIndex.js@listFiles (4 lines) [called by dispatch]
+    // ========================================================================
+    // Path matching and file listing
+    // ========================================================================
+    ────────────────────────────────────────────────────────────
+    Callees of listFiles (1 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      listFiles [recursive — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/core/CodeSearchIndex.js@findPathMatches (30 lines) [called by dispatch]
+    (no full-line comments found in findPathMatches)
+    ────────────────────────────────────────────────────────────
+    Callees of findPathMatches (1 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      findPathMatches [recursive — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/interactive.js@extractInFilter (16 lines) [called by dispatch]
+  /**
+   * Extract --in <pattern> from a query string.
+   * Returns { rest, inPattern } where rest has the --in clause removed.
+   */
+    ────────────────────────────────────────────────────────────
+    Callees of extractInFilter (1 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      extractInFilter [recursive — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/search.js@doLiteral (22 lines) [called by dispatch]
+    (no full-line comments found in doLiteral)
+    ────────────────────────────────────────────────────────────
+    Callees of doLiteral (4 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doLiteral [recursive — skipped]
+      findPathMatches [already shown above — skipped]
+
+    # src/commands/search.js@filterResultsByPath (32 lines) [called by doLiteral]
+    /**
+     * Apply --include-path and --exclude-path filters to search results.
+     */
+        // --in filter (universal path filter)
+      ────────────────────────────────────────────────────────────
+      Callees of filterResultsByPath (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        filterResultsByPath [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/search.js@printResults (116 lines) [called by doLiteral]
+    // ========================================================================
+    // Display helpers
+    // ========================================================================
+    /**
+     * Pretty-print search results, grouped by file.
+     * @param {SearchResult[]} results
+     * @param {object} opts
+     * @param {boolean} [opts.verbose=false]
+     * @param {number|null} [opts.maxResults]
+     * @param {string[]|null} [opts.pathMatches]
+     * @param {number|null} [opts.totalFound]
+     */
+      // Show active path filter
+      // Show path matches first
+      // Group results by file, preserving order of first appearance
+        // Determine if function names vary within this file's results
+        // Build file header
+          // Show function name only when it changes
+          // Show match type only when it's not literal
+      // Bottom-of-output truncation warning
+      ────────────────────────────────────────────────────────────
+      Callees of printResults (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        printResults [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/search.js@doFast (21 lines) [called by dispatch]
+    (no full-line comments found in doFast)
+    ────────────────────────────────────────────────────────────
+    Callees of doFast (4 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doFast [recursive — skipped]
+      findPathMatches [already shown above — skipped]
+      filterResultsByPath [already shown above — skipped]
+      printResults [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/search.js@doRegex (23 lines) [called by dispatch]
+    // Strip /.../ delimiters if present
+    ────────────────────────────────────────────────────────────
+    Callees of doRegex (3 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doRegex [recursive — skipped]
+      filterResultsByPath [already shown above — skipped]
+      printResults [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/search.js@doFilesSearch (44 lines) [called by dispatch]
+    // Count hits per file
+    ────────────────────────────────────────────────────────────
+    Callees of doFilesSearch (2 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doFilesSearch [recursive — skipped]
+      filterResultsByPath [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/search.js@doFoldersSearch (48 lines) [called by dispatch]
+    (no full-line comments found in doFoldersSearch)
+    ────────────────────────────────────────────────────────────
+    Callees of doFoldersSearch (2 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doFoldersSearch [recursive — skipped]
+      filterResultsByPath [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/interactive.js@dispatchFunctions (50 lines) [called by dispatch]
+    // ------------------------------------------------------------------
+    // /functions dispatch — complex enough for its own function
+    // ------------------------------------------------------------------
+      // Special pattern "" from just "/funcs " -> null
+        // path@name syntax
+    ────────────────────────────────────────────────────────────
+    Callees of dispatchFunctions (2 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      dispatchFunctions [recursive — skipped]
+
+    # src/core/CodeSearchIndex.js@listFunctions (29 lines) [called by dispatchFunctions]
+      // ========================================================================
+      // Function listing & matching
+      // ========================================================================
+      /**
+       * List all indexed functions, optionally filtered by file.
+       * @param {string|null} filepath - optional substring filter
+       * @returns {Array<{filepath,name,displayName,start,end,type,lines}>}
+       */
+      ────────────────────────────────────────────────────────────
+      Callees of listFunctions (3 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        listFunctions [recursive — skipped]
+        _ensureFunctionIndex [already shown above — skipped]
+
+      # src/utils.js@displayName (13 lines) [called by listFunctions]
+      // ========================================================================
+      // Display helpers
+      // ========================================================================
+      /**
+       * Convert internal Class::method name to language-appropriate display.
+       * Internal storage always uses ::, display uses . for Java/Python/etc.
+       */
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/interactive.js@parseNPat (36 lines) [called by dispatch]
+  // ========================================================================
+  // Command parsers — extract [N] [pattern] [key=val] from argument string
+  // ========================================================================
+  /**
+   * Parse "rest of command" into { n, pattern, opts }.
+   * Handles: /hotspots 30 render   -> { n:30, pattern:'render', opts:{} }
+   *          /entry-points max=2   -> { n:25, pattern:null, opts:{max:'2'} }
+   *          /call-tree main 4 mermaid -> { func:'main', n:4, flags:['mermaid'] }
+   */
+        // Last non-numeric, non-option token is pattern
+    ────────────────────────────────────────────────────────────
+    Callees of parseNPat (1 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      parseNPat [recursive — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/browse.js@doListFunctionsSize (51 lines) [called by dispatch]
+    // Apply --filter
+    // Apply path filters
+    // Sort by size descending
+    ────────────────────────────────────────────────────────────
+    Callees of doListFunctionsSize (2 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doListFunctionsSize [recursive — skipped]
+      listFunctions [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/browse.js@doListFunctionsAlpha (47 lines) [called by dispatch]
+    (no full-line comments found in doListFunctionsAlpha)
+    ────────────────────────────────────────────────────────────
+    Callees of doListFunctionsAlpha (2 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doListFunctionsAlpha [recursive — skipped]
+      listFunctions [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+    getFunctionSource [already shown above — skipped]
+    displayName [already shown above — skipped]
+
+  # src/commands/browse.js@doExtract (59 lines) [called by dispatch]
+  // ========================================================================
+  // Extract
+  // ========================================================================
+    // --deep [N] implies --follow-calls, optionally with a depth value
+    // optional_value returns '.' for flag-only, 'N' for --deep N, null if not specified
+    // Parse FILE@FUNCTION or just FUNCTION
+    // Extract the root function
+    // --follow-calls: recursively extract callees
+    ────────────────────────────────────────────────────────────
+    Callees of doExtract (4 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doExtract [recursive — skipped]
+
+    # src/core/CodeSearchIndex.js@extractFunctionByName (44 lines) [called by doExtract]
+      /**
+       * Extract function source by name, with optional file hint.
+       */
+        // Multiple matches
+      ────────────────────────────────────────────────────────────
+      Callees of extractFunctionByName (4 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        extractFunctionByName [recursive — skipped]
+
+      # src/core/CodeSearchIndex.js@findFunctionMatches (51 lines) [called by extractFunctionByName]
+        /**
+         * Find all functions matching a name, optionally filtered by file path.
+         */
+        getFunctionSource [already shown above — skipped]
+        displayName [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/browse.js@_printComments (71 lines) [called by doExtract]
+    /**
+     * Extract and print only full-line comments from source code.
+     * Supports: // ... , # ... , /* ... , * ... (doc-comment continuation)
+     *
+     * @param {string} source - Function source code
+     * @param {string} funcName - For header display
+     * @param {string} [indent=''] - Prefix for each line
+     */
+        // Track block comments
+        // Full-line comment patterns
+        // Block comment start on its own line
+        // Python/shell doc-level comments: """  or '''
+          // Check if it's a multi-line docstring
+          // Multi-line: print until closing
+      ────────────────────────────────────────────────────────────
+      Callees of _printComments (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _printComments [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/browse.js@_followCalls (81 lines) [called by doExtract]
+    /**
+     * Recursively extract and display source for callees of a function.
+     *
+     * @param {CodeSearchIndex} index
+     * @param {string} funcName
+     * @param {string|null} fileHint
+     * @param {boolean} commentsOnly - Show only comments
+     * @param {number} maxDepth - Maximum recursion depth
+     * @param {number} currentDepth
+     * @param {Set<string>} visited - Functions already extracted (avoid loops)
+     */
+        // Skip recursive calls
+        // Skip already visited (avoids cycles across call chains)
+        // Try to extract source for this callee
+          // Indent callee source for visual nesting
+        // Recurse deeper if requested
+      ────────────────────────────────────────────────────────────
+      Callees of _followCalls (4 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _followCalls [recursive — skipped]
+
+      # src/core/CodeSearchIndex.js@findCallees (102 lines) [called by _followCalls]
+        // ========================================================================
+        // Find callees
+        // ========================================================================
+        /**
+         * Find all functions called BY a given function.
+         * @param {string} functionName
+         * @param {string|null} [fileHint]
+         * @returns {Array<{name, display_name, definitions, line_number, call_type}>}
+         */
+            // Check indirect calls first
+            // Check direct calls
+                // Determine call type from context
+        getFunctionSource [already shown above — skipped]
+        _printComments [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/browse.js@doShowFile (48 lines) [called by dispatch]
+  // ========================================================================
+  // Show File
+  // ========================================================================
+      // Store for [N] selection in interactive mode
+    ────────────────────────────────────────────────────────────
+    Callees of doShowFile (1 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doShowFile [recursive — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/callers.js@doCallers (139 lines) [called by dispatch]
+  // ========================================================================
+  // Callers
+  // ========================================================================
+    // Show which definition we're referring to
+      // Simple single-level callers
+      // Group by caller function
+      // Count by type
+      // Transitive callers
+    ────────────────────────────────────────────────────────────
+    Callees of doCallers (3 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doCallers [recursive — skipped]
+      findFunctionMatches [already shown above — skipped]
+
+    # src/core/CodeSearchIndex.js@findCallers (8 lines) [called by doCallers]
+      // ========================================================================
+      // Find callers
+      // ========================================================================
+      /**
+       * Find all locations where a function is called.
+       * @param {string} functionName
+       * @param {number} [maxResults=500]
+       * @returns {Array<{filepath, line_number, line_text, caller_function, call_type}>}
+       */
+      ────────────────────────────────────────────────────────────
+      Callees of findCallers (3 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        findCallers [recursive — skipped]
+        _ensureInvertedAvailable [already shown above — skipped]
+        _ensureFunctionIndex [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/callers.js@doCallees (61 lines) [called by dispatch]
+  // ========================================================================
+  // Callees
+  // ========================================================================
+    // Show which definition we analyzed
+    ────────────────────────────────────────────────────────────
+    Callees of doCallees (4 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doCallees [recursive — skipped]
+      findCallees [already shown above — skipped]
+      findFunctionMatches [already shown above — skipped]
+      displayName [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/callers.js@doMostCalled (110 lines) [called by dispatch]
+  // ========================================================================
+  // Most Called
+  // ========================================================================
+      // Apply --filter
+      // Min name length
+      // Filter ALL_CAPS (macros)
+      // Defined only
+      // Apply path filters to definitions
+    // Build filter description
+    ────────────────────────────────────────────────────────────
+    Callees of doMostCalled (3 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doMostCalled [recursive — skipped]
+
+    # src/core/CodeSearchIndex.js@getCallCountsWithDefinitions (26 lines) [called by doMostCalled]
+      /**
+       * Get call counts with definition information.
+       * @returns {Array<{name, count, definitions}>} sorted by count desc
+       */
+      ────────────────────────────────────────────────────────────
+      Callees of getCallCountsWithDefinitions (4 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        getCallCountsWithDefinitions [recursive — skipped]
+
+      # src/core/CodeSearchIndex.js@getCallCounts (105 lines) [called by getCallCountsWithDefinitions]
+        // ========================================================================
+        // Call counts
+        // ========================================================================
+        /**
+         * Count how many times each function/identifier is called across the codebase.
+         * @param {boolean} [showProgress=true]
+         * @returns {Object<string, number>} name -> count, sorted descending
+         */
+          // Return cached result if available (huge win for interactive mode)
+            // Skip function definitions
+            // Skip declarations
+            // Quick check: does this line contain any function call at all?
+            // Only now count occurrences (fast path, no full JSON parse)
+            // Qualified calls first
+            // Member calls
+            // Simple calls (skip if part of qualified/member)
+
+      # src/core/CodeSearchIndex.js@_buildDefinitionLookup (32 lines) [called by getCallCountsWithDefinitions]
+        // ========================================================================
+        // Definition lookup
+        // ========================================================================
+        /**
+         * Build a lookup table mapping bare function names to their definitions.
+         * @returns {Object<string, Array>} bare_name -> [{filepath, full_name, start, end, lines, type}]
+         */
+              // Also index by full qualified name
+
+      # src/core/CodeSearchIndex.js@findDefinitions (12 lines) [called by getCallCountsWithDefinitions]
+        /**
+         * Find all definitions of a function/method name.
+         */
+
+      Tip: Comments can lie! Verify against actual code logic.
+      displayName [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/graph.js@doCallTree (244 lines) [called by dispatch]
+  // ========================================================================
+  // Call Tree
+  // ========================================================================
+    // --- Build caller chains (walk UP) ---
+    // --- Textual output ---
+      // Target
+      // Callees (downward)
+    // --- Mermaid output ---
+    ────────────────────────────────────────────────────────────
+    Callees of doCallTree (14 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doCallTree [recursive — skipped]
+      findFunctionMatches [already shown above — skipped]
+      displayName [already shown above — skipped]
+
+    # src/utils.js@eprint (8 lines) [called by doCallTree]
+    /**
+     * Print to stderr for progress/diagnostic output visible during redirection.
+     */
+      ────────────────────────────────────────────────────────────
+      Callees of eprint (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        eprint [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      getCallCounts [already shown above — skipped]
+
+    # src/commands/graph.js@hotspotScore (8 lines) [called by doCallTree]
+      (no full-line comments found in hotspotScore)
+      ────────────────────────────────────────────────────────────
+      Callees of hotspotScore (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        hotspotScore [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/graph.js@getFuncInfo (13 lines) [called by doCallTree]
+      // --- Build caller chains (walk UP) ---
+      ────────────────────────────────────────────────────────────
+      Callees of getFuncInfo (4 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        getFuncInfo [recursive — skipped]
+        findFunctionMatches [already shown above — skipped]
+        hotspotScore [already shown above — skipped]
+        eprint [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/graph.js@buildCallerChains (138 lines) [called by doCallTree]
+      // --- Textual output ---
+        // Target
+        // Callees (downward)
+      ────────────────────────────────────────────────────────────
+      Callees of buildCallerChains (7 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        buildCallerChains [recursive — skipped]
+        findCallers [already shown above — skipped]
+        getFuncInfo [already shown above — skipped]
+        hotspotScore [already shown above — skipped]
+
+      # src/commands/graph.js@expandedKey (8 lines) [called by buildCallerChains]
+        (no full-line comments found in expandedKey)
+
+      # src/commands/graph.js@printTree (51 lines) [called by buildCallerChains]
+        // --- Mermaid output ---
+        findCallees [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      findCallers [already shown above — skipped]
+      expandedKey [already shown above — skipped]
+      printTree [already shown above — skipped]
+      findCallees [already shown above — skipped]
+
+    # src/commands/graph.js@mid (20 lines) [called by doCallTree]
+      (no full-line comments found in mid)
+      ────────────────────────────────────────────────────────────
+      Callees of mid (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        mid [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/graph.js@collectMermaid (35 lines) [called by doCallTree]
+      (no full-line comments found in collectMermaid)
+      ────────────────────────────────────────────────────────────
+      Callees of collectMermaid (3 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        collectMermaid [recursive — skipped]
+        findCallees [already shown above — skipped]
+        mid [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/graph.js@doFileMap (96 lines) [called by dispatch]
+  // ========================================================================
+  // File Map
+  // ========================================================================
+    // --- Mermaid ---
+    ────────────────────────────────────────────────────────────
+    Callees of doFileMap (5 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doFileMap [recursive — skipped]
+      eprint [already shown above — skipped]
+
+    # src/core/CodeSearchIndex.js@getAllFileDeps (119 lines) [called by doFileMap]
+      // ========================================================================
+      // File-level dependency graph (bulk)
+      // ========================================================================
+      /**
+       * Compute all file-to-file dependencies in a single pass.
+       * @param {string|null} [pathFilter]
+       * @param {boolean} [showProgress=true]
+       * @returns {Object<string, Object<string, number>>} source -> {target -> count}
+       */
+          // Local functions (same-file)
+            // Collect self/this calls to skip
+      ────────────────────────────────────────────────────────────
+      Callees of getAllFileDeps (6 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        getAllFileDeps [recursive — skipped]
+        _ensureFunctionIndex [already shown above — skipped]
+
+      # src/core/CodeSearchIndex.js@_getKnownFunctions (36 lines) [called by getAllFileDeps]
+        // ========================================================================
+        // Known functions cache
+        // ========================================================================
+        /**
+         * Build and cache a lookup of all known function bare names -> definitions.
+         * @returns {Object<string, Array>} bare_name -> [{filepath, full_name, start, end, type}]
+         */
+
+      # src/core/CodeSearchIndex.js@pathParts (2 lines) [called by getAllFileDeps]
+        (no full-line comments found in pathParts)
+        eprint [already shown above — skipped]
+
+      # src/core/CodeSearchIndex.js@bestTarget (99 lines) [called by getAllFileDeps]
+            // Local functions (same-file)
+              // Collect self/this calls to skip
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/graph.js@sp (35 lines) [called by doFileMap]
+      // --- Mermaid ---
+      ────────────────────────────────────────────────────────────
+      Callees of sp (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        sp [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/graph.js@mfid (24 lines) [called by doFileMap]
+      (no full-line comments found in mfid)
+      ────────────────────────────────────────────────────────────
+      Callees of mfid (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        mfid [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/graph.js@doFileTree (117 lines) [called by dispatch]
+    // --- Mermaid ---
+    ────────────────────────────────────────────────────────────
+    Callees of doFileTree (9 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doFileTree [recursive — skipped]
+      _ensureFunctionIndex [already shown above — skipped]
+      eprint [already shown above — skipped]
+
+    # src/commands/graph.js@_getFileIncomingDeps (15 lines) [called by doFileTree]
+      (no full-line comments found in _getFileIncomingDeps)
+      ────────────────────────────────────────────────────────────
+      Callees of _getFileIncomingDeps (3 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _getFileIncomingDeps [recursive — skipped]
+        _ensureFunctionIndex [already shown above — skipped]
+        findCallers [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      sp [already shown above — skipped]
+
+    # src/commands/graph.js@printFileTree (26 lines) [called by doFileTree]
+      // --- Mermaid ---
+      ────────────────────────────────────────────────────────────
+      Callees of printFileTree (3 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        printFileTree [recursive — skipped]
+
+      # src/commands/graph.js@_getFileOutgoingDeps (16 lines) [called by printFileTree]
+      // ========================================================================
+      // File Tree
+      // ========================================================================
+        sp [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      _getFileOutgoingDeps [already shown above — skipped]
+      mfid [already shown above — skipped]
+
+    # src/commands/graph.js@collectMF (17 lines) [called by doFileTree]
+      (no full-line comments found in collectMF)
+      ────────────────────────────────────────────────────────────
+      Callees of collectMF (3 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        collectMF [recursive — skipped]
+        _getFileOutgoingDeps [already shown above — skipped]
+        mfid [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/metrics.js@doHotspots (45 lines) [called by dispatch]
+  // ========================================================================
+  // Hotspots
+  // ========================================================================
+    ────────────────────────────────────────────────────────────
+    Callees of doHotspots (5 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doHotspots [recursive — skipped]
+
+    # src/core/CodeSearchIndex.js@getHotspots (48 lines) [called by doHotspots]
+      /**
+       * Find structurally important functions: score = calls × log₂(lines).
+       * Large frequently-called functions rank highest.
+       */
+        // bare_name -> [func records]
+      ────────────────────────────────────────────────────────────
+      Callees of getHotspots (3 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        getHotspots [recursive — skipped]
+        listFunctions [already shown above — skipped]
+        getCallCounts [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/metrics.js@bareName (6 lines) [called by doHotspots]
+      (no full-line comments found in bareName)
+      ────────────────────────────────────────────────────────────
+      Callees of bareName (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        bareName [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/metrics.js@applyPathFilters (26 lines) [called by doHotspots]
+      // --in universal path filter
+      ────────────────────────────────────────────────────────────
+      Callees of applyPathFilters (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        applyPathFilters [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/metrics.js@shortPath (4 lines) [called by doHotspots]
+      (no full-line comments found in shortPath)
+      ────────────────────────────────────────────────────────────
+      Callees of shortPath (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        shortPath [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/metrics.js@doHotFolders (89 lines) [called by dispatch]
+  // ========================================================================
+  // Hot Folders
+  // ========================================================================
+    // Aggregate by directory at multiple levels
+    // Sort and filter redundant subsets
+  // ========================================================================
+  // Entry Points
+  // ========================================================================
+    ────────────────────────────────────────────────────────────
+    Callees of doHotFolders (2 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doHotFolders [recursive — skipped]
+      getHotspots [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/metrics.js@doEntryPoints (43 lines) [called by dispatch]
+    (no full-line comments found in doEntryPoints)
+    ────────────────────────────────────────────────────────────
+    Callees of doEntryPoints (5 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doEntryPoints [recursive — skipped]
+
+    # src/core/CodeSearchIndex.js@getEntryPoints (35 lines) [called by doEntryPoints]
+      /**
+       * Find functions that are defined but rarely/never called — entry points.
+       * Sorted by size descending (biggest uncalled functions are most important).
+       */
+      ────────────────────────────────────────────────────────────
+      Callees of getEntryPoints (3 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        getEntryPoints [recursive — skipped]
+        listFunctions [already shown above — skipped]
+        getCallCounts [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      bareName [already shown above — skipped]
+      applyPathFilters [already shown above — skipped]
+      shortPath [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/metrics.js@doGaps (66 lines) [called by dispatch]
+  // ========================================================================
+  // Gaps (dead code candidates)
+  // ========================================================================
+    ────────────────────────────────────────────────────────────
+    Callees of doGaps (6 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doGaps [recursive — skipped]
+      getEntryPoints [already shown above — skipped]
+      bareName [already shown above — skipped]
+
+    # src/commands/metrics.js@looksLikeEntryPoint (17 lines) [called by doGaps]
+      (no full-line comments found in looksLikeEntryPoint)
+      ────────────────────────────────────────────────────────────
+      Callees of looksLikeEntryPoint (2 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        looksLikeEntryPoint [recursive — skipped]
+        bareName [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      applyPathFilters [already shown above — skipped]
+      shortPath [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/metrics.js@doDomainFns (46 lines) [called by dispatch]
+  // ========================================================================
+  // Domain Functions
+  // ========================================================================
+    ────────────────────────────────────────────────────────────
+    Callees of doDomainFns (5 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doDomainFns [recursive — skipped]
+
+    # src/core/CodeSearchIndex.js@getDomainHotspots (46 lines) [called by doDomainFns]
+      /**
+       * Find domain-specific important functions.
+       * Score = calls × log₂(lines) / √(name_definitions_count)
+       * Functions with rare names score higher, surfacing domain code.
+       */
+      ────────────────────────────────────────────────────────────
+      Callees of getDomainHotspots (4 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        getDomainHotspots [recursive — skipped]
+        listFunctions [already shown above — skipped]
+        getCallCounts [already shown above — skipped]
+
+      # src/core/CodeSearchIndex.js@_getBareNameCounts (15 lines) [called by getDomainHotspots]
+        /**
+         * Count how many definitions exist for each bare function name.
+         */
+
+      Tip: Comments can lie! Verify against actual code logic.
+      bareName [already shown above — skipped]
+      applyPathFilters [already shown above — skipped]
+      shortPath [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/metrics.js@doListClasses (94 lines) [called by dispatch]
+  // ========================================================================
+  // List Classes
+  // ========================================================================
+    // Hide classes with 0 methods and 0 lines unless verbose
+    // Check for inferred and cross-file classes
+    ────────────────────────────────────────────────────────────
+    Callees of doListClasses (3 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doListClasses [recursive — skipped]
+
+    # src/core/CodeSearchIndex.js@listClasses (130 lines) [called by doListClasses]
+      // ========================================================================
+      // Phase 3: Metrics / discovery methods
+      // ========================================================================
+      /**
+       * List all indexed classes with aggregated method stats.
+       * Handles cross-file method association (e.g., methods in .cpp, class in .h).
+       */
+        // First pass: collect all classes
+        // Second pass: associate methods with classes (cross-file).
+        // Build a Set for O(1) class-name lookup instead of O(classes) per function.
+        // Also collect unresolved :: prefixes for class inference (sub-task b)
+            // Extract potential class name from function name
+            // Patterns: ClassName::method, ClassName.method, Outer::ClassName::method
+              // Try each prefix segment as a class name
+              // If no class found, track for inference pass
+        // Third pass: infer classes from :: prefixes that weren't found in pass 1.
+        // If we see OcclusionTracker::Method but no "class OcclusionTracker" was indexed,
+        // create a synthetic (inferred) class entry and associate its methods.
+          // Group unresolved methods by inferred class name
+            // Skip obvious non-class names: all-lowercase, single char, keywords
+            // Skip names that are already known classes
+            // Only infer a class if it has at least 1 method (always true here)
+            // Use the first method's file as the class "location"
+      ────────────────────────────────────────────────────────────
+      Callees of listClasses (2 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        listClasses [recursive — skipped]
+        _ensureFunctionIndex [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      applyPathFilters [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/metrics.js@doClassHotspots (38 lines) [called by dispatch]
+  // ========================================================================
+  // Class Hotspots
+  // ========================================================================
+    ────────────────────────────────────────────────────────────
+    Callees of doClassHotspots (4 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doClassHotspots [recursive — skipped]
+
+    # src/core/CodeSearchIndex.js@getClassHotspots (70 lines) [called by doClassHotspots]
+      /**
+       * Classes ranked by aggregated method hotspot score.
+       * Score = sum(calls to methods) × log₂(total method lines) / √(name_count)
+       */
+      // ========================================================================
+      // Structural normalization ("funcstrings") — Phase 4 dedup
+      // ========================================================================
+      /**
+       * Structure-only keywords — these define the "tune".
+       * Types, identifiers, and literals are all "words" that get normalized.
+       */
+        // Control flow
+        // Declaration structure (but NOT type names)
+        // Access/storage modifiers (structural)
+        // Operators/structural
+      ────────────────────────────────────────────────────────────
+      Callees of getClassHotspots (3 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        getClassHotspots [recursive — skipped]
+        getCallCounts [already shown above — skipped]
+        listClasses [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      applyPathFilters [already shown above — skipped]
+      shortPath [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/metrics.js@doVocabulary (63 lines) [called by dispatch]
+  // ========================================================================
+  // --discover-vocabulary / /vocabulary
+  // ========================================================================
+    // For header stats, use the filtered or global vocab
+    // Count matching files for header
+    // Header
+      // Show top 2-3 representative files, abbreviated
+    ────────────────────────────────────────────────────────────
+    Callees of doVocabulary (4 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doVocabulary [recursive — skipped]
+
+    # src/core/CodeSearchIndex.js@getTopVocabulary (47 lines) [called by doVocabulary]
+      /**
+       * Get top vocabulary tokens sorted by score, optionally filtered.
+       *
+       * @param {number} n - max results
+       * @param {string|null} filter - substring filter on token name
+       * @param {string|null} pathFilter - only scan files whose path contains this string
+       * @returns {Array<{ token, doc_freq, total_count, score, top_files }>}
+       */
+      ────────────────────────────────────────────────────────────
+      Callees of getTopVocabulary (2 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        getTopVocabulary [recursive — skipped]
+
+      # src/core/CodeSearchIndex.js@ensureVocabulary (82 lines) [called by getTopVocabulary]
+        /**
+         * Build vocabulary index: per-token document frequency, total count,
+         * and top representative files.
+         *
+         * Caches to vocabulary.json (global only; filtered queries are not cached).
+         *
+         * @param {boolean} showProgress
+         * @param {string|null} pathFilter - if provided, only scan files whose path contains this string
+         * @returns Map: token -> { doc_freq, total_count, score, top_files: [{path, count, concentration}] }
+         */
+          // Global (unfiltered) vocabulary uses cache
+            // Try cache
+          // Determine which files to scan
+          // Cache global vocabulary only
+
+      Tip: Comments can lie! Verify against actual code logic.
+      ensureVocabulary [already shown above — skipped]
+      shortPath [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/multisect.js@doMultisect (41 lines) [called by dispatch]
+  // ========================================================================
+  // Entry point
+  // ========================================================================
+    // Show path filter if active
+    // Show selectivity report
+    // Show results
+    ────────────────────────────────────────────────────────────
+    Callees of doMultisect (5 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doMultisect [recursive — skipped]
+
+    # src/commands/multisect.js@parseMultisectTerms (54 lines) [called by doMultisect]
+    // ========================================================================
+    // Term parser
+    // ========================================================================
+    /**
+     * Parse semicolon-separated search terms.
+     *
+     * Terms in /.../ are regex; others are literal (case-insensitive).
+     * Use ;; for a literal semicolon.
+     * Prefix with NOT or ! to negate.
+     * Dots in plain terms become .? (match any char or nothing).
+     *
+     * @param {string} termsStr
+     * @returns {Array<{display: string, regex: RegExp, negated: boolean}>|null}
+     */
+          // Regex term
+          // Dot-wildcard: dots become .? (optional any-char)
+            // Fallback to literal
+          // Plain literal (case-insensitive)
+      ────────────────────────────────────────────────────────────
+      Callees of parseMultisectTerms (2 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        parseMultisectTerms [recursive — skipped]
+        escapeRegex [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/core/CodeSearchIndex.js@multisectSearch (287 lines) [called by doMultisect]
+      // ========================================================================
+      // Multi-term intersection search (#146 "scavenger hunt")
+      // ========================================================================
+      /**
+       * Multi-term intersection search.
+       *
+       * Two-phase approach:
+       *   Phase 1: Scan file lines to collect file sets per term (fast).
+       *   Phase 2: Detail retrieval for survivor files only — line numbers,
+       *            line text, containing function via bisect.
+       *
+       * Finds the smallest scope (function → file → folder) containing
+       * multiple terms simultaneously.
+       *
+       * @param {Array<{display, regex, negated}>} terms
+       * @param {Object} opts
+       * @param {number|null} opts.minTerms - minimum positive terms required
+       * @param {string[]|null} opts.includePath
+       * @param {string[]|null} opts.excludePath
+       * @param {boolean} opts.showProgress
+       * @returns {Object|null} results with function_matches, file_matches, folder_matches
+       */
+        // ----------------------------------------------------------------
+        // Phase 1: File-set scan
+        // ----------------------------------------------------------------
+        // Path filter helper
+            // Also check if term matches in the filepath itself (path/filename)
+                // Mark as path-only match for Phase 2
+        // Compute file-level survivors
+        // Build folder-level data
+        // ----------------------------------------------------------------
+        // Phase 2: Detail retrieval for survivors only
+        // ----------------------------------------------------------------
+        // Pre-build function boundaries
+        // funcMap[(filepath, funcName)] → { termIdx: { line_num, line_text } }
+        // fileDetailMap[filepath] → { termIdx: { line_num, line_text, func_name } }
+            // Check if this was a path-only match (term not in file content)
+              // Record as file-level hit with synthetic "path match" detail
+              // Do NOT add to function-level (path is not inside any function)
+              // File-level: record first hit per term
+              // Function-level: one hit per function per term
+        // Build function matches
+          // Get function line count
+        // Build file matches
+          // Check NOT terms
+        // Build folder matches
+          // Check NOT terms
+      ────────────────────────────────────────────────────────────
+      Callees of multisectSearch (5 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        multisectSearch [recursive — skipped]
+        _ensureFunctionIndex [already shown above — skipped]
+
+      # src/core/CodeSearchIndex.js@pathOk (263 lines) [called by multisectSearch]
+          // Path filter helper
+              // Also check if term matches in the filepath itself (path/filename)
+                  // Mark as path-only match for Phase 2
+          // Compute file-level survivors
+          // Build folder-level data
+          // ----------------------------------------------------------------
+          // Phase 2: Detail retrieval for survivors only
+          // ----------------------------------------------------------------
+          // Pre-build function boundaries
+          // funcMap[(filepath, funcName)] → { termIdx: { line_num, line_text } }
+          // fileDetailMap[filepath] → { termIdx: { line_num, line_text, func_name } }
+              // Check if this was a path-only match (term not in file content)
+                // Record as file-level hit with synthetic "path match" detail
+                // Do NOT add to function-level (path is not inside any function)
+                // File-level: record first hit per term
+                // Function-level: one hit per function per term
+          // Build function matches
+            // Get function line count
+          // Build file matches
+            // Check NOT terms
+          // Build folder matches
+            // Check NOT terms
+        _getFuncBoundaries [already shown above — skipped]
+        _bisectFuncLookup [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/multisect.js@printSelectivityReport (29 lines) [called by doMultisect]
+    // ========================================================================
+    // Display
+    // ========================================================================
+      ────────────────────────────────────────────────────────────
+      Callees of printSelectivityReport (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        printSelectivityReport [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/multisect.js@displayMultisectResults (257 lines) [called by doMultisect]
+      // IDF scoring
+      // Header
+      // IDF re-sort
+      // Scope dedup: track which file+term combos are covered by function-level
+      // Exclude (global) — it's not a real scope and shouldn't suppress file-level
+      // Filter out (global) from function-level display — those are really file-level hits
+      // --- Function matches ---
+          // Show per-term detail, collapsing terms that hit the same line
+          // Sort by line number and display
+      // --- File matches ---
+              // Path-only match
+      // --- Folder matches ---
+      // Scope dedup: suppress folders where a single file already covers all matched terms
+        // Collect all files involved
+        // Check if any single file has all terms
+          // Per-term file detail
+      ────────────────────────────────────────────────────────────
+      Callees of displayMultisectResults (6 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        displayMultisectResults [recursive — skipped]
+
+      # src/commands/multisect.js@computeIdfScores (13 lines) [called by displayMultisectResults]
+      // ========================================================================
+      // IDF scoring
+      // ========================================================================
+
+      # src/commands/multisect.js@matchIdfScore (11 lines) [called by displayMultisectResults]
+        (no full-line comments found in matchIdfScore)
+
+      # src/commands/multisect.js@fileCoveredByFunction (111 lines) [called by displayMultisectResults]
+        // Filter out (global) from function-level display — those are really file-level hits
+        // --- Function matches ---
+            // Show per-term detail, collapsing terms that hit the same line
+            // Sort by line number and display
+        // --- File matches ---
+                // Path-only match
+        shortPath [already shown above — skipped]
+
+      # src/commands/multisect.js@folderCoveredBySingleFile (84 lines) [called by displayMultisectResults]
+        // --- Folder matches ---
+        // Scope dedup: suppress folders where a single file already covers all matched terms
+          // Collect all files involved
+          // Check if any single file has all terms
+            // Per-term file detail
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/claim.js@doClaimSearch (286 lines) [called by dispatch]
+  // ============================================================================
+  // Main entry point: doClaimSearch
+  // ============================================================================
+  /**
+   * Handle --claim-search / --claim-file: LLM keyword extraction from patent claim.
+   *
+   * Runs two search strategies:
+   *   TIGHT — literal claim language, narrow NOT terms
+   *   BROAD — implementation-level synonyms, alternative mechanisms
+   */
+    // ── Resolve claim text ──
+      // Support @filename syntax
+    // Term extraction: --claim-model > --analyze-model > Claude API
+    // For local GGUF: extract first claim only
+    // ── Fetch vocabulary concordance from index ──
+    // Extract claim keywords for relevance filtering
+      // Vocabulary is optional — proceed without it
+    // --show-prompt: display prompt on stderr and exit (no API call)
+    // Echo claim text for self-contained output
+    // ── Call LLM ──
+      // Local model for term extraction via node-llama-cpp
+        // Find workable context size
+        // Combine system prompt + claim text (shorter prompt for local models)
+    // Sanitize degenerate output
+    // Parse --min-terms
+    // ── TIGHT search ──
+    // ── BROAD search ──
+    // ── Equivalent manual commands ──
+    // Temperature tip — only if temperature > 0 (non-deterministic)
+    ────────────────────────────────────────────────────────────
+    Callees of doClaimSearch (12 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doClaimSearch [recursive — skipped]
+
+    # src/commands/claim.js@extractFirstClaim (51 lines) [called by doClaimSearch]
+    // ============================================================================
+    // First-claim extraction (for local models with limited context)
+    // ============================================================================
+    /**
+     * Extract only the first claim from multi-claim patent text.
+     * Small local models degenerate with too much text.
+     *
+     * @returns {{ text: string, skipped: number }}
+     */
+        // Pattern: "2." at start of line (claim numbers 2-999)
+        // Pattern: "[claim 2]" or "[Claim 2]"
+      ────────────────────────────────────────────────────────────
+      Callees of extractFirstClaim (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        extractFirstClaim [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/claim.js@extractClaimKeywords (31 lines) [called by doClaimSearch]
+    /**
+     * Extract meaningful keywords from patent claim text.
+     *
+     * Tokenizes the claim, strips patent boilerplate, and returns lowercase
+     * keywords that carry discriminative content — the words that distinguish
+     * THIS claim from all other claims.
+     *
+     * @param {string} claimText - Raw patent claim text
+     * @returns {Set<string>} Set of lowercase keywords (typically 5-30 words)
+     */
+      // Tokenize: split on non-alphanumeric, lowercase, filter short
+        // Skip pure numbers
+      ────────────────────────────────────────────────────────────
+      Callees of extractClaimKeywords (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        extractClaimKeywords [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/core/CodeSearchIndex.js@formatVocabularyForPrompt (63 lines) [called by doClaimSearch]
+      /**
+       * Format vocabulary concordance as a compact string for LLM prompts.
+       *
+       * Two formats:
+       *   'compact' — sub-tokens only, one per line. ~200-400 tokens.
+       *               For local 7B models with tight context budgets.
+       *   'rich'    — sub-tokens + function names with files. ~500-1000 tokens.
+       *               For Claude or larger models.
+       *
+       * @param {string} [format='compact'] - 'compact' or 'rich'
+       * @param {object} [opts] - Passed to getVocabularyForPrompt
+       * @returns {string} Formatted concordance text
+       */
+          // Tier 1 only: plain token list, ~1 token per word
+        // 'rich' format: sub-tokens with example parents + function names
+        // Sub-tokens with example compound parents
+        // Function names
+      ────────────────────────────────────────────────────────────
+      Callees of formatVocabularyForPrompt (2 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        formatVocabularyForPrompt [recursive — skipped]
+
+      # src/core/CodeSearchIndex.js@getVocabularyForPrompt (142 lines) [called by formatVocabularyForPrompt]
+        /**
+         * Build a vocabulary concordance for LLM prompts.
+         *
+         * Takes top vocabulary tokens, splits compound names into sub-tokens,
+         * deduplicates and scores them, then formats for inclusion in an LLM
+         * prompt as a domain concordance.
+         *
+         * When claimKeywords are provided, vocabulary is filtered to only include
+         * terms with surface-level relevance to the claim — exact matches,
+         * substring containment, or shared stems. This prevents sending the LLM
+         * 150 irrelevant terms about 'multisect' when the claim is about
+         * 'facade servers'.
+         *
+         * Two tiers:
+         *   Tier 1 (subTokens): Unique domain sub-tokens extracted from compound
+         *     names (e.g., 'multisect', 'hotspot', 'callee', 'sanitize').
+         *     For BROAD term generation — these are actual searchable words.
+         *   Tier 2 (functionNames): Key function/method names showing what the
+         *     codebase implements (e.g., 'doClaimAnalyze', 'findCallees').
+         *     For understanding code capabilities.
+         *
+         * @param {object} opts
+         * @param {number} [opts.topN=300]            - How many top vocab entries to process
+         * @param {number} [opts.maxSubTokens=150]    - Max unique sub-tokens to return
+         * @param {number} [opts.maxFuncNames=40]     - Max function names to return
+         * @param {string|null} [opts.pathFilter]     - Only scan files matching this path
+         * @param {Set<string>|null} [opts.claimKeywords] - Claim keywords for relevance filtering
+         * @returns {{ subTokens: Array<{token, score, relevance, parentCount, exampleParents}>,
+         *             functionNames: Array<{name, file, score, relevance}>,
+         *             stats: {totalVocab, processedEntries, uniqueSubTokens, claimFiltered} }}
+         */
+          // --- Tier 1: Split compound tokens into sub-tokens ---
+          // Track each sub-token's aggregate score and which parents it came from
+          // --- Claim-aware relevance scoring ---
+          // When claim keywords are provided, score each sub-token by how well
+          // it matches claim concepts. Unrelated terms get relevance 0.
+            // Keep only tokens with some relevance to the claim
+            // Sort by relevance first, then by vocab score as tiebreaker
+            // No claim keywords — return all sub-tokens by vocab score (original behavior)
+          // --- Tier 2: Function names ---
+          // Filter to entries that look like function/method names
+            // Score function names by whether their sub-tokens overlap with claim
+          // Stats for diagnostics
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/claim.js@buildLocalExtractionPromptWithVocab (17 lines) [called by doClaimSearch]
+    /**
+     * Build vocabulary-augmented extraction prompt for local 7B models.
+     *
+     * @param {string} vocabConcordance - Output of formatVocabularyForPrompt('compact')
+     * @param {boolean} [vocabTight=false] - Also use vocabulary for TIGHT terms
+     * @returns {string} Combined prompt with vocabulary
+     */
+      ────────────────────────────────────────────────────────────
+      Callees of buildLocalExtractionPromptWithVocab (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        buildLocalExtractionPromptWithVocab [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/claim.js@buildExtractionPromptWithVocab (38 lines) [called by doClaimSearch]
+    // ============================================================================
+    // Vocabulary-augmented prompt builders
+    // ============================================================================
+    /**
+     * Build vocabulary-augmented extraction prompt for Claude / large models.
+     *
+     * @param {string} vocabConcordance - Output of formatVocabularyForPrompt('rich')
+     * @param {boolean} [vocabTight=false] - Also use vocabulary for TIGHT terms
+     * @returns {string} Full system prompt with vocabulary section
+     */
+      ────────────────────────────────────────────────────────────
+      Callees of buildExtractionPromptWithVocab (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        buildExtractionPromptWithVocab [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/claim.js@_parseResponse (44 lines) [called by doClaimSearch]
+      // Fallback: if no labels, treat first semicolon-containing line as tight
+      ────────────────────────────────────────────────────────────
+      Callees of _parseResponse (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _parseResponse [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/claim.js@extractClaimTerms (99 lines) [called by doClaimSearch]
+    // ============================================================================
+    // LLM call: Anthropic Claude API
+    // ============================================================================
+    /**
+     * Call Claude API to extract search terms from patent claim text.
+     *
+     * @param {string} claimText - Raw patent claim text
+     * @param {object} opts
+     * @param {string} [opts.apiKey] - Anthropic API key (or ANTHROPIC_API_KEY env)
+     * @param {string} [opts.apiUrl] - API endpoint override
+     * @param {string} [opts.model] - Model name override
+     * @param {boolean} [opts.verbose] - Print debug info
+     * @param {number} [opts.temperature=0.0] - Temperature
+     * @param {string} [opts.vocabConcordance] - Vocabulary concordance from index
+     * @returns {Promise<{tight: string|null, broad: string|null, raw: string}|{error: string}>}
+     */
+      // ── SECURITY: Network egress warning ──
+      // Build request payload
+      // Send request
+          // Estimate cost (Sonnet: $3/$15 per MTok in/out)
+        // Extract text from response
+        // Always show raw LLM response (useful for debugging term quality)
+      ────────────────────────────────────────────────────────────
+      Callees of extractClaimTerms (6 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        extractClaimTerms [recursive — skipped]
+
+      # src/commands/claim.js@ctr (83 lines) [called by extractClaimTerms]
+        // Build request payload
+        // Send request
+            // Estimate cost (Sonnet: $3/$15 per MTok in/out)
+          // Extract text from response
+          // Always show raw LLM response (useful for debugging term quality)
+
+      # src/commands/claim.js@pad (1 lines) [called by extractClaimTerms]
+        (no full-line comments found in pad)
+        buildExtractionPromptWithVocab [already shown above — skipped]
+
+      # src/commands/analyze.js@_httpPost (38 lines) [called by extractClaimTerms]
+      /**
+       * Simple HTTP/HTTPS POST helper (mirrors claim.js's _httpPost).
+       */
+        _parseResponse [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/claim.js@sanitizeLlmTerms (74 lines) [called by doClaimSearch]
+    // ============================================================================
+    // Sanitizers — clean degenerate LLM output
+    // ============================================================================
+    /**
+     * Filter degenerate LLM output: overly long terms, multi-word phrases,
+     * Latin gibberish from small models.
+     *
+     * Rules:
+     *   - Each alternation (split by |) must be <= 30 chars and <= 2 words
+     *   - Terms where ALL alternations fail are dropped
+     *   - Max 20 terms total
+     */
+          // Regex term: check each alternation
+          // Plain term
+      ────────────────────────────────────────────────────────────
+      Callees of sanitizeLlmTerms (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        sanitizeLlmTerms [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/claim.js@sanitizeBroadTerms (66 lines) [called by doClaimSearch]
+    /**
+     * Remove single-character alternations from BROAD regex terms.
+     *
+     * The LLM sometimes generates /query|q/ or /key|k/ which match nearly
+     * every file. Filter to alternations with 2+ characters.
+     */
+      ────────────────────────────────────────────────────────────
+      Callees of sanitizeBroadTerms (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        sanitizeBroadTerms [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/claim.js@_runClaimTier (72 lines) [called by doClaimSearch]
+    // ============================================================================
+    // Run one tier of claim search (TIGHT or BROAD)
+    // ============================================================================
+    /**
+     * Run one tier of a claim search through the multisect engine.
+     *
+     * @returns {{ hasResults: boolean, nFunc: number, nFile: number, nFolder: number }}
+     */
+        // TIGHT: 80%, BROAD: 60%
+      // Selectivity report
+      // Display results (compact mode: detail for top 3)
+        // compact: true,     // TODO: add compact mode to displayMultisectResults
+        // detailTopN: 3,
+      ────────────────────────────────────────────────────────────
+      Callees of _runClaimTier (5 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _runClaimTier [recursive — skipped]
+        parseMultisectTerms [already shown above — skipped]
+        multisectSearch [already shown above — skipped]
+        printSelectivityReport [already shown above — skipped]
+        displayMultisectResults [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      parseMultisectTerms [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/analyze.js@doAnalyze (79 lines) [called by dispatch]
+  // ============================================================================
+  // do_analyze — general "what does this code do?"
+  // ============================================================================
+  /**
+   * Handle --analyze FUNCTION: extract function and run LLM analysis.
+   */
+    // Header
+    // Show prompt on stderr
+    ────────────────────────────────────────────────────────────
+    Callees of doAnalyze (11 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doAnalyze [recursive — skipped]
+
+    # src/commands/analyze.js@resolveFunction (66 lines) [called by doAnalyze]
+    // ============================================================================
+    // FUNCTION RESOLUTION
+    // ============================================================================
+    /**
+     * Resolve a function specifier to exactly one match from the index.
+     *
+     * @param {CodeSearchIndex} index
+     * @param {string} spec - "func_name" or "file@func_name"
+     * @returns {{ filepath, name, start, end, source } | null}
+     */
+      // Exactly one match — extract source
+      ────────────────────────────────────────────────────────────
+      Callees of resolveFunction (4 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        resolveFunction [recursive — skipped]
+        findFunctionMatches [already shown above — skipped]
+        displayName [already shown above — skipped]
+        getFunctionSource [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/analyze.js@_prepareSource (26 lines) [called by doAnalyze]
+    /**
+     * Prepare source for LLM: optionally mask and add line numbers.
+     *
+     * @param {string} source - Raw source code
+     * @param {string} filepath - For language detection
+     * @param {object} opts - { maskAll, lineNumbers, startLine }
+     * @returns {string} Prepared source
+     */
+      ────────────────────────────────────────────────────────────
+      Callees of _prepareSource (4 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _prepareSource [recursive — skipped]
+
+      # src/commands/analyze.js@detectLanguage (23 lines) [called by _prepareSource]
+      // ============================================================================
+      // LANGUAGE DETECTION
+      // ============================================================================
+      /**
+       * Detect language from filepath extension (for masking purposes).
+       */
+
+      # src/commands/analyze.js@mask (15 lines) [called by _prepareSource]
+        // -----------------------------------------------------------------
+        // Combined: strip comments then mask strings
+        // -----------------------------------------------------------------
+        /**
+         * Apply layers 1+2: strip comments, then mask string contents.
+         *
+         * @param {string} source - Raw source code
+         * @param {string} language - 'c'|'cpp'|'java'|'javascript'|'python'
+         * @returns {string} Masked source
+         */
+
+      # src/commands/analyze.js@addLineNumbers (18 lines) [called by _prepareSource]
+      // ============================================================================
+      // LINE NUMBERS
+      // ============================================================================
+      /**
+       * Prepend line numbers to source code.
+       *
+       * @param {string} source - Source code text
+       * @param {number} startLine - 1-based line number of first line in original file
+       * @returns {string} Numbered source
+       */
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/analyze.js@buildAnalyzePrompt (42 lines) [called by doAnalyze]
+    // ============================================================================
+    // PROMPT BUILDERS
+    // ============================================================================
+    /**
+     * General analysis prompt — "what does this code do?"
+     */
+      ────────────────────────────────────────────────────────────
+      Callees of buildAnalyzePrompt (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        buildAnalyzePrompt [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      displayName [already shown above — skipped]
+
+    # src/commands/analyze.js@_printExtractTip (14 lines) [called by doAnalyze]
+      (no full-line comments found in _printExtractTip)
+      ────────────────────────────────────────────────────────────
+      Callees of _printExtractTip (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _printExtractTip [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/analyze.js@getAnalysisLLM (33 lines) [called by doAnalyze]
+    /**
+     * Get or create the singleton LLM instance.
+     */
+      ────────────────────────────────────────────────────────────
+      Callees of getAnalysisLLM (2 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        getAnalysisLLM [recursive — skipped]
+
+      # src/commands/analyze.js@AnalysisLLM (173 lines) [called by getAnalysisLLM]
+      // ============================================================================
+      // LLM CLIENT
+      // ============================================================================
+      /**
+       * Unified LLM interface for analysis — Claude API or local GGUF model.
+       *
+       * Singleton pattern: call getAnalysisLLM(opts) to get-or-create.
+       * Two backends:
+       *   - Claude API: built-in Node.js https (same as claim.js)
+       *   - Local GGUF: node-llama-cpp (optional dependency)
+       */
+            // Local model init is async — call ensureLocalModel() before generate()
+        // --- Claude API ---
+            // Try claude.txt in current directory
+        // --- Local GGUF model ---
+            // node-llama-cpp v3 API
+            // Try context sizes from large to small — keep the first that works
+            // Fresh sequence per call — reuses persistent context but clears KV cache
+        // --- Unified interface ---
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/analyze.js@AnalysisLLM.isAvailable (5 lines) [called by doAnalyze]
+      // --- Unified interface ---
+      ────────────────────────────────────────────────────────────
+      Callees of isAvailable (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        AnalysisLLM.isAvailable [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/analyze.js@AnalysisLLM.generate (6 lines) [called by doAnalyze]
+      (no full-line comments found in AnalysisLLM.generate)
+      ────────────────────────────────────────────────────────────
+      Callees of generate (3 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        AnalysisLLM.generate [recursive — skipped]
+
+      # src/commands/analyze.js@AnalysisLLM._callClaude (41 lines) [called by generate]
+        (no full-line comments found in AnalysisLLM._callClaude)
+
+      # src/commands/analyze.js@AnalysisLLM._callLocal (25 lines) [called by generate]
+            // Fresh sequence per call — reuses persistent context but clears KV cache
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/analyze.js@AnalysisLLM.getUsageSummary (18 lines) [called by doAnalyze]
+    // Singleton instance
+      ────────────────────────────────────────────────────────────
+      Callees of getUsageSummary (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        AnalysisLLM.getUsageSummary [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/analyze.js@_printDisclaimer (9 lines) [called by doAnalyze]
+      (no full-line comments found in _printDisclaimer)
+      ────────────────────────────────────────────────────────────
+      Callees of _printDisclaimer (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _printDisclaimer [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/analyze.js@doClaimAnalyze (265 lines) [called by dispatch]
+  // ============================================================================
+  // do_claim_analyze — end-to-end patent claim analysis
+  // ============================================================================
+  /**
+   * Handle --claim-analyze CLAIM: extract terms, search, then analyze against claim.
+   *
+   * Pipeline:
+   *   1. Read claim text (inline, @file, or --claim-text/--claim-file)
+   *   2. Extract search terms from claim (LLM call via claim.js)
+   *   3. Run multisect search with TIGHT terms
+   *   4. Pick best 1-2 function matches
+   *   5. Analyze each match against the original claim text (LLM call)
+   */
+    // --- Step 1: Resolve claim text ---
+    // Echo claim text
+    // Show LLM configuration
+    // Term extraction: --claim-model > --analyze-model > Claude API
+    // (If user only specifies --analyze-model, use it for both tasks)
+    // --- Step 2: Extract search terms from claim ---
+    // Note: term extraction is intentionally decoupled from analysis LLM.
+    // It uses claim.js's extractClaimTerms (Claude API) and may in future
+    // be replaced with embeddings, a small language model, or keyword extraction.
+    // Fetch vocabulary concordance from index (claim-filtered)
+      // Local model for term extraction
+      // Reuse the analysis LLM singleton if same model path (avoids loading twice)
+      // Combine system prompt + claim text (shorter prompt for local models)
+    // Sanitize
+    // --- Step 3: Run multisect search ---
+    // Min terms: user override or 80% threshold
+    // TIGHT found nothing? Try BROAD
+    // --- Step 4: Pick best function matches ---
+    // Filter out (global) scope entries — they aren't extractable functions.
+    // Also filter 0-line entries which can't be sent to LLM.
+    // Show search result summary
+      // File-level fallback
+    // Top 2 function matches
+    // --- Step 5: Extract and analyze each match ---
+    ────────────────────────────────────────────────────────────
+    Callees of doClaimAnalyze (18 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doClaimAnalyze [recursive — skipped]
+
+    # src/commands/analyze.js@_resolveClaimText (47 lines) [called by doClaimAnalyze]
+    /**
+     * Resolve claim text from various sources:
+     *   1. Inline text or @filename
+     *   2. --claim-text / --claim-file arg
+     *
+     * @param {object} args
+     * @param {string} [claimArg] - The --claim-analyze argument value
+     * @returns {string|null}
+     */
+      // Source 1: the --claim-analyze argument itself
+        // If it looks like substantial text, use it directly
+      // Source 2: --claim-text
+      // Source 3: --claim-file (backward compatibility)
+      ────────────────────────────────────────────────────────────
+      Callees of _resolveClaimText (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _resolveClaimText [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      extractClaimKeywords [already shown above — skipped]
+      formatVocabularyForPrompt [already shown above — skipped]
+      getAnalysisLLM [already shown above — skipped]
+      AnalysisLLM [already shown above — skipped]
+
+    # src/commands/analyze.js@AnalysisLLM.ensureLocalModel (44 lines) [called by doClaimAnalyze]
+      // --- Local GGUF model ---
+          // node-llama-cpp v3 API
+          // Try context sizes from large to small — keep the first that works
+      ────────────────────────────────────────────────────────────
+      Callees of ensureLocalModel (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        AnalysisLLM.ensureLocalModel [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      buildLocalExtractionPromptWithVocab [already shown above — skipped]
+      AnalysisLLM.generate [already shown above — skipped]
+      extractClaimTerms [already shown above — skipped]
+      sanitizeLlmTerms [already shown above — skipped]
+      sanitizeBroadTerms [already shown above — skipped]
+      parseMultisectTerms [already shown above — skipped]
+      multisectSearch [already shown above — skipped]
+
+    # src/commands/analyze.js@_doClaimFileAnalyze (62 lines) [called by doClaimAnalyze]
+    /**
+     * Analyze a whole file against a patent claim (fallback when no function match).
+     */
+      // Header
+      ────────────────────────────────────────────────────────────
+      Callees of _doClaimFileAnalyze (9 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _doClaimFileAnalyze [recursive — skipped]
+
+      # src/commands/analyze.js@resolveFile (54 lines) [called by _doClaimFileAnalyze]
+      /**
+       * Resolve a file specifier to exactly one file in the index.
+       *
+       * @param {CodeSearchIndex} index
+       * @param {string} spec - filename or partial path
+       * @returns {{ filepath, source, lines } | null}
+       */
+        // Exact match
+        // Partial match
+          // Prefer exact suffix match
+      // ============================================================================
+      // HELPERS
+      // ============================================================================
+        _prepareSource [already shown above — skipped]
+
+      # src/commands/analyze.js@buildClaimFilePrompt (46 lines) [called by _doClaimFileAnalyze]
+      /**
+       * File-level claim analysis prompt (fallback when no function match).
+       */
+        getAnalysisLLM [already shown above — skipped]
+        AnalysisLLM.isAvailable [already shown above — skipped]
+        AnalysisLLM.generate [already shown above — skipped]
+        AnalysisLLM.getUsageSummary [already shown above — skipped]
+        _printDisclaimer [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      getFunctionSource [already shown above — skipped]
+
+    # src/commands/analyze.js@_getFuncLineRange (21 lines) [called by doClaimAnalyze]
+    // ============================================================================
+    // INTERNAL HELPERS
+    // ============================================================================
+    /**
+     * Look up start/end lines for a function from the function index.
+     */
+        // Try base_name match
+      ────────────────────────────────────────────────────────────
+      Callees of _getFuncLineRange (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _getFuncLineRange [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/commands/analyze.js@_doClaimSingleAnalyze (61 lines) [called by doClaimAnalyze]
+    /**
+     * Analyze one function against a patent claim.
+     */
+      // Header
+      // Show prompt on stderr
+      ────────────────────────────────────────────────────────────
+      Callees of _doClaimSingleAnalyze (9 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _doClaimSingleAnalyze [recursive — skipped]
+        _prepareSource [already shown above — skipped]
+
+      # src/commands/analyze.js@buildClaimAnalyzePrompt (42 lines) [called by _doClaimSingleAnalyze]
+      /**
+       * Claim analysis prompt — "does this code implement these claim elements?"
+       */
+        _printExtractTip [already shown above — skipped]
+        getAnalysisLLM [already shown above — skipped]
+        AnalysisLLM.isAvailable [already shown above — skipped]
+        AnalysisLLM.generate [already shown above — skipped]
+        AnalysisLLM.getUsageSummary [already shown above — skipped]
+        _printDisclaimer [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/analyze.js@doMultisectAnalyze (136 lines) [called by dispatch]
+  // ============================================================================
+  // do_multisect_analyze
+  // ============================================================================
+  /**
+   * Handle --multisect-analyze TERMS: search for functions, then analyze best hits.
+   */
+    // Build display terms (strip /.../ for display)
+    // Run search
+    // Filter out (global) scope entries — not extractable functions
+      // File-level fallback
+    // Top 2 matches
+    // Extract and analyze
+    // Analyze each separately (combined mode deferred — structure supports it)
+    ────────────────────────────────────────────────────────────
+    Callees of doMultisectAnalyze (7 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doMultisectAnalyze [recursive — skipped]
+      parseMultisectTerms [already shown above — skipped]
+      multisectSearch [already shown above — skipped]
+
+    # src/commands/analyze.js@doFileAnalyze (96 lines) [called by doMultisectAnalyze]
+    // ============================================================================
+    // do_file_analyze
+    // ============================================================================
+    /**
+     * Handle --file-analyze FILEPATH: analyze an entire source file with LLM.
+     */
+      // Get function names for hint
+      // Header
+      ────────────────────────────────────────────────────────────
+      Callees of doFileAnalyze (9 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        doFileAnalyze [recursive — skipped]
+        resolveFile [already shown above — skipped]
+        _prepareSource [already shown above — skipped]
+
+      # src/commands/analyze.js@buildFileAnalyzePrompt (31 lines) [called by doFileAnalyze]
+      /**
+       * File-level analysis prompt — "what does this file do?"
+       */
+        getAnalysisLLM [already shown above — skipped]
+        AnalysisLLM.isAvailable [already shown above — skipped]
+        AnalysisLLM.generate [already shown above — skipped]
+        AnalysisLLM.getUsageSummary [already shown above — skipped]
+        _printDisclaimer [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      getFunctionSource [already shown above — skipped]
+      _getFuncLineRange [already shown above — skipped]
+
+    # src/commands/analyze.js@_doMultisectSingleAnalyze (64 lines) [called by doMultisectAnalyze]
+    /**
+     * Analyze one function in multisect context.
+     */
+      // Header
+      ────────────────────────────────────────────────────────────
+      Callees of _doMultisectSingleAnalyze (9 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        _doMultisectSingleAnalyze [recursive — skipped]
+        _prepareSource [already shown above — skipped]
+
+      # src/commands/analyze.js@buildMultisectAnalyzePrompt (32 lines) [called by _doMultisectSingleAnalyze]
+      /**
+       * Multisect analysis prompt — "describe this code in relation to these terms."
+       */
+        _printExtractTip [already shown above — skipped]
+        getAnalysisLLM [already shown above — skipped]
+        AnalysisLLM.isAvailable [already shown above — skipped]
+        AnalysisLLM.generate [already shown above — skipped]
+        AnalysisLLM.getUsageSummary [already shown above — skipped]
+        _printDisclaimer [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+    doFileAnalyze [already shown above — skipped]
+
+  # src/commands/dedup.js@doDupefiles (74 lines) [called by dispatch]
+  // ========================================================================
+  // --dupefiles: file-level SHA1 duplicates
+  // ========================================================================
+    // Find groups with duplicates
+    // Sort by waste descending
+    // Apply filter
+    ────────────────────────────────────────────────────────────
+    Callees of doDupefiles (1 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doDupefiles [recursive — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/dedup.js@doFuncDupes (101 lines) [called by dispatch]
+  // ========================================================================
+  // --func-dupes: exact duplicate functions
+  // ========================================================================
+    // --verbose implies --show-dupes for dupe commands
+    // Apply filter
+    // Detect opstring index
+    // Mention other dupe types
+    ────────────────────────────────────────────────────────────
+    Callees of doFuncDupes (5 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doFuncDupes [recursive — skipped]
+
+    # src/core/CodeSearchIndex.js@getFuncDupes (115 lines) [called by doFuncDupes]
+      /**
+       * Find exact duplicate functions by SHA1 hash of body text.
+       * Also computes structural and near-dupe groups.
+       *
+       * Returns top N exact dupe groups sorted by waste (descending).
+       */
+        // Build groups
+          // Track by name+size for near-dupe report
+        // Exact dupe groups
+        // Structural dupe groups
+        // Near dupes: same name+size, different hash
+        // Sort
+        // Store for separate access
+      ────────────────────────────────────────────────────────────
+      Callees of getFuncDupes (3 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        getFuncDupes [recursive — skipped]
+
+      # src/core/CodeSearchIndex.js@ensureFuncHashes (101 lines) [called by getFuncDupes]
+        /**
+         * Ensure function hashes are computed, using cache if available.
+         *
+         * Returns Map: (filepath, funcName) -> { body_hash, struct_hash, lines, asm_ops }
+         *
+         * Caches to func_hashes.json for fast subsequent loads.
+         */
+          // Already computed this session?
+          // Try to load from cache
+              // Check if cache has asm_ops field (added later)
+                // fall through
+          // Compute hashes
+          // Regex to detect opstring MD5 in .op files
+            // Check for opstring MD5
+          // Save to cache
+        listFunctions [already shown above — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+      displayName [already shown above — skipped]
+
+    # src/core/CodeSearchIndex.js@getStructDupes (10 lines) [called by doFuncDupes]
+      /**
+       * Return structural duplicate groups. Must call getFuncDupes first.
+       */
+      ────────────────────────────────────────────────────────────
+      Callees of getStructDupes (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        getStructDupes [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    # src/core/CodeSearchIndex.js@getNearDupes (9 lines) [called by doFuncDupes]
+      /**
+       * Return near-duplicate groups. Must call getFuncDupes first.
+       */
+      ────────────────────────────────────────────────────────────
+      Callees of getNearDupes (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        getNearDupes [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/dedup.js@doNearDupes (62 lines) [called by dispatch]
+  // ========================================================================
+  // --near-dupes: same name+size, different content
+  // ========================================================================
+    // Must run func-dupes first to populate near-dupes
+        // Group instances by hash to show variants
+    ────────────────────────────────────────────────────────────
+    Callees of doNearDupes (4 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doNearDupes [recursive — skipped]
+      getFuncDupes [already shown above — skipped]
+      getNearDupes [already shown above — skipped]
+      displayName [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/dedup.js@doStructDupes (88 lines) [called by dispatch]
+  // ========================================================================
+  // --struct-dupes: structural duplicates (same structure, different names)
+  // ========================================================================
+    // Must run func-dupes first to populate structural dupes
+    // Show funcstrings if requested
+        // Word-wrap for readability
+    ────────────────────────────────────────────────────────────
+    Callees of doStructDupes (5 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doStructDupes [recursive — skipped]
+      getFuncDupes [already shown above — skipped]
+      getStructDupes [already shown above — skipped]
+      displayName [already shown above — skipped]
+
+    # src/core/CodeSearchIndex.js@getStructuralNormalized (30 lines) [called by doStructDupes]
+      /**
+       * Normalize function body text to its structural form ("funcstring").
+       *
+       * 1. Strip comments (// and multi-line)
+       * 2. Replace string/char literals with placeholder
+       * 3. Replace numeric literals with placeholder
+       * 4. Replace ALL identifiers and type names with placeholder
+       * 5. Keep only control-flow/structural keywords
+       * 6. Normalize whitespace
+       */
+        // Step 1: Strip comments
+        // Step 2: Replace string literals
+        // Step 3: Replace numeric literals
+        // Step 4: Replace identifiers and type names — only structural keywords survive
+        // Step 5: Normalize whitespace
+      ────────────────────────────────────────────────────────────
+      Callees of getStructuralNormalized (1 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        getStructuralNormalized [recursive — skipped]
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/dedup.js@doShowFuncstring (49 lines) [called by dispatch]
+  // ========================================================================
+  // --show-funcstring: show normalized funcstring for a function
+  // ========================================================================
+      // Used as bare flag — auto-imply struct-dupes
+    // Find the function
+    // Show funcstring for each match (up to 5)
+    ────────────────────────────────────────────────────────────
+    Callees of doShowFuncstring (5 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doShowFuncstring [recursive — skipped]
+      doStructDupes [already shown above — skipped]
+      listFunctions [already shown above — skipped]
+      getStructuralNormalized [already shown above — skipped]
+      displayName [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/dedup.js@doStructDiffAll (107 lines) [called by dispatch]
+  // ========================================================================
+  // /struct-diff-all: one-line summaries for top N struct-dupe groups
+  // ========================================================================
+    // Ensure dupes computed
+    // Filter to groups with >1 unique body (otherwise there's no diff to show)
+      // Get one representative per unique body hash
+      // Extract bodies
+      // Build compact substitution summary
+    ────────────────────────────────────────────────────────────
+    Callees of doStructDiffAll (5 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doStructDiffAll [recursive — skipped]
+      getFuncDupes [already shown above — skipped]
+      getStructDupes [already shown above — skipped]
+      displayName [already shown above — skipped]
+
+    # src/core/CodeSearchIndex.js@structDiff (101 lines) [called by doStructDiffAll]
+      /**
+       * Compare structural dupe bodies by word-hole alignment.
+       *
+       * Takes an array of { body: string, label: string } objects — all must share
+       * the same structural hash.
+       *
+       * Returns: {
+       *   totalWordHoles: number,
+       *   diffs: [{ position: number, values: string[] }],  // positions that differ
+       *   substitutions: [{ from: string, to: string, count: number }], // detected rename patterns
+       *   summary: string,  // one-line summary
+       * }
+       */
+        // Extract word holes for each body
+        // Get word-hole-only tokens for each body
+        // Check alignment: all should have same number of word holes
+          // Misaligned — shouldn't happen for true structural dupes
+        // Find positions where values differ
+        // Detect substitution patterns: pairs of values that always co-substitute
+        // e.g. (log_error, LOG_ERROR) always appears together
+        // Build mapping: for each pair of bodies (0 vs i), collect substitution pairs
+        // Collapse into substitution groups: "Order→Invoice ×15"
+        // Group by (bodyIndex, fromVal, toVal)
+        // Build summary
+      ────────────────────────────────────────────────────────────
+      Callees of structDiff (2 functions, depth 4/4):
+      ────────────────────────────────────────────────────────────
+        structDiff [recursive — skipped]
+
+      # src/core/CodeSearchIndex.js@extractWordHoles (54 lines) [called by structDiff]
+        /**
+         * Extract word-holes from function body text.
+         *
+         * Strips comments, then walks the text extracting tokens in order.
+         * Each token is classified as 'structure' (keyword/punctuation, part of the "tune")
+         * or 'word' (identifier/literal, a replaceable "word hole").
+         *
+         * Returns: [{ type: 'word'|'structure', value: string }, ...]
+         */
+          // Step 1: Strip comments (same as normalizer)
+          // Master regex: match tokens in priority order
+          // Group 1: string literal   Group 2: char literal
+          // Group 3: hex number       Group 4: float (leading digit)
+          // Group 5: float (.N)       Group 6: integer
+          // Group 7: identifier       Group 0 fallback: punctuation/operators
+              // String/char literal — word hole
+              // Numeric literal — word hole
+              // Identifier or keyword
+              // Punctuation/operator — structure
+
+      Tip: Comments can lie! Verify against actual code logic.
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/dedup.js@doStructDiff (155 lines) [called by dispatch]
+  // ========================================================================
+  // /struct-diff: show word-hole differences between structural dupes
+  // ========================================================================
+    // Ensure dupes are computed
+    // Find matching group(s) by function name or hash prefix
+      // Also try in exact dupe groups — user might want to diff exact dupes across files
+    // Process each matching group
+      // Get one representative per unique body hash
+      // Limit to first 6 variants for readability
+      // Extract bodies
+      // Show which variants we're comparing
+      // Run struct-diff
+      // Show summary line
+      // Show individual diffs, grouped for readability
+      // For pairwise comparison, show [1] vs [2] vs [3] etc.
+        // Too many diffs — show top substitution patterns
+      // Show substitution patterns
+    ────────────────────────────────────────────────────────────
+    Callees of doStructDiff (5 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doStructDiff [recursive — skipped]
+      getFuncDupes [already shown above — skipped]
+      getStructDupes [already shown above — skipped]
+      displayName [already shown above — skipped]
+      structDiff [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/search.js@doSearch (22 lines) [called by dispatch]
+  // ========================================================================
+  // Command handlers
+  // ========================================================================
+    ────────────────────────────────────────────────────────────
+    Callees of doSearch (5 functions, depth 3/4):
+    ────────────────────────────────────────────────────────────
+      doSearch [recursive — skipped]
+      findPathMatches [already shown above — skipped]
+      searchHybrid [already shown above — skipped]
+      filterResultsByPath [already shown above — skipped]
+      printResults [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  Tip: Comments can lie! Verify against actual code logic.
+  iargs [already shown above — skipped]
+  makeIArgs [already shown above — skipped]
+  FileScanner.close [already shown above — skipped]
+  buildFunctionIndex [already shown above — skipped]
+  stripOuterQuotes [already shown above — skipped]
+  doStats [already shown above — skipped]
+  doIndexExtensions [already shown above — skipped]
+  listFiles [already shown above — skipped]
+  findPathMatches [already shown above — skipped]
+  extractInFilter [already shown above — skipped]
+  doLiteral [already shown above — skipped]
+  doFast [already shown above — skipped]
+  doRegex [already shown above — skipped]
+  doFilesSearch [already shown above — skipped]
+  doFoldersSearch [already shown above — skipped]
+  dispatchFunctions [already shown above — skipped]
+  parseNPat [already shown above — skipped]
+  doListFunctionsSize [already shown above — skipped]
+  doListFunctionsAlpha [already shown above — skipped]
+  getFunctionSource [already shown above — skipped]
+  displayName [already shown above — skipped]
+  doExtract [already shown above — skipped]
+  doShowFile [already shown above — skipped]
+  doCallers [already shown above — skipped]
+  doCallees [already shown above — skipped]
+  doMostCalled [already shown above — skipped]
+  doCallTree [already shown above — skipped]
+  doFileMap [already shown above — skipped]
+  doFileTree [already shown above — skipped]
+  doHotspots [already shown above — skipped]
+  doHotFolders [already shown above — skipped]
+  doEntryPoints [already shown above — skipped]
+  doGaps [already shown above — skipped]
+  doDomainFns [already shown above — skipped]
+  doListClasses [already shown above — skipped]
+  doClassHotspots [already shown above — skipped]
+  doVocabulary [already shown above — skipped]
+  doMultisect [already shown above — skipped]
+  doClaimSearch [already shown above — skipped]
+  doAnalyze [already shown above — skipped]
+  doClaimAnalyze [already shown above — skipped]
+  doMultisectAnalyze [already shown above — skipped]
+  doFileAnalyze [already shown above — skipped]
+  doDupefiles [already shown above — skipped]
+  doFuncDupes [already shown above — skipped]
+  doNearDupes [already shown above — skipped]
+  doStructDupes [already shown above — skipped]
+  doShowFuncstring [already shown above — skipped]
+  doStructDiffAll [already shown above — skipped]
+  doStructDiff [already shown above — skipped]
+  doSearch [already shown above — skipped]
+  listFunctions [already shown above — skipped]
+
+Tip: Comments can lie! Verify against actual code logic.

@@ -1,0 +1,610 @@
+C:\work\code_exam\Nodejs_port\code-exam>node src\index.js --index-path \work\ai_code_exam\.demo --claim-search @\work\ai_code_exam\sample_patent_claim.txt
+Loaded existing index: 17 files
+Loaded 540 cached vocabulary tokens
+  Vocabulary concordance: 4539 chars (rich format, claim-filtered)
+Claim source: \work\ai_code_exam\sample_patent_claim.txt
+Claim text (1379 chars):
+  1. A method of establishing a secure communication connection
+  through a computer network, the method comprising:
+  (a) initializing a cryptographic context by creating a security
+  protocol object configured with a minimum protocol version
+  and loading one or more certificate authority credentials;
+  (b) negotiating cipher parameters between a client device and
+  a server device, wherein negotiating comprises selecting a
+  cipher suite from a set of supported cipher suites based on
+  a minimum key length requirement;
+  (c) performing a handshake protocol exchange between the client
+  device and the server device to establish session keys;
+  (d) verifying a certificate chain presented by the server device,
+  wherein verifying comprises:
+  (i)   validating that a hostname of the server device matches
+  a subject alternative name or common name in a server
+  certificate;
+  (ii)  checking that the server certificate has not expired;
+  (iii) confirming that key usage extensions in the server
+  certificate permit server authentication; and
+  (e) transmitting application data over an encrypted channel using
+  the established session keys, wherein all data transmitted
+  between the client device and the server device is encrypted
+  using the negotiated cipher suite.
+
+Extracting search terms from patent claim...
+
+  +---------------------------------------------------------------+
+  |               WARNING: EXTERNAL NETWORK REQUEST               |
+  |                  CLAIM TEXT WILL BE SENT TO:                  |
+  |  https://api.anthropic.com/v1/messages                        |
+  |  Model: claude-sonnet-4-20250514                              |
+  |  Claim text: 1379 chars                                       |
+  |          Do NOT use on air-gapped/litigation systems          |
+  |    unless endpoint is a local LLM (CLAIM_SEARCH_API_URL).     |
+  +---------------------------------------------------------------+
+  OK: claude-sonnet-4-20250514 (3489 in / 681 out tokens, est. $0.0207)
+  LLM response:
+    TIGHT: /establish|establishing/;secure;communication;connection;/initializ|creating/;cryptographic;context;security;protocol;object;/configur|configured/;minimum;version;/load|loading/;certificate;authority;credentials;/negotiat|negotiating/;cipher;parameters;client;server;device;/select|selecting/;suite;supported;suites;key;length;requirement;/perform|performing/;handshake;exchange;session;keys;/verify|verifying/;chain;presented;/validat|validating/;hostname;/match|matches/;subject;alternative;name;common;/check|checking/;expired;/confirm|confirming/;usage;extensions;permit;authentication;/transmit|transmitting/;application;data;encrypted;channel;/encrypt|encrypted/
+
+    BROAD: /establish|establishing|connect|connection/;/secure|security|tls|ssl/;/communication|channel|transmission/;/network|tcp|socket/;/initializ|init|create|setup/;/cryptographic|crypto|cipher/;/context|config|configuration/;/security|ssl|tls/;/protocol|version/;/object|instance|struct/;/configur|config|setup/;/minimum|min/;/version|protocol.version/;/load|loading|cert|certificate/;/certificate|cert/;/authority|ca|root/;/credentials|certs|keys/;/negotiat|negotiate|handshake/;/cipher|encryption|crypto/;/parameters|params|config/;/client|connection/;/server|host|remote/;/device|endpoint|peer/;/select|choose|pick/;/suite|algorithm|cipher.suite/;/supported|available|enabled/;/suites|algorithms|ciphers/;/key|secret|private/;/length|size|bits/;/requirement|constraint|policy/;/perform|execute|do/;/handshake|negotiate|establish/;/exchange|negotiation|protocol/;/session|connection/;/keys|secret|material/;/verify|validate|check/;/chain|path|hierarchy/;/presented|received|sent/;/validat|verify|check/;/hostname|host|server.name/;/match|matches|equal/;/subject|cn|common.name/;/alternative|alt|san/;/name|identifier|dns/;/common|cn/;/check|verify|validate/;/expired|expir|valid/;/confirm|verify|check/;/usage|purpose|extension/;/extensions|ext|x509/;/permit|allow|enable/;/authentication|auth|server.auth/;/transmit|send|transfer/;/application|app|user/;/data|payload|message/;/encrypted|secure|protected/;/channel|connection|stream/;/encrypt|cipher|secure/
+  [sanitize-TIGHT] Dropped 38 degenerate term(s), trimmed 0 term(s), kept 20
+  [sanitize-BROAD] Dropped 38 degenerate term(s), trimmed 0 term(s), kept 20
+========================================================================
+ TIGHT SEARCH — literal claim language
+========================================================================
+  Terms: /establish|establishing/;secure;communication;connection;/initializ|creating/;cryptographic;context;security;protocol;object;/configur|configured/;minimum;version;/load|loading/;certificate;authority;credentials;/negotiat|negotiating/;cipher;parameters
+
+  --- TIGHT search ---
+  Searching (min_terms=16/20)...
+  Phase 1: 2 survivor files (from 17 candidates) in 0.0s
+  Phase 2: details for 2 files in 0.0s
+
+Term selectivity:
+  [1] /establish|establishing/     10 files
+  [2] secure                       17 files
+  [3] communication                 3 files
+  [4] connection                   15 files
+  [5] /initializ|creating/          9 files
+  [6] cryptographic                 2 files
+  [7] context                       7 files
+  [8] security                      5 files
+  [9] protocol                      5 files
+  [10] object                        4 files
+  [11] /configur|configured/        10 files
+  [12] minimum                       6 files
+  [13] version                       7 files
+  [14] /load|loading/                8 files
+  [15] certificate                  10 files
+  [16] authority                     1 files
+  [17] credentials                   0 files
+  [18] /negotiat|negotiating/        6 files
+  [19] cipher                        9 files
+  [20] parameters                    4 files
+
+
+Multi-term intersection search: 20 positive terms (minimum 16 required)
+  [1] /establish|establishing/  (10 files)
+  [2] secure                    (17 files)
+  [3] communication             (3 files)
+  [4] connection                (15 files)
+  [5] /initializ|creating/      (9 files)
+  [6] cryptographic             (2 files)
+  [7] context                   (7 files)
+  [8] security                  (5 files)
+  [9] protocol                  (5 files)
+  [10] object                    (4 files)
+  [11] /configur|configured/     (10 files)
+  [12] minimum                   (6 files)
+  [13] version                   (7 files)
+  [14] /load|loading/            (8 files)
+  [15] certificate               (10 files)
+  [16] authority                 (1 files)
+  [17] credentials               (** 0 files -- no matches **)
+  [18] /negotiat|negotiating/    (6 files)
+  [19] cipher                    (9 files)
+  [20] parameters                (4 files)
+
+━━━ FILE-level matches (2 files) ━━━
+
+  [1] c\tls_handler.c  (440 lines)  [18/20]
+      [4] L2 in (global)  * tls_handler.c - TLS/SSL connection management
+      [1,2] L4 in (global)  * Implements secure connection establishment using OpenSSL.
+      [5,7,15,18,19] L5 in (global)  * Handles context initialization, cipher negotiation, certificate
+      [11] L42 in (global)  * initialize_crypto_context - Create and configure SSL context
+      [9,13] L45 in (global)  * protocol version constraints, and sets default verify paths.
+      [14] L57 in initialize_crypto_context  SSL_load_error_strings();
+      [12] L75 in initialize_crypto_context  /* Set minimum protocol version */
+      [16] L83 in initialize_crypto_context  /* Load default certificate authority paths */
+      [6] L99 in initialize_crypto_context  log_info("Cryptographic context initialized (min TLS %d, verify depth %d)",
+      [8] L110 in (global)  * Validates that the selected cipher meets minimum security
+      [20] L166 in (global)  *   4. Negotiate cipher parameters
+      [10] L253 in tls_connect  /* Build connection object */
+      [3] -- not found --
+      [17] -- not found --
+
+  [2] java\net\NetworkManager.java  (339 lines)  [16/20]
+      [2,4] L2 in (global)  * NetworkManager.java - Secure network connection lifecycle management
+      [1] L4 in (global)  * Orchestrates secure connection establishment, data transmission,
+      [8] L14 in (global)  import java.security.*;
+      [18,19] L30 in NetworkManager  private final CipherNegotiator cipherNegotiator;
+      [15] L31 in NetworkManager  private final CertificateValidator certValidator;
+      [5] L39 in NetworkManager  * Initializes the connection pool, cipher negotiation engine,
+      [7,11,20] L58 in (global)  *   2. Initialize SSL context with configured parameters
+      [3] L66 in (global)  * communication channels.
+      [13] L112 in NetworkManager::establishConnection  /* Step 5: Configure TLS versions */
+      [9] L113 in NetworkManager::establishConnection  String[] protocols = filterProtocols(
+      [14] L236 in NetworkManager::initializeSSLContext  keyStore.load(fis,
+      [12] L271 in (global)  * Filter protocols to enforce minimum TLS version.
+      [6] -- not found --
+      [10] -- not found --
+      [16] -- not found --
+      [17] -- not found --
+
+━━━ FOLDER-level matches (1 folders (2 suppressed — covered by single-file matches)) ━━━
+
+  [1] c/  [19/20 terms, 7 files]  missing: credentials
+      [1] /establish|establishing/  in cert_verify.c, demo_main.c, tls_handler.c, tls_handler.h
+      [2] secure  in cert_verify.c, crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h +2 more
+      [3] communication  in buffer_pool.c
+      [4] connection  in cert_verify.c, crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h +1 more
+      [5] /initializ|creating/  in crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h, buffer_pool.c +1 more
+      [6] cryptographic  in crypto_context.c, tls_handler.c
+      [7] context  in crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h
+      [8] security  in tls_handler.c, buffer_pool.c
+      [9] protocol  in tls_handler.c
+      [10] object  in tls_handler.c, tls_handler.h
+      [11] /configur|configured/  in crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h
+      [12] minimum  in tls_handler.c, tls_handler.h
+      [13] version  in tls_handler.c, tls_handler.h
+      [14] /load|loading/  in crypto_context.c, tls_handler.c
+      [15] certificate  in cert_verify.c, demo_main.c, tls_handler.c, tls_handler.h
+      [16] authority  in tls_handler.c
+      [17] credentials  *** NOT FOUND ***
+      [18] /negotiat|negotiating/  in crypto_context.c, tls_handler.c, tls_handler.h
+      [19] cipher  in tls_handler.c, tls_handler.h
+      [20] parameters  in crypto_context.c, tls_handler.c
+
+
+========================================================================
+ BROAD SEARCH — implementation patterns & alternative mechanisms
+========================================================================
+  Terms: /establish|establishing|connect|connection/;/secure|security|tls|ssl/;/communication|channel|transmission/;/network|tcp|socket/;/initializ|init|create|setup/;/cryptographic|crypto|cipher/;/context|config|configuration/;/security|ssl|tls/;/protocol|version/;/object|instance|struct/;/configur|config|setup/;/minimum|min/;/version|protocol.version/;/load|loading|cert|certificate/;/certificate|cert/;/authority|ca|root/;/credentials|certs|keys/;/negotiat|negotiate|handshake/;/cipher|encryption|crypto/;/parameters|params|config/
+
+  --- BROAD search ---
+  Searching (min_terms=12/20)...
+  Phase 1: 12 survivor files (from 17 candidates) in 0.0s
+  Phase 2: details for 12 files in 0.0s
+
+Term selectivity:
+  [1] /establish|establishing|connect|connection/     15 files
+  [2] /secure|security|tls|ssl/                       17 files
+  [3] /communication|channel|transmission/             5 files
+  [4] /network|tcp|socket/                            12 files
+  [5] /initializ|init|create|setup/                   12 files
+  [6] /cryptographic|crypto|cipher/                   11 files
+  [7] /context|config|configuration/                  13 files
+  [8] /security|ssl|tls/                              16 files
+  [9] /protocol|version/                               8 files
+  [10] /object|instance|struct/                         8 files
+  [11] /configur|config|setup/                         13 files
+  [12] /minimum|min/                                   13 files
+  [13] /version|protocol.version/                       7 files
+  [14] /load|loading|cert|certificate/                 13 files
+  [15] /certificate|cert/                              10 files
+  [16] /authority|ca|root/                             17 files
+  [17] /credentials|certs|keys/                         7 files
+  [18] /negotiat|negotiate|handshake/                  12 files
+  [19] /cipher|encryption|crypto/                      11 files
+  [20] /parameters|params|config/                      13 files
+
+
+Multi-term intersection search: 20 positive terms (minimum 12 required)
+  [1] /establish|establishing|connect|connection/  (15 files)
+  [2] /secure|security|tls|ssl/                    (17 files)
+  [3] /communication|channel|transmission/         (5 files)
+  [4] /network|tcp|socket/                         (12 files)
+  [5] /initializ|init|create|setup/                (12 files)
+  [6] /cryptographic|crypto|cipher/                (11 files)
+  [7] /context|config|configuration/               (13 files)
+  [8] /security|ssl|tls/                           (16 files)
+  [9] /protocol|version/                           (8 files)
+  [10] /object|instance|struct/                     (8 files)
+  [11] /configur|config|setup/                      (13 files)
+  [12] /minimum|min/                                (13 files)
+  [13] /version|protocol.version/                   (7 files)
+  [14] /load|loading|cert|certificate/              (13 files)
+  [15] /certificate|cert/                           (10 files)
+  [16] /authority|ca|root/                          (17 files)
+  [17] /credentials|certs|keys/                     (7 files)
+  [18] /negotiat|negotiate|handshake/               (12 files)
+  [19] /cipher|encryption|crypto/                   (11 files)
+  [20] /parameters|params|config/                   (13 files)
+
+━━━ FUNCTION-level matches (13 functions) ━━━
+
+  [1] NetworkManager::establishConnection  (java\net\NetworkManager.java, 87 lines)  [17/20]
+      [1,2,4,8] L73  public SSLSocket establishConnection(String hostname, int port,
+      [7,11,20] L74  ConnectionConfig config) {
+      [5] L93  /* Step 2: Initialize SSL context */
+      [6,19] L106  /* Step 4: Configure cipher suites */
+      [18] L107  String[] ciphers = cipherNegotiator.selectCipherSuites(
+      [12] L109  config.getMinKeyBits());
+      [9,13] L112  /* Step 5: Configure TLS versions */
+      [14,15,16] L122  /* Step 7: Validate certificate chain */
+      [3] -- not found --
+      [10] -- not found --
+      [17] -- not found --
+
+  [2] tls_connect  (c\tls_handler.c, 103 lines)  [17/20]
+      [1,2,8] L176  tls_connection_t *tls_connect(const char *hostname, int port,
+      [7,11,20] L177  const tls_config_t *config)
+      [5] L189  log_info("Initiating secure connection to %s:%d", hostname, port);
+      [6,19] L191  /* Step 1: Initialize cryptographic context */
+      [4] L198  /* Step 2: Create underlying TCP socket */
+      [18] L219  /* Step 5: Negotiate cipher parameters */
+      [14,15,16] L247  /* Step 7: Verify server certificate chain */
+      [10] L253  /* Build connection object */
+      [9,13] L268  hostname, port, SSL_get_version(ssl),
+      [3] -- not found --
+      [12] -- not found --
+      [17] -- not found --
+
+  [3] generate_default_config  (python\config_parser.py, 26 lines)  [16/20]
+      [7,11,20] L164  def generate_default_config(output_path: str) -> None:
+      [2,8] L166  Generate a default TLS configuration file.
+      [5] L168  Creates a JSON configuration file with secure default settings.
+      [9,12,13] L172  "min_tls_version": "TLSv1.2",
+      [6,19] L174  "cipher_suites": DEFAULT_CIPHER_SUITES,
+      [14,15,16,17] L175  "ca_cert_path": "./certs/ca-bundle.crt",
+      [18] L181  "handshake_timeout_ms": 5000,
+      [1] -- not found --
+      [3] -- not found --
+      [4] -- not found --
+      [10] -- not found --
+
+  [4] TLSHandshake::create_ssl_context  (python\handshake.py, 59 lines)  [16/20]
+      [2,5,7,8] L41  def create_ssl_context(self) -> ssl.SSLContext:
+      [1] L43  Initialize the SSL context for secure connections.
+      [11,20] L45  Creates and configures an ssl.SSLContext with:
+      [9,12,13] L46  - Minimum TLS version enforcement
+      [14,15,16] L47  - Certificate verification mode
+      [6,19] L50  - Cipher suite configuration
+      [17] L76  ctx.load_default_certs()
+      [3] -- not found --
+      [4] -- not found --
+      [10] -- not found --
+      [18] -- not found --
+
+  [5] load_tls_config  (python\config_parser.py, 79 lines)  [16/20]
+      [2,7,8,11,14,20] L55  def load_tls_config(config_path: str) -> TLSConfig:
+      [10,15,16] L60  relative certificate paths, and returns a TLSConfig object
+      [1] L61  ready for use with the secure connection system.
+      [9,13] L83  # TLS version
+      [12] L84  if 'min_tls_version' in raw:
+      [6,19] L99  # Cipher suites
+      [18] L125  for int_field in ['session_cache_size', 'handshake_timeout_ms',
+      [3] -- not found --
+      [4] -- not found --
+      [5] -- not found --
+      [17] -- not found --
+
+  [6] TLSConfig  (python\config_parser.py, 14 lines)  [15/20]
+      [2,7,8,11,20] L39  class TLSConfig:
+      [1] L40  """Configuration for TLS secure connections."""
+      [9,12,13] L41  min_tls_version: str = "TLSv1.2"
+      [6,19] L43  cipher_suites: List[str] = field(default_factory=lambda: list(DEFAULT_CIPHER_...
+      [14,15,16] L44  ca_cert_path: Optional[str] = None
+      [18] L50  handshake_timeout_ms: int = 5000
+      [3] -- not found --
+      [4] -- not found --
+      [5] -- not found --
+      [10] -- not found --
+      [17] -- not found --
+
+  [7] TLSHandshake::perform_handshake  (python\handshake.py, 96 lines)  [15/20]
+      [18] L101  def perform_handshake(self, hostname: str, port: int,
+      [2,4,8] L103  ) -> Optional[ssl.SSLSocket]:
+      [1] L107  Executes the connection sequence:
+      [5] L108  1. Create TCP socket and connect to server
+      [7] L109  2. Wrap socket with SSL context
+      [6,19] L111  4. Execute TLS handshake (cipher negotiation)
+      [14,15,16] L112  5. Verify server certificate chain
+      [11,20] L120  timeout_ms: Handshake timeout (default from config)
+      [9] L162  cipher_name, protocol, bits = ssl_socket.cipher()
+      [3] -- not found --
+      [10] -- not found --
+      [12] -- not found --
+      [13] -- not found --
+      [17] -- not found --
+
+  [8] tls_config  (c\tls_handler.h, 10 lines)  [14/20]
+      [2,7,8,10,11,20] L19  typedef struct tls_config {
+      [9,12,13] L20  int    min_tls_version;     /* Minimum acceptable TLS version */
+      [6,19] L21  int    min_key_bits;        /* Minimum cipher key length */
+      [14,15,16] L22  char  *ca_cert_path;        /* Path to CA certificate bundle */
+      [1] -- not found --
+      [3] -- not found --
+      [4] -- not found --
+      [5] -- not found --
+      [17] -- not found --
+      [18] -- not found --
+
+  [9] main  (c\demo_main.c, 52 lines)  [14/20]
+      [2,7,8,11,20] L93  tls_config_t config;
+      [5] L110  /* Initialize subsystems */
+      [6,19] L114  if (init_crypto_subsystem() != 0) {
+      [1] L125  /* Configure TLS connection */
+      [12] L127  config.min_key_bits = 128;
+      [14,15,16,17] L129  config.ca_cert_path = "/etc/ssl/certs/ca-certificates.crt";
+      [3] -- not found --
+      [4] -- not found --
+      [9] -- not found --
+      [10] -- not found --
+      [13] -- not found --
+      [18] -- not found --
+
+  [10] initialize_crypto_context  (c\tls_handler.c, 53 lines)  [14/20]
+      [2,5,6,7,8,11,19,20] L50  SSL_CTX *initialize_crypto_context(const tls_config_t *config)
+      [14] L57  SSL_load_error_strings();
+      [9,13] L68  /* Disable older insecure protocol versions */
+      [12] L70  if (config->min_tls_version >= TLS_VERSION_1_2) {
+      [15,16] L83  /* Load default certificate authority paths */
+      [1] -- not found --
+      [3] -- not found --
+      [4] -- not found --
+      [10] -- not found --
+      [17] -- not found --
+      [18] -- not found --
+
+  [11] NetworkManager::initializeSSLContext  (java\net\NetworkManager.java, 41 lines)  [12/20]
+      [1,2,5,7,8,11,20] L227  private SSLContext initializeSSLContext(ConnectionConfig config) {
+      [10] L229  SSLContext ctx = SSLContext.getInstance("TLS");
+      [14,15] L232  if (config.getClientCertPath() != null) {
+      [17] L233  KeyStore keyStore = KeyStore.getInstance("PKCS12");
+      [16] L247  if (config.getCaCertPath() != null) {
+      [3] -- not found --
+      [4] -- not found --
+      [6] -- not found --
+      [9] -- not found --
+      [12] -- not found --
+      [13] -- not found --
+      [18] -- not found --
+      [19] -- not found --
+
+  [12] ConnectionConfig  (java\net\ConnectionConfig.java, 51 lines)  [12/20]
+      [1,7,11,20] L12  public class ConnectionConfig {
+      [2,8,9,12,13] L14  private String minTlsVersion = "TLSv1.2";
+      [14,15,16] L17  private String caCertPath = null;
+      [3] -- not found --
+      [4] -- not found --
+      [5] -- not found --
+      [6] -- not found --
+      [10] -- not found --
+      [17] -- not found --
+      [18] -- not found --
+      [19] -- not found --
+
+  [13] NetworkManager  (java\net\NetworkManager.java, 318 lines)  [12/20]
+      [4] L21  public class NetworkManager {
+      [1] L25  private static final int MAX_CONNECTIONS = 50;
+      [6,18,19] L30  private final CipherNegotiator cipherNegotiator;
+      [14,15,16] L31  private final CertificateValidator certValidator;
+      [2,3] L32  private final SecureChannel secureChannel;
+      [10] L38  * Construct a new NetworkManager with default settings.
+      [5] L39  * Initializes the connection pool, cipher negotiation engine,
+      [7] -- not found --
+      [8] -- not found --
+      [9] -- not found --
+      [11] -- not found --
+      [12] -- not found --
+      [13] -- not found --
+      [17] -- not found --
+      [20] -- not found --
+
+━━━ FILE-level matches (11 files (1 suppressed — covered by function matches)) ━━━
+
+  [1] java\net\NetworkManager.java  (339 lines)  [20/20]
+      [1,2,4] L2 in (global)  * NetworkManager.java - Secure network connection lifecycle management
+      [3] L4 in (global)  * Orchestrates secure connection establishment, data transmission,
+      [16] L6 in (global)  * all network operations in the application.
+      [8] L13 in (global)  import javax.net.ssl.*;
+      [6,18,19] L30 in NetworkManager  private final CipherNegotiator cipherNegotiator;
+      [14,15] L31 in NetworkManager  private final CertificateValidator certValidator;
+      [10] L38 in NetworkManager  * Construct a new NetworkManager with default settings.
+      [5] L39 in NetworkManager  * Initializes the connection pool, cipher negotiation engine,
+      [7,11,20] L58 in (global)  *   2. Initialize SSL context with configured parameters
+      [12] L109 in NetworkManager::establishConnection  config.getMinKeyBits());
+      [9,13] L112 in NetworkManager::establishConnection  /* Step 5: Configure TLS versions */
+      [17] L233 in NetworkManager::initializeSSLContext  KeyStore keyStore = KeyStore.getInstance("PKCS12");
+
+  [2] c\tls_handler.c  (440 lines)  [19/20]
+      [1,2,8] L2 in (global)  * tls_handler.c - TLS/SSL connection management
+      [5,6,7,14,15,16,18,19] L5 in (global)  * Handles context initialization, cipher negotiation, certificate
+      [3] L6 in (global)  * verification, and encrypted data transmission.
+      [11,20] L42 in (global)  * initialize_crypto_context - Create and configure SSL context
+      [9,13] L45 in (global)  * protocol version constraints, and sets default verify paths.
+      [12] L70 in initialize_crypto_context  if (config->min_tls_version >= TLS_VERSION_1_2) {
+      [4] L164 in (global)  *   2. Create SSL session bound to socket
+      [10] L253 in tls_connect  /* Build connection object */
+      [17] -- not found --
+
+  [3] c\tls_handler.h  (56 lines)  [18/20]
+      [1,2,8] L2 in (global)  * tls_handler.h - TLS connection management interface
+      [9,13] L12 in (global)  /* TLS version constants */
+      [7,11,20] L18 in (global)  /* Connection configuration */
+      [10] L19 in tls_config  typedef struct tls_config {
+      [12] L20 in tls_config  int    min_tls_version;     /* Minimum acceptable TLS version */
+      [6,19] L21 in tls_config  int    min_key_bits;        /* Minimum cipher key length */
+      [14,15,16] L22 in tls_config  char  *ca_cert_path;        /* Path to CA certificate bundle */
+      [5] L43 in (global)  SSL_CTX            *initialize_crypto_context(const tls_config_t *config);
+      [18] L44 in (global)  int                 negotiate_cipher_params(SSL *ssl, SSL_CTX *ctx,
+      [4] L53 in (global)  int                 create_tcp_socket(const char *hostname, int port);
+      [3] -- not found --
+      [17] -- not found --
+
+  [4] python\test_tls.py  (152 lines)  [18/20]
+      [1,2,8] L2 in (global)  test_tls.py - Unit tests for TLS connection subsystem
+      [7,11,18,20] L4 in (global)  Tests for config_parser, handshake, and session_manager modules.
+      [6,14,19] L15 in (global)  TLSConfig, load_tls_config, validate_cipher_list,
+      [16] L22 in TestTLSConfig  class TestTLSConfig(unittest.TestCase):
+      [9,12,13] L28 in TestTLSConfig::test_default_config  self.assertEqual(config.min_tls_version, "TLSv1.2")
+      [15] L88 in TestCertificateValidation  class TestCertificateValidation(unittest.TestCase):
+      [17] L110 in TestCertificateValidation::test_self_signed_rejected_by_default  """Self-signed certs should be rejected unless configured."""
+      [5] L114 in TestCertificateValidation::test_self_signed_rejected_by_default  ctx = hs.create_ssl_context()
+      [4] L131 in TestSessionManager::test_idle_timeout  ssl_socket=Mock(),
+      [3] -- not found --
+      [10] -- not found --
+
+  [5] python\config_parser.py  (248 lines)  [18/20]
+      [2,7,8,11,20] L2 in (global)  config_parser.py - TLS Configuration Management
+      [1] L4 in (global)  Reads, validates, and manages TLS connection configuration from
+      [6,14,15,16,19] L5 in (global)  YAML/JSON config files. Handles certificate paths, cipher suite
+      [5,9,13] L6 in (global)  preferences, protocol version constraints, and trust store setup.
+      [12] L29 in (global)  # Minimum acceptable TLS versions
+      [18] L50 in TLSConfig  handshake_timeout_ms: int = 5000
+      [10] L60 in load_tls_config  relative certificate paths, and returns a TLSConfig object
+      [17] L175 in generate_default_config  "ca_cert_path": "./certs/ca-bundle.crt",
+      [3] -- not found --
+      [4] -- not found --
+
+  [6] python\handshake.py  (268 lines)  [18/20]
+      [2,8,9,18] L2 in (global)  handshake.py - TLS Handshake Protocol Implementation
+      [1,6,19] L5 in (global)  complete secure connection negotiation including SNI, cipher
+      [14,15,16] L6 in (global)  selection, certificate verification, and session resumption.
+      [4] L12 in (global)  import socket
+      [7,11,20] L16 in (global)  from config_parser import TLSConfig
+      [13] L20 in (global)  # Protocol version mapping
+      [5] L36 in TLSHandshake::__init__  def __init__(self, config: TLSConfig):
+      [12] L46 in TLSHandshake::create_ssl_context  - Minimum TLS version enforcement
+      [17] L76 in TLSHandshake::create_ssl_context  ctx.load_default_certs()
+      [3] -- not found --
+      [10] -- not found --
+
+  [7] python\session_manager.py  (330 lines)  [17/20]
+      [2] L2 in (global)  session_manager.py - Secure Session Lifecycle Management
+      [8] L4 in (global)  Manages the lifecycle of secure TLS sessions: creation, reuse,
+      [1,16] L6 in (global)  application code to establish and manage encrypted connections.
+      [4] L8 in (global)  This is the main entry point for the Python networking subsystem.
+      [7,11,14,20] L18 in (global)  from config_parser import TLSConfig, load_tls_config
+      [18] L19 in (global)  from handshake import TLSHandshake
+      [12] L23 in (global)  SESSION_IDLE_TIMEOUT = 300.0    # 5 minutes
+      [10] L33 in SessionInfo  ssl_socket: object  # ssl.SSLSocket
+      [5] L34 in SessionInfo  created: float = field(default_factory=time.time)
+      [9] L39 in SessionInfo  protocol: str = ""
+      [6,19] L40 in SessionInfo  cipher: str = ""
+      [3] L84 in SessionManager::connect  socket for data transmission.
+      [13] -- not found --
+      [15] -- not found --
+      [17] -- not found --
+
+  [8] java\net\ConnectionConfig.java  (63 lines)  [15/20]
+      [1,2,7,11,20] L2 in (global)  * ConnectionConfig.java - Secure Connection Configuration
+      [8] L4 in (global)  * Holds parameters for establishing TLS connections including
+      [6,14,15,16,19] L5 in (global)  * certificate paths, cipher preferences, and timeout settings.
+      [4] L10 in (global)  package com.securenet.network;
+      [9,12,13] L14 in ConnectionConfig  private String minTlsVersion = "TLSv1.2";
+      [3] -- not found --
+      [5] -- not found --
+      [10] -- not found --
+      [17] -- not found --
+      [18] -- not found --
+
+  [9] c\crypto_context.c  (240 lines)  [13/20]
+      [6,7,19] L2 in (global)  * crypto_context.c - Cryptographic context and session management
+      [2,8,16] L4 in (global)  * Manages SSL context lifecycle, session caching, and
+      [1] L5 in (global)  * cryptographic resource pooling for connection reuse.
+      [10] L25 in session_entry  typedef struct session_entry {
+      [5] L29 in session_entry  time_t         created;
+      [14] L60 in init_crypto_subsystem  SSL_load_error_strings();
+      [11,20] L75 in (global)  * Creates a new SSL_CTX configured for session caching and
+      [18] L77 in (global)  * for the target host to speed up the TLS handshake.
+      [3] -- not found --
+      [4] -- not found --
+      [9] -- not found --
+      [12] -- not found --
+      [13] -- not found --
+      [15] -- not found --
+      [17] -- not found --
+
+  [10] java\net\CipherNegotiator.java  (169 lines)  [12/20]
+      [2,6,8,18,19] L2 in (global)  * CipherNegotiator.java - TLS Cipher Suite Selection and Negotiation
+      [4] L10 in (global)  package com.securenet.network;
+      [12] L54 in CipherNegotiator  * Select cipher suites that meet minimum security requirements.
+      [16] L102 in (global)  * Called after TLS handshake to confirm the selected cipher
+      [17] L127 in CipherNegotiator::validateNegotiatedCipher  + " uses " + keyBits + "-bit keys (256 recommended)");
+      [7,11,20] L150 in (global)  * Generate a human-readable report of cipher suite configuration.
+      [1] -- not found --
+      [3] -- not found --
+      [5] -- not found --
+      [9] -- not found --
+      [10] -- not found --
+      [13] -- not found --
+      [14] -- not found --
+      [15] -- not found --
+
+  [11] java\net\CertificateValidator.java  (279 lines)  [12/20]
+      [14,15,16] L2 in (global)  * CertificateValidator.java - X.509 Certificate Chain Verification
+      [2,8,18] L4 in (global)  * Validates server certificates during TLS handshake.
+      [4] L11 in (global)  package com.securenet.network;
+      [1] L38 in CertificateValidator  * connection is considered established.
+      [17] L48 in CertificateValidator::validateCertificateChain  Certificate[] peerCerts = session.getPeerCertificates();
+      [7,11,20] L62 in CertificateValidator::validateCertificateChain  logger.warning("Self-signed certificate accepted (config)");
+      [3] -- not found --
+      [5] -- not found --
+      [6] -- not found --
+      [9] -- not found --
+      [10] -- not found --
+      [12] -- not found --
+      [13] -- not found --
+      [19] -- not found --
+
+━━━ FOLDER-level matches (2 folders (2 suppressed — covered by single-file matches)) ━━━
+
+  [1] python/  [20/20 terms, 4 files]
+      [1] /establish|establishing|connect|connection/  in config_parser.py, handshake.py, session_manager.py, test_tls.py
+      [2] /secure|security|tls|ssl/  in config_parser.py, handshake.py, session_manager.py, test_tls.py
+      [3] /communication|channel|transmission/  in session_manager.py
+      [4] /network|tcp|socket/  in handshake.py, session_manager.py, test_tls.py
+      [5] /initializ|init|create|setup/  in config_parser.py, handshake.py, session_manager.py, test_tls.py
+      [6] /cryptographic|crypto|cipher/  in config_parser.py, handshake.py, session_manager.py, test_tls.py
+      [7] /context|config|configuration/  in config_parser.py, handshake.py, session_manager.py, test_tls.py
+      [8] /security|ssl|tls/  in config_parser.py, handshake.py, session_manager.py, test_tls.py
+      [9] /protocol|version/  in config_parser.py, handshake.py, session_manager.py, test_tls.py
+      [10] /object|instance|struct/  in config_parser.py, session_manager.py
+      [11] /configur|config|setup/  in config_parser.py, handshake.py, session_manager.py, test_tls.py
+      [12] /minimum|min/  in config_parser.py, handshake.py, session_manager.py, test_tls.py
+      [13] /version|protocol.version/  in config_parser.py, handshake.py, test_tls.py
+      [14] /load|loading|cert|certificate/  in config_parser.py, handshake.py, session_manager.py, test_tls.py
+      [15] /certificate|cert/  in config_parser.py, handshake.py, test_tls.py
+      [16] /authority|ca|root/  in config_parser.py, handshake.py, session_manager.py, test_tls.py
+      [17] /credentials|certs|keys/  in config_parser.py, handshake.py, test_tls.py
+      [18] /negotiat|negotiate|handshake/  in config_parser.py, handshake.py, session_manager.py, test_tls.py
+      [19] /cipher|encryption|crypto/  in config_parser.py, handshake.py, session_manager.py, test_tls.py
+      [20] /parameters|params|config/  in config_parser.py, handshake.py, session_manager.py, test_tls.py
+
+  [2] c/  [20/20 terms, 7 files]
+      [1] /establish|establishing|connect|connection/  in cert_verify.c, crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h +1 more
+      [2] /secure|security|tls|ssl/  in cert_verify.c, crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h +2 more
+      [3] /communication|channel|transmission/  in tls_handler.c, buffer_pool.c
+      [4] /network|tcp|socket/  in tls_handler.c, tls_handler.h, buffer_pool.c
+      [5] /initializ|init|create|setup/  in crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h, buffer_pool.c +1 more
+      [6] /cryptographic|crypto|cipher/  in crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h
+      [7] /context|config|configuration/  in cert_verify.c, crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h
+      [8] /security|ssl|tls/  in cert_verify.c, crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h +1 more
+      [9] /protocol|version/  in tls_handler.c, tls_handler.h
+      [10] /object|instance|struct/  in crypto_context.c, tls_handler.c, tls_handler.h, buffer_pool.c, logging.c
+      [11] /configur|config|setup/  in cert_verify.c, crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h
+      [12] /minimum|min/  in demo_main.c, tls_handler.c, tls_handler.h, logging.c
+      [13] /version|protocol.version/  in tls_handler.c, tls_handler.h
+      [14] /load|loading|cert|certificate/  in cert_verify.c, crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h
+      [15] /certificate|cert/  in cert_verify.c, demo_main.c, tls_handler.c, tls_handler.h
+      [16] /authority|ca|root/  in cert_verify.c, crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h +2 more
+      [17] /credentials|certs|keys/  in demo_main.c
+      [18] /negotiat|negotiate|handshake/  in cert_verify.c, crypto_context.c, tls_handler.c, tls_handler.h
+      [19] /cipher|encryption|crypto/  in crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h
+      [20] /parameters|params|config/  in cert_verify.c, crypto_context.c, demo_main.c, tls_handler.c, tls_handler.h
+
+
+------------------------------------------------------------------------
+Equivalent manual commands (copy, edit, re-run):
+  TIGHT: --multisect-search "/establish|establishing/;secure;communication;connection;/initializ|creating/;cryptographic;context;security;protocol;object;/configur|configured/;minimum;version;/load|loading/;certificate;authority;credentials;/negotiat|negotiating/;cipher;parameters" --min-terms 16
+  BROAD: --multisect-search "/establish|establishing|connect|connection/;/secure|security|tls|ssl/;/communication|channel|transmission/;/network|tcp|socket/;/initializ|init|create|setup/;/cryptographic|crypto|cipher/;/context|config|configuration/;/security|ssl|tls/;/protocol|version/;/object|instance|struct/;/configur|config|setup/;/minimum|min/;/version|protocol.version/;/load|loading|cert|certificate/;/certificate|cert/;/authority|ca|root/;/credentials|certs|keys/;/negotiat|negotiate|handshake/;/cipher|encryption|crypto/;/parameters|params|config/" --min-terms 12
+
+C:\work\code_exam\Nodejs_port\code-exam>

@@ -1,0 +1,113 @@
+C:\work\code_exam\Nodejs_port\code-exam>node src\index.js --index-path .CodeExam4 --extract doMultisect --extract-comments --follow-calls
+Loaded existing index: 2271 files
+# src/commands/multisect.js@doMultisect
+// ========================================================================
+// Entry point
+// ========================================================================
+  // Show path filter if active
+  // Show selectivity report
+  // Show results
+
+════════════════════════════════════════════════════════════════
+Callees of doMultisect (6 functions, depth 1/1):
+════════════════════════════════════════════════════════════════
+  doMultisect [recursive — skipped]
+
+# node_modules/cmake-js/lib/logger.js@log (30 lines) [called by doMultisect]
+                        // util.styleText is available in Node.js >= 20.12.0
+
+# src/commands/multisect.js@parseMultisectTerms (54 lines) [called by doMultisect]
+// ========================================================================
+// Term parser
+// ========================================================================
+/**
+ * Parse semicolon-separated search terms.
+ *
+ * Terms in /.../ are regex; others are literal (case-insensitive).
+ * Use ;; for a literal semicolon.
+ * Prefix with NOT or ! to negate.
+ * Dots in plain terms become .? (match any char or nothing).
+ *
+ * @param {string} termsStr
+ * @returns {Array<{display: string, regex: RegExp, negated: boolean}>|null}
+ */
+      // Regex term
+      // Dot-wildcard: dots become .? (optional any-char)
+        // Fallback to literal
+      // Plain literal (case-insensitive)
+
+# src/core/CodeSearchIndex.js@multisectSearch (287 lines) [called by doMultisect]
+  // ========================================================================
+  // Multi-term intersection search (#146 "scavenger hunt")
+  // ========================================================================
+  /**
+   * Multi-term intersection search.
+   *
+   * Two-phase approach:
+   *   Phase 1: Scan file lines to collect file sets per term (fast).
+   *   Phase 2: Detail retrieval for survivor files only — line numbers,
+   *            line text, containing function via bisect.
+   *
+   * Finds the smallest scope (function → file → folder) containing
+   * multiple terms simultaneously.
+   *
+   * @param {Array<{display, regex, negated}>} terms
+   * @param {Object} opts
+   * @param {number|null} opts.minTerms - minimum positive terms required
+   * @param {string[]|null} opts.includePath
+   * @param {string[]|null} opts.excludePath
+   * @param {boolean} opts.showProgress
+   * @returns {Object|null} results with function_matches, file_matches, folder_matches
+   */
+    // ----------------------------------------------------------------
+    // Phase 1: File-set scan
+    // ----------------------------------------------------------------
+    // Path filter helper
+        // Also check if term matches in the filepath itself (path/filename)
+            // Mark as path-only match for Phase 2
+    // Compute file-level survivors
+    // Build folder-level data
+    // ----------------------------------------------------------------
+    // Phase 2: Detail retrieval for survivors only
+    // ----------------------------------------------------------------
+    // Pre-build function boundaries
+    // funcMap[(filepath, funcName)] → { termIdx: { line_num, line_text } }
+    // fileDetailMap[filepath] → { termIdx: { line_num, line_text, func_name } }
+        // Check if this was a path-only match (term not in file content)
+          // Record as file-level hit with synthetic "path match" detail
+          // Do NOT add to function-level (path is not inside any function)
+          // File-level: record first hit per term
+          // Function-level: one hit per function per term
+    // Build function matches
+      // Get function line count
+    // Build file matches
+      // Check NOT terms
+    // Build folder matches
+      // Check NOT terms
+
+# src/commands/multisect.js@printSelectivityReport (29 lines) [called by doMultisect]
+// ========================================================================
+// Display
+// ========================================================================
+
+# src/commands/multisect.js@displayMultisectResults (257 lines) [called by doMultisect]
+  // IDF scoring
+  // Header
+  // IDF re-sort
+  // Scope dedup: track which file+term combos are covered by function-level
+  // Exclude (global) — it's not a real scope and shouldn't suppress file-level
+  // Filter out (global) from function-level display — those are really file-level hits
+  // --- Function matches ---
+      // Show per-term detail, collapsing terms that hit the same line
+      // Sort by line number and display
+  // --- File matches ---
+          // Path-only match
+  // --- Folder matches ---
+  // Scope dedup: suppress folders where a single file already covers all matched terms
+    // Collect all files involved
+    // Check if any single file has all terms
+      // Per-term file detail
+
+Tip: Comments can lie! Verify against actual code logic.
+
+C:\work\code_exam\Nodejs_port\code-exam>

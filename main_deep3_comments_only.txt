@@ -1,0 +1,4 @@
+
+C:\work\code_exam\Nodejs_port\code-exam>node src\index.js --index-path .CodeExam5 --extract main --deep 3 --comments-only   
+Function 'main' not found in index.
+  Tip: Use --list-functions "PATTERN" --full-path to search

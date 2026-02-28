@@ -1,0 +1,5 @@
+Claim source: command line
+Claim text (61 chars):
+  The method of using a servlet to do http request and response
+
+

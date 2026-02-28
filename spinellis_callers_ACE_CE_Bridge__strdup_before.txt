@@ -1,0 +1,1248 @@
+
+Callers of 'ACE_CE_Bridge::strdup' (500 call sites in 271 functions):
+  Types: 241 direct, 258 qualified, 1 reference
+
+  (unknown): (89 call sites)
+    ace\ace\Filecache.cpp:148
+      : ext_id_ (ext_id ? ACE_OS::strdup (ext_id) : ACE_OS::strdup (ACE_LIB_TEXT ("...
+    ace\ace\Lib_Find.cpp:211
+      && (ld_path = ACE_OS::strdup (ld_path)) != 0)
+    ace\ace\Local_Name_Space_T.cpp:607
+      ACE_OS::strdup (""),
+    ... and 86 more (use --verbose to see all)
+
+  ACE_Acceptor<SVC_HANDLER, ACE_PEER_ACCEPTOR_2>::info:
+    ace\ace\Acceptor.cpp:176
+      if (*strp == 0 && (*strp = ACE_OS::strdup (buf)) == 0)
+
+  ACE_Blob_Handler::ACE_Blob_Handler@13:
+    ace\apps\jaws\clients\Blobby\Blob_Handler.cpp:20
+      filename_ (ACE_OS::strdup (filename)),
+
+  ACE_Blob::open:
+    ace\apps\jaws\clients\Blobby\Blob.cpp:22
+      filename_ = ACE_OS::strdup(filename);
+
+  ACE_CE_Bridge::write_msg:
+    ace\ace\os.cpp:7121
+      ACE_TCHAR *s = ACE_OS::strdup (str);
+
+  ACE_Client_Logging_Acceptor::ACE_Client_Logging_Acceptor: (2 call sites)
+    ace\netsvcs\lib\Client_Logging_Handler.cpp:425
+      : server_host_ (ACE_OS::strdup (ACE_DEFAULT_SERVER_HOST)),
+    ace\netsvcs\lib\Client_Logging_Handler.cpp:427
+      logger_key_ (ACE_OS::strdup (ACE_DEFAULT_LOGGER_KEY)),
+
+  ACE_Client_Logging_Acceptor::info:
+    ace\netsvcs\lib\Client_Logging_Handler.cpp:417
+      if (*strp == 0 && (*strp = ACE_OS::strdup (buf)) == 0)
+
+  ACE_Client_Logging_Acceptor::parse_args: (2 call sites)
+    ace\netsvcs\lib\Client_Logging_Handler.cpp:503
+      this->server_host_ = ACE_OS::strdup (get_opt.optarg);
+    ace\netsvcs\lib\Client_Logging_Handler.cpp:507
+      this->logger_key_ = ACE_OS::strdup (get_opt.optarg);
+
+  ACE_Configuration_Section_Key_Heap::ACE_Configuration_Section_Key_Heap:
+    ace\ace\Configuration.cpp:1152
+      path_ = ACE_OS::strdup (path);
+
+  ACE_Connector<SVH, PR_CO_2>::info:
+    ace\ace\Connector.cpp:722
+      if (*strp == 0 && (*strp = ACE_OS::strdup (buf)) == 0)
+
+  ACE_INET_Addr::string_to_addr:
+    ace\ace\INET_Addr.cpp:125
+      ACE_OS::strdup (s),
+
+  ACE_Log_Msg::local_host:
+    ace\ace\Log_Msg.cpp:1975
+      ACE_ALLOCATOR (ACE_Log_Msg::local_host_, ACE_OS::strdup (s));
+
+  ACE_Log_Msg::open: (2 call sites)
+    ace\ace\Log_Msg.cpp:690
+      ACE_OS::strdup (prog_name),
+    ace\ace\Log_Msg.cpp:699
+      ACE_OS::strdup (ACE_LIB_TEXT ("<unknown>")),
+
+  ACE_Log_Msg::sync:
+    ace\ace\Log_Msg.cpp:482
+      ACE_Log_Msg::program_name_ = ACE_OS::strdup (prog_name);
+
+  ACE_Malloc_FIFO_Iterator_T<ACE_MEM_POOL_2, ACE_LOCK, ACE_CB>::ACE_Malloc_FIFO_Iterator_T:
+    ace\ace\Malloc_T.cpp:848
+      name_ (name != 0 ? ACE_OS::strdup (name) : 0)
+
+  ACE_Malloc_LIFO_Iterator_T<ACE_MEM_POOL_2, ACE_LOCK, ACE_CB>::ACE_Malloc_LIFO_Iterator_T:
+    ace\ace\Malloc_T.cpp:755
+      name_ (name != 0 ? ACE_OS::strdup (name) : 0)
+
+  ACE_Module_Type::info:
+    ace\ace\Service_Types.cpp:199
+      if (*str == 0 && (*str = ACE_OS::strdup (buf)) == 0)
+
+  ACE_Name_Binding::ACE_Name_Binding:
+    ace\ace\Name_Space.cpp:9
+      : type_ (ACE_OS::strdup (""))
+
+  ACE_Name_Binding::ACE_Name_Binding@21:
+    ace\ace\Name_Space.cpp:26
+      type_ (type == 0 ? ACE_OS::strdup ("") : ACE_OS::strdup (type))
+
+  ACE_Name_Binding::ACE_Name_Binding@31:
+    ace\ace\Name_Space.cpp:34
+      type_ (ACE_OS::strdup (s.type_))
+
+  ACE_Name_Binding::operator =:
+    ace\ace\Name_Space.cpp:46
+      this->type_ = ACE_OS::strdup (s.type_);
+
+  ACE_Name_Options::ACE_Name_Options: (3 call sites)
+    ace\ace\Naming_Context.cpp:416
+      nameserver_host_ (ACE_OS::strdup (ACE_DEFAULT_SERVER_HOST)),
+    ace\ace\Naming_Context.cpp:418
+      database_ (ACE_OS::strdup (ACE_DEFAULT_LOCALNAME)),
+    ace\ace\Naming_Context.cpp:424
+      this->namespace_dir_ = ACE_OS::strdup (ACE_DEFAULT_NAMESPACE_DIR);
+
+  ACE_Name_Options::database@503:
+    ace\ace\Naming_Context.cpp:508
+      this->database_ = ACE_OS::strdup (db);
+
+  ACE_Name_Options::nameserver_host:
+    ace\ace\Naming_Context.cpp:486
+      this->nameserver_host_ = ACE_OS::strdup (host);
+
+  ACE_Name_Options::namespace_dir:
+    ace\ace\Naming_Context.cpp:469
+      this->namespace_dir_ = ACE_OS::strdup (dir);
+
+  ACE_Name_Options::process_name:
+    ace\ace\Naming_Context.cpp:478
+      this->process_name_ = ACE_OS::strdup (t);
+
+  ACE_Naming_Context::info:
+    ace\ace\Naming_Context.cpp:45
+      if (*strp == 0 && (*strp = ACE_OS::strdup (buf)) == 0)
+
+  ACE_NEW_RETURN:
+    ace\tao\performance-tests\Cubit\tao\MT_Cubit\Task_Client.cpp:193
+      iors_[i] = ACE_OS::strdup (buf);
+
+  ACE_Oneshot_Acceptor<SVC_HANDLER, ACE_PEER_ACCEPTOR_2>::info:
+    ace\ace\Acceptor.cpp:1140
+      if (*strp == 0 && (*strp = ACE_OS::strdup (buf)) == 0)
+
+  ACE_OS_String::strdup: (2 call sites)
+    ace\ace\OS_String.cpp:74
+      ACE_OS_String::strdup (const char *s)
+    ace\ace\OS_String.cpp:83
+      return ::strdup (s);
+
+  ACE_OS_String::strdup@88:
+    ace\ace\OS_String.cpp:89
+      ACE_OS_String::strdup (const wchar_t *s)
+
+  ACE_Service_Manager::info:
+    ace\ace\Service_Manager.cpp:75
+      if (*strp == 0 && (*strp = ACE_OS::strdup (buf)) == 0)
+
+  ACE_SPIPE_Addr::set@73:
+    ace\ace\SPIPE_Addr.cpp:106
+      ACE_ALLOCATOR_RETURN (t, ACE_OS::strdup (addr), -1);
+
+  ACE_Strategy_Acceptor<SVC_HANDLER, ACE_PEER_ACCEPTOR_2>::ACE_Strategy_Acceptor: (2 call sites)
+    ace\ace\Acceptor.cpp:605
+      ACE_OS::strdup (service_name));
+    ace\ace\Acceptor.cpp:608
+      ACE_OS::strdup (service_description));
+
+  ACE_Strategy_Acceptor<SVC_HANDLER, ACE_PEER_ACCEPTOR_2>::info:
+    ace\ace\Acceptor.cpp:788
+      if (*strp == 0 && (*strp = ACE_OS::strdup (buf)) == 0)
+
+  ACE_Strategy_Acceptor<SVC_HANDLER, ACE_PEER_ACCEPTOR_2>::open: (2 call sites)
+    ace\ace\Acceptor.cpp:504
+      ACE_OS::strdup (service_name),
+    ace\ace\Acceptor.cpp:508
+      ACE_OS::strdup (service_description),
+
+  ACE_Stream_Head<ACE_SYNCH_USE>::info:
+    ace\ace\Stream_Modules.cpp:139
+      if (*strp == 0 && (*strp = ACE_OS::strdup (name)) == 0)
+
+  ACE_Stream_Tail<ACE_SYNCH_USE>::info:
+    ace\ace\Stream_Modules.cpp:278
+      if (*strp == 0 && (*strp = ACE_OS::strdup (name)) == 0)
+
+  ACE_Stream_Type::info:
+    ace\ace\Service_Types.cpp:281
+      if (*str == 0 && (*str = ACE_OS::strdup (buf)) == 0)
+
+  ACE_Thru_Task<ACE_SYNCH_USE>::info:
+    ace\ace\Stream_Modules.cpp:355
+      if (*strp == 0 && (*strp = ACE_OS::strdup (name)) == 0)
+
+  ACE_TLI_Acceptor::open:
+    ace\ace\TLI_Acceptor.cpp:318
+      ACE_OS::strdup (dev),
+
+  ACE_URL_Addr::ACE_URL_Addr@199:
+    ace\examples\Web_Crawler\URL_Addr.cpp:203
+      path_name_ (ACE_OS::strdup (path_name)),
+
+  ACE_URL_Addr::set: (2 call sites)
+    ace\examples\Web_Crawler\URL_Addr.cpp:154
+      ACE_OS::strdup (addr.path_name_),
+    ace\examples\Web_Crawler\URL_Addr.cpp:158
+      ACE_OS::strdup (addr.addr_string_),
+
+  ACE_URL_Addr::string_to_addr: (3 call sites)
+    ace\examples\Web_Crawler\URL_Addr.cpp:86
+      ACE_OS::strdup (s),
+    ace\examples\Web_Crawler\URL_Addr.cpp:104
+      ACE_OS::strdup (name),
+    ace\websvcs\lib\URL_Addr.cpp:68
+      ACE_ALLOCATOR_RETURN (this->url_, ACE_OS::strdup (address), -1);
+
+  add_atdir:
+    netbsdsrc\bin\pax\tables.c:1103
+      if ((pt->name = strdup(fname)) != NULL) {
+
+  add_mapping:
+    netbsdsrc\usr.bin\tset\map.c:84
+      copy = strdup(arg);
+
+  add_name: (3 call sites)
+    netbsdsrc\bin\pax\tables.c:603
+      if ((pt->nname = strdup(nname)) == NULL) {
+    netbsdsrc\bin\pax\tables.c:615
+      if ((pt->oname = strdup(oname)) != NULL) {
+    netbsdsrc\bin\pax\tables.c:616
+      if ((pt->nname = strdup(nname)) != NULL) {
+
+  add_prog:
+    netbsdsrc\usr.bin\crunch\crunchgen\crunchgen.c:330
+      if(p2) p2->name = strdup(progname);
+
+  add_special: (4 call sites)
+    netbsdsrc\usr.bin\crunch\crunchgen\crunchgen.c:386
+      if((p->ident = strdup(argv[3])) == NULL)
+    netbsdsrc\usr.bin\crunch\crunchgen\crunchgen.c:392
+      if((p->srcdir = strdup(argv[3])) == NULL)
+    netbsdsrc\usr.bin\crunch\crunchgen\crunchgen.c:399
+      if((p->srcdir = strdup(tmppath)) == NULL)
+    ... and 1 more (use --verbose to see all)
+
+  add_string:
+    netbsdsrc\usr.bin\crunch\crunchgen\crunchgen.c:870
+      if(p2) p2->str = strdup(str);
+
+  add_to_keep_list:
+    netbsdsrc\usr.bin\crunch\crunchide\crunchide.c:158
+      if(newp) newp->sym = strdup(symbol);
+
+  Allocator::~Allocator:
+    ace\docs\tutorials\021\mpool.cpp:38
+      strdup() uses malloc(), so we must use free() to clean up.
+
+  Allocator::Allocator:
+    ace\docs\tutorials\021\mpool.cpp:27
+      : name_ (ACE_OS::strdup (_name)),
+
+  ap_add_module:
+    apache\src\main\http_config.c:597
+      char *tmp = strdup(m->name); /* FIXME:memory leak, albeit a small one */
+
+  ap_registry_parse_key: (2 call sites)
+    apache\src\os\win32\registry.c:317
+      return(strdup(head));
+    apache\src\os\win32\registry.c:319
+      skey = strdup(head);
+
+  ar_next:
+    netbsdsrc\bin\pax\ar_io.c:1299
+      if ((arcname = strdup(buf)) == NULL) {
+
+  auth_encrypt_user:
+    netbsdsrc\lib\libtelnet\misc.c:77
+      UserNameRequested = name ? strdup(name) : 0;
+
+  auto_fetch:
+    netbsdsrc\usr.bin\ftp\fetch.c:450
+      line = strdup(argv[argpos]);
+
+  be_array::create_name:
+    ace\tao\tao_idl\be\be_array.cpp:178
+      n->nconc (new UTL_ScopedName (new Identifier (ACE_OS::strdup (namebuf)),
+
+  BE_GlobalData::pch_include@413:
+    ace\tao\tao_idl\be\be_global.cpp:416
+      this->pch_include_ = ACE_OS::strdup (s);
+
+  BE_GlobalData::post_include@437:
+    ace\tao\tao_idl\be\be_global.cpp:440
+      this->post_include_ = ACE_OS::strdup (s);
+
+  BE_GlobalData::pre_include@425:
+    ace\tao\tao_idl\be\be_global.cpp:428
+      this->pre_include_ = ACE_OS::strdup (s);
+
+  BE_GlobalData::skel_export_include@375:
+    ace\tao\tao_idl\be\be_global.cpp:378
+      this->skel_export_include_ = ACE_OS::strdup (s);
+
+  BE_GlobalData::skel_export_macro@363:
+    ace\tao\tao_idl\be\be_global.cpp:366
+      this->skel_export_macro_ = ACE_OS::strdup (s);
+
+  BE_GlobalData::stub_export_include@401:
+    ace\tao\tao_idl\be\be_global.cpp:404
+      this->stub_export_include_ = ACE_OS::strdup (s);
+
+  BE_GlobalData::stub_export_macro@389:
+    ace\tao\tao_idl\be\be_global.cpp:392
+      this->stub_export_macro_ = ACE_OS::strdup (s);
+
+  be_sequence::gen_name:
+    ace\tao\tao_idl\be\be_sequence.cpp:132
+      return ACE_OS::strdup (namebuf);
+
+  buff_copy:
+    netbsdsrc\usr.bin\menuc\util.c:97
+      char *res = strdup (mc_buff);
+
+  build: (3 call sites)
+    jt4\service\native\home.c:177
+      cfgf=strdup(buf);
+    jt4\service\native\home.c:184
+      data->path=strdup(path);
+    jt4\service\native\home.c:206
+      data->jvms[0]->libr=strdup(buf);
+
+  build_page:
+    netbsdsrc\usr.bin\man\man.c:551
+      if ((*pathp = strdup(tpath)) == NULL) {
+
+  catopt:
+    netbsdsrc\sbin\mount\mount.c:504
+      s = strdup(o);
+
+  CC_ChangeMode_Cmd::
+    CC_ChangeMode_Cmd:
+    ace\tao\orbsvcs\tests\Concurrency\CC_command.cpp:350
+      : name_(ACE_OS::strdup (lock_set_name)),
+
+  CC_ChangeMode_Cmd::~CC_ChangeMode_Cmd:
+    ace\tao\orbsvcs\tests\Concurrency\CC_command.cpp:362
+      ACE_OS::strdup (this->name_);
+
+  CC_Client::parse_args: (3 call sites)
+    ace\tao\orbsvcs\tests\Concurrency\CC_client.cpp:106
+      this->script_file_ = ACE_OS::strdup (get_opts.optarg);
+    ace\tao\orbsvcs\tests\Concurrency\CC_client.cpp:113
+      this->extended_tests_params_ = ACE_OS::strdup (get_opts.optarg);
+    ace\tao\orbsvcs\tests\Concurrency\CC_client.cpp:125
+      ACE_OS::strdup (get_opts.optarg);
+
+  CC_CreateLockSet_Cmd::CC_CreateLockSet_Cmd:
+    ace\tao\orbsvcs\tests\Concurrency\CC_command.cpp:135
+      : name_ (ACE_OS::strdup (lock_set_name))
+
+  CC_Excep_Cmd::CC_Excep_Cmd:
+    ace\tao\orbsvcs\tests\Concurrency\CC_command.cpp:477
+      : ex_ (ACE_OS::strdup (excep))
+
+  CC_Lock_Cmd::CC_Lock_Cmd:
+    ace\tao\orbsvcs\tests\Concurrency\CC_command.cpp:192
+      : name_ (ACE_OS::strdup (lock_set_name)),
+
+  CC_Lookup_Cmd::CC_Lookup_Cmd:
+    ace\tao\orbsvcs\tests\Concurrency\CC_command.cpp:544
+      : name_ (ACE_OS::strdup (lock_set_name))
+
+  CC_Print_Cmd::CC_Print_Cmd:
+    ace\tao\orbsvcs\tests\Concurrency\CC_command.cpp:527
+      : msg_ (ACE_OS::strdup (message))
+
+  CC_Start_Cmd::CC_Start_Cmd:
+    ace\tao\orbsvcs\tests\Concurrency\CC_command.cpp:88
+      : cfg_name_ (ACE_OS::strdup (config_file_name))
+
+  CC_TryLock_Cmd::CC_TryLock_Cmd:
+    ace\tao\orbsvcs\tests\Concurrency\CC_command.cpp:287
+      : name_ (ACE_OS::strdup (lock_set_name)),
+
+  CC_UnLock_Cmd::CC_UnLock_Cmd:
+    ace\tao\orbsvcs\tests\Concurrency\CC_command.cpp:239
+      : name_ (ACE_OS::strdup (lock_set_name)),
+
+  CC_Wait_Cmd::CC_Wait_Cmd:
+    ace\tao\orbsvcs\tests\Concurrency\CC_command.cpp:449
+      : prompt_ (ACE_OS::strdup (prompt))
+
+  cgethost: (3 call sites)
+    apache\src\support\logresolve.c:158
+      name = strdup(inet_ntoa(ipnum));
+    apache\src\support\logresolve.c:162
+      name = strdup(hostdata->h_name);
+    apache\src\support\logresolve.c:184
+      name = strdup(inet_ntoa(ipnum));
+
+  chk_lnk:
+    netbsdsrc\bin\pax\tables.c:212
+      if ((pt->name = strdup(arcn->name)) != NULL) {
+
+  clean_env:
+    apache\src\support\suexec.c:227
+      cleanenv[cidx] = strdup(pathbuf);
+
+  Client_i::parse_args:
+    ace\tao\orbsvcs\tests\Time\Client_i.cpp:263
+      this->ior_ = ACE_OS::strdup (get_opts.optarg);
+
+  Client_i::read_ior: (2 call sites)
+    ace\tao\examples\Simple\chat\Client_i.cpp:244
+      this->ior_ = ACE_OS::strdup (data);
+    ace\tao\orbsvcs\tests\Time\Client_i.cpp:234
+      this->ior_ = ACE_OS::strdup (data);
+
+  Client::Client: (8 call sites)
+    ace\tao\orbsvcs\tests\AVStreams\Full_Profile\ftp.cpp:181
+      address_ (ACE_OS::strdup ("224.9.9.2:12345")),
+    ace\tao\orbsvcs\tests\AVStreams\Full_Profile\ftp.cpp:183
+      protocol_ (ACE_OS::strdup ("UDP")),
+    ace\tao\orbsvcs\tests\AVStreams\Multicast_Full_Profile\ftp.cpp:187
+      address_ (ACE_OS::strdup ("224.9.9.2:10002")),
+    ... and 5 more (use --verbose to see all)
+
+  Client::parse_args: (12 call sites)
+    ace\tao\orbsvcs\tests\AVStreams\Full_Profile\ftp.cpp:117
+      this->filename_ = ACE_OS::strdup (opts.optarg);
+    ace\tao\orbsvcs\tests\AVStreams\Full_Profile\ftp.cpp:120
+      this->address_ = ACE_OS::strdup (opts.optarg);
+    ace\tao\orbsvcs\tests\AVStreams\Full_Profile\ftp.cpp:123
+      this->protocol_ = ACE_OS::strdup (opts.optarg);
+    ... and 9 more (use --verbose to see all)
+
+  Client<INTERFACE_OBJECT, Var>::parse_args:
+    ace\tao\examples\Simple\Simple_util.cpp:328
+      this->ior_ = ACE_OS::strdup (get_opts.optarg);
+
+  Client<INTERFACE_OBJECT, Var>::read_ior:
+    ace\tao\examples\Simple\Simple_util.cpp:304
+      this->ior_ = ACE_OS::strdup (data);
+
+  Client<InterfaceObj, Var>::parse_args: (2 call sites)
+    ace\tao\examples\obv\Simple_util.cpp:206
+      this->ior_ = ACE_OS::strdup (get_opts.optarg);
+    ace\tao\examples\Persistent_Grid\Simple_util.cpp:215
+      this->ior_ = ACE_OS::strdup (get_opts.optarg);
+
+  Client<InterfaceObj, Var>::read_ior: (2 call sites)
+    ace\tao\examples\obv\Simple_util.cpp:182
+      this->ior_ = ACE_OS::strdup (data);
+    ace\tao\examples\Persistent_Grid\Simple_util.cpp:191
+      this->ior_ = ACE_OS::strdup (data);
+
+  cmdloop:
+    netbsdsrc\sbin\fsdb\fsdb.c:258
+      line = strdup(elline);
+
+  complete_local:
+    netbsdsrc\usr.bin\ftp\complete.c:206
+      tcp = strdup(dp->d_name);
+
+  complete_remote:
+    netbsdsrc\usr.bin\ftp\complete.c:273
+      tcp = strdup(tcp);
+
+  config: (2 call sites)
+    netbsdsrc\usr.bin\man\config.c:122
+      (ep->s = strdup(t)) == NULL)
+    netbsdsrc\usr.bin\man\config.c:127
+      (ep->s = strdup(p)) == NULL)
+
+  Consumer_Entry::Consumer_Entry: (2 call sites)
+    ace\tao\examples\Event_Comm\Event_Comm_i.cpp:102
+      ACE_OS::strdup (""));
+    ace\tao\examples\Event_Comm\Event_Comm_i.cpp:112
+      ACE_OS::strdup (""));
+
+  Consumer_Entry::criteria:
+    ace\tao\examples\Event_Comm\Event_Comm_i.cpp:52
+      ACE_OS::strdup (criteria));
+
+  Consumer_Handler::parse_args:
+    ace\tao\examples\Callback_Quoter\Consumer_Handler.cpp:109
+      this->ior_ = ACE_OS::strdup (get_opts.optarg);
+
+  Consumer_Handler::read_ior:
+    ace\tao\examples\Callback_Quoter\Consumer_Handler.cpp:84
+      this->ior_ = ACE_OS::strdup (data);
+
+  Consumer_Input_Handler::handle_input:
+    ace\tao\examples\Event_Comm\Consumer_Input_Handler.cpp:139
+      event.tag_ = ACE_OS::strdup (buf);
+
+  Consumer_Router::info: (2 call sites)
+    ace\examples\asx\Event_Server\Event_Server\Consumer_Router.cpp:143
+      if (*strp == 0 && (*strp = ACE_OS::strdup (mod_name)) == 0)
+    ace\examples\asx\UPIPE_Event_Server\Consumer_Router.cpp:121
+      if (*strp == 0 && (*strp = ACE_OS::strdup (mod_name)) == 0)
+
+  Cubit_Client::parse_args:
+    ace\tao\performance-tests\Cubit\tao\IDL_Cubit\Cubit_Client.cpp:283
+      ACE_OS::strdup (get_opts.optarg);
+
+  Cubit_Client::read_ior:
+    ace\tao\performance-tests\Cubit\tao\IDL_Cubit\Cubit_Client.cpp:200
+      this->cubit_factory_key_ = ACE_OS::strdup (data);
+
+  Cubit_Task::create_servants:
+    ace\tao\performance-tests\Cubit\tao\MT_Cubit\Cubit_Task.cpp:245
+      ACE_OS::strdup (str.in ());
+
+  Cubit_Task::get_servant_ior:
+    ace\tao\performance-tests\Cubit\tao\MT_Cubit\Cubit_Task.cpp:163
+      return ACE_OS::strdup (this->servants_iors_[index]);
+
+  define:
+    netbsdsrc\sys\dev\microcode\aic7xxx\aic7xxx_asm.c:131
+      p->name = Strdup(name);
+
+  dir_start:
+    netbsdsrc\bin\pax\tables.c:1230
+      pt = strdup("/tmp/paxXXXXXX");
+
+  dkinit:
+    netbsdsrc\usr.bin\vmstat\dkstats.c:242
+      cur.dk_name[i] = strdup(buf);
+
+  dlopen:
+    apache\src\os\unix\os-aix-dso.c:228
+      if ((mp->name = strdup(path)) == NULL) {
+
+  do_fstab:
+    netbsdsrc\sbin\swapctl\swapctl.c:384
+      spec = strdup(s + strlen(NFSMNTPT));
+
+  DRV_pre_proc: (2 call sites)
+    ace\tao\orbsvcs\IFR_Service\drv_preproc_ifr.cpp:455
+      ACE_Auto_String_Free safety (ACE_OS::strdup (myfile));
+    ace\tao\tao_idl\driver\drv_preproc.cpp:453
+      ACE_Auto_String_Free safety (ACE_OS::strdup (myfile));
+
+  el_init:
+    netbsdsrc\lib\libedit\el.c:84
+      el->el_prog = strdup(prog);
+
+  emit_struct:
+    netbsdsrc\usr.bin\rpcgen\rpc_cout.c:485
+      sizestr = strdup(ptemp);
+
+  Event_Analyzer::info: (2 call sites)
+    ace\examples\asx\Event_Server\Event_Server\Event_Analyzer.cpp:74
+      if (*strp == 0 && (*strp = ACE_OS::strdup (mod_name)) == 0)
+    ace\examples\asx\UPIPE_Event_Server\Event_Analyzer.cpp:65
+      if (*strp == 0 && (*strp = ACE_OS::strdup (mod_name)) == 0)
+
+  ex_bang:
+    netbsdsrc\usr.bin\vi\ex\ex_bang.c:72
+      if ((exp->lastbcomm = strdup(ap->bp)) == NULL) {
+
+  ex_read:
+    netbsdsrc\usr.bin\vi\ex\ex_read.c:119
+      strdup(cmdp->argv[argc]->bp)) == NULL) {
+
+  ex_screen_copy:
+    netbsdsrc\usr.bin\vi\ex\ex_init.c:65
+      (nexp->lastbcomm = strdup(oexp->lastbcomm)) == NULL) {
+
+  ex_tag_copy:
+    netbsdsrc\usr.bin\vi\ex\ex_tag.c:679
+      (nexp->tag_last = strdup(oexp->tag_last)) == NULL) {
+
+  ex_tag_push:
+    netbsdsrc\usr.bin\vi\ex\ex_tag.c:120
+      if ((exp->tag_last = strdup(cmdp->argv[0]->bp)) == NULL) {
+
+  execvp:
+    netbsdsrc\lib\libc\gen\execvp.c:89
+      cur = path = strdup(path);
+
+  file_init: (3 call sites)
+    netbsdsrc\usr.bin\vi\common\exf.c:191
+      if ((frp->tname = strdup(tname)) == NULL ||
+    netbsdsrc\usr.bin\vi\common\exf.c:192
+      frp->name == NULL && (frp->name = strdup(tname)) == NULL) {
+    netbsdsrc\usr.bin\vi\common\exf.c:235
+      if ((ep->rcv_path = strdup(rcv_name)) == NULL) {
+
+  fillin_program: (3 call sites)
+    netbsdsrc\usr.bin\crunch\crunchgen\crunchgen.c:501
+      p->srcdir = strdup(path);
+    netbsdsrc\usr.bin\crunch\crunchgen\crunchgen.c:507
+      p->objdir = strdup(path);
+    netbsdsrc\usr.bin\crunch\crunchgen\crunchgen.c:511
+      p->objdir = strdup(path);
+
+  flags_to_val:
+    netbsdsrc\sbin\ccdconfig\ccdconfig.c:695
+      if ((cp = strdup(flags)) == NULL)
+
+  ftime_start:
+    netbsdsrc\bin\pax\tables.c:380
+      pt = strdup("/tmp/paxXXXXXX");
+
+  Gateway::info:
+    ace\apps\Gateway\Gateway\Gateway.cpp:165
+      if (*strp == 0 && (*strp = ACE_OS::strdup (buf)) == 0)
+
+  genident:
+    netbsdsrc\usr.bin\crunch\crunchgen\crunchgen.c:735
+      if((n = strdup(str)) == NULL)
+
+  get_media_options:
+    netbsdsrc\sbin\ifconfig\ifconfig.c:899
+      optlist = strdup(val);
+
+  get_menu:
+    netbsdsrc\usr.bin\menuc\mdb.c:65
+      temp->id = strdup(name);
+
+  get_names:
+    netbsdsrc\usr.bin\talk\get_names.c:86
+      names = strdup(argv[1]);
+
+  get_paths:
+    netbsdsrc\usr.bin\vi\ex\ex_cscope.c:334
+      if ((csc->pbuf = strdup(csc->dname)) == NULL) {
+
+  get_prog_declaration: (2 call sites)
+    netbsdsrc\usr.bin\rpcgen\rpc_parse.c:510
+      dec->name = (char *) strdup(name);
+    netbsdsrc\usr.bin\rpcgen\rpc_parse.c:524
+      dec->name = (char *) strdup(tok.str);
+
+  getmntopts:
+    netbsdsrc\sbin\mount\getmntopts.c:71
+      if ((optbuf = strdup(options)) == NULL)
+
+  getpwent:
+    netbsdsrc\lib\libc\gen\getpwent.c:425
+      name = strdup(_pw_passwd.pw_name + 1);
+
+  gopt_arch:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:311
+      gopt.arch = strdup((char *)val);
+
+  gopt_auto_dir:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:319
+      gopt.auto_dir = strdup((char *)val);
+
+  gopt_cluster:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:353
+      gopt.cluster = strdup((char *)val);
+
+  gopt_debug_options:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:362
+      usage += debug_option(strdup((char *)val));
+
+  gopt_karch:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:401
+      gopt.karch = strdup((char *)val);
+
+  gopt_ldap_base:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:418
+      gopt.ldap_base = strdup((char *)val);
+
+  gopt_ldap_hostports:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:469
+      gopt.ldap_hostports = strdup((char *)val);
+
+  gopt_local_domain:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:409
+      gopt.sub_domain = strdup((char *)val);
+
+  gopt_log_file:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:482
+      gopt.logfile = strdup((char *)val);
+
+  gopt_log_options:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:490
+      usage += switch_option(strdup((char *)val));
+
+  gopt_map_options:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:498
+      gopt.map_options = strdup((char *)val);
+
+  gopt_map_type:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:506
+      gopt.map_type = strdup((char *)val);
+
+  gopt_nis_domain:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:573
+      gopt.nis_domain = strdup((char *)val);
+
+  gopt_os:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:601
+      gopt.op_sys = strdup((char *)val);
+
+  gopt_osver:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:609
+      gopt.op_sys_ver = strdup((char *)val);
+
+  gopt_search_path:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:680
+      gopt.search_path = strdup((char *)val);
+
+  Grid_Factory_i::pool_name:
+    ace\tao\examples\Persistent_Grid\Grid_i.cpp:256
+      this->pool_name_ = ACE_OS::strdup (name);
+
+  grscan:
+    netbsdsrc\lib\libc\gen\getgrent.c:339
+      grname = strdup(tptr + 1);
+
+  Handle_Thr_Acceptor<SVH, PR_AC_2>::info:
+    ace\examples\Service_Configurator\IPC-tests\server\Handle_Thr_Stream.cpp:50
+      if (*strp == 0 && (*strp = ACE_OS::strdup (buf)) == 0)
+
+  hashit:
+    netbsdsrc\usr.bin\xstr\xstr.c:362
+      if (!(hp->hstr = strdup(str))) {
+
+  hasopt:
+    netbsdsrc\sbin\mount\mount.c:278
+      optbuf = strdup(mntopts);
+
+  Headers_Map::place:
+    ace\apps\jaws\server\Parse_Headers.cpp:304
+      this->garbage_.header_ = ACE_OS::strdup (header);
+
+  history_def_insert:
+    netbsdsrc\lib\libedit\history.c:360
+      h->cursor->ev.str = strdup(str);
+
+  HTTP_Base::extract_line:
+    ace\apps\jaws2\httpu\http_base.cpp:302
+      this->line_ = ACE_OS::strdup (mb.rd_ptr ());
+
+  HTTP_Parse_URL::init: (2 call sites)
+    ace\apps\jaws2\httpu\parse_url.cpp:46
+      url_ = ACE_OS::strdup( url );
+    ace\apps\jaws2\httpu\parse_url.cpp:49 [reference]
+      error_ = STRDUP;
+
+  HTTP_Request::cgi_args_and_env:
+    ace\apps\jaws\server\HTTP_Request.cpp:568
+      this->query_string_ = ACE_OS::strdup (cgi_question);
+
+  HTTP_Request::cgi_in_path: (2 call sites)
+    ace\apps\jaws\server\HTTP_Request.cpp:451
+      cgi_path = ACE_OS::strdup (HTTP_Config::instance ()->cgi_path ());
+    ace\apps\jaws\server\HTTP_Request.cpp:453
+      cgi_path = ACE_OS::strdup ("");
+
+  HTTP_Request::cgi@408:
+    ace\apps\jaws\server\HTTP_Request.cpp:433
+      this->path_info_ = ACE_OS::strdup (extra_path_info);
+
+  HTTP_Request::method@332:
+    ace\apps\jaws\server\HTTP_Request.cpp:344
+      this->method_ = ACE_OS::strdup (method_string);
+
+  HTTP_Request::path@610:
+    ace\apps\jaws\server\HTTP_Request.cpp:658
+      this->path_ = ACE_OS::strdup (buf);
+
+  HTTP_Request::uri@349:
+    ace\apps\jaws\server\HTTP_Request.cpp:362
+      this->uri_ = ACE_OS::strdup (uri_string);
+
+  HTTP_Request::version@370:
+    ace\apps\jaws\server\HTTP_Request.cpp:377
+      this->version_ = ACE_OS::strdup (version_string);
+
+  Identifier::Identifier@84: (2 call sites)
+    ace\tao\tao_idl\util\utl_identifier.cpp:114
+      this->pv_string = ACE_OS::strdup (s + 1);
+    ace\tao\tao_idl\util\utl_identifier.cpp:118
+      this->pv_string = ACE_OS::strdup (s);
+
+  Identifier::replace_string:
+    ace\tao\tao_idl\util\utl_identifier.cpp:142
+      this->pv_string = ACE_OS::strdup (s);
+
+  IDL_GlobalData::set_local_escapes:
+    ace\tao\tao_idl\util\utl_global.cpp:418
+      this->pd_local_escapes = ACE_OS::strdup (e);
+
+  innetgr:
+    netbsdsrc\lib\libc\gen\getnetgrent.c:677
+      found = in_find(ypdom, sl, strdup(grp), host, user, domain);
+
+  input:
+    netbsdsrc\usr.bin\column\column.c:289
+      list[entries++] = strdup(buf);
+
+  Input_Handler::handle_input: (2 call sites)
+    ace\apps\Orbix-Examples\Event_Comm\Consumer\Input_Handler.cpp:134
+      notification.tag_ = ACE_OS::strdup (buf);
+    ace\apps\Orbix-Examples\Event_Comm\Supplier\Input_Handler.cpp:123
+      notification.tag_ = ACE_OS::strdup (buf);
+
+  JAWS_Header_Data::header_name@51:
+    ace\apps\jaws2\jaws\Headers.cpp:56
+      this->header_name_ = name ? ACE_OS::strdup (name) : 0;
+
+  JAWS_Header_Data::header_value@59:
+    ace\apps\jaws2\jaws\Headers.cpp:64
+      this->header_value_ = value ? ACE_OS::strdup (value) : 0;
+
+  JAWS_Header_Data::JAWS_Header_Data: (2 call sites)
+    ace\apps\jaws2\jaws\Headers.cpp:9
+      : header_name_ (name ? ACE_OS::strdup (name) : 0),
+    ace\apps\jaws2\jaws\Headers.cpp:10
+      header_value_ (value ? ACE_OS::strdup (value) : 0),
+
+  JAWS_Header_Data::JAWS_Header_Data@15: (2 call sites)
+    ace\apps\jaws2\jaws\Headers.cpp:17
+      : header_name_ (name ? ACE_OS::strdup (name) : 0),
+    ace\apps\jaws2\jaws\Headers.cpp:18
+      header_value_ (value ? ACE_OS::strdup (value) : 0),
+
+  JAWS_HTTP_10_Request::path@62:
+    ace\apps\jaws2\HTTP_10_Request.cpp:118
+      this->path_ = ACE_OS::strdup (buf);
+
+  JAWS_Strdup_String::JAWS_Strdup_String@39:
+    ace\apps\jaws2\jaws\Cache_Manager.cpp:44
+      this->s_ = ACE_OS::strdup (s);
+
+  JAWS_Strdup_String::operator =:
+    ace\apps\jaws2\jaws\Cache_Manager.cpp:81
+      this->s_ = ACE_OS::strdup (s);
+
+  kcmd:
+    netbsdsrc\usr.bin\rlogin\kcmd.c:115
+      host_save = strdup(hp->h_name);
+
+  Logger_i::Logger_i:
+    ace\tao\examples\Logging\Logger_i.cpp:69
+      : name_ (ACE_OS::strdup (name)),
+
+  Logger::Logger:
+    ace\apps\Orbix-Examples\Logger\Logger.cpp:22
+      : server_ (server == 0 ? 0 : ACE_OS::strdup (server)),
+
+  main: (29 call sites)
+    ace\tao\tests\Multiple_Inheritance\client.cpp:99
+      ior = ACE_OS::strdup (data);
+    apache\src\support\ab.c:1508
+      gnuplot = strdup(optarg);
+    apache\src\support\ab.c:1514
+      csvperc = strdup(optarg);
+    ... and 26 more (use --verbose to see all)
+
+  main@7542:
+    apache\src\main\http_main.c:7585
+      llp_dir = strdup(optarg);
+
+  manual:
+    netbsdsrc\usr.bin\man\man.c:474
+      (ep->s = strdup(page)) == NULL) {
+
+  network_connected:
+    netbsdsrc\usr.bin\passwd\krb5_passwd.c:914
+      username = strdup(tmpname);
+
+  node__try:
+    netbsdsrc\lib\libedit\key.c:378
+      ptr->val.str = strdup(val->str);
+
+  Notification_Receiver_Entry::criteria:
+    ace\apps\Orbix-Examples\Event_Comm\libsrc\Notifier_i.cpp:50
+      this->filtering_criteria_ = ACE_OS::strdup (criteria);
+
+  Notification_Receiver_Entry::Notification_Receiver_Entry:
+    ace\apps\Orbix-Examples\Event_Comm\libsrc\Notifier_i.cpp:99
+      compile_buffer = ACE_OS::strdup ("");
+
+  o_set:
+    netbsdsrc\usr.bin\vi\common\options.c:725
+      if (LF_ISSET(OS_STRDUP) && (str = strdup(str)) == NULL) {
+
+  Object_Group_Factory_i::list_groups:
+    ace\tao\examples\Load_Balancing_persistent\Load_Balancer_i.cpp:440
+      (*list)[i] = ACE_OS::strdup (hash_entry->ext_id_);
+
+  open_input:
+    netbsdsrc\usr.bin\rpcgen\rpc_main.c:383
+      dos_cppfile = strdup(cppfile);
+
+  opendir:
+    apache\src\os\win32\readdir.c:97
+      dp->dir = strdup(dir);
+
+  ops_match:
+    netbsdsrc\usr.sbin\amd\amd\am_ops.c:293
+      fo->opt_opts = strdup(old + 1);
+
+  optional:
+    jt4\service\native\arguments.c:68
+      return(strdup(argv[argi]));
+
+  Options::Options: (2 call sites)
+    ace\tao\orbsvcs\IFR_Service\Options.cpp:9
+      : ior_output_file_ (ACE_OS::strdup ("if_repo.ior")),
+    ace\tao\orbsvcs\IFR_Service\Options.cpp:11
+      persistent_file_ (ACE_OS::strdup ("ifr_default_backing_store")),
+
+  p_class:
+    netbsdsrc\usr.bin\chpass\field.c:176
+      else if (!(pw->pw_class = strdup(p))) {
+
+  p_gecos:
+    netbsdsrc\usr.bin\chpass\field.c:219
+      else if (!(ep->save = strdup(p))) {
+
+  p_hdir:
+    netbsdsrc\usr.bin\chpass\field.c:237
+      if (!(pw->pw_dir = strdup(p))) {
+
+  p_login:
+    netbsdsrc\usr.bin\chpass\field.c:75
+      if (!(pw->pw_name = strdup(p))) {
+
+  p_passwd:
+    netbsdsrc\usr.bin\chpass\field.c:98
+      else if (!(pw->pw_passwd = strdup(p))) {
+
+  p_shell:
+    netbsdsrc\usr.bin\chpass\field.c:270
+      if (!(pw->pw_shell = strdup(p))) {
+
+  parse: (8 call sites)
+    jt4\service\native\arguments.c:99
+      log_prog=strdup(cmnd);
+    jt4\service\native\arguments.c:167
+      args->opts[args->onum++]=strdup(argv[x]);
+    jt4\service\native\arguments.c:183
+      args->opts[args->onum++]=strdup(argv[x]);
+    ... and 5 more (use --verbose to see all)
+
+  parse_args: (18 call sites)
+    ace\tao\examples\poa\dsi\client.cpp:38
+      IOR = ACE_OS::strdup (get_opts.optarg);
+    ace\tao\examples\poa\Generic_Servant\client.cpp:43
+      IOR = ACE_OS::strdup (get_opts.optarg);
+    ace\tao\examples\poa\tie\client.cpp:37
+      IOR[1] = ACE_OS::strdup (get_opts.optarg);
+    ... and 15 more (use --verbose to see all)
+
+  parse_conf: (6 call sites)
+    netbsdsrc\libexec\ftpd\conf.c:162
+      suffix = strdup(arg);
+    netbsdsrc\libexec\ftpd\conf.c:173
+      types = strdup(types);
+    netbsdsrc\libexec\ftpd\conf.c:174
+      disable = strdup(disable);
+    ... and 3 more (use --verbose to see all)
+
+  parse_file: (2 call sites)
+    netbsdsrc\usr.bin\newsyslog\newsyslog.c:267
+      errline = strdup(line);
+    netbsdsrc\usr.bin\newsyslog\newsyslog.c:278
+      working->log = strdup(q);
+
+  Parse_HTTP_Request::init:
+    ace\apps\jaws2\httpu\parse_http_request.cpp:39
+      this->request_ = ACE_OS::strdup (request);
+
+  Parse_HTTP_Response::init:
+    ace\apps\jaws2\httpu\parse_http_response.cpp:30
+      this->response_ = ACE_OS::strdup (response);
+
+  pat_sel:
+    netbsdsrc\bin\pax\pat_rep.c:383
+      if ((pt->pstr = strdup(arcn->name)) == NULL) {
+
+  Peer_Factory::info:
+    ace\apps\Gateway\Peer\Peer.cpp:818
+      if (*strp == 0 && (*strp = ACE_OS::strdup (buf)) == 0)
+
+  pfnote: (2 call sites)
+    netbsdsrc\usr.bin\ctags\tree.c:89
+      if (!(np->entry = strdup(name)))
+    netbsdsrc\usr.bin\ctags\tree.c:94
+      if (!(np->pat = strdup(lbuf)))
+
+  PP_Test_Client::parse_args:
+    ace\tao\performance-tests\Pluggable\PP_Test_Client.cpp:137
+      ACE_OS::strdup (get_opts.optarg);
+
+  PP_Test_Client::read_ior:
+    ace\tao\performance-tests\Pluggable\PP_Test_Client.cpp:95
+      this->factory_key_ = ACE_OS::strdup (data);
+
+  process_regular_option:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:734
+      cfm->cfm_dir = strdup((char *)section);
+
+  putenv:
+    netbsdsrc\lib\libc\stdlib\putenv.c:60
+      if (!(p = strdup(str)))
+
+  pw_edit: (2 call sites)
+    netbsdsrc\lib\libutil\passwd.c:164
+      editor = strdup(_PATH_VI);
+    netbsdsrc\lib\libutil\passwd.c:166
+      editor = strdup(editor);
+
+  Quoter_Client::Quoter_Client:
+    ace\tao\examples\Quoter\client.cpp:27
+      quoter_key_ (ACE_OS::strdup ("key0")),
+
+  rcv_mailfile:
+    netbsdsrc\usr.bin\vi\common\recover.c:380
+      if ((ep->rcv_mpath = strdup(mpath)) == NULL) {
+
+  rcv_read: (2 call sites)
+    netbsdsrc\usr.bin\vi\common\recover.c:704
+      if ((recp = strdup(recpath)) == NULL) {
+    netbsdsrc\usr.bin\vi\common\recover.c:709
+      if ((pathp = strdup(path)) == NULL) {
+
+  rcv_tmp:
+    netbsdsrc\usr.bin\vi\common\recover.c:169
+      if ((ep->rcv_path = strdup(path)) == NULL) {
+
+  read_IOR_from_file: (2 call sites)
+    ace\tao\examples\poa\dsi\client.cpp:91
+      IOR = ACE_OS::strdup (data);
+    ace\tao\examples\poa\Generic_Servant\client.cpp:147
+      IOR = ACE_OS::strdup (data);
+
+  read_preread:
+    netbsdsrc\lib\libedit\read.c:170
+      el->el_chared.c_macro.nline = strdup(buf);
+
+  readExports:
+    apache\src\os\unix\os-aix-dso.c:615
+      ep->name = strdup(symname);
+
+  regerror:
+    netbsdsrc\lib\libcompat\4.3\regex.c:97
+      re_errstr = strdup(s);
+
+  remember_rup_data:
+    netbsdsrc\usr.bin\rup\rup.c:161
+      rup_data[rup_data_idx].host = strdup(host);
+
+  rmtgetconn:
+    netbsdsrc\sbin\dump\dumprmt.c:148
+      if ((name = strdup(pwd->pw_name)) == NULL)
+
+  ropt_map_name:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:783
+      cfm->cfm_name = strdup((char *)val);
+
+  ropt_map_options:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:791
+      cfm->cfm_opts = strdup((char *)val);
+
+  ropt_map_type:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:799
+      cfm->cfm_type = strdup((char *)val);
+
+  ropt_search_path:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:828
+      cfm->cfm_search_path = strdup((char *)val);
+
+  ropt_tag:
+    netbsdsrc\usr.sbin\amd\amd\conf.c:836
+      cfm->cfm_tag = strdup((char *)val);
+
+  scan_obv_token: (2 call sites)
+    ace\tao\tao_idl\fe\lex.yy.cpp:844
+      tao_yylval.strval = ACE_OS::strdup (entry->mapping_);
+    ace\tao\tao_idl\fe\lex.yy.cpp:846
+      tao_yylval.strval = ACE_OS::strdup (ace_tao_yytext);
+
+  screen_init:
+    netbsdsrc\usr.bin\vi\common\screen.c:71
+      (sp->alt_name = strdup(orig->alt_name)) == NULL)
+
+  search_or_reload_file: (2 call sites)
+    netbsdsrc\usr.sbin\amd\amd\info_file.c:159
+      char *dc = strdup(cp);
+    netbsdsrc\usr.sbin\amd\amd\info_file.c:161
+      (*fn) (m, strdup(kp), dc);
+
+  Server::parse_args: (3 call sites)
+    ace\tao\orbsvcs\tests\AVStreams\Full_Profile\server.cpp:209
+      this->protocol_ = ACE_OS::strdup (opts.optarg);
+    ace\tao\orbsvcs\tests\AVStreams\Multicast_Full_Profile\server.cpp:229
+      this->protocol_ = ACE_OS::strdup (opts.optarg);
+    ace\tao\orbsvcs\tests\AVStreams\Multicast\server.cpp:166
+      this->protocol_ = ACE_OS::strdup (opts.optarg);
+
+  Server::write_iors: (2 call sites)
+    ace\tao\performance-tests\Cubit\tao\MT_Cubit\server.cpp:134
+      this->cubits_[0] = ACE_OS::strdup (this->high_priority_task_->get_servant_ior...
+    ace\tao\performance-tests\Cubit\tao\MT_Cubit\server.cpp:140
+      ACE_OS::strdup (this->low_priority_tasks_[j-1]->get_servant_ior (0));
+
+  service95_main:
+    apache\src\os\win32\service.c:412
+      service_name = strdup(display_name);
+
+  set_alt_name:
+    netbsdsrc\usr.bin\vi\common\exf.c:1257
+      else if ((sp->alt_name = strdup(name)) == NULL)
+
+  setnetgrent:
+    netbsdsrc\lib\libc\gen\getnetgrent.c:608
+      ng_copy = strdup(ng);
+
+  setupargv:
+    netbsdsrc\sbin\init\init.c:1006
+      sp->se_window = strdup(typ->ty_window);
+
+  setupterm: (3 call sites)
+    netbsdsrc\usr.bin\vi\cl\cl_bsd.c:179
+      ke = ((p = tigetstr("rmkx")) == (char *)-1) ? NULL : strdup(p);
+    netbsdsrc\usr.bin\vi\cl\cl_bsd.c:182
+      ks = ((p = tigetstr("smkx")) == (char *)-1) ? NULL : strdup(p);
+    netbsdsrc\usr.bin\vi\cl\cl_bsd.c:185
+      vb = ((p = tigetstr("flash")) == (char *)-1) ? NULL : strdup(p);
+
+  shell: (2 call sites)
+    netbsdsrc\usr.bin\tn3270\sys_curses\system.c:650
+      keyname = strdup("/tmp/apiXXXXXX");
+    netbsdsrc\usr.bin\tn3270\sys_curses\system.c:656
+      keyname = mktemp(strdup("/tmp/apiXXXXXX"));
+
+  show_chdir_messages:
+    netbsdsrc\libexec\ftpd\conf.c:330
+      cp = strdup(cwd);
+
+  store:
+    netbsdsrc\libexec\mail.local\mail.local.c:140
+      tn = strdup(_PATH_LOCTMP);
+
+  strdup:
+    apache\src\main\util.c:1764
+      fprintf(stderr, "Ouch! Out of memory in our strdup()!\n");
+
+  Strdup:
+    netbsdsrc\sys\dev\microcode\aic7xxx\aic7xxx_asm.c:101
+      Strdup(char *s)
+
+  Supplier_Input_Handler::handle_input:
+    ace\tao\examples\Event_Comm\Supplier_Input_Handler.cpp:106
+      event.tag_ = ACE_OS::strdup (buf);
+
+  Supplier_Router::info: (2 call sites)
+    ace\examples\asx\Event_Server\Event_Server\Supplier_Router.cpp:150
+      if (*strp == 0 && (*strp = ACE_OS::strdup (mod_name)) == 0)
+    ace\examples\asx\UPIPE_Event_Server\Supplier_Router.cpp:122
+      if (*strp == 0 && (*strp = ACE_OS::strdup (mod_name)) == 0)
+
+  Supplier::parse_args:
+    ace\tao\examples\Callback_Quoter\Supplier_i.cpp:113
+      this->ior_ = ACE_OS::strdup (get_opts.optarg);
+
+  Supplier::read_ior:
+    ace\tao\examples\Callback_Quoter\Supplier_i.cpp:73
+      this->ior_ = ACE_OS::strdup (data);
+
+  tagf_copy:
+    netbsdsrc\usr.bin\vi\ex\ex_tag.c:701
+      if ((tfp->name = strdup(otfp->name)) == NULL)
+
+  TAO_ECG_Mcast_EH::TAO_ECG_Mcast_EH:
+    ace\tao\orbsvcs\orbsvcs\Event\EC_Gateway_UDP.cpp:1056
+      : net_if_ (net_if?ACE_OS::strdup (net_if):0),
+
+  TAO_IIOP_Connector::preconnect:
+    ace\tao\tao\IIOP_Connector.cpp:261
+      ACE_OS::strdup (protocol_removed);
+
+  TAO_NT_Naming_Service::init: (2 call sites)
+    ace\tao\orbsvcs\Naming_Service\NT_Naming_Service.cpp:103
+      argv_save_[i] = ACE_OS::strdup (argv[i]);
+    ace\tao\orbsvcs\Naming_Service\NT_Naming_Service.cpp:107
+      argv_save_[i] = ACE_OS::strdup (args.argv ()[j++]);
+
+  TAO_ORB_Core::TAO_ORB_Core:
+    ace\tao\tao\ORB_Core.cpp:113
+      orbid_ (ACE_OS::strdup (orbid ? orbid : "")),
+
+  TAO_Persistent_Context_Index::open:
+    ace\tao\orbsvcs\orbsvcs\Naming\Persistent_Context_Index.cpp:155
+      index_file_ = ACE_OS::strdup (file_name);
+
+  TAO_SHMIOP_Connector::preconnect:
+    ace\tao\tao\Strategies\SHMIOP_Connector.cpp:272
+      ACE_OS::strdup (protocol_removed);
+
+  TAO_UIOP_Connector::preconnect:
+    ace\tao\tao\Strategies\UIOP_Connector.cpp:256
+      ACE_OS::strdup (protocol_removed);
+
+  Task_State::parse_args:
+    ace\tao\performance-tests\Cubit\tao\MT_Cubit\Task_Client.cpp:86
+      ior_file_ = ACE_OS::strdup (opts.optarg);
+
+  Test_Aio::init:
+    ace\examples\Reactor\Proactor\test_aiocb.cpp:96
+      this->buffer_write_ = strdup ("Welcome to the world of AIO... AIO Rules !!!");
+
+  tok_init:
+    netbsdsrc\lib\libedit\tokenizer.c:112
+      tok->ifs = strdup(ifs ? ifs : IFS);
+
+  toremote:
+    netbsdsrc\bin\rcp\rcp.c:306
+      if ((name = strdup(pwd->pw_name)) == NULL)
+
+  url_get: (2 call sites)
+    netbsdsrc\usr.bin\ftp\fetch.c:113
+      line = strdup(origline);
+    netbsdsrc\usr.bin\ftp\fetch.c:152
+      proxy = strdup(proxyenv);
+
+  userinfo: (7 call sites)
+    netbsdsrc\usr.bin\finger\util.c:379
+      pn->name = strdup(pw->pw_name);
+    netbsdsrc\usr.bin\finger\util.c:380
+      pn->dir = strdup(pw->pw_dir);
+    netbsdsrc\usr.bin\finger\util.c:381
+      pn->shell = strdup(pw->pw_shell);
+    ... and 4 more (use --verbose to see all)
+
+  UTL_String::UTL_String@103:
+    ace\tao\tao_idl\util\utl_string.cpp:124
+      this->p_str = ACE_OS::strdup (b);
+
+  UTL_String::UTL_String@86:
+    ace\tao\tao_idl\util\utl_string.cpp:97
+      this->p_str = ACE_OS::strdup (str);
+
+  xstrdup:
+    netbsdsrc\libexec\ld.elf_so\xmalloc.c:57
+      char *p = strdup(s);
+
+  yp_master:
+    netbsdsrc\lib\libc\yp\yp_master.c:96
+      if ((*outname = strdup(yprm.master)) == NULL)
+
+  ypmatch_add: (2 call sites)
+    netbsdsrc\lib\libc\yp\yp_match.c:124
+      if ((ep->map = strdup(map)) == NULL)
+    netbsdsrc\lib\libc\yp\yp_match.c:128
+      if ((ep->map = strdup(map)) == NULL)
+

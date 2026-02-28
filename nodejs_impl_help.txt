@@ -1,0 +1,56 @@
+
+code-exam - Air-Gapped Source Code Examination Tool (Node.js)
+Version: 0.1.0 (Node.js port)
+
+USAGE:
+  node src/index.js [options]
+
+INDEX MANAGEMENT:
+  --build-index <path>       Build index from directory, file, glob, or @filelist
+  --index-path <path>        Path to index directory (default: .code_search_index)
+  --skip-semantic            Skip semantic/embedding indexing (default)
+  --use-tree-sitter          Use tree-sitter for function parsing
+  --extensions <exts>        Comma-separated file extensions to index
+
+SEARCH:
+  --search <query>           Hybrid search (literal + semantic)
+  --literal <query>          Literal/exact text search
+  --fast <query>             Fast inverted-index search
+  --regex <pattern>          Regex pattern search
+  --files-search <query>     Show files containing a term, sorted by hit count
+  --folders-search <query>   Show folders containing a term, sorted by hit count
+
+BROWSE:
+  --stats                    Show index statistics
+  --list-files [pattern]     List indexed files (optional filter)
+  --show-file <pattern>      Display entire file contents
+  --list-functions [pattern] List functions (optional filter)
+  --list-functions-alpha     List all functions alphabetically
+  --list-functions-size      List all functions sorted by size
+  --extract <spec>           Extract function source: FUNCTION or FILE@FUNCTION
+  --scan-extensions <path>   Count file extensions in a directory
+  --index-extensions         Count file extensions in current index
+  --list-indexes [path]      List available index directories
+
+DISPLAY:
+  --max-results <n>          Maximum results to display (default: 20)
+  --context <n>              Context lines around matches (default: 3)
+  -v, --verbose              Show extra detail
+  --full-path                Show full file paths in output
+  --filter <text>            Filter function listings by name
+  --include-path <patterns>  Only include paths containing pattern(s)
+  --exclude-path <patterns>  Exclude paths containing pattern(s)
+  --dedup <mode>             Dedup mode: none, exact, structural
+
+MODE:
+  -i, --interactive          Start interactive REPL mode
+
+EXAMPLES:
+  node src/index.js --build-index ./my-project
+  node src/index.js --stats
+  node src/index.js --fast "TODO"
+  node src/index.js --list-functions "main"
+  node src/index.js --extract "build_index"
+  node src/index.js --files-search "import" --max-results 50
+  node src/index.js --hotspots 20
+

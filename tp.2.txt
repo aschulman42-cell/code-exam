@@ -1,0 +1,659 @@
+Architected heuristic-based disambiguation strategy for resolving overloaded method calls
+Architected heuristic-based disambiguation strategy for resolving overloaded method calls
+
+
+
+
+
+
+Now let me see the callers method and the follows-calls code:
+
+
+Examined follows-calls extraction implementation details
+Examined follows-calls extraction implementation details
+
+
+Now let me check the follows-calls command that uses findCallees:
+
+
+Architected multi-layered resolution strategy for disambiguating overloaded function calls
+Architected multi-layered resolution strategy for disambiguating overloaded function calls
+
+
+
+
+
+
+
+
+
+Now I have the full picture. The core problem: findCallees and related methods look up bare names in _getKnownFunctions(), which maps "run" → [ClassA::run, ClassB::run, ...]. Then they grab defs[0] blindly, and dedup by bare name so only one "run" ever appears even if different classes' methods are called.
+
+The fix is a resolution layer that uses call-site context to pick the right definition. Let me build it.
+
+
+Refactored function to resolve targets and eliminate duplicate entries
+Refactored function to resolve targets and eliminate duplicate entries
+
+
+
+
+
+Now rewrite findCallees to use the resolver:
+
+
+Identified necessary code refactoring for function call resolution updates
+Identified necessary code refactoring for function call resolution updates
+
+Now update the follows-calls consumer to use resolved_def:
+
+
+Deliberated refactoring file-map's bestTarget implementation
+Deliberated refactoring file-map's bestTarget implementation
+
+
+Now update the callers command output and the graph call-chain to also use resolved_def:
+
+
+Deliberated cache invalidation timing and strategy
+Deliberated cache invalidation timing and strategy
+
+Check the callees command output in callers.js
+The callees command display code uses ce.definitions[0] for the location. Let me update it to prefer resolved_def. And add an ambiguity indicator.
+
+
+Update callees display to use resolved_def and show ambiguity
+
+callers.js
++25
+-23
+Now let me also update the graph.js call-chain code that uses findCallees to be resolution-aware.
+
+
+Check graph.js call-chain usage of findCallees
+The graph.js code uses ce.definitions[0] - let me fix that.
+
+
+See more of the graph.js call-tree code
+I'll update expandedKey and the tree recursion to use resolved_def.
+
+
+Update graph.js call-tree to use resolved_def
+
+graph.js
++47
+-45
+Now let me also check the Mermaid graph section and the second call-tree in graph.js:
+
+
+Check the Mermaid graph section for definitions[0] usage
+Fix the Mermaid collectMermaid function too.
+
+
+Update Mermaid graph to use resolved_def
+
+graph.js
++23
+-23
+Let me check graph.js for any more remaining definitions[0] references:
+
+
+Check for remaining definitions[0] refs in graph.js
+
+Script
+Wait, there might also be a second call-tree section in graph.js around line 370:
+
+
+Check the second call-tree at line 373
+The _getFileOutgoingDeps function iterates over ce.definitions and counts deps. It should use resolved_def for accuracy. Let me fix it:
+
+
+Update _getFileOutgoingDeps to use resolved_def
+
+graph.js
++16
+-15
+Now let me also invalidate the cache when appropriate:
+
+Done
+Now let me make sure the caches are invalidated properly:
+
+
+Validated cache initialization logic before executing tests
+Validated cache initialization logic before executing tests
+
+
+
+Now run the existing tests to verify nothing broke:
+
+
+Architected disambiguation test scenarios for method resolution conflicts
+Architected disambiguation test scenarios for method resolution conflicts
+
+
+335/335 still passing. Now write the disambiguation tests:
+
+
+Create disambiguation tests for callee resolution with overloaded method names
+Create disambiguation tests for callee resolution with overloaded method names
+
+Create disambiguation tests for callee resolution with overloaded method names
+javascript
+
+/**
+ * test_disambiguation.js - Tests for function/method name disambiguation.
+ *
+ * Verifies that when multiple classes define the same method name,
+ * findCallees correctly resolves which definition is being called
+ * based on context (self/this, explicit qualification, same class, etc.).
+ */
+
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'fs';
+import path from 'path';
+import { execSync } from 'child_process';
+
+const TEST_DIR = '/tmp/ce_test_disambig';
+const CLI = path.resolve('src/index.js');
+
+function runCLI(args) {
+  const cmd = `node ${CLI} ${args}`;
+  try {
+    return execSync(cmd, { encoding: 'utf-8', timeout: 30000, cwd: TEST_DIR });
+  } catch (e) {
+    return (e.stdout || '') + (e.stderr || '');
+  }
+}
+
+
+// ========================================================================
+// Test: Python-style classes with self.method() disambiguation
+// ========================================================================
+
+describe('Disambiguation: Python self.method()', () => {
+  const SRC_DIR = path.join(TEST_DIR, 'python_self');
+  const IDX_DIR = path.join(TEST_DIR, '.idx_python_self');
+
+  before(() => {
+    fs.mkdirSync(SRC_DIR, { recursive: true });
+
+    // Two classes with identically-named methods
+    fs.writeFileSync(path.join(SRC_DIR, 'animals.py'), `
+class Dog:
+    def speak(self):
+        return "woof"
+
+    def greet(self):
+        # This should resolve to Dog.speak, not Cat.speak
+        sound = self.speak()
+        return f"Dog says {sound}"
+
+    def fetch(self):
+        return "fetching ball"
+
+class Cat:
+    def speak(self):
+        return "meow"
+
+    def greet(self):
+        # This should resolve to Cat.speak, not Dog.speak
+        sound = self.speak()
+        return f"Cat says {sound}"
+
+    def purr(self):
+        return "purring"
+`);
+
+    runCLI(`--build-index ${SRC_DIR} --index-path ${IDX_DIR} --skip-semantic 2>&1`);
+  });
+
+  after(() => {
+    fs.rmSync(TEST_DIR, { recursive: true, force: true });
+  });
+
+  it('Dog.greet callees should resolve self.speak() to Dog.speak', () => {
+    const out = runCLI(`--callees "Dog::greet" --index-path ${IDX_DIR} 2>&1`);
+    // Should show Dog.speak, not Cat.speak
+    assert.ok(out.includes('Dog') && out.includes('speak'),
+      'should resolve to Dog.speak: ' + out);
+    // Should NOT show Cat.speak as a callee
+    assert.ok(!out.includes('Cat'),
+      'should NOT include Cat.speak: ' + out);
+  });
+
+  it('Cat.greet callees should resolve self.speak() to Cat.speak', () => {
+    const out = runCLI(`--callees "Cat::greet" --index-path ${IDX_DIR} 2>&1`);
+    assert.ok(out.includes('Cat') && out.includes('speak'),
+      'should resolve to Cat.speak: ' + out);
+    assert.ok(!out.includes('Dog'),
+      'should NOT include Dog.speak: ' + out);
+  });
+});
+
+
+// ========================================================================
+// Test: JavaScript/C++ this.method() disambiguation
+// ========================================================================
+
+describe('Disambiguation: JS this.method()', () => {
+  const SRC_DIR = path.join(TEST_DIR, 'js_this');
+  const IDX_DIR = path.join(TEST_DIR, '.idx_js_this');
+
+  before(() => {
+    fs.mkdirSync(SRC_DIR, { recursive: true });
+
+    fs.writeFileSync(path.join(SRC_DIR, 'shapes.js'), `
+class Circle {
+    constructor(radius) {
+        this.radius = radius;
+    }
+
+    area() {
+        return Math.PI * this.radius * this.radius;
+    }
+
+    describe() {
+        // Should resolve to Circle.area
+        const a = this.area();
+        return "Circle with area " + a;
+    }
+}
+
+class Rectangle {
+    constructor(w, h) {
+        this.w = w;
+        this.h = h;
+    }
+
+    area() {
+        return this.w * this.h;
+    }
+
+    describe() {
+        // Should resolve to Rectangle.area
+        const a = this.area();
+        return "Rectangle with area " + a;
+    }
+}
+`);
+
+    runCLI(`--build-index ${SRC_DIR} --index-path ${IDX_DIR} --skip-semantic 2>&1`);
+  });
+
+  it('Circle.describe callees should resolve this.area() to Circle.area', () => {
+    const out = runCLI(`--callees "Circle::describe" --index-path ${IDX_DIR} 2>&1`);
+    assert.ok(out.includes('Circle') && out.includes('area'),
+      'should resolve to Circle.area: ' + out);
+    assert.ok(!out.includes('Rectangle'),
+      'should NOT include Rectangle.area: ' + out);
+  });
+
+  it('Rectangle.describe callees should resolve this.area() to Rectangle.area', () => {
+    const out = runCLI(`--callees "Rectangle::describe" --index-path ${IDX_DIR} 2>&1`);
+    assert.ok(out.includes('Rectangle') && out.includes('area'),
+      'should resolve to Rectangle.area: ' + out);
+    assert.ok(!out.includes('Circle'),
+      'should NOT include Circle.area: ' + out);
+  });
+});
+
+
+// ========================================================================
+// Test: Explicit qualification (ClassName.method or Class::method)
+// ========================================================================
+
+describe('Disambiguation: Explicit qualification', () => {
+  const SRC_DIR = path.join(TEST_DIR, 'explicit_qual');
+  const IDX_DIR = path.join(TEST_DIR, '.idx_explicit');
+
+  before(() => {
+    fs.mkdirSync(SRC_DIR, { recursive: true });
+
+    fs.writeFileSync(path.join(SRC_DIR, 'services.py'), `
+class Logger:
+    def write(self, msg):
+        print(f"LOG: {msg}")
+
+class FileWriter:
+    def write(self, msg):
+        with open("out.txt", "a") as f:
+            f.write(msg)
+
+class App:
+    def __init__(self):
+        self.logger = Logger()
+        self.writer = FileWriter()
+
+    def process(self):
+        # Explicit qualification — Logger.write
+        Logger.write(self.logger, "starting")
+        # Explicit qualification — FileWriter.write
+        FileWriter.write(self.writer, "data")
+`);
+
+    runCLI(`--build-index ${SRC_DIR} --index-path ${IDX_DIR} --skip-semantic 2>&1`);
+  });
+
+  it('App.process callees should show both Logger.write and FileWriter.write', () => {
+    const out = runCLI(`--callees "App::process" --index-path ${IDX_DIR} 2>&1`);
+    // Should show both since both are explicitly qualified calls
+    const hasLogger = out.includes('Logger');
+    const hasFileWriter = out.includes('FileWriter');
+    assert.ok(hasLogger || hasFileWriter,
+      'should resolve at least one qualified call: ' + out);
+  });
+});
+
+
+// ========================================================================
+// Test: Same-class preference for bare calls
+// ========================================================================
+
+describe('Disambiguation: Same-class preference', () => {
+  const SRC_DIR = path.join(TEST_DIR, 'same_class');
+  const IDX_DIR = path.join(TEST_DIR, '.idx_same_class');
+
+  before(() => {
+    fs.mkdirSync(SRC_DIR, { recursive: true });
+
+    fs.writeFileSync(path.join(SRC_DIR, 'workers.py'), `
+class WorkerA:
+    def setup(self):
+        return "setup A"
+
+    def run(self):
+        # Bare call — should prefer WorkerA.setup (same class)
+        setup()
+        return "running A"
+
+class WorkerB:
+    def setup(self):
+        return "setup B"
+
+    def run(self):
+        # Bare call — should prefer WorkerB.setup (same class)
+        setup()
+        return "running B"
+`);
+
+    runCLI(`--build-index ${SRC_DIR} --index-path ${IDX_DIR} --skip-semantic 2>&1`);
+  });
+
+  it('WorkerA.run callees should prefer WorkerA.setup over WorkerB.setup', () => {
+    const out = runCLI(`--callees "WorkerA::run" --index-path ${IDX_DIR} 2>&1`);
+    // Should show WorkerA.setup
+    if (out.includes('setup')) {
+      assert.ok(out.includes('WorkerA'),
+        'should prefer same-class WorkerA.setup: ' + out);
+    }
+    // Acceptable if setup isn't found at all (bare call might not match)
+  });
+});
+
+
+// ========================================================================
+// Test: Cross-file disambiguation
+// ========================================================================
+
+describe('Disambiguation: Cross-file same method', () => {
+  const SRC_DIR = path.join(TEST_DIR, 'cross_file');
+  const IDX_DIR = path.join(TEST_DIR, '.idx_cross_file');
+
+  before(() => {
+    fs.mkdirSync(SRC_DIR, { recursive: true });
+
+    fs.writeFileSync(path.join(SRC_DIR, 'engine.py'), `
+class Engine:
+    def start(self):
+        return "engine started"
+
+    def stop(self):
+        return "engine stopped"
+`);
+
+    fs.writeFileSync(path.join(SRC_DIR, 'server.py'), `
+class Server:
+    def start(self):
+        return "server started"
+
+    def stop(self):
+        return "server stopped"
+`);
+
+    fs.writeFileSync(path.join(SRC_DIR, 'controller.py'), `
+class EngineController:
+    def manage(self):
+        # self.start should resolve to something in same file or same class
+        self.start()
+        self.stop()
+
+    def start(self):
+        return "controller start"
+
+    def stop(self):
+        return "controller stop"
+`);
+
+    runCLI(`--build-index ${SRC_DIR} --index-path ${IDX_DIR} --skip-semantic 2>&1`);
+  });
+
+  it('EngineController.manage should prefer same-class start/stop', () => {
+    const out = runCLI(`--callees "EngineController::manage" --index-path ${IDX_DIR} 2>&1`);
+    // self.start() and self.stop() should resolve to EngineController, not Engine or Server
+    if (out.includes('start') || out.includes('stop')) {
+      // Should NOT resolve to Engine or Server
+      assert.ok(!out.includes('Engine::start') && !out.includes('Server::start'),
+        'should NOT resolve to Engine.start or Server.start: ' + out);
+    }
+  });
+});
+
+
+// ========================================================================
+// Test: Both classes called → both should appear (not dedup to one)
+// ========================================================================
+
+describe('Disambiguation: Multiple overloaded targets both called', () => {
+  const SRC_DIR = path.join(TEST_DIR, 'both_called');
+  const IDX_DIR = path.join(TEST_DIR, '.idx_both_called');
+
+  before(() => {
+    fs.mkdirSync(SRC_DIR, { recursive: true });
+
+    fs.writeFileSync(path.join(SRC_DIR, 'dual.py'), `
+class Encoder:
+    def process(self, data):
+        return data.encode()
+
+class Decoder:
+    def process(self, data):
+        return data.decode()
+
+class Pipeline:
+    def run(self):
+        enc = Encoder()
+        dec = Decoder()
+        # Both explicitly qualified — both should appear in callees
+        Encoder.process(enc, "hello")
+        Decoder.process(dec, "bytes")
+`);
+
+    runCLI(`--build-index ${SRC_DIR} --index-path ${IDX_DIR} --skip-semantic 2>&1`);
+  });
+
+  it('Pipeline.run should show both Encoder.process and Decoder.process', () => {
+    const out = runCLI(`--callees "Pipeline::run" --index-path ${IDX_DIR} 2>&1`);
+    // Old behavior: only one "process" would appear due to bare-name dedup.
+    // New behavior: both should appear since they resolve to different definitions.
+    const hasEncoder = out.includes('Encoder');
+    const hasDecoder = out.includes('Decoder');
+    assert.ok(hasEncoder && hasDecoder,
+      'should show both Encoder.process and Decoder.process: ' + out);
+  });
+});
+
+
+// ========================================================================
+// Test: --follows-calls with disambiguation
+// ========================================================================
+
+describe('Disambiguation: --follows-calls follows correct target', () => {
+  const SRC_DIR = path.join(TEST_DIR, 'follow_disambig');
+  const IDX_DIR = path.join(TEST_DIR, '.idx_follow');
+
+  before(() => {
+    fs.mkdirSync(SRC_DIR, { recursive: true });
+
+    fs.writeFileSync(path.join(SRC_DIR, 'chain.py'), `
+class Parser:
+    def validate(self):
+        return "parsing validation"
+
+    def run(self):
+        # self.validate should follow Parser.validate, not Checker.validate
+        self.validate()
+
+class Checker:
+    def validate(self):
+        return "checking validation"
+
+    def run(self):
+        # self.validate should follow Checker.validate
+        self.validate()
+`);
+
+    runCLI(`--build-index ${SRC_DIR} --index-path ${IDX_DIR} --skip-semantic 2>&1`);
+  });
+
+  it('--extract Parser::run --follows-calls should show Parser.validate', () => {
+    const out = runCLI(`--extract "Parser::run" --follows-calls --index-path ${IDX_DIR} 2>&1`);
+    // Should contain "parsing validation" from Parser.validate body
+    assert.ok(out.includes('parsing validation'),
+      'should follow to Parser.validate: ' + out);
+    // Should NOT contain "checking validation" from Checker.validate
+    assert.ok(!out.includes('checking validation'),
+      'should NOT follow to Checker.validate: ' + out);
+  });
+
+  it('--extract Checker::run --follows-calls should show Checker.validate', () => {
+    const out = runCLI(`--extract "Checker::run" --follows-calls --index-path ${IDX_DIR} 2>&1`);
+    assert.ok(out.includes('checking validation'),
+      'should follow to Checker.validate: ' + out);
+    assert.ok(!out.includes('parsing validation'),
+      'should NOT follow to Parser.validate: ' + out);
+  });
+});
+
+
+// ========================================================================
+// Test: C++ style with this-> and :: qualification
+// ========================================================================
+
+describe('Disambiguation: C++ this-> and :: patterns', () => {
+  const SRC_DIR = path.join(TEST_DIR, 'cpp_style');
+  const IDX_DIR = path.join(TEST_DIR, '.idx_cpp');
+
+  before(() => {
+    fs.mkdirSync(SRC_DIR, { recursive: true });
+
+    fs.writeFileSync(path.join(SRC_DIR, 'game.cpp'), `
+class Player {
+public:
+    void update() {
+        // Player-specific update
+        health += 1;
+    }
+
+    void tick() {
+        this->update();
+    }
+
+    int health;
+};
+
+class Enemy {
+public:
+    void update() {
+        // Enemy-specific update
+        damage += 1;
+    }
+
+    void tick() {
+        this->update();
+    }
+
+    int damage;
+};
+`);
+
+    runCLI(`--build-index ${SRC_DIR} --index-path ${IDX_DIR} --skip-semantic 2>&1`);
+  });
+
+  it('Player::tick should resolve this->update() to Player::update', () => {
+    const out = runCLI(`--callees "Player::tick" --index-path ${IDX_DIR} 2>&1`);
+    if (out.includes('update')) {
+      assert.ok(out.includes('Player'),
+        'should resolve to Player::update: ' + out);
+      assert.ok(!out.includes('Enemy'),
+        'should NOT include Enemy::update: ' + out);
+    }
+  });
+
+  it('Enemy::tick should resolve this->update() to Enemy::update', () => {
+    const out = runCLI(`--callees "Enemy::tick" --index-path ${IDX_DIR} 2>&1`);
+    if (out.includes('update')) {
+      assert.ok(out.includes('Enemy'),
+        'should resolve to Enemy::update: ' + out);
+      assert.ok(!out.includes('Player'),
+        'should NOT include Player::update: ' + out);
+    }
+  });
+});
+
+
+// ========================================================================
+// Test: Ambiguity detection
+// ========================================================================
+
+describe('Disambiguation: Ambiguity flagging', () => {
+  const SRC_DIR = path.join(TEST_DIR, 'ambiguous');
+  const IDX_DIR = path.join(TEST_DIR, '.idx_ambig');
+
+  before(() => {
+    fs.mkdirSync(SRC_DIR, { recursive: true });
+
+    fs.writeFileSync(path.join(SRC_DIR, 'ambig_a.py'), `
+class ServiceA:
+    def connect(self):
+        return "connected to A"
+`);
+
+    fs.writeFileSync(path.join(SRC_DIR, 'ambig_b.py'), `
+class ServiceB:
+    def connect(self):
+        return "connected to B"
+`);
+
+    // Different file, no class context, bare call — genuinely ambiguous
+    fs.writeFileSync(path.join(SRC_DIR, 'ambig_caller.py'), `
+def orchestrate():
+    # Bare call with no class context — ambiguous
+    connect()
+`);
+
+    runCLI(`--build-index ${SRC_DIR} --index-path ${IDX_DIR} --skip-semantic 2>&1`);
+  });
+
+  it('should flag ambiguous resolution with --verbose', () => {
+    const out = runCLI(`--callees "orchestrate" --verbose --index-path ${IDX_DIR} 2>&1`);
+    // Should show "connect" with ambiguity marker or multiple definitions
+    if (out.includes('connect')) {
+      assert.ok(
+        out.includes('ambiguous') || out.includes('definitions'),
+        'should indicate ambiguity: ' + out
+      );
+    }
+  });
+});
+

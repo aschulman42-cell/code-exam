@@ -1,0 +1,758 @@
+
+C:\work\code_exam\Nodejs_port\code-exam>node src\index.js --index-path .CodeExam4 --extract doMultisect --follow-calls     
+# src/commands/multisect.js@doMultisect
+// ========================================================================
+// Entry point
+// ========================================================================
+
+export function doMultisect(index, args) {
+  const termsStr = args.multisect_search;
+  if (!termsStr) {
+    console.log('Usage: /multisect term1;term2;term3 [min=N]');
+    return;
+  }
+
+  const terms = parseMultisectTerms(termsStr);
+  if (!terms || terms.length === 0) {
+    console.log('No valid terms parsed. Separate terms with semicolons.');
+    return;
+  }
+
+  const minTerms = args.min_terms ? parseInt(args.min_terms) : 0;
+  const includePath = args.vocab_in ? [args.vocab_in] :
+    args.include_path ? args.include_path : null;
+  const excludePath = args.exclude_path || null;
+
+  const results = index.multisectSearch(terms, {
+    minTerms: minTerms || null,
+    includePath,
+    excludePath,
+    showProgress: true,
+  });
+
+  if (!results) return;
+
+  const totalFiles = index.files.size;
+
+  // Show path filter if active
+  if (includePath && includePath.length > 0) {
+    console.log(`  Path filter: --in ${includePath.join(', ')}`);
+  }
+
+  // Show selectivity report
+  printSelectivityReport(results, totalFiles);
+
+  // Show results
+  displayMultisectResults(results, args, totalFiles);
+}
+
+════════════════════════════════════════════════════════════════
+Callees of doMultisect (6 functions, depth 1/1):
+════════════════════════════════════════════════════════════════
+  doMultisect [recursive — skipped]
+
+# node_modules/cmake-js/lib/logger.js@log (30 lines) [called by doMultisect]
+function log(level, prefix, message, ...args) {
+	if (currentLevel <= levels[level]) {
+		const stream = level === 'error' ? process.stderr : process.stdout
+		const color = colors[level]
+		let levelStr = level.toUpperCase()
+		if (process.stdout.isTTY && util.styleText) {
+			// util.styleText is available in Node.js >= 20.12.0
+			levelStr = util.styleText(color, levelStr)
+			if (prefix) prefix = util.styleText('magenta', prefix)
+		}
+
+		const formattedMessage = util.format(message, ...args)
+		const line = prefix
+			? util.format('%s %s %s', levelStr, prefix, formattedMessage)
+			: util.format('%s %s', levelStr, formattedMessage)
+
+		stream.write(line + '\n')
+	}
+}
+
+const logger = {
+	get level() {
+		return Object.keys(levels).find((key) => levels[key] === currentLevel)
+	},
+	set level(newLevel) {
+		if (levels[newLevel] !== undefined) {
+			currentLevel = levels[newLevel]
+		}
+	},
+}
+
+# src/commands/multisect.js@parseMultisectTerms (54 lines) [called by doMultisect]
+// ========================================================================
+// Term parser
+// ========================================================================
+
+/**
+ * Parse semicolon-separated search terms.
+ *
+ * Terms in /.../ are regex; others are literal (case-insensitive).
+ * Use ;; for a literal semicolon.
+ * Prefix with NOT or ! to negate.
+ * Dots in plain terms become .? (match any char or nothing).
+ *
+ * @param {string} termsStr
+ * @returns {Array<{display: string, regex: RegExp, negated: boolean}>|null}
+ */
+export function parseMultisectTerms(termsStr) {
+  const PLACEHOLDER = '\x00SEMI\x00';
+  const protected_ = termsStr.replace(/;;/g, PLACEHOLDER);
+
+  const terms = [];
+  for (let raw of protected_.split(';')) {
+    raw = raw.replace(new RegExp(PLACEHOLDER.replace(/\x00/g, '\\x00'), 'g'), ';').trim();
+    if (!raw) continue;
+
+    let negated = false;
+    if (raw.startsWith('NOT ')) {
+      negated = true;
+      raw = raw.slice(4).trim();
+    } else if (raw.startsWith('!')) {
+      negated = true;
+      raw = raw.slice(1).trim();
+    }
+    if (!raw) continue;
+
+    if (raw.startsWith('/') && raw.endsWith('/') && raw.length > 2) {
+      // Regex term
+      const pattern = raw.slice(1, -1);
+      try {
+        const regex = new RegExp(pattern, 'i');
+        const display = negated ? `NOT ${raw}` : raw;
+        terms.push({ display, regex, negated });
+      } catch (e) {
+        console.log(`Invalid regex in term '${raw}': ${e.message}`);
+        return null;
+      }
+    } else if (raw.includes('.')) {
+      // Dot-wildcard: dots become .? (optional any-char)
+      try {
+        const pattern = raw.replace(/\./g, '.?');
+        const regex = new RegExp(pattern, 'i');
+        const displayRaw = `/${pattern}/`;
+        const display = negated ? `NOT ${displayRaw}` : displayRaw;
+        terms.push({ display, regex, negated });
+      } catch (e) {
+        // Fallback to literal
+        const regex = new RegExp(escapeRegex(raw), 'i');
+        const display = negated ? `NOT ${raw}` : raw;
+        terms.push({ display, regex, negated });
+      }
+    } else {
+      // Plain literal (case-insensitive)
+      const regex = new RegExp(escapeRegex(raw), 'i');
+      const display = negated ? `NOT ${raw}` : raw;
+      terms.push({ display, regex, negated });
+    }
+  }
+  return terms;
+}
+
+# src/core/CodeSearchIndex.js@multisectSearch (287 lines) [called by doMultisect]
+  // ========================================================================
+  // Multi-term intersection search (#146 "scavenger hunt")
+  // ========================================================================
+
+  /**
+   * Multi-term intersection search.
+   *
+   * Two-phase approach:
+   *   Phase 1: Scan file lines to collect file sets per term (fast).
+   *   Phase 2: Detail retrieval for survivor files only — line numbers,
+   *            line text, containing function via bisect.
+   *
+   * Finds the smallest scope (function → file → folder) containing
+   * multiple terms simultaneously.
+   *
+   * @param {Array<{display, regex, negated}>} terms
+   * @param {Object} opts
+   * @param {number|null} opts.minTerms - minimum positive terms required
+   * @param {string[]|null} opts.includePath
+   * @param {string[]|null} opts.excludePath
+   * @param {boolean} opts.showProgress
+   * @returns {Object|null} results with function_matches, file_matches, folder_matches
+   */
+  multisectSearch(terms, opts = {}) {
+    const { minTerms: minTermsArg, includePath, excludePath, showProgress = true } = opts;
+
+    const positiveIndices = [];
+    const notIndices = [];
+    for (let i = 0; i < terms.length; i++) {
+      if (terms[i].negated) notIndices.push(i);
+      else positiveIndices.push(i);
+    }
+    const nPositive = positiveIndices.length;
+    const nTerms = terms.length;
+
+    let minTerms = minTermsArg || nPositive;
+    minTerms = Math.max(1, Math.min(minTerms, nPositive));
+
+    this._ensureFunctionIndex();
+
+    // ----------------------------------------------------------------
+    // Phase 1: File-set scan
+    // ----------------------------------------------------------------
+    const phase1Start = Date.now();
+    const termFileSets = new Array(nTerms).fill(null).map(() => new Set());
+    const termPathOnlySets = new Array(nTerms).fill(null).map(() => new Set());
+    const termFileCounts = new Array(nTerms).fill(0);
+
+    // Path filter helper
+    const pathOk = (fp) => {
+      const fpL = fp.toLowerCase();
+      if (includePath && !includePath.some(p => fpL.includes(p.toLowerCase()))) return false;
+      if (excludePath && excludePath.some(p => fpL.includes(p.toLowerCase()))) return false;
+      return true;
+    };
+
+    let fileNum = 0;
+    const totalFiles = this.fileLines.size;
+
+    for (const [filepath, lines] of this.fileLines) {
+      fileNum++;
+      if (showProgress && fileNum % 5000 === 0) {
+        process.stderr.write(`  Phase 1: ${fileNum} / ${totalFiles} files...\r`);
+      }
+      if (!pathOk(filepath)) continue;
+
+      for (let ti = 0; ti < nTerms; ti++) {
+        const regex = terms[ti].regex;
+        let foundInContent = false;
+        for (const line of lines) {
+          if (regex.test(line)) {
+            termFileSets[ti].add(filepath);
+            foundInContent = true;
+            break;
+          }
+        }
+        // Also check if term matches in the filepath itself (path/filename)
+        if (!foundInContent) {
+          regex.lastIndex = 0;  // reset stateful regex
+          if (regex.test(filepath)) {
+            termFileSets[ti].add(filepath);
+            // Mark as path-only match for Phase 2
+            termPathOnlySets[ti].add(filepath);
+          }
+        }
+      }
+    }
+
+    for (let ti = 0; ti < nTerms; ti++) {
+      termFileCounts[ti] = termFileSets[ti].size;
+    }
+
+    // Compute file-level survivors
+    const filePosTerms = new Map();  // filepath → Set of positive term indices
+    for (const ti of positiveIndices) {
+      for (const fp of termFileSets[ti]) {
+        if (!filePosTerms.has(fp)) filePosTerms.set(fp, new Set());
+        filePosTerms.get(fp).add(ti);
+      }
+    }
+
+    const notIdxSet = new Set(notIndices);
+    const fileSurvivors = new Set();
+    for (const [fp, matchedPos] of filePosTerms) {
+      if (matchedPos.size >= minTerms) {
+        if (!notIndices.some(ni => termFileSets[ni].has(fp))) {
+          fileSurvivors.add(fp);
+        }
+      }
+    }
+
+    const phase1Time = Date.now() - phase1Start;
+    if (showProgress) {
+      process.stderr.write(`  Phase 1: ${fileSurvivors.size} survivor files ` +
+        `(from ${filePosTerms.size} candidates) in ${(phase1Time / 1000).toFixed(1)}s\n`);
+    }
+
+    // Build folder-level data
+    const folderMap = {};  // folder → { termIdx → Set of filepaths }
+    for (let ti = 0; ti < nTerms; ti++) {
+      for (const fp of termFileSets[ti]) {
+        const norm = fp.replace(/\\/g, '/');
+        const parts = norm.split('/');
+        for (let depth = 1; depth < parts.length; depth++) {
+          const folder = parts.slice(0, depth).join('/');
+          if (!folderMap[folder]) folderMap[folder] = {};
+          if (!folderMap[folder][ti]) folderMap[folder][ti] = new Set();
+          folderMap[folder][ti].add(fp);
+        }
+      }
+    }
+
+    // ----------------------------------------------------------------
+    // Phase 2: Detail retrieval for survivors only
+    // ----------------------------------------------------------------
+    const phase2Start = Date.now();
+
+    // Pre-build function boundaries
+    const funcBoundariesCache = {};
+    for (const fp of fileSurvivors) {
+      funcBoundariesCache[fp] = this._getFuncBoundaries(fp);
+    }
+
+    // funcMap[(filepath, funcName)] → { termIdx: { line_num, line_text } }
+    const funcMap = new Map();
+    // fileDetailMap[filepath] → { termIdx: { line_num, line_text, func_name } }
+    const fileDetailMap = new Map();
+
+    const sortedSurvivors = [...fileSurvivors].sort();
+    for (let fpIdx = 0; fpIdx < sortedSurvivors.length; fpIdx++) {
+      const fp = sortedSurvivors[fpIdx];
+      const lines = this.fileLines.get(fp);
+      if (!lines || lines.length === 0) continue;
+      const boundaries = funcBoundariesCache[fp];
+
+      if (showProgress && fileSurvivors.size > 50 && (fpIdx + 1) % 100 === 0) {
+        process.stderr.write(`  Phase 2: ${fpIdx + 1}/${fileSurvivors.size} files...\r`);
+      }
+
+      for (let ti = 0; ti < nTerms; ti++) {
+        if (terms[ti].negated) continue;
+        if (!termFileSets[ti].has(fp)) continue;
+
+        // Check if this was a path-only match (term not in file content)
+        if (termPathOnlySets[ti].has(fp)) {
+          // Record as file-level hit with synthetic "path match" detail
+          // Do NOT add to function-level (path is not inside any function)
+          if (!fileDetailMap.has(fp)) fileDetailMap.set(fp, {});
+          const fDetails = fileDetailMap.get(fp);
+          if (fDetails[ti] === undefined) {
+            fDetails[ti] = { line_num: 0, line_text: `[path match: ${fp}]`, func_name: null };
+          }
+          continue;
+        }
+
+        const regex = terms[ti].regex;
+        const seenFuncs = new Set();
+
+        for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+          const lineNum = lineIdx + 1;
+          const lineText = lines[lineIdx];
+          if (!regex.test(lineText)) continue;
+
+          const funcName = CodeSearchIndex._bisectFuncLookup(boundaries, lineNum) || '(global)';
+
+          // File-level: record first hit per term
+          if (!fileDetailMap.has(fp)) fileDetailMap.set(fp, {});
+          const fDetails = fileDetailMap.get(fp);
+          if (fDetails[ti] === undefined) {
+            fDetails[ti] = { line_num: lineNum, line_text: lineText.trim(), func_name: funcName };
+          }
+
+          // Function-level: one hit per function per term
+          const fnKey = `${fp}\x00${funcName}`;
+          if (!seenFuncs.has(funcName)) {
+            seenFuncs.add(funcName);
+            if (!funcMap.has(fnKey)) funcMap.set(fnKey, { filepath: fp, function: funcName, details: {} });
+            const fm = funcMap.get(fnKey);
+            if (fm.details[ti] === undefined) {
+              fm.details[ti] = { line_num: lineNum, line_text: lineText.trim() };
+            }
+          }
+        }
+      }
+    }
+
+    const phase2Time = Date.now() - phase2Start;
+    if (showProgress) {
+      process.stderr.write(`  Phase 2: details for ${sortedSurvivors.length} files in ` +
+        `${(phase2Time / 1000).toFixed(1)}s\n`);
+    }
+
+    // Build function matches
+    const funcMatches = [];
+    for (const [, fm] of funcMap) {
+      const posMatched = new Set(
+        Object.keys(fm.details).map(Number).filter(ti => !notIdxSet.has(ti))
+      );
+      if (posMatched.size < minTerms) continue;
+
+      // Get function line count
+      const boundaries = funcBoundariesCache[fm.filepath] || [];
+      let funcLines = 0;
+      for (const [s, e, name] of boundaries) {
+        if (name === fm.function) { funcLines = e - s + 1; break; }
+      }
+
+      funcMatches.push({
+        filepath: fm.filepath,
+        function: fm.function,
+        terms_matched: posMatched.size,
+        lines: funcLines || 0,
+        matched_indices: posMatched,
+        details: fm.details,
+      });
+    }
+    funcMatches.sort((a, b) =>
+      b.terms_matched - a.terms_matched ||
+      a.lines - b.lines ||
+      a.function.localeCompare(b.function) ||
+      a.filepath.localeCompare(b.filepath));
+
+    // Build file matches
+    const fileMatches = [];
+    for (const [fp, details] of fileDetailMap) {
+      const posMatched = new Set(
+        Object.keys(details).map(Number).filter(ti => !notIdxSet.has(ti))
+      );
+      if (posMatched.size < minTerms) continue;
+      // Check NOT terms
+      if (notIndices.some(ni => termFileSets[ni].has(fp))) continue;
+
+      const fileLineCount = (this.fileLines.get(fp) || []).length;
+      fileMatches.push({
+        filepath: fp,
+        terms_matched: posMatched.size,
+        lines: fileLineCount,
+        matched_indices: posMatched,
+        details,
+      });
+    }
+    fileMatches.sort((a, b) =>
+      b.terms_matched - a.terms_matched ||
+      a.lines - b.lines ||
+      a.filepath.localeCompare(b.filepath));
+
+    // Build folder matches
+    const folderMatches = [];
+    for (const [folder, matched] of Object.entries(folderMap)) {
+      const posMatched = new Set(
+        Object.keys(matched).map(Number).filter(ti => !notIdxSet.has(ti))
+      );
+      if (posMatched.size < minTerms) continue;
+      // Check NOT terms
+      const notHits = notIndices.filter(ni => matched[ni] && matched[ni].size > 0);
+      if (notHits.length > 0) continue;
+
+      const allFiles = new Set();
+      for (const ti of posMatched) {
+        for (const fp of (matched[ti] || [])) allFiles.add(fp);
+      }
+
+      folderMatches.push({
+        folder,
+        terms_matched: posMatched.size,
+        matched_indices: posMatched,
+        files_involved: allFiles.size,
+        file_sets: Object.fromEntries(
+          [...posMatched].map(ti => [ti, matched[ti] || new Set()])
+        ),
+      });
+    }
+    folderMatches.sort((a, b) =>
+      b.terms_matched - a.terms_matched ||
+      a.files_involved - b.files_involved ||
+      b.folder.split('/').length - a.folder.split('/').length ||
+      a.folder.localeCompare(b.folder));
+
+    return {
+      terms,
+      num_terms: nTerms,
+      num_positive: nPositive,
+      not_indices: notIndices,
+      min_terms: minTerms,
+      term_file_counts: termFileCounts,
+      function_matches: funcMatches,
+      file_matches: fileMatches,
+      folder_matches: folderMatches,
+    };
+  }
+
+# src/commands/multisect.js@printSelectivityReport (29 lines) [called by doMultisect]
+// ========================================================================
+// Display
+// ========================================================================
+
+export function printSelectivityReport(results, totalFiles) {
+  const terms = results.terms;
+  const notSet = new Set(results.not_indices);
+  const counts = results.term_file_counts;
+  const maxLen = Math.max(...terms.map(t => t.display.length));
+
+  console.log('Term selectivity:');
+  for (let i = 0; i < terms.length; i++) {
+    const d = terms[i].display.padEnd(maxLen);
+    const fc = counts[i];
+    if (notSet.has(i)) {
+      console.log(`  [${i + 1}] ${d}  ${String(fc).padStart(5)} files  (NOT term)`);
+    } else if (totalFiles > 0) {
+      const pct = 100 * fc / totalFiles;
+      let rating;
+      if (fc === 0) rating = 'ZERO HITS -- term absent from index';
+      else if (pct < 10) rating = 'HIGH discrimination';
+      else if (pct < 30) rating = 'moderate';
+      else if (pct < 60) rating = 'low';
+      else rating = 'VERY LOW -- consider dropping';
+      console.log(`  [${i + 1}] ${d}  ${String(fc).padStart(5)} files (${pct.toFixed(0).padStart(3)}%) -- ${rating}`);
+    } else {
+      console.log(`  [${i + 1}] ${d}  ${String(fc).padStart(5)} files`);
+    }
+  }
+  console.log();
+}
+
+# src/commands/multisect.js@displayMultisectResults (257 lines) [called by doMultisect]
+export function displayMultisectResults(results, args, totalFiles) {
+  const terms = results.terms;
+  const n = results.num_terms;
+  const nPos = results.num_positive;
+  const notSet = new Set(results.not_indices);
+  const minT = results.min_terms;
+  const maxPerScope = args.max_results || 10;
+  const fullPath = args.full_path || false;
+  const verbose = args.verbose || false;
+  const pathHighlight = args.vocab_in || (args.include_path && args.include_path[0]) || null;
+
+  // IDF scoring
+  let idfs = null;
+  if (totalFiles > 0) {
+    idfs = computeIdfScores(results, totalFiles);
+  }
+
+  // Header
+  const posLabel = `${nPos} positive term${nPos !== 1 ? 's' : ''}`;
+  const notLabel = results.not_indices.length
+    ? `, ${results.not_indices.length} NOT term${results.not_indices.length !== 1 ? 's' : ''}`
+    : '';
+  let label = `Multi-term intersection search: ${posLabel}${notLabel}`;
+  if (minT < nPos) label += ` (minimum ${minT} required)`;
+  console.log(`\n${label}`);
+
+  const maxDispLen = Math.max(...terms.map(t => t.display.length));
+  for (let i = 0; i < terms.length; i++) {
+    const fc = results.term_file_counts[i];
+    let note;
+    if (notSet.has(i)) {
+      note = fc ? `${fc} files (NOT -- must be absent)` : '0 files (NOT -- already absent)';
+    } else {
+      note = fc ? `${fc} files` : '** 0 files -- no matches **';
+    }
+    console.log(`  [${i + 1}] ${terms[i].display.padEnd(maxDispLen)}  (${note})`);
+  }
+  console.log();
+
+  let funcMatches = results.function_matches;
+  let fileMatches = results.file_matches;
+  let folderMatches = results.folder_matches;
+
+  // IDF re-sort
+  if (idfs) {
+    funcMatches = [...funcMatches].sort((a, b) =>
+      b.terms_matched - a.terms_matched ||
+      matchIdfScore(b, idfs) - matchIdfScore(a, idfs) ||
+      a.function.localeCompare(b.function));
+    fileMatches = [...fileMatches].sort((a, b) =>
+      b.terms_matched - a.terms_matched ||
+      matchIdfScore(b, idfs) - matchIdfScore(a, idfs) ||
+      a.filepath.localeCompare(b.filepath));
+    folderMatches = [...folderMatches].sort((a, b) =>
+      b.terms_matched - a.terms_matched ||
+      matchIdfScore(b, idfs) - matchIdfScore(a, idfs) ||
+      a.files_involved - b.files_involved);
+  }
+
+  // Scope dedup: track which file+term combos are covered by function-level
+  // Exclude (global) — it's not a real scope and shouldn't suppress file-level
+  const funcCoverage = {};
+  for (const m of funcMatches) {
+    if (m.function === '(global)') continue;
+    if (!funcCoverage[m.filepath]) funcCoverage[m.filepath] = [];
+    funcCoverage[m.filepath].push(m.matched_indices);
+  }
+
+  function fileCoveredByFunction(fm) {
+    const sets = funcCoverage[fm.filepath] || [];
+    for (const funcSet of sets) {
+      if ([...fm.matched_indices].every(i => funcSet.has(i))) return true;
+    }
+    return false;
+  }
+
+  // Filter out (global) from function-level display — those are really file-level hits
+  const realFuncMatches = funcMatches.filter(m => m.function !== '(global)');
+
+  let anyResults = false;
+
+  // --- Function matches ---
+  if (realFuncMatches.length > 0) {
+    anyResults = true;
+    console.log(`━━━ FUNCTION-level matches (${realFuncMatches.length} functions) ━━━`);
+    const shown = realFuncMatches.slice(0, maxPerScope);
+    for (let idx = 0; idx < shown.length; idx++) {
+      const m = shown[idx];
+      const fp = fullPath ? m.filepath : shortPath(m.filepath, 50, pathHighlight);
+      const score = idfs ? ` IDF:${matchIdfScore(m, idfs).toFixed(1)}` : '';
+      console.log(`\n  [${idx + 1}] ${m.function}  (${fp}, ${m.lines} lines)  [${m.terms_matched}/${nPos}]${score}`);
+
+      // Show per-term detail, collapsing terms that hit the same line
+      const lineGroups = new Map(); // lineNum -> { indices: [], text: '' }
+      const missingIndices = [];
+      for (let ti = 0; ti < terms.length; ti++) {
+        if (notSet.has(ti)) continue;
+        const detail = m.details[ti];
+        if (detail) {
+          const key = detail.line_num;
+          if (!lineGroups.has(key)) {
+            lineGroups.set(key, { indices: [], text: detail.line_text });
+          }
+          lineGroups.get(key).indices.push(ti + 1);
+        } else {
+          missingIndices.push(ti + 1);
+        }
+      }
+      // Sort by line number and display
+      const sortedLines = [...lineGroups.entries()].sort((a, b) => a[0] - b[0]);
+      for (const [lineNum, { indices, text }] of sortedLines) {
+        const lineText = text.length > 80 ? text.slice(0, 77) + '...' : text;
+        const tag = indices.length > 1 ? `[${indices.join(',')}]` : `[${indices[0]}]`;
+        console.log(`      ${tag} L${lineNum}  ${lineText}`);
+      }
+      for (const ti of missingIndices) {
+        console.log(`      [${ti}] -- not found --`);
+      }
+    }
+    if (realFuncMatches.length > maxPerScope) {
+      console.log(`  ... +${realFuncMatches.length - maxPerScope} more`);
+    }
+    console.log();
+  }
+
+  // --- File matches ---
+  const filteredFiles = verbose ? fileMatches : fileMatches.filter(m => !fileCoveredByFunction(m));
+  if (filteredFiles.length > 0) {
+    anyResults = true;
+    const dedupNote = !verbose && filteredFiles.length < fileMatches.length
+      ? ` (${fileMatches.length - filteredFiles.length} suppressed — covered by function matches)`
+      : '';
+    console.log(`━━━ FILE-level matches (${filteredFiles.length} files${dedupNote}) ━━━`);
+    const shown = filteredFiles.slice(0, maxPerScope);
+    for (let idx = 0; idx < shown.length; idx++) {
+      const m = shown[idx];
+      const fp = fullPath ? m.filepath : shortPath(m.filepath, 60, pathHighlight);
+      const score = idfs ? ` IDF:${matchIdfScore(m, idfs).toFixed(1)}` : '';
+      console.log(`\n  [${idx + 1}] ${fp}  (${m.lines} lines)  [${m.terms_matched}/${nPos}]${score}`);
+
+      const lineGroups = new Map();
+      const missingIndices = [];
+      for (let ti = 0; ti < terms.length; ti++) {
+        if (notSet.has(ti)) continue;
+        const detail = m.details[ti];
+        if (detail) {
+          const key = detail.line_num;
+          if (!lineGroups.has(key)) {
+            lineGroups.set(key, { indices: [], text: detail.line_text, func_name: detail.func_name });
+          }
+          lineGroups.get(key).indices.push(ti + 1);
+        } else {
+          missingIndices.push(ti + 1);
+        }
+      }
+      const sortedLines = [...lineGroups.entries()].sort((a, b) => a[0] - b[0]);
+      for (const [lineNum, { indices, text, func_name }] of sortedLines) {
+        const tag = indices.length > 1 ? `[${indices.join(',')}]` : `[${indices[0]}]`;
+        if (lineNum === 0) {
+          // Path-only match
+          console.log(`      ${tag} (path)  matched in filepath`);
+        } else {
+          const lineText = text.length > 80 ? text.slice(0, 77) + '...' : text;
+          const fn = func_name ? ` in ${func_name}` : '';
+          console.log(`      ${tag} L${lineNum}${fn}  ${lineText}`);
+        }
+      }
+      for (const ti of missingIndices) {
+        console.log(`      [${ti}] -- not found --`);
+      }
+    }
+    if (filteredFiles.length > maxPerScope) {
+      console.log(`  ... +${filteredFiles.length - maxPerScope} more`);
+    }
+    console.log();
+  }
+
+  // --- Folder matches ---
+  // Scope dedup: suppress folders where a single file already covers all matched terms
+  function folderCoveredBySingleFile(fm) {
+    const posIndices = [...fm.matched_indices];
+    const fileSets = fm.file_sets || {};
+    // Collect all files involved
+    const allFiles = new Set();
+    for (const ti of posIndices) {
+      for (const f of (fileSets[ti] || [])) allFiles.add(f);
+    }
+    // Check if any single file has all terms
+    for (const f of allFiles) {
+      const termsInFile = posIndices.filter(ti => (fileSets[ti] || new Set()).has(f));
+      if (termsInFile.length === posIndices.length) return true;
+    }
+    return false;
+  }
+
+  const displayFolders = verbose
+    ? folderMatches
+    : folderMatches.filter(m => !folderCoveredBySingleFile(m));
+  const folderSuppressed = folderMatches.length - displayFolders.length;
+
+  if (displayFolders.length > 0) {
+    anyResults = true;
+    const suppressNote = folderSuppressed > 0
+      ? ` (${folderSuppressed} suppressed — covered by single-file matches)`
+      : '';
+    console.log(`━━━ FOLDER-level matches (${displayFolders.length} folders${suppressNote}) ━━━`);
+    const shown = displayFolders.slice(0, maxPerScope);
+    for (let idx = 0; idx < shown.length; idx++) {
+      const m = shown[idx];
+      const score = idfs ? ` IDF:${matchIdfScore(m, idfs).toFixed(1)}` : '';
+      const missing = [];
+      for (let ti = 0; ti < terms.length; ti++) {
+        if (notSet.has(ti)) continue;
+        if (!m.matched_indices.has(ti)) missing.push(terms[ti].display);
+      }
+      const missStr = missing.length > 0 ? `  missing: ${missing.join(', ')}` : '';
+      console.log(`\n  [${idx + 1}] ${m.folder}/  [${m.terms_matched}/${nPos} terms, ` +
+        `${m.files_involved} file${m.files_involved !== 1 ? 's' : ''}]${score}${missStr}`);
+
+      // Per-term file detail
+      const fileSets = m.file_sets || {};
+      for (let ti = 0; ti < terms.length; ti++) {
+        const d = terms[ti].display;
+        if (notSet.has(ti)) {
+          console.log(`      [${ti + 1}] ${d}  OK absent (NOT term)`);
+        } else if (fileSets[ti] && fileSets[ti].size > 0) {
+          const files = [...fileSets[ti]].sort();
+          const basenames = files.slice(0, 5).map(f => {
+            const sep = Math.max(f.lastIndexOf('/'), f.lastIndexOf('\\'));
+            return sep >= 0 ? f.slice(sep + 1) : f;
+          });
+          const more = files.length > 5 ? ` +${files.length - 5} more` : '';
+          console.log(`      [${ti + 1}] ${d}  in ${basenames.join(', ')}${more}`);
+        } else {
+          console.log(`      [${ti + 1}] ${d}  *** NOT FOUND ***`);
+        }
+      }
+    }
+    if (displayFolders.length > maxPerScope) {
+      console.log(`  ... +${displayFolders.length - maxPerScope} more`);
+    }
+    console.log();
+  } else if (folderSuppressed > 0 && !verbose) {
+    anyResults = true;
+    console.log(`━━━ FOLDER-level: all ${folderSuppressed} folder match${folderSuppressed !== 1 ? 'es' : ''} ` +
+      `already covered by single-file results (use verbose to show) ━━━`);
+    console.log();
+  }
+
+  if (!anyResults) {
+    console.log('  No matches found at any scope level.');
+    if (results.term_file_counts.some((c, i) => c === 0 && !notSet.has(i))) {
+      console.log('  Some terms had zero hits — try broader terms or use min= for partial matching.');
+    }
+    console.log();
+  }
+}

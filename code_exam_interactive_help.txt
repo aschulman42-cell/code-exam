@@ -1,0 +1,102 @@
+
+Code Exam Interactive Mode - Commands:
+-------------------------------------------------------------
+SEARCH:
+  <query>                 Hybrid search (literal + semantic if available)
+  /literal <pattern>      Literal text search
+  /fast <pattern>         Fast inverted-index search
+  /regex <pattern>        Regex pattern search
+  /files-search <term>    Files containing term, sorted by hit count  [alias: /fsearch]
+  /folders-search <term>  Folders containing term, sorted by hit count [alias: /dsearch]
+  /max <N>                Set max results for subsequent searches (default: 10)
+
+FUNCTIONS:
+  /functions [filter]     List functions (matches name AND path) [alias: /funcs]
+  /funcs PATH@NAME        Filter by file path and/or function name
+  /funcs-size [N] [P]     Top N largest functions (optional filter P)
+  /funcs-alpha [P]        Alphabetical function list (optional filter P)
+  /extract <name>         Extract function source (Class.method or Class::method)
+  /extract [N]            Select from last multiple-match list
+  /extract <name> --follow-calls  Also dump source of called functions
+  /extract <name> --comments-only Show only comments (combine with --follow-calls)
+  /extract <name> --deep=N       Follow calls N levels deep
+  /file <path>            Show entire file contents [aliases: /show-file, /cat]
+  /file [N]               Select from previous multi-match list
+
+CALLERS / CALL GRAPH:
+  /callers <name>         Find callers of a function
+  /callees <name>         Find callees (what does it call?)
+  /call-inventory [name] [filter=PAT] [-v]  In-index vs external targets
+  /most-called [N] [defined] [macros] [filter=PAT]
+  /call-tree <name> [depth=N] [mermaid]  Call tree (default depth 3)
+  /file-map [PATH] [mermaid]             File-level dependency map
+  /file-tree FILE [depth=N] [mermaid]    File dependency tree
+
+METRICS / DISCOVERY:
+  /hotspots [N] [P]       Most important: big + frequently called
+  /hot-folders [N] [P]    Most important directories by hotspot score
+  /entry-points [N] [P] [max=N]  Largest functions never/rarely called
+  /gaps [N]               Find suspicious dead code
+  /domain-fns [N] [P]     Domain-specific hotspots (rare names weighted higher)
+  /classes [P] [-v]        List all classes with method counts
+  /class-hotspots [N] [P] Classes ranked by method hotspot score
+  /vocabulary [N] [P]    Top domain-specific tokens by TF-IDF score (alias: /vocab)
+
+MULTI-TERM INTERSECTION SEARCH:
+  /multisect t1;t2;t3    Find smallest scope containing all terms (aliases: /ms, /multi)
+                         Supports --in <path>, min=N, NOT terms (!term or NOT term)
+                         Terms in /.../ are regex. Prefix with NOT or ! to negate.
+                         Options: min=N (partial matching)
+
+CLAIM SEARCH (LLM-based patent claim analysis):
+  /claim <text>          Extract search terms from claim text via Claude API
+  /claim @file.txt       Read claim from file. Requires ANTHROPIC_API_KEY env var.
+                         Options: min=N, --show-prompt
+
+LLM ANALYSIS (requires --use-claude or --analyze-model):
+  /analyze <function>    Analyze a function with LLM ("what does this do?")
+  /claim-analyze <claim> End-to-end: extract terms -> search -> analyze against claim
+  /multisect-analyze <terms>  Search for terms, analyze top function hits
+  /file-analyze <path>   Analyze an entire source file with LLM
+                         Options: --mask-all, --line-numbers, --show-prompt
+
+DEDUP / DUPLICATES:
+  /file-dupes [N] [P]     Duplicate file groups by SHA1 hash (alias: /dupefiles)
+  /func-dupes [N] [P]     Exact duplicate function groups (SHA1 body hash)
+  /near-dupes [N] [P]     Near-duplicate groups (same name+size, different body)
+  /struct-dupes [N] [P]   Structural dupes (same structure, different names/values)
+  /funcstring <name>      Show structural funcstring for a function
+  /struct-diff <name>     Show word-hole differences between structural dupe variants
+  /struct-diff-all [N] [P] One-line diff summaries for top N structural dupe groups
+
+INDEX INFO:
+  /stats                  Show index statistics
+  /index-extensions       Show file extensions in current index
+  /files [filter]         List indexed files (optional path filter)
+  /paths <pattern>        Search file/folder paths only
+
+OTHER:
+  /help                   Show this help
+  /set                    Show current settings
+  /set <key> <value>      Change a setting (max, verbose, full-path, show-dupes)
+  /clear-cache            Clear cached call counts (forces re-scan on next metrics command)
+  /rebuild-functions      Rebuild function index with improved C++ parsing
+  !command                Run an OS command (e.g., !dir, !grep pattern file)
+  /quit or Ctrl+C         Exit interactive mode
+
+OUTPUT REDIRECTION:
+  Any command can be followed by > or >> to redirect output to a file:
+  /hotspots 50 > hotspots.txt          Write to file (overwrite)
+  /classes >> results.txt               Append to file
+
+PATH FILTER (--in):
+  Most commands accept --in <pattern> to restrict results to files whose path
+  contains <pattern>. Works with search, /hotspots, /vocab, /func-dupes, etc.
+  Examples:
+    recalc --in excel                  Search for 'recalc' only in files with 'excel' in path
+    /vocab --in torch                  Vocabulary specific to PyTorch files
+    /hotspots --in net                 Hotspot functions in networking-related files
+    /struct-diff-all --in office       Structural diffs only in Office-related files
+  /file-map mermaid > map.mmd          Save Mermaid diagram
+-------------------------------------------------------------
+

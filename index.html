@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Code Exam</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <!-- MENU BAR -->
+  <header id="menubar">
+    <div class="menubar-left">
+      <span class="logo">⬡ Code Exam</span>
+      <div class="menu-group">
+        <button class="menu-btn" data-menu="index-menu">Index ▾</button>
+        <div id="index-menu" class="dropdown">
+          <button data-action="load-index">Load Index…</button>
+          <hr>
+          <button data-action="stats">Index Statistics</button>
+        </div>
+      </div>
+      <div class="menu-group">
+        <button class="menu-btn" data-menu="search-menu">Search ▾</button>
+        <div id="search-menu" class="dropdown">
+          <button data-action="search-literal">Literal Search</button>
+          <button data-action="search-regex">Regex Search</button>
+          <button data-action="search-fast">Fast (Inverted Index)</button>
+          <hr>
+          <button data-action="files-search">Files Containing…</button>
+        </div>
+      </div>
+      <div class="menu-group">
+        <button class="menu-btn" data-menu="view-menu">View ▾</button>
+        <div id="view-menu" class="dropdown">
+          <label><input type="checkbox" id="opt-full-path"> Full Paths</label>
+          <label><input type="checkbox" id="opt-exclude-tests"> Exclude Tests</label>
+          <hr>
+          <label>Max Results: <input type="number" id="opt-max-results" value="25" min="5" max="500" style="width:60px"></label>
+        </div>
+      </div>
+    </div>
+    <div class="menubar-right">
+      <span id="index-info" class="index-info">No index loaded</span>
+    </div>
+  </header>
+
+  <!-- MAIN THREE-PANE LAYOUT -->
+  <main id="main">
+    <!-- LEFT PANE: Accordion -->
+    <section id="left-pane" class="pane">
+      <div class="pane-filter">
+        <input type="text" id="left-filter" placeholder="Filter…" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="pane-body scrollable" id="left-body">
+
+        <!-- Browse group -->
+        <div class="accordion-group-label">Browse</div>
+        <div class="accordion-section" data-section="functions">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Functions <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="files">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Files <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="classes">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Classes <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="indexes">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Indexes <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+
+        <!-- Metrics group -->
+        <div class="accordion-group-label">Metrics</div>
+        <div class="accordion-section" data-section="hotspots">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Hotspots <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="hot-folders">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Hot Folders <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="most-called">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Most Called <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="class-hotspots">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Class Hotspots <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="entry-points">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Entry Points <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="domain-fns">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Domain Functions <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="gaps">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Gaps (Dead Code) <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="vocabulary">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Vocabulary <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+
+        <!-- Dedup group -->
+        <div class="accordion-group-label">Duplicates</div>
+        <div class="accordion-section" data-section="func-dupes">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Exact Dupes <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="near-dupes">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Near Dupes <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="struct-dupes">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Structural Dupes <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="struct-diff">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Struct Diff <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+
+      </div>
+    </section>
+
+    <div class="col-handle" id="col-handle-left"></div>
+
+    <!-- MIDDLE PANE -->
+    <section id="middle-pane" class="pane">
+      <div id="middle-top" class="pane-split">
+        <div class="pane-header">
+          <span class="nav-buttons">
+            <button class="pane-nav-btn" id="output-back-btn" title="Back" style="display:none">◀</button>
+            <button class="pane-nav-btn" id="output-fwd-btn" title="Forward" style="display:none">▶</button>
+          </span>
+          <span id="middle-top-title">Output</span>
+          <button class="pane-action" data-action="clear-middle-top" title="Clear">✕</button>
+        </div>
+        <div class="pane-body scrollable" id="middle-top-body">
+          <div class="list-placeholder">Select an item from the left pane,<br>or run a search command</div>
+        </div>
+      </div>
+      <div class="split-handle horizontal" id="middle-split-handle"></div>
+      <div id="middle-bottom" class="pane-split">
+        <div class="pane-header">
+          <span class="nav-buttons">
+            <button class="pane-nav-btn" id="source-back-btn" title="Back" style="display:none">◀</button>
+            <button class="pane-nav-btn" id="source-fwd-btn" title="Forward" style="display:none">▶</button>
+          </span>
+          <span id="middle-bottom-title">Source</span>
+          <button class="pane-action" data-action="clear-middle-bottom" title="Clear">✕</button>
+        </div>
+        <div class="pane-body scrollable" id="middle-bottom-body">
+          <div class="list-placeholder">Click a function or file to view source</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="col-handle" id="col-handle-right"></div>
+
+    <!-- RIGHT PANE -->
+    <section id="right-pane" class="pane">
+      <div id="right-top" class="pane-split">
+        <div class="pane-header">
+          <span id="right-top-title">Diagram</span>
+          <span class="diagram-controls">
+            <button class="pane-action" id="zoom-in" title="Zoom in">+</button>
+            <button class="pane-action" id="zoom-reset" title="Reset zoom">⊙</button>
+            <button class="pane-action" id="zoom-out" title="Zoom out">−</button>
+            <button class="pane-action" id="diagram-save-svg" title="Save as SVG">💾</button>
+            <button class="pane-action" id="diagram-save-png" title="Save as PNG">🖼</button>
+            <button class="pane-action" id="diagram-popout" title="Pop out full screen">⛶</button>
+          </span>
+          <button class="pane-action" data-action="clear-right-top" title="Clear">✕</button>
+        </div>
+        <div class="pane-body scrollable" id="right-top-body">
+          <div class="diagram-viewport" id="diagram-viewport">
+            <div class="list-placeholder">Right-click a function → Call Tree</div>
+          </div>
+        </div>
+      </div>
+      <div class="split-handle horizontal" id="right-split-handle"></div>
+      <div id="right-bottom" class="pane-split">
+        <div class="pane-header">
+          <span id="right-bottom-title">Analysis</span>
+          <span id="llm-status" class="status-badge hidden">Working…</span>
+          <button class="pane-action" data-action="clear-right-bottom" title="Clear">✕</button>
+        </div>
+        <div class="pane-body scrollable" id="right-bottom-body">
+          <div class="list-placeholder">LLM analysis output will appear here</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- BOTTOM WORKSPACE -->
+  <footer id="workspace">
+    <div class="split-handle horizontal" id="workspace-resize-handle" title="Drag to resize"></div>
+    <div class="workspace-handle" id="workspace-toggle">
+      <span>Claim / Multisect Workspace</span>
+      <button id="workspace-expand-btn">▴ Expand</button>
+    </div>
+    <div class="workspace-body" id="workspace-body">
+      <div class="workspace-input">
+        <textarea id="claim-text" placeholder="Paste patent claim text or semicolon-separated terms…" spellcheck="false"></textarea>
+      </div>
+      <div class="workspace-controls">
+        <div class="control-group"><label>Mode</label>
+          <select id="ws-mode">
+            <option value="multisect-search">Multisect Search</option>
+            <option value="multisect-analyze">Multisect Analyze</option>
+            <option value="claim-search">Claim Search</option>
+            <option value="claim-analyze">Claim Analyze</option>
+          </select>
+        </div>
+        <div class="control-group"><label>LLM Engine</label>
+          <select id="ws-engine">
+            <option value="local">Local GGUF Model</option>
+            <option value="claude">Claude API</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label><input type="checkbox" id="ws-vocab-tight"> Vocab-Tight</label>
+          <label><input type="checkbox" id="ws-mask-all"> Mask All</label>
+          <label><input type="checkbox" id="ws-no-vocab"> No Vocabulary</label>
+        </div>
+        <div class="control-group"><label>Min Terms</label>
+          <input type="number" id="ws-min-terms" min="0" max="99" value="0" style="width:48px" title="Minimum terms to match (0 = auto: 80% TIGHT, 60% BROAD)">
+        </div>
+        <div class="control-group">
+          <button id="ws-run" class="btn-primary">▶ Run</button>
+          <button id="ws-show-prompt" class="btn-secondary">Show Prompt</button>
+        </div>
+      </div>
+      <div class="workspace-terms" id="workspace-terms"></div>
+    </div>
+  </footer>
+
+  <!-- CONTEXT MENU -->
+  <div id="context-menu" class="context-menu hidden">
+    <button data-ctx="extract">Extract Source</button>
+    <button data-ctx="callers">Find Callers</button>
+    <button data-ctx="callees">Find Callees</button>
+    <button data-ctx="call-tree">Call Tree (Diagram)</button>
+    <hr>
+    <button data-ctx="analyze">Analyze with LLM</button>
+    <button data-ctx="analyze-context">Analyze with LLM + Workspace Context</button>
+    <button data-ctx="analyze-file" id="ctx-analyze-file">Analyze File with LLM</button>
+  </div>
+
+  <!-- SEARCH DIALOG -->
+  <div id="search-overlay" class="modal-overlay hidden">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header"><span id="search-dialog-title">Search</span>
+        <button class="pane-action" id="search-dialog-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <label id="search-dialog-label">Query:
+          <input type="text" id="search-dialog-input" spellcheck="false" autocomplete="off">
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="search-dialog-cancel">Cancel</button>
+        <button class="btn-primary" id="search-dialog-ok">Search</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOAD INDEX DIALOG -->
+  <div id="load-index-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header"><span>Load Index</span>
+        <button class="pane-action" id="load-index-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <label>Index path (directory containing literal_index.json):
+          <input type="text" id="load-index-path" placeholder=".code_search_index" spellcheck="false">
+        </label>
+        <label class="checkbox-row" style="opacity:0.5" title="Not yet implemented — will be added in a future version">
+          <input type="checkbox" id="load-index-add" disabled>
+          Add to existing indexes (not yet implemented)
+        </label>
+        <div id="load-index-error" class="error-msg" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="load-index-cancel">Cancel</button>
+        <button class="btn-primary" id="load-index-ok">Load</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DIAGRAM FULLSCREEN -->
+  <div id="diagram-fullscreen" class="modal-overlay hidden">
+    <div class="fullscreen-diagram">
+      <div class="fullscreen-header">
+        <span id="fullscreen-title">Diagram</span>
+        <span class="diagram-controls">
+          <button class="pane-action" id="fs-zoom-in">+</button>
+          <button class="pane-action" id="fs-zoom-reset">⊙</button>
+          <button class="pane-action" id="fs-zoom-out">−</button>
+          <button class="pane-action" id="fs-save-svg" title="Save as SVG">💾</button>
+          <button class="pane-action" id="fs-save-png" title="Save as PNG">🖼</button>
+        </span>
+        <button class="pane-action" id="fs-close" style="font-size:18px">✕</button>
+      </div>
+      <div class="fullscreen-body" id="fullscreen-body">
+        <div class="diagram-viewport" id="fullscreen-viewport"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/vendor/mermaid.min.js"></script>
+  <script>if (typeof mermaid !== 'undefined') mermaid.initialize({ startOnLoad: false, theme: 'dark', suppressErrorRendering: true });</script>
+  <script src="/app.js"></script>
+</body>
+</html>

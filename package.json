@@ -1,0 +1,21 @@
+{
+  "name": "code-exam",
+  "version": "0.1.0",
+  "description": "Air-Gapped Source Code Examination Tool",
+  "type": "module",
+  "bin": {
+    "code-exam": "./src/index.js"
+  },
+  "main": "./src/index.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+  },
+  "keywords": ["source-code", "analysis", "search", "air-gapped", "code-examination"],
+  "license": "UNLICENSED"
+}

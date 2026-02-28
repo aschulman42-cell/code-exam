@@ -1,0 +1,253 @@
+
+C:\work\code_exam\Nodejs_port\code-exam>node src\index.js --index-path .CodeExam5 --extract doMultisect --deep 3 --comments-only   
+# src/commands/multisect.js@doMultisect
+// ========================================================================
+// Entry point
+// ========================================================================
+  // Show path filter if active
+  // Show selectivity report
+  // Show results
+
+════════════════════════════════════════════════════════════════
+Callees of doMultisect (5 functions, depth 1/3):
+════════════════════════════════════════════════════════════════
+  doMultisect [recursive — skipped]
+
+# src/commands/multisect.js@parseMultisectTerms (54 lines) [called by doMultisect]
+// ========================================================================
+// Term parser
+// ========================================================================
+/**
+ * Parse semicolon-separated search terms.
+ *
+ * Terms in /.../ are regex; others are literal (case-insensitive).
+ * Use ;; for a literal semicolon.
+ * Prefix with NOT or ! to negate.
+ * Dots in plain terms become .? (match any char or nothing).
+ *
+ * @param {string} termsStr
+ * @returns {Array<{display: string, regex: RegExp, negated: boolean}>|null}
+ */
+      // Regex term
+      // Dot-wildcard: dots become .? (optional any-char)
+        // Fallback to literal
+      // Plain literal (case-insensitive)
+  ────────────────────────────────────────────────────────────
+  Callees of parseMultisectTerms (2 functions, depth 2/3):
+  ────────────────────────────────────────────────────────────
+    parseMultisectTerms [recursive — skipped]
+
+  # src/commands/multisect.js@escapeRegex (4 lines) [called by parseMultisectTerms]
+    (no full-line comments found in escapeRegex)
+    ────────────────────────────────────────────────────────────
+    Callees of escapeRegex (1 functions, depth 3/3):
+    ────────────────────────────────────────────────────────────
+      escapeRegex [recursive — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  Tip: Comments can lie! Verify against actual code logic.
+
+# src/core/CodeSearchIndex.js@multisectSearch (287 lines) [called by doMultisect]
+  // ========================================================================
+  // Multi-term intersection search (#146 "scavenger hunt")
+  // ========================================================================
+  /**
+   * Multi-term intersection search.
+   *
+   * Two-phase approach:
+   *   Phase 1: Scan file lines to collect file sets per term (fast).
+   *   Phase 2: Detail retrieval for survivor files only — line numbers,
+   *            line text, containing function via bisect.
+   *
+   * Finds the smallest scope (function → file → folder) containing
+   * multiple terms simultaneously.
+   *
+   * @param {Array<{display, regex, negated}>} terms
+   * @param {Object} opts
+   * @param {number|null} opts.minTerms - minimum positive terms required
+   * @param {string[]|null} opts.includePath
+   * @param {string[]|null} opts.excludePath
+   * @param {boolean} opts.showProgress
+   * @returns {Object|null} results with function_matches, file_matches, folder_matches
+   */
+    // ----------------------------------------------------------------
+    // Phase 1: File-set scan
+    // ----------------------------------------------------------------
+    // Path filter helper
+        // Also check if term matches in the filepath itself (path/filename)
+            // Mark as path-only match for Phase 2
+    // Compute file-level survivors
+    // Build folder-level data
+    // ----------------------------------------------------------------
+    // Phase 2: Detail retrieval for survivors only
+    // ----------------------------------------------------------------
+    // Pre-build function boundaries
+    // funcMap[(filepath, funcName)] → { termIdx: { line_num, line_text } }
+    // fileDetailMap[filepath] → { termIdx: { line_num, line_text, func_name } }
+        // Check if this was a path-only match (term not in file content)
+          // Record as file-level hit with synthetic "path match" detail
+          // Do NOT add to function-level (path is not inside any function)
+          // File-level: record first hit per term
+          // Function-level: one hit per function per term
+    // Build function matches
+      // Get function line count
+    // Build file matches
+      // Check NOT terms
+    // Build folder matches
+      // Check NOT terms
+  ────────────────────────────────────────────────────────────
+  Callees of multisectSearch (5 functions, depth 2/3):
+  ────────────────────────────────────────────────────────────
+    multisectSearch [recursive — skipped]
+
+  # src/core/CodeSearchIndex.js@_ensureFunctionIndex (20 lines) [called by multisectSearch]
+    (no full-line comments found in _ensureFunctionIndex)
+    ────────────────────────────────────────────────────────────
+    Callees of _ensureFunctionIndex (2 functions, depth 3/3):
+    ────────────────────────────────────────────────────────────
+      _ensureFunctionIndex [recursive — skipped]
+
+    # src/core/CodeSearchIndex.js@_loadFunctionIndex (17 lines) [called by _ensureFunctionIndex]
+      (no full-line comments found in _loadFunctionIndex)
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/core/CodeSearchIndex.js@pathOk (263 lines) [called by multisectSearch]
+      // Path filter helper
+          // Also check if term matches in the filepath itself (path/filename)
+              // Mark as path-only match for Phase 2
+      // Compute file-level survivors
+      // Build folder-level data
+      // ----------------------------------------------------------------
+      // Phase 2: Detail retrieval for survivors only
+      // ----------------------------------------------------------------
+      // Pre-build function boundaries
+      // funcMap[(filepath, funcName)] → { termIdx: { line_num, line_text } }
+      // fileDetailMap[filepath] → { termIdx: { line_num, line_text, func_name } }
+          // Check if this was a path-only match (term not in file content)
+            // Record as file-level hit with synthetic "path match" detail
+            // Do NOT add to function-level (path is not inside any function)
+            // File-level: record first hit per term
+            // Function-level: one hit per function per term
+      // Build function matches
+        // Get function line count
+      // Build file matches
+        // Check NOT terms
+      // Build folder matches
+        // Check NOT terms
+    ────────────────────────────────────────────────────────────
+    Callees of pathOk (3 functions, depth 3/3):
+    ────────────────────────────────────────────────────────────
+      pathOk [recursive — skipped]
+
+    # src/core/CodeSearchIndex.js@_getFuncBoundaries (19 lines) [called by pathOk]
+      // ========================================================================
+      // Containing function lookup
+      // ========================================================================
+      /**
+       * Get sorted function boundaries for fast bisect-based lookup.
+       * Returns sorted array of [startLine, endLine, funcName].
+       */
+
+    # src/core/CodeSearchIndex.js@_bisectFuncLookup (26 lines) [called by pathOk]
+      /**
+       * Find containing function for a line number using bisect.
+       */
+        // Binary search: find rightmost boundary whose start <= lineNum
+
+    Tip: Comments can lie! Verify against actual code logic.
+    _getFuncBoundaries [already shown above — skipped]
+    _bisectFuncLookup [already shown above — skipped]
+
+  Tip: Comments can lie! Verify against actual code logic.
+
+# src/commands/multisect.js@printSelectivityReport (29 lines) [called by doMultisect]
+// ========================================================================
+// Display
+// ========================================================================
+  ────────────────────────────────────────────────────────────
+  Callees of printSelectivityReport (1 functions, depth 2/3):
+  ────────────────────────────────────────────────────────────
+    printSelectivityReport [recursive — skipped]
+
+  Tip: Comments can lie! Verify against actual code logic.
+
+# src/commands/multisect.js@displayMultisectResults (257 lines) [called by doMultisect]
+  // IDF scoring
+  // Header
+  // IDF re-sort
+  // Scope dedup: track which file+term combos are covered by function-level
+  // Exclude (global) — it's not a real scope and shouldn't suppress file-level
+  // Filter out (global) from function-level display — those are really file-level hits
+  // --- Function matches ---
+      // Show per-term detail, collapsing terms that hit the same line
+      // Sort by line number and display
+  // --- File matches ---
+          // Path-only match
+  // --- Folder matches ---
+  // Scope dedup: suppress folders where a single file already covers all matched terms
+    // Collect all files involved
+    // Check if any single file has all terms
+      // Per-term file detail
+  ────────────────────────────────────────────────────────────
+  Callees of displayMultisectResults (6 functions, depth 2/3):
+  ────────────────────────────────────────────────────────────
+    displayMultisectResults [recursive — skipped]
+
+  # src/commands/multisect.js@computeIdfScores (13 lines) [called by displayMultisectResults]
+  // ========================================================================
+  // IDF scoring
+  // ========================================================================
+    ────────────────────────────────────────────────────────────
+    Callees of computeIdfScores (1 functions, depth 3/3):
+    ────────────────────────────────────────────────────────────
+      computeIdfScores [recursive — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/multisect.js@matchIdfScore (11 lines) [called by displayMultisectResults]
+    (no full-line comments found in matchIdfScore)
+    ────────────────────────────────────────────────────────────
+    Callees of matchIdfScore (1 functions, depth 3/3):
+    ────────────────────────────────────────────────────────────
+      matchIdfScore [recursive — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  # src/commands/multisect.js@fileCoveredByFunction (111 lines) [called by displayMultisectResults]
+    // Filter out (global) from function-level display — those are really file-level hits
+    // --- Function matches ---
+        // Show per-term detail, collapsing terms that hit the same line
+        // Sort by line number and display
+    // --- File matches ---
+            // Path-only match
+    ────────────────────────────────────────────────────────────
+    Callees of fileCoveredByFunction (3 functions, depth 3/3):
+    ────────────────────────────────────────────────────────────
+      fileCoveredByFunction [recursive — skipped]
+
+    # src/commands/metrics.js@shortPath (4 lines) [called by fileCoveredByFunction]
+      (no full-line comments found in shortPath)
+      matchIdfScore [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+    shortPath [already shown above — skipped]
+
+  # src/commands/multisect.js@folderCoveredBySingleFile (84 lines) [called by displayMultisectResults]
+    // --- Folder matches ---
+    // Scope dedup: suppress folders where a single file already covers all matched terms
+      // Collect all files involved
+      // Check if any single file has all terms
+        // Per-term file detail
+    ────────────────────────────────────────────────────────────
+    Callees of folderCoveredBySingleFile (2 functions, depth 3/3):
+    ────────────────────────────────────────────────────────────
+      folderCoveredBySingleFile [recursive — skipped]
+      matchIdfScore [already shown above — skipped]
+
+    Tip: Comments can lie! Verify against actual code logic.
+
+  Tip: Comments can lie! Verify against actual code logic.
+
+Tip: Comments can lie! Verify against actual code logic.
