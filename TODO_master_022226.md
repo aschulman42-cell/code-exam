@@ -98,6 +98,7 @@
 | 130h | **Fan-out/fan-in metrics**: orchestrators (high fan-out), integration points. | planned |
 | 130i | **PageRank-style call graph weighting**. | research |
 | 131a | **Non-function ID extraction**: struct defs, global vars, script-heavy languages. | design needed |
+| 250 | **Remove special-case command dispatch from interactive.js**: Currently `dispatchCommand()` has a large if/else chain that special-cases every slash command (`/fast`, `/callers`, `/hotspots`, etc.) with its own argument parsing before calling the shared `do*()` handlers. Refactor so that all commands flow through a unified dispatch table — map command names to their `do*()` handler + a declarative arg spec — eliminating the per-command parsing boilerplate. All interactive commands should go through `doInteractive()` with no special-case branches. | **planned** |
 | 240 | **Multisect cross-method class scope**: Currently multisect scopes are function → file → folder. Add intermediate scope: multiple methods in a single class. If terms are spread across methods of one class, that's a tighter match than "spread across a file." Requires class membership data from function index. | **new, planned** |
 | 241 | **Per-term mandatory/optional flag in multisect**: Currently all positive terms are equally required (subject to --min-terms). Allow specifying which terms are optional — their presence boosts ranking but their absence doesn't disqualify. Syntax TBD, e.g. `?term` or `OPT term` prefix. Would interact with --min-terms scoring. | **new, design needed** |
 
