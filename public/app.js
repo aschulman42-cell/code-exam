@@ -17,6 +17,7 @@ const state = {
   /** Search context: what terms to highlight in source views.
    *  { terms: string[], colors: string[] }  */
   highlightTerms: null,
+  lastIndexDir: null,    // parent dir of last-loaded index (for scan-indexes)
   /** Filepath of currently displayed source (for disambiguation context) */
   currentSourceFile: null,
 };
@@ -80,7 +81,7 @@ const api = {
   claimExtractionPrompt: (p) => api.post('claim-extraction-prompt', p),
   browseDir:       (p) => api.get('browse-dir', p),
   indexes:         ()  => api.get('indexes'),
-  scanIndexes:     ()  => api.get('scan-indexes'),
+  scanIndexes:     (p) => api.get('scan-indexes', p),
   loadIndex:       (p) => api.post('load-index', p),
   fileMap:         (p) => api.get('file-map', p),
   fileTree:        (p) => api.get('file-tree', p),
@@ -298,7 +299,7 @@ async function loadSectionData(sectionId, filter = '') {
         break;
 
       case 'indexes':
-        data = await api.scanIndexes();
+        data = await api.scanIndexes(state.lastIndexDir ? { dir: state.lastIndexDir } : undefined);
         renderIndexesList(content, data);
         badge.textContent = (data.loaded || []).length + '/' + (data.available || []).length;
         break;
@@ -620,21 +621,45 @@ function renderIndexesList(container, data) {
   // Show available (unloaded) indexes
   const unloaded = available.filter(a => !a.loaded);
   if (unloaded.length) {
+    // Show scanned folder path if available
+    if (data.scanDir) {
+      container.appendChild(h('div', { className: 'list-placeholder', text: data.scanDir, style: 'padding:2px 8px;font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis', title: data.scanDir }));
+    }
     container.appendChild(h('div', { className: 'list-placeholder', text: 'Available:', style: 'font-weight:bold;padding:4px 8px;font-size:11px;margin-top:4px' }));
     for (const idx of unloaded) {
       const item = h('div', { className: 'list-item', style: 'cursor:pointer' }, [
         h('span', { className: 'name clickable', text: idx.name }),
         h('span', { className: 'metric muted', text: `~${idx.files} files` }),
       ]);
-      item.addEventListener('click', async () => {
+
+      async function doLoad() {
         item.innerHTML = '<span class="loading" style="font-size:11px">Loading…</span>';
         try {
+          state.lastIndexDir = idx.path.replace(/[\\/][^\\/]+$/, '');
           const result = await api.loadIndex({ path: idx.path, mode: 'replace' });
-          refreshAllSections();
+          // Update index info in header (same as Load Index dialog)
+          const active = result.indexes.find(i => i.active) || result.indexes[0];
+          if (active) $('#index-info').textContent = `${active.name} (${active.files.toLocaleString()} files)`;
+          // Full reset (same as Load Index dialog)
+          state.sectionData = {};
+          for (const sec of $$('.accordion-section')) {
+            sec.classList.remove('open');
+            $('.accordion-content', sec).innerHTML = '';
+            $('.accordion-badge', sec).textContent = '';
+          }
+          clearAllPanes();
         } catch (err) {
           item.innerHTML = `<span class="error-msg" style="font-size:11px">${escHtml(err.message)}</span>`;
         }
-      });
+      }
+
+      async function confirmAndLoad(e) {
+        if (e) e.preventDefault();
+        if (await showConfirmDialog(`Load index "${idx.name}"?`)) doLoad();
+      }
+
+      item.addEventListener('click', confirmAndLoad);
+      item.addEventListener('contextmenu', confirmAndLoad);
       container.appendChild(item);
     }
   }
@@ -1912,6 +1937,9 @@ function initLoadIndex() {
       const result = await api.loadIndex({ path: indexPath, mode });
       overlay.classList.add('hidden');
 
+      // Remember parent directory for scan-indexes
+      state.lastIndexDir = indexPath.replace(/[\\/][^\\/]+$/, '');
+
       // Refresh UI
       const active = result.indexes.find(i => i.active) || result.indexes[0];
       $('#index-info').textContent = `${active.name} (${active.files.toLocaleString()} files)`;
@@ -2042,6 +2070,37 @@ function showSearchDialog(title, label) {
     cancelBtn.addEventListener('click', onCancel);
     closeBtn.addEventListener('click', onCancel);
     input.addEventListener('keydown', onKey);
+  });
+}
+
+
+// ========================================================================
+// Confirm dialog (replaces window.confirm)
+// ========================================================================
+function showConfirmDialog(message) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:360px">
+        <div class="modal-header"><span>Confirm</span>
+          <button class="pane-action confirm-close">✕</button>
+        </div>
+        <div class="modal-body" style="padding:16px;font-size:13px"></div>
+        <div class="modal-footer">
+          <button class="btn-secondary confirm-cancel">Cancel</button>
+          <button class="btn-primary confirm-ok">OK</button>
+        </div>
+      </div>`;
+    overlay.querySelector('.modal-body').textContent = message;
+    document.body.appendChild(overlay);
+
+    function cleanup(val) { overlay.remove(); resolve(val); }
+    overlay.querySelector('.confirm-ok').addEventListener('click', () => cleanup(true));
+    overlay.querySelector('.confirm-cancel').addEventListener('click', () => cleanup(false));
+    overlay.querySelector('.confirm-close').addEventListener('click', () => cleanup(false));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+    overlay.querySelector('.confirm-ok').focus();
   });
 }
 
