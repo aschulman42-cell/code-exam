@@ -336,6 +336,23 @@ async function loadSectionData(sectionId, filter = '') {
   } catch (err) {
     content.innerHTML = `<div class="error-msg">${escHtml(err.message)}</div>`;
   }
+  updateOverflowHint(section);
+}
+
+/** Add/remove 'has-overflow' class to show bottom fade when content is scrollable */
+function updateOverflowHint(section) {
+  const content = $('.accordion-content', section);
+  if (!content) return;
+  const hasMore = content.scrollHeight > content.clientHeight + 4
+    && (content.scrollTop + content.clientHeight < content.scrollHeight - 4);
+  section.classList.toggle('has-overflow', hasMore);
+  if (!content._overflowWired) {
+    content._overflowWired = true;
+    content.addEventListener('scroll', () => {
+      const atBottom = content.scrollTop + content.clientHeight >= content.scrollHeight - 4;
+      section.classList.toggle('has-overflow', !atBottom && content.scrollHeight > content.clientHeight + 4);
+    });
+  }
 }
 
 
@@ -409,6 +426,8 @@ function renderFileListWithSub(container, files, total) {
       if (!wasOpen && subContent.children.length === 0) {
         loadFileFunctions(fp, subContent);
       }
+      const parentSection = sub.closest('.accordion-section');
+      if (parentSection) setTimeout(() => updateOverflowHint(parentSection), 50);
     });
 
     // Double-click: show file in source pane
@@ -472,6 +491,8 @@ function renderClassListWithSub(container, classes, total) {
       if (!wasOpen && subContent.children.length === 0) {
         loadClassMethods(c.name, subContent);
       }
+      const parentSection = sub.closest('.accordion-section');
+      if (parentSection) setTimeout(() => updateOverflowHint(parentSection), 50);
     });
 
     // Double-click: show class in middle-top
@@ -2817,6 +2838,9 @@ function initWindowManagement() {
     });
   }
 
+  // Left pane popout
+  $('#left-pane-popout')?.addEventListener('click', () => openGenericFullscreen('left-pane'));
+
   // Generic fullscreen close
   $('#generic-fs-close')?.addEventListener('click', closeGenericFullscreen);
   $('#generic-fullscreen')?.addEventListener('click', (e) => {
@@ -2902,6 +2926,9 @@ function openGenericFullscreen(paneId) {
     } else {
       paneBody = $('#right-bottom-body');
     }
+  } else if (paneId === 'left-pane') {
+    paneBody = $('#left-body');
+    titleText = 'Indexes & Metrics';
   } else {
     paneBody = $(`#${paneId}-body`) || $(`#${paneId} .pane-body`);
     const paneTitle = $(`#${paneId}-title`) || $(`#${paneId} .pane-header span`);

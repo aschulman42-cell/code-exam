@@ -85,8 +85,15 @@ body { font-family: var(--font-ui); font-size: 13px; color: var(--text); backgro
 .accordion-toggle { font-size: 10px; width: 12px; display: inline-block; transition: transform .15s; }
 .accordion-section.open > .accordion-header .accordion-toggle { transform: rotate(90deg); }
 .accordion-badge { margin-left: auto; font-size: 11px; color: var(--accent-dim); font-weight: 400; font-family: var(--font-mono); }
-.accordion-content { display: none; max-height: 400px; overflow-y: auto; }
+.accordion-content { display: none; max-height: 400px; overflow-y: auto; position: relative; }
 .accordion-section.open > .accordion-content { display: block; }
+.accordion-section { position: relative; }
+.accordion-section::after {
+  content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 28px; z-index: 1;
+  background: linear-gradient(transparent, var(--bg-dark)); pointer-events: none;
+  opacity: 0; transition: opacity .15s;
+}
+.accordion-section.has-overflow::after { opacity: 1; }
 
 /* ---- Sub-accordion (nested items inside classes/files) ---- */
 .sub-accordion-header { display: flex; align-items: center; gap: 4px; padding: 3px 10px 3px 22px; cursor: pointer; font-size: 11px; color: var(--text-muted); user-select: none; border-bottom: 1px solid var(--bg-dark); }
