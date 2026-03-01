@@ -218,3 +218,10 @@ body.workspace-open #workspace { display: flex; flex-direction: column; }
 /* ---- Window menu ---- */
 .window-toggle { display: flex; align-items: center; gap: 6px; padding: 4px 16px; font-size: 12px; cursor: pointer; }
 .window-toggle input { cursor: pointer; }
+
+/* ---- Directory browser (Load Index dialog) ---- */
+.browse-item { display: flex; align-items: center; gap: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid var(--bg-dark); color: var(--text); }
+.browse-item:hover { background: var(--bg-hover); color: var(--text-bright); }
+.browse-item.is-index { color: var(--accent-green); }
+.browse-item .index-badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(158,206,106,.15); color: var(--accent-green); border: 1px solid var(--accent-green); margin-left: auto; flex-shrink: 0; }
+.browse-item .dir-marker { color: var(--text-muted); font-size: 11px; flex-shrink: 0; width: 14px; }

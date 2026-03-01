@@ -512,6 +512,37 @@ routes['/api/scan-indexes'] = (req, res) => {
   jsonResponse(res, { available, loaded: mgr.list() });
 };
 
+routes['/api/browse-dir'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const dirPath = path.resolve(q.path || process.cwd());
+
+  let entries;
+  try {
+    entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  } catch (err) {
+    const code = err.code === 'ENOENT' ? 404 : err.code === 'EACCES' ? 403 : 500;
+    return errorResponse(res, `Cannot read directory: ${err.message}`, code);
+  }
+
+  const dirs = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const fullPath = path.join(dirPath, entry.name);
+    let isIndex = false;
+    try { isIndex = fs.existsSync(path.join(fullPath, 'literal_index.json')); } catch (_) {}
+    dirs.push({ name: entry.name, isIndex });
+  }
+
+  // Sort: index dirs first, then alphabetical (case-insensitive)
+  dirs.sort((a, b) => {
+    if (a.isIndex !== b.isIndex) return a.isIndex ? -1 : 1;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  });
+
+  const parent = path.dirname(dirPath);
+  jsonResponse(res, { current: dirPath, parent: parent !== dirPath ? parent : null, sep: path.sep, dirs });
+};
+
 routes['/api/stats'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);

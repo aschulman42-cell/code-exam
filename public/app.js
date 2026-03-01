@@ -78,6 +78,7 @@ const api = {
   claimSearchLlm:  (p) => api.post('claim-search-llm', p),
   analyzeLlm:      (p) => api.post('analyze-llm', p),
   claimExtractionPrompt: (p) => api.post('claim-extraction-prompt', p),
+  browseDir:       (p) => api.get('browse-dir', p),
   indexes:         ()  => api.get('indexes'),
   scanIndexes:     ()  => api.get('scan-indexes'),
   loadIndex:       (p) => api.post('load-index', p),
@@ -1818,10 +1819,86 @@ function initLoadIndex() {
   const overlay = $('#load-index-overlay');
   const pathInput = $('#load-index-path');
   const errDiv = $('#load-index-error');
+  const browserPanel = $('#load-index-browser');
+  const browsePathEl = $('#browse-current-path');
+  const dirListEl = $('#browse-dir-list');
+  let lastBrowsedDir = null;  // remember last directory for next dialog open
 
   $('#load-index-close').addEventListener('click', () => overlay.classList.add('hidden'));
   $('#load-index-cancel').addEventListener('click', () => overlay.classList.add('hidden'));
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.add('hidden'); });
+
+  // --- Filesystem browser ---
+
+  async function browseTo(dirPath) {
+    try {
+      const data = await api.browseDir(dirPath ? { path: dirPath } : {});
+      renderBrowser(data);
+    } catch (err) {
+      dirListEl.innerHTML = `<div class="error-msg" style="padding:8px">${err.message}</div>`;
+    }
+  }
+
+  function renderBrowser(data) {
+    lastBrowsedDir = data.current;
+    browsePathEl.textContent = data.current;
+    browsePathEl.title = data.current;
+    dirListEl.innerHTML = '';
+
+    // ".." entry to go up
+    if (data.parent) {
+      const upEl = document.createElement('div');
+      upEl.className = 'browse-item';
+      upEl.innerHTML = '<span class="dir-marker">..</span> <span>(parent directory)</span>';
+      upEl.addEventListener('click', () => browseTo(data.parent));
+      dirListEl.appendChild(upEl);
+    }
+
+    for (const dir of data.dirs) {
+      const el = document.createElement('div');
+      el.className = 'browse-item' + (dir.isIndex ? ' is-index' : '');
+      const fullPath = data.current + data.sep + dir.name;
+
+      let inner = `<span class="dir-marker">/</span> <span>${dir.name}</span>`;
+      if (dir.isIndex) inner += '<span class="index-badge">index</span>';
+      el.innerHTML = inner;
+
+      if (dir.isIndex) {
+        // Single click: populate path input
+        el.addEventListener('click', () => {
+          pathInput.value = fullPath;
+          errDiv.style.display = 'none';
+        });
+        // Double click: populate and load
+        el.addEventListener('dblclick', () => {
+          pathInput.value = fullPath;
+          $('#load-index-ok').click();
+        });
+      } else {
+        // Navigate into regular directory
+        el.addEventListener('click', () => browseTo(fullPath));
+      }
+
+      dirListEl.appendChild(el);
+    }
+
+    if (data.dirs.length === 0) {
+      dirListEl.innerHTML = '<div style="padding:8px;color:var(--text-muted);font-size:12px">No subdirectories</div>';
+    }
+  }
+
+  // Browse button toggles the panel
+  $('#load-index-browse').addEventListener('click', () => {
+    if (browserPanel.style.display === 'none') {
+      browserPanel.style.display = 'block';
+      const startPath = pathInput.value.trim() || lastBrowsedDir || null;
+      browseTo(startPath);
+    } else {
+      browserPanel.style.display = 'none';
+    }
+  });
+
+  // --- Load button ---
 
   $('#load-index-ok').addEventListener('click', async () => {
     const indexPath = pathInput.value.trim();
@@ -1831,7 +1908,7 @@ function initLoadIndex() {
     const mode = $('#load-index-add').checked ? 'add' : 'replace';
     try {
       $('#load-index-ok').disabled = true;
-      $('#load-index-ok').textContent = 'Loading…';
+      $('#load-index-ok').textContent = 'Loading...';
       const result = await api.loadIndex({ path: indexPath, mode });
       overlay.classList.add('hidden');
 
@@ -1894,6 +1971,8 @@ async function handleMenuAction(action) {
     case 'load-index':
       $('#load-index-path').value = '';
       $('#load-index-error').style.display = 'none';
+      $('#load-index-browser').style.display = 'none';
+      $('#browse-dir-list').innerHTML = '';
       $('#load-index-overlay').classList.remove('hidden');
       setTimeout(() => $('#load-index-path').focus(), 100);
       break;
