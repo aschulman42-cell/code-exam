@@ -184,6 +184,8 @@ body.workspace-open .workspace-body { display: flex; flex-direction: column; }
 body.workspace-open #workspace { display: flex; flex-direction: column; }
 .workspace-input { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .workspace-input textarea { width: 100%; flex: 1; min-height: 50px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text-bright); padding: 8px; border-radius: 3px; font-family: var(--font-mono); font-size: 12px; resize: none; outline: none; }
+/* In fullscreen: generous textarea with vertical resize */
+#generic-fs-body .workspace-input textarea { flex: none; min-height: 120px; resize: vertical; }
 .workspace-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-top: 8px; }
 .control-group { display: flex; flex-direction: column; gap: 2px; }
 .control-group label { font-size: 11px; color: var(--text-muted); }

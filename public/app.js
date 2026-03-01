@@ -2144,7 +2144,13 @@ function stripAtFileHeader(text) {
 // Workspace
 // ========================================================================
 function initWorkspace() {
-  $('#workspace-toggle').addEventListener('click', () => {
+  // Open expanded by default
+  document.body.classList.add('workspace-open');
+  $('#workspace').style.height = '180px';
+
+  $('#workspace-toggle').addEventListener('click', (e) => {
+    // Don't toggle if the popout button was clicked
+    if (e.target.id === 'workspace-popout') return;
     document.body.classList.toggle('workspace-open');
     const isOpen = document.body.classList.contains('workspace-open');
     $('#workspace-expand-btn').textContent = isOpen ? '▾ Collapse' : '▴ Expand';
@@ -2152,6 +2158,17 @@ function initWorkspace() {
     const ws = $('#workspace');
     if (isOpen && !ws.style.height) ws.style.height = '180px';
   });
+
+  // Pop out full screen — carry over textarea height
+  $('#workspace-popout').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const ta = $('#claim-text');
+    const curH = ta.offsetHeight;
+    openGenericFullscreen('workspace');
+    // Apply at least the current height, or a generous default
+    ta.style.height = Math.max(curH, 120) + 'px';
+  });
+
   $('#ws-run').addEventListener('click', runWorkspace);
   $('#ws-show-prompt').addEventListener('click', showWorkspacePrompt);
 
@@ -2929,6 +2946,9 @@ function openGenericFullscreen(paneId) {
   } else if (paneId === 'left-pane') {
     paneBody = $('#left-body');
     titleText = 'Indexes & Metrics';
+  } else if (paneId === 'workspace') {
+    paneBody = $('#workspace-body');
+    titleText = 'Claim / Multisect Workspace';
   } else {
     paneBody = $(`#${paneId}-body`) || $(`#${paneId} .pane-body`);
     const paneTitle = $(`#${paneId}-title`) || $(`#${paneId} .pane-header span`);
@@ -2952,6 +2972,9 @@ function openGenericFullscreen(paneId) {
 function closeGenericFullscreen() {
   $('#generic-fullscreen').classList.add('hidden');
   const fsBody = $('#generic-fs-body');
+  // Clear inline height on workspace textarea so it returns to flex sizing
+  const ta = $('#claim-text');
+  if (ta) ta.style.height = '';
   // Move reparented node back to its original container
   if (state._fsReturnTarget && state._fsReturnNode) {
     state._fsReturnTarget.appendChild(state._fsReturnNode);
