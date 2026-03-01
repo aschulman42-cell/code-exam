@@ -837,8 +837,9 @@ function dispatchCommand(query, ctx) {
     if (query.startsWith('/hot-folders') || query.startsWith('/hotfolders')) {
       const rest = query.replace(/^\/(hot-?folders)\s*/, '');
       const { rest: hRest, inPattern: hIn } = extractInFilter(rest);
-      const { n, pattern } = parseNPat(hRest, 20);
-      doHotFolders(index, iargs({ hot_folders: n, filter: pattern, vocab_in: hIn }));
+      const { n, pattern, opts } = parseNPat(hRest, 20);
+      const hDepth = parseInt(opts['depth']) || null;
+      doHotFolders(index, iargs({ hot_folders: n, filter: pattern, vocab_in: hIn, depth: hDepth }));
       return;
     }
     if (query.startsWith('/entry-points') || query.startsWith('/entry')) {

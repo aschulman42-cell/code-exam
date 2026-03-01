@@ -113,11 +113,13 @@ export function doHotFolders(index, args) {
   }
 
   // Aggregate by directory at multiple levels
+  const maxDepth = args.depth || null;  // --depth N limits folder nesting
   const folderStats = {};
   for (const h of hotspots) {
     const fp = h.filepath.replace(/\\/g, '/');
     const parts = fp.split('/');
-    for (let i = 1; i < parts.length; i++) {
+    const limit = maxDepth ? Math.min(parts.length, maxDepth + 1) : parts.length;
+    for (let i = 1; i < limit; i++) {
       const folder = parts.slice(0, i).join('/');
       if (!folderStats[folder]) {
         folderStats[folder] = { score: 0, funcs: 0, files: new Set(), top_func: null, top_score: 0 };

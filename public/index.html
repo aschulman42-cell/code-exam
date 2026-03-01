@@ -185,6 +185,11 @@
         <div class="pane-header">
           <span id="right-top-title">Diagram</span>
           <span class="diagram-controls">
+            <label title="Call tree / file tree depth" style="font-size:11px;margin-right:4px">Depth
+              <select id="diagram-depth" style="width:40px;font-size:11px">
+                <option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option>
+              </select>
+            </label>
             <button class="pane-action" id="zoom-in" title="Zoom in">+</button>
             <button class="pane-action" id="zoom-reset" title="Reset zoom">⊙</button>
             <button class="pane-action" id="zoom-out" title="Zoom out">−</button>
@@ -300,15 +305,21 @@
 
   <!-- LOAD INDEX DIALOG -->
   <div id="load-index-overlay" class="modal-overlay hidden">
-    <div class="modal">
+    <div class="modal" style="width:560px">
       <div class="modal-header"><span>Load Index</span>
         <button class="pane-action" id="load-index-close">✕</button>
       </div>
       <div class="modal-body">
-        <label>Index path (directory containing literal_index.json):
-          <input type="text" id="load-index-path" placeholder=".code_search_index" spellcheck="false">
-        </label>
-        <label class="checkbox-row" style="opacity:0.5" title="Not yet implemented — will be added in a future version">
+        <label>Index path (directory containing literal_index.json):</label>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <input type="text" id="load-index-path" placeholder=".code_search_index" spellcheck="false" style="flex:1;margin-top:0">
+          <button class="btn-secondary" id="load-index-browse">Browse</button>
+        </div>
+        <div id="load-index-browser" style="display:none">
+          <div id="browse-current-path" style="font-size:11px;font-family:var(--font-mono);color:var(--text-muted);padding:4px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+          <div id="browse-dir-list" class="scrollable" style="border:1px solid var(--border);border-radius:3px;max-height:240px;overflow-y:auto;background:var(--bg-input)"></div>
+        </div>
+        <label class="checkbox-row" style="opacity:0.5;margin-top:8px" title="Not yet implemented — will be added in a future version">
           <input type="checkbox" id="load-index-add" disabled>
           Add to existing indexes (not yet implemented)
         </label>

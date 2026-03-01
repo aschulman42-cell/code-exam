@@ -474,34 +474,33 @@ routes['/api/resolve-file'] = (req, res) => {
 
 // --- Scan for available indexes ---
 routes['/api/scan-indexes'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const scanDir = path.resolve(q.dir || process.cwd());
   const available = [];
   try {
-    const cwd = process.cwd();
-    for (const entry of fs.readdirSync(cwd, { withFileTypes: true })) {
+    for (const entry of fs.readdirSync(scanDir, { withFileTypes: true })) {
       if (entry.isDirectory()) {
-        const litIdx = path.join(cwd, entry.name, 'literal_index.json');
+        const litIdx = path.join(scanDir, entry.name, 'literal_index.json');
         if (fs.existsSync(litIdx)) {
-          // Quick stats: file count from literal_index keys
+          // Quick stats: file count from function_index.json or literal_index.json
           let fileCount = 0;
           try {
-            // Try function_index.json first (much smaller)
-            const funcIdx = path.join(cwd, entry.name, 'function_index.json');
+            const funcIdx = path.join(scanDir, entry.name, 'function_index.json');
             if (fs.existsSync(funcIdx)) {
               const raw = fs.readFileSync(funcIdx, 'utf-8');
               const parsed = JSON.parse(raw);
-              const files = new Set();
-              for (const f of (parsed.functions || [])) { if (f.filepath) files.add(f.filepath); }
-              fileCount = files.size;
+              // function_index.json uses filenames as top-level keys
+              fileCount = Object.keys(parsed).length;
             } else {
-              // Fallback: count "files" keys in literal_index (expensive for large indices)
+              // Fallback: count "files" keys in literal_index
               const raw = fs.readFileSync(litIdx, 'utf-8');
               const parsed = JSON.parse(raw);
               fileCount = Object.keys(parsed.files || {}).length;
             }
           } catch (_) {}
-          const fullPath = path.join(cwd, entry.name);
+          const fullPath = path.join(scanDir, entry.name);
           const isLoaded = [...mgr.indexes.keys()].some(k => {
-            const loadedPath = mgr.indexes.get(k)?._indexPath || '';
+            const loadedPath = mgr.indexes.get(k)?.indexPath || '';
             return loadedPath === fullPath || k === entry.name;
           });
           available.push({ name: entry.name, path: fullPath, files: fileCount, loaded: isLoaded });
@@ -509,7 +508,38 @@ routes['/api/scan-indexes'] = (req, res) => {
       }
     }
   } catch (_) {}
-  jsonResponse(res, { available, loaded: mgr.list() });
+  jsonResponse(res, { available, loaded: mgr.list(), scanDir });
+};
+
+routes['/api/browse-dir'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const dirPath = path.resolve(q.path || process.cwd());
+
+  let entries;
+  try {
+    entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  } catch (err) {
+    const code = err.code === 'ENOENT' ? 404 : err.code === 'EACCES' ? 403 : 500;
+    return errorResponse(res, `Cannot read directory: ${err.message}`, code);
+  }
+
+  const dirs = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const fullPath = path.join(dirPath, entry.name);
+    let isIndex = false;
+    try { isIndex = fs.existsSync(path.join(fullPath, 'literal_index.json')); } catch (_) {}
+    dirs.push({ name: entry.name, isIndex });
+  }
+
+  // Sort: index dirs first, then alphabetical (case-insensitive)
+  dirs.sort((a, b) => {
+    if (a.isIndex !== b.isIndex) return a.isIndex ? -1 : 1;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  });
+
+  const parent = path.dirname(dirPath);
+  jsonResponse(res, { current: dirPath, parent: parent !== dirPath ? parent : null, sep: path.sep, dirs });
 };
 
 routes['/api/stats'] = (req, res) => {

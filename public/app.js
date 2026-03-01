@@ -17,6 +17,7 @@ const state = {
   /** Search context: what terms to highlight in source views.
    *  { terms: string[], colors: string[] }  */
   highlightTerms: null,
+  lastIndexDir: null,    // parent dir of last-loaded index (for scan-indexes)
   /** Filepath of currently displayed source (for disambiguation context) */
   currentSourceFile: null,
 };
@@ -78,8 +79,9 @@ const api = {
   claimSearchLlm:  (p) => api.post('claim-search-llm', p),
   analyzeLlm:      (p) => api.post('analyze-llm', p),
   claimExtractionPrompt: (p) => api.post('claim-extraction-prompt', p),
+  browseDir:       (p) => api.get('browse-dir', p),
   indexes:         ()  => api.get('indexes'),
-  scanIndexes:     ()  => api.get('scan-indexes'),
+  scanIndexes:     (p) => api.get('scan-indexes', p),
   loadIndex:       (p) => api.post('load-index', p),
   fileMap:         (p) => api.get('file-map', p),
   fileTree:        (p) => api.get('file-tree', p),
@@ -297,7 +299,7 @@ async function loadSectionData(sectionId, filter = '') {
         break;
 
       case 'indexes':
-        data = await api.scanIndexes();
+        data = await api.scanIndexes(state.lastIndexDir ? { dir: state.lastIndexDir } : undefined);
         renderIndexesList(content, data);
         badge.textContent = (data.loaded || []).length + '/' + (data.available || []).length;
         break;
@@ -619,21 +621,45 @@ function renderIndexesList(container, data) {
   // Show available (unloaded) indexes
   const unloaded = available.filter(a => !a.loaded);
   if (unloaded.length) {
+    // Show scanned folder path if available
+    if (data.scanDir) {
+      container.appendChild(h('div', { className: 'list-placeholder', text: data.scanDir, style: 'padding:2px 8px;font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis', title: data.scanDir }));
+    }
     container.appendChild(h('div', { className: 'list-placeholder', text: 'Available:', style: 'font-weight:bold;padding:4px 8px;font-size:11px;margin-top:4px' }));
     for (const idx of unloaded) {
       const item = h('div', { className: 'list-item', style: 'cursor:pointer' }, [
         h('span', { className: 'name clickable', text: idx.name }),
         h('span', { className: 'metric muted', text: `~${idx.files} files` }),
       ]);
-      item.addEventListener('click', async () => {
+
+      async function doLoad() {
         item.innerHTML = '<span class="loading" style="font-size:11px">Loading…</span>';
         try {
+          state.lastIndexDir = idx.path.replace(/[\\/][^\\/]+$/, '');
           const result = await api.loadIndex({ path: idx.path, mode: 'replace' });
-          refreshAllSections();
+          // Update index info in header (same as Load Index dialog)
+          const active = result.indexes.find(i => i.active) || result.indexes[0];
+          if (active) $('#index-info').textContent = `${active.name} (${active.files.toLocaleString()} files)`;
+          // Full reset (same as Load Index dialog)
+          state.sectionData = {};
+          for (const sec of $$('.accordion-section')) {
+            sec.classList.remove('open');
+            $('.accordion-content', sec).innerHTML = '';
+            $('.accordion-badge', sec).textContent = '';
+          }
+          clearAllPanes();
         } catch (err) {
           item.innerHTML = `<span class="error-msg" style="font-size:11px">${escHtml(err.message)}</span>`;
         }
-      });
+      }
+
+      async function confirmAndLoad(e) {
+        if (e) e.preventDefault();
+        if (await showConfirmDialog(`Load index "${idx.name}"?`)) doLoad();
+      }
+
+      item.addEventListener('click', confirmAndLoad);
+      item.addEventListener('contextmenu', confirmAndLoad);
       container.appendChild(item);
     }
   }
@@ -1499,11 +1525,12 @@ async function handleContextAction(action) {
 
     case 'call-tree': {
       showPane('right-top');
+      const ctDepth = parseInt($('#diagram-depth')?.value) || 3;
       const body = $('#right-top-body'), ttl = $('#right-top-title');
-      ttl.textContent = `Call tree: ${target.name}`;
+      ttl.textContent = `Call tree: ${target.name} (depth ${ctDepth})`;
       body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"><div class="loading">Building call tree…</div></div>';
       try {
-        const data = await api.callTree({ func: funcSpec, depth: 3 });
+        const data = await api.callTree({ func: funcSpec, depth: ctDepth });
         renderMermaid(data.mermaid, $('#diagram-viewport'), data.target);
       } catch (err) {
         $('#diagram-viewport').innerHTML = `<div class="error-msg">${escHtml(err.message)}</div>`;
@@ -1515,11 +1542,12 @@ async function handleContextAction(action) {
       const fp = target.filepath;
       if (!fp) { showMiddleTopError('No file associated with this item.'); break; }
       showPane('right-top');
+      const ftDepth = parseInt($('#diagram-depth')?.value) || 3;
       const body = $('#right-top-body'), ttl = $('#right-top-title');
-      ttl.textContent = `File tree: ${fp.split('/').pop()}`;
+      ttl.textContent = `File tree: ${fp.split('/').pop()} (depth ${ftDepth})`;
       body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"><div class="loading">Building file dependency tree…</div></div>';
       try {
-        const data = await api.fileTree({ file: fp, depth: 2 });
+        const data = await api.fileTree({ file: fp, depth: ftDepth });
         renderMermaid(data.mermaid, $('#diagram-viewport'), data.target_base);
       } catch (err) {
         $('#diagram-viewport').innerHTML = `<div class="error-msg">${escHtml(err.message)}</div>`;
@@ -1816,10 +1844,86 @@ function initLoadIndex() {
   const overlay = $('#load-index-overlay');
   const pathInput = $('#load-index-path');
   const errDiv = $('#load-index-error');
+  const browserPanel = $('#load-index-browser');
+  const browsePathEl = $('#browse-current-path');
+  const dirListEl = $('#browse-dir-list');
+  let lastBrowsedDir = null;  // remember last directory for next dialog open
 
   $('#load-index-close').addEventListener('click', () => overlay.classList.add('hidden'));
   $('#load-index-cancel').addEventListener('click', () => overlay.classList.add('hidden'));
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.add('hidden'); });
+
+  // --- Filesystem browser ---
+
+  async function browseTo(dirPath) {
+    try {
+      const data = await api.browseDir(dirPath ? { path: dirPath } : {});
+      renderBrowser(data);
+    } catch (err) {
+      dirListEl.innerHTML = `<div class="error-msg" style="padding:8px">${err.message}</div>`;
+    }
+  }
+
+  function renderBrowser(data) {
+    lastBrowsedDir = data.current;
+    browsePathEl.textContent = data.current;
+    browsePathEl.title = data.current;
+    dirListEl.innerHTML = '';
+
+    // ".." entry to go up
+    if (data.parent) {
+      const upEl = document.createElement('div');
+      upEl.className = 'browse-item';
+      upEl.innerHTML = '<span class="dir-marker">..</span> <span>(parent directory)</span>';
+      upEl.addEventListener('click', () => browseTo(data.parent));
+      dirListEl.appendChild(upEl);
+    }
+
+    for (const dir of data.dirs) {
+      const el = document.createElement('div');
+      el.className = 'browse-item' + (dir.isIndex ? ' is-index' : '');
+      const fullPath = data.current + data.sep + dir.name;
+
+      let inner = `<span class="dir-marker">/</span> <span>${dir.name}</span>`;
+      if (dir.isIndex) inner += '<span class="index-badge">index</span>';
+      el.innerHTML = inner;
+
+      if (dir.isIndex) {
+        // Single click: populate path input
+        el.addEventListener('click', () => {
+          pathInput.value = fullPath;
+          errDiv.style.display = 'none';
+        });
+        // Double click: populate and load
+        el.addEventListener('dblclick', () => {
+          pathInput.value = fullPath;
+          $('#load-index-ok').click();
+        });
+      } else {
+        // Navigate into regular directory
+        el.addEventListener('click', () => browseTo(fullPath));
+      }
+
+      dirListEl.appendChild(el);
+    }
+
+    if (data.dirs.length === 0) {
+      dirListEl.innerHTML = '<div style="padding:8px;color:var(--text-muted);font-size:12px">No subdirectories</div>';
+    }
+  }
+
+  // Browse button toggles the panel
+  $('#load-index-browse').addEventListener('click', () => {
+    if (browserPanel.style.display === 'none') {
+      browserPanel.style.display = 'block';
+      const startPath = pathInput.value.trim() || lastBrowsedDir || null;
+      browseTo(startPath);
+    } else {
+      browserPanel.style.display = 'none';
+    }
+  });
+
+  // --- Load button ---
 
   $('#load-index-ok').addEventListener('click', async () => {
     const indexPath = pathInput.value.trim();
@@ -1829,9 +1933,12 @@ function initLoadIndex() {
     const mode = $('#load-index-add').checked ? 'add' : 'replace';
     try {
       $('#load-index-ok').disabled = true;
-      $('#load-index-ok').textContent = 'Loading…';
+      $('#load-index-ok').textContent = 'Loading...';
       const result = await api.loadIndex({ path: indexPath, mode });
       overlay.classList.add('hidden');
+
+      // Remember parent directory for scan-indexes
+      state.lastIndexDir = indexPath.replace(/[\\/][^\\/]+$/, '');
 
       // Refresh UI
       const active = result.indexes.find(i => i.active) || result.indexes[0];
@@ -1892,6 +1999,8 @@ async function handleMenuAction(action) {
     case 'load-index':
       $('#load-index-path').value = '';
       $('#load-index-error').style.display = 'none';
+      $('#load-index-browser').style.display = 'none';
+      $('#browse-dir-list').innerHTML = '';
       $('#load-index-overlay').classList.remove('hidden');
       setTimeout(() => $('#load-index-path').focus(), 100);
       break;
@@ -1961,6 +2070,37 @@ function showSearchDialog(title, label) {
     cancelBtn.addEventListener('click', onCancel);
     closeBtn.addEventListener('click', onCancel);
     input.addEventListener('keydown', onKey);
+  });
+}
+
+
+// ========================================================================
+// Confirm dialog (replaces window.confirm)
+// ========================================================================
+function showConfirmDialog(message) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:360px">
+        <div class="modal-header"><span>Confirm</span>
+          <button class="pane-action confirm-close">✕</button>
+        </div>
+        <div class="modal-body" style="padding:16px;font-size:13px"></div>
+        <div class="modal-footer">
+          <button class="btn-secondary confirm-cancel">Cancel</button>
+          <button class="btn-primary confirm-ok">OK</button>
+        </div>
+      </div>`;
+    overlay.querySelector('.modal-body').textContent = message;
+    document.body.appendChild(overlay);
+
+    function cleanup(val) { overlay.remove(); resolve(val); }
+    overlay.querySelector('.confirm-ok').addEventListener('click', () => cleanup(true));
+    overlay.querySelector('.confirm-cancel').addEventListener('click', () => cleanup(false));
+    overlay.querySelector('.confirm-close').addEventListener('click', () => cleanup(false));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+    overlay.querySelector('.confirm-ok').focus();
   });
 }
 
@@ -2555,11 +2695,26 @@ async function executeConsoleCommand(cmd) {
   if (cmd.startsWith('/call-tree ') && !cmd.includes('mermaid')) {
     const funcSpec = cmd.slice(11).trim();
     try {
-      const data = await api.callTree({ func: funcSpec, depth: 3 });
-      consoleAppend(`Call tree for ${data.target} rendered in Diagram pane.`, 'console-info');
+      const consoleDepth = parseInt($('#diagram-depth')?.value) || 3;
+      const data = await api.callTree({ func: funcSpec, depth: consoleDepth });
+      consoleAppend(`Call tree for ${data.target} (depth ${consoleDepth}) rendered in Diagram pane.`, 'console-info');
       const body = $('#right-top-body'), ttl = $('#right-top-title');
-      if (ttl) ttl.textContent = `Call tree: ${data.target}`;
+      if (ttl) ttl.textContent = `Call tree: ${data.target} (depth ${consoleDepth})`;
       if (body) { body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"></div>'; renderMermaid(data.mermaid, $('#diagram-viewport'), data.target); }
+      showPane('right-top');
+    } catch (err) { consoleAppend(`Error: ${err.message}`, 'console-err'); }
+    return;
+  }
+
+  // /file-map → render in diagram pane via dedicated route
+  if (cmd === '/file-map' || cmd.startsWith('/file-map ')) {
+    const filter = cmd.slice(9).trim().replace(/\bmermaid\b/, '').trim() || undefined;
+    try {
+      const data = await api.fileMap({ filter });
+      consoleAppend(`File map (${data.files} files, ${data.edges} edges) rendered in Diagram pane.`, 'console-info');
+      const body = $('#right-top-body'), ttl = $('#right-top-title');
+      if (ttl) ttl.textContent = 'File Dependency Map';
+      if (body) { body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"></div>'; renderMermaid(data.mermaid, $('#diagram-viewport'), null); }
       showPane('right-top');
     } catch (err) { consoleAppend(`Error: ${err.message}`, 'console-err'); }
     return;
