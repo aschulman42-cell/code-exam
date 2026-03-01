@@ -1499,11 +1499,12 @@ async function handleContextAction(action) {
 
     case 'call-tree': {
       showPane('right-top');
+      const ctDepth = parseInt($('#diagram-depth')?.value) || 3;
       const body = $('#right-top-body'), ttl = $('#right-top-title');
-      ttl.textContent = `Call tree: ${target.name}`;
+      ttl.textContent = `Call tree: ${target.name} (depth ${ctDepth})`;
       body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"><div class="loading">Building call tree…</div></div>';
       try {
-        const data = await api.callTree({ func: funcSpec, depth: 3 });
+        const data = await api.callTree({ func: funcSpec, depth: ctDepth });
         renderMermaid(data.mermaid, $('#diagram-viewport'), data.target);
       } catch (err) {
         $('#diagram-viewport').innerHTML = `<div class="error-msg">${escHtml(err.message)}</div>`;
@@ -1515,11 +1516,12 @@ async function handleContextAction(action) {
       const fp = target.filepath;
       if (!fp) { showMiddleTopError('No file associated with this item.'); break; }
       showPane('right-top');
+      const ftDepth = parseInt($('#diagram-depth')?.value) || 3;
       const body = $('#right-top-body'), ttl = $('#right-top-title');
-      ttl.textContent = `File tree: ${fp.split('/').pop()}`;
+      ttl.textContent = `File tree: ${fp.split('/').pop()} (depth ${ftDepth})`;
       body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"><div class="loading">Building file dependency tree…</div></div>';
       try {
-        const data = await api.fileTree({ file: fp, depth: 2 });
+        const data = await api.fileTree({ file: fp, depth: ftDepth });
         renderMermaid(data.mermaid, $('#diagram-viewport'), data.target_base);
       } catch (err) {
         $('#diagram-viewport').innerHTML = `<div class="error-msg">${escHtml(err.message)}</div>`;
@@ -2555,10 +2557,11 @@ async function executeConsoleCommand(cmd) {
   if (cmd.startsWith('/call-tree ') && !cmd.includes('mermaid')) {
     const funcSpec = cmd.slice(11).trim();
     try {
-      const data = await api.callTree({ func: funcSpec, depth: 3 });
-      consoleAppend(`Call tree for ${data.target} rendered in Diagram pane.`, 'console-info');
+      const consoleDepth = parseInt($('#diagram-depth')?.value) || 3;
+      const data = await api.callTree({ func: funcSpec, depth: consoleDepth });
+      consoleAppend(`Call tree for ${data.target} (depth ${consoleDepth}) rendered in Diagram pane.`, 'console-info');
       const body = $('#right-top-body'), ttl = $('#right-top-title');
-      if (ttl) ttl.textContent = `Call tree: ${data.target}`;
+      if (ttl) ttl.textContent = `Call tree: ${data.target} (depth ${consoleDepth})`;
       if (body) { body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"></div>'; renderMermaid(data.mermaid, $('#diagram-viewport'), data.target); }
       showPane('right-top');
     } catch (err) { consoleAppend(`Error: ${err.message}`, 'console-err'); }
