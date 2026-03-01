@@ -2565,6 +2565,20 @@ async function executeConsoleCommand(cmd) {
     return;
   }
 
+  // /file-map → render in diagram pane via dedicated route
+  if (cmd === '/file-map' || cmd.startsWith('/file-map ')) {
+    const filter = cmd.slice(9).trim().replace(/\bmermaid\b/, '').trim() || undefined;
+    try {
+      const data = await api.fileMap({ filter });
+      consoleAppend(`File map (${data.files} files, ${data.edges} edges) rendered in Diagram pane.`, 'console-info');
+      const body = $('#right-top-body'), ttl = $('#right-top-title');
+      if (ttl) ttl.textContent = 'File Dependency Map';
+      if (body) { body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"></div>'; renderMermaid(data.mermaid, $('#diagram-viewport'), null); }
+      showPane('right-top');
+    } catch (err) { consoleAppend(`Error: ${err.message}`, 'console-err'); }
+    return;
+  }
+
   // /analyze → run via /api/exec but also show in Analysis pane
   if (cmd.startsWith('/analyze ')) {
     consoleAppend('Analyzing… (output in Analysis pane)', 'console-info');
