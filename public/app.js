@@ -278,21 +278,21 @@ async function loadSectionData(sectionId, filter = '') {
         break;
 
       case 'near-dupes':
-        data = await api.nearDupes({ n: 30 });
+        data = await api.nearDupes({ n: 30, filter });
         state.sectionData[sectionId] = data.groups;
         renderDupeGroupList(content, data.groups, 'near');
         badge.textContent = data.total;
         break;
 
       case 'struct-dupes':
-        data = await api.structDupes({ n: 30 });
+        data = await api.structDupes({ n: 30, filter });
         state.sectionData[sectionId] = data.groups;
         renderDupeGroupList(content, data.groups, 'struct');
         badge.textContent = data.total;
         break;
 
       case 'struct-diff':
-        data = await api.structDiffAll({ n: 30 });
+        data = await api.structDiffAll({ n: 30, filter });
         state.sectionData[sectionId] = data.groups;
         renderStructDiffList(content, data.groups);
         badge.textContent = data.total;
@@ -2946,6 +2946,9 @@ function openGenericFullscreen(paneId) {
   } else if (paneId === 'left-pane') {
     paneBody = $('#left-body');
     titleText = 'Indexes & Metrics';
+    // Also reparent the filter bar
+    state._fsFilterBar = $('#left-pane > .pane-filter');
+    state._fsFilterParent = state._fsFilterBar?.parentElement;
   } else if (paneId === 'workspace') {
     paneBody = $('#workspace-body');
     titleText = 'Claim / Multisect Workspace';
@@ -2965,6 +2968,7 @@ function openGenericFullscreen(paneId) {
   fsBody.innerHTML = '';
   state._fsReturnTarget = paneBody.parentElement;
   state._fsReturnNode = paneBody;
+  if (state._fsFilterBar) fsBody.appendChild(state._fsFilterBar);
   fsBody.appendChild(paneBody);
   overlay.classList.remove('hidden');
 }
@@ -2975,7 +2979,12 @@ function closeGenericFullscreen() {
   // Clear inline height on workspace textarea so it returns to flex sizing
   const ta = $('#claim-text');
   if (ta) ta.style.height = '';
-  // Move reparented node back to its original container
+  // Move reparented nodes back to their original containers
+  if (state._fsFilterBar && state._fsFilterParent) {
+    state._fsFilterParent.insertBefore(state._fsFilterBar, state._fsFilterParent.firstChild);
+    state._fsFilterBar = null;
+    state._fsFilterParent = null;
+  }
   if (state._fsReturnTarget && state._fsReturnNode) {
     state._fsReturnTarget.appendChild(state._fsReturnNode);
     state._fsReturnTarget = null;

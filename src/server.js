@@ -1327,7 +1327,8 @@ routes['/api/near-dupes'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   const n = parseInt(q.n) || 30;
   index.getFuncDupes(n, 3, true);
-  const groups = index.getNearDupes(n);
+  let groups = index.getNearDupes(n);
+  if (q.filter) { const pat = q.filter.toLowerCase(); groups = groups.filter(g => g.bare_name.toLowerCase().includes(pat) || g.instances.some(i => i.filepath.toLowerCase().includes(pat))); }
   jsonResponse(res, {
     total: groups.length,
     groups: groups.slice(0, n).map((g, i) => ({
@@ -1343,7 +1344,8 @@ routes['/api/struct-dupes'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   const n = parseInt(q.n) || 30;
   index.getFuncDupes(n, 3, true);
-  const groups = index.getStructDupes(n);
+  let groups = index.getStructDupes(n);
+  if (q.filter) { const pat = q.filter.toLowerCase(); groups = groups.filter(g => g.bare_name.toLowerCase().includes(pat) || g.instances.some(i => i.filepath.toLowerCase().includes(pat))); }
   jsonResponse(res, {
     total: groups.length,
     groups: groups.slice(0, n).map((g, i) => ({
@@ -1393,7 +1395,8 @@ routes['/api/struct-diff-all'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   const n = parseInt(q.n) || 30;
   index.getFuncDupes(n, 3, false);
-  const groups = index.getStructDupes(n);
+  let groups = index.getStructDupes(n);
+  if (q.filter) { const pat = q.filter.toLowerCase(); groups = groups.filter(g => g.bare_name.toLowerCase().includes(pat) || g.instances.some(i => i.filepath.toLowerCase().includes(pat))); }
   const results = [];
   for (let i = 0; i < Math.min(groups.length, n); i++) {
     const g = groups[i];
