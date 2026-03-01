@@ -165,6 +165,7 @@ export function doCallTree(index, args) {
       const scored = [];
       for (const ce of callees) {
         if (ce.call_type === 'recursive') continue;
+        if (ce.ambiguous && !ce.resolved_def) continue;  // skip unresolved dot-calls
         const fd = ce.resolved_def || (ce.definitions && ce.definitions[0]);
         const cl = fd ? (fd.end - fd.start + 1) : 0;
         scored.push([hotspotScore(ce.name, cl), cl, ce]);
@@ -238,6 +239,7 @@ export function doCallTree(index, args) {
     const srcId = mid(bareSrc);
     for (const ce of callees) {
       if (ce.call_type === 'recursive') continue;
+      if (ce.ambiguous && !ce.resolved_def) continue;  // skip unresolved dot-calls
       const fd = ce.resolved_def || (ce.definitions && ce.definitions[0]);
       const tgtId = mid(ce.name);
       const e = `    ${srcId} --> ${tgtId}`;
@@ -374,6 +376,7 @@ function _getFileOutgoingDeps(index, filepath) {
   for (const [fname] of Object.entries(index.functionIndex[filepath])) {
     const callees = index.findCallees(fname, filepath);
     for (const ce of callees) {
+      if (ce.ambiguous && !ce.resolved_def) continue;  // skip unresolved
       // Use resolved definition for accuracy
       const bestDef = ce.resolved_def || (ce.definitions && ce.definitions[0]);
       if (bestDef && bestDef.filepath !== filepath) {

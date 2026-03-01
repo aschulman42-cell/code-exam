@@ -862,7 +862,10 @@ routes['/api/callees'] = (req, res) => {
   const callees = index.findCallees(funcName, fileHint);
   jsonResponse(res, {
     target: funcName,
-    callees: callees.map(c => ({ name: c.name, display_name: c.display_name, definitions: c.definitions, resolved_def: c.resolved_def || null, call_type: c.call_type, ambiguous: c.ambiguous || false })),
+    callees: callees.map(c => {
+      const rd = c.resolved_def;
+      return { name: c.name, display_name: c.display_name, definitions: (c.definitions || []).length, resolved_def: rd ? { full_name: rd.full_name, filepath: rd.filepath, class_name: rd.class_name } : null, call_type: c.call_type, ambiguous: c.ambiguous || false };
+    }),
   });
 };
 
@@ -925,6 +928,7 @@ routes['/api/call-tree'] = (req, res) => {
     visitedDown.add(fn);
     const callees = index.findCallees(fn, fh);
     for (const c of callees.slice(0, 12)) {
+      if (c.ambiguous && !c.resolved_def) continue;  // skip unresolved
       addEdge(fn, c.name);
       if (c.resolved_def) addCallees(c.name, null, d + 1);
     }

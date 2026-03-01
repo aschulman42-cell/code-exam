@@ -1296,7 +1296,11 @@ function renderCallInfo(extractData, callersData, calleesData) {
     html += `<div class="output-section"><h3>Calls (${ce.length})</h3><table class="output-table"><tr><th>Function</th><th>Type</th><th>Defined</th></tr>`;
     for (const c of ce) {
       const isDef = c.definitions > 0;
-      html += `<tr><td class="mono"><span class="clickable" data-funcname="${escHtml(c.name)}">${escHtml(c.display_name || c.name)}</span></td>`;
+      const demoted = c.ambiguous && !c.resolved_def;
+      const nameHtml = demoted
+        ? `<span class="muted">${escHtml(c.display_name || c.name)}</span>`
+        : `<span class="clickable" data-funcname="${escHtml(c.resolved_def?.full_name || c.name)}"${c.resolved_def?.filepath ? ` data-filepath="${escHtml(c.resolved_def.filepath)}"` : ''}>${escHtml(c.display_name || c.name)}</span>`;
+      html += `<tr><td class="mono">${nameHtml}${demoted ? ' <span class="type-badge">unresolved</span>' : ''}</td>`;
       html += `<td class="muted">${c.call_type}</td><td class="${isDef ? '' : 'muted'}">${isDef ? `${c.definitions} def` : 'external'}</td></tr>`;
     }
     html += '</table></div>';

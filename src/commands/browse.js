@@ -297,6 +297,12 @@ function _followCalls(index, funcName, fileHint, commentsOnly, maxDepth, current
       continue;
     }
 
+    // Skip unresolved dot-calls (e.g. variable.includes() falsely attributed to a class)
+    if (callee.ambiguous && !callee.resolved_def) {
+      console.log(`${indent}  ${dispName} [unresolved - skipped]`);
+      continue;
+    }
+
     // Use resolved definition (disambiguated) or fall back to first
     const def = callee.resolved_def || callee.definitions?.[0];
 

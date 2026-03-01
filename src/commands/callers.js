@@ -185,11 +185,14 @@ export function doCallees(index, args) {
     const tag = (ct === 'indirect' || ct === 'reference' || ct === 'recursive') ? ` [${ct}]` : '';
     const ambigTag = ce.ambiguous ? ' [ambiguous]' : '';
 
-    const bestDef = ce.resolved_def || ce.definitions[0];
+    const demoted = ce.ambiguous && !ce.resolved_def;
+    const bestDef = ce.resolved_def || (demoted ? null : ce.definitions[0]);
     const defLoc = bestDef ? bestDef.filepath : '';
     const defLines = bestDef ? (bestDef.end - bestDef.start + 1) : 0;
 
-    if (ndefs === 1) {
+    if (demoted) {
+      console.log(`  ${ce.display_name}${tag} [unresolved] (${ndefs} definition${ndefs > 1 ? 's' : ''})`);
+    } else if (ndefs === 1) {
       console.log(`  ${ce.display_name}${tag}`);
       console.log(`    ${defLoc} (${defLines} lines)`);
     } else {

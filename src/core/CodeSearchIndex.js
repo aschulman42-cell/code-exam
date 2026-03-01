@@ -2426,6 +2426,27 @@ export class CodeSearchIndex {
         else if (prefix.trimEnd().endsWith('::')) callType = 'qualified';
         else callType = 'direct';
 
+        // For dot-calls, check if the resolved class actually appears as the
+        // receiver. If not (e.g. `e.message.includes(...)` resolved to
+        // `LlamaText::includes`), strip the false class attribution.
+        if (callType === 'method_dot' && resolved.def?.class_name) {
+          const resolvedClass = resolved.def.class_name;
+          const receiverMatch = prefix.match(/([a-zA-Z_]\w*)\s*\.\s*$/);
+          const receiver = receiverMatch ? receiverMatch[1] : null;
+          // Keep class if receiver matches the class name, or is this/self
+          const receiverConfirmed = receiver
+            && (receiver === resolvedClass || receiver === 'this' || receiver === 'self');
+          // Also keep if the class name appears explicitly elsewhere in the prefix
+          const classInPrefix = !receiverConfirmed
+            && new RegExp('\\b' + escapeRegex(resolvedClass) + '\\b').test(prefix);
+          if (!receiverConfirmed && !classInPrefix) {
+            // Demote to bare name — still show the call, just without the wrong class
+            resolved.resolvedName = calleeName;
+            resolved.def = null;
+            resolved.ambiguous = true;
+          }
+        }
+
         results.push({
           name: calleeName,
           display_name: displayName(resolved.resolvedName, resolved.def?.filepath || ''),
