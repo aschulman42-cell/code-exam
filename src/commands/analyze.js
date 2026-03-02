@@ -310,6 +310,11 @@ export class SimpleMasker {
     return `STR_${this._strCounter}`;
   }
 
+  /** Detect SQL-like string content (SELECT, INSERT, CREATE TABLE, etc.). */
+  _looksLikeSQL(s) {
+    return /\b(SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+(TABLE|INDEX|VIEW)|ALTER\s+TABLE|DROP\s+(TABLE|INDEX))\b/i.test(s);
+  }
+
   // -----------------------------------------------------------------
   // Layer 1: Strip comments
   // -----------------------------------------------------------------
@@ -335,30 +340,29 @@ export class SimpleMasker {
   // -----------------------------------------------------------------
 
   maskStrings(code, language) {
+    const _maskOne = (match) => {
+      // Preserve short char literals ('x')
+      if (match.startsWith("'") && match.length <= 4) return match;
+      // Preserve SQL-like strings — they reveal query structure, not IP
+      const inner = match.slice(match.startsWith('"""') || match.startsWith("'''") ? 3 : 1,
+                                match.endsWith('"""') || match.endsWith("'''") ? -3 : -1);
+      if (this._looksLikeSQL(inner)) return match;
+      const quote = match.startsWith('"""') || match.startsWith("'''")
+        ? match.slice(0, 3) : match.startsWith('`') ? '`' : match[0];
+      return `${quote}${this._nextStr()}${quote}`;
+    };
+
     if (language === 'c' || language === 'cpp' || language === 'java' || language === 'javascript') {
-      code = code.replace(
-        /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g,
-        (match) => {
-          if (match.startsWith("'") && match.length <= 4) return match;
-          const quote = match[0];
-          return `${quote}${this._nextStr()}${quote}`;
-        }
-      );
+      code = code.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, _maskOne);
       if (language === 'javascript') {
-        code = code.replace(
-          /`(?:[^`\\]|\\.)*`/g,
-          () => `\`${this._nextStr()}\``
-        );
+        code = code.replace(/`(?:[^`\\]|\\.)*`/g, _maskOne);
       }
       return code;
     }
     if (language === 'python') {
       return code.replace(
         /"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g,
-        (match) => {
-          const quote = (match.startsWith('"""') || match.startsWith("'''")) ? match.slice(0, 3) : match[0];
-          return `${quote}${this._nextStr()}${quote}`;
-        }
+        _maskOne
       );
     }
     return code;
@@ -604,6 +608,38 @@ export class SimpleMasker {
           && !this._map[cname]) {
         const masked = this._mask(cname, 'CALL');
         code = code.replace(new RegExp('\\b' + _escRe(cname) + '\\b', 'g'), masked);
+      }
+    }
+
+    // 3e. Mask member property accesses (.name patterns not yet masked)
+    //     Catches this.invertedIndex, obj._privateProp, etc.
+    const _SAFE_MEMBERS = new Set([
+      // Generic object properties
+      'length', 'size', 'prototype', 'constructor', 'name', 'message',
+      'stack', 'index', 'input', 'groups', 'cause',
+      'next', 'done', 'value', 'key', 'type', 'code', 'data',
+      'writable', 'enumerable', 'configurable',
+      'global', 'ignoreCase', 'multiline', 'source', 'flags',
+      'buffer', 'byteLength', 'byteOffset',
+      'target', 'currentTarget', 'status', 'statusText',
+      'ok', 'body', 'headers', 'url', 'method', 'path',
+      'width', 'height', 'top', 'left', 'right', 'bottom',
+      'parent', 'children', 'firstChild', 'lastChild', 'nextSibling',
+      'result', 'results', 'count', 'total', 'offset', 'limit',
+      'start', 'end', 'min', 'max', 'default', 'options', 'config',
+      'args', 'argv', 'env', 'pid', 'cwd', 'stdin', 'stdout', 'stderr',
+    ]);
+
+    for (const m of code.matchAll(/\.(\w+)\b/g)) {
+      const pname = m[1];
+      if (pname.length > 1
+          && !_isMasked(pname)
+          && !this._map[pname]
+          && !_KEYWORDS.has(pname)
+          && !_STD_CALLS.has(pname)
+          && !_SAFE_MEMBERS.has(pname)) {
+        const masked = this._mask(pname, 'PROP');
+        code = code.replace(new RegExp('\\b' + _escRe(pname) + '\\b', 'g'), masked);
       }
     }
 

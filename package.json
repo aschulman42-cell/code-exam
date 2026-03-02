@@ -15,7 +15,14 @@
     "test": "node --test test/"
   },
   "dependencies": {
+    "node-llama-cpp": "^3.17.1"
   },
-  "keywords": ["source-code", "analysis", "search", "air-gapped", "code-examination"],
+  "keywords": [
+    "source-code",
+    "analysis",
+    "search",
+    "air-gapped",
+    "code-examination"
+  ],
   "license": "UNLICENSED"
 }
