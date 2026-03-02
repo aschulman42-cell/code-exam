@@ -702,7 +702,7 @@ export function addLineNumbers(source, startLine = 1) {
  * General analysis prompt - "what does this code do?"
  */
 export function buildAnalyzePrompt(funcSource, funcName, filepath, masked) {
-  if (masked) {
+  if (masked === 'masked' || masked === true) {
     return `You are analyzing code where comments have been stripped and string contents masked.
 Analyze the actual code logic and operations, not string contents.
 
@@ -721,9 +721,11 @@ CRITICAL INSTRUCTIONS:
 Provide a detailed description of what this code does:`;
   }
 
-  return `Analyze this function with full context.
+  const preamble = masked === 'comments'
+    ? 'You are analyzing code where comments have been stripped. Identifiers and strings are intact.'
+    : `Analyze this function with full context.\n\nSOURCE FILE: ${filepath}`;
 
-SOURCE FILE: ${filepath}
+  return `${preamble}
 
 FUNCTION TO ANALYZE:
 ${funcSource}
@@ -744,8 +746,10 @@ Provide a detailed description:`;
  * Claim analysis prompt - "does this code implement these claim elements?"
  */
 export function buildClaimAnalyzePrompt(funcSource, funcName, filepath, claimText, masked) {
-  const preamble = masked
+  const preamble = (masked === 'masked' || masked === true)
     ? 'You are analyzing code where comments have been stripped and string contents masked. Analyze the actual code logic, not names.'
+    : masked === 'comments'
+    ? 'You are analyzing code where comments have been stripped. Identifiers and strings are intact.'
     : `SOURCE FILE: ${filepath}`;
 
   return `${preamble}
@@ -791,8 +795,10 @@ Analyze the function against the patent claim:`;
  * Multisect analysis prompt - "describe this code in relation to these terms."
  */
 export function buildMultisectAnalyzePrompt(funcSource, funcName, filepath, terms, masked) {
-  const preamble = masked
+  const preamble = (masked === 'masked' || masked === true)
     ? 'You are analyzing code where comments have been stripped and string contents masked. Analyze the actual code logic, not names.'
+    : masked === 'comments'
+    ? 'You are analyzing code where comments have been stripped. Identifiers and strings are intact.'
     : `SOURCE FILE: ${filepath}`;
 
   const termsList = terms.map((t, i) => `  ${i + 1}. ${t}`).join('\n');
@@ -827,8 +833,10 @@ Analyze the function in relation to the search terms:`;
  * context text appears to describe.
  */
 export function buildContextAnalyzePrompt(funcSource, funcName, filepath, contextText, masked) {
-  const preamble = masked
+  const preamble = (masked === 'masked' || masked === true)
     ? 'You are analyzing code where comments have been stripped and string contents masked. Analyze the actual code logic, not names.'
+    : masked === 'comments'
+    ? 'You are analyzing code where comments have been stripped. Identifiers and strings are intact.'
     : `SOURCE FILE: ${filepath}`;
 
   return `${preamble}
@@ -865,11 +873,13 @@ Analyze the function against the context text:`;
  * File-level analysis prompt - "what does this file do?"
  */
 export function buildFileAnalyzePrompt(fileSource, filepath, masked, funcNames = null) {
-  const preamble = masked
+  const preamble = (masked === 'masked' || masked === true)
     ? 'You are analyzing code where comments have been stripped and string contents masked. Analyze the actual code logic, not names.'
+    : masked === 'comments'
+    ? 'You are analyzing code where comments have been stripped. Identifiers and strings are intact.'
     : `SOURCE FILE: ${filepath}`;
 
-  const funcHint = (funcNames && !masked && funcNames.length > 0)
+  const funcHint = (funcNames && masked !== 'masked' && masked !== true && funcNames.length > 0)
     ? `\n\nFUNCTIONS IN THIS FILE: ${funcNames.join(', ')}`
     : '';
 
@@ -896,8 +906,10 @@ Provide a comprehensive analysis:`;
  * File-level claim analysis prompt (fallback when no function match).
  */
 function buildClaimFilePrompt(fileSource, filepath, nLines, claimText, masked) {
-  const preamble = masked
+  const preamble = (masked === 'masked' || masked === true)
     ? 'You are analyzing code where comments have been stripped and string contents masked. Analyze the actual code logic.'
+    : masked === 'comments'
+    ? 'You are analyzing code where comments have been stripped. Identifiers and strings are intact.'
     : `SOURCE FILE: ${filepath}`;
 
   return `${preamble}

@@ -257,9 +257,11 @@
             <option value="local">Local GGUF Model</option>
             <option value="claude">Claude API</option>
           </select>
+          <button id="ws-browse-model" class="btn-secondary" style="font-size:11px;padding:2px 6px" title="Browse for GGUF model">Browse GGUFs</button>
         </div>
         <div class="control-group">
           <label><input type="checkbox" id="ws-vocab-tight"> Vocab-Tight</label>
+          <label><input type="checkbox" id="ws-mask-comments"> Mask Comments</label>
           <label><input type="checkbox" id="ws-mask-all"> Mask All</label>
           <label><input type="checkbox" id="ws-no-vocab"> No Vocabulary</label>
         </div>
@@ -268,7 +270,6 @@
         </div>
         <div class="control-group">
           <button id="ws-run" class="btn-primary">▶ Run</button>
-          <button id="ws-show-prompt" class="btn-secondary">Show Prompt</button>
         </div>
       </div>
       <div class="workspace-terms" id="workspace-terms"></div>

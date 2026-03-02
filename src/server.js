@@ -260,6 +260,8 @@ class ServerLLM {
       if (e.code === 'ERR_MODULE_NOT_FOUND' || /Cannot find/.test(e.message)) {
         return { error: 'node-llama-cpp not installed. Run: npm install node-llama-cpp' };
       }
+      console.error(`  [LLM] Failed to load model: ${mp}`);
+      console.error(`  [LLM] Error:`, e);
       return { error: `Failed to load local model: ${e.message}` };
     }
   }
@@ -510,6 +512,79 @@ routes['/api/scan-indexes'] = (req, res) => {
   } catch (_) {}
   jsonResponse(res, { available, loaded: mgr.list(), scanDir });
 };
+
+
+// --- Scan for available GGUF models ---
+routes['/api/scan-models'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const defaultDir = serverLLM.defaultModelPath
+    ? path.dirname(serverLLM.defaultModelPath)
+    : process.cwd();
+  const scanDir = path.resolve(q.dir || defaultDir);
+  const models = [];
+  try {
+    for (const entry of fs.readdirSync(scanDir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.toLowerCase().endsWith('.gguf')) {
+        const fullPath = path.join(scanDir, entry.name);
+        let size = 0;
+        try { size = fs.statSync(fullPath).size; } catch (_) {}
+        const loaded = serverLLM.defaultModelPath === fullPath;
+        models.push({ name: entry.name, path: fullPath, size, loaded });
+      }
+    }
+    // Also check one level of subdirectories
+    for (const entry of fs.readdirSync(scanDir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        try {
+          for (const sub of fs.readdirSync(path.join(scanDir, entry.name), { withFileTypes: true })) {
+            if (sub.isFile() && sub.name.toLowerCase().endsWith('.gguf')) {
+              const fullPath = path.join(scanDir, entry.name, sub.name);
+              let size = 0;
+              try { size = fs.statSync(fullPath).size; } catch (_) {}
+              const loaded = serverLLM.defaultModelPath === fullPath;
+              models.push({ name: entry.name + '/' + sub.name, path: fullPath, size, loaded });
+            }
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  models.sort((a, b) => a.name.localeCompare(b.name));
+  jsonResponse(res, { models, scanDir, currentModel: serverLLM.defaultModelPath || null });
+};
+
+
+// --- Switch GGUF model at runtime ---
+routes['/api/switch-model'] = (req, res) => {
+  if (req.method !== 'POST') return errorResponse(res, 'POST required', 405);
+  let body = '';
+  req.on('data', chunk => { body += chunk; if (body.length > 10_000) req.destroy(); });
+  req.on('end', async () => {
+    try {
+      const params = JSON.parse(body);
+      const modelPath = params.path;
+      if (!modelPath) return errorResponse(res, 'Missing "path" parameter');
+      if (!fs.existsSync(modelPath)) return errorResponse(res, `File not found: ${modelPath}`, 404);
+      console.log(`  [switch-model] Switching to: ${modelPath}`);
+      // Dispose old model if loaded
+      if (serverLLM._localModel) {
+        try {
+          if (serverLLM._localModel.context) serverLLM._localModel.context.dispose();
+          if (serverLLM._localModel.model) serverLLM._localModel.model.dispose();
+        } catch (_) {}
+        serverLLM._localModel = null;
+      }
+      serverLLM.defaultModelPath = modelPath;
+      // Eagerly load the new model so we can report errors immediately
+      const loadResult = await serverLLM.ensureLocalModel(modelPath);
+      if (loadResult.error) return errorResponse(res, loadResult.error, 500);
+      jsonResponse(res, { ok: true, model: modelPath });
+    } catch (err) {
+      errorResponse(res, `Switch model error: ${err.message}`, 500);
+    }
+  });
+};
+
 
 routes['/api/browse-dir'] = (req, res) => {
   const q = parseQuery(req.url);
@@ -1446,8 +1521,9 @@ routes['/api/build-prompt'] = (req, res) => {
       if (!index) return errorResponse(res, 'No index loaded', 404);
       const mode = params.mode;
       const mask = !!params.mask;
+      const maskComments = !!params.maskComments;
       const lineNumbers = !!params.lineNumbers;
-      const masker = mask ? new SimpleMasker() : null;
+      const masker = (mask || maskComments) ? new SimpleMasker() : null;
 
       if (mode === 'analyze' || mode === 'claim-analyze' || mode === 'multisect-analyze') {
         // Function-level analysis
@@ -1461,20 +1537,24 @@ routes['/api/build-prompt'] = (req, res) => {
         if (!source) return errorResponse(res, 'Source not available', 404);
         const lang = detectLanguage(m.filepath);
         if (mask) source = masker.maskFunctionSource(source, m.name, lang);
+        else if (maskComments) source = masker.stripComments(source, lang);
         if (lineNumbers) source = addLineNumbers(source, m.start);
+
+        // Determine masking state for prompt preamble
+        const maskState = mask ? 'masked' : maskComments ? 'comments' : false;
 
         let prompt;
         if (mode === 'analyze') {
-          prompt = buildAnalyzePrompt(source, m.name, m.filepath, mask);
+          prompt = buildAnalyzePrompt(source, m.name, m.filepath, maskState);
         } else if (mode === 'claim-analyze') {
           const claim = params.claim;
           if (!claim) return errorResponse(res, 'Missing "claim" parameter');
-          prompt = buildClaimAnalyzePrompt(source, m.name, m.filepath, claim, mask);
+          prompt = buildClaimAnalyzePrompt(source, m.name, m.filepath, claim, maskState);
         } else {
           const terms = params.terms;
           if (!terms) return errorResponse(res, 'Missing "terms" parameter');
           const termList = typeof terms === 'string' ? terms.split(';').map(t => t.trim()).filter(Boolean) : terms;
-          prompt = buildMultisectAnalyzePrompt(source, m.name, m.filepath, termList, mask);
+          prompt = buildMultisectAnalyzePrompt(source, m.name, m.filepath, termList, maskState);
         }
         jsonResponse(res, {
           mode, prompt,
@@ -1493,9 +1573,11 @@ routes['/api/build-prompt'] = (req, res) => {
         let source = index.files.get(fp) || '';
         const lang = detectLanguage(fp);
         if (mask) source = masker.mask(source, lang);
+        else if (maskComments) source = masker.stripComments(source, lang);
         if (lineNumbers) source = addLineNumbers(source);
         const funcNames = [...(index.functions.get(fp) || new Map()).keys()];
-        const prompt = buildFileAnalyzePrompt(source, fp, mask, funcNames);
+        const maskState = mask ? 'masked' : maskComments ? 'comments' : false;
+        const prompt = buildFileAnalyzePrompt(source, fp, maskState, funcNames);
         jsonResponse(res, { mode, prompt, target: fp, filepath: fp });
 
       } else {
@@ -1793,6 +1875,7 @@ routes['/api/analyze-llm'] = (req, res) => {
       const engine = params.engine || 'claude';
       const mode = params.mode || 'analyze';  // 'analyze' | 'claim-analyze' | 'multisect-analyze' | 'context-analyze' | 'file-analyze'
       const mask = !!params.mask;
+      const maskComments = !!params.maskComments;
       const lineNumbers = params.lineNumbers !== false;
       const temperature = params.temperature ?? serverArgs.temperature;
 
@@ -1801,6 +1884,8 @@ routes['/api/analyze-llm'] = (req, res) => {
       if (!avail.available) return errorResponse(res, avail.reason, 400);
 
       let prompt, target, filepath, lines;
+      // Determine masking state for prompt preamble: 'masked' (full), 'comments' (layer 1 only), or false
+      const maskState = mask ? 'masked' : maskComments ? 'comments' : false;
 
       if (mode === 'file-analyze') {
         // --- File-level analysis ---
@@ -1817,9 +1902,10 @@ routes['/api/analyze-llm'] = (req, res) => {
         const lang = detectLanguage(fp);
         const masker = new SimpleMasker();
         if (mask) source = masker.mask(source, lang);
+        else if (maskComments) source = masker.stripComments(source, lang);
         if (lineNumbers) source = addLineNumbers(source);
         const funcNames = [...(index.functions.get(fp) || new Map()).keys()];
-        prompt = buildFileAnalyzePrompt(source, fp, mask, funcNames);
+        prompt = buildFileAnalyzePrompt(source, fp, maskState, funcNames);
         target = fp;
         filepath = fp;
         lines = nLines;
@@ -1840,6 +1926,7 @@ routes['/api/analyze-llm'] = (req, res) => {
         const lang = detectLanguage(m.filepath);
         const masker = new SimpleMasker();
         if (mask) source = masker.maskFunctionSource(source, m.name, lang);
+        else if (maskComments) source = masker.stripComments(source, lang);
         if (lineNumbers) source = addLineNumbers(source, m.start);
 
         if (mode === 'claim-analyze') {
@@ -1847,21 +1934,21 @@ routes['/api/analyze-llm'] = (req, res) => {
           if (!claim) return errorResponse(res, 'Missing "claim" parameter');
           const claimRes = resolveAtFile(claim);
           if (claimRes.error) return errorResponse(res, claimRes.error, 400);
-          prompt = buildClaimAnalyzePrompt(source, m.name, m.filepath, claimRes.text, mask);
+          prompt = buildClaimAnalyzePrompt(source, m.name, m.filepath, claimRes.text, maskState);
         } else if (mode === 'multisect-analyze') {
           const terms = params.terms;
           if (!terms) return errorResponse(res, 'Missing "terms" parameter');
           const termList = typeof terms === 'string' ? terms.split(';').map(t => t.trim()).filter(Boolean) : terms;
-          prompt = buildMultisectAnalyzePrompt(source, m.name, m.filepath, termList, mask);
+          prompt = buildMultisectAnalyzePrompt(source, m.name, m.filepath, termList, maskState);
         } else if (mode === 'context-analyze') {
           let contextText = params.contextText;
           if (!contextText) return errorResponse(res, 'Missing "contextText" parameter');
           const ctxResolved = resolveAtFile(contextText);
           if (ctxResolved.error) return errorResponse(res, ctxResolved.error, 400);
           contextText = ctxResolved.text;
-          prompt = buildContextAnalyzePrompt(source, m.name, m.filepath, contextText, mask);
+          prompt = buildContextAnalyzePrompt(source, m.name, m.filepath, contextText, maskState);
         } else {
-          prompt = buildAnalyzePrompt(source, m.name, m.filepath, mask);
+          prompt = buildAnalyzePrompt(source, m.name, m.filepath, maskState);
         }
 
         target = displayName(m.name, m.filepath);

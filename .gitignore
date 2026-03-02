@@ -1,1 +1,4 @@
 node_modules/
+claude.txt
+claude_key.txt
+*.key

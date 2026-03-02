@@ -87,6 +87,8 @@ const api = {
   fileTree:        (p) => api.get('file-tree', p),
   callInventory:   (p) => api.get('call-inventory', p),
   indexExtensions: (p) => api.get('index-extensions', p),
+  scanModels:      (p) => api.get('scan-models', p),
+  switchModel:     (p) => api.post('switch-model', p),
 };
 
 // ========================================================================
@@ -1586,12 +1588,13 @@ async function handleContextAction(action) {
         : (target.name || target.display_name);
       const engine = $('#ws-engine').value;
       const mask = $('#ws-mask-all')?.checked || false;
+      const maskComments = $('#ws-mask-comments')?.checked || false;
       showAnalysisPane(`<div class="loading">Analyzing ${escHtml(target.name)} via ${escHtml(engine)}…</div>`, 'Analyzing…', true);
       try {
         const data = await api.analyzeLlm({
           func: funcSpec,
           mode: 'analyze',
-          engine, mask,
+          engine, mask, maskComments,
         });
         renderLlmAnalysis(data);
       } catch (err) {
@@ -1613,13 +1616,14 @@ async function handleContextAction(action) {
       contextText = stripAtFileHeader(contextText);
       const engine = $('#ws-engine').value;
       const mask = $('#ws-mask-all')?.checked || false;
+      const maskComments = $('#ws-mask-comments')?.checked || false;
       showAnalysisPane(`<div class="loading">Analyzing ${escHtml(target.name)} with context via ${escHtml(engine)}…</div>`, 'Analyzing…', true);
       try {
         const data = await api.analyzeLlm({
           func: funcSpec,
           mode: 'context-analyze',
           contextText,
-          engine, mask,
+          engine, mask, maskComments,
         });
         renderLlmAnalysis(data);
       } catch (err) {
@@ -1633,12 +1637,13 @@ async function handleContextAction(action) {
       if (!fp) { showAnalysisPane('No file associated with this item.', 'Error'); break; }
       const engine = $('#ws-engine').value;
       const mask = $('#ws-mask-all')?.checked || false;
+      const maskComments = $('#ws-mask-comments')?.checked || false;
       showAnalysisPane(`<div class="loading">Analyzing file ${escHtml(shortPath(fp, 60))} via ${escHtml(engine)}…</div>`, 'Analyzing…', true);
       try {
         const data = await api.analyzeLlm({
           file: fp,
           mode: 'file-analyze',
-          engine, mask,
+          engine, mask, maskComments,
         });
         renderLlmAnalysis(data);
       } catch (err) {
@@ -2174,7 +2179,9 @@ function initWorkspace() {
   });
 
   $('#ws-run').addEventListener('click', runWorkspace);
-  $('#ws-show-prompt').addEventListener('click', showWorkspacePrompt);
+
+  // Model browser button
+  $('#ws-browse-model').addEventListener('click', openModelBrowser);
 
   // Resizable workspace drag handle
   const handle = $('#workspace-resize-handle');
@@ -2236,6 +2243,7 @@ async function runWorkspace() {
   const vocabTight = $('#ws-vocab-tight')?.checked || false;
   const noVocabulary = $('#ws-no-vocab')?.checked || false;
   const mask = $('#ws-mask-all')?.checked || false;
+  const maskComments = $('#ws-mask-comments')?.checked || false;
   const minTermsVal = parseInt($('#ws-min-terms')?.value) || 0;
 
   // Disable Run button during processing
@@ -2275,7 +2283,7 @@ async function runWorkspace() {
             func: `${topFunc.filepath}@${topFunc.function_name}`,
             mode: 'multisect-analyze',
             terms: text,
-            engine, mask,
+            engine, mask, maskComments,
           });
           renderLlmAnalysis(analysisData);
         } else {
@@ -2307,7 +2315,7 @@ async function runWorkspace() {
             func: `${topFunc.filepath}@${topFunc.function_name}`,
             mode: 'claim-analyze',
             claim: text,
-            engine, mask,
+            engine, mask, maskComments,
           });
           renderLlmAnalysis(analysisData);
         } else {
@@ -2469,75 +2477,116 @@ function renderLlmAnalysis(data) {
   }
 }
 
-async function showWorkspacePrompt() {
-  const mode = $('#ws-mode').value;
-  let text = $('#claim-text').value.trim();
-  if (!text) return;
-  text = stripAtFileHeader(text);
-
-  if (mode === 'multisect-search') {
-    // Multisect search doesn't use an LLM prompt — just run normally
-    return runWorkspace();
-  }
-
-  if (mode === 'claim-search' || mode === 'claim-analyze') {
-    // Show the LLM extraction prompt (system prompt + user message)
-    showMiddleTopLoading('Building claim extraction prompt…');
-    try {
-      const engine = $('#ws-engine').value;
-      const vocabTight = $('#ws-vocab-tight')?.checked || false;
-      const noVocabulary = $('#ws-no-vocab')?.checked || false;
-      const data = await api.claimExtractionPrompt({
-        claim: text, engine, vocabTight, noVocabulary,
-      });
-
-      // Show extraction prompt in middle-top with copy buttons
-      const vocabNote = data.vocabChars > 0
-        ? `Vocabulary-augmented (${data.vocabChars.toLocaleString()} chars)`
-        : 'No vocabulary context';
-      const promptHtml = `
-        <div style="margin-bottom:8px">
-          <span class="muted">Mode: ${escHtml(mode)} | Engine: ${escHtml(data.engine)} | ${vocabNote}</span>
-          <span class="muted" style="margin-left:10px">Heuristic keywords (${data.keywords.length}): ${escHtml(data.keywords.slice(0, 15).join(', '))}${data.keywords.length > 15 ? '…' : ''}</span>
-        </div>
-        <div style="margin-bottom:6px; font-weight:bold; color:var(--accent)">═══ SYSTEM PROMPT (send as system message to LLM) ═══
-          <button class="btn-secondary" style="margin-left:12px;font-size:11px" onclick="navigator.clipboard.writeText(document.getElementById('claim-sys-prompt').textContent).then(()=>this.textContent='Copied!').catch(()=>{})">Copy System Prompt</button>
-        </div>
-        <pre id="claim-sys-prompt" class="source-view" style="max-height:250px; overflow:auto; margin-bottom:12px; white-space:pre-wrap; font-size:11px">${escHtml(data.systemPrompt)}</pre>
-        <div style="margin-bottom:6px; font-weight:bold; color:var(--accent)">═══ USER MESSAGE (the patent claim text) ═══
-          <button class="btn-secondary" style="margin-left:12px;font-size:11px" onclick="navigator.clipboard.writeText(document.getElementById('claim-user-msg').textContent).then(()=>this.textContent='Copied!').catch(()=>{})">Copy User Message</button>
-        </div>
-        <pre id="claim-user-msg" class="source-view" style="max-height:150px; overflow:auto; white-space:pre-wrap; font-size:11px">${escHtml(data.userMessage)}</pre>
-        <div style="margin-top:10px">
-          <button class="btn-secondary" onclick="navigator.clipboard.writeText(document.getElementById('claim-sys-prompt').textContent + '\\n\\n---USER MESSAGE---\\n\\n' + document.getElementById('claim-user-msg').textContent).then(()=>this.textContent='Copied both!').catch(()=>{})">Copy Both (System + User)</button>
-        </div>
-      `;
-      showAnalysisPane(promptHtml, `Claim Extraction Prompt (${data.engine})`, true);
-    } catch (err) { showAnalysisPane(`Error: ${err.message}`, 'Prompt Error'); }
+// ========================================================================
+// Model Browser modal
+// ========================================================================
+async function openModelBrowser() {
+  // Fetch available models
+  let data;
+  try {
+    data = await api.scanModels();
+  } catch (err) {
+    alert('Error scanning for models: ' + err.message);
     return;
   }
 
-  // For multisect-analyze: search first to find the target, then show prompt
-  showMiddleTopLoading('Searching for prompt target…');
-  try {
-    const minTermsVal = parseInt($('#ws-min-terms')?.value) || 0;
-    const searchData = await api.multisect({ terms: text, max: 10, min_terms: minTermsVal });
-    renderMultisectResults(searchData);
-    const topFunc = (searchData.results || []).find(r => r.scope_type === 'function');
-    if (topFunc) {
-      await buildAndShowPrompt('multisect-analyze', {
-        func: `${topFunc.filepath}@${topFunc.function_name}`,
-        terms: text,
-      }, true);
-    } else {
-      showAnalysisPane('No function matches found to build prompt.', 'Show Prompt');
+  // Build modal overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'model-browser-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="width:560px">
+      <div class="modal-header"><span>Browse GGUF Models</span>
+        <button class="pane-action" id="model-browser-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <input type="text" id="model-scan-path" value="${escHtml(data.scanDir || '')}" spellcheck="false" style="flex:1;margin-top:0" placeholder="Directory to scan…">
+          <button class="btn-secondary" id="model-scan-btn">Scan</button>
+        </div>
+        <div class="muted" style="font-size:11px;margin-bottom:6px">Current model: ${escHtml(data.currentModel || 'none')}</div>
+        <div id="model-list" class="scrollable" style="border:1px solid var(--border);border-radius:3px;max-height:300px;overflow-y:auto;background:var(--bg-input)"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="model-browser-cancel">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const listEl = overlay.querySelector('#model-list');
+  const pathInput = overlay.querySelector('#model-scan-path');
+
+  function renderModelList(models) {
+    if (!models || models.length === 0) {
+      listEl.innerHTML = '<div class="list-placeholder" style="padding:12px">No .gguf files found in this directory</div>';
+      return;
     }
-  } catch (err) { showAnalysisPane(`Error: ${err.message}`, 'Prompt Error'); }
+    let html = '';
+    for (const m of models) {
+      const sizeMB = (m.size / (1024 * 1024)).toFixed(1);
+      const loadedBadge = m.loaded ? ' <span class="type-badge" style="background:var(--accent);color:#000">loaded</span>' : '';
+      html += `<div class="browse-item model-item" data-path="${escHtml(m.path)}" style="padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <span class="mono" style="font-size:12px">${escHtml(m.name)}${loadedBadge}</span>
+        <span class="muted" style="font-size:11px">${sizeMB} MB</span>
+      </div>`;
+    }
+    listEl.innerHTML = html;
+
+    // Wire click handlers
+    for (const item of listEl.querySelectorAll('.model-item')) {
+      item.addEventListener('click', async () => {
+        const modelPath = item.dataset.path;
+        try {
+          item.style.opacity = '0.5';
+          item.querySelector('.mono').textContent += ' — loading…';
+          await api.switchModel({ path: modelPath });
+          // Update engine dropdown to show model name
+          const engineSel = $('#ws-engine');
+          const localOpt = engineSel.querySelector('option[value="local"]');
+          const fname = modelPath.split('/').pop().split('\\\\').pop();
+          const shortName = fname.length > 30 ? fname.slice(0, 27) + '…' : fname;
+          if (localOpt) localOpt.textContent = 'Local: ' + shortName;
+          engineSel.value = 'local';
+          closeModal();
+        } catch (err) {
+          item.style.opacity = '1';
+          alert('Error switching model: ' + err.message);
+        }
+      });
+    }
+  }
+
+  renderModelList(data.models);
+
+  // Scan button
+  overlay.querySelector('#model-scan-btn').addEventListener('click', async () => {
+    try {
+      const scanData = await api.scanModels({ dir: pathInput.value });
+      pathInput.value = scanData.scanDir || pathInput.value;
+      renderModelList(scanData.models);
+    } catch (err) {
+      listEl.innerHTML = `<div class="error-msg" style="padding:8px">${escHtml(err.message)}</div>`;
+    }
+  });
+
+  // Also scan on Enter in the path input
+  pathInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') overlay.querySelector('#model-scan-btn').click();
+  });
+
+  function closeModal() {
+    overlay.remove();
+  }
+  overlay.querySelector('#model-browser-close').addEventListener('click', closeModal);
+  overlay.querySelector('#model-browser-cancel').addEventListener('click', closeModal);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
 }
+
 
 async function buildAndShowPrompt(mode, params, showPromptOnly = false) {
   const mask = $('#ws-mask-all')?.checked || false;
-  const body = { mode, mask, lineNumbers: true, ...params };
+  const maskComments = $('#ws-mask-comments')?.checked || false;
+  const body = { mode, mask, maskComments, lineNumbers: true, ...params };
   try {
     const data = await api.buildPrompt(body);
     const label = showPromptOnly ? `Prompt for: ${data.target}` : `Analysis: ${data.target}`;
@@ -2769,8 +2818,9 @@ async function executeConsoleCommand(cmd) {
     const funcSpec = cmd.slice(9).trim();
     const engine = $('#ws-engine')?.value || 'claude';
     const mask = $('#ws-mask-all')?.checked || false;
+    const maskComments = $('#ws-mask-comments')?.checked || false;
     try {
-      const data = await api.analyzeLlm({ func: funcSpec, mode: 'analyze', engine, mask });
+      const data = await api.analyzeLlm({ func: funcSpec, mode: 'analyze', engine, mask, maskComments });
       const analysisBody = $('#right-bottom-body');
       if (analysisBody) {
         const tab = $('[data-tab="analysis"]');
