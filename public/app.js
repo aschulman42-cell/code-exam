@@ -395,7 +395,7 @@ function renderFunctionList(container, functions, total) {
     const item = h('div', { className: 'list-item', title: `${f.filepath}\n${f.display_name}\n${f.lines} lines` }, [
       h('span', { className: 'metric', text: `${f.lines}` }),
       h('span', { className: 'name clickable', text: f.display_name }),
-      h('span', { className: 'filepath', text: shortPath(f.filepath, 35) }),
+      h('span', { className: 'filepath', text: f.filepath?.replace(/\\/g, '/') || '' }),
     ]);
     item.addEventListener('click', () => onFunctionClick(f));
     item.addEventListener('contextmenu', (e) => showContextMenu(e, f));
@@ -421,7 +421,7 @@ function renderFileListWithSub(container, files, total) {
     const subHeader = h('div', { className: 'sub-accordion-header' }, [
       h('span', { className: 'sub-accordion-toggle', text: '▸' }),
       h('span', { className: 'name', text: name, style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
-      h('span', { className: 'filepath', text: shortPath(dir, 30), style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted)' }),
+      h('span', { className: 'filepath', text: dir, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
     const sub = h('div', { className: 'sub-accordion', 'data-filepath': fp }, [subHeader, subContent]);
 
@@ -487,7 +487,7 @@ function renderClassListWithSub(container, classes, total) {
       h('span', { className: 'name', text: c.name, style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
       h('span', { className: 'metric', text: `${c.methods}m` }),
       h('span', { className: 'metric', text: `${c.total_lines}L` }),
-      h('span', { className: 'filepath', text: shortPath(c.filepath, 20), style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted)' }),
+      h('span', { className: 'filepath', text: c.filepath?.replace(/\\/g, '/') || '', style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
     const sub = h('div', { className: 'sub-accordion', 'data-class': c.name }, [subHeader, subContent]);
 
@@ -707,7 +707,7 @@ function renderFileMapList(container, data) {
     const item = h('div', { className: 'list-item', title: `${f.filepath}\n${f.total_calls} calls to ${f.targets} files` }, [
       h('span', { className: 'rank', text: `${f.rank}` }),
       h('span', { className: 'metric', text: `${f.total_calls}` }),
-      h('span', { className: 'name', text: shortPath(f.filepath, 35), style: 'color:var(--text-bright)' }),
+      h('span', { className: 'name', text: f.filepath?.replace(/\\/g, '/') || '', style: 'color:var(--text-bright)' }),
       h('span', { className: 'metric muted', text: `→${f.targets}` }),
     ]);
     item.addEventListener('click', async () => {
@@ -3318,12 +3318,11 @@ function openGenericFullscreen(paneId) {
 }
 
 function closeGenericFullscreen() {
-  $('#generic-fullscreen').classList.add('hidden');
   const fsBody = $('#generic-fs-body');
   // Clear inline height on workspace textarea so it returns to flex sizing
   const ta = $('#claim-text');
   if (ta) ta.style.height = '';
-  // Move reparented nodes back to their original containers
+  // Move reparented nodes back BEFORE hiding overlay (avoids layout loss)
   if (state._fsFilterBar && state._fsFilterParent) {
     state._fsFilterParent.insertBefore(state._fsFilterBar, state._fsFilterParent.firstChild);
     state._fsFilterBar = null;
@@ -3331,10 +3330,14 @@ function closeGenericFullscreen() {
   }
   if (state._fsReturnTarget && state._fsReturnNode) {
     state._fsReturnTarget.appendChild(state._fsReturnNode);
+    // Force the browser to recalculate layout after reparenting
+    state._fsReturnNode.offsetHeight;
     state._fsReturnTarget = null;
     state._fsReturnNode = null;
   }
-  fsBody.innerHTML = '';
+  // Now hide overlay and clean up fullscreen container
+  $('#generic-fullscreen').classList.add('hidden');
+  while (fsBody.firstChild) fsBody.removeChild(fsBody.firstChild);
   fsBody.style.display = '';
   fsBody.style.padding = '';
   window._consoleAppendTarget = null;

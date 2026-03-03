@@ -1698,7 +1698,7 @@ routes['/api/build-prompt'] = (req, res) => {
         if (mask) source = masker.mask(source, lang);
         else if (maskComments) source = masker.stripComments(source, lang);
         if (lineNumbers) source = addLineNumbers(source);
-        const funcNames = [...(index.functions.get(fp) || new Map()).keys()];
+        const funcNames = Object.keys(index.functionIndex?.[fp] || {});
         const maskState = mask ? 'masked' : maskComments ? 'comments' : false;
         const prompt = buildFileAnalyzePrompt(source, fp, maskState, funcNames);
         jsonResponse(res, { mode, prompt, target: fp, filepath: fp });
@@ -2027,7 +2027,7 @@ routes['/api/analyze-llm'] = (req, res) => {
         if (mask) source = masker.mask(source, lang);
         else if (maskComments) source = masker.stripComments(source, lang);
         if (lineNumbers) source = addLineNumbers(source);
-        const funcNames = [...(index.functions.get(fp) || new Map()).keys()];
+        const funcNames = Object.keys(index.functionIndex?.[fp] || {});
         prompt = buildFileAnalyzePrompt(source, fp, maskState, funcNames);
         target = fp;
         filepath = fp;

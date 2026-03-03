@@ -96,7 +96,7 @@ body { font-family: var(--font-ui); font-size: 13px; color: var(--text); backgro
 .accordion-section.has-overflow::after { opacity: 1; }
 
 /* ---- Sub-accordion (nested items inside classes/files) ---- */
-.sub-accordion-header { display: flex; align-items: center; gap: 4px; padding: 3px 10px 3px 22px; cursor: pointer; font-size: 11px; color: var(--text-muted); user-select: none; border-bottom: 1px solid var(--bg-dark); }
+.sub-accordion-header { display: flex; align-items: center; gap: 4px; padding: 3px 10px 3px 22px; cursor: pointer; font-size: 11px; color: var(--text-muted); user-select: none; border-bottom: 1px solid var(--bg-dark); overflow: hidden; white-space: nowrap; }
 .sub-accordion-header:hover { background: var(--bg-hover); color: var(--text); }
 .sub-accordion-toggle { font-size: 9px; width: 10px; display: inline-block; transition: transform .15s; }
 .sub-accordion.open > .sub-accordion-header .sub-accordion-toggle { transform: rotate(90deg); }
@@ -108,7 +108,7 @@ body { font-family: var(--font-ui); font-size: 13px; color: var(--text); backgro
 .list-item { display: flex; align-items: center; gap: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid transparent; white-space: nowrap; overflow: hidden; }
 .list-item:hover { background: var(--bg-hover); }
 .list-item .name { color: var(--text-bright); flex: 1; overflow: hidden; text-overflow: ellipsis; }
-.list-item .filepath { color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; min-width: 0; }
+.list-item .filepath { color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; min-width: 0; direction: rtl; text-align: left; }
 .list-item .metric { color: var(--accent-dim); font-family: var(--font-mono); font-size: 11px; white-space: nowrap; min-width: 30px; text-align: right; flex-shrink: 0; }
 .list-item .rank { color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; min-width: 20px; text-align: right; flex-shrink: 0; }
 .list-item .muted { color: var(--text-muted); }

@@ -260,10 +260,12 @@ export class CodeSearchIndex {
       console.log('No files loaded. Run buildIndex() first.');
       return;
     }
-    if (showProgress) console.log('Building inverted index...');
+    const totalFiles = this.fileLines.size;
+    if (showProgress) console.log(`Building inverted index (${totalFiles} files)...`);
 
     // line -> { filepath -> [lineNumbers] }
     const lineToFiles = new Map();
+    let filesProcessed = 0;
 
     for (const [filepath, lines] of this.fileLines) {
       for (let lineNum = 0; lineNum < lines.length; lineNum++) {
@@ -279,6 +281,10 @@ export class CodeSearchIndex {
         }
         fileMap.get(filepath).push(lineNum + 1); // 1-indexed
       }
+      filesProcessed++;
+      if (showProgress && filesProcessed % 500 === 0) {
+        console.log(`  Inverted index: processed ${filesProcessed}/${totalFiles} files (${lineToFiles.size} unique lines so far)`);
+      }
     }
 
     // Stream directly to disk, filtering common lines, without building
@@ -288,6 +294,10 @@ export class CodeSearchIndex {
     let uniqueCount = 0;
     let skippedCommon = 0;
 
+    const totalEntries = lineToFiles.size;
+    if (showProgress) console.log(`  Writing inverted index to disk (${totalEntries} entries)...`);
+    let entriesProcessed = 0;
+
     try {
       fs.writeSync(fd, '{');
       let first = true;
@@ -295,19 +305,22 @@ export class CodeSearchIndex {
       for (const [line, fileMap] of lineToFiles) {
         if (fileMap.size > maxFileFrequency) {
           skippedCommon++;
-          continue;
-        }
+        } else {
+          if (!first) fs.writeSync(fd, ',');
+          first = false;
 
-        if (!first) fs.writeSync(fd, ',');
-        first = false;
-
-        // Build the value array for this entry
-        const locations = [];
-        for (const [fp, lns] of fileMap) {
-          locations.push([fp, lns]);
+          // Build the value array for this entry
+          const locations = [];
+          for (const [fp, lns] of fileMap) {
+            locations.push([fp, lns]);
+          }
+          fs.writeSync(fd, `${JSON.stringify(line)}:${JSON.stringify(locations)}`);
+          uniqueCount++;
         }
-        fs.writeSync(fd, `${JSON.stringify(line)}:${JSON.stringify(locations)}`);
-        uniqueCount++;
+        entriesProcessed++;
+        if (showProgress && entriesProcessed % 50000 === 0) {
+          console.log(`  Writing: ${entriesProcessed}/${totalEntries} entries (${uniqueCount} kept, ${skippedCommon} skipped)`);
+        }
       }
 
       fs.writeSync(fd, '}\n');
