@@ -20,6 +20,8 @@ const state = {
   lastIndexDir: null,    // parent dir of last-loaded index (for scan-indexes)
   /** Filepath of currently displayed source (for disambiguation context) */
   currentSourceFile: null,
+  /** Cached LLM engine status from /api/llm-status */
+  llmStatus: null,
 };
 
 // ========================================================================
@@ -79,10 +81,13 @@ const api = {
   claimSearchLlm:  (p) => api.post('claim-search-llm', p),
   analyzeLlm:      (p) => api.post('analyze-llm', p),
   claimExtractionPrompt: (p) => api.post('claim-extraction-prompt', p),
+  llmStatus:       ()  => api.get('llm-status'),
   browseDir:       (p) => api.get('browse-dir', p),
   indexes:         ()  => api.get('indexes'),
   scanIndexes:     (p) => api.get('scan-indexes', p),
   loadIndex:       (p) => api.post('load-index', p),
+  buildIndex:      (p) => api.post('build-index', p),
+  buildIndexStatus:(p) => api.get('build-index-status', p),
   fileMap:         (p) => api.get('file-map', p),
   fileTree:        (p) => api.get('file-tree', p),
   callInventory:   (p) => api.get('call-inventory', p),
@@ -1407,13 +1412,32 @@ function renderSearchResults(query, data) {
   state.highlightTerms = { terms: [query], colors: HIGHLIGHT_COLORS };
 
   if (!data.results.length) { container.innerHTML = '<div class="list-placeholder">No results</div>'; return; }
-  let html = '';
+
+  // Group results by filepath (preserve first-appearance order)
+  const groups = new Map();
   for (const r of data.results) {
-    html += '<div class="output-section" style="padding:4px 12px;border-bottom:1px solid var(--border)">';
-    html += `<span class="mono muted" style="font-size:11px">${escHtml(shortPath(r.filepath, 50))}:${r.line_number}`;
-    if (r.containing_function) html += ` <span class="clickable" data-funcname="${escHtml(r.containing_function)}">${escHtml(r.containing_function)}</span>`;
-    const hlLine = highlightLine(escHtml(r.line_text), [query], HIGHLIGHT_COLORS);
-    html += `</span><pre style="font-family:var(--font-mono);font-size:12px;margin:2px 0;color:var(--text-bright)">${hlLine}</pre></div>`;
+    const fp = r.filepath || '(unknown)';
+    if (!groups.has(fp)) groups.set(fp, []);
+    groups.get(fp).push(r);
+  }
+
+  let html = '';
+  for (const [fp, hits] of groups) {
+    html += '<div style="border-bottom:1px solid var(--border)">';
+    html += `<div class="clickable" data-filepath="${escHtml(fp)}" style="padding:6px 12px;font-family:var(--font-mono);font-size:12px;font-weight:600;cursor:pointer;color:var(--text-bright);background:var(--bg-alt)">${escHtml(shortPath(fp, 70))} <span class="muted" style="font-weight:normal">(${hits.length} hit${hits.length > 1 ? 's' : ''})</span></div>`;
+    html += '<div style="padding:2px 12px 4px 24px">';
+    let lastFunc = null;
+    for (const r of hits) {
+      const hlLine = highlightLine(escHtml(r.line_text.trim()), [query], HIGHLIGHT_COLORS);
+      let lineHtml = `<span class="mono muted" style="font-size:11px;margin-right:6px">L${r.line_number}</span>`;
+      if (r.containing_function && r.containing_function !== lastFunc) {
+        lineHtml += `<span class="clickable" data-funcname="${escHtml(r.containing_function)}" data-filepath="${escHtml(fp)}" style="font-size:11px;margin-right:6px">${escHtml(r.containing_function)}</span>`;
+        lastFunc = r.containing_function;
+      }
+      lineHtml += `<span style="font-family:var(--font-mono);font-size:12px;color:var(--text-bright)">${hlLine}</span>`;
+      html += `<div style="padding:1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${lineHtml}</div>`;
+    }
+    html += '</div></div>';
   }
   container.innerHTML = html;
   wireClickables(container, { sourceOnly: true });
@@ -1470,6 +1494,8 @@ function wireClickables(container, opts = {}) {
   const clickHandler = opts.sourceOnly ? onFunctionClickSourceOnly : onFunctionClick;
   for (const el of $$('.clickable[data-funcname]', container)) {
     el.addEventListener('click', () => {
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0) return;  // user is selecting text, don't navigate
       const name = el.dataset.funcname;
       const filepath = el.dataset.filepath || null;
       if (name && name !== '(file scope)' && name !== '(unknown)') {
@@ -1487,7 +1513,11 @@ function wireClickables(container, opts = {}) {
   // Wire file-only clicks (no funcname)
   for (const el of $$('.clickable[data-filepath]', container)) {
     if (!el.dataset.funcname) {
-      el.addEventListener('click', () => onFileClick(el.dataset.filepath));
+      el.addEventListener('click', () => {
+        const sel = window.getSelection();
+        if (sel && sel.toString().length > 0) return;  // user is selecting text, don't navigate
+        onFileClick(el.dataset.filepath);
+      });
       el.addEventListener('contextmenu', (e) => {
         showContextMenu(e, { name: null, display_name: el.dataset.filepath.split('/').pop(), filepath: el.dataset.filepath });
       });
@@ -1499,6 +1529,44 @@ function wireClickables(container, opts = {}) {
 // ========================================================================
 // Context menu
 // ========================================================================
+
+/** Fetch LLM engine status and cache it. Called on init and after model switch. */
+async function refreshLlmStatus() {
+  try { state.llmStatus = await api.llmStatus(); } catch { state.llmStatus = null; }
+}
+
+/** Return an engine-name suffix like "(Claude API)" or "(Local: model.gguf)" for menu labels. */
+function engineLabel() {
+  const engine = $('#ws-engine').value;
+  if (!state.llmStatus) return '';
+  const info = state.llmStatus[engine];
+  return info ? ` (${info.name})` : '';
+}
+
+/** Check engine availability before running an LLM action. Returns true if OK, else shows message. */
+function checkEngineAvailability(engine) {
+  if (!state.llmStatus) return true; // can't check, let server handle it
+  const info = state.llmStatus[engine];
+  if (info && info.available) return true;
+  if (engine === 'claude') {
+    showAnalysisPane(
+      '<b>Claude API is not configured.</b><br><br>' +
+      'To enable it, do one of the following:<br>' +
+      '&bull; Create a <code>claude.txt</code> file containing your API key in the server directory<br>' +
+      '&bull; Set the <code>ANTHROPIC_API_KEY</code> environment variable<br>' +
+      '&bull; Start the server with <code>--api-key &lt;key&gt;</code>',
+      'Engine Not Available', true);
+  } else {
+    showAnalysisPane(
+      '<b>Local GGUF model is not configured.</b><br><br>' +
+      'To enable it, do one of the following:<br>' +
+      '&bull; Click <b>Browse GGUFs</b> in the workspace controls to select a model<br>' +
+      '&bull; Start the server with <code>--model-path &lt;path-to-gguf&gt;</code>',
+      'Engine Not Available', true);
+  }
+  return false;
+}
+
 function showContextMenu(e, funcInfo) {
   e.preventDefault();
   state.contextTarget = funcInfo;
@@ -1518,6 +1586,15 @@ function showContextMenu(e, funcInfo) {
       btn.style.display = isFileOnly ? 'none' : '';
     }
   }
+
+  // Update LLM menu labels with engine name
+  const suffix = engineLabel();
+  const analyzeBtn = $('button[data-ctx="analyze"]');
+  const analyzeCtxBtn = $('button[data-ctx="analyze-context"]');
+  const analyzeFileBtn = $('button[data-ctx="analyze-file"]');
+  if (analyzeBtn)     analyzeBtn.textContent     = `Analyze with LLM${suffix}`;
+  if (analyzeCtxBtn)  analyzeCtxBtn.textContent  = `Analyze with LLM + Context${suffix}`;
+  if (analyzeFileBtn) analyzeFileBtn.textContent = `Analyze File with LLM${suffix}`;
 
   requestAnimationFrame(() => {
     const rect = menu.getBoundingClientRect();
@@ -1587,6 +1664,7 @@ async function handleContextAction(action) {
         ? `${target.filepath}@${target.name || target.display_name}`
         : (target.name || target.display_name);
       const engine = $('#ws-engine').value;
+      if (!checkEngineAvailability(engine)) break;
       const mask = $('#ws-mask-all')?.checked || false;
       const maskComments = $('#ws-mask-comments')?.checked || false;
       showAnalysisPane(`<div class="loading">Analyzing ${escHtml(target.name)} via ${escHtml(engine)}…</div>`, 'Analyzing…', true);
@@ -1607,6 +1685,8 @@ async function handleContextAction(action) {
       const funcSpec = target.filepath
         ? `${target.filepath}@${target.name || target.display_name}`
         : (target.name || target.display_name);
+      const engine = $('#ws-engine').value;
+      if (!checkEngineAvailability(engine)) break;
       let contextText = $('#claim-text').value.trim();
       if (!contextText) {
         showAnalysisPane('No context text. Paste text into the Workspace textarea first, then right-click a function and choose "Analyze with LLM + Workspace Context".', 'No Context');
@@ -1614,7 +1694,6 @@ async function handleContextAction(action) {
       }
       // If textarea shows resolved @file (with separator), strip the display header
       contextText = stripAtFileHeader(contextText);
-      const engine = $('#ws-engine').value;
       const mask = $('#ws-mask-all')?.checked || false;
       const maskComments = $('#ws-mask-comments')?.checked || false;
       showAnalysisPane(`<div class="loading">Analyzing ${escHtml(target.name)} with context via ${escHtml(engine)}…</div>`, 'Analyzing…', true);
@@ -1636,6 +1715,7 @@ async function handleContextAction(action) {
       const fp = target.filepath || target.name;
       if (!fp) { showAnalysisPane('No file associated with this item.', 'Error'); break; }
       const engine = $('#ws-engine').value;
+      if (!checkEngineAvailability(engine)) break;
       const mask = $('#ws-mask-all')?.checked || false;
       const maskComments = $('#ws-mask-comments')?.checked || false;
       showAnalysisPane(`<div class="loading">Analyzing file ${escHtml(shortPath(fp, 60))} via ${escHtml(engine)}…</div>`, 'Analyzing…', true);
@@ -1998,6 +2078,205 @@ function initLoadIndex() {
 
 
 // ========================================================================
+// Build Index dialog
+// ========================================================================
+function initBuildIndex() {
+  const overlay = $('#build-index-overlay');
+  const sourceInput = $('#build-index-source');
+  const nameInput = $('#build-index-name');
+  const errDiv = $('#build-index-error');
+  const statusDiv = $('#build-index-status');
+  const browserPanel = $('#build-index-browser');
+  const browsePathEl = $('#build-browse-current-path');
+  const dirListEl = $('#build-browse-dir-list');
+  let lastBrowsedDir = null;
+
+  // Close handlers are wired below in the build section (closeBuildDialog) to also stop polling
+
+  // --- Filesystem browser ---
+
+  async function browseTo(dirPath) {
+    try {
+      const data = await api.browseDir(dirPath ? { path: dirPath } : {});
+      renderBrowser(data);
+    } catch (err) {
+      dirListEl.innerHTML = `<div class="error-msg" style="padding:8px">${err.message}</div>`;
+    }
+  }
+
+  function renderBrowser(data) {
+    lastBrowsedDir = data.current;
+    browsePathEl.textContent = data.current;
+    browsePathEl.title = data.current;
+    dirListEl.innerHTML = '';
+
+    // ".." entry to go up
+    if (data.parent) {
+      const upEl = document.createElement('div');
+      upEl.className = 'browse-item';
+      upEl.innerHTML = '<span class="dir-marker">..</span> <span>(parent directory)</span>';
+      upEl.addEventListener('click', () => browseTo(data.parent));
+      dirListEl.appendChild(upEl);
+    }
+
+    for (const dir of data.dirs) {
+      const el = document.createElement('div');
+      el.className = 'browse-item' + (dir.isIndex ? ' is-index' : '');
+      const fullPath = data.current + data.sep + dir.name;
+
+      let inner = `<span class="dir-marker">/</span> <span>${dir.name}</span>`;
+      if (dir.isIndex) inner += '<span class="index-badge">index</span>';
+      el.innerHTML = inner;
+
+      // Single click: fill source path and auto-fill index name
+      el.addEventListener('click', () => {
+        sourceInput.value = fullPath;
+        errDiv.style.display = 'none';
+        autoFillName(fullPath);
+      });
+
+      // Double click: navigate into directory
+      el.addEventListener('dblclick', () => browseTo(fullPath));
+
+      dirListEl.appendChild(el);
+    }
+
+    if (data.dirs.length === 0) {
+      dirListEl.innerHTML = '<div style="padding:8px;color:var(--text-muted);font-size:12px">No subdirectories</div>';
+    }
+  }
+
+  // Browse button toggles the panel
+  $('#build-index-browse').addEventListener('click', () => {
+    if (browserPanel.style.display === 'none') {
+      browserPanel.style.display = 'block';
+      const startPath = sourceInput.value.trim() || lastBrowsedDir || null;
+      browseTo(startPath);
+    } else {
+      browserPanel.style.display = 'none';
+    }
+  });
+
+  // Auto-fill index name from source path
+  function autoFillName(sourcePath) {
+    if (nameInput.value.trim()) return;  // don't overwrite user input
+    const dirName = sourcePath.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+    if (dirName) nameInput.value = `.index_of_${dirName}`;
+  }
+
+  sourceInput.addEventListener('blur', () => {
+    const val = sourceInput.value.trim();
+    if (val) autoFillName(val);
+  });
+
+  // --- Build button ---
+
+  let buildPollTimer = null;
+
+  function stopBuildPoll() {
+    if (buildPollTimer) { clearInterval(buildPollTimer); buildPollTimer = null; }
+  }
+
+  // Allow close/cancel during build (build finishes silently server-side)
+  function closeBuildDialog() {
+    stopBuildPoll();
+    overlay.classList.add('hidden');
+    $('#build-index-ok').disabled = false;
+    $('#build-index-cancel').disabled = false;
+  }
+
+  $('#build-index-close').addEventListener('click', closeBuildDialog);
+  $('#build-index-cancel').addEventListener('click', closeBuildDialog);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeBuildDialog(); });
+
+  function onBuildComplete(result) {
+    stopBuildPoll();
+    const s = result.stats;
+    let summary = `Indexed ${s.files_indexed.toLocaleString()} files, ${s.total_lines.toLocaleString()} lines`;
+    if (s.archives_expanded > 0) summary += `, ${s.archive_files} files from ${s.archives_expanded} archive(s)`;
+    if (s.binstrings_processed > 0) summary += `, ${s.binstrings_processed} binaries`;
+    if (s.dupes_skipped > 0) summary += `, ${s.dupes_skipped} duplicates`;
+    statusDiv.textContent = summary;
+    statusDiv.style.color = '#4ec94e';
+
+    setTimeout(() => {
+      overlay.classList.add('hidden');
+      $('#build-index-ok').disabled = false;
+      $('#build-index-cancel').disabled = false;
+
+      // Refresh UI
+      const active = result.indexes.find(i => i.active) || result.indexes[0];
+      $('#index-info').textContent = `${active.name} (${active.files.toLocaleString()} files)`;
+
+      state.sectionData = {};
+      for (const sec of $$('.accordion-section')) {
+        sec.classList.remove('open');
+        $('.accordion-content', sec).innerHTML = '';
+        $('.accordion-badge', sec).textContent = '';
+      }
+      clearAllPanes();
+
+      if (s.error_count > 0) {
+        const errorLines = s.errors.map(e => escHtml(e)).join('<br>');
+        const truncNote = s.error_count > 50 ? `<br><br><em>…and ${s.error_count - 50} more errors</em>` : '';
+        $('#middle-top-body').innerHTML = `<div style="padding:12px;font-size:12px;font-family:var(--font-mono)"><strong>${s.error_count} error(s) during indexing:</strong><br><br>${errorLines}${truncNote}</div>`;
+        $('#middle-top-title').textContent = 'Build Errors';
+        showPane('middle-top');
+      }
+    }, 2000);
+  }
+
+  $('#build-index-ok').addEventListener('click', async () => {
+    const sourcePath = sourceInput.value.trim();
+    const indexName = nameInput.value.trim();
+    if (!sourcePath) { errDiv.textContent = 'Enter a source path'; errDiv.style.display = 'block'; return; }
+    if (!indexName) { errDiv.textContent = 'Enter an index name'; errDiv.style.display = 'block'; return; }
+    errDiv.style.display = 'none';
+
+    try {
+      $('#build-index-ok').disabled = true;
+      statusDiv.style.display = 'block';
+      statusDiv.textContent = 'Starting build…';
+      statusDiv.style.color = 'var(--text-muted)';
+
+      const { jobId } = await api.buildIndex({ sourcePath, indexName });
+
+      // Poll for progress
+      buildPollTimer = setInterval(async () => {
+        try {
+          const job = await api.buildIndexStatus({ jobId });
+          if (job.status === 'building') {
+            statusDiv.textContent = job.progress || 'Building…';
+          } else if (job.status === 'done') {
+            onBuildComplete(job);
+          } else if (job.status === 'error') {
+            stopBuildPoll();
+            errDiv.textContent = job.error || 'Build failed';
+            errDiv.style.display = 'block';
+            statusDiv.style.display = 'none';
+            $('#build-index-ok').disabled = false;
+            $('#build-index-cancel').disabled = false;
+          }
+        } catch (pollErr) {
+          // Poll error — keep trying, server may be busy with the build
+        }
+      }, 1500);
+    } catch (err) {
+      errDiv.textContent = err.message;
+      errDiv.style.display = 'block';
+      statusDiv.style.display = 'none';
+      $('#build-index-ok').disabled = false;
+      $('#build-index-cancel').disabled = false;
+    }
+  });
+
+  // Enter key on inputs triggers build
+  sourceInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#build-index-ok').click(); });
+  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#build-index-ok').click(); });
+}
+
+
+// ========================================================================
 // Menu bar
 // ========================================================================
 function initMenus() {
@@ -2033,6 +2312,16 @@ async function handleMenuAction(action) {
       $('#browse-dir-list').innerHTML = '';
       $('#load-index-overlay').classList.remove('hidden');
       setTimeout(() => $('#load-index-path').focus(), 100);
+      break;
+    case 'build-index':
+      $('#build-index-source').value = '';
+      $('#build-index-name').value = '';
+      $('#build-index-error').style.display = 'none';
+      $('#build-index-status').style.display = 'none';
+      $('#build-index-browser').style.display = 'none';
+      $('#build-browse-dir-list').innerHTML = '';
+      $('#build-index-overlay').classList.remove('hidden');
+      setTimeout(() => $('#build-index-source').focus(), 100);
       break;
     case 'search-literal': case 'search-regex': case 'search-fast': {
       const label = action === 'search-literal' ? 'Literal' : action === 'search-regex' ? 'Regex' : 'Fast';
@@ -2547,6 +2836,7 @@ async function openModelBrowser() {
           const shortName = fname.length > 30 ? fname.slice(0, 27) + '…' : fname;
           if (localOpt) localOpt.textContent = 'Local: ' + shortName;
           engineSel.value = 'local';
+          refreshLlmStatus();
           closeModal();
         } catch (err) {
           item.style.opacity = '1';
@@ -3062,10 +3352,12 @@ async function init() {
   initColumnResizers();
   initDiagramControls();
   initLoadIndex();
+  initBuildIndex();
   initFilter();
   initRightBottomTabs();
   initConsole();
   initWindowManagement();
+  refreshLlmStatus();
 
   // Pane navigation buttons (back/forward for both middle panes)
   $('#source-back-btn')?.addEventListener('click', () => navBack('middle-bottom'));

@@ -17,6 +17,7 @@ import https from 'https';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Worker } from 'worker_threads';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { displayName } from './utils.js';
@@ -113,6 +114,8 @@ class IndexManager {
 
 const serverArgs = parseServerArgs();
 const mgr = new IndexManager();
+const buildJobs = new Map();  // jobId -> { status, progress, stats, error, loaded, indexes }
+let nextBuildJobId = 1;
 
 for (const ip of serverArgs.indexPaths) {
   mgr.load(ip);
@@ -511,6 +514,20 @@ routes['/api/scan-indexes'] = (req, res) => {
     }
   } catch (_) {}
   jsonResponse(res, { available, loaded: mgr.list(), scanDir });
+};
+
+
+// --- LLM engine status (for GUI context-menu labels) ---
+routes['/api/llm-status'] = (req, res) => {
+  const claudeAvail = serverLLM.checkAvailability('claude');
+  const localAvail  = serverLLM.checkAvailability('local');
+  const localName   = serverLLM.defaultModelPath
+    ? path.basename(serverLLM.defaultModelPath)
+    : null;
+  jsonResponse(res, {
+    claude: { available: claudeAvail.available, name: 'Claude API' },
+    local:  { available: localAvail.available,  name: localName ? `Local: ${localName}` : 'Local GGUF Model' },
+  });
 };
 
 
@@ -967,6 +984,112 @@ routes['/api/load-index'] = (req, res) => {
       errorResponse(res, `Load error: ${err.message}`, 500);
     }
   });
+};
+
+
+// --- Build index from GUI ---
+
+routes['/api/build-index'] = (req, res) => {
+  if (req.method !== 'POST') return errorResponse(res, 'POST required', 405);
+  let body = '';
+  req.on('data', chunk => { body += chunk; });
+  req.on('end', () => {
+    try {
+      const params = JSON.parse(body);
+      const { sourcePath, indexName } = params;
+      if (!sourcePath) return errorResponse(res, 'Missing "sourcePath" in body');
+      if (!indexName) return errorResponse(res, 'Missing "indexName" in body');
+
+      // Validate path exists for non-glob, non-@file paths
+      const trimmed = sourcePath.trim();
+      const isGlob = trimmed.includes('*') || trimmed.includes('?');
+      const isFileList = trimmed.startsWith('@');
+      if (!isGlob && !isFileList) {
+        if (!fs.existsSync(trimmed)) return errorResponse(res, `Path not found: ${trimmed}`, 404);
+      }
+
+      // Create a background job and return immediately
+      const resolvedIndex = path.resolve(indexName.trim());
+      const jobId = nextBuildJobId++;
+      buildJobs.set(jobId, { status: 'building', progress: 'Starting…', stats: null, error: null, loaded: null, indexes: null });
+      jsonResponse(res, { jobId });
+
+      // Run the build in a Worker thread so the event loop stays responsive
+      const workerPath = path.join(__dirname, 'build-worker.js');
+      const worker = new Worker(workerPath, {
+        workerData: { sourcePath, indexPath: resolvedIndex }
+      });
+
+      const job = buildJobs.get(jobId);
+
+      worker.on('message', (msg) => {
+        if (msg.type === 'progress') {
+          job.progress = msg.message;
+        } else if (msg.type === 'done') {
+          const stats = msg.stats;
+          if (stats.files_indexed === 0) {
+            job.status = 'error';
+            job.error = `No files were indexed from: ${sourcePath}`;
+            return;
+          }
+
+          // Load the built index into the main thread's IndexManager
+          const idx = new CodeSearchIndex({ indexPath: resolvedIndex });
+          mgr.indexes.clear();
+          mgr.activeIndex = null;
+          const name = path.basename(resolvedIndex) || resolvedIndex;
+          mgr.indexes.set(name, idx);
+          mgr.activeIndex = name;
+
+          const errorCount = stats.errors.length;
+          const cappedErrors = stats.errors.slice(0, 50);
+
+          job.status = 'done';
+          job.loaded = name;
+          job.indexes = mgr.list();
+          job.stats = {
+            files_indexed: stats.files_indexed,
+            total_lines: stats.total_lines,
+            archives_expanded: stats.archives_expanded || 0,
+            archive_files: stats.archive_files || 0,
+            binstrings_processed: stats.binstrings_processed || 0,
+            dupes_skipped: stats.dupes_skipped || 0,
+            errors: cappedErrors,
+            error_count: errorCount,
+          };
+        } else if (msg.type === 'error') {
+          job.status = 'error';
+          job.error = msg.error;
+        }
+      });
+
+      worker.on('error', (err) => {
+        job.status = 'error';
+        job.error = err.message;
+      });
+    } catch (err) {
+      errorResponse(res, `Build error: ${err.message}`, 500);
+    }
+  });
+};
+
+routes['/api/build-index-status'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const jobId = parseInt(q.jobId, 10);
+  if (!jobId || !buildJobs.has(jobId)) return errorResponse(res, 'Unknown jobId', 404);
+  const job = buildJobs.get(jobId);
+  jsonResponse(res, {
+    status: job.status,
+    progress: job.progress,
+    stats: job.stats,
+    error: job.error,
+    loaded: job.loaded,
+    indexes: job.indexes,
+  });
+  // Clean up completed/errored jobs after delivering the result
+  if (job.status === 'done' || job.status === 'error') {
+    buildJobs.delete(jobId);
+  }
 };
 
 

@@ -16,6 +16,7 @@
         <button class="menu-btn" data-menu="index-menu">Index ▾</button>
         <div id="index-menu" class="dropdown">
           <button data-action="load-index">Load Index…</button>
+          <button data-action="build-index">Build Index…</button>
           <hr>
           <button data-action="stats">Index Statistics</button>
         </div>
@@ -244,7 +245,7 @@
         <textarea id="claim-text" placeholder="Paste patent claim text or semicolon-separated terms…" spellcheck="false"></textarea>
       </div>
       <div class="workspace-controls">
-        <div class="control-group"><label>Mode</label>
+        <div class="control-group"><label>Workspace Action</label>
           <select id="ws-mode">
             <option value="multisect-search">Multisect Search</option>
             <option value="multisect-analyze">Multisect Analyze</option>
@@ -271,6 +272,7 @@
         <div class="control-group">
           <button id="ws-run" class="btn-primary">▶ Run</button>
         </div>
+        <span class="ws-hint" style="font-size:11px;color:#888;margin-left:8px">Tip: Right-click a function or file in the middle pane to analyze individually.</span>
       </div>
       <div class="workspace-terms" id="workspace-terms"></div>
     </div>
@@ -331,6 +333,34 @@
       <div class="modal-footer">
         <button class="btn-secondary" id="load-index-cancel">Cancel</button>
         <button class="btn-primary" id="load-index-ok">Load</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BUILD INDEX DIALOG -->
+  <div id="build-index-overlay" class="modal-overlay hidden">
+    <div class="modal" style="width:560px">
+      <div class="modal-header"><span>Build Index</span>
+        <button class="pane-action" id="build-index-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <label>Source path (directory, archive, glob, or @filelist):</label>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <input type="text" id="build-index-source" placeholder="/path/to/source/code" spellcheck="false" style="flex:1;margin-top:0">
+          <button class="btn-secondary" id="build-index-browse">Browse</button>
+        </div>
+        <div id="build-index-browser" style="display:none">
+          <div id="build-browse-current-path" style="font-size:11px;font-family:var(--font-mono);color:var(--text-muted);padding:4px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+          <div id="build-browse-dir-list" class="scrollable" style="border:1px solid var(--border);border-radius:3px;max-height:240px;overflow-y:auto;background:var(--bg-input)"></div>
+        </div>
+        <label>Index name (output directory):</label>
+        <input type="text" id="build-index-name" placeholder=".index_of_mycode" spellcheck="false" style="margin-top:0;margin-bottom:8px">
+        <div id="build-index-status" style="display:none;padding:8px 0;color:var(--text-muted);font-size:12px">Building index… this may take a while.</div>
+        <div id="build-index-error" class="error-msg" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="build-index-cancel">Cancel</button>
+        <button class="btn-primary" id="build-index-ok">Build</button>
       </div>
     </div>
   </div>

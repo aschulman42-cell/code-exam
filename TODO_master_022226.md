@@ -101,6 +101,11 @@
 | 250 | **Remove special-case command dispatch from interactive.js**: Currently `dispatchCommand()` has a large if/else chain that special-cases every slash command (`/fast`, `/callers`, `/hotspots`, etc.) with its own argument parsing before calling the shared `do*()` handlers. Refactor so that all commands flow through a unified dispatch table — map command names to their `do*()` handler + a declarative arg spec — eliminating the per-command parsing boilerplate. All interactive commands should go through `doInteractive()` with no special-case branches. | **planned** |
 | 240 | **Multisect cross-method class scope**: Currently multisect scopes are function → file → folder. Add intermediate scope: multiple methods in a single class. If terms are spread across methods of one class, that's a tighter match than "spread across a file." Requires class membership data from function index. | **new, planned** |
 | 241 | **Per-term mandatory/optional flag in multisect**: Currently all positive terms are equally required (subject to --min-terms). Allow specifying which terms are optional — their presence boosts ranking but their absence doesn't disqualify. Syntax TBD, e.g. `?term` or `OPT term` prefix. Would interact with --min-terms scoring. | **new, design needed** |
+| 251 | **Claim-analyze progress should show in Analysis pane, not middle-top**: When running claim-analyze from the workspace, "Extracting claim terms via local…" appears in the middle-upper pane while the old analysis result stays in the Analysis pane. The progress indicator should appear in the Analysis pane instead, since that's where the result will land. | **new, planned** |
+| 252 | **Separate term-extraction engine from analysis engine**: Allow different LLMs for the two claim-analyze steps: (1) extracting TIGHT/BROAD terms from claim text, (2) analyzing the matched function against the claim. Useful for testing local models on analysis while using Claude for better term extraction. **CLI first** (easier): add `--term-llm` and `--analyze-llm` flags that override `--engine` for each step independently. **GUI later**: add a second engine dropdown or split the existing one into "Term Extraction Engine" and "Analysis Engine". | **new, design needed** |
+| 253 | **Class inheritance visualization**: See footnote [^253]. | **new, design needed** |
+
+[^253]: **Class inheritance visualization** — Currently /file-map, /call-tree, and Mermaid diagrams show function/method call relationships but nothing about parent/child class hierarchies. This is misleading when classes have deep inheritance. Implementation requires: (a) **Parser changes**: extract `extends`/`implements` declarations across languages — Java `extends`/`implements`, Python `class Foo(Bar)`, JS/TS `class Foo extends Bar`, C++ `: public Base`, C# `: Base, IFoo`. (b) **Index changes**: store inheritance edges in function_index.json (e.g. `class_parents` field per class). (c) **Surfacing options**: Mermaid class diagrams, new accordion section "Class Hierarchy", overlay on call-tree, or CLI `--class-tree`. (d) **Edge cases**: multiple inheritance, interfaces vs concrete, mixins, abstract classes, languages without classes (C, Go structs).
 
 ---
 
@@ -152,6 +157,7 @@
 |---|---|---|
 | 13 | **GUI**: Air-gapped, local Python/Node server + browser UI on localhost. | design needed |
 | 15 | Multi-file split and GitHub integration. | deferred |
+| 254 | **Build Index from GUI**: Add "Build Index" to the Index menu. Dialog takes two params: source (dir path, wildcard, or @file) and index name (e.g. `.index_of_code`). Connects to existing `--build-index` CLI functionality. Must support archives (ZIP/tar/gz) and binary .op generation from EXE/DLL/so files, same as CLI. Show progress during build. | **new, planned** |
 
 ---
 
