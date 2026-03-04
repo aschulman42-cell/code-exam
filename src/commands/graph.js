@@ -519,3 +519,112 @@ export function doFileTree(index, args) {
   console.log(`    style ${tid} fill:#ff9,stroke:#333,stroke-width:3px`);
   console.log('```');
 }
+
+
+// ========================================================================
+// Class Tree (inheritance hierarchy)
+// ========================================================================
+
+export function doClassTree(index, args) {
+  let classTreeVal = args.class_tree;
+  if (classTreeVal === true || classTreeVal === '.' || classTreeVal === '') classTreeVal = null;
+  const filter = classTreeVal || args.filter || null;
+  const mermaid = args.mermaid || false;
+
+  eprint('  Building class hierarchy...');
+  const hierarchy = index.getClassHierarchy(filter);
+  const { roots, externalRoots, standalone, totalClasses, totalRelationships } = hierarchy;
+
+  if (roots.length === 0 && externalRoots.length === 0 && standalone.length === 0) {
+    console.log('No class inheritance relationships found.');
+    if (filter) console.log(`  (filtered to '${filter}')`);
+    return;
+  }
+
+  if (!mermaid) {
+    // --- Text output ---
+    console.log(`\nClass Hierarchy (${totalClasses} classes, ${totalRelationships} inheritance relationships)`);
+    if (filter) console.log(`  Filtered to: ${filter}`);
+
+    const sp = (fp, maxLen = 50) => {
+      if (!fp) return '';
+      fp = fp.replace(/\\/g, '/');
+      return fp.length <= maxLen ? fp : '...' + fp.slice(-(maxLen - 3));
+    };
+
+    const printTree = (node, prefix, isLast) => {
+      const connector = prefix === '' ? '  ' : (isLast ? '└── ' : '├── ');
+      const nameStr = node.external ? `${node.name} (external)` : node.name;
+      const locStr = node.filepath ? `${sp(node.filepath)}:${node.start}` : '';
+      const metaStr = !node.external && node.methodCount > 0 ? `  [${node.methodCount}m, ${node.lines}L]` : '';
+      const pad = Math.max(1, 60 - (prefix.length + connector.length + nameStr.length + metaStr.length));
+      console.log(`${prefix}${connector}${nameStr}${metaStr}${' '.repeat(pad)}${locStr}`);
+
+      const childPrefix = prefix === '' ? '  ' : prefix + (isLast ? '    ' : '│   ');
+      for (let i = 0; i < node.children.length; i++) {
+        printTree(node.children[i], childPrefix, i === node.children.length - 1);
+      }
+    };
+
+    // Internal roots (classes defined in the index)
+    for (const root of roots) {
+      console.log();
+      printTree(root, '', true);
+    }
+
+    // External roots (parent not in index)
+    if (externalRoots.length > 0) {
+      console.log();
+      for (const root of externalRoots) {
+        printTree(root, '', true);
+      }
+    }
+
+    // Standalone classes (no inheritance)
+    if (standalone.length > 0 && !filter) {
+      console.log();
+      const names = standalone.map(c => c.name);
+      if (names.length <= 10) {
+        console.log(`  Standalone classes (no inheritance): ${names.join(', ')}`);
+      } else {
+        console.log(`  Standalone classes (no inheritance): ${names.slice(0, 10).join(', ')}, ... and ${names.length - 10} more`);
+      }
+    }
+    console.log();
+    return;
+  }
+
+  // --- Mermaid classDiagram ---
+  console.log('```mermaid');
+  console.log('classDiagram');
+
+  const printed = new Set();
+  const edges = [];
+
+  const collectMermaid = (node) => {
+    if (!printed.has(node.name)) {
+      printed.add(node.name);
+      if (node.filepath) {
+        const basename = path.basename(node.filepath);
+        if (node.methodCount > 0) {
+          console.log(`  class ${node.name} { ${basename} | ${node.methodCount}m ${node.lines}L }`);
+        } else {
+          console.log(`  class ${node.name} { ${basename} }`);
+        }
+      } else {
+        console.log(`  class ${node.name}`);
+        console.log(`  <<external>> ${node.name}`);
+      }
+    }
+    for (const child of node.children) {
+      edges.push(`  ${node.name} <|-- ${child.name}`);
+      collectMermaid(child);
+    }
+  };
+
+  for (const root of [...roots, ...externalRoots]) {
+    collectMermaid(root);
+  }
+  for (const e of edges) console.log(e);
+  console.log('```');
+}

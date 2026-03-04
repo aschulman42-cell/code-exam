@@ -928,6 +928,21 @@ routes['/api/class-hotspots'] = (req, res) => {
 };
 
 
+// --- Class Hierarchy ---
+
+routes['/api/class-hierarchy'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  try {
+    const hierarchy = index.getClassHierarchy(q.filter || null);
+    jsonResponse(res, hierarchy);
+  } catch (err) {
+    errorResponse(res, `Class hierarchy failed: ${err.message}`, 500);
+  }
+};
+
+
 // --- Callers / Callees ---
 
 routes['/api/callers'] = (req, res) => {

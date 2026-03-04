@@ -62,6 +62,7 @@ export function parseArgs() {
 
     // Graph
     call_tree: null,
+    class_tree: null,
     file_map: null,
     file_tree: null,
     mermaid: false,
@@ -85,6 +86,7 @@ export function parseArgs() {
     callees: null,
     most_called: null,
     call_tree: null,
+    class_tree: null,
     call_inventory: null,
     file_map: null,
     file_tree: null,
@@ -203,6 +205,7 @@ export function parseArgs() {
     ['defined_only',         'flag',           ['--defined-only']],
     ['exclude_tests',        'flag',           ['--exclude-tests']],
     ['call_tree',            'value',          ['--call-tree']],
+    ['class_tree',           'optional_value', ['--class-tree']],
     ['call_inventory',       'optional_value', ['--call-inventory']],
     ['file_map',             'optional_value', ['--file-map']],
     ['file_tree',            'value',          ['--file-tree']],
@@ -471,6 +474,7 @@ CALLERS / CALLEES:
 
 GRAPH:
   --call-tree <spec>         Show call tree (callers up + callees down)
+  --class-tree [filter]      Show class inheritance hierarchy
   --file-map [filter]        Show file-level dependency map
   --file-tree <file>         Show file dependency tree
   --mermaid                  Output Mermaid diagram instead of text

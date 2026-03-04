@@ -62,6 +62,7 @@ const api = {
   gaps:            (p) => api.get('gaps', p),
   mostCalled:      (p) => api.get('most-called', p),
   classHotspots:   (p) => api.get('class-hotspots', p),
+  classHierarchy:  (p) => api.get('class-hierarchy', p),
   callers:         (p) => api.get('callers', p),
   callees:         (p) => api.get('callees', p),
   callTree:        (p) => api.get('call-tree', p),
@@ -219,6 +220,13 @@ async function loadSectionData(sectionId, filter = '') {
         state.sectionData[sectionId] = data.classes;
         renderClassListWithSub(content, data.classes, data.total);
         badge.textContent = data.total;
+        break;
+
+      case 'class-hierarchy':
+        data = await api.classHierarchy({ filter });
+        state.sectionData[sectionId] = data;
+        renderClassHierarchy(content, data);
+        badge.textContent = data.totalRelationships || 0;
         break;
 
       case 'hotspots':
@@ -597,6 +605,116 @@ function renderClassHotspotList(container, classes) {
     ]);
     item.addEventListener('click', () => onClassClick(c.name));
     container.appendChild(item);
+  }
+}
+
+
+// ========================================================================
+// Class Hierarchy tree
+// ========================================================================
+function renderClassHierarchy(container, data) {
+  container.innerHTML = '';
+  const { roots, externalRoots, standalone, totalRelationships } = data;
+
+  if ((!roots || !roots.length) && (!externalRoots || !externalRoots.length) && (!standalone || !standalone.length)) {
+    container.innerHTML = '<div class="list-placeholder">No class inheritance found</div>';
+    return;
+  }
+
+  // Render a tree node recursively
+  const renderNode = (node, depth) => {
+    const indent = depth * 16;
+    const hasChildren = node.children && node.children.length > 0;
+    const isExternal = node.external;
+
+    const nameStyle = isExternal
+      ? 'color:var(--text-muted);font-style:italic'
+      : 'color:var(--text-bright)';
+    const label = isExternal ? `${node.name} (external)` : node.name;
+    const metaText = !isExternal && node.methodCount > 0
+      ? `${node.methodCount}m ${node.lines}L`
+      : '';
+    const fpText = node.filepath ? node.filepath.replace(/\\/g, '/') : '';
+
+    const item = h('div', {
+      className: 'list-item' + (isExternal ? '' : ' clickable'),
+      style: `padding-left:${8 + indent}px`,
+      title: [
+        node.name,
+        fpText ? `File: ${fpText}` : '',
+        node.start ? `Line ${node.start}–${node.end}` : '',
+        metaText ? `${node.methodCount} methods, ${node.lines} lines` : '',
+      ].filter(Boolean).join('\n'),
+    }, [
+      hasChildren
+        ? h('span', { className: 'sub-accordion-toggle', text: '▸', style: 'cursor:pointer;margin-right:4px;font-size:10px;width:10px;display:inline-block' })
+        : h('span', { text: ' ', style: 'margin-right:4px;width:10px;display:inline-block' }),
+      h('span', { className: 'name', text: label, style: nameStyle + ';flex:1;overflow:hidden;text-overflow:ellipsis' }),
+      metaText ? h('span', { className: 'metric muted', text: metaText, style: 'font-size:10px' }) : null,
+      fpText ? h('span', { className: 'filepath', text: fpText, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }) : null,
+    ].filter(Boolean));
+
+    // Children container (initially hidden)
+    const childContainer = hasChildren ? h('div', { style: 'display:none' }) : null;
+
+    if (!isExternal && node.filepath) {
+      item.addEventListener('click', (e) => {
+        if (e.target.classList.contains('sub-accordion-toggle')) return;
+        onFunctionClick({ name: node.name, display_name: node.name, filepath: node.filepath, start: node.start, end: node.end });
+      });
+      item.addEventListener('contextmenu', (e) => {
+        e.stopPropagation();
+        showContextMenu(e, { name: node.name, display_name: node.name, filepath: node.filepath });
+      });
+    }
+
+    if (hasChildren) {
+      const toggle = item.querySelector('.sub-accordion-toggle');
+      let loaded = false;
+      toggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = childContainer.style.display !== 'none';
+        childContainer.style.display = open ? 'none' : 'block';
+        toggle.textContent = open ? '▸' : '▾';
+        if (!loaded) {
+          loaded = true;
+          for (const child of node.children) {
+            renderNode(child, depth + 1).forEach(el => childContainer.appendChild(el));
+          }
+        }
+        const parentSection = item.closest('.accordion-section');
+        if (parentSection) setTimeout(() => updateOverflowHint(parentSection), 50);
+      });
+    }
+
+    const elements = [item];
+    if (childContainer) elements.push(childContainer);
+    return elements;
+  };
+
+  // Render internal roots
+  for (const root of roots) {
+    for (const el of renderNode(root, 0)) container.appendChild(el);
+  }
+
+  // Render external roots
+  if (externalRoots && externalRoots.length > 0) {
+    for (const root of externalRoots) {
+      for (const el of renderNode(root, 0)) container.appendChild(el);
+    }
+  }
+
+  // Standalone classes summary
+  if (standalone && standalone.length > 0) {
+    const names = standalone.map(c => c.name);
+    const summary = names.length <= 8
+      ? names.join(', ')
+      : names.slice(0, 8).join(', ') + ` ... +${names.length - 8} more`;
+    container.appendChild(h('div', {
+      className: 'list-placeholder',
+      text: `Standalone (no inheritance): ${summary}`,
+      style: 'font-size:10px;padding:6px 10px;color:var(--text-muted)',
+    }));
   }
 }
 

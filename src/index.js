@@ -21,7 +21,7 @@ import {
   doCallers, doCallees, doMostCalled, doCallInventory,
 } from './commands/callers.js';
 import {
-  doCallTree, doFileMap, doFileTree,
+  doCallTree, doClassTree, doFileMap, doFileTree,
 } from './commands/graph.js';
 import {
   doHotspots, doHotFolders, doEntryPoints, doGaps,
@@ -203,6 +203,7 @@ if (args.most_called)                       doMostCalled(index, args);
 if (args._explicit.has('call_inventory'))   doCallInventory(index, args);
 
 if (args.call_tree)                         doCallTree(index, args);
+if (args._explicit.has('class_tree'))       doClassTree(index, args);
 if (args._explicit.has('file_map'))         doFileMap(index, args);
 if (args.file_tree)                         doFileTree(index, args);
 
@@ -254,7 +255,7 @@ if (args.interactive) {
     'extract', 'list_files', 'show_file', 'list_functions',
     'list_functions_alpha', 'list_functions_size',
     'callers', 'callees', 'most_called',
-    'call_tree', 'call_inventory', 'file_map', 'file_tree',
+    'call_tree', 'class_tree', 'call_inventory', 'file_map', 'file_tree',
     'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
     'list_classes', 'class_hotspots', 'discover_vocabulary', 'multisect_search',
     'claim_search', 'claim_file',

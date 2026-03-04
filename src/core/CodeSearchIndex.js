@@ -592,6 +592,18 @@ export class CodeSearchIndex {
       [/^\s*(?:(?:public|private|protected|internal)\s+)*enum\s+(\w+)/, 'class', 1],
     ];
 
+    const swiftPatterns = [
+      // Swift functions: func name(args) { or func name(args) -> Type {
+      [/^\s*(?:(?:public|private|internal|fileprivate|open|static|class|override|final|mutating)\s+)*func\s+(\w+)/, 'function', 1],
+      // init / deinit
+      [/^\s*(?:(?:public|private|internal|fileprivate|open|required|convenience|override)\s+)*(init)\s*\(/, 'function', 1],
+      // struct / class / enum / protocol
+      [/^\s*(?:(?:public|private|internal|fileprivate|open|final)\s+)*class\s+(\w+)/, 'class', 1],
+      [/^\s*(?:(?:public|private|internal|fileprivate|open)\s+)*struct\s+(\w+)/, 'class', 1],
+      [/^\s*(?:(?:public|private|internal|fileprivate|open)\s+)*enum\s+(\w+)/, 'class', 1],
+      [/^\s*(?:(?:public|private|internal|fileprivate|open)\s+)*protocol\s+(\w+)/, 'class', 1],
+    ];
+
     switch (ext) {
       case '.py': case '.pyw':
         return pythonPatterns;
@@ -621,6 +633,8 @@ export class CodeSearchIndex {
         return awkPatterns;
       case '.cs':
         return csPatterns;
+      case '.swift':
+        return swiftPatterns;
       default:
         if (TEXT_EXTENSIONS.has(ext)) return [];
         return [...pythonPatterns, ...cLikePatterns]; // Best guess
@@ -2092,7 +2106,26 @@ export class CodeSearchIndex {
       /^\s*class\s+(\w+)\s*<\s*(\w+)/,
     ];
 
+    // Pre-filter: only scan files that contain class declarations (from function index).
+    // This avoids scanning all fileLines on large indexes (20K+ files → OOM).
+    let filesToScan;
+    this._ensureFunctionIndex();
+    if (this.functionIndex && Object.keys(this.functionIndex).length > 0) {
+      const classFiles = new Set();
+      for (const [fpath, functions] of Object.entries(this.functionIndex)) {
+        for (const info of Object.values(functions)) {
+          if (info.type === 'class') { classFiles.add(fpath); break; }
+        }
+      }
+      // Also include files whose names suggest class definitions but weren't indexed as classes
+      // (e.g., files with 'extends' or inheritance that the function parser missed)
+      filesToScan = classFiles.size > 0 ? classFiles : null;
+    } else {
+      filesToScan = null;  // no function index → scan all
+    }
+
     for (const [filepath, lines] of this.fileLines) {
+      if (filesToScan && !filesToScan.has(filepath)) continue;
       for (const line of lines) {
         for (const pat of patterns) {
           const m = pat.exec(line);
@@ -3153,6 +3186,198 @@ export class CodeSearchIndex {
   // ========================================================================
   // Phase 3: Metrics / discovery methods
   // ========================================================================
+
+  /**
+   * Build class inheritance hierarchy tree.
+   * Returns { roots, externalRoots, standalone, totalClasses, totalRelationships }
+   *   roots: tree nodes for classes whose parents aren't in the index (true roots)
+   *   externalRoots: tree nodes grouped under an external parent name
+   *   standalone: classes with no inheritance relationships
+   * Each node: { name, filepath, start, end, lines, methodCount, children }
+   */
+  getClassHierarchy(filter = null) {
+    this._ensureFunctionIndex();
+    const imap = this._getInheritanceMap();  // Map<child, parents[]>
+
+    // Single-pass class scan: collect classes, then count methods in same loop.
+    // Avoids the expensive listClasses() which builds full method arrays.
+    const classInfo = {};
+    const pendingMethods = [];  // [{name, fpath}] — resolved after classes known
+    for (const [fpath, functions] of Object.entries(this.functionIndex)) {
+      for (const [name, info] of Object.entries(functions)) {
+        if (info.type === 'class') {
+          const bare = name.includes('::') ? name.split('::').pop() : name;
+          if (!classInfo[bare]) {
+            classInfo[bare] = {
+              name: bare, filepath: fpath,
+              start: info.start || 0, end: info.end || 0,
+              lines: (info.end || 0) - (info.start || 0) + 1,
+              methodCount: 0,
+            };
+          }
+        } else if (info.type === 'method' || info.type === 'function') {
+          if (name.includes('::') || name.includes('.')) {
+            pendingMethods.push(name);
+          }
+        }
+      }
+    }
+    // Resolve method counts (lightweight — just string prefix checks)
+    const classNameSet = new Set(Object.keys(classInfo));
+    for (const name of pendingMethods) {
+      const sep = name.includes('::') ? '::' : '.';
+      const prefix = name.slice(0, name.indexOf(sep));
+      if (classNameSet.has(prefix) && classInfo[prefix]) classInfo[prefix].methodCount++;
+    }
+
+    // Build parent->children map (reverse of imap)
+    const childrenOf = {};   // parentName -> [childName]
+    const allInvolved = new Set();  // all class names that appear in any relationship
+    let totalRelationships = 0;
+
+    for (const [child, parents] of imap) {
+      allInvolved.add(child);
+      for (const p of parents) {
+        allInvolved.add(p);
+        if (!childrenOf[p]) childrenOf[p] = [];
+        childrenOf[p].push(child);
+        totalRelationships++;
+      }
+    }
+
+    // Apply filter
+    const pat = filter ? filter.toLowerCase() : null;
+    const matchesFilter = (name) => {
+      if (!pat) return true;
+      if (name.toLowerCase().includes(pat)) return true;
+      const info = classInfo[name];
+      if (info && info.filepath && info.filepath.toLowerCase().includes(pat)) return true;
+      return false;
+    };
+
+    // When filtering, expand to include ancestors and descendants of matches
+    let relevantNames = null;
+    if (pat) {
+      relevantNames = new Set();
+      const addAncestors = (name, visited) => {
+        if (visited.has(name)) return;
+        visited.add(name);
+        relevantNames.add(name);
+        const parents = imap.get(name);
+        if (parents) for (const p of parents) addAncestors(p, visited);
+      };
+      const addDescendants = (name, visited) => {
+        if (visited.has(name)) return;
+        visited.add(name);
+        relevantNames.add(name);
+        const kids = childrenOf[name];
+        if (kids) for (const k of kids) addDescendants(k, visited);
+      };
+      for (const name of allInvolved) {
+        if (matchesFilter(name)) {
+          addAncestors(name, new Set());
+          addDescendants(name, new Set());
+        }
+      }
+      // Also check standalone classes
+      for (const name of Object.keys(classInfo)) {
+        if (matchesFilter(name)) relevantNames.add(name);
+      }
+    }
+
+    const isRelevant = (name) => !relevantNames || relevantNames.has(name);
+
+    // Build tree nodes recursively
+    const buildNode = (name, visited) => {
+      if (visited.has(name)) return null;  // cycle protection
+      visited.add(name);
+      const info = classInfo[name];
+      const node = {
+        name,
+        filepath: info ? info.filepath : null,
+        start: info ? info.start : 0,
+        end: info ? info.end : 0,
+        lines: info ? info.lines : 0,
+        methodCount: info ? info.methodCount : 0,
+        external: !info,  // not in function index
+        children: [],
+      };
+      const kids = childrenOf[name] || [];
+      for (const kid of kids.sort()) {
+        if (!isRelevant(kid)) continue;
+        const childNode = buildNode(kid, new Set(visited));
+        if (childNode) node.children.push(childNode);
+      }
+      return node;
+    };
+
+    // Identify roots: classes that have children but no parents in the index
+    // or whose parents are all external
+    const roots = [];
+    const externalRoots = [];  // grouped by external parent name
+    const externalGroups = {};  // externalParentName -> [childNodes]
+
+    // Find classes that are parents (have children) but have no parents themselves
+    const hasParent = new Set(imap.keys());
+
+    for (const name of allInvolved) {
+      if (!isRelevant(name)) continue;
+      const parents = imap.get(name);
+      const isChild = parents && parents.length > 0;
+
+      if (!isChild && childrenOf[name]) {
+        // This is a root: has children, no parents
+        const node = buildNode(name, new Set());
+        if (node && (node.children.length > 0 || !node.external)) {
+          if (node.external) {
+            externalGroups[name] = node;
+          } else {
+            roots.push(node);
+          }
+        }
+      }
+    }
+
+    // Also find classes whose parents are ALL external (they appear as roots too)
+    for (const [child, parents] of imap) {
+      if (!isRelevant(child)) continue;
+      const allParentsExternal = parents.every(p => !classInfo[p]);
+      const noParentIsRoot = !parents.some(p => allInvolved.has(p) && !imap.has(p));
+      // If all parents are external, group under each external parent
+      if (allParentsExternal) {
+        for (const p of parents) {
+          if (!externalGroups[p]) {
+            externalGroups[p] = buildNode(p, new Set());
+          }
+        }
+      }
+    }
+
+    // Collect external root nodes
+    for (const [name, node] of Object.entries(externalGroups).sort(([a], [b]) => a.localeCompare(b))) {
+      if (node && node.children.length > 0) externalRoots.push(node);
+    }
+
+    // Sort roots by name
+    roots.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Standalone: classes in the index but not involved in any inheritance
+    const standalone = [];
+    for (const name of Object.keys(classInfo)) {
+      if (!allInvolved.has(name) && isRelevant(name)) {
+        standalone.push(classInfo[name]);
+      }
+    }
+    standalone.sort((a, b) => a.name.localeCompare(b.name));
+
+    return {
+      roots,
+      externalRoots,
+      standalone,
+      totalClasses: Object.keys(classInfo).length,
+      totalRelationships,
+    };
+  }
 
   /**
    * List all indexed classes with aggregated method stats.

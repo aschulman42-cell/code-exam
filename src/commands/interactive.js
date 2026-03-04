@@ -23,7 +23,7 @@ import {
   doListFunctions, doListFunctionsAlpha, doListFunctionsSize,
 } from './browse.js';
 import { doCallers, doCallees, doMostCalled, doCallInventory } from './callers.js';
-import { doCallTree, doFileMap, doFileTree } from './graph.js';
+import { doCallTree, doClassTree, doFileMap, doFileTree } from './graph.js';
 import {
   doHotspots, doHotFolders, doEntryPoints, doGaps,
   doDomainFns, doListClasses, doClassHotspots, doVocabulary,
@@ -269,6 +269,7 @@ CALLERS / CALL GRAPH:
   /call-inventory [name] [filter=PAT] [-v]  In-index vs external targets
   /most-called [N] [defined] [macros] [filter=PAT]
   /call-tree <name> [depth=N] [mermaid]  Call tree (default depth 3)
+  /class-tree [filter] [mermaid]         Class inheritance hierarchy
   /file-map [PATH] [mermaid]             File-level dependency map
   /file-tree FILE [depth=N] [mermaid]    File dependency tree
 
@@ -804,6 +805,19 @@ function dispatchCommand(query, ctx) {
       }
       if (!funcArg) { console.log('  Usage: /call-tree FUNCTION [depth=N] [mermaid]'); return; }
       doCallTree(index, iargs({ call_tree: funcArg, depth: treeDepth, mermaid: mermaidOut }));
+      return;
+    }
+    if (query.startsWith('/class-tree') || query.startsWith('/classtree')) {
+      const rest = query.replace(/^\/(class-?tree)\s*/, '');
+      const parts = rest.split(/\s+/).filter(Boolean);
+      let filterArg = '', mermaidOut = false;
+      for (const p of parts) {
+        if (p === 'mermaid') mermaidOut = true;
+        else filterArg = p;
+      }
+      const args = iargs({ class_tree: filterArg || true, mermaid: mermaidOut });
+      args._explicit.add('class_tree');
+      doClassTree(index, args);
       return;
     }
     if (query.startsWith('/file-map') || query.startsWith('/filemap')) {
