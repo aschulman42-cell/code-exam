@@ -113,10 +113,11 @@ if (args.build_index) {
     process.stderr.write(`Excluding extensions: ${excluded.join(', ')}\n`);
   }
 
-  const buildStats = index.buildIndex(args.build_index, {
+  const buildStats = await index.buildIndex(args.build_index, {
     showProgress: true,
     skipSemantic: args.skip_semantic,
     demanglerPath: args.demangler,
+    useTreeSitter: args.use_tree_sitter,
   });
 
   if (buildStats.errors.length > 0) {
@@ -166,7 +167,11 @@ if (index.files.size === 0 && !args.build_index) {
 
 if (args.rebuild_functions) {
   console.log(`Rebuilding function index from ${index.files.size} loaded files...`);
-  index.buildFunctionIndex(true);
+  if (args.use_tree_sitter) {
+    await index.buildFunctionIndexTreeSitter(true);
+  } else {
+    index.buildFunctionIndex(true);
+  }
   console.log('Function index rebuilt and saved.');
 }
 

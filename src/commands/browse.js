@@ -67,6 +67,7 @@ export function doStats(index, args) {
     console.log('Function index: Not built (run --build-index to create)');
   }
 
+  if (index.parseMethod) console.log(`Parse method: ${index.parseMethod}`);
   console.log('ChromaDB: Not available (semantic search disabled)');
 }
 

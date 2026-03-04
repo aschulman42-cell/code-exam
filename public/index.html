@@ -355,6 +355,9 @@
         </div>
         <label>Index name (output directory):</label>
         <input type="text" id="build-index-name" placeholder=".index_of_mycode" spellcheck="false" style="margin-top:0;margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="build-index-tree-sitter"> Use tree-sitter parsing (more accurate)
+        </label>
         <div id="build-index-status" style="display:none;padding:8px 0;color:var(--text-muted);font-size:12px">Building index… this may take a while.</div>
         <div id="build-index-error" class="error-msg" style="display:none"></div>
       </div>

@@ -1,0 +1,771 @@
+/**
+ * TreeSitterParser.js - WASM-based function parsing using web-tree-sitter.
+ *
+ * Provides accurate AST-based function extraction for supported languages:
+ * C, C++, Java, Python, JavaScript, TypeScript, Go, Rust, C#, PHP, Ruby.
+ *
+ * Falls back to null (signaling regex fallback) when a grammar is unavailable
+ * or parsing fails.
+ */
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const GRAMMARS_DIR = path.join(__dirname, '..', '..', 'grammars');
+
+// Map from language name (as used in EXT_TO_LANG) to grammar .wasm filename
+const GRAMMAR_FILES = {
+  c:          'tree-sitter-c.wasm',
+  cpp:        'tree-sitter-cpp.wasm',
+  java:       'tree-sitter-java.wasm',
+  python:     'tree-sitter-python.wasm',
+  javascript: 'tree-sitter-javascript.wasm',
+  typescript: 'tree-sitter-typescript.wasm',
+  go:         'tree-sitter-go.wasm',
+  rust:       'tree-sitter-rust.wasm',
+  c_sharp:    'tree-sitter-c-sharp.wasm',
+  php:        'tree-sitter-php.wasm',
+  ruby:       'tree-sitter-ruby.wasm',
+};
+
+// Map file extension → language name (mirrors EXT_TO_LANG from utils.js)
+const EXT_TO_TS_LANG = {
+  '.c': 'c',
+  '.h': 'cpp',
+  '.cpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp', '.hpp': 'cpp',
+  '.hxx': 'cpp', '.h++': 'cpp', '.c++': 'cpp',
+  '.java': 'java',
+  '.py': 'python', '.pyw': 'python',
+  '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript', '.jsx': 'javascript',
+  '.ts': 'typescript', '.tsx': 'typescript',
+  '.cs': 'c_sharp',
+  '.go': 'go',
+  '.rs': 'rust',
+  '.php': 'php',
+  '.rb': 'ruby',
+};
+
+
+export class TreeSitterParser {
+
+  constructor() {
+    this._Parser = null;       // web-tree-sitter Parser class
+    this._initialized = false;
+    this._languages = new Map(); // langName -> Language object
+    this._failedGrammars = new Set(); // langNames that failed to load
+  }
+
+  /**
+   * Initialize web-tree-sitter (must be called once before parsing).
+   * @returns {boolean} true if init succeeded
+   */
+  async init() {
+    if (this._initialized) return true;
+    try {
+      const mod = await import('web-tree-sitter');
+      const ParserClass = mod.Parser || mod.default;
+      if (!ParserClass) throw new Error('No Parser class found in web-tree-sitter');
+      await ParserClass.init();
+      this._Parser = ParserClass;
+      this._Language = mod.Language || null;
+      this._initialized = true;
+      return true;
+    } catch (e) {
+      console.log(`Warning: web-tree-sitter init failed: ${e.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Lazy-load a grammar .wasm file. Returns the Language object or null.
+   */
+  async getLanguage(langName) {
+    if (this._languages.has(langName)) return this._languages.get(langName);
+    if (this._failedGrammars.has(langName)) return null;
+
+    const wasmFile = GRAMMAR_FILES[langName];
+    if (!wasmFile) {
+      this._failedGrammars.add(langName);
+      return null;
+    }
+
+    const wasmPath = path.join(GRAMMARS_DIR, wasmFile);
+    try {
+      if (!fs.existsSync(wasmPath)) {
+        this._failedGrammars.add(langName);
+        return null;
+      }
+      // 0.26+ uses Language class directly; 0.24.x uses Parser.Language.load()
+      const lang = this._Language
+        ? await this._Language.load(wasmPath)
+        : await this._Parser.Language.load(wasmPath);
+      this._languages.set(langName, lang);
+      return lang;
+    } catch (e) {
+      this._failedGrammars.add(langName);
+      return null;
+    }
+  }
+
+  /**
+   * Parse functions from a file using tree-sitter.
+   * Returns { name: { start, end, type, base_name } } or null (signals regex fallback).
+   */
+  async parseFunctions(filepath, sourceLines) {
+    if (!this._initialized) return null;
+
+    const ext = path.extname(filepath).toLowerCase();
+    const langName = EXT_TO_TS_LANG[ext];
+    if (!langName) return null;
+
+    const lang = await this.getLanguage(langName);
+    if (!lang) return null;
+
+    try {
+      const parser = new this._Parser();
+      parser.setLanguage(lang);
+
+      const sourceCode = sourceLines.join('\n');
+      const tree = parser.parse(sourceCode);
+
+      let result;
+      switch (langName) {
+        case 'c':
+        case 'cpp':
+          result = this._extractCCpp(tree.rootNode, sourceLines);
+          break;
+        case 'java':
+          result = this._extractJava(tree.rootNode, sourceLines);
+          break;
+        case 'python':
+          result = this._extractPython(tree.rootNode, sourceLines);
+          break;
+        case 'javascript':
+        case 'typescript':
+          result = this._extractJavaScript(tree.rootNode, sourceLines);
+          break;
+        case 'go':
+          result = this._extractGo(tree.rootNode, sourceLines);
+          break;
+        case 'rust':
+          result = this._extractRust(tree.rootNode, sourceLines);
+          break;
+        case 'c_sharp':
+          result = this._extractCSharp(tree.rootNode, sourceLines);
+          break;
+        case 'php':
+          result = this._extractPHP(tree.rootNode, sourceLines);
+          break;
+        case 'ruby':
+          result = this._extractRuby(tree.rootNode, sourceLines);
+          break;
+        default:
+          result = null;
+      }
+
+      tree.delete();
+      parser.delete();
+      return result;
+    } catch (e) {
+      return null; // fallback to regex
+    }
+  }
+
+  /** List which grammars are available on disk. */
+  getAvailableGrammars() {
+    const available = [];
+    for (const [lang, file] of Object.entries(GRAMMAR_FILES)) {
+      if (fs.existsSync(path.join(GRAMMARS_DIR, file))) {
+        available.push(lang);
+      }
+    }
+    return available;
+  }
+
+  /** List which grammars are missing from disk. */
+  getMissingGrammars() {
+    const missing = [];
+    for (const [lang, file] of Object.entries(GRAMMAR_FILES)) {
+      if (!fs.existsSync(path.join(GRAMMARS_DIR, file))) {
+        missing.push(lang);
+      }
+    }
+    return missing;
+  }
+
+
+  // ========================================================================
+  // Helper: deduplicate function names (same logic as regex parser)
+  // ========================================================================
+
+  _addFunction(result, name, startLine, endLine, type) {
+    const bare = name.includes('::') ? name.split('::').pop() : name;
+    let storedName = name;
+    if (name in result) {
+      storedName = `${name}@${startLine}`;
+    }
+    result[storedName] = {
+      start: startLine,
+      end: endLine,
+      type: (type !== 'class' && name.includes('::')) ? 'method' : type,
+      base_name: bare,
+    };
+  }
+
+
+  // ========================================================================
+  // C / C++
+  // ========================================================================
+
+  _extractCCpp(rootNode, sourceLines) {
+    const result = {};
+    const totalLines = sourceLines.length;
+
+    const walk = (node, scopeStack) => {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        const type = child.type;
+        const startLine = child.startPosition.row + 1;
+        const endLine = child.endPosition.row + 1;
+
+        if (type === 'namespace_definition') {
+          const nameNode = child.childForFieldName('name');
+          const nsName = nameNode ? nameNode.text : '';
+          if (nsName) {
+            scopeStack.push(nsName);
+            walk(child, scopeStack);
+            scopeStack.pop();
+          } else {
+            walk(child, scopeStack);
+          }
+        } else if (type === 'class_specifier' || type === 'struct_specifier') {
+          const nameNode = child.childForFieldName('name');
+          const className = nameNode ? nameNode.text : null;
+          if (className) {
+            const prefix = scopeStack.length > 0 ? scopeStack.join('::') + '::' : '';
+            const fullClass = prefix + className;
+            this._addFunction(result, fullClass, startLine, endLine, 'class');
+            scopeStack.push(className);
+            walk(child, scopeStack);
+            scopeStack.pop();
+          } else {
+            walk(child, scopeStack);
+          }
+        } else if (type === 'function_definition') {
+          const declarator = child.childForFieldName('declarator');
+          const funcName = this._extractCFuncName(declarator);
+          if (funcName) {
+            // If name already has :: (e.g. Class::method), use as-is
+            // Otherwise, prefix with scope stack
+            let fullName;
+            if (funcName.includes('::')) {
+              fullName = funcName;
+            } else {
+              const prefix = scopeStack.length > 0 ? scopeStack.join('::') + '::' : '';
+              fullName = prefix + funcName;
+            }
+            const fType = fullName.includes('::') ? 'method' : 'function';
+            this._addFunction(result, fullName, startLine, endLine, fType);
+          }
+          // Don't recurse into function bodies for top-level extraction
+        } else {
+          walk(child, scopeStack);
+        }
+      }
+    };
+
+    walk(rootNode, []);
+    return result;
+  }
+
+  _extractCFuncName(declarator) {
+    if (!declarator) return null;
+    // Handle qualified_identifier (Class::method)
+    if (declarator.type === 'qualified_identifier') {
+      return declarator.text;
+    }
+    // Handle function_declarator -> declarator
+    if (declarator.type === 'function_declarator') {
+      const inner = declarator.childForFieldName('declarator');
+      return this._extractCFuncName(inner);
+    }
+    // Handle pointer_declarator
+    if (declarator.type === 'pointer_declarator') {
+      const inner = declarator.childForFieldName('declarator');
+      return this._extractCFuncName(inner);
+    }
+    // Handle reference_declarator
+    if (declarator.type === 'reference_declarator') {
+      for (let i = 0; i < declarator.childCount; i++) {
+        const c = declarator.child(i);
+        if (c.type !== '&' && c.type !== '&&') {
+          return this._extractCFuncName(c);
+        }
+      }
+    }
+    // Simple identifier
+    if (declarator.type === 'identifier' || declarator.type === 'field_identifier' ||
+        declarator.type === 'destructor_name') {
+      return declarator.text;
+    }
+    // Operator overloads
+    if (declarator.type === 'operator_name') {
+      return declarator.text;
+    }
+    return null;
+  }
+
+
+  // ========================================================================
+  // Java
+  // ========================================================================
+
+  _extractJava(rootNode, sourceLines) {
+    const result = {};
+
+    const walk = (node, classStack) => {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        const type = child.type;
+        const startLine = child.startPosition.row + 1;
+        const endLine = child.endPosition.row + 1;
+
+        if (type === 'class_declaration' || type === 'interface_declaration' || type === 'enum_declaration') {
+          const nameNode = child.childForFieldName('name');
+          const className = nameNode ? nameNode.text : null;
+          if (className) {
+            const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + className, startLine, endLine, 'class');
+            classStack.push(className);
+            walk(child, classStack);
+            classStack.pop();
+          } else {
+            walk(child, classStack);
+          }
+        } else if (type === 'method_declaration' || type === 'constructor_declaration') {
+          const nameNode = child.childForFieldName('name');
+          const funcName = nameNode ? nameNode.text : null;
+          if (funcName) {
+            const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + funcName, startLine, endLine, 'function');
+          }
+        } else {
+          walk(child, classStack);
+        }
+      }
+    };
+
+    walk(rootNode, []);
+    return result;
+  }
+
+
+  // ========================================================================
+  // Python
+  // ========================================================================
+
+  _extractPython(rootNode, sourceLines) {
+    const result = {};
+
+    const walk = (node, classStack) => {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        const type = child.type;
+        const startLine = child.startPosition.row + 1;
+        const endLine = child.endPosition.row + 1;
+
+        if (type === 'class_definition') {
+          const nameNode = child.childForFieldName('name');
+          const className = nameNode ? nameNode.text : null;
+          if (className) {
+            const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + className, startLine, endLine, 'class');
+            classStack.push(className);
+            // Recurse into class body
+            const body = child.childForFieldName('body');
+            if (body) walk(body, classStack);
+            classStack.pop();
+          }
+        } else if (type === 'function_definition') {
+          const nameNode = child.childForFieldName('name');
+          const funcName = nameNode ? nameNode.text : null;
+          if (funcName) {
+            const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + funcName, startLine, endLine, 'function');
+          }
+          // Recurse into function body for nested functions
+          const body = child.childForFieldName('body');
+          if (body) walk(body, classStack);
+        } else if (type === 'decorated_definition') {
+          // Decorated functions/classes — recurse to find the actual definition
+          walk(child, classStack);
+        } else {
+          walk(child, classStack);
+        }
+      }
+    };
+
+    walk(rootNode, []);
+    return result;
+  }
+
+
+  // ========================================================================
+  // JavaScript / TypeScript
+  // ========================================================================
+
+  _extractJavaScript(rootNode, sourceLines) {
+    const result = {};
+
+    const walk = (node, classStack) => {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        const type = child.type;
+        const startLine = child.startPosition.row + 1;
+        const endLine = child.endPosition.row + 1;
+
+        if (type === 'class_declaration' || type === 'class') {
+          const nameNode = child.childForFieldName('name');
+          const className = nameNode ? nameNode.text : null;
+          if (className) {
+            const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + className, startLine, endLine, 'class');
+            classStack.push(className);
+            const body = child.childForFieldName('body');
+            if (body) walk(body, classStack);
+            classStack.pop();
+          } else {
+            walk(child, classStack);
+          }
+        } else if (type === 'function_declaration' || type === 'generator_function_declaration') {
+          const nameNode = child.childForFieldName('name');
+          const funcName = nameNode ? nameNode.text : null;
+          if (funcName) {
+            const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + funcName, startLine, endLine, 'function');
+          }
+        } else if (type === 'method_definition') {
+          const nameNode = child.childForFieldName('name');
+          const funcName = nameNode ? nameNode.text : null;
+          if (funcName) {
+            const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + funcName, startLine, endLine, 'function');
+          }
+        } else if (type === 'lexical_declaration' || type === 'variable_declaration') {
+          // Handle: const foo = function() { ... }  or  const foo = () => { ... }
+          for (let j = 0; j < child.childCount; j++) {
+            const decl = child.child(j);
+            if (decl.type === 'variable_declarator') {
+              const nameNode = decl.childForFieldName('name');
+              const valueNode = decl.childForFieldName('value');
+              if (nameNode && valueNode) {
+                const vt = valueNode.type;
+                if (vt === 'arrow_function' || vt === 'function' || vt === 'function_expression' || vt === 'generator_function') {
+                  const funcName = nameNode.text;
+                  if (funcName) {
+                    const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
+                    this._addFunction(result, prefix + funcName, startLine, endLine, 'function');
+                  }
+                }
+              }
+            }
+          }
+          walk(child, classStack);
+        } else if (type === 'export_statement') {
+          walk(child, classStack);
+        } else if (type === 'interface_declaration' || type === 'type_alias_declaration') {
+          // TypeScript: interfaces and type aliases — skip but continue walking
+          walk(child, classStack);
+        } else {
+          walk(child, classStack);
+        }
+      }
+    };
+
+    walk(rootNode, []);
+    return result;
+  }
+
+
+  // ========================================================================
+  // Go
+  // ========================================================================
+
+  _extractGo(rootNode, sourceLines) {
+    const result = {};
+
+    const walk = (node) => {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        const type = child.type;
+        const startLine = child.startPosition.row + 1;
+        const endLine = child.endPosition.row + 1;
+
+        if (type === 'function_declaration') {
+          const nameNode = child.childForFieldName('name');
+          const funcName = nameNode ? nameNode.text : null;
+          if (funcName) {
+            this._addFunction(result, funcName, startLine, endLine, 'function');
+          }
+        } else if (type === 'method_declaration') {
+          const nameNode = child.childForFieldName('name');
+          const funcName = nameNode ? nameNode.text : null;
+          // Get receiver type
+          const receiver = child.childForFieldName('receiver');
+          let receiverType = null;
+          if (receiver) {
+            // receiver is parameter_list, find the type inside
+            for (let j = 0; j < receiver.childCount; j++) {
+              const param = receiver.child(j);
+              if (param.type === 'parameter_declaration') {
+                const typeNode = param.childForFieldName('type');
+                if (typeNode) {
+                  receiverType = typeNode.text.replace(/^\*/, ''); // strip pointer
+                }
+              }
+            }
+          }
+          if (funcName) {
+            const fullName = receiverType ? `${receiverType}::${funcName}` : funcName;
+            this._addFunction(result, fullName, startLine, endLine, 'function');
+          }
+        } else if (type === 'type_declaration') {
+          // type Foo struct { ... }
+          for (let j = 0; j < child.childCount; j++) {
+            const spec = child.child(j);
+            if (spec.type === 'type_spec') {
+              const nameNode = spec.childForFieldName('name');
+              const typeNode = spec.childForFieldName('type');
+              if (nameNode && typeNode && (typeNode.type === 'struct_type' || typeNode.type === 'interface_type')) {
+                this._addFunction(result, nameNode.text, startLine, endLine, 'class');
+              }
+            }
+          }
+        } else {
+          walk(child);
+        }
+      }
+    };
+
+    walk(rootNode);
+    return result;
+  }
+
+
+  // ========================================================================
+  // Rust
+  // ========================================================================
+
+  _extractRust(rootNode, sourceLines) {
+    const result = {};
+
+    const walk = (node, implType) => {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        const type = child.type;
+        const startLine = child.startPosition.row + 1;
+        const endLine = child.endPosition.row + 1;
+
+        if (type === 'struct_item' || type === 'enum_item') {
+          const nameNode = child.childForFieldName('name');
+          if (nameNode) {
+            this._addFunction(result, nameNode.text, startLine, endLine, 'class');
+          }
+        } else if (type === 'impl_item') {
+          // impl Foo { ... }
+          const typeNode = child.childForFieldName('type');
+          const typeName = typeNode ? typeNode.text : null;
+          if (typeName) {
+            const body = child.childForFieldName('body');
+            if (body) walk(body, typeName);
+          }
+        } else if (type === 'function_item') {
+          const nameNode = child.childForFieldName('name');
+          const funcName = nameNode ? nameNode.text : null;
+          if (funcName) {
+            const fullName = implType ? `${implType}::${funcName}` : funcName;
+            this._addFunction(result, fullName, startLine, endLine, 'function');
+          }
+        } else if (type === 'trait_item') {
+          const nameNode = child.childForFieldName('name');
+          if (nameNode) {
+            this._addFunction(result, nameNode.text, startLine, endLine, 'class');
+            const body = child.childForFieldName('body');
+            if (body) walk(body, nameNode.text);
+          }
+        } else if (type === 'mod_item') {
+          walk(child, implType);
+        } else {
+          walk(child, implType);
+        }
+      }
+    };
+
+    walk(rootNode, null);
+    return result;
+  }
+
+
+  // ========================================================================
+  // C#
+  // ========================================================================
+
+  _extractCSharp(rootNode, sourceLines) {
+    const result = {};
+
+    const walk = (node, scopeStack) => {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        const type = child.type;
+        const startLine = child.startPosition.row + 1;
+        const endLine = child.endPosition.row + 1;
+
+        if (type === 'namespace_declaration' || type === 'file_scoped_namespace_declaration') {
+          const nameNode = child.childForFieldName('name');
+          const nsName = nameNode ? nameNode.text : '';
+          if (nsName) {
+            scopeStack.push(nsName);
+            walk(child, scopeStack);
+            scopeStack.pop();
+          } else {
+            walk(child, scopeStack);
+          }
+        } else if (type === 'class_declaration' || type === 'struct_declaration' ||
+                   type === 'interface_declaration' || type === 'enum_declaration' ||
+                   type === 'record_declaration') {
+          const nameNode = child.childForFieldName('name');
+          const className = nameNode ? nameNode.text : null;
+          if (className) {
+            const prefix = scopeStack.length > 0 ? scopeStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + className, startLine, endLine, 'class');
+            scopeStack.push(className);
+            walk(child, scopeStack);
+            scopeStack.pop();
+          } else {
+            walk(child, scopeStack);
+          }
+        } else if (type === 'method_declaration' || type === 'constructor_declaration') {
+          const nameNode = child.childForFieldName('name');
+          const funcName = nameNode ? nameNode.text : null;
+          if (funcName) {
+            const prefix = scopeStack.length > 0 ? scopeStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + funcName, startLine, endLine, 'function');
+          }
+        } else if (type === 'property_declaration') {
+          const nameNode = child.childForFieldName('name');
+          if (nameNode) {
+            const prefix = scopeStack.length > 0 ? scopeStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + nameNode.text, startLine, endLine, 'function');
+          }
+        } else {
+          walk(child, scopeStack);
+        }
+      }
+    };
+
+    walk(rootNode, []);
+    return result;
+  }
+
+
+  // ========================================================================
+  // PHP
+  // ========================================================================
+
+  _extractPHP(rootNode, sourceLines) {
+    const result = {};
+
+    const walk = (node, classStack) => {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        const type = child.type;
+        const startLine = child.startPosition.row + 1;
+        const endLine = child.endPosition.row + 1;
+
+        if (type === 'class_declaration' || type === 'interface_declaration' || type === 'trait_declaration') {
+          const nameNode = child.childForFieldName('name');
+          const className = nameNode ? nameNode.text : null;
+          if (className) {
+            const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + className, startLine, endLine, 'class');
+            classStack.push(className);
+            const body = child.childForFieldName('body');
+            if (body) walk(body, classStack);
+            classStack.pop();
+          } else {
+            walk(child, classStack);
+          }
+        } else if (type === 'function_definition') {
+          const nameNode = child.childForFieldName('name');
+          const funcName = nameNode ? nameNode.text : null;
+          if (funcName) {
+            const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + funcName, startLine, endLine, 'function');
+          }
+        } else if (type === 'method_declaration') {
+          const nameNode = child.childForFieldName('name');
+          const funcName = nameNode ? nameNode.text : null;
+          if (funcName) {
+            const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + funcName, startLine, endLine, 'function');
+          }
+        } else {
+          walk(child, classStack);
+        }
+      }
+    };
+
+    walk(rootNode, []);
+    return result;
+  }
+
+
+  // ========================================================================
+  // Ruby
+  // ========================================================================
+
+  _extractRuby(rootNode, sourceLines) {
+    const result = {};
+
+    const walk = (node, scopeStack) => {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        const type = child.type;
+        const startLine = child.startPosition.row + 1;
+        const endLine = child.endPosition.row + 1;
+
+        if (type === 'class' || type === 'module') {
+          const nameNode = child.childForFieldName('name');
+          const className = nameNode ? nameNode.text : null;
+          if (className) {
+            // Strip inheritance (class Foo < Bar)
+            const name = className.split('<')[0].trim();
+            const prefix = scopeStack.length > 0 ? scopeStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + name, startLine, endLine, 'class');
+            scopeStack.push(name);
+            const body = child.childForFieldName('body');
+            if (body) walk(body, scopeStack);
+            scopeStack.pop();
+          } else {
+            walk(child, scopeStack);
+          }
+        } else if (type === 'method' || type === 'singleton_method') {
+          const nameNode = child.childForFieldName('name');
+          const funcName = nameNode ? nameNode.text : null;
+          if (funcName) {
+            const prefix = scopeStack.length > 0 ? scopeStack.join('::') + '::' : '';
+            this._addFunction(result, prefix + funcName, startLine, endLine, 'function');
+          }
+        } else {
+          walk(child, scopeStack);
+        }
+      }
+    };
+
+    walk(rootNode, []);
+    return result;
+  }
+}

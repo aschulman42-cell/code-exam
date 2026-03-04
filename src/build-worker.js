@@ -1,12 +1,12 @@
 /**
  * Worker thread for building indexes without blocking the main event loop.
- * Receives { sourcePath, indexPath } via workerData.
+ * Receives { sourcePath, indexPath, useTreeSitter } via workerData.
  * Posts progress messages and final result back to parent.
  */
 import { parentPort, workerData } from 'worker_threads';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 
-const { sourcePath, indexPath } = workerData;
+const { sourcePath, indexPath, useTreeSitter } = workerData;
 
 // Intercept console.log and stdout.write to capture progress
 const origLog = console.log;
@@ -25,14 +25,20 @@ process.stdout.write = (chunk, ...rest) => {
   return boundOrigWrite(chunk, ...rest);
 };
 
-try {
-  const idx = new CodeSearchIndex({ indexPath });
-  const stats = idx.buildIndex(sourcePath, { showProgress: true, skipSemantic: true });
-  console.log = origLog;
-  process.stdout.write = origWrite;
-  parentPort.postMessage({ type: 'done', stats });
-} catch (err) {
-  console.log = origLog;
-  process.stdout.write = origWrite;
-  parentPort.postMessage({ type: 'error', error: err.message });
-}
+(async () => {
+  try {
+    const idx = new CodeSearchIndex({ indexPath });
+    const stats = await idx.buildIndex(sourcePath, {
+      showProgress: true,
+      skipSemantic: true,
+      useTreeSitter: useTreeSitter || false,
+    });
+    console.log = origLog;
+    process.stdout.write = origWrite;
+    parentPort.postMessage({ type: 'done', stats });
+  } catch (err) {
+    console.log = origLog;
+    process.stdout.write = origWrite;
+    parentPort.postMessage({ type: 'error', error: err.message });
+  }
+})();

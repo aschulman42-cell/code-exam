@@ -996,7 +996,7 @@ routes['/api/build-index'] = (req, res) => {
   req.on('end', () => {
     try {
       const params = JSON.parse(body);
-      const { sourcePath, indexName } = params;
+      const { sourcePath, indexName, useTreeSitter } = params;
       if (!sourcePath) return errorResponse(res, 'Missing "sourcePath" in body');
       if (!indexName) return errorResponse(res, 'Missing "indexName" in body');
 
@@ -1017,7 +1017,7 @@ routes['/api/build-index'] = (req, res) => {
       // Run the build in a Worker thread so the event loop stays responsive
       const workerPath = path.join(__dirname, 'build-worker.js');
       const worker = new Worker(workerPath, {
-        workerData: { sourcePath, indexPath: resolvedIndex }
+        workerData: { sourcePath, indexPath: resolvedIndex, useTreeSitter: useTreeSitter || false }
       });
 
       const job = buildJobs.get(jobId);

@@ -540,14 +540,22 @@ function dispatchCommand(query, ctx) {
       return;
     }
 
-    // /rebuild-functions
-    if (/^\/(rebuild-?functions|rebuild-?funcs)$/i.test(query)) {
-      console.log(`Rebuilding function index from ${index.files.size} loaded files...`);
-      index.buildFunctionIndex(true);
-      // Clear caches that depend on function index
-      index._callCountsCache = null;
-      index._knownFunctionsCache = null;
-      console.log('Function index rebuilt and saved. Caches cleared.');
+    // /rebuild-functions [--tree-sitter]
+    if (/^\/(rebuild-?functions|rebuild-?funcs)(\s+--?tree-?sitter)?$/i.test(query)) {
+      const useTS = /tree-?sitter/i.test(query);
+      console.log(`Rebuilding function index from ${index.files.size} loaded files${useTS ? ' (tree-sitter)' : ''}...`);
+      const doRebuild = async () => {
+        if (useTS) {
+          await index.buildFunctionIndexTreeSitter(true);
+        } else {
+          index.buildFunctionIndex(true);
+        }
+        index._callCountsCache = null;
+        index._knownFunctionsCache = null;
+        console.log('Function index rebuilt and saved. Caches cleared.');
+      };
+      if (useTS) return doRebuild();
+      doRebuild(); // sync path — no await needed
       return;
     }
 

@@ -1456,6 +1456,9 @@ function renderStats(data) {
     html += `<tr><td class="muted">Unique Hashes</td><td>${data.unique_hashes?.toLocaleString()}</td></tr>`;
     html += `<tr><td class="muted">Dupe Groups</td><td>${data.dupe_groups}</td></tr>`;
   }
+  if (data.parse_method) {
+    html += `<tr><td class="muted">Parse Method</td><td>${escHtml(data.parse_method)}</td></tr>`;
+  }
   container.innerHTML = html + '</table></div>';
 }
 
@@ -2239,7 +2242,8 @@ function initBuildIndex() {
       statusDiv.textContent = 'Starting build…';
       statusDiv.style.color = 'var(--text-muted)';
 
-      const { jobId } = await api.buildIndex({ sourcePath, indexName });
+      const useTreeSitter = $('#build-index-tree-sitter')?.checked || false;
+      const { jobId } = await api.buildIndex({ sourcePath, indexName, useTreeSitter });
 
       // Poll for progress
       buildPollTimer = setInterval(async () => {
@@ -2319,6 +2323,7 @@ async function handleMenuAction(action) {
       $('#build-index-error').style.display = 'none';
       $('#build-index-status').style.display = 'none';
       $('#build-index-browser').style.display = 'none';
+      if ($('#build-index-tree-sitter')) $('#build-index-tree-sitter').checked = false;
       $('#build-browse-dir-list').innerHTML = '';
       $('#build-index-overlay').classList.remove('hidden');
       setTimeout(() => $('#build-index-source').focus(), 100);

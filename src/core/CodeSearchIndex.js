@@ -81,6 +81,9 @@ export class CodeSearchIndex {
     /** @type {number} */
     this._invertedDiskSize = 0;
 
+    /** @type {string|null} 'regex' | 'tree-sitter' | 'tree-sitter+regex' */
+    this.parseMethod = null;
+
     // Cache: call counts survive across commands in interactive mode
     /** @type {Object<string,number>|null} */
     this._callCountsCache = null;
@@ -120,6 +123,9 @@ export class CodeSearchIndex {
 
       // index_source
       fs.writeSync(fd, `"index_source":${JSON.stringify(this.indexSource)},\n`);
+
+      // parse_method
+      fs.writeSync(fd, `"parse_method":${JSON.stringify(this.parseMethod || 'regex')},\n`);
 
       // file_hashes
       fs.writeSync(fd, `"file_hashes":${JSON.stringify(this.fileHashes)},\n`);
@@ -169,6 +175,7 @@ export class CodeSearchIndex {
       ));
       this.basePath = data.base_path || null;
       this.indexSource = data.index_source || null;
+      this.parseMethod = data.parse_method || null;
       this.fileHashes = data.file_hashes || {};
       return this.files.size > 0;
     } catch (e) {
@@ -213,6 +220,7 @@ export class CodeSearchIndex {
           case 'file_lines':  fileLinesStart = vs; fileLinesEnd = ve; break;
           case 'base_path':   this.basePath = parseValue(src, vs, ve); break;
           case 'index_source': this.indexSource = parseValue(src, vs, ve); break;
+          case 'parse_method': this.parseMethod = parseValue(src, vs, ve); break;
           case 'file_hashes':
             if (valueSize(vs, ve) < 100 * 1024 * 1024) {
               this.fileHashes = parseValue(src, vs, ve);
@@ -779,9 +787,88 @@ export class CodeSearchIndex {
     fs.writeFileSync(this._functionIndexPath(),
                      JSON.stringify(this.functionIndex, null, 2), 'utf-8');
 
+    this.parseMethod = 'regex';
     if (showProgress) {
       console.log(`Function index: ${totalFunctions} functions in ` +
                   `${Object.keys(this.functionIndex).length} files`);
+    }
+  }
+
+  async buildFunctionIndexTreeSitter(showProgress = true) {
+    if (this.fileLines.size === 0) {
+      console.log('No files loaded. Run buildIndex() first.');
+      return;
+    }
+
+    const { TreeSitterParser } = await import('./TreeSitterParser.js');
+    const tsParser = new TreeSitterParser();
+    const initOk = await tsParser.init();
+    if (!initOk) {
+      console.log('Warning: tree-sitter init failed, falling back to regex.');
+      this.buildFunctionIndex(showProgress);
+      return;
+    }
+
+    const available = tsParser.getAvailableGrammars();
+    const missing = tsParser.getMissingGrammars();
+    if (showProgress) {
+      console.log(`Building function index with tree-sitter (${available.length} grammars available)...`);
+      if (missing.length > 0) {
+        console.log(`  Missing grammars (will use regex): ${missing.join(', ')}`);
+      }
+    }
+
+    this.functionIndex = {};
+    let totalFunctions = 0;
+    let tsCount = 0;
+    let regexCount = 0;
+    let tsFailedCount = 0;
+
+    for (const [filepath, lines] of this.fileLines) {
+      const tsFuncs = await tsParser.parseFunctions(filepath, lines);
+      const regexFuncs = this._parseFunctionsRegex(filepath);
+      let fileFuncs;
+
+      if (tsFuncs && Object.keys(tsFuncs).length > 0) {
+        // Hybrid merge: tree-sitter boundaries + regex-only entries (nested fns)
+        fileFuncs = { ...tsFuncs };
+        for (const [name, info] of Object.entries(regexFuncs)) {
+          if (!(name in fileFuncs)) fileFuncs[name] = info;
+        }
+        tsCount++;
+      } else if (tsFuncs === null) {
+        // No grammar or parse failed — regex only
+        fileFuncs = regexFuncs;
+        regexCount++;
+      } else {
+        // tsFuncs was {} (parsed but found nothing) — use regex
+        fileFuncs = regexFuncs;
+        if (Object.keys(fileFuncs).length > 0) {
+          regexCount++;
+        } else {
+          tsCount++;
+        }
+      }
+
+      if (Object.keys(fileFuncs).length > 0) {
+        this.functionIndex[filepath] = fileFuncs;
+        totalFunctions += Object.keys(fileFuncs).length;
+      }
+    }
+
+    // Save
+    fs.mkdirSync(this.indexPath, { recursive: true });
+    fs.writeFileSync(this._functionIndexPath(),
+                     JSON.stringify(this.functionIndex, null, 2), 'utf-8');
+
+    this.parseMethod = tsCount > 0 && regexCount > 0 ? 'tree-sitter+regex'
+                     : tsCount > 0 ? 'tree-sitter' : 'regex';
+
+    if (showProgress) {
+      console.log(`Function index: ${totalFunctions} functions in ` +
+                  `${Object.keys(this.functionIndex).length} files`);
+      console.log(`  tree-sitter: ${tsCount} files, regex fallback: ${regexCount} files` +
+                  (tsFailedCount > 0 ? `, tree-sitter failures: ${tsFailedCount}` : ''));
     }
   }
 
@@ -822,7 +909,7 @@ export class CodeSearchIndex {
    * @param {boolean} [opts.skipSemantic=true]
    * @returns {object} stats
    */
-  buildIndex(codePath, { chunkSize = 50, showProgress = true, skipSemantic = true, demanglerPath = null } = {}) {
+  async buildIndex(codePath, { chunkSize = 50, showProgress = true, skipSemantic = true, demanglerPath = null, useTreeSitter = false } = {}) {
     const stats = { files_indexed: 0, total_lines: 0, chunks_created: 0, errors: [] };
     const codePathStr = codePath.trim();
 
@@ -1100,12 +1187,21 @@ export class CodeSearchIndex {
     this.buildInvertedIndex(50, showProgress);
 
     // Build function index
-    this.buildFunctionIndex(showProgress);
+    if (useTreeSitter) {
+      await this.buildFunctionIndexTreeSitter(showProgress);
+    } else {
+      this.buildFunctionIndex(showProgress);
+    }
 
     // Reconstruct this.files from fileLines now that memory-heavy build is done.
     // This is needed if the index is used in the same process after building.
     for (const [fp, lines] of this.fileLines) {
       this.files.set(fp, lines.join('\n'));
+    }
+
+    // Re-save literal index now that parseMethod is set by function index build
+    if (this.parseMethod && this.parseMethod !== 'regex') {
+      this._saveLiteralIndex();
     }
 
     // Reload inverted index from disk (was streamed to disk, not kept in memory)
@@ -1818,6 +1914,7 @@ export class CodeSearchIndex {
       files_indexed: this.files.size,
       total_lines: totalLines,
       semantic_available: false,
+      parse_method: this.parseMethod || 'regex',
     };
 
     const fileHashes = this.fileHashes || {};
