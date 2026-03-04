@@ -1932,12 +1932,19 @@ function initDiagramControls() {
   $('#fs-save-png').addEventListener('click', () => saveDiagramPng($('#fullscreen-viewport')));
 }
 
+// Strip directory path from filename (browsers only support saving to Downloads)
+function sanitizeDownloadName(name) {
+  // Strip any directory components — browser download can only set filename
+  return name.replace(/^.*[\\/]/, '');
+}
+
 function saveDiagramSvg(viewport) {
   const svg = viewport?.querySelector('svg');
   if (!svg) return;
   const defaultName = (state.lastMermaidRoot || 'diagram') + '.svg';
-  showSearchDialog('Save SVG', 'Filename:').then(name => {
+  showSearchDialog('Save SVG', 'Filename (saves to Downloads):').then(name => {
     if (!name) return;
+    name = sanitizeDownloadName(name);
     if (!name.endsWith('.svg')) name += '.svg';
     const svgData = new XMLSerializer().serializeToString(svg);
     const blob = new Blob([svgData], { type: 'image/svg+xml' });
@@ -1945,9 +1952,8 @@ function saveDiagramSvg(viewport) {
     const a = document.createElement('a');
     a.href = url; a.download = name; a.click();
     URL.revokeObjectURL(url);
-    showSaveNotification(`Saved: ${name} (check Downloads folder)`);
+    showSaveNotification(`Saved: ${name} (check browser Downloads)`);
   });
-  // Pre-fill the dialog input
   setTimeout(() => { const inp = $('#search-dialog-input'); if (inp) inp.value = defaultName; }, 120);
 }
 
@@ -1955,19 +1961,24 @@ function saveDiagramPng(viewport) {
   const svg = viewport?.querySelector('svg');
   if (!svg) return;
   const defaultName = (state.lastMermaidRoot || 'diagram') + '.png';
-  showSearchDialog('Save PNG', 'Filename:').then(name => {
+  showSearchDialog('Save PNG', 'Filename (saves to Downloads):').then(name => {
     if (!name) return;
+    name = sanitizeDownloadName(name);
     if (!name.endsWith('.png')) name += '.png';
     const origTransform = viewport.style.transform;
     viewport.style.transform = 'scale(1)';
     const svgData = new XMLSerializer().serializeToString(svg);
     viewport.style.transform = origTransform;
 
+    // Use intrinsic SVG dimensions for better quality
+    const svgW = svg.viewBox?.baseVal?.width || svg.getAttribute('width') || svg.getBoundingClientRect().width;
+    const svgH = svg.viewBox?.baseVal?.height || svg.getAttribute('height') || svg.getBoundingClientRect().height;
+    const w = parseFloat(svgW) || svg.getBoundingClientRect().width;
+    const h = parseFloat(svgH) || svg.getBoundingClientRect().height;
+    const scale = 3;  // 3x for crisp output
     const canvas = document.createElement('canvas');
-    const svgRect = svg.getBoundingClientRect();
-    const scale = 2;
-    canvas.width = svgRect.width * scale;
-    canvas.height = svgRect.height * scale;
+    canvas.width = w * scale;
+    canvas.height = h * scale;
     const ctx = canvas.getContext('2d');
     ctx.scale(scale, scale);
 
@@ -1975,14 +1986,18 @@ function saveDiagramPng(viewport) {
     img.onload = () => {
       ctx.fillStyle = '#1e1e2e';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, svgRect.width, svgRect.height);
+      ctx.drawImage(img, 0, 0, w, h);
       canvas.toBlob((blob) => {
+        if (!blob) { showSaveNotification('PNG export failed (empty blob)'); return; }
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url; a.download = name; a.click();
         URL.revokeObjectURL(url);
-        showSaveNotification(`Saved: ${name} (check Downloads folder)`);
+        showSaveNotification(`Saved: ${name} (check browser Downloads)`);
       }, 'image/png');
+    };
+    img.onerror = () => {
+      showSaveNotification('PNG export failed — try Save SVG instead');
     };
     img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
   });
@@ -1991,11 +2006,11 @@ function saveDiagramPng(viewport) {
 
 function showSaveNotification(msg) {
   const el = document.createElement('div');
-  el.style.cssText = 'position:fixed;bottom:20px;right:20px;background:var(--bg-header);color:var(--accent-green);border:1px solid var(--accent-green);padding:8px 16px;border-radius:4px;font-size:12px;z-index:999;opacity:1;transition:opacity 1s';
+  el.style.cssText = 'position:fixed;bottom:20px;right:20px;background:var(--bg-header);color:var(--accent-green);border:1px solid var(--accent-green);padding:8px 16px;border-radius:4px;font-size:12px;z-index:999;opacity:1;transition:opacity 1.5s';
   el.textContent = msg;
   document.body.appendChild(el);
-  setTimeout(() => { el.style.opacity = '0'; }, 2000);
-  setTimeout(() => el.remove(), 3000);
+  setTimeout(() => { el.style.opacity = '0'; }, 4000);
+  setTimeout(() => el.remove(), 6000);
 }
 
 function openDiagramFullscreen() {
@@ -2195,6 +2210,119 @@ function initLoadIndex() {
   });
 
   pathInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#load-index-ok').click(); });
+
+  // --- Rebuild button ---
+  const rebuildBtn = $('#load-index-rebuild');
+  const statusDiv = $('#load-index-status');
+  let rebuildPollTimer = null;
+
+  rebuildBtn.addEventListener('click', async () => {
+    const indexPath = pathInput.value.trim();
+    if (!indexPath) { errDiv.textContent = 'Enter an index path to rebuild'; errDiv.style.display = 'block'; return; }
+    errDiv.style.display = 'none';
+
+    // First, load the index to get its source path
+    try {
+      rebuildBtn.disabled = true;
+      rebuildBtn.textContent = 'Checking…';
+      statusDiv.style.display = 'block';
+      statusDiv.textContent = 'Loading index to find original source path…';
+      statusDiv.style.color = 'var(--text-muted)';
+
+      const loadResult = await api.loadIndex({ path: indexPath, mode: 'replace' });
+      const activeIdx = loadResult.indexes.find(i => i.active);
+      let sourcePath = activeIdx?.indexSource;
+
+      if (!sourcePath || sourcePath.startsWith('file list:') || sourcePath.startsWith('glob:')) {
+        errDiv.textContent = sourcePath
+          ? `Cannot auto-rebuild: index was built from "${sourcePath}" (only directory sources supported)`
+          : 'Cannot rebuild: no source path recorded in this index';
+        errDiv.style.display = 'block';
+        statusDiv.style.display = 'none';
+        rebuildBtn.disabled = false;
+        rebuildBtn.textContent = 'Rebuild';
+        return;
+      }
+
+      // Convert Windows paths to WSL paths (e.g. C:\foo\bar -> /mnt/c/foo/bar)
+      if (/^[A-Za-z]:\\/.test(sourcePath)) {
+        const drive = sourcePath[0].toLowerCase();
+        sourcePath = '/mnt/' + drive + sourcePath.slice(2).replace(/\\/g, '/');
+      }
+
+      // Trigger rebuild using the original source path and the same index name
+      const indexName = activeIdx.indexPath || indexPath;
+      statusDiv.textContent = `Rebuilding from: ${sourcePath}`;
+
+      let buildResult;
+      try {
+        buildResult = await api.buildIndex({ sourcePath, indexName, useTreeSitter: true });
+      } catch (buildErr) {
+        const msg = buildErr.message || '';
+        if (msg.includes('Path not found') || msg.includes('not found')) {
+          errDiv.textContent = `Index loaded, but original source not found: ${sourcePath}`;
+        } else {
+          errDiv.textContent = msg;
+        }
+        errDiv.style.display = 'block';
+        statusDiv.style.display = 'none';
+        rebuildBtn.disabled = false;
+        rebuildBtn.textContent = 'Rebuild';
+        return;
+      }
+      const { jobId } = buildResult;
+
+      // Poll for progress
+      rebuildPollTimer = setInterval(async () => {
+        try {
+          const job = await api.buildIndexStatus({ jobId });
+          if (job.status === 'building') {
+            statusDiv.textContent = job.progress || 'Building…';
+          } else if (job.status === 'done') {
+            clearInterval(rebuildPollTimer);
+            rebuildPollTimer = null;
+            const s = job.stats;
+            statusDiv.textContent = `Rebuilt: ${s.files_indexed.toLocaleString()} files, ${s.total_lines.toLocaleString()} lines`;
+            statusDiv.style.color = '#4ec94e';
+
+            setTimeout(() => {
+              overlay.classList.add('hidden');
+              rebuildBtn.disabled = false;
+              rebuildBtn.textContent = 'Rebuild';
+              statusDiv.style.display = 'none';
+
+              const active = job.indexes.find(i => i.active) || job.indexes[0];
+              $('#index-info').textContent = `${active.name} (${active.files.toLocaleString()} files)`;
+              state.sectionData = {};
+              for (const sec of $$('.accordion-section')) {
+                sec.classList.remove('open');
+                $('.accordion-content', sec).innerHTML = '';
+                $('.accordion-badge', sec).textContent = '';
+              }
+              clearAllPanes();
+            }, 2000);
+          } else if (job.status === 'error') {
+            clearInterval(rebuildPollTimer);
+            rebuildPollTimer = null;
+            errDiv.textContent = job.error || 'Rebuild failed';
+            errDiv.style.display = 'block';
+            statusDiv.style.display = 'none';
+            rebuildBtn.disabled = false;
+            rebuildBtn.textContent = 'Rebuild';
+          }
+        } catch (pollErr) {
+          statusDiv.textContent = `Poll error: ${pollErr.message}`;
+        }
+      }, 1500);
+
+    } catch (err) {
+      errDiv.textContent = err.message;
+      errDiv.style.display = 'block';
+      statusDiv.style.display = 'none';
+      rebuildBtn.disabled = false;
+      rebuildBtn.textContent = 'Rebuild';
+    }
+  });
 }
 
 
@@ -2492,6 +2620,7 @@ function showSearchDialog(title, label) {
 
     $('#search-dialog-title').textContent = title || 'Search';
     $('#search-dialog-label').childNodes[0].textContent = (label || 'Query:') + ' ';
+    okBtn.textContent = (title && title.startsWith('Save')) ? 'Save' : 'Search';
     input.value = '';
     overlay.classList.remove('hidden');
     setTimeout(() => input.focus(), 100);

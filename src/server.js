@@ -108,6 +108,7 @@ class IndexManager {
   list() {
     return [...this.indexes.entries()].map(([name, idx]) => ({
       name, files: idx.files.size, active: name === this.activeIndex,
+      indexSource: idx.indexSource || null, indexPath: idx.indexPath || null,
     }));
   }
 }

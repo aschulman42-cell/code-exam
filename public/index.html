@@ -295,7 +295,7 @@
   </div>
 
   <!-- SEARCH DIALOG -->
-  <div id="search-overlay" class="modal-overlay hidden">
+  <div id="search-overlay" class="modal-overlay hidden" style="z-index:400">
     <div class="modal" style="max-width:420px">
       <div class="modal-header"><span id="search-dialog-title">Search</span>
         <button class="pane-action" id="search-dialog-close">✕</button>
@@ -333,9 +333,11 @@
           Add to existing indexes (not yet implemented)
         </label>
         <div id="load-index-error" class="error-msg" style="display:none"></div>
+        <div id="load-index-status" style="display:none;font-size:11px;margin-top:6px;color:var(--text-muted)"></div>
       </div>
       <div class="modal-footer">
         <button class="btn-secondary" id="load-index-cancel">Cancel</button>
+        <button class="btn-secondary" id="load-index-rebuild" title="Rebuild this index from its original source using tree-sitter">Rebuild</button>
         <button class="btn-primary" id="load-index-ok">Load</button>
       </div>
     </div>

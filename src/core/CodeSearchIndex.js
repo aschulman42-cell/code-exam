@@ -604,6 +604,44 @@ export class CodeSearchIndex {
       [/^\s*(?:(?:public|private|internal|fileprivate|open)\s+)*protocol\s+(\w+)/, 'class', 1],
     ];
 
+    const kotlinPatterns = [
+      // Kotlin: fun name(args) or fun name(args): Type
+      [/^\s*(?:(?:public|private|protected|internal|open|override|abstract|final|inline|suspend)\s+)*fun\s+(?:<[^>]+>\s+)?(\w+)/, 'function', 1],
+      // Kotlin: class / object / interface / enum / data class / sealed class
+      [/^\s*(?:(?:public|private|protected|internal|open|abstract|sealed|data|inner|value)\s+)*class\s+(\w+)/, 'class', 1],
+      [/^\s*(?:(?:public|private|protected|internal)\s+)*(?:companion\s+)?object\s+(\w+)/, 'class', 1],
+      [/^\s*(?:(?:public|private|protected|internal|sealed)\s+)*interface\s+(\w+)/, 'class', 1],
+      [/^\s*(?:(?:public|private|protected|internal)\s+)*enum\s+class\s+(\w+)/, 'class', 1],
+    ];
+
+    const scalaPatterns = [
+      // Scala: def name(args) or def name: Type
+      [/^\s*(?:(?:private|protected|override|final|implicit|lazy)\s+)*def\s+(\w+)/, 'function', 1],
+      // Scala: class / object / trait / case class
+      [/^\s*(?:(?:private|protected|abstract|sealed|final|case|implicit)\s+)*class\s+(\w+)/, 'class', 1],
+      [/^\s*(?:(?:private|protected)\s+)?(?:case\s+)?object\s+(\w+)/, 'class', 1],
+      [/^\s*(?:(?:private|protected|sealed)\s+)*trait\s+(\w+)/, 'class', 1],
+    ];
+
+    const luaPatterns = [
+      // Lua: function name(args) or local function name(args)
+      [/^\s*(?:local\s+)?function\s+(\w[\w.]*)/, 'function', 1],
+      // Lua: name = function(args) (common module pattern)
+      [/^\s*(?:local\s+)?(\w+)\s*=\s*function\s*\(/, 'function', 1],
+    ];
+
+    const objcPatterns = [
+      // Objective-C instance method: - (ReturnType)methodName  or  - (ReturnType)methodName:(Type)param
+      [/^\s*[-+]\s*\([^)]*\)\s*(\w+)/, 'function', 1],
+      // C function (also common in .m files)
+      [/^[a-zA-Z_][\w\s*&]*\s+(\w+)\s*\([^;]*\)\s*\{?\s*$/, 'function', 1],
+      // @interface ClassName or @implementation ClassName
+      [/^\s*@interface\s+(\w+)/, 'class', 1],
+      [/^\s*@implementation\s+(\w+)/, 'class', 1],
+      // @protocol ClassName
+      [/^\s*@protocol\s+(\w+)/, 'class', 1],
+    ];
+
     switch (ext) {
       case '.py': case '.pyw':
         return pythonPatterns;
@@ -635,6 +673,14 @@ export class CodeSearchIndex {
         return csPatterns;
       case '.swift':
         return swiftPatterns;
+      case '.kt': case '.kts':
+        return kotlinPatterns;
+      case '.scala': case '.sc':
+        return scalaPatterns;
+      case '.lua':
+        return luaPatterns;
+      case '.m': case '.mm':
+        return objcPatterns;
       default:
         if (TEXT_EXTENSIONS.has(ext)) return [];
         return [...pythonPatterns, ...cLikePatterns]; // Best guess
@@ -2104,6 +2150,8 @@ export class CodeSearchIndex {
       /^\s*(?:export\s+)?class\s+(\w+)\s+extends\s+(\w+)/,
       // Ruby: class Child < Parent
       /^\s*class\s+(\w+)\s*<\s*(\w+)/,
+      // Objective-C: @interface Child : Parent
+      /^\s*@interface\s+(\w+)\s*:\s*(\w+)/,
     ];
 
     // Pre-filter: only scan files that contain class declarations (from function index).
