@@ -215,6 +215,13 @@ async function loadSectionData(sectionId, filter = '') {
         badge.textContent = data.total;
         break;
 
+      case 'extensions':
+        data = await api.indexExtensions();
+        state.sectionData[sectionId] = data.extensions;
+        renderExtensionList(content, data.extensions, data.total_files, filter);
+        badge.textContent = data.extensions.length;
+        break;
+
       case 'classes':
         data = await api.listClasses({ filter, max: 200 });
         state.sectionData[sectionId] = data.classes;
@@ -248,6 +255,13 @@ async function loadSectionData(sectionId, filter = '') {
         state.sectionData[sectionId] = data.functions;
         renderMostCalledList(content, data.functions, data.total);
         badge.textContent = data.total;
+        break;
+
+      case 'call-inventory':
+        data = await api.callInventory({ max: 100, filter });
+        state.sectionData[sectionId] = data;
+        renderCallInventory(content, data);
+        badge.textContent = `${data.external.length}ext`;
         break;
 
       case 'class-hotspots':
@@ -426,14 +440,21 @@ function renderFileListWithSub(container, files, total) {
     const dir = fp.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
 
     const subContent = h('div', { className: 'sub-accordion-content' });
+    const nameSpan = h('span', { className: 'name clickable', text: name, style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' });
     const subHeader = h('div', { className: 'sub-accordion-header' }, [
       h('span', { className: 'sub-accordion-toggle', text: '▸' }),
-      h('span', { className: 'name', text: name, style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
+      nameSpan,
       h('span', { className: 'filepath', text: dir, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
     const sub = h('div', { className: 'sub-accordion', 'data-filepath': fp }, [subHeader, subContent]);
 
-    // Click header: toggle sub-accordion (expand/collapse functions)
+    // Click filename: show file source in middle-bottom pane
+    nameSpan.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onFileClick(fp);
+    });
+
+    // Click toggle arrow or header background: expand/collapse functions
     subHeader.addEventListener('click', (e) => {
       e.stopPropagation();
       const wasOpen = sub.classList.contains('open');
@@ -444,9 +465,6 @@ function renderFileListWithSub(container, files, total) {
       const parentSection = sub.closest('.accordion-section');
       if (parentSection) setTimeout(() => updateOverflowHint(parentSection), 50);
     });
-
-    // Double-click: show file in source pane
-    subHeader.addEventListener('dblclick', (e) => { e.stopPropagation(); onFileClick(fp); });
 
     // Right-click: context menu for file-level actions
     subHeader.addEventListener('contextmenu', (e) => {
@@ -476,6 +494,31 @@ async function loadFileFunctions(filepath, container) {
     }
   } catch (err) {
     container.innerHTML = `<div class="error-msg" style="font-size:11px">${escHtml(err.message)}</div>`;
+  }
+}
+
+
+// ========================================================================
+// Extensions list
+// ========================================================================
+function renderExtensionList(container, extensions, totalFiles, filter) {
+  container.innerHTML = '';
+  if (!extensions || !extensions.length) { container.innerHTML = '<div class="list-placeholder">No extensions found</div>'; return; }
+
+  const pat = filter ? filter.toLowerCase() : null;
+  const filtered = pat ? extensions.filter(e => e.ext.toLowerCase().includes(pat)) : extensions;
+
+  for (const e of filtered) {
+    const item = h('div', { className: 'list-item clickable', title: `${e.count} files (${e.pct}% of ${totalFiles})` }, [
+      h('span', { className: 'metric', text: `${e.count}`, style: 'min-width:32px' }),
+      h('span', { className: 'name', text: e.ext, style: 'color:var(--text-bright);font-family:var(--font-mono)' }),
+      h('span', { className: 'metric muted', text: `${e.pct}%`, style: 'min-width:36px;text-align:right' }),
+    ]);
+    item.addEventListener('click', () => {
+      $('#left-filter').value = e.ext;
+      $('#left-filter').dispatchEvent(new Event('input'));
+    });
+    container.appendChild(item);
   }
 }
 
@@ -585,6 +628,78 @@ function renderMostCalledList(container, items, total) {
       showContextMenu(e, { name: f.name, display_name: f.name, filepath: fp });
     });
     container.appendChild(item);
+  }
+}
+
+
+// ========================================================================
+// Call Inventory list
+// ========================================================================
+function renderCallInventory(container, data) {
+  container.innerHTML = '';
+  const { summary, external, in_index } = data;
+
+  if (!external.length && !in_index.length) {
+    container.innerHTML = '<div class="list-placeholder">No call targets found</div>';
+    return;
+  }
+
+  // Summary line
+  container.appendChild(h('div', {
+    className: 'list-placeholder',
+    text: `${summary.functions_scanned} functions scanned: ${summary.in_index_count} in-index, ${summary.external_count} external targets`,
+    style: 'font-size:10px;padding:4px 10px;color:var(--text-muted)',
+  }));
+
+  // External calls section (the unique value of call-inventory)
+  if (external.length > 0) {
+    container.appendChild(h('div', {
+      text: 'External calls:',
+      style: 'font-size:10px;font-weight:bold;padding:4px 10px;color:var(--accent-blue)',
+    }));
+    for (const e of external) {
+      const prov = e.provenance ? ` [${e.provenance}]` : '';
+      const item = h('div', { className: 'list-item clickable', title: `${e.call_count} call sites${prov}` }, [
+        h('span', { className: 'metric', text: `${e.call_count}`, style: 'min-width:28px' }),
+        h('span', { className: 'name', text: e.name, style: 'color:var(--text-bright)' }),
+        prov ? h('span', { className: 'metric muted', text: prov, style: 'font-size:10px' }) : null,
+      ].filter(Boolean));
+      item.addEventListener('click', () => {
+        // Search for this external name to see where it's called
+        if (window.doSearchFromUI) window.doSearchFromUI(e.name);
+        else { $('#left-filter').value = e.name; $('#left-filter').dispatchEvent(new Event('input')); }
+      });
+      container.appendChild(item);
+    }
+  }
+
+  // In-index section (summary — overlaps with Most Called)
+  if (in_index.length > 0) {
+    const inIdxToggle = h('div', {
+      text: `In-index targets (${summary.in_index_count}):`,
+      style: 'font-size:10px;font-weight:bold;padding:4px 10px;color:var(--text-muted);cursor:pointer',
+      title: 'Click to show/hide in-index targets (also available in Most Called)',
+    });
+    const inIdxContent = h('div', { style: 'display:none' });
+    inIdxToggle.addEventListener('click', () => {
+      const open = inIdxContent.style.display !== 'none';
+      inIdxContent.style.display = open ? 'none' : 'block';
+      const parentSection = container.closest('.accordion-section');
+      if (parentSection) setTimeout(() => updateOverflowHint(parentSection), 50);
+    });
+    for (const f of in_index) {
+      const item = h('div', { className: 'list-item clickable', title: `${f.filepath}\n${f.lines} lines, ${f.caller_count} callers` }, [
+        h('span', { className: 'metric', text: `${f.caller_count}`, style: 'min-width:28px' }),
+        h('span', { className: 'name', text: f.name }),
+        h('span', { className: 'metric muted', text: `${f.lines}L` }),
+      ]);
+      item.addEventListener('click', () => {
+        onFunctionClick({ name: f.name, display_name: f.qualified_name || f.name, filepath: f.filepath });
+      });
+      inIdxContent.appendChild(item);
+    }
+    container.appendChild(inIdxToggle);
+    container.appendChild(inIdxContent);
   }
 }
 

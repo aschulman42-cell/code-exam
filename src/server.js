@@ -1341,15 +1341,22 @@ routes['/api/call-inventory'] = (req, res) => {
     includePath: q.include_path || null,
     excludePath: q.exclude_path || null,
   });
-  const max = parseInt(q.max) || 50;
+  const max = parseInt(q.max) || 100;
+  let inIndex = result.in_index;
+  let external = result.external;
+  if (q.filter) {
+    const pat = q.filter.toLowerCase();
+    inIndex = inIndex.filter(i => i.name.toLowerCase().includes(pat) || (i.filepath && i.filepath.toLowerCase().includes(pat)));
+    external = external.filter(e => e.name.toLowerCase().includes(pat) || (e.provenance && e.provenance.toLowerCase().includes(pat)));
+  }
   jsonResponse(res, {
     summary: result.summary,
-    in_index: result.in_index.slice(0, max).map(item => ({
+    in_index: inIndex.slice(0, max).map(item => ({
       name: item.name, qualified_name: item.qualified_name,
       filepath: item.filepath, lines: item.lines,
       caller_count: item.callers.length,
     })),
-    external: result.external.slice(0, max).map(item => ({
+    external: external.slice(0, max).map(item => ({
       name: item.name, call_count: item.call_sites.length,
       provenance: item.provenance || null,
     })),
