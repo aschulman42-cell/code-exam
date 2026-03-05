@@ -890,11 +890,13 @@ routes['/api/most-called'] = (req, res) => {
   const n = parseInt(q.n) || 50;
   const callData = index.getCallCountsWithDefinitions(true);
 
+  const definedOnly = q.defined_only === '1' || q.defined_only === 'true';
   let filtered = [];
   for (const item of callData) {
     if (item.name.length < 2) continue;
     const bare = item.name.includes('::') ? item.name.split('::').pop() : item.name;
     if (bare.length >= 2 && /^[A-Z][A-Z0-9_]+$/.test(bare)) continue;
+    if (definedOnly && item.definitions.length === 0) continue;
     if (q.filter && !item.name.toLowerCase().includes(q.filter.toLowerCase())) continue;
     filtered.push(item);
   }

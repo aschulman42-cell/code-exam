@@ -22,6 +22,8 @@ const state = {
   currentSourceFile: null,
   /** Cached LLM engine status from /api/llm-status */
   llmStatus: null,
+  /** Most Called: filter to in-index only */
+  mostCalledDefinedOnly: false,
 };
 
 // ========================================================================
@@ -251,9 +253,9 @@ async function loadSectionData(sectionId, filter = '') {
         break;
 
       case 'most-called':
-        data = await api.mostCalled({ n: 50, filter });
+        data = await api.mostCalled({ n: 50, filter, defined_only: state.mostCalledDefinedOnly ? '1' : '' });
         state.sectionData[sectionId] = data.functions;
-        renderMostCalledList(content, data.functions, data.total);
+        renderMostCalledList(content, data.functions, data.total, sectionId, filter);
         badge.textContent = data.total;
         break;
 
@@ -608,9 +610,19 @@ function renderHotFolderList(container, folders) {
 // ========================================================================
 // Most Called list
 // ========================================================================
-function renderMostCalledList(container, items, total) {
+function renderMostCalledList(container, items, total, sectionId, filter) {
   container.innerHTML = '';
-  if (!items.length) { container.innerHTML = '<div class="list-placeholder">No functions found</div>'; return; }
+
+  // Toggle for defined-only filtering
+  const toggleRow = h('div', { style: 'display:flex;align-items:center;gap:6px;padding:2px 8px;font-size:10px;color:var(--text-muted)' }, [
+    h('label', { style: 'display:flex;align-items:center;gap:4px;cursor:pointer' }, [
+      (() => { const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!state.mostCalledDefinedOnly; cb.style.cssText = 'margin:0'; cb.addEventListener('change', () => { state.mostCalledDefinedOnly = cb.checked; loadSectionData('most-called', filter || ''); }); return cb; })(),
+      h('span', { text: 'In-index only (hide external)' }),
+    ]),
+  ]);
+  container.appendChild(toggleRow);
+
+  if (!items.length) { container.appendChild(h('div', { className: 'list-placeholder', text: 'No functions found' })); return; }
   for (const f of items) {
     const defInfo = f.definitions > 0 ? `${f.definitions} def` : 'external';
     const item = h('div', { className: 'list-item', title: `Count: ${f.count}\nDefs: ${defInfo}\n${(f.def_files || []).join('\n')}` }, [
