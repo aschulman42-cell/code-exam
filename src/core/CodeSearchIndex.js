@@ -955,6 +955,43 @@ export class CodeSearchIndex {
     }
   }
 
+  /**
+   * Validate index integrity: check which required files exist and are parseable.
+   * Returns { valid: boolean, files: { name: status }, warnings: string[] }
+   */
+  validateIndex() {
+    const warnings = [];
+    const files = {};
+    const checks = [
+      { name: 'literal_index.json',   path: this._literalIndexPath(),  required: true },
+      { name: 'inverted_index.json',  path: this._invertedIndexPath(), required: true },
+      { name: 'function_index.json',  path: this._functionIndexPath(), required: true },
+    ];
+    for (const c of checks) {
+      if (!fs.existsSync(c.path)) {
+        files[c.name] = 'missing';
+        warnings.push(`${c.name} is missing` + (c.required ? ' (required)' : ''));
+      } else {
+        try {
+          const stat = fs.statSync(c.path);
+          if (stat.size === 0) {
+            files[c.name] = 'empty';
+            warnings.push(`${c.name} exists but is empty (0 bytes)`);
+          } else {
+            files[c.name] = 'ok';
+          }
+        } catch (e) {
+          files[c.name] = 'unreadable';
+          warnings.push(`${c.name} exists but cannot be read: ${e.message}`);
+        }
+      }
+    }
+    const valid = files['literal_index.json'] === 'ok' &&
+                  files['function_index.json'] === 'ok' &&
+                  files['inverted_index.json'] === 'ok';
+    return { valid, files, warnings };
+  }
+
 
   // ========================================================================
   // Build Index

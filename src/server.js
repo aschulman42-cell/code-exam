@@ -509,7 +509,15 @@ routes['/api/scan-indexes'] = (req, res) => {
             const loadedPath = mgr.indexes.get(k)?.indexPath || '';
             return loadedPath === fullPath || k === entry.name;
           });
-          available.push({ name: entry.name, path: fullPath, files: fileCount, loaded: isLoaded });
+          // Validate index completeness
+          const invIdx = path.join(scanDir, entry.name, 'inverted_index.json');
+          const funcIdx2 = path.join(scanDir, entry.name, 'function_index.json');
+          const missing = [];
+          if (!fs.existsSync(invIdx))  missing.push('inverted_index.json');
+          if (!fs.existsSync(funcIdx2)) missing.push('function_index.json');
+          const info = { name: entry.name, path: fullPath, files: fileCount, loaded: isLoaded };
+          if (missing.length > 0) info.missing = missing;
+          available.push(info);
         }
       }
     }
@@ -622,7 +630,14 @@ routes['/api/browse-dir'] = (req, res) => {
     const fullPath = path.join(dirPath, entry.name);
     let isIndex = false;
     try { isIndex = fs.existsSync(path.join(fullPath, 'literal_index.json')); } catch (_) {}
-    dirs.push({ name: entry.name, isIndex });
+    const info = { name: entry.name, isIndex };
+    if (isIndex) {
+      const missing = [];
+      if (!fs.existsSync(path.join(fullPath, 'inverted_index.json')))  missing.push('inverted_index.json');
+      if (!fs.existsSync(path.join(fullPath, 'function_index.json'))) missing.push('function_index.json');
+      if (missing.length > 0) info.missing = missing;
+    }
+    dirs.push(info);
   }
 
   // Sort: index dirs first, then alphabetical (case-insensitive)
@@ -993,11 +1008,19 @@ routes['/api/load-index'] = (req, res) => {
       if (!indexPath) return errorResponse(res, 'Missing "path" in body');
       const mode = params.mode || 'replace';
       if (!fs.existsSync(indexPath)) return errorResponse(res, `Path not found: ${indexPath}`, 404);
+      // Validate index integrity before loading
+      const probe = new CodeSearchIndex({ indexPath });
+      const validation = probe.validateIndex();
+      if (validation.warnings.length > 0 && !validation.valid) {
+        return errorResponse(res, `Index at ${indexPath} is incomplete:\n${validation.warnings.join('\n')}`, 400);
+      }
       if (mode === 'replace') { mgr.indexes.clear(); mgr.activeIndex = null; }
       const name = mgr.load(indexPath);
       if (!name) return errorResponse(res, `No files found in index at: ${indexPath}`, 400);
       mgr.activeIndex = name;
-      jsonResponse(res, { loaded: name, mode, indexes: mgr.list() });
+      const resp = { loaded: name, mode, indexes: mgr.list() };
+      if (validation.warnings.length > 0) resp.warnings = validation.warnings;
+      jsonResponse(res, resp);
     } catch (err) {
       errorResponse(res, `Load error: ${err.message}`, 500);
     }
@@ -1543,7 +1566,11 @@ routes['/api/func-dupes'] = (req, res) => {
     total: groups.length,
     groups: groups.slice(0, n).map((g, i) => ({
       rank: i + 1, name: g.bare_name, lines: g.lines, count: g.count, waste: g.waste,
-      files: g.instances.slice(0, 5).map(inst => inst.filepath),
+      instances: g.instances.slice(0, 5).map(inst => ({
+        filepath: inst.filepath, name: inst.name,
+        display_name: displayName(inst.name, inst.filepath),
+        start: inst.start, lines: inst.lines,
+      })),
     })),
   });
 };
@@ -1560,7 +1587,11 @@ routes['/api/near-dupes'] = (req, res) => {
     total: groups.length,
     groups: groups.slice(0, n).map((g, i) => ({
       rank: i + 1, name: g.bare_name, lines: g.lines, count: g.count, variants: g.unique_variants || 0,
-      files: g.instances.slice(0, 5).map(inst => inst.filepath),
+      instances: g.instances.slice(0, 5).map(inst => ({
+        filepath: inst.filepath, name: inst.name,
+        display_name: displayName(inst.name, inst.filepath),
+        start: inst.start, lines: inst.lines,
+      })),
     })),
   });
 };
@@ -1583,7 +1614,7 @@ routes['/api/struct-dupes'] = (req, res) => {
         filepath: inst.filepath,
         name: inst.name,
         display_name: displayName(inst.name, inst.filepath),
-        lines: inst.lines,
+        start: inst.start, lines: inst.lines,
       })),
     })),
   });

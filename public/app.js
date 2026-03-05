@@ -873,8 +873,11 @@ function renderIndexesList(container, data) {
   const loaded = data.loaded || [];
   const available = data.available || [];
 
+  // Hint: this accordion only scans the current/last-used directory
+  container.appendChild(h('div', { className: 'list-placeholder', text: 'Showing indexes in current directory. Use Load Index dialog (File menu) for other locations.', style: 'padding:4px 8px;font-size:10px;color:var(--text-muted);line-height:1.4' }));
+
   if (!loaded.length && !available.length) {
-    container.innerHTML = '<div class="list-placeholder">No indexes found</div>';
+    container.appendChild(h('div', { className: 'list-placeholder', text: 'No indexes found', style: 'padding:4px 8px' }));
     return;
   }
 
@@ -900,10 +903,12 @@ function renderIndexesList(container, data) {
     }
     container.appendChild(h('div', { className: 'list-placeholder', text: 'Available:', style: 'font-weight:bold;padding:4px 8px;font-size:11px;margin-top:4px' }));
     for (const idx of unloaded) {
-      const item = h('div', { className: 'list-item', style: 'cursor:pointer' }, [
-        h('span', { className: 'name clickable', text: idx.name }),
+      const hasWarning = idx.missing && idx.missing.length > 0;
+      const item = h('div', { className: 'list-item', style: 'cursor:pointer', title: hasWarning ? `Missing: ${idx.missing.join(', ')}` : idx.path }, [
+        h('span', { className: 'name clickable', text: idx.name, style: hasWarning ? 'color:var(--text-dim)' : '' }),
         h('span', { className: 'metric muted', text: `~${idx.files} files` }),
-      ]);
+        hasWarning ? h('span', { className: 'metric', text: 'incomplete', style: 'color:#cc6633;font-size:9px' }) : null,
+      ].filter(Boolean));
 
       async function doLoad() {
         item.innerHTML = '<span class="loading" style="font-size:11px">Loading…</span>';
@@ -1029,7 +1034,8 @@ function renderDupeGroupList(container, groups, type) {
   if (!groups.length) { container.innerHTML = '<div class="list-placeholder">No duplicates found</div>'; return; }
   for (const g of groups) {
     const extra = type === 'near' ? `${g.variants}v` : type === 'struct' ? `${g.unique_bodies}b` : `${g.waste}w`;
-    const item = h('div', { className: 'list-item', title: `${g.name}\n${g.count} copies × ${g.lines} lines\n${(g.files || []).join('\n')}` }, [
+    const fileList = (g.instances || []).map(i => i.filepath).join('\n') || (g.files || []).join('\n');
+    const item = h('div', { className: 'list-item', title: `${g.name}\n${g.count} copies × ${g.lines} lines\n${fileList}` }, [
       h('span', { className: 'rank', text: `${g.rank}` }),
       h('span', { className: 'metric', text: `${g.count}×` }),
       h('span', { className: 'name clickable', text: g.name }),
@@ -1052,13 +1058,13 @@ function renderDupeDetail(group, type) {
   let html = '<div class="output-section"><table class="output-table"><tr><th>#</th><th>Function</th><th>File</th></tr>';
   const instances = group.instances || [];
   const files = group.files || [];
-  // Prefer instances (have name + filepath) over bare files
+  // Prefer instances (have name + filepath + start) over bare files
   if (instances.length > 0) {
     for (let i = 0; i < instances.length; i++) {
       const inst = instances[i];
       html += `<tr><td class="muted">${i + 1}</td>`;
       html += `<td class="mono"><span class="clickable" data-funcname="${escHtml(inst.name || group.name)}" data-filepath="${escHtml(inst.filepath)}">${escHtml(inst.display_name || inst.name || group.name)}</span></td>`;
-      html += `<td class="mono muted">${escHtml(shortPath(inst.filepath, 50))}</td></tr>`;
+      html += `<td class="mono clickable file-link" data-filepath="${escHtml(inst.filepath)}" data-start="${inst.start || ''}" title="Show file at line ${inst.start || '?'}">${escHtml(shortPath(inst.filepath, 50))}</td></tr>`;
     }
   } else {
     for (let i = 0; i < files.length; i++) {
@@ -1076,6 +1082,16 @@ function renderDupeDetail(group, type) {
 
   container.innerHTML = html;
   wireClickables(container, { sourceOnly: true });
+
+  // Wire file-link clicks (show file scrolled to function)
+  for (const el of $$('.file-link[data-filepath]', container)) {
+    el.addEventListener('click', () => {
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0) return;
+      const startLine = parseInt(el.dataset.start) || undefined;
+      onFileClick(el.dataset.filepath, startLine);
+    });
+  }
 
   if (type === 'struct') {
     const fBtn = $('#show-funcstring-btn', container);
@@ -1142,7 +1158,7 @@ function renderStructDiffDetail(group) {
       const inst = group.instances[i];
       html += `<tr><td class="muted">${i + 1}</td>`;
       html += `<td class="mono"><span class="clickable" data-funcname="${escHtml(inst.name)}" data-filepath="${escHtml(inst.filepath)}">${escHtml(inst.display_name || inst.name)}</span></td>`;
-      html += `<td class="mono muted">${escHtml(shortPath(inst.filepath, 45))}</td></tr>`;
+      html += `<td class="mono clickable file-link" data-filepath="${escHtml(inst.filepath)}" data-start="${inst.start || ''}" title="Show file at line ${inst.start || '?'}">${escHtml(shortPath(inst.filepath, 45))}</td></tr>`;
     }
     html += '</table>';
   }
@@ -1150,6 +1166,16 @@ function renderStructDiffDetail(group) {
   html += '</div>';
   container.innerHTML = html;
   wireClickables(container, { sourceOnly: true });
+
+  // Wire file-link clicks (show file scrolled to function)
+  for (const el of $$('.file-link[data-filepath]', container)) {
+    el.addEventListener('click', () => {
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0) return;
+      const startLine = parseInt(el.dataset.start) || undefined;
+      onFileClick(el.dataset.filepath, startLine);
+    });
+  }
 }
 
 
@@ -1224,11 +1250,11 @@ async function onFunctionClickSourceOnly(funcInfo) {
   }
 }
 
-async function onFileClick(filepath) {
+async function onFileClick(filepath, targetLine) {
   showMiddleBottomLoading(`Loading ${filepath}…`);
   try {
     const data = await api.showFile({ path: filepath });
-    renderFileSource(data);
+    renderFileSource(data, targetLine);
   } catch (err) { showMiddleBottomError(err.message); }
 }
 
@@ -1385,7 +1411,7 @@ function renderSource(data) {
   navUpdateButtons('middle-bottom');
 }
 
-function renderFileSource(data) {
+function renderFileSource(data, targetLine) {
   showPane('middle-bottom');
   const container = $('#middle-bottom-body'), title = $('#middle-bottom-title');
   title.textContent = `${data.filepath}  (${data.lines} lines)`;
@@ -1394,13 +1420,23 @@ function renderFileSource(data) {
   const hl = state.highlightTerms;
   let html = '<div class="source-view">';
   for (let i = 0; i < lines.length; i++) {
+    const lineNum = i + 1;
     let content = escHtml(lines[i]);
     if (hl) content = highlightLine(content, hl.terms, hl.colors);
-    html += `<div class="source-line"><span class="line-number">${i + 1}</span><span class="line-content">${content}</span></div>`;
+    const isTarget = targetLine && lineNum === targetLine;
+    html += `<div class="source-line${isTarget ? ' target-line' : ''}" data-line="${lineNum}"><span class="line-number">${lineNum}</span><span class="line-content">${content}</span></div>`;
   }
   container.innerHTML = html + '</div>';
   linkifySourceCalls(container, data.filepath);
   navUpdateButtons('middle-bottom');
+
+  // Scroll to target line
+  if (targetLine) {
+    const targetEl = container.querySelector(`.source-line[data-line="${targetLine}"]`);
+    if (targetEl) {
+      requestAnimationFrame(() => targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    }
+  }
 }
 
 /** Keywords that look like function calls but aren't */
@@ -2257,8 +2293,13 @@ function initLoadIndex() {
       el.className = 'browse-item' + (dir.isIndex ? ' is-index' : '');
       const fullPath = data.current + data.sep + dir.name;
 
+      const hasWarning = dir.isIndex && dir.missing && dir.missing.length > 0;
       let inner = `<span class="dir-marker">/</span> <span>${dir.name}</span>`;
-      if (dir.isIndex) inner += '<span class="index-badge">index</span>';
+      if (dir.isIndex && hasWarning) {
+        inner += `<span class="index-badge" style="background:#cc6633;color:#fff" title="Missing: ${dir.missing.join(', ')}">incomplete</span>`;
+      } else if (dir.isIndex) {
+        inner += '<span class="index-badge">index</span>';
+      }
       el.innerHTML = inner;
 
       if (dir.isIndex) {
@@ -2327,6 +2368,12 @@ function initLoadIndex() {
 
       // Clear all content panes
       clearAllPanes();
+
+      // Show warnings for partially valid indexes
+      if (result.warnings && result.warnings.length > 0) {
+        errDiv.textContent = 'Warning: ' + result.warnings.join('; ');
+        errDiv.style.display = 'block';
+      }
     } catch (err) {
       errDiv.textContent = err.message;
       errDiv.style.display = 'block';
