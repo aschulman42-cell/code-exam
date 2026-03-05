@@ -261,7 +261,7 @@ async function loadSectionData(sectionId, filter = '') {
         data = await api.callInventory({ max: 100, filter });
         state.sectionData[sectionId] = data;
         renderCallInventory(content, data);
-        badge.textContent = `${data.external.length}ext`;
+        badge.textContent = data.summary.external_count;
         break;
 
       case 'class-hotspots':
@@ -3345,38 +3345,62 @@ function initRightBottomTabs() {
 // ========================================================================
 // Console — interactive CLI commands within the GUI
 // ========================================================================
-const CONSOLE_HELP = `All interactive commands are available. Type /help for full list.
-Examples:
-  /search <query>        Literal search (or just type text without /)
-  /regex /pattern/       Regex search
-  /fast <query>          Fast inverted-index search
-  /extract <func>        Extract function source
-  /callers <func>        Find callers
-  /callees <func>        Find callees
-  /call-tree <func>      Call tree → Diagram pane (add 'mermaid' for text)
-  /multisect t1;t2;t3    Multi-term intersection search
-  /hotspots [N]          Hotspot functions
-  /most-called [N]       Most frequently called
-  /entry-points [N]      Largest uncalled functions
-  /domain-fns [N]        Domain-specific hotspots
-  /gaps [N]              Suspicious dead code
-  /vocabulary [N]        Domain tokens by TF-IDF
-  /classes               List classes
-  /func-dupes [N]        Exact duplicate functions
-  /near-dupes [N]        Near-duplicate groups
-  /struct-dupes [N]      Structural duplicate groups
-  /call-inventory [func] Call inventory analysis
-  /file-map [mermaid]    File dependency map
-  /file-tree <file>      File dependency tree
-  /dupefiles [N]         Duplicate files
-  /claim <text|@file>    LLM claim search
-  /analyze <func>        LLM function analysis → Analysis pane
-  /stats                 Index statistics
-  /files [pattern]       List/filter files
-  /set                   Show settings
-  /set max N             Set max results
-  /help                  This help
-  /clear                 Clear console
+const CONSOLE_HELP = `SEARCH:
+  /search <query>          Literal search (or just type text without /)
+  /regex /pattern/         Regex search
+  /fast <query>            Fast inverted-index search
+  /files-search <query>    Files containing term
+  /folders-search <query>  Folders containing term
+  /multisect t1;t2;t3      Multi-term intersection search
+  /paths <pattern>         Search file/folder paths
+
+BROWSE:
+  /extract <func>          Extract function source
+  /file <filepath>         Show entire file
+  /files [pattern]         List/filter files
+  /functions [pattern]     List functions
+  /extensions              Show file extensions breakdown
+  /stats                   Index statistics
+
+CALL GRAPH:
+  /callers <func>          Find callers
+  /callees <func>          Find callees
+  /most-called [N]         Most frequently called
+  /call-inventory [func]   In-index vs external call targets
+  /call-tree <func> [depth=N] [mermaid]   Call tree → Diagram pane
+  /class-tree [filter] [mermaid]          Class inheritance hierarchy
+  /file-map [filter] [mermaid]            File dependency map
+  /file-tree <file> [depth=N] [mermaid]   File dependency tree
+
+METRICS:
+  /hotspots [N]            Most important functions (calls x size)
+  /hot-folders [N]         Most important directories
+  /entry-points [N]        Largest uncalled functions
+  /gaps [N]                Suspicious dead code
+  /domain-fns [N]          Domain-specific hotspots
+  /classes [filter]        List classes with method counts
+  /class-hotspots [N]      Classes ranked by hotspot score
+  /vocabulary [N]          Domain tokens by TF-IDF
+
+DUPLICATES:
+  /func-dupes [N]          Exact duplicate functions
+  /near-dupes [N]          Near-duplicate groups
+  /struct-dupes [N]        Structural duplicate groups
+  /funcstring <func>       Show structural form of function
+  /struct-diff <func>      Diff structural duplicate variants
+  /struct-diff-all [N]     All structural diff summaries
+  /dupefiles [N]           Duplicate files
+
+LLM:
+  /claim <text|@file>      LLM claim search
+  /analyze <func>          LLM function analysis → Analysis pane
+
+OTHER:
+  /set                     Show settings
+  /set max N               Set max results
+  /rebuild-functions       Rebuild function index
+  /help                    This help
+  /clear                   Clear console
   Bare text (no /) does a literal search.
 `;
 
