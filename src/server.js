@@ -1011,8 +1011,9 @@ routes['/api/load-index'] = (req, res) => {
       // Validate index integrity before loading
       const probe = new CodeSearchIndex({ indexPath });
       const validation = probe.validateIndex();
-      if (validation.warnings.length > 0 && !validation.valid) {
-        return errorResponse(res, `Index at ${indexPath} is incomplete:\n${validation.warnings.join('\n')}`, 400);
+      // Block only if literal_index is missing/broken (nothing to load at all)
+      if (validation.files['literal_index.json'] !== 'ok') {
+        return errorResponse(res, `Index at ${indexPath} is unusable:\n${validation.warnings.join('\n')}`, 400);
       }
       if (mode === 'replace') { mgr.indexes.clear(); mgr.activeIndex = null; }
       const name = mgr.load(indexPath);

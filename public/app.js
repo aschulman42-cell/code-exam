@@ -1568,6 +1568,19 @@ function linkifySourceCalls(container, contextFilepath) {
   }
 }
 
+/** Group callers by (caller_function, filepath), collecting call sites */
+function groupCallers(callers) {
+  const map = new Map();
+  for (const c of callers) {
+    const key = `${c.caller_function || ''}|||${c.filepath}`;
+    if (!map.has(key)) {
+      map.set(key, { caller: c.caller_function, filepath: c.filepath, sites: [] });
+    }
+    map.get(key).sites.push(c);
+  }
+  return [...map.values()];
+}
+
 function renderCallInfo(extractData, callersData, calleesData) {
   const container = $('#middle-top-body'), title = $('#middle-top-title');
   title.textContent = extractData.display_name || extractData.name;
@@ -1596,16 +1609,18 @@ function renderCallInfo(extractData, callersData, calleesData) {
 
   const cl = callersData.callers || [];
   if (cl.length) {
-    const showAll = cl.length <= 15;
-    const visibleCallers = showAll ? cl : cl.slice(0, 15);
-    html += `<div class="output-section"><h3>Called By (${cl.length})</h3><table class="output-table"><tr><th>Caller</th><th>File</th><th>Line</th></tr>`;
-    for (const c of visibleCallers) {
-      const cn = c.caller_function || '(file scope)';
-      html += `<tr><td class="mono"><span class="clickable" data-funcname="${escHtml(cn)}">${escHtml(cn)}</span></td>`;
-      html += `<td class="mono muted">${escHtml(shortPath(c.filepath, 30))}</td><td>${c.line_number}</td></tr>`;
+    const grouped = groupCallers(cl);
+    const showAll = grouped.length <= 15;
+    const visible = showAll ? grouped : grouped.slice(0, 15);
+    html += `<div class="output-section"><h3>Called By (${grouped.length} caller${grouped.length !== 1 ? 's' : ''}, ${cl.length} site${cl.length !== 1 ? 's' : ''})</h3><table class="output-table"><tr><th>Caller</th><th>File</th><th>Sites</th></tr>`;
+    for (const g of visible) {
+      const cn = g.caller || '(file scope)';
+      html += `<tr><td class="mono"><span class="clickable" data-funcname="${escHtml(cn)}" data-filepath="${escHtml(g.filepath)}">${escHtml(cn)}</span></td>`;
+      html += `<td class="mono muted">${escHtml(shortPath(g.filepath, 30))}</td><td>${g.sites.length}</td></tr>`;
     }
     html += '</table>';
-    if (!showAll) html += `<div class="list-placeholder" style="cursor:pointer;color:var(--accent)" id="show-all-callers">Show all ${cl.length} callers…</div>`;
+    if (!showAll) html += `<div class="list-placeholder" style="cursor:pointer;color:var(--accent)" id="show-all-callers">Show all ${grouped.length} callers…</div>`;
+    else if (cl.length > grouped.length) html += `<div class="list-placeholder" style="cursor:pointer;color:var(--accent)" id="show-all-callers">Show call sites…</div>`;
     html += '</div>';
   }
 
@@ -1633,16 +1648,66 @@ function renderDisambiguation(matches) {
 
 function renderCallersOnly(funcName, data) {
   const container = $('#middle-top-body'), title = $('#middle-top-title');
-  title.textContent = `Callers of ${funcName} (${data.callers.length})`;
-  if (!data.callers.length) { container.innerHTML = '<div class="list-placeholder">No callers found</div>'; return; }
-  let html = '<div class="output-section"><table class="output-table"><tr><th>Caller</th><th>File</th><th>Line</th><th>Type</th></tr>';
-  for (const c of data.callers) {
-    const cn = c.caller_function || '(file scope)';
-    html += `<tr><td class="mono"><span class="clickable" data-funcname="${escHtml(cn)}">${escHtml(cn)}</span></td>`;
-    html += `<td class="mono muted">${escHtml(shortPath(c.filepath, 30))}</td><td>${c.line_number}</td><td class="muted">${c.call_type}</td></tr>`;
+  const callers = data.callers || [];
+  const grouped = groupCallers(callers);
+  title.textContent = `Callers of ${funcName} (${grouped.length} caller${grouped.length !== 1 ? 's' : ''}, ${callers.length} site${callers.length !== 1 ? 's' : ''})`;
+  if (!grouped.length) { container.innerHTML = '<div class="list-placeholder">No callers found</div>'; return; }
+  let html = '<div class="output-section">';
+  for (let gi = 0; gi < grouped.length; gi++) {
+    const g = grouped[gi];
+    const cn = g.caller || '(file scope)';
+    const multi = g.sites.length > 1;
+    html += `<div class="caller-group" style="margin-bottom:2px">`;
+    html += `<div class="caller-group-header" style="display:flex;align-items:baseline;gap:8px;padding:3px 4px">`;
+    if (multi) html += `<span class="caller-toggle" data-group="${gi}" style="color:var(--accent-dim);font-size:10px;width:12px;cursor:pointer" title="Expand call sites">&#9656;</span>`;
+    else html += `<span style="width:12px"></span>`;
+    html += `<span class="mono clickable" data-funcname="${escHtml(cn)}" data-filepath="${escHtml(g.filepath)}">${escHtml(cn)}</span>`;
+    html += `<span class="mono muted" style="font-size:11px">${escHtml(shortPath(g.filepath, 40))}</span>`;
+    if (multi) html += `<span class="muted" style="font-size:10px;cursor:pointer" data-sites-toggle="${gi}">${g.sites.length} sites</span>`;
+    else html += `<span class="muted" style="font-size:10px">1 site</span>`;
+    html += `<span class="muted" style="font-size:10px">${g.sites[0].call_type}</span>`;
+    html += `</div>`;
+    // Expandable call sites
+    html += `<div class="caller-sites" id="caller-sites-${gi}" style="display:none;padding-left:24px">`;
+    for (const s of g.sites) {
+      html += `<div class="caller-site" style="display:flex;gap:8px;padding:1px 4px;font-size:11px">`;
+      html += `<span class="muted" style="min-width:36px;text-align:right">L${s.line_number}</span>`;
+      html += `<span class="mono file-link clickable" data-filepath="${escHtml(g.filepath)}" data-start="${s.line_number}" style="color:var(--text-dim);white-space:pre;overflow:hidden;text-overflow:ellipsis">${escHtml(s.line_text || '')}</span>`;
+      html += `</div>`;
+    }
+    html += `</div></div>`;
   }
-  container.innerHTML = html + '</table></div>';
+  html += '</div>';
+  container.innerHTML = html;
   wireClickables(container);
+
+  // Wire file-link clicks (show file scrolled to line)
+  for (const el of $$('.file-link[data-filepath]', container)) {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0) return;
+      const startLine = parseInt(el.dataset.start) || undefined;
+      onFileClick(el.dataset.filepath, startLine);
+    });
+  }
+
+  // Wire expand/collapse on toggle arrow and "N sites" label
+  function toggleSites(gi) {
+    const sites = $(`#caller-sites-${gi}`, container);
+    const toggle = $(`.caller-toggle[data-group="${gi}"]`, container);
+    if (!sites) return;
+    const open = sites.style.display !== 'none';
+    sites.style.display = open ? 'none' : 'block';
+    if (toggle) toggle.innerHTML = open ? '&#9656;' : '&#9662;';
+  }
+  for (const el of $$('.caller-toggle[data-group]', container)) {
+    el.addEventListener('click', (e) => { e.stopPropagation(); toggleSites(el.dataset.group); });
+  }
+  for (const el of $$('[data-sites-toggle]', container)) {
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', (e) => { e.stopPropagation(); toggleSites(el.dataset.sitesToggle); });
+  }
 }
 
 function renderCalleesOnly(funcName, data) {
@@ -1782,16 +1847,17 @@ function wireClickables(container, opts = {}) {
       if (sel && sel.toString().length > 0) return;  // user is selecting text, don't navigate
       const name = el.dataset.funcname;
       const filepath = el.dataset.filepath || null;
-      if (name && name !== '(file scope)' && name !== '(unknown)') {
+      if (name === '(file scope)' || name === '(unknown)') {
+        if (filepath) onFileClick(filepath);
+      } else if (name) {
         clickHandler({ name, display_name: name, filepath });
       }
     });
     el.addEventListener('contextmenu', (e) => {
       const name = el.dataset.funcname;
       const filepath = el.dataset.filepath || null;
-      if (name && name !== '(file scope)' && name !== '(unknown)') {
-        showContextMenu(e, { name, display_name: name, filepath });
-      }
+      if (name && name !== '(file scope)' && name !== '(unknown)') showContextMenu(e, { name, display_name: name, filepath });
+      else if (filepath) showContextMenu(e, { name: null, display_name: filepath.split('/').pop(), filepath });
     });
   }
   // Wire file-only clicks (no funcname)

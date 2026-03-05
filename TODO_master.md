@@ -21,7 +21,7 @@
 | 201 | **Interactive /chat (RAG)**: Free-form questions about the codebase. "What file handles structural dupe comparison?" Needs: function/file summaries as context, embedding-based retrieval or keyword search to find relevant code, then LLM synthesis. Could use existing multisect + extract as primitive retrieval, feed results to LLM. | **high priority, design needed** |
 | 202 | **Term extraction independence**: claim.js extractClaimTerms currently uses Claude API only. --term-extract-model flag exists in CLI (for local GGUF) but is not exposed in the GUI. May be replaced with embeddings, small specialized model, or keyword extraction. analyze.js is intentionally decoupled — keep them separate. | **design, in progress** |
 | 280 | **Large index loading in GUI**: Very large indexes (e.g. Chromium) fail silently — loaded only 161 files, 0 hits on all searches. Need to diagnose whether this is a memory limit, JSON parse failure, or streaming issue. CLI may handle the same index correctly. | **high priority, bug** |
-| 281 | **Bad/corrupt index detection**: If index is missing JSON files or is otherwise incomplete, CodeExam currently acts as if index is OK but returns 0 hits on all searches. Need validation on load — check for required files, report what's missing, and warn the user clearly. | **high priority** |
+| 281 | **Bad/corrupt index detection**: validateIndex() checks for missing/empty required files. "incomplete" badge shown in Indexes accordion and Load Index browser. Load endpoint returns detailed error. Commit 13c547a. | done |
 
 ---
 
@@ -40,11 +40,13 @@
 
 | # | Description | Status |
 |---|---|---|
-| 283 | **Callers: consolidate repetitive output**: When a function is called from multiple lines in the same caller, GUI upper-middle pane shows one row per call site with no context. Interactive `/callers` shows the actual call-site code. (a) Consolidate same-caller entries with a count, expandable to show individual sites. (b) Show call-site code snippet in GUI, not just file:line. | **planned** |
-| 284 | **Click-to-function in file view**: When clicking a function name (e.g. from Near Dupes list), the bottom-middle file view should scroll to and highlight that specific function, not just show the file from the top. | **planned** |
+| 283 | **Callers: consolidate repetitive output**: Grouped by (caller, file) with expandable call sites showing source snippets. Toggle arrow and "N sites" label expand inline. Commit TBD. | done |
+| 284 | **Click-to-function in file view**: Clicking filenames in dupe/struct-diff detail views opens file scrolled to function start line with gold highlight. Commit 13c547a. | done |
 | 285 | **Side-by-side dupe comparison**: Visual comparison between two near-dupes or structural-dupes. Need an uncluttered way to create multiple instances of the lower-middle pane and arrange them. Likely add to current Window menu. | **planned, design needed** |
 | 286 | **Export/print from GUI**: Let user save or print contents of GUI panes — lists, analysis results, diagrams. CLI output can be redirected to files, but GUI users will want to save results directly. PDF export or save-as-text. | **planned** |
 | 287 | **Settings dialog**: Centralize settings like max-depth, defined-only, and other semi-global options (currently scattered or only available via CLI flags). Menu or dialog accessible from GUI. | **planned** |
+| 291 | **Per-pane text search**: Browser Ctrl+F searches the entire page, not individual panes. Add a search button or Ctrl+F override within each pane (especially the source view in middle-bottom) so user can search within one pane's content without wading through the whole screen. | **planned** |
+| 292 | **Incomplete index: load behavior**: Loading an incomplete index (missing function_index or inverted_index) currently succeeds silently but searches return 0 results. Either (a) warn user clearly on load that the index is incomplete and searches won't work, with a prompt to rebuild, or (b) auto-trigger rebuild when loading an incomplete index. | **planned** |
 
 ---
 
