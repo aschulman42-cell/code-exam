@@ -1,5 +1,5 @@
 # Code Exam (Node.js) — Master TODO List
-**Updated: 2026-03-05**
+**Updated: 2026-03-06**
 
 ---
 
@@ -81,6 +81,17 @@
 | 230 | **SimpleMasker Layer 3**: Full identifier masking (FUNC_N, PARAM_N, VAR_N, CALL_N). Ported from Python's ~400 lines of regex patterns. Deferred — even Python's --mask-all leaves hints. | **deferred** |
 | 231 | **Combined multi-function analysis**: When multisect returns 2 functions <=300 lines total, send both in one LLM call for relationship analysis. Python has _do_multisect_combined. Structure already supports arrays. Extension: also pass a top multisect hit together with its most-important callees for richer context. For local LLMs with small context windows, this may require careful token budgeting or summarize-then-combine approach. | **deferred, easy** |
 | 233 | **Prompt optimization for local models**: Local 7B models have limited context and instruction-following. May need shorter prompts, fewer numbered instructions, simpler output format. Test and iterate. | **research** |
+| 293 | **Predictive background LLM summaries**: During idle time in air-gapped operation, have the local LLM produce canned summaries of functions (and possibly classes/files) that CodeExam predicts — based on metrics like hotspots, fan-out, hub scores (#130h, #130i, #254b) — the user will later want to examine. Pre-cache these so analysis results are instant when requested. Extends the "overnight churn" vision in #200. Requires working metrics pipeline first. | **design needed, depends on #200, #130h** |
+
+---
+
+## Security & Air-Gap
+
+| # | Description | Status |
+|---|---|---|
+| 294 | **Security audit of CodeExam source**: Have Claude Code do a thorough security scan of the codebase, paying particular attention to any risk of the examined codebase leaking out if the user accidentally leaves internet access on during intended air-gapped operation. Check for telemetry, outbound requests in dependencies, DNS leaks, etc. | **important, planned** |
+| 295 | **Runtime internet-access detection and warning**: Code should periodically check whether internet access is available and, if it is, prominently warn the user and require affirmative permission to proceed when air-gapped operation was intended. Needs: (a) initial declaration of air-gapped intent — CLI `--air-gapped` flag, (b) GUI first-run dialog or setting to declare air-gapped mode, (c) periodic connectivity probe (e.g. DNS or socket check), (d) prominent banner/modal in GUI and warning in CLI when connectivity detected. | **important, design needed** |
+| 300 | **Security scan feature for user codebases**: Non-air-gapped feature — let users run a security-focused analysis of their indexed codebase. Uses existing function extraction + call graph + LLM analysis with security-focused prompts. Components: (a) curated "suspicious call" list from #221 (`eval`, `exec`, `fetch`, `dlopen`, `CreateRemoteThread`, etc.), (b) flag functions containing suspicious calls, (c) trace data flow into dangerous sinks via call graph, (d) feed flagged functions to LLM with security audit prompt, (e) report ranked by severity, (f) **structural hash matching for known-vulnerable patterns**: extend opstrings/funcstrings to generate structural hashes from binary code (port operstrings awk to JS), then match function shapes against a database of known-vulnerable function signatures — a function with the same structural shape as a known CVE target can be flagged even without source-level pattern matching. Leverages #289 (structural hashing beyond dupes) and #296 (.op file correlation). Natural companion to claim-analyze. Requires cloud LLM for best results on the LLM components; structural hash matching works offline. | **design needed, depends on #221, #289, #296** |
 
 ---
 
@@ -99,6 +110,9 @@
 | 254b | **"What should I look at first?" — orienting new users**: See [^254b]. | **research, important** |
 | 288 | **Call Inventory: filter and verbose support**: Call Inventory and external call lists should respect --filter and --verbose in the GUI, producing richer detail beyond what Most Called shows. | **planned** |
 | 289 | **Structural hashing beyond dupes**: Structural Dupes works very well. Research: apply structural hash signatures to purposes other than duplicate detection — e.g. finding functions with similar algorithmic structure across different codebases, pattern libraries, or "functions shaped like X." | **research, vague** |
+| 296 | **.op file / source-code correlation**: Currently .op files are built from binary executables in the indexed path, each binary treated as a single function. Research: correlate information in .op files with source-code files — use binary-derived info (exported symbols, strings, imports) to identify or annotate source code. Related to #4 (header file handling). | **research, vague** |
+| 297 | **Canned .op indexes for major software**: Ship CodeExam with pre-built .op indexes for major platforms (Windows, iOS, Android, etc.). Once multi-index loading and cross-index comparison are working, use these to identify/annotate functions in the user's codebase that call into or resemble platform APIs. Possible copyright concern with distributing platform-derived indexes — needs legal review. Depends on #296, #132. | **research, vague, legal review needed** |
+| 298 | **Open-source provenance detection**: Similar to #297 but for major open-source projects. Use canned indexes of well-known OSS to identify open-source provenance of functions in the codebase and surface diffs representing vendor changes. Combines structural hashing (#289) with cross-index comparison (#132). Valuable for litigation — shows what's stock OSS vs. custom. | **research, vague, depends on #289, #132** |
 
 [^130h]: **Fan-out/fan-in metrics** — Functions with high fan-out (call many diverse in-index functions) are likely orchestrators / control centers. Even if called only once, a function that calls `buildIndex`, `parseFunctions`, `writeInvertedIndex`, and `buildFunctionIndex` is clearly coordinating something important. Score: `fan_out x log(fan_in + 1)` finds the sweet spot between "calls lots of things" and "is itself called by several things." Functions that appear as intermediate nodes in many call trees (not leaves, not roots) are the connective tissue. Data available via `findCallees` (fan-out) and `findCallers` (fan-in).
 
@@ -150,3 +164,11 @@
 | 145 | **Demo commands and starter guide**: Concise set of commands that convince a new user. Candidates: --hotspots 10, --entry-points 10, --func-dupes 10. Port the demo from the Python CLI version and rewrite as a GUI-first starter doc — walkthrough of loading an index and running key features in the browser UI. | **important** |
 | 262 | **GUI test strategy**: Define approach for automated GUI testing — endpoint/API tests, browser automation, or structured manual test checklist. Currently no automated GUI tests. | **planned, important** |
 | 263 | **Key design decisions documentation**: Review and document key architectural decisions (see `DESIGN_DECISIONS.md` for current list). Ensure rationale is captured for: masking layers, term extraction decoupling, air-gapped-first principle, vocabulary inclusion of comments/strings, etc. | **planned** |
+
+---
+
+## Branding & Naming
+
+| # | Description | Status |
+|---|---|---|
+| 299 | **Rename CodeExam to CodeClaim (CodeClaim.ai)**: Likely product name change. Scope: repo name, package.json, CLI command name, GUI title/branding, documentation, README, all user-facing strings. Domain: CodeClaim.ai. | **planned, pending decision** |

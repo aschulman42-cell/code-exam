@@ -1308,6 +1308,12 @@ export async function execCommand(index, query, opts = {}) {
     },
   };
 
+  // Block shell escape (!) — safe in CLI interactive mode but dangerous
+  // when called from the web server's /api/exec endpoint.
+  if (query.trimStart().startsWith('!')) {
+    return 'Shell commands (!) are not available from the GUI console.';
+  }
+
   try {
     const result = dispatchCommand(query, ctx);
     if (result && typeof result.then === 'function') await result;

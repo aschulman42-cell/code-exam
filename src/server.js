@@ -423,6 +423,47 @@ function parseFuncSpec(spec) {
 // Helper: resolve @filepath references in text
 // ========================================================================
 
+// ========================================================================
+// Path safety: reject reads of sensitive system files from web endpoints
+// ========================================================================
+//
+// Only enforced when the server is bound to a non-localhost address
+// (--host 0.0.0.0 or similar). On localhost (default), the user already
+// has full filesystem access, so restrictions would just get in the way
+// of legitimate use (e.g. building indexes of C:\Windows or /usr/lib).
+
+const _SENSITIVE_PATHS = /^\/(etc|proc|sys|dev|var\/log|var\/run|boot|root)\b/;
+const _SENSITIVE_WIN = /^[a-z]:\\(windows|program files|programdata|users\\[^\\]+\\appdata)/i;
+const _KEY_EXTENSIONS = /\.(pem|key|pfx|p12|jks|keystore|id_rsa|id_ed25519)$/i;
+const _LOCALHOST = /^(127\.\d|localhost$|::1$)/;
+
+/**
+ * Check if a file path is safe to read from a web endpoint.
+ * Only enforced when server is network-exposed (non-localhost host).
+ * Returns { safe, reason }.
+ */
+function validateFilePath(filePath) {
+  // On localhost, allow everything — user already has shell access
+  if (_LOCALHOST.test(serverArgs.host)) {
+    return { safe: true };
+  }
+  if (!filePath || typeof filePath !== 'string') {
+    return { safe: false, reason: 'Empty path' };
+  }
+  const resolved = path.resolve(filePath);
+  if (_SENSITIVE_PATHS.test(resolved)) {
+    return { safe: false, reason: 'Access to system directory blocked (server is network-exposed)' };
+  }
+  if (_SENSITIVE_WIN.test(resolved)) {
+    return { safe: false, reason: 'Access to system directory blocked (server is network-exposed)' };
+  }
+  if (_KEY_EXTENSIONS.test(resolved)) {
+    return { safe: false, reason: 'Access to key/certificate files blocked (server is network-exposed)' };
+  }
+  return { safe: true };
+}
+
+
 /**
  * If text starts with @, treat the rest as a file path to read.
  * Returns { text, resolvedFrom } where resolvedFrom is the filepath if resolved.
@@ -434,6 +475,10 @@ function resolveAtFile(text) {
   const firstLine = lines[0].trim();
   if (firstLine.startsWith('@') && firstLine.length > 1) {
     const filePath = firstLine.slice(1).trim();
+    const pathCheck = validateFilePath(filePath);
+    if (!pathCheck.safe) {
+      return { text: trimmed, resolvedFrom: null, error: pathCheck.reason };
+    }
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
       // If there are lines after the @path, append them as additional context
@@ -470,6 +515,8 @@ routes['/api/resolve-file'] = (req, res) => {
       const params = JSON.parse(body);
       const filePath = params.path;
       if (!filePath) return errorResponse(res, 'Missing "path" parameter');
+      const pathCheck = validateFilePath(filePath);
+      if (!pathCheck.safe) return errorResponse(res, pathCheck.reason, 403);
       const content = fs.readFileSync(filePath, 'utf-8');
       jsonResponse(res, { path: filePath, content, chars: content.length });
     } catch (err) {
@@ -482,6 +529,8 @@ routes['/api/resolve-file'] = (req, res) => {
 routes['/api/scan-indexes'] = (req, res) => {
   const q = parseQuery(req.url);
   const scanDir = path.resolve(q.dir || process.cwd());
+  const pathCheck = validateFilePath(scanDir);
+  if (!pathCheck.safe) return errorResponse(res, pathCheck.reason, 403);
   const available = [];
   try {
     for (const entry of fs.readdirSync(scanDir, { withFileTypes: true })) {
@@ -547,6 +596,8 @@ routes['/api/scan-models'] = (req, res) => {
     ? path.dirname(serverLLM.defaultModelPath)
     : process.cwd();
   const scanDir = path.resolve(q.dir || defaultDir);
+  const pathCheck = validateFilePath(scanDir);
+  if (!pathCheck.safe) return errorResponse(res, pathCheck.reason, 403);
   const models = [];
   try {
     for (const entry of fs.readdirSync(scanDir, { withFileTypes: true })) {
@@ -615,6 +666,8 @@ routes['/api/switch-model'] = (req, res) => {
 routes['/api/browse-dir'] = (req, res) => {
   const q = parseQuery(req.url);
   const dirPath = path.resolve(q.path || process.cwd());
+  const pathCheck = validateFilePath(dirPath);
+  if (!pathCheck.safe) return errorResponse(res, pathCheck.reason, 403);
 
   let entries;
   try {
@@ -1044,6 +1097,8 @@ routes['/api/build-index'] = (req, res) => {
 
       // Validate path exists for non-glob, non-@file paths
       const trimmed = sourcePath.trim();
+      const pathCheck = validateFilePath(trimmed);
+      if (!pathCheck.safe) return errorResponse(res, pathCheck.reason, 403);
       const isGlob = trimmed.includes('*') || trimmed.includes('?');
       const isFileList = trimmed.startsWith('@');
       if (!isGlob && !isFileList) {
