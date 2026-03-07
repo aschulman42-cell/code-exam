@@ -30,26 +30,47 @@ const state = {
 // API layer
 // ========================================================================
 const api = {
-  async get(endpoint, params = {}) {
+  async get(endpoint, params = {}, opts = {}) {
     const qs = Object.entries(params)
       .filter(([, v]) => v != null && v !== '')
       .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
       .join('&');
     const url = `/api/${endpoint}${qs ? '?' + qs : ''}`;
-    const resp = await fetch(url);
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-    return data;
+    const timeout = opts.timeout || 300000;  // 5 min default (large indexes need time)
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      const resp = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      return data;
+    } catch (e) {
+      clearTimeout(timer);
+      if (e.name === 'AbortError') throw new Error(`Request timed out (${Math.round(timeout/1000)}s) — server may still be processing a large index scan`);
+      throw e;
+    }
   },
-  async post(endpoint, body) {
-    const resp = await fetch(`/api/${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-    return data;
+  async post(endpoint, body, opts = {}) {
+    const timeout = opts.timeout || 300000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      const resp = await fetch(`/api/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      return data;
+    } catch (e) {
+      clearTimeout(timer);
+      if (e.name === 'AbortError') throw new Error(`Request timed out (${Math.round(timeout/1000)}s) — server may still be processing`);
+      throw e;
+    }
   },
   stats:           (p) => api.get('stats', p),
   listFiles:       (p) => api.get('list-files', p),
@@ -88,7 +109,7 @@ const api = {
   browseDir:       (p) => api.get('browse-dir', p),
   indexes:         ()  => api.get('indexes'),
   scanIndexes:     (p) => api.get('scan-indexes', p),
-  loadIndex:       (p) => api.post('load-index', p),
+  loadIndex:       (p) => api.post('load-index', p, { timeout: 600000 }),  // 10 min for huge indexes
   buildIndex:      (p) => api.post('build-index', p),
   buildIndexStatus:(p) => api.get('build-index-status', p),
   fileMap:         (p) => api.get('file-map', p),
@@ -2414,7 +2435,12 @@ function initLoadIndex() {
     try {
       $('#load-index-ok').disabled = true;
       $('#load-index-ok').textContent = 'Loading...';
+      errDiv.textContent = 'Loading index — large indexes may take a minute or more...';
+      errDiv.style.color = 'var(--text-muted)';
+      errDiv.style.display = 'block';
       const result = await api.loadIndex({ path: indexPath, mode });
+      errDiv.style.display = 'none';
+      errDiv.style.color = '';
       overlay.classList.add('hidden');
 
       // Remember parent directory for scan-indexes
@@ -2441,6 +2467,7 @@ function initLoadIndex() {
         errDiv.style.display = 'block';
       }
     } catch (err) {
+      errDiv.style.color = '';
       errDiv.textContent = err.message;
       errDiv.style.display = 'block';
     } finally {

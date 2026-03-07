@@ -18,6 +18,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
+import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { displayName } from './utils.js';
@@ -1061,19 +1062,34 @@ routes['/api/load-index'] = (req, res) => {
       if (!indexPath) return errorResponse(res, 'Missing "path" in body');
       const mode = params.mode || 'replace';
       if (!fs.existsSync(indexPath)) return errorResponse(res, `Path not found: ${indexPath}`, 404);
-      // Validate index integrity before loading
-      const probe = new CodeSearchIndex({ indexPath });
-      const validation = probe.validateIndex();
-      // Block only if literal_index is missing/broken (nothing to load at all)
-      if (validation.files['literal_index.json'] !== 'ok') {
-        return errorResponse(res, `Index at ${indexPath} is unusable:\n${validation.warnings.join('\n')}`, 400);
+      // Lightweight validation: check files exist without loading the index
+      // (Loading a probe CodeSearchIndex would read the entire literal_index.json,
+      // which OOMs on huge indexes like Chromium's 5.3GB literal_index.)
+      const warnings = [];
+      const litPath = path.join(indexPath, 'literal_index.json');
+      if (!fs.existsSync(litPath)) {
+        return errorResponse(res, `Index at ${indexPath} is unusable: literal_index.json is missing`, 400);
+      }
+      try {
+        const litStat = fs.statSync(litPath);
+        if (litStat.size === 0) return errorResponse(res, `Index at ${indexPath} is unusable: literal_index.json is empty`, 400);
+      } catch (e) {
+        return errorResponse(res, `Cannot read literal_index.json: ${e.message}`, 400);
+      }
+      for (const fname of ['inverted_index.json', 'function_index.json']) {
+        const fp = path.join(indexPath, fname);
+        if (!fs.existsSync(fp)) warnings.push(`${fname} is missing`);
+        else {
+          try { if (fs.statSync(fp).size === 0) warnings.push(`${fname} is empty`); }
+          catch (_) { warnings.push(`${fname} is unreadable`); }
+        }
       }
       if (mode === 'replace') { mgr.indexes.clear(); mgr.activeIndex = null; }
       const name = mgr.load(indexPath);
       if (!name) return errorResponse(res, `No files found in index at: ${indexPath}`, 400);
       mgr.activeIndex = name;
       const resp = { loaded: name, mode, indexes: mgr.list() };
-      if (validation.warnings.length > 0) resp.warnings = validation.warnings;
+      if (warnings.length > 0) resp.warnings = warnings;
       jsonResponse(res, resp);
     } catch (err) {
       errorResponse(res, `Load error: ${err.message}`, 500);
@@ -2361,5 +2377,19 @@ server.listen(serverArgs.port, serverArgs.host, () => {
   if (serverArgs.temperature > 0) {
     console.log(`  Temperature: ${serverArgs.temperature}`);
   }
+  // Warn about heap size for large indexes
+  const totalFiles = [...mgr.indexes.values()].reduce((s, i) => s + i.files.size, 0);
+  if (totalFiles > 50000) {
+    const heapLimit = Math.round(v8.getHeapStatistics().heap_size_limit / 1024 / 1024);
+    console.log(`  Note: Large index (${totalFiles} files). Heap limit: ${heapLimit} MB.`);
+    if (heapLimit < 8192) {
+      console.log(`  Tip: For large indexes, start with: NODE_OPTIONS=--max-old-space-size=8192 node src/server.js ...`);
+    }
+  }
   console.log(`\nPress Ctrl+C to stop.\n`);
+
+  // Pre-warm note: call count scanning for large indexes (5.6M entries for Chromium)
+  // blocks the event loop for minutes, making the server unresponsive. Disabled until
+  // this can be moved to a worker thread. First metrics command will trigger the scan.
+  // TODO: move getCallCounts() to a worker thread for background pre-warm.
 });
