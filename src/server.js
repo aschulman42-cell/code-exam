@@ -433,6 +433,15 @@ function parseFuncSpec(spec) {
 // has full filesystem access, so restrictions would just get in the way
 // of legitimate use (e.g. building indexes of C:\Windows or /usr/lib).
 
+// WSL: convert Windows paths (C:\foo) to /mnt/c/foo when running under Linux
+const _isWSL = process.platform === 'linux' && fs.existsSync('/mnt/c');
+function toNativePath(p) {
+  if (_isWSL && /^[A-Za-z]:\\/.test(p)) {
+    return '/mnt/' + p[0].toLowerCase() + p.slice(2).replace(/\\/g, '/');
+  }
+  return p;
+}
+
 const _SENSITIVE_PATHS = /^\/(etc|proc|sys|dev|var\/log|var\/run|boot|root)\b/;
 const _SENSITIVE_WIN = /^[a-z]:\\(windows|program files|programdata|users\\[^\\]+\\appdata)/i;
 const _KEY_EXTENSIONS = /\.(pem|key|pfx|p12|jks|keystore|id_rsa|id_ed25519)$/i;
@@ -514,7 +523,7 @@ routes['/api/resolve-file'] = (req, res) => {
   req.on('end', () => {
     try {
       const params = JSON.parse(body);
-      const filePath = params.path;
+      const filePath = toNativePath(params.path || '');
       if (!filePath) return errorResponse(res, 'Missing "path" parameter');
       const pathCheck = validateFilePath(filePath);
       if (!pathCheck.safe) return errorResponse(res, pathCheck.reason, 403);
@@ -529,7 +538,7 @@ routes['/api/resolve-file'] = (req, res) => {
 // --- Scan for available indexes ---
 routes['/api/scan-indexes'] = (req, res) => {
   const q = parseQuery(req.url);
-  const scanDir = path.resolve(q.dir || process.cwd());
+  const scanDir = path.resolve(toNativePath(q.dir || '') || process.cwd());
   const pathCheck = validateFilePath(scanDir);
   if (!pathCheck.safe) return errorResponse(res, pathCheck.reason, 403);
   const available = [];
@@ -596,7 +605,7 @@ routes['/api/scan-models'] = (req, res) => {
   const defaultDir = serverLLM.defaultModelPath
     ? path.dirname(serverLLM.defaultModelPath)
     : process.cwd();
-  const scanDir = path.resolve(q.dir || defaultDir);
+  const scanDir = path.resolve(toNativePath(q.dir || '') || defaultDir);
   const pathCheck = validateFilePath(scanDir);
   if (!pathCheck.safe) return errorResponse(res, pathCheck.reason, 403);
   const models = [];
@@ -666,7 +675,7 @@ routes['/api/switch-model'] = (req, res) => {
 
 routes['/api/browse-dir'] = (req, res) => {
   const q = parseQuery(req.url);
-  const dirPath = path.resolve(q.path || process.cwd());
+  const dirPath = path.resolve(toNativePath(q.path || '') || process.cwd());
   const pathCheck = validateFilePath(dirPath);
   if (!pathCheck.safe) return errorResponse(res, pathCheck.reason, 403);
 
@@ -1058,7 +1067,7 @@ routes['/api/load-index'] = (req, res) => {
   req.on('end', () => {
     try {
       const params = JSON.parse(body);
-      const indexPath = params.path;
+      const indexPath = toNativePath(params.path || '');
       if (!indexPath) return errorResponse(res, 'Missing "path" in body');
       const mode = params.mode || 'replace';
       if (!fs.existsSync(indexPath)) return errorResponse(res, `Path not found: ${indexPath}`, 404);
@@ -1107,12 +1116,14 @@ routes['/api/build-index'] = (req, res) => {
   req.on('end', () => {
     try {
       const params = JSON.parse(body);
-      const { sourcePath, indexName, useTreeSitter } = params;
-      if (!sourcePath) return errorResponse(res, 'Missing "sourcePath" in body');
-      if (!indexName) return errorResponse(res, 'Missing "indexName" in body');
+      const { sourcePath: rawSourcePath, indexName: rawIndexName, useTreeSitter } = params;
+      if (!rawSourcePath) return errorResponse(res, 'Missing "sourcePath" in body');
+      if (!rawIndexName) return errorResponse(res, 'Missing "indexName" in body');
+      const sourcePath = toNativePath(rawSourcePath.trim());
+      const indexName = toNativePath(rawIndexName.trim());
 
       // Validate path exists for non-glob, non-@file paths
-      const trimmed = sourcePath.trim();
+      const trimmed = sourcePath;
       const pathCheck = validateFilePath(trimmed);
       if (!pathCheck.safe) return errorResponse(res, pathCheck.reason, 403);
       const isGlob = trimmed.includes('*') || trimmed.includes('?');

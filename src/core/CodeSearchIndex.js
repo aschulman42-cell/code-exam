@@ -1042,10 +1042,18 @@ export class CodeSearchIndex {
         console.log(`File list not found: ${listFile}`);
         return stats;
       }
+      const isWSL = process.platform === 'linux' && fs.existsSync('/mnt/c');
       const fileList = fs.readFileSync(listFile, 'utf-8')
         .split('\n')
-        .map(l => l.trim())
-        .filter(l => l && !l.startsWith('#'));
+        .map(l => l.trim().replace(/\r$/, ''))
+        .filter(l => l && !l.startsWith('#'))
+        .map(l => {
+          // Convert Windows paths to WSL /mnt/ paths when running under WSL
+          if (isWSL && /^[A-Za-z]:\\/.test(l)) {
+            return '/mnt/' + l[0].toLowerCase() + l.slice(2).replace(/\\/g, '/');
+          }
+          return l;
+        });
 
       if (fileList.length === 0) {
         console.log(`No files listed in: ${listFile}`);

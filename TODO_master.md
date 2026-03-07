@@ -53,6 +53,7 @@
 | 304 | **Text-mode file-tree (non-mermaid)**: `/file-tree` currently assumes mermaid output even when `mermaid` is not specified. Add a text-list mode: all file-to-file connections sorted by weight (heaviest first), with option to show specific func→func calls indented underneath each file pair. Useful for programmatic analysis and for codebases too large for mermaid rendering. | **planned** |
 | 305 | **`--port` in help/usage + multiple instances**: Document `--port` flag for `server.js` (e.g. `--port 3001`) in help output, with a note that multiple CodeExam instances can run simultaneously on different ports with different indexes. | **planned, easy** |
 | 306 | **Regex search: highlight matched portion**: In regex search results, the portion of the line that matched the regex should be highlighted in yellow, not just the whole line shown. Applies to both GUI and CLI (CLI could use ANSI color). | **planned** |
+| 315 | **Sync directory across Load Index / Build Index / Indexes accordion**: When user navigates to a directory in Load Index or Build Index, the Indexes accordion in the left pane should switch to show that directory too (and vice versa). Currently each has independent directory state. | **planned** |
 
 ---
 
