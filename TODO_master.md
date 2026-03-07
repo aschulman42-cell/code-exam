@@ -51,6 +51,8 @@
 | 302 | **"Show call sites" should push nav history**: In the upper-middle Function Info pane, clicking "Show all sites..." expands call sites in-place but doesn't push to the navigation stack. The ◀ back button should return to the Function Info view from which "Show all sites" was clicked. | **planned, easy** |
 | 303 | **GUI console `>file` redirection**: Interactive CLI mode supports `>file` redirection for command output, but the GUI console does not. No security reason to block it — the user already has filesystem access. Should work the same as CLI. | **planned** |
 | 304 | **Text-mode file-tree (non-mermaid)**: `/file-tree` currently assumes mermaid output even when `mermaid` is not specified. Add a text-list mode: all file-to-file connections sorted by weight (heaviest first), with option to show specific func→func calls indented underneath each file pair. Useful for programmatic analysis and for codebases too large for mermaid rendering. | **planned** |
+| 305 | **`--port` in help/usage + multiple instances**: Document `--port` flag for `server.js` (e.g. `--port 3001`) in help output, with a note that multiple CodeExam instances can run simultaneously on different ports with different indexes. | **planned, easy** |
+| 306 | **Regex search: highlight matched portion**: In regex search results, the portion of the line that matched the regex should be highlighted in yellow, not just the whole line shown. Applies to both GUI and CLI (CLI could use ANSI color). | **planned** |
 
 ---
 
@@ -145,6 +147,8 @@
 | 121 | **--most-called macro/type false positives** (STDMETHOD, HRESULT, ULONG). | important |
 | 128 | **--use-tree-sitter broken for *.py** (0 functions). Regex fallback works. | diagnostic added |
 | 290 | **Additional language parsers**: Add tree-sitter/regex hybrid support for Dart, R, Groovy, Haskell. Investigate whether CoffeeScript (.coffee) and Handlebars (.hbs) need separate handling or fall through to existing parsers. | **planned** |
+| 307 | **Include .html/.htm in default extensions**: Currently requires `--extensions htm,html` to index HTML files. CodeExam already finds functions inside `<script>` tags and identifies non-function code as "(file scope)". HTML should be in DEFAULT_EXTENSIONS. Also verify the GUI Build Index dialog respects this. | **planned, easy** |
+| 308 | **CSS indexing and cross-file correlation**: CSS files load in CLI without `--extensions` but not in GUI Build Index. Investigate: (a) CSS doesn't contain function definitions, but can it reference JS functions (e.g. in `url()`, custom properties, or animation names)? (b) Test loading CSS alongside JS and check whether any CSS→JS references get correlated in callers/call graph. (c) Ensure GUI Build Index includes CSS if CLI does. | **research** |
 
 ---
 
