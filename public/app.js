@@ -1509,9 +1509,25 @@ function isInsideComment(text, pos) {
 function linkifySourceCalls(container, contextFilepath) {
   const callPattern = /\b([a-zA-Z_]\w*)\s*\(/g;
 
+  // Detect file type to avoid false highlighting in HTML/CSS
+  const ext = contextFilepath ? contextFilepath.replace(/.*\./, '.').toLowerCase() : '';
+  const isHtml = /^\.(html?|xhtml|xml|svg|jsp|asp|php|erb|ejs|hbs|vue)$/.test(ext);
+  const isCss = /^\.(css|scss|sass|less)$/.test(ext);
+  if (isCss) return;  // CSS has no function calls to linkify
+
+  // For HTML: track whether we're inside a <script> block
+  let inScript = !isHtml;  // non-HTML files: always "in script"
+
   for (const lineEl of container.querySelectorAll('.line-content')) {
     // Get the full line text for string/comment detection
     const fullLineText = lineEl.textContent;
+
+    // HTML: track <script>/<\/script> transitions
+    if (isHtml) {
+      if (/<script[\s>]/i.test(fullLineText)) inScript = true;
+      if (/<\/script>/i.test(fullLineText)) { inScript = false; continue; }
+      if (!inScript) continue;  // skip non-script lines in HTML
+    }
 
     const walker = document.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT, null);
     const textNodes = [];

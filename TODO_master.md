@@ -177,6 +177,7 @@
 | 145 | **Demo commands and starter guide**: Concise set of commands that convince a new user. Candidates: --hotspots 10, --entry-points 10, --func-dupes 10. Port the demo from the Python CLI version and rewrite as a GUI-first starter doc — walkthrough of loading an index and running key features in the browser UI. | **important** |
 | 262 | **GUI test strategy**: Define approach for automated GUI testing — endpoint/API tests, browser automation, or structured manual test checklist. Currently no automated GUI tests. | **planned, important** |
 | 263 | **Key design decisions documentation**: Review and document key architectural decisions (see `DESIGN_DECISIONS.md` for current list). Ensure rationale is captured for: masking layers, term extraction decoupling, air-gapped-first principle, vocabulary inclusion of comments/strings, etc. | **planned** |
+| 314 | **Tests: add missing `await` on `buildIndex()` calls**: Several tests call `index.buildIndex()` without `await`. Works today because buildIndex is effectively synchronous, but any real `await` inside it (e.g. dynamic import) breaks the tests. Latent bug. | **planned, easy** |
 
 ---
 

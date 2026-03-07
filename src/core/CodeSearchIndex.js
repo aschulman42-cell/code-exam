@@ -21,6 +21,28 @@ import {
 } from '../utils.js';
 import { expandArchive, isSupportedArchive, createArchiveStats } from '../archive.js';
 import { processBinary, BINSTRING_EXTENSIONS } from '../binstrings.js';
+import { createRequire } from 'module';
+
+// js-beautify: optional dependency for prettifying minified JS during indexing
+let _jsBeautify = null;
+try {
+  const require = createRequire(import.meta.url);
+  const mod = require('js-beautify');
+  _jsBeautify = mod.js || mod;
+} catch { /* not installed — skip prettification */ }
+
+/**
+ * Detect if file content is minified (very long average line length).
+ * Returns true for .min.js files or JS/CSS with avg line > 500 chars.
+ */
+function isMinified(relPath, content) {
+  if (/\.min\.(js|css)$/i.test(relPath)) return true;
+  if (!/\.(js|css|jsx|ts|tsx)$/i.test(relPath)) return false;
+  const lines = content.split('\n').filter(l => l.length > 0);
+  if (lines.length === 0) return false;
+  const avgLen = content.length / lines.length;
+  return lines.length <= 5 && avgLen > 500;
+}
 
 
 /**
@@ -1007,7 +1029,7 @@ export class CodeSearchIndex {
    * @returns {object} stats
    */
   async buildIndex(codePath, { chunkSize = 50, showProgress = true, skipSemantic = true, demanglerPath = null, useTreeSitter = false } = {}) {
-    const stats = { files_indexed: 0, total_lines: 0, chunks_created: 0, errors: [] };
+    const stats = { files_indexed: 0, total_lines: 0, chunks_created: 0, errors: [], prettified: 0 };
     const codePathStr = codePath.trim();
 
     let files = [];
@@ -1172,7 +1194,7 @@ export class CodeSearchIndex {
     for (const filePath of sourceFiles) {
       try {
         const rawBytes = fs.readFileSync(filePath);
-        const content = rawBytes.toString('utf-8');
+        let content = rawBytes.toString('utf-8');
 
         let relPath;
         try {
@@ -1181,6 +1203,14 @@ export class CodeSearchIndex {
           relPath = path.basename(filePath);
         }
         relPath = relPath.replace(/\\/g, '/');
+
+        // Prettify minified JS/CSS so functions are parseable
+        if (_jsBeautify && isMinified(relPath, content)) {
+          try {
+            content = _jsBeautify(content, { indent_size: 2, max_preserve_newlines: 2 });
+            stats.prettified++;
+          } catch { /* beautify failed — use original */ }
+        }
 
         _addFileToIndex(relPath, content, rawBytes);
       } catch (e) {
@@ -1318,7 +1348,11 @@ export class CodeSearchIndex {
       if (totalBin > 0) {
         binNote = `, ${totalBin} binaries processed`;
       }
-      console.log(`Indexing complete: ${stats.files_indexed} files${dedupNote}${archiveNote}${binNote}, ` +
+      let prettyNote = '';
+      if (stats.prettified > 0) {
+        prettyNote = `, ${stats.prettified} minified files prettified`;
+      }
+      console.log(`Indexing complete: ${stats.files_indexed} files${dedupNote}${archiveNote}${binNote}${prettyNote}, ` +
                   `${stats.total_lines} lines, ${stats.chunks_created} chunks`);
     }
 
@@ -2563,6 +2597,8 @@ export class CodeSearchIndex {
 
     const callPattern = /(?<![a-zA-Z_])([a-zA-Z_]\w*)\s*\(/g;
     const indirectPattern = /\(\s*\*\s*([a-zA-Z_]\w*)\s*\)\s*\(/g;
+    // Event handler patterns: addEventListener('event', handler), .on('event', handler)
+    const eventHandlerPattern = /\.(?:addEventListener|on|once|removeEventListener)\s*\(\s*['"][^'"]*['"]\s*,\s*([a-zA-Z_]\w*)\b/g;
 
     let targetBare = functionName.includes('::') ? functionName.split('::').pop() : functionName;
 
@@ -2682,6 +2718,30 @@ export class CodeSearchIndex {
           resolved_def: resolved.def,
           line_number: lineNum,
           call_type: callType,
+          ambiguous: resolved.ambiguous,
+        });
+      }
+
+      // Check event handler registrations: addEventListener('event', handler)
+      eventHandlerPattern.lastIndex = 0;
+      while ((m = eventHandlerPattern.exec(line)) !== null) {
+        const handlerName = m[1];
+        if (!(handlerName in knownFunctions)) continue;
+        if (handlerName === targetBare) continue;
+        const defs = knownFunctions[handlerName];
+        const resolved = this._resolveCalleeTarget(
+          handlerName, line, callerClass, targetFilepath, defs
+        );
+        const resolvedKey = resolved.resolvedName || handlerName;
+        if (seenResolved.has(resolvedKey)) continue;
+        seenResolved.add(resolvedKey);
+        results.push({
+          name: handlerName,
+          display_name: displayName(resolved.resolvedName, resolved.def?.filepath || ''),
+          definitions: defs,
+          resolved_def: resolved.def,
+          line_number: lineNum,
+          call_type: 'event-handler',
           ambiguous: resolved.ambiguous,
         });
       }
@@ -2994,6 +3054,8 @@ export class CodeSearchIndex {
     const simpleCall = /(?<![a-zA-Z_])(\w+)\s*\(/g;
     const qualifiedCall = /((?:\w+::)+\w+)\s*\(/g;
     const memberCall = /(?:\.|->\s*)(\w+)\s*\(/g;
+    // Event handler registrations: addEventListener('event', handler)
+    const eventHandler = /\.(?:addEventListener|on|once)\s*\(\s*['"][^'"]*['"]\s*,\s*([a-zA-Z_]\w*)\b/g;
 
     const skipKeywords = new Set([
       'if', 'while', 'for', 'switch', 'catch', 'return', 'sizeof',
@@ -3058,6 +3120,15 @@ export class CodeSearchIndex {
         if (pos >= 1 && line[pos - 1] === '.') continue;
         if (pos >= 2 && line.slice(pos - 2, pos) === '->') continue;
         counts[funcName] = (counts[funcName] || 0) + totalLocations;
+      }
+
+      // Event handler registrations: handler name passed as callback argument
+      eventHandler.lastIndex = 0;
+      while ((m = eventHandler.exec(line)) !== null) {
+        const funcName = m[1];
+        if (!skipKeywords.has(funcName)) {
+          counts[funcName] = (counts[funcName] || 0) + totalLocations;
+        }
       }
     }, showProgress, true); // lazy=true: skip full JSON parse
 
