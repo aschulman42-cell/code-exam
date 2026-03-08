@@ -1,5 +1,5 @@
 # Code Exam (Node.js) — Master TODO List
-**Updated: 2026-03-06**
+**Updated: 2026-03-07**
 
 ---
 
@@ -29,7 +29,7 @@
 
 | # | Description | Status |
 |---|---|---|
-| 270 | **Build Index: extension control**: CLI supports `--exclude-extensions` and `--ext` (include) but the GUI Build Index dialog doesn't expose either. Dialog should (a) show which extensions will be included by default, (b) let user add extensions to include (like `--ext .coffee`), and (c) let user exclude extensions (like `--exclude-extensions .xml,.html`). | **planned** |
+| 270 | **Build Index: extension control**: Include/exclude extension fields added to Build Index dialog. Commit 79603e6. | done |
 | 271 | **Claim-analyze progress in Analysis pane**: CLI shows `[Step 1/4]` through `[Step 4/4]` with engine names, search summary, match counts. GUI doesn't show this progress. Subsumes #251 (progress appears in wrong pane). | **planned** |
 | 252 | **Separate term-extraction engine from analysis engine**: Allow different LLMs for the two claim-analyze steps. **CLI**: add `--term-llm` and `--analyze-llm` flags that override `--engine` for each step independently. **GUI**: add a second engine dropdown or split into "Term Extraction Engine" and "Analysis Engine". | **design needed** |
 | 282 | **Scan-extensions in GUI**: CLI has scan-extensions (inventory of file extensions in a directory tree, sorted most-to-least). Expose in GUI near Build Index, so user can see what's in the target directory before building an index. Helps inform #270 extension choices. | **planned** |
@@ -54,6 +54,7 @@
 | 305 | **`--port` in help/usage + multiple instances**: Document `--port` flag for `server.js` (e.g. `--port 3001`) in help output, with a note that multiple CodeExam instances can run simultaneously on different ports with different indexes. | **planned, easy** |
 | 306 | **Regex search: highlight matched portion**: In regex search results, the portion of the line that matched the regex should be highlighted in yellow, not just the whole line shown. Applies to both GUI and CLI (CLI could use ANSI color). | **planned** |
 | 315 | **Sync directory across Load Index / Build Index / Indexes accordion**: When user navigates to a directory in Load Index or Build Index, the Indexes accordion in the left pane should switch to show that directory too (and vice versa). Currently each has independent directory state. | **planned** |
+| 316 | **Class info in middle panes on click**: Clicking a class name in the Classes accordion unfurls the method sublist but doesn't show class info in the upper/lower middle panes. Should show: class definition source in lower middle pane, and class info (file, line range, inheritance, method count/list) in upper middle pane. Especially important when class has 0 methods — currently gives no feedback at all. | **planned** |
 
 ---
 
@@ -146,15 +147,15 @@
 | 110 | **Partial path matching**: needs consistency audit across all commands. | needs audit |
 | 120 | **Header declarations parsed as definitions** (huge false positives in .h). | important |
 | 121 | **--most-called macro/type false positives** (STDMETHOD, HRESULT, ULONG). | important |
-| 128 | **--use-tree-sitter broken for *.py** (0 functions). Regex fallback works. | diagnostic added |
+| 128 | **--use-tree-sitter broken for *.py** (0 functions). Regex fallback works. Tree-sitter import fixed to use `createRequire` (commit 79603e6) so it resolves from package dir, not cwd. Python issue may still exist. | diagnostic added, import fixed |
 | 290 | **Additional language parsers**: Add tree-sitter/regex hybrid support for Dart, R, Groovy, Haskell. Investigate whether CoffeeScript (.coffee) and Handlebars (.hbs) need separate handling or fall through to existing parsers. | **planned** |
 | 307 | **Include .html/.htm in default extensions**: Currently requires `--extensions htm,html` to index HTML files. CodeExam already finds functions inside `<script>` tags and identifies non-function code as "(file scope)". HTML should be in DEFAULT_EXTENSIONS. Also verify the GUI Build Index dialog respects this. | **planned, easy** |
 | 308 | **CSS indexing and cross-file correlation**: CSS files load in CLI without `--extensions` but not in GUI Build Index. Investigate: (a) CSS doesn't contain function definitions, but can it reference JS functions (e.g. in `url()`, custom properties, or animation names)? (b) Test loading CSS alongside JS and check whether any CSS→JS references get correlated in callers/call graph. (c) Ensure GUI Build Index includes CSS if CLI does. | **research** |
-| 309 | **False function-name highlighting in HTML/CSS**: When showing an HTML or CSS file, CodeExam highlights words that happen to match function names even in comments, attribute values, or other contexts that clearly aren't function calls. Need context-aware highlighting that only linkifies plausible call sites. | **planned** |
+| 309 | **False function-name highlighting in HTML/CSS**: CSS files: skip linkification entirely. HTML files: only linkify inside `<script>` blocks. Commit e0bb544. | done |
 | 310 | **HTML↔JS ID cross-referencing**: In HTML files, element IDs (e.g. `id="fs-save-png"`) should be correlated with JS references to those IDs (e.g. `$('#fs-save-png')`). Show the connection in callers/callees or a new "references" view. | **design needed** |
-| 311 | **Event-driven function call detection**: `addEventListener('click', handler)`, jQuery `.on()`, and similar patterns should treat the handler argument as a function call/reference. Currently these may not appear in callers/callees. Also audit how arrow-function callbacks like `addEventListener('click', () => saveDiagramPng(...))` are handled for Entry Points and Gaps — the inner call should be tracked, and the event binding itself may create implicit entry points. | **important, design needed** |
+| 311 | **Event-driven function call detection**: Added regex for `addEventListener`/`.on()`/`.once()` with named handler callbacks in both `findCallees()` (call_type `event-handler`) and `getCallCounts()`. Arrow callbacks like `() => doSomething()` — the inner call is already caught by existing patterns. Commit e0bb544. Remaining: audit Entry Points/Gaps implications, jQuery `.on()` with object syntax. | **partially done** |
 | 312 | **CSS class ↔ JS correlation**: CSS class selectors (e.g. `.src-fn-link { ... }`) should be correlated with JS that references them (e.g. `span.className = 'src-fn-link'`). This is a cross-language string-based reference, not a function call, but valuable for understanding UI wiring. Related to #310 (HTML↔JS IDs). | **design needed** |
-| 313 | **Minified JS: prettifier/deobfuscator**: When loading minified JS (e.g. `mermaid.min.js`), run through `js-beautify` (npm, pure JS, zero native deps) before indexing so code is readable and functions are parseable. Detect `.min.js` or files with very long average line length. For deobfuscation beyond prettifying: JSNice (ETH Zurich, C++ server via Nice2Predict) is not callable from JS directly; better options: **webcrack** (npm, JS-native, handles webpack bundles + deobfuscation), **wakaru** (JS-native deobfuscator), or feed prettified code through local LLM for name recovery (ties into #200/#293). js-beautify first, deobfuscation later. | **planned (js-beautify soon), research (deobfuscation)** |
+| 313 | **Minified JS: prettifier/deobfuscator**: js-beautify integrated — detects `.min.js` or JS/CSS with very long avg lines, prettifies before indexing. Commit e0bb544. Deobfuscation research: **webcrack** (npm, JS-native, webpack bundles), **wakaru** (JS-native), or local LLM for name recovery (#200/#293). | **done (js-beautify), research (deobfuscation)** |
 
 ---
 
