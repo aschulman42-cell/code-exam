@@ -522,6 +522,9 @@ export class CodeSearchIndex {
     ];
 
     const cLikePatterns = [
+      // Google Test macros: TEST_P(Suite, Name), TEST_F(Suite, Name), TEST(Suite, Name), etc.
+      // Treated as functions named Suite::Name (like class methods)
+      [/^\s*(?:TEST_F|TEST_P|TEST|TYPED_TEST|TYPED_TEST_P|TYPED_TEST_SUITE|TEST_CASE)\s*\(\s*(\w+)\s*,\s*(\w+)/, 'function', -1],
       // C++ constructor: ClassName::ClassName(args) {
       [/^\s*([\w]+::[\w]+)\s*\([^;]*\)\s*(?::\s*[\w()\s,]+)?\s*\{?\s*$/, 'function', 1],
       // C++ destructor: ClassName::~ClassName() {
@@ -536,10 +539,11 @@ export class CodeSearchIndex {
       //   ClassName::MethodName(args) const {\n
       // Matches: Qualified::Name( at start of line (not preceded by = or return etc.)
       [/^([\w]+(?:::[\w~]+)+)\s*\(/, 'function', 1],
-      // Plain C function: ReturnType funcname(args) {  (all on one line)
-      [/^[a-zA-Z_][\w\s*&]*\s+(\w+)\s*\([^;]*\)\s*\{?\s*$/, 'function', 1],
+      // Plain C function / inline class method: ReturnType funcname(args) {
+      // Allow :: in return type for qualified types like cc::Layer*
+      [/^\s*[a-zA-Z_][\w\s*&:<>,]*\s+(\w+)\s*\([^;]*\)\s*\{?\s*$/, 'function', 1],
       // Plain C function: ReturnType funcname( with args on next line(s)
-      [/^[a-zA-Z_][\w\s*&]*\s+(\w+)\s*\([^);]*$/, 'function', 1],
+      [/^\s*[a-zA-Z_][\w\s*&:<>,]*\s+(\w+)\s*\([^);]*$/, 'function', 1],
       // C++ class/struct - skip export macros like CC_EXPORT, BLINK_EXPORT, COMPONENT_EXPORT(viz)
       // Export macros are ALL_CAPS words containing underscore, optionally with (args)
       [/^\s*(?:template\s*<[^>]*>\s*)?class\s+(?:[A-Z][A-Z0-9]*_[A-Z0-9_]*(?:\([^)]*\))?\s+)*(\w+)/, 'class', 1],
@@ -745,7 +749,8 @@ export class CodeSearchIndex {
         const match = line.match(regex);
         if (!match) continue;
 
-        let name = match[nameGroup];
+        // nameGroup -1: composite name from groups 1+2 (e.g. TEST_P(Suite, Name) → Suite::Name)
+        let name = nameGroup === -1 ? (match[1] + '::' + match[2]) : match[nameGroup];
         if (!name || CodeSearchIndex.SKIP_KEYWORDS.has(name)) continue;
 
         // Close previous function at line before this one
