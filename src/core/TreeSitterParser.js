@@ -11,6 +11,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,8 +66,10 @@ export class TreeSitterParser {
   async init() {
     if (this._initialized) return true;
     try {
-      const mod = await import('web-tree-sitter');
-      const ParserClass = mod.Parser || mod.default;
+      // Use createRequire to resolve from this file's directory, not cwd
+      const require = createRequire(import.meta.url);
+      const mod = require('web-tree-sitter');
+      const ParserClass = mod.Parser || mod.default || mod;
       if (!ParserClass) throw new Error('No Parser class found in web-tree-sitter');
       await ParserClass.init();
       this._Parser = ParserClass;

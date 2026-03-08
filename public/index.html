@@ -369,6 +369,10 @@
         </div>
         <label>Index name (output directory):</label>
         <input type="text" id="build-index-name" placeholder=".index_of_mycode" spellcheck="false" style="margin-top:0;margin-bottom:8px">
+        <label>Include extensions (comma-separated, blank = defaults):</label>
+        <input type="text" id="build-index-ext" placeholder=".cc,.h,.cpp,.js,.py  (blank = all defaults)" spellcheck="false" style="margin-top:0;margin-bottom:4px;font-size:12px">
+        <label>Exclude extensions (comma-separated):</label>
+        <input type="text" id="build-index-exclude-ext" placeholder=".html,.png,.txt,.svg" spellcheck="false" style="margin-top:0;margin-bottom:8px;font-size:12px">
         <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:12px;cursor:pointer">
           <input type="checkbox" id="build-index-tree-sitter"> Use tree-sitter parsing (more accurate)
         </label>

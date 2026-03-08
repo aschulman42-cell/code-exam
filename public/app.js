@@ -2772,7 +2772,9 @@ function initBuildIndex() {
       statusDiv.style.color = 'var(--text-muted)';
 
       const useTreeSitter = $('#build-index-tree-sitter')?.checked || false;
-      const { jobId } = await api.buildIndex({ sourcePath, indexName, useTreeSitter });
+      const extInclude = $('#build-index-ext')?.value.trim() || '';
+      const extExclude = $('#build-index-exclude-ext')?.value.trim() || '';
+      const { jobId } = await api.buildIndex({ sourcePath, indexName, useTreeSitter, extensions: extInclude, excludeExtensions: extExclude });
 
       // Poll for progress
       buildPollTimer = setInterval(async () => {

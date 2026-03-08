@@ -6,7 +6,7 @@
 import { parentPort, workerData } from 'worker_threads';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 
-const { sourcePath, indexPath, useTreeSitter } = workerData;
+const { sourcePath, indexPath, useTreeSitter, extensions, excludeExtensions } = workerData;
 
 // Intercept console.log and stdout.write to capture progress
 const origLog = console.log;
@@ -27,7 +27,30 @@ process.stdout.write = (chunk, ...rest) => {
 
 (async () => {
   try {
-    const idx = new CodeSearchIndex({ indexPath });
+    // Parse extension include/exclude lists
+    let customExtensions = null;
+    if (extensions) {
+      customExtensions = new Set(
+        extensions.split(',').map(e => { e = e.trim(); return e.startsWith('.') ? e : '.' + e; })
+      );
+    }
+    let excludeCompound = null;
+    if (excludeExtensions) {
+      if (!customExtensions) {
+        customExtensions = new Set(CodeSearchIndex.DEFAULT_EXTENSIONS);
+      }
+      for (let ext of excludeExtensions.split(',')) {
+        ext = ext.trim().toLowerCase();
+        if (!ext.startsWith('.')) ext = '.' + ext;
+        customExtensions.delete(ext);
+        if ((ext.match(/\./g) || []).length > 1) {
+          if (!excludeCompound) excludeCompound = new Set();
+          excludeCompound.add(ext);
+        }
+      }
+    }
+
+    const idx = new CodeSearchIndex({ indexPath, extensions: customExtensions, excludeCompound });
     const stats = await idx.buildIndex(sourcePath, {
       showProgress: true,
       skipSemantic: true,

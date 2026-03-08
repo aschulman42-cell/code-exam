@@ -1116,11 +1116,17 @@ routes['/api/build-index'] = (req, res) => {
   req.on('end', () => {
     try {
       const params = JSON.parse(body);
-      const { sourcePath: rawSourcePath, indexName: rawIndexName, useTreeSitter } = params;
+      const { sourcePath: rawSourcePath, indexName: rawIndexName, useTreeSitter, extensions, excludeExtensions } = params;
       if (!rawSourcePath) return errorResponse(res, 'Missing "sourcePath" in body');
       if (!rawIndexName) return errorResponse(res, 'Missing "indexName" in body');
-      const sourcePath = toNativePath(rawSourcePath.trim());
-      const indexName = toNativePath(rawIndexName.trim());
+      let sourcePath = rawSourcePath.trim();
+      // Convert Windows paths, preserving @ prefix for file lists
+      if (sourcePath.startsWith('@')) {
+        sourcePath = '@' + toNativePath(sourcePath.slice(1));
+      } else {
+        sourcePath = toNativePath(sourcePath);
+      }
+      const indexName = toNativePath(rawIndexName);
 
       // Validate path exists for non-glob, non-@file paths
       const trimmed = sourcePath;
@@ -1141,7 +1147,7 @@ routes['/api/build-index'] = (req, res) => {
       // Run the build in a Worker thread so the event loop stays responsive
       const workerPath = path.join(__dirname, 'build-worker.js');
       const worker = new Worker(workerPath, {
-        workerData: { sourcePath, indexPath: resolvedIndex, useTreeSitter: useTreeSitter || false }
+        workerData: { sourcePath, indexPath: resolvedIndex, useTreeSitter: useTreeSitter || false, extensions: extensions || '', excludeExtensions: excludeExtensions || '' }
       });
 
       const job = buildJobs.get(jobId);
