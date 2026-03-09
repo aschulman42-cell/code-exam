@@ -445,7 +445,7 @@ describe('Phase 3: Metrics / Discovery', () => {
 
     // Check score formula
     for (const d of domain) {
-      const expected = d.calls * Math.log2(Math.max(d.lines, 2)) / Math.sqrt(Math.max(d.name_count, 1));
+      const expected = d.calls * Math.sqrt(Math.max(d.lines, 5)) / Math.sqrt(Math.max(d.name_count, 1));
       assert.ok(Math.abs(d.score - expected) < 0.01, `Score mismatch for ${d.name}`);
     }
   });

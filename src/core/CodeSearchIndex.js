@@ -3794,7 +3794,10 @@ export class CodeSearchIndex {
       const key = `${f.filepath}|${f.name}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      if (f.lines < 2) continue;
+      // Ad hoc: skip very small functions (trivial accessors/getters) to reduce
+      // noise in Domain Functions. Threshold and scoring formula should be revisited
+      // — see TODO #254b for deeper approaches (fan-out, PageRank, UI-structure).
+      if (f.lines < 5) continue;
 
       let bare = f.name.includes('::') ? f.name.split('::').pop() : f.name;
       if (bare.includes('@')) bare = bare.split('@')[0];
@@ -3803,7 +3806,9 @@ export class CodeSearchIndex {
       if (callCount < 1) continue;
 
       const nameCount = bareNameCounts[bare] || 1;
-      const score = callCount * Math.log2(Math.max(f.lines, 2)) / Math.sqrt(Math.max(nameCount, 1));
+      // Weight size more heavily: sqrt(lines) instead of log2(lines) so that
+      // 200-line functions score ~7x higher than 10-line functions (vs ~4x with log2)
+      const score = callCount * Math.sqrt(Math.max(f.lines, 5)) / Math.sqrt(Math.max(nameCount, 1));
 
       scored.push({
         name: f.name,
