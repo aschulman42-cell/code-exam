@@ -560,7 +560,7 @@ export class CodeSearchIndex {
     const jsPatterns = [
       [/^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)/, 'function', 1],
       [/^\s*(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\([^)]*\)\s*=>/, 'function', 1],
-      [/^\s*(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?function/, 'function', 1],
+      [/^\s*(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?function\b/, 'function', 1],
       // Class method shorthand
       [/^\s*(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?(\w+)\s*\([^)]*\)\s*\{\s*$/, 'function', 1],
       [/^\s*(?:export\s+)?(?:default\s+)?class\s+(\w+)/, 'class', 1],
