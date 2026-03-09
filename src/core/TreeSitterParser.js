@@ -257,6 +257,20 @@ export class TreeSitterParser {
           } else {
             walk(child, scopeStack);
           }
+        } else if (type === 'expression_statement' || type === 'declaration') {
+          // Google Test macros: TEST_P(Suite, Name) { ... }
+          // tree-sitter sees these as expressions/declarations, not function_definitions
+          const lineText = child.startPosition.row < sourceLines.length
+            ? sourceLines[child.startPosition.row] : '';
+          const testMatch = lineText.match(
+            /^\s*(?:TEST_F|TEST_P|TEST|TYPED_TEST|TYPED_TEST_P|TYPED_TEST_SUITE|TEST_CASE)\s*\(\s*(\w+)\s*,\s*(\w+)/
+          );
+          if (testMatch) {
+            const fullName = testMatch[1] + '::' + testMatch[2];
+            this._addFunction(result, fullName, startLine, endLine, 'function');
+          } else {
+            walk(child, scopeStack);
+          }
         } else if (type === 'function_definition') {
           const declarator = child.childForFieldName('declarator');
           const funcName = this._extractCFuncName(declarator);
