@@ -66,6 +66,7 @@
 | 141 | **Python import aliasing**: `from os.path import join` — we don't track aliases. | planned |
 | 142 | **Implicit class context**: `this.foo()` in Java, `self.method()` in Python — resolution to ClassName.method(). | planned |
 | 210 | **Search case sensitivity**: (a) User may want opt-in case-sensitive search; (b) audit code for unintentional case sensitivities in search paths. | **planned** |
+| 318 | **`--expand`: vocabulary-assisted term expansion for multisect search**: User searches for "multiple;search;term;single;function" but code calls it "multisect" — a word they'd never guess. `--expand` flag sends user's terms through LLM with codebase vocabulary to suggest additional/replacement terms from the vocabulary that relate to the user's concepts. Same pipeline as claim-search term extraction but starting from user search terms instead of patent claims. Applies to `--multisect-search` and `--multisect-analyze`. **GUI**: add "Expand with vocabulary" checkbox in Claim/Multisect Workspace (alongside existing "No Vocabulary"). Also expose `--vocab-tight` in GUI as a checkbox. | **design needed, important** |
 
 ---
 
