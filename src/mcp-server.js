@@ -276,43 +276,43 @@ function handleTool(name, args) {
     case 'search': {
       const query = args.query;
       const max = args.max || 25;
-      const results = index.search(query, max);
+      const results = index.searchLiteral(query, { maxResults: max, contextLines: 0 });
       if (results.length === 0) return `No results for "${query}"`;
       return results.map(r =>
-        `${r.filepath}:${r.line_number}  ${r.line_text.trim()}` +
-        (r.function_name ? `  (in ${r.function_name})` : '')
+        `${r.filePath}:${r.lineNumber}  ${r.lineText}` +
+        (r.functionName ? `  (in ${r.functionName})` : '')
       ).join('\n');
     }
 
     case 'regex_search': {
       const max = args.max || 25;
-      let re;
-      try { re = new RegExp(args.pattern, 'i'); } catch (e) {
-        return `Invalid regex: ${e.message}`;
-      }
-      const results = index.regexSearch(re, max);
+      const results = index.searchLiteral(args.pattern, { useRegex: true, maxResults: max, contextLines: 0 });
       if (results.length === 0) return `No results for /${args.pattern}/`;
       return results.map(r =>
-        `${r.filepath}:${r.line_number}  ${r.line_text.trim()}` +
-        (r.function_name ? `  (in ${r.function_name})` : '')
+        `${r.filePath}:${r.lineNumber}  ${r.lineText}` +
+        (r.functionName ? `  (in ${r.functionName})` : '')
       ).join('\n');
     }
 
     case 'multisect_search': {
       const terms = parseMultisectTerms(args.terms);
+      if (!terms || terms.length === 0) return `No valid terms parsed from: ${args.terms}`;
+      const positiveCount = terms.filter(t => !t.negated).length;
       const minPct = (args.min_terms || 80) / 100;
       const max = args.max || 25;
-      const minTerms = Math.max(1, Math.ceil(terms.length * minPct));
-      const results = index.multisectSearch(terms, { minTerms, maxResults: max });
-      if (!results || results.functions.length === 0) return `No functions match all terms: ${args.terms}`;
-      const lines = [`Found ${results.functions.length} function matches:`];
-      for (const f of results.functions.slice(0, max)) {
-        lines.push(`  ${f.name}  ${f.filepath}  (${f.matchedTerms}/${terms.length} terms, ${f.lines}L)`);
+      const minTerms = Math.max(1, Math.ceil(positiveCount * minPct));
+      const results = index.multisectSearch(terms, { minTerms });
+      if (!results || !results.function_matches || results.function_matches.length === 0) {
+        return `No functions match terms: ${args.terms}`;
       }
-      if (results.files && results.files.length > 0) {
+      const lines = [`Found ${results.function_matches.length} function matches:`];
+      for (const f of results.function_matches.slice(0, max)) {
+        lines.push(`  ${f.name}  ${f.filepath}  (${f.terms_matched}/${positiveCount} terms, ${f.lines}L)`);
+      }
+      if (results.file_matches && results.file_matches.length > 0) {
         lines.push(`\nTop file matches:`);
-        for (const f of results.files.slice(0, 10)) {
-          lines.push(`  ${f.filepath}  (${f.matchedTerms}/${terms.length} terms)`);
+        for (const f of results.file_matches.slice(0, 10)) {
+          lines.push(`  ${f.filepath}  (${f.terms_matched}/${positiveCount} terms)`);
         }
       }
       return lines.join('\n');
