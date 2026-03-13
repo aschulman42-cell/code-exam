@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CodeExam Chat</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column;
+    }
+    header {
+      padding: 12px 20px; background: #16213e; border-bottom: 1px solid #0f3460;
+      display: flex; align-items: center; gap: 12px;
+    }
+    header h1 { font-size: 16px; font-weight: 600; color: #e94560; }
+    header .status { font-size: 12px; color: #888; }
+
+    #messages {
+      flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px;
+    }
+
+    .msg { max-width: 85%; padding: 12px 16px; border-radius: 12px; line-height: 1.5; }
+    .msg.user {
+      align-self: flex-end; background: #0f3460; color: #fff; border-bottom-right-radius: 4px;
+    }
+    .msg.assistant {
+      align-self: flex-start; background: #222244; border-bottom-left-radius: 4px;
+    }
+    .msg.assistant pre {
+      background: #1a1a2e; padding: 8px 12px; border-radius: 6px; overflow-x: auto;
+      font-size: 13px; margin: 8px 0; white-space: pre-wrap; word-break: break-word;
+    }
+    .msg.assistant code {
+      background: #1a1a2e; padding: 1px 5px; border-radius: 3px; font-size: 13px;
+    }
+    .msg.error { background: #4a1525; color: #ff6b8a; }
+
+    .tool-call {
+      margin: 8px 0; border: 1px solid #0f3460; border-radius: 8px; overflow: hidden;
+    }
+    .tool-header {
+      padding: 8px 12px; background: #0f3460; cursor: pointer; font-size: 13px;
+      display: flex; justify-content: space-between; align-items: center; user-select: none;
+    }
+    .tool-header:hover { background: #1a4a7a; }
+    .tool-name { color: #e94560; font-weight: 600; }
+    .tool-args { color: #aaa; font-size: 12px; margin-left: 8px; }
+    .tool-toggle { color: #888; font-size: 11px; }
+    .tool-body {
+      display: none; padding: 10px 12px; background: #1a1a2e; font-size: 13px;
+      white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto;
+    }
+    .tool-body.open { display: block; }
+
+    .thinking {
+      align-self: flex-start; padding: 12px 16px; color: #888; font-style: italic;
+    }
+    .thinking .dots { display: inline-block; }
+    .thinking .dots::after { content: ''; animation: dots 1.5s steps(4,end) infinite; }
+    @keyframes dots {
+      0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; }
+    }
+
+    #input-area {
+      padding: 16px 20px; background: #16213e; border-top: 1px solid #0f3460;
+      display: flex; gap: 10px;
+    }
+    #input {
+      flex: 1; padding: 10px 14px; border: 1px solid #0f3460; border-radius: 8px;
+      background: #1a1a2e; color: #e0e0e0; font-size: 14px; font-family: inherit;
+      outline: none; resize: none;
+    }
+    #input:focus { border-color: #e94560; }
+    #send {
+      padding: 10px 20px; border: none; border-radius: 8px; background: #e94560;
+      color: #fff; font-size: 14px; cursor: pointer; font-weight: 600;
+    }
+    #send:hover { background: #ff6b8a; }
+    #send:disabled { background: #555; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>CodeExam Chat</h1>
+  <span class="status" id="status">Connecting...</span>
+</header>
+
+<div id="messages"></div>
+
+<div id="input-area">
+  <textarea id="input" rows="1" placeholder="Ask about the codebase..." autofocus></textarea>
+  <button id="send">Send</button>
+</div>
+
+<script>
+// State
+const messages = [];      // Anthropic message format sent to server
+const messagesEl = document.getElementById('messages');
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+const statusEl = document.getElementById('status');
+let busy = false;
+
+// Fetch tools on load
+fetch('/api/tools')
+  .then(r => r.json())
+  .then(tools => { statusEl.textContent = `${tools.length} tools available`; })
+  .catch(() => { statusEl.textContent = 'Failed to connect'; });
+
+// Auto-resize textarea
+inputEl.addEventListener('input', () => {
+  inputEl.style.height = 'auto';
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 150) + 'px';
+});
+
+// Send on Enter (Shift+Enter for newline)
+inputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
+sendBtn.addEventListener('click', send);
+
+async function send() {
+  const text = inputEl.value.trim();
+  if (!text || busy) return;
+
+  busy = true;
+  sendBtn.disabled = true;
+  inputEl.value = '';
+  inputEl.style.height = 'auto';
+
+  // Add user message
+  messages.push({ role: 'user', content: text });
+  appendMsg('user', text);
+
+  // Show thinking indicator
+  const thinkingEl = document.createElement('div');
+  thinkingEl.className = 'thinking';
+  thinkingEl.innerHTML = 'Thinking<span class="dots"></span>';
+  messagesEl.appendChild(thinkingEl);
+  scrollBottom();
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages }),
+    });
+
+    thinkingEl.remove();
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      appendMsg('error', `Error: ${err.error}`);
+      messages.pop(); // remove failed user msg
+      return;
+    }
+
+    const data = await res.json();
+    const content = data.content;
+
+    // Display assistant response
+    displayAssistantContent(content);
+
+    // Add assistant message to history (text only, tools are handled server-side)
+    messages.push({ role: 'assistant', content: extractTextContent(content) });
+
+  } catch (err) {
+    thinkingEl.remove();
+    appendMsg('error', `Network error: ${err.message}`);
+    messages.pop();
+  } finally {
+    busy = false;
+    sendBtn.disabled = false;
+    inputEl.focus();
+  }
+}
+
+function displayAssistantContent(blocks) {
+  const container = document.createElement('div');
+  container.className = 'msg assistant';
+
+  for (const block of blocks) {
+    if (block.type === 'text') {
+      const div = document.createElement('div');
+      div.innerHTML = renderMarkdown(block.text);
+      container.appendChild(div);
+    } else if (block.type === 'tool_use') {
+      const toolEl = createToolCallEl(block);
+      container.appendChild(toolEl);
+    }
+  }
+
+  messagesEl.appendChild(container);
+  scrollBottom();
+}
+
+function createToolCallEl(block) {
+  const el = document.createElement('div');
+  el.className = 'tool-call';
+
+  const argsStr = Object.entries(block.input || {})
+    .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+    .join(', ');
+
+  const header = document.createElement('div');
+  header.className = 'tool-header';
+  header.innerHTML = `
+    <span><span class="tool-name">${block.name}</span><span class="tool-args">${argsStr}</span></span>
+    <span class="tool-toggle">expand</span>
+  `;
+
+  const body = document.createElement('div');
+  body.className = 'tool-body';
+  body.textContent = block._result || '(no result captured)';
+
+  header.addEventListener('click', () => {
+    body.classList.toggle('open');
+    header.querySelector('.tool-toggle').textContent = body.classList.contains('open') ? 'collapse' : 'expand';
+  });
+
+  el.appendChild(header);
+  el.appendChild(body);
+  return el;
+}
+
+function extractTextContent(blocks) {
+  return blocks
+    .filter(b => b.type === 'text')
+    .map(b => b.text)
+    .join('\n');
+}
+
+function appendMsg(role, text) {
+  const el = document.createElement('div');
+  el.className = `msg ${role}`;
+  if (role === 'user') {
+    el.textContent = text;
+  } else {
+    el.innerHTML = renderMarkdown(text);
+  }
+  messagesEl.appendChild(el);
+  scrollBottom();
+}
+
+function renderMarkdown(text) {
+  // Minimal markdown: code blocks, inline code, bold, newlines
+  return text
+    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+}
+
+function scrollBottom() {
+  requestAnimationFrame(() => {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  });
+}
+</script>
+</body>
+</html>
