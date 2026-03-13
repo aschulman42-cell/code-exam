@@ -145,7 +145,8 @@ async function chatWithLocalModel(userMessage) {
       description: tool.description,
       params: tool.inputSchema,
       async handler(params) {
-        console.log(`  tool: ${tool.name}(${JSON.stringify(params)})`);
+        const toolStart = Date.now();
+        console.log(`  [tool] ${tool.name}(${JSON.stringify(params).slice(0, 200)})`);
         try {
           const result = await mcpClient.callTool({
             name: tool.name,
@@ -155,6 +156,7 @@ async function chatWithLocalModel(userMessage) {
             .filter(c => c.type === 'text')
             .map(c => c.text)
             .join('\n');
+          console.log(`  [tool] ${tool.name} → ${text.length} chars (${((Date.now() - toolStart) / 1000).toFixed(1)}s)`);
           toolCalls.push({ name: tool.name, input: params, result: text });
           return text;
         } catch (err) {
@@ -167,7 +169,29 @@ async function chatWithLocalModel(userMessage) {
   }
 
   try {
-    const response = await session.prompt(userMessage, { functions, maxTokens: 2048 });
+    // Stream tokens to stdout for visibility while waiting
+    let inThink = false;
+    let thinkBuffer = '';
+    const response = await session.prompt(userMessage, {
+      functions,
+      maxTokens: 2048,
+      onTextChunk: (text) => {
+        // Detect <think>...</think> blocks (Qwen 3 chain-of-thought)
+        if (text.includes('<think>')) { inThink = true; thinkBuffer = ''; }
+        if (inThink) {
+          thinkBuffer += text;
+          // Print thinking tokens in dim
+          process.stderr.write(`\x1b[2m${text}\x1b[0m`);
+          if (text.includes('</think>')) {
+            inThink = false;
+            process.stderr.write('\n');
+          }
+        } else {
+          process.stderr.write(text);
+        }
+      },
+    });
+    process.stderr.write('\n');  // newline after streaming
     session.dispose();
     sequence.dispose();
 
@@ -296,8 +320,10 @@ app.post('/api/chat', async (req, res) => {
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'messages array required' });
     }
-    console.log(`\nChat: ${messages.length} messages`);
+    console.log(`\n[chat] ${messages.length} messages`);
+    const chatStart = Date.now();
     const content = await handleChat(messages);
+    console.log(`[chat] Done in ${((Date.now() - chatStart) / 1000).toFixed(1)}s`);
     res.json({ content });
   } catch (err) {
     console.error('Chat error:', err.message);
