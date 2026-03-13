@@ -104,10 +104,17 @@ const sendBtn = document.getElementById('send');
 const statusEl = document.getElementById('status');
 let busy = false;
 
-// Fetch tools on load
+// Fetch tools + status on load
 fetch('/api/tools')
   .then(r => r.json())
-  .then(tools => { statusEl.textContent = `${tools.length} tools available`; })
+  .then(data => {
+    const tools = data.tools || data;
+    const count = tools.length;
+    const parts = [`${count} tools`];
+    if (data.index) parts.push(`index: ${data.index}`);
+    if (data.model) parts.push(`model: ${data.model}`);
+    statusEl.textContent = parts.join('  |  ');
+  })
   .catch(() => { statusEl.textContent = 'Failed to connect'; });
 
 // Auto-resize textarea
