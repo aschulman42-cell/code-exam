@@ -1095,6 +1095,12 @@ function renderDupeDetail(group, type) {
   }
   html += '</table></div>';
 
+  // Compare side-by-side button (for groups with 2+ instances)
+  const compareCount = instances.length || files.length;
+  if (compareCount >= 2) {
+    html += `<div class="output-section"><button class="btn-secondary" id="compare-dupes-btn" style="margin:4px 0">Compare Side by Side</button></div>`;
+  }
+
   // For structural dupes, offer funcstring view
   if (type === 'struct') {
     html += `<div class="output-section"><button class="btn-secondary" id="show-funcstring-btn" style="margin:4px 0">Show Funcstring (structural normalization)</button>`;
@@ -1103,6 +1109,14 @@ function renderDupeDetail(group, type) {
 
   container.innerHTML = html;
   wireClickables(container, { sourceOnly: true });
+
+  // Wire compare button
+  const compareBtn = $('#compare-dupes-btn', container);
+  if (compareBtn) {
+    compareBtn.addEventListener('click', () => {
+      openCompareView(group, type);
+    });
+  }
 
   // Wire file-link clicks (show file scrolled to function)
   for (const el of $$('.file-link[data-filepath]', container)) {
@@ -1137,6 +1151,131 @@ function renderDupeDetail(group, type) {
       });
     }
   }
+}
+
+
+// ========================================================================
+// Compare side-by-side overlay for dupe groups
+// ========================================================================
+
+const MAX_COMPARE_PANES = 3;
+
+async function openCompareView(group, type) {
+  const overlay = $('#compare-overlay');
+  const body = $('#compare-body');
+  const title = $('#compare-title');
+  const nav = $('#compare-nav');
+
+  const instances = group.instances || [];
+  const totalCount = instances.length || (group.files || []).length;
+  const label = type === 'near' ? 'Near Dupe' : type === 'struct' ? 'Structural Dupe' : 'Duplicate';
+  title.textContent = `${label}: ${group.name}`;
+
+  // Show up to MAX_COMPARE_PANES at a time
+  let offset = 0;
+
+  async function renderPanes() {
+    body.innerHTML = '';
+    const showCount = Math.min(MAX_COMPARE_PANES, totalCount - offset);
+
+    if (totalCount > MAX_COMPARE_PANES) {
+      nav.textContent = `Showing ${offset + 1}–${offset + showCount} of ${totalCount}`;
+    } else {
+      nav.textContent = `${totalCount} copies`;
+    }
+
+    for (let i = 0; i < showCount; i++) {
+      const idx = offset + i;
+      const inst = instances[idx];
+      if (!inst) continue;
+
+      const pane = document.createElement('div');
+      pane.className = 'compare-pane';
+
+      // Header
+      const header = document.createElement('div');
+      header.className = 'compare-pane-header';
+      header.innerHTML = `<span class="pane-idx">${idx + 1}</span>` +
+        `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(inst.name || group.name)}">${escHtml(inst.display_name || inst.name || group.name)}</span>` +
+        `<span class="pane-file" title="${escHtml(inst.filepath)}">${escHtml(shortPath(inst.filepath, 35))}</span>`;
+      pane.appendChild(header);
+
+      // Body — load source
+      const paneBody = document.createElement('div');
+      paneBody.className = 'compare-pane-body';
+      paneBody.innerHTML = '<pre style="color:var(--text-muted)">Loading…</pre>';
+      pane.appendChild(paneBody);
+      body.appendChild(pane);
+
+      // Fetch source
+      const funcSpec = `${inst.filepath}@${inst.name || group.name}`;
+      try {
+        const data = await api.extract({ func: funcSpec });
+        if (data.source) {
+          const lines = data.source.split('\n');
+          const startLine = data.start_line || 1;
+          const pre = document.createElement('pre');
+          for (let li = 0; li < lines.length; li++) {
+            const numSpan = document.createElement('span');
+            numSpan.className = 'line-num';
+            numSpan.textContent = String(startLine + li);
+            pre.appendChild(numSpan);
+            pre.appendChild(document.createTextNode(lines[li] + '\n'));
+          }
+          paneBody.innerHTML = '';
+          paneBody.appendChild(pre);
+        } else {
+          paneBody.innerHTML = `<pre style="color:var(--text-muted)">No source found</pre>`;
+        }
+      } catch (err) {
+        paneBody.innerHTML = `<pre style="color:var(--accent)">Error: ${escHtml(err.message)}</pre>`;
+      }
+    }
+
+    // Add prev/next buttons if needed
+    if (totalCount > MAX_COMPARE_PANES) {
+      const navBar = document.createElement('div');
+      navBar.style.cssText = 'position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10';
+      if (offset > 0) {
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'btn-secondary';
+        prevBtn.textContent = '← Previous';
+        prevBtn.addEventListener('click', () => { offset = Math.max(0, offset - MAX_COMPARE_PANES); renderPanes(); });
+        navBar.appendChild(prevBtn);
+      }
+      if (offset + MAX_COMPARE_PANES < totalCount) {
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'btn-secondary';
+        nextBtn.textContent = 'Next →';
+        nextBtn.addEventListener('click', () => { offset += MAX_COMPARE_PANES; renderPanes(); });
+        navBar.appendChild(nextBtn);
+      }
+      // Append to the overlay container (not body, which is flex)
+      const existing = overlay.querySelector('.compare-nav-bar');
+      if (existing) existing.remove();
+      navBar.className = 'compare-nav-bar';
+      overlay.querySelector('.fullscreen-diagram').appendChild(navBar);
+    }
+  }
+
+  await renderPanes();
+  overlay.classList.remove('hidden');
+}
+
+function initCompareOverlay() {
+  $('#compare-close').addEventListener('click', () => {
+    $('#compare-overlay').classList.add('hidden');
+    // Clean up nav bar
+    const navBar = document.querySelector('.compare-nav-bar');
+    if (navBar) navBar.remove();
+  });
+  $('#compare-overlay').addEventListener('click', (e) => {
+    if (e.target === $('#compare-overlay')) {
+      $('#compare-overlay').classList.add('hidden');
+      const navBar = document.querySelector('.compare-nav-bar');
+      if (navBar) navBar.remove();
+    }
+  });
 }
 
 
@@ -3915,6 +4054,7 @@ async function init() {
   initSplitHandles();
   initColumnResizers();
   initDiagramControls();
+  initCompareOverlay();
   initLoadIndex();
   initBuildIndex();
   initFilter();

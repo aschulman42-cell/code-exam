@@ -406,6 +406,18 @@
     </div>
   </div>
 
+  <!-- COMPARE SIDE-BY-SIDE -->
+  <div id="compare-overlay" class="modal-overlay hidden">
+    <div class="fullscreen-diagram" style="width:96vw;height:92vh">
+      <div class="fullscreen-header">
+        <span id="compare-title">Compare</span>
+        <span id="compare-nav" style="font-size:12px;color:var(--text-muted)"></span>
+        <button class="pane-action" id="compare-close" title="Close" style="font-size:18px">✕</button>
+      </div>
+      <div id="compare-body" style="flex:1;display:flex;gap:1px;overflow:hidden;background:var(--border)"></div>
+    </div>
+  </div>
+
   <!-- GENERIC FULLSCREEN -->
   <div id="generic-fullscreen" class="modal-overlay hidden">
     <div class="fullscreen-diagram">

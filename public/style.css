@@ -176,6 +176,15 @@ body { font-family: var(--font-ui); font-size: 13px; color: var(--text); backgro
 .fullscreen-body { flex: 1; overflow: auto; padding: 16px; }
 .diagram-viewport { transform-origin: top left; transition: transform .15s; }
 
+/* ---- Compare side-by-side ---- */
+.compare-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-panel); min-width: 0; }
+.compare-pane-header { padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; color: var(--text-bright); display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.compare-pane-header .pane-idx { background: var(--accent-dim); color: var(--bg-dark); border-radius: 3px; padding: 1px 6px; font-size: 11px; }
+.compare-pane-header .pane-file { color: var(--text-muted); font-weight: 400; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compare-pane-body { flex: 1; overflow: auto; padding: 0; }
+.compare-pane-body pre { margin: 0; padding: 8px; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
+.compare-pane-body .line-num { display: inline-block; width: 4em; text-align: right; padding-right: 8px; color: var(--text-dim); user-select: none; }
+
 /* ---- Workspace (bottom) ---- */
 #workspace { border-top: 1px solid var(--border); background: var(--bg-panel); flex-shrink: 0; }
 #workspace-resize-handle { display: none; }
