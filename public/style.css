@@ -176,6 +176,15 @@ body { font-family: var(--font-ui); font-size: 13px; color: var(--text); backgro
 .fullscreen-body { flex: 1; overflow: auto; padding: 16px; }
 .diagram-viewport { transform-origin: top left; transition: transform .15s; }
 
+/* ---- Floating panel (non-modal popup) ---- */
+.floating-panel { position: fixed; z-index: 250; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,.5); }
+.floating-panel.hidden { display: none; }
+.floating-panel .floating-header { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 13px; color: var(--text-bright); cursor: move; user-select: none; background: var(--bg-header); border-radius: 6px 6px 0 0; }
+.floating-panel .floating-header span:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.floating-panel .floating-body { flex: 1; overflow: hidden; display: flex; }
+.floating-panel .floating-resize-se { position: absolute; bottom: 0; right: 0; width: 16px; height: 16px; cursor: se-resize; }
+.floating-panel .floating-resize-se::after { content: ''; position: absolute; bottom: 3px; right: 3px; width: 8px; height: 8px; border-right: 2px solid var(--text-dim); border-bottom: 2px solid var(--text-dim); }
+
 /* ---- Compare side-by-side ---- */
 .compare-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-panel); min-width: 80px; }
 .compare-resize-handle { width: 5px; background: var(--border); cursor: col-resize; flex-shrink: 0; }

@@ -1299,11 +1299,11 @@ async function openCompareView(group, type) {
         nextBtn.addEventListener('click', () => { offset += MAX_COMPARE_PANES; renderPanes(); });
         navBar.appendChild(nextBtn);
       }
-      // Append to the overlay container (not body, which is flex)
+      // Append to the overlay container
       const existing = overlay.querySelector('.compare-nav-bar');
       if (existing) existing.remove();
       navBar.className = 'compare-nav-bar';
-      overlay.querySelector('.fullscreen-diagram').appendChild(navBar);
+      overlay.appendChild(navBar);
     }
   }
 
@@ -1312,18 +1312,70 @@ async function openCompareView(group, type) {
 }
 
 function initCompareOverlay() {
+  const panel = $('#compare-overlay');
+
+  // Close button
   $('#compare-close').addEventListener('click', () => {
-    $('#compare-overlay').classList.add('hidden');
-    // Clean up nav bar
+    panel.classList.add('hidden');
     const navBar = document.querySelector('.compare-nav-bar');
     if (navBar) navBar.remove();
   });
-  $('#compare-overlay').addEventListener('click', (e) => {
-    if (e.target === $('#compare-overlay')) {
-      $('#compare-overlay').classList.add('hidden');
-      const navBar = document.querySelector('.compare-nav-bar');
-      if (navBar) navBar.remove();
-    }
+
+  // Draggable header
+  makeDraggable(panel, $('#compare-drag-handle'));
+
+  // Resizable from bottom-right corner
+  makeResizable(panel, $('#compare-resize-se'));
+}
+
+/** Make a floating panel draggable by its header. */
+function makeDraggable(panel, handle) {
+  handle.addEventListener('mousedown', (e) => {
+    if (e.target.tagName === 'BUTTON') return;  // don't drag when clicking buttons
+    e.preventDefault();
+    const startX = e.clientX, startY = e.clientY;
+    const rect = panel.getBoundingClientRect();
+    const startLeft = rect.left, startTop = rect.top;
+
+    // Switch from right-positioned to left-positioned for dragging
+    panel.style.left = startLeft + 'px';
+    panel.style.top = startTop + 'px';
+    panel.style.right = 'auto';
+
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX, dy = ev.clientY - startY;
+      panel.style.left = Math.max(0, startLeft + dx) + 'px';
+      panel.style.top = Math.max(0, startTop + dy) + 'px';
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+/** Make a floating panel resizable from a corner handle. */
+function makeResizable(panel, handle) {
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX, startY = e.clientY;
+    const startW = panel.offsetWidth, startH = panel.offsetHeight;
+
+    const onMove = (ev) => {
+      const newW = Math.max(300, startW + ev.clientX - startX);
+      const newH = Math.max(200, startH + ev.clientY - startY);
+      panel.style.width = newW + 'px';
+      panel.style.height = newH + 'px';
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   });
 }
 
