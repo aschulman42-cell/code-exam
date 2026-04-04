@@ -31,17 +31,72 @@ try {
   _jsBeautify = mod.js || mod;
 } catch { /* not installed — skip prettification */ }
 
+// webcrack: optional dependency for JS deobfuscation during indexing
+// Loaded lazily on first use (async import) since createRequire doesn't work for ESM-only packages
+let _webcrack = undefined;  // undefined = not yet loaded, null = failed to load
+async function getWebcrack() {
+  if (_webcrack !== undefined) return _webcrack;
+  try {
+    const mod = await import('webcrack');
+    _webcrack = mod.webcrack || null;
+  } catch {
+    _webcrack = null;
+  }
+  return _webcrack;
+}
+
+/** Max file size for webcrack deobfuscation (500KB) — larger files are too slow. */
+const WEBCRACK_MAX_SIZE = 500 * 1024;
+/** Timeout for webcrack per file (30 seconds). */
+const WEBCRACK_TIMEOUT_MS = 30000;
+
 /**
  * Detect if file content is minified (very long average line length).
  * Returns true for .min.js files or JS/CSS with avg line > 500 chars.
  */
 function isMinified(relPath, content) {
-  if (/\.min\.(js|css)$/i.test(relPath)) return true;
+  if (/\.min\.(js|css|jsx|ts|tsx)$/i.test(relPath)) return true;
   if (!/\.(js|css|jsx|ts|tsx)$/i.test(relPath)) return false;
   const lines = content.split('\n').filter(l => l.length > 0);
   if (lines.length === 0) return false;
   const avgLen = content.length / lines.length;
-  return lines.length <= 5 && avgLen > 500;
+  // Minified: very few lines with very long average, OR high average line length
+  // (Typical readable code: avg 30-60 chars. Minified: 500+. Semi-minified bundles: 200+)
+  return avgLen > 500;
+}
+
+/**
+ * Simple regex-based deobfuscation transforms for minified JS/TS.
+ * No AST needed — these patterns are unambiguous in JS syntax.
+ * Applied BEFORE js-beautify formatting.
+ */
+function deobfuscateSimple(code) {
+  let result = code;
+  // !0 → true, !1 → false (safe: these are always boolean in JS)
+  result = result.replace(/!0\b/g, 'true');
+  result = result.replace(/!1\b/g, 'false');
+  // void 0 → undefined (safe: void 0 is always undefined in JS)
+  result = result.replace(/void 0\b/g, 'undefined');
+  return result;
+}
+
+/**
+ * Try deobfuscating JS with webcrack, with size limit and timeout.
+ * Returns deobfuscated code or null on failure/timeout.
+ */
+async function tryWebcrack(code) {
+  if (code.length > WEBCRACK_MAX_SIZE) return null;
+  const wc = await getWebcrack();
+  if (!wc) return null;
+  try {
+    const result = await Promise.race([
+      wc(code),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), WEBCRACK_TIMEOUT_MS)),
+    ]);
+    return result.code || null;
+  } catch {
+    return null;
+  }
 }
 
 
@@ -1217,12 +1272,23 @@ export class CodeSearchIndex {
         }
         relPath = relPath.replace(/\\/g, '/');
 
-        // Prettify minified JS/CSS so functions are parseable
-        if (_jsBeautify && isMinified(relPath, content)) {
-          try {
-            content = _jsBeautify(content, { indent_size: 2, max_preserve_newlines: 2 });
-            stats.prettified++;
-          } catch { /* beautify failed — use original */ }
+        // Deobfuscate/prettify minified JS/TS so functions are parseable
+        if (isMinified(relPath, content)) {
+          // Step 1: Simple regex deobfuscation (!0→true, !1→false, void 0→undefined)
+          content = deobfuscateSimple(content);
+
+          // Step 2: Try webcrack for small files (deobfuscation + prettification)
+          const deobfuscated = await tryWebcrack(content);
+          if (deobfuscated) {
+            content = deobfuscated;
+            stats.deobfuscated = (stats.deobfuscated || 0) + 1;
+          } else if (_jsBeautify) {
+            // Step 3: Fall back to js-beautify (formatting only)
+            try {
+              content = _jsBeautify(content, { indent_size: 2, max_preserve_newlines: 2 });
+              stats.prettified++;
+            } catch { /* beautify failed — use original */ }
+          }
         }
 
         _addFileToIndex(relPath, content, rawBytes);
@@ -1362,8 +1428,13 @@ export class CodeSearchIndex {
         binNote = `, ${totalBin} binaries processed`;
       }
       let prettyNote = '';
-      if (stats.prettified > 0) {
-        prettyNote = `, ${stats.prettified} minified files prettified`;
+      const deob = stats.deobfuscated || 0;
+      const pretty = stats.prettified || 0;
+      if (deob > 0 || pretty > 0) {
+        const parts = [];
+        if (deob > 0) parts.push(`${deob} deobfuscated`);
+        if (pretty > 0) parts.push(`${pretty} prettified`);
+        prettyNote = `, ${parts.join(', ')}`;
       }
       console.log(`Indexing complete: ${stats.files_indexed} files${dedupNote}${archiveNote}${binNote}${prettyNote}, ` +
                   `${stats.total_lines} lines, ${stats.chunks_created} chunks`);
