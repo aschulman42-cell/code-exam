@@ -182,6 +182,134 @@ function camelToScreamingSnake(str) {
     .toUpperCase();
 }
 
+/** Common/generic identifiers to skip when picking distinctive template names. */
+const _TEMPLATE_SKIP_WORDS = new Set([
+  'this', 'self', 'that', 'null', 'undefined', 'true', 'false',
+  'return', 'function', 'class', 'const', 'let', 'var', 'new', 'delete',
+  'length', 'size', 'index', 'value', 'name', 'type', 'data', 'item',
+  'result', 'error', 'message', 'code', 'status', 'state', 'config',
+  'input', 'output', 'args', 'params', 'options', 'callback',
+  'push', 'pop', 'slice', 'join', 'split', 'trim', 'replace',
+  'forEach', 'filter', 'map', 'reduce', 'find', 'some', 'every',
+  'keys', 'values', 'entries', 'toString', 'constructor', 'prototype',
+  'apply', 'call', 'bind', 'then', 'catch', 'finally',
+  'get', 'set', 'has', 'add', 'remove', 'clear', 'init',
+]);
+
+/**
+ * Extract readable identifiers from a function body.
+ * Returns array of { ident, score } sorted by distinctiveness.
+ * "Readable" = camelCase/snake_case, 4+ chars, not a keyword/generic.
+ */
+function extractReadableIdents(bodyText) {
+  const identRe = /[a-zA-Z_$][\w$]*/g;
+  const counts = new Map();
+  let m;
+  while ((m = identRe.exec(bodyText)) !== null) {
+    const id = m[0];
+    if (id.length < 4) continue;
+    if (_TEMPLATE_SKIP_WORDS.has(id)) continue;
+    // Must look like a readable name: has lowercase, not ALL_CAPS short
+    if (!/[a-z]/.test(id)) continue;
+    // Skip obfuscated-looking names (1-3 chars followed by digits)
+    if (/^[a-zA-Z_$]{1,3}\d/.test(id)) continue;
+    counts.set(id, (counts.get(id) || 0) + 1);
+  }
+
+  // Score: longer names are more distinctive, repeated names are more characteristic
+  const scored = [];
+  for (const [ident, count] of counts) {
+    // Bonus for underscore prefix (likely a private member name = very descriptive)
+    const privatBonus = ident.startsWith('_') ? 1.5 : 1.0;
+    // Bonus for camelCase complexity (more words = more specific)
+    const words = ident.replace(/([a-z])([A-Z])/g, '$1 $2').split(/[\s_]+/).length;
+    const score = count * Math.sqrt(ident.length) * privatBonus * Math.sqrt(words);
+    scored.push({ ident, score, count });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored;
+}
+
+/**
+ * For structural dupe groups in minified code, infer template names from
+ * common readable identifiers shared across all instances.
+ *
+ * @param {CodeSearchIndex} idx - index with fileLines and functionIndex loaded
+ * @param {Map} funcHashes - from ensureFuncHashes()
+ * @returns {{ renameMap: Object<string,string>, count: number }}
+ */
+function inferTemplateNames(idx, funcHashes) {
+  const renameMap = {};
+
+  // Group by struct_hash
+  const structGroups = {};
+  for (const [keyStr, info] of funcHashes) {
+    if (!info.struct_hash) continue;
+    if (!structGroups[info.struct_hash]) structGroups[info.struct_hash] = [];
+    const sep = keyStr.indexOf('|||');
+    const filepath = keyStr.slice(0, sep);
+    const funcName = keyStr.slice(sep + 3);
+    structGroups[info.struct_hash].push({ filepath, name: funcName, lines: info.lines || 0 });
+  }
+
+  // Track used template names to avoid collisions
+  const usedTemplateNames = new Map(); // baseName -> count
+
+  for (const [hash, instances] of Object.entries(structGroups)) {
+    if (instances.length < 2) continue;
+    // Only rename short/obfuscated names (skip already-readable functions)
+    const obfuscatedInstances = instances.filter(f => {
+      const bare = f.name.includes('::') ? f.name.split('::').pop() : f.name;
+      // Already has an inferred name from inferFunctionNames?
+      if (/_GET_|_SET_|_CALL_|_RESET_|_IDENTITY|_TMPL_/.test(bare)) return false;
+      // Already readable (4+ lowercase + uppercase = camelCase)?
+      if (/^[a-z]{4,}[A-Z]/.test(bare) || /^[A-Z][a-z]{3,}/.test(bare)) return false;
+      return bare.length <= 8;
+    });
+    if (obfuscatedInstances.length < 2) continue;
+
+    // Get source of first instance to extract readable identifiers
+    const first = obfuscatedInstances[0];
+    const lines = idx.fileLines.get(first.filepath);
+    if (!lines) continue;
+    const funcInfo = idx.functionIndex?.[first.filepath]?.[first.name];
+    if (!funcInfo) continue;
+    const bodyText = lines.slice(funcInfo.start - 1, funcInfo.end).join('\n');
+
+    // Extract distinctive identifiers
+    const idents = extractReadableIdents(bodyText);
+    if (idents.length === 0) continue;
+
+    // Pick top 2-3 identifiers for the template name
+    const topIdents = idents.slice(0, 3).map(i => i.ident);
+    // Convert to SCREAMING_SNAKE: _middlewareFn → MIDDLEWARE_FN, smithyContext → SMITHY_CONTEXT
+    const templateParts = topIdents.map(id => {
+      let clean = id.startsWith('_') ? id.slice(1) : id;
+      return camelToScreamingSnake(clean);
+    });
+    let baseName = 'TMPL_' + templateParts.join('_');
+
+    // Truncate if too long
+    if (baseName.length > 40) {
+      baseName = baseName.slice(0, 40);
+    }
+
+    // Handle collisions
+    const prevCount = usedTemplateNames.get(baseName) || 0;
+    usedTemplateNames.set(baseName, prevCount + 1);
+
+    // Rename each obfuscated instance
+    for (let i = 0; i < obfuscatedInstances.length; i++) {
+      const inst = obfuscatedInstances[i];
+      const suffix = (prevCount > 0 || obfuscatedInstances.length > 1)
+        ? `_${prevCount * 100 + i + 1}` : '';
+      renameMap[inst.name] = inst.name + '_' + baseName + suffix;
+    }
+  }
+
+  return { renameMap, count: Object.keys(renameMap).length };
+}
+
 /**
  * Try deobfuscating JS with webcrack, with size limit and timeout.
  * Returns deobfuscated code or null on failure/timeout.
@@ -282,6 +410,115 @@ export class CodeSearchIndex {
   _invertedIndexPath() { return path.join(this.indexPath, 'inverted_index.json'); }
   _functionIndexPath() { return path.join(this.indexPath, 'function_index.json'); }
   _funcHashesPath()    { return path.join(this.indexPath, 'func_hashes.json'); }
+  _renameMapPath()     { return path.join(this.indexPath, 'rename_map.json'); }
+
+
+  // ========================================================================
+  // Rename map: save/load/apply (display-time function name substitution)
+  // ========================================================================
+
+  _saveRenameMap(map) {
+    try {
+      fs.writeFileSync(this._renameMapPath(), JSON.stringify(map, null, 2));
+    } catch (e) {
+      console.log(`Warning: could not save rename map: ${e.message}`);
+    }
+  }
+
+  _loadRenameMap() {
+    if (this._renameMap) return this._renameMap;
+    try {
+      const raw = fs.readFileSync(this._renameMapPath(), 'utf-8');
+      const parsed = JSON.parse(raw);
+      // Use null-prototype object to avoid collisions with Object.prototype keys
+      // (e.g. 'constructor', 'toString' are valid function names in minified code)
+      this._renameMap = Object.create(null);
+      for (const [k, v] of Object.entries(parsed)) {
+        this._renameMap[k] = v;
+      }
+      return this._renameMap;
+    } catch {
+      this._renameMap = Object.create(null);
+      return this._renameMap;
+    }
+  }
+
+  /**
+   * Apply rename map to a block of source code for display.
+   * Replaces obfuscated identifiers with their inferred names.
+   * Returns the renamed source text.
+   */
+  applyRenames(sourceText) {
+    if (!sourceText) return sourceText || '';
+    const map = this._loadRenameMap();
+    if (!map || Object.keys(map).length === 0) return sourceText;
+    let result = sourceText;
+    // Sort by name length descending to avoid partial replacements
+    const entries = Object.entries(map).sort((a, b) => b[0].length - a[0].length);
+    for (const [oldName, newName] of entries) {
+      const re = new RegExp('\\b' + escapeRegex(oldName) + '\\b', 'g');
+      result = result.replace(re, newName);
+    }
+    return result;
+  }
+
+  /**
+   * Get the display name for a function, applying rename map if available.
+   */
+  getDisplayName(funcName) {
+    if (!funcName) return funcName || '';
+    const map = this._loadRenameMap();
+    // Use hasOwnProperty to avoid Object prototype collisions (constructor, toString, etc.)
+    return (map && Object.prototype.hasOwnProperty.call(map, funcName)) ? map[funcName] : funcName;
+  }
+
+  /**
+   * Reverse lookup: given a display name (possibly renamed), return the original name.
+   * Used when the GUI sends a renamed name back for lookup/extract.
+   */
+  getOriginalName(displayName) {
+    if (!this._reverseRenameMap) {
+      const map = this._loadRenameMap();
+      this._reverseRenameMap = Object.create(null);
+      for (const [orig, renamed] of Object.entries(map)) {
+        this._reverseRenameMap[renamed] = orig;
+      }
+    }
+    return this._reverseRenameMap[displayName] || displayName;
+  }
+
+  /**
+   * Reverse-apply renames in a search query so it matches the stored (original) content.
+   * Replaces display names back to original obfuscated names.
+   */
+  reverseRenames(text) {
+    if (!this._reverseRenameMap) this.getOriginalName('');  // trigger build
+    const entries = Object.entries(this._reverseRenameMap).sort((a, b) => b[0].length - a[0].length);
+    if (entries.length === 0) return text;
+    let result = text;
+    for (const [renamed, orig] of entries) {
+      const re = new RegExp('\\b' + escapeRegex(renamed) + '\\b', 'g');
+      result = result.replace(re, orig);
+    }
+    return result;
+  }
+
+  /**
+   * Find original names whose display names contain the given substring.
+   * Returns array of original names. Used for searching by display name patterns.
+   */
+  findOriginalsByDisplayPattern(pattern) {
+    const map = this._loadRenameMap();
+    if (!map || Object.keys(map).length === 0) return [];
+    const pat = pattern.toLowerCase();
+    const originals = [];
+    for (const [orig, display] of Object.entries(map)) {
+      if (display.toLowerCase().includes(pat)) {
+        originals.push(orig);
+      }
+    }
+    return originals;
+  }
 
 
   // ========================================================================
@@ -1360,6 +1597,9 @@ export class CodeSearchIndex {
       return true;
     };
 
+    // Collect rename maps from inferFunctionNames (getter/setter) — saved later
+    let allRenameMaps = null;
+
     // --- Phase 1: Index regular source files ---
     for (const filePath of sourceFiles) {
       try {
@@ -1393,15 +1633,14 @@ export class CodeSearchIndex {
           }
         }
 
-        // Infer descriptive names for simple obfuscated functions (after prettification)
+        // Infer descriptive names for simple obfuscated functions (after prettification).
+        // Rename map is saved as metadata — applied at DISPLAY time, not to stored content.
         if (isMinified(relPath, rawBytes.toString('utf-8'))) {
-          const { renamedCode, renameMap, count } = inferFunctionNames(content);
+          const { renameMap, count } = inferFunctionNames(content);
           if (count > 0) {
-            content = renamedCode;
             stats.namesInferred = (stats.namesInferred || 0) + count;
-            // Store the rename map for this file (for future display/editing)
-            if (!stats.renameMaps) stats.renameMaps = {};
-            stats.renameMaps[relPath] = renameMap;
+            if (!allRenameMaps) allRenameMaps = {};
+            Object.assign(allRenameMaps, renameMap);
           }
         }
 
@@ -1513,16 +1752,39 @@ export class CodeSearchIndex {
       this.buildFunctionIndex(showProgress);
     }
 
+    // Template naming: for minified files, identify structural dupe groups and
+    // compute rename map based on common readable identifiers.
+    // Saved as rename_map.json — applied at DISPLAY time, not to stored content.
+    const hasMinified = (stats.prettified || 0) + (stats.deobfuscated || 0) > 0;
+    if (hasMinified) {
+      const funcHashes = this.ensureFuncHashes(3, showProgress);
+      if (funcHashes.size > 0) {
+        const { renameMap, count } = inferTemplateNames(this, funcHashes);
+        if (count > 0) {
+          if (showProgress) console.log(`Inferred ${count} template names from structural dupe groups`);
+          stats.templateNames = count;
+          // Merge with getter/setter renames
+          allRenameMaps = { ...(allRenameMaps || {}), ...renameMap };
+        }
+      }
+    }
+
+    // Save rename map (getter/setter + template names) for display-time application
+    if (allRenameMaps && Object.keys(allRenameMaps).length > 0) {
+      this._renameMap = allRenameMaps;
+      this._saveRenameMap(allRenameMaps);
+      if (showProgress) {
+        console.log(`Saved ${Object.keys(allRenameMaps).length} total name mappings to rename_map.json`);
+      }
+    }
+
     // Reconstruct this.files from fileLines now that memory-heavy build is done.
-    // This is needed if the index is used in the same process after building.
     for (const [fp, lines] of this.fileLines) {
       this.files.set(fp, lines.join('\n'));
     }
 
-    // Re-save literal index now that parseMethod is set by function index build
-    if (this.parseMethod && this.parseMethod !== 'regex') {
-      this._saveLiteralIndex();
-    }
+    // Save literal index
+    this._saveLiteralIndex();
 
     // Reload inverted index from disk (was streamed to disk, not kept in memory)
     this._loadInvertedIndex();
@@ -1545,11 +1807,13 @@ export class CodeSearchIndex {
       const deob = stats.deobfuscated || 0;
       const pretty = stats.prettified || 0;
       const namesInferred = stats.namesInferred || 0;
-      if (deob > 0 || pretty > 0 || namesInferred > 0) {
+      const templateNames = stats.templateNames || 0;
+      if (deob > 0 || pretty > 0 || namesInferred > 0 || templateNames > 0) {
         const parts = [];
         if (deob > 0) parts.push(`${deob} deobfuscated`);
         if (pretty > 0) parts.push(`${pretty} prettified`);
         if (namesInferred > 0) parts.push(`${namesInferred} function names inferred`);
+        if (templateNames > 0) parts.push(`${templateNames} template names from struct-dupes`);
         prettyNote = `, ${parts.join(', ')}`;
       }
       console.log(`Indexing complete: ${stats.files_indexed} files${dedupNote}${archiveNote}${binNote}${prettyNote}, ` +

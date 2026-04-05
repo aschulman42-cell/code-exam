@@ -740,7 +740,7 @@ routes['/api/list-functions'] = (req, res) => {
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
   let funcs = index.listFunctions();
-  if (q.filter) { const pat = q.filter.toLowerCase(); funcs = funcs.filter(f => f.name.toLowerCase().includes(pat) || f.filepath.toLowerCase().includes(pat)); }
+  if (q.filter) { const pat = q.filter.toLowerCase(); funcs = funcs.filter(f => f.name.toLowerCase().includes(pat) || index.getDisplayName(f.name).toLowerCase().includes(pat) || f.filepath.toLowerCase().includes(pat)); }
   const sort = q.sort || 'lines';
   if (sort === 'lines') funcs.sort((a, b) => b.lines - a.lines);
   else if (sort === 'alpha') funcs.sort((a, b) => a.name.localeCompare(b.name));
@@ -748,7 +748,7 @@ routes['/api/list-functions'] = (req, res) => {
   jsonResponse(res, {
     total: funcs.length,
     functions: funcs.slice(0, max).map(f => ({
-      name: f.name, display_name: f.displayName, filepath: f.filepath,
+      name: index.getDisplayName(f.name), display_name: index.getDisplayName(f.displayName || f.name), filepath: f.filepath,
       lines: f.lines, start: f.start, end: f.end, type: f.type,
     })),
   });
@@ -765,7 +765,7 @@ routes['/api/file-functions'] = (req, res) => {
   jsonResponse(res, {
     filepath, total: funcs.length,
     functions: funcs.map(f => ({
-      name: f.name, display_name: f.displayName, filepath: f.filepath,
+      name: index.getDisplayName(f.name), display_name: index.getDisplayName(f.displayName || f.name), filepath: f.filepath,
       lines: f.lines, start: f.start, end: f.end, type: f.type,
     })),
   });
@@ -780,9 +780,10 @@ routes['/api/extract'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   const funcSpec = q.func;
   if (!funcSpec) return errorResponse(res, 'Missing ?func= parameter');
-  const { funcName, fileHint } = parseFuncSpec(funcSpec);
+  const { funcName: rawFuncName, fileHint } = parseFuncSpec(funcSpec);
+  const funcName = index.getOriginalName(rawFuncName);
   const matches = index.findFunctionMatches(funcName, fileHint);
-  if (matches.length === 0) return errorResponse(res, `Function '${funcName}' not found`, 404);
+  if (matches.length === 0) return errorResponse(res, `Function '${rawFuncName}' not found`, 404);
   if (matches.length > 1 && !fileHint) {
     return jsonResponse(res, {
       ambiguous: true,
@@ -792,9 +793,10 @@ routes['/api/extract'] = (req, res) => {
   const m = matches[0];
   const source = index.getFunctionSource(m.filepath, m.name);
   jsonResponse(res, {
-    filepath: m.filepath, name: m.name, display_name: displayName(m.name, m.filepath),
+    filepath: m.filepath, name: index.getDisplayName(m.name), display_name: displayName(index.getDisplayName(m.name), m.filepath),
     start: m.start, end: m.end, lines: m.end - m.start + 1,
-    source: source || '(source not available)', language: guessLanguage(m.filepath),
+    start_line: m.start,
+    source: index.applyRenames(source || '(source not available)'), language: guessLanguage(m.filepath),
   });
 };
 
@@ -812,7 +814,7 @@ routes['/api/show-file'] = (req, res) => {
   if (exactFiles.length === 0) return errorResponse(res, `File '${filePath}' not found`, 404);
   const fp = exactFiles[0];
   const content = index.files.get(fp);
-  jsonResponse(res, { filepath: fp, content: content || '', lines: (index.fileLines.get(fp) || []).length, language: guessLanguage(fp) });
+  jsonResponse(res, { filepath: fp, content: index.applyRenames(content || ''), lines: (index.fileLines.get(fp) || []).length, language: guessLanguage(fp) });
 };
 
 
@@ -824,10 +826,10 @@ routes['/api/hotspots'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   const n = parseInt(q.n) || 25;
   let hotspots = index.getHotspots(n * 3, true);
-  if (q.filter) { const pat = q.filter.toLowerCase(); hotspots = hotspots.filter(h => h.name.toLowerCase().includes(pat) || h.filepath.toLowerCase().includes(pat)); }
+  if (q.filter) { const pat = q.filter.toLowerCase(); hotspots = hotspots.filter(h => h.name.toLowerCase().includes(pat) || index.getDisplayName(h.name).toLowerCase().includes(pat) || h.filepath.toLowerCase().includes(pat)); }
   jsonResponse(res, {
     hotspots: hotspots.slice(0, n).map((h, i) => ({
-      rank: i + 1, name: h.name, display_name: h.display_name, filepath: h.filepath,
+      rank: i + 1, name: index.getDisplayName(h.name), display_name: index.getDisplayName(h.display_name || h.name), filepath: h.filepath,
       lines: h.lines, calls: h.calls, score: Math.round(h.score * 10) / 10, type: h.type,
     })),
   });
@@ -890,10 +892,10 @@ routes['/api/entry-points'] = (req, res) => {
   const n = parseInt(q.n) || 25;
   const maxCalls = parseInt(q.max_calls) || 0;
   let entries = index.getEntryPoints(n * 3, maxCalls, true);
-  if (q.filter) { const pat = q.filter.toLowerCase(); entries = entries.filter(e => e.name.toLowerCase().includes(pat) || e.filepath.toLowerCase().includes(pat)); }
+  if (q.filter) { const pat = q.filter.toLowerCase(); entries = entries.filter(e => e.name.toLowerCase().includes(pat) || index.getDisplayName(e.name).toLowerCase().includes(pat) || e.filepath.toLowerCase().includes(pat)); }
   jsonResponse(res, {
     entries: entries.slice(0, n).map((e, i) => ({
-      rank: i + 1, name: e.name, display_name: e.display_name, filepath: e.filepath,
+      rank: i + 1, name: index.getDisplayName(e.name), display_name: index.getDisplayName(e.display_name || e.name), filepath: e.filepath,
       lines: e.lines, calls: e.calls, type: e.type,
     })),
   });
@@ -929,12 +931,12 @@ routes['/api/gaps'] = (req, res) => {
     if (isEntry(e.name, e.filepath)) continue;
     suspicious.push(e);
   }
-  if (q.filter) { const pat = q.filter.toLowerCase(); suspicious = suspicious.filter(s => s.name.toLowerCase().includes(pat) || s.filepath.toLowerCase().includes(pat)); }
+  if (q.filter) { const pat = q.filter.toLowerCase(); suspicious = suspicious.filter(s => s.name.toLowerCase().includes(pat) || index.getDisplayName(s.name).toLowerCase().includes(pat) || s.filepath.toLowerCase().includes(pat)); }
 
   jsonResponse(res, {
     total: suspicious.length,
     gaps: suspicious.slice(0, n).map((s, i) => ({
-      rank: i + 1, name: s.name, display_name: s.display_name,
+      rank: i + 1, name: index.getDisplayName(s.name), display_name: index.getDisplayName(s.display_name || s.name),
       filepath: s.filepath, lines: s.lines,
     })),
   });
@@ -949,10 +951,10 @@ routes['/api/domain-fns'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   const n = parseInt(q.n) || 25;
   let results = index.getDomainHotspots(n * 3, true);
-  if (q.filter) { const pat = q.filter.toLowerCase(); results = results.filter(r => r.name.toLowerCase().includes(pat) || r.filepath.toLowerCase().includes(pat)); }
+  if (q.filter) { const pat = q.filter.toLowerCase(); results = results.filter(r => r.name.toLowerCase().includes(pat) || index.getDisplayName(r.name).toLowerCase().includes(pat) || r.filepath.toLowerCase().includes(pat)); }
   jsonResponse(res, {
     functions: results.slice(0, n).map((r, i) => ({
-      rank: i + 1, name: r.name, display_name: r.display_name, filepath: r.filepath,
+      rank: i + 1, name: index.getDisplayName(r.name), display_name: index.getDisplayName(r.display_name || r.name), filepath: r.filepath,
       lines: r.lines, calls: r.calls, score: Math.round(r.score * 10) / 10, type: r.type,
     })),
   });
@@ -975,14 +977,14 @@ routes['/api/most-called'] = (req, res) => {
     const bare = item.name.includes('::') ? item.name.split('::').pop() : item.name;
     if (bare.length >= 2 && /^[A-Z][A-Z0-9_]+$/.test(bare)) continue;
     if (definedOnly && item.definitions.length === 0) continue;
-    if (q.filter && !item.name.toLowerCase().includes(q.filter.toLowerCase())) continue;
+    if (q.filter && !item.name.toLowerCase().includes(q.filter.toLowerCase()) && !index.getDisplayName(item.name).toLowerCase().includes(q.filter.toLowerCase())) continue;
     filtered.push(item);
   }
 
   jsonResponse(res, {
     total: filtered.length,
     functions: filtered.slice(0, n).map((item, i) => ({
-      rank: i + 1, name: item.name, count: item.count,
+      rank: i + 1, name: index.getDisplayName(item.name), count: item.count,
       definitions: item.definitions.length,
       def_files: item.definitions.slice(0, 3).map(d => d.filepath),
     })),
@@ -1033,10 +1035,11 @@ routes['/api/callers'] = (req, res) => {
   let func = q.func;
   if (!func) return errorResponse(res, 'Missing ?func= parameter');
   if (func.includes('@')) func = func.slice(func.indexOf('@') + 1);
+  func = index.getOriginalName(func);
   const callers = index.findCallers(func, parseInt(q.max) || 200);
   jsonResponse(res, {
-    target: func,
-    callers: callers.map(c => ({ filepath: c.filepath, line_number: c.line_number, line_text: c.line_text, caller_function: c.caller_function, call_type: c.call_type })),
+    target: index.getDisplayName(func),
+    callers: callers.map(c => ({ filepath: c.filepath, line_number: c.line_number, line_text: index.applyRenames(c.line_text || ''), caller_function: index.getDisplayName(c.caller_function || ''), call_type: c.call_type })),
   });
 };
 
@@ -1046,10 +1049,11 @@ routes['/api/callees'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   let func = q.func;
   if (!func) return errorResponse(res, 'Missing ?func= parameter');
-  const { funcName, fileHint } = parseFuncSpec(func);
+  const { funcName: rawCallees, fileHint } = parseFuncSpec(func);
+  const funcName = index.getOriginalName(rawCallees);
   const callees = index.findCallees(funcName, fileHint);
   jsonResponse(res, {
-    target: funcName,
+    target: index.getDisplayName(funcName),
     callees: callees.map(c => {
       const rd = c.resolved_def;
       return { name: c.name, display_name: c.display_name, definitions: (c.definitions || []).length, resolved_def: rd ? { full_name: rd.full_name, filepath: rd.filepath, class_name: rd.class_name } : null, call_type: c.call_type, ambiguous: c.ambiguous || false };
@@ -1232,9 +1236,10 @@ routes['/api/call-tree'] = (req, res) => {
   let func = q.func;
   if (!func) return errorResponse(res, 'Missing ?func= parameter');
   const depth = parseInt(q.depth) || 3;
-  const { funcName, fileHint } = parseFuncSpec(func);
+  const { funcName: rawCT, fileHint } = parseFuncSpec(func);
+  const funcName = index.getOriginalName(rawCT);
   const matches = index.findFunctionMatches(funcName, fileHint);
-  if (matches.length === 0) return errorResponse(res, `Function '${funcName}' not found`, 404);
+  if (matches.length === 0) return errorResponse(res, `Function '${rawCT}' not found`, 404);
 
   const root = matches[0];
   const mermaidLines = ['graph TD'];
@@ -1549,15 +1554,36 @@ routes['/api/search'] = (req, res) => {
   const contextLines = parseInt(q.context) || 3;
   const type = q.type || 'literal'; // literal, regex, fast
 
+  // Search stored content with original query
   let results;
   if (type === 'fast' || type === 'regex') {
     results = index.searchInverted(query, { useRegex: type === 'regex', maxResults });
   } else {
     results = index.searchLiteral(query, { maxResults, contextLines });
   }
+
+  // If no hits and query looks like a display name pattern (e.g. _TMPL_),
+  // find original names whose display names match and search for those
+  if (results.length === 0) {
+    const originals = index.findOriginalsByDisplayPattern(query);
+    if (originals.length > 0) {
+      // Search for each original name, collect up to maxResults
+      for (const orig of originals.slice(0, 20)) {
+        let hits;
+        if (type === 'fast' || type === 'regex') {
+          hits = index.searchInverted(orig, { maxResults: 3 });
+        } else {
+          hits = index.searchLiteral(orig, { maxResults: 3, contextLines });
+        }
+        results.push(...hits);
+        if (results.length >= maxResults) break;
+      }
+      results = results.slice(0, maxResults);
+    }
+  }
   jsonResponse(res, {
     query, type,
-    results: results.map(r => ({ filepath: r.filePath, line_number: r.lineNumber, line_text: r.lineText, context: r.context, containing_function: r.functionName || null })),
+    results: results.map(r => ({ filepath: r.filePath, line_number: r.lineNumber, line_text: index.applyRenames(r.lineText || ''), context: index.applyRenames(r.context || ''), containing_function: index.getDisplayName(r.functionName || '') || null })),
   });
 };
 
@@ -1701,8 +1727,8 @@ routes['/api/struct-dupes'] = (req, res) => {
       files: g.instances.slice(0, 5).map(inst => inst.filepath),
       instances: g.instances.map(inst => ({
         filepath: inst.filepath,
-        name: inst.name,
-        display_name: displayName(inst.name, inst.filepath),
+        name: index.getDisplayName(inst.name),
+        display_name: index.getDisplayName(displayName(inst.name, inst.filepath)),
         start: inst.start, lines: inst.lines,
       })),
     })),
