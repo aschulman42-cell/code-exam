@@ -81,6 +81,108 @@ function deobfuscateSimple(code) {
 }
 
 /**
+ * Infer descriptive names for simple obfuscated functions (getters, setters, wrappers).
+ * Scans prettified code for patterns like:
+ *   function wI1() { return x1.costCounter }        → wI1_GET_COST_COUNTER
+ *   function th1() { return x1.hasUnknownModelCost } → th1_HAS_UNKNOWN_MODEL_COST
+ *   function YQq() { x1.totalCost = 0 }             → YQq_SET_TOTAL_COST
+ *   function Zq(a) { return a.doThing() }            → Zq_CALL_DO_THING
+ *
+ * Returns { renamedCode, renameMap, count } where renameMap is { oldName: newName }.
+ * Applies renames to the full code content so all references update.
+ */
+function inferFunctionNames(code) {
+  const renameMap = {};
+
+  // Match simple function bodies (prettified: function on one line, body 1-3 lines, closing brace)
+  // Pattern: function NAME(params) {\n  BODY\n}
+  const funcRe = /function\s+([a-zA-Z_$][\w$]*)\s*\(([^)]*)\)\s*\{([^}]{1,200})\}/g;
+  let m;
+  while ((m = funcRe.exec(code)) !== null) {
+    const name = m[1];
+    const params = m[2].trim();
+    const body = m[3].trim();
+
+    // Skip if name is already readable (4+ lowercase chars followed by uppercase = camelCase)
+    if (/^[a-z]{4,}[A-Z]/.test(name) || /^[A-Z][a-z]{3,}/.test(name)) continue;
+    // Skip if name is very long (probably already meaningful)
+    if (name.length > 8) continue;
+
+    let inferred = null;
+
+    // Pattern: return OBJ.PROP
+    const getMatch = body.match(/^return\s+(?:[\w$]+\.)+(\w[\w$]*)$/);
+    if (getMatch) {
+      inferred = 'GET_' + camelToScreamingSnake(getMatch[1]);
+    }
+
+    // Pattern: return OBJ.METHOD(params)
+    if (!inferred) {
+      const callMatch = body.match(/^return\s+(?:[\w$]+\.)+(\w[\w$]*)\s*\(/);
+      if (callMatch) {
+        inferred = 'CALL_' + camelToScreamingSnake(callMatch[1]);
+      }
+    }
+
+    // Pattern: OBJ.PROP = EXPR (single assignment)
+    if (!inferred) {
+      const setMatch = body.match(/^(?:[\w$]+\.)+(\w[\w$]*)\s*=[^=]/);
+      if (setMatch && !body.includes(',')) {
+        inferred = 'SET_' + camelToScreamingSnake(setMatch[1]);
+      }
+    }
+
+    // Pattern: OBJ.PROP = 0, OBJ.PROP2 = 0 (reset/init multiple props)
+    if (!inferred) {
+      const resetMatch = body.match(/^(?:[\w$]+\.(\w[\w$]*)\s*=\s*(?:0|false|null|undefined|""|'')(?:\s*,\s*)?)+$/);
+      if (resetMatch) {
+        // Extract first property name
+        const firstProp = body.match(/\.(\w[\w$]*)\s*=/);
+        if (firstProp) {
+          inferred = 'RESET_' + camelToScreamingSnake(firstProp[1]);
+        }
+      }
+    }
+
+    // Pattern: single return of a parameter (identity/cast wrapper)
+    if (!inferred && params) {
+      const firstParam = params.split(',')[0].trim();
+      const retParamMatch = body.match(/^return\s+([\w$]+)$/);
+      if (retParamMatch && retParamMatch[1] === firstParam) {
+        inferred = 'IDENTITY';
+      }
+    }
+
+    if (inferred) {
+      renameMap[name] = name + '_' + inferred;
+    }
+  }
+
+  // Apply renames to the full code (word-boundary replacement)
+  let renamedCode = code;
+  const entries = Object.entries(renameMap);
+  if (entries.length > 0) {
+    // Sort by name length descending to avoid partial replacements
+    entries.sort((a, b) => b[0].length - a[0].length);
+    for (const [oldName, newName] of entries) {
+      // Word-boundary replace — avoid replacing inside strings by checking context
+      const re = new RegExp('\\b' + escapeRegex(oldName) + '\\b', 'g');
+      renamedCode = renamedCode.replace(re, newName);
+    }
+  }
+
+  return { renamedCode, renameMap, count: entries.length };
+}
+
+/** Convert camelCase to SCREAMING_SNAKE_CASE. */
+function camelToScreamingSnake(str) {
+  return str
+    .replace(/([a-z])([A-Z])/g, '$1_$2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .toUpperCase();
+}
+
+/**
  * Try deobfuscating JS with webcrack, with size limit and timeout.
  * Returns deobfuscated code or null on failure/timeout.
  */
@@ -1291,6 +1393,18 @@ export class CodeSearchIndex {
           }
         }
 
+        // Infer descriptive names for simple obfuscated functions (after prettification)
+        if (isMinified(relPath, rawBytes.toString('utf-8'))) {
+          const { renamedCode, renameMap, count } = inferFunctionNames(content);
+          if (count > 0) {
+            content = renamedCode;
+            stats.namesInferred = (stats.namesInferred || 0) + count;
+            // Store the rename map for this file (for future display/editing)
+            if (!stats.renameMaps) stats.renameMaps = {};
+            stats.renameMaps[relPath] = renameMap;
+          }
+        }
+
         _addFileToIndex(relPath, content, rawBytes);
       } catch (e) {
         stats.errors.push(`${filePath}: ${e.message}`);
@@ -1430,10 +1544,12 @@ export class CodeSearchIndex {
       let prettyNote = '';
       const deob = stats.deobfuscated || 0;
       const pretty = stats.prettified || 0;
-      if (deob > 0 || pretty > 0) {
+      const namesInferred = stats.namesInferred || 0;
+      if (deob > 0 || pretty > 0 || namesInferred > 0) {
         const parts = [];
         if (deob > 0) parts.push(`${deob} deobfuscated`);
         if (pretty > 0) parts.push(`${pretty} prettified`);
+        if (namesInferred > 0) parts.push(`${namesInferred} function names inferred`);
         prettyNote = `, ${parts.join(', ')}`;
       }
       console.log(`Indexing complete: ${stats.files_indexed} files${dedupNote}${archiveNote}${binNote}${prettyNote}, ` +
