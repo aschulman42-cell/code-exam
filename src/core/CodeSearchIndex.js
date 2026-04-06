@@ -91,87 +91,170 @@ function deobfuscateSimple(code) {
  * Returns { renamedCode, renameMap, count } where renameMap is { oldName: newName }.
  * Applies renames to the full code content so all references update.
  */
-function inferFunctionNames(code) {
-  const renameMap = {};
+/** Common short real-word function/variable names that should NOT be renamed. */
+const _REAL_SHORT_NAMES = new Set([
+  // Common JS/TS names
+  'fn', 'cb', 'el', 'ev', 'id', 'db', 'fs', 'os', 'io', 'rx', 'tx',
+  'ok', 'on', 'up', 'go', 'do', 'is', 'to', 'of', 'or', 'as', 'at', 'by', 'if',
+  // Common real words used as identifiers
+  'add', 'all', 'app', 'arg', 'arr', 'bin', 'bit', 'box', 'buf', 'bus',
+  'can', 'cap', 'cfg', 'cmd', 'col', 'con', 'cwd', 'ctx', 'cur', 'def',
+  'del', 'dev', 'dim', 'dir', 'doc', 'dom', 'dst', 'dup', 'end', 'env',
+  'err', 'ext', 'fig', 'fix', 'fmt', 'gen', 'get', 'has', 'hex', 'hit',
+  'hub', 'idx', 'img', 'inf', 'int', 'inv', 'ipc', 'job', 'jwt', 'key',
+  'len', 'lib', 'log', 'low', 'map', 'max', 'mem', 'mid', 'min', 'mix',
+  'msg', 'mut', 'net', 'nil', 'nop', 'not', 'now', 'num', 'obj', 'old',
+  'opt', 'out', 'own', 'pad', 'pkg', 'pop', 'pos', 'pre', 'ptr', 'put',
+  'raw', 'ref', 'reg', 'rem', 'req', 'res', 'ret', 'rev', 'row', 'run',
+  'seq', 'set', 'sig', 'sin', 'src', 'str', 'sub', 'sum', 'sym', 'sys',
+  'tab', 'tag', 'tmp', 'top', 'tpl', 'ttl', 'txt', 'uri', 'url', 'use',
+  'usr', 'val', 'var', 'vec', 'ver', 'via', 'win', 'zip',
+  // Longer but still common real words (3-6 chars, all lowercase)
+  'area', 'args', 'auth', 'auto', 'back', 'base', 'bind', 'blob',
+  'body', 'bold', 'boot', 'call', 'case', 'cast', 'char', 'chat',
+  'clip', 'code', 'cold', 'copy', 'core', 'data', 'date', 'deep',
+  'desc', 'diff', 'done', 'down', 'drop', 'dump', 'each', 'edge',
+  'edit', 'emit', 'enum', 'eval', 'exec', 'exit', 'expr', 'fail',
+  'fast', 'file', 'fill', 'find', 'fire', 'flag', 'flat', 'flip',
+  'flow', 'font', 'fork', 'form', 'free', 'from', 'full', 'func',
+  'glob', 'grid', 'grow', 'halt', 'hash', 'head', 'heap', 'help',
+  'hide', 'high', 'hold', 'home', 'hook', 'host', 'html', 'icon',
+  'idle', 'info', 'init', 'item', 'iter', 'join', 'json', 'jump',
+  'keep', 'kill', 'kind', 'lang', 'last', 'late', 'lazy', 'left',
+  'link', 'lint', 'list', 'load', 'lock', 'long', 'look', 'loop',
+  'main', 'make', 'mark', 'mask', 'math', 'menu', 'meta', 'mime',
+  'mode', 'mock', 'mono', 'more', 'move', 'much', 'must', 'mute',
+  'name', 'next', 'node', 'none', 'norm', 'note', 'null', 'once',
+  'only', 'open', 'over', 'pack', 'page', 'pair', 'pane', 'part',
+  'pass', 'past', 'path', 'peer', 'pick', 'ping', 'pipe', 'plan',
+  'play', 'plot', 'plug', 'poll', 'pool', 'port', 'post', 'prev',
+  'prop', 'pull', 'pure', 'push', 'quit', 'race', 'rand', 'rank',
+  'rate', 'read', 'real', 'redo', 'rich', 'ring', 'role', 'root',
+  'rule', 'safe', 'save', 'scan', 'seed', 'seek', 'self', 'send',
+  'show', 'shut', 'sign', 'sink', 'size', 'skip', 'slot', 'slow',
+  'snap', 'sort', 'span', 'spec', 'spin', 'spot', 'star', 'stat',
+  'step', 'stop', 'sync', 'tabs', 'tail', 'take', 'task', 'temp',
+  'term', 'test', 'text', 'then', 'thin', 'this', 'tick', 'tier',
+  'time', 'tiny', 'tool', 'tree', 'trim', 'true', 'turn', 'type',
+  'uint', 'undo', 'unit', 'unix', 'uuid', 'void', 'wait', 'walk',
+  'warn', 'wasm', 'weak', 'wide', 'will', 'with', 'word', 'work',
+  'wrap', 'yaml', 'year', 'zero', 'zone',
+  'abort', 'above', 'after', 'agent', 'alert', 'alias', 'align',
+  'allow', 'apply', 'array', 'asset', 'async', 'await', 'batch',
+  'begin', 'below', 'block', 'break', 'brush', 'build', 'cache',
+  'catch', 'cause', 'chain', 'check', 'child', 'chunk', 'claim',
+  'class', 'clean', 'clear', 'click', 'clone', 'close', 'codec',
+  'color', 'const', 'count', 'cover', 'crash', 'cross', 'curve',
+  'cycle', 'debug', 'defer', 'delay', 'delta', 'dense', 'depth',
+  'dirty', 'draft', 'drain', 'drive', 'embed', 'empty', 'endow',
+  'enter', 'equal', 'error', 'event', 'every', 'exact', 'extra',
+  'fault', 'fetch', 'field', 'final', 'fixed', 'flags', 'flash',
+  'float', 'floor', 'flush', 'focus', 'force', 'frame', 'fresh',
+  'front', 'given', 'global','grace', 'graph', 'group', 'guard',
+  'guest', 'guide', 'heart', 'heavy', 'hover', 'hyper', 'image',
+  'index', 'inner', 'input', 'issue', 'label', 'large', 'later',
+  'layer', 'level', 'light', 'limit', 'local', 'login', 'lower',
+  'match', 'maybe', 'media', 'merge', 'micro', 'minor', 'mixed',
+  'model', 'mount', 'mouse', 'multi', 'never', 'newer', 'nonce',
+  'oauth', 'offer', 'order', 'other', 'outer', 'owner', 'panic',
+  'parse', 'patch', 'pause', 'phase', 'pixel', 'place', 'plain',
+  'point', 'popup', 'power', 'press', 'price', 'print', 'prior',
+  'probe', 'proof', 'proto', 'proxy', 'pulse', 'query', 'queue',
+  'quiet', 'quota', 'quote', 'radio', 'raise', 'range', 'ratio',
+  'reach', 'ready', 'realm', 'regex', 'relay', 'renew', 'reply',
+  'reset', 'retry', 'right', 'route', 'scene', 'scope', 'score',
+  'serve', 'setup', 'shape', 'share', 'shell', 'shift', 'short',
+  'since', 'slate', 'sleep', 'slice', 'slide', 'small', 'space',
+  'stack', 'stage', 'stale', 'start', 'state', 'steel', 'still',
+  'stock', 'store', 'strip', 'style', 'super', 'surge', 'sweep',
+  'table', 'theme', 'thing', 'throw', 'timer', 'title', 'token',
+  'total', 'touch', 'trace', 'track', 'train', 'trash', 'trial',
+  'trick', 'tuple', 'union', 'until', 'upper', 'usage', 'using',
+  'valid', 'value', 'video', 'visit', 'watch', 'water', 'wheel',
+  'where', 'which', 'while', 'white', 'whole', 'width', 'write',
+  'yield',
+  'accept', 'action', 'active', 'anchor', 'append', 'assert',
+  'assign', 'attach', 'before', 'binary', 'border', 'bottom',
+  'branch', 'bridge', 'bucket', 'buffer', 'bundle', 'button',
+  'cancel', 'canvas', 'change', 'client', 'closed', 'column',
+  'commit', 'config', 'create', 'cursor', 'custom', 'daemon',
+  'decode', 'define', 'delete', 'deploy', 'design', 'detect',
+  'device', 'dialog', 'digest', 'direct', 'domain', 'double',
+  'driver', 'enable', 'encode', 'engine', 'ensure', 'entity',
+  'escape', 'except', 'expand', 'expect', 'export', 'extend',
+  'fabric', 'factor', 'figure', 'filter', 'finder', 'finish',
+  'format', 'frozen', 'global', 'handle', 'header', 'health',
+  'height', 'hidden', 'ignore', 'import', 'inject', 'insert',
+  'inside', 'intern', 'invoke', 'kernel', 'launch', 'layout',
+  'legacy', 'length', 'listen', 'locale', 'locate', 'locked',
+  'logger', 'lookup', 'manage', 'manual', 'mapper', 'margin',
+  'marker', 'master', 'matrix', 'memory', 'method', 'middle',
+  'mirror', 'module', 'native', 'nested', 'normal', 'notice',
+  'notify', 'number', 'object', 'offset', 'online', 'opener',
+  'option', 'origin', 'output', 'parent', 'passed', 'plugin',
+  'policy', 'prefix', 'prompt', 'random', 'reader', 'record',
+  'reduce', 'region', 'reload', 'remote', 'remove', 'render',
+  'repeat', 'report', 'resize', 'resolve','result', 'resume',
+  'return', 'revert', 'revoke', 'rotate', 'router', 'runner',
+  'sample', 'scroll', 'search', 'secret', 'secure', 'select',
+  'sender', 'server', 'shadow', 'signal', 'simple', 'single',
+  'sizeof', 'socket', 'source', 'spread', 'square', 'stable',
+  'static', 'status', 'stderr', 'stdout', 'stream', 'strict',
+  'string', 'stroke', 'struct', 'submit', 'suffix', 'supply',
+  'switch', 'symbol', 'syntax', 'system', 'target', 'thread',
+  'toggle', 'typeof', 'unique', 'unlink', 'unlock', 'unpack',
+  'unsafe', 'unused', 'update', 'upload', 'vendor', 'verify',
+  'viewer', 'virtual','volume', 'walker', 'widget', 'window',
+  'worker', 'writer',
+]);
 
-  // Match simple function bodies (prettified: function on one line, body 1-3 lines, closing brace)
-  // Pattern: function NAME(params) {\n  BODY\n}
-  const funcRe = /function\s+([a-zA-Z_$][\w$]*)\s*\(([^)]*)\)\s*\{([^}]{1,200})\}/g;
-  let m;
-  while ((m = funcRe.exec(code)) !== null) {
-    const name = m[1];
-    const params = m[2].trim();
-    const body = m[3].trim();
+/**
+ * Determine if a function name is "opaque" (obfuscated or too short to be meaningful).
+ * Returns true if the name should be a candidate for renaming.
+ */
+function isOpaqueName(name) {
+  if (!name || name.length === 0) return false;
+  // Strip class qualifier for analysis
+  const bare = name.includes('::') ? name.split('::').pop() : name;
+  // Strip @linenum suffix
+  const clean = bare.includes('@') ? bare.split('@')[0] : bare;
+  // Skip very short names (1-2 chars) — too collision-prone for safe replacement
+  if (clean.length <= 2) return false;
+  // Already has an inferred suffix?
+  if (/_KW_/.test(clean)) return false;
+  // Is a known real word / common identifier?
+  if (_REAL_SHORT_NAMES.has(clean.toLowerCase())) return false;
+  // Has camelCase with 4+ leading lowercase (readable name)
+  if (/^[a-z]{4,}[A-Z]/.test(clean)) return false;
+  // PascalCase with 4+ chars (readable class/constructor name)
+  if (/^[A-Z][a-z]{3,}/.test(clean)) return false;
+  // snake_case with readable words (each part 3+ chars)
+  if (/^[a-z]{3,}_[a-z]{3,}/.test(clean)) return false;
+  // ALL_CAPS with underscores — likely a constant (SOME_CONSTANT)
+  if (/^[A-Z][A-Z0-9_]{3,}$/.test(clean)) return false;
+  // Long name (>8 chars) that contains lowercase — probably meaningful enough
+  if (clean.length > 8 && /[a-z]/.test(clean)) return false;
+  // All lowercase 4+ chars — could be a real word not in our list, be conservative
+  if (/^[a-z]{4,}$/.test(clean)) return false;
+  // Short or cryptic name — candidate for renaming
+  return true;
+}
 
-    // Skip if name is already readable (4+ lowercase chars followed by uppercase = camelCase)
-    if (/^[a-z]{4,}[A-Z]/.test(name) || /^[A-Z][a-z]{3,}/.test(name)) continue;
-    // Skip if name is very long (probably already meaningful)
-    if (name.length > 8) continue;
-
-    let inferred = null;
-
-    // Pattern: return OBJ.PROP
-    const getMatch = body.match(/^return\s+(?:[\w$]+\.)+(\w[\w$]*)$/);
-    if (getMatch) {
-      inferred = 'GET_' + camelToScreamingSnake(getMatch[1]);
-    }
-
-    // Pattern: return OBJ.METHOD(params)
-    if (!inferred) {
-      const callMatch = body.match(/^return\s+(?:[\w$]+\.)+(\w[\w$]*)\s*\(/);
-      if (callMatch) {
-        inferred = 'CALL_' + camelToScreamingSnake(callMatch[1]);
-      }
-    }
-
-    // Pattern: OBJ.PROP = EXPR (single assignment)
-    if (!inferred) {
-      const setMatch = body.match(/^(?:[\w$]+\.)+(\w[\w$]*)\s*=[^=]/);
-      if (setMatch && !body.includes(',')) {
-        inferred = 'SET_' + camelToScreamingSnake(setMatch[1]);
-      }
-    }
-
-    // Pattern: OBJ.PROP = 0, OBJ.PROP2 = 0 (reset/init multiple props)
-    if (!inferred) {
-      const resetMatch = body.match(/^(?:[\w$]+\.(\w[\w$]*)\s*=\s*(?:0|false|null|undefined|""|'')(?:\s*,\s*)?)+$/);
-      if (resetMatch) {
-        // Extract first property name
-        const firstProp = body.match(/\.(\w[\w$]*)\s*=/);
-        if (firstProp) {
-          inferred = 'RESET_' + camelToScreamingSnake(firstProp[1]);
-        }
-      }
-    }
-
-    // Pattern: single return of a parameter (identity/cast wrapper)
-    if (!inferred && params) {
-      const firstParam = params.split(',')[0].trim();
-      const retParamMatch = body.match(/^return\s+([\w$]+)$/);
-      if (retParamMatch && retParamMatch[1] === firstParam) {
-        inferred = 'IDENTITY';
-      }
-    }
-
-    if (inferred) {
-      renameMap[name] = name + '_' + inferred;
-    }
+/**
+ * Check if a position in a line is inside a string literal (single, double, or backtick).
+ * Simple state-machine approach — doesn't handle escaped quotes perfectly but good enough.
+ */
+function _isInsideString(line, pos) {
+  let inSingle = false, inDouble = false, inBacktick = false;
+  for (let i = 0; i < pos && i < line.length; i++) {
+    const ch = line[i];
+    const prev = i > 0 ? line[i - 1] : '';
+    if (prev === '\\') continue; // skip escaped chars
+    if (ch === "'" && !inDouble && !inBacktick) inSingle = !inSingle;
+    else if (ch === '"' && !inSingle && !inBacktick) inDouble = !inDouble;
+    else if (ch === '`' && !inSingle && !inDouble) inBacktick = !inBacktick;
   }
-
-  // Apply renames to the full code (word-boundary replacement)
-  let renamedCode = code;
-  const entries = Object.entries(renameMap);
-  if (entries.length > 0) {
-    // Sort by name length descending to avoid partial replacements
-    entries.sort((a, b) => b[0].length - a[0].length);
-    for (const [oldName, newName] of entries) {
-      // Word-boundary replace — avoid replacing inside strings by checking context
-      const re = new RegExp('\\b' + escapeRegex(oldName) + '\\b', 'g');
-      renamedCode = renamedCode.replace(re, newName);
-    }
-  }
-
-  return { renamedCode, renameMap, count: entries.length };
+  return inSingle || inDouble || inBacktick;
 }
 
 /** Convert camelCase to SCREAMING_SNAKE_CASE. */
@@ -231,79 +314,58 @@ function extractReadableIdents(bodyText) {
 }
 
 /**
- * For structural dupe groups in minified code, infer template names from
- * common readable identifiers shared across all instances.
+ * Infer descriptive names for ALL opaque-named functions by extracting
+ * the most distinctive readable identifiers from their bodies.
+ *
+ * Works on any codebase — not limited to minified code. Any function with
+ * a short/cryptic name gets keywords from its body appended as a suffix.
  *
  * @param {CodeSearchIndex} idx - index with fileLines and functionIndex loaded
- * @param {Map} funcHashes - from ensureFuncHashes()
  * @returns {{ renameMap: Object<string,string>, count: number }}
  */
-function inferTemplateNames(idx, funcHashes) {
-  const renameMap = {};
+function inferAllNames(idx) {
+  const renameMap = Object.create(null);
+  const usedNames = new Map(); // baseName -> count (for collision handling)
 
-  // Group by struct_hash
-  const structGroups = {};
-  for (const [keyStr, info] of funcHashes) {
-    if (!info.struct_hash) continue;
-    if (!structGroups[info.struct_hash]) structGroups[info.struct_hash] = [];
-    const sep = keyStr.indexOf('|||');
-    const filepath = keyStr.slice(0, sep);
-    const funcName = keyStr.slice(sep + 3);
-    structGroups[info.struct_hash].push({ filepath, name: funcName, lines: info.lines || 0 });
-  }
+  idx._ensureFunctionIndex();
+  if (!idx.functionIndex) return { renameMap, count: 0 };
 
-  // Track used template names to avoid collisions
-  const usedTemplateNames = new Map(); // baseName -> count
+  for (const [filepath, funcs] of Object.entries(idx.functionIndex)) {
+    for (const [funcName, info] of Object.entries(funcs)) {
+      if (!isOpaqueName(funcName)) continue;
 
-  for (const [hash, instances] of Object.entries(structGroups)) {
-    if (instances.length < 2) continue;
-    // Only rename short/obfuscated names (skip already-readable functions)
-    const obfuscatedInstances = instances.filter(f => {
-      const bare = f.name.includes('::') ? f.name.split('::').pop() : f.name;
-      // Already has an inferred name from inferFunctionNames?
-      if (/_GET_|_SET_|_CALL_|_RESET_|_IDENTITY|_TMPL_/.test(bare)) return false;
-      // Already readable (4+ lowercase + uppercase = camelCase)?
-      if (/^[a-z]{4,}[A-Z]/.test(bare) || /^[A-Z][a-z]{3,}/.test(bare)) return false;
-      return bare.length <= 8;
-    });
-    if (obfuscatedInstances.length < 2) continue;
+      const lines = idx.fileLines.get(filepath);
+      if (!lines) continue;
+      const bodyLines = lines.slice(info.start - 1, info.end);
+      if (bodyLines.length === 0) continue;
+      const bodyText = bodyLines.join('\n');
 
-    // Get source of first instance to extract readable identifiers
-    const first = obfuscatedInstances[0];
-    const lines = idx.fileLines.get(first.filepath);
-    if (!lines) continue;
-    const funcInfo = idx.functionIndex?.[first.filepath]?.[first.name];
-    if (!funcInfo) continue;
-    const bodyText = lines.slice(funcInfo.start - 1, funcInfo.end).join('\n');
+      // Extract distinctive readable identifiers from the function body
+      const idents = extractReadableIdents(bodyText);
+      if (idents.length === 0) continue;
 
-    // Extract distinctive identifiers
-    const idents = extractReadableIdents(bodyText);
-    if (idents.length === 0) continue;
+      // Pick top 2-4 identifiers, more for larger functions
+      const numKeywords = bodyLines.length > 50 ? 4 : bodyLines.length > 15 ? 3 : 2;
+      const topIdents = idents.slice(0, numKeywords).map(i => i.ident);
 
-    // Pick top 2-3 identifiers for the template name
-    const topIdents = idents.slice(0, 3).map(i => i.ident);
-    // Convert to SCREAMING_SNAKE: _middlewareFn → MIDDLEWARE_FN, smithyContext → SMITHY_CONTEXT
-    const templateParts = topIdents.map(id => {
-      let clean = id.startsWith('_') ? id.slice(1) : id;
-      return camelToScreamingSnake(clean);
-    });
-    let baseName = 'TMPL_' + templateParts.join('_');
+      // Convert to SCREAMING_SNAKE
+      const parts = topIdents.map(id => {
+        let clean = id.startsWith('_') ? id.slice(1) : id;
+        return camelToScreamingSnake(clean);
+      });
+      let baseName = 'KW_' + parts.join('_');
 
-    // Truncate if too long
-    if (baseName.length > 40) {
-      baseName = baseName.slice(0, 40);
-    }
+      // Truncate if too long
+      if (baseName.length > 50) {
+        baseName = baseName.slice(0, 50);
+      }
 
-    // Handle collisions
-    const prevCount = usedTemplateNames.get(baseName) || 0;
-    usedTemplateNames.set(baseName, prevCount + 1);
+      // Handle collisions: append _2, _3, etc.
+      const prevCount = usedNames.get(baseName) || 0;
+      usedNames.set(baseName, prevCount + 1);
+      const suffix = prevCount > 0 ? `_${prevCount + 1}` : '';
 
-    // Rename each obfuscated instance
-    for (let i = 0; i < obfuscatedInstances.length; i++) {
-      const inst = obfuscatedInstances[i];
-      const suffix = (prevCount > 0 || obfuscatedInstances.length > 1)
-        ? `_${prevCount * 100 + i + 1}` : '';
-      renameMap[inst.name] = inst.name + '_' + baseName + suffix;
+      renameMap[funcName] = funcName + '_' + baseName + suffix;
     }
   }
 
@@ -452,14 +514,31 @@ export class CodeSearchIndex {
     if (!sourceText) return sourceText || '';
     const map = this._loadRenameMap();
     if (!map || Object.keys(map).length === 0) return sourceText;
-    let result = sourceText;
-    // Sort by name length descending to avoid partial replacements
-    const entries = Object.entries(map).sort((a, b) => b[0].length - a[0].length);
-    for (const [oldName, newName] of entries) {
-      const re = new RegExp('\\b' + escapeRegex(oldName) + '\\b', 'g');
-      result = result.replace(re, newName);
+
+    // Build a combined regex that matches any rename target as a whole word
+    if (!this._renameRegex) {
+      const keys = Object.keys(map).sort((a, b) => b.length - a.length);
+      if (keys.length === 0) return sourceText;
+      // Escape and join with | for alternation
+      const pattern = keys.map(k => escapeRegex(k)).join('|');
+      this._renameRegex = new RegExp('\\b(' + pattern + ')\\b', 'g');
     }
-    return result;
+
+    // Apply line by line, skipping string literals
+    const lines = sourceText.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Simple heuristic: skip lines that are predominantly string content
+      // (starts with quotes after trim, or is inside a template literal)
+      // For more precision, only replace outside quoted segments
+      this._renameRegex.lastIndex = 0;
+      lines[i] = line.replace(this._renameRegex, (match, name, offset) => {
+        // Check if this position is inside a string literal
+        if (_isInsideString(line, offset)) return match;
+        return (map && Object.prototype.hasOwnProperty.call(map, name)) ? map[name] : match;
+      });
+    }
+    return lines.join('\n');
   }
 
   /**
@@ -1597,9 +1676,6 @@ export class CodeSearchIndex {
       return true;
     };
 
-    // Collect rename maps from inferFunctionNames (getter/setter) — saved later
-    let allRenameMaps = null;
-
     // --- Phase 1: Index regular source files ---
     for (const filePath of sourceFiles) {
       try {
@@ -1633,16 +1709,6 @@ export class CodeSearchIndex {
           }
         }
 
-        // Infer descriptive names for simple obfuscated functions (after prettification).
-        // Rename map is saved as metadata — applied at DISPLAY time, not to stored content.
-        if (isMinified(relPath, rawBytes.toString('utf-8'))) {
-          const { renameMap, count } = inferFunctionNames(content);
-          if (count > 0) {
-            stats.namesInferred = (stats.namesInferred || 0) + count;
-            if (!allRenameMaps) allRenameMaps = {};
-            Object.assign(allRenameMaps, renameMap);
-          }
-        }
 
         _addFileToIndex(relPath, content, rawBytes);
       } catch (e) {
@@ -1752,29 +1818,17 @@ export class CodeSearchIndex {
       this.buildFunctionIndex(showProgress);
     }
 
-    // Template naming: for minified files, identify structural dupe groups and
-    // compute rename map based on common readable identifiers.
+    // Infer descriptive names for ALL opaque-named functions.
+    // Extracts top keywords from each function's body. Works on any codebase.
     // Saved as rename_map.json — applied at DISPLAY time, not to stored content.
-    const hasMinified = (stats.prettified || 0) + (stats.deobfuscated || 0) > 0;
-    if (hasMinified) {
-      const funcHashes = this.ensureFuncHashes(3, showProgress);
-      if (funcHashes.size > 0) {
-        const { renameMap, count } = inferTemplateNames(this, funcHashes);
-        if (count > 0) {
-          if (showProgress) console.log(`Inferred ${count} template names from structural dupe groups`);
-          stats.templateNames = count;
-          // Merge with getter/setter renames
-          allRenameMaps = { ...(allRenameMaps || {}), ...renameMap };
-        }
-      }
-    }
-
-    // Save rename map (getter/setter + template names) for display-time application
-    if (allRenameMaps && Object.keys(allRenameMaps).length > 0) {
-      this._renameMap = allRenameMaps;
-      this._saveRenameMap(allRenameMaps);
+    if (showProgress) console.log('Inferring descriptive names for opaque functions...');
+    const { renameMap, count: namesInferred } = inferAllNames(this);
+    if (namesInferred > 0) {
+      stats.namesInferred = namesInferred;
+      this._renameMap = renameMap;
+      this._saveRenameMap(renameMap);
       if (showProgress) {
-        console.log(`Saved ${Object.keys(allRenameMaps).length} total name mappings to rename_map.json`);
+        console.log(`Inferred ${namesInferred} descriptive names → rename_map.json`);
       }
     }
 
@@ -1807,13 +1861,11 @@ export class CodeSearchIndex {
       const deob = stats.deobfuscated || 0;
       const pretty = stats.prettified || 0;
       const namesInferred = stats.namesInferred || 0;
-      const templateNames = stats.templateNames || 0;
-      if (deob > 0 || pretty > 0 || namesInferred > 0 || templateNames > 0) {
+      if (deob > 0 || pretty > 0 || namesInferred > 0) {
         const parts = [];
         if (deob > 0) parts.push(`${deob} deobfuscated`);
         if (pretty > 0) parts.push(`${pretty} prettified`);
-        if (namesInferred > 0) parts.push(`${namesInferred} function names inferred`);
-        if (templateNames > 0) parts.push(`${templateNames} template names from struct-dupes`);
+        if (namesInferred > 0) parts.push(`${namesInferred} names inferred`);
         prettyNote = `, ${parts.join(', ')}`;
       }
       console.log(`Indexing complete: ${stats.files_indexed} files${dedupNote}${archiveNote}${binNote}${prettyNote}, ` +
@@ -2907,11 +2959,14 @@ export class CodeSearchIndex {
     bareName = bareName.includes('.') ? bareName.split('.').pop() : bareName;
 
     // Build call patterns
+    // Use case-insensitive only for longer names (5+ chars) where case collisions
+    // are unlikely. Short names like 'lo' vs 'lO' are distinct in JS/TS.
+    const caseFlag = bareName.length >= 5 ? 'i' : '';
     const callPatterns = [
-      ['direct', new RegExp('(?<![a-zA-Z_])' + escapeRegex(bareName) + '\\s*\\(', 'i')],
+      ['direct', new RegExp('(?<![a-zA-Z_])' + escapeRegex(bareName) + '\\s*\\(', caseFlag)],
     ];
 
-    // Qualified pattern
+    // Qualified pattern (always case-sensitive — qualified names are precise)
     if (functionName.includes('::')) {
       const parts = functionName.split('::');
       if (parts.length >= 2) {
@@ -2925,11 +2980,11 @@ export class CodeSearchIndex {
     // Indirect call patterns
     callPatterns.push([
       'indirect',
-      new RegExp('\\(\\s*\\*\\s*' + escapeRegex(bareName) + '\\s*\\)\\s*\\(', 'i'),
+      new RegExp('\\(\\s*\\*\\s*' + escapeRegex(bareName) + '\\s*\\)\\s*\\(', caseFlag),
     ]);
     callPatterns.push([
       'reference',
-      new RegExp('(?:=\\s*&?\\s*|,\\s*&?\\s*)' + escapeRegex(bareName) + '\\s*(?:[,;\\)\\]]|$)', 'i'),
+      new RegExp('(?:=\\s*&?\\s*|,\\s*&?\\s*)' + escapeRegex(bareName) + '\\s*(?:[,;\\)\\]]|$)', caseFlag),
     ]);
 
     // Find definition locations to exclude
