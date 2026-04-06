@@ -257,6 +257,23 @@ function _isInsideString(line, pos) {
   return inSingle || inDouble || inBacktick;
 }
 
+/** Helper: add a string occurrence to the string table map. */
+function _addString(strings, value, filepath, lineNum, funcName) {
+  if (!strings[value]) {
+    strings[value] = { count: 0, files: 0, _fileSet: new Set(), locations: [] };
+  }
+  const entry = strings[value];
+  entry.count++;
+  if (!entry._fileSet.has(filepath)) {
+    entry._fileSet.add(filepath);
+    entry.files = entry._fileSet.size;
+  }
+  // Cap stored locations to avoid huge entries
+  if (entry.locations.length < 20) {
+    entry.locations.push({ filepath, line: lineNum, func: funcName || null });
+  }
+}
+
 /** Convert camelCase to SCREAMING_SNAKE_CASE. */
 function camelToScreamingSnake(str) {
   return str
@@ -473,6 +490,7 @@ export class CodeSearchIndex {
   _functionIndexPath() { return path.join(this.indexPath, 'function_index.json'); }
   _funcHashesPath()    { return path.join(this.indexPath, 'func_hashes.json'); }
   _renameMapPath()     { return path.join(this.indexPath, 'rename_map.json'); }
+  _stringTablePath()   { return path.join(this.indexPath, 'string_table.json'); }
 
 
   // ========================================================================
@@ -609,6 +627,159 @@ export class CodeSearchIndex {
       }
     }
     return originals;
+  }
+
+
+  // ========================================================================
+  // String table: extract, save, load, query
+  // ========================================================================
+
+  /**
+   * Build a string table from all indexed files.
+   * Extracts string literals (single/double/backtick), deduplicates,
+   * and records where each unique string appears (file, line, function).
+   *
+   * @param {number} [minLength=8] - Minimum string length to include
+   * @param {boolean} [showProgress=true]
+   * @returns {number} count of unique strings found
+   */
+  buildStringTable(minLength = 8, showProgress = true) {
+    this._ensureFunctionIndex();
+    const strings = Object.create(null); // value -> { count, locations: [{filepath, line, func}] }
+    let totalFound = 0;
+
+    // Regex to match string literals: "...", '...', `...`
+    // Handles escaped quotes. Backticks matched per-line (multi-line tracked separately).
+    const strRe = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g;
+
+    for (const [filepath, lines] of this.fileLines) {
+      if (showProgress && totalFound % 10000 === 0 && totalFound > 0) {
+        process.stderr.write(`  String table: ${totalFound} strings found, ${Object.keys(strings).length} unique...\r`);
+      }
+
+      // Pre-compute function boundaries for this file
+      const funcBounds = this._getFuncBoundaries(filepath);
+
+      for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+        const line = lines[lineIdx];
+        const lineNum = lineIdx + 1;
+
+        // Extract single/double quoted strings from this line
+        let m;
+        strRe.lastIndex = 0;
+        while ((m = strRe.exec(line)) !== null) {
+          const raw = m[0].slice(1, -1);
+          if (raw.length < minLength) continue;
+
+          // Unescape basic escapes
+          const val = raw.replace(/\\n/g, '\n').replace(/\\t/g, '\t')
+            .replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\\/g, '\\');
+
+          const func = this._findContainingFunctionFromBounds(funcBounds, lineNum);
+          _addString(strings, val, filepath, lineNum, func);
+          totalFound++;
+        }
+
+        // Extract backtick template literals that start and end on the same line
+        // (Multi-line template literal tracking is deferred — fragile across 500K+ lines)
+        const btRe = /`([^`]{8,})`/g;
+        while ((m = btRe.exec(line)) !== null) {
+          const val = m[1].length > 4000 ? m[1].slice(0, 4000) + '...' : m[1];
+          const func = this._findContainingFunctionFromBounds(funcBounds, lineNum);
+          _addString(strings, val, filepath, lineNum, func);
+          totalFound++;
+        }
+      }
+    }
+
+    if (showProgress) {
+      process.stderr.write(`\r  String table: ${totalFound} strings found, ${Object.keys(strings).length} unique    \n`);
+    }
+
+    // Sort by count descending, then by length descending
+    const sorted = Object.entries(strings)
+      .map(([value, info]) => ({
+        value,
+        count: info.count,
+        files: info.files,
+        locations: info.locations.slice(0, 20), // cap locations per string
+      }))
+      .sort((a, b) => b.count - a.count || b.value.length - a.value.length);
+
+    this._stringTable = sorted;
+
+    // Save to disk
+    try {
+      fs.writeFileSync(this._stringTablePath(), JSON.stringify(sorted));
+      if (showProgress) console.log(`Saved ${sorted.length} unique strings to string_table.json`);
+    } catch (e) {
+      if (showProgress) console.log(`Warning: could not save string table: ${e.message}`);
+    }
+
+    return sorted.length;
+  }
+
+  /**
+   * Load string table from cache, or build if not available.
+   */
+  ensureStringTable(minLength = 8, showProgress = false) {
+    if (this._stringTable) return this._stringTable;
+    try {
+      const raw = fs.readFileSync(this._stringTablePath(), 'utf-8');
+      this._stringTable = JSON.parse(raw);
+      return this._stringTable;
+    } catch {
+      // Not cached — build it
+      this.buildStringTable(minLength, showProgress);
+      return this._stringTable || [];
+    }
+  }
+
+  /**
+   * Query the string table with optional filter (substring or regex).
+   * @param {object} opts
+   * @param {string} [opts.filter] - Substring match or /regex/
+   * @param {number} [opts.max=50] - Max results
+   * @param {number} [opts.minLength=8] - Min string length
+   * @returns {Array} Matching string entries
+   */
+  queryStringTable({ filter, max = 50, minLength = 8 } = {}) {
+    const table = this.ensureStringTable(minLength);
+    if (!table || table.length === 0) return [];
+
+    let results = table;
+
+    if (filter) {
+      // Support /regex/ syntax
+      const regexMatch = filter.match(/^\/(.+)\/([gimsuy]*)$/);
+      if (regexMatch) {
+        try {
+          const re = new RegExp(regexMatch[1], regexMatch[2]);
+          results = table.filter(s => re.test(s.value));
+        } catch {
+          results = table.filter(s => s.value.includes(filter));
+        }
+      } else {
+        const pat = filter.toLowerCase();
+        results = table.filter(s => s.value.toLowerCase().includes(pat));
+      }
+    }
+
+    return results.slice(0, max);
+  }
+
+  /**
+   * Find containing function from pre-computed boundaries (array format [start, end, name]).
+   * Uses the same boundary format as the existing _getFuncBoundaries.
+   */
+  _findContainingFunctionFromBounds(bounds, lineNum) {
+    // bounds is [[start, end, name], ...] sorted by start
+    for (let i = bounds.length - 1; i >= 0; i--) {
+      if (lineNum >= bounds[i][0] && lineNum <= bounds[i][1]) {
+        return bounds[i][2];
+      }
+    }
+    return null;
   }
 
 
@@ -1843,6 +2014,11 @@ export class CodeSearchIndex {
         console.log(`Inferred ${namesInferred} descriptive names → rename_map.json`);
       }
     }
+
+    // Build string table
+    if (showProgress) console.log('Building string table...');
+    const stringCount = this.buildStringTable(8, showProgress);
+    stats.strings = stringCount;
 
     // Reconstruct this.files from fileLines now that memory-heavy build is done.
     for (const [fp, lines] of this.fileLines) {

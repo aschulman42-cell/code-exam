@@ -100,6 +100,7 @@ const api = {
   structDupes:     (p) => api.get('struct-dupes', p),
   funcstring:      (p) => api.get('funcstring', p),
   structDiffAll:   (p) => api.get('struct-diff-all', p),
+  stringTable:     (p) => api.get('string-table', p),
   buildPrompt:     (p) => api.post('build-prompt', p),
   claimSearch:     (p) => api.post('claim-search', p),
   claimSearchLlm:  (p) => api.post('claim-search-llm', p),
@@ -347,6 +348,13 @@ async function loadSectionData(sectionId, filter = '') {
         data = await api.structDiffAll({ n: 30, filter });
         state.sectionData[sectionId] = data.groups;
         renderStructDiffList(content, data.groups);
+        badge.textContent = data.total;
+        break;
+
+      case 'strings':
+        data = await api.stringTable({ filter, max: 100 });
+        state.sectionData[sectionId] = data.strings;
+        renderStringTable(content, data.strings);
         badge.textContent = data.total;
         break;
 
@@ -1377,6 +1385,67 @@ function makeResizable(panel, handle) {
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   });
+}
+
+
+function renderStringTable(container, strings) {
+  container.innerHTML = '';
+  if (!strings || strings.length === 0) {
+    container.innerHTML = '<div class="list-placeholder">No strings found (try a filter)</div>';
+    return;
+  }
+  for (const s of strings) {
+    // Truncate display of very long strings
+    const preview = s.value.length > 80 ? s.value.slice(0, 80) + '...' : s.value;
+    const locSummary = s.locations.slice(0, 2).map(l =>
+      (l.func ? l.func : shortPath(l.filepath, 25)) + ':' + l.line
+    ).join(', ');
+
+    const item = h('div', { className: 'list-item', title: s.value.slice(0, 300) }, [
+      h('span', { className: 'rank', text: `${s.rank}` }),
+      h('span', { className: 'metric', text: `${s.count}x` }),
+      h('span', { className: 'name', text: preview, style: 'font-size:11px;word-break:break-all' }),
+      h('span', { className: 'metric muted', text: `${s.files}f` }),
+    ]);
+    item.addEventListener('click', () => renderStringDetail(s));
+    container.appendChild(item);
+  }
+}
+
+function renderStringDetail(entry) {
+  const container = $('#middle-top-body'), title = $('#middle-top-title');
+  title.textContent = `String (${entry.count} occurrences in ${entry.files} file${entry.files > 1 ? 's' : ''})`;
+  showPane('middle-top');
+  navPush('middle-top');
+
+  let html = '<div class="output-section">';
+  // Full string value
+  html += `<pre style="white-space:pre-wrap;word-break:break-all;font-size:12px;background:var(--bg-input);padding:8px;border:1px solid var(--border);border-radius:3px;max-height:300px;overflow:auto">${escHtml(entry.value)}</pre>`;
+  // Locations table
+  html += '<table class="output-table" style="margin-top:8px"><tr><th>#</th><th>Function</th><th>File</th><th>Line</th></tr>';
+  for (let i = 0; i < entry.locations.length; i++) {
+    const loc = entry.locations[i];
+    const funcDisplay = loc.func || '(file scope)';
+    html += `<tr>`;
+    html += `<td class="muted">${i + 1}</td>`;
+    html += `<td class="mono"><span class="clickable" data-funcname="${escHtml(funcDisplay)}">${escHtml(funcDisplay)}</span></td>`;
+    html += `<td class="mono clickable file-link" data-filepath="${escHtml(loc.filepath)}" data-start="${loc.line}" title="Show file at line ${loc.line}">${escHtml(shortPath(loc.filepath, 40))}</td>`;
+    html += `<td class="muted">${loc.line}</td>`;
+    html += `</tr>`;
+  }
+  html += '</table></div>';
+
+  container.innerHTML = html;
+  wireClickables(container, { sourceOnly: true });
+
+  // Wire file-link clicks
+  for (const el of $$('.file-link[data-filepath]', container)) {
+    el.addEventListener('click', () => {
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0) return;
+      onFileClick(el.dataset.filepath, parseInt(el.dataset.start) || undefined);
+    });
+  }
 }
 
 

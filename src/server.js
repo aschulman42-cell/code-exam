@@ -414,7 +414,15 @@ function errorResponse(res, message, status = 400) {
 function parseFuncSpec(spec) {
   if (spec && spec.includes('@')) {
     const atPos = spec.indexOf('@');
-    return { fileHint: spec.slice(0, atPos), funcName: spec.slice(atPos + 1) };
+    const beforeAt = spec.slice(0, atPos);
+    const afterAt = spec.slice(atPos + 1);
+    // If the part after @ is purely numeric, it's a line-number disambiguator
+    // (e.g. "getPromptForCommand@477187"), not a file@func separator.
+    // A real file hint contains / or . (e.g. "src/server.js@myFunc").
+    if (/^\d+$/.test(afterAt)) {
+      return { fileHint: null, funcName: spec };
+    }
+    return { fileHint: beforeAt, funcName: afterAt };
   }
   return { fileHint: null, funcName: spec };
 }
@@ -1620,6 +1628,33 @@ routes['/api/vocabulary'] = (req, res) => {
   const items = index.getTopVocabulary(n, filter);
   jsonResponse(res, {
     vocabulary: items.map((v, i) => ({ rank: i + 1, token: v.token, score: Math.round(v.score * 1000) / 1000, doc_freq: v.doc_freq, total_freq: v.total_count })),
+  });
+};
+
+
+// --- String table ---
+
+routes['/api/string-table'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const max = parseInt(q.max) || 50;
+  const filter = q.filter || null;
+  const minLength = parseInt(q.min_length) || 8;
+  const results = index.queryStringTable({ filter, max, minLength });
+  jsonResponse(res, {
+    total: results.length,
+    strings: results.map((s, i) => ({
+      rank: i + 1,
+      value: s.value,
+      count: s.count,
+      files: s.files,
+      locations: s.locations.map(loc => ({
+        filepath: loc.filepath,
+        line: loc.line,
+        func: loc.func ? index.getDisplayName(loc.func) : null,
+      })),
+    })),
   });
 };
 
