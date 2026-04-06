@@ -97,7 +97,7 @@ const _REAL_SHORT_NAMES = new Set([
   'fn', 'cb', 'el', 'ev', 'id', 'db', 'fs', 'os', 'io', 'rx', 'tx',
   'ok', 'on', 'up', 'go', 'do', 'is', 'to', 'of', 'or', 'as', 'at', 'by', 'if',
   // Common real words used as identifiers
-  'add', 'all', 'app', 'arg', 'arr', 'bin', 'bit', 'box', 'buf', 'bus',
+  'add', 'all', 'and', 'any', 'app', 'arg', 'arr', 'bin', 'bit', 'box', 'buf', 'bus',
   'can', 'cap', 'cfg', 'cmd', 'col', 'con', 'cwd', 'ctx', 'cur', 'def',
   'del', 'dev', 'dim', 'dir', 'doc', 'dom', 'dst', 'dup', 'end', 'env',
   'err', 'ext', 'fig', 'fix', 'fmt', 'gen', 'get', 'has', 'hex', 'hit',
@@ -234,8 +234,8 @@ function isOpaqueName(name) {
   if (/^[A-Z][A-Z0-9_]{3,}$/.test(clean)) return false;
   // Long name (>8 chars) that contains lowercase — probably meaningful enough
   if (clean.length > 8 && /[a-z]/.test(clean)) return false;
-  // All lowercase 4+ chars — could be a real word not in our list, be conservative
-  if (/^[a-z]{4,}$/.test(clean)) return false;
+  // All lowercase 3+ chars — could be a real word not in our list, be conservative
+  if (/^[a-z]{3,}$/.test(clean)) return false;
   // Short or cryptic name — candidate for renaming
   return true;
 }
@@ -524,19 +524,31 @@ export class CodeSearchIndex {
       this._renameRegex = new RegExp('\\b(' + pattern + ')\\b', 'g');
     }
 
-    // Apply line by line, skipping string literals
+    // Apply line by line, tracking backtick template literal state across lines
     const lines = sourceText.split('\n');
+    let inBacktick = false;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      // Simple heuristic: skip lines that are predominantly string content
-      // (starts with quotes after trim, or is inside a template literal)
-      // For more precision, only replace outside quoted segments
+      // Track backtick state: count unescaped backticks to toggle state
+      let btCount = 0;
+      for (let j = 0; j < line.length; j++) {
+        if (line[j] === '`' && (j === 0 || line[j - 1] !== '\\')) btCount++;
+      }
+
+      if (inBacktick && btCount % 2 === 0) {
+        // Entire line is inside backtick template — skip renaming
+        continue;
+      }
+
       this._renameRegex.lastIndex = 0;
       lines[i] = line.replace(this._renameRegex, (match, name, offset) => {
-        // Check if this position is inside a string literal
-        if (_isInsideString(line, offset)) return match;
+        // Check if this position is inside a string literal (single/double/backtick)
+        if (inBacktick || _isInsideString(line, offset)) return match;
         return (map && Object.prototype.hasOwnProperty.call(map, name)) ? map[name] : match;
       });
+
+      // Update backtick state for next line
+      if (btCount % 2 === 1) inBacktick = !inBacktick;
     }
     return lines.join('\n');
   }
