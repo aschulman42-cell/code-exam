@@ -101,6 +101,7 @@ const api = {
   funcstring:      (p) => api.get('funcstring', p),
   structDiffAll:   (p) => api.get('struct-diff-all', p),
   stringTable:     (p) => api.get('string-table', p),
+  commandCatalog:  ()  => api.get('command-catalog'),
   buildPrompt:     (p) => api.post('build-prompt', p),
   claimSearch:     (p) => api.post('claim-search', p),
   claimSearchLlm:  (p) => api.post('claim-search-llm', p),
@@ -356,6 +357,14 @@ async function loadSectionData(sectionId, filter = '') {
         state.sectionData[sectionId] = data.strings;
         renderStringTable(content, data.strings);
         badge.textContent = data.total;
+        break;
+
+      case 'command-catalog':
+        data = await api.commandCatalog();
+        state.sectionData[sectionId] = data;
+        renderCommandCatalog(content, data, filter);
+        badge.textContent = (data.cliOptions?.length || 0) + (data.commands?.length || 0) +
+                           (data.routes?.length || 0) + (data.guiActions?.length || 0);
         break;
 
       case 'indexes':
@@ -1443,6 +1452,123 @@ function renderStringDetail(entry) {
     el.addEventListener('click', () => {
       const sel = window.getSelection();
       if (sel && sel.toString().length > 0) return;
+      onFileClick(el.dataset.filepath, parseInt(el.dataset.start) || undefined);
+    });
+  }
+}
+
+
+function renderCommandCatalog(container, catalog, filter) {
+  container.innerHTML = '';
+  const pat = filter ? filter.toLowerCase() : null;
+
+  function makeSection(title, items, nameKey, extraKey) {
+    if (!items || items.length === 0) return;
+    let filtered = items;
+    if (pat) {
+      filtered = items.filter(item => {
+        const name = (item[nameKey] || '').toLowerCase();
+        const extra = extraKey ? (Array.isArray(item[extraKey]) ? item[extraKey].join(' ') : (item[extraKey] || '')).toLowerCase() : '';
+        return name.includes(pat) || extra.includes(pat);
+      });
+    }
+    if (filtered.length === 0) return;
+
+    // Sub-accordion header
+    const header = h('div', { className: 'list-subheader', style: 'padding:4px 8px;font-weight:600;font-size:11px;color:var(--text-muted);border-bottom:1px solid var(--border);cursor:pointer;user-select:none' });
+    header.innerHTML = `<span style="display:inline-block;width:12px">▸</span> ${escHtml(title)} (${filtered.length})`;
+    const itemContainer = h('div', { style: 'display:none' });
+    header.addEventListener('click', () => {
+      const open = itemContainer.style.display !== 'none';
+      itemContainer.style.display = open ? 'none' : 'block';
+      header.querySelector('span').textContent = open ? '▸' : '▾';
+    });
+    container.appendChild(header);
+
+    for (const item of filtered) {
+      const name = item[nameKey] || item.name || '?';
+      const detail = extraKey && item[extraKey]
+        ? (Array.isArray(item[extraKey]) ? item[extraKey].join(', ') : item[extraKey])
+        : '';
+      // Show handler function/file if available, otherwise definition location
+      let rightInfo = '';
+      if (item.handler && item.handler.handlerFunc) {
+        rightInfo = item.handler.handlerFunc;
+      } else if (item.handler && item.handler.filepath) {
+        rightInfo = shortPath(item.handler.filepath, 20) + ':' + item.handler.line;
+      } else if (item.func) {
+        rightInfo = item.func;
+      } else if (item.filepath) {
+        rightInfo = shortPath(item.filepath, 20) + ':' + item.line;
+      }
+
+      const el = h('div', { className: 'list-item', title: `${name}\n${detail}\n${rightInfo}` }, [
+        h('span', { className: 'name clickable', text: name, style: 'font-size:12px;min-width:60px;flex-shrink:0' }),
+        detail ? h('span', { className: 'metric muted', text: detail, style: 'font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0' }) : null,
+        h('span', { className: 'metric muted', text: rightInfo, style: 'font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:1;min-width:0;text-align:right' }),
+      ].filter(Boolean));
+
+      el.addEventListener('click', () => {
+        // Navigate to handler if available, otherwise to definition
+        if (item.handler && item.handler.filepath) {
+          onFileClick(item.handler.filepath, item.handler.line);
+        } else if (item.filepath) {
+          onFileClick(item.filepath, item.line);
+        }
+        renderCommandDetail(item, title);
+      });
+
+      itemContainer.appendChild(el);
+    }
+    container.appendChild(itemContainer);
+  }
+
+  makeSection('CLI Options', catalog.cliOptions, 'name', 'flags');
+  makeSection('Commands', catalog.commands, 'name', 'type');
+  makeSection('API Routes', catalog.routes, 'path');
+  makeSection('GUI Actions', catalog.guiActions, 'name', 'type');
+
+  if (container.children.length === 0) {
+    container.innerHTML = '<div class="list-placeholder">No commands detected</div>';
+  }
+}
+
+function renderCommandDetail(item, category) {
+  const container = $('#middle-top-body'), title = $('#middle-top-title');
+  const name = item.name || item.path || '?';
+  title.textContent = `${category}: ${name}`;
+  showPane('middle-top');
+  navPush('middle-top');
+
+  let html = '<div class="output-section">';
+  html += '<table class="output-table">';
+  if (item.name) html += `<tr><td class="muted">Name</td><td class="mono">${escHtml(item.name)}</td></tr>`;
+  if (item.path) html += `<tr><td class="muted">Path</td><td class="mono">${escHtml(item.path)}</td></tr>`;
+  if (item.type) html += `<tr><td class="muted">Type</td><td class="mono">${escHtml(item.type)}</td></tr>`;
+  if (item.flags) html += `<tr><td class="muted">Flags</td><td class="mono">${escHtml(item.flags.join(', '))}</td></tr>`;
+  if (item.help) html += `<tr><td class="muted">Help</td><td style="font-size:11px">${escHtml(item.help)}</td></tr>`;
+  if (item.func) html += `<tr><td class="muted">Defined in</td><td class="mono"><span class="clickable" data-funcname="${escHtml(item.func)}">${escHtml(item.func)}</span></td></tr>`;
+  if (item.filepath) html += `<tr><td class="muted">Definition</td><td class="mono clickable file-link" data-filepath="${escHtml(item.filepath)}" data-start="${item.line || ''}">${escHtml(item.filepath)}:${item.line || ''}</td></tr>`;
+  if (item.handler) {
+    if (item.handler.handlerFunc) {
+      html += `<tr><td class="muted">Handler</td><td class="mono"><span class="clickable" data-funcname="${escHtml(item.handler.handlerFunc)}">${escHtml(item.handler.handlerFunc)}</span></td></tr>`;
+    }
+    html += `<tr><td class="muted">Dispatch</td><td class="mono clickable file-link" data-filepath="${escHtml(item.handler.filepath)}" data-start="${item.handler.line || ''}">${escHtml(item.handler.filepath)}:${item.handler.line || ''}</td></tr>`;
+  }
+  // Show all source files if this appears in multiple versions
+  if (item.sources && item.sources.length > 1) {
+    html += `<tr><td class="muted">Versions</td><td class="mono">${item.sources.length} source files:</td></tr>`;
+    for (const src of item.sources) {
+      html += `<tr><td></td><td class="mono clickable file-link" data-filepath="${escHtml(src.filepath)}" data-start="${src.line || ''}" style="font-size:11px">${escHtml(src.filepath)}:${src.line || ''}</td></tr>`;
+    }
+  }
+  html += '</table></div>';
+
+  container.innerHTML = html;
+  wireClickables(container, { sourceOnly: true });
+
+  for (const el of $$('.file-link[data-filepath]', container)) {
+    el.addEventListener('click', () => {
       onFileClick(el.dataset.filepath, parseInt(el.dataset.start) || undefined);
     });
   }

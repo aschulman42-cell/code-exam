@@ -1659,6 +1659,23 @@ routes['/api/string-table'] = (req, res) => {
 };
 
 
+// --- Command catalog ---
+
+routes['/api/command-catalog'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const catalog = index.extractCommandCatalog(false);
+  // Apply display names to function references
+  for (const section of ['cliOptions', 'commands', 'routes', 'guiActions']) {
+    for (const item of catalog[section]) {
+      if (item.func) item.func = index.getDisplayName(item.func);
+    }
+  }
+  jsonResponse(res, catalog);
+};
+
+
 // --- Classes ---
 
 routes['/api/list-classes'] = (req, res) => {

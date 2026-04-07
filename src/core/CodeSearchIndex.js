@@ -784,6 +784,286 @@ export class CodeSearchIndex {
 
 
   // ========================================================================
+  // ========================================================================
+  // Command catalog: extract CLI options, interactive commands, GUI actions
+  // ========================================================================
+
+  /**
+   * Extract a command catalog from the indexed codebase.
+   * Detects multiple patterns:
+   *   - Argparse/option arrays: ['name', 'type', ['--flag', '-alias']]
+   *   - Switch/if dispatch: case 'command': / if (x.startsWith('/command'))
+   *   - HTML data-* attributes: data-action="name", data-section="name"
+   *   - Route tables: routes['/api/path'] or app.get('/path', handler)
+   *   - Event registrations: addEventListener('event', handler)
+   *
+   * Returns { commands: [...], routes: [...], guiActions: [...], events: [...] }
+   */
+  extractCommandCatalog(showProgress = true) {
+    const catalog = {
+      cliOptions: [],    // --flag options from argparse-like definitions
+      commands: [],      // /slash-commands from dispatch tables
+      routes: [],        // API routes / URL handlers
+      guiActions: [],    // GUI actions from data-* attributes
+      events: [],        // Event handler registrations
+    };
+
+    for (const [filepath, lines] of this.fileLines) {
+      const funcBounds = this._getFuncBoundaries(filepath);
+
+      for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+        const line = lines[lineIdx];
+        const lineNum = lineIdx + 1;
+        const func = this._findContainingFunctionFromBounds(funcBounds, lineNum);
+
+        // --- Pattern 1a: JS argparse option definitions ---
+        // ['option_name', 'type', ['--flag', '--alias']]
+        const argMatch = line.match(/\[\s*'(\w+)'\s*,\s*'(\w+)'\s*,\s*\[([^\]]+)\]\s*\]/);
+        if (argMatch) {
+          const aliases = argMatch[3].match(/'([^']+)'/g)?.map(s => s.slice(1, -1)) || [];
+          if (aliases.some(a => a.startsWith('--') || a.startsWith('-'))) {
+            catalog.cliOptions.push({
+              name: argMatch[1],
+              type: argMatch[2],
+              flags: aliases,
+              filepath, line: lineNum, func,
+            });
+          }
+        }
+
+        // --- Pattern 1b: Python argparse.add_argument ---
+        // parser.add_argument(\n    '--flag', '-alias', ...
+        if (line.includes('add_argument(')) {
+          // Look at this line and next few for the flag names
+          const snippet = lines.slice(lineIdx, Math.min(lineIdx + 6, lines.length)).join(' ');
+          const flags = [];
+          const flagRe = /['"](-{1,2}[\w-]+)['"]/g;
+          let fm;
+          while ((fm = flagRe.exec(snippet)) !== null) {
+            if (fm[1].startsWith('-')) flags.push(fm[1]);
+          }
+          if (flags.length > 0) {
+            // Extract help text if present
+            const helpMatch = snippet.match(/help\s*=\s*['"]([^'"]{1,80})/);
+            // Derive option name from the longest flag
+            const mainFlag = flags.sort((a, b) => b.length - a.length)[0];
+            const optName = mainFlag.replace(/^-+/, '').replace(/-/g, '_');
+            catalog.cliOptions.push({
+              name: optName,
+              type: snippet.includes("action='store_true'") || snippet.includes('action="store_true"') ? 'flag' : 'value',
+              flags,
+              help: helpMatch ? helpMatch[1] : null,
+              filepath, line: lineNum, func,
+            });
+          }
+        }
+
+        // --- Pattern 2: Slash-command dispatch ---
+        // JS: query.startsWith('/command') or cmd === '/command'
+        // Python: query.startswith('/command') or query == '/command'
+        const cmdMatch = line.match(/(?:startsWith|startswith|={2,3})\s*\(?['"]\/(\w[\w-]*)/);
+        if (cmdMatch) {
+          const cmdName = '/' + cmdMatch[1];
+          // Avoid duplicates from multiple patterns on same line
+          if (!catalog.commands.some(c => c.name === cmdName && c.line === lineNum)) {
+            catalog.commands.push({
+              name: cmdName,
+              filepath, line: lineNum, func,
+            });
+          }
+        }
+
+        // --- Pattern 3: Express/HTTP routes ---
+        // routes['/api/path'] or app.get('/path' or app.post('/path'
+        const routeMatch = line.match(/(?:routes\[|app\.(?:get|post|put|delete|use)\s*\(\s*)['"]([^'"]+)['"]/);
+        if (routeMatch) {
+          catalog.routes.push({
+            path: routeMatch[1],
+            filepath, line: lineNum, func,
+          });
+        }
+
+        // --- Pattern 4: HTML data-action / data-section attributes ---
+        const dataActionMatch = line.match(/data-action="([^"]+)"/);
+        if (dataActionMatch) {
+          catalog.guiActions.push({
+            name: dataActionMatch[1],
+            type: 'action',
+            filepath, line: lineNum, func,
+          });
+        }
+        const dataSectionMatch = line.match(/data-section="([^"]+)"/);
+        if (dataSectionMatch) {
+          catalog.guiActions.push({
+            name: dataSectionMatch[1],
+            type: 'section',
+            filepath, line: lineNum, func,
+          });
+        }
+
+        // --- Pattern 5: Switch case statements ---
+        // Only include values that look like commands or action names,
+        // not file extensions, MIME types, language names, or data values
+        const caseMatch = line.match(/case\s+['"]([^'"]+)['"]\s*:/);
+        if (caseMatch) {
+          const val = caseMatch[1];
+          const isCommand = val.length >= 3 && !/^\d+$/.test(val)
+              && !val.startsWith('.')          // file extensions (.js, .py)
+              && !val.includes('/')            // paths or MIME types
+              && !/^(text|image|audio|video|application|font)\b/.test(val) // MIME types
+              && (val.includes('-') || val.includes('_') || /^[a-z]+[A-Z]/.test(val) // command-like patterns
+                  || /^(GET|POST|PUT|DELETE|PATCH)\b/.test(val)); // HTTP methods
+          if (isCommand) {
+            catalog.commands.push({
+              name: val,
+              type: 'case',
+              filepath, line: lineNum, func,
+            });
+          }
+        }
+      }
+    }
+
+    // Deduplicate commands by name (keep first occurrence)
+    const seenCmds = new Set();
+    catalog.commands = catalog.commands.filter(c => {
+      const key = c.name + '|' + (c.type || '');
+      if (seenCmds.has(key)) return false;
+      seenCmds.add(key);
+      return true;
+    });
+
+    // Resolve CLI option handlers: find where args.option_name is checked
+    // JS: if (args.hotspots) / args._explicit.has('hotspots')
+    // Python: if args.hotspots: / elif args.hotspots:
+    for (const opt of catalog.cliOptions) {
+      const argName = opt.name;
+      for (const [fp, flines] of this.fileLines) {
+        for (let li = 0; li < flines.length; li++) {
+          // Skip the argparse definition lines themselves
+          if (fp === opt.filepath && Math.abs(li + 1 - opt.line) < 5) continue;
+
+          const fline = flines[li];
+          // JS dispatch: if (args.X) or args._explicit.has('X')
+          // Python dispatch: if args.X: or elif args.X:
+          if (fline.includes('args.' + argName) || fline.includes("'" + argName + "'")) {
+            // Check it looks like a dispatch (if/elif/case), not just a reference
+            const trimmed = fline.trim();
+            const isDispatch = /^(if|elif|else if|case)\b/.test(trimmed) ||
+                               trimmed.includes('_explicit.has');
+            if (!isDispatch) continue;
+
+            const handlerFunc = this._findContainingFunctionFromBounds(
+              this._getFuncBoundaries(fp), li + 1
+            );
+            // Look for the called function on this or next few lines
+            const snippet = flines.slice(li, Math.min(li + 3, flines.length)).join(' ');
+            // JS: doSomething() / Python: do_something()
+            const doMatch = snippet.match(/\bdo[_A-Z](\w+)\s*\(|await\s+do[_A-Z](\w+)\s*\(/);
+            opt.handler = {
+              filepath: fp, line: li + 1,
+              func: handlerFunc,
+              handlerFunc: doMatch ? 'do' + (doMatch[1] || doMatch[2]) : null,
+            };
+            break;
+          }
+        }
+        if (opt.handler) break;
+      }
+    }
+
+    // Resolve GUI action handlers: find where the action name appears in JS dispatch
+    // (e.g. case 'search-fast': or data-action="search-fast" handler wiring)
+    for (const action of catalog.guiActions) {
+      const actionName = action.name;
+      for (const [fp, flines] of this.fileLines) {
+        if (fp === action.filepath) continue; // skip the HTML definition
+        for (let li = 0; li < flines.length; li++) {
+          const fline = flines[li];
+          // Match: case 'action-name': or 'action-name' in a switch/dispatch context
+          if (fline.includes("'" + actionName + "'") || fline.includes('"' + actionName + '"')) {
+            const handlerFunc = this._findContainingFunctionFromBounds(
+              this._getFuncBoundaries(fp), li + 1
+            );
+            action.handler = {
+              filepath: fp, line: li + 1,
+              func: handlerFunc,
+            };
+            break;
+          }
+        }
+        if (action.handler) break;
+      }
+    }
+
+    // Deduplicate CLI options: group by name, keep all source files
+    const optGroups = Object.create(null);
+    for (const opt of catalog.cliOptions) {
+      const key = opt.name;
+      if (!optGroups[key]) {
+        optGroups[key] = { ...opt, sources: [{ filepath: opt.filepath, line: opt.line }] };
+      } else {
+        optGroups[key].sources.push({ filepath: opt.filepath, line: opt.line });
+        // Prefer the one with a handler
+        if (opt.handler && !optGroups[key].handler) {
+          optGroups[key].handler = opt.handler;
+        }
+        // Prefer the one with help text
+        if (opt.help && !optGroups[key].help) {
+          optGroups[key].help = opt.help;
+        }
+      }
+    }
+    catalog.cliOptions = Object.values(optGroups);
+
+    // Deduplicate commands: group by name, keep distinct source locations
+    const cmdGroups = Object.create(null);
+    for (const cmd of catalog.commands) {
+      const key = cmd.name;
+      if (!cmdGroups[key]) {
+        cmdGroups[key] = { ...cmd, sources: [{ filepath: cmd.filepath, line: cmd.line, func: cmd.func }] };
+      } else {
+        // Only add if from a different file
+        const existing = cmdGroups[key].sources;
+        if (!existing.some(s => s.filepath === cmd.filepath && s.line === cmd.line)) {
+          existing.push({ filepath: cmd.filepath, line: cmd.line, func: cmd.func });
+        }
+      }
+    }
+    catalog.commands = Object.values(cmdGroups);
+
+    // Deduplicate routes and GUI actions similarly
+    const routeGroups = Object.create(null);
+    for (const r of catalog.routes) {
+      if (!routeGroups[r.path]) routeGroups[r.path] = r;
+    }
+    catalog.routes = Object.values(routeGroups);
+
+    const actionGroups = Object.create(null);
+    for (const a of catalog.guiActions) {
+      const key = a.name + '|' + a.type;
+      if (!actionGroups[key]) actionGroups[key] = a;
+    }
+    catalog.guiActions = Object.values(actionGroups);
+
+    // Sort each section
+    catalog.cliOptions.sort((a, b) => a.name.localeCompare(b.name));
+    catalog.commands.sort((a, b) => a.name.localeCompare(b.name));
+    catalog.routes.sort((a, b) => a.path.localeCompare(b.path));
+    catalog.guiActions.sort((a, b) => a.name.localeCompare(b.name));
+
+    if (showProgress) {
+      const total = catalog.cliOptions.length + catalog.commands.length +
+                    catalog.routes.length + catalog.guiActions.length;
+      console.log(`Command catalog: ${catalog.cliOptions.length} CLI options, ` +
+                  `${catalog.commands.length} commands, ${catalog.routes.length} routes, ` +
+                  `${catalog.guiActions.length} GUI actions (${total} total)`);
+    }
+
+    return catalog;
+  }
+
+
   // Save / Load literal index
   // ========================================================================
 
