@@ -1527,7 +1527,11 @@ function renderCommandCatalog(container, catalog, filter) {
   }
 
   makeSection('CLI Options', catalog.cliOptions, 'name', 'flags');
-  makeSection('Commands', catalog.commands, 'name', 'type');
+  // Split commands into primary (with descriptions) and secondary (case values etc.)
+  const primaryCmds = (catalog.commands || []).filter(c => c.tier === 'primary');
+  const secondaryCmds = (catalog.commands || []).filter(c => c.tier !== 'primary');
+  makeSection('Commands', primaryCmds, 'name', 'description');
+  makeSection('Other switch/case values', secondaryCmds, 'name', 'type');
   makeSection('API Routes', catalog.routes, 'path');
   makeSection('GUI Actions', catalog.guiActions, 'name', 'type');
 

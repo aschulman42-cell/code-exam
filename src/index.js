@@ -247,9 +247,13 @@ if (args.struct_diff_all)                   doStructDiffAll(index, args);
 // Content analysis
 if (args.command_catalog) {
   const catalog = index.extractCommandCatalog(true);
+  const primaryCmds = catalog.commands.filter(c => c.tier === 'primary');
+  const secondaryCmds = catalog.commands.filter(c => c.tier !== 'primary');
+  const cmdFmt = c => `  ${c.name}${c.description ? '  — ' + c.description.slice(0, 60) : ''}  [${c.filepath}:${c.line}]`;
   const sections = [
     ['CLI Options', catalog.cliOptions, o => `  ${o.flags.join(', ')}  [${o.type}]${o.help ? '  ' + o.help : ''}${o.handler?.handlerFunc ? '  → ' + o.handler.handlerFunc : ''}`],
-    ['Commands', catalog.commands, c => `  ${c.name}${c.description ? '  — ' + c.description.slice(0, 60) : ''}  [${c.filepath}:${c.line}]`],
+    ['Commands', primaryCmds, cmdFmt],
+    ['Other switch/case values', secondaryCmds, cmdFmt],
     ['API Routes', catalog.routes, r => `  ${r.path}  [${r.filepath}:${r.line}]`],
     ['GUI Actions', catalog.guiActions, a => `  ${a.name} (${a.type})${a.handler ? '  → ' + a.handler.filepath + ':' + a.handler.line : ''}  [${a.filepath}:${a.line}]`],
   ];

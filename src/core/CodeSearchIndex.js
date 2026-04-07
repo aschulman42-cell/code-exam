@@ -1076,9 +1076,51 @@ export class CodeSearchIndex {
     }
     catalog.guiActions = Object.values(actionGroups);
 
-    // Sort each section
+    // Assign tiers to commands:
+    // primary = looks like a user-facing command (has action-like description, slash-command, etc.)
+    // secondary = case values, config data, signal docs, package metadata
+    for (const cmd of catalog.commands) {
+      const name = cmd.name || '';
+      const desc = cmd.description || '';
+
+      // Start with: has description or is a slash-command → candidate for primary
+      if (!desc && !name.startsWith('/') && !cmd.help) {
+        cmd.tier = 'secondary';
+        continue;
+      }
+
+      // Demote non-command patterns to secondary:
+      // Unix signals (SIGALRM, SIGINT, etc.)
+      if (/^SIG[A-Z]{2,}$/.test(name)) { cmd.tier = 'secondary'; continue; }
+      // ALL_CAPS names or names with spaces (constants, placeholders like FILE, VERSION, FILE OR DIRECTORY)
+      if (/^[A-Z][A-Z0-9_ ]+$/.test(name)) { cmd.tier = 'secondary'; continue; }
+      // AWS regions and config
+      if (/^aws\b/.test(name) && (/region|Cape Town|Germany/i.test(desc))) { cmd.tier = 'secondary'; continue; }
+      // Package/library metadata
+      if (/\b(SDK|Client for|Library for|Module for|HTTP client|processing)\b/i.test(desc)) { cmd.tier = 'secondary'; continue; }
+      // Package names starting with @ (npm scoped packages)
+      if (name.startsWith('@')) { cmd.tier = 'secondary'; continue; }
+      // Names that start with -- (embedded tool CLI options, not commands)
+      if (name.startsWith('--')) { cmd.tier = 'secondary'; continue; }
+      // Filesystem/URL paths detected as slash commands (/tmp, /var, /proc, /dev, /mnt, /v1, etc.)
+      if (name.startsWith('/') && /^\/(?:tmp|var|proc|dev|mnt|usr|etc|sys|opt|bin|lib|home|root|private|callback|v\d)$/i.test(name)) { cmd.tier = 'secondary'; continue; }
+      // Single-word generic parameter names (command, count, duration, definition, etc.)
+      if (/^[a-z]+$/.test(name) && name.length <= 10 && /^(command|count|duration|definition|install|timeout|files|find)$/.test(name) && !name.startsWith('/')) {
+        // Only demote if the description doesn't sound like a user-facing action
+        if (!/^(Create|Show|List|Manage|Set|Get|Open|Clear|Enable|Toggle|View|Run|Submit|Export|Import|Search|Configure)\b/.test(desc)) {
+          cmd.tier = 'secondary'; continue;
+        }
+      }
+
+      cmd.tier = 'primary';
+    }
+
+    // Sort each section (primary first, then alphabetical within tier)
     catalog.cliOptions.sort((a, b) => a.name.localeCompare(b.name));
-    catalog.commands.sort((a, b) => a.name.localeCompare(b.name));
+    catalog.commands.sort((a, b) => {
+      if (a.tier !== b.tier) return a.tier === 'primary' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
     catalog.routes.sort((a, b) => a.path.localeCompare(b.path));
     catalog.guiActions.sort((a, b) => a.name.localeCompare(b.name));
 
