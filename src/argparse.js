@@ -149,6 +149,10 @@ export function parseArgs() {
     struct_diff: null,
     struct_diff_all: null,
 
+    // Content analysis
+    command_catalog: false,
+    string_table: null,
+
     // Track which flags were explicitly set (for dispatch logic)
     _explicit: new Set(),
   };
@@ -262,6 +266,10 @@ export function parseArgs() {
     ['show_funcstring',      'optional_value', ['--show-funcstring']],
     ['struct_diff',          'value',          ['--struct-diff']],
     ['struct_diff_all',      'int',            ['--struct-diff-all']],
+
+    // New: content analysis
+    ['command_catalog',      'flag',           ['--command-catalog']],
+    ['string_table',         'optional_value', ['--string-table', '--strings']],
   ];
 
   // Build alias lookup

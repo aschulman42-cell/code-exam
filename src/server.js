@@ -821,8 +821,27 @@ routes['/api/show-file'] = (req, res) => {
   const exactFiles = matches.filter(m => index.files.has(m));
   if (exactFiles.length === 0) return errorResponse(res, `File '${filePath}' not found`, 404);
   const fp = exactFiles[0];
-  const content = index.files.get(fp);
-  jsonResponse(res, { filepath: fp, content: index.applyRenames(content || ''), lines: (index.fileLines.get(fp) || []).length, language: guessLanguage(fp) });
+  const allLines = index.fileLines.get(fp) || [];
+  const totalLines = allLines.length;
+
+  // For large files, return a window around the requested line instead of the whole file
+  const targetLine = parseInt(q.line) || 0;
+  const maxLines = parseInt(q.max_lines) || 5000;
+  let content;
+  let startLine = 1;
+  if (totalLines > maxLines && targetLine > 0) {
+    const half = Math.floor(maxLines / 2);
+    const from = Math.max(0, targetLine - half - 1);
+    const to = Math.min(totalLines, from + maxLines);
+    content = allLines.slice(from, to).join('\n');
+    startLine = from + 1;
+  } else if (totalLines > maxLines) {
+    // No target line specified — return first chunk
+    content = allLines.slice(0, maxLines).join('\n');
+  } else {
+    content = index.files.get(fp) || '';
+  }
+  jsonResponse(res, { filepath: fp, content: index.applyRenames(content), lines: totalLines, startLine, language: guessLanguage(fp) });
 };
 
 

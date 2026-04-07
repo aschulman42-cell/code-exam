@@ -1509,8 +1509,11 @@ function renderCommandCatalog(container, catalog, filter) {
       ].filter(Boolean));
 
       el.addEventListener('click', () => {
-        // Navigate to handler if available, otherwise to definition
-        if (item.handler && item.handler.filepath) {
+        // Try to show containing function via extract, fall back to file
+        const funcToShow = item.handler?.handlerFunc || item.func;
+        if (funcToShow && funcToShow !== '(file scope)') {
+          onFunctionClick({ name: funcToShow, display_name: funcToShow, filepath: item.handler?.filepath || item.filepath });
+        } else if (item.handler && item.handler.filepath) {
           onFileClick(item.handler.filepath, item.handler.line);
         } else if (item.filepath) {
           onFileClick(item.filepath, item.line);
@@ -1709,7 +1712,7 @@ async function onFunctionClickSourceOnly(funcInfo) {
 async function onFileClick(filepath, targetLine) {
   showMiddleBottomLoading(`Loading ${filepath}…`);
   try {
-    const data = await api.showFile({ path: filepath });
+    const data = await api.showFile({ path: filepath, line: targetLine || undefined });
     renderFileSource(data, targetLine);
   } catch (err) { showMiddleBottomError(err.message); }
 }
@@ -1873,10 +1876,11 @@ function renderFileSource(data, targetLine) {
   title.textContent = `${data.filepath}  (${data.lines} lines)`;
   state.currentSourceFile = data.filepath;
   const lines = data.content.split('\n');
+  const baseLineNum = data.startLine || 1;  // offset for windowed file display
   const hl = state.highlightTerms;
   let html = '<div class="source-view">';
   for (let i = 0; i < lines.length; i++) {
-    const lineNum = i + 1;
+    const lineNum = baseLineNum + i;
     let content = escHtml(lines[i]);
     if (hl) content = highlightLine(content, hl.terms, hl.colors);
     const isTarget = targetLine && lineNum === targetLine;

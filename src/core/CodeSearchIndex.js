@@ -532,6 +532,9 @@ export class CodeSearchIndex {
     if (!sourceText) return sourceText || '';
     const map = this._loadRenameMap();
     if (!map || Object.keys(map).length === 0) return sourceText;
+    // Skip rename application for very large blocks to avoid performance issues
+    // (11K renames × large source = too slow for interactive display)
+    if (sourceText.length > 50000) return sourceText;
 
     // Build a combined regex that matches any rename target as a whole word
     if (!this._renameRegex) {
@@ -901,17 +904,44 @@ export class CodeSearchIndex {
           });
         }
 
-        // --- Pattern 5: Switch case statements ---
+        // --- Pattern 5: Declarative command registries ---
+        // Objects with name + description fields: { name: "compact", description: "...", type: "local" }
+        // Detect the 'name:' line and look ahead for description
+        if (/^\s*name:\s*["']([^"']+)["']/.test(line)) {
+          const nameMatch = line.match(/name:\s*["']([^"']+)["']/);
+          if (nameMatch) {
+            const cmdName = nameMatch[1];
+            // Look ahead for description and type in next 5 lines
+            const snippet = lines.slice(lineIdx, Math.min(lineIdx + 8, lines.length)).join('\n');
+            const descMatch = snippet.match(/description:\s*["']([^"']{10,})/);
+            const typeMatch = snippet.match(/type:\s*["']([^"']+)["']/);
+            // Only include if there's a description (distinguishes command objects from data)
+            if (descMatch) {
+              catalog.commands.push({
+                name: cmdName,
+                type: typeMatch ? typeMatch[1] : 'command',
+                description: descMatch[1].slice(0, 120),
+                filepath, line: lineNum, func,
+              });
+            }
+          }
+        }
+
+        // --- Pattern 6: Switch case statements ---
         // Only include values that look like commands or action names,
         // not file extensions, MIME types, language names, or data values
         const caseMatch = line.match(/case\s+['"]([^'"]+)['"]\s*:/);
         if (caseMatch) {
           const val = caseMatch[1];
-          const isCommand = val.length >= 3 && !/^\d+$/.test(val)
+          const isCommand = val.length >= 3 && val.length <= 40 && !/^\d+$/.test(val)
               && !val.startsWith('.')          // file extensions (.js, .py)
               && !val.includes('/')            // paths or MIME types
               && !/^(text|image|audio|video|application|font)\b/.test(val) // MIME types
-              && (val.includes('-') || val.includes('_') || /^[a-z]+[A-Z]/.test(val) // command-like patterns
+              && !/^(error|warning|info|debug|trace)_/.test(val) // log/error levels
+              && !/^(max|min|default|timeout|retry|limit)_/i.test(val) // config keys
+              && !/^(utf|iso|euc|ascii|latin|shift|windows|gb|big|koi)/i.test(val) // encodings
+              && !/_(enabled|disabled|count|size|mode|type|level|status|result)$/i.test(val) // config suffixes
+              && (val.includes('-') || /^[a-z]+[A-Z]/.test(val) // command-like: hyphens or camelCase
                   || /^(GET|POST|PUT|DELETE|PATCH)\b/.test(val)); // HTTP methods
           if (isCommand) {
             catalog.commands.push({
@@ -959,11 +989,11 @@ export class CodeSearchIndex {
             // Look for the called function on this or next few lines
             const snippet = flines.slice(li, Math.min(li + 3, flines.length)).join(' ');
             // JS: doSomething() / Python: do_something()
-            const doMatch = snippet.match(/\bdo[_A-Z](\w+)\s*\(|await\s+do[_A-Z](\w+)\s*\(/);
+            const doMatch = snippet.match(/\b(do[_A-Z]\w+)\s*\(|await\s+(do[_A-Z]\w+)\s*\(/);
             opt.handler = {
               filepath: fp, line: li + 1,
               func: handlerFunc,
-              handlerFunc: doMatch ? 'do' + (doMatch[1] || doMatch[2]) : null,
+              handlerFunc: doMatch ? (doMatch[1] || doMatch[2]) : null,
             };
             break;
           }

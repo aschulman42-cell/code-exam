@@ -244,6 +244,44 @@ if (args._explicit.has('show_funcstring'))  doShowFuncstring(index, args);
 if (args.struct_diff)                       doStructDiff(index, args);
 if (args.struct_diff_all)                   doStructDiffAll(index, args);
 
+// Content analysis
+if (args.command_catalog) {
+  const catalog = index.extractCommandCatalog(true);
+  const sections = [
+    ['CLI Options', catalog.cliOptions, o => `  ${o.flags.join(', ')}  [${o.type}]${o.help ? '  ' + o.help : ''}${o.handler?.handlerFunc ? '  → ' + o.handler.handlerFunc : ''}`],
+    ['Commands', catalog.commands, c => `  ${c.name}${c.description ? '  — ' + c.description.slice(0, 60) : ''}  [${c.filepath}:${c.line}]`],
+    ['API Routes', catalog.routes, r => `  ${r.path}  [${r.filepath}:${r.line}]`],
+    ['GUI Actions', catalog.guiActions, a => `  ${a.name} (${a.type})${a.handler ? '  → ' + a.handler.filepath + ':' + a.handler.line : ''}  [${a.filepath}:${a.line}]`],
+  ];
+  for (const [title, items, fmt] of sections) {
+    if (items.length === 0) continue;
+    console.log(`\n${title} (${items.length}):`);
+    for (const item of items) console.log(fmt(item));
+  }
+}
+
+if (args._explicit.has('string_table') || args.string_table) {
+  const filter = typeof args.string_table === 'string' ? args.string_table : null;
+  const table = index.ensureStringTable(8, true);
+  let results = table;
+  if (filter) {
+    const regexMatch = filter.match(/^\/(.+)\/([gimsuy]*)$/);
+    if (regexMatch) {
+      try { const re = new RegExp(regexMatch[1], regexMatch[2]); results = table.filter(s => re.test(s.value)); }
+      catch { results = table.filter(s => s.value.toLowerCase().includes(filter.toLowerCase())); }
+    } else {
+      results = table.filter(s => s.value.toLowerCase().includes(filter.toLowerCase()));
+    }
+  }
+  const max = args.max_results || 50;
+  console.log(`\nStrings${filter ? ' matching "' + filter + '"' : ''}: ${results.length} unique (showing ${Math.min(max, results.length)})`);
+  for (const s of results.slice(0, max)) {
+    const preview = s.value.length > 70 ? s.value.slice(0, 70).replace(/\n/g, '\\n') + '...' : s.value.replace(/\n/g, '\\n');
+    const locs = s.locations.slice(0, 3).map(l => (l.func || '(scope)') + '@' + l.line).join(', ');
+    console.log(`  ${s.count}x ${s.files}f  "${preview}"  [${locs}]`);
+  }
+}
+
 // Interactive mode: explicit --interactive OR auto when no command given
 if (args.interactive) {
   doInteractive(index, args);
@@ -261,6 +299,7 @@ if (args.interactive) {
     'claim_search', 'claim_file',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
+    'command_catalog', 'string_table',
   ].some(c => args._explicit.has(c) || args[c]);
 
   if (!anyCommand && !args.build_index) {
