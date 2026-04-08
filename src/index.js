@@ -249,7 +249,7 @@ if (args.command_catalog) {
   const catalog = index.extractCommandCatalog(true);
   const primaryCmds = catalog.commands.filter(c => c.tier === 'primary');
   const secondaryCmds = catalog.commands.filter(c => c.tier !== 'primary');
-  const cmdFmt = c => `  ${c.name}${c.description ? '  — ' + c.description.slice(0, 60) : ''}  [${c.filepath}:${c.line}]`;
+  const cmdFmt = c => `  ${c.name}${c.description ? '  — ' + c.description.slice(0, 60) : ''}${c.handler ? '  → ' + (c.handler.func || c.handler.filepath.split('/').pop()) + ':' + c.handler.line : ''}  [${c.filepath}:${c.line}]`;
   const sections = [
     ['CLI Options', catalog.cliOptions, o => `  ${o.flags.join(', ')}  [${o.type}]${o.help ? '  ' + o.help : ''}${o.handler?.handlerFunc ? '  → ' + o.handler.handlerFunc : ''}`],
     ['Commands', primaryCmds, cmdFmt],

@@ -927,7 +927,43 @@ export class CodeSearchIndex {
           }
         }
 
-        // --- Pattern 6: Switch case statements ---
+        // --- Pattern 6: Win32 RC resource menu items ---
+        // MENUITEM "&Save\tCtrl+S", IDM_FILE_SAVE
+        const menuItemMatch = line.match(/MENUITEM\s+"(&?[^"]+)"\s*,\s*(\w+)/);
+        if (menuItemMatch) {
+          const menuText = menuItemMatch[1].replace(/&/g, '').replace(/\\t.*/, '').trim();
+          const cmdId = menuItemMatch[2];
+          if (menuText && menuText !== 'SEPARATOR') {
+            catalog.commands.push({
+              name: cmdId,
+              description: menuText,
+              type: 'menu',
+              filepath, line: lineNum, func,
+            });
+          }
+        }
+
+        // --- Pattern 7: Win32 #define IDM_/IDC_ command constants ---
+        // Stored for cross-referencing with MENUITEM and case dispatch (not added to catalog directly)
+        const idmMatch = line.match(/#define\s+(IDM_\w+)\s+/);
+        if (idmMatch) {
+          if (!catalog._idmDefines) catalog._idmDefines = {};
+          catalog._idmDefines[idmMatch[1]] = { filepath, line: lineNum };
+        }
+
+        // --- Pattern 8: Win32 POPUP menu group ---
+        // POPUP "&File"
+        const popupMatch = line.match(/^\s*POPUP\s+"(&?[^"]+)"/);
+        if (popupMatch) {
+          const menuName = popupMatch[1].replace(/&/g, '').trim();
+          catalog.guiActions.push({
+            name: menuName,
+            type: 'menu-group',
+            filepath, line: lineNum, func,
+          });
+        }
+
+        // --- Pattern 9: Switch case statements ---
         // Only include values that look like commands or action names,
         // not file extensions, MIME types, language names, or data values
         const caseMatch = line.match(/case\s+['"]([^'"]+)['"]\s*:/);
@@ -1026,6 +1062,28 @@ export class CodeSearchIndex {
       }
     }
 
+    // Resolve Win32 MENUITEM handlers: find case IDM_*: in C++ dispatch functions
+    for (const cmd of catalog.commands) {
+      if (cmd.type !== 'menu') continue;
+      const cmdId = cmd.name; // e.g. IDM_EDIT_PASTE
+      for (const [fp, flines] of this.fileLines) {
+        if (fp === cmd.filepath) continue; // skip the .rc file
+        for (let li = 0; li < flines.length; li++) {
+          if (flines[li].includes('case ' + cmdId + ':') || flines[li].includes('case ' + cmdId + ' :')) {
+            const handlerFunc = this._findContainingFunctionFromBounds(
+              this._getFuncBoundaries(fp), li + 1
+            );
+            cmd.handler = {
+              filepath: fp, line: li + 1,
+              func: handlerFunc,
+            };
+            break;
+          }
+        }
+        if (cmd.handler) break;
+      }
+    }
+
     // Deduplicate CLI options: group by name, keep all source files
     const optGroups = Object.create(null);
     for (const opt of catalog.cliOptions) {
@@ -1092,8 +1150,9 @@ export class CodeSearchIndex {
       // Demote non-command patterns to secondary:
       // Unix signals (SIGALRM, SIGINT, etc.)
       if (/^SIG[A-Z]{2,}$/.test(name)) { cmd.tier = 'secondary'; continue; }
-      // ALL_CAPS names or names with spaces (constants, placeholders like FILE, VERSION, FILE OR DIRECTORY)
-      if (/^[A-Z][A-Z0-9_ ]+$/.test(name)) { cmd.tier = 'secondary'; continue; }
+      // ALL_CAPS names without descriptions (constants, placeholders like FILE, VERSION)
+      // But keep if type is 'menu' (Win32 MENUITEM with IDM_ name + menu text description)
+      if (/^[A-Z][A-Z0-9_ ]+$/.test(name) && cmd.type !== 'menu') { cmd.tier = 'secondary'; continue; }
       // AWS regions and config
       if (/^aws\b/.test(name) && (/region|Cape Town|Germany/i.test(desc))) { cmd.tier = 'secondary'; continue; }
       // Package/library metadata

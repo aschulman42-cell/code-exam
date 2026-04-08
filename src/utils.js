@@ -269,6 +269,8 @@ export const DEFAULT_EXTENSIONS = new Set([
   '.cs',
   '.scala', '.groovy',
   '.lua', '.r', '.R',
+  // Resource / config
+  '.rc', '.resx', '.plist', '.xml', '.json',
   // Documentation / text
   '.md', '.txt', '.rst', '.yaml', '.yml',
 ]);
