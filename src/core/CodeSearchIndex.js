@@ -2445,13 +2445,77 @@ export class CodeSearchIndex {
       cmdRenames++;
     }
 
-    if (namesInferred > 0 || cmdRenames > 0) {
+    // Overlay destructuring import renames: { exportName: localVar } → localVar_IMPORT_EXPORT_NAME
+    // Two-pass approach: first collect ALL import mappings, then only apply
+    // renames for variables that have a single unambiguous mapping.
+    // This avoids renaming short names like _q or z that are reused across scopes.
+    let importRenames = 0;
+    const importCandidates = Object.create(null); // localVar → Set of export names
+
+    for (const [filepath, flines] of this.fileLines) {
+      for (let i = 0; i < flines.length; i++) {
+        const line = flines[i].trim();
+        if (!/^(?:let|const|var)\s+\{/.test(line) && line !== '{') continue;
+
+        let block = line;
+        for (let j = i + 1; j < Math.min(i + 15, flines.length); j++) {
+          block += ' ' + flines[j].trim();
+          if (flines[j].includes('}')) break;
+        }
+        if (!/\}\s*=/.test(block)) continue;
+
+        const pairRe = /(\w+)\s*:\s*([a-zA-Z_$][\w$]*)/g;
+        let dm;
+        while ((dm = pairRe.exec(block)) !== null) {
+          const exportName = dm[1];
+          const localVar = dm[2];
+          if (exportName.length < 3) continue;
+          if (localVar.length > 8 && !isOpaqueName(localVar)) continue;
+          if (/^(true|false|null|undefined|this|super|class|function|return|if|else|for|while|var|let|const|new|delete|typeof|void|in|of)$/.test(localVar)) continue;
+          if (isOpaqueName(exportName)) continue;
+
+          if (!importCandidates[localVar]) importCandidates[localVar] = new Set();
+          importCandidates[localVar].add(exportName);
+        }
+      }
+    }
+
+    // Only apply renames for variables with a single unambiguous import mapping
+    // AND with 3+ char names (1-2 char names are too common as local vars for safe global replace)
+    for (const [localVar, exportNames] of Object.entries(importCandidates)) {
+      if (exportNames.size !== 1) continue; // ambiguous — skip
+      if (localVar.length < 3) continue; // too short for safe global replace
+      const exportName = [...exportNames][0];
+      const importName = 'IMPORT_' + camelToScreamingSnake(exportName);
+      let displayName = localVar + '_' + importName;
+      if (displayName.length > 60) displayName = displayName.slice(0, 60);
+      // Override _KW_ renames but not _CMD_ renames
+      if (!renameMap[localVar] || renameMap[localVar].includes('_KW_')) {
+        renameMap[localVar] = displayName;
+        importRenames++;
+      }
+    }
+
+    // Save all import mappings (including ambiguous) for future display in rename table
+    if (Object.keys(importCandidates).length > 0) {
+      const importMapPath = path.join(this.indexPath, 'import_map.json');
+      const importMap = {};
+      for (const [localVar, exportNames] of Object.entries(importCandidates)) {
+        importMap[localVar] = [...exportNames];
+      }
+      try {
+        fs.writeFileSync(importMapPath, JSON.stringify(importMap, null, 2));
+      } catch { /* ignore */ }
+    }
+
+    if (namesInferred > 0 || cmdRenames > 0 || importRenames > 0) {
       stats.namesInferred = namesInferred;
       stats.cmdRenames = cmdRenames;
+      stats.importRenames = importRenames;
       this._renameMap = renameMap;
       this._saveRenameMap(renameMap);
       if (showProgress) {
-        console.log(`Inferred ${namesInferred} descriptive names + ${cmdRenames} command names → rename_map.json`);
+        console.log(`Inferred ${namesInferred} descriptive names + ${cmdRenames} command names + ${importRenames} import renames → rename_map.json`);
       }
     }
 
