@@ -217,6 +217,10 @@ function toggleSection(section) {
   }
 }
 
+function getMaxResults() {
+  return parseInt($('#opt-max-results')?.value) || 50;
+}
+
 async function loadSectionData(sectionId, filter = '') {
   const section = $(`.accordion-section[data-section="${sectionId}"]`);
   const content = $('.accordion-content', section);
@@ -262,21 +266,21 @@ async function loadSectionData(sectionId, filter = '') {
         break;
 
       case 'hotspots':
-        data = await api.hotspots({ n: 50, filter });
+        data = await api.hotspots({ n: getMaxResults(), filter });
         state.sectionData[sectionId] = data.hotspots;
         renderFuncLikeList(content, data.hotspots, 'score');
         badge.textContent = data.hotspots.length;
         break;
 
       case 'hot-folders':
-        data = await api.hotFolders({ n: 50, filter });
+        data = await api.hotFolders({ n: getMaxResults(), filter });
         state.sectionData[sectionId] = data.folders;
         renderHotFolderList(content, data.folders);
         badge.textContent = data.folders.length;
         break;
 
       case 'most-called':
-        data = await api.mostCalled({ n: 50, filter, defined_only: state.mostCalledDefinedOnly ? '1' : '' });
+        data = await api.mostCalled({ n: getMaxResults(), filter, defined_only: state.mostCalledDefinedOnly ? '1' : '' });
         state.sectionData[sectionId] = data.functions;
         renderMostCalledList(content, data.functions, data.total, sectionId, filter);
         badge.textContent = data.total;
@@ -290,21 +294,21 @@ async function loadSectionData(sectionId, filter = '') {
         break;
 
       case 'class-hotspots':
-        data = await api.classHotspots({ n: 50, filter });
+        data = await api.classHotspots({ n: getMaxResults(), filter });
         state.sectionData[sectionId] = data.classes;
         renderClassHotspotList(content, data.classes);
         badge.textContent = data.classes.length;
         break;
 
       case 'entry-points':
-        data = await api.entryPoints({ n: 50, filter });
+        data = await api.entryPoints({ n: getMaxResults(), filter });
         state.sectionData[sectionId] = data.entries;
         renderFuncLikeList(content, data.entries, 'lines');
         badge.textContent = data.entries.length;
         break;
 
       case 'domain-fns':
-        data = await api.domainFns({ n: 50, filter });
+        data = await api.domainFns({ n: getMaxResults(), filter });
         state.sectionData[sectionId] = data.functions;
         renderFuncLikeList(content, data.functions, 'score');
         badge.textContent = data.functions.length;
@@ -325,35 +329,35 @@ async function loadSectionData(sectionId, filter = '') {
         break;
 
       case 'func-dupes':
-        data = await api.funcDupes({ n: 30, filter });
+        data = await api.funcDupes({ n: getMaxResults(), filter });
         state.sectionData[sectionId] = data.groups;
         renderDupeGroupList(content, data.groups, 'exact');
         badge.textContent = data.total;
         break;
 
       case 'near-dupes':
-        data = await api.nearDupes({ n: 30, filter });
+        data = await api.nearDupes({ n: getMaxResults(), filter });
         state.sectionData[sectionId] = data.groups;
         renderDupeGroupList(content, data.groups, 'near');
         badge.textContent = data.total;
         break;
 
       case 'struct-dupes':
-        data = await api.structDupes({ n: 30, filter });
+        data = await api.structDupes({ n: getMaxResults(), filter });
         state.sectionData[sectionId] = data.groups;
         renderDupeGroupList(content, data.groups, 'struct');
         badge.textContent = data.total;
         break;
 
       case 'struct-diff':
-        data = await api.structDiffAll({ n: 30, filter });
+        data = await api.structDiffAll({ n: getMaxResults(), filter });
         state.sectionData[sectionId] = data.groups;
         renderStructDiffList(content, data.groups);
         badge.textContent = data.total;
         break;
 
       case 'strings':
-        data = await api.stringTable({ filter, max: 100 });
+        data = await api.stringTable({ filter, max: getMaxResults() * 2 });
         state.sectionData[sectionId] = data.strings;
         renderStringTable(content, data.strings);
         badge.textContent = data.total;
@@ -1863,7 +1867,8 @@ function renderSource(data) {
   state.currentSourceFile = data.filepath;
   const lines = data.source.split('\n'), startLine = data.start || 1;
   const hl = state.highlightTerms;
-  let html = '<div class="source-view">';
+  const _wrapCls = $('#opt-wrap-lines')?.checked ? ' wrap-lines' : '';
+  let html = `<div class="source-view${_wrapCls}">`;
   for (let i = 0; i < lines.length; i++) {
     let content = escHtml(lines[i]);
     if (hl) content = highlightLine(content, hl.terms, hl.colors);
@@ -1882,7 +1887,8 @@ function renderFileSource(data, targetLine) {
   const lines = data.content.split('\n');
   const baseLineNum = data.startLine || 1;  // offset for windowed file display
   const hl = state.highlightTerms;
-  let html = '<div class="source-view">';
+  const _wrapCls = $('#opt-wrap-lines')?.checked ? ' wrap-lines' : '';
+  let html = `<div class="source-view${_wrapCls}">`;
   for (let i = 0; i < lines.length; i++) {
     const lineNum = baseLineNum + i;
     let content = escHtml(lines[i]);
@@ -4566,6 +4572,13 @@ async function init() {
   initBuildIndex();
   initFilter();
   initRightBottomTabs();
+
+  // View options
+  $('#opt-wrap-lines')?.addEventListener('change', (e) => {
+    document.querySelectorAll('.source-view').forEach(el => {
+      el.classList.toggle('wrap-lines', e.target.checked);
+    });
+  });
   initConsole();
   initWindowManagement();
   refreshLlmStatus();

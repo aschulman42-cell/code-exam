@@ -2417,12 +2417,41 @@ export class CodeSearchIndex {
     // Saved as rename_map.json — applied at DISPLAY time, not to stored content.
     if (showProgress) console.log('Inferring descriptive names for opaque functions...');
     const { renameMap, count: namesInferred } = inferAllNames(this);
-    if (namesInferred > 0) {
+    // Overlay _CMD_ renames from command catalog (higher quality than _KW_ for these)
+    const catalog = this.extractCommandCatalog(false);
+    let cmdRenames = 0;
+    for (const cmd of catalog.commands) {
+      if (cmd.tier !== 'primary') continue;
+      if (!cmd.func || cmd.func === '(file scope)') continue;
+      const funcName = cmd.func;
+      if (!isOpaqueName(funcName)) continue;
+      const cmdName = (cmd.name || '').replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase();
+      if (cmdName.length < 2) continue;
+      let displayName = funcName + '_CMD_' + cmdName;
+      if (displayName.length > 60) displayName = displayName.slice(0, 60);
+      renameMap[funcName] = displayName;
+      cmdRenames++;
+    }
+    // Also rename functions containing CLI option handlers
+    for (const opt of catalog.cliOptions) {
+      if (!opt.handler?.func || opt.handler.func === '(file scope)') continue;
+      const funcName = opt.handler.func;
+      if (!isOpaqueName(funcName)) continue;
+      const optName = (opt.flags?.[0] || opt.name || '').replace(/^-+/, '').replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase();
+      if (optName.length < 2) continue;
+      let displayName = funcName + '_CMD_' + optName;
+      if (displayName.length > 60) displayName = displayName.slice(0, 60);
+      renameMap[funcName] = displayName;
+      cmdRenames++;
+    }
+
+    if (namesInferred > 0 || cmdRenames > 0) {
       stats.namesInferred = namesInferred;
+      stats.cmdRenames = cmdRenames;
       this._renameMap = renameMap;
       this._saveRenameMap(renameMap);
       if (showProgress) {
-        console.log(`Inferred ${namesInferred} descriptive names → rename_map.json`);
+        console.log(`Inferred ${namesInferred} descriptive names + ${cmdRenames} command names → rename_map.json`);
       }
     }
 
