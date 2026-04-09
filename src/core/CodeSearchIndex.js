@@ -792,6 +792,188 @@ export class CodeSearchIndex {
   // ========================================================================
 
   /**
+   * Extract telemetry breadcrumbs / trace points from the codebase.
+   * Detects patterns like:
+   *   funcName("string_label")  — timing markers, trace points
+   *   console.log("[TAG] ...")  — tagged log messages
+   *   n("prefix_event_name")   — telemetry/analytics events
+   *
+   * Returns { markers: [...], events: [...] } sorted by line number.
+   * Markers are timing/trace points (small set, ordered).
+   * Events are telemetry calls (larger set, categorized by prefix).
+   */
+  extractBreadcrumbs(showProgress = true) {
+    const markers = [];  // timing/trace points: { label, filepath, line, func }
+    const events = [];   // telemetry events: { name, filepath, line, func }
+
+    // Detect common tracing function patterns
+    // Pass 1: find which function names are used as trace/timing calls
+    // (e.g. Bq is used for Bq("label") timing markers in cli.js)
+    // We detect these heuristically: a short-named function called many times
+    // with a single string argument that looks like a label (snake_case, no spaces)
+    const callCounts = Object.create(null); // funcName → count of calls with string arg
+    const callSamples = Object.create(null); // funcName → sample string args
+
+    for (const [filepath, lines] of this.fileLines) {
+      const funcBounds = this._getFuncBoundaries(filepath);
+
+      for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+        const line = lines[lineIdx];
+        const lineNum = lineIdx + 1;
+
+        // Pattern 1: shortFunc("snake_case_label") — timing/trace markers
+        const markerRe = /\b([a-zA-Z_$][\w$]{0,4})\(\s*["']([a-z][a-z0-9_]+)["']\s*\)/g;
+        let m;
+        while ((m = markerRe.exec(line)) !== null) {
+          const funcName = m[1];
+          const label = m[2];
+          // Must look like a trace label: snake_case with at least two underscores
+          // (filters out HTTP headers like "charset", "authorization", "boundary")
+          if ((label.match(/_/g) || []).length < 2) continue;
+          if (label.length < 8) continue;
+          callCounts[funcName] = (callCounts[funcName] || 0) + 1;
+          if (!callSamples[funcName]) callSamples[funcName] = [];
+          if (callSamples[funcName].length < 5) callSamples[funcName].push(label);
+        }
+
+        // Pattern 2: n("prefix_event_name", ...) — telemetry events
+        // (common pattern: short func name + string starting with a prefix)
+        const eventRe = /\bn\(\s*["']([a-z][a-z0-9_]+)["']/g;
+        while ((m = eventRe.exec(line)) !== null) {
+          const evName = m[1];
+          if (!evName.includes('_') || evName.length < 5) continue;
+          const func = this._findContainingFunctionFromBounds(funcBounds, lineNum);
+          events.push({
+            name: evName,
+            filepath, line: lineNum,
+            func: func || null,
+          });
+        }
+
+        // Pattern 3: console.log("[TAG] ...") or console.warn("[TAG] ...")
+        const logRe = /console\.(log|warn|error|info)\(\s*["']\[([A-Z][A-Z_ ]*)\]\s*([^"']{0,60})/g;
+        while ((m = logRe.exec(line)) !== null) {
+          const func = this._findContainingFunctionFromBounds(funcBounds, lineNum);
+          markers.push({
+            label: `[${m[2]}] ${m[3]}`.trim(),
+            type: 'log-' + m[1],
+            filepath, line: lineNum,
+            func: func || null,
+          });
+        }
+
+        // Pattern 4: y("[TAG] ...") — debug/verbose logging wrapper
+        const yLogRe = /\by\(\s*["']\[([A-Z][A-Z_ ]*)\]\s*([^"']{0,60})/g;
+        while ((m = yLogRe.exec(line)) !== null) {
+          const func = this._findContainingFunctionFromBounds(funcBounds, lineNum);
+          markers.push({
+            label: `[${m[1]}] ${m[2]}`.trim(),
+            type: 'debug',
+            filepath, line: lineNum,
+            func: func || null,
+          });
+        }
+
+        // Pattern 5: General trace/debug prints with lifecycle words
+        // printf("Entering %s...", ...), print("Starting init"), TRACE("init complete")
+        // fprintf(stderr, "Loading configuration..."), etc.
+        const lifecyclePrintRe = /(?:printf|fprintf|print|puts|TRACE|DPRINTF|LOG|DBG|debug|warn|eprint|eprogress)\s*\(\s*(?:stderr\s*,\s*)?["']([^"']{5,80})["']/g;
+        while ((m = lifecyclePrintRe.exec(line)) !== null) {
+          const msg = m[1].replace(/%[sdifcpx]/g, '').trim();
+          // Must contain a lifecycle/phase word
+          if (!/\b(init|start|end|enter|exit|begin|finish|done|complete|load|clos|open|connect|disconnect|shutdown|cleanup|setup|ready|running|stopping|creating|destroy|parsing|process|handl|dispatch|accept|listen|bind|registr|configur)\w*/i.test(msg)) continue;
+          // Skip very generic messages
+          if (msg.length < 8) continue;
+          const func = this._findContainingFunctionFromBounds(funcBounds, lineNum);
+          markers.push({
+            label: msg.slice(0, 60),
+            type: 'print',
+            filepath, line: lineNum,
+            func: func || null,
+          });
+        }
+
+        // Pattern 6: C/C++ DEBUG/TRACE macros: DPRINTF(("message")), TRACE_ENTER, etc.
+        const macroRe = /\b(?:TRACE_?(?:ENTER|EXIT|MSG)?|DEBUG_?(?:PRINT|MSG)?|LOG_?(?:DEBUG|INFO|WARN|ERROR)?|D?PRINTF)\s*\(\s*\(?["']([^"']{5,80})["']/g;
+        while ((m = macroRe.exec(line)) !== null) {
+          const msg = m[1].replace(/%[sdifcpx]/g, '').trim();
+          if (msg.length < 5) continue;
+          const func = this._findContainingFunctionFromBounds(funcBounds, lineNum);
+          markers.push({
+            label: msg.slice(0, 60),
+            type: 'macro',
+            filepath, line: lineNum,
+            func: func || null,
+          });
+        }
+      }
+    }
+
+    // Identify the trace/timing function: the short-named function called most often
+    // with snake_case string labels. Must have 10+ calls to qualify.
+    // Select trace functions: must have 5+ calls where labels contain lifecycle
+    // words like _start, _end, _after, _before, _initialized, _loaded, _complete
+    const lifecycleRe = /_(start|end|before|after|initialized|loaded|complete|begin|finish|done|init|created|resolved|configured|determined|error)/;
+    const traceFuncs = Object.entries(callCounts)
+      .filter(([name, count]) => {
+        if (count < 5) return false;
+        const samples = callSamples[name] || [];
+        const lifecycleLabels = samples.filter(s => lifecycleRe.test(s));
+        return lifecycleLabels.length >= 2; // at least 2 samples look like lifecycle markers
+      })
+      .sort((a, b) => b[1] - a[1]);
+
+    if (traceFuncs.length > 0 && showProgress) {
+      console.log(`Detected trace functions: ${traceFuncs.slice(0, 3).map(([name, count]) => name + '(' + count + ')').join(', ')}`);
+    }
+
+    // Now extract markers from the top trace function(s)
+    const traceNames = new Set(traceFuncs.slice(0, 3).map(([name]) => name));
+    if (traceNames.size > 0) {
+      for (const [filepath, lines] of this.fileLines) {
+        const funcBounds = this._getFuncBoundaries(filepath);
+        for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+          const line = lines[lineIdx];
+          const lineNum = lineIdx + 1;
+          const re = /\b([a-zA-Z_$][\w$]{0,4})\(\s*["']([a-z][a-z0-9_]+)["']\s*\)/g;
+          let m;
+          while ((m = re.exec(line)) !== null) {
+            if (!traceNames.has(m[1])) continue;
+            const func = this._findContainingFunctionFromBounds(funcBounds, lineNum);
+            markers.push({
+              label: m[2],
+              type: 'trace',
+              traceFn: m[1],
+              filepath, line: lineNum,
+              func: func || null,
+            });
+          }
+        }
+      }
+    }
+
+    // Sort markers by line number (execution order)
+    markers.sort((a, b) => a.line - b.line);
+
+    // Deduplicate and categorize events by prefix
+    const eventCategories = Object.create(null);
+    for (const ev of events) {
+      const prefix = ev.name.split('_').slice(0, 1)[0];
+      if (!eventCategories[prefix]) eventCategories[prefix] = [];
+      if (!eventCategories[prefix].some(e => e.name === ev.name && e.line === ev.line)) {
+        eventCategories[prefix].push(ev);
+      }
+    }
+
+    if (showProgress) {
+      console.log(`Breadcrumbs: ${markers.length} trace markers, ${events.length} telemetry events`);
+    }
+
+    return { markers, events, eventCategories, traceFunctions: traceFuncs.slice(0, 5) };
+  }
+
+
+  /**
    * Extract a command catalog from the indexed codebase.
    * Detects multiple patterns:
    *   - Argparse/option arrays: ['name', 'type', ['--flag', '-alias']]

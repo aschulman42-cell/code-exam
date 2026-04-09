@@ -102,6 +102,7 @@ const api = {
   structDiffAll:   (p) => api.get('struct-diff-all', p),
   stringTable:     (p) => api.get('string-table', p),
   commandCatalog:  ()  => api.get('command-catalog'),
+  breadcrumbs:     ()  => api.get('breadcrumbs'),
   buildPrompt:     (p) => api.post('build-prompt', p),
   claimSearch:     (p) => api.post('claim-search', p),
   claimSearchLlm:  (p) => api.post('claim-search-llm', p),
@@ -369,6 +370,13 @@ async function loadSectionData(sectionId, filter = '') {
         renderCommandCatalog(content, data, filter);
         badge.textContent = (data.cliOptions?.length || 0) + (data.commands?.length || 0) +
                            (data.routes?.length || 0) + (data.guiActions?.length || 0);
+        break;
+
+      case 'breadcrumbs':
+        data = await api.breadcrumbs();
+        state.sectionData[sectionId] = data;
+        renderBreadcrumbs(content, data, filter);
+        badge.textContent = (data.markers?.length || 0) + (data.events?.length || 0);
         break;
 
       case 'indexes':
@@ -1458,6 +1466,126 @@ function renderStringDetail(entry) {
       if (sel && sel.toString().length > 0) return;
       onFileClick(el.dataset.filepath, parseInt(el.dataset.start) || undefined);
     });
+  }
+}
+
+
+function renderBreadcrumbs(container, data, filter) {
+  container.innerHTML = '';
+  const pat = filter ? filter.toLowerCase() : null;
+
+  // --- Trace markers (execution flow) ---
+  const markers = data.markers || [];
+  let filteredMarkers = markers;
+  if (pat) filteredMarkers = markers.filter(m => m.label.toLowerCase().includes(pat) || (m.func || '').toLowerCase().includes(pat));
+
+  if (filteredMarkers.length > 0) {
+    // Sub-accordion for trace markers
+    const header = h('div', { style: 'padding:4px 8px;font-weight:600;font-size:11px;color:var(--text-muted);border-bottom:1px solid var(--border);cursor:pointer;user-select:none' });
+    header.innerHTML = `<span style="display:inline-block;width:12px">▾</span> Execution Flow (${filteredMarkers.length} markers)`;
+    const itemContainer = h('div', {});
+    header.addEventListener('click', () => {
+      const open = itemContainer.style.display !== 'none';
+      itemContainer.style.display = open ? 'none' : 'block';
+      header.querySelector('span').textContent = open ? '▸' : '▾';
+    });
+    container.appendChild(header);
+
+    // Group markers by phase (prefix before first _)
+    let lastPhase = '';
+    for (const m of filteredMarkers) {
+      const phase = m.label.split('_')[0];
+      if (phase !== lastPhase) {
+        lastPhase = phase;
+        const phaseLabel = h('div', { text: phase.toUpperCase(), style: 'padding:2px 8px;font-size:10px;font-weight:600;color:var(--accent-dim);margin-top:4px' });
+        itemContainer.appendChild(phaseLabel);
+      }
+
+      const funcInfo = m.func ? shortPath(m.func, 20) : '';
+      const el = h('div', { className: 'list-item', title: `${m.label}\n${m.filepath}:${m.line}\n${m.func || ''}` }, [
+        h('span', { className: 'metric muted', text: String(m.line), style: 'font-size:10px;min-width:45px;text-align:right' }),
+        h('span', { className: 'name clickable', text: m.label, style: 'font-size:11px;flex:1' }),
+        h('span', { className: 'metric muted', text: funcInfo, style: 'font-size:10px' }),
+      ]);
+      el.addEventListener('click', () => {
+        if (m.func && m.func !== '(file scope)') {
+          onFunctionClick({ name: m.func, display_name: m.func, filepath: m.filepath });
+        } else {
+          onFileClick(m.filepath, m.line);
+        }
+      });
+      itemContainer.appendChild(el);
+    }
+    container.appendChild(itemContainer);
+  }
+
+  // --- Telemetry events by category ---
+  const categories = data.eventCategories || {};
+  const catKeys = Object.keys(categories).sort();
+  let filteredCats = catKeys;
+  if (pat) {
+    filteredCats = catKeys.filter(prefix => {
+      return prefix.toLowerCase().includes(pat) ||
+        categories[prefix].some(e => e.name.toLowerCase().includes(pat) || (e.func || '').toLowerCase().includes(pat));
+    });
+  }
+
+  if (filteredCats.length > 0) {
+    const evHeader = h('div', { style: 'padding:4px 8px;font-weight:600;font-size:11px;color:var(--text-muted);border-bottom:1px solid var(--border);cursor:pointer;user-select:none' });
+    const totalEvents = Object.values(categories).reduce((s, arr) => s + arr.length, 0);
+    evHeader.innerHTML = `<span style="display:inline-block;width:12px">▸</span> Telemetry Events (${totalEvents} in ${catKeys.length} categories)`;
+    const evContainer = h('div', { style: 'display:none' });
+    evHeader.addEventListener('click', () => {
+      const open = evContainer.style.display !== 'none';
+      evContainer.style.display = open ? 'none' : 'block';
+      evHeader.querySelector('span').textContent = open ? '▸' : '▾';
+    });
+    container.appendChild(evHeader);
+
+    for (const prefix of filteredCats) {
+      let evts = categories[prefix];
+      if (pat) evts = evts.filter(e => e.name.toLowerCase().includes(pat) || (e.func || '').toLowerCase().includes(pat));
+      if (evts.length === 0) continue;
+
+      const catHeader = h('div', { style: 'padding:2px 8px;font-size:10px;font-weight:600;color:var(--accent-dim);cursor:pointer;user-select:none' });
+      catHeader.innerHTML = `<span style="display:inline-block;width:12px">▸</span> ${prefix}_ (${evts.length})`;
+      const catItems = h('div', { style: 'display:none' });
+      catHeader.addEventListener('click', () => {
+        const open = catItems.style.display !== 'none';
+        catItems.style.display = open ? 'none' : 'block';
+        catHeader.querySelector('span').textContent = open ? '▸' : '▾';
+      });
+      evContainer.appendChild(catHeader);
+
+      for (const ev of evts.slice(0, getMaxResults())) {
+        const el = h('div', { className: 'list-item', title: `${ev.name}\n${ev.filepath}:${ev.line}\n${ev.func || ''}` }, [
+          h('span', { className: 'metric muted', text: String(ev.line), style: 'font-size:10px;min-width:45px;text-align:right' }),
+          h('span', { className: 'name clickable', text: ev.name, style: 'font-size:11px;flex:1' }),
+          h('span', { className: 'metric muted', text: ev.func ? shortPath(ev.func, 20) : '', style: 'font-size:10px' }),
+        ]);
+        el.addEventListener('click', () => {
+          if (ev.func && ev.func !== '(file scope)') {
+            onFunctionClick({ name: ev.func, display_name: ev.func, filepath: ev.filepath });
+          } else {
+            onFileClick(ev.filepath, ev.line);
+          }
+        });
+        catItems.appendChild(el);
+      }
+      evContainer.appendChild(catItems);
+    }
+    container.appendChild(evContainer);
+  }
+
+  // --- Detected trace functions ---
+  if (data.traceFunctions && data.traceFunctions.length > 0) {
+    const tfDiv = h('div', { style: 'padding:4px 8px;font-size:10px;color:var(--text-dim)' });
+    tfDiv.textContent = 'Trace functions: ' + data.traceFunctions.map(([name, count]) => `${name}(${count})`).join(', ');
+    container.appendChild(tfDiv);
+  }
+
+  if (container.children.length === 0) {
+    container.innerHTML = '<div class="list-placeholder">No breadcrumbs detected</div>';
   }
 }
 

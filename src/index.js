@@ -286,6 +286,33 @@ if (args._explicit.has('string_table') || args.string_table) {
   }
 }
 
+if (args.breadcrumbs) {
+  const data = index.extractBreadcrumbs(true);
+  if (data.markers.length > 0) {
+    console.log(`\nExecution Flow (${data.markers.length} trace markers):`);
+    let lastPhase = '';
+    for (const m of data.markers) {
+      const phase = m.label.split('_')[0];
+      if (phase !== lastPhase) {
+        lastPhase = phase;
+        console.log(`\n  --- ${phase.toUpperCase()} ---`);
+      }
+      console.log(`  ${String(m.line).padStart(6)}  ${m.label}${m.func ? '  [' + m.func + ']' : ''}`);
+    }
+  }
+  if (data.traceFunctions?.length > 0) {
+    console.log(`\nDetected trace functions: ${data.traceFunctions.map(([n, c]) => n + '(' + c + ')').join(', ')}`);
+  }
+  const catKeys = Object.keys(data.eventCategories || {}).sort();
+  if (catKeys.length > 0) {
+    const total = Object.values(data.eventCategories).reduce((s, a) => s + a.length, 0);
+    console.log(`\nTelemetry Events: ${total} events in ${catKeys.length} categories`);
+    for (const prefix of catKeys) {
+      console.log(`  ${prefix}_ (${data.eventCategories[prefix].length})`);
+    }
+  }
+}
+
 // Interactive mode: explicit --interactive OR auto when no command given
 if (args.interactive) {
   doInteractive(index, args);
@@ -303,7 +330,7 @@ if (args.interactive) {
     'claim_search', 'claim_file',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
-    'command_catalog', 'string_table',
+    'command_catalog', 'string_table', 'breadcrumbs',
   ].some(c => args._explicit.has(c) || args[c]);
 
   if (!anyCommand && !args.build_index) {

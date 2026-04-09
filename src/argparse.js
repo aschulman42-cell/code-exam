@@ -152,6 +152,7 @@ export function parseArgs() {
     // Content analysis
     command_catalog: false,
     string_table: null,
+    breadcrumbs: false,
 
     // Track which flags were explicitly set (for dispatch logic)
     _explicit: new Set(),
@@ -270,6 +271,7 @@ export function parseArgs() {
     // New: content analysis
     ['command_catalog',      'flag',           ['--command-catalog']],
     ['string_table',         'optional_value', ['--string-table', '--strings']],
+    ['breadcrumbs',          'flag',           ['--breadcrumbs']],
   ];
 
   // Build alias lookup

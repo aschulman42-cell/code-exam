@@ -1678,6 +1678,24 @@ routes['/api/string-table'] = (req, res) => {
 };
 
 
+// --- Breadcrumbs (telemetry trace) ---
+
+routes['/api/breadcrumbs'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const data = index.extractBreadcrumbs(false);
+  // Apply display names to function references
+  for (const m of data.markers) {
+    if (m.func) m.func = index.getDisplayName(m.func);
+  }
+  for (const ev of data.events) {
+    if (ev.func) ev.func = index.getDisplayName(ev.func);
+  }
+  jsonResponse(res, data);
+};
+
+
 // --- Command catalog ---
 
 routes['/api/command-catalog'] = (req, res) => {
