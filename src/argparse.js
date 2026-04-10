@@ -153,6 +153,7 @@ export function parseArgs() {
     command_catalog: false,
     string_table: null,
     breadcrumbs: false,
+    no_rename: false,
 
     // Track which flags were explicitly set (for dispatch logic)
     _explicit: new Set(),
@@ -272,6 +273,7 @@ export function parseArgs() {
     ['command_catalog',      'flag',           ['--command-catalog']],
     ['string_table',         'optional_value', ['--string-table', '--strings']],
     ['breadcrumbs',          'flag',           ['--breadcrumbs']],
+    ['no_rename',            'flag',           ['--no-rename']],
   ];
 
   // Build alias lookup

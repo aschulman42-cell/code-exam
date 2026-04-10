@@ -180,6 +180,13 @@ if (args.rebuild_functions) {
 // Dispatch commands
 // ========================================================================
 
+// --no-rename: disable display-time renames for all CLI output
+if (args.no_rename) {
+  index.applyRenames = (text) => text;
+  index.getDisplayName = (name) => name || '';
+  index.getOriginalName = (name) => name || '';
+}
+
 if (args.stats)                             doStats(index, args);
 if (args.index_extensions)                  doIndexExtensions(index, args);
 
