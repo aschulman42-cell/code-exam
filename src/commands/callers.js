@@ -14,13 +14,15 @@ export function doCallers(index, args) {
   const callersArg = args.callers;
   const depth = args.depth || 1;
 
+  // Reverse-lookup: if user provides a renamed display name, map to original
+  const resolved = index.getOriginalName ? index.getOriginalName(callersArg) : callersArg;
   let pathHint = null, functionName;
-  if (callersArg.includes('@')) {
-    const atPos = callersArg.indexOf('@');
-    pathHint = callersArg.slice(0, atPos);
-    functionName = callersArg.slice(atPos + 1);
+  if (resolved.includes('@')) {
+    const atPos = resolved.indexOf('@');
+    pathHint = resolved.slice(0, atPos);
+    functionName = resolved.slice(atPos + 1);
   } else {
-    functionName = callersArg;
+    functionName = resolved;
   }
 
   // Show which definition we're referring to
@@ -72,21 +74,23 @@ export function doCallers(index, args) {
       typeInfo = `  Types: ${parts.join(', ')}\n`;
     }
 
-    console.log(`\nCallers of '${functionName}' (${callers.length} call sites in ${byCaller.size} functions):\n${typeInfo}`);
+    const dnFunc = index.getDisplayName ? index.getDisplayName(functionName) : functionName;
+    console.log(`\nCallers of '${dnFunc}' (${callers.length} call sites in ${byCaller.size} functions):\n${typeInfo}`);
 
     for (const [caller, calls] of [...byCaller.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      const callerDn = index.getDisplayName ? index.getDisplayName(caller) : caller;
       const ncalls = calls.length;
       if (ncalls > 1) {
-        console.log(`  ${caller}: (${ncalls} call sites)`);
+        console.log(`  ${callerDn}: (${ncalls} call sites)`);
       } else {
-        console.log(`  ${caller}:`);
+        console.log(`  ${callerDn}:`);
       }
 
       const sorted = calls.sort((a, b) => a.filepath.localeCompare(b.filepath) || a.line_number - b.line_number);
       const showCalls = args.verbose ? sorted : sorted.slice(0, 3);
 
       for (const c of showCalls) {
-        let lineText = c.line_text;
+        let lineText = index.applyRenames ? index.applyRenames(c.line_text) : c.line_text;
         if (lineText.length > 80) lineText = lineText.slice(0, 77) + '...';
         const ct = c.call_type || 'direct';
         const tag = (ct === 'indirect' || ct === 'reference') ? ` [${ct}]` : '';

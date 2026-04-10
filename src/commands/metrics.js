@@ -88,7 +88,7 @@ export function doHotspots(index, args) {
 
   for (const h of filtered.slice(0, n)) {
     let fp = args.full_path ? h.filepath : shortPath(h.filepath);
-    let dn = h.display_name;
+    let dn = index.getDisplayName ? index.getDisplayName(h.name) : h.display_name;
     if (h.copies > 0) dn = `${dn} (+${h.copies})`;
     console.log(`  ${h.score.toFixed(0).padStart(8)}  ${String(h.calls).padStart(6)}  ${String(h.lines).padStart(6)}  ${dn.padEnd(40)}  ${fp}`);
   }

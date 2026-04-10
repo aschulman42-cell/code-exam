@@ -229,12 +229,13 @@ export function doExtract(index, args) {
   }
 
   // Parse FILE@FUNCTION or just FUNCTION
+  // Reverse-lookup: if user provides a renamed display name, map to original
   let fileHint = null;
-  let funcname = extractArg;
-  if (extractArg.includes('@')) {
-    const firstAt = extractArg.indexOf('@');
-    fileHint = extractArg.slice(0, firstAt);
-    funcname = extractArg.slice(firstAt + 1);
+  let funcname = index.getOriginalName ? index.getOriginalName(extractArg) : extractArg;
+  if (funcname.includes('@')) {
+    const firstAt = funcname.indexOf('@');
+    fileHint = funcname.slice(0, firstAt);
+    funcname = funcname.slice(firstAt + 1);
     if (!fileHint || !funcname) {
       console.log('Usage: --extract FUNCTION or --extract FILE@FUNCTION');
       console.log('Example: --extract backward_pass');
@@ -250,7 +251,9 @@ export function doExtract(index, args) {
   if (commentsOnly) {
     _printComments(source, funcname);
   } else {
-    console.log(source);
+    // Apply display-time renames if available
+    const displayed = index.applyRenames ? index.applyRenames(source) : source;
+    console.log(displayed);
   }
 
   // --follow-calls: recursively extract callees
@@ -564,16 +567,21 @@ export function doListFunctions(index, args) {
 
   if (pattern) {
     const patLower = pattern.toLowerCase().replace(/\\/g, '/');
-    functions = functions.filter(f =>
-      f.name.toLowerCase().includes(patLower) ||
-      f.filepath.toLowerCase().replace(/\\/g, '/').includes(patLower)
-    );
+    functions = functions.filter(f => {
+      const dn = index.getDisplayName ? index.getDisplayName(f.name) : f.name;
+      return f.name.toLowerCase().includes(patLower) ||
+        dn.toLowerCase().includes(patLower) ||
+        f.filepath.toLowerCase().replace(/\\/g, '/').includes(patLower);
+    });
   }
 
-  // Apply --filter to function names
+  // Apply --filter to function names (checks both original and display name)
   if (args.filter) {
     const filterLower = args.filter.toLowerCase();
-    functions = functions.filter(f => f.name.toLowerCase().includes(filterLower));
+    functions = functions.filter(f => {
+      const dn = index.getDisplayName ? index.getDisplayName(f.name) : f.name;
+      return f.name.toLowerCase().includes(filterLower) || dn.toLowerCase().includes(filterLower);
+    });
   }
 
   // Apply path filters
@@ -605,7 +613,7 @@ export function doListFunctions(index, args) {
     console.log(`\n${filepath}:`);
     const sorted = funcs.sort((a, b) => a.start - b.start);
     for (const f of sorted) {
-      const dn = f.displayName || f.name;
+      const dn = index.getDisplayName ? index.getDisplayName(f.name) : (f.displayName || f.name);
       if (args.full_path) {
         console.log(`  ${filepath}@${dn.padEnd(40)} L${String(f.start).padStart(5)}-${String(f.end).padEnd(5)} ${String(f.lines).padStart(4)} lines (${f.type})`);
       } else {
