@@ -376,20 +376,28 @@ function inferAllNames(idx) {
       const idents = extractReadableIdents(bodyText);
       if (idents.length === 0) continue;
 
-      // Pick top 2-4 identifiers, more for larger functions
-      const numKeywords = bodyLines.length > 50 ? 4 : bodyLines.length > 15 ? 3 : 2;
+      // Pick 2 keywords for small/medium functions, 3 for large.
+      // Each keyword truncated to 15 chars to keep total name reasonable.
+      const numKeywords = bodyLines.length > 50 ? 3 : 2;
       const topIdents = idents.slice(0, numKeywords).map(i => i.ident);
 
-      // Convert to SCREAMING_SNAKE
+      // Convert to SCREAMING_SNAKE, truncate each keyword part
       const parts = topIdents.map(id => {
         let clean = id.startsWith('_') ? id.slice(1) : id;
-        return camelToScreamingSnake(clean);
+        let screaming = camelToScreamingSnake(clean);
+        // Truncate at word boundary within 20 chars
+        if (screaming.length > 20) {
+          const cut = screaming.lastIndexOf('_', 20);
+          screaming = cut > 2 ? screaming.slice(0, cut) : screaming.slice(0, 20);
+        }
+        return screaming;
       });
       let baseName = 'KW_' + parts.join('_');
 
-      // Truncate if too long
-      if (baseName.length > 50) {
-        baseName = baseName.slice(0, 50);
+      // Truncate whole name at word boundary within 40 chars
+      if (baseName.length > 40) {
+        const cut = baseName.lastIndexOf('_', 40);
+        baseName = cut > 3 ? baseName.slice(0, cut) : baseName.slice(0, 40);
       }
 
       // Handle collisions: append _2, _3, etc.
@@ -548,8 +556,9 @@ export class CodeSearchIndex {
     const map = this._loadRenameMap();
     if (!map || Object.keys(map).length === 0) return sourceText;
     // Skip rename application for very large blocks to avoid performance issues
-    // (11K renames × large source = too slow for interactive display)
-    if (sourceText.length > 50000) return sourceText;
+    // (11K renames × 16MB file = too slow). Limit allows single functions up to
+    // ~200K chars but skips whole-file display of huge files.
+    if (sourceText.length > 200000) return sourceText;
 
     // Build a combined regex that matches any rename target as a whole word
     if (!this._renameRegex) {
