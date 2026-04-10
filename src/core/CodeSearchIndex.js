@@ -282,10 +282,19 @@ function camelToScreamingSnake(str) {
     .toUpperCase();
 }
 
-/** Common/generic identifiers to skip when picking distinctive template names. */
+/** Common/generic identifiers to skip when picking distinctive keywords.
+ *  These appear in nearly every function and tell you nothing about purpose. */
 const _TEMPLATE_SKIP_WORDS = new Set([
+  // JS keywords and builtins
   'this', 'self', 'that', 'null', 'undefined', 'true', 'false',
   'return', 'function', 'class', 'const', 'let', 'var', 'new', 'delete',
+  'typeof', 'instanceof', 'void', 'yield', 'await', 'async', 'import', 'export',
+  // Type names (appear in typeof/instanceof checks, not domain logic)
+  'object', 'string', 'number', 'boolean', 'symbol', 'bigint', 'array',
+  'Object', 'String', 'Number', 'Boolean', 'Array', 'Symbol', 'BigInt',
+  'Function', 'RegExp', 'Date', 'Error', 'Promise', 'Proxy', 'Reflect',
+  'Map', 'Set', 'WeakMap', 'WeakSet', 'WeakRef',
+  // Generic property/method names
   'length', 'size', 'index', 'value', 'name', 'type', 'data', 'item',
   'result', 'error', 'message', 'code', 'status', 'state', 'config',
   'input', 'output', 'args', 'params', 'options', 'callback',
@@ -294,6 +303,12 @@ const _TEMPLATE_SKIP_WORDS = new Set([
   'keys', 'values', 'entries', 'toString', 'constructor', 'prototype',
   'apply', 'call', 'bind', 'then', 'catch', 'finally',
   'get', 'set', 'has', 'add', 'remove', 'clear', 'init',
+  // Object/prototype plumbing
+  'hasOwnProperty', 'propertyIsEnumerable', 'isPrototypeOf', 'valueOf',
+  'defineProperty', 'getOwnPropertyDescriptor', 'getOwnPropertyNames',
+  'getPrototypeOf', 'setPrototypeOf', 'isArray', 'isFinite', 'isNaN',
+  'freeze', 'assign', 'create', 'from', 'stringify', 'parse',
+  'configurable', 'enumerable', 'writable',
 ]);
 
 /**
