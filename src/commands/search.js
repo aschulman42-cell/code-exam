@@ -14,6 +14,44 @@ import { SearchResult, displayName } from '../utils.js';
 // ========================================================================
 
 /**
+ * If the query contains a rename marker (_KW_, _CMD_, _IMPORT_), look up
+ * matching originals in the rename map and return a regex alternation pattern
+ * over those originals. Returns { query, expanded, originals } — when expanded,
+ * `query` is a regex with \b boundaries, and the caller should pass useRegex.
+ *
+ * Caps expansion at 500 originals to keep the alternation regex manageable.
+ */
+const _RENAME_MARKER_RE = /_KW_|_CMD_|_IMPORT_/;
+const _ALT_CAP = 500;
+
+export function expandRenameQuery(index, query) {
+  if (!index || typeof index.findOriginalsByDisplayPattern !== 'function') {
+    return { query, expanded: false };
+  }
+  if (!_RENAME_MARKER_RE.test(query)) return { query, expanded: false };
+  const originals = index.findOriginalsByDisplayPattern(query);
+  if (originals.length === 0) return { query, expanded: false };
+
+  let truncated = false;
+  let used = originals;
+  if (originals.length > _ALT_CAP) {
+    used = originals.slice(0, _ALT_CAP);
+    truncated = true;
+  }
+  const escaped = used.map(o => o.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = '\\b(?:' + escaped.join('|') + ')\\b';
+  return { query: pattern, expanded: true, originals, truncated, totalOriginals: originals.length };
+}
+
+function _printExpansionNotice(orig, expansion) {
+  if (!expansion.expanded) return;
+  const note = expansion.truncated
+    ? `[rename-aware: '${orig}' → ${expansion.totalOriginals} originals (capped at ${_ALT_CAP}); searching their call sites]`
+    : `[rename-aware: '${orig}' → ${expansion.totalOriginals} original name${expansion.totalOriginals === 1 ? '' : 's'}; searching their call sites]`;
+  console.log(note);
+}
+
+/**
  * Pretty-print search results, grouped by file.
  * @param {SearchResult[]} results
  * @param {object} opts
@@ -21,10 +59,12 @@ import { SearchResult, displayName } from '../utils.js';
  * @param {number|null} [opts.maxResults]
  * @param {string[]|null} [opts.pathMatches]
  * @param {number|null} [opts.totalFound]
+ * @param {object} [opts.index]  If provided, applies rename map to displayed
+ *   line text and function names so search hits show their renamed form.
  */
 export function printResults(results, { verbose = false, maxResults = null,
                                         pathMatches = null, totalFound = null,
-                                        pathFilter = null } = {}) {
+                                        pathFilter = null, index = null } = {}) {
   // Show active path filter
   if (pathFilter) {
     console.log(`  [path filter: --in ${pathFilter}]`);
@@ -77,17 +117,20 @@ export function printResults(results, { verbose = false, maxResults = null,
     const matchTypes = new Set(fileResults.map(r => r.matchType));
     const allLiteral = matchTypes.size === 1 && matchTypes.has('literal');
 
-    // Build file header
+    // Build file header (apply rename to function name if index is provided)
+    const headerFunc = (index && funcNames.size > 0)
+      ? index.getDisplayName([...funcNames][0])
+      : (funcNames.size > 0 ? [...funcNames][0] : null);
     let hitLabel = '';
     if (nHits > 1) {
-      if (funcNames.size > 0 && allSameFunc) {
-        hitLabel = `(${nHits} hits, all in ${[...funcNames][0]}):`;
+      if (headerFunc && allSameFunc) {
+        hitLabel = `(${nHits} hits, all in ${headerFunc}):`;
       } else {
         hitLabel = `(${nHits} hits):`;
       }
     } else {
-      if (funcNames.size > 0 && allSameFunc) {
-        hitLabel = `(in ${[...funcNames][0]}):`;
+      if (headerFunc && allSameFunc) {
+        hitLabel = `(in ${headerFunc}):`;
       }
     }
 
@@ -96,11 +139,12 @@ export function printResults(results, { verbose = false, maxResults = null,
 
     let prevFunc = null;
     for (const r of fileResults) {
-      // Show function name only when it changes
+      // Show function name only when it changes (apply rename if available)
+      const dnFunc = (index && r.functionName) ? index.getDisplayName(r.functionName) : r.functionName;
       let funcTag = '';
-      if (!allSameFunc && r.functionName && r.functionName !== prevFunc) {
-        funcTag = `  [${r.functionName}]`;
-        prevFunc = r.functionName;
+      if (!allSameFunc && dnFunc && dnFunc !== prevFunc) {
+        funcTag = `  [${dnFunc}]`;
+        prevFunc = dnFunc;
       }
 
       // Show match type only when it's not literal
@@ -113,7 +157,8 @@ export function printResults(results, { verbose = false, maxResults = null,
         }
       }
 
-      console.log(`    L${r.lineNumber}  ${r.lineText.trim()}${funcTag}${typeTag}`);
+      const displayLine = index ? index.applyRenames(r.lineText) : r.lineText;
+      console.log(`    L${r.lineNumber}  ${displayLine.trim()}${funcTag}${typeTag}`);
 
       if (verbose) {
         console.log(`\n    Context:`);
@@ -176,10 +221,28 @@ export function doSearch(index, args) {
     const pat = args.vocab_in.toLowerCase();
     pathMatches = pathMatches.filter(p => p.toLowerCase().includes(pat));
   }
-  let results = index.searchHybrid(args.search, {
-    maxResults: args.max_results * 5,
-    contextLines: args.context,
-  });
+  // Rename-aware: if query contains _KW_/_CMD_/_IMPORT_, expand to underlying originals
+  const expansion = expandRenameQuery(index, args.search);
+  _printExpansionNotice(args.search, expansion);
+  let results;
+  if (expansion.expanded) {
+    // caseSensitive: true — obfuscated identifiers like Ga6 vs gA6 are distinct
+    // functions; case-insensitive matching causes false positives.
+    // filterStringContext: true — skip matches whose offset falls inside a
+    // single-line string literal (e.g. `format: "base64"`).
+    results = index.searchLiteral(expansion.query, {
+      useRegex: true,
+      caseSensitive: true,
+      filterStringContext: true,
+      maxResults: args.max_results * 5,
+      contextLines: args.context,
+    });
+  } else {
+    results = index.searchHybrid(args.search, {
+      maxResults: args.max_results * 5,
+      contextLines: args.context,
+    });
+  }
   results = filterResultsByPath(results, args);
   const totalFound = results.length;
   results = results.slice(0, args.max_results);
@@ -189,6 +252,7 @@ export function doSearch(index, args) {
     pathMatches,
     totalFound,
     pathFilter: args.vocab_in || null,
+    index,
   });
 }
 
@@ -198,7 +262,15 @@ export function doLiteral(index, args) {
     const pat = args.vocab_in.toLowerCase();
     pathMatches = pathMatches.filter(p => p.toLowerCase().includes(pat));
   }
-  let results = index.searchLiteral(args.literal, {
+  const expansion = expandRenameQuery(index, args.literal);
+  _printExpansionNotice(args.literal, expansion);
+  let results = index.searchLiteral(expansion.query, {
+    useRegex: expansion.expanded || false,
+    // Identifier matching for rename-expanded queries must be case-sensitive
+    // (obfuscated names like Ga6/gA6 are distinct functions).
+    caseSensitive: expansion.expanded || false,
+    // Skip hits whose offset falls inside a single-line string literal.
+    filterStringContext: expansion.expanded || false,
     maxResults: args.max_results * 5,
     contextLines: args.context,
   });
@@ -211,6 +283,7 @@ export function doLiteral(index, args) {
     pathMatches,
     totalFound,
     pathFilter: args.vocab_in || null,
+    index,
   });
 }
 
@@ -220,9 +293,25 @@ export function doFast(index, args) {
     const pat = args.vocab_in.toLowerCase();
     pathMatches = pathMatches.filter(p => p.toLowerCase().includes(pat));
   }
-  let results = index.searchInverted(args.fast, {
-    maxResults: args.max_results * 5,
-  });
+  // Rename-aware: --fast normally uses the inverted index (literal token lookup),
+  // which can't match a regex alternation. When the query expands to multiple
+  // originals, fall back to regex literal search instead.
+  const expansion = expandRenameQuery(index, args.fast);
+  _printExpansionNotice(args.fast, expansion);
+  let results;
+  if (expansion.expanded) {
+    results = index.searchLiteral(expansion.query, {
+      useRegex: true,
+      caseSensitive: true,
+      filterStringContext: true,
+      maxResults: args.max_results * 5,
+      contextLines: args.context,
+    });
+  } else {
+    results = index.searchInverted(args.fast, {
+      maxResults: args.max_results * 5,
+    });
+  }
   results = filterResultsByPath(results, args);
   const totalFound = results.length;
   results = results.slice(0, args.max_results);
@@ -232,6 +321,7 @@ export function doFast(index, args) {
     pathMatches,
     totalFound,
     pathFilter: args.vocab_in || null,
+    index,
   });
 }
 
@@ -255,6 +345,7 @@ export function doRegex(index, args) {
     maxResults: effectiveMax,
     totalFound,
     pathFilter: args.vocab_in || null,
+    index,
   });
 }
 

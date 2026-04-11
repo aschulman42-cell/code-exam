@@ -241,20 +241,46 @@ function isOpaqueName(name) {
 }
 
 /**
- * Check if a position in a line is inside a string literal (single, double, or backtick).
- * Simple state-machine approach — doesn't handle escaped quotes perfectly but good enough.
+ * Returns true if `pos` in `line` is inside a string literal.
+ *
+ * Tracks single ('...'), double ("..."), and template (`...`) literals, with
+ * backslash escapes. Crucially, treats `${...}` interpolations inside template
+ * literals as code (not string), so `${func(x)}` is correctly recognized as
+ * a real call site.
+ *
+ * Heuristic, single-line only.
  */
 function _isInsideString(line, pos) {
-  let inSingle = false, inDouble = false, inBacktick = false;
-  for (let i = 0; i < pos && i < line.length; i++) {
+  // 'code' | 's' (single) | 'd' (double) | 't' (template)
+  let state = 'code';
+  const stack = []; // saved states for ${} interpolation re-entry
+  const N = Math.min(pos, line.length);
+  for (let i = 0; i < N; i++) {
     const ch = line[i];
     const prev = i > 0 ? line[i - 1] : '';
-    if (prev === '\\') continue; // skip escaped chars
-    if (ch === "'" && !inDouble && !inBacktick) inSingle = !inSingle;
-    else if (ch === '"' && !inSingle && !inBacktick) inDouble = !inDouble;
-    else if (ch === '`' && !inSingle && !inDouble) inBacktick = !inBacktick;
+    // backslash escape only matters inside strings
+    if (prev === '\\' && state !== 'code') continue;
+
+    if (state === 'code') {
+      if (ch === "'") state = 's';
+      else if (ch === '"') state = 'd';
+      else if (ch === '`') state = 't';
+      else if (ch === '}' && stack.length > 0) state = stack.pop();
+    } else if (state === 's') {
+      if (ch === "'") state = 'code';
+    } else if (state === 'd') {
+      if (ch === '"') state = 'code';
+    } else if (state === 't') {
+      if (ch === '`') state = 'code';
+      else if (ch === '$' && i + 1 < N && line[i + 1] === '{') {
+        // Enter ${} interpolation: push template state, switch to code
+        stack.push('t');
+        state = 'code';
+        i++; // consume the '{'
+      }
+    }
   }
-  return inSingle || inDouble || inBacktick;
+  return state !== 'code';
 }
 
 /** Helper: add a string occurrence to the string table map. */
@@ -654,6 +680,125 @@ export class CodeSearchIndex {
       }
     }
     return originals;
+  }
+
+  /**
+   * Run all rename inference passes (KW from body keywords, CMD from command
+   * catalog, IMPORT from destructuring imports) and persist rename_map.json
+   * + import_map.json to the index directory. Used by buildIndex() and by the
+   * --build-rename-map CLI flag (to retro-fit renames onto an existing index).
+   *
+   * Requires fileLines and functionIndex to be loaded (which happens
+   * automatically when an existing index is loaded from disk).
+   *
+   * @param {boolean} [showProgress=true]
+   * @returns {{namesInferred: number, cmdRenames: number, importRenames: number}}
+   */
+  inferAndSaveRenameMap(showProgress = true) {
+    if (showProgress) console.log('Inferring descriptive names for opaque functions...');
+    const { renameMap, count: namesInferred } = inferAllNames(this);
+
+    // Overlay _CMD_ renames from command catalog (higher quality than _KW_ for these)
+    const catalog = this.extractCommandCatalog(false);
+    let cmdRenames = 0;
+    for (const cmd of catalog.commands) {
+      if (cmd.tier !== 'primary') continue;
+      if (!cmd.func || cmd.func === '(file scope)') continue;
+      const funcName = cmd.func;
+      if (!isOpaqueName(funcName)) continue;
+      const cmdName = (cmd.name || '').replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase();
+      if (cmdName.length < 2) continue;
+      let displayName = funcName + '_CMD_' + cmdName;
+      if (displayName.length > 60) displayName = displayName.slice(0, 60);
+      renameMap[funcName] = displayName;
+      cmdRenames++;
+    }
+    for (const opt of catalog.cliOptions) {
+      if (!opt.handler?.func || opt.handler.func === '(file scope)') continue;
+      const funcName = opt.handler.func;
+      if (!isOpaqueName(funcName)) continue;
+      const optName = (opt.flags?.[0] || opt.name || '').replace(/^-+/, '').replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase();
+      if (optName.length < 2) continue;
+      let displayName = funcName + '_CMD_' + optName;
+      if (displayName.length > 60) displayName = displayName.slice(0, 60);
+      renameMap[funcName] = displayName;
+      cmdRenames++;
+    }
+
+    // Overlay destructuring import renames: { exportName: localVar } → localVar_IMPORT_EXPORT_NAME
+    // Two-pass: first collect ALL import mappings, then only apply renames for
+    // variables that have a single unambiguous mapping (avoids clobbering short
+    // names like _q or z that are reused across scopes).
+    let importRenames = 0;
+    const importCandidates = Object.create(null); // localVar → Set of export names
+
+    for (const [, flines] of this.fileLines) {
+      for (let i = 0; i < flines.length; i++) {
+        const line = flines[i].trim();
+        if (!/^(?:let|const|var)\s+\{/.test(line) && line !== '{') continue;
+
+        let block = line;
+        for (let j = i + 1; j < Math.min(i + 15, flines.length); j++) {
+          block += ' ' + flines[j].trim();
+          if (flines[j].includes('}')) break;
+        }
+        if (!/\}\s*=/.test(block)) continue;
+
+        const pairRe = /(\w+)\s*:\s*([a-zA-Z_$][\w$]*)/g;
+        let dm;
+        while ((dm = pairRe.exec(block)) !== null) {
+          const exportName = dm[1];
+          const localVar = dm[2];
+          if (exportName.length < 3) continue;
+          if (localVar.length > 8 && !isOpaqueName(localVar)) continue;
+          if (/^(true|false|null|undefined|this|super|class|function|return|if|else|for|while|var|let|const|new|delete|typeof|void|in|of)$/.test(localVar)) continue;
+          if (isOpaqueName(exportName)) continue;
+
+          if (!importCandidates[localVar]) importCandidates[localVar] = new Set();
+          importCandidates[localVar].add(exportName);
+        }
+      }
+    }
+
+    // Only apply renames for variables with a single unambiguous import mapping
+    // AND with 3+ char names (1-2 char names are too common as local vars for safe global replace)
+    for (const [localVar, exportNames] of Object.entries(importCandidates)) {
+      if (exportNames.size !== 1) continue;
+      if (localVar.length < 3) continue;
+      const exportName = [...exportNames][0];
+      const importName = 'IMPORT_' + camelToScreamingSnake(exportName);
+      let displayName = localVar + '_' + importName;
+      if (displayName.length > 60) displayName = displayName.slice(0, 60);
+      // Override _KW_ renames but not _CMD_ renames
+      if (!renameMap[localVar] || renameMap[localVar].includes('_KW_')) {
+        renameMap[localVar] = displayName;
+        importRenames++;
+      }
+    }
+
+    // Save all import mappings (including ambiguous) for future display in rename table
+    if (Object.keys(importCandidates).length > 0) {
+      const importMapPath = path.join(this.indexPath, 'import_map.json');
+      const importMap = {};
+      for (const [localVar, exportNames] of Object.entries(importCandidates)) {
+        importMap[localVar] = [...exportNames];
+      }
+      try {
+        fs.writeFileSync(importMapPath, JSON.stringify(importMap, null, 2));
+      } catch { /* ignore */ }
+    }
+
+    // Persist and refresh in-memory cache (and reset the compiled regex / reverse map)
+    this._renameMap = renameMap;
+    this._renameRegex = null;
+    this._reverseRenameMap = null;
+    this._saveRenameMap(renameMap);
+
+    if (showProgress) {
+      console.log(`Inferred ${namesInferred} descriptive names + ${cmdRenames} command names + ${importRenames} import renames → rename_map.json`);
+    }
+
+    return { namesInferred, cmdRenames, importRenames };
   }
 
 
@@ -2621,108 +2766,11 @@ export class CodeSearchIndex {
     // Infer descriptive names for ALL opaque-named functions.
     // Extracts top keywords from each function's body. Works on any codebase.
     // Saved as rename_map.json — applied at DISPLAY time, not to stored content.
-    if (showProgress) console.log('Inferring descriptive names for opaque functions...');
-    const { renameMap, count: namesInferred } = inferAllNames(this);
-    // Overlay _CMD_ renames from command catalog (higher quality than _KW_ for these)
-    const catalog = this.extractCommandCatalog(false);
-    let cmdRenames = 0;
-    for (const cmd of catalog.commands) {
-      if (cmd.tier !== 'primary') continue;
-      if (!cmd.func || cmd.func === '(file scope)') continue;
-      const funcName = cmd.func;
-      if (!isOpaqueName(funcName)) continue;
-      const cmdName = (cmd.name || '').replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase();
-      if (cmdName.length < 2) continue;
-      let displayName = funcName + '_CMD_' + cmdName;
-      if (displayName.length > 60) displayName = displayName.slice(0, 60);
-      renameMap[funcName] = displayName;
-      cmdRenames++;
-    }
-    // Also rename functions containing CLI option handlers
-    for (const opt of catalog.cliOptions) {
-      if (!opt.handler?.func || opt.handler.func === '(file scope)') continue;
-      const funcName = opt.handler.func;
-      if (!isOpaqueName(funcName)) continue;
-      const optName = (opt.flags?.[0] || opt.name || '').replace(/^-+/, '').replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase();
-      if (optName.length < 2) continue;
-      let displayName = funcName + '_CMD_' + optName;
-      if (displayName.length > 60) displayName = displayName.slice(0, 60);
-      renameMap[funcName] = displayName;
-      cmdRenames++;
-    }
-
-    // Overlay destructuring import renames: { exportName: localVar } → localVar_IMPORT_EXPORT_NAME
-    // Two-pass approach: first collect ALL import mappings, then only apply
-    // renames for variables that have a single unambiguous mapping.
-    // This avoids renaming short names like _q or z that are reused across scopes.
-    let importRenames = 0;
-    const importCandidates = Object.create(null); // localVar → Set of export names
-
-    for (const [filepath, flines] of this.fileLines) {
-      for (let i = 0; i < flines.length; i++) {
-        const line = flines[i].trim();
-        if (!/^(?:let|const|var)\s+\{/.test(line) && line !== '{') continue;
-
-        let block = line;
-        for (let j = i + 1; j < Math.min(i + 15, flines.length); j++) {
-          block += ' ' + flines[j].trim();
-          if (flines[j].includes('}')) break;
-        }
-        if (!/\}\s*=/.test(block)) continue;
-
-        const pairRe = /(\w+)\s*:\s*([a-zA-Z_$][\w$]*)/g;
-        let dm;
-        while ((dm = pairRe.exec(block)) !== null) {
-          const exportName = dm[1];
-          const localVar = dm[2];
-          if (exportName.length < 3) continue;
-          if (localVar.length > 8 && !isOpaqueName(localVar)) continue;
-          if (/^(true|false|null|undefined|this|super|class|function|return|if|else|for|while|var|let|const|new|delete|typeof|void|in|of)$/.test(localVar)) continue;
-          if (isOpaqueName(exportName)) continue;
-
-          if (!importCandidates[localVar]) importCandidates[localVar] = new Set();
-          importCandidates[localVar].add(exportName);
-        }
-      }
-    }
-
-    // Only apply renames for variables with a single unambiguous import mapping
-    // AND with 3+ char names (1-2 char names are too common as local vars for safe global replace)
-    for (const [localVar, exportNames] of Object.entries(importCandidates)) {
-      if (exportNames.size !== 1) continue; // ambiguous — skip
-      if (localVar.length < 3) continue; // too short for safe global replace
-      const exportName = [...exportNames][0];
-      const importName = 'IMPORT_' + camelToScreamingSnake(exportName);
-      let displayName = localVar + '_' + importName;
-      if (displayName.length > 60) displayName = displayName.slice(0, 60);
-      // Override _KW_ renames but not _CMD_ renames
-      if (!renameMap[localVar] || renameMap[localVar].includes('_KW_')) {
-        renameMap[localVar] = displayName;
-        importRenames++;
-      }
-    }
-
-    // Save all import mappings (including ambiguous) for future display in rename table
-    if (Object.keys(importCandidates).length > 0) {
-      const importMapPath = path.join(this.indexPath, 'import_map.json');
-      const importMap = {};
-      for (const [localVar, exportNames] of Object.entries(importCandidates)) {
-        importMap[localVar] = [...exportNames];
-      }
-      try {
-        fs.writeFileSync(importMapPath, JSON.stringify(importMap, null, 2));
-      } catch { /* ignore */ }
-    }
-
+    const { namesInferred, cmdRenames, importRenames } = this.inferAndSaveRenameMap(showProgress);
     if (namesInferred > 0 || cmdRenames > 0 || importRenames > 0) {
       stats.namesInferred = namesInferred;
       stats.cmdRenames = cmdRenames;
       stats.importRenames = importRenames;
-      this._renameMap = renameMap;
-      this._saveRenameMap(renameMap);
-      if (showProgress) {
-        console.log(`Inferred ${namesInferred} descriptive names + ${cmdRenames} command names + ${importRenames} import renames → rename_map.json`);
-      }
     }
 
     // Build string table
@@ -2876,7 +2924,8 @@ export class CodeSearchIndex {
    * @returns {SearchResult[]}
    */
   searchLiteral(pattern, { caseSensitive = false, useRegex = false,
-                           maxResults = 100, contextLines = 3 } = {}) {
+                           maxResults = 100, contextLines = 3,
+                           filterStringContext = false } = {}) {
     if (this.files.size === 0) {
       console.log('No files indexed. Run buildIndex() first.');
       return [];
@@ -2893,32 +2942,57 @@ export class CodeSearchIndex {
       return [];
     }
 
+    // For string-context filtering we need match positions, not just boolean.
+    // Build a global-flag version once and reuse via lastIndex.
+    const reG = filterStringContext
+      ? new RegExp(regex.source, regex.flags.includes('g') ? regex.flags : regex.flags + 'g')
+      : null;
+
     const results = [];
 
     for (const [filePath, lines] of this.fileLines) {
       for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
         const lineNum = lineIdx + 1;
-        if (regex.test(lines[lineIdx])) {
-          // Get context
-          const start = Math.max(0, lineNum - contextLines - 1);
-          const end = Math.min(lines.length, lineNum + contextLines);
-          const ctxLines = lines.slice(start, end);
-          const context = ctxLines
-            .map((l, i) => `${String(start + i + 1).padStart(4)}: ${l}`)
-            .join('\n');
+        const line = lines[lineIdx];
 
-          // Find containing function
-          const funcName = this._findContainingFunction(filePath, lineNum);
-
-          results.push(new SearchResult({
-            filePath, lineNumber: lineNum,
-            lineText: lines[lineIdx].trim(),
-            context, matchType: 'literal',
-            score: 0.0, functionName: funcName,
-          }));
-
-          if (results.length >= maxResults) return results;
+        let matched;
+        if (filterStringContext) {
+          // Walk all matches; accept the line if any match falls outside a
+          // single-line string literal. Skips hits like `format: "base64"`
+          // where the matched identifier is purely string-literal text.
+          reG.lastIndex = 0;
+          matched = false;
+          let m;
+          while ((m = reG.exec(line)) !== null) {
+            if (!_isInsideString(line, m.index)) { matched = true; break; }
+            // safety: avoid zero-width infinite loop
+            if (m[0].length === 0) reG.lastIndex++;
+          }
+        } else {
+          matched = regex.test(line);
         }
+
+        if (!matched) continue;
+
+        // Get context
+        const start = Math.max(0, lineNum - contextLines - 1);
+        const end = Math.min(lines.length, lineNum + contextLines);
+        const ctxLines = lines.slice(start, end);
+        const context = ctxLines
+          .map((l, i) => `${String(start + i + 1).padStart(4)}: ${l}`)
+          .join('\n');
+
+        // Find containing function
+        const funcName = this._findContainingFunction(filePath, lineNum);
+
+        results.push(new SearchResult({
+          filePath, lineNumber: lineNum,
+          lineText: line.trim(),
+          context, matchType: 'literal',
+          score: 0.0, functionName: funcName,
+        }));
+
+        if (results.length >= maxResults) return results;
       }
     }
     return results;

@@ -177,6 +177,32 @@ if (args.rebuild_functions) {
 
 
 // ========================================================================
+// Build/refresh rename map for an existing index (no full rebuild)
+// ========================================================================
+
+if (args.build_rename_map) {
+  console.log(`Building rename map from ${index.files.size} loaded files...`);
+  const r = index.inferAndSaveRenameMap(true);
+  console.log(`Done: ${r.namesInferred + r.cmdRenames + r.importRenames} total renames written to ${index.indexPath}/rename_map.json`);
+  // If only --build-rename-map (no other command), exit
+  const queryCommands = [
+    'search', 'literal', 'fast', 'regex', 'files_search', 'folders_search',
+    'stats', 'list_functions', 'list_functions_alpha', 'list_functions_size',
+    'extract', 'list_files', 'show_file', 'index_extensions', 'interactive',
+    'callers', 'callees', 'most_called', 'call_tree', 'call_inventory', 'file_map', 'file_tree',
+    'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
+    'list_classes', 'class_hotspots', 'discover_vocabulary',
+    'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
+    'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
+    'command_catalog', 'string_table', 'breadcrumbs',
+  ];
+  if (!queryCommands.some(c => args._explicit.has(c) || args[c])) {
+    process.exit(0);
+  }
+}
+
+
+// ========================================================================
 // Dispatch commands
 // ========================================================================
 

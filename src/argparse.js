@@ -23,6 +23,7 @@ export function parseArgs() {
     // Index management
     build_index: null,
     rebuild_functions: false,
+    build_rename_map: false,
     index_path: '.code_search_index',
     skip_semantic: true,
     use_tree_sitter: false,
@@ -164,6 +165,7 @@ export function parseArgs() {
   const defs = [
     ['build_index',          'value',          ['--build-index']],
     ['rebuild_functions',    'flag',           ['--rebuild-functions']],
+    ['build_rename_map',     'flag',           ['--build-rename-map']],
     ['index_path',           'value',          ['--index-path']],
     ['skip_semantic',        'flag',           ['--skip-semantic']],
     ['use_tree_sitter',      'flag',           ['--use-tree-sitter']],
@@ -189,7 +191,7 @@ export function parseArgs() {
     ['index_extensions',     'flag',           ['--index-extensions']],
     ['list_indexes',         'optional_value', ['--list-indexes']],
 
-    ['max_results',          'int',            ['--max-results', '-n']],
+    ['max_results',          'int',            ['--max-results', '--max', '-n']],
     ['context',              'int',            ['--context']],
     ['verbose',              'flag',           ['--verbose', '-v']],
     ['full_path',            'flag',           ['--full-path']],
@@ -426,6 +428,11 @@ USAGE:
 INDEX MANAGEMENT:
   --build-index <path>       Build index from directory, file, glob, or @filelist
   --rebuild-functions        Rebuild function index from loaded file contents
+  --build-rename-map         (Re)infer descriptive names for an existing index;
+                             writes rename_map.json + import_map.json without
+                             rebuilding the index itself
+  --no-rename                Disable display-time renames for this run
+                             (output uses raw obfuscated names)
   --index-path <path>        Path to index directory (default: .code_search_index)
   --skip-semantic            Skip semantic/embedding indexing (default)
   --use-tree-sitter          Use tree-sitter for function parsing
@@ -457,7 +464,7 @@ BROWSE:
   --list-indexes [path]      List available index directories
 
 DISPLAY / FILTERING (query-time, does not affect index build):
-  --max-results <n>          Maximum results to display (default: 20)
+  --max-results <n>          Maximum results to display (alias: --max) (default: 20)
   --context <n>              Context lines around matches (default: 3)
   -v, --verbose              Show extra detail
   --full-path                Show full file paths in output
@@ -544,6 +551,14 @@ DEDUP / DUPLICATES:
   --show-funcstring [name]   Show structural funcstring for a function (or for struct-dupes results)
   --struct-diff <name>       Show word-hole differences between structural dupe variants
   --struct-diff-all <n>      One-line diff summaries for top N structural dupe groups
+
+CONTENT ANALYSIS:
+  --command-catalog          List CLI options, commands, switch/case branches, API
+                             routes, and GUI actions discovered in the codebase
+  --string-table [filter]    Show frequently-occurring string literals (alias: --strings)
+                             Optional filter: substring or /regex/flags
+  --breadcrumbs              Show telemetry/trace markers and event categories
+                             (execution flow phases inferred from log/trace calls)
 
 EXAMPLES:
   node src/index.js --build-index ./my-project
