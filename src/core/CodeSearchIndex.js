@@ -512,6 +512,155 @@ function extractReadableIdents(bodyText, opts = {}) {
   return scored;
 }
 
+// ============================================================================
+// Bundle-seam detection (#330)
+//
+// Minified JS bundles from esbuild/webpack/etc. wrap each original source
+// module in a compact helper pattern. For esbuild this is the "lazy factory"
+// idiom, e.g.:
+//
+//   var E = (A, q) => () => (A && (q = A(A = 0)), q);             // ESM helper
+//   var C = (A, q) => () => (q || A((q = {exports: {}}).exports,  // CJS helper
+//                                     q), q.exports);
+//   var Dh1 = E(() => { ... });               // one module
+//   var JL  = E(() => { ... });               // another module
+//   var fA6 = E(() => { ... });               // ...
+//
+// Two pattern families supported:
+//   - esbuild-flat: helpers and modules at column 0 (claude-code's cli.js)
+//   - esbuild-iife: everything wrapped in a top-level IIFE so helpers and
+//                   modules are indented inside (mermaid.min.js)
+//
+// Shape-based helper detection (not name-based) makes this robust across
+// different bundle outputs where helpers are named E/C, I/Jt, etc.
+// ============================================================================
+
+/**
+ * Detect ESM and CJS module-wrapper helper names by scanning the top of the
+ * file for their distinctive memoization signatures:
+ *   ESM: (X && (Y = X(X = 0)), Y)       — memoizes factory result into Y
+ *   CJS: (Y = {exports: {}}).exports    — initializes CJS exports object
+ *
+ * The helper NAMES vary per bundle but the SHAPES are consistent. Returns
+ * { esm, cjs, iifeStartLine } where iifeStartLine > 0 indicates the bundle
+ * wraps everything in a top-level IIFE.
+ *
+ * Scans the first 200 lines as a joined string (whitespace-normalized) so
+ * helper declarations that span multiple lines in the minified output are
+ * still caught.
+ */
+function _detectBundleHelpers(lines) {
+  const helpers = { esm: null, cjs: null, iifeStartLine: -1 };
+  const N = Math.min(200, lines.length);
+  // Keep whitespace so `\b` word boundaries work — the normalized-string
+  // approach caused `var E =` to capture as `varE` when the regex engine
+  // started matching at position 0.
+  const head = lines.slice(0, N).join('\n');
+
+  // ESM shape: NAME = (X, Y) => () => (X && (Y = X(X = 0)), Y)
+  // Distinctive substring: the `Y = X(X = 0)` memoization kernel.
+  const esmRe = /\b(\w+)\s*=\s*\(\s*\w+\s*,\s*\w+\s*\)\s*=>\s*\(\s*\)\s*=>\s*\(\s*\w+\s*&&\s*\(\s*\w+\s*=\s*\w+\s*\(\s*\w+\s*=\s*0\s*\)/;
+  const esmMatch = head.match(esmRe);
+  if (esmMatch && esmMatch[1] !== 'var' && esmMatch[1] !== 'let' && esmMatch[1] !== 'const') {
+    helpers.esm = esmMatch[1];
+  }
+
+  // CJS shape: NAME = (X, Y) => () => (Y || X((Y = {exports: {}}).exports, Y), Y.exports)
+  // The `Y || X((Y = {exports:{}}` kernel is distinctive and specific enough
+  // to not accidentally bridge across two adjacent helper declarations (the
+  // ESM kernel uses `&&` and has no `{exports:{}}`, so the alternation/
+  // initialization pair only appears in CJS helpers).
+  const cjsRe = /\b(\w+)\s*=\s*\(\s*\w+\s*,\s*\w+\s*\)\s*=>\s*\(\s*\)\s*=>\s*\(\s*\w+\s*\|\|\s*\w+\s*\(\s*\(?\s*\w+\s*=\s*\{\s*exports\s*:\s*\{\s*\}\s*\}/;
+  const cjsMatch = head.match(cjsRe);
+  if (cjsMatch && cjsMatch[1] !== 'var' && cjsMatch[1] !== 'let' && cjsMatch[1] !== 'const') {
+    helpers.cjs = cjsMatch[1];
+  }
+
+  // Outer IIFE detection — mermaid.min.js starts with something like
+  //   (__esbuild_esm_mermaid_nm ||= {}).mermaid = (() => {
+  // or the plain form:
+  //   (() => { ... })();
+  for (let i = 0; i < Math.min(10, lines.length); i++) {
+    const norm = (lines[i] || '').replace(/\s+/g, '');
+    if (
+      /\|\|=\{\}\)\.\w+=\(\(\)=>\{/.test(norm) ||
+      /^\(\(\)=>\{/.test(norm) ||
+      /^\(\([^)]*\)=>\{/.test(norm)
+    ) {
+      helpers.iifeStartLine = i + 1;
+      break;
+    }
+  }
+
+  return helpers;
+}
+
+/**
+ * Extract a "preview" line from inside a module body — the first line that's
+ * likely to tell you what the module is about. Skips trivial stuff (var
+ * declarations at top, "use strict", closing braces, pure punctuation).
+ */
+function _extractModulePreview(lines, startIdx, endIdx) {
+  const maxScan = Math.min(startIdx + 25, endIdx + 1, lines.length);
+  let fallback = null;
+  for (let i = startIdx + 1; i < maxScan; i++) {
+    const line = lines[i] || '';
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // Trivial lines to skip
+    if (/^["']use strict["'];?$/.test(trimmed)) continue;
+    if (/^[{}(),;]+\s*$/.test(trimmed)) continue;
+    if (/^var\s+\w+(\s*,\s*\w+)*\s*;?\s*$/.test(trimmed)) continue; // `var x, y, z;`
+    if (fallback === null) fallback = trimmed;
+    // Prefer lines with function definitions or distinctive content
+    if (
+      /\bfunction\s+\w+/.test(trimmed) ||
+      /^\w+\s*=\s*function/.test(trimmed) ||
+      /["'][\w.\-/@]{4,}["']/.test(trimmed) ||
+      /\w+\.prototype\./.test(trimmed) ||
+      /module\.exports/.test(trimmed) ||
+      /\bclass\s+\w+/.test(trimmed)
+    ) {
+      return trimmed;
+    }
+  }
+  return fallback || '(no preview)';
+}
+
+/**
+ * Scan strings inside a module body for likely source-path hints and license
+ * headers. Returns { paths, licenses } — both arrays, empty if nothing found.
+ * Conservative: only includes strings that look unambiguously like file paths
+ * or SPDX/license declarations.
+ */
+function _scanModuleHints(lines, startIdx, endIdx) {
+  const paths = new Set();
+  const licenses = [];
+  const limit = Math.min(endIdx + 1, lines.length);
+  for (let i = startIdx; i < limit; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    // File path-ish strings inside quotes — must look like node_modules/...,
+    // @scope/pkg/..., or a relative path ending in .js/.mjs/.cjs/.ts/.tsx
+    const pathRe = /["'`]((?:[.@\w/-]+\/)+[\w.-]+\.(?:js|mjs|cjs|ts|tsx|jsx))["'`]/g;
+    let m;
+    while ((m = pathRe.exec(line)) !== null) {
+      const p = m[1];
+      // Skip URLs
+      if (/^https?:/.test(p) || /\/\//.test(p)) continue;
+      paths.add(p);
+      if (paths.size >= 5) break; // cap
+    }
+    // License / copyright headers
+    if (/Copyright\s*\(c\)/i.test(line) || /SPDX-License-Identifier/i.test(line) || /MIT License/i.test(line)) {
+      const trimmed = line.trim().replace(/^[\/\*\s]+/, '').slice(0, 100);
+      if (trimmed && licenses.length < 3) licenses.push(trimmed);
+    }
+  }
+  return { paths: [...paths], licenses };
+}
+
+
 /**
  * Infer descriptive names for ALL opaque-named functions by extracting
  * the most distinctive readable identifiers from their bodies.
@@ -865,6 +1014,82 @@ export class CodeSearchIndex {
       carryState = (endState === 'bc' || endState === 't') ? endState : 'code';
     }
     return lines.join('\n');
+  }
+
+  /**
+   * Detect bundle-seam module boundaries in a JS file produced by esbuild
+   * (or a similar lazy-factory bundler). See the long comment block above
+   * _detectBundleHelpers for the pattern family and shape-based detection
+   * rationale.
+   *
+   * @param {string} filepath — must be in this.fileLines
+   * @param {object} [opts]
+   * @param {boolean} [opts.scanHints=false] — also scan each module body for
+   *   source-path and license hints (more expensive)
+   * @returns {object} — { filepath, pattern, helpers, modules, error? }
+   *   pattern: 'esbuild-flat' | 'esbuild-iife' | null
+   *   modules: array of { name, kind: 'ESM'|'CJS', startLine, endLine,
+   *                       lineCount, preview, hints? }
+   */
+  detectBundleSeams(filepath, { scanHints = false } = {}) {
+    const lines = this.fileLines.get(filepath);
+    if (!lines) return { filepath, error: 'File not in index: ' + filepath };
+
+    const helpers = _detectBundleHelpers(lines);
+    if (!helpers.esm && !helpers.cjs) {
+      return { filepath, pattern: null, helpers, modules: [] };
+    }
+
+    // Build wrapper regex. Allow any arrow-arg shape: (), (x), (x, y)
+    const names = [helpers.esm, helpers.cjs].filter(Boolean);
+    const altNames = names
+      .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('|');
+    // Capture: (1) leading indent, (2) module var name, (3) helper name
+    const wrapperRe = new RegExp(
+      '^(\\s*)var\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*(' + altNames + ')\\s*\\(\\s*\\('
+    );
+
+    // First pass: find all wrapper start lines
+    const wrappers = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      const m = line.match(wrapperRe);
+      if (!m) continue;
+      wrappers.push({
+        startLine: i + 1,
+        name: m[2],
+        helperName: m[3],
+        indent: m[1].length,
+        kind: m[3] === helpers.esm ? 'ESM' : 'CJS',
+      });
+    }
+
+    // Second pass: compute end lines via sibling boundary rule
+    //   module N's end = (module N+1's start) - 1
+    //   last module ends at file end
+    for (let i = 0; i < wrappers.length; i++) {
+      const next = wrappers[i + 1];
+      const rawEnd = next ? next.startLine - 1 : lines.length;
+      wrappers[i].endLine = rawEnd;
+      wrappers[i].lineCount = rawEnd - wrappers[i].startLine + 1;
+    }
+
+    // Third pass: extract previews and (optional) hints
+    for (const w of wrappers) {
+      w.preview = _extractModulePreview(lines, w.startLine - 1, w.endLine - 1);
+      if (scanHints) {
+        w.hints = _scanModuleHints(lines, w.startLine - 1, w.endLine - 1);
+      }
+    }
+
+    return {
+      filepath,
+      pattern: helpers.iifeStartLine > 0 ? 'esbuild-iife' : 'esbuild-flat',
+      helpers,
+      modules: wrappers,
+    };
   }
 
   /**

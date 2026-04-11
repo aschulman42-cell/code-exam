@@ -668,6 +668,120 @@ export function doFileBookends(index, args) {
 
 
 // ========================================================================
+// Bundle Seams — detect module wrapper boundaries in bundled JS
+// ========================================================================
+//
+// For minified bundles (claude-code cli.js, mermaid.min.js, ...), detect
+// the esbuild-style module wrapper pattern and list each original-source
+// module with its line range, kind (ESM/CJS), and a content preview.
+//
+// Pairs with --file-bookends: bookends shows the top/tail of the whole
+// file; bundle-seams carves the file into its original module chunks.
+// Together they give you an architectural map of a minified bundle.
+//
+// Honors --filter / --include-path / --exclude-path for narrowing to
+// specific files. --seam-verbose enables per-module source-path and
+// license-header scanning (more expensive but surfaces path hints like
+// `node_modules/zod/dist/...`).
+
+export function doBundleSeams(index, args) {
+  // Collect + filter files. Default: auto-select large JS-like files.
+  const pat = (typeof args.bundle_seams === 'string' && args.bundle_seams !== '.')
+    ? args.bundle_seams : null;
+
+  let files = [...index.fileLines.keys()];
+  if (pat) {
+    const p = pat.toLowerCase().replace(/\\/g, '/');
+    files = files.filter(fp => fp.toLowerCase().replace(/\\/g, '/').includes(p));
+  } else {
+    // Auto: only consider .js / .mjs / .cjs files with > 1000 lines —
+    // small JS files are rarely bundled output.
+    files = files.filter(fp => {
+      const ext = fp.toLowerCase();
+      if (!(ext.endsWith('.js') || ext.endsWith('.mjs') || ext.endsWith('.cjs'))) return false;
+      const lines = index.fileLines.get(fp);
+      return lines && lines.length > 1000;
+    });
+  }
+  if (args.filter) {
+    const f = args.filter.toLowerCase();
+    files = files.filter(fp => fp.toLowerCase().includes(f));
+  }
+  if (args.include_path) {
+    files = files.filter(fp =>
+      args.include_path.some(p => fp.toLowerCase().includes(p.toLowerCase())));
+  }
+  if (args.exclude_path) {
+    files = files.filter(fp =>
+      !args.exclude_path.some(p => fp.toLowerCase().includes(p.toLowerCase())));
+  }
+
+  if (files.length === 0) {
+    console.log('No files matched for --bundle-seams. Try a filter pattern or --include-path.');
+    return;
+  }
+  files.sort();
+
+  const verbose = args.seam_verbose || args.verbose;
+  const max = args.max_results || 20;
+
+  for (const filepath of files) {
+    const lines = index.fileLines.get(filepath);
+    const result = index.detectBundleSeams(filepath, { scanHints: verbose });
+    console.log('\n' + '─'.repeat(72));
+    console.log(`  ${filepath}  (${lines.length} lines)`);
+    console.log('─'.repeat(72));
+
+    if (result.error) {
+      console.log(`  Error: ${result.error}`);
+      continue;
+    }
+    if (!result.pattern) {
+      console.log('  No bundle-seam pattern detected.');
+      const h = result.helpers;
+      if (h.esm || h.cjs) {
+        console.log(`  (partial helper detection: esm=${h.esm || 'none'}, cjs=${h.cjs || 'none'})`);
+      }
+      continue;
+    }
+
+    const esmCount = result.modules.filter(m => m.kind === 'ESM').length;
+    const cjsCount = result.modules.filter(m => m.kind === 'CJS').length;
+    console.log(`  Pattern: ${result.pattern}  ESM helper: ${result.helpers.esm || '-'}  CJS helper: ${result.helpers.cjs || '-'}`);
+    console.log(`  Modules: ${result.modules.length}  (${esmCount} ESM, ${cjsCount} CJS)`);
+    if (result.pattern === 'esbuild-iife') {
+      console.log(`  Outer IIFE starts at L${result.helpers.iifeStartLine}`);
+    }
+    console.log();
+
+    const toShow = result.modules.slice(0, max);
+    for (const m of toShow) {
+      // Apply rename to module name if available (wrappers are in func index)
+      const dn = index.getDisplayName ? index.getDisplayName(m.name) : m.name;
+      const kind = m.kind.padEnd(3);
+      const nameCol = dn.length > 36 ? dn.slice(0, 33) + '...' : dn.padEnd(36);
+      console.log(`  ${nameCol} [${kind}]  L${String(m.startLine).padStart(7)}-${String(m.endLine).padStart(7)}  ${String(m.lineCount).padStart(5)}L`);
+      if (m.preview && m.preview !== '(no preview)') {
+        const p = m.preview.length > 100 ? m.preview.slice(0, 97) + '...' : m.preview;
+        console.log(`      preview: ${p}`);
+      }
+      if (m.hints) {
+        if (m.hints.paths.length > 0) {
+          console.log(`      paths:   ${m.hints.paths.slice(0, 3).join(', ')}${m.hints.paths.length > 3 ? ', ...' : ''}`);
+        }
+        if (m.hints.licenses.length > 0) {
+          console.log(`      license: ${m.hints.licenses[0]}`);
+        }
+      }
+    }
+    if (result.modules.length > toShow.length) {
+      console.log(`\n  ... and ${result.modules.length - toShow.length} more. Use --max-results N (or --max N) for more.`);
+    }
+  }
+}
+
+
+// ========================================================================
 // List Functions
 // ========================================================================
 

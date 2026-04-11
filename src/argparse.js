@@ -26,6 +26,8 @@ export function parseArgs() {
     build_rename_map: false,
     rename_min_lines: 0,
     file_bookends: null,
+    bundle_seams: null,
+    seam_verbose: false,
     index_path: '.code_search_index',
     skip_semantic: true,
     use_tree_sitter: false,
@@ -170,6 +172,8 @@ export function parseArgs() {
     ['build_rename_map',     'flag',           ['--build-rename-map']],
     ['rename_min_lines',     'int',            ['--rename-min-lines']],
     ['file_bookends',        'optional_value', ['--file-bookends']],
+    ['bundle_seams',         'optional_value', ['--bundle-seams']],
+    ['seam_verbose',         'flag',           ['--seam-verbose']],
     ['index_path',           'value',          ['--index-path']],
     ['skip_semantic',        'flag',           ['--skip-semantic']],
     ['use_tree_sitter',      'flag',           ['--use-tree-sitter']],
@@ -573,6 +577,16 @@ CONTENT ANALYSIS:
                              this gives a raw head+tail view with renames
                              applied. Combine with --filter PATTERN or
                              --include-path to narrow to specific files.
+  --bundle-seams [FILE]      For minified/bundled JS files, detect the esbuild
+                             module wrapper pattern and list each original-
+                             source module's line range, kind (ESM/CJS), and
+                             a content preview. Default: all large JS files
+                             in the index. With FILE: only that pattern.
+                             Honors --filter, --include-path, --exclude-path.
+  --seam-verbose             With --bundle-seams: also scan each module body
+                             for leaked source paths (node_modules/..., .js
+                             files) and license headers. Slower but surfaces
+                             module-to-original-package hints.
 
 EXAMPLES:
   node src/index.js --build-index ./my-project

@@ -14,7 +14,7 @@ import {
 } from './commands/search.js';
 import {
   doStats, doScanExtensions, doIndexExtensions, doListIndexes,
-  doExtract, doListFiles, doShowFile, doFileBookends,
+  doExtract, doListFiles, doShowFile, doFileBookends, doBundleSeams,
   doListFunctions, doListFunctionsAlpha, doListFunctionsSize,
 } from './commands/browse.js';
 import {
@@ -135,7 +135,7 @@ if (args.build_index) {
   const queryCommands = [
     'search', 'literal', 'fast', 'regex', 'files_search', 'folders_search',
     'stats', 'list_functions', 'list_functions_alpha', 'list_functions_size',
-    'extract', 'list_files', 'show_file', 'file_bookends', 'index_extensions', 'interactive',
+    'extract', 'list_files', 'show_file', 'file_bookends', 'bundle_seams', 'index_extensions', 'interactive',
     'callers', 'callees', 'most_called', 'call_tree', 'call_inventory', 'file_map', 'file_tree',
     'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
     'list_classes', 'class_hotspots', 'discover_vocabulary',
@@ -197,7 +197,7 @@ if (args.build_rename_map) {
     'list_classes', 'class_hotspots', 'discover_vocabulary',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
-    'command_catalog', 'string_table', 'breadcrumbs', 'file_bookends',
+    'command_catalog', 'string_table', 'breadcrumbs', 'file_bookends', 'bundle_seams',
   ];
   if (!queryCommands.some(c => args._explicit.has(c) || args[c])) {
     process.exit(0);
@@ -230,6 +230,7 @@ if (args.extract)                           doExtract(index, args);
 if (args._explicit.has('list_files'))       doListFiles(index, args);
 if (args.show_file)                         doShowFile(index, args);
 if (args._explicit.has('file_bookends'))    doFileBookends(index, args);
+if (args._explicit.has('bundle_seams'))     doBundleSeams(index, args);
 if (args._explicit.has('list_functions'))   doListFunctions(index, args);
 if (args.list_functions_alpha)              doListFunctionsAlpha(index, args);
 if (args.list_functions_size)               doListFunctionsSize(index, args);
@@ -367,7 +368,7 @@ if (args.interactive) {
     'claim_search', 'claim_file',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
-    'command_catalog', 'string_table', 'breadcrumbs', 'file_bookends',
+    'command_catalog', 'string_table', 'breadcrumbs', 'file_bookends', 'bundle_seams',
   ].some(c => args._explicit.has(c) || args[c]);
 
   if (!anyCommand && !args.build_index) {
