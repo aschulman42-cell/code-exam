@@ -24,6 +24,8 @@ export function parseArgs() {
     build_index: null,
     rebuild_functions: false,
     build_rename_map: false,
+    rename_min_lines: 0,
+    file_bookends: null,
     index_path: '.code_search_index',
     skip_semantic: true,
     use_tree_sitter: false,
@@ -166,6 +168,8 @@ export function parseArgs() {
     ['build_index',          'value',          ['--build-index']],
     ['rebuild_functions',    'flag',           ['--rebuild-functions']],
     ['build_rename_map',     'flag',           ['--build-rename-map']],
+    ['rename_min_lines',     'int',            ['--rename-min-lines']],
+    ['file_bookends',        'optional_value', ['--file-bookends']],
     ['index_path',           'value',          ['--index-path']],
     ['skip_semantic',        'flag',           ['--skip-semantic']],
     ['use_tree_sitter',      'flag',           ['--use-tree-sitter']],
@@ -431,6 +435,10 @@ INDEX MANAGEMENT:
   --build-rename-map         (Re)infer descriptive names for an existing index;
                              writes rename_map.json + import_map.json without
                              rebuilding the index itself
+  --rename-min-lines <n>     When (re)building rename map, skip functions with
+                             lineCount <= n. 0 = no threshold (default), useful
+                             for tuning rename coverage vs noise on short
+                             functions. Pair with --build-rename-map.
   --no-rename                Disable display-time renames for this run
                              (output uses raw obfuscated names)
   --index-path <path>        Path to index directory (default: .code_search_index)
@@ -559,6 +567,12 @@ CONTENT ANALYSIS:
                              Optional filter: substring or /regex/flags
   --breadcrumbs              Show telemetry/trace markers and event categories
                              (execution flow phases inferred from log/trace calls)
+  --file-bookends [N]        Show the first N and last N lines of each file
+                             (default N=20). Entry points in minified bundles
+                             are almost always at the top or tail of the file;
+                             this gives a raw head+tail view with renames
+                             applied. Combine with --filter PATTERN or
+                             --include-path to narrow to specific files.
 
 EXAMPLES:
   node src/index.js --build-index ./my-project

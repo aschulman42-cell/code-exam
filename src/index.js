@@ -14,7 +14,7 @@ import {
 } from './commands/search.js';
 import {
   doStats, doScanExtensions, doIndexExtensions, doListIndexes,
-  doExtract, doListFiles, doShowFile,
+  doExtract, doListFiles, doShowFile, doFileBookends,
   doListFunctions, doListFunctionsAlpha, doListFunctionsSize,
 } from './commands/browse.js';
 import {
@@ -118,6 +118,7 @@ if (args.build_index) {
     skipSemantic: args.skip_semantic,
     demanglerPath: args.demangler,
     useTreeSitter: args.use_tree_sitter,
+    renameMinLines: args.rename_min_lines || 0,
   });
 
   if (buildStats.errors.length > 0) {
@@ -134,7 +135,7 @@ if (args.build_index) {
   const queryCommands = [
     'search', 'literal', 'fast', 'regex', 'files_search', 'folders_search',
     'stats', 'list_functions', 'list_functions_alpha', 'list_functions_size',
-    'extract', 'list_files', 'show_file', 'index_extensions', 'interactive',
+    'extract', 'list_files', 'show_file', 'file_bookends', 'index_extensions', 'interactive',
     'callers', 'callees', 'most_called', 'call_tree', 'call_inventory', 'file_map', 'file_tree',
     'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
     'list_classes', 'class_hotspots', 'discover_vocabulary',
@@ -181,8 +182,10 @@ if (args.rebuild_functions) {
 // ========================================================================
 
 if (args.build_rename_map) {
-  console.log(`Building rename map from ${index.files.size} loaded files...`);
-  const r = index.inferAndSaveRenameMap(true);
+  const minFuncLines = args.rename_min_lines || 0;
+  console.log(`Building rename map from ${index.files.size} loaded files` +
+              (minFuncLines > 0 ? ` (skipping functions with <= ${minFuncLines} lines)` : '') + '...');
+  const r = index.inferAndSaveRenameMap({ showProgress: true, minFuncLines });
   console.log(`Done: ${r.namesInferred + r.cmdRenames + r.importRenames} total renames written to ${index.indexPath}/rename_map.json`);
   // If only --build-rename-map (no other command), exit
   const queryCommands = [
@@ -194,7 +197,7 @@ if (args.build_rename_map) {
     'list_classes', 'class_hotspots', 'discover_vocabulary',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
-    'command_catalog', 'string_table', 'breadcrumbs',
+    'command_catalog', 'string_table', 'breadcrumbs', 'file_bookends',
   ];
   if (!queryCommands.some(c => args._explicit.has(c) || args[c])) {
     process.exit(0);
@@ -226,6 +229,7 @@ if (args.folders_search)                    doFoldersSearch(index, args);
 if (args.extract)                           doExtract(index, args);
 if (args._explicit.has('list_files'))       doListFiles(index, args);
 if (args.show_file)                         doShowFile(index, args);
+if (args._explicit.has('file_bookends'))    doFileBookends(index, args);
 if (args._explicit.has('list_functions'))   doListFunctions(index, args);
 if (args.list_functions_alpha)              doListFunctionsAlpha(index, args);
 if (args.list_functions_size)               doListFunctionsSize(index, args);
@@ -363,7 +367,7 @@ if (args.interactive) {
     'claim_search', 'claim_file',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
-    'command_catalog', 'string_table', 'breadcrumbs',
+    'command_catalog', 'string_table', 'breadcrumbs', 'file_bookends',
   ].some(c => args._explicit.has(c) || args[c]);
 
   if (!anyCommand && !args.build_index) {

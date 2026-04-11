@@ -558,6 +558,91 @@ export function doShowFile(index, args) {
 
 
 // ========================================================================
+// File Bookends — show first N and last N lines of each file
+// ========================================================================
+//
+// Entry points in minified/bundled code are almost always at the top (module
+// wrappers, global setup) or at the bottom (the actual invocation that kicks
+// things off). For a 500k-line cli.js, scanning for uncalled functions with
+// --entry-points misses the top-level IIFE that kicks everything off; reading
+// the last 20 lines of the file finds it immediately.
+//
+// Applies display-time renames so obfuscated entry-point names render
+// readably (e.g. VCz() → VCz_KW_…()). Honors --filter, --include-path,
+// --exclude-path for narrowing to specific files.
+
+export function doFileBookends(index, args) {
+  // Parse N: default 20, or from optional value
+  let n = 20;
+  const argVal = args.file_bookends;
+  if (argVal && argVal !== '.') {
+    const parsed = parseInt(argVal, 10);
+    if (!isNaN(parsed) && parsed > 0) n = parsed;
+  }
+
+  // Collect + filter files
+  let files = [...index.fileLines.entries()];
+  if (args.filter) {
+    const f = args.filter.toLowerCase().replace(/\\/g, '/');
+    files = files.filter(([fp]) => fp.toLowerCase().replace(/\\/g, '/').includes(f));
+  }
+  if (args.include_path) {
+    files = files.filter(([fp]) =>
+      args.include_path.some(p => fp.toLowerCase().includes(p.toLowerCase())));
+  }
+  if (args.exclude_path) {
+    files = files.filter(([fp]) =>
+      !args.exclude_path.some(p => fp.toLowerCase().includes(p.toLowerCase())));
+  }
+
+  if (files.length === 0) {
+    console.log('No files matched filters for --file-bookends.');
+    return;
+  }
+
+  // Sort for stable output
+  files.sort(([a], [b]) => a.localeCompare(b));
+
+  const renameFn = index.applyRenames ? (line) => index.applyRenames(line) : (line) => line;
+
+  console.log(`\nFile bookends (first ${n} + last ${n} lines, renames applied):`);
+
+  for (const [filepath, lines] of files) {
+    const lineCount = lines.length;
+    console.log('\n' + '─'.repeat(72));
+    console.log(`  ${filepath}  (${lineCount} lines)`);
+    console.log('─'.repeat(72));
+
+    if (lineCount === 0) {
+      console.log('  (empty file)');
+      continue;
+    }
+
+    if (lineCount <= 2 * n) {
+      // Short file — show whole thing
+      for (let i = 0; i < lineCount; i++) {
+        console.log(`  ${String(i + 1).padStart(7)}: ${renameFn(lines[i])}`);
+      }
+    } else {
+      // Head
+      for (let i = 0; i < n; i++) {
+        console.log(`  ${String(i + 1).padStart(7)}: ${renameFn(lines[i])}`);
+      }
+      const omitted = lineCount - 2 * n;
+      console.log(`  ${'...'.padStart(7)}   [${omitted.toLocaleString()} lines omitted]`);
+      // Tail
+      for (let i = lineCount - n; i < lineCount; i++) {
+        console.log(`  ${String(i + 1).padStart(7)}: ${renameFn(lines[i])}`);
+      }
+    }
+  }
+
+  console.log(`\n${files.length} file${files.length === 1 ? '' : 's'} shown.` +
+              (files.length > 1 ? '  Use --filter PATTERN to narrow to one file.' : ''));
+}
+
+
+// ========================================================================
 // List Functions
 // ========================================================================
 

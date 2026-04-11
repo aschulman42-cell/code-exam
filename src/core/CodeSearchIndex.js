@@ -370,6 +370,21 @@ const _TEMPLATE_SKIP_WORDS = new Set([
   'getPrototypeOf', 'setPrototypeOf', 'isArray', 'isFinite', 'isNaN',
   'freeze', 'assign', 'create', 'from', 'stringify', 'parse',
   'configurable', 'enumerable', 'writable',
+  // Per-language stop-words closing the gap TF-IDF can't fully bridge.
+  // These are ubiquitous-within-their-domain words where #3's IDF penalty
+  // alone is insufficient because the target functions have nothing else
+  // lexically distinctive:
+  //   lodash internals: _data_ / __data__ storage, returntrue/returnfalse
+  //                     helpers (bundled lodash emits these lowercased, not
+  //                     as camelCase — we list both defensively).
+  //   Java modifiers:   public / private / protected
+  //   C/BSD typedefs:   u_char, u_int, u_long, u_short, register
+  //   JS pragma:        strict (from "use strict")
+  '_data_', '__data__',
+  'returnTrue', 'returnFalse', 'returntrue', 'returnfalse',
+  'public', 'private', 'protected',
+  'u_char', 'u_int', 'u_long', 'u_short', 'register',
+  'strict',
 ]);
 
 /**
@@ -476,7 +491,7 @@ function extractReadableIdents(bodyText, opts = {}) {
  * @param {CodeSearchIndex} idx - index with fileLines and functionIndex loaded
  * @returns {{ renameMap: Object<string,string>, count: number }}
  */
-function inferAllNames(idx) {
+function inferAllNames(idx, { minFuncLines = 0 } = {}) {
   const renameMap = Object.create(null);
   const usedNames = new Map(); // baseName -> count (for collision handling)
 
@@ -516,9 +531,9 @@ function inferAllNames(idx) {
       if (!isOpaqueName(funcName)) continue;
       const lines = idx.fileLines.get(filepath);
       if (!lines) continue;
-      // #4: skip very short functions for keyword inference
+      // #4: skip short functions below --rename-min-lines threshold
       const lineCount = info.end - info.start + 1;
-      if (lineCount <= 4) continue;
+      if (minFuncLines > 0 && lineCount <= minFuncLines) continue;
       const bodyLines = lines.slice(info.start - 1, info.end);
       if (bodyLines.length === 0) continue;
       const bodyText = bodyLines.join('\n');
@@ -542,9 +557,9 @@ function inferAllNames(idx) {
       const lines = idx.fileLines.get(filepath);
       if (!lines) continue;
 
-      // #4: skip very short functions
+      // #4: skip short functions below --rename-min-lines threshold
       const lineCount = info.end - info.start + 1;
-      if (lineCount <= 4) continue;
+      if (minFuncLines > 0 && lineCount <= minFuncLines) continue;
 
       const bodyLines = lines.slice(info.start - 1, info.end);
       if (bodyLines.length === 0) continue;
@@ -886,12 +901,19 @@ export class CodeSearchIndex {
    * Requires fileLines and functionIndex to be loaded (which happens
    * automatically when an existing index is loaded from disk).
    *
-   * @param {boolean} [showProgress=true]
+   * @param {object|boolean} [opts]  May be passed as a plain boolean for
+   *   backwards compat (interpreted as showProgress), or as an options object.
+   * @param {boolean} [opts.showProgress=true]
+   * @param {number}  [opts.minFuncLines=0]  skip rename for functions with
+   *   lineCount <= this (0 = no threshold, 4 was the old default).
    * @returns {{namesInferred: number, cmdRenames: number, importRenames: number}}
    */
-  inferAndSaveRenameMap(showProgress = true) {
+  inferAndSaveRenameMap(opts = {}) {
+    // Backwards-compat shim: allow passing a bare boolean as the old showProgress arg
+    if (typeof opts === 'boolean') opts = { showProgress: opts };
+    const { showProgress = true, minFuncLines = 0 } = opts;
     if (showProgress) console.log('Inferring descriptive names for opaque functions...');
-    const { renameMap, count: namesInferred } = inferAllNames(this);
+    const { renameMap, count: namesInferred } = inferAllNames(this, { minFuncLines });
 
     // Overlay _CMD_ renames from command catalog (higher quality than _KW_ for these)
     const catalog = this.extractCommandCatalog(false);
@@ -2648,7 +2670,7 @@ export class CodeSearchIndex {
    * @param {boolean} [opts.skipSemantic=true]
    * @returns {object} stats
    */
-  async buildIndex(codePath, { chunkSize = 50, showProgress = true, skipSemantic = true, demanglerPath = null, useTreeSitter = false } = {}) {
+  async buildIndex(codePath, { chunkSize = 50, showProgress = true, skipSemantic = true, demanglerPath = null, useTreeSitter = false, renameMinLines = 0 } = {}) {
     const stats = { files_indexed: 0, total_lines: 0, chunks_created: 0, errors: [], prettified: 0 };
     const codePathStr = codePath.trim();
 
@@ -2963,7 +2985,7 @@ export class CodeSearchIndex {
     // Infer descriptive names for ALL opaque-named functions.
     // Extracts top keywords from each function's body. Works on any codebase.
     // Saved as rename_map.json — applied at DISPLAY time, not to stored content.
-    const { namesInferred, cmdRenames, importRenames } = this.inferAndSaveRenameMap(showProgress);
+    const { namesInferred, cmdRenames, importRenames } = this.inferAndSaveRenameMap({ showProgress, minFuncLines: renameMinLines });
     if (namesInferred > 0 || cmdRenames > 0 || importRenames > 0) {
       stats.namesInferred = namesInferred;
       stats.cmdRenames = cmdRenames;
