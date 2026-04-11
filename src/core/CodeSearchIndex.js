@@ -241,30 +241,48 @@ function isOpaqueName(name) {
 }
 
 /**
- * Returns true if `pos` in `line` is inside a string literal.
- *
- * Tracks single ('...'), double ("..."), and template (`...`) literals, with
- * backslash escapes. Crucially, treats `${...}` interpolations inside template
- * literals as code (not string), so `${func(x)}` is correctly recognized as
- * a real call site.
- *
- * Heuristic, single-line only.
+ * Check if a position in a line is inside a string literal (single, double, or backtick).
+ * Simple state-machine approach — doesn't handle escaped quotes perfectly but good enough.
  */
-function _isInsideString(line, pos) {
-  // 'code' | 's' (single) | 'd' (double) | 't' (template)
-  let state = 'code';
-  const stack = []; // saved states for ${} interpolation re-entry
-  const N = Math.min(pos, line.length);
+/**
+ * Walk a line through a JS-aware state machine, tracking string and comment
+ * context. Returns the state at position `endPos` (or end of line if -1).
+ *
+ * States:
+ *   - 'code' — normal JS code
+ *   - 's'    — single-quoted string  '...'
+ *   - 'd'    — double-quoted string  "..."
+ *   - 't'    — template literal      `...`  (with ${} re-entering code via stack)
+ *   - 'lc'   — line comment          // ... to end of line
+ *   - 'bc'   — block comment         /* ... *\/ (can span multiple lines)
+ *
+ * Cross-line state: callers can pass `startState` of 'bc' or 't' to indicate
+ * the line begins inside a block comment or template literal carried over
+ * from the previous line. The end state is observable via _scanLineEndState.
+ *
+ * #10: comment tracking lets applyRenames/searchLiteral skip matches inside
+ * `// foo` and `/* foo *\/` regions.
+ */
+function _scanLineState(line, startState, endPos) {
+  let state = startState || 'code';
+  const stack = []; // template-literal re-entry stack for ${...}
+  const N = endPos == null || endPos < 0
+    ? line.length
+    : Math.min(endPos, line.length);
+
   for (let i = 0; i < N; i++) {
     const ch = line[i];
+    const next = i + 1 < line.length ? line[i + 1] : '';
     const prev = i > 0 ? line[i - 1] : '';
-    // backslash escape only matters inside strings
-    if (prev === '\\' && state !== 'code') continue;
+    // Backslash escape only matters inside string-like states
+    if (prev === '\\' && (state === 's' || state === 'd' || state === 't')) continue;
 
     if (state === 'code') {
-      if (ch === "'") state = 's';
-      else if (ch === '"') state = 'd';
-      else if (ch === '`') state = 't';
+      if (ch === '/' && next === '/')      { state = 'lc'; i++; }
+      else if (ch === '/' && next === '*') { state = 'bc'; i++; }
+      else if (ch === "'")                 { state = 's'; }
+      else if (ch === '"')                 { state = 'd'; }
+      else if (ch === '`')                 { state = 't'; }
       else if (ch === '}' && stack.length > 0) state = stack.pop();
     } else if (state === 's') {
       if (ch === "'") state = 'code';
@@ -272,15 +290,32 @@ function _isInsideString(line, pos) {
       if (ch === '"') state = 'code';
     } else if (state === 't') {
       if (ch === '`') state = 'code';
-      else if (ch === '$' && i + 1 < N && line[i + 1] === '{') {
+      else if (ch === '$' && next === '{') {
         // Enter ${} interpolation: push template state, switch to code
         stack.push('t');
         state = 'code';
         i++; // consume the '{'
       }
+    } else if (state === 'bc') {
+      if (ch === '*' && next === '/') { state = 'code'; i++; }
+    } else if (state === 'lc') {
+      // Line comment runs to end of line — no transitions
     }
   }
-  return state !== 'code';
+  return state;
+}
+
+/**
+ * Returns true if `pos` in `line` is inside a string literal OR comment.
+ * (Used by applyRenames and searchLiteral to skip those matches.)
+ *
+ * @param {string} line
+ * @param {number} pos
+ * @param {string} [startState='code']  pass 'bc' or 't' if the line begins
+ *   inside a block comment or template literal carried from the prior line.
+ */
+function _isInsideString(line, pos, startState = 'code') {
+  return _scanLineState(line, startState, pos) !== 'code';
 }
 
 /** Helper: add a string occurrence to the string table map. */
@@ -338,11 +373,56 @@ const _TEMPLATE_SKIP_WORDS = new Set([
 ]);
 
 /**
+ * Local-variable names that must NEVER receive a global import-rename, even
+ * if they appear unambiguously in a destructured import. These are JS/DOM
+ * built-ins, regex match properties, and other ubiquitous identifiers whose
+ * meaning is fixed by the language — globally rewriting `m.index` →
+ * `m.index_IMPORT_TARGET` is corrupting, not informative.
+ *
+ * #7: prevents the import-rename leakage from minified bundles into
+ * hand-written code in the same index.
+ */
+const _IMPORT_LOCAL_BLOCKLIST = new Set([
+  // RegExp match-result properties
+  'index', 'input', 'groups', 'lastIndex',
+  // Array / iterable methods + properties
+  'find', 'filter', 'map', 'reduce', 'forEach', 'some', 'every',
+  'includes', 'indexOf', 'lastIndexOf', 'concat', 'slice', 'splice',
+  'sort', 'reverse', 'flat', 'flatMap', 'fill', 'copyWithin',
+  'length', 'first', 'last',
+  // Iterator protocol
+  'next', 'done', 'value', 'return', 'throw',
+  // String methods
+  'charAt', 'charCodeAt', 'codePointAt', 'startsWith', 'endsWith',
+  'padStart', 'padEnd', 'trim', 'split', 'replace', 'match',
+  // DOM/event ubiquity
+  'name', 'type', 'data', 'target', 'event', 'item', 'node', 'key',
+  'parent', 'child', 'children', 'sibling', 'root', 'next', 'prev',
+  // Generic/everywhere
+  'result', 'state', 'config', 'options', 'args', 'props', 'context',
+  'message', 'error', 'status', 'method', 'path', 'url', 'host', 'port',
+  'src', 'dest', 'from', 'into', 'count', 'size', 'total', 'code',
+  'first', 'last', 'min', 'max', 'sum', 'mean', 'start', 'end',
+  // Lifecycle / I/O
+  'open', 'close', 'init', 'load', 'save', 'send', 'recv', 'read', 'write',
+]);
+
+/**
  * Extract readable identifiers from a function body.
  * Returns array of { ident, score } sorted by distinctiveness.
  * "Readable" = camelCase/snake_case, 4+ chars, not a keyword/generic.
+ *
+ * @param {string} bodyText
+ * @param {object} [opts]
+ * @param {Map<string,number>} [opts.globalDocFreq]  ident → number of functions
+ *   containing this ident across the whole codebase. When provided, the
+ *   per-function score is multiplied by an IDF-style penalty so ubiquitous
+ *   keywords (STRICT, PUBLIC, REGISTER, ARGUMENTS, etc.) lose their leading
+ *   position naturally — without needing per-language stop-word lists.
+ * @param {number} [opts.totalDocs] total renamable function count (denominator
+ *   for the IDF computation). Required alongside globalDocFreq.
  */
-function extractReadableIdents(bodyText) {
+function extractReadableIdents(bodyText, opts = {}) {
   const identRe = /[a-zA-Z_$][\w$]*/g;
   const counts = new Map();
   let m;
@@ -357,6 +437,9 @@ function extractReadableIdents(bodyText) {
     counts.set(id, (counts.get(id) || 0) + 1);
   }
 
+  const { globalDocFreq, totalDocs } = opts;
+  const useIdf = globalDocFreq && totalDocs && totalDocs > 0;
+
   // Score: longer names are more distinctive, repeated names are more characteristic
   const scored = [];
   for (const [ident, count] of counts) {
@@ -364,7 +447,19 @@ function extractReadableIdents(bodyText) {
     const privatBonus = ident.startsWith('_') ? 1.5 : 1.0;
     // Bonus for camelCase complexity (more words = more specific)
     const words = ident.replace(/([a-z])([A-Z])/g, '$1 $2').split(/[\s_]+/).length;
-    const score = count * Math.sqrt(ident.length) * privatBonus * Math.sqrt(words);
+    let score = count * Math.sqrt(ident.length) * privatBonus * Math.sqrt(words);
+
+    // #3: IDF penalty. log(totalDocs / df) — classic IDF formula.
+    // df=1 (unique to this function) → log(N) = strong boost.
+    // df=N (everywhere) → log(1) = 0 → score → 0.
+    // We add 1 to denominator and use log(1+ratio) to keep things bounded for
+    // ubiquitous-but-not-quite-everywhere terms.
+    if (useIdf) {
+      const df = globalDocFreq.get(ident) || 1;
+      const idf = Math.log(1 + (totalDocs / df));
+      score *= idf;
+    }
+
     scored.push({ ident, score, count });
   }
   scored.sort((a, b) => b.score - a.score);
@@ -388,22 +483,95 @@ function inferAllNames(idx) {
   idx._ensureFunctionIndex();
   if (!idx.functionIndex) return { renameMap, count: 0 };
 
+  // ----------------------------------------------------------------------
+  // PRE-PASS A: per-bare-name uniqueness count, for #1 bare-name fallback.
+  //
+  // We'll add a bare-name entry (e.g. '_pyAdd' → '_pyAdd_KW_…') ONLY when
+  // the bare name appears in exactly one function-index entry across the
+  // whole codebase. If two classes both have a bare 'clear' method, we
+  // can't safely add a global bare entry.
+  // ----------------------------------------------------------------------
+  const bareNameCounts = new Map();
+  for (const [, funcs] of Object.entries(idx.functionIndex)) {
+    for (const fname of Object.keys(funcs)) {
+      let bare = fname.includes('::') ? fname.split('::').pop() : fname;
+      if (bare.includes('@')) bare = bare.split('@')[0];
+      bareNameCounts.set(bare, (bareNameCounts.get(bare) || 0) + 1);
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // PRE-PASS B: global keyword frequency, for #3 TF-IDF penalty.
+  //
+  // For each renamable function, extract its candidate idents and count
+  // how many distinct functions each ident appears in. Used by
+  // extractReadableIdents (via globalDocFreq) to penalize ubiquitous
+  // keywords (STRICT, PUBLIC, REGISTER, ARGUMENTS, etc.) without zeroing
+  // them — a keyword that's strong locally still survives.
+  // ----------------------------------------------------------------------
+  const globalDocFreq = new Map(); // ident -> # of functions containing it
+  let totalRenamableFns = 0;
+  for (const [filepath, funcs] of Object.entries(idx.functionIndex)) {
+    for (const [funcName, info] of Object.entries(funcs)) {
+      if (!isOpaqueName(funcName)) continue;
+      const lines = idx.fileLines.get(filepath);
+      if (!lines) continue;
+      // #4: skip very short functions for keyword inference
+      const lineCount = info.end - info.start + 1;
+      if (lineCount <= 4) continue;
+      const bodyLines = lines.slice(info.start - 1, info.end);
+      if (bodyLines.length === 0) continue;
+      const bodyText = bodyLines.join('\n');
+      // Use the unscored extractor to get the ident set for this function
+      const idents = extractReadableIdents(bodyText);
+      if (idents.length === 0) continue;
+      totalRenamableFns++;
+      for (const { ident } of idents) {
+        globalDocFreq.set(ident, (globalDocFreq.get(ident) || 0) + 1);
+      }
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // MAIN PASS: pick keywords, build renames.
+  // ----------------------------------------------------------------------
   for (const [filepath, funcs] of Object.entries(idx.functionIndex)) {
     for (const [funcName, info] of Object.entries(funcs)) {
       if (!isOpaqueName(funcName)) continue;
 
       const lines = idx.fileLines.get(filepath);
       if (!lines) continue;
+
+      // #4: skip very short functions
+      const lineCount = info.end - info.start + 1;
+      if (lineCount <= 4) continue;
+
       const bodyLines = lines.slice(info.start - 1, info.end);
       if (bodyLines.length === 0) continue;
       const bodyText = bodyLines.join('\n');
 
-      // Extract distinctive readable identifiers from the function body
-      const idents = extractReadableIdents(bodyText);
+      // #3: pass globalDocFreq so extractReadableIdents can apply IDF penalty
+      let idents = extractReadableIdents(bodyText, { globalDocFreq, totalDocs: totalRenamableFns });
+      if (idents.length === 0) continue;
+
+      // #2: self-referential keyword filter — drop candidates whose
+      // SCREAMING_SNAKE form equals (or substantially overlaps) the function's
+      // bare name. Kills getName_KW_GET_NAME, toMarkup_KW_TO_MARKUP, etc.
+      let bareForFilter = funcName.includes('::') ? funcName.split('::').pop() : funcName;
+      bareForFilter = bareForFilter.replace(/@\d+$/, '').replace(/^_+/, '');
+      const bareSnake = camelToScreamingSnake(bareForFilter);
+      const SUBSTR_MIN = 4;
+      idents = idents.filter(({ ident }) => {
+        const cleanIdent = ident.startsWith('_') ? ident.replace(/^_+/, '') : ident;
+        const identSnake = camelToScreamingSnake(cleanIdent);
+        if (identSnake === bareSnake) return false;
+        if (bareSnake.length >= SUBSTR_MIN && identSnake.includes(bareSnake)) return false;
+        if (identSnake.length >= SUBSTR_MIN && bareSnake.includes(identSnake)) return false;
+        return true;
+      });
       if (idents.length === 0) continue;
 
       // Pick 2 keywords for small/medium functions, 3 for large.
-      // Each keyword truncated to 15 chars to keep total name reasonable.
       const numKeywords = bodyLines.length > 50 ? 3 : 2;
       const topIdents = idents.slice(0, numKeywords).map(i => i.ident);
 
@@ -433,6 +601,27 @@ function inferAllNames(idx) {
 
       renameMap[funcName] = funcName + '_' + baseName + suffix;
     }
+  }
+
+  // ----------------------------------------------------------------------
+  // POST-PASS: #1 bare-name fallback for class methods.
+  //
+  // For each qualified rename map entry (Class::method) where the bare name
+  // is unique across the whole function index, also store a bare entry that
+  // applyRenames can match against bare references in source/line text.
+  // Strips the 'Class::' prefix from the display name for the bare entry.
+  // ----------------------------------------------------------------------
+  for (const qkey of Object.keys(renameMap)) {
+    if (!qkey.includes('::')) continue;
+    let bare = qkey.split('::').pop();
+    if (bare.includes('@')) bare = bare.split('@')[0];
+    if (bareNameCounts.get(bare) !== 1) continue;
+    if (Object.prototype.hasOwnProperty.call(renameMap, bare)) continue;
+    // Strip the 'Class::' prefix from the display name
+    const display = renameMap[qkey];
+    const bareDisplay = display.includes('::') ? display.split('::').pop() : display;
+    // Also strip any @line suffix that might be embedded
+    renameMap[bare] = bareDisplay.replace(/@\d+/, '');
   }
 
   return { renameMap, count: Object.keys(renameMap).length };
@@ -595,31 +784,37 @@ export class CodeSearchIndex {
       this._renameRegex = new RegExp('\\b(' + pattern + ')\\b', 'g');
     }
 
-    // Apply line by line, tracking backtick template literal state across lines
+    // Apply line by line, tracking cross-line state for block comments and
+    // template literals (#10). The state machine in _scanLineState handles:
+    //   - 'bc' (block comment)        — can span multiple lines via /* ... */
+    //   - 't'  (template literal)     — can span multiple lines via `...`
+    // Other states ('s', 'd', 'lc') don't span lines.
     const lines = sourceText.split('\n');
-    let inBacktick = false;
+    let carryState = 'code';
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      // Track backtick state: count unescaped backticks to toggle state
-      let btCount = 0;
-      for (let j = 0; j < line.length; j++) {
-        if (line[j] === '`' && (j === 0 || line[j - 1] !== '\\')) btCount++;
-      }
 
-      if (inBacktick && btCount % 2 === 0) {
-        // Entire line is inside backtick template — skip renaming
+      // If the line starts inside a block comment or template, AND the state
+      // never exits before line end, skip rename for the whole line.
+      const endState = _scanLineState(line, carryState);
+      if (
+        (carryState === 'bc' && endState === 'bc') ||
+        (carryState === 't'  && endState === 't')
+      ) {
+        carryState = endState;
         continue;
       }
 
       this._renameRegex.lastIndex = 0;
+      const startStateForLine = carryState;
       lines[i] = line.replace(this._renameRegex, (match, name, offset) => {
-        // Check if this position is inside a string literal (single/double/backtick)
-        if (inBacktick || _isInsideString(line, offset)) return match;
+        // Skip matches inside any string-like or comment context
+        if (_isInsideString(line, offset, startStateForLine)) return match;
         return (map && Object.prototype.hasOwnProperty.call(map, name)) ? map[name] : match;
       });
 
-      // Update backtick state for next line
-      if (btCount % 2 === 1) inBacktick = !inBacktick;
+      // Carry block-comment / template state to next line; reset for everything else
+      carryState = (endState === 'bc' || endState === 't') ? endState : 'code';
     }
     return lines.join('\n');
   }
@@ -762,9 +957,11 @@ export class CodeSearchIndex {
 
     // Only apply renames for variables with a single unambiguous import mapping
     // AND with 3+ char names (1-2 char names are too common as local vars for safe global replace)
+    // AND not in the built-in identifier blocklist (#7).
     for (const [localVar, exportNames] of Object.entries(importCandidates)) {
       if (exportNames.size !== 1) continue;
       if (localVar.length < 3) continue;
+      if (_IMPORT_LOCAL_BLOCKLIST.has(localVar)) continue;
       const exportName = [...exportNames][0];
       const importName = 'IMPORT_' + camelToScreamingSnake(exportName);
       let displayName = localVar + '_' + importName;
@@ -2951,23 +3148,44 @@ export class CodeSearchIndex {
     const results = [];
 
     for (const [filePath, lines] of this.fileLines) {
+      // #10: cross-line state for block-comment and template-literal tracking,
+      // reset per file. Used only when filterStringContext is on.
+      let carryState = 'code';
+
       for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
         const lineNum = lineIdx + 1;
         const line = lines[lineIdx];
 
         let matched;
         if (filterStringContext) {
-          // Walk all matches; accept the line if any match falls outside a
-          // single-line string literal. Skips hits like `format: "base64"`
-          // where the matched identifier is purely string-literal text.
-          reG.lastIndex = 0;
-          matched = false;
-          let m;
-          while ((m = reG.exec(line)) !== null) {
-            if (!_isInsideString(line, m.index)) { matched = true; break; }
-            // safety: avoid zero-width infinite loop
-            if (m[0].length === 0) reG.lastIndex++;
+          // Compute end state for next line BEFORE filtering this one
+          const endState = _scanLineState(line, carryState);
+
+          // If the line is wholly inside a block comment / template that
+          // never exits, no match can possibly be valid — skip cleanly.
+          const wholeLineSkipped =
+            (carryState === 'bc' && endState === 'bc') ||
+            (carryState === 't'  && endState === 't');
+
+          if (wholeLineSkipped) {
+            matched = false;
+          } else {
+            // Walk all matches; accept the line if any match falls outside a
+            // string literal or comment context.
+            reG.lastIndex = 0;
+            matched = false;
+            let m;
+            while ((m = reG.exec(line)) !== null) {
+              if (!_isInsideString(line, m.index, carryState)) {
+                matched = true;
+                break;
+              }
+              if (m[0].length === 0) reG.lastIndex++;
+            }
           }
+
+          // Carry over block-comment / template state to next line
+          carryState = (endState === 'bc' || endState === 't') ? endState : 'code';
         } else {
           matched = regex.test(line);
         }
