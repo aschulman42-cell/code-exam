@@ -603,7 +603,23 @@ export function doFileBookends(index, args) {
   // Sort for stable output
   files.sort(([a], [b]) => a.localeCompare(b));
 
-  const renameFn = index.applyRenames ? (line) => index.applyRenames(line) : (line) => line;
+  // Per-chunk rename: join the chunk lines, run applyRenames ONCE so its
+  // state machine tracks cross-line block-comment and template-literal state
+  // correctly, then split back. Per-line rename calls would reset the state
+  // machine every line and clobber identifiers inside multi-line /* */ blocks
+  // and backtick templates.
+  //
+  // For tail chunks, pre-scan from the start of the file to determine whether
+  // the chunk begins mid-block-comment or mid-template-literal, and seed
+  // applyRenames with that initial state. Pre-scan is cheap (state machine
+  // only, no regex) so it's fine even on files with hundreds of thousands
+  // of lines.
+  const renameChunk = (chunkLines, initialState = 'code') => {
+    if (!index.applyRenames) return chunkLines;
+    const joined = chunkLines.join('\n');
+    const renamed = index.applyRenames(joined, initialState);
+    return renamed.split('\n');
+  };
 
   console.log(`\nFile bookends (first ${n} + last ${n} lines, renames applied):`);
 
@@ -619,20 +635,29 @@ export function doFileBookends(index, args) {
     }
 
     if (lineCount <= 2 * n) {
-      // Short file — show whole thing
+      // Short file — show whole thing, rename the whole thing at once
+      const renamed = renameChunk(lines);
       for (let i = 0; i < lineCount; i++) {
-        console.log(`  ${String(i + 1).padStart(7)}: ${renameFn(lines[i])}`);
+        console.log(`  ${String(i + 1).padStart(7)}: ${renamed[i]}`);
       }
     } else {
-      // Head
+      // Head — always starts at 'code' state (files begin in code)
+      const headRenamed = renameChunk(lines.slice(0, n));
       for (let i = 0; i < n; i++) {
-        console.log(`  ${String(i + 1).padStart(7)}: ${renameFn(lines[i])}`);
+        console.log(`  ${String(i + 1).padStart(7)}: ${headRenamed[i]}`);
       }
       const omitted = lineCount - 2 * n;
       console.log(`  ${'...'.padStart(7)}   [${omitted.toLocaleString()} lines omitted]`);
-      // Tail
-      for (let i = lineCount - n; i < lineCount; i++) {
-        console.log(`  ${String(i + 1).padStart(7)}: ${renameFn(lines[i])}`);
+      // Tail — pre-scan from start of file to determine whether we're
+      // entering the chunk mid-block-comment or mid-template-literal, so
+      // applyRenames doesn't clobber identifiers inside those contexts.
+      const tailStart = lineCount - n;
+      const tailInitialState = index.scanFileToLine
+        ? index.scanFileToLine(lines, tailStart)
+        : 'code';
+      const tailRenamed = renameChunk(lines.slice(tailStart), tailInitialState);
+      for (let i = 0; i < n; i++) {
+        console.log(`  ${String(tailStart + i + 1).padStart(7)}: ${tailRenamed[i]}`);
       }
     }
   }

@@ -1,5 +1,5 @@
 # Code Exam (Node.js) — Master TODO List
-**Updated: 2026-03-07**
+**Updated: 2026-04-10**
 
 ---
 
@@ -77,6 +77,7 @@
 | 326 | **Filter supports regex**: Left-pane filter currently does literal substring matching. Add support for `/regex/` syntax (e.g. `/^get.*Cost$/i`) in the filter bar, applicable to all accordion sections. | **planned** |
 | 327 | **Template literal interpolation resolution**: In template strings containing `${expr}`, resolve the interpolated expressions to show what gets substituted. E.g. a prompt template with `${_j}` should link to the definition of `_j` and show its value/rename. Enables understanding of dynamically constructed prompts, SQL queries, HTML templates, etc. | **design needed, depends on #321** |
 | 328 | **Command-catalog-informed function renames**: Use the command catalog to rename functions that contain command registrations. If function `Je6` contains `name: "javascript_tool"`, rename to `Je6_CMD_JAVASCRIPT_TOOL`. Higher quality than keyword extraction for these functions because the command name IS the function's purpose. Implementation: post-pass after `extractCommandCatalog`, for each command with a `func` field + opaque name, add `_CMD_` rename to the map (overrides `_KW_` if exists). | **planned, depends on #325** |
+| 330 | **`--bundle-seams`: detect module boundaries in bundled JS**: Minified bundles (claude-code's cli.js, mermaid.min.js, etc.) wrap each original source module in a compact helper pattern — for esbuild it's `var X = E(() => { ... });`, for webpack `__webpack_modules__ = { N: (module, exports, require) => ... }`, Rollup has its own, Parcel has its own, etc. Each wrapper call marks the seam between two original source files from before bundling. Feature: (a) auto-detect which wrapper pattern is in use by scanning for the most-frequent recurring structure, (b) list every wrapper with its line range and first 1-3 non-blank lines as a preview, (c) optionally correlate with string literals inside each module body to guess at original source paths (bundles often leak `// node_modules/foo/bar.js` as comments or paths inside error-message strings). On claude-code's 513k-line cli.js this would produce a rough architectural map — you'd see which chunk is lodash, which is zod, which is claude-code-proper, which is telemetry — without needing to run the bundle or rely on `--extensions` scanning. Natural companion to `--file-bookends` (#n/a, landed 2c5145e) which already surfaces top/tail entry points. Foundation for making #329 analysis context include "which bundled module is this function from?" and for architectural discovery work on any minified bundle. Depends on: #313 (minified-JS detection/prettification). Related: #327 (template literal interpolation resolution), #329 (pre-summarized LLM analysis context). | **design needed, depends on #313** |
 
 ---
 

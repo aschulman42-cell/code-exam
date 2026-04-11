@@ -96,6 +96,16 @@ const _REAL_SHORT_NAMES = new Set([
   // Common JS/TS names
   'fn', 'cb', 'el', 'ev', 'id', 'db', 'fs', 'os', 'io', 'rx', 'tx',
   'ok', 'on', 'up', 'go', 'do', 'is', 'to', 'of', 'or', 'as', 'at', 'by', 'if',
+  'in', 'it', 'we', 'us', 'am', 'an',
+  // Common English articles/pronouns/conjunctions that show up everywhere in
+  // comments/docs. The case of `The` mattered because mermaid.min.js literally
+  // names a graph-tree helper function `function The(...)`, which then
+  // clobbered every `The` in every JSDoc comment in the index.
+  'the', 'a', 'an', 'this', 'that', 'these', 'those', 'for', 'nor',
+  'but', 'yet', 'so', 'be', 'been', 'being', 'was', 'were', 'are',
+  'has', 'had', 'have', 'having', 'does', 'did', 'doing',
+  'can', 'could', 'may', 'might', 'must', 'shall', 'should',
+  'will', 'would', 'about', 'into', 'onto', 'upon', 'from',
   // Common real words used as identifiers
   'add', 'all', 'and', 'any', 'app', 'arg', 'arr', 'bin', 'bit', 'box', 'buf', 'bus',
   'can', 'cap', 'cfg', 'cmd', 'col', 'con', 'cwd', 'ctx', 'cur', 'def',
@@ -384,6 +394,13 @@ const _TEMPLATE_SKIP_WORDS = new Set([
   'returnTrue', 'returnFalse', 'returntrue', 'returnfalse',
   'public', 'private', 'protected',
   'u_char', 'u_int', 'u_long', 'u_short', 'register',
+  // BSD size-suffixed typedefs — the `u_int` entry above only matches exactly,
+  // not `u_int32_t` etc, which dominate NetBSD byte-twiddling function bodies
+  // (expm1_KW_U_INT32_T_HIGH_HUGE surfaced during Spinellis bookends testing).
+  'u_int8_t', 'u_int16_t', 'u_int32_t', 'u_int64_t',
+  // `static` surfaced as __dberr_KW_STATIC_N in tight C helpers with nothing
+  // else lexically distinctive in the body.
+  'static',
   'strict',
 ]);
 
@@ -410,14 +427,28 @@ const _IMPORT_LOCAL_BLOCKLIST = new Set([
   // String methods
   'charAt', 'charCodeAt', 'codePointAt', 'startsWith', 'endsWith',
   'padStart', 'padEnd', 'trim', 'split', 'replace', 'match',
+  // JS globals and console methods — `console` being clobbered is extra
+  // damaging because it blows up every call site like `console.log(...)`.
+  'console', 'log', 'warn', 'info', 'debug', 'trace',
+  'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+  'require', 'module', 'exports', 'global', 'globalThis', 'window', 'document',
   // DOM/event ubiquity
   'name', 'type', 'data', 'target', 'event', 'item', 'node', 'key',
   'parent', 'child', 'children', 'sibling', 'root', 'next', 'prev',
+  // CSS / geometry property names — CSS files get clobbered when these
+  // names have import renames (e.g. `margin-left: ...` becomes
+  // `margin-left_IMPORT_ALIGN: ...`).
+  'left', 'right', 'top', 'bottom', 'width', 'height',
+  'color', 'font', 'margin', 'padding', 'border', 'background',
+  'align', 'display', 'position', 'cursor',
   // Generic/everywhere
   'result', 'state', 'config', 'options', 'args', 'props', 'context',
   'message', 'error', 'status', 'method', 'path', 'url', 'host', 'port',
   'src', 'dest', 'from', 'into', 'count', 'size', 'total', 'code',
   'first', 'last', 'min', 'max', 'sum', 'mean', 'start', 'end',
+  // Universal local-variable names — used in nearly every function
+  'msg', 'str', 'num', 'val', 'obj', 'arr', 'res', 'req', 'ctx', 'tmp',
+  'row', 'col', 'tag', 'len', 'pos', 'cnt', 'buf', 'raw', 'txt', 'fn', 'cb',
   // Lifecycle / I/O
   'open', 'close', 'init', 'load', 'save', 'send', 'recv', 'read', 'write',
 ]);
@@ -781,7 +812,7 @@ export class CodeSearchIndex {
    * Replaces obfuscated identifiers with their inferred names.
    * Returns the renamed source text.
    */
-  applyRenames(sourceText) {
+  applyRenames(sourceText, initialState = 'code') {
     if (!sourceText) return sourceText || '';
     const map = this._loadRenameMap();
     if (!map || Object.keys(map).length === 0) return sourceText;
@@ -803,9 +834,11 @@ export class CodeSearchIndex {
     // template literals (#10). The state machine in _scanLineState handles:
     //   - 'bc' (block comment)        — can span multiple lines via /* ... */
     //   - 't'  (template literal)     — can span multiple lines via `...`
-    // Other states ('s', 'd', 'lc') don't span lines.
+    // Other states ('s', 'd', 'lc') don't span lines. Callers (e.g.
+    // doFileBookends extracting a tail chunk from deep in a file) may pass
+    // `initialState='bc'` or `'t'` if they know the chunk begins mid-block.
     const lines = sourceText.split('\n');
-    let carryState = 'code';
+    let carryState = initialState || 'code';
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
@@ -832,6 +865,27 @@ export class CodeSearchIndex {
       carryState = (endState === 'bc' || endState === 't') ? endState : 'code';
     }
     return lines.join('\n');
+  }
+
+  /**
+   * Scan `lines` from index 0 up to (but not including) `endLineIdx`, running
+   * the state machine to determine whether that line position is inside an
+   * open block comment or template literal carried from earlier in the file.
+   *
+   * Much cheaper than applyRenames (no regex alternation, just char iteration)
+   * so can be used on huge files to compute the starting state for a tail
+   * chunk. Returns one of: 'code' | 'bc' | 't' (string/line-comment states
+   * don't carry across lines).
+   */
+  scanFileToLine(lines, endLineIdx) {
+    let state = 'code';
+    const limit = Math.min(endLineIdx, lines.length);
+    for (let i = 0; i < limit; i++) {
+      state = _scanLineState(lines[i], state);
+      // String and line-comment states never persist across a line boundary
+      if (state !== 'bc' && state !== 't') state = 'code';
+    }
+    return state;
   }
 
   /**
