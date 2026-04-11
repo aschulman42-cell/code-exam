@@ -747,10 +747,19 @@ export function doBundleSeams(index, args) {
 
     const esmCount = result.modules.filter(m => m.kind === 'ESM').length;
     const cjsCount = result.modules.filter(m => m.kind === 'CJS').length;
+    const gapCount = result.modules.filter(m => m.kind === 'GAP').length;
     console.log(`  Pattern: ${result.pattern}  ESM helper: ${result.helpers.esm || '-'}  CJS helper: ${result.helpers.cjs || '-'}`);
-    console.log(`  Modules: ${result.modules.length}  (${esmCount} ESM, ${cjsCount} CJS)`);
+    let modSummary = `  Modules: ${result.modules.length}  (${esmCount} ESM, ${cjsCount} CJS`;
+    if (gapCount > 0) modSummary += `, ${gapCount} gap`;
+    modSummary += ')';
+    console.log(modSummary);
     if (result.pattern === 'esbuild-iife') {
       console.log(`  Outer IIFE starts at L${result.helpers.iifeStartLine}`);
+      if (gapCount > 0) {
+        console.log(`  (gap modules are inter-wrapper code regions containing function defs;`);
+        console.log(`   for IIFE-style bundles where wrappers are tiny name-assignment scaffolds,`);
+        console.log(`   the gaps are where the original source files actually live.)`);
+      }
     }
     console.log();
 
@@ -771,6 +780,28 @@ export function doBundleSeams(index, args) {
         }
         if (m.hints.licenses.length > 0) {
           console.log(`      license: ${m.hints.licenses[0]}`);
+        }
+      }
+      // Per-module function inventory.
+      //   - Wrappers: only populated when --seam-verbose
+      //   - Gap modules: always populated (they exist BECAUSE of contained funcs)
+      // For non-verbose runs we still want to show function counts on gap
+      // modules, since the count IS the value of the gap module entry.
+      if (m.functions && m.functions.length > 0) {
+        // For non-verbose wrapper modules we'd skip the per-function detail,
+        // but verbose for either, OR any gap module, gets the listing.
+        const showDetail = verbose || m.kind === 'GAP';
+        if (showDetail) {
+          const shownFns = m.functions.slice(0, 8);
+          console.log(`      functions: ${m.functions.length} in this seam`);
+          for (const fn of shownFns) {
+            const dn = index.getDisplayName ? index.getDisplayName(fn.name) : fn.name;
+            const size = fn.end - fn.start + 1;
+            console.log(`        L${String(fn.start).padStart(6)}-${String(fn.end).padStart(6)}  ${size}L  ${dn}`);
+          }
+          if (m.functions.length > shownFns.length) {
+            console.log(`        ... and ${m.functions.length - shownFns.length} more functions`);
+          }
         }
       }
     }

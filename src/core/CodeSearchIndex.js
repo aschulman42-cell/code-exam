@@ -596,6 +596,71 @@ function _detectBundleHelpers(lines) {
 }
 
 /**
+ * Walk forward from a wrapper's opening line, tracking JS state (strings,
+ * templates, comments) via the same machine used in _scanLineState but doing
+ * brace counting in the 'code' state. Returns the 1-indexed line where the
+ * matching `}` of the arrow-function body appears.
+ *
+ * Used by detectBundleSeams to find the real end of each `var X = E(()=>{…})`
+ * module wrapper. The sibling rule (end = nextSibling.start - 1) was wrong
+ * because esbuild interleaves module-scope `var` decls between wrappers and
+ * sometimes emits unrelated top-level code between them; we need the actual
+ * closing `}` to bound each wrapper tightly.
+ *
+ * Doesn't handle regex literals (a `/.../` containing `{` or `}` could
+ * miscount). In practice rare inside esbuild wrappers since wrappers are
+ * structured as var/function/class declarations. Accepted limitation.
+ */
+function _findWrapperEnd(lines, startLineIdx) {
+  let state = 'code';
+  let braceDepth = 0;
+  let foundOpenBrace = false;
+
+  for (let i = startLineIdx; i < lines.length; i++) {
+    const line = lines[i] || '';
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j];
+      const next = j + 1 < line.length ? line[j + 1] : '';
+      const prev = j > 0 ? line[j - 1] : '';
+
+      // Backslash escape only matters inside string-like states
+      if (prev === '\\' && (state === 's' || state === 'd' || state === 't')) continue;
+
+      if (state === 'code') {
+        if (ch === '/' && next === '/') { state = 'lc'; j++; continue; }
+        if (ch === '/' && next === '*') { state = 'bc'; j++; continue; }
+        if (ch === "'") { state = 's'; continue; }
+        if (ch === '"') { state = 'd'; continue; }
+        if (ch === '`') { state = 't'; continue; }
+        if (ch === '{') {
+          braceDepth++;
+          foundOpenBrace = true;
+        } else if (ch === '}') {
+          braceDepth--;
+          if (foundOpenBrace && braceDepth === 0) {
+            return i + 1; // 1-indexed end line
+          }
+        }
+      } else if (state === 's') {
+        if (ch === "'") state = 'code';
+      } else if (state === 'd') {
+        if (ch === '"') state = 'code';
+      } else if (state === 't') {
+        if (ch === '`') state = 'code';
+        // Template-literal ${} interpolation is NOT tracked for brace counting.
+        // This could theoretically miscount but is rare in module wrappers.
+      } else if (state === 'bc') {
+        if (ch === '*' && next === '/') { state = 'code'; j++; continue; }
+      }
+    }
+    // Line comments end at line boundary
+    if (state === 'lc') state = 'code';
+  }
+  // Unmatched — fall back to end of file
+  return lines.length;
+}
+
+/**
  * Extract a "preview" line from inside a module body — the first line that's
  * likely to tell you what the module is about. Skips trivial stuff (var
  * declarations at top, "use strict", closing braces, pure punctuation).
@@ -1059,6 +1124,7 @@ export class CodeSearchIndex {
       if (!m) continue;
       wrappers.push({
         startLine: i + 1,
+        wrapperLine: i + 1, // 1-indexed opening line of the wrapper itself
         name: m[2],
         helperName: m[3],
         indent: m[1].length,
@@ -1066,29 +1132,160 @@ export class CodeSearchIndex {
       });
     }
 
-    // Second pass: compute end lines via sibling boundary rule
-    //   module N's end = (module N+1's start) - 1
-    //   last module ends at file end
-    for (let i = 0; i < wrappers.length; i++) {
-      const next = wrappers[i + 1];
-      const rawEnd = next ? next.startLine - 1 : lines.length;
-      wrappers[i].endLine = rawEnd;
-      wrappers[i].lineCount = rawEnd - wrappers[i].startLine + 1;
+    // Second pass: compute TIGHT end lines via brace counting from the
+    // wrapper opening `{`. State-machine-aware so string/template/comment
+    // content is skipped. The sibling rule (end = next.start - 1) was wrong
+    // because esbuild interleaves module-scope var decls and unrelated
+    // top-level code between wrappers.
+    for (const w of wrappers) {
+      w.endLine = _findWrapperEnd(lines, w.startLine - 1);
     }
 
-    // Third pass: extract previews and (optional) hints
+    // Third pass: absorb preceding top-level `var X, Y, Z;` decls into each
+    // wrapper's start line. esbuild emits module-scope vars immediately
+    // before the wrapper that populates them; semantically they belong to
+    // that wrapper. Rule: scan backwards from wrapperLine-1 absorbing any
+    // consecutive `var name(, name)*;` lines (and blank lines between) up
+    // to the previous wrapper's end or a non-matching line.
+    const absorbRe = /^\s*var\s+[A-Za-z_$][\w$]*(?:\s*,\s*[A-Za-z_$][\w$]*)*\s*;?\s*$/;
+    for (let i = 0; i < wrappers.length; i++) {
+      const w = wrappers[i];
+      const prevEnd = i > 0 ? wrappers[i - 1].endLine : 0;
+      let absorbStart = w.wrapperLine; // 1-indexed
+      for (let j = w.wrapperLine - 2; j >= prevEnd; j--) {
+        const line = lines[j] || '';
+        if (!line.trim()) continue; // skip blank lines while looking backwards
+        if (absorbRe.test(line)) {
+          absorbStart = j + 1; // 1-indexed
+        } else {
+          break;
+        }
+      }
+      w.startLine = absorbStart;
+    }
+
+    // Fourth pass: compute lineCount and extract previews + hints
     for (const w of wrappers) {
-      w.preview = _extractModulePreview(lines, w.startLine - 1, w.endLine - 1);
+      w.lineCount = w.endLine - w.startLine + 1;
+      w.preview = _extractModulePreview(lines, w.wrapperLine - 1, w.endLine - 1);
       if (scanHints) {
         w.hints = _scanModuleHints(lines, w.startLine - 1, w.endLine - 1);
       }
     }
 
+    const pattern = helpers.iifeStartLine > 0 ? 'esbuild-iife' : 'esbuild-flat';
+
+    // Compute function-position lookup once. Needed for:
+    //   - per-wrapper function inventory (scanHints only)
+    //   - gap-module detection for IIFE bundles (always)
+    let sortedFuncs = null;
+    if (scanHints || pattern === 'esbuild-iife') {
+      this._ensureFunctionIndex();
+      const fileFuncs = this.functionIndex && this.functionIndex[filepath];
+      if (fileFuncs) {
+        sortedFuncs = Object.entries(fileFuncs)
+          .map(([name, info]) => ({ name, start: info.start, end: info.end, type: info.type }))
+          .sort((a, b) => a.start - b.start);
+      }
+    }
+
+    // Fifth pass (scanHints): per-wrapper function inventory
+    if (scanHints && sortedFuncs) {
+      let idx = 0;
+      for (const w of wrappers) {
+        while (idx < sortedFuncs.length && sortedFuncs[idx].start < w.startLine) idx++;
+        const inModule = [];
+        let k = idx;
+        while (k < sortedFuncs.length && sortedFuncs[k].start <= w.endLine) {
+          inModule.push(sortedFuncs[k]);
+          k++;
+        }
+        w.functions = inModule;
+      }
+    }
+
+    // Sixth pass (IIFE only): insert "gap modules" between wrappers.
+    //
+    // In esbuild's --format=iife output (e.g. mermaid.min.js), most real
+    // source code lives at top-level INSIDE the outer IIFE, between the
+    // wrapper scaffolds. Wrappers themselves are tiny (4-10 lines) and
+    // just call `o(func, "originalName")` to assign .name properties to
+    // functions declared elsewhere. The "original source file" groupings
+    // correspond much more closely to the inter-wrapper gaps than to the
+    // wrappers themselves.
+    //
+    // A gap module is created for any region between two wrappers (or
+    // before-first / after-last within the outer IIFE) that contains at
+    // least one function definition. Gaps without functions are skipped.
+    // Gap modules are given synthetic names like `[gap@L1432]` and a
+    // kind of 'GAP' (distinguishable from ESM/CJS in display).
+    let modules = wrappers;
+    if (pattern === 'esbuild-iife' && sortedFuncs && wrappers.length > 0) {
+      const gaps = [];
+      const iifeStart = helpers.iifeStartLine;
+      const iifeEndApprox = lines.length; // outer IIFE closes near EOF
+      let fnIdx = 0;
+
+      // Helper: collect functions in [gapStart, gapEnd] from sortedFuncs
+      const funcsInRange = (gapStart, gapEnd) => {
+        // advance fnIdx past functions ending before gapStart (monotonic
+        // across successive gap queries since gaps are processed in order)
+        while (fnIdx < sortedFuncs.length && sortedFuncs[fnIdx].start < gapStart) fnIdx++;
+        const out = [];
+        let k = fnIdx;
+        while (k < sortedFuncs.length && sortedFuncs[k].start <= gapEnd) {
+          out.push(sortedFuncs[k]);
+          k++;
+        }
+        return out;
+      };
+
+      const makeGap = (gapStart, gapEnd) => {
+        if (gapStart > gapEnd) return null;
+        const fns = funcsInRange(gapStart, gapEnd);
+        if (fns.length === 0) return null;
+        const gap = {
+          startLine: gapStart,
+          endLine: gapEnd,
+          wrapperLine: gapStart,
+          name: `[gap@L${gapStart}]`,
+          helperName: null,
+          kind: 'GAP',
+          indent: 0,
+          lineCount: gapEnd - gapStart + 1,
+          preview: _extractModulePreview(lines, gapStart - 1, gapEnd - 1),
+          functions: fns,
+        };
+        if (scanHints) {
+          gap.hints = _scanModuleHints(lines, gapStart - 1, gapEnd - 1);
+        }
+        return gap;
+      };
+
+      // Gap before the first wrapper (from inside the IIFE)
+      const g0 = makeGap(iifeStart + 1, wrappers[0].startLine - 1);
+      if (g0) gaps.push(g0);
+
+      // Gaps between consecutive wrappers
+      for (let i = 0; i < wrappers.length - 1; i++) {
+        const g = makeGap(wrappers[i].endLine + 1, wrappers[i + 1].startLine - 1);
+        if (g) gaps.push(g);
+      }
+
+      // Gap after the last wrapper (to end of IIFE)
+      const last = wrappers[wrappers.length - 1];
+      const gN = makeGap(last.endLine + 1, iifeEndApprox);
+      if (gN) gaps.push(gN);
+
+      // Merge wrappers + gaps, sort by start line
+      modules = [...wrappers, ...gaps].sort((a, b) => a.startLine - b.startLine);
+    }
+
     return {
       filepath,
-      pattern: helpers.iifeStartLine > 0 ? 'esbuild-iife' : 'esbuild-flat',
+      pattern,
       helpers,
-      modules: wrappers,
+      modules,
     };
   }
 

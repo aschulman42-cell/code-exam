@@ -1713,6 +1713,59 @@ routes['/api/command-catalog'] = (req, res) => {
 };
 
 
+// --- Bundle seams ---
+//
+// Scans all indexed JS files >1000 lines for esbuild module-wrapper patterns
+// and returns the per-module breakdown (line ranges, kind, content preview,
+// function inventory). Optional filter narrows by filename substring.
+// Renames are applied to module names and per-function names so the GUI can
+// render readable identifiers without doing its own rename lookups.
+
+routes['/api/bundle-seams'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+
+  const filterPat = q.filter ? q.filter.toLowerCase() : null;
+  const result = { files: [] };
+
+  for (const filepath of index.fileLines.keys()) {
+    const lower = filepath.toLowerCase();
+    if (!(lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.cjs'))) continue;
+    if (filterPat && !lower.includes(filterPat)) continue;
+    const lines = index.fileLines.get(filepath);
+    if (!lines || lines.length < 1000) continue;
+
+    const detection = index.detectBundleSeams(filepath, { scanHints: true });
+    if (!detection.pattern) continue;
+
+    // Apply renames to displayed module names and per-function names
+    for (const m of detection.modules) {
+      m.displayName = index.getDisplayName(m.name);
+      if (m.functions) {
+        for (const fn of m.functions) {
+          fn.displayName = index.getDisplayName(fn.name);
+        }
+      }
+    }
+
+    result.files.push({
+      filepath,
+      lineCount: lines.length,
+      pattern: detection.pattern,
+      helpers: detection.helpers,
+      moduleCount: detection.modules.length,
+      esmCount: detection.modules.filter(m => m.kind === 'ESM').length,
+      cjsCount: detection.modules.filter(m => m.kind === 'CJS').length,
+      gapCount: detection.modules.filter(m => m.kind === 'GAP').length,
+      modules: detection.modules,
+    });
+  }
+
+  jsonResponse(res, result);
+};
+
+
 // --- Classes ---
 
 routes['/api/list-classes'] = (req, res) => {

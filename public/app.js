@@ -103,6 +103,7 @@ const api = {
   stringTable:     (p) => api.get('string-table', p),
   commandCatalog:  ()  => api.get('command-catalog'),
   breadcrumbs:     ()  => api.get('breadcrumbs'),
+  bundleSeams:     (p) => api.get('bundle-seams', p),
   buildPrompt:     (p) => api.post('build-prompt', p),
   claimSearch:     (p) => api.post('claim-search', p),
   claimSearchLlm:  (p) => api.post('claim-search-llm', p),
@@ -377,6 +378,13 @@ async function loadSectionData(sectionId, filter = '') {
         state.sectionData[sectionId] = data;
         renderBreadcrumbs(content, data, filter);
         badge.textContent = (data.markers?.length || 0) + (data.events?.length || 0);
+        break;
+
+      case 'bundle-seams':
+        data = await api.bundleSeams({ filter });
+        state.sectionData[sectionId] = data;
+        renderBundleSeams(content, data, filter);
+        badge.textContent = (data.files || []).reduce((sum, f) => sum + f.moduleCount, 0);
         break;
 
       case 'indexes':
@@ -1586,6 +1594,135 @@ function renderBreadcrumbs(container, data, filter) {
 
   if (container.children.length === 0) {
     container.innerHTML = '<div class="list-placeholder">No breadcrumbs detected</div>';
+  }
+}
+
+
+function renderBundleSeams(container, data, filter) {
+  container.innerHTML = '';
+  const pat = filter ? filter.toLowerCase() : null;
+
+  if (!data.files || data.files.length === 0) {
+    container.innerHTML = '<div class="list-placeholder">No bundled JS files detected. Bundle Seams scans indexed .js/.mjs/.cjs files larger than 1000 lines for esbuild module-wrapper patterns.</div>';
+    return;
+  }
+
+  for (const file of data.files) {
+    // File header (collapsible per-file)
+    const fileHeader = h('div', { style: 'padding:4px 8px;font-weight:600;font-size:11px;color:var(--text-muted);border-bottom:1px solid var(--border);cursor:pointer;user-select:none' });
+    const summaryParts = [`${file.moduleCount} modules`, `${file.esmCount} ESM`, `${file.cjsCount} CJS`];
+    if (file.gapCount > 0) summaryParts.push(`${file.gapCount} gap`);
+    fileHeader.innerHTML = `<span style="display:inline-block;width:12px">▾</span> ${escHtml(shortPath(file.filepath, 50))} <span class="muted">(${file.lineCount.toLocaleString()}L, ${file.pattern}, ${summaryParts.join(', ')})</span>`;
+    const fileItems = h('div', {});
+    fileHeader.addEventListener('click', () => {
+      const open = fileItems.style.display !== 'none';
+      fileItems.style.display = open ? 'none' : 'block';
+      fileHeader.querySelector('span').textContent = open ? '▸' : '▾';
+    });
+    container.appendChild(fileHeader);
+
+    // Helpers info row
+    const helpersDiv = h('div', { style: 'padding:2px 8px;font-size:10px;color:var(--text-dim)' });
+    helpersDiv.textContent = `Helpers: ESM=${file.helpers.esm || '-'}, CJS=${file.helpers.cjs || '-'}` +
+      (file.pattern === 'esbuild-iife' ? `  (outer IIFE starts at L${file.helpers.iifeStartLine})` : '');
+    fileItems.appendChild(helpersDiv);
+
+    // Modules list — apply filter if set
+    let modules = file.modules || [];
+    if (pat) {
+      modules = modules.filter(m => {
+        const dn = (m.displayName || m.name || '').toLowerCase();
+        const preview = (m.preview || '').toLowerCase();
+        return dn.includes(pat) || preview.includes(pat);
+      });
+    }
+
+    const maxModules = getMaxResults() * 4; // 4× because each module is one row
+    const shown = modules.slice(0, maxModules);
+
+    for (const m of shown) {
+      const dn = m.displayName || m.name || '?';
+      const kindLabel = m.kind === 'GAP' ? 'GAP' : m.kind;
+      // Color the kind tag
+      const kindColor = m.kind === 'GAP' ? 'var(--accent-orange)'
+        : m.kind === 'CJS' ? 'var(--accent)'
+        : 'var(--accent-green)';
+
+      const el = h('div', { className: 'list-item', title: `${dn}  L${m.startLine}-${m.endLine}\n${m.preview || ''}` }, [
+        h('span', { className: 'metric muted', text: `L${m.startLine}`, style: 'font-size:10px;min-width:55px;text-align:right;flex-shrink:0' }),
+        h('span', { text: kindLabel, style: `font-size:9px;font-weight:600;color:${kindColor};min-width:28px;flex-shrink:0` }),
+        h('span', { className: 'name clickable', text: dn, style: 'font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0' }),
+        h('span', { className: 'metric muted', text: `${m.lineCount}L`, style: 'font-size:10px;min-width:40px;text-align:right;flex-shrink:0' }),
+      ]);
+
+      // Click → open file at the wrapper start line
+      el.addEventListener('click', () => onFileClick(file.filepath, m.startLine));
+      fileItems.appendChild(el);
+
+      // Preview line beneath the item (small, indented)
+      if (m.preview) {
+        const previewDiv = h('div', { style: 'padding:0 8px 2px 70px;font-size:10px;color:var(--text-dim);font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' });
+        previewDiv.textContent = m.preview.length > 200 ? m.preview.slice(0, 200) + '…' : m.preview;
+        fileItems.appendChild(previewDiv);
+      }
+
+      // Function inventory (small, indented). Always shown when present
+      // (gap modules always have it; wrappers have it because the server sends scanHints=true)
+      if (m.functions && m.functions.length > 0) {
+        const fnSummary = h('div', { style: 'padding:0 8px 4px 70px;font-size:10px;color:var(--text-dim);cursor:pointer;user-select:none' });
+        fnSummary.innerHTML = `<span style="display:inline-block;width:10px">▸</span>${m.functions.length} function${m.functions.length === 1 ? '' : 's'}`;
+        const fnList = h('div', { style: 'display:none;padding:0 8px 4px 80px' });
+        fnSummary.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const open = fnList.style.display !== 'none';
+          fnList.style.display = open ? 'none' : 'block';
+          fnSummary.querySelector('span').textContent = open ? '▸' : '▾';
+        });
+        for (const fn of m.functions.slice(0, 30)) {
+          const fdn = fn.displayName || fn.name || '?';
+          const size = (fn.end - fn.start + 1);
+          const fnEl = h('div', { className: 'list-item', style: 'padding:1px 0;font-size:10px' }, [
+            h('span', { className: 'metric muted', text: `L${fn.start}`, style: 'font-size:9px;min-width:55px;text-align:right;flex-shrink:0' }),
+            h('span', { className: 'name clickable', text: fdn, style: 'font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0' }),
+            h('span', { className: 'metric muted', text: `${size}L`, style: 'font-size:9px;min-width:30px;text-align:right;flex-shrink:0' }),
+          ]);
+          fnEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            onFunctionClick({ name: fn.name, display_name: fdn, filepath: file.filepath });
+          });
+          fnList.appendChild(fnEl);
+        }
+        if (m.functions.length > 30) {
+          const more = h('div', { style: 'padding:1px 0;font-size:9px;color:var(--text-dim);font-style:italic' });
+          more.textContent = `... and ${m.functions.length - 30} more functions`;
+          fnList.appendChild(more);
+        }
+        fileItems.appendChild(fnSummary);
+        fileItems.appendChild(fnList);
+      }
+
+      // Hints (paths/license) when present
+      if (m.hints) {
+        if (m.hints.paths && m.hints.paths.length > 0) {
+          const pathsDiv = h('div', { style: 'padding:0 8px 2px 70px;font-size:9px;color:var(--accent-dim)' });
+          pathsDiv.textContent = 'paths: ' + m.hints.paths.slice(0, 3).join(', ') + (m.hints.paths.length > 3 ? ', …' : '');
+          fileItems.appendChild(pathsDiv);
+        }
+        if (m.hints.licenses && m.hints.licenses.length > 0) {
+          const licDiv = h('div', { style: 'padding:0 8px 2px 70px;font-size:9px;color:var(--accent-dim);font-style:italic' });
+          licDiv.textContent = 'license: ' + m.hints.licenses[0];
+          fileItems.appendChild(licDiv);
+        }
+      }
+    }
+
+    if (modules.length > shown.length) {
+      const moreDiv = h('div', { style: 'padding:4px 8px;font-size:10px;color:var(--text-dim);font-style:italic' });
+      moreDiv.textContent = `... and ${modules.length - shown.length} more modules (raise --max-results setting to see more)`;
+      fileItems.appendChild(moreDiv);
+    }
+
+    container.appendChild(fileItems);
   }
 }
 
