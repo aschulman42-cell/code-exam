@@ -28,6 +28,7 @@ export function parseArgs() {
     file_bookends: null,
     bundle_seams: null,
     seam_verbose: false,
+    digest: null,
     index_path: '.code_search_index',
     skip_semantic: true,
     use_tree_sitter: false,
@@ -174,6 +175,7 @@ export function parseArgs() {
     ['file_bookends',        'optional_value', ['--file-bookends']],
     ['bundle_seams',         'optional_value', ['--bundle-seams']],
     ['seam_verbose',         'flag',           ['--seam-verbose']],
+    ['digest',               'value',          ['--digest']],
     ['index_path',           'value',          ['--index-path']],
     ['skip_semantic',        'flag',           ['--skip-semantic']],
     ['use_tree_sitter',      'flag',           ['--use-tree-sitter']],
@@ -587,6 +589,14 @@ CONTENT ANALYSIS:
                              for leaked source paths (node_modules/..., .js
                              files) and license headers. Slower but surfaces
                              module-to-original-package hints.
+  --digest <funcspec>        Print a structured digest of a single function
+                             that aggregates every mechanical signal CodeExam
+                             can compute: identity, caller/callee counts,
+                             distinctive + repeated strings, breadcrumbs,
+                             comments, command-catalog cross-reference,
+                             exact/near/structural dupes. Useful both as
+                             human orientation and as LLM-analysis preamble.
+                             Takes FUNCNAME or FILE@FUNCNAME.
 
 EXAMPLES:
   node src/index.js --build-index ./my-project

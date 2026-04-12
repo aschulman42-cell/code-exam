@@ -1395,6 +1395,407 @@ export class CodeSearchIndex {
   }
 
   /**
+   * #329 Phase 1: assemble a structured, non-AI digest of a single function
+   * by pulling together signals from every CodeExam facility that can
+   * mechanically describe the function's shape and content. No interpretation
+   * — every field is a fact extracted from the index.
+   *
+   * Sections produced (empty ones are omitted at format time):
+   *   - identity         — name, rename chain, location, line count, type
+   *   - callers          — count + names (from findCallers)
+   *   - callees          — count + names (from findCallees)
+   *   - strings          — top distinctive + frequency outliers within body
+   *   - breadcrumbs      — markers (q/Bq-style) emitted from body
+   *   - comments         — `//` and block comments in body
+   *   - commands         — extractCommandCatalog cross-reference
+   *   - dupes            — exact/near/structural dupes via func_hashes
+   *
+   * Deferred (section stub only, pending separate TODOs):
+   *   - asserts          — pending extractAsserts (TODO #337)
+   *
+   * @param {string} funcSpec — bare name, Class::method, or file@name
+   * @param {object} [opts]
+   * @param {number} [opts.maxCallers=10]     cap for caller/callee display
+   * @param {number} [opts.maxCallees=10]
+   * @param {number} [opts.maxStrings=15]     cap for distinctive strings section
+   * @param {number} [opts.minRepeatCount=3]  threshold for "repeated string"
+   * @returns {object|null} digest object, or null if function not found
+   *
+   * Note on "times"/counts throughout: all counts in this digest are STATIC
+   * call-site counts (number of distinct source-code locations), never
+   * dynamic runtime counts.
+   */
+  buildFunctionDigest(funcSpec, opts = {}) {
+    const {
+      maxCallers = 10,
+      maxCallees = 10,
+      maxStrings = 15,
+      minRepeatCount = 3,
+    } = opts;
+
+    // --- Resolve function ---
+    let pathHint = null, funcName;
+    if (funcSpec.includes('@')) {
+      const at = funcSpec.indexOf('@');
+      pathHint = funcSpec.slice(0, at);
+      funcName = funcSpec.slice(at + 1);
+    } else {
+      // Try reverse-rename (user typed display name)
+      funcName = this.getOriginalName ? this.getOriginalName(funcSpec) : funcSpec;
+    }
+
+    const matches = this.findFunctionMatches(funcName, pathHint);
+    if (matches.length === 0) return null;
+    const fn = matches[0];
+    const filepath = fn.filepath;
+    const lines = this.fileLines.get(filepath);
+    if (!lines) return null;
+    const bodyLines = lines.slice(fn.start - 1, fn.end);
+    const bodyText = bodyLines.join('\n');
+
+    // --- Identity ---
+    const dn = this.getDisplayName(fn.name);
+    // Detect rename tier from the display name
+    let renameTier = null;
+    if (dn !== fn.name) {
+      if (dn.includes('_CMD_')) renameTier = 'CMD';
+      else if (/(?:^|::)[^_]*_NAME_[a-zA-Z]/.test(dn)) renameTier = 'NAME';
+      else if (dn.includes('_IMPORT_')) renameTier = 'IMPORT';
+      else if (dn.includes('_KW_')) renameTier = 'KW';
+    }
+    // Bare-name uniqueness check via the function index
+    this._ensureFunctionIndex();
+    const bareOf = (n) => {
+      let b = n.includes('::') ? n.split('::').pop() : n;
+      if (b.includes('@')) b = b.split('@')[0];
+      return b;
+    };
+    const myBare = bareOf(fn.name);
+    let bareCount = 0;
+    if (this.functionIndex) {
+      for (const funcs of Object.values(this.functionIndex)) {
+        for (const fname of Object.keys(funcs)) {
+          if (bareOf(fname) === myBare) bareCount++;
+        }
+      }
+    }
+
+    const identity = {
+      name: fn.name,
+      displayName: dn,
+      renameTier,
+      filepath,
+      startLine: fn.start,
+      endLine: fn.end,
+      lineCount: fn.end - fn.start + 1,
+      type: fn.type,
+      bareUnique: bareCount === 1,
+      bareDuplicateCount: bareCount,
+      parseMethod: this.parseMethod || 'unknown',
+    };
+
+    // --- Callers ---
+    const rawCallers = this.findCallers(fn.name, 500);
+    const byCaller = new Map();
+    for (const c of rawCallers) {
+      // tree-sitter's _findContainingFunction returns null when a call is
+      // genuinely at top-level / file scope (not inside any function).
+      // Surface that as "(file scope)" rather than the less-informative
+      // "(unknown)". If future parser work introduces a distinct "truly
+      // unresolved" case, we can differentiate then.
+      const name = c.caller_function || '(file scope)';
+      if (!byCaller.has(name)) byCaller.set(name, []);
+      byCaller.get(name).push({ filepath: c.filepath, line: c.line_number });
+    }
+    const callersSection = {
+      totalSites: rawCallers.length,
+      distinctCallers: byCaller.size,
+      byCaller: [...byCaller.entries()]
+        .sort((a, b) => b[1].length - a[1].length) // most-frequent callers first
+        .slice(0, maxCallers)
+        .map(([name, sites]) => ({
+          callerName: name,
+          callerDisplayName: this.getDisplayName(name),
+          siteCount: sites.length,
+          sites: sites.slice(0, 3), // first few for detail
+        })),
+    };
+
+    // --- Callees ---
+    const rawCallees = this.findCallees(fn.name, pathHint);
+    // Tally (name -> count) using the call_sites array if provided, else 1 each
+    const calleeTally = new Map();
+    for (const ce of rawCallees) {
+      const nm = ce.name || ce.display_name || '(unknown)';
+      const siteCount = Array.isArray(ce.call_sites) ? ce.call_sites.length : 1;
+      calleeTally.set(nm, (calleeTally.get(nm) || 0) + siteCount);
+    }
+    const calleesSection = {
+      totalSites: [...calleeTally.values()].reduce((s, n) => s + n, 0),
+      distinctCallees: calleeTally.size,
+      topByFrequency: [...calleeTally.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, maxCallees)
+        .map(([name, count]) => ({
+          calleeName: name,
+          calleeDisplayName: this.getDisplayName(name),
+          siteCount: count,
+        })),
+      recursive: calleeTally.has(fn.name) || calleeTally.has(myBare),
+    };
+
+    // --- Strings in body ---
+    // Scan body lines for quoted strings, count per-function occurrences,
+    // cross-ref with the global string table for rarity (lower total count
+    // = more distinctive).
+    const perFuncStringCounts = new Map(); // value -> count within this function
+    const strRe = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|`((?:[^`\\]|\\.)*)`/g;
+    for (const line of bodyLines) {
+      if (!line) continue;
+      strRe.lastIndex = 0;
+      let m;
+      while ((m = strRe.exec(line)) !== null) {
+        const val = m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : m[3]);
+        if (!val || val.length < 2) continue;
+        // Skip string fragments that look like identifier-only (property
+        // names inside object literals etc. are caught but harmless)
+        perFuncStringCounts.set(val, (perFuncStringCounts.get(val) || 0) + 1);
+      }
+    }
+    // Look up global frequency in string table (if available).
+    // Build a value→count Map once for O(1) lookup instead of per-string linear scan.
+    let strTableMap = null;
+    try {
+      const strTable = this.ensureStringTable ? this.ensureStringTable(2, false) : null;
+      if (Array.isArray(strTable)) {
+        strTableMap = new Map();
+        for (const entry of strTable) {
+          if (entry && entry.value) strTableMap.set(entry.value, entry.count);
+        }
+      }
+    } catch { /* ignore */ }
+    const getGlobalCount = (val) => strTableMap ? strTableMap.get(val) ?? null : null;
+    const distinctiveStrings = [...perFuncStringCounts.entries()]
+      .map(([val, localCount]) => ({ val, localCount, globalCount: getGlobalCount(val) }))
+      // Sort by global count ascending (rarer first); nulls treated as rare
+      .sort((a, b) => {
+        const ag = a.globalCount == null ? 1 : a.globalCount;
+        const bg = b.globalCount == null ? 1 : b.globalCount;
+        return ag - bg;
+      })
+      .slice(0, maxStrings);
+    const repeatedStrings = [...perFuncStringCounts.entries()]
+      .filter(([, c]) => c >= minRepeatCount)
+      .map(([val, count]) => ({ val, count }))
+      .sort((a, b) => b.count - a.count);
+    const stringsSection = {
+      totalStrings: [...perFuncStringCounts.values()].reduce((s, n) => s + n, 0),
+      distinctStrings: perFuncStringCounts.size,
+      distinctive: distinctiveStrings,
+      repeated: repeatedStrings,
+    };
+
+    // --- Breadcrumbs in body ---
+    // Three sources, unioned and deduped by line number:
+    //
+    //   (1) global extractBreadcrumbs().markers   — timing/trace markers
+    //       (Bq, L3, etc.), emits only from index-wide top-3 trace helpers
+    //   (2) global extractBreadcrumbs().events    — telemetry events
+    //       (n("tengu_*"), etc.), emits only from hardcoded emitter names
+    //   (3) per-function local scan               — catches locally-aliased
+    //       helpers the global extractor misses (e.g. `q` in VCz, `jA` in
+    //       Mf7; also handles multi-arg calls like jA("event", false))
+    //
+    // Source (3) uses the same label-shape filter as the global extractor
+    // (≥2 underscores, length ≥8, starts with lowercase letter) so false
+    // positives are minimized. Multi-arg calls match via `[,)]` terminator
+    // rather than just `)`.
+    const markersByLine = new Map();
+    try {
+      const bc = this.extractBreadcrumbs ? this.extractBreadcrumbs(false) : null;
+      if (bc && bc.markers) {
+        for (const m of bc.markers) {
+          if (m.filepath !== filepath || m.line < fn.start || m.line > fn.end) continue;
+          markersByLine.set(m.line, { label: m.label, line: m.line });
+        }
+      }
+      if (bc && bc.events) {
+        for (const e of bc.events) {
+          if (e.filepath !== filepath || e.line < fn.start || e.line > fn.end) continue;
+          if (!markersByLine.has(e.line)) {
+            markersByLine.set(e.line, { label: e.name, line: e.line });
+          }
+        }
+      }
+    } catch { /* ignore */ }
+
+    const localMarkerRe = /\b([a-zA-Z_$][\w$]{0,4})\(\s*["']([a-z][a-z0-9_]+)["']\s*[,)]/g;
+    for (let i = 0; i < bodyLines.length; i++) {
+      const line = bodyLines[i] || '';
+      localMarkerRe.lastIndex = 0;
+      let m;
+      while ((m = localMarkerRe.exec(line)) !== null) {
+        const label = m[2];
+        if ((label.match(/_/g) || []).length < 2) continue;
+        if (label.length < 8) continue;
+        const lineNum = fn.start + i;
+        if (!markersByLine.has(lineNum)) {
+          markersByLine.set(lineNum, { label, line: lineNum });
+        }
+      }
+    }
+
+    const breadcrumbsSection = {
+      markers: [...markersByLine.values()].sort((a, b) => a.line - b.line),
+    };
+
+    // --- Comments in body ---
+    // Use _isInsideString (the state-machine helper also used by applyRenames
+    // and searchLiteral) to distinguish genuine `//` comments from the `//`
+    // that appears inside string literals like "https://example.com/...".
+    // The naive "count quote chars before this position" heuristic is fooled
+    // by templates-containing-strings, which is common in minified JS.
+    //
+    // Cross-line state: track block-comment open/close across lines using the
+    // same carryState approach as applyRenames.
+    const comments = [];
+    let carryState = 'code';
+    for (let i = 0; i < bodyLines.length; i++) {
+      const line = bodyLines[i] || '';
+      // If the line begins inside an open block comment carried from the
+      // previous line, scan for `*/` and capture the text before it.
+      if (carryState === 'bc') {
+        const endIdx = line.indexOf('*/');
+        const content = (endIdx >= 0 ? line.slice(0, endIdx) : line)
+          .replace(/^\s*\*\s?/, '').trim();
+        if (content) comments.push({ line: fn.start + i, kind: 'block', text: content });
+        carryState = endIdx >= 0 ? 'code' : 'bc';
+        continue;
+      }
+      // Walk the line looking for `//` or `/*` at code-state positions (not
+      // inside strings/templates/existing comments). _isInsideString gives us
+      // the state AT a given offset given the line and a starting state.
+      let j = 0;
+      let emitted = false;
+      while (j < line.length - 1) {
+        const two = line[j] + line[j + 1];
+        if ((two === '//' || two === '/*') && !_isInsideString(line, j, carryState)) {
+          if (two === '//') {
+            const content = line.slice(j + 2).trim();
+            if (content) comments.push({ line: fn.start + i, kind: 'line', text: content });
+            emitted = true;
+            break;
+          } else {
+            // Block comment — look for matching */ on this line
+            const blockEnd = line.indexOf('*/', j + 2);
+            if (blockEnd >= 0) {
+              const content = line.slice(j + 2, blockEnd).trim();
+              if (content) comments.push({ line: fn.start + i, kind: 'block-inline', text: content });
+              j = blockEnd + 2;
+              continue;
+            } else {
+              const content = line.slice(j + 2).trim();
+              if (content) comments.push({ line: fn.start + i, kind: 'block', text: content });
+              carryState = 'bc';
+              emitted = true;
+              break;
+            }
+          }
+        }
+        j++;
+      }
+      // Update cross-line state: if we're not in a block comment at line end,
+      // check whether the line leaves us in template-literal state (which can
+      // also carry across lines per _scanLineState).
+      if (!emitted && carryState !== 'bc') {
+        const endState = _scanLineState(line, carryState);
+        carryState = (endState === 'bc' || endState === 't') ? endState : 'code';
+      }
+    }
+
+    // --- Command-catalog cross-reference ---
+    let commandsSection = { cliOptions: [], commands: [], routes: [], guiActions: [] };
+    try {
+      const cat = this.extractCommandCatalog ? this.extractCommandCatalog(false) : null;
+      if (cat) {
+        const matchesFunc = (item) => {
+          const f = item.func || item.handler?.func;
+          return f && (f === fn.name || f === dn || bareOf(f) === myBare);
+        };
+        for (const key of ['cliOptions', 'commands', 'routes', 'guiActions']) {
+          if (cat[key]) commandsSection[key] = cat[key].filter(matchesFunc);
+        }
+      }
+    } catch { /* ignore */ }
+
+    // --- Dupes ---
+    let dupesSection = { exactSiblings: [], nearSiblings: [], structSiblings: [] };
+    try {
+      const hashes = this.ensureFuncHashes ? this.ensureFuncHashes(3, false) : null;
+      if (hashes) {
+        const myKey = `${filepath}|||${fn.name}`;
+        const myHash = hashes.get(myKey);
+        if (myHash) {
+          for (const [key, h] of hashes) {
+            if (key === myKey) continue;
+            const [otherFile, otherName] = key.split('|||');
+            const sib = {
+              name: otherName,
+              displayName: this.getDisplayName(otherName),
+              filepath: otherFile,
+              lines: h.lines,
+            };
+            if (h.body_hash === myHash.body_hash) dupesSection.exactSiblings.push(sib);
+            else if (h.struct_hash === myHash.struct_hash) dupesSection.structSiblings.push(sib);
+            else if (bareOf(otherName) === myBare && h.lines === myHash.lines) {
+              dupesSection.nearSiblings.push(sib);
+            }
+          }
+          // Rank sibling names by "usefulness" tier, highlight most-useful
+          const tierRank = (n, disp) => {
+            const d = disp || n;
+            if (/(?:^|::)[^_]*_NAME_[a-zA-Z]/.test(d)) return 1; // ground truth
+            if (d.includes('_CMD_')) return 2;
+            if (d === n && !/_[A-Z]+_/.test(n)) return 3; // hand-written, no rename
+            if (d.includes('_IMPORT_')) return 4;
+            if (d.includes('_KW_')) return 5;
+            return 6;
+          };
+          const myRank = tierRank(fn.name, dn);
+          const allSiblings = [
+            ...dupesSection.exactSiblings,
+            ...dupesSection.nearSiblings,
+            ...dupesSection.structSiblings,
+          ];
+          for (const sib of allSiblings) {
+            sib.rank = tierRank(sib.name, sib.displayName);
+          }
+          // Find the best sibling (lowest rank number)
+          const best = allSiblings
+            .filter((s) => s.rank < myRank)
+            .sort((a, b) => a.rank - b.rank)[0];
+          if (best) dupesSection.moreUsefullyNamedSibling = best;
+        }
+      }
+    } catch { /* ignore */ }
+
+    // --- Asserts (deferred, section stub only) ---
+    const assertsSection = { asserts: [], _note: 'pending TODO #337 — extractAsserts not yet implemented' };
+
+    return {
+      identity,
+      callers: callersSection,
+      callees: calleesSection,
+      strings: stringsSection,
+      breadcrumbs: breadcrumbsSection,
+      comments,
+      commands: commandsSection,
+      dupes: dupesSection,
+      asserts: assertsSection,
+    };
+  }
+
+  /**
    * Scan `lines` from index 0 up to (but not including) `endLineIdx`, running
    * the state machine to determine whether that line position is inside an
    * open block comment or template literal carried from earlier in the file.

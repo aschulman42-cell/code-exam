@@ -17,6 +17,7 @@ import {
   doExtract, doListFiles, doShowFile, doFileBookends, doBundleSeams,
   doListFunctions, doListFunctionsAlpha, doListFunctionsSize,
 } from './commands/browse.js';
+import { doDigest } from './commands/digest.js';
 import {
   doCallers, doCallees, doMostCalled, doCallInventory,
 } from './commands/callers.js';
@@ -197,7 +198,7 @@ if (args.build_rename_map) {
     'list_classes', 'class_hotspots', 'discover_vocabulary',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
-    'command_catalog', 'string_table', 'breadcrumbs', 'file_bookends', 'bundle_seams',
+    'command_catalog', 'string_table', 'breadcrumbs', 'file_bookends', 'bundle_seams', 'digest',
   ];
   if (!queryCommands.some(c => args._explicit.has(c) || args[c])) {
     process.exit(0);
@@ -231,6 +232,7 @@ if (args._explicit.has('list_files'))       doListFiles(index, args);
 if (args.show_file)                         doShowFile(index, args);
 if (args._explicit.has('file_bookends'))    doFileBookends(index, args);
 if (args._explicit.has('bundle_seams'))     doBundleSeams(index, args);
+if (args.digest)                            doDigest(index, args);
 if (args._explicit.has('list_functions'))   doListFunctions(index, args);
 if (args.list_functions_alpha)              doListFunctionsAlpha(index, args);
 if (args.list_functions_size)               doListFunctionsSize(index, args);
@@ -368,7 +370,7 @@ if (args.interactive) {
     'claim_search', 'claim_file',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
-    'command_catalog', 'string_table', 'breadcrumbs', 'file_bookends', 'bundle_seams',
+    'command_catalog', 'string_table', 'breadcrumbs', 'file_bookends', 'bundle_seams', 'digest',
   ].some(c => args._explicit.has(c) || args[c]);
 
   if (!anyCommand && !args.build_index) {
