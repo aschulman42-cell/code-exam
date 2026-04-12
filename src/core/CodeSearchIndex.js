@@ -693,6 +693,111 @@ function _extractModulePreview(lines, startIdx, endIdx) {
 }
 
 /**
+ * #332: Detect esbuild's `__name` helper variable name.
+ *
+ * When esbuild is configured with `--keep-names` (on by default in many
+ * configs), it injects a helper that preserves each function's original
+ * name by calling Object.defineProperty(fn, "name", { value: "origName" }).
+ * The helper is typically declared at the top of the bundle as a 2-arg
+ * arrow function whose body calls Object.defineProperty — directly or via
+ * a short local alias (mermaid uses `Zv` for `Object.defineProperty`).
+ *
+ * Sample (mermaid.min.js L10-13):
+ *   var o = (t, e) => Zv(t, "name", {
+ *     value: e,
+ *     configurable: true
+ *   });
+ *
+ * Returns the helper variable name (e.g. "o"), or null if not detected.
+ *
+ * Scans the first 200 lines as a joined string so helpers whose body
+ * object-literal wraps onto multiple lines are still caught.
+ *
+ * -------------------------------------------------------------------------
+ * Coverage note — when this feature yields results vs doesn't:
+ *
+ * `--keep-names` is default in many esbuild configs, but is often stripped
+ * in production bundles of commercial / obfuscated software because:
+ *   (a) each o(X, "origName") call adds ~30-50 bytes of overhead per
+ *       function — on a 513k-line bundle with 10k+ functions this is
+ *       meaningful,
+ *   (b) it leaks original function names, undoing most of the effect of
+ *       aggressive minification,
+ *   (c) runtime uses of `fn.name` (error stack traces, React devtools,
+ *       debug logging) aren't needed in release builds.
+ *
+ * So the empirical pattern is:
+ *   - Library distributions intended for general use (mermaid, chart libs,
+ *     UI frameworks): usually HAVE the helper, yield hundreds-to-thousands
+ *     of ground-truth (obfuscated → original) rename pairs.
+ *   - Aggressively minified commercial bundles (e.g. claude-code's cli.js):
+ *     typically DO NOT have the helper, yield zero _NAME_ recoveries.
+ *
+ * A zero result is itself a signal about the vendor's obfuscation posture
+ * — worth surfacing to the user, not just silently skipped.
+ * -------------------------------------------------------------------------
+ */
+function _detectNameHelper(lines) {
+  const N = Math.min(200, lines.length);
+  const head = lines.slice(0, N).join('\n');
+  // Match: NAME = (arg1, arg2) => INNER(arg1, "name", ...
+  // Capture:
+  //   [1] NAME (helper variable name)
+  //   [2] arg1 (must appear as first arg to INNER, enforced via \2 backref)
+  // Loose on whitespace so the body can wrap. The `,` after "name" is the
+  // distinguishing feature — a typical Object.defineProperty(target, "name",
+  // descriptor) call has exactly that trailing comma.
+  const re = /\b(\w+)\s*=\s*\(\s*(\w+)\s*,\s*\w+\s*\)\s*=>\s*\w+(?:\s*\.\s*\w+)?\s*\(\s*\2\s*,\s*["']name["']\s*,/;
+  const m = head.match(re);
+  if (!m) return null;
+  const name = m[1];
+  // Exclude accidental capture of storage-class keywords
+  if (name === 'var' || name === 'let' || name === 'const') return null;
+  return name;
+}
+
+/**
+ * #332: Scan for `helperName(IDENT, "originalName")` patterns and harvest
+ * every (IDENT → originalName) pair. Returns a Map of
+ *   IDENT (string) → Set<string> of observed original-name strings.
+ *
+ * The caller uses Set size to detect ambiguity (same IDENT tagged with
+ * different names across the bundle) and skip those pairs — only
+ * unambiguous pairs get added to the rename map.
+ */
+function _extractNameRecoveryPairs(lines, helperName) {
+  const result = new Map();
+  const escHelper = helperName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Match helperName(IDENT, "string"...  — the trailing comma or close-paren
+  // is deliberately permissive so helpers with signatures like
+  //   __nameX(target, "origName", extra)
+  // are handled too.
+  const re = new RegExp(
+    '\\b' + escHelper + '\\s*\\(\\s*([A-Za-z_$][\\w$]*)\\s*,\\s*"([^"\\\\]+)"\\s*[,)]',
+    'g'
+  );
+  for (const line of lines) {
+    if (!line) continue;
+    // Fast filter: skip lines that don't even contain the helper name
+    if (!line.includes(helperName)) continue;
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(line)) !== null) {
+      const ident = m[1];
+      const origName = m[2];
+      // Sanity filters on the harvested name
+      if (origName.length < 2) continue;
+      if (!/[a-zA-Z]/.test(origName)) continue;
+      // Don't self-pair (e.g., o(o, "o"))
+      if (ident === origName) continue;
+      if (!result.has(ident)) result.set(ident, new Set());
+      result.get(ident).add(origName);
+    }
+  }
+  return result;
+}
+
+/**
  * Scan strings inside a module body for likely source-path hints and license
  * headers. Returns { paths, licenses } — both arrays, empty if nothing found.
  * Conservative: only includes strings that look unambiguously like file paths
@@ -1483,6 +1588,44 @@ export class CodeSearchIndex {
       } catch { /* ignore */ }
     }
 
+    // #332: Overlay __name-helper recoveries. For each indexed file, detect
+    // esbuild's __name helper (preserves original names via
+    // Object.defineProperty(fn, "name", {...})), then scan for helper(IDENT,
+    // "originalName") calls and add IDENT → IDENT_NAME_originalName entries.
+    //
+    // Priority tier: _CMD_ > _NAME_ > _IMPORT_ > _KW_.
+    // This pass OVERRIDES existing _KW_ and _IMPORT_ renames (because the
+    // original name is ground truth from the bundler) but leaves _CMD_
+    // untouched (command-catalog renames express the function's ROLE, which
+    // is more specific than its original source-code name).
+    //
+    // Ambiguity: if the same IDENT is __name-tagged with two different
+    // strings across the bundle (rare but possible in name-shadowing
+    // situations), we skip it entirely — safer than picking arbitrarily.
+    let nameRenames = 0;
+    const nameCandidates = new Map(); // ident -> Set of observed names
+    for (const [, flines] of this.fileLines) {
+      const helperName = _detectNameHelper(flines);
+      if (!helperName) continue;
+      const filePairs = _extractNameRecoveryPairs(flines, helperName);
+      for (const [ident, names] of filePairs) {
+        if (!nameCandidates.has(ident)) nameCandidates.set(ident, new Set());
+        for (const n of names) nameCandidates.get(ident).add(n);
+      }
+    }
+    for (const [ident, names] of nameCandidates) {
+      if (names.size !== 1) continue; // ambiguous — skip
+      const origName = [...names][0];
+      const existing = renameMap[ident];
+      // Preserve higher-tier CMD renames
+      if (existing && existing.includes('_CMD_')) continue;
+      // Override KW, IMPORT, or add new
+      let displayName = ident + '_NAME_' + origName;
+      if (displayName.length > 60) displayName = displayName.slice(0, 60);
+      renameMap[ident] = displayName;
+      nameRenames++;
+    }
+
     // Persist and refresh in-memory cache (and reset the compiled regex / reverse map)
     this._renameMap = renameMap;
     this._renameRegex = null;
@@ -1490,10 +1633,16 @@ export class CodeSearchIndex {
     this._saveRenameMap(renameMap);
 
     if (showProgress) {
-      console.log(`Inferred ${namesInferred} descriptive names + ${cmdRenames} command names + ${importRenames} import renames → rename_map.json`);
+      const parts = [
+        `${namesInferred} descriptive names`,
+        `${cmdRenames} command names`,
+        `${importRenames} import renames`,
+      ];
+      if (nameRenames > 0) parts.splice(2, 0, `${nameRenames} __name recoveries`);
+      console.log(`Inferred ${parts.join(' + ')} → rename_map.json`);
     }
 
-    return { namesInferred, cmdRenames, importRenames };
+    return { namesInferred, cmdRenames, importRenames, nameRenames };
   }
 
 
