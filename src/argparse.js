@@ -572,7 +572,12 @@ CONTENT ANALYSIS:
   --string-table [filter]    Show frequently-occurring string literals (alias: --strings)
                              Optional filter: substring or /regex/flags
   --breadcrumbs              Show telemetry/trace markers and event categories
-                             (execution flow phases inferred from log/trace calls)
+                             (execution flow phases inferred from log/trace calls).
+                             Combine with --verbose to expand each event
+                             category into its full event list AND a per-
+                             function rollup ("which functions emit which
+                             events"). Combine with --filter PATTERN to
+                             narrow to events whose name contains PATTERN.
   --file-bookends [N]        Show the first N and last N lines of each file
                              (default N=20). Entry points in minified bundles
                              are almost always at the top or tail of the file;

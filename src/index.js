@@ -328,27 +328,98 @@ if (args._explicit.has('string_table') || args.string_table) {
 
 if (args.breadcrumbs) {
   const data = index.extractBreadcrumbs(true);
-  if (data.markers.length > 0) {
-    console.log(`\nExecution Flow (${data.markers.length} trace markers):`);
+  const filterPat = args.filter ? args.filter.toLowerCase() : null;
+  const dnOf = (name) => (name && index.getDisplayName ? index.getDisplayName(name) : name) || name || '(file scope)';
+
+  // --- Markers (execution flow) ---
+  const markers = filterPat
+    ? data.markers.filter(m => m.label.toLowerCase().includes(filterPat))
+    : data.markers;
+  if (markers.length > 0) {
+    const filterNote = filterPat ? ` (filtered by "${args.filter}")` : '';
+    console.log(`\nExecution Flow (${markers.length} trace markers${filterNote}):`);
     let lastPhase = '';
-    for (const m of data.markers) {
+    for (const m of markers) {
       const phase = m.label.split('_')[0];
       if (phase !== lastPhase) {
         lastPhase = phase;
         console.log(`\n  --- ${phase.toUpperCase()} ---`);
       }
-      console.log(`  ${String(m.line).padStart(6)}  ${m.label}${m.func ? '  [' + m.func + ']' : ''}`);
+      const fn = m.func ? '  [' + dnOf(m.func) + ']' : '';
+      console.log(`  ${String(m.line).padStart(6)}  ${m.label}${fn}`);
     }
   }
+
   if (data.traceFunctions?.length > 0) {
     console.log(`\nDetected trace functions: ${data.traceFunctions.map(([n, c]) => n + '(' + c + ')').join(', ')}`);
   }
+
+  // --- Telemetry events ---
   const catKeys = Object.keys(data.eventCategories || {}).sort();
   if (catKeys.length > 0) {
-    const total = Object.values(data.eventCategories).reduce((s, a) => s + a.length, 0);
-    console.log(`\nTelemetry Events: ${total} events in ${catKeys.length} categories`);
-    for (const prefix of catKeys) {
-      console.log(`  ${prefix}_ (${data.eventCategories[prefix].length})`);
+    const allEvents = Object.values(data.eventCategories).flat();
+    const filtered = filterPat
+      ? allEvents.filter(e => e.name.toLowerCase().includes(filterPat))
+      : allEvents;
+    const filterNote = filterPat ? ` (${filtered.length} match "${args.filter}")` : '';
+    console.log(`\nTelemetry Events: ${allEvents.length} total in ${catKeys.length} categor${catKeys.length === 1 ? 'y' : 'ies'}${filterNote}`);
+
+    if (!args.verbose) {
+      // Compact: category counts only (hint how to drill in)
+      for (const prefix of catKeys) {
+        const catFiltered = filterPat
+          ? data.eventCategories[prefix].filter(e => e.name.toLowerCase().includes(filterPat))
+          : data.eventCategories[prefix];
+        if (catFiltered.length > 0) {
+          console.log(`  ${prefix}_ (${catFiltered.length})`);
+        }
+      }
+      if (allEvents.length > 0) {
+        console.log(`\n  (Use --verbose to list events, or --filter PATTERN to narrow.`);
+        console.log(`   --verbose adds both a per-category event list AND a per-function rollup.)`);
+      }
+    } else {
+      // Verbose: per-category event list
+      for (const prefix of catKeys) {
+        const catEvents = filterPat
+          ? data.eventCategories[prefix].filter(e => e.name.toLowerCase().includes(filterPat))
+          : data.eventCategories[prefix];
+        if (catEvents.length === 0) continue;
+        console.log(`\n  ${prefix}_ (${catEvents.length} event${catEvents.length === 1 ? '' : 's'}):`);
+        // Sort by filepath then line for deterministic output
+        const sorted = [...catEvents].sort((a, b) =>
+          a.filepath.localeCompare(b.filepath) || a.line - b.line);
+        for (const ev of sorted) {
+          const funcPart = ev.func ? `  [${dnOf(ev.func)}]` : '';
+          console.log(`    ${ev.name.padEnd(42)}  ${ev.filepath}:${ev.line}${funcPart}`);
+        }
+      }
+
+      // Per-function rollup — answers "which functions emit which events"
+      const byFunc = new Map();
+      for (const ev of filtered) {
+        const fn = ev.func || '(file scope)';
+        if (!byFunc.has(fn)) byFunc.set(fn, []);
+        byFunc.get(fn).push(ev.name);
+      }
+      if (byFunc.size > 0) {
+        console.log(`\nEvents by function (${byFunc.size} distinct functions):`);
+        const sortedFns = [...byFunc.entries()]
+          .sort((a, b) => b[1].length - a[1].length);
+        for (const [fn, evs] of sortedFns) {
+          const unique = [...new Set(evs)];
+          const countLabel = unique.length === evs.length
+            ? `${evs.length} event${evs.length === 1 ? '' : 's'}`
+            : `${evs.length} event${evs.length === 1 ? '' : 's'}, ${unique.length} distinct`;
+          const displayFn = fn === '(file scope)' ? fn : dnOf(fn);
+          // Truncate very long event lists — full data is above in the per-category section
+          const eventList = unique.length > 10
+            ? unique.slice(0, 10).join(', ') + `, …+${unique.length - 10} more`
+            : unique.join(', ');
+          console.log(`  ${displayFn}  (${countLabel})`);
+          console.log(`    ${eventList}`);
+        }
+      }
     }
   }
 }
