@@ -1253,10 +1253,18 @@ export async function doAnalyze(index, args) {
     return;
   }
 
-  // Show prompt on stderr
-  process.stderr.write(`\n--- Prompt sent to LLM (${prompt.length} chars) ---\n`);
-  process.stderr.write(prompt + '\n');
-  process.stderr.write('--- End prompt ---\n\n');
+  // Prompt-length summary to stderr so the user sees progress when stdout
+  // is redirected to a file. Full prompt is gated behind --verbose since
+  // users who want the actual prompt text can already get it via
+  // --show-prompt. Previously we unconditionally spilled the entire prompt
+  // to stderr, which was noisy when piping stdout > file.txt.
+  if (args.verbose) {
+    process.stderr.write(`\n--- Prompt sent to LLM (${prompt.length} chars) ---\n`);
+    process.stderr.write(prompt + '\n');
+    process.stderr.write('--- End prompt ---\n\n');
+  } else {
+    process.stderr.write(`\nSending prompt to LLM (${prompt.length} chars)...\n`);
+  }
 
   const llm = getAnalysisLLM(args);
   if (!llm.isAvailable()) {
@@ -1596,10 +1604,18 @@ async function _doClaimSingleAnalyze(ext, claimText, args, maskAll, showPrompt, 
     return;
   }
 
-  // Show prompt on stderr
-  process.stderr.write(`\n--- Prompt sent to LLM (${prompt.length} chars) ---\n`);
-  process.stderr.write(prompt + '\n');
-  process.stderr.write('--- End prompt ---\n\n');
+  // Prompt-length summary to stderr so the user sees progress when stdout
+  // is redirected to a file. Full prompt is gated behind --verbose since
+  // users who want the actual prompt text can already get it via
+  // --show-prompt. Previously we unconditionally spilled the entire prompt
+  // to stderr, which was noisy when piping stdout > file.txt.
+  if (args.verbose) {
+    process.stderr.write(`\n--- Prompt sent to LLM (${prompt.length} chars) ---\n`);
+    process.stderr.write(prompt + '\n');
+    process.stderr.write('--- End prompt ---\n\n');
+  } else {
+    process.stderr.write(`\nSending prompt to LLM (${prompt.length} chars)...\n`);
+  }
 
   const llm = getAnalysisLLM(args);
   if (!llm.isAvailable()) {
