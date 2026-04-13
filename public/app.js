@@ -2159,6 +2159,10 @@ function renderSource(data) {
     html += `<div class="source-line"><span class="line-number">${startLine + i}</span><span class="line-content">${content}</span></div>`;
   }
   container.innerHTML = html + '</div>';
+  // Setting innerHTML does NOT reset scrollTop. Without this, clicking a
+  // different function while scrolled mid-pane leaves the new source at the
+  // old scroll offset — often hiding the function's definition line.
+  container.scrollTop = 0;
   linkifySourceCalls(container, data.filepath);
   navUpdateButtons('middle-bottom');
 }
