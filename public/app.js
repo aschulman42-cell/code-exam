@@ -2718,7 +2718,11 @@ async function handleContextAction(action) {
   hideContextMenu();
   if (!target) return;
 
-  const funcSpec = target.filepath ? `${target.filepath}@${target.name}` : target.name;
+  // Some panes pass target.name (either bare or display), some pass only
+  // target.display_name. Server does reverse-rename resolution, so either
+  // form is acceptable — just pick whichever is non-empty.
+  const funcName = target.name || target.display_name;
+  const funcSpec = target.filepath ? `${target.filepath}@${funcName}` : funcName;
 
   switch (action) {
     case 'extract': onFunctionClick(target); break;
@@ -3913,7 +3917,7 @@ function initWorkspace() {
     $('#workspace-expand-btn').textContent = isOpen ? '▾ Collapse' : '▴ Expand';
     // Set initial height if opening for first time
     const ws = $('#workspace');
-    if (isOpen && !ws.style.height) ws.style.height = '180px';
+    if (isOpen && !ws.style.height) ws.style.height = '210px';
   });
 
   // Pop out full screen — carry over textarea height

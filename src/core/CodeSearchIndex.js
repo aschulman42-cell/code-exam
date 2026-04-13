@@ -4630,6 +4630,13 @@ export class CodeSearchIndex {
   findFunctionMatches(funcName, fileHint = null) {
     this._ensureFunctionIndex();
     const fileHintNorm = fileHint ? fileHint.toLowerCase().replace(/\\/g, '/') : null;
+    // If the caller supplied a display name (renamed form), reverse-resolve to
+    // the indexed (bare/original) name so callers from the GUI — which get
+    // display names in list responses — can round-trip back.
+    if (this.getOriginalName) {
+      const orig = this.getOriginalName(funcName);
+      if (orig && orig !== funcName) funcName = orig;
+    }
     const wasQualified = funcName.includes('.') || funcName.includes('::');
     const funcNameNorm = (funcName.includes('.') && !funcName.includes('::'))
       ? funcName.replace(/\./g, '::')
