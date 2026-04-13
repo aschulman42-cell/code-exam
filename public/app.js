@@ -157,6 +157,17 @@ function shortPath(fp, maxLen = 45) {
   return fp.length <= maxLen ? fp : '…' + fp.slice(-(maxLen - 1));
 }
 
+/**
+ * Truncate a function display name for compact display. Unlike shortPath, the
+ * INFORMATIVE part of a rename-tier display name is at the FRONT (the bare
+ * name, e.g. `MCz` in `MCz_KW_NO_DEFAULT_CURRENT_PROCESS`), so we truncate
+ * from the tail and leave an ellipsis at the end.
+ */
+function shortFuncName(name, maxLen = 20) {
+  if (!name) return '';
+  return name.length <= maxLen ? name : name.slice(0, maxLen - 1) + '…';
+}
+
 /** Colors for multi-term highlighting (up to 8 terms) */
 const HIGHLIGHT_COLORS = [
   '#8B8000',   // dark yellow
@@ -1510,7 +1521,7 @@ function renderBreadcrumbs(container, data, filter) {
         itemContainer.appendChild(phaseLabel);
       }
 
-      const funcInfo = m.func ? shortPath(m.func, 20) : '';
+      const funcInfo = m.func ? shortFuncName(m.func, 20) : '';
       const el = h('div', { className: 'list-item', title: `${m.label}\n${m.filepath}:${m.line}\n${m.func || ''}` }, [
         h('span', { className: 'metric muted', text: String(m.line), style: 'font-size:10px;min-width:45px;text-align:right' }),
         h('span', { className: 'name clickable', text: m.label, style: 'font-size:11px;flex:1' }),
@@ -1570,7 +1581,7 @@ function renderBreadcrumbs(container, data, filter) {
         const el = h('div', { className: 'list-item', title: `${ev.name}\n${ev.filepath}:${ev.line}\n${ev.func || ''}` }, [
           h('span', { className: 'metric muted', text: String(ev.line), style: 'font-size:10px;min-width:45px;text-align:right' }),
           h('span', { className: 'name clickable', text: ev.name, style: 'font-size:11px;flex:1' }),
-          h('span', { className: 'metric muted', text: ev.func ? shortPath(ev.func, 20) : '', style: 'font-size:10px' }),
+          h('span', { className: 'metric muted', text: ev.func ? shortFuncName(ev.func, 20) : '', style: 'font-size:10px' }),
         ]);
         el.addEventListener('click', () => {
           if (ev.func && ev.func !== '(file scope)') {
@@ -3907,7 +3918,7 @@ function stripAtFileHeader(text) {
 function initWorkspace() {
   // Open expanded by default
   document.body.classList.add('workspace-open');
-  $('#workspace').style.height = '180px';
+  $('#workspace').style.height = '210px';
 
   $('#workspace-toggle').addEventListener('click', (e) => {
     // Don't toggle if the popout button was clicked
