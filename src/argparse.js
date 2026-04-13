@@ -140,6 +140,7 @@ export function parseArgs() {
     mask_all: false,
     line_numbers: false,
     claim_text: null,
+    with_digest: false,
 
     // Phase 9: Extended extraction
     follow_calls: false,
@@ -266,6 +267,7 @@ export function parseArgs() {
     ['mask_all',             'flag',           ['--mask-all']],
     ['line_numbers',         'flag',           ['--line-numbers']],
     ['claim_text',           'value',          ['--claim-text']],
+    ['with_digest',          'flag',           ['--with-digest']],
 
     // Phase 9: Extended extraction
     ['follow_calls',         'flag',           ['--follow-calls']],
@@ -556,6 +558,12 @@ LLM ANALYSIS:
   --mask-all                 Strip comments and mask string contents before sending to LLM
   --line-numbers             Include source line numbers in LLM prompt
   --claim-text <text>        Patent claim text for --claim-analyze (or @file.txt)
+  --with-digest              Prepend the --digest output (static-analysis facts:
+                             identity, callers/callees, strings, breadcrumbs,
+                             comments, dupes) to the --analyze prompt. Use to
+                             A/B the effect of CodeExam-provided context on
+                             local-LLM analysis quality. Composable with
+                             --with <claim-text> and --mask-all.
 
 DEDUP / DUPLICATES:
   --dupefiles <n>            Top N duplicate file groups by SHA1 hash

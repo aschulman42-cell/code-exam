@@ -1202,15 +1202,43 @@ export async function doAnalyze(index, args) {
     maskAll, lineNumbers, startLine: start, funcName,
   });
 
-  const prompt = contextText
+  let prompt = contextText
     ? buildContextAnalyzePrompt(sourceForLLM, funcName, filepath, contextText, maskAll)
     : buildAnalyzePrompt(sourceForLLM, funcName, filepath, maskAll);
+
+  // --with-digest: prepend the #329 digest as a "facts preamble" so the LLM
+  // has static-analysis context (call graph, strings, breadcrumbs, etc.)
+  // before it reads the source. Lets the user A/B whether CodeExam-provided
+  // context improves local-LLM output quality.
+  let digestText = null;
+  if (args.with_digest && index.buildFunctionDigest) {
+    const digestObj = index.buildFunctionDigest(funcName);
+    if (digestObj) {
+      // Import formatter lazily so analyze.js doesn't hard-depend on digest.js
+      const { formatFunctionDigest } = await import('./digest.js');
+      digestText = formatFunctionDigest(digestObj);
+      prompt =
+        `Below is a mechanical summary of the function you're about to\n` +
+        `analyze, produced by a static-analysis tool (CodeExam). These are\n` +
+        `FACTS extracted directly from the code — counts of callers and\n` +
+        `callees, string literals in the body, trace markers emitted, etc.\n` +
+        `Use this to orient yourself BEFORE reading the source. Where the\n` +
+        `digest and the source disagree, trust the source.\n` +
+        `\n` +
+        `=== BEGIN STATIC-ANALYSIS DIGEST ===\n` +
+        `${digestText}` +
+        `=== END STATIC-ANALYSIS DIGEST ===\n` +
+        `\n` +
+        `${prompt}`;
+    }
+  }
 
   // Header
   console.log('='.repeat(70));
   console.log(`ANALYZE: ${filepath}@${displayName(funcName, filepath)}`);
   console.log(`  Lines ${start}-${end} (${linesCount} lines)`);
   if (contextText) console.log(`  Context: ${contextText.length} chars (--with)`);
+  if (digestText) console.log(`  Digest prepended: ${digestText.length} chars (--with-digest)`);
   if (maskAll) console.log('  Masked: comments, strings, identifiers');
   console.log('='.repeat(70));
 
