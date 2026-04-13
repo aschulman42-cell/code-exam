@@ -1790,10 +1790,17 @@ function renderCommandCatalog(container, catalog, filter) {
       ].filter(Boolean));
 
       el.addEventListener('click', () => {
-        // Try to show containing function via extract, fall back to file
+        // Try to show containing function via extract, fall back to file.
+        // IMPORTANT: handler.filepath is where the handler is REFERENCED (the
+        // dispatch-table line), not where it's DEFINED. When we're trying to
+        // open the handler's DEFINITION, we must NOT use handler.filepath as a
+        // file-hint — it'll filter the search to the dispatch-table file and
+        // miss the real definition. Same for item.filepath (the descriptor
+        // site). Pass filepath=null and let the server scan all files.
         const funcToShow = item.handler?.handlerFunc || item.func;
         if (funcToShow && funcToShow !== '(file scope)') {
-          onFunctionClick({ name: funcToShow, display_name: funcToShow, filepath: item.handler?.filepath || item.filepath });
+          const fp = item.handler?.handlerFunc ? null : (item.filepath || null);
+          onFunctionClick({ name: funcToShow, display_name: funcToShow, filepath: fp });
         } else if (item.handler && item.handler.filepath) {
           onFileClick(item.handler.filepath, item.handler.line);
         } else if (item.filepath) {
