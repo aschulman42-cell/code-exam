@@ -104,6 +104,7 @@ const api = {
   commandCatalog:  ()  => api.get('command-catalog'),
   breadcrumbs:     ()  => api.get('breadcrumbs'),
   bundleSeams:     (p) => api.get('bundle-seams', p),
+  digest:          (p) => api.get('digest', p),
   buildPrompt:     (p) => api.post('build-prompt', p),
   claimSearch:     (p) => api.post('claim-search', p),
   claimSearchLlm:  (p) => api.post('claim-search-llm', p),
@@ -2397,6 +2398,12 @@ function renderDisambiguation(matches) {
   wireClickables(container);
 }
 
+function renderDigest(data) {
+  const container = $('#middle-top-body'), title = $('#middle-top-title');
+  title.textContent = `Digest: ${data.spec}`;
+  container.innerHTML = `<pre class="digest-view" style="white-space:pre-wrap;font-family:var(--font-mono);font-size:12px;padding:8px;margin:0">${escHtml(data.text)}</pre>`;
+}
+
 function renderCallersOnly(funcName, data) {
   const container = $('#middle-top-body'), title = $('#middle-top-title');
   const callers = data.callers || [];
@@ -2728,6 +2735,14 @@ async function handleContextAction(action) {
       catch (err) { showMiddleTopError(err.message); }
       break;
 
+    case 'digest':
+      showMiddleTopLoading(`Digest of ${target.name}…`);
+      try {
+        const data = await api.digest({ name: funcSpec });
+        renderDigest(data);
+      } catch (err) { showMiddleTopError(err.message); }
+      break;
+
     case 'call-tree': {
       showPane('right-top');
       const ctDepth = parseInt($('#diagram-depth')?.value) || 3;
@@ -2775,12 +2790,13 @@ async function handleContextAction(action) {
       if (!checkEngineAvailability(engine)) break;
       const mask = $('#ws-mask-all')?.checked || false;
       const maskComments = $('#ws-mask-comments')?.checked || false;
-      showAnalysisPane(`<div class="loading">Analyzing ${escHtml(target.name)} via ${escHtml(engine)}…</div>`, 'Analyzing…', true);
+      const withDigest = $('#ws-with-digest')?.checked || false;
+      showAnalysisPane(`<div class="loading">Analyzing ${escHtml(target.name)} via ${escHtml(engine)}${withDigest ? ' (with digest)' : ''}…</div>`, 'Analyzing…', true);
       try {
         const data = await api.analyzeLlm({
           func: funcSpec,
           mode: 'analyze',
-          engine, mask, maskComments,
+          engine, mask, maskComments, withDigest,
         });
         renderLlmAnalysis(data);
       } catch (err) {
@@ -2804,13 +2820,14 @@ async function handleContextAction(action) {
       contextText = stripAtFileHeader(contextText);
       const mask = $('#ws-mask-all')?.checked || false;
       const maskComments = $('#ws-mask-comments')?.checked || false;
-      showAnalysisPane(`<div class="loading">Analyzing ${escHtml(target.name)} with context via ${escHtml(engine)}…</div>`, 'Analyzing…', true);
+      const withDigest = $('#ws-with-digest')?.checked || false;
+      showAnalysisPane(`<div class="loading">Analyzing ${escHtml(target.name)} with context via ${escHtml(engine)}${withDigest ? ' (with digest)' : ''}…</div>`, 'Analyzing…', true);
       try {
         const data = await api.analyzeLlm({
           func: funcSpec,
           mode: 'context-analyze',
           contextText,
-          engine, mask, maskComments,
+          engine, mask, maskComments, withDigest,
         });
         renderLlmAnalysis(data);
       } catch (err) {

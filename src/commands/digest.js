@@ -129,7 +129,8 @@ export function formatFunctionDigest(digest) {
   // --- Breadcrumbs ---
   const bc = digest.breadcrumbs;
   if (bc.markers && bc.markers.length > 0) {
-    push('─── BREADCRUMB MARKERS EMITTED ──────────────────────────────────────');
+    push('─── BREADCRUMB/TRACE LABELS EMITTED BY THE CODE ─────────────────────');
+    push('    (string-literal labels passed to trace/telemetry helpers — not filepaths)');
     for (const m of bc.markers) {
       push(`    L${m.line}:  ${m.label}`);
     }

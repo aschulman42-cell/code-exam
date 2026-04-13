@@ -21,6 +21,7 @@ import { Worker } from 'worker_threads';
 import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { parseMultisectTerms } from './commands/multisect.js';
+import { formatFunctionDigest } from './commands/digest.js';
 import { displayName } from './utils.js';
 import { execCommand } from './commands/interactive.js';
 import {
@@ -1713,6 +1714,32 @@ routes['/api/command-catalog'] = (req, res) => {
 };
 
 
+// --- Function digest (#329) ---
+//
+// Returns both the structured digest object (for any future client-side
+// rendering) and the text-formatted version (for immediate display).
+// Frontend currently uses the text; JSON is included so a fancier panel
+// can be built later without changing the endpoint.
+
+routes['/api/digest'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const spec = q.name || q.func;
+  if (!spec) return errorResponse(res, 'Missing ?name= parameter');
+
+  const digestObj = index.buildFunctionDigest(spec, {
+    maxCallers: parseInt(q.max) || 10,
+    maxCallees: parseInt(q.max) || 10,
+    maxStrings: parseInt(q.max_strings) || 15,
+  });
+  if (!digestObj) return errorResponse(res, `Function not found: ${spec}`, 404);
+
+  const text = formatFunctionDigest(digestObj);
+  jsonResponse(res, { spec, text, digest: digestObj });
+};
+
+
 // --- Bundle seams ---
 //
 // Scans all indexed JS files >1000 lines for esbuild module-wrapper patterns
@@ -2391,6 +2418,22 @@ routes['/api/analyze-llm'] = (req, res) => {
         filepath = m.filepath;
         lines = m.end - m.start + 1;
         console.log(`  [analyze-llm] ${mode} on ${m.filepath}@${m.name} (${lines} lines), engine=${engine}`);
+
+        // Optional: prepend mechanical static-analysis digest to the prompt.
+        if (params.withDigest && index.buildFunctionDigest) {
+          try {
+            const digestObj = index.buildFunctionDigest(`${m.filepath}@${m.name}`);
+            if (digestObj) {
+              const digestText = formatFunctionDigest(digestObj);
+              prompt =
+                `Below is a mechanical static-analysis digest of the function you are about to analyze.\n` +
+                `Use it as factual context (call graph, strings, breadcrumbs, dupes) — but base your analysis on the source code shown after it.\n\n` +
+                `=== BEGIN STATIC-ANALYSIS DIGEST ===\n${digestText}=== END STATIC-ANALYSIS DIGEST ===\n\n${prompt}`;
+            }
+          } catch (e) {
+            console.error('  [analyze-llm] digest-prepend failed:', e.message);
+          }
+        }
       }
 
       // --- Call LLM ---
