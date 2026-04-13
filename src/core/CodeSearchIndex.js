@@ -661,6 +661,86 @@ function _findWrapperEnd(lines, startLineIdx) {
 }
 
 /**
+ * Scan an esbuild-bundled file's lines for module-level `var NAME = H((...) => {…})`
+ * declarations where H is the detected ESM or CJS lazy-factory helper. These
+ * compile to genuine module functions but the regex parser in _parseFunctionsRegex
+ * doesn't catch them (it looks for `function NAME(...)` / `class NAME` / etc.
+ * shapes, not arrow-assigned-to-var declarations wrapped inside a helper call).
+ *
+ * Missing these costs us a lot — claude-code's cli.js has ~4,300 such entries
+ * that never make it into the function index, so click-through on identifiers
+ * like `fwq()` or `bHq()` reports "function not found" even though the call
+ * target is right there in the file. See TODO #340.
+ *
+ * This is an ESBUILD-ONLY pattern. Webpack, Parcel, Rollup, Vite use entirely
+ * different module-wrapper shapes (see TODO #333). This function deliberately
+ * returns {} for any file whose top-of-file doesn't contain an esbuild helper
+ * declaration — no risk of false-positive captures on non-esbuild bundles.
+ *
+ * @param {string[]} lines — the file's line array
+ * @returns {object} — { name: { start, end, type, base_name } } ready to merge
+ *                     into a fileFuncs map. Empty object if no esbuild helper
+ *                     is detected or no wrappers are found.
+ */
+function _parseEsbuildWrappers(lines) {
+  const helpers = _detectBundleHelpers(lines);
+  if (!helpers.esm && !helpers.cjs) return {};
+
+  // Build a character-class of the one-letter helper names we're willing to
+  // match as wrapper invocations. Both ESM and CJS helpers use the same
+  // "var X = H(<arrow>)" shape at the call site — the difference is just
+  // whether the inner arrow takes arguments (CJS passes exports/module).
+  // Escape in case a helper letter happens to be a regex metachar (very
+  // unlikely since _detectBundleHelpers returns \w+ but defensive here).
+  const helperLetters = [helpers.esm, helpers.cjs]
+    .filter(Boolean)
+    .map(h => h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (helperLetters.length === 0) return {};
+
+  // `var NAME = HELPER(` — matches either ESM or CJS wrappers, then we
+  // separately confirm the next non-whitespace token is `(` starting an
+  // arrow-function parameter list. We do this in two steps (not one regex)
+  // because arrow-param lists vary in shape (`()`, `(x)`, `(x, y)`, with or
+  // without types) and folding that into one regex gets brittle fast.
+  const declRe = new RegExp(
+    '^\\s*var\\s+([a-zA-Z_$][\\w$]*)\\s*=\\s*(' + helperLetters.join('|') + ')\\s*\\('
+  );
+  // After the wrapping `(` we expect the inner arrow's parameter list,
+  // which begins with `(`. Whitespace between them is tolerated because
+  // prettifiers vary.
+  const innerArrowRe = /^\s*\([^)]*\)\s*=>/;
+
+  const found = {};
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const m = line.match(declRe);
+    if (!m) continue;
+    const name = m[1];
+    // Slice the tail after the match to confirm it opens an arrow.
+    const tail = line.slice(m[0].length);
+    if (!innerArrowRe.test(tail)) continue;
+
+    // Find the closing `}` of the arrow body using the shared brace-counter
+    // (which tracks string/template/comment state correctly).
+    const endLine = _findWrapperEnd(lines, i);
+    const startLine = i + 1;  // 1-indexed
+    if (endLine <= startLine) continue;  // pathological — skip
+
+    // Don't overwrite later duplicates (the caller merges and keeps the
+    // existing entry); if this collides with a same-named entry we just
+    // append an @line disambiguator.
+    const key = (name in found) ? `${name}@${startLine}` : name;
+    found[key] = {
+      start: startLine,
+      end: endLine,
+      type: 'function',
+      base_name: name,
+    };
+  }
+  return found;
+}
+
+/**
  * Extract a "preview" line from inside a module body — the first line that's
  * likely to tell you what the module is about. Skips trivial stuff (var
  * declarations at top, "use strict", closing braces, pure punctuation).
@@ -1495,7 +1575,21 @@ export class CodeSearchIndex {
     };
 
     // --- Callers ---
-    const rawCallers = this.findCallers(fn.name, 500);
+    // Short-name bail-out is expected here for 1-2 char bundled-JS names;
+    // the digest still produces useful output (identity, callees, strings,
+    // breadcrumbs, dupes), so we note the skipped scan rather than failing.
+    let rawCallers;
+    let callersSkipped = null;
+    try {
+      rawCallers = this.findCallers(fn.name, 500);
+    } catch (e) {
+      if (e.code === 'SHORT_NAME_BAILOUT') {
+        rawCallers = [];
+        callersSkipped = `scan skipped — bare name '${e.shortName}' too short for efficient lookup (#280)`;
+      } else {
+        throw e;
+      }
+    }
     const byCaller = new Map();
     for (const c of rawCallers) {
       // tree-sitter's _findContainingFunction returns null when a call is
@@ -1510,6 +1604,7 @@ export class CodeSearchIndex {
     const callersSection = {
       totalSites: rawCallers.length,
       distinctCallers: byCaller.size,
+      skipped: callersSkipped, // non-null means the caller scan was bailed out
       byCaller: [...byCaller.entries()]
         .sort((a, b) => b[1].length - a[1].length) // most-frequent callers first
         .slice(0, maxCallers)
@@ -2618,14 +2713,37 @@ export class CodeSearchIndex {
             const handlerFunc = this._findContainingFunctionFromBounds(
               this._getFuncBoundaries(fp), li + 1
             );
-            // Look for the called function on this or next few lines
-            const snippet = flines.slice(li, Math.min(li + 3, flines.length)).join(' ');
-            // JS: doSomething() / Python: do_something()
+            // Look for the called function. Scan a 20-line window (was 3)
+            // so we catch dispatches where the real handler call is several
+            // lines below the `if (args.X)` guard — e.g. --build-index has
+            // ~10 lines of option-formatting before the actual
+            // `await index.buildIndex(...)`.
+            const snippet = flines.slice(li, Math.min(li + 20, flines.length)).join(' ');
+            // Priority 1: do-prefixed standalone call — the strongest
+            // convention-based signal (`doFoo(` / `do_foo(` / `await doFoo(`).
+            // Priority 2: any awaited call, including method calls
+            // (`await x.buildIndex(` captures "buildIndex"). This catches
+            // options whose handler uses method-call dispatch rather than
+            // the doXxx() naming convention.
+            let handlerName = null;
             const doMatch = snippet.match(/\b(do[_A-Z]\w+)\s*\(|await\s+(do[_A-Z]\w+)\s*\(/);
+            if (doMatch) {
+              handlerName = doMatch[1] || doMatch[2];
+            } else {
+              const awaitMatch = snippet.match(/await\s+(?:\w+\.)?(\w+)\s*\(/);
+              if (awaitMatch) {
+                const candidate = awaitMatch[1];
+                // Filter out stdlib/builtin noise — these are never user
+                // handlers. Keep the list small and high-confidence; better
+                // to miss a handler than to tag the wrong function.
+                const NOISE = /^(?:write|log|warn|error|info|debug|then|catch|stringify|parse|split|join|map|filter|forEach|readFile|readFileSync|writeFile|writeFileSync|exists|existsSync|stat|statSync|mkdir|rmdir|readdir)$/;
+                if (!NOISE.test(candidate)) handlerName = candidate;
+              }
+            }
             opt.handler = {
               filepath: fp, line: li + 1,
               func: handlerFunc,
-              handlerFunc: doMatch ? (doMatch[1] || doMatch[2]) : null,
+              handlerFunc: handlerName,
             };
             break;
           }
@@ -3524,8 +3642,18 @@ export class CodeSearchIndex {
     this.functionIndex = {};
     let totalFunctions = 0;
 
-    for (const [filepath] of this.fileLines) {
+    for (const [filepath, fileLines] of this.fileLines) {
       const fileFuncs = this._parseFunctionsRegex(filepath);
+      // Overlay esbuild-wrapper module functions (#340). These are the
+      // `var NAME = HELPER(() => {...})` entries the regex scanner misses.
+      // Harmless on non-esbuild files: _parseEsbuildWrappers returns {}
+      // when no esbuild helper is detected at the file's head.
+      if (/\.(?:js|mjs|cjs|ts|tsx|jsx)$/i.test(filepath)) {
+        const wrapped = _parseEsbuildWrappers(fileLines);
+        for (const [name, info] of Object.entries(wrapped)) {
+          if (!(name in fileFuncs)) fileFuncs[name] = info;
+        }
+      }
       if (Object.keys(fileFuncs).length > 0) {
         this.functionIndex[filepath] = fileFuncs;
         totalFunctions += Object.keys(fileFuncs).length;
@@ -3600,6 +3728,15 @@ export class CodeSearchIndex {
         }
       }
 
+      // Overlay esbuild-wrapper module functions (#340) — same as the
+      // regex-only path. Returns {} for non-esbuild files so this is a
+      // no-op everywhere else.
+      if (/\.(?:js|mjs|cjs|ts|tsx|jsx)$/i.test(filepath)) {
+        const wrapped = _parseEsbuildWrappers(lines);
+        for (const [name, info] of Object.entries(wrapped)) {
+          if (!(name in fileFuncs)) fileFuncs[name] = info;
+        }
+      }
       if (Object.keys(fileFuncs).length > 0) {
         this.functionIndex[filepath] = fileFuncs;
         totalFunctions += Object.keys(fileFuncs).length;
@@ -5199,7 +5336,7 @@ export class CodeSearchIndex {
    * @param {number} [maxResults=500]
    * @returns {Array<{filepath, line_number, line_text, caller_function, call_type}>}
    */
-  findCallers(functionName, maxResults = 500) {
+  findCallers(functionName, maxResults = 500, opts = {}) {
     if (!this._ensureInvertedAvailable()) {
       console.log('No inverted index. Build index first.');
       return [];
@@ -5209,6 +5346,25 @@ export class CodeSearchIndex {
     // Extract bare name
     let bareName = functionName.includes('::') ? functionName.split('::').pop() : functionName;
     bareName = bareName.includes('.') ? bareName.split('.').pop() : bareName;
+
+    // Short-name bail-out. For 1-2 character bare names (common in bundled JS
+    // after esbuild minification — `h1`, `N8`, etc.), the inverted-index scan
+    // has very low selectivity and blocks the event loop for seconds to
+    // minutes on large indexes. See TODO #280 (worker threads) for the real
+    // fix. Until then, default callers get a clean throw so the GUI can
+    // surface a meaningful message; callers that really want the scan
+    // (e.g. `--callers` CLI with explicit user intent) can pass
+    // `{ allowShortName: true }` to force it.
+    //
+    // Threshold of 2 chars chosen because 3-char names like `GCz` typically
+    // have 1-2 orders of magnitude lower match count and complete in under
+    // a second. If you see freezes on longer names, raise this.
+    if (bareName.length <= 2 && !opts.allowShortName) {
+      const err = new Error(`Bare name '${bareName}' is too short for efficient caller search on this index. Short names have too many matches to scan without blocking the server (#280). Try a different target, or use the CLI with an explicit --callers and the full qualified name.`);
+      err.code = 'SHORT_NAME_BAILOUT';
+      err.shortName = bareName;
+      throw err;
+    }
 
     // Build call patterns
     // Use case-insensitive only for longer names (5+ chars) where case collisions
