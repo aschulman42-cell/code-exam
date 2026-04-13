@@ -3893,7 +3893,14 @@ export class CodeSearchIndex {
           } else if (_jsBeautify) {
             // Step 3: Fall back to js-beautify (formatting only)
             try {
-              content = _jsBeautify(content, { indent_size: 2, max_preserve_newlines: 2 });
+              // break_chained_methods=true puts each `.foo()` in a chain on
+              // its own line — critical for Commander.js-style `.option().option()`
+              // chains (cli.js GCz) which otherwise stay as one 10K-char line.
+              content = _jsBeautify(content, {
+                indent_size: 2,
+                max_preserve_newlines: 2,
+                break_chained_methods: true,
+              });
               stats.prettified++;
             } catch { /* beautify failed — use original */ }
           }
