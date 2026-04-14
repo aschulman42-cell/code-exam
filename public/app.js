@@ -1773,10 +1773,19 @@ function renderCommandCatalog(container, catalog, filter) {
         : '';
       // Show handler function/file if available, otherwise definition location
       let rightInfo = '';
+      // "Precondition" detection: a CLI option whose catalog entry has no
+      // handler at all (no dispatch site was found anywhere in the code).
+      // These options — --api-key, --claim-model, --depth, etc. — are just
+      // read as values inside other handlers. Falling back to item.func
+      // shows them as `parseArgs` (their declaration site), which reads as
+      // if parseArgs is the handler. Label them explicitly instead.
+      const isPrecondition = item.flags && !item.handler;
       if (item.handler && item.handler.handlerFunc) {
         rightInfo = item.handler.handlerFunc;
       } else if (item.handler && item.handler.filepath) {
         rightInfo = shortPath(item.handler.filepath, 20) + ':' + item.handler.line;
+      } else if (isPrecondition) {
+        rightInfo = '(precondition — no dispatch)';
       } else if (item.func) {
         rightInfo = item.func;
       } else if (item.filepath) {
@@ -1798,7 +1807,13 @@ function renderCommandCatalog(container, catalog, filter) {
         // miss the real definition. Same for item.filepath (the descriptor
         // site). Pass filepath=null and let the server scan all files.
         const funcToShow = item.handler?.handlerFunc || item.func;
-        if (funcToShow && funcToShow !== '(file scope)') {
+        if (isPrecondition && item.filepath) {
+          // Precondition CLI option (--api-key, --depth, etc.): no real
+          // handler to land on. Open the file at the option's declaration
+          // line so the user sees the type/help/default rather than the top
+          // of a 400-line parseArgs.
+          onFileClick(item.filepath, item.line);
+        } else if (funcToShow && funcToShow !== '(file scope)') {
           const fp = item.handler?.handlerFunc ? null : (item.filepath || null);
           onFunctionClick({ name: funcToShow, display_name: funcToShow, filepath: fp });
         } else if (item.handler && item.handler.filepath) {

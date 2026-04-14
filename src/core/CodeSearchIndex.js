@@ -2752,6 +2752,47 @@ export class CodeSearchIndex {
       }
     }
 
+    // Resolve slash-command handlers (Pattern 2). Same heuristic as the CLI
+    // option handler resolution above: the registration line is an `if
+    // (query.startsWith('/foo'))` guard, and the real handler is called in
+    // the next ~20 lines. Without this, every `/command` mapped to its
+    // CONTAINING function (typically a giant dispatchCommand-style switch),
+    // so all clicks landed on the same line.
+    for (const cmd of catalog.commands) {
+      // Only slash-commands have this dispatch shape; other catalog entry
+      // types (declarative descriptors, switch cases, MENUITEMs) handle
+      // themselves elsewhere.
+      if (!cmd.name || !cmd.name.startsWith('/')) continue;
+      if (cmd.handler) continue;  // already resolved
+      const flines = this.fileLines.get(cmd.filepath);
+      if (!flines || cmd.line < 1) continue;
+      const startIdx = cmd.line - 1;  // 0-indexed
+      const snippet = flines.slice(startIdx, Math.min(startIdx + 20, flines.length)).join(' ');
+      // Same priority order as CLI option detection:
+      //   1. doFoo() / await doFoo() — the strong convention signal
+      //   2. await <ident>( or await <obj>.<method>( — generic awaited dispatch
+      let handlerName = null;
+      const doMatch = snippet.match(/\b(do[_A-Z]\w+)\s*\(|await\s+(do[_A-Z]\w+)\s*\(/);
+      if (doMatch) {
+        handlerName = doMatch[1] || doMatch[2];
+      } else {
+        const awaitMatch = snippet.match(/await\s+(?:\w+\.)?(\w+)\s*\(/);
+        if (awaitMatch) {
+          const candidate = awaitMatch[1];
+          const NOISE = /^(?:write|log|warn|error|info|debug|then|catch|stringify|parse|split|join|map|filter|forEach|readFile|readFileSync|writeFile|writeFileSync|exists|existsSync|stat|statSync|mkdir|rmdir|readdir)$/;
+          if (!NOISE.test(candidate)) handlerName = candidate;
+        }
+      }
+      if (handlerName) {
+        cmd.handler = {
+          filepath: cmd.filepath,
+          line: cmd.line,
+          func: cmd.func,
+          handlerFunc: handlerName,
+        };
+      }
+    }
+
     // Resolve GUI action handlers: find where the action name appears in JS dispatch
     // (e.g. case 'search-fast': or data-action="search-fast" handler wiring)
     for (const action of catalog.guiActions) {
@@ -3628,6 +3669,36 @@ export class CodeSearchIndex {
     // Re-sort overlapping: if a brace-expanded function now encloses others,
     // those inner functions should be kept (they're real inner functions).
     // No action needed - the function index supports overlapping ranges.
+
+    // Shrink over-extended nested arrow functions. The initial end-setting
+    // heuristic ("close previous function at next function start - 1") gets
+    // the end wrong for `const foo = () => {...}` nested inside another
+    // function: the next detected function-start is often hundreds of lines
+    // past the arrow's real close. The naive brace-count post-process above
+    // can't detect this because the over-extended range happens to be
+    // brace-balanced overall.
+    //
+    // Fix: for entries whose start line is an arrow-assignment (=> {), use
+    // the state-aware _findWrapperEnd to find the earliest balanced close.
+    // That counts strings, template literals, line/block comments correctly
+    // (but NOT regex literals — rare in practice; a function whose body has
+    // `/}/` could false-close early, accepted limitation, same as #340).
+    //
+    // Scoped to arrow-assignment shapes only: regular `function foo() {`
+    // declarations keep the existing post-process behavior unchanged. This
+    // limits the blast radius of the state-machine swap.
+    const arrowDeclRe = /(?:=>\s*\{|=\s*(?:async\s+)?(?:function\s*)?\([^)]*\)\s*(?:=>\s*)?\{)/;
+    for (const [fname, info] of Object.entries(fileFunctions)) {
+      if (info.start < 1 || info.start > lines.length) continue;
+      const startLine = lines[info.start - 1] || '';
+      if (!arrowDeclRe.test(startLine)) continue;
+      const tightEnd = _findWrapperEnd(lines, info.start - 1);
+      // Only shrink — never extend past whatever the prior pass produced.
+      // Don't accept a degenerate result (same line or beyond file end).
+      if (tightEnd > info.start && tightEnd < info.end) {
+        info.end = tightEnd;
+      }
+    }
 
     return fileFunctions;
   }
