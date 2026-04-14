@@ -373,7 +373,7 @@ async function loadSectionData(sectionId, filter = '') {
       case 'strings':
         data = await api.stringTable({ filter, max: getMaxResults() * 2 });
         state.sectionData[sectionId] = data.strings;
-        renderStringTable(content, data.strings);
+        renderStringTable(content, data.strings, data);
         badge.textContent = data.total;
         break;
 
@@ -1429,11 +1429,23 @@ function makeResizable(panel, handle) {
 }
 
 
-function renderStringTable(container, strings) {
+function renderStringTable(container, strings, meta) {
   container.innerHTML = '';
   if (!strings || strings.length === 0) {
     container.innerHTML = '<div class="list-placeholder">No strings found (try a filter)</div>';
     return;
+  }
+  // Up-front truncation warning when we're only showing a slice of the real
+  // matches. Without this, a filtered result of exactly `max` items looked
+  // identical to one with no additional matches — the user couldn't tell
+  // whether they were seeing everything or just the top of the heap.
+  if (meta && meta.truncated) {
+    const warn = h('div', {
+      className: 'list-placeholder',
+      style: 'background:var(--bg-input);color:var(--accent);padding:4px 8px;font-size:11px;border-left:3px solid var(--accent);margin-bottom:4px',
+      text: `Showing ${meta.shown} of ${meta.total}+. Increase Max Results to see more.`,
+    });
+    container.appendChild(warn);
   }
   for (const s of strings) {
     // Truncate display of very long strings
@@ -1982,23 +1994,28 @@ async function onFunctionClickSourceOnly(funcInfo) {
     let extractData = await api.extract({ func: funcSpec });
 
     // Auto-disambiguate: if ambiguous and we have a current file context, prefer
-    // the match in the same file, or the same directory
+    // the match in the same file, or the same directory. BUT: skip .d.ts type
+    // stubs when any real implementation exists elsewhere. Without this, clicking
+    // an identifier inside a .d.ts file would navigate to the signature one-liner
+    // instead of the real function body in a sibling .js/.ts.
     if (extractData.ambiguous && extractData.matches.length > 0) {
+      const realOnly = extractData.matches.filter(m => !m.filepath.endsWith('.d.ts'));
+      const pool = realOnly.length > 0 ? realOnly : extractData.matches;
       const ctx = state.currentSourceFile || (funcInfo.filepath || '');
       let best = null;
 
       if (ctx) {
         // Exact file match
-        best = extractData.matches.find(m => m.filepath === ctx);
+        best = pool.find(m => m.filepath === ctx);
         // Same directory match
         if (!best) {
           const ctxDir = ctx.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
-          if (ctxDir) best = extractData.matches.find(m => m.filepath.replace(/\\/g, '/').startsWith(ctxDir + '/'));
+          if (ctxDir) best = pool.find(m => m.filepath.replace(/\\/g, '/').startsWith(ctxDir + '/'));
         }
       }
       // Fallback: just pick the largest (most likely the real implementation)
       if (!best) {
-        best = extractData.matches.reduce((a, b) => (b.lines > a.lines ? b : a), extractData.matches[0]);
+        best = pool.reduce((a, b) => (b.lines > a.lines ? b : a), pool[0]);
       }
 
       // Re-fetch with the resolved filepath
@@ -2354,6 +2371,38 @@ function linkifySourceCalls(container, contextFilepath) {
       }
       parent.removeChild(textNode);
     }
+  }
+
+  // Post-pass: highlighted search terms (<mark> elements) aren't caught by
+  // the text-node walk above because the identifier lives inside the <mark>
+  // and its `(` lives in the sibling text node — the `name\s*\(` regex can't
+  // match across two separate text nodes. Wire clicks onto <mark> elements
+  // whose text is an identifier AND whose following sibling chain starts
+  // with `(`, so highlighted function names behave like linkified ones.
+  for (const mark of container.querySelectorAll('mark')) {
+    const name = mark.textContent;
+    if (!name || !/^[a-zA-Z_]\w*$/.test(name)) continue;
+    if (name.length < 2) continue;
+    if (SOURCE_SKIP_KEYWORDS.has(name)) continue;
+    // Check next sibling text starts with `(` (skipping whitespace).
+    // Traverse forward collecting text until we see a non-space char.
+    let node = mark.nextSibling;
+    let tail = '';
+    while (node && tail.length < 5) {
+      tail += node.textContent || '';
+      node = node.nextSibling;
+    }
+    if (!/^\s*\(/.test(tail)) continue;
+    mark.classList.add('src-fn-link');
+    mark.style.cursor = 'pointer';
+    mark.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onFunctionClickSourceOnly({ name, display_name: name, filepath: null });
+    });
+    mark.addEventListener('contextmenu', (e) => {
+      e.stopPropagation();
+      showContextMenu(e, { name, display_name: name, filepath: null });
+    });
   }
 }
 

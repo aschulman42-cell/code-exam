@@ -794,9 +794,20 @@ routes['/api/extract'] = (req, res) => {
   const matches = index.findFunctionMatches(funcName, fileHint);
   if (matches.length === 0) return errorResponse(res, `Function '${rawFuncName}' not found`, 404);
   if (matches.length > 1 && !fileHint) {
+    // Deprioritize TypeScript type-declaration stubs (.d.ts): they contain
+    // only signatures, so landing on one when a real implementation exists
+    // elsewhere in the index is never useful. Sorted to the end of the
+    // returned matches so both the auto-disambiguate path (picks matches[0]
+    // or same-file) and the Disambiguation UI list show the real impl first.
+    const sorted = matches.slice().sort((a, b) => {
+      const aIsDts = a.filepath.endsWith('.d.ts');
+      const bIsDts = b.filepath.endsWith('.d.ts');
+      if (aIsDts !== bIsDts) return aIsDts ? 1 : -1;
+      return 0;
+    });
     return jsonResponse(res, {
       ambiguous: true,
-      matches: matches.map(m => ({ filepath: m.filepath, name: m.name, display_name: displayName(m.name, m.filepath), start: m.start, end: m.end, lines: m.end - m.start + 1 })),
+      matches: sorted.map(m => ({ filepath: m.filepath, name: m.name, display_name: displayName(m.name, m.filepath), start: m.start, end: m.end, lines: m.end - m.start + 1 })),
     });
   }
   const m = matches[0];
@@ -1064,7 +1075,16 @@ routes['/api/callers'] = (req, res) => {
   if (!func) return errorResponse(res, 'Missing ?func= parameter');
   if (func.includes('@')) func = func.slice(func.indexOf('@') + 1);
   func = index.getOriginalName(func);
-  const callers = index.findCallers(func, parseInt(q.max) || 200);
+  let callers;
+  try {
+    callers = index.findCallers(func, parseInt(q.max) || 200);
+  } catch (e) {
+    // Short-name bail-out (#280): scan would block the event loop for
+    // minutes on short bundled-JS names like 'h1' or 'N8'. Return 400 with
+    // a clear message so the GUI can show it instead of the spinner hanging.
+    if (e.code === 'SHORT_NAME_BAILOUT') return errorResponse(res, e.message, 400);
+    throw e;
+  }
   jsonResponse(res, {
     target: index.getDisplayName(func),
     callers: callers.map(c => ({ filepath: c.filepath, line_number: c.line_number, line_text: index.applyRenames(c.line_text || ''), caller_function: index.getDisplayName(c.caller_function || ''), call_type: c.call_type })),
@@ -1661,9 +1681,11 @@ routes['/api/string-table'] = (req, res) => {
   const max = parseInt(q.max) || 50;
   const filter = q.filter || null;
   const minLength = parseInt(q.min_length) || 8;
-  const results = index.queryStringTable({ filter, max, minLength });
+  const { total, results } = index.queryStringTable({ filter, max, minLength });
   jsonResponse(res, {
-    total: results.length,
+    total,
+    shown: results.length,
+    truncated: total > results.length,
     strings: results.map((s, i) => ({
       rank: i + 1,
       value: s.value,

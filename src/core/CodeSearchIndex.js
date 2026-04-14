@@ -2257,7 +2257,7 @@ export class CodeSearchIndex {
    */
   queryStringTable({ filter, max = 50, minLength = 8 } = {}) {
     const table = this.ensureStringTable(minLength);
-    if (!table || table.length === 0) return [];
+    if (!table || table.length === 0) return { total: 0, results: [] };
 
     let results = table;
 
@@ -2277,7 +2277,12 @@ export class CodeSearchIndex {
       }
     }
 
-    return results.slice(0, max);
+    // Return BOTH the pre-slice total (so callers can show "showing N of M+"
+    // and the user isn't silently given a clipped view) AND the sliced
+    // results. Returning just the sliced array — as before — meant that
+    // `server.js` reported `total: results.length` which equalled `max`,
+    // hiding the fact that more matches existed.
+    return { total: results.length, results: results.slice(0, max) };
   }
 
   /**
@@ -5655,6 +5660,14 @@ export class CodeSearchIndex {
         const defs = knownFunctions[calleeName];
 
         if (calleeName === targetBare) {
+          // Line 0 of the body is the function's declaration line, and its
+          // signature `bareName(args) {` matches the call pattern. That's
+          // NOT a recursive call — it's the method's own signature being
+          // seen by the regex. Skip it to avoid the false `[self-recursive]`
+          // flag on digests. A true same-line recursion (`const f = () => f(1)`
+          // written all on one line) is rare enough to tolerate a missed
+          // case here.
+          if (i === 0) continue;
           const resolvedKey = callerName || calleeName;
           if (!seenResolved.has(resolvedKey)) {
             seenResolved.add(resolvedKey);
