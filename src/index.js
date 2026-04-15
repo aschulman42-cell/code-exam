@@ -31,6 +31,7 @@ import {
 import {
   doDupefiles, doFuncDupes, doNearDupes,
   doStructDupes, doShowFuncstring, doStructDiff, doStructDiffAll,
+  doStringCallDupes, doStringCallDiffAll, doCmpStringCallDupes,
 } from './commands/dedup.js';
 import { doInteractive } from './commands/interactive.js';
 import { doMultisect } from './commands/multisect.js';
@@ -283,6 +284,9 @@ if (args.struct_dupes)                      doStructDupes(index, args);
 if (args._explicit.has('show_funcstring'))  doShowFuncstring(index, args);
 if (args.struct_diff)                       doStructDiff(index, args);
 if (args.struct_diff_all)                   doStructDiffAll(index, args);
+if (args.string_call_dupes)                 doStringCallDupes(index, args);
+if (args.string_call_diff_all)              doStringCallDiffAll(index, args);
+if (args.cmp_string_call_dupes)             doCmpStringCallDupes(index, args);
 
 // Content analysis
 if (args.command_catalog) {

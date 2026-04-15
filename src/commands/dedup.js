@@ -5,6 +5,11 @@
  */
 
 import { displayName } from '../utils.js';
+import {
+  computeAllFingerprints,
+  sourceOfPath,
+  jaccard,
+} from './fingerprint.js';
 
 
 // ========================================================================
@@ -540,33 +545,10 @@ export function doStructDiff(index, args) {
 // /struct-diff-all: one-line summaries for top N struct-dupe groups
 // ========================================================================
 
-/**
- * Derive a "source" label from a filepath — the logical project/archive the
- * file belongs to. Used by --cross-source-only to distinguish same-project
- * duplication from cross-codebase structural matches.
- *
- *   foo/bar.zip!dir/file.py            → "bar.zip"           (archive)
- *   transformers/models/llama/x.py     → "llama"             (parent dir)
- *   /some/loose/file.ts                → "loose"             (parent dir)
- *
- * The parent-dir heuristic works well for Franken-indexes that mix multiple
- * transformers model files (each model gets its own "source" via its dir
- * name) and multiple zip archives. Not perfect for deeply-nested source
- * trees where one project spans many dirs; acceptable first cut.
- */
-function _sourceOfPath(fp) {
-  if (!fp) return '';
-  const norm = fp.replace(/\\/g, '/');
-  const bangIdx = norm.indexOf('.zip!');
-  if (bangIdx >= 0) {
-    const zipPath = norm.slice(0, bangIdx + 4); // include the ".zip"
-    const slashIdx = zipPath.lastIndexOf('/');
-    return slashIdx >= 0 ? zipPath.slice(slashIdx + 1) : zipPath;
-  }
-  const parts = norm.split('/').filter(Boolean);
-  if (parts.length < 2) return parts[0] || '';
-  return parts[parts.length - 2];
-}
+// _sourceOfPath is now imported from ./fingerprint.js as sourceOfPath — both
+// the struct-dupe family and the string-call-dupe family share it so their
+// --cross-source-only filters use the same "source" definition.
+const _sourceOfPath = sourceOfPath;
 
 export function doStructDiffAll(index, args) {
   const n = args.struct_diff_all || 25;
@@ -705,4 +687,285 @@ export function doStructDiffAll(index, args) {
     console.log(`\n  Showing ${n} of ${groups.length}. Use --struct-diff-all ${n * 2} for more.`);
   }
   console.log('\n  Use /struct-diff <name> for full word-hole comparison of a specific group.');
+}
+
+
+// ========================================================================
+// --string-call-dupes: exact fingerprint-hash grouping
+// ========================================================================
+//
+// Parallel to --struct-dupes, but groups functions by their "string-call
+// fingerprint" — the set of distinctive string literals they contain plus the
+// names of functions/methods they call — rather than by structural shape.
+// Two functions with the same fingerprint have the same semantic signature
+// (same rare strings, same call targets) even if one was bundled/minified
+// and the other wasn't.
+
+/**
+ * Shared helper: compute fingerprints once, bucket by hash into groups.
+ * Returns array of { hash, count, unique_names, unique_bodies (always 1 per
+ * hash here), bare_name (representative), lines, instances[] }, sorted by
+ * group size descending. Shape matches getStructDupes() output so the same
+ * display/filter code paths can drive it.
+ */
+function _getStringCallDupeGroups(index, opts = {}) {
+  const { fns } = computeAllFingerprints(index, opts);
+  const byHash = new Map();
+  for (const f of fns) {
+    if (!byHash.has(f.hash)) byHash.set(f.hash, []);
+    byHash.get(f.hash).push(f);
+  }
+  const groups = [];
+  for (const [hash, members] of byHash) {
+    if (members.length < 2) continue;  // a dupe group needs ≥2 members
+    const names = new Set(members.map(m => m.name));
+    const bareName = members[0].name.includes('::')
+      ? members[0].name.split('::').pop()
+      : members[0].name;
+    groups.push({
+      hash,
+      count: members.length,
+      unique_bodies: members.length,  // by definition each member is distinct body
+      unique_names: names.size,
+      bare_name: bareName,
+      lines: members[0].lines,
+      instances: members.map(m => ({
+        filepath: m.filepath,
+        name: m.name,
+        displayName: m.name,
+        start: m.start,
+        end: m.end,
+        lines: m.lines,
+        body_hash: m.hash,  // used by the dedupe-by-(body,source) in --show-sources
+      })),
+    });
+  }
+  // Sort by group size (descending), then by lines (descending)
+  groups.sort((a, b) => b.count - a.count || b.lines - a.lines);
+  return groups;
+}
+
+export function doStringCallDupes(index, args) {
+  const n = args.string_call_dupes;
+  if (args.verbose) args.show_dupes = true;
+
+  let groups = _getStringCallDupeGroups(index);
+  if (!groups.length) {
+    console.log('No string-call duplicates found.');
+    console.log('(Functions sharing the SAME set of distinctive string literals');
+    console.log(' and called-name tokens. If none found, try a Franken-index');
+    console.log(' mixing your codebase with a reference library.)');
+    return;
+  }
+
+  if (args.filter) {
+    const flt = args.filter.toLowerCase();
+    groups = groups.filter(g =>
+      g.bare_name.toLowerCase().includes(flt) ||
+      g.instances.some(i => i.filepath.toLowerCase().includes(flt)));
+  }
+
+  console.log(`\nTop ${Math.min(n, groups.length)} string-call dupe groups (same semantic fingerprint — rare strings + called names):`);
+  console.log(`  ${'Copies'.padStart(6)}  ${'Names'.padStart(5)}  ${'Lines'.padStart(6)}  ${'Hash'.padStart(10)}  ${'Function'.padEnd(30)}  Location`);
+  console.log(`  ${'-'.repeat(100)}`);
+
+  for (const g of groups.slice(0, n)) {
+    const first = g.instances[0];
+    let fp = first.filepath;
+    if (!args.full_path && fp.length > 35) fp = '...' + fp.slice(-32);
+    const dn = first.displayName || displayName(first.name, first.filepath);
+    console.log(`  ${String(g.count).padStart(6)}  ${String(g.unique_names).padStart(5)}  ${String(g.lines).padStart(6)}  ${g.hash}  ${dn.padEnd(30)}  ${fp}`);
+
+    if (args.show_dupes) {
+      for (const inst of g.instances.slice(0, 5)) {
+        const ifp = args.full_path ? inst.filepath
+          : (inst.filepath.length > 50 ? '...' + inst.filepath.slice(-47) : inst.filepath);
+        console.log(`           [${sourceOfPath(inst.filepath)}]  ${inst.name}  @  ${ifp}:L${inst.start}`);
+      }
+      if (g.instances.length > 5) console.log(`           … and ${g.instances.length - 5} more`);
+    }
+  }
+
+  if (groups.length > n) {
+    console.log(`\n  Showing ${n} of ${groups.length}. Use --string-call-dupes ${n * 2} for more.`);
+  }
+}
+
+
+// ========================================================================
+// --string-call-diff-all: detailed output with --show-sources / --cross-source-only
+// ========================================================================
+//
+// Parallel to --struct-diff-all. For each multi-member fingerprint group,
+// shows the common fingerprint (intersection), plus tokens that are missing
+// from any individual member (never happens at exact-match tier — all members
+// share the SAME fingerprint by construction — but we show the fingerprint
+// itself so the user can see WHY the group formed).
+
+export function doStringCallDiffAll(index, args) {
+  const n = args.string_call_diff_all || 25;
+  const filter = args.filter || null;
+  const showSources = !!args.show_sources;
+  const crossSourceOnly = !!args.cross_source_only;
+
+  let groups = _getStringCallDupeGroups(index);
+  if (!groups.length) {
+    console.log('No string-call duplicates found.');
+    return;
+  }
+
+  if (filter) {
+    const pat = filter.toLowerCase();
+    groups = groups.filter(g =>
+      g.bare_name.toLowerCase().includes(pat) ||
+      g.instances.some(i =>
+        (i.name || '').toLowerCase().includes(pat) ||
+        (i.filepath || '').toLowerCase().includes(pat)));
+  }
+  if (crossSourceOnly) {
+    groups = groups.filter(g => {
+      const sources = new Set(g.instances.map(i => sourceOfPath(i.filepath)));
+      return sources.size >= 2;
+    });
+  }
+
+  if (!groups.length) {
+    console.log('No string-call dupe groups matched the filters.');
+    return;
+  }
+
+  const showing = Math.min(n, groups.length);
+  console.log(`\nString-call fingerprint groups (top ${showing})` +
+    (filter ? ` matching '${filter}'` : '') +
+    (crossSourceOnly ? ' [cross-source only]' : '') + ':\n');
+
+  let idx = 0;
+  for (const g of groups.slice(0, n)) {
+    idx++;
+    console.log(`  [${idx}] ${g.bare_name} (${g.count} copies): fingerprint hash ${g.hash}`);
+    if (showSources) {
+      // Dedupe by (hash, source) — since all members share the same hash by
+      // construction, this effectively dedupes by source only, keeping one
+      // row per source. That's exactly the cross-source provenance view.
+      const seen = new Set();
+      for (const inst of g.instances) {
+        const src = sourceOfPath(inst.filepath);
+        const key = g.hash + '|' + src + '|' + inst.name;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const pathShort = inst.filepath.length > 70
+          ? '…' + inst.filepath.slice(-69)
+          : inst.filepath;
+        console.log(`      [${src}] ${inst.name}  @  ${pathShort}:L${inst.start}`);
+      }
+    }
+    console.log();
+  }
+
+  if (groups.length > n) {
+    console.log(`  Showing ${n} of ${groups.length}. Use --string-call-diff-all ${n * 2} for more.`);
+  }
+}
+
+
+// ========================================================================
+// --cmp-string-call-dupes: JACCARD similarity comparison (fuzzy)
+// ========================================================================
+//
+// Unlike --string-call-dupes (which requires EXACT fingerprint-hash match),
+// this finds function PAIRS whose fingerprints overlap above a similarity
+// threshold. This is the "find the SDK function that resembles this minified
+// cli.js function" tool — bundling often shaves a few tokens off the original
+// fingerprint, so exact-match misses, but Jaccard similarity recovers the
+// match.
+
+export function doCmpStringCallDupes(index, args) {
+  const minScore = parseFloat(args.cmp_string_call_dupes) || 0.5;
+  const minTokens = args.fingerprint_min_tokens != null
+    ? parseInt(args.fingerprint_min_tokens) : 6;
+  const workSource = args.fingerprint_work || null;
+  const refSource = args.fingerprint_ref || null;
+  const nameFilter = args.filter || null;
+  const maxResults = args.max_results || 50;
+  const showTokens = !!args.show_tokens;
+
+  console.log('Computing fingerprints for all functions...');
+  const { fns } = computeAllFingerprints(index, { minTokens });
+  console.log(`  ${fns.length} functions have fingerprints with ≥${minTokens} tokens`);
+
+  const workFns = workSource
+    ? fns.filter(f => f.source.toLowerCase().includes(workSource.toLowerCase()))
+    : fns;
+  const refFns = refSource
+    ? fns.filter(f => f.source.toLowerCase().includes(refSource.toLowerCase()))
+    : fns;
+  console.log(`  work side: ${workFns.length}${workSource ? ` (source~${workSource})` : ''}`);
+  console.log(`  ref  side: ${refFns.length}${refSource ? ` (source~${refSource})` : ''}`);
+
+  if (!workFns.length || !refFns.length) {
+    console.log('No functions to compare after filtering.');
+    return;
+  }
+
+  // Inverted index token → ref function indexes — lets us find candidate
+  // ref functions for each work function in O(tokens × token-frequency)
+  // instead of O(work × ref).
+  const tokenToRef = new Map();
+  for (let i = 0; i < refFns.length; i++) {
+    for (const t of refFns[i].fingerprint) {
+      if (!tokenToRef.has(t)) tokenToRef.set(t, []);
+      tokenToRef.get(t).push(i);
+    }
+  }
+
+  const matches = [];
+  for (const w of workFns) {
+    const sharedCount = new Map();
+    for (const t of w.fingerprint) {
+      const refList = tokenToRef.get(t);
+      if (!refList) continue;
+      for (const ri of refList) sharedCount.set(ri, (sharedCount.get(ri) || 0) + 1);
+    }
+    for (const [ri, inter] of sharedCount) {
+      const r = refFns[ri];
+      if (r === w) continue;
+      if (r.source === w.source) continue;  // cross-source only
+      if (nameFilter) {
+        const p = nameFilter.toLowerCase();
+        if (!w.name.toLowerCase().includes(p) && !r.name.toLowerCase().includes(p)) continue;
+      }
+      const score = jaccard(w.fingerprint, r.fingerprint);
+      if (score < minScore) continue;
+      matches.push({ w, r, score, inter });
+    }
+  }
+  matches.sort((a, b) => b.score - a.score);
+
+  // Cap matches per work-function so one high-match work doesn't swamp output
+  const perWorkCap = 3;
+  const capCount = new Map();
+  const final = [];
+  for (const m of matches) {
+    const key = m.w.filepath + '|||' + m.w.name;
+    const c = capCount.get(key) || 0;
+    if (c >= perWorkCap) continue;
+    capCount.set(key, c + 1);
+    final.push(m);
+    if (final.length >= maxResults) break;
+  }
+
+  console.log(`\nFingerprint-similarity matches (top ${final.length}, min-score=${minScore}):\n`);
+  for (const m of final) {
+    const wShort = m.w.filepath.length > 60 ? '…' + m.w.filepath.slice(-59) : m.w.filepath;
+    const rShort = m.r.filepath.length > 60 ? '…' + m.r.filepath.slice(-59) : m.r.filepath;
+    console.log(`  ${m.score.toFixed(3)}  [${m.w.source}] ${m.w.name}  (${m.w.lines}L @ ${wShort}:L${m.w.start})`);
+    console.log(`         <->  [${m.r.source}] ${m.r.name}  (${m.r.lines}L @ ${rShort}:L${m.r.start})`);
+    console.log(`              ${m.inter} shared tokens (of ${m.w.size} + ${m.r.size})`);
+    if (showTokens) {
+      const shared = [];
+      for (const t of m.w.fingerprint) if (m.r.fingerprint.has(t)) shared.push(t);
+      console.log(`              shared: ${shared.slice(0, 12).join(', ')}${shared.length > 12 ? ', …' : ''}`);
+    }
+    console.log();
+  }
 }

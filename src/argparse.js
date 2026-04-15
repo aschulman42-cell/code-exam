@@ -157,6 +157,13 @@ export function parseArgs() {
     struct_diff_all: null,
     show_sources: false,
     cross_source_only: false,
+    string_call_dupes: null,
+    string_call_diff_all: null,
+    cmp_string_call_dupes: null,
+    fingerprint_min_tokens: null,
+    fingerprint_work: null,
+    fingerprint_ref: null,
+    show_tokens: false,
 
     // Content analysis
     command_catalog: false,
@@ -286,6 +293,13 @@ export function parseArgs() {
     ['struct_diff_all',      'int',            ['--struct-diff-all']],
     ['show_sources',         'flag',           ['--show-sources']],
     ['cross_source_only',    'flag',           ['--cross-source-only']],
+    ['string_call_dupes',    'int',            ['--string-call-dupes']],
+    ['string_call_diff_all', 'int',            ['--string-call-diff-all']],
+    ['cmp_string_call_dupes','value',          ['--cmp-string-call-dupes']],
+    ['fingerprint_min_tokens','int',           ['--fingerprint-min-tokens']],
+    ['fingerprint_work',     'value',          ['--fingerprint-work']],
+    ['fingerprint_ref',      'value',          ['--fingerprint-ref']],
+    ['show_tokens',          'flag',           ['--show-tokens']],
 
     // New: content analysis
     ['command_catalog',      'flag',           ['--command-catalog']],
@@ -577,11 +591,23 @@ DEDUP / DUPLICATES:
   --show-funcstring [name]   Show structural funcstring for a function (or for struct-dupes results)
   --struct-diff <name>       Show word-hole differences between structural dupe variants
   --struct-diff-all <n>      One-line diff summaries for top N structural dupe groups
-  --show-sources             (with --struct-diff-all) list each variant's filepath:line so
-                             cross-codebase matches are visible at a glance
-  --cross-source-only        (with --struct-diff-all) filter to clusters whose members
-                             span 2+ distinct sources (archives/projects) — hides
-                             within-project duplicates, shows only cross-codebase patterns
+  --show-sources             (with --struct-diff-all / --string-call-diff-all) list each
+                             variant's filepath:line so cross-codebase matches are visible
+  --cross-source-only        (with *-diff-all) filter to clusters whose members span 2+
+                             distinct sources — hides within-project duplicates
+  --string-call-dupes <n>    Top N groups of functions sharing an EXACT string-call
+                             fingerprint (distinctive string literals + called-name tokens).
+                             Complements --struct-dupes: finds functions whose SEMANTIC
+                             signature matches even when STRUCTURE has been reshaped
+                             (e.g. by a bundler/minifier)
+  --string-call-diff-all <n> Detailed string-call dupe output. Combines with --show-sources
+                             and --cross-source-only.
+  --cmp-string-call-dupes <s>  Jaccard SIMILARITY comparison (fuzzy). Find cross-source
+                             function pairs whose fingerprints overlap by score ≥ s.
+                             For deobfuscating bundled code against its source libraries.
+                             Use --fingerprint-work / --fingerprint-ref to scope the two
+                             sides; --fingerprint-min-tokens to reject tiny-fingerprint
+                             functions; --show-tokens to display the shared tokens.
 
 CONTENT ANALYSIS:
   --command-catalog          List CLI options, commands, switch/case branches, API
