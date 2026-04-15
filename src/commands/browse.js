@@ -213,6 +213,49 @@ export function doListIndexes(args) {
 // Extract
 // ========================================================================
 
+function _printExtractUsage() {
+  console.log('Usage: --extract <spec> where spec is one of:');
+  console.log('  FUNCTION               bare function name');
+  console.log('  FILE@FUNCTION          file-qualified name (canonical form)');
+  console.log('  FILE:FUNCTION          colon variant (matches "foo.ts:Try" output)');
+  console.log('  FILE:LNNN / FILE:NNN   find the function at that line');
+  console.log('  NAME@LINE              disambiguate a duplicate-named entry by line');
+  console.log('Examples:');
+  console.log('  --extract backward_pass');
+  console.log('  --extract nn_sine.cpp@backward_pass');
+  console.log('  --extract index.ts:Try');
+  console.log('  --extract index.ts:L372');
+  console.log('  --extract _parse@21138');
+}
+
+/**
+ * Given a file substring and a line number, find the function whose range
+ * contains that line. Returns the stored name (including any @line
+ * disambiguator) or null if no function covers that line. If multiple files
+ * match the substring, prefers files where a function contains the line;
+ * among those, picks the innermost (smallest range) containing function.
+ */
+function _findFunctionAtLine(index, fileSubstr, lineNum) {
+  index._ensureFunctionIndex?.();
+  if (!index.functionIndex) return null;
+  const subNorm = fileSubstr.toLowerCase().replace(/\\/g, '/');
+  const candidates = [];
+  for (const [fp, funcs] of Object.entries(index.functionIndex)) {
+    const fpNorm = fp.toLowerCase().replace(/\\/g, '/');
+    if (!fpNorm.includes(subNorm)) continue;
+    for (const [name, info] of Object.entries(funcs)) {
+      if (lineNum >= info.start && lineNum <= info.end) {
+        candidates.push({ fp, name, info, span: info.end - info.start });
+      }
+    }
+  }
+  if (candidates.length === 0) return null;
+  // Prefer the innermost (smallest containing range) — e.g., if both an outer
+  // class and an inner method span the line, the inner method wins.
+  candidates.sort((a, b) => a.span - b.span);
+  return candidates[0].name;
+}
+
 export function doExtract(index, args) {
   const extractArg = args.extract;
   const commentsOnly = args.comments_only || false;
@@ -228,32 +271,70 @@ export function doExtract(index, args) {
     depth = args.depth || 1;
   }
 
-  // Parse FILE@FUNCTION or just FUNCTION
-  // Reverse-lookup: if user provides a renamed display name, map to original
+  // Parse the extract spec. Accept several interchangeable forms so the user
+  // can copy-paste from any output — listings, digests, cmp-string-call
+  // output, breadcrumbs — and have --extract work without re-formatting.
+  //
+  //   FUNCTION                   bare name
+  //   FILE@FUNC                  canonical file-qualified form
+  //   NAME@LINE                  line-number disambiguator for dup-named entries
+  //   FILE:FUNC                  colon variant (matches `foo.ts:Try` output)
+  //   FILE:LNNN / FILE:NNN       find function CONTAINING that line in the file
+  //                              (matches the `... @ foo.ts:L372` output format)
+  //
+  // Colon is only treated as a file separator when the part before it "looks
+  // like a path" (contains `/` or `\` or has a file extension like `.ts`) —
+  // this avoids false-matching things like `ClassName:method` or Windows
+  // drive letters like `C:\…`.
   let fileHint = null;
   let funcname = index.getOriginalName ? index.getOriginalName(extractArg) : extractArg;
+
+  // --- 1. FILE@FUNC / NAME@LINE form ---
   if (funcname.includes('@')) {
     const firstAt = funcname.indexOf('@');
     const beforeAt = funcname.slice(0, firstAt);
     const afterAt = funcname.slice(firstAt + 1);
-    // Disambiguate between two `@` meanings:
-    //   FILE@FUNC    — file hint (e.g. "src/server.js@myFunc")
-    //   NAME@LINE    — line-number disambiguator kept by the function index
-    //                  when the same bare name appears twice in a file
-    //                  (e.g. "_parse@21138", "get@49")
-    // If everything after `@` is digits, it's the disambiguator — keep the
-    // whole string as the function name. Otherwise it's file@func.
     if (/^\d+$/.test(afterAt)) {
-      // keep funcname intact as "NAME@LINE"
+      // NAME@LINE — keep funcname intact as the disambiguator
     } else {
       fileHint = beforeAt;
       funcname = afterAt;
       if (!fileHint || !funcname) {
-        console.log('Usage: --extract FUNCTION or --extract FILE@FUNCTION');
-        console.log('Example: --extract backward_pass');
-        console.log('Example: --extract nn_sine.cpp@backward_pass');
-        console.log('Example: --extract _parse@21138   (disambiguate dup-name by line)');
+        _printExtractUsage();
         return;
+      }
+    }
+  }
+
+  // --- 2. FILE:FUNC / FILE:LNNN form (only if we don't already have a file hint) ---
+  if (!fileHint && funcname.includes(':')) {
+    const firstColon = funcname.indexOf(':');
+    const beforeColon = funcname.slice(0, firstColon);
+    const afterColon = funcname.slice(firstColon + 1);
+    // Heuristic: the LHS looks like a path if it contains a slash or a file
+    // extension (e.g. `foo.ts`, `bar.js`, `baz.py`, `qux.cpp`). Reject Windows
+    // drive letters (single letter + colon at start).
+    const looksLikePath =
+      beforeColon.length > 1 &&
+      (beforeColon.includes('/') || beforeColon.includes('\\') ||
+       /\.[a-zA-Z0-9]{1,6}$/.test(beforeColon));
+    if (looksLikePath && afterColon) {
+      // LINE-based: FILE:LNNN or FILE:NNN — find the function at that line
+      const lineMatch = afterColon.match(/^L?(\d+)$/);
+      if (lineMatch) {
+        const lineNum = parseInt(lineMatch[1]);
+        const resolvedName = _findFunctionAtLine(index, beforeColon, lineNum);
+        if (!resolvedName) {
+          console.log(`No function found at ${beforeColon}:L${lineNum} in the index.`);
+          _printExtractUsage();
+          return;
+        }
+        fileHint = beforeColon;
+        funcname = resolvedName;
+      } else {
+        // NAME-based: FILE:FUNC (equivalent to FILE@FUNC)
+        fileHint = beforeColon;
+        funcname = afterColon;
       }
     }
   }
