@@ -918,6 +918,16 @@ export function doCmpStringCallDupes(index, args) {
     }
   }
 
+  // Canonical-order key so pair (A,B) and pair (B,A) produce the same key.
+  // Needed for symmetric dedup: when the work and ref sets overlap (e.g.
+  // both are the full function list), we'd otherwise emit each pair twice.
+  const canonKey = (a, b) => {
+    const ka = a.filepath + '|||' + a.name;
+    const kb = b.filepath + '|||' + b.name;
+    return ka < kb ? ka + '<=>' + kb : kb + '<=>' + ka;
+  };
+  const seenPair = new Set();
+
   const matches = [];
   for (const w of workFns) {
     const sharedCount = new Map();
@@ -936,16 +946,35 @@ export function doCmpStringCallDupes(index, args) {
       }
       const score = jaccard(w.fingerprint, r.fingerprint);
       if (score < minScore) continue;
+      const key = canonKey(w, r);
+      if (seenPair.has(key)) continue;
+      seenPair.add(key);
       matches.push({ w, r, score, inter });
     }
   }
   matches.sort((a, b) => b.score - a.score);
 
-  // Cap matches per work-function so one high-match work doesn't swamp output
+  // Collapse matches where the SAME work fn matches multiple source-variants
+  // of the SAME ref fn (bare-name + same fingerprint). E.g. cli.js::yS
+  // matching zod's ZodString across v3/types.cjs + v3/types.js + src/types.ts
+  // — three "different" matches but one logical identification. Keep only the
+  // best-scoring match per (work-fn, ref-bare-name) pair.
+  const bareOf = (name) => (name.includes('::') ? name.split('::').pop() : name);
+  const bestByPair = new Map();
+  for (const m of matches) {
+    const key = m.w.filepath + '|||' + m.w.name + '>>>' + bareOf(m.r.name);
+    const prev = bestByPair.get(key);
+    if (!prev || m.score > prev.score) bestByPair.set(key, m);
+  }
+  const dedupedMatches = [...bestByPair.values()].sort((a, b) => b.score - a.score);
+
+  // Cap matches per work-function so one high-match work doesn't swamp output.
+  // With ref-name collapsing above, this cap now controls how many DIFFERENT
+  // ref functions a single work fn can show (not redundant source variants).
   const perWorkCap = 3;
   const capCount = new Map();
   const final = [];
-  for (const m of matches) {
+  for (const m of dedupedMatches) {
     const key = m.w.filepath + '|||' + m.w.name;
     const c = capCount.get(key) || 0;
     if (c >= perWorkCap) continue;

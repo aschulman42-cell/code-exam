@@ -53,8 +53,18 @@ const CALL_NOISE = new Set([
 
 /**
  * Derive a "source" label from a filepath — the logical project/archive the
- * file belongs to. Same helper as in dedup.js's doStructDiffAll; exported here
- * so the string-call family can use it consistently.
+ * file belongs to. Used by --cross-source-only filters to distinguish
+ * same-project duplication from cross-codebase matches.
+ *
+ *   foo/bar.zip!dir/file.py             → "bar.zip"          (archive)
+ *   node_modules/zod/v4/something.ts    → "zod"              (npm package)
+ *   node_modules/@scope/pkg/sub/file.js → "@scope/pkg"       (scoped npm package)
+ *   transformers/models/llama/x.py      → "llama"            (parent dir)
+ *
+ * The npm-package coalescing is what keeps zod's v3/v4/src/helpers variants,
+ * or @anthropic-ai/sdk's src/client.js/client.mjs variants, all mapped to one
+ * source — otherwise the cross-source filter admits them as "different
+ * sources" and the output is swamped by within-package duplication.
  */
 export function sourceOfPath(fp) {
   if (!fp) return '';
@@ -64,6 +74,20 @@ export function sourceOfPath(fp) {
     const zipPath = norm.slice(0, bangIdx + 4);
     const slashIdx = zipPath.lastIndexOf('/');
     return slashIdx >= 0 ? zipPath.slice(slashIdx + 1) : zipPath;
+  }
+  // Coalesce all files inside one npm package to a single source label. We
+  // look for `node_modules/` as a substring so the rule works whether the
+  // path is relative (`node_modules/zod/...`) or absolute
+  // (`/mnt/.../node_modules/zod/...`).
+  const nm = norm.indexOf('node_modules/');
+  if (nm >= 0) {
+    const after = norm.slice(nm + 'node_modules/'.length);
+    const parts = after.split('/');
+    // Scoped package: @scope/pkg — two segments
+    if (parts[0] && parts[0].startsWith('@') && parts[1]) {
+      return parts[0] + '/' + parts[1];
+    }
+    if (parts[0]) return parts[0];
   }
   const parts = norm.split('/').filter(Boolean);
   if (parts.length < 2) return parts[0] || '';
