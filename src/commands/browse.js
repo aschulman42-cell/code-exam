@@ -291,9 +291,25 @@ export function doExtract(index, args) {
 
   // --- 1. FILE@FUNC / NAME@LINE form ---
   if (funcname.includes('@')) {
-    const firstAt = funcname.indexOf('@');
-    const beforeAt = funcname.slice(0, firstAt);
-    const afterAt = funcname.slice(firstAt + 1);
+    // Find the CORRECT `@` separator. Paths can contain `@` legitimately:
+    //   - scoped npm packages: `node_modules/@anthropic-ai/sdk/client.js`
+    // Our separator is the `@` that comes AFTER the filename, not inside it.
+    // Heuristic: pick the last `@` that's preceded by a file-extension-like
+    // suffix (`.js`, `.ts`, `.py`, etc.) OR just preceded by something that
+    // can't be inside a scoped-package path. Fallback to first `@` for the
+    // NAME@LINE form (no slashes, no file extensions).
+    const extBeforeAt = /\.[a-zA-Z0-9]{1,6}@/g;
+    let sepIdx = -1;
+    let m;
+    while ((m = extBeforeAt.exec(funcname)) !== null) {
+      sepIdx = m.index + m[0].length - 1;  // position of the `@` itself
+    }
+    // If no file-extension-preceded @ found, fall back to first @ (works for
+    // NAME@LINE and simple cases without scoped-package paths in the file).
+    if (sepIdx < 0) sepIdx = funcname.indexOf('@');
+
+    const beforeAt = funcname.slice(0, sepIdx);
+    const afterAt = funcname.slice(sepIdx + 1);
     if (/^\d+$/.test(afterAt)) {
       // NAME@LINE — keep funcname intact as the disambiguator
     } else {

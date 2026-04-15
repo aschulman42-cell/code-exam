@@ -414,12 +414,18 @@ function errorResponse(res, message, status = 400) {
 
 function parseFuncSpec(spec) {
   if (spec && spec.includes('@')) {
-    const atPos = spec.indexOf('@');
+    // Find the right `@` separator. Scoped npm packages embed `@` in paths
+    // (e.g. `node_modules/@anthropic-ai/sdk/client.js@Foo`). Prefer the last
+    // `@` that immediately follows a file extension; fall back to first `@`.
+    const extAt = /\.[a-zA-Z0-9]{1,6}@/g;
+    let atPos = -1;
+    let m;
+    while ((m = extAt.exec(spec)) !== null) atPos = m.index + m[0].length - 1;
+    if (atPos < 0) atPos = spec.indexOf('@');
     const beforeAt = spec.slice(0, atPos);
     const afterAt = spec.slice(atPos + 1);
     // If the part after @ is purely numeric, it's a line-number disambiguator
     // (e.g. "getPromptForCommand@477187"), not a file@func separator.
-    // A real file hint contains / or . (e.g. "src/server.js@myFunc").
     if (/^\d+$/.test(afterAt)) {
       return { fileHint: null, funcName: spec };
     }

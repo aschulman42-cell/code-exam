@@ -164,6 +164,8 @@ export function parseArgs() {
     fingerprint_work: null,
     fingerprint_ref: null,
     show_tokens: false,
+    build_fp_renames: null,
+    dry_run: false,
 
     // Content analysis
     command_catalog: false,
@@ -300,6 +302,8 @@ export function parseArgs() {
     ['fingerprint_work',     'value',          ['--fingerprint-work']],
     ['fingerprint_ref',      'value',          ['--fingerprint-ref']],
     ['show_tokens',          'flag',           ['--show-tokens']],
+    ['build_fp_renames',     'optional_value', ['--build-fp-renames', '--build-fingerprint-renames']],
+    ['dry_run',              'flag',           ['--dry-run']],
 
     // New: content analysis
     ['command_catalog',      'flag',           ['--command-catalog']],
@@ -608,6 +612,16 @@ DEDUP / DUPLICATES:
                              Use --fingerprint-work / --fingerprint-ref to scope the two
                              sides; --fingerprint-min-tokens to reject tiny-fingerprint
                              functions; --show-tokens to display the shared tokens.
+  --build-fp-renames [s]     Generate _FP_ rename-map entries for cross-source
+                             fingerprint matches above score s (default 0.8). Same as
+                             --build-fingerprint-renames. Accumulates with existing
+                             _KW_/_CMD_/_NAME_/_IMPORT_ tiers (doesn't overwrite);
+                             enforces bare-name-uniqueness safety; skips matches where
+                             the work side already has a descriptive name. Writes
+                             directly to <index>/rename_map.json. Use --dry-run to
+                             preview without writing.
+  --dry-run                  (with --build-fp-renames) show what would be written, don't
+                             actually modify rename_map.json.
 
 CONTENT ANALYSIS:
   --command-catalog          List CLI options, commands, switch/case branches, API

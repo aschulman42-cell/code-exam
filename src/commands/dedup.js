@@ -988,12 +988,15 @@ export function doCmpStringCallDupes(index, args) {
     const wShort = m.w.filepath.length > 60 ? '…' + m.w.filepath.slice(-59) : m.w.filepath;
     const rShort = m.r.filepath.length > 60 ? '…' + m.r.filepath.slice(-59) : m.r.filepath;
     // Show each side with its extract-ready spec (file@name) so the user can
-    // copy-paste it directly into `--extract`. Previously displayed only the
-    // location pointer (`file:Lnn`), which wasn't a valid --extract argument.
+    // copy-paste it directly into `--extract`. No quotes — Windows cmd.exe
+    // doesn't strip single quotes, so 'foo@bar' would reach --extract with
+    // the quotes still attached. Function names and the paths we emit here
+    // don't contain shell-special chars; if they ever do, the user can
+    // double-quote at call site.
     console.log(`  ${m.score.toFixed(3)}  [${m.w.source}] ${m.w.name}  (${m.w.lines}L @ ${wShort}:L${m.w.start})`);
-    console.log(`              --extract '${m.w.filepath}@${m.w.name}'`);
+    console.log(`              --extract ${m.w.filepath}@${m.w.name}`);
     console.log(`         <->  [${m.r.source}] ${m.r.name}  (${m.r.lines}L @ ${rShort}:L${m.r.start})`);
-    console.log(`              --extract '${m.r.filepath}@${m.r.name}'`);
+    console.log(`              --extract ${m.r.filepath}@${m.r.name}`);
     console.log(`              ${m.inter} shared tokens (of ${m.w.size} + ${m.r.size})`);
     if (showTokens) {
       const shared = [];
