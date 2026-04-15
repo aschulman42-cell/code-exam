@@ -234,13 +234,27 @@ export function doExtract(index, args) {
   let funcname = index.getOriginalName ? index.getOriginalName(extractArg) : extractArg;
   if (funcname.includes('@')) {
     const firstAt = funcname.indexOf('@');
-    fileHint = funcname.slice(0, firstAt);
-    funcname = funcname.slice(firstAt + 1);
-    if (!fileHint || !funcname) {
-      console.log('Usage: --extract FUNCTION or --extract FILE@FUNCTION');
-      console.log('Example: --extract backward_pass');
-      console.log('Example: --extract nn_sine.cpp@backward_pass');
-      return;
+    const beforeAt = funcname.slice(0, firstAt);
+    const afterAt = funcname.slice(firstAt + 1);
+    // Disambiguate between two `@` meanings:
+    //   FILE@FUNC    — file hint (e.g. "src/server.js@myFunc")
+    //   NAME@LINE    — line-number disambiguator kept by the function index
+    //                  when the same bare name appears twice in a file
+    //                  (e.g. "_parse@21138", "get@49")
+    // If everything after `@` is digits, it's the disambiguator — keep the
+    // whole string as the function name. Otherwise it's file@func.
+    if (/^\d+$/.test(afterAt)) {
+      // keep funcname intact as "NAME@LINE"
+    } else {
+      fileHint = beforeAt;
+      funcname = afterAt;
+      if (!fileHint || !funcname) {
+        console.log('Usage: --extract FUNCTION or --extract FILE@FUNCTION');
+        console.log('Example: --extract backward_pass');
+        console.log('Example: --extract nn_sine.cpp@backward_pass');
+        console.log('Example: --extract _parse@21138   (disambiguate dup-name by line)');
+        return;
+      }
     }
   }
 
@@ -868,7 +882,18 @@ export function doListFunctions(index, args) {
     console.log(`\n${filepath}:`);
     const sorted = funcs.sort((a, b) => a.start - b.start);
     for (const f of sorted) {
-      const dn = index.getDisplayName ? index.getDisplayName(f.name) : (f.displayName || f.name);
+      let dn = index.getDisplayName ? index.getDisplayName(f.name) : (f.displayName || f.name);
+      // Truncate pathological "function names" that are really captured JS
+      // expressions. TypeScript private-field compilation produces class
+      // bodies like `class X { [(_A=new WeakMap(),_B=new WeakMap(),...)] }`
+      // where the regex parser can mistake the computed-key `[...]` for a
+      // method name and swallow kilobytes of initialization code. Clamp for
+      // display so a single bad entry doesn't dump hundreds of lines of
+      // source into the listing output. Underlying function-index entry is
+      // untouched — --extract by the raw name still works if needed.
+      if (dn.length > 80 || dn.includes('\n')) {
+        dn = dn.replace(/\s+/g, ' ').slice(0, 77) + '...';
+      }
       if (args.full_path) {
         console.log(`  ${filepath}@${dn.padEnd(40)} L${String(f.start).padStart(5)}-${String(f.end).padEnd(5)} ${String(f.lines).padStart(4)} lines (${f.type})`);
       } else {
