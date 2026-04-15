@@ -155,6 +155,8 @@ export function parseArgs() {
     show_funcstring: null,
     struct_diff: null,
     struct_diff_all: null,
+    show_sources: false,
+    cross_source_only: false,
 
     // Content analysis
     command_catalog: false,
@@ -282,6 +284,8 @@ export function parseArgs() {
     ['show_funcstring',      'optional_value', ['--show-funcstring']],
     ['struct_diff',          'value',          ['--struct-diff']],
     ['struct_diff_all',      'int',            ['--struct-diff-all']],
+    ['show_sources',         'flag',           ['--show-sources']],
+    ['cross_source_only',    'flag',           ['--cross-source-only']],
 
     // New: content analysis
     ['command_catalog',      'flag',           ['--command-catalog']],
@@ -573,6 +577,11 @@ DEDUP / DUPLICATES:
   --show-funcstring [name]   Show structural funcstring for a function (or for struct-dupes results)
   --struct-diff <name>       Show word-hole differences between structural dupe variants
   --struct-diff-all <n>      One-line diff summaries for top N structural dupe groups
+  --show-sources             (with --struct-diff-all) list each variant's filepath:line so
+                             cross-codebase matches are visible at a glance
+  --cross-source-only        (with --struct-diff-all) filter to clusters whose members
+                             span 2+ distinct sources (archives/projects) — hides
+                             within-project duplicates, shows only cross-codebase patterns
 
 CONTENT ANALYSIS:
   --command-catalog          List CLI options, commands, switch/case branches, API

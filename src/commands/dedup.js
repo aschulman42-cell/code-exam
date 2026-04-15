@@ -540,9 +540,39 @@ export function doStructDiff(index, args) {
 // /struct-diff-all: one-line summaries for top N struct-dupe groups
 // ========================================================================
 
+/**
+ * Derive a "source" label from a filepath — the logical project/archive the
+ * file belongs to. Used by --cross-source-only to distinguish same-project
+ * duplication from cross-codebase structural matches.
+ *
+ *   foo/bar.zip!dir/file.py            → "bar.zip"           (archive)
+ *   transformers/models/llama/x.py     → "llama"             (parent dir)
+ *   /some/loose/file.ts                → "loose"             (parent dir)
+ *
+ * The parent-dir heuristic works well for Franken-indexes that mix multiple
+ * transformers model files (each model gets its own "source" via its dir
+ * name) and multiple zip archives. Not perfect for deeply-nested source
+ * trees where one project spans many dirs; acceptable first cut.
+ */
+function _sourceOfPath(fp) {
+  if (!fp) return '';
+  const norm = fp.replace(/\\/g, '/');
+  const bangIdx = norm.indexOf('.zip!');
+  if (bangIdx >= 0) {
+    const zipPath = norm.slice(0, bangIdx + 4); // include the ".zip"
+    const slashIdx = zipPath.lastIndexOf('/');
+    return slashIdx >= 0 ? zipPath.slice(slashIdx + 1) : zipPath;
+  }
+  const parts = norm.split('/').filter(Boolean);
+  if (parts.length < 2) return parts[0] || '';
+  return parts[parts.length - 2];
+}
+
 export function doStructDiffAll(index, args) {
   const n = args.struct_diff_all || 25;
   const filter = args.filter || null;
+  const showSources = !!args.show_sources;
+  const crossSourceOnly = !!args.cross_source_only;
 
   // Ensure dupes computed
   index.getFuncDupes(1, 3, false);
@@ -568,6 +598,16 @@ export function doStructDiffAll(index, args) {
     const vpat = args.vocab_in.toLowerCase();
     groups = groups.filter(g =>
       g.instances.some(i => (i.filepath || '').toLowerCase().includes(vpat)));
+  }
+  // Cross-source filter: keep only groups whose members come from 2+ distinct
+  // sources. This is the "show me cross-codebase patterns" mode — removes
+  // clusters that are just within-project duplication (e.g. 12 copies of the
+  // same helper inside a single zip).
+  if (crossSourceOnly) {
+    groups = groups.filter(g => {
+      const sources = new Set(g.instances.map(i => _sourceOfPath(i.filepath)));
+      return sources.size >= 2;
+    });
   }
 
   if (!groups.length) {
@@ -638,6 +678,23 @@ export function doStructDiffAll(index, args) {
 
     console.log(`  [${idx}] ${g.bare_name} (${g.count} copies, ${g.unique_bodies} variants): ` +
       `${result.diffs.length} of ${result.totalWordHoles} differ: ${subSummary}`);
+    if (showSources) {
+      // Dedupe by body-hash so we show one row per VARIANT (not per copy).
+      // Variants carry the interesting name/source differences; copies of
+      // identical bodies across the same project are redundant for provenance.
+      const seen = new Set();
+      for (const inst of g.instances) {
+        const bh = inst.body_hash || '?';
+        if (seen.has(bh)) continue;
+        seen.add(bh);
+        const src = _sourceOfPath(inst.filepath);
+        const label = inst.displayName || inst.name;
+        const pathShort = inst.filepath.length > 70
+          ? '…' + inst.filepath.slice(-69)
+          : inst.filepath;
+        console.log(`      [${src}] ${label}  @  ${pathShort}:L${inst.start}`);
+      }
+    }
     console.log();  // blank line between entries
   }
 
