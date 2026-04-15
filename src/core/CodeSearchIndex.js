@@ -3943,13 +3943,27 @@ export class CodeSearchIndex {
 
       const existing = [];
       const missing = [];
+      const expanded = [];
       for (const p of fileList) {
-        if (fs.existsSync(p)) {
-          existing.push(path.resolve(p));
-        } else {
-          missing.push(p);
+        if (!fs.existsSync(p)) { missing.push(p); continue; }
+        // Allow directory entries in @filelist: walk them and include every
+        // indexable file. Previously such entries errored later with
+        // EISDIR when the indexer tried to readFileSync(dir). Also expand
+        // glob patterns (`*`, `?`, `**`) from the list since those are a
+        // natural way to specify "these specific subtrees."
+        if (fs.statSync(p).isDirectory()) {
+          const walked = this._walkDir(path.resolve(p));
+          for (const f of walked) expanded.push(f);
+          continue;
         }
+        if (p.includes('*') || p.includes('?')) {
+          const matched = _globSync(p.replace(/\\/g, '/'));
+          for (const f of matched) expanded.push(path.resolve(f));
+          continue;
+        }
+        existing.push(path.resolve(p));
       }
+      for (const f of expanded) existing.push(f);
       if (missing.length > 0 && showProgress) {
         console.log(`Warning: ${missing.length} files not found (first 5: ${missing.slice(0, 5).join(', ')})`);
       }
