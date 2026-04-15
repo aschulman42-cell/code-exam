@@ -679,15 +679,18 @@ export function doStructDiffAll(index, args) {
     console.log(`  [${idx}] ${g.bare_name} (${g.count} copies, ${g.unique_bodies} variants): ` +
       `${result.diffs.length} of ${result.totalWordHoles} differ: ${subSummary}`);
     if (showSources) {
-      // Dedupe by body-hash so we show one row per VARIANT (not per copy).
-      // Variants carry the interesting name/source differences; copies of
-      // identical bodies across the same project are redundant for provenance.
+      // Dedupe by (body-hash, source) rather than body-hash alone. Dedupe-by-
+      // body-hash alone can HIDE copies from other sources when those copies
+      // share an identical body — which is exactly when cross-source matches
+      // are the strongest evidence. Keep one row per distinct (body, source)
+      // pair so provenance stays honest.
       const seen = new Set();
       for (const inst of g.instances) {
         const bh = inst.body_hash || '?';
-        if (seen.has(bh)) continue;
-        seen.add(bh);
         const src = _sourceOfPath(inst.filepath);
+        const key = bh + '|' + src;
+        if (seen.has(key)) continue;
+        seen.add(key);
         const label = inst.displayName || inst.name;
         const pathShort = inst.filepath.length > 70
           ? '…' + inst.filepath.slice(-69)
