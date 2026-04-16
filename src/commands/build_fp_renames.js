@@ -361,9 +361,7 @@ export function doBuildFpRenames(index, args) {
 
       const suffix = '_FP_' + _toSuffix(refBare, refFp);
 
-      // Qualified rename (full workCls → workCls + suffix). Diagnostic
-      // fires only on actual change — otherwise src/dist/other-variant
-      // re-discoveries of the same class pair would print it repeatedly.
+      // Bare class rename (full workCls → workCls + suffix).
       const existing = existingMap[workCls];
       const newValue = existing
         ? (existing.includes(suffix) ? existing : existing + suffix)
@@ -376,6 +374,48 @@ export function doBuildFpRenames(index, args) {
           reason: `→ EMITTED (${matches.length} method matches, avg_score=${avgScore.toFixed(2)}, coverage=${coverage.toFixed(2)})`,
           n: matches.length,
         });
+      }
+
+      // Propagate the class rename down to every qualified-method entry of
+      // this class, so listings show `NewClass::method` rather than
+      // `OldClass::method`. Bare name `Cz → Cz_FP_X` handles usages in
+      // source text (class declarations, `instanceof`, static calls) but
+      // not the qualified-form strings used in --list-functions /
+      // --list-classes / digest output. Preserves any pre-existing
+      // method-level suffix (_KW_, _FP_) by substituting only the class
+      // prefix of each qualified entry.
+      //
+      // Runs every time we visit this class pair — not just on first
+      // emission — so that re-runs after the bare class rename is
+      // already in the map will still propagate the prefix to method
+      // entries. Idempotent: same input → same output.
+      const fileFuncs = index.functionIndex?.[workFp] || {};
+      for (const fname of Object.keys(fileFuncs)) {
+        if (!fname.startsWith(workCls + '::')) continue;
+        const methodLeaf = fname.slice(workCls.length + 2);
+        const existingQ = existingMap[fname];
+        // Preserve any existing method-level suffix (e.g. _KW_, method
+        // _FP_) when re-prefixing. If a previous pass already renamed
+        // this entry to start with newValue (the renamed class), keep
+        // the leaf intact. If the existing value uses a DIFFERENT class
+        // prefix, leave it alone — don't trample another tier's work.
+        let leafForValue = methodLeaf;
+        if (existingQ && existingQ.startsWith(newValue + '::')) {
+          // Already renamed to the target class prefix; leaf may carry
+          // method-level suffix(es). Preserve it.
+          leafForValue = existingQ.slice(newValue.length + 2);
+        } else if (existingQ && existingQ.startsWith(workCls + '::')) {
+          // Renamed only at method level (or unchanged) — keep its leaf.
+          leafForValue = existingQ.slice(workCls.length + 2);
+        } else if (existingQ && existingQ.includes('::')) {
+          // Existing value has some unrelated class prefix; don't fight it.
+          continue;
+        }
+        const newQualified = newValue + '::' + leafForValue;
+        if (newQualified !== existingQ) {
+          existingMap[fname] = newQualified;
+          classEmitted++;
+        }
       }
 
       // Bare-name rename (only if bare is unique across all classes).
