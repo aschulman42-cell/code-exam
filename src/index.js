@@ -224,6 +224,13 @@ if (args.no_rename) {
   index.getOriginalName = (name) => name || '';
 }
 
+// Run rename-map MUTATORS before any query that reads display names, so
+// `--build-fp-renames --list-functions` in one command reflects the newly
+// added _FP_ entries. The build-fp-renames code invalidates the index's
+// in-memory rename cache so subsequent getDisplayName calls reload from
+// the just-written rename_map.json.
+if (args._explicit.has('build_fp_renames')) doBuildFpRenames(index, args);
+
 if (args.stats)                             doStats(index, args);
 if (args.index_extensions)                  doIndexExtensions(index, args);
 
@@ -293,7 +300,8 @@ if (args.struct_diff_all)                   doStructDiffAll(index, args);
 if (args.string_call_dupes)                 doStringCallDupes(index, args);
 if (args.string_call_diff_all)              doStringCallDiffAll(index, args);
 if (args.cmp_string_call_dupes)             doCmpStringCallDupes(index, args);
-if (args._explicit.has('build_fp_renames')) doBuildFpRenames(index, args);
+// (build_fp_renames moved earlier — runs before query commands so its
+// rename-map updates are visible to --list-functions etc.)
 if (args.save_fingerprints)                 doSaveFingerprints(index, args);
 
 // Content analysis

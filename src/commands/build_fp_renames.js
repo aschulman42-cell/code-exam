@@ -178,7 +178,31 @@ export function doBuildFpRenames(index, args) {
   let skippedAmbiguous = 0;
   let skippedSourceSide = 0;
   let skippedRealName = 0;
+  let skippedPathological = 0;
+
+  // Reject pathological "function names" that are really captured JS
+  // expressions (TypeScript private-field compilation produces class bodies
+  // like `class X { [(_A = new WeakMap(), _B = function() { ... }, ...)] }`
+  // — the regex parser mistakes the computed-key `[...]` for a method name
+  // and swallows kilobytes of init code — TODO #348). Without this filter,
+  // the rename_map ends up with comically long entries whose key and value
+  // are both full JavaScript programs. Recognize them by: name contains
+  // `\n`, contains `[(` or `new WeakMap` (telltale patterns), or exceeds
+  // ~200 chars.
+  function _isPathologicalName(name) {
+    if (!name) return false;
+    if (name.length > 200) return true;
+    if (name.includes('\n')) return true;
+    if (name.includes('[(')) return true;
+    if (/new (Weak)?(Map|Set)/.test(name)) return true;
+    return false;
+  }
+
   for (const [workFullName, { workFn, refFn, score }] of bestMatchFor) {
+    if (_isPathologicalName(workFullName) || _isPathologicalName(refFn.name)) {
+      skippedPathological++;
+      continue;
+    }
     const workBare = bareOf(workFullName);
     const refBare = bareOf(refFn.name);
 
@@ -248,6 +272,7 @@ export function doBuildFpRenames(index, args) {
   if (skippedSourceSide > 0) console.log(`  ${skippedSourceSide} matches skipped — work side is in node_modules/.zip (library source, not a deobfuscation candidate)`);
   if (skippedRealName > 0) console.log(`  ${skippedRealName} matches skipped — work side has a real/descriptive name (not bundler-mangled)`);
   if (skippedAmbiguous > 0) console.log(`  ${skippedAmbiguous} bare-name renames skipped (bare name collides with another function)`);
+  if (skippedPathological > 0) console.log(`  ${skippedPathological} matches skipped — pathological "function name" (parser captured a JS expression as a name — TODO #348)`);
 
   // ─── Class-level aggregation pass (opt-in via --fp-classes) ──────────
   // Propose `workClass → workClass_FP_RefClass` when multiple methods of
@@ -326,6 +351,9 @@ export function doBuildFpRenames(index, args) {
         // every class pair. Just silently ignore.
         continue;
       }
+      // Skip pathological "class names" from the TS private-field bug
+      // (#348) — same filter as the method-level loop.
+      if (_isPathologicalName(aCls) || _isPathologicalName(bCls)) continue;
       const avgScore = matches.reduce((s, m) => s + m.score, 0) / matches.length;
       if (avgScore < minScore) {
         classSkippedCoverage++;
@@ -401,6 +429,12 @@ export function doBuildFpRenames(index, args) {
       const fileFuncs = index.functionIndex?.[workFp] || {};
       for (const fname of Object.keys(fileFuncs)) {
         if (!fname.startsWith(workCls + '::')) continue;
+        // Skip pathological method keys (the TS-private-field parser bug
+        // #348 captures entire JS expressions as method names). Propagating
+        // the class prefix onto those would produce rename_map entries
+        // whose key and value are both kilobytes of JavaScript — pollutes
+        // the map and makes grep output unreadable.
+        if (_isPathologicalName(fname)) continue;
         const methodLeaf = fname.slice(workCls.length + 2);
         const existingQ = existingMap[fname];
         // Preserve any existing method-level suffix (e.g. _KW_, method
