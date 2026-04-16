@@ -75,13 +75,45 @@ function _toSuffix(refName, refFilepath) {
   return screaming;
 }
 
+/**
+ * Parse --fingerprint-work / --fingerprint-ref pattern: comma-separated list
+ * of substrings (case-insensitive). Returns a predicate; null if no pattern.
+ */
+function _makeSourceFilter(pattern) {
+  if (!pattern) return null;
+  const pats = pattern.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  if (pats.length === 0) return null;
+  return (source) => {
+    const src = (source || '').toLowerCase();
+    return pats.some(p => src.includes(p));
+  };
+}
+
+/**
+ * Strip trailing `_FP_SUFFIX` segments from a rename VALUE, splitting by `::`
+ * so the class prefix and method leaf are cleaned independently. Used by
+ * --clean-fp to back out prior _FP_ passes without losing _KW_/_CMD_/_NAME_/
+ * _IMPORT_ tier renames.
+ */
+function _stripFpSuffixes(value) {
+  return value
+    .split('::')
+    .map(seg => seg.replace(/_FP_[A-Z0-9_]+$/, ''))
+    .join('::');
+}
+
 export function doBuildFpRenames(index, args) {
   const minScore = parseFloat(args.build_fp_renames) || 0.8;
   const minTokens = args.fingerprint_min_tokens != null
     ? parseInt(args.fingerprint_min_tokens) : 6;
   const dryRun = !!args.dry_run;
+  const workFilter = _makeSourceFilter(args.fingerprint_work);
+  const refFilter  = _makeSourceFilter(args.fingerprint_ref);
+  const cleanFp    = !!args.clean_fp;
 
   console.log(`Building _FP_ rename entries from fingerprint matches (min-score=${minScore}, min-tokens=${minTokens})${dryRun ? ' [DRY RUN]' : ''}`);
+  if (workFilter) console.log(`  work source filter: ${args.fingerprint_work}`);
+  if (refFilter)  console.log(`  ref  source filter: ${args.fingerprint_ref}`);
 
   const { fns: indexFns } = computeAllFingerprints(index, { minTokens });
   console.log(`  ${indexFns.length} index functions have fingerprints with ≥${minTokens} tokens`);
@@ -141,6 +173,15 @@ export function doBuildFpRenames(index, args) {
       const r = fns[ri];
       if (r === w) continue;
       if (r.source === w.source) continue;  // cross-source only
+      // Optional --fingerprint-work / --fingerprint-ref scoping. Note that
+      // since `bestMatchFor` later records BOTH sides of each pair as
+      // candidates, we need EITHER direction to pass the filter — check
+      // (w, r) as one direction and (r, w) as the other.
+      if (workFilter || refFilter) {
+        const fwd = (!workFilter || workFilter(w.source)) && (!refFilter || refFilter(r.source));
+        const rev = (!workFilter || workFilter(r.source)) && (!refFilter || refFilter(w.source));
+        if (!fwd && !rev) continue;
+      }
       const ka = w.filepath + '|||' + w.name;
       const kb = r.filepath + '|||' + r.name;
       const pairKey = ka < kb ? ka + '<=>' + kb : kb + '<=>' + ka;
@@ -172,6 +213,31 @@ export function doBuildFpRenames(index, args) {
   if (fs.existsSync(renameMapPath)) {
     try { existingMap = JSON.parse(fs.readFileSync(renameMapPath, 'utf-8')); }
     catch (e) { console.log(`  warn: couldn't parse existing rename_map.json (${e.message}); starting fresh.`); }
+  }
+
+  // --clean-fp: strip existing _FP_ suffixes from rename_map.json before
+  // emitting new ones. Lets the user back out a noisy _FP_ pass without
+  // hand-editing. Preserves _KW_/_CMD_/_NAME_/_IMPORT_ tiers — only strips
+  // trailing _FP_ segments (which, due to our accumulation append-only
+  // behavior, are always at the end of each segment). Entries whose value
+  // becomes identical to the key after stripping are deleted outright.
+  if (cleanFp) {
+    let cleanedValues = 0;
+    let deletedEntries = 0;
+    for (const key of Object.keys(existingMap)) {
+      const orig = existingMap[key];
+      if (!orig || typeof orig !== 'string') continue;
+      if (!orig.includes('_FP_')) continue;
+      const stripped = _stripFpSuffixes(orig);
+      if (stripped === key) {
+        delete existingMap[key];
+        deletedEntries++;
+      } else if (stripped !== orig) {
+        existingMap[key] = stripped;
+        cleanedValues++;
+      }
+    }
+    console.log(`  --clean-fp: stripped _FP_ from ${cleanedValues} entries, deleted ${deletedEntries} entries with no remaining tier suffixes`);
   }
 
   let emitted = 0;

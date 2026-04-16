@@ -169,6 +169,7 @@ export function parseArgs() {
     fp_classes: false,
     save_fingerprints: null,
     load_fingerprints: null,  // populated as array by 'list' parser
+    clean_fp: false,
 
     // Content analysis
     command_catalog: false,
@@ -310,6 +311,7 @@ export function parseArgs() {
     ['fp_classes',           'flag',           ['--fp-classes']],
     ['save_fingerprints',    'value',          ['--save-fingerprints']],
     ['load_fingerprints',    'list',           ['--load-fingerprints']],
+    ['clean_fp',             'flag',           ['--clean-fp']],
 
     // New: content analysis
     ['command_catalog',      'flag',           ['--command-catalog']],
@@ -649,6 +651,19 @@ DEDUP / DUPLICATES:
                              <indexPath>/fingerprints/ so the index becomes
                              self-contained; manifest.json there records the
                              applied_at + min_score for each application.
+  --fingerprint-ref <patt>   (with --build-fp-renames or --cmp-string-call-dupes)
+                             Restrict the REF side to sources whose label contains
+                             any of the (comma-separated) patterns. Use to exclude
+                             noisy reference sources — e.g., pass "zod,ajv" to match
+                             against ONLY library-source fingerprints and ignore a
+                             bundled cli.js-side entry that happened to be saved in
+                             the same .fp.json file.
+  --fingerprint-work <patt>  Same, but scoping the WORK side.
+  --clean-fp                 (with --build-fp-renames) strip existing _FP_ suffixes
+                             from rename_map.json BEFORE emitting new ones. Use to
+                             back out a noisy _FP_ pass without hand-editing the
+                             map. Non-_FP_ tiers (_KW_, _CMD_, _NAME_, _IMPORT_)
+                             are preserved.
 
 CONTENT ANALYSIS:
   --command-catalog          List CLI options, commands, switch/case branches, API
