@@ -22,6 +22,7 @@
  */
 
 import crypto from 'crypto';
+import fs from 'fs';
 
 // JS keywords and ubiquitous stdlib names that match the call-site regex but
 // carry no discriminating signal. Kept tight — over-aggressive filtering
@@ -201,6 +202,101 @@ export function jaccard(a, b) {
 }
 
 /**
+ * Serialize an array of computed fingerprint entries to a portable JSON file.
+ * Grouped by filepath so the reader can see what was sampled without having
+ * to read every entry. Function bodies are NOT included — only fingerprints.
+ *
+ * File shape (stable schema, version 1):
+ *   {
+ *     "version": 1,
+ *     "saved_at": "2026-04-16T…",
+ *     "source_index": "/path/to/index",
+ *     "min_tokens": 6,
+ *     "total_files": 28,
+ *     "total_functions": 182,
+ *     "sources": ["@anthropic-ai/sdk"],
+ *     "files": {
+ *       "node_modules/@anthropic-ai/sdk/client.js": {
+ *         "source": "@anthropic-ai/sdk",
+ *         "functions": [
+ *           { "name": "…", "start": N, "end": N, "lines": N,
+ *             "hash": "…", "fp": ["S:x", "C:y", "M:z"] }
+ *         ]
+ *       }
+ *     }
+ *   }
+ *
+ * Preserving filepath + line numbers is informational only: you can see
+ * WHERE each fingerprint came from, even though you can't `--extract` its
+ * body from the saved file alone.
+ */
+export function saveFingerprints(fns, outPath, sourceIndexPath, minTokens) {
+  const byFile = {};
+  const sources = new Set();
+  for (const f of fns) {
+    if (!byFile[f.filepath]) byFile[f.filepath] = { source: f.source, functions: [] };
+    byFile[f.filepath].functions.push({
+      name: f.name,
+      start: f.start,
+      end: f.end,
+      lines: f.lines,
+      hash: f.hash,
+      fp: [...f.fingerprint].sort(),
+    });
+    sources.add(f.source);
+  }
+  const payload = {
+    version: 1,
+    saved_at: new Date().toISOString(),
+    source_index: sourceIndexPath,
+    min_tokens: minTokens,
+    total_files: Object.keys(byFile).length,
+    total_functions: fns.length,
+    sources: [...sources].sort(),
+    files: byFile,
+  };
+  fs.writeFileSync(outPath, JSON.stringify(payload, null, 2));
+}
+
+/**
+ * Load a previously-saved fingerprints file into the in-memory descriptor
+ * shape used by computeAllFingerprints. Each entry gets marked with
+ * `__fromFile: outPath` so downstream code (e.g. --extract) can give a
+ * precise error when a user tries to extract a body that isn't in the
+ * working index.
+ */
+export function loadFingerprints(filePath) {
+  const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  if (!raw || raw.version !== 1 || !raw.files) {
+    throw new Error(`${filePath}: not a fingerprints file (expected version:1 schema)`);
+  }
+  const fns = [];
+  for (const [fp, entry] of Object.entries(raw.files)) {
+    const source = entry.source || 'loaded';
+    for (const fn of entry.functions || []) {
+      fns.push({
+        filepath: fp,
+        name: fn.name,
+        source,
+        fingerprint: new Set(fn.fp || []),
+        size: (fn.fp || []).length,
+        hash: fn.hash,
+        start: fn.start,
+        end: fn.end,
+        lines: fn.lines,
+        __fromFile: filePath,
+      });
+    }
+  }
+  return { fns, meta: {
+    saved_at: raw.saved_at,
+    source_index: raw.source_index,
+    total_functions: raw.total_functions,
+    sources: raw.sources || [],
+  }};
+}
+
+/**
  * Run extractFingerprint over every indexed function and return the array of
  * function descriptors with their fingerprints and hashes. Shared setup for
  * both the exact-match dupe commands and the Jaccard-compare command.
@@ -236,4 +332,56 @@ export function computeAllFingerprints(index, { minTokens = 6, maxStrFreq = 20 }
     }
   }
   return { fns, globalStrFreq };
+}
+
+/**
+ * --save-fingerprints: compute fingerprints on the current index and write
+ * them to a portable JSON file. No source code is saved; only fingerprints
+ * + metadata. Usable later with --load-fingerprints against any other
+ * index.
+ */
+export function doSaveFingerprints(index, args) {
+  const outPath = args.save_fingerprints;
+  const minTokens = args.fingerprint_min_tokens != null
+    ? parseInt(args.fingerprint_min_tokens) : 6;
+
+  console.log(`Computing fingerprints (min-tokens=${minTokens})...`);
+  const { fns } = computeAllFingerprints(index, { minTokens });
+  console.log(`  ${fns.length} functions have fingerprints with ≥${minTokens} tokens`);
+
+  if (fns.length === 0) {
+    console.log('No fingerprints to save.');
+    return;
+  }
+
+  saveFingerprints(fns, outPath, index.indexPath, minTokens);
+  const sz = fs.statSync(outPath).size;
+  console.log(`Saved ${fns.length} fingerprints to ${outPath} (${(sz / 1024).toFixed(1)} KB)`);
+  const distinctFiles = new Set(fns.map(f => f.filepath)).size;
+  const distinctSources = new Set(fns.map(f => f.source)).size;
+  console.log(`  spanning ${distinctFiles} files across ${distinctSources} sources`);
+}
+
+/**
+ * Load multiple fingerprint files (accepts a single path string or an array)
+ * and return the combined array of function descriptors plus provenance
+ * metadata. Callers of --cmp-string-call-dupes / --build-fp-renames
+ * concatenate these with their index-computed fingerprints.
+ */
+export function loadFingerprintsList(paths) {
+  if (!paths) return { fns: [], provenance: [] };
+  const pathList = Array.isArray(paths) ? paths : [paths];
+  const allFns = [];
+  const provenance = [];
+  for (const p of pathList) {
+    if (!fs.existsSync(p)) {
+      console.log(`  warn: fingerprints file not found: ${p}`);
+      continue;
+    }
+    const { fns, meta } = loadFingerprints(p);
+    allFns.push(...fns);
+    provenance.push({ path: p, ...meta, loaded_functions: fns.length });
+    console.log(`  loaded ${fns.length} fingerprints from ${p} (saved ${meta.saved_at}, sources: ${meta.sources.join(', ')})`);
+  }
+  return { fns: allFns, provenance };
 }

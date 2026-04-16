@@ -7,6 +7,7 @@
 import { displayName } from '../utils.js';
 import {
   computeAllFingerprints,
+  loadFingerprintsList,
   sourceOfPath,
   jaccard,
 } from './fingerprint.js';
@@ -890,8 +891,15 @@ export function doCmpStringCallDupes(index, args) {
   const showTokens = !!args.show_tokens;
 
   console.log('Computing fingerprints for all functions...');
-  const { fns } = computeAllFingerprints(index, { minTokens });
-  console.log(`  ${fns.length} functions have fingerprints with ≥${minTokens} tokens`);
+  const { fns: indexFns } = computeAllFingerprints(index, { minTokens });
+  console.log(`  ${indexFns.length} index functions have fingerprints with ≥${minTokens} tokens`);
+
+  // Merge in any --load-fingerprints files (portable reference libraries)
+  const { fns: loadedFns } = loadFingerprintsList(args.load_fingerprints);
+  const fns = indexFns.concat(loadedFns);
+  if (loadedFns.length > 0) {
+    console.log(`  +${loadedFns.length} loaded from fingerprints file(s); total pool: ${fns.length}`);
+  }
 
   const workFns = workSource
     ? fns.filter(f => f.source.toLowerCase().includes(workSource.toLowerCase()))

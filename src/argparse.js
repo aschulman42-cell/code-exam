@@ -167,6 +167,8 @@ export function parseArgs() {
     build_fp_renames: null,
     dry_run: false,
     fp_classes: false,
+    save_fingerprints: null,
+    load_fingerprints: null,  // populated as array by 'list' parser
 
     // Content analysis
     command_catalog: false,
@@ -306,6 +308,8 @@ export function parseArgs() {
     ['build_fp_renames',     'optional_value', ['--build-fp-renames', '--build-fingerprint-renames']],
     ['dry_run',              'flag',           ['--dry-run']],
     ['fp_classes',           'flag',           ['--fp-classes']],
+    ['save_fingerprints',    'value',          ['--save-fingerprints']],
+    ['load_fingerprints',    'list',           ['--load-fingerprints']],
 
     // New: content analysis
     ['command_catalog',      'flag',           ['--command-catalog']],
@@ -631,6 +635,20 @@ DEDUP / DUPLICATES:
                              class. Note: can mis-label subclasses (which inherit the
                              parent's methods) as the parent class — see source-code
                              comment for details. Easy to disable.
+  --save-fingerprints <path> Compute fingerprints on the current index and write them
+                             to a portable JSON file. No source code is saved — only
+                             the fingerprint tokens + filepath/line metadata. The
+                             saved file can later be passed to --load-fingerprints
+                             against any other index, so reference libraries don't
+                             need to be re-indexed alongside every working corpus.
+  --load-fingerprints <path> Load a previously-saved fingerprints file. Loaded
+                             functions augment the candidate pool for
+                             --cmp-string-call-dupes / --build-fp-renames. May be
+                             repeated to load multiple files. When combined with
+                             --build-fp-renames, each loaded file is COPIED into
+                             <indexPath>/fingerprints/ so the index becomes
+                             self-contained; manifest.json there records the
+                             applied_at + min_score for each application.
 
 CONTENT ANALYSIS:
   --command-catalog          List CLI options, commands, switch/case branches, API

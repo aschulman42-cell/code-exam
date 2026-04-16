@@ -34,6 +34,7 @@ import {
   doStringCallDupes, doStringCallDiffAll, doCmpStringCallDupes,
 } from './commands/dedup.js';
 import { doBuildFpRenames } from './commands/build_fp_renames.js';
+import { doSaveFingerprints } from './commands/fingerprint.js';
 import { doInteractive } from './commands/interactive.js';
 import { doMultisect } from './commands/multisect.js';
 import { doClaimSearch } from './commands/claim.js';
@@ -145,6 +146,7 @@ if (args.build_index) {
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
     'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'build_fp_renames',
+    'save_fingerprints',
   ];
   if (!queryCommands.some(c => args._explicit.has(c) || args[c])) {
     process.exit(0);
@@ -202,6 +204,7 @@ if (args.build_rename_map) {
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
     'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'build_fp_renames',
+    'save_fingerprints',
     'command_catalog', 'string_table', 'breadcrumbs', 'file_bookends', 'bundle_seams', 'digest',
   ];
   if (!queryCommands.some(c => args._explicit.has(c) || args[c])) {
@@ -291,6 +294,7 @@ if (args.string_call_dupes)                 doStringCallDupes(index, args);
 if (args.string_call_diff_all)              doStringCallDiffAll(index, args);
 if (args.cmp_string_call_dupes)             doCmpStringCallDupes(index, args);
 if (args._explicit.has('build_fp_renames')) doBuildFpRenames(index, args);
+if (args.save_fingerprints)                 doSaveFingerprints(index, args);
 
 // Content analysis
 if (args.command_catalog) {
@@ -450,6 +454,7 @@ if (args.interactive) {
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
     'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'build_fp_renames',
+    'save_fingerprints',
     'command_catalog', 'string_table', 'breadcrumbs', 'file_bookends', 'bundle_seams', 'digest',
   ].some(c => args._explicit.has(c) || args[c]);
 

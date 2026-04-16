@@ -30,7 +30,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { computeAllFingerprints, jaccard } from './fingerprint.js';
+import { computeAllFingerprints, loadFingerprintsList, jaccard } from './fingerprint.js';
 
 /**
  * camelCase → CAMEL_CASE snake (utility).
@@ -83,8 +83,17 @@ export function doBuildFpRenames(index, args) {
 
   console.log(`Building _FP_ rename entries from fingerprint matches (min-score=${minScore}, min-tokens=${minTokens})${dryRun ? ' [DRY RUN]' : ''}`);
 
-  const { fns } = computeAllFingerprints(index, { minTokens });
-  console.log(`  ${fns.length} functions have fingerprints with ≥${minTokens} tokens`);
+  const { fns: indexFns } = computeAllFingerprints(index, { minTokens });
+  console.log(`  ${indexFns.length} index functions have fingerprints with ≥${minTokens} tokens`);
+
+  // Merge in any --load-fingerprints files (portable reference libraries).
+  // Each loaded function contributes to the candidate pool with its saved
+  // source label intact, so --cross-source logic works naturally.
+  const { fns: loadedFns, provenance } = loadFingerprintsList(args.load_fingerprints);
+  const fns = indexFns.concat(loadedFns);
+  if (loadedFns.length > 0) {
+    console.log(`  +${loadedFns.length} loaded from fingerprints file(s); total pool: ${fns.length}`);
+  }
 
   // Bare-name uniqueness across the entire function index. Mirror the guard
   // used by the existing _KW_ inference — only propose bare-name renames for
@@ -459,6 +468,45 @@ export function doBuildFpRenames(index, args) {
   console.log(`Total rename entries: ${Object.keys(existingMap).length}`);
   console.log('Grep "_FP_" to audit the additions:');
   console.log(`  grep _FP_ ${renameMapPath}`);
+
+  // Provenance: COPY each loaded fingerprint file into the index, so the
+  // index is self-contained — a reader can examine the fingerprints that
+  // informed its renames without needing the original .fp.json on the
+  // filesystem. Stored under <indexPath>/fingerprints/ with a manifest.json
+  // recording the applied_at timestamp and the min_score used.
+  if (provenance && provenance.length > 0) {
+    const fpDir = path.join(index.indexPath, 'fingerprints');
+    fs.mkdirSync(fpDir, { recursive: true });
+    const manifestPath = path.join(fpDir, 'manifest.json');
+    let manifest = { version: 1, applications: [] };
+    if (fs.existsSync(manifestPath)) {
+      try { manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')); }
+      catch { manifest = { version: 1, applications: [] }; }
+      if (!manifest.applications) manifest.applications = [];
+    }
+    const applied_at = new Date().toISOString();
+    for (const p of provenance) {
+      const baseName = path.basename(p.path);
+      const destPath = path.join(fpDir, baseName);
+      try {
+        fs.copyFileSync(p.path, destPath);
+      } catch (e) {
+        console.log(`  warn: couldn't copy ${p.path} into index: ${e.message}`);
+        continue;
+      }
+      manifest.applications.push({
+        applied_at,
+        min_score: minScore,
+        original_path: p.path,
+        embedded_as: baseName,
+        loaded_functions: p.loaded_functions,
+        saved_at: p.saved_at,
+        sources: p.sources,
+      });
+    }
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+    console.log(`Embedded fingerprint files in ${fpDir} (${manifest.applications.length} application records)`);
+  }
 
   // Invalidate in-memory rename cache on the index so a subsequent query
   // in the same process picks up the new entries.
