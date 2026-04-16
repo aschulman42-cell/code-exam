@@ -115,10 +115,11 @@ export function doBuildFpRenames(index, args) {
     return b;
   };
 
-  // Track, per work fullName, the best ref match we've seen (same canonical-
-  // pair dedup as --cmp-string-call). Each work function gets at most one
-  // _FP_ entry, picked at the highest cross-source score.
-  const bestMatchFor = new Map();  // workFullName → { workFn, refFn, score }
+  // Full list of canonicalized cross-source matches above threshold. The
+  // per-work "best" map is derived from this; --fp-classes also needs the
+  // full list because a class-level identification requires aggregating
+  // MULTIPLE method-level matches for the same (workClass, refClass) pair.
+  const allMatches = [];  // [{ workFn, refFn, score }, ...]
   const seenPair = new Set();
   for (const w of fns) {
     const sharedCount = new Map();
@@ -138,16 +139,23 @@ export function doBuildFpRenames(index, args) {
       seenPair.add(pairKey);
       const score = jaccard(w.fingerprint, r.fingerprint);
       if (score < minScore) continue;
-      // Both sides are candidates — update bestMatchFor for both. A work
-      // function in a reference library may also be a work function from
-      // the other side's perspective.
-      const existingW = bestMatchFor.get(w.name);
-      if (!existingW || score > existingW.score) bestMatchFor.set(w.name, { workFn: w, refFn: r, score });
-      const existingR = bestMatchFor.get(r.name);
-      if (!existingR || score > existingR.score) bestMatchFor.set(r.name, { workFn: r, refFn: w, score });
+      allMatches.push({ workFn: w, refFn: r, score });
     }
   }
-  console.log(`  ${bestMatchFor.size} function-name candidates pass min-score`);
+
+  // Build bestMatchFor for method-level rename emission: per candidate
+  // fullName, keep the single best cross-source match. Each candidate can
+  // be either side of a pair (hence we update for both w and r). This is
+  // the SAME collapsing the original single-pass loop did; just factored
+  // out so allMatches is also retained.
+  const bestMatchFor = new Map();  // workFullName → { workFn, refFn, score }
+  for (const m of allMatches) {
+    const eW = bestMatchFor.get(m.workFn.name);
+    if (!eW || m.score > eW.score) bestMatchFor.set(m.workFn.name, { workFn: m.workFn, refFn: m.refFn, score: m.score });
+    const eR = bestMatchFor.get(m.refFn.name);
+    if (!eR || m.score > eR.score) bestMatchFor.set(m.refFn.name, { workFn: m.refFn, refFn: m.workFn, score: m.score });
+  }
+  console.log(`  ${allMatches.length} cross-source matches pass min-score (${bestMatchFor.size} distinct functions)`);
 
   // Load existing rename map — we accumulate, not overwrite.
   const renameMapPath = path.join(index.indexPath, 'rename_map.json');
@@ -227,10 +235,172 @@ export function doBuildFpRenames(index, args) {
       skippedAmbiguous++;
     }
   }
-  console.log(`  ${emitted} _FP_ entries added to rename map`);
+  console.log(`  ${emitted} method-level _FP_ entries added`);
   if (skippedSourceSide > 0) console.log(`  ${skippedSourceSide} matches skipped — work side is in node_modules/.zip (library source, not a deobfuscation candidate)`);
   if (skippedRealName > 0) console.log(`  ${skippedRealName} matches skipped — work side has a real/descriptive name (not bundler-mangled)`);
   if (skippedAmbiguous > 0) console.log(`  ${skippedAmbiguous} bare-name renames skipped (bare name collides with another function)`);
+
+  // ─── Class-level aggregation pass (opt-in via --fp-classes) ──────────
+  // Propose `workClass → workClass_FP_RefClass` when multiple methods of
+  // workClass fingerprint-match methods of RefClass. Opt-in because this
+  // can mis-label subclasses (which inherit parent methods) as the parent.
+  // Three safeguards:
+  //   • n_matches ≥ 2 — rules out single generic-method coincidences
+  //     (_parse, toString, get length, etc.)
+  //   • avg_score ≥ minScore — same quality bar as method-level renames
+  //   • coverage ≥ 0.5 — matched methods must cover at least half the
+  //     smaller class's method set, so "3 generic methods in common" out
+  //     of 50 doesn't count.
+  // Additional filters mirror the method-level pass: work side must not
+  // be in node_modules/.zip (library source), workBare must look mangled,
+  // workClass != refClass by bare name.
+  if (args.fp_classes) {
+    // Count methods-per-class from the function index. Class name is the
+    // prefix before the LAST `::` in a qualified entry. A class with no
+    // `::` entries has zero counted methods and is skipped.
+    const methodCountByClass = new Map();
+    for (const [fp, funcs] of Object.entries(index.functionIndex || {})) {
+      for (const fname of Object.keys(funcs)) {
+        if (!fname.includes('::')) continue;
+        const parts = fname.split('::');
+        const clsName = parts.slice(0, -1).join('::');
+        const key = fp + '|||' + clsName;
+        methodCountByClass.set(key, (methodCountByClass.get(key) || 0) + 1);
+      }
+    }
+
+    // Aggregate allMatches by (workClass, refClass). Only consider matches
+    // whose BOTH sides are qualified (i.e., `::` in the name).
+    const byClassPair = new Map();  // "wkey>>>rkey" → { workClass, refClass, workFn, refFn, matches: [...] }
+    for (const m of allMatches) {
+      if (!m.workFn.name.includes('::')) continue;
+      if (!m.refFn.name.includes('::')) continue;
+      const wParts = m.workFn.name.split('::');
+      const rParts = m.refFn.name.split('::');
+      const workCls = wParts.slice(0, -1).join('::');
+      const refCls  = rParts.slice(0, -1).join('::');
+      // Canonicalize the pair so we see each class-pair once even if the
+      // method-level matches came from both directions.
+      const wKey = m.workFn.filepath + '|||' + workCls;
+      const rKey = m.refFn.filepath  + '|||' + refCls;
+      const [aKey, bKey, aFp, bFp, aCls, bCls] = wKey < rKey
+        ? [wKey, rKey, m.workFn.filepath, m.refFn.filepath, workCls, refCls]
+        : [rKey, wKey, m.refFn.filepath, m.workFn.filepath, refCls, workCls];
+      const pairKey = aKey + '>>>' + bKey;
+      if (!byClassPair.has(pairKey)) {
+        byClassPair.set(pairKey, {
+          aFp, bFp, aCls, bCls,
+          matches: [],
+        });
+      }
+      byClassPair.get(pairKey).matches.push(m);
+    }
+
+    // Bare-name uniqueness for classes — same safeguard as for methods.
+    const classBareCount = new Map();
+    for (const k of methodCountByClass.keys()) {
+      const clsName = k.split('|||')[1];
+      const bare = clsName.includes('::') ? clsName.split('::').pop() : clsName;
+      classBareCount.set(bare, (classBareCount.get(bare) || 0) + 1);
+    }
+
+    let classEmitted = 0;
+    let classSkippedCoverage = 0;
+    let classSkippedSourceSide = 0;
+    let classSkippedRealName = 0;
+    const classSkippedDiag = [];  // keep a few near-misses for user diagnostic
+
+    for (const { aFp, bFp, aCls, bCls, matches } of byClassPair.values()) {
+      if (matches.length < 2) {
+        // Single-method match — insufficient evidence for class identity.
+        // Don't count as "skipped" if only 1 match because that's almost
+        // every class pair. Just silently ignore.
+        continue;
+      }
+      const avgScore = matches.reduce((s, m) => s + m.score, 0) / matches.length;
+      if (avgScore < minScore) {
+        classSkippedCoverage++;
+        if (classSkippedDiag.length < 5) classSkippedDiag.push({ aCls, bCls, reason: `avg_score=${avgScore.toFixed(2)} < ${minScore}`, n: matches.length });
+        continue;
+      }
+
+      // Determine direction (work vs ref). Work side = not in node_modules/.zip.
+      // If both or neither are node_modules-side, skip as ambiguous.
+      const aSource = (aFp.replace(/\\/g, '/').includes('node_modules/') || aFp.includes('.zip!'));
+      const bSource = (bFp.replace(/\\/g, '/').includes('node_modules/') || bFp.includes('.zip!'));
+      let workFp, refFp, workCls, refCls;
+      if (aSource && !bSource)      { workFp = bFp; workCls = bCls; refFp = aFp; refCls = aCls; }
+      else if (!aSource && bSource) { workFp = aFp; workCls = aCls; refFp = bFp; refCls = bCls; }
+      else { classSkippedSourceSide++; continue; }
+
+      const workBare = workCls.includes('::') ? workCls.split('::').pop() : workCls;
+      const refBare  = refCls.includes('::')  ? refCls.split('::').pop()  : refCls;
+      if (workBare === refBare) { classSkippedRealName++; continue; }
+
+      // Bundler-mangled check on the class name.
+      const mangled =
+        workBare.length <= 3 ||
+        /[0-9]/.test(workBare) ||
+        /^[_$]/.test(workBare);
+      if (!mangled) { classSkippedRealName++; continue; }
+
+      // Coverage computed for diagnostic only — don't gate on it. In
+      // bundled code, bundlers aggressively rewrite method bodies (esbuild
+      // inlining, minification, operator simplification), so even a clear
+      // class identity often has only a few methods fingerprint-match at
+      // the current threshold. Requiring coverage ≥ 0.3 rejected real
+      // identities like vx6↔MessageStream (3 matches / 28 methods = 0.11).
+      //
+      // Rely on matches.length ≥ 2 AND avg_score ≥ minScore as the
+      // filters — single-method coincidence is blocked, and the
+      // per-method score bar is the same as individual renames.
+      const wCount = methodCountByClass.get(workFp + '|||' + workCls) || 0;
+      const rCount = methodCountByClass.get(refFp  + '|||' + refCls)  || 0;
+      const smaller = Math.min(wCount, rCount) || 1;
+      const coverage = matches.length / smaller;
+
+      const suffix = '_FP_' + _toSuffix(refBare, refFp);
+
+      // Qualified rename (full workCls → workCls + suffix). Diagnostic
+      // fires only on actual change — otherwise src/dist/other-variant
+      // re-discoveries of the same class pair would print it repeatedly.
+      const existing = existingMap[workCls];
+      const newValue = existing
+        ? (existing.includes(suffix) ? existing : existing + suffix)
+        : (workCls + suffix);
+      if (newValue !== existing) {
+        existingMap[workCls] = newValue;
+        classEmitted++;
+        if (classSkippedDiag.length < 10) classSkippedDiag.push({
+          aCls: workCls, bCls: refCls,
+          reason: `→ EMITTED (${matches.length} method matches, avg_score=${avgScore.toFixed(2)}, coverage=${coverage.toFixed(2)})`,
+          n: matches.length,
+        });
+      }
+
+      // Bare-name rename (only if bare is unique across all classes).
+      if (classBareCount.get(workBare) === 1) {
+        const bareExisting = existingMap[workBare];
+        const bareNew = bareExisting
+          ? (bareExisting.includes(suffix) ? bareExisting : bareExisting + suffix)
+          : (workBare + suffix);
+        if (bareNew !== bareExisting) {
+          existingMap[workBare] = bareNew;
+          classEmitted++;
+        }
+      }
+    }
+    console.log(`  ${classEmitted} class-level _FP_ entries added (--fp-classes)`);
+    if (classSkippedCoverage > 0) console.log(`  ${classSkippedCoverage} class pairs skipped — insufficient avg_score or coverage`);
+    if (classSkippedSourceSide > 0) console.log(`  ${classSkippedSourceSide} class pairs skipped — both sides are in library source (can't pick a direction)`);
+    if (classSkippedRealName > 0) console.log(`  ${classSkippedRealName} class pairs skipped — work-side class name looks descriptive`);
+    if (classSkippedDiag.length > 0) {
+      console.log('  Class-pair diagnostic (emitted entries + near-misses):');
+      for (const d of classSkippedDiag) {
+        console.log(`    ${d.aCls} ↔ ${d.bCls}  ${d.reason}`);
+      }
+    }
+  }
 
   if (dryRun) {
     console.log('\n[DRY RUN] No file written. Re-run without --dry-run to save.');

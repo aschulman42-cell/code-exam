@@ -166,6 +166,7 @@ export function parseArgs() {
     show_tokens: false,
     build_fp_renames: null,
     dry_run: false,
+    fp_classes: false,
 
     // Content analysis
     command_catalog: false,
@@ -304,6 +305,7 @@ export function parseArgs() {
     ['show_tokens',          'flag',           ['--show-tokens']],
     ['build_fp_renames',     'optional_value', ['--build-fp-renames', '--build-fingerprint-renames']],
     ['dry_run',              'flag',           ['--dry-run']],
+    ['fp_classes',           'flag',           ['--fp-classes']],
 
     // New: content analysis
     ['command_catalog',      'flag',           ['--command-catalog']],
@@ -622,6 +624,13 @@ DEDUP / DUPLICATES:
                              preview without writing.
   --dry-run                  (with --build-fp-renames) show what would be written, don't
                              actually modify rename_map.json.
+  --fp-classes               (with --build-fp-renames) also propose CLASS renames by
+                             aggregating method-level matches. Class X gets renamed to
+                             X_FP_RefClass when ≥2 methods of X match methods of RefClass
+                             with avg score ≥ 0.8 AND coverage ≥ 50% of the smaller
+                             class. Note: can mis-label subclasses (which inherit the
+                             parent's methods) as the parent class — see source-code
+                             comment for details. Easy to disable.
 
 CONTENT ANALYSIS:
   --command-catalog          List CLI options, commands, switch/case branches, API
