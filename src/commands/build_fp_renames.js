@@ -182,13 +182,17 @@ export function doBuildFpRenames(index, args) {
         const rev = (!workFilter || workFilter(r.source)) && (!refFilter || refFilter(w.source));
         if (!fwd && !rev) continue;
       }
+      // Compute score FIRST, dedup AFTER — otherwise the seenPair Set grows
+      // to millions of below-threshold entries and exceeds V8's Set size
+      // limit (~16.7M). Jaccard is symmetric so both directions give the
+      // same score; we only store passing pairs in the dedup Set.
+      const score = jaccard(w.fingerprint, r.fingerprint);
+      if (score < minScore) continue;
       const ka = w.filepath + '|||' + w.name;
       const kb = r.filepath + '|||' + r.name;
       const pairKey = ka < kb ? ka + '<=>' + kb : kb + '<=>' + ka;
       if (seenPair.has(pairKey)) continue;
       seenPair.add(pairKey);
-      const score = jaccard(w.fingerprint, r.fingerprint);
-      if (score < minScore) continue;
       allMatches.push({ workFn: w, refFn: r, score });
     }
   }
