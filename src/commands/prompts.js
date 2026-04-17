@@ -429,20 +429,27 @@ export function doPromptCatalog(index, args) {
         while ((dqMatch = dqRe.exec(line)) !== null) {
           const content = dqMatch[1] !== undefined ? dqMatch[1] : dqMatch[2];
           if (!content || content.length < 150) continue;
-          if (!/^[A-Za-z]/.test(content)) continue;
+          // Same whitelist as Pattern 5: letters, #, -, *, digits, quotes
+          if (!/^[A-Za-z#\-*0-9"']/.test(content)) continue;
           const lower = content.toLowerCase();
           let hits = 0;
           for (const kw of INSTRUCTION_KW_5B) {
             if (lower.includes(kw)) hits++;
           }
-          if (hits >= 2) {
+          // Two acceptance paths:
+          //   (a) ≥2 instruction keywords — imperative prompts ("you must", "avoid", etc.)
+          //   (b) ≥300 chars with markdown headers — persona/soul docs, README-style
+          //       prompts, structured documentation used as system prompts
+          const hasMarkdownHeaders = content.length > 300 &&
+            /\\n#|^#/.test(content);
+          if (hits >= 2 || hasMarkdownHeaders) {
             const containingFunc = index._findContainingFunctionFromBounds
               ? index._findContainingFunctionFromBounds(funcBounds, lineNum)
               : null;
             let funcDisplay = containingFunc;
             if (funcDisplay && index.getDisplayName) funcDisplay = index.getDisplayName(funcDisplay);
             const entry = {
-              type: 'instruction-string',
+              type: hasMarkdownHeaders && hits < 2 ? 'persona-document' : 'instruction-string',
               filepath, lineNum,
               endLine: lineNum,
               varName: null,
