@@ -275,7 +275,72 @@ export function doPromptCatalog(index, args) {
         }
       }
 
-      // --- Pattern 5: build*Prompt function (capture the function body for context) ---
+      // --- Pattern 5: Long template/string literal with instruction vocabulary ---
+      // Catches prompts that don't start with "You are" but contain
+      // imperative instruction keywords stacked together. E.g., tool
+      // descriptions ("CRITICAL REQUIREMENT - You MUST follow this"),
+      // capability listings, rules blocks, etc.
+      if (!detected) {
+        const backtickCol = line.indexOf('`');
+        const dquoteCol = line.indexOf('"');
+        // Only trigger on lines that START a string (opening quote not
+        // preceded by another string character), and only template
+        // literals or long quoted strings.
+        let checkCol = -1;
+        if (backtickCol >= 0) checkCol = backtickCol;
+        else if (dquoteCol >= 0 && line.indexOf('"', dquoteCol + 1) < 0) {
+          // Opening double-quote without a close on the same segment —
+          // not a complete short string. Skip; too ambiguous.
+        }
+        if (checkCol >= 0 && line[checkCol] === '`') {
+          const { text, endLineIdx } = _extractFullString(fileLines, lineIdx, checkCol);
+          if (text.length > 200) {
+            // Reject if text starts with code-like tokens — means we
+            // captured at a template-literal CLOSE backtick, not an OPEN.
+            // Use a whitelist: real prompts start with a letter, #, -, *,
+            // digit, or quote. Anything else (operators, brackets, etc.)
+            // is code continuation from a misidentified backtick.
+            const trimText = text.trimStart();
+            if (!/^[a-zA-Z#\-*0-9"']/.test(trimText)) {
+              // Not a prompt — code continuation
+            } else {
+            // Count instruction-indicator keywords (case-insensitive)
+            const lower = text.toLowerCase();
+            const INSTRUCTION_KEYWORDS = [
+              'critical', 'must', 'mandatory', 'requirement', 'important',
+              'never', 'always', 'prohibited', 'forbidden', 'required',
+              'strictly', 'ensure', 'you must', 'you should', 'do not',
+              'instructions', 'guidelines', 'rules',
+            ];
+            let hits = 0;
+            for (const kw of INSTRUCTION_KEYWORDS) {
+              if (lower.includes(kw)) hits++;
+            }
+            if (hits >= 3) {
+              const prefix = line.slice(0, checkCol).trim();
+              let varName = null;
+              const assignMatch = prefix.match(/(?:(?:const|let|var)\s+)?(\w[\w$]*)\s*[=:]?\s*$/);
+              if (assignMatch) varName = assignMatch[1];
+              // Check if this is a return statement (function IS the prompt)
+              if (!varName && /return\s*$/.test(prefix)) varName = '(return value)';
+              const containingFunc = index._findContainingFunctionFromBounds
+                ? index._findContainingFunctionFromBounds(funcBounds, lineNum)
+                : null;
+              detected = {
+                type: 'instruction-string',
+                filepath, lineNum,
+                endLine: endLineIdx + 1,
+                varName,
+                func: containingFunc,
+                text,
+              };
+            }
+            } // end else (non-code-starting text)
+          }
+        }
+      }
+
+      // --- Pattern 6: build*Prompt function name (note, don't extract body) ---
       if (!detected) {
         const buildMatch = line.match(/(?:function\s+|(?:const|let|var)\s+)(build\w*[Pp]rompt|make\w*[Pp]rompt|format\w*[Pp]rompt|get\w*[Pp]rompt)\s*[=(]/);
         if (buildMatch) {
