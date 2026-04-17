@@ -33,6 +33,24 @@ import path from 'path';
 import { computeAllFingerprints, loadFingerprintsList, jaccard } from './fingerprint.js';
 
 /**
+ * Extract the npm package name from a filepath containing node_modules/.
+ *   node_modules/dagre/lib/normalize.js   → "dagre"
+ *   node_modules/@anthropic-ai/sdk/src/x  → "@anthropic-ai/sdk"
+ *   node_modules/d3-axis/src/axis.js      → "d3-axis"
+ *   some/other/path.js                    → null
+ */
+function _npmPackageOf(fp) {
+  if (!fp) return null;
+  const norm = fp.replace(/\\/g, '/');
+  const nm = norm.indexOf('node_modules/');
+  if (nm < 0) return null;
+  const after = norm.slice(nm + 'node_modules/'.length);
+  const parts = after.split('/');
+  if (parts[0] && parts[0].startsWith('@') && parts[1]) return parts[0] + '/' + parts[1];
+  return parts[0] || null;
+}
+
+/**
  * camelCase → CAMEL_CASE snake (utility).
  */
 function _screaming(s) {
@@ -43,36 +61,57 @@ function _screaming(s) {
 }
 
 /**
- * Compute the suffix for a rename based on the reference function. Includes
- * class context when available; when the ref name is too generic (3-char
- * common word like "code", "get", "set"), also append the file stem so the
- * reader can tell WHICH `code` function was matched.
+ * Compute the suffix for a rename based on the reference function. Includes:
+ *   - npm package name (when derivable from filepath) — tells the user WHERE
+ *     the identification came from, e.g. _FP_DAGRE_NORMALIZE_EDGE
+ *   - class context for qualified names (innermost enclosing scope)
+ *   - file-stem discrimination for generic short function names
+ *
+ * Redundancy guard: if the package-name screaming form already appears in the
+ * base suffix (e.g. "ZOD" is already in "ZOD_NUMBER"), skip the prepend.
  */
 function _toSuffix(refName, refFilepath) {
   let bare = refName;
   if (bare.includes('@')) bare = bare.split('@')[0];
 
+  let baseSuffix;
   // Qualified name: include class prefix (innermost enclosing scope)
   if (bare.includes('::')) {
     const parts = bare.split('::');
     const leaf = parts.pop();
     const cls = parts.pop();
-    return _screaming(cls) + '_' + _screaming(leaf);
-  }
-
-  const screaming = _screaming(bare);
-  // Generic 4-char-or-less name (code, get, set, run, doX) — append file
-  // stem for discrimination. E.g. ajv's applicator/not.ts::code vs
-  // applicator/allOf.ts::code shouldn't both produce _FP_CODE.
-  if (bare.length <= 4 && refFilepath) {
-    const norm = refFilepath.replace(/\\/g, '/');
-    const file = norm.split('/').pop() || '';
-    const stem = file.replace(/\.[a-zA-Z0-9]+$/, '');
-    if (stem && stem.toLowerCase() !== bare.toLowerCase()) {
-      return _screaming(stem) + '_' + screaming;
+    baseSuffix = _screaming(cls) + '_' + _screaming(leaf);
+  } else {
+    baseSuffix = _screaming(bare);
+    // Generic 4-char-or-less name (code, get, set, run, doX) — append file
+    // stem for discrimination.
+    if (bare.length <= 4 && refFilepath) {
+      const norm = refFilepath.replace(/\\/g, '/');
+      const file = norm.split('/').pop() || '';
+      const stem = file.replace(/\.[a-zA-Z0-9]+$/, '');
+      if (stem && stem.toLowerCase() !== bare.toLowerCase()) {
+        baseSuffix = _screaming(stem) + '_' + baseSuffix;
+      }
     }
   }
-  return screaming;
+
+  // Prepend npm package name if derivable — so the user can see at a glance
+  // which library the identification came from. Skip if the package name's
+  // screaming form is already embedded in the base suffix to avoid
+  // _FP_ZOD_ZOD_NUMBER doubling.
+  const pkg = _npmPackageOf(refFilepath);
+  if (pkg) {
+    // Use the last path segment for scoped packages: @anthropic-ai/sdk → sdk
+    const pkgParts = pkg.replace(/@/g, '').split('/');
+    const pkgLabel = _screaming(pkgParts[pkgParts.length - 1]);
+    if (pkgLabel &&
+        baseSuffix !== pkgLabel &&
+        !baseSuffix.startsWith(pkgLabel + '_')) {
+      baseSuffix = pkgLabel + '_' + baseSuffix;
+    }
+  }
+
+  return baseSuffix;
 }
 
 /**
