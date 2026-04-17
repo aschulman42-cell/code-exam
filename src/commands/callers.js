@@ -42,7 +42,18 @@ export function doCallers(index, args) {
 
   if (depth === 1) {
     // Simple single-level callers
-    const callers = index.findCallers(functionName, args.max_results);
+    let callers;
+    try {
+      callers = index.findCallers(functionName, args.max_results);
+    } catch (e) {
+      if (e.code === 'SHORT_NAME_BAILOUT') {
+        console.log(`\n${e.message}`);
+        console.log(`\nWorkaround: use grep to find callers of short-named functions:`);
+        console.log(`  node src/index.js --index-path ${index.indexPath} --regex "\\b${functionName}\\b\\s*\\("`);
+        return;
+      }
+      throw e;
+    }
 
     if (callers.length === 0) {
       console.log(`No callers found for '${functionName}'`);

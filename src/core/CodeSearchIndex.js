@@ -5450,7 +5450,7 @@ export class CodeSearchIndex {
     // have 1-2 orders of magnitude lower match count and complete in under
     // a second. If you see freezes on longer names, raise this.
     if (bareName.length <= 2 && !opts.allowShortName) {
-      const err = new Error(`Bare name '${bareName}' is too short for efficient caller search on this index. Short names have too many matches to scan without blocking the server (#280). Try a different target, or use the CLI with an explicit --callers and the full qualified name.`);
+      const err = new Error(`Bare name '${bareName}' is too short for efficient caller search on this index (#280). Short names match too many lines, blocking the server for minutes. Workaround: use --regex "\\b${bareName}\\b\\s*\\(" to find call sites via the inverted index.`);
       err.code = 'SHORT_NAME_BAILOUT';
       err.shortName = bareName;
       throw err;
