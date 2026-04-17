@@ -405,7 +405,7 @@ export function doPromptCatalog(index, args) {
     idx++;
     const shortPath = p.filepath.length > 60 ? '…' + p.filepath.slice(-59) : p.filepath;
     const funcLabel = p.funcDisplay || p.func || '(file scope)';
-    console.log('═'.repeat(72));
+    console.log('='.repeat(72));
     console.log(`PROMPT [${idx}]  ${shortPath}:L${p.lineNum}`);
     if (p.varName) console.log(`  Variable/property: ${p.varName}`);
     console.log(`  Function: ${funcLabel}`);
@@ -413,7 +413,7 @@ export function doPromptCatalog(index, args) {
     if (p.type !== 'prompt-builder-function') {
       console.log(`  --extract ${p.filepath}@${p.func || '(file scope)'}`);
     }
-    console.log('─'.repeat(72));
+    console.log('-'.repeat(72));
     // Full text — no truncation per user requirement
     console.log(p.text);
     console.log();
