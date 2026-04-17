@@ -154,6 +154,73 @@ export function doPromptCatalog(index, args) {
         }
       }
 
+      // --- Pattern 1b: Prompt phrase at line start after backtick on prev line ---
+      // Catches template literals where the opening backtick and the "You are"
+      // text are on DIFFERENT lines due to `\` continuation:
+      //   const PROMPT = `\
+      //   You are a patent-claim keyword extractor...
+      if (!detected && lineIdx > 0) {
+        const trimmed = line.trimStart();
+        if (/^You are |^You're a |^Your task |^Your role |^As an AI|^As a /.test(trimmed)) {
+          // Check if previous line ends with a backtick (possibly followed
+          // by \ line continuation). Use lastIndexOf instead of endsWith to
+          // avoid escaping headaches with backtick+backslash combos.
+          const prevTrimmed = (fileLines[lineIdx - 1] || '').trimEnd();
+          const lastBt = prevTrimmed.lastIndexOf('`');
+          if (lastBt >= 0 && lastBt >= prevTrimmed.length - 2) {
+            const btCol = fileLines[lineIdx - 1].lastIndexOf('`');
+            if (btCol >= 0) {
+              const { text, endLineIdx } = _extractFullString(fileLines, lineIdx - 1, btCol);
+              if (text.length > 20) {
+                const prevPrefix = fileLines[lineIdx - 1].slice(0, btCol).trim();
+                let varName = null;
+                const assignMatch = prevPrefix.match(/(?:(?:const|let|var)\s+)?(\w[\w$]*)\s*[=:]?\s*$/);
+                if (assignMatch) varName = assignMatch[1];
+                const containingFunc = index._findContainingFunctionFromBounds
+                  ? index._findContainingFunctionFromBounds(funcBounds, lineNum)
+                  : null;
+                detected = {
+                  type: 'string-literal',
+                  filepath, lineNum: lineIdx, // prev line where backtick is
+                  endLine: endLineIdx + 1,
+                  varName,
+                  func: containingFunc,
+                  text,
+                };
+              }
+            }
+          }
+        }
+      }
+
+      // --- Pattern 1c: Variable named *PROMPT* or *INSTRUCTION* assigned to a string ---
+      // Catches named prompt constants like _CLAIM_EXTRACTION_PROMPT even when
+      // the string content doesn't start with a recognized phrase.
+      if (!detected) {
+        const promptVarMatch = line.match(/(?:const|let|var)\s+(\w*(?:PROMPT|INSTRUCTION|SYSTEM_MSG)\w*)\s*=\s*(["'`])/);
+        if (promptVarMatch) {
+          const varName = promptVarMatch[1];
+          const quoteChar = promptVarMatch[2];
+          const quoteCol = line.indexOf(quoteChar, promptVarMatch.index + promptVarMatch[0].length - 1);
+          if (quoteCol >= 0) {
+            const { text, endLineIdx } = _extractFullString(fileLines, lineIdx, quoteCol);
+            if (text.length > 30) {
+              const containingFunc = index._findContainingFunctionFromBounds
+                ? index._findContainingFunctionFromBounds(funcBounds, lineNum)
+                : null;
+              detected = {
+                type: 'named-prompt-var',
+                filepath, lineNum,
+                endLine: endLineIdx + 1,
+                varName,
+                func: containingFunc,
+                text,
+              };
+            }
+          }
+        }
+      }
+
       // --- Pattern 2: getSystemPrompt declaration ---
       if (!detected) {
         const gspMatch = line.match(/getSystemPrompt\s*(?::\s*\(.*?\)\s*=>|=\s*(?:function|\())/);
@@ -310,7 +377,9 @@ export function doPromptCatalog(index, args) {
               'critical', 'must', 'mandatory', 'requirement', 'important',
               'never', 'always', 'prohibited', 'forbidden', 'required',
               'strictly', 'ensure', 'you must', 'you should', 'do not',
-              'instructions', 'guidelines', 'rules',
+              "don't", 'instructions', 'guidelines', 'rules', 'avoid',
+              'careful', 'security', 'vulnerabilities',
+              'if you', 'unless', 'prefer', 'instead', 'certain',
             ];
             let hits = 0;
             for (const kw of INSTRUCTION_KEYWORDS) {
@@ -336,6 +405,57 @@ export function doPromptCatalog(index, args) {
               };
             }
             } // end else (non-code-starting text)
+          }
+        }
+      }
+
+      // --- Pattern 5b: Long double/single-quoted strings with instruction vocab ---
+      // Catches prompt strings stored in arrays or as regular string literals.
+      // Runs INDEPENDENTLY of other patterns — a single prettified line can
+      // contain an ARRAY of instruction strings (ip9 puts 10+ prompts on one
+      // line), and we need to capture ALL of them, not just the first.
+      // Each match pushes directly to `prompts` rather than using `detected`.
+      {
+        const INSTRUCTION_KW_5B = [
+          'critical', 'must', 'mandatory', 'requirement', 'important',
+          'never', 'always', 'prohibited', 'forbidden', 'required',
+          'strictly', 'ensure', 'you must', 'you should', 'do not',
+          "don't", 'instructions', 'guidelines', 'rules', 'avoid',
+          'careful', 'security', 'vulnerabilities',
+          'if you', 'unless', 'prefer', 'instead', 'certain',
+        ];
+        const dqRe = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/g;
+        let dqMatch;
+        while ((dqMatch = dqRe.exec(line)) !== null) {
+          const content = dqMatch[1] !== undefined ? dqMatch[1] : dqMatch[2];
+          if (!content || content.length < 150) continue;
+          if (!/^[A-Za-z]/.test(content)) continue;
+          const lower = content.toLowerCase();
+          let hits = 0;
+          for (const kw of INSTRUCTION_KW_5B) {
+            if (lower.includes(kw)) hits++;
+          }
+          if (hits >= 2) {
+            const containingFunc = index._findContainingFunctionFromBounds
+              ? index._findContainingFunctionFromBounds(funcBounds, lineNum)
+              : null;
+            let funcDisplay = containingFunc;
+            if (funcDisplay && index.getDisplayName) funcDisplay = index.getDisplayName(funcDisplay);
+            const entry = {
+              type: 'instruction-string',
+              filepath, lineNum,
+              endLine: lineNum,
+              varName: null,
+              func: containingFunc,
+              funcDisplay,
+              text: content.replace(/\\n/g, '\n').replace(/\\t/g, '\t'),
+            };
+            if (filter) {
+              const pat = filter.toLowerCase();
+              const haystack = (entry.text + ' ' + (entry.func || '')).toLowerCase();
+              if (!haystack.includes(pat)) continue;
+            }
+            prompts.push(entry);
           }
         }
       }
