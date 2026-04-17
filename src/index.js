@@ -205,7 +205,7 @@ if (args.build_rename_map) {
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
     'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'build_fp_renames',
     'save_fingerprints',
-    'command_catalog', 'string_table', 'breadcrumbs', 'file_bookends', 'bundle_seams', 'digest',
+    'command_catalog', 'string_table', 'breadcrumbs', 'prompt_catalog', 'file_bookends', 'bundle_seams', 'digest',
   ];
   if (!queryCommands.some(c => args._explicit.has(c) || args[c])) {
     process.exit(0);
@@ -346,6 +346,11 @@ if (args._explicit.has('string_table') || args.string_table) {
   }
 }
 
+if (args.prompt_catalog) {
+  const { doPromptCatalog } = await import('./commands/prompts.js');
+  doPromptCatalog(index, args);
+}
+
 if (args.breadcrumbs) {
   const data = index.extractBreadcrumbs(true);
   const filterPat = args.filter ? args.filter.toLowerCase() : null;
@@ -463,7 +468,7 @@ if (args.interactive) {
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
     'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'build_fp_renames',
     'save_fingerprints',
-    'command_catalog', 'string_table', 'breadcrumbs', 'file_bookends', 'bundle_seams', 'digest',
+    'command_catalog', 'string_table', 'breadcrumbs', 'prompt_catalog', 'file_bookends', 'bundle_seams', 'digest',
   ].some(c => args._explicit.has(c) || args[c]);
 
   if (!anyCommand && !args.build_index) {

@@ -175,6 +175,7 @@ export function parseArgs() {
     command_catalog: false,
     string_table: null,
     breadcrumbs: false,
+    prompt_catalog: false,
     no_rename: false,
 
     // Track which flags were explicitly set (for dispatch logic)
@@ -317,6 +318,7 @@ export function parseArgs() {
     ['command_catalog',      'flag',           ['--command-catalog']],
     ['string_table',         'optional_value', ['--string-table', '--strings']],
     ['breadcrumbs',          'flag',           ['--breadcrumbs']],
+    ['prompt_catalog',       'flag',           ['--prompt-catalog', '--prompts']],
     ['no_rename',            'flag',           ['--no-rename']],
   ];
 
@@ -671,6 +673,11 @@ CONTENT ANALYSIS:
   --string-table [filter]    Show frequently-occurring string literals (alias: --strings)
                              Optional filter: substring or /regex/flags
   --breadcrumbs              Show telemetry/trace markers and event categories
+  --prompt-catalog           Detect and display all LLM prompts in the codebase:
+                             system prompts ("You are..."), getSystemPrompt methods,
+                             systemPrompt: properties, role:"system" messages, and
+                             build*Prompt functions. Full text, no truncation — pipe
+                             to a file and grep for keywords. (alias: --prompts)
                              (execution flow phases inferred from log/trace calls).
                              Combine with --verbose to expand each event
                              category into its full event list AND a per-
