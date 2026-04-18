@@ -464,12 +464,38 @@ export class TreeSitterParser {
             const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
             this._addFunction(result, prefix + funcName, startLine, endLine, 'function');
           }
+          // Walk INTO function body to find nested functions (closures,
+          // local helpers like `const doRebuild = async () => {}`).
+          // Reset classStack — nested functions are NOT class methods.
+          // Inspired by ChatGPT's recursive-visit rewrite (reviewed
+          // 2026-04-17); adapted to our multi-language walker.
+          const fnBody = child.childForFieldName('body');
+          if (fnBody) walk(fnBody, []);
         } else if (type === 'method_definition') {
           const nameNode = child.childForFieldName('name');
           const funcName = nameNode ? nameNode.text : null;
           if (funcName) {
             const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
             this._addFunction(result, prefix + funcName, startLine, endLine, 'function');
+          }
+          // Walk into method body for nested functions (same reasoning).
+          const methBody = child.childForFieldName('body');
+          if (methBody) walk(methBody, []);
+        } else if (type === 'public_field_definition' || type === 'field_definition') {
+          // Item 6: Class-field arrow methods — `run = async () => {}`
+          // inside a class body. Tree-sitter represents these as
+          // field_definition nodes, not method_definition.
+          const nameNode = child.childForFieldName('property') || child.childForFieldName('name');
+          const valueNode = child.childForFieldName('value');
+          if (nameNode && valueNode) {
+            const vt = valueNode.type;
+            if (vt === 'arrow_function' || vt === 'function' || vt === 'function_expression') {
+              const funcName = nameNode.text;
+              if (funcName) {
+                const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
+                this._addFunction(result, prefix + funcName, startLine, endLine, 'function');
+              }
+            }
           }
         } else if (type === 'lexical_declaration' || type === 'variable_declaration') {
           // Handle: const foo = function() { ... }  or  const foo = () => { ... }

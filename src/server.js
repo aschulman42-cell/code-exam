@@ -43,6 +43,16 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 
 // ========================================================================
+// Safe max-result parsing — prevents DoS via ?max=999999999
+// ========================================================================
+
+function safeMax(raw, defaultVal, ceiling = 10000) {
+  const n = parseInt(raw);
+  if (isNaN(n) || n < 1) return defaultVal;
+  return Math.min(n, ceiling);
+}
+
+// ========================================================================
 // Parse server arguments
 // ========================================================================
 
@@ -746,7 +756,7 @@ routes['/api/list-files'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   let files = index.listFiles();
   if (q.filter) { const pat = q.filter.toLowerCase(); files = files.filter(f => f.toLowerCase().includes(pat)); }
-  const max = parseInt(q.max) || 200;
+  const max = safeMax(q.max, 200);
   jsonResponse(res, { total: files.length, files: files.slice(0, max) });
 };
 
@@ -759,7 +769,7 @@ routes['/api/list-functions'] = (req, res) => {
   const sort = q.sort || 'lines';
   if (sort === 'lines') funcs.sort((a, b) => b.lines - a.lines);
   else if (sort === 'alpha') funcs.sort((a, b) => a.name.localeCompare(b.name));
-  const max = parseInt(q.max) || 200;
+  const max = safeMax(q.max, 200);
   jsonResponse(res, {
     total: funcs.length,
     functions: funcs.slice(0, max).map(f => ({
@@ -1083,7 +1093,7 @@ routes['/api/callers'] = (req, res) => {
   func = index.getOriginalName(func);
   let callers;
   try {
-    callers = index.findCallers(func, parseInt(q.max) || 200);
+    callers = index.findCallers(func, safeMax(q.max, 200));
   } catch (e) {
     // Short-name bail-out (#280): scan would block the event loop for
     // minutes on short bundled-JS names like 'h1' or 'N8'. Return 400 with
@@ -1514,7 +1524,7 @@ routes['/api/call-inventory'] = (req, res) => {
     includePath: q.include_path || null,
     excludePath: q.exclude_path || null,
   });
-  const max = parseInt(q.max) || 100;
+  const max = safeMax(q.max, 100);
   let inIndex = result.in_index;
   let external = result.external;
   if (q.filter) {
@@ -1567,7 +1577,7 @@ routes['/api/multisect'] = (req, res) => {
   const parsed = parseMultisectTerms(terms);
   if (!parsed || parsed.length === 0) return errorResponse(res, 'No valid search terms parsed');
   const minTerms = parseInt(q.min_terms) || 0;
-  const maxResults = parseInt(q.max) || 25;
+  const maxResults = safeMax(q.max, 25);
   const results = index.multisectSearch(parsed, { minTerms });
   const nPositive = parsed.filter(t => !t.negated).length;
 
@@ -1604,7 +1614,7 @@ routes['/api/search'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   const query = q.q;
   if (!query) return errorResponse(res, 'Missing ?q= parameter');
-  const maxResults = parseInt(q.max) || 20;
+  const maxResults = safeMax(q.max, 20);
   const contextLines = parseInt(q.context) || 3;
   const type = q.type || 'literal'; // literal, regex, fast
 
@@ -1650,7 +1660,7 @@ routes['/api/files-search'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   const term = q.q;
   if (!term) return errorResponse(res, 'Missing ?q= parameter');
-  const max = parseInt(q.max) || 30;
+  const max = safeMax(q.max, 30);
   const fileCounts = new Map();
   const termLower = term.toLowerCase();
   for (const [filepath, lines] of index.fileLines) {
@@ -1684,7 +1694,7 @@ routes['/api/string-table'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
-  const max = parseInt(q.max) || 50;
+  const max = safeMax(q.max, 50);
   const filter = q.filter || null;
   const minLength = parseInt(q.min_length) || 8;
   const { total, results } = index.queryStringTable({ filter, max, minLength });
@@ -1757,8 +1767,8 @@ routes['/api/digest'] = (req, res) => {
   if (!spec) return errorResponse(res, 'Missing ?name= parameter');
 
   const digestObj = index.buildFunctionDigest(spec, {
-    maxCallers: parseInt(q.max) || 10,
-    maxCallees: parseInt(q.max) || 10,
+    maxCallers: safeMax(q.max, 10),
+    maxCallees: safeMax(q.max, 10),
     maxStrings: parseInt(q.max_strings) || 15,
   });
   if (!digestObj) return errorResponse(res, `Function not found: ${spec}`, 404);
@@ -1840,7 +1850,7 @@ routes['/api/list-classes'] = (req, res) => {
     );
   }
   classes.sort((a, b) => b.method_count - a.method_count);
-  const max = parseInt(q.max) || 100;
+  const max = safeMax(q.max, 100);
   jsonResponse(res, {
     total: classes.length,
     classes: classes.slice(0, max).map(c => ({ name: c.name, filepath: c.filepath, methods: c.method_count, total_lines: c.total_method_lines, inferred: c.inferred || false })),
@@ -2545,7 +2555,7 @@ routes['/api/exec'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   const cmd = q.cmd || q.command || '';
   if (!cmd) return errorResponse(res, 'Missing ?cmd= parameter');
-  const max = parseInt(q.max) || 25;
+  const max = safeMax(q.max, 25);
 
   const opts = {
     max,

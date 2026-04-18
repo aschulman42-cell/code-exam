@@ -3779,7 +3779,17 @@ export class CodeSearchIndex {
     let tsFailedCount = 0;
 
     for (const [filepath, lines] of this.fileLines) {
-      const tsFuncs = await tsParser.parseFunctions(filepath, lines);
+      let tsFuncs;
+      try {
+        tsFuncs = await tsParser.parseFunctions(filepath, lines);
+      } catch (e) {
+        // Tree-sitter parse error — fall back to regex for this file.
+        // Previously tsFailedCount was declared but never incremented
+        // (flagged by Codex code review 2026-04-17).
+        tsFuncs = null;
+        tsFailedCount++;
+        if (showProgress) eprint(`  warn: tree-sitter failed on ${filepath}: ${e.message}`);
+      }
       const regexFuncs = this._parseFunctionsRegex(filepath);
       let fileFuncs;
 
