@@ -345,9 +345,24 @@ export function doSaveFingerprints(index, args) {
   const minTokens = args.fingerprint_min_tokens != null
     ? parseInt(args.fingerprint_min_tokens) : 6;
 
+  const MAX_TOKENS = 5000; // strip oversized entries (CUDA blobs, binary data)
+
   console.log(`Computing fingerprints (min-tokens=${minTokens})...`);
-  const { fns } = computeAllFingerprints(index, { minTokens });
-  console.log(`  ${fns.length} functions have fingerprints with ≥${minTokens} tokens`);
+  const { fns: rawFns } = computeAllFingerprints(index, { minTokens });
+  console.log(`  ${rawFns.length} functions have fingerprints with ≥${minTokens} tokens`);
+
+  // Strip oversized entries — these are typically binary/GPU blobs that
+  // leaked through the indexer (CUDA .so/.dll files, shader code, etc.)
+  // and produce multi-MB fingerprints that bloat the file and slow matching.
+  const oversized = rawFns.filter(f => f.fingerprint.size > MAX_TOKENS);
+  const fns = rawFns.filter(f => f.fingerprint.size <= MAX_TOKENS);
+  if (oversized.length > 0) {
+    console.log(`  stripped ${oversized.length} oversized entries (>${MAX_TOKENS} tokens):`);
+    for (const f of oversized.slice(0, 5)) {
+      console.log(`    ${f.name} (${f.fingerprint.size} tokens)`);
+    }
+    if (oversized.length > 5) console.log(`    ... and ${oversized.length - 5} more`);
+  }
 
   if (fns.length === 0) {
     console.log('No fingerprints to save.');
@@ -356,7 +371,7 @@ export function doSaveFingerprints(index, args) {
 
   saveFingerprints(fns, outPath, index.indexPath, minTokens);
   const sz = fs.statSync(outPath).size;
-  console.log(`Saved ${fns.length} fingerprints to ${outPath} (${(sz / 1024).toFixed(1)} KB)`);
+  console.log(`Saved ${fns.length} fingerprints to ${outPath} (${(sz / 1024 / 1024).toFixed(1)} MB)`);
   const distinctFiles = new Set(fns.map(f => f.filepath)).size;
   const distinctSources = new Set(fns.map(f => f.source)).size;
   console.log(`  spanning ${distinctFiles} files across ${distinctSources} sources`);
