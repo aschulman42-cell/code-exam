@@ -4352,7 +4352,10 @@ export class CodeSearchIndex {
         if (entry.isDirectory()) {
           // Skip common infrastructure directories
           const dirName = entry.name.toLowerCase();
-          if (_SKIP_DIRS.has(dirName) || dirName.startsWith('.')) continue;
+          if (_SKIP_DIRS.has(dirName)) continue;
+          // Skip CodeExam's own index directories (detected by the
+          // presence of our index marker file, not by naming convention)
+          if (fs.existsSync(path.join(fullPath, 'literal_index.json'))) continue;
           walk(fullPath);
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase();
@@ -5043,7 +5046,8 @@ export class CodeSearchIndex {
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) {
           const dirName = entry.name.toLowerCase();
-          if (_SKIP_DIRS.has(dirName) || dirName.startsWith('.')) continue;
+          if (_SKIP_DIRS.has(dirName)) continue;
+          if (fs.existsSync(path.join(full, 'literal_index.json'))) continue;
           walk(full);
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase() || '(no extension)';
