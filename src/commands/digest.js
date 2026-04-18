@@ -59,7 +59,9 @@ export function formatFunctionDigest(digest) {
   // --- Callers ---
   const c = digest.callers;
   push('─── CALLERS ─────────────────────────────────────────────────────────');
-  if (c.totalSites === 0) {
+  if (c.skipped) {
+    push(`  (${c.skipped})`);
+  } else if (c.totalSites === 0) {
     push('  (no callers found in index — possibly an entry point or unused)');
   } else {
     push(`  ${c.totalSites} call site${c.totalSites === 1 ? '' : 's'} across ${c.distinctCallers} distinct caller${c.distinctCallers === 1 ? '' : 's'}`);
