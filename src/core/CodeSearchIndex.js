@@ -1913,12 +1913,34 @@ export class CodeSearchIndex {
 
   /**
    * Get the display name for a function, applying rename map if available.
+   * For qualified names (Class::method), if the full key isn't in the map,
+   * tries substituting the class prefix alone. This way `le6::constructor`
+   * displays as `le6_KW_REMOVE_ALL_SCHEMAS::constructor` even when only
+   * the bare `le6` has a rename entry — without needing explicit qualified
+   * entries for every method.
    */
   getDisplayName(funcName) {
     if (!funcName) return funcName || '';
     const map = this._loadRenameMap();
-    // Use hasOwnProperty to avoid Object prototype collisions (constructor, toString, etc.)
-    return (map && Object.prototype.hasOwnProperty.call(map, funcName)) ? map[funcName] : funcName;
+    if (!map) return funcName;
+    // Direct lookup (exact key match)
+    if (Object.prototype.hasOwnProperty.call(map, funcName)) return map[funcName];
+    // Qualified-name fallback: split on ::, rename the class prefix if it
+    // has an entry, reassemble with the original method leaf.
+    if (funcName.includes('::')) {
+      const sepIdx = funcName.lastIndexOf('::');
+      const clsPart = funcName.slice(0, sepIdx);
+      const methPart = funcName.slice(sepIdx + 2);
+      if (Object.prototype.hasOwnProperty.call(map, clsPart)) {
+        const renamedCls = map[clsPart];
+        // If the method leaf itself has a rename, apply that too
+        const renamedMeth = Object.prototype.hasOwnProperty.call(map, funcName)
+          ? map[funcName].split('::').pop()  // won't reach here (caught above) but defensive
+          : methPart;
+        return renamedCls + '::' + renamedMeth;
+      }
+    }
+    return funcName;
   }
 
   /**
