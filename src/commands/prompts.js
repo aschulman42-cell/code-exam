@@ -111,6 +111,16 @@ function _findPromptStringStart(line) {
   return -1;
 }
 
+// Filenames that are ALWAYS prompts by convention — regardless of whether
+// any code references them. These are the well-known names used by agent
+// frameworks (Claude Code skills, OpenClaw souls, Codex plugins, etc.).
+const PROMPT_FILE_NAMES = new Set([
+  'skill.md', 'soul.md', 'system_prompt.md', 'systemprompt.md',
+  'prompt.md', 'system-prompt.md', 'instructions.md',
+  'personality.md', 'persona.md', 'agent.md',
+  'claude.md',  // Claude Code project instructions
+]);
+
 export function doPromptCatalog(index, args) {
   index._ensureFunctionIndex();
   const filter = args.filter || null;
@@ -122,6 +132,53 @@ export function doPromptCatalog(index, args) {
 
   const prompts = [];
 
+  // ── Phase 0: Convention-named .md files (SKILL.md, SOUL.md, etc.) ──
+  // These are prompts by DEFINITION — agent skill definitions, persona
+  // documents, system-prompt files. No code reference needed.
+  // Also detects .md files with YAML frontmatter containing prompt-like
+  // fields (title, description, tags).
+  for (const [filepath, fileLines] of index.fileLines) {
+    const basename = filepath.replace(/\\/g, '/').split('/').pop().toLowerCase();
+    const isPromptFile = PROMPT_FILE_NAMES.has(basename);
+    // Also check: .md file in a prompt-convention directory path
+    // (skills/, agents/, prompts/, souls/, personalities/).
+    // General YAML-frontmatter .md files are NOT included — too many
+    // false positives from regular documentation with frontmatter.
+    const normPath = filepath.replace(/\\/g, '/').toLowerCase();
+    const inPromptDir = basename.endsWith('.md') && (
+      /\/skills\//.test(normPath) ||
+      /\/agents\//.test(normPath) ||
+      /\/prompts\//.test(normPath) ||
+      /\/souls\//.test(normPath) ||
+      /\/personalities\//.test(normPath)
+    );
+
+    if (isPromptFile || inPromptDir) {
+      const fullText = fileLines.join('\n');
+      // Skip tiny files (< 50 chars) — probably empty or stub
+      if (fullText.length < 50) continue;
+
+      const entry = {
+        type: isPromptFile ? 'prompt-file' : 'md-in-prompt-dir',
+        filepath,
+        lineNum: 1,
+        endLine: fileLines.length,
+        varName: basename,
+        func: null,
+        funcDisplay: null,
+        text: fullText,
+      };
+
+      if (filter) {
+        const pat = filter.toLowerCase();
+        const haystack = (entry.text + ' ' + filepath).toLowerCase();
+        if (!haystack.includes(pat)) continue;
+      }
+      prompts.push(entry);
+    }
+  }
+
+  // ── Phase 1+: Code-level prompt detection (existing patterns) ──
   for (const [filepath, fileLines] of index.fileLines) {
     const funcBounds = index._getFuncBoundaries(filepath);
 
