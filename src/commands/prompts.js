@@ -121,14 +121,8 @@ const PROMPT_FILE_NAMES = new Set([
   'claude.md',  // Claude Code project instructions
 ]);
 
-export function doPromptCatalog(index, args) {
+export function collectPrompts(index, { filter = null } = {}) {
   index._ensureFunctionIndex();
-  const filter = args.filter || null;
-  // Use a high default for prompt-catalog specifically — the global
-  // max_results default (20) is too low for a "dump everything" command.
-  // Only respect max_results if the user explicitly passed --max-results.
-  const maxResults = args._explicit?.has('max_results') ? args.max_results : 9999;
-  const verbose = args.verbose || false;
 
   const prompts = [];
 
@@ -571,7 +565,18 @@ export function doPromptCatalog(index, args) {
   // Sort by filepath then line number
   prompts.sort((a, b) => a.filepath.localeCompare(b.filepath) || a.lineNum - b.lineNum);
 
-  // Output
+  return prompts;
+}
+
+export function doPromptCatalog(index, args) {
+  const filter = args.filter || null;
+  // Use a high default for prompt-catalog specifically — the global
+  // max_results default (20) is too low for a "dump everything" command.
+  // Only respect max_results if the user explicitly passed --max-results.
+  const maxResults = args._explicit?.has('max_results') ? args.max_results : 9999;
+
+  const prompts = collectPrompts(index, { filter });
+
   if (prompts.length === 0) {
     console.log('No prompts detected in the index.');
     console.log('(Detection looks for: "You are..." system prompts, getSystemPrompt, systemPrompt: properties,');

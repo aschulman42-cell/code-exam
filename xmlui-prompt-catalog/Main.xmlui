@@ -1,0 +1,155 @@
+<App
+  var.serverUrl="http://localhost:3000"
+  var.indexName=""
+  var.filter=""
+  var.sortBy="filepath"
+  var.selectedSpec="">
+
+  <DataSource
+    id="indexesData"
+    url="{serverUrl}/api/indexes"
+    resultSelector="indexes"
+    omitTransactionId="true" />
+
+  <DataSource
+    id="promptsData"
+    url="{serverUrl}/api/prompts"
+    queryParams="{{ index: indexName || undefined }}"
+    omitTransactionId="true" />
+
+  <DataSource
+    id="sourceData"
+    url="{serverUrl}/api/extract"
+    queryParams="{{ index: indexName || undefined, func: selectedSpec }}"
+    when="{!!selectedSpec}"
+    omitTransactionId="true" />
+
+  <VStack padding="1rem" gap="0.75rem" height="100vh">
+
+    <H2>CodeExam Prompt Catalog</H2>
+
+    <HStack gap="1rem" verticalAlignment="center">
+      <Text>Server:</Text>
+      <TextBox
+        width="18rem"
+        initialValue="{serverUrl}"
+        onDidChange="(v) => serverUrl = v" />
+      <Text>Index:</Text>
+      <Select
+        width="18rem"
+        placeholder="(server's active index)"
+        onDidChange="(v) => indexName = v">
+        <Items data="{indexesData.value || []}">
+          <Option
+            value="{$item.name}"
+            label="{$item.name}  ·  {$item.files} files{$item.active ? '  ·  active' : ''}" />
+        </Items>
+      </Select>
+      <Button
+        label="Reload"
+        onClick="promptsData.refetch()" />
+    </HStack>
+
+    <HStack gap="1rem" verticalAlignment="center">
+      <Text>Filter:</Text>
+      <TextBox
+        width="20rem"
+        initialValue="{filter}"
+        onDidChange="(v) => filter = v"
+        placeholder="substring match in text + filepath" />
+      <Text>Sort:</Text>
+      <Select
+        initialValue="filepath"
+        onDidChange="(v) => sortBy = v">
+        <Option value="filepath" label="Filepath" />
+        <Option value="length-desc" label="Length (long first)" />
+        <Option value="length-asc" label="Length (short first)" />
+        <Option value="alpha" label="Alphabetical (text)" />
+      </Select>
+      <Text>
+        Total: {(promptsData.value &amp;&amp; promptsData.value.total) || 0}
+      </Text>
+    </HStack>
+
+    <HSplitter height="70vh" initialPrimarySize="55%">
+
+      <!-- LEFT: prompt list -->
+      <VStack padding="0.5rem" gap="0.5rem">
+
+        <Text when="{promptsData.inProgress}">Loading…</Text>
+        <Text when="{promptsData.error}">Error — check server URL and index.</Text>
+
+        <List
+          when="{promptsData.loaded}"
+          data="{
+            ((promptsData.value &amp;&amp; promptsData.value.prompts) || [])
+              .filter(p =&gt; !filter ||
+                (p.text + ' ' + p.filepath).toLowerCase().includes(filter.toLowerCase()))
+              .slice()
+              .sort((a, b) =&gt;
+                sortBy === 'length-desc' ? b.text.length - a.text.length :
+                sortBy === 'length-asc'  ? a.text.length - b.text.length :
+                sortBy === 'alpha'       ? a.text.localeCompare(b.text) :
+                (a.filepath.localeCompare(b.filepath) || a.lineNum - b.lineNum))
+          }">
+          <Card>
+            <VStack gap="0.25rem">
+              <HStack gap="1rem" verticalAlignment="center">
+                <Text variant="strong">{$item.filepath}:L{$item.lineNum}</Text>
+                <Text variant="secondary">[{$item.type}]</Text>
+                <Text variant="secondary">{$item.text.length} chars</Text>
+              </HStack>
+              <HStack gap="0.5rem" verticalAlignment="center">
+                <Text variant="secondary">Function:</Text>
+                <Link
+                  when="{!!$item.func}"
+                  onClick="selectedSpec = $item.filepath + '@' + ($item.funcDisplay || $item.func)">
+                  {$item.funcDisplay || $item.func}
+                </Link>
+                <Text when="{!$item.func}" variant="secondary">(file scope)</Text>
+                <Text when="{!!$item.varName}" variant="secondary">
+                  · Variable: {$item.varName}
+                </Text>
+              </HStack>
+              <Text preserveLinebreaks="true" style="{{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}">
+                {$item.text}
+              </Text>
+            </VStack>
+          </Card>
+        </List>
+      </VStack>
+
+      <!-- RIGHT: source pane -->
+      <VStack padding="0.5rem" gap="0.5rem">
+        <Text when="{!selectedSpec}" variant="secondary">
+          Click a function name on the left to view source.
+        </Text>
+        <Text when="{!!selectedSpec &amp;&amp; sourceData.inProgress}">Loading source…</Text>
+        <Text when="{!!selectedSpec &amp;&amp; sourceData.error}" variant="secondary">
+          Error loading source (function may be ambiguous or not indexed).
+        </Text>
+
+        <VStack when="{!!selectedSpec &amp;&amp; sourceData.loaded &amp;&amp; sourceData.value &amp;&amp; sourceData.value.source}" gap="0.25rem">
+          <Text variant="strong">{sourceData.value.display_name}</Text>
+          <Text variant="secondary">
+            {sourceData.value.filepath}:L{sourceData.value.start_line} ({sourceData.value.lines} lines)
+          </Text>
+          <Text preserveLinebreaks="true" style="{{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}">
+            {sourceData.value.source}
+          </Text>
+        </VStack>
+
+        <VStack when="{!!selectedSpec &amp;&amp; sourceData.loaded &amp;&amp; sourceData.value &amp;&amp; sourceData.value.ambiguous}" gap="0.25rem">
+          <Text variant="strong">Ambiguous — pick one:</Text>
+          <List data="{sourceData.value.matches}">
+            <Link onClick="selectedSpec = $item.filepath + '@' + $item.name">
+              {$item.display_name} — {$item.filepath}:L{$item.start} ({$item.lines} lines)
+            </Link>
+          </List>
+        </VStack>
+      </VStack>
+
+    </HSplitter>
+
+  </VStack>
+</App>

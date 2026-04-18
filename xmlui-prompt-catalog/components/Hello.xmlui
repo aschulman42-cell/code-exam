@@ -1,0 +1,7 @@
+<Component name="Hello">
+
+<Text>
+Hello { $props.person.length ? $props.person : 'World' }!
+</Text>
+
+</Component>

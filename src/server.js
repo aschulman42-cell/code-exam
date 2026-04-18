@@ -22,6 +22,7 @@ import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { formatFunctionDigest } from './commands/digest.js';
+import { collectPrompts } from './commands/prompts.js';
 import { displayName } from './utils.js';
 import { execCommand } from './commands/interactive.js';
 import {
@@ -537,6 +538,8 @@ const routes = {};
 // --- Index management ---
 
 routes['/api/indexes'] = (req, res) => {
+  // CORS allowed (same rationale as /api/prompts — used by the xmlui prototype).
+  res.setHeader('Access-Control-Allow-Origin', '*');
   jsonResponse(res, { indexes: mgr.list() });
 };
 
@@ -800,6 +803,8 @@ routes['/api/file-functions'] = (req, res) => {
 // --- Extract function source ---
 
 routes['/api/extract'] = (req, res) => {
+  // CORS allowed (same rationale as /api/prompts — used by the xmlui prototype).
+  res.setHeader('Access-Control-Allow-Origin', '*');
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
@@ -1775,6 +1780,23 @@ routes['/api/digest'] = (req, res) => {
 
   const text = formatFunctionDigest(digestObj);
   jsonResponse(res, { spec, text, digest: digestObj });
+};
+
+
+// --- Prompt catalog ---
+//
+// Returns all detected LLM prompts in the index as JSON (full text, no
+// truncation). Consumed by external GUI prototypes (e.g. xmlui prompt viewer).
+
+routes['/api/prompts'] = (req, res) => {
+  // Cross-origin: allow the xmlui prototype (running on a separate dev port)
+  // to fetch prompts. Same-origin callers ignore this header.
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const prompts = collectPrompts(index, { filter: q.filter || null });
+  jsonResponse(res, { total: prompts.length, prompts });
 };
 
 
