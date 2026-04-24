@@ -101,6 +101,7 @@ const api = {
   funcstring:      (p) => api.get('funcstring', p),
   structDiffAll:   (p) => api.get('struct-diff-all', p),
   stringTable:     (p) => api.get('string-table', p),
+  prompts:         (p) => api.get('prompts', p),
   commandCatalog:  ()  => api.get('command-catalog'),
   breadcrumbs:     ()  => api.get('breadcrumbs'),
   bundleSeams:     (p) => api.get('bundle-seams', p),
@@ -374,6 +375,13 @@ async function loadSectionData(sectionId, filter = '') {
         data = await api.stringTable({ filter, max: getMaxResults() * 2 });
         state.sectionData[sectionId] = data.strings;
         renderStringTable(content, data.strings, data);
+        badge.textContent = data.total;
+        break;
+
+      case 'prompts':
+        data = await api.prompts({ filter });
+        state.sectionData[sectionId] = data.prompts;
+        renderPromptList(content, data.prompts, data.total);
         badge.textContent = data.total;
         break;
 
@@ -1465,6 +1473,110 @@ function renderStringTable(container, strings, meta) {
   }
 }
 
+// ========================================================================
+// LLM Prompts list
+// ========================================================================
+const PROMPT_FRAG_BASE = 100;      // initial fragment length
+const PROMPT_FRAG_TAIL = 25;       // extra chars shown around a divergence point
+
+// Build a display fragment for each prompt. If two prompts share the first
+// PROMPT_FRAG_BASE chars, add an ellipsis + PROMPT_FRAG_TAIL chars starting at
+// the first divergence point so they read differently. If texts are truly
+// identical, suffix with filepath.
+function disambiguatePromptFragments(prompts) {
+  const frags = prompts.map(p => p.text.slice(0, PROMPT_FRAG_BASE));
+  const byFrag = new Map();
+  for (let i = 0; i < frags.length; i++) {
+    if (!byFrag.has(frags[i])) byFrag.set(frags[i], []);
+    byFrag.get(frags[i]).push(i);
+  }
+  for (const [, group] of byFrag) {
+    if (group.length < 2) continue;
+    // Find first divergence point across this group.
+    const texts = group.map(i => prompts[i].text);
+    const minLen = Math.min(...texts.map(t => t.length));
+    let div = 0;
+    while (div < minLen) {
+      const c = texts[0][div];
+      let same = true;
+      for (let k = 1; k < texts.length; k++) {
+        if (texts[k][div] !== c) { same = false; break; }
+      }
+      if (!same) break;
+      div++;
+    }
+    if (div >= minLen) {
+      // One or more texts are a prefix of another (or all identical up to
+      // their common length). Fall back to filepath suffix.
+      for (const i of group) {
+        frags[i] = frags[i] + ` […${shortPath(prompts[i].filepath, 25)}]`;
+      }
+      continue;
+    }
+    // For each member, append the divergence tail.
+    for (const i of group) {
+      const tail = prompts[i].text.slice(div, div + PROMPT_FRAG_TAIL);
+      frags[i] = frags[i] + ' … ' + tail;
+    }
+  }
+  return frags;
+}
+
+function renderPromptList(container, prompts, total) {
+  container.innerHTML = '';
+  if (!prompts || !prompts.length) {
+    container.innerHTML = '<div class="list-placeholder">No prompts found</div>';
+    return;
+  }
+  // Sort by full-text length ascending (shortest first).
+  const sorted = prompts.slice().sort((a, b) => a.text.length - b.text.length);
+  const frags = disambiguatePromptFragments(sorted);
+  for (let i = 0; i < sorted.length; i++) {
+    const p = sorted[i];
+    const frag = frags[i];
+    const funcLabel = p.funcDisplay || p.func || '(file scope)';
+    const tip = `${shortPath(p.filepath, 60)}:L${p.lineNum}\nFunction: ${funcLabel}\nLength: ${p.text.length} chars`;
+    const item = h('div', { className: 'list-item', title: tip, style: 'align-items:flex-start' }, [
+      h('span', { className: 'metric', text: `${p.text.length}` }),
+      h('span', { className: 'name', text: frag, style: 'font-size:11px;flex:1;min-width:0;word-break:break-word' }),
+      h('span', { className: 'metric muted', text: funcLabel, style: 'font-size:10px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;flex-shrink:0' }),
+    ]);
+    item.addEventListener('click', () => renderPromptDetail(p));
+    container.appendChild(item);
+  }
+}
+
+function renderPromptDetail(prompt) {
+  const container = $('#middle-top-body'), title = $('#middle-top-title');
+  const funcLabel = prompt.funcDisplay || prompt.func || '(file scope)';
+  title.textContent = `Prompt (${prompt.text.length} chars) — ${funcLabel}`;
+  showPane('middle-top');
+  navPush('middle-top');
+
+  let html = '<div class="output-section">';
+  html += `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">`;
+  html += `${escHtml(shortPath(prompt.filepath, 60))}:L${prompt.lineNum}`;
+  html += `  ·  Type: ${escHtml(prompt.type)}`;
+  if (prompt.varName) html += `  ·  Var: ${escHtml(prompt.varName)}`;
+  html += `</div>`;
+  html += `<pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;background:var(--bg-input);padding:8px;border:1px solid var(--border);border-radius:3px;overflow:auto">${escHtml(prompt.text)}</pre>`;
+  html += '</div>';
+  container.innerHTML = html;
+
+  // Lower pane: handler source if the prompt lives in a function, else a
+  // file excerpt around the definition line.
+  if (prompt.func) {
+    onFunctionClickSourceOnly({
+      filepath: prompt.filepath,
+      name: prompt.func,
+      display_name: prompt.funcDisplay || prompt.func,
+    });
+  } else {
+    onFileClick(prompt.filepath, prompt.lineNum);
+  }
+}
+
+
 function renderStringDetail(entry) {
   const container = $('#middle-top-body'), title = $('#middle-top-title');
   title.textContent = `String (${entry.count} occurrences in ${entry.files} file${entry.files > 1 ? 's' : ''})`;
@@ -2181,14 +2293,21 @@ function renderSource(data) {
   const container = $('#middle-bottom-body'), title = $('#middle-bottom-title');
   title.textContent = `${data.display_name || data.name}  (${data.filepath}, ${data.lines} lines)`;
   state.currentSourceFile = data.filepath;
+  state.lastSourceRender = { kind: 'function', data };
   const lines = data.source.split('\n'), startLine = data.start || 1;
   const hl = state.highlightTerms;
   const _wrapCls = $('#opt-wrap-lines')?.checked ? ' wrap-lines' : '';
+  const _breakEnabled = !!$('#opt-break-long-lines')?.checked;
   let html = `<div class="source-view${_wrapCls}">`;
   for (let i = 0; i < lines.length; i++) {
-    let content = escHtml(lines[i]);
-    if (hl) content = highlightLine(content, hl.terms, hl.colors);
-    html += `<div class="source-line"><span class="line-number">${startLine + i}</span><span class="line-content">${content}</span></div>`;
+    const pieces = _breakEnabled ? prettifyLongLine(lines[i]) : [lines[i]];
+    for (let k = 0; k < pieces.length; k++) {
+      let content = escHtml(pieces[k]);
+      if (hl) content = highlightLine(content, hl.terms, hl.colors);
+      const contCls = k > 0 ? ' continuation' : '';
+      const lineNumDisplay = k === 0 ? String(startLine + i) : '…';
+      html += `<div class="source-line${contCls}"><span class="line-number">${lineNumDisplay}</span><span class="line-content">${content}</span></div>`;
+    }
   }
   container.innerHTML = html + '</div>';
   // Setting innerHTML does NOT reset scrollTop. Without this, clicking a
@@ -2199,22 +2318,58 @@ function renderSource(data) {
   navUpdateButtons('middle-bottom');
 }
 
+// Heuristic re-flow of a long (typically bundled/minified) line. Keeps the
+// real line number on the first piece and emits `…` for the continuations.
+// Only acts on lines above `threshold`; returns the original string unchanged
+// when no breakpoint fires. Regex-based, not AST-aware — can be fooled by
+// keywords inside strings or regex literals.
+function prettifyLongLine(line, threshold = 300) {
+  if (!line || line.length < threshold) return [line];
+  const BRK = '\x00';
+  let marked = line;
+  // Break BEFORE `function` keyword (not when used as a property: `.function`).
+  marked = marked.replace(/(?<![.\w$])function\b/g, BRK + 'function');
+  // Break AFTER `),` — the natural boundary between sibling function-call
+  // arguments (`foo(...), bar(...), baz(...)`) and between sibling members
+  // in an object-literal arg (`{a: ()=>x, b: ()=>y}` after minification).
+  // The arrow `=>` and its body stay intact because they appear BEFORE the
+  // closing paren of the surrounding call.
+  marked = marked.replace(/\)\s*,\s*(?=\S)/g, '),' + BRK);
+  // Break AFTER `;` when followed by code on the same logical line.
+  marked = marked.replace(/;\s*(?=\S)/g, ';' + BRK);
+  // Break AFTER `,` when the next token looks like a new assignment member
+  // (`,name=function`, `,name=(args)=>…`). Covers object-like minified
+  // output that doesn't use `),` between members.
+  marked = marked.replace(/,\s*(?=\w+\s*[:=]\s*(?:function|async|\([^)]*\)\s*=>))/g, ',' + BRK);
+  if (!marked.includes(BRK)) return [line];
+  return marked.split(BRK).filter(p => p.length > 0);
+}
+
 function renderFileSource(data, targetLine) {
   showPane('middle-bottom');
   const container = $('#middle-bottom-body'), title = $('#middle-bottom-title');
   title.textContent = `${data.filepath}  (${data.lines} lines)`;
   state.currentSourceFile = data.filepath;
+  state.lastSourceRender = { kind: 'file', data, targetLine };
   const lines = data.content.split('\n');
   const baseLineNum = data.startLine || 1;  // offset for windowed file display
   const hl = state.highlightTerms;
   const _wrapCls = $('#opt-wrap-lines')?.checked ? ' wrap-lines' : '';
+  const _breakEnabled = !!$('#opt-break-long-lines')?.checked;
   let html = `<div class="source-view${_wrapCls}">`;
   for (let i = 0; i < lines.length; i++) {
     const lineNum = baseLineNum + i;
-    let content = escHtml(lines[i]);
-    if (hl) content = highlightLine(content, hl.terms, hl.colors);
     const isTarget = targetLine && lineNum === targetLine;
-    html += `<div class="source-line${isTarget ? ' target-line' : ''}" data-line="${lineNum}"><span class="line-number">${lineNum}</span><span class="line-content">${content}</span></div>`;
+    const pieces = _breakEnabled ? prettifyLongLine(lines[i]) : [lines[i]];
+    for (let k = 0; k < pieces.length; k++) {
+      let content = escHtml(pieces[k]);
+      if (hl) content = highlightLine(content, hl.terms, hl.colors);
+      const contCls = k > 0 ? ' continuation' : '';
+      const tgtCls = (isTarget && k === 0) ? ' target-line' : '';
+      const lineAttr = k === 0 ? ` data-line="${lineNum}"` : '';
+      const lineNumDisplay = k === 0 ? String(lineNum) : '…';
+      html += `<div class="source-line${tgtCls}${contCls}"${lineAttr}><span class="line-number">${lineNumDisplay}</span><span class="line-content">${content}</span></div>`;
+    }
   }
   container.innerHTML = html + '</div>';
   linkifySourceCalls(container, data.filepath);
@@ -4950,6 +5105,15 @@ async function init() {
     document.querySelectorAll('.source-view').forEach(el => {
       el.classList.toggle('wrap-lines', e.target.checked);
     });
+  });
+  $('#opt-break-long-lines')?.addEventListener('change', () => {
+    // Re-render the source pane so line-breaking takes effect. Full re-render
+    // (not CSS toggle) because we're splitting lines into additional DOM
+    // nodes with their own line-number display.
+    const last = state.lastSourceRender;
+    if (!last) return;
+    if (last.kind === 'function') renderSource(last.data);
+    else if (last.kind === 'file') renderFileSource(last.data, last.targetLine);
   });
   initConsole();
   initWindowManagement();

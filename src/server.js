@@ -802,6 +802,17 @@ routes['/api/file-functions'] = (req, res) => {
 
 // --- Extract function source ---
 
+// Build a Set of display-name strings for all functions in the index.
+// Used by /api/extract-linkified to decide which identifiers in a function's
+// body correspond to known functions (i.e. linkable call sites).
+function _buildKnownNameSet(index) {
+  const known = new Set();
+  for (const fn of index.listFunctions()) {
+    known.add(index.getDisplayName(fn.name));
+  }
+  return known;
+}
+
 routes['/api/extract'] = (req, res) => {
   // CORS allowed (same rationale as /api/prompts — used by the xmlui prototype).
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -838,6 +849,86 @@ routes['/api/extract'] = (req, res) => {
     start: m.start, end: m.end, lines: m.end - m.start + 1,
     start_line: m.start,
     source: index.applyRenames(source || '(source not available)'), language: guessLanguage(m.filepath),
+  });
+};
+
+
+// --- Extract function source as linkified segments ---
+//
+// Same as /api/extract, but returns source as a per-line array of segments
+// where each call-site identifier (an identifier followed by `(`) that
+// resolves to a known function in the index is flagged with isCall:true and
+// a spec string suitable for a follow-up /api/extract[-linkified] call.
+// Used by the xmlui prototype for click-to-navigate between functions.
+
+routes['/api/extract-linkified'] = (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const funcSpec = q.func;
+  if (!funcSpec) return errorResponse(res, 'Missing ?func= parameter');
+  const { funcName: rawFuncName, fileHint } = parseFuncSpec(funcSpec);
+  const funcName = index.getOriginalName(rawFuncName);
+  const matches = index.findFunctionMatches(funcName, fileHint);
+  if (matches.length === 0) return errorResponse(res, `Function '${rawFuncName}' not found`, 404);
+  if (matches.length > 1 && !fileHint) {
+    const sorted = matches.slice().sort((a, b) => {
+      const aIsDts = a.filepath.endsWith('.d.ts');
+      const bIsDts = b.filepath.endsWith('.d.ts');
+      if (aIsDts !== bIsDts) return aIsDts ? 1 : -1;
+      return 0;
+    });
+    return jsonResponse(res, {
+      ambiguous: true,
+      matches: sorted.map(m => ({
+        filepath: m.filepath, name: m.name,
+        display_name: displayName(m.name, m.filepath),
+        start: m.start, end: m.end, lines: m.end - m.start + 1,
+      })),
+    });
+  }
+  const m = matches[0];
+  const rawSource = index.getFunctionSource(m.filepath, m.name) || '(source not available)';
+  const renamedSource = index.applyRenames(rawSource);
+  const knownNames = _buildKnownNameSet(index);
+  const selfDisplay = index.getDisplayName(m.name);
+
+  // Split into lines and linkify per-line. A call site is a bare identifier
+  // followed (optionally by whitespace) by an open paren. Only emit an isCall
+  // segment when the identifier resolves to a function in the index — this
+  // filters out keywords (if, for, while …), local variables, and noise.
+  const sourceLines = renamedSource.split('\n');
+  const outLines = sourceLines.map(line => {
+    const segments = [];
+    const CALL_RE = /([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g;
+    let lastEnd = 0;
+    let mm;
+    while ((mm = CALL_RE.exec(line)) !== null) {
+      const name = mm[1];
+      const nameStart = mm.index;
+      if (!knownNames.has(name)) continue;
+      // Don't linkify the function's own name at the declaration site —
+      // clicking it would re-navigate to the same function.
+      if (name === selfDisplay) continue;
+      if (nameStart > lastEnd) segments.push({ text: line.slice(lastEnd, nameStart) });
+      segments.push({ text: name, isCall: true, spec: name });
+      lastEnd = nameStart + name.length;
+    }
+    if (lastEnd < line.length) segments.push({ text: line.slice(lastEnd) });
+    if (segments.length === 0) segments.push({ text: '' });
+    return { segments };
+  });
+
+  jsonResponse(res, {
+    filepath: m.filepath,
+    name: selfDisplay,
+    display_name: displayName(selfDisplay, m.filepath),
+    start: m.start, end: m.end,
+    line_count: m.end - m.start + 1,
+    start_line: m.start,
+    lines: outLines,
+    language: guessLanguage(m.filepath),
   });
 };
 

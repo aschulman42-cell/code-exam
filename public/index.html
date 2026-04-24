@@ -38,6 +38,7 @@
           <label><input type="checkbox" id="opt-full-path"> Full Paths</label>
           <label><input type="checkbox" id="opt-exclude-tests"> Exclude Tests</label>
           <label><input type="checkbox" id="opt-wrap-lines"> Wrap Long Lines</label>
+          <label><input type="checkbox" id="opt-break-long-lines"> Break Long Lines on =&gt;, ;, , function</label>
           <hr>
           <label>Max Results: <input type="number" id="opt-max-results" value="50" min="5" max="999" style="width:60px"></label>
         </div>
@@ -97,6 +98,10 @@
         </div>
         <div class="accordion-section" data-section="strings">
           <div class="accordion-header"><span class="accordion-toggle">▸</span> Strings <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="prompts">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> LLM Prompts <span class="accordion-badge"></span></div>
           <div class="accordion-content"></div>
         </div>
         <div class="accordion-section" data-section="command-catalog">

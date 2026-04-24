@@ -562,11 +562,50 @@ export function collectPrompts(index, { filter = null } = {}) {
     }
   }
 
-  // Sort by filepath then line number
-  prompts.sort((a, b) => a.filepath.localeCompare(b.filepath) || a.lineNum - b.lineNum);
+  // Drop anything the detectors picked up that doesn't actually read like a
+  // prompt — keyword lists, inline code/data literals, oversize blobs that
+  // happen to contain a trigger word or two.
+  const filtered = prompts.filter(p => !_looksLikeNonPrompt(p.text));
 
-  return prompts;
+  // Sort by filepath then line number
+  filtered.sort((a, b) => a.filepath.localeCompare(b.filepath) || a.lineNum - b.lineNum);
+
+  return filtered;
 }
+
+// Hard upper bound on prompt text — longer than every realistic system prompt
+// I've seen (Claude Code's skill-bundling prompts top out around 18K).
+const PROMPT_MAX_CHARS = 50000;
+
+// Characters that, when they appear at the start of detected text, strongly
+// suggest the match is a code/data fragment rather than a prompt. `#` is
+// deliberately NOT here — markdown-style prompts legitimately begin with it.
+const PROMPT_BAD_START = new Set(['}', ',', ')', ']', ':', ';', '.', '|', '=', '{', '[', '(']);
+
+function _looksLikeNonPrompt(text) {
+  if (!text) return true;
+  if (text.length > PROMPT_MAX_CHARS) return true;
+
+  const trimmed = text.replace(/^\s+/, '');
+  if (!trimmed) return true;
+  if (PROMPT_BAD_START.has(trimmed[0])) return true;
+
+  // Keyword-list detector: long single-line text where most tokens are short
+  // identifier-shaped words with no sentence punctuation. Examples caught:
+  //   "abs accTime acos action ..." (237 GameMaker built-ins)
+  //   "self other all noone global ..." (GML scope tokens)
+  if (!/[\n\r]/.test(trimmed) && trimmed.length > 200) {
+    const tokens = trimmed.split(/\s+/);
+    if (tokens.length >= 20) {
+      let shortCount = 0;
+      for (const t of tokens) if (t.length <= 4) shortCount++;
+      const hasSentencePunct = /[.!?](\s|$)/.test(trimmed);
+      if (shortCount / tokens.length > 0.8 && !hasSentencePunct) return true;
+    }
+  }
+  return false;
+}
+
 
 export function doPromptCatalog(index, args) {
   const filter = args.filter || null;

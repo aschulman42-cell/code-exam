@@ -3,7 +3,16 @@
   var.indexName=""
   var.filter=""
   var.sortBy="filepath"
-  var.selectedSpec="">
+  var.selectedSpec=""
+  var.navStack="{[]}"
+  var.navPos="{-1}"
+  var.wordWrap="{true}">
+
+  <AppHeader title="CodeExam XmlUi Prompt Catalog">
+    <property name="profileMenuTemplate">
+      <Inspector />
+    </property>
+  </AppHeader>
 
   <DataSource
     id="indexesData"
@@ -19,14 +28,14 @@
 
   <DataSource
     id="sourceData"
-    url="{serverUrl}/api/extract"
+    url="{serverUrl}/api/extract-linkified"
     queryParams="{{ index: indexName || undefined, func: selectedSpec }}"
     when="{!!selectedSpec}"
     omitTransactionId="true" />
 
+  <Pages fallbackPath="/">
+  <Page url="/">
   <VStack padding="1rem" gap="0.75rem" height="100vh">
-
-    <H2>CodeExam Prompt Catalog</H2>
 
     <HStack gap="1rem" verticalAlignment="center">
       <Text>Server:</Text>
@@ -103,9 +112,13 @@
                 <Text variant="secondary">Function:</Text>
                 <Link
                   when="{!!$item.func}"
-                  onClick="selectedSpec = $item.filepath + '@' + ($item.funcDisplay || $item.func)">
-                  {$item.funcDisplay || $item.func}
-                </Link>
+                  label="{$item.funcDisplay || $item.func}"
+                  onClick="{
+                    const s = $item.filepath + '@' + ($item.funcDisplay || $item.func);
+                    navStack = [...navStack.slice(0, navPos + 1), s];
+                    navPos = navStack.length - 1;
+                    selectedSpec = s;
+                  }" />
                 <Text when="{!$item.func}" variant="secondary">(file scope)</Text>
                 <Text when="{!!$item.varName}" variant="secondary">
                   · Variable: {$item.varName}
@@ -121,6 +134,32 @@
 
       <!-- RIGHT: source pane -->
       <VStack padding="0.5rem" gap="0.5rem">
+
+        <!-- back/forward nav bar -->
+        <HStack gap="0.5rem" verticalAlignment="center">
+          <Button
+            label="←"
+            enabled="{navPos > 0}"
+            onClick="{
+              navPos = navPos - 1;
+              selectedSpec = navStack[navPos];
+            }" />
+          <Button
+            label="→"
+            enabled="{navPos &lt; navStack.length - 1}"
+            onClick="{
+              navPos = navPos + 1;
+              selectedSpec = navStack[navPos];
+            }" />
+          <Text variant="secondary">
+            {navStack.length === 0 ? '(nothing selected)' : (navPos + 1) + ' of ' + navStack.length}
+          </Text>
+          <Switch
+            label="Word wrap"
+            initialValue="{wordWrap}"
+            onDidChange="(v) => wordWrap = v" />
+        </HStack>
+
         <Text when="{!selectedSpec}" variant="secondary">
           Click a function name on the left to view source.
         </Text>
@@ -129,27 +168,56 @@
           Error loading source (function may be ambiguous or not indexed).
         </Text>
 
-        <VStack when="{!!selectedSpec &amp;&amp; sourceData.loaded &amp;&amp; sourceData.value &amp;&amp; sourceData.value.source}" gap="0.25rem">
+        <VStack when="{!!selectedSpec &amp;&amp; sourceData.loaded &amp;&amp; sourceData.value &amp;&amp; sourceData.value.lines}" gap="0.25rem">
           <Text variant="strong">{sourceData.value.display_name}</Text>
           <Text variant="secondary">
-            {sourceData.value.filepath}:L{sourceData.value.start_line} ({sourceData.value.lines} lines)
+            {sourceData.value.filepath}:L{sourceData.value.start_line} ({sourceData.value.line_count} lines)
           </Text>
-          <Text preserveLinebreaks="true" style="{{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}">
-            {sourceData.value.source}
-          </Text>
+
+          <!-- source rendered as per-line HStacks of segments -->
+          <VStack gap="0" style="{{ fontFamily: 'monospace' }}">
+            <Items data="{sourceData.value.lines}">
+              <HStack gap="0" padding="0" style="{{ whiteSpace: wordWrap ? 'pre-wrap' : 'pre', flexWrap: wordWrap ? 'wrap' : 'nowrap' }}">
+                <Items data="{$item.segments}">
+                  <Link
+                    when="{$item.isCall}"
+                    label="{$item.text}"
+                    onClick="{
+                      const s = $item.spec;
+                      navStack = [...navStack.slice(0, navPos + 1), s];
+                      navPos = navStack.length - 1;
+                      selectedSpec = s;
+                    }" />
+                  <Text
+                    when="{!$item.isCall}"
+                    style="{{ whiteSpace: wordWrap ? 'pre-wrap' : 'pre' }}">
+                    {$item.text.length === 0 ? ' ' : $item.text}
+                  </Text>
+                </Items>
+              </HStack>
+            </Items>
+          </VStack>
         </VStack>
 
         <VStack when="{!!selectedSpec &amp;&amp; sourceData.loaded &amp;&amp; sourceData.value &amp;&amp; sourceData.value.ambiguous}" gap="0.25rem">
           <Text variant="strong">Ambiguous — pick one:</Text>
           <List data="{sourceData.value.matches}">
-            <Link onClick="selectedSpec = $item.filepath + '@' + $item.name">
-              {$item.display_name} — {$item.filepath}:L{$item.start} ({$item.lines} lines)
-            </Link>
+            <Link
+              label="{$item.display_name} — {$item.filepath}:L{$item.start} ({$item.lines} lines)"
+              onClick="{
+              const s = $item.filepath + '@' + $item.name;
+              navStack = [...navStack.slice(0, navPos + 1), s];
+              navPos = navStack.length - 1;
+              selectedSpec = s;
+            }" />
           </List>
         </VStack>
+
       </VStack>
 
     </HSplitter>
 
   </VStack>
+  </Page>
+  </Pages>
 </App>
