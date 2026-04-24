@@ -1879,15 +1879,19 @@ routes['/api/digest'] = (req, res) => {
 // Returns all detected LLM prompts in the index as JSON (full text, no
 // truncation). Consumed by external GUI prototypes (e.g. xmlui prompt viewer).
 
-routes['/api/prompts'] = (req, res) => {
+routes['/api/prompts'] = async (req, res) => {
   // Cross-origin: allow the xmlui prototype (running on a separate dev port)
   // to fetch prompts. Same-origin callers ignore this header.
   res.setHeader('Access-Control-Allow-Origin', '*');
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
-  const prompts = collectPrompts(index, { filter: q.filter || null });
-  jsonResponse(res, { total: prompts.length, prompts });
+  try {
+    const prompts = await collectPrompts(index, { filter: q.filter || null });
+    jsonResponse(res, { total: prompts.length, prompts });
+  } catch (err) {
+    errorResponse(res, `collectPrompts failed: ${err.message}`, 500);
+  }
 };
 
 

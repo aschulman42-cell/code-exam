@@ -121,7 +121,7 @@ const PROMPT_FILE_NAMES = new Set([
   'claude.md',  // Claude Code project instructions
 ]);
 
-export function collectPrompts(index, { filter = null } = {}) {
+export async function collectPrompts(index, { filter = null, expandComposites = true } = {}) {
   index._ensureFunctionIndex();
 
   const prompts = [];
@@ -419,7 +419,11 @@ export function collectPrompts(index, { filter = null } = {}) {
             // digit, or quote. Anything else (operators, brackets, etc.)
             // is code continuation from a misidentified backtick.
             const trimText = text.trimStart();
-            if (!/^[a-zA-Z#\-*0-9"']/.test(trimText)) {
+            // Whitelist: real prompts start with a letter, #, -, *, digit,
+            // quote, or `$` (template interpolation — `${preamble}\n...` is
+            // a valid prompt-building pattern where a locally-assigned
+            // variable supplies the opening content).
+            if (!/^[a-zA-Z#\-*0-9"'$]/.test(trimText)) {
               // Not a prompt — code continuation
             } else {
             // Count instruction-indicator keywords (case-insensitive)
@@ -436,7 +440,14 @@ export function collectPrompts(index, { filter = null } = {}) {
             for (const kw of INSTRUCTION_KEYWORDS) {
               if (lower.includes(kw)) hits++;
             }
-            if (hits >= 3) {
+            // Structured-prompt signal: multiple ALL-CAPS colon headers
+            // ("TASK:", "SOURCE FILE:", "PATENT CLAIM TEXT:", "CRITICAL
+            // INSTRUCTIONS:"). Real code rarely uses this pattern outside of
+            // LLM prompts and ad-hoc docs — catches build*Prompt return
+            // templates where only two instruction keywords appear but the
+            // structural evidence is unmistakable.
+            const allCapsHeaders = (text.match(/\b[A-Z][A-Z _]{3,}:/g) || []).length;
+            if (hits >= 3 || (hits >= 1 && allCapsHeaders >= 2) || allCapsHeaders >= 3) {
               const prefix = line.slice(0, checkCol).trim();
               let varName = null;
               const assignMatch = prefix.match(/(?:(?:const|let|var)\s+)?(\w[\w$]*)\s*[=:]?\s*$/);
@@ -562,10 +573,20 @@ export function collectPrompts(index, { filter = null } = {}) {
     }
   }
 
+  // Composite expansion: when a detected prompt is one branch of a ternary,
+  // `||`/`??` default, `+` concatenation, or `${…}` interpolation in a
+  // template string, collect the sibling string-literal branches and merge
+  // them into one entry with visible separators. Handles the common
+  // masked-vs-unmasked pattern in CodeExam's own claim.js. JS/TS only —
+  // other languages keep their original single-branch entries.
+  const afterExpand = expandComposites
+    ? await _expandCompositePrompts(index, prompts)
+    : prompts;
+
   // Drop anything the detectors picked up that doesn't actually read like a
   // prompt — keyword lists, inline code/data literals, oversize blobs that
   // happen to contain a trigger word or two.
-  const filtered = prompts.filter(p => !_looksLikeNonPrompt(p.text));
+  const filtered = afterExpand.filter(p => !_looksLikeNonPrompt(p.text));
 
   // Sort by filepath then line number
   filtered.sort((a, b) => a.filepath.localeCompare(b.filepath) || a.lineNum - b.lineNum);
@@ -607,14 +628,14 @@ function _looksLikeNonPrompt(text) {
 }
 
 
-export function doPromptCatalog(index, args) {
+export async function doPromptCatalog(index, args) {
   const filter = args.filter || null;
   // Use a high default for prompt-catalog specifically — the global
   // max_results default (20) is too low for a "dump everything" command.
   // Only respect max_results if the user explicitly passed --max-results.
   const maxResults = args._explicit?.has('max_results') ? args.max_results : 9999;
 
-  const prompts = collectPrompts(index, { filter });
+  const prompts = await collectPrompts(index, { filter });
 
   if (prompts.length === 0) {
     console.log('No prompts detected in the index.');
@@ -650,4 +671,411 @@ export function doPromptCatalog(index, args) {
   if (prompts.length > maxResults) {
     console.log(`\n  Showing ${maxResults} of ${prompts.length}. Use --max-results ${prompts.length} for all.`);
   }
+}
+
+
+// ============================================================================
+// Composite-prompt expansion
+// ----------------------------------------------------------------------------
+// When a detected prompt literal is actually a branch of a larger expression
+// (ternary, `||`/`??` default, `+` concatenation, `${…}` template
+// interpolation), the caller probably wants ALL branches together so the
+// composite text can be grep'd as one unit. Without this, `cond ? "A" : "B"`
+// shows up as two separate catalog entries, each missing half the content.
+//
+// JS/TS only — uses tree-sitter.
+// ============================================================================
+
+const _EXPANSION_EXTS = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs']);
+
+// Separator that appears between branches of an expanded composite. Distinct
+// enough that users can spot it in rendered text or grep for it.
+const BRANCH_SEP = '\n\n⟨—— BRANCH VARIANT ——⟩\n\n';
+
+async function _expandCompositePrompts(index, prompts) {
+  // Bail early if nothing to expand or no JS/TS files touched.
+  const jsPrompts = prompts.filter(p => {
+    const ext = (p.filepath.match(/\.\w+$/) || [''])[0].toLowerCase();
+    return _EXPANSION_EXTS.has(ext);
+  });
+  if (jsPrompts.length === 0) return prompts;
+
+  let TreeSitterParser;
+  try {
+    ({ TreeSitterParser } = await import('../core/TreeSitterParser.js'));
+  } catch (_e) {
+    return prompts;  // tree-sitter not available — leave prompts as-is
+  }
+  const tsParser = new TreeSitterParser();
+  const initOk = await tsParser.init();
+  if (!initOk) return prompts;
+
+  // Group prompts by file so we parse each file at most once.
+  const byFile = new Map();
+  for (const p of jsPrompts) {
+    if (!byFile.has(p.filepath)) byFile.set(p.filepath, []);
+    byFile.get(p.filepath).push(p);
+  }
+
+  // Collect indices of prompts to replace/remove. We keep non-JS prompts and
+  // JS prompts that aren't composite; JS prompts that ARE composite get
+  // merged into a single new entry per composite expression.
+  const toRemove = new Set();   // indices into `prompts`
+  const mergedEntries = [];     // new composite entries
+  const promptIndex = new Map(); // prompt -> original index
+  prompts.forEach((p, i) => promptIndex.set(p, i));
+
+  for (const [filepath, filePrompts] of byFile) {
+    const fileLines = index.fileLines.get(filepath);
+    if (!fileLines) continue;
+    const tree = await _parseFileForExpansion(tsParser, filepath, fileLines);
+    if (!tree) continue;
+    try {
+      // Seen-set tracks composite-expression nodes we've already processed so
+      // two sibling branches don't both spawn a separate merged entry.
+      const seenComposites = new Set();
+
+      for (const prompt of filePrompts) {
+        // Find the string-like AST node at the prompt's declared position.
+        const targetRow = prompt.lineNum - 1;
+        const stringNode = _findStringNodeAt(tree.rootNode, targetRow, prompt.text);
+        if (!stringNode) continue;
+
+        const composite = _findEnclosingComposite(stringNode);
+        if (!composite) continue;
+        if (seenComposites.has(composite.id)) {
+          // Another branch of the same composite. Just mark this prompt for
+          // removal; the merged entry was already emitted.
+          toRemove.add(promptIndex.get(prompt));
+          continue;
+        }
+        seenComposites.add(composite.id);
+
+        // Build a local-variable scope map so `${preamble}` inside a template
+        // can be resolved to preamble's value expression (typically a string
+        // or ternary of strings assigned earlier in the same function). This
+        // collapses the "two entries for one logical prompt" case into one.
+        const scopeFn = _findEnclosingFunction(composite);
+        const scope = scopeFn ? _buildLocalStringMap(scopeFn) : null;
+
+        // Build the merged text. Two cases:
+        //   (a) template_string as the outer composite — extract it directly
+        //       so static fragments (header / "SOURCE FILE:" tail / etc.) AND
+        //       inlined `{A | B}` markers for any inner ternaries are
+        //       preserved in order. `scope` lets us resolve `${name}` to the
+        //       assigned-earlier-in-this-function value.
+        //   (b) ternary / binary as the outer composite — collect the string
+        //       branches and join them with BRANCH_SEP.
+        //
+        // `usedIdents` collects identifier names we actually substituted via
+        // scope lookup; we use these later to mark the subsumed variable-
+        // declaration prompts for removal.
+        const usedIdents = new Set();
+        let mergedText;
+        if (composite.type === 'template_string') {
+          mergedText = _extractStringText(composite, scope, usedIdents);
+        } else {
+          const branches = [];
+          _collectStringBranches(composite, branches, scope, usedIdents);
+          if (branches.length < 2) continue; // not actually a merge candidate
+          mergedText = branches.join(BRANCH_SEP);
+        }
+        if (!mergedText || mergedText.length <= prompt.text.length) continue;
+
+        // Gather prompts in this file that fall inside the composite's span
+        // OR inside the declaration span of any identifier we inlined, and
+        // mark them for removal (they'll be replaced by the merged one).
+        const compStart = composite.startPosition.row;
+        const compEnd = composite.endPosition.row;
+        const inlinedSpans = [];
+        if (scope) {
+          for (const name of usedIdents) {
+            const declNode = scope.get(name);
+            if (declNode) inlinedSpans.push([declNode.startPosition.row, declNode.endPosition.row]);
+          }
+        }
+        const covered = filePrompts.filter(p => {
+          const row = p.lineNum - 1;
+          if (row >= compStart && row <= compEnd) return true;
+          return inlinedSpans.some(([a, b]) => row >= a && row <= b);
+        });
+        for (const p of covered) toRemove.add(promptIndex.get(p));
+
+        // Build the merged entry. Use the earliest-line covered prompt as the
+        // "anchor" so varName / funcDisplay / type stay meaningful.
+        const anchor = covered.slice().sort((a, b) => a.lineNum - b.lineNum)[0] || prompt;
+        mergedEntries.push({
+          ...anchor,
+          type: anchor.type + ' (composite)',
+          text: mergedText,
+          // Stashed for the post-filter below. Stripped before returning.
+          _compositeSpan: [compStart, compEnd],
+          _inlinedSpans: inlinedSpans,
+        });
+      }
+    } finally {
+      tree.delete?.();
+    }
+  }
+
+  // Drop any merged entry whose anchor sits inside another merged entry's
+  // inlined spans — that means the larger entry already contains this
+  // smaller composite's content via `${name}` resolution. Example: in
+  // buildClaimFilePrompt, the ternary-merged entry at line 910 (the
+  // `preamble` variable) is entirely inlined into the return-template's
+  // merged entry at line 915, so we keep only the outer one.
+  const prunedMerges = mergedEntries.filter(m => {
+    const row = m.lineNum - 1;
+    return !mergedEntries.some(other =>
+      other !== m &&
+      other._inlinedSpans.some(([a, b]) => row >= a && row <= b)
+    );
+  });
+  for (const m of prunedMerges) {
+    delete m._compositeSpan;
+    delete m._inlinedSpans;
+  }
+
+  if (toRemove.size === 0 && prunedMerges.length === 0) return prompts;
+  const kept = prompts.filter((_, i) => !toRemove.has(i));
+  return kept.concat(prunedMerges);
+}
+
+// Parse a single file and return a tree-sitter tree. The caller is responsible
+// for delete()ing the tree. Returns null on any failure.
+async function _parseFileForExpansion(tsParser, filepath, sourceLines) {
+  const ext = (filepath.match(/\.\w+$/) || [''])[0].toLowerCase();
+  const langName = (ext === '.ts' || ext === '.tsx') ? 'typescript' : 'javascript';
+  try {
+    const lang = await tsParser.getLanguage(langName);
+    if (!lang) return null;
+    const parser = new tsParser._Parser();
+    parser.setLanguage(lang);
+    const tree = parser.parse(sourceLines.join('\n'));
+    // Parser can be deleted immediately — tree is self-contained.
+    parser.delete();
+    return tree;
+  } catch (_e) {
+    return null;
+  }
+}
+
+// Walk DOWN the tree to find a string / template_string node that STARTS on
+// `row`. Position-only match — reliable even when the string's raw text
+// doesn't roundtrip through `_extractStringText` (template interpolations
+// render differently with and without scope). If multiple strings start on
+// the same row, the first one in source order wins, which matches the
+// detector's own left-to-right scan.
+function _findStringNodeAt(root, row /* matchText unused */) {
+  let found = null;
+  const walk = (node) => {
+    if (found) return;
+    const startRow = node.startPosition.row;
+    const endRow = node.endPosition.row;
+    if (row < startRow || row > endRow) return;
+    if ((node.type === 'string' || node.type === 'template_string') && startRow === row) {
+      found = node;
+      return;
+    }
+    for (let i = 0; i < node.childCount; i++) walk(node.child(i));
+  };
+  walk(root);
+  return found;
+}
+
+// Walk UP from a string node to find the largest enclosing expression that
+// is a ternary / binary-op-of-interest / template-string-with-interpolations.
+// Stops at the first non-expression parent (statement, call, etc.).
+const _COMPOSITE_BINOPS = new Set(['+', '||', '??']);
+function _findEnclosingComposite(stringNode) {
+  let current = stringNode;
+  // If the detected node is already a template_string (with or without
+  // interpolations), treat it as the initial composite so we extract its
+  // full text — static fragments + resolved `${name}` / `${cond ? A : B}`.
+  let best = stringNode.type === 'template_string' ? stringNode : null;
+  while (current.parent) {
+    const p = current.parent;
+    if (p.type === 'ternary_expression') {
+      best = p;
+    } else if (p.type === 'binary_expression') {
+      const opNode = p.childForFieldName('operator') || p.child(1);
+      const op = opNode ? opNode.text : null;
+      if (op && _COMPOSITE_BINOPS.has(op)) best = p;
+      else break;
+    } else if (p.type === 'template_string') {
+      best = p;
+    } else if (p.type === 'parenthesized_expression' || p.type === 'template_substitution') {
+      // Transparent — keep walking. `template_substitution` is the `${…}`
+      // wrapper around an embedded expression; its parent is a
+      // `template_string` which we want to grab as the real composite so
+      // the static text surrounding the interpolation is preserved.
+    } else {
+      break;
+    }
+    current = p;
+  }
+  return best;
+}
+
+// Given a composite node, collect all string-literal text content from its
+// branches (recursing through nested composites). Non-string branches (vars,
+// calls, etc.) are emitted as a short `{…dynamic…}` marker so the user can
+// tell there was an interpolated slot they can't see. `scope` (optional) maps
+// local-variable names to their initializer AST nodes so `${name}` and bare
+// identifier branches can be resolved inline.
+function _collectStringBranches(node, out, scope = null, usedIdents = null) {
+  if (!node) return;
+  if (node.type === 'string' || node.type === 'template_string') {
+    const txt = _extractStringText(node, scope, usedIdents);
+    if (txt != null) out.push(txt);
+    return;
+  }
+  if (node.type === 'identifier' && scope && scope.has(node.text)) {
+    // Resolve `preamble` (etc.) to its assigned value, then recurse so
+    // ternary-assigned variables still split into branches.
+    if (usedIdents) usedIdents.add(node.text);
+    _collectStringBranches(scope.get(node.text), out, scope, usedIdents);
+    return;
+  }
+  if (node.type === 'ternary_expression') {
+    // Only the two result branches are prompt-producing. The `condition`
+    // field (often a comparison like `masked === 'masked'`) contains string
+    // literals that are NOT prompts — descending into it pollutes the
+    // branch list with comparison values.
+    const cons = node.childForFieldName('consequence');
+    const alt = node.childForFieldName('alternative');
+    if (cons) _collectStringBranches(cons, out, scope, usedIdents);
+    if (alt) _collectStringBranches(alt, out, scope, usedIdents);
+    return;
+  }
+  if (node.type === 'binary_expression' || node.type === 'parenthesized_expression') {
+    for (let i = 0; i < node.childCount; i++) _collectStringBranches(node.child(i), out, scope, usedIdents);
+    return;
+  }
+  // Non-string leaf — skip silently (operators, condition identifiers, etc.).
+}
+
+// Walk UP to find the enclosing function-like node — used to bound the scope
+// within which we look for local-variable assignments. Treats nested
+// functions as their own scope (we don't chain up to enclosing functions
+// since local shadowing can change meaning).
+function _findEnclosingFunction(node) {
+  const FN_TYPES = new Set([
+    'function_declaration', 'generator_function_declaration',
+    'function_expression', 'generator_function_expression',
+    'method_definition', 'arrow_function',
+  ]);
+  let cur = node.parent;
+  while (cur) {
+    if (FN_TYPES.has(cur.type)) return cur;
+    cur = cur.parent;
+  }
+  return null;
+}
+
+// Walk a function body and build name → initializer-AST-node map for local
+// `const`/`let`/`var` declarations whose RHS is string-producing (string,
+// template, ternary, binary of the same). Used to resolve `${name}`
+// template substitutions inline. Only collects declarations at or above the
+// current scope — nested function bodies are pruned (we don't cross into
+// them; their locals shouldn't leak out).
+function _buildLocalStringMap(functionNode) {
+  const map = new Map();
+  const STRING_LIKE = new Set(['string', 'template_string', 'ternary_expression', 'binary_expression', 'parenthesized_expression']);
+  const FN_TYPES = new Set([
+    'function_declaration', 'generator_function_declaration',
+    'function_expression', 'generator_function_expression',
+    'method_definition', 'arrow_function',
+  ]);
+
+  const body = functionNode.childForFieldName('body') || functionNode;
+  const walk = (node, topLevel) => {
+    if (!node) return;
+    // Don't descend into nested functions — their locals aren't in scope.
+    if (!topLevel && FN_TYPES.has(node.type)) return;
+    if (node.type === 'variable_declarator') {
+      const nameNode = node.childForFieldName('name');
+      const valueNode = node.childForFieldName('value');
+      if (nameNode && valueNode && nameNode.type === 'identifier' && STRING_LIKE.has(valueNode.type)) {
+        if (!map.has(nameNode.text)) map.set(nameNode.text, valueNode);
+      }
+    }
+    for (let i = 0; i < node.childCount; i++) walk(node.child(i), false);
+  };
+  walk(body, true);
+  return map;
+}
+
+// Extract the textual content of a `string` or `template_string` node,
+// stripping the surrounding quotes and resolving simple escape sequences.
+// Template interpolations are resolved using the rules below:
+//
+//   - `${name}` where `name` is in `scope` (local string-assigned var): the
+//     assigned value is recursively extracted and inlined. If that value is
+//     a ternary / binary with string branches, inline them as `{A | B}`.
+//   - `${cond ? "A" : "B"}` (inline ternary of strings): same `{A | B}` form.
+//   - Everything else (function calls, property access, unknowns): render as
+//     `${…}` so the reader can see where a runtime slot sits.
+//
+// `usedIdents` (optional Set) is populated with identifier names we resolved
+// from scope, so the caller can mark the variable-declaration prompts that
+// got inlined for removal from the final catalog.
+function _extractStringText(node, scope = null, usedIdents = null) {
+  if (node.type === 'string') {
+    let out = '';
+    for (let i = 0; i < node.childCount; i++) {
+      const c = node.child(i);
+      if (c.type === 'string_fragment') out += _unescapeJs(c.text);
+    }
+    return out;
+  }
+  if (node.type === 'template_string') {
+    let out = '';
+    for (let i = 0; i < node.childCount; i++) {
+      const c = node.child(i);
+      if (c.type === 'string_fragment') out += c.text;
+      else if (c.type === 'template_substitution') {
+        const expr = c.namedChild(0);
+        if (!expr) { out += '${…}'; continue; }
+        // (1) Bare identifier that's in scope — inline its string value.
+        if (expr.type === 'identifier' && scope && scope.has(expr.text)) {
+          if (usedIdents) usedIdents.add(expr.text);
+          const resolved = _renderScopeValue(scope.get(expr.text), scope, usedIdents);
+          if (resolved != null) { out += resolved; continue; }
+        }
+        // (2) Inline ternary / binary of strings — render branches.
+        if (expr.type === 'ternary_expression' || expr.type === 'binary_expression') {
+          const inner = [];
+          _collectStringBranches(expr, inner, scope, usedIdents);
+          if (inner.length > 1) { out += '«' + inner.join(' | ') + '»'; continue; }
+          if (inner.length === 1) { out += inner[0]; continue; }
+        }
+        out += '${…}';
+      }
+    }
+    return out;
+  }
+  return null;
+}
+
+// Render the value assigned to a scope variable, with the same ternary /
+// binary semantics as the top-level extractor. A scope ternary like
+// `const preamble = cond ? "A" : "B"` renders as `{A | B}` when inlined.
+function _renderScopeValue(valueNode, scope, usedIdents) {
+  if (!valueNode) return null;
+  if (valueNode.type === 'string' || valueNode.type === 'template_string') {
+    return _extractStringText(valueNode, scope, usedIdents);
+  }
+  if (valueNode.type === 'ternary_expression' || valueNode.type === 'binary_expression' || valueNode.type === 'parenthesized_expression') {
+    const branches = [];
+    _collectStringBranches(valueNode, branches, scope, usedIdents);
+    if (branches.length === 0) return null;
+    if (branches.length === 1) return branches[0];
+    return '«' + branches.join(' | ') + '»';
+  }
+  return null;
+}
+
+function _unescapeJs(s) {
+  return s.replace(/\\([ntr"'\\])/g, (_, c) => ({ n:'\n', t:'\t', r:'\r', '"':'"', "'":"'", '\\':'\\' }[c]));
 }

@@ -348,7 +348,7 @@ if (args._explicit.has('string_table') || args.string_table) {
 
 if (args.prompt_catalog) {
   const { doPromptCatalog } = await import('./commands/prompts.js');
-  doPromptCatalog(index, args);
+  await doPromptCatalog(index, args);
 }
 
 if (args.breadcrumbs) {
