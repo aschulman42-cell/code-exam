@@ -732,14 +732,54 @@ async function _expandCompositePrompts(index, prompts) {
     if (!tree) continue;
     try {
       // Seen-set tracks composite-expression nodes we've already processed so
-      // two sibling branches don't both spawn a separate merged entry.
+      // two sibling branches don't both spawn a separate merged entry. A
+      // second set tracks functions we've fully handled via return-array-join
+      // assembly — the whole function becomes one merged entry and any
+      // individually-detected prompts inside it are subsumed.
       const seenComposites = new Set();
+      const handledFunctions = new Set();
 
       for (const prompt of filePrompts) {
         // Find the string-like AST node at the prompt's declared position.
         const targetRow = prompt.lineNum - 1;
         const stringNode = _findStringNodeAt(tree.rootNode, targetRow, prompt.text);
         if (!stringNode) continue;
+
+        // FUNCTION-LEVEL FIRST: if this prompt lives inside a function whose
+        // return is `<array-literal>.join(<sep>)`, treat the whole return
+        // expression as the "real" prompt and collapse any sibling prompts
+        // inside the same function into one merged entry. This handles the
+        // common prompt-builder pattern where an environment or system prompt
+        // is assembled piece-by-piece from locals then stitched together
+        // (cli.js's v44 / buildEnvironmentPrompt is the canonical example).
+        const funcNode = _findEnclosingFunction(stringNode);
+        if (funcNode && !handledFunctions.has(funcNode.id)) {
+          const fnScope = _buildLocalStringMap(funcNode);
+          const fnUsed = new Set();
+          const assembled = _tryExpandReturnArrayJoin(funcNode, fnScope, fnUsed);
+          // Require more content than the detected prompt alone — a trivial
+          // helper like `return [a, b].join(',')` wouldn't beat the already-
+          // detected string's length.
+          if (assembled && assembled.length > prompt.text.length) {
+            handledFunctions.add(funcNode.id);
+            const funcStart = funcNode.startPosition.row;
+            const funcEnd = funcNode.endPosition.row;
+            const coveredFn = filePrompts.filter(p => {
+              const row = p.lineNum - 1;
+              return row >= funcStart && row <= funcEnd;
+            });
+            for (const p of coveredFn) toRemove.add(promptIndex.get(p));
+            const anchor = coveredFn.slice().sort((a, b) => a.lineNum - b.lineNum)[0] || prompt;
+            mergedEntries.push({
+              ...anchor,
+              type: anchor.type + ' (function-assembly)',
+              text: assembled,
+              _compositeSpan: [funcStart, funcEnd],
+              _inlinedSpans: [],
+            });
+            continue;
+          }
+        }
 
         const composite = _findEnclosingComposite(stringNode);
         if (!composite) continue;
@@ -981,6 +1021,10 @@ function _findEnclosingFunction(node) {
 // them; their locals shouldn't leak out).
 function _buildLocalStringMap(functionNode) {
   const map = new Map();
+  // `string_like` covers values that resolve to prompt text in `${name}`
+  // interpolations. `array` is also stored so spreads (`...j`, `...Xc(j)`)
+  // can expand element-by-element when the spread argument resolves to a
+  // local array.
   const STRING_LIKE = new Set(['string', 'template_string', 'ternary_expression', 'binary_expression', 'parenthesized_expression']);
   const FN_TYPES = new Set([
     'function_declaration', 'generator_function_declaration',
@@ -996,14 +1040,37 @@ function _buildLocalStringMap(functionNode) {
     if (node.type === 'variable_declarator') {
       const nameNode = node.childForFieldName('name');
       const valueNode = node.childForFieldName('value');
-      if (nameNode && valueNode && nameNode.type === 'identifier' && STRING_LIKE.has(valueNode.type)) {
-        if (!map.has(nameNode.text)) map.set(nameNode.text, valueNode);
+      if (nameNode && valueNode && nameNode.type === 'identifier') {
+        // Peel `[…].filter(…)` / `.flat()` / `.map(…)` / `.concat(…)` /
+        // `.slice(…)` method chains so we can still reach the base array.
+        const unwrapped = _unwrapArrayExpression(valueNode);
+        if (STRING_LIKE.has(valueNode.type) || unwrapped.type === 'array') {
+          if (!map.has(nameNode.text)) map.set(nameNode.text, unwrapped);
+        }
       }
     }
     for (let i = 0; i < node.childCount; i++) walk(node.child(i), false);
   };
   walk(body, true);
   return map;
+}
+
+// Walk through `arr.filter(…).map(…).flat()` etc. and return the innermost
+// expression. For prompt-catalog purposes we're fine ignoring the transforms
+// — we just want the underlying array to iterate.
+function _unwrapArrayExpression(node) {
+  const SKIP_METHODS = new Set(['filter', 'map', 'flat', 'flatMap', 'concat', 'slice', 'reverse']);
+  let cur = node;
+  while (cur && cur.type === 'call_expression') {
+    const fn = cur.childForFieldName('function');
+    if (!fn || fn.type !== 'member_expression') break;
+    const prop = fn.childForFieldName('property');
+    if (!prop || !SKIP_METHODS.has(prop.text)) break;
+    const obj = fn.childForFieldName('object');
+    if (!obj) break;
+    cur = obj;
+  }
+  return cur || node;
 }
 
 // Extract the textual content of a `string` or `template_string` node,
@@ -1078,4 +1145,161 @@ function _renderScopeValue(valueNode, scope, usedIdents) {
 
 function _unescapeJs(s) {
   return s.replace(/\\([ntr"'\\])/g, (_, c) => ({ n:'\n', t:'\t', r:'\r', '"':'"', "'":"'", '\\':'\\' }[c]));
+}
+
+// Recognize the `return [<a>, <b>, ...].join(<sep>)` prompt-assembly
+// pattern. Returns the rendered text of the full assembly, or null if the
+// function's return doesn't match this shape. Elements of the array are
+// rendered using the same scope-aware extractor: string/template literals
+// inline, identifiers resolved from the local-var map, inline ternaries as
+// «A | B», spreads and function calls as `${…}` placeholders so the reader
+// can see where a dynamic slot is but isn't misled about what's there.
+function _tryExpandReturnArrayJoin(funcNode, scope, usedIdents) {
+  const body = funcNode.childForFieldName('body');
+  if (!body) return null;
+
+  // Find the function's return expression at top level. We only look at the
+  // first return — nested returns are a sign of branching logic we can't
+  // statically resolve. If the first top-level statement is a `return`, that
+  // IS the production path.
+  let returnExpr = null;
+  for (let i = 0; i < body.childCount; i++) {
+    const child = body.child(i);
+    if (child.type === 'return_statement') {
+      returnExpr = child.namedChild(0);
+      break;
+    }
+  }
+  if (!returnExpr) return null;
+
+  // Strip parenthesized wrapping.
+  let expr = returnExpr;
+  while (expr && expr.type === 'parenthesized_expression') expr = expr.namedChild(0);
+  if (!expr || expr.type !== 'call_expression') return null;
+
+  const fnExpr = expr.childForFieldName('function');
+  if (!fnExpr || fnExpr.type !== 'member_expression') return null;
+  const propNode = fnExpr.childForFieldName('property');
+  if (!propNode || propNode.text !== 'join') return null;
+
+  const arrayExpr = fnExpr.childForFieldName('object');
+  if (!arrayExpr || arrayExpr.type !== 'array') return null;
+
+  // Separator. Default to '\n' if the call has no argument — `[...].join()`
+  // uses ',' per spec but for prompt assembly the actual default here is
+  // rarely intentional; leaving empty reads worst.
+  const argsNode = expr.childForFieldName('arguments');
+  let separator = ',';
+  if (argsNode && argsNode.namedChildCount > 0) {
+    const sepArg = argsNode.namedChild(0);
+    const sepText = _extractStringText(sepArg, scope, usedIdents);
+    if (sepText != null) separator = sepText;
+  }
+
+  return _renderArrayElements(arrayExpr, scope, usedIdents, separator);
+}
+
+// Render one element of a return-array-join assembly. Covers the same kinds
+// of nodes as the rest of the expander; everything unknown becomes `${…}`.
+// `separator` is the outer array.join separator — needed when expanding
+// nested arrays and spreads so their elements fall in line with the rest.
+function _renderAssemblyElement(node, scope, usedIdents, separator = '\n') {
+  if (!node) return '${…}';
+  if (node.type === 'string' || node.type === 'template_string') {
+    const txt = _extractStringText(node, scope, usedIdents);
+    return txt != null ? txt : '${…}';
+  }
+  if (node.type === 'identifier') {
+    if (scope && scope.has(node.text)) {
+      if (usedIdents) usedIdents.add(node.text);
+      const resolved = scope.get(node.text);
+      // Identifier bound to an array → flatten its elements inline so a
+      // bare `j` in the return array expands to all of j's contents.
+      if (resolved.type === 'array') {
+        return _renderArrayElements(resolved, scope, usedIdents, separator);
+      }
+      const text = _renderScopeValue(resolved, scope, usedIdents);
+      if (text != null) return text;
+    }
+    return '${' + node.text + '}';
+  }
+  if (node.type === 'ternary_expression' || node.type === 'binary_expression' || node.type === 'parenthesized_expression') {
+    const branches = [];
+    _collectStringBranches(node, branches, scope, usedIdents);
+    if (branches.length === 0) return '${…}';
+    if (branches.length === 1) return branches[0];
+    return '«' + branches.join(' | ') + '»';
+  }
+  if (node.type === 'array') {
+    // Nested array literal — render its elements joined by the outer sep.
+    return _renderArrayElements(node, scope, usedIdents, separator);
+  }
+  if (node.type === 'spread_element') {
+    // `...j`, `...Xc(j)`, `...j.filter(…)`. Try to unwrap to an array:
+    //   - spread of an identifier that's a local array var → expand that array
+    //   - spread of a call_expression → look inside the argument for an
+    //     identifier that resolves to a local array var; expand it (we
+    //     assume the wrapping helper is a formatter, not a filter that
+    //     changes content meaning).
+    const inner = node.namedChild(0);
+    const arr = _resolveArrayForSpread(inner, scope, usedIdents);
+    if (arr) return _renderArrayElements(arr, scope, usedIdents, separator);
+    // Fallback: note that a spread exists and what its head looks like so
+    // the reader can find it in the source.
+    const innerText = inner
+      ? (inner.childForFieldName && inner.childForFieldName('function')?.text) || inner.text
+      : '';
+    return innerText ? `\${…spread from ${innerText}…}` : '${…spread…}';
+  }
+  if (node.type === 'call_expression') {
+    // Bare function call in the assembly (e.g. `E44()`). We don't evaluate
+    // it, but showing the function name is useful context.
+    const fn = node.childForFieldName('function');
+    const name = fn ? fn.text : '';
+    return name ? `\${${name}()}` : '${…}';
+  }
+  return '${…}';
+}
+
+// Render every element of an array-literal node and join with `separator`.
+// Nulls in the source (rare but valid) become empty strings in output.
+function _renderArrayElements(arrayNode, scope, usedIdents, separator) {
+  const parts = [];
+  for (let i = 0; i < arrayNode.namedChildCount; i++) {
+    const el = arrayNode.namedChild(i);
+    parts.push(_renderAssemblyElement(el, scope, usedIdents, separator));
+  }
+  return parts.join(separator);
+}
+
+// Given a spread's inner expression (e.g. `Xc(j)` or `j` or `j.filter(…)`),
+// return the local-array AST node it ultimately refers to, or null.
+function _resolveArrayForSpread(node, scope, usedIdents) {
+  if (!node || !scope) return null;
+  // Direct identifier: `...j`.
+  if (node.type === 'identifier' && scope.has(node.text)) {
+    const v = scope.get(node.text);
+    if (v.type === 'array') {
+      if (usedIdents) usedIdents.add(node.text);
+      return v;
+    }
+  }
+  // Call-wrapped: `...Xc(j)` or `...helper(arr)`. Peek at the first arg;
+  // if it resolves to a local array, use that. This is a heuristic —
+  // assumes the wrapping function is a formatter that preserves the
+  // element-to-line correspondence. Good enough for the common prompt-
+  // builder shape seen in cli.js v44 and similar.
+  if (node.type === 'call_expression') {
+    const args = node.childForFieldName('arguments');
+    if (args && args.namedChildCount > 0) {
+      const firstArg = args.namedChild(0);
+      return _resolveArrayForSpread(firstArg, scope, usedIdents);
+    }
+  }
+  // Chained method on an array var: `...j.filter(...)`.
+  if (node.type === 'call_expression' || node.type === 'member_expression') {
+    const unwrapped = _unwrapArrayExpression(node);
+    if (unwrapped !== node) return _resolveArrayForSpread(unwrapped, scope, usedIdents);
+  }
+  return null;
 }
