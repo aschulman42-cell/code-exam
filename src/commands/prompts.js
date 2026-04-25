@@ -163,11 +163,9 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
         text: fullText,
       };
 
-      if (filter) {
-        const pat = filter.toLowerCase();
-        const haystack = (entry.text + ' ' + filepath).toLowerCase();
-        if (!haystack.includes(pat)) continue;
-      }
+      // Filter is intentionally NOT applied here — it gets applied after
+      // composite expansion so stubs and short detections still get a chance
+      // to be expanded into full prompt text that may match the filter.
       prompts.push(entry);
     }
   }
@@ -274,7 +272,13 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
 
       // --- Pattern 2: getSystemPrompt declaration ---
       if (!detected) {
-        const gspMatch = line.match(/getSystemPrompt\s*(?::\s*\(.*?\)\s*=>|=\s*(?:function|\())/);
+        // Match all common shapes:
+        //   getSystemPrompt: () => ...
+        //   getSystemPrompt = function ...
+        //   getSystemPrompt = (
+        //   getSystemPrompt({...}) {        ← method shorthand inside { }
+        //   async getSystemPrompt(...) {    ← async method shorthand
+        const gspMatch = line.match(/(?:async\s+)?getSystemPrompt\s*(?:\(|:\s*\(.*?\)\s*=>|=\s*(?:function|\())/);
         if (gspMatch) {
           // Look for the template literal / string in this or next few lines
           let promptText = null;
@@ -295,10 +299,10 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
               break;
             }
           }
+          const containingFunc = index._findContainingFunctionFromBounds
+            ? index._findContainingFunctionFromBounds(funcBounds, lineNum)
+            : null;
           if (promptText && promptText.length > 20) {
-            const containingFunc = index._findContainingFunctionFromBounds
-              ? index._findContainingFunctionFromBounds(funcBounds, lineNum)
-              : null;
             detected = {
               type: 'getSystemPrompt',
               filepath, lineNum,
@@ -306,6 +310,22 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
               varName: 'getSystemPrompt',
               func: containingFunc,
               text: promptText,
+            };
+          } else {
+            // No nearby string — emit a stub anchored at the declaration so
+            // the tree-sitter expansion pass can pick up the function and
+            // assemble its return template / array. The expansion only
+            // considers prompts that have at least one detected entry inside
+            // the enclosing function, so this stub is what triggers it.
+            // The stub's text is intentionally just the matched signature;
+            // expansion will replace it with the rendered return.
+            detected = {
+              type: 'getSystemPrompt-stub',
+              filepath, lineNum,
+              endLine: lineNum,
+              varName: 'getSystemPrompt',
+              func: containingFunc,
+              text: line.trim(),
             };
           }
         }
@@ -519,11 +539,7 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
               funcDisplay,
               text: content.replace(/\\n/g, '\n').replace(/\\t/g, '\t'),
             };
-            if (filter) {
-              const pat = filter.toLowerCase();
-              const haystack = (entry.text + ' ' + (entry.func || '')).toLowerCase();
-              if (!haystack.includes(pat)) continue;
-            }
+            // See note at top: filter applied after expansion, not here.
             prompts.push(entry);
           }
         }
@@ -553,14 +569,10 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
           detected.funcDisplay = index.getDisplayName(detected.func);
         }
 
-        // Apply text filter
-        if (filter) {
-          const pat = filter.toLowerCase();
-          const haystack = (detected.text + ' ' + (detected.varName || '') + ' ' + (detected.func || '')).toLowerCase();
-          if (!haystack.includes(pat)) {
-            detected = null;
-          }
-        }
+        // Filter is applied AFTER expansion (see end of this function).
+        // Stub entries may carry trivial text that doesn't match the filter
+        // but expand to full prompt content that does — applying the filter
+        // here would reject the stub before expansion ever runs.
       }
 
       if (detected) {
@@ -586,7 +598,18 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
   // Drop anything the detectors picked up that doesn't actually read like a
   // prompt — keyword lists, inline code/data literals, oversize blobs that
   // happen to contain a trigger word or two.
-  const filtered = afterExpand.filter(p => !_looksLikeNonPrompt(p.text));
+  let filtered = afterExpand.filter(p => !_looksLikeNonPrompt(p.text));
+
+  // Apply the user-supplied text filter AFTER expansion so that an entry
+  // whose detected text was a placeholder (`getSystemPrompt({`) but whose
+  // assembled text contains the search term is correctly returned.
+  if (filter) {
+    const pat = filter.toLowerCase();
+    filtered = filtered.filter(p => {
+      const haystack = (p.text + ' ' + (p.varName || '') + ' ' + (p.func || '') + ' ' + p.filepath).toLowerCase();
+      return haystack.includes(pat);
+    });
+  }
 
   // Sort by filepath then line number
   filtered.sort((a, b) => a.filepath.localeCompare(b.filepath) || a.lineNum - b.lineNum);
@@ -741,18 +764,24 @@ async function _expandCompositePrompts(index, prompts) {
 
       for (const prompt of filePrompts) {
         // Find the string-like AST node at the prompt's declared position.
+        // For stub prompts (Pattern 2 with no nearby string — anchored at
+        // the function declaration line), there is no string to find;
+        // resolve the function directly by row.
         const targetRow = prompt.lineNum - 1;
-        const stringNode = _findStringNodeAt(tree.rootNode, targetRow, prompt.text);
-        if (!stringNode) continue;
+        const isStub = prompt.type && prompt.type.endsWith('-stub');
+        const stringNode = isStub ? null : _findStringNodeAt(tree.rootNode, targetRow, prompt.text);
+        if (!isStub && !stringNode) continue;
 
         // FUNCTION-LEVEL FIRST: if this prompt lives inside a function whose
-        // return is `<array-literal>.join(<sep>)`, treat the whole return
-        // expression as the "real" prompt and collapse any sibling prompts
-        // inside the same function into one merged entry. This handles the
-        // common prompt-builder pattern where an environment or system prompt
-        // is assembled piece-by-piece from locals then stitched together
-        // (cli.js's v44 / buildEnvironmentPrompt is the canonical example).
-        const funcNode = _findEnclosingFunction(stringNode);
+        // return is `<array-literal>.join(<sep>)` or a template literal,
+        // treat the whole return expression as the "real" prompt and
+        // collapse any sibling prompts inside the same function into one
+        // merged entry. Handles the common prompt-builder patterns where a
+        // system prompt is assembled piece-by-piece from locals then
+        // stitched together (cli.js's v44 / x44.getSystemPrompt etc.).
+        const funcNode = isStub
+          ? _findFunctionAtRow(tree.rootNode, targetRow)
+          : _findEnclosingFunction(stringNode);
         if (funcNode && !handledFunctions.has(funcNode.id)) {
           const fnScope = _buildLocalStringMap(funcNode);
           const fnUsed = new Set();
@@ -779,6 +808,14 @@ async function _expandCompositePrompts(index, prompts) {
             });
             continue;
           }
+        }
+
+        // Stubs have no per-expression fallback — they exist only so the
+        // function-level pass above can fire. If that didn't produce anything,
+        // drop the stub from the catalog (its placeholder text isn't useful).
+        if (isStub) {
+          toRemove.add(promptIndex.get(prompt));
+          continue;
         }
 
         const composite = _findEnclosingComposite(stringNode);
@@ -995,6 +1032,34 @@ function _collectStringBranches(node, out, scope = null, usedIdents = null) {
   // Non-string leaf — skip silently (operators, condition identifiers, etc.).
 }
 
+// Walk DOWN to find the smallest function-like node containing a given
+// row. Used for stub prompts that anchor at the declaration line of a
+// `getSystemPrompt`-style method instead of an actual string literal — we
+// have no string node to walk up from, so we search for the function
+// directly by position.
+function _findFunctionAtRow(root, row) {
+  const FN_TYPES = new Set([
+    'function_declaration', 'generator_function_declaration',
+    'function_expression', 'generator_function_expression',
+    'method_definition', 'arrow_function',
+    'async_function_declaration',
+  ]);
+  let best = null;
+  const walk = (node) => {
+    if (row < node.startPosition.row || row > node.endPosition.row) return;
+    if (FN_TYPES.has(node.type)) {
+      // Smallest containing function wins (handles nested fns).
+      if (!best || (node.endPosition.row - node.startPosition.row) <
+                   (best.endPosition.row - best.startPosition.row)) {
+        best = node;
+      }
+    }
+    for (let i = 0; i < node.childCount; i++) walk(node.child(i));
+  };
+  walk(root);
+  return best;
+}
+
 // Walk UP to find the enclosing function-like node — used to bound the scope
 // within which we look for local-variable assignments. Treats nested
 // functions as their own scope (we don't chain up to enclosing functions
@@ -1147,56 +1212,101 @@ function _unescapeJs(s) {
   return s.replace(/\\([ntr"'\\])/g, (_, c) => ({ n:'\n', t:'\t', r:'\r', '"':'"', "'":"'", '\\':'\\' }[c]));
 }
 
-// Recognize the `return [<a>, <b>, ...].join(<sep>)` prompt-assembly
-// pattern. Returns the rendered text of the full assembly, or null if the
-// function's return doesn't match this shape. Elements of the array are
-// rendered using the same scope-aware extractor: string/template literals
-// inline, identifiers resolved from the local-var map, inline ternaries as
-// «A | B», spreads and function calls as `${…}` placeholders so the reader
-// can see where a dynamic slot is but isn't misled about what's there.
+// Find ALL return statements anywhere in the function body (skipping nested
+// functions, since their returns are not this function's outputs). Used by
+// _tryExpandReturn to consider every return path.
+const _NESTED_FN_TYPES = new Set([
+  'function_declaration', 'generator_function_declaration',
+  'function_expression', 'generator_function_expression',
+  'method_definition', 'arrow_function',
+]);
+function _collectReturnExpressions(node, fnNode, out) {
+  if (!node) return;
+  if (node !== fnNode && _NESTED_FN_TYPES.has(node.type)) return;
+  if (node.type === 'return_statement') {
+    let expr = node.namedChild(0);
+    while (expr && expr.type === 'parenthesized_expression') expr = expr.namedChild(0);
+    if (expr) out.push(expr);
+    return;
+  }
+  for (let i = 0; i < node.childCount; i++) _collectReturnExpressions(node.child(i), fnNode, out);
+}
+
+// Render any return expression we recognize as prompt-producing.
+//   - <array-literal>.join(<sep>)         — assembly pattern (cli.js v44)
+//   - <template_string> with interpolations — direct template return
+//   - <string>                            — literal return
+//   - <identifier> bound in scope         — local var return
+//   - <ternary> of strings/templates      — branching return
+function _renderReturnExpression(expr, scope, usedIdents) {
+  if (!expr) return null;
+  while (expr.type === 'parenthesized_expression') expr = expr.namedChild(0);
+  if (!expr) return null;
+
+  // (1) <array>.join(<sep>) — array-assembly.
+  if (expr.type === 'call_expression') {
+    const fn = expr.childForFieldName('function');
+    if (fn && fn.type === 'member_expression') {
+      const prop = fn.childForFieldName('property');
+      if (prop && prop.text === 'join') {
+        const arrayExpr = fn.childForFieldName('object');
+        if (arrayExpr && arrayExpr.type === 'array') {
+          const args = expr.childForFieldName('arguments');
+          let separator = ',';
+          if (args && args.namedChildCount > 0) {
+            const sepText = _extractStringText(args.namedChild(0), scope, usedIdents);
+            if (sepText != null) separator = sepText;
+          }
+          return _renderArrayElements(arrayExpr, scope, usedIdents, separator);
+        }
+      }
+    }
+  }
+  // (2) Template / string literals — direct return of formatted text.
+  if (expr.type === 'template_string' || expr.type === 'string') {
+    return _extractStringText(expr, scope, usedIdents);
+  }
+  // (3) Local-var return — resolve through scope.
+  if (expr.type === 'identifier' && scope && scope.has(expr.text)) {
+    if (usedIdents) usedIdents.add(expr.text);
+    return _renderScopeValue(scope.get(expr.text), scope, usedIdents);
+  }
+  // (4) Ternary of strings — branch them.
+  if (expr.type === 'ternary_expression' || expr.type === 'binary_expression') {
+    const branches = [];
+    _collectStringBranches(expr, branches, scope, usedIdents);
+    if (branches.length > 0) return branches.join(BRANCH_SEP);
+  }
+  return null;
+}
+
+// Try to render a function's return value as prompt text. If the function
+// has multiple return statements (e.g. one inside `if (K.length > 0)` and a
+// fallback), render each and pick the longest. Renamed from
+// _tryExpandReturnArrayJoin: the array-join pattern is now one of several
+// return shapes we recognize.
 function _tryExpandReturnArrayJoin(funcNode, scope, usedIdents) {
   const body = funcNode.childForFieldName('body');
   if (!body) return null;
 
-  // Find the function's return expression at top level. We only look at the
-  // first return — nested returns are a sign of branching logic we can't
-  // statically resolve. If the first top-level statement is a `return`, that
-  // IS the production path.
-  let returnExpr = null;
-  for (let i = 0; i < body.childCount; i++) {
-    const child = body.child(i);
-    if (child.type === 'return_statement') {
-      returnExpr = child.namedChild(0);
-      break;
+  const returns = [];
+  _collectReturnExpressions(body, funcNode, returns);
+  if (returns.length === 0) return null;
+
+  let best = null;
+  for (const expr of returns) {
+    // Use a fresh usedIdents per attempt so we only keep the bindings used
+    // by the winning return — otherwise an unused branch can mark identifiers
+    // for inlining and trigger unrelated entry-pruning.
+    const localUsed = new Set();
+    const text = _renderReturnExpression(expr, scope, localUsed);
+    if (text && (!best || text.length > best.text.length)) {
+      best = { text, used: localUsed };
     }
   }
-  if (!returnExpr) return null;
-
-  // Strip parenthesized wrapping.
-  let expr = returnExpr;
-  while (expr && expr.type === 'parenthesized_expression') expr = expr.namedChild(0);
-  if (!expr || expr.type !== 'call_expression') return null;
-
-  const fnExpr = expr.childForFieldName('function');
-  if (!fnExpr || fnExpr.type !== 'member_expression') return null;
-  const propNode = fnExpr.childForFieldName('property');
-  if (!propNode || propNode.text !== 'join') return null;
-
-  const arrayExpr = fnExpr.childForFieldName('object');
-  if (!arrayExpr || arrayExpr.type !== 'array') return null;
-
-  // Separator. Default to '\n' if the call has no argument — `[...].join()`
-  // uses ',' per spec but for prompt assembly the actual default here is
-  // rarely intentional; leaving empty reads worst.
-  const argsNode = expr.childForFieldName('arguments');
-  let separator = ',';
-  if (argsNode && argsNode.namedChildCount > 0) {
-    const sepArg = argsNode.namedChild(0);
-    const sepText = _extractStringText(sepArg, scope, usedIdents);
-    if (sepText != null) separator = sepText;
-  }
-
-  return _renderArrayElements(arrayExpr, scope, usedIdents, separator);
+  if (!best) return null;
+  if (usedIdents) for (const u of best.used) usedIdents.add(u);
+  return best.text;
 }
 
 // Render one element of a return-array-join assembly. Covers the same kinds
