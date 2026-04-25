@@ -1,187 +1,173 @@
-# code-exam (Node.js)
+# Code Exam
 
-Air-Gapped Source Code Examination Tool — Node.js port.
+An air-gapped source code examination tool for large codebases — including
+bundled, minified, or otherwise-deobfuscation-resistant JavaScript, AI
+framework source (PyTorch, transformers, DeepSeek, Qwen, Llama), and the
+internals of LLM-using applications. Designed for offline,
+security-sensitive use; can optionally use Claude API or a local GGUF
+model when explanation is needed.
 
-**Zero external dependencies.** Uses only Node.js 18+ built-ins.
+Originally a Python tool; this is the Node.js port (now the active
+codebase).
 
-## Quick Start
+## Four ways to use it
 
-```bash
-# Build an index
-node src/index.js --build-index ./your/source/code
+- **CLI** — `node src/index.js <command>` for one-shot queries and scripting
+- **Interactive REPL** — `node src/index.js --interactive`, then issue
+  slash commands (`/fast`, `/extract`, `/file-map`, `/help`, …). The same
+  REPL is also reachable from the browser UI's Console pane; some
+  commands (`/file-map` etc.) are currently REPL-only
+- **Browser UI** — `node src/server.js --port 3000` opens a three-pane
+  HTML interface served from **localhost only** (no remote access, no
+  outbound network calls). Left pane: function/file/class accordions and
+  other catalogs. Middle-top: output. Middle-bottom: source viewer with
+  linkified call sites. Mermaid call trees and file-coupling diagrams
+  render inline.
+- **MCP server** — `node src/mcp-server.js` exposes the indexed codebase
+  as Model Context Protocol tools, so Claude Code or Claude Desktop can
+  search, extract, and analyze it directly
 
-# Search
-node src/index.js --fast "TODO"
-node src/index.js --literal "import os"
-node src/index.js --regex "def \w+\("
+All four share the same `CodeSearchIndex` engine and the same on-disk
+index format. Build the index once; query from any of them.
 
-# Browse
-node src/index.js --stats
-node src/index.js --list-files
-node src/index.js --list-functions
-node src/index.js --list-functions-size
-node src/index.js --extract "main"
-node src/index.js --extract "worker.java@processTasks"
-
-# File/folder search
-node src/index.js --files-search "class"
-node src/index.js --folders-search "import"
-
-# Callers/callees (Phase 2)
-node src/index.js --callers "search_literal"
-node src/index.js --callees "main"
-node src/index.js --most-called 20 --defined-only
-
-# Call graphs (Phase 2)
-node src/index.js --call-tree "build_index" --depth 3
-node src/index.js --call-tree "build_index" --mermaid
-node src/index.js --file-map --max-results 10
-node src/index.js --file-tree "main.py"
-
-# Display modifiers
-node src/index.js --fast "error" --max-results 50 --verbose
-node src/index.js --list-functions --include-path src --exclude-path test
-node src/index.js --list-functions --full-path --filter "handle"
-
-# Metrics / discovery (Phase 3)
-node src/index.js --hotspots 20
-node src/index.js --hot-folders 15
-node src/index.js --entry-points 20 --max-calls 1
-node src/index.js --gaps
-node src/index.js --domain-fns 20
-node src/index.js --list-classes --verbose
-node src/index.js --class-hotspots 15
-
-# Interactive mode (Phase 6) — auto-enters if no command given
-node src/index.js --index-path /path/to/index
-# Or explicitly:
-node src/index.js --interactive
-# Then at the prompt:
-#   /fast "TODO"
-#   /hotspots 20
-#   /callers main
-#   /extract build_index
-#   /help
-#   /quit
-```
-
-## Python Index Compatibility
-
-The Node.js version reads and writes the **same JSON index format** as the Python version.
-You can build an index with either version and query with the other:
+## Quick start
 
 ```bash
-# Build with Python
-python code_exam.py --build-index ./src --skip-semantic
+# Build an index over a codebase, prettifying minified JS along the way
+node src/index.js --build-index /path/to/codebase
 
-# Query with Node.js
-node src/index.js --fast "TODO" --index-path .code_search_index
+# Launch the browser UI (localhost only)
+node src/server.js --index-path .code_search_index --port 3000
+# then open http://localhost:3000
 ```
 
-Index files: `literal_index.json`, `inverted_index.json`, `function_index.json`
+Indexes scale to multi-gigabyte source trees (tested on Chromium —
+~195K files, ~5GB index, loaded with
+`NODE_OPTIONS=--max-old-space-size=8192`).
 
-## Phase 1+2+3+6 Coverage
+## Feature highlights
 
-| Feature | Status |
-|---------|--------|
-| Build index (dir, file, glob, @filelist) | ✅ |
-| SHA1 file dedup | ✅ |
-| Inverted index build | ✅ |
-| Function index build (regex, all languages) | ✅ |
-| Literal search | ✅ |
-| Inverted index search (--fast) | ✅ |
-| Regex search | ✅ |
-| Hybrid search | ✅ |
-| Files-search, folders-search | ✅ |
-| Stats, list-files, show-file | ✅ |
-| List-functions, alpha, size | ✅ |
-| Extract function source | ✅ |
-| FILE@FUNCTION extract | ✅ |
-| Path include/exclude filters | ✅ |
-| Scan-extensions, index-extensions | ✅ |
-| List-indexes | ✅ |
-| JSON index persistence | ✅ |
-| Python index compatibility | ✅ |
-| **Callers** (--callers, transitive) | ✅ |
-| **Callees** (--callees) | ✅ |
-| **Most-called** (--most-called, filters) | ✅ |
-| **Call tree** (--call-tree, up+down) | ✅ |
-| **File map** (--file-map, coupling) | ✅ |
-| **File tree** (--file-tree, deps) | ✅ |
-| **Mermaid diagrams** (--mermaid) | ✅ |
-| **Hotspots** (--hotspots) | ✅ |
-| **Hot folders** (--hot-folders) | ✅ |
-| **Entry points** (--entry-points) | ✅ |
-| **Gaps** (--gaps, dead code) | ✅ |
-| **Domain functions** (--domain-fns) | ✅ |
-| **List classes** (--list-classes) | ✅ |
-| **Class hotspots** (--class-hotspots) | ✅ |
-| **Large index loading** (streaming JSON, >2GB) | ✅ |
-| **Interactive REPL** (--interactive, auto-enter) | ✅ |
+### Browse and search
+- Function/file/class accordions; full-text, regex, and inverted-index
+  (`--fast`) search
+- **Multisect**: find the smallest scope (function/file) containing all
+  of N search terms — including synonyms. Patent claims can be parsed
+  directly into multisect expressions (`--claim-search`)
+- **Cross-reference**: callers, callees, transitive call trees, file and
+  folder coupling maps; Mermaid diagrams of any of these
+- **Surfacing key code**: hotspots, class hotspots, most-called,
+  domain-function ranking, entry points, dead-code gaps,
+  project-specific vocabulary/nomenclature discovery
+- **Function digests** — concise per-function summary (signature,
+  callers, callees, distinctive strings, structural shape) usable
+  standalone or as input to LLM prompts
 
-### Not Yet Implemented (Future Phases)
+### Catalogs of "what does this code do"
+- **Command catalog** — every CLI option and slash-command in the target
+  codebase, linked to its handler function or method (so a `/skills`
+  entry in a chat tool resolves to the actual handler in the source)
+- **Breadcrumbs** — telemetry markers (logging, analytics, audit calls)
+  with their associated functions, useful for tracing what an obfuscated
+  binary actually reports back
+- **Prompt catalog** — every LLM prompt in the codebase, with composite
+  expansion: ternary branches, template `${var}` interpolations, and
+  function-level assemblies built piece-by-piece via `[…].join(…)` are
+  all merged into one searchable entry per logical prompt. Detects
+  inline strings, `getSystemPrompt` / `systemPrompt:` properties,
+  `role:"system"` messages, and `.md` skill files
 
-- Phase 4: File/func dedup, structural hashing, func-dupes, near-dupes
-- Phase 5: Multi-term intersection (--multisect-search)
-- Token index / vocabulary discovery (--discover-vocabulary)
-- Archive support: --build-index on zip/7z/tar/gz files
-- Phase 7: CLI packaging (standalone .exe via pkg)
-- Phase 8: Semantic search (vectra + transformers.js)
-- Phase 9: Tree-sitter parsing
-- Phase 10: LLM integration (node-llama-cpp)
+### Deobfuscation, renames, and fingerprints
+- Detects esbuild / minified JS and prettifies via `js-beautify`
+- Optional `webcrack` for bundle disassembly (≤500KB files)
+- Auto-infers readable names from obfuscated code via:
+  - `_KW_` keyword inference from string literals
+  - `_FP_` fingerprint matching against reference libraries
+  - `_NAME_` recovery from `__name(fn, "originalName")` esbuild helpers
+- **Semantic fingerprinting** — distinctive string + call patterns per
+  function. Resilient to esbuild/webpack transforms; matches a bundled
+  cli.js function back to its source library equivalent
+- **Portable fingerprint files** (`*.fp.json`) — share fingerprints of
+  a library without redistributing its source; a curated set of common
+  dependencies (Anthropic SDK, zod, ajv, etc.) can be matched against
+  any working index
+- Multiple types of duplication detection: exact (SHA1), near-duplicate,
+  and **structural-dupe** (AST-shape hashing for non-bundled code)
+
+### Binary-code analysis
+- Indexes binary files inside source trees (executables, libraries) by
+  extracting strings AND demangled function signatures (Itanium / MSVC
+  C++ name mangling)
+- Builds the same kind of inverted index over binary content as over
+  source, so the same search and cross-reference tools work uniformly
+
+### LLM-assisted (optional)
+- `--analyze <function>` — Claude (or local GGUF model) explains a
+  function in context
+- `--claim-search <patent-claim>` — extracts search terms from a patent
+  claim, multi-sects to find matching code, optionally LLM-summarizes
+  each match
+- `--build-prompt <function>` — generates a digest+source prompt suitable
+  for hand-pasting into any LLM (no API needed). Use this to feed
+  CodeExam findings to a chat tool while keeping source local.
+- Air-gapped path: works fully offline using a local GGUF model under
+  `node-llama-cpp`. Suitable for code review under Court Protective
+  Order where outbound network requests are prohibited.
+
+### Index management
+- Pure-Node streaming JSON parser handles 5GB+ indexes
+- Index format compatible with the original Python implementation
+- Build from directories, glob patterns, archives (zip/tar/gz), or
+  `@filelist` files
+- Multi-language parser via tree-sitter WASM grammars + regex fallback:
+  - Tree-sitter: **C, C++, Java, JavaScript, TypeScript, Python, C#,
+    Go, Rust, PHP, Ruby**
+  - Regex-only: **Swift, Kotlin, Scala, Lua, Objective-C, CoffeeScript,
+    Perl, VBScript, AWK**
 
 ## Architecture
 
 ```
-src/
-├── index.js              # CLI entry point
-├── argparse.js           # Zero-dep argument parser
-├── utils.js              # SearchResult, constants, helpers
-├── glob.js               # Built-in glob implementation
-├── json-stream.js        # Streaming JSON parser (large file support)
-├── core/
-│   └── CodeSearchIndex.js  # Core: build, search, parse, extract, callers, metrics
-└── commands/
-    ├── search.js           # Search display & handlers
-    ├── browse.js           # Browse/listing handlers
-    ├── callers.js          # Callers, callees, most-called
-    ├── graph.js            # Call-tree, file-map, file-tree, Mermaid
-    ├── metrics.js          # Hotspots, entry-points, gaps, classes
-    └── interactive.js      # Interactive REPL mode
-test/
-├── test_basic.js          # 16 Phase 1 tests
-├── test_phase2.js         # 16 Phase 2 tests
-├── test_phase3.js         # 15 Phase 3 tests
-└── test_phase6.js         # 26 Phase 6 tests
+CLI            Interactive       Browser UI      MCP server
+(index.js)    (interactive.js)  (server.js)     (mcp-server.js)
+       \           |                |               /
+        \          |                |              /
+         CodeSearchIndex  ←  the engine
+         (src/core/)
+              |
+              ├── TreeSitterParser.js   (multi-language AST parsing)
+              ├── token/string/function indexes
+              │       (literal_index.json, inverted_index.json,
+              │        function_index.json, string_index.json,
+              │        renames.json, fingerprints/*.fp.json)
+              └── command modules (src/commands/)
+                  ├── search.js, browse.js, callers.js, graph.js
+                  ├── metrics.js, dedup.js, multisect.js
+                  ├── digest.js, prompts.js, claim.js, analyze.js
+                  ├── fingerprint.js, build_fp_renames.js
+                  └── interactive.js  (REPL — used both standalone and
+                                       from the browser UI Console pane)
 ```
 
 ## Requirements
 
-- Node.js 18+ (uses ES modules, node:test)
-- No npm install needed — zero dependencies
+- Node.js 18+ (ES modules, `node:test`)
+- `npm install` to fetch runtime dependencies (Anthropic SDK, Express,
+  MCP SDK, web-tree-sitter, js-beautify, webcrack, node-llama-cpp,
+  Mermaid renderers — see `package.json`)
+- Tree-sitter grammars vendored separately in `grammars/`
+- For local LLM inference: a GGUF model file (any model compatible with
+  `node-llama-cpp`)
 
 ## Testing
 
 ```bash
-node --test test/test_basic.js
+node --test test/
 ```
 
-## Language Support (Function Parsing)
+~240 CLI tests across 8 files. Browser-UI tests pending — see TODO #262.
 
-Same regex patterns as the Python version:
+## License / status
 
-| Language | Extensions | Functions | Classes | Methods |
-|----------|-----------|-----------|---------|---------|
-| Python | .py, .pyw | ✅ | ✅ | ✅ (indent-based) |
-| C/C++ | .c, .cpp, .h, .hpp, ... | ✅ | ✅ | ✅ (Class::method) |
-| Java | .java | ✅ | ✅ | ✅ (indent-based) |
-| JavaScript/TS | .js, .ts, .jsx, .tsx | ✅ | ✅ | ✅ (shorthand) |
-| Go | .go | ✅ | ✅ (struct) | — |
-| Rust | .rs | ✅ | ✅ (struct/impl) | — |
-| PHP | .php | ✅ | ✅ | — |
-| Ruby | .rb | ✅ | ✅ | — |
-| Perl | .pl, .pm | ✅ | ✅ (package) | — |
-| C# | .cs | ✅ | ✅ | — |
-| CoffeeScript | .coffee | ✅ | ✅ | — |
-| VBScript | .vbs, .bas | ✅ | ✅ | — |
-| AWK | .awk | ✅ | — | — |
+Air-gapped-first: the browser UI binds to localhost, the MCP server uses
+stdio, and outbound network requests are opt-in and gated. Designed for
+litigation / security-review contexts where source must stay local.
