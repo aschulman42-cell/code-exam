@@ -179,6 +179,23 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
       const lineNum = lineIdx + 1;
       let detected = null;
 
+      // Skip comment-only lines. Without this, docstring-style example
+      // comments like `//   You are a patent-claim keyword extractor...`
+      // (which prompts.js itself uses to illustrate Pattern 1b) match the
+      // detection regex and surface as bogus prompt entries. Catches:
+      //   - line comments  `// …`
+      //   - block-comment body lines `* …` and bare `*`
+      //   - block-comment open-only lines `/* …`
+      const _trimmedLine = line.trimStart();
+      if (
+        _trimmedLine.startsWith('//') ||
+        _trimmedLine.startsWith('/*') ||
+        _trimmedLine.startsWith('* ') ||
+        _trimmedLine === '*'
+      ) {
+        continue;
+      }
+
       // --- Pattern 1: String literal starting with prompt phrase ---
       const promptCol = _findPromptStringStart(line);
       if (promptCol >= 0) {
@@ -782,6 +799,17 @@ async function _expandCompositePrompts(index, prompts) {
         const funcNode = isStub
           ? _findFunctionAtRow(tree.rootNode, targetRow)
           : _findEnclosingFunction(stringNode);
+        // If this function was already handled at the function level, the
+        // sibling prompts inside it are subsumed — skip expression-level
+        // expansion for them entirely. Without this, each sibling spawns
+        // its own merged entry on top of the function-level one, producing
+        // duplicate accordion rows at the same line/function (observed
+        // 2026-04-26 on CodeExam's own analyze.js — buildMultisectAnalyze
+        // and buildFileAnalyze each had two entries at the same line).
+        if (funcNode && handledFunctions.has(funcNode.id)) {
+          toRemove.add(promptIndex.get(prompt));
+          continue;
+        }
         if (funcNode && !handledFunctions.has(funcNode.id)) {
           const fnScope = _buildLocalStringMap(funcNode);
           const fnUsed = new Set();
