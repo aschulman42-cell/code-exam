@@ -1584,8 +1584,13 @@ export class CodeSearchIndex {
       rawCallers = this.findCallers(fn.name, 500);
     } catch (e) {
       if (e.code === 'SHORT_NAME_BAILOUT') {
-        rawCallers = [];
-        callersSkipped = `scan skipped — bare name '${e.shortName}' too short for efficient lookup (#280)`;
+        // Inverted-index path bailed out (short names match too many lines).
+        // Fall back to a case-SENSITIVE regex scan over file contents — this
+        // avoids the inverted-index blowup for `xf` matching every word
+        // containing `xf`, and avoids the case-folding that would surface
+        // `Xf` and `XF` as false positives.
+        rawCallers = this._findCallersByExactRegex(fn.name, 500);
+        callersSkipped = null;
       } else {
         throw e;
       }
@@ -5470,6 +5475,42 @@ export class CodeSearchIndex {
 
   /**
    * Find all locations where a function is called.
+   * Direct case-sensitive regex scan for `\bNAME\b\s*\(` call sites.
+   * Used as a fallback when findCallers' inverted-index path bails out for
+   * short names — those scans are slow because the index expands `xf` to
+   * every line containing the substring `xf`, and case-folding lets `Xf`
+   * and `XF` slip in. This walks every file's lines once with a tight
+   * regex, takes a few seconds even on cli.js, and produces a clean
+   * containing-function map identical in shape to findCallers' output.
+   *
+   * @param {string} functionName  bare name to scan for (case-sensitive)
+   * @param {number} [maxResults=500]
+   * @returns {Array<{filepath, line_number, caller_function}>}
+   */
+  _findCallersByExactRegex(functionName, maxResults = 500) {
+    const escaped = functionName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const callRe = new RegExp('\\b' + escaped + '\\b\\s*\\(');
+    const results = [];
+    for (const [filepath, lines] of this.fileLines) {
+      let funcBounds = null;
+      for (let i = 0; i < lines.length; i++) {
+        if (!callRe.test(lines[i])) continue;
+        if (!funcBounds) funcBounds = this._getFuncBoundaries(filepath);
+        const containing = this._findContainingFunctionFromBounds
+          ? this._findContainingFunctionFromBounds(funcBounds, i + 1)
+          : null;
+        results.push({
+          filepath,
+          line_number: i + 1,
+          caller_function: containing,
+        });
+        if (results.length >= maxResults) return results;
+      }
+    }
+    return results;
+  }
+
+  /**
    * @param {string} functionName
    * @param {number} [maxResults=500]
    * @returns {Array<{filepath, line_number, line_text, caller_function, call_type}>}
