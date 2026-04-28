@@ -177,6 +177,97 @@ export class TreeSitterParser {
     }
   }
 
+  /**
+   * Tree-sitter–based detection of esbuild module wrappers
+   * (`var NAME = HELPER(() => {...})` and similar shapes).
+   *
+   * Replaces the hand-rolled brace-count walker `_findWrapperEnd` from
+   * CodeSearchIndex.js, which mis-counted regex literals containing `{` or
+   * `}` (e.g. `/\$\{/`) and pushed wrapper end-lines thousands of lines
+   * past their real `})`. Tree-sitter's grammar handles regex literals
+   * correctly, so the arrow-function body's `endPosition` is reliable.
+   *
+   * @param {string} filepath
+   * @param {string[]} sourceLines
+   * @param {{ esm: ?string, cjs: ?string }} helpers — helper-letter names
+   *        from CodeSearchIndex._detectBundleHelpers; we only treat
+   *        wrappers whose call target matches one of these as module
+   *        wrappers (not arbitrary `var x = fn(() => {})` patterns).
+   * @returns {Object|null}  same shape as the regex `_parseEsbuildWrappers`:
+   *        `{ [name]: { start, end, type, base_name } }`. Returns null if
+   *        tree-sitter can't parse this file (caller should fall back).
+   */
+  async parseEsbuildWrappers(filepath, sourceLines, helpers) {
+    if (!this._initialized) return null;
+    if (!helpers || (!helpers.esm && !helpers.cjs)) return {};
+
+    const ext = path.extname(filepath).toLowerCase();
+    const langName = EXT_TO_TS_LANG[ext];
+    if (langName !== 'javascript' && langName !== 'typescript') return null;
+
+    const lang = await this.getLanguage(langName);
+    if (!lang) return null;
+
+    const helperNames = new Set([helpers.esm, helpers.cjs].filter(Boolean));
+    const found = {};
+
+    let parser, tree;
+    try {
+      parser = new this._Parser();
+      parser.setLanguage(lang);
+      tree = parser.parse(sourceLines.join('\n'));
+
+      const visit = (node) => {
+        if (node.type === 'variable_declarator') {
+          const nameNode = node.childForFieldName('name');
+          const valueNode = node.childForFieldName('value');
+          if (
+            nameNode && valueNode &&
+            nameNode.type === 'identifier' &&
+            valueNode.type === 'call_expression'
+          ) {
+            const fnNode = valueNode.childForFieldName('function');
+            const argsNode = valueNode.childForFieldName('arguments');
+            if (
+              fnNode && fnNode.type === 'identifier' &&
+              helperNames.has(fnNode.text) &&
+              argsNode && argsNode.namedChildCount > 0
+            ) {
+              const arg = argsNode.namedChild(0);
+              if (arg && arg.type === 'arrow_function') {
+                const name = nameNode.text;
+                const startLine = node.startPosition.row + 1;
+                // Use the variable_declaration's end (covers the closing
+                // `})` and trailing `;`) — the arrow's own end position
+                // sits at the close of its body, which is one line short
+                // of where the wrapper visually ends in cli.js style.
+                const endLine = (node.parent ? node.parent.endPosition.row : node.endPosition.row) + 1;
+                if (endLine > startLine) {
+                  const key = (name in found) ? `${name}@${startLine}` : name;
+                  found[key] = {
+                    start: startLine,
+                    end: endLine,
+                    type: 'function',
+                    base_name: name,
+                  };
+                }
+              }
+            }
+          }
+        }
+        for (let i = 0; i < node.childCount; i++) visit(node.child(i));
+      };
+      visit(tree.rootNode);
+
+      return found;
+    } catch (_e) {
+      return null;
+    } finally {
+      tree?.delete?.();
+      parser?.delete?.();
+    }
+  }
+
   /** List which grammars are available on disk. */
   getAvailableGrammars() {
     const available = [];

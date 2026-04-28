@@ -3836,11 +3836,23 @@ export class CodeSearchIndex {
         }
       }
 
-      // Overlay esbuild-wrapper module functions (#340) — same as the
-      // regex-only path. Returns {} for non-esbuild files so this is a
-      // no-op everywhere else.
+      // Overlay esbuild-wrapper module functions (#340). Prefer tree-sitter
+      // for finding wrapper bodies because the regex-based brace counter
+      // doesn't track regex-literal state, and regex literals containing
+      // `{`/`}` (common in syntax-highlighter rule sets like the one inside
+      // cli.js's OZ4 module) cause wrapper end-lines to overshoot by
+      // thousands of lines. Tree-sitter's parser handles regex literals
+      // correctly. Fall back to the regex walker only when tree-sitter
+      // can't help.
       if (/\.(?:js|mjs|cjs|ts|tsx|jsx)$/i.test(filepath)) {
-        const wrapped = _parseEsbuildWrappers(lines);
+        const helpers = _detectBundleHelpers(lines);
+        let wrapped = null;
+        if (helpers.esm || helpers.cjs) {
+          wrapped = await tsParser.parseEsbuildWrappers(filepath, lines, helpers);
+        }
+        if (wrapped == null) {
+          wrapped = _parseEsbuildWrappers(lines);
+        }
         for (const [name, info] of Object.entries(wrapped)) {
           if (!(name in fileFuncs)) fileFuncs[name] = info;
         }
