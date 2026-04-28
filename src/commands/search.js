@@ -327,13 +327,20 @@ export function doFast(index, args) {
 
 export function doRegex(index, args) {
   let pattern = args.regex;
-  // Strip /.../ delimiters if present
-  if (pattern.startsWith('/') && pattern.endsWith('/') && pattern.length > 2) {
-    pattern = pattern.slice(1, -1);
+  // JS-regex-literal syntax: /pattern/flags. When present, honor flags as
+  // a JS regex would — `/foo/` is case-sensitive, `/foo/i` is insensitive.
+  // Bare patterns without delimiters keep the historical case-insensitive
+  // default for backward compat.
+  let caseSensitive = false;
+  const litMatch = pattern.match(/^\/(.+?)\/([gimsuy]*)$/);
+  if (litMatch) {
+    pattern = litMatch[1];
+    caseSensitive = !litMatch[2].includes('i');
   }
   const effectiveMax = args.max_results !== 20 ? args.max_results : 200;
   let results = index.searchLiteral(pattern, {
     useRegex: true,
+    caseSensitive,
     maxResults: Math.max(effectiveMax * 5, 1000),
     contextLines: args.context,
   });
