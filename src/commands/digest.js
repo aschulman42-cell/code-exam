@@ -73,6 +73,12 @@ export function formatFunctionDigest(digest) {
       push(`    ${label}`);
       for (const site of caller.sites) {
         push(`      ${_shortPath(site.filepath, 50)}:${site.line}`);
+        if (site.text) {
+          // Trim leading indentation but preserve the rest. Cap at 120 chars
+          // so a minified single-line file doesn't blow up the digest.
+          const t = site.text.trimStart();
+          push(`        ${t.length > 120 ? t.slice(0, 120) + '…' : t}`);
+        }
       }
     }
   }

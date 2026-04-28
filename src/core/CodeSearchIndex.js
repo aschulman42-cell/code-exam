@@ -1604,7 +1604,11 @@ export class CodeSearchIndex {
       // unresolved" case, we can differentiate then.
       const name = c.caller_function || '(file scope)';
       if (!byCaller.has(name)) byCaller.set(name, []);
-      byCaller.get(name).push({ filepath: c.filepath, line: c.line_number });
+      byCaller.get(name).push({
+        filepath: c.filepath,
+        line: c.line_number,
+        text: c.line_text || '',
+      });
     }
     const callersSection = {
       totalSites: rawCallers.length,
@@ -5502,6 +5506,7 @@ export class CodeSearchIndex {
         results.push({
           filepath,
           line_number: i + 1,
+          line_text: lines[i].trim(),
           caller_function: containing,
         });
         if (results.length >= maxResults) return results;

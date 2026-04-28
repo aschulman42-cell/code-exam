@@ -2642,7 +2642,57 @@ function renderDisambiguation(matches) {
 function renderDigest(data) {
   const container = $('#middle-top-body'), title = $('#middle-top-title');
   title.textContent = `Digest: ${data.spec}`;
-  container.innerHTML = `<pre class="digest-view" style="white-space:pre-wrap;font-family:var(--font-mono);font-size:12px;padding:8px;margin:0">${escHtml(data.text)}</pre>`;
+
+  // Build a "shortPath:line" → site lookup from the structured digest data.
+  // The formatter's _shortPath truncates filepaths >50 chars with a leading
+  // ellipsis; the real path (used for navigation) lives in the structured
+  // form. Walk caller sites; in the future callee sites could be linked
+  // similarly.
+  const siteLookup = new Map();
+  const shortFp = (fp) => (fp && fp.length > 50) ? '…' + fp.slice(-49) : (fp || '');
+  for (const caller of (data.digest?.callers?.byCaller) || []) {
+    for (const site of caller.sites || []) {
+      siteLookup.set(`${shortFp(site.filepath)}:${site.line}`, site);
+    }
+  }
+
+  // Walk the rendered text line by line. Each caller-site reference appears
+  // as `      shortPath:line` (six-space indent), optionally followed by the
+  // call-site source on the next line (`        text…`, eight-space indent).
+  // Both lines get wrapped in a clickable span tied to onFileClick so
+  // readers can jump directly to the call site.
+  const textLines = data.text.split('\n');
+  const out = [];
+  for (let i = 0; i < textLines.length; i++) {
+    const line = textLines[i];
+    const m = line.match(/^(\s+)([^\s:]+:\d+)\s*$/);
+    if (m && siteLookup.has(m[2])) {
+      const site = siteLookup.get(m[2]);
+      const indent = escHtml(m[1]);
+      const ref = escHtml(m[2]);
+      out.push(`${indent}<span class="file-link clickable" data-filepath="${escHtml(site.filepath)}" data-start="${site.line}">${ref}</span>`);
+      // If the next line is the indented source-text continuation for this
+      // site, wrap it too — clicking the code lands on the same line.
+      const next = textLines[i + 1];
+      if (next && /^ {8}\S/.test(next)) {
+        out.push(`<span class="file-link clickable" data-filepath="${escHtml(site.filepath)}" data-start="${site.line}" style="color:var(--text-dim)">${escHtml(next)}</span>`);
+        i++;
+      }
+    } else {
+      out.push(escHtml(line));
+    }
+  }
+
+  container.innerHTML = `<pre class="digest-view" style="white-space:pre-wrap;font-family:var(--font-mono);font-size:12px;padding:8px;margin:0">${out.join('\n')}</pre>`;
+
+  // Wire the clicks. Same pattern used in renderStringDetail / file-map.
+  for (const el of $$('.file-link[data-filepath]', container)) {
+    el.addEventListener('click', () => {
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0) return;
+      onFileClick(el.dataset.filepath, parseInt(el.dataset.start) || undefined);
+    });
+  }
 }
 
 function renderCallersOnly(funcName, data) {
