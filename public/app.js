@@ -1882,6 +1882,41 @@ function renderBundleSeams(container, data, filter) {
 }
 
 
+// Map a command-catalog gate object (from extractCommandCatalog) to a
+// short visual badge: terse label, hover title with full expression,
+// colours that distinguish "shipped but not active by default" from
+// "active by default" without screaming. Returns null for kinds that
+// shouldn't show a badge.
+function _gateBadgeProps(gate) {
+  if (!gate) return null;
+  switch (gate.kind) {
+    case 'never':
+      return { text: 'disabled', title: 'isEnabled: () => false (hard-disabled)', bg: 'rgba(220,80,80,0.20)', fg: '#e88' };
+    case 'flag': {
+      const def = gate.default != null ? `, default ${gate.default}` : '';
+      return {
+        text: 'flag: ' + gate.flag,
+        title: `flag-gated: ${gate.expr || gate.flag}${def}`,
+        bg: 'rgba(220,180,40,0.18)',
+        fg: '#dcb',
+      };
+    }
+    case 'env':
+      return {
+        text: 'env: ' + gate.envVar,
+        title: `env-gated: ${gate.expr || gate.envVar}`,
+        bg: 'rgba(180,140,80,0.18)',
+        fg: '#cba',
+      };
+    case 'ref':
+      return { text: 'gate', title: `gated by reference: ${gate.expr}`, bg: 'rgba(120,120,140,0.18)', fg: '#aab' };
+    case 'complex':
+      return { text: 'gate?', title: `gated (unparsed): ${gate.expr}`, bg: 'rgba(120,120,140,0.18)', fg: '#aab' };
+    default:
+      return null;
+  }
+}
+
 function renderCommandCatalog(container, catalog, filter) {
   container.innerHTML = '';
   const pat = filter ? filter.toLowerCase() : null;
@@ -1935,8 +1970,27 @@ function renderCommandCatalog(container, catalog, filter) {
         rightInfo = shortPath(item.filepath, 20) + ':' + item.line;
       }
 
+      // Gate badge — only render for non-default activation states. Lets
+      // a reader scanning the command list see at a glance which entries
+      // are flag-gated, env-gated, or hard-disabled (relevant for
+      // latent-code review per #358).
+      const gate = item.gate;
+      let gateBadge = null;
+      if (gate && gate.kind && gate.kind !== 'default' && gate.kind !== 'always') {
+        const badge = _gateBadgeProps(gate);
+        if (badge) {
+          gateBadge = h('span', {
+            className: 'metric',
+            text: badge.text,
+            title: badge.title,
+            style: `font-size:9px;padding:0 4px;border-radius:3px;background:${badge.bg};color:${badge.fg};white-space:nowrap;flex-shrink:0`,
+          });
+        }
+      }
+
       const el = h('div', { className: 'list-item', title: `${name}\n${detail}\n${rightInfo}` }, [
         h('span', { className: 'name clickable', text: name, style: 'font-size:12px;min-width:60px;flex-shrink:0' }),
+        gateBadge,
         detail ? h('span', { className: 'metric muted', text: detail, style: 'font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0' }) : null,
         h('span', { className: 'metric muted', text: rightInfo, style: 'font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:1;min-width:0;text-align:right' }),
       ].filter(Boolean));

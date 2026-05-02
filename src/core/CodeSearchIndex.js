@@ -353,6 +353,64 @@ function camelToScreamingSnake(str) {
     .toUpperCase();
 }
 
+/**
+ * Classify the activation gate of a command-catalog entry from its
+ * `isEnabled:` value (or null if the field is absent). Returns a gate
+ * object with `kind` plus pattern-specific fields. Currently recognized:
+ *
+ *   { kind: "default" }                      — no isEnabled field present
+ *   { kind: "always" }                       — `() => true`
+ *   { kind: "never" }                        — `() => false`  (hard-disabled)
+ *   { kind: "flag", flag, default, expr }    — `() => HELPER("flag", default)`
+ *                                              recognized helpers: jA, Jw, ZH
+ *                                              (cli.js style; configurable
+ *                                              per-codebase planned for #359)
+ *   { kind: "env", envVar, expr }            — references `process.env.NAME`
+ *   { kind: "ref", expr }                    — bare identifier reference
+ *   { kind: "complex", expr }                — anything else
+ *
+ * The `expr` field always carries the raw expression so a reader can
+ * inspect what wasn't classified. Callers (catalog rendering, latent-code
+ * detection #358) use `kind` for grouping and `flag`/`envVar` for filters.
+ */
+function _classifyCommandGate(rawExpr) {
+  if (rawExpr == null) return { kind: 'default' };
+  const expr = rawExpr.replace(/\s+/g, ' ').trim();
+  if (!expr) return { kind: 'default' };
+
+  // () => true / () => false  — the canonical always/never forms.
+  if (/^\(\s*\)\s*=>\s*true\b/.test(expr)) return { kind: 'always' };
+  if (/^\(\s*\)\s*=>\s*false\b/.test(expr)) return { kind: 'never' };
+
+  // () => HELPER("flag", default?) — flag-gated. We accept any helper
+  // identifier rather than a fixed list because cli.js uses different
+  // helpers (jA, Jw) and other codebases will use yet others. The
+  // semantics — flag name as first arg, optional default — are the
+  // common shape across most feature-flag clients.
+  let m = expr.match(/^\(\s*\)\s*=>\s*\w+\(\s*["']([\w_.-]+)["']\s*(?:,\s*([^)]+?))?\s*\)\s*$/);
+  if (m) {
+    return {
+      kind: 'flag',
+      flag: m[1],
+      default: m[2] ? m[2].trim() : null,
+      expr,
+    };
+  }
+
+  // process.env.NAME reference (often negated for DISABLE_* flags).
+  m = expr.match(/process\.env\.([A-Z_][A-Z0-9_]*)/);
+  if (m) {
+    return { kind: 'env', envVar: m[1], expr };
+  }
+
+  // Bare identifier — `isEnabled: someFn` or `isEnabled: someVar`.
+  if (/^[A-Za-z_$][\w$]*$/.test(expr)) {
+    return { kind: 'ref', expr };
+  }
+
+  return { kind: 'complex', expr };
+}
+
 /** Common/generic identifiers to skip when picking distinctive keywords.
  *  These appear in nearly every function and tell you nothing about purpose. */
 const _TEMPLATE_SKIP_WORDS = new Set([
@@ -2642,12 +2700,23 @@ export class CodeSearchIndex {
             const snippet = lines.slice(lineIdx, Math.min(lineIdx + 8, lines.length)).join('\n');
             const descMatch = snippet.match(/description:\s*["']([^"']{10,})/);
             const typeMatch = snippet.match(/type:\s*["']([^"']+)["']/);
+            // Activation gate: capture isEnabled if present and classify it.
+            // Lets the catalog distinguish always-on / hard-disabled /
+            // flag-gated / env-gated / complex commands — useful both for
+            // navigation ("what does this depend on?") and for the
+            // forthcoming --latent-code catalog (#358). The value may
+            // include commas INSIDE parens (e.g. `jA("flag", false)`),
+            // so the capture allows one paren-level of internal commas
+            // before stopping at the property-separator comma or newline.
+            const isEnabledMatch = snippet.match(/isEnabled\s*:\s*((?:[^,(\n]|\([^)]*\))+)/);
+            const gate = _classifyCommandGate(isEnabledMatch ? isEnabledMatch[1].trim() : null);
             // Only include if there's a description (distinguishes command objects from data)
             if (descMatch) {
               catalog.commands.push({
                 name: cmdName,
                 type: typeMatch ? typeMatch[1] : 'command',
                 description: descMatch[1].slice(0, 120),
+                gate,
                 filepath, line: lineNum, func,
               });
             }
