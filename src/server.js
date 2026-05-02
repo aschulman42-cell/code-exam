@@ -1715,11 +1715,12 @@ routes['/api/search'] = (req, res) => {
   const type = q.type || 'literal'; // literal, regex, fast
 
   // Search stored content with original query
+  const caseSensitive = q.case_sensitive === '1' || q.case_sensitive === 'true';
   let results;
   if (type === 'fast' || type === 'regex') {
-    results = index.searchInverted(query, { useRegex: type === 'regex', maxResults });
+    results = index.searchInverted(query, { useRegex: type === 'regex', caseSensitive, maxResults });
   } else {
-    results = index.searchLiteral(query, { maxResults, contextLines });
+    results = index.searchLiteral(query, { caseSensitive, maxResults, contextLines });
   }
 
   // If no hits and query looks like a display name pattern (e.g. _TMPL_),

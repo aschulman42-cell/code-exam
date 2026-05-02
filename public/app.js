@@ -1557,11 +1557,30 @@ function renderPromptDetail(prompt) {
   html += `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">`;
   html += `${escHtml(shortPath(prompt.filepath, 60))}:L${prompt.lineNum}`;
   html += `  ·  Type: ${escHtml(prompt.type)}`;
-  if (prompt.varName) html += `  ·  Var: ${escHtml(prompt.varName)}`;
+  if (prompt.varName) {
+    // Make the variable name clickable so the reader can find references
+    // — `\bxGz\b` case-sensitive avoids the case-fold pollution that
+    // a 3-char identifier would otherwise produce. Title hints at the
+    // action so the click target is discoverable.
+    html += `  ·  Var: <span class="clickable" data-prompt-var="${escHtml(prompt.varName)}" title="Find references to this variable">${escHtml(prompt.varName)}</span>`;
+  }
   html += `</div>`;
   html += `<pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;background:var(--bg-input);padding:8px;border:1px solid var(--border);border-radius:3px;overflow:auto">${escHtml(prompt.text)}</pre>`;
   html += '</div>';
   container.innerHTML = html;
+
+  // Wire the var-click → case-sensitive regex search.
+  for (const el of $$('[data-prompt-var]', container)) {
+    el.addEventListener('click', async () => {
+      const v = el.dataset.promptVar;
+      const q = `\\b${v}\\b`;
+      showMiddleTopLoading(`Finding references to ${v}…`);
+      try {
+        const data = await api.search({ q, type: 'regex', case_sensitive: '1', max: 50 });
+        renderSearchResults(q, data);
+      } catch (err) { showMiddleTopError(err.message); }
+    });
+  }
 
   // Lower pane: handler source if the prompt lives in a function, else a
   // file excerpt around the definition line.
