@@ -1,0 +1,171 @@
+---
+name: skillify-extracted
+description: >-
+  Capture the current session's repeatable process as a reusable Claude Code
+  skill. Use when the user says "make this a skill", "skillify this",
+  "capture this workflow", or otherwise wants the just-completed pattern
+  saved as a slash-invocable skill. Adapted from the Skillify prompt
+  extracted from claude-code's cli.js (xGz at L482178). Static — does NOT
+  receive injected session memory.
+allowed-tools:
+  - Read
+  - Write
+  - Bash
+---
+
+# Skillify (extracted)
+
+You are capturing this session's repeatable process as a reusable skill.
+
+## Your session context
+
+You don't get an injected `sessionMemory` block — that variable is filled
+by claude-code's internal Skillify command and isn't available here. Use
+what you actually remember from this conversation:
+
+- What the user just had you do (or you and the user did together)
+- The user's messages, especially places where they corrected or steered
+  you
+- What tools and permissions were used
+- Whether the work hit any reproducible decision points
+
+If you genuinely don't remember enough of the session to characterize a
+repeatable process, say so and stop. Don't fabricate a skill from thin
+context.
+
+## Your task
+
+### Step 1: Analyze the session
+
+Before asking any questions, identify:
+- What repeatable process was performed
+- What the inputs/parameters were
+- The distinct steps in order
+- Success artifacts/criteria for each step (not just "writing code" but
+  "an open PR with CI passing", or "a digest screenshot showing X")
+- Where the user corrected or steered
+- What tools and permissions were needed
+- What agents (if any) were used
+- The high-level goals
+
+### Step 2: Interview the user
+
+Ideal: use AskUserQuestion if available. Fallback: ask via plain text.
+Iterate as much as needed in each round; don't over-ask for simple
+processes.
+
+**Round 1 — high level confirmation**
+- Suggest a name and description for the skill based on your analysis.
+  Ask the user to confirm or rename.
+- Suggest the goal(s) and specific success criteria.
+
+**Round 2 — more details**
+- Present the high-level steps you identified as a numbered list. Tell
+  the user you'll dig into the detail in the next round.
+- If the skill will need arguments, suggest them.
+- If unclear, ask whether the skill should run inline (in the current
+  conversation) or forked (sub-agent with own context). Forked is better
+  for self-contained tasks; inline is better when the user wants to
+  steer mid-process.
+- Ask where to save the skill. Suggest a default based on context:
+  - **This repo** (`.claude/skills/<name>/SKILL.md`) — repo-specific
+    workflows
+  - **Personal** (`~/.claude/skills/<name>/SKILL.md`) — follows the user
+    across all repos
+
+**Round 3 — break down each step**
+For each major step, if it's not glaringly obvious, ask:
+- What does this step produce that later steps need? (data, artifacts,
+  IDs)
+- What proves this step succeeded?
+- Should the user be asked to confirm before proceeding? (especially for
+  irreversible actions)
+- Are any steps independent and could run in parallel?
+- How should the step be executed (direct, Task agent, Teammate, human)?
+- What are the hard constraints — things that must or must not happen?
+
+Multiple AskUserQuestion rounds here are fine, especially if there are
+more than 3 steps.
+
+IMPORTANT: pay special attention to places where the user corrected you
+during the session — those become the skill's hard rules.
+
+**Round 4 — final questions**
+- Confirm when this skill should be auto-invoked. Suggest trigger phrases.
+  Example for cherry-pick: "Use when the user wants to cherry-pick a PR
+  to a release branch. Examples: 'cherry-pick to release', 'CP this PR',
+  'hotfix.'"
+- Ask for any other gotchas.
+
+Stop interviewing once you have enough information.
+
+### Step 3: Write the SKILL.md
+
+Create the directory and file at the location chosen in Round 2.
+
+Format:
+
+```markdown
+---
+name: {{skill-name}}
+description: {{one-line description, when_to_use phrasing baked in}}
+allowed-tools:
+  {{list of tool permission patterns observed during the session}}
+---
+
+# {{Skill Title}}
+
+Description of skill.
+
+## Inputs
+- `$arg_name`: Description of this input
+
+## Goal
+Clearly stated goal. Best if you have defined artifacts or completion
+criteria.
+
+## Steps
+
+### 1. Step Name
+What to do. Be specific and actionable. Include commands when appropriate.
+
+**Success criteria**: REQUIRED on every step. Can be a list.
+```
+
+**Per-step annotations:**
+- **Success criteria** — required on every step.
+- **Execution** — `Direct` (default), `Task agent`, `Teammate`, or
+  `[human]`. Only specify if not Direct.
+- **Artifacts** — data this step produces that later steps depend on.
+- **Human checkpoint** — when to pause before proceeding (irreversible
+  actions, error judgment, output review).
+- **Rules** — hard rules. User corrections during the reference session
+  are especially useful here.
+
+**Step structure tips:**
+- Steps that can run concurrently use sub-numbers: 3a, 3b
+- Steps requiring the user to act get `[human]` in the title
+- Keep simple skills simple — a 2-step skill doesn't need annotations
+  on every step
+
+**Frontmatter rules:**
+- Use `description: >-` block scalar so colons in the description don't
+  break YAML parsing.
+- `allowed-tools`: minimum permissions needed. Use specific patterns
+  (`Bash(gh:*)`) over broad ones (`Bash`) when possible.
+- Bake the "when to auto-invoke" guidance INTO the description, since
+  user-defined skills don't have a separate `when_to_use` field that
+  Claude Code reads. Start with "Use when…" and include trigger phrases.
+
+### Step 4: Confirm and save
+
+Before writing the file, output the complete SKILL.md content as a code
+block in your response so the user can review it. Then ask for
+confirmation.
+
+After writing:
+- State where the skill was saved
+- Note that invocation requires a Claude Code restart to pick up the
+  new skill
+- Tell the user how to invoke it: `/{{skill-name}}`
+- Tell the user they can edit the SKILL.md directly to refine it
