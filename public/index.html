@@ -301,8 +301,8 @@
           <label><input type="checkbox" id="ws-no-vocab"> No Vocabulary</label>
           <label><input type="checkbox" id="ws-with-digest" title="Prepend mechanical static-analysis digest to the prompt"> With Digest</label>
         </div>
-        <div class="control-group"><label>Min Terms</label>
-          <input type="number" id="ws-min-terms" min="0" max="99" value="0" style="width:48px" title="Minimum terms to match (0 = auto: 80% TIGHT, 60% BROAD)">
+        <div class="control-group"><label>Min Terms <span class="muted" style="font-size:10px">(0=auto)</span></label>
+          <input type="number" id="ws-min-terms" min="0" max="99" value="0" style="width:48px" title="Minimum positive terms to match. 0 = auto: 80% for TIGHT, 60% for BROAD claim search. For plain Multisect, 0 = require ALL terms.">
         </div>
         <div class="control-group">
           <button id="ws-run" class="btn-primary">▶ Run</button>

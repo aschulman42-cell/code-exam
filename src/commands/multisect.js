@@ -142,6 +142,144 @@ function matchIdfScore(match, idfs) {
 
 
 // ========================================================================
+// Per-scope view preparation (shared by CLI display and JSON API)
+// ========================================================================
+
+/**
+ * Prepare per-scope match arrays from a multisectSearch result, applying
+ * IDF reranking, scope dedup ("class covered by function", "file covered
+ * by function/class", "folder covered by single-file"), and per-scope caps.
+ *
+ * @param {Object} results - return value of CodeSearchIndex.multisectSearch
+ * @param {Object} opts
+ * @param {number} opts.totalFiles - for IDF; pass index.files.size
+ * @param {number} opts.maxPerScope - cap per scope (default 25)
+ * @param {boolean} opts.verbose - if true, skip dedup
+ * @returns {Object} per-scope arrays (JSON-serializable) + counts
+ */
+export function prepareMultisectViews(results, opts = {}) {
+  const { totalFiles = 0, maxPerScope = 25, verbose = false } = opts;
+  const idfs = totalFiles > 0 ? computeIdfScores(results, totalFiles) : null;
+  const scoreOf = (m) => idfs ? matchIdfScore(m, idfs) : 0;
+
+  const realFunc = (results.function_matches || []).filter(m => m.function !== '(global)');
+  const classes = results.class_matches || [];
+  const files = results.file_matches || [];
+  const folders = results.folder_matches || [];
+
+  // Build a per-file list of function-coverage sets for fast lookup
+  const funcCoverage = {};
+  for (const m of realFunc) {
+    if (!funcCoverage[m.filepath]) funcCoverage[m.filepath] = [];
+    funcCoverage[m.filepath].push(m.matched_indices);
+  }
+
+  const classCoveredByFunction = (cm) => {
+    for (const m of realFunc) {
+      if (m.function.startsWith(cm.class_name + '::') || m.function.startsWith(cm.class_name + '.')) {
+        if ([...cm.matched_indices].every(i => m.matched_indices.has(i))) return true;
+      }
+    }
+    return false;
+  };
+  const fileCoveredByFunction = (fm) => {
+    const sets = funcCoverage[fm.filepath] || [];
+    for (const fs of sets) {
+      if ([...fm.matched_indices].every(i => fs.has(i))) return true;
+    }
+    return false;
+  };
+  const fileCoveredByClass = (fm) => {
+    for (const cm of classes) {
+      if (!cm.files.includes(fm.filepath)) continue;
+      if ([...fm.matched_indices].every(i => cm.matched_indices.has(i))) return true;
+    }
+    return false;
+  };
+  const folderCoveredBySingleFile = (fm) => {
+    const posIndices = [...fm.matched_indices];
+    const fileSets = fm.file_sets || {};
+    const allFiles = new Set();
+    for (const ti of posIndices) {
+      for (const f of (fileSets[ti] || [])) allFiles.add(f);
+    }
+    for (const f of allFiles) {
+      const termsInFile = posIndices.filter(ti => (fileSets[ti] || new Set()).has(f));
+      if (termsInFile.length === posIndices.length) return true;
+    }
+    return false;
+  };
+
+  const classDedup = verbose ? classes : classes.filter(m => !classCoveredByFunction(m));
+  const fileDedup = verbose ? files : files.filter(m => !fileCoveredByFunction(m) && !fileCoveredByClass(m));
+  const folderDedup = verbose ? folders : folders.filter(m => !folderCoveredBySingleFile(m));
+
+  const sortByScore = (arr, nameKey) => [...arr].sort((a, b) =>
+    b.terms_matched - a.terms_matched ||
+    scoreOf(b) - scoreOf(a) ||
+    (a[nameKey] || '').localeCompare(b[nameKey] || ''));
+
+  const funcSorted = sortByScore(realFunc, 'function');
+  const classSorted = sortByScore(classDedup, 'class_name');
+  const fileSorted = sortByScore(fileDedup, 'filepath');
+  const folderSorted = sortByScore(folderDedup, 'folder');
+
+  // Convert each entry to a JSON-safe shape with idf_score attached
+  const toFunc = (m) => ({
+    filepath: m.filepath,
+    function: m.function,
+    terms_matched: m.terms_matched,
+    lines: m.lines || 0,
+    matched_indices: [...m.matched_indices].sort((a, b) => a - b),
+    idf_score: scoreOf(m),
+    details: m.details,
+  });
+  const toClass = (m) => ({
+    class_name: m.class_name,
+    files: m.files,
+    functions: m.functions,
+    terms_matched: m.terms_matched,
+    total_lines: m.total_lines || 0,
+    matched_indices: [...m.matched_indices].sort((a, b) => a - b),
+    idf_score: scoreOf(m),
+    details: m.details,
+  });
+  const toFile = (m) => ({
+    filepath: m.filepath,
+    terms_matched: m.terms_matched,
+    lines: m.lines || 0,
+    matched_indices: [...m.matched_indices].sort((a, b) => a - b),
+    idf_score: scoreOf(m),
+    details: m.details,
+  });
+  const toFolder = (m) => ({
+    folder: m.folder,
+    terms_matched: m.terms_matched,
+    files_involved: m.files_involved,
+    matched_indices: [...m.matched_indices].sort((a, b) => a - b),
+    idf_score: scoreOf(m),
+    file_sets: Object.fromEntries(
+      Object.entries(m.file_sets || {}).map(([ti, set]) => [ti, [...set].sort()])
+    ),
+  });
+
+  return {
+    function_matches: funcSorted.slice(0, maxPerScope).map(toFunc),
+    class_matches: classSorted.slice(0, maxPerScope).map(toClass),
+    file_matches: fileSorted.slice(0, maxPerScope).map(toFile),
+    folder_matches: folderSorted.slice(0, maxPerScope).map(toFolder),
+    function_total: realFunc.length,
+    class_total: classes.length,
+    file_total: files.length,
+    folder_total: folders.length,
+    class_suppressed: classes.length - classDedup.length,
+    file_suppressed: files.length - fileDedup.length,
+    folder_suppressed: folders.length - folderDedup.length,
+  };
+}
+
+
+// ========================================================================
 // Display
 // ========================================================================
 

@@ -20,7 +20,7 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
-import { parseMultisectTerms } from './commands/multisect.js';
+import { parseMultisectTerms, prepareMultisectViews } from './commands/multisect.js';
 import { formatFunctionDigest } from './commands/digest.js';
 import { collectPrompts } from './commands/prompts.js';
 import { displayName } from './utils.js';
@@ -1674,31 +1674,8 @@ routes['/api/multisect'] = (req, res) => {
   if (!parsed || parsed.length === 0) return errorResponse(res, 'No valid search terms parsed');
   const minTerms = parseInt(q.min_terms) || 0;
   const maxResults = safeMax(q.max, 25);
-  const results = index.multisectSearch(parsed, { minTerms });
-  const nPositive = parsed.filter(t => !t.negated).length;
-
-  const unified = [];
-  for (const m of (results.function_matches || [])) {
-    if (m.function === '(global)') continue;
-    // .op files contain pseudo-functions from binary executables — treat as file-level
-    if (m.filepath.endsWith('.op')) {
-      unified.push({ scope: m.filepath, scope_type: 'file', filepath: m.filepath, function_name: null, matched_terms: m.terms_matched, total_terms: nPositive, lines: 0 });
-    } else {
-      unified.push({ scope: m.function, scope_type: 'function', filepath: m.filepath, function_name: m.function, matched_terms: m.terms_matched, total_terms: nPositive, lines: m.lines || 0 });
-    }
-  }
-  for (const m of (results.file_matches || [])) {
-    unified.push({ scope: m.filepath, scope_type: 'file', filepath: m.filepath, function_name: null, matched_terms: m.terms_matched, total_terms: nPositive, lines: 0 });
-  }
-  for (const m of (results.folder_matches || [])) {
-    unified.push({ scope: m.folder, scope_type: 'folder', filepath: m.folder, function_name: null, matched_terms: m.terms_matched, total_terms: nPositive, lines: 0 });
-  }
-  unified.sort((a, b) => b.matched_terms - a.matched_terms || b.lines - a.lines);
-  jsonResponse(res, {
-    terms: parsed.map(t => ({ display: t.display, negated: t.negated })),
-    term_file_counts: results.term_file_counts || [],
-    results: unified.slice(0, maxResults).map((r, i) => ({ rank: i + 1, ...r })),
-  });
+  const verbose = q.verbose === 'true';
+  jsonResponse(res, _runMultisectViews(index, parsed, minTerms, maxResults, verbose));
 };
 
 
@@ -2232,30 +2209,9 @@ routes['/api/claim-search'] = (req, res) => {
       const parsed = parseMultisectTerms(termStrings);
       if (!parsed || parsed.length === 0) return errorResponse(res, 'No valid search terms parsed');
 
-      const results = index.multisectSearch(parsed, { minTerms: 0 });
-      const nPositive = parsed.filter(t => !t.negated).length;
-
-      const unified = [];
-      for (const m of (results.function_matches || [])) {
-        if (m.function === '(global)') continue;
-        if (m.filepath.endsWith('.op')) {
-          unified.push({ scope: m.filepath, scope_type: 'file', filepath: m.filepath, function_name: null, matched_terms: m.terms_matched, total_terms: nPositive, lines: 0 });
-        } else {
-          unified.push({ scope: m.function, scope_type: 'function', filepath: m.filepath, function_name: m.function, matched_terms: m.terms_matched, total_terms: nPositive, lines: m.lines || 0 });
-        }
-      }
-      for (const m of (results.file_matches || [])) {
-        unified.push({ scope: m.filepath, scope_type: 'file', filepath: m.filepath, function_name: null, matched_terms: m.terms_matched, total_terms: nPositive, lines: 0 });
-      }
-      unified.sort((a, b) => b.matched_terms - a.matched_terms || b.lines - a.lines);
       const maxResults = parseInt(params.max) || 25;
-
-      jsonResponse(res, {
-        keywords: [...keywords],
-        terms: parsed.map(t => ({ display: t.display, negated: t.negated })),
-        term_file_counts: results.term_file_counts || [],
-        results: unified.slice(0, maxResults).map((r, i) => ({ rank: i + 1, ...r })),
-      });
+      const views = _runMultisectViews(index, parsed, 0, maxResults, false);
+      jsonResponse(res, { keywords: [...keywords], ...views });
     } catch (err) {
       errorResponse(res, `Claim search error: ${err.message}`, 500);
     }
@@ -2425,29 +2381,32 @@ routes['/api/claim-search-llm'] = (req, res) => {
       if (broadStr) broadStr = sanitizeLlmTerms(broadStr, 'BROAD');
       if (broadStr) broadStr = sanitizeBroadTerms(broadStr);
 
+      const sumHits = (v) => (v ? v.function_matches.length + v.class_matches.length
+        + v.file_matches.length + v.folder_matches.length : 0);
+
       // --- Run multisect for TIGHT ---
-      let tightResults = null;
-      let tightTerms = null;
+      let tightViews = null;
       if (tightStr) {
-        tightTerms = parseMultisectTerms(tightStr);
+        const tightTerms = parseMultisectTerms(tightStr);
         if (tightTerms && tightTerms.length > 0) {
           const positiveTerms = tightTerms.filter(t => !t.negated);
           const minTerms = userMinTerms > 0 ? userMinTerms : Math.max(Math.floor(positiveTerms.length * 0.80), 2);
-          tightResults = _multisectToUnified(index, tightTerms, minTerms, maxResults);
-          console.log(`  [claim-search-llm] TIGHT: ${positiveTerms.length} positive terms, min=${minTerms}${userMinTerms > 0 ? ' (user)' : ''}, ${tightResults.results.length} results`);
+          tightViews = _runMultisectViews(index, tightTerms, minTerms, maxResults, false);
+          tightViews.termsStr = tightStr;
+          console.log(`  [claim-search-llm] TIGHT: ${positiveTerms.length} positive terms, min=${minTerms}${userMinTerms > 0 ? ' (user)' : ''}, ${sumHits(tightViews)} hits across scopes`);
         }
       }
 
       // --- Run multisect for BROAD ---
-      let broadResults = null;
-      let broadTermsParsed = null;
+      let broadViews = null;
       if (broadStr) {
-        broadTermsParsed = parseMultisectTerms(broadStr);
+        const broadTermsParsed = parseMultisectTerms(broadStr);
         if (broadTermsParsed && broadTermsParsed.length > 0) {
           const positiveTerms = broadTermsParsed.filter(t => !t.negated);
           const minTerms = userMinTerms > 0 ? userMinTerms : Math.max(Math.floor(positiveTerms.length * 0.60), 3);
-          broadResults = _multisectToUnified(index, broadTermsParsed, minTerms, maxResults);
-          console.log(`  [claim-search-llm] BROAD: ${positiveTerms.length} positive terms, min=${minTerms}${userMinTerms > 0 ? ' (user)' : ''}, ${broadResults.results.length} results`);
+          broadViews = _runMultisectViews(index, broadTermsParsed, minTerms, maxResults, false);
+          broadViews.termsStr = broadStr;
+          console.log(`  [claim-search-llm] BROAD: ${positiveTerms.length} positive terms, min=${minTerms}${userMinTerms > 0 ? ' (user)' : ''}, ${sumHits(broadViews)} hits across scopes`);
         }
       }
 
@@ -2458,18 +2417,8 @@ routes['/api/claim-search-llm'] = (req, res) => {
         skippedClaims,
         vocabChars: vocabConcordance.length,
         usage: llmResult.usage || null,
-        tight: tightStr ? {
-          termsStr: tightStr,
-          terms: (tightTerms || []).map(t => ({ display: t.display, negated: t.negated })),
-          term_file_counts: tightResults ? tightResults.term_file_counts : [],
-          results: tightResults ? tightResults.results : [],
-        } : null,
-        broad: broadStr ? {
-          termsStr: broadStr,
-          terms: (broadTermsParsed || []).map(t => ({ display: t.display, negated: t.negated })),
-          term_file_counts: broadResults ? broadResults.term_file_counts : [],
-          results: broadResults ? broadResults.results : [],
-        } : null,
+        tight: tightViews,
+        broad: broadViews,
       });
     } catch (err) {
       console.error('  [claim-search-llm] Error:', err);
@@ -2620,45 +2569,22 @@ routes['/api/analyze-llm'] = (req, res) => {
 
 
 /** Helper: run multisect and format results into unified array. */
-function _multisectToUnified(index, terms, minTerms, maxResults) {
+/**
+ * Run multisect and return per-scope arrays (function/class/file/folder)
+ * with IDF reranking, scope dedup, and per-scope caps. Used by /api/multisect,
+ * /api/claim-search, and /api/claim-search-llm.
+ */
+function _runMultisectViews(index, terms, minTerms, maxPerScope, verbose) {
   const results = index.multisectSearch(terms, { minTerms });
   const nPositive = terms.filter(t => !t.negated).length;
-  const unified = [];
-  for (const m of (results.function_matches || [])) {
-    if (m.function === '(global)') continue;
-    if (m.filepath.endsWith('.op')) {
-      unified.push({
-        scope: m.filepath, scope_type: 'file', filepath: m.filepath,
-        function_name: null, matched_terms: m.terms_matched,
-        total_terms: nPositive, lines: 0,
-      });
-    } else {
-      unified.push({
-        scope: m.function, scope_type: 'function', filepath: m.filepath,
-        function_name: m.function, matched_terms: m.terms_matched,
-        total_terms: nPositive, lines: m.lines || 0,
-      });
-    }
-  }
-  for (const m of (results.file_matches || [])) {
-    unified.push({
-      scope: m.filepath, scope_type: 'file', filepath: m.filepath,
-      function_name: null, matched_terms: m.terms_matched,
-      total_terms: nPositive, lines: 0,
-    });
-  }
-  for (const m of (results.folder_matches || [])) {
-    unified.push({
-      scope: m.folder, scope_type: 'folder', filepath: m.folder,
-      function_name: null, matched_terms: m.terms_matched,
-      total_terms: nPositive, lines: 0,
-    });
-  }
-  unified.sort((a, b) => b.matched_terms - a.matched_terms || b.lines - a.lines);
+  const totalFiles = (index.files && index.files.size) || 0;
+  const views = prepareMultisectViews(results, { totalFiles, maxPerScope, verbose: !!verbose });
   return {
     terms: terms.map(t => ({ display: t.display, negated: t.negated })),
+    num_positive: nPositive,
+    min_terms: results.min_terms,
     term_file_counts: results.term_file_counts || [],
-    results: unified.slice(0, maxResults).map((r, i) => ({ rank: i + 1, ...r })),
+    ...views,
   };
 }
 

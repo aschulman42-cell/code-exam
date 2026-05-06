@@ -2930,30 +2930,174 @@ function renderStats(data) {
   container.innerHTML = html + '</table></div>';
 }
 
+// Render a multisect/claim-search result set as four per-scope tables
+// (function / class / file / folder) preceded by a numbered term legend.
+// `views` is the per-scope object returned by /api/multisect, /api/claim-search,
+// or one of the tiers of /api/claim-search-llm.
+function _renderScopeViews(views, opts = {}) {
+  const { showLegend = true, headingPrefix = '' } = opts;
+  const terms = views.terms || [];
+  const nPos = views.num_positive || terms.filter(t => !t.negated).length;
+  const totalHits = (views.function_matches || []).length
+    + (views.class_matches || []).length
+    + (views.file_matches || []).length
+    + (views.folder_matches || []).length;
+
+  let html = '';
+
+  // Numbered term legend (so screenshots are self-contained)
+  if (showLegend && terms.length) {
+    html += '<div class="multisect-legend" style="font-size:11px;margin:4px 0 8px 0">';
+    for (let i = 0; i < terms.length; i++) {
+      const t = terms[i];
+      html += `<span class="term-chip${t.negated ? ' negated' : ''}" style="margin:1px 4px 1px 0">`
+        + `<span class="muted" style="font-size:10px">${i + 1}</span> ${escHtml(t.display)}`
+        + '</span>';
+    }
+    if (typeof views.min_terms === 'number') {
+      html += `<span class="muted" style="margin-left:6px;font-size:11px">min: ${views.min_terms}/${nPos}</span>`;
+    }
+    html += '</div>';
+  }
+
+  if (totalHits === 0) {
+    return html + '<div class="list-placeholder">No matches at any scope</div>';
+  }
+
+  // Compact "matched" indices badge: e.g. 1-3,5,7,9-11 (with missing ones shown faintly when small)
+  const matchedBadge = (m) => {
+    const idxs = (m.matched_indices || []).slice().sort((a, b) => a - b).map(i => i + 1);
+    if (!idxs.length) return '';
+    return `<span class="muted" style="font-size:10px;margin-left:6px">[${_compactRanges(idxs)}]</span>`;
+  };
+
+  const idfBadge = (m) => (typeof m.idf_score === 'number' && m.idf_score > 0)
+    ? `<span class="muted" style="font-size:10px;margin-left:4px">IDF:${m.idf_score.toFixed(1)}</span>`
+    : '';
+
+  // ---- FUNCTION-level ----
+  const fm = views.function_matches || [];
+  if (fm.length || views.function_total > 0) {
+    html += `<div class="output-section" style="margin-top:6px">`;
+    html += `<h4 style="margin:0 0 4px 0;font-size:12px">${escHtml(headingPrefix)}Function-level (${views.function_total || fm.length})</h4>`;
+    if (!fm.length) {
+      html += '<div class="muted" style="font-size:11px">No function-level matches</div>';
+    } else {
+      html += '<table class="output-table"><tr><th>#</th><th>Function</th><th>Terms</th><th>Lines</th></tr>';
+      for (let i = 0; i < fm.length; i++) {
+        const m = fm[i];
+        html += `<tr><td class="muted">${i + 1}</td><td class="mono">`
+          + `<span class="clickable" data-funcname="${escHtml(m.function)}" data-filepath="${escHtml(m.filepath)}">${escHtml(m.function)}</span>`
+          + `<span class="muted" style="font-size:10px"> in ${escHtml(shortPath(m.filepath, 50))}</span>`
+          + matchedBadge(m) + idfBadge(m)
+          + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.lines || 0}</td></tr>`;
+      }
+      html += '</table>';
+    }
+    html += '</div>';
+  }
+
+  // ---- CLASS-level ----
+  const cm = views.class_matches || [];
+  if (cm.length || views.class_suppressed) {
+    const note = views.class_suppressed
+      ? ` <span class="muted" style="font-size:10px">(${views.class_suppressed} suppressed — covered by function matches)</span>` : '';
+    html += `<div class="output-section" style="margin-top:6px">`;
+    html += `<h4 style="margin:0 0 4px 0;font-size:12px">Class-level (${cm.length})${note}</h4>`;
+    if (cm.length) {
+      html += '<table class="output-table"><tr><th>#</th><th>Class</th><th>Terms</th><th>Methods</th><th>Lines</th></tr>';
+      for (let i = 0; i < cm.length; i++) {
+        const m = cm[i];
+        const fileLabel = m.files.length === 1 ? shortPath(m.files[0], 40) : `${m.files.length} files`;
+        html += `<tr><td class="muted">${i + 1}</td><td class="mono">`
+          + escHtml(m.class_name)
+          + `<span class="muted" style="font-size:10px"> in ${escHtml(fileLabel)}</span>`
+          + matchedBadge(m) + idfBadge(m)
+          + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.functions.length}</td><td>${m.total_lines}</td></tr>`;
+      }
+      html += '</table>';
+    }
+    html += '</div>';
+  }
+
+  // ---- FILE-level ----
+  const fileM = views.file_matches || [];
+  if (fileM.length || views.file_suppressed) {
+    const note = views.file_suppressed
+      ? ` <span class="muted" style="font-size:10px">(${views.file_suppressed} suppressed — covered by function/class matches)</span>` : '';
+    html += `<div class="output-section" style="margin-top:6px">`;
+    html += `<h4 style="margin:0 0 4px 0;font-size:12px">File-level (${fileM.length})${note}</h4>`;
+    if (fileM.length) {
+      html += '<table class="output-table"><tr><th>#</th><th>File</th><th>Terms</th><th>Lines</th></tr>';
+      for (let i = 0; i < fileM.length; i++) {
+        const m = fileM[i];
+        html += `<tr><td class="muted">${i + 1}</td><td class="mono">`
+          + `<span class="clickable" data-filepath="${escHtml(m.filepath)}">${escHtml(shortPath(m.filepath, 60))}</span>`
+          + matchedBadge(m) + idfBadge(m)
+          + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.lines || 0}</td></tr>`;
+      }
+      html += '</table>';
+    }
+    html += '</div>';
+  }
+
+  // ---- FOLDER-level ----
+  const folderM = views.folder_matches || [];
+  if (folderM.length || views.folder_suppressed) {
+    const note = views.folder_suppressed
+      ? ` <span class="muted" style="font-size:10px">(${views.folder_suppressed} suppressed — covered by single-file matches)</span>` : '';
+    html += `<div class="output-section" style="margin-top:6px">`;
+    html += `<h4 style="margin:0 0 4px 0;font-size:12px">Folder-level (${folderM.length})${note}</h4>`;
+    if (folderM.length) {
+      html += '<table class="output-table"><tr><th>#</th><th>Folder</th><th>Terms</th><th>Files</th></tr>';
+      for (let i = 0; i < folderM.length; i++) {
+        const m = folderM[i];
+        html += `<tr><td class="muted">${i + 1}</td><td class="mono">`
+          + escHtml(m.folder + '/')
+          + matchedBadge(m) + idfBadge(m)
+          + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.files_involved}</td></tr>`;
+      }
+      html += '</table>';
+    }
+    html += '</div>';
+  }
+
+  return html;
+}
+
+// Compact a sorted unique array of integers into ranges: [1,2,3,5,7,8] -> "1-3,5,7-8"
+function _compactRanges(nums) {
+  if (!nums.length) return '';
+  const parts = [];
+  let s = nums[0], e = nums[0];
+  for (let i = 1; i < nums.length; i++) {
+    if (nums[i] === e + 1) { e = nums[i]; continue; }
+    parts.push(s === e ? `${s}` : `${s}-${e}`);
+    s = e = nums[i];
+  }
+  parts.push(s === e ? `${s}` : `${s}-${e}`);
+  return parts.join(',');
+}
+
 function renderMultisectResults(data) {
   const container = $('#middle-top-body'), title = $('#middle-top-title');
-  title.textContent = `Multisect (${data.results.length} results)`;
+  const fmCount = (data.function_matches || []).length;
+  const cmCount = (data.class_matches || []).length;
+  const fileCount = (data.file_matches || []).length;
+  const folderCount = (data.folder_matches || []).length;
+  const total = fmCount + cmCount + fileCount + folderCount;
+  title.textContent = `Multisect (${total} hits: ${fmCount} fn / ${cmCount} cls / ${fileCount} file / ${folderCount} folder)`;
+
   const termsDiv = $('#workspace-terms');
   termsDiv.innerHTML = '';
-  for (const t of data.terms) termsDiv.appendChild(h('span', { className: `term-chip${t.negated ? ' negated' : ''}`, text: t.display }));
+  for (const t of (data.terms || [])) {
+    termsDiv.appendChild(h('span', { className: `term-chip${t.negated ? ' negated' : ''}`, text: t.display }));
+  }
 
-  // Store highlight terms for source highlighting
-  const positiveTerms = data.terms.filter(t => !t.negated).map(t => t.display);
+  const positiveTerms = (data.terms || []).filter(t => !t.negated).map(t => t.display);
   state.highlightTerms = { terms: positiveTerms, colors: HIGHLIGHT_COLORS };
 
-  if (!data.results.length) { container.innerHTML = '<div class="list-placeholder">No matches</div>'; return; }
-  let html = '<div class="output-section"><table class="output-table"><tr><th>#</th><th>Scope</th><th>Terms</th><th>Lines</th></tr>';
-  for (const r of data.results) {
-    const nameDisplay = r.function_name || r.filepath || r.scope;
-    const isFunc = r.scope_type === 'function';
-    const isFile = r.scope_type === 'file';
-    html += `<tr><td class="muted">${r.rank}</td><td class="mono">`;
-    if (isFunc) html += `<span class="clickable" data-funcname="${escHtml(r.function_name)}" data-filepath="${escHtml(r.filepath)}">${escHtml(nameDisplay)}</span>`;
-    else if (isFile) html += `<span class="clickable" data-filepath="${escHtml(r.filepath)}">${escHtml(shortPath(r.filepath, 55))}</span>`;
-    else html += escHtml(nameDisplay);
-    html += ` <span class="type-badge">${r.scope_type}</span></td><td>${r.matched_terms}/${r.total_terms}</td><td>${r.lines}</td></tr>`;
-  }
-  container.innerHTML = html + '</table></div>';
+  container.innerHTML = _renderScopeViews(data, { showLegend: true });
   wireClickables(container, { sourceOnly: true });
 }
 
@@ -4170,9 +4314,10 @@ async function handleMenuAction(action) {
     case 'search-multisect': {
       const terms = await showSearchDialog('Multisect Search', 'Terms (semicolon-separated):');
       if (!terms) return;
-      showMiddleTopLoading('Running multisect search…');
+      const minTermsVal = parseInt($('#ws-min-terms')?.value) || 0;
+      showMiddleTopLoading(`Running multisect search… (Min Terms: ${minTermsVal === 0 ? 'all' : minTermsVal})`);
       try {
-        const data = await api.multisect({ terms, max: 30, min_terms: 0 });
+        const data = await api.multisect({ terms, max: 30, min_terms: minTermsVal });
         renderMultisectResults(data);
       } catch (err) { showMiddleTopError(err.message); }
       break;
@@ -4185,6 +4330,10 @@ async function handleMenuAction(action) {
 // ========================================================================
 // Search dialog (replaces window.prompt)
 // ========================================================================
+// Per-title cache of last-entered value, so reopening "Multisect Search"
+// re-fills the prior term string. "Save *" dialogs are excluded from caching.
+const _searchDialogLastValue = {};
+
 function showSearchDialog(title, label) {
   return new Promise((resolve) => {
     const overlay = $('#search-overlay');
@@ -4193,15 +4342,18 @@ function showSearchDialog(title, label) {
     const cancelBtn = $('#search-dialog-cancel');
     const closeBtn = $('#search-dialog-close');
 
+    const cacheable = !(title && title.startsWith('Save'));
+    const key = title || '_default';
     $('#search-dialog-title').textContent = title || 'Search';
     $('#search-dialog-label').childNodes[0].textContent = (label || 'Query:') + ' ';
-    okBtn.textContent = (title && title.startsWith('Save')) ? 'Save' : 'Search';
-    input.value = '';
+    okBtn.textContent = cacheable ? 'Search' : 'Save';
+    input.value = cacheable ? (_searchDialogLastValue[key] || '') : '';
     overlay.classList.remove('hidden');
-    setTimeout(() => input.focus(), 100);
+    setTimeout(() => { input.focus(); input.select(); }, 100);
 
     function cleanup(value) {
       overlay.classList.add('hidden');
+      if (cacheable && value) _searchDialogLastValue[key] = value;
       okBtn.removeEventListener('click', onOk);
       cancelBtn.removeEventListener('click', onCancel);
       closeBtn.removeEventListener('click', onCancel);
@@ -4392,11 +4544,11 @@ async function runWorkspace() {
       try {
         const searchData = await api.multisect({ terms: text, max: 10, min_terms: minTermsVal });
         renderMultisectResults(searchData);
-        const topFunc = (searchData.results || []).find(r => r.scope_type === 'function');
+        const topFunc = (searchData.function_matches || [])[0];
         if (topFunc) {
-          showAnalysisPane(`<div class="loading">Analyzing ${escHtml(topFunc.function_name)} via ${escHtml(engine)}…</div>`, 'Analyzing…', true);
+          showAnalysisPane(`<div class="loading">Analyzing ${escHtml(topFunc.function)} via ${escHtml(engine)}…</div>`, 'Analyzing…', true);
           const analysisData = await api.analyzeLlm({
-            func: `${topFunc.filepath}@${topFunc.function_name}`,
+            func: `${topFunc.filepath}@${topFunc.function}`,
             mode: 'multisect-analyze',
             terms: text,
             engine, mask, maskComments,
@@ -4416,19 +4568,15 @@ async function runWorkspace() {
         });
         renderClaimLlmResults(searchData);
 
-        // Find top function from TIGHT results first, fall back to BROAD
-        let topFunc = null;
-        if (searchData.tight) {
-          topFunc = (searchData.tight.results || []).find(r => r.scope_type === 'function');
-        }
-        if (!topFunc && searchData.broad) {
-          topFunc = (searchData.broad.results || []).find(r => r.scope_type === 'function');
-        }
+        // Top function from TIGHT first, fall back to BROAD
+        const topFunc = (searchData.tight && searchData.tight.function_matches && searchData.tight.function_matches[0])
+          || (searchData.broad && searchData.broad.function_matches && searchData.broad.function_matches[0])
+          || null;
 
         if (topFunc) {
-          showAnalysisPane(`<div class="loading">Analyzing ${escHtml(topFunc.function_name)} against claim via ${escHtml(engine)}…</div>`, 'Analyzing…', true);
+          showAnalysisPane(`<div class="loading">Analyzing ${escHtml(topFunc.function)} against claim via ${escHtml(engine)}…</div>`, 'Analyzing…', true);
           const analysisData = await api.analyzeLlm({
-            func: `${topFunc.filepath}@${topFunc.function_name}`,
+            func: `${topFunc.filepath}@${topFunc.function}`,
             mode: 'claim-analyze',
             claim: text,
             engine, mask, maskComments,
@@ -4456,12 +4604,12 @@ function renderClaimLlmResults(data) {
   const termsDiv = $('#workspace-terms');
   termsDiv.innerHTML = '';
 
-  // Count total results across tiers
-  const tightCount = data.tight ? data.tight.results.length : 0;
-  const broadCount = data.broad ? data.broad.results.length : 0;
-  title.textContent = `Claim Search — LLM (${tightCount + broadCount} results)`;
+  const sumHits = (v) => v ? (v.function_matches.length + v.class_matches.length
+    + v.file_matches.length + v.folder_matches.length) : 0;
+  const tightCount = sumHits(data.tight);
+  const broadCount = sumHits(data.broad);
+  title.textContent = `Claim Search — LLM (${tightCount + broadCount} hits across scopes)`;
 
-  // Show usage info
   let usageHtml = `<span class="muted" style="font-size:11px">Engine: ${escHtml(data.engine)}`;
   if (data.vocabChars > 0) usageHtml += ` | Vocab: ${data.vocabChars.toLocaleString()} chars`;
   if (data.usage) {
@@ -4474,25 +4622,26 @@ function renderClaimLlmResults(data) {
 
   // --- TIGHT tier ---
   if (data.tight) {
-    // Term chips for TIGHT
     const tightLabel = document.createElement('span');
     tightLabel.style.cssText = 'font-weight:bold;font-size:11px;color:var(--accent);margin-right:6px';
     tightLabel.textContent = 'TIGHT:';
     termsDiv.appendChild(tightLabel);
-    for (const t of data.tight.terms) {
+    for (const t of (data.tight.terms || [])) {
       termsDiv.appendChild(h('span', { className: `term-chip${t.negated ? ' negated' : ''}`, text: t.display }));
     }
 
     // Store highlight terms from TIGHT for source views
-    const posTerms = data.tight.terms.filter(t => !t.negated).map(t => t.display);
+    const posTerms = (data.tight.terms || []).filter(t => !t.negated).map(t => t.display);
     state.highlightTerms = { terms: posTerms, colors: HIGHLIGHT_COLORS };
 
-    html += _renderTierTable('TIGHT — literal claim language', data.tight.results, tightCount);
+    html += `<div class="output-section" style="margin-top:10px">`
+      + `<h3 style="margin:0 0 4px 0;font-size:13px;color:var(--text-secondary)">TIGHT — literal claim language (${tightCount})</h3>`
+      + _renderScopeViews(data.tight, { showLegend: true })
+      + `</div>`;
   }
 
   // --- BROAD tier ---
   if (data.broad) {
-    // Term chips separator + BROAD
     const sep = document.createElement('span');
     sep.style.cssText = 'display:inline-block;width:12px';
     termsDiv.appendChild(sep);
@@ -4500,7 +4649,7 @@ function renderClaimLlmResults(data) {
     broadLabel.style.cssText = 'font-weight:bold;font-size:11px;color:#6B8E23;margin-right:6px';
     broadLabel.textContent = 'BROAD:';
     termsDiv.appendChild(broadLabel);
-    for (const t of data.broad.terms) {
+    for (const t of (data.broad.terms || [])) {
       termsDiv.appendChild(h('span', {
         className: `term-chip${t.negated ? ' negated' : ''}`,
         text: t.display,
@@ -4508,7 +4657,10 @@ function renderClaimLlmResults(data) {
       }));
     }
 
-    html += _renderTierTable('BROAD — implementation patterns', data.broad.results, broadCount);
+    html += `<div class="output-section" style="margin-top:10px">`
+      + `<h3 style="margin:0 0 4px 0;font-size:13px;color:var(--text-secondary)">BROAD — implementation patterns (${broadCount})</h3>`
+      + _renderScopeViews(data.broad, { showLegend: true })
+      + `</div>`;
   }
 
   if (!data.tight && !data.broad) {
@@ -4517,31 +4669,6 @@ function renderClaimLlmResults(data) {
 
   container.innerHTML = html;
   wireClickables(container, { sourceOnly: true });
-}
-
-
-/** Render a single TIGHT or BROAD results table. */
-function _renderTierTable(heading, results, count) {
-  let html = `<div class="output-section" style="margin-top:10px">`;
-  html += `<h3 style="margin:0 0 6px 0;font-size:13px;color:var(--text-secondary)">${escHtml(heading)} (${count})</h3>`;
-  if (!results || results.length === 0) {
-    html += '<div class="muted" style="font-size:12px">No matches</div>';
-  } else {
-    html += '<table class="output-table"><tr><th>#</th><th>Scope</th><th>Terms</th><th>Lines</th></tr>';
-    for (const r of results) {
-      const nameDisplay = r.function_name || r.filepath || r.scope;
-      const isFunc = r.scope_type === 'function';
-      const isFile = r.scope_type === 'file';
-      html += `<tr><td class="muted">${r.rank}</td><td class="mono">`;
-      if (isFunc) html += `<span class="clickable" data-funcname="${escHtml(r.function_name)}" data-filepath="${escHtml(r.filepath)}">${escHtml(nameDisplay)}</span>`;
-      else if (isFile) html += `<span class="clickable" data-filepath="${escHtml(r.filepath)}">${escHtml(shortPath(r.filepath, 55))}</span>`;
-      else html += escHtml(nameDisplay);
-      html += ` <span class="type-badge">${r.scope_type}</span></td><td>${r.matched_terms}/${r.total_terms}</td><td>${r.lines}</td></tr>`;
-    }
-    html += '</table>';
-  }
-  html += '</div>';
-  return html;
 }
 
 

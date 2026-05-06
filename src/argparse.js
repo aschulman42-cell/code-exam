@@ -557,9 +557,10 @@ METRICS / DISCOVERY:
   --class-hotspots <n>       Top N classes by aggregated method hotspot score
   --discover-vocabulary <n>  Top N domain-specific tokens by TF-IDF score (aliases: --vocabulary, --vocab)
   --multisect-search <terms> Multi-term intersection search (semicolon-separated terms)
-                             Finds smallest scope (function/file/folder) containing all terms
+                             Finds smallest scope (function/class/file/folder) containing
+                             "substantially all" terms. Default requires ALL positive terms;
+                             use --min-terms N to require only N of them (partial matching).
                              Terms in /.../ are regex. Prefix with NOT or ! to negate.
-                             Use --min-terms N for partial matching.
   --in <pattern>            Restrict vocabulary scan to files whose path matches pattern
   --show-dupes               Show file duplicate paths in output
 
