@@ -8390,6 +8390,14 @@ export class CodeSearchIndex {
     const funcMap = new Map();
     // fileDetailMap[filepath] -> { termIdx: { line_num, line_text, func_name } }
     const fileDetailMap = new Map();
+    // funcNotHits: Set of fnKey strings whose body contains any NOT-term.
+    // Function-scope NOT semantics: a function is excluded only if a NOT-term
+    // appears within its own body (signature line included, since that's inside
+    // the boundary range). Necessary because Phase 1b's class-candidate pass
+    // can re-inject files containing NOT-terms past the file-level survivor
+    // filter — without this, the file-level NOT-filter at file/class/folder
+    // levels has no function-level counterpart.
+    const funcNotHits = new Set();
 
     const sortedSurvivors = [...phase2Files].sort();
     for (let fpIdx = 0; fpIdx < sortedSurvivors.length; fpIdx++) {
@@ -8447,6 +8455,21 @@ export class CodeSearchIndex {
           }
         }
       }
+
+      // Function-level NOT-term scan within this file's function bodies.
+      // (File/class/folder NOT-filters live in their builders below; this
+      // is the missing function-level counterpart.)
+      for (const ni of notIndices) {
+        if (!termFileSets[ni].has(fp)) continue;
+        if (termPathOnlySets[ni].has(fp)) continue;
+        const regex = terms[ni].regex;
+        for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+          if (!regex.test(lines[lineIdx])) continue;
+          const lineNum = lineIdx + 1;
+          const funcName = CodeSearchIndex._bisectFuncLookup(boundaries, lineNum) || '(global)';
+          funcNotHits.add(`${fp}\x00${funcName}`);
+        }
+      }
     }
 
     const phase2Time = Date.now() - phase2Start;
@@ -8457,11 +8480,15 @@ export class CodeSearchIndex {
 
     // Build function matches
     const funcMatches = [];
-    for (const [, fm] of funcMap) {
+    for (const [fnKey, fm] of funcMap) {
       const posMatched = new Set(
         Object.keys(fm.details).map(Number).filter(ti => !notIdxSet.has(ti))
       );
       if (posMatched.size < minTerms) continue;
+      // Function-scope NOT-filter: skip if any NOT-term appears inside the
+      // function's body (function-name match falls out for free since the
+      // signature line lives inside the boundary range).
+      if (funcNotHits.has(fnKey)) continue;
 
       // Get function line count
       const boundaries = funcBoundariesCache[fm.filepath] || [];
