@@ -81,7 +81,10 @@ function parseServerArgs() {
   }
 
   if (result.indexPaths.length === 0) {
-    result.indexPaths.push('.code_search_index');
+    // Only default to .code_search_index if it actually exists
+    if (fs.existsSync('.code_search_index')) {
+      result.indexPaths.push('.code_search_index');
+    }
   }
 
   return result;
@@ -136,11 +139,7 @@ for (const ip of serverArgs.indexPaths) {
 }
 
 if (mgr.indexes.size === 0) {
-  console.error('No valid indexes loaded. Build one first:');
-  console.error('  node src/index.js --build-index ./your/source');
-  console.error('Then:');
-  console.error('  node src/server.js --index-path .code_search_index');
-  process.exit(1);
+  console.error('No indexes loaded — use File > Load Index or File > Build Index in the GUI, or restart with --index-path.');
 }
 
 
@@ -389,7 +388,7 @@ function serveStatic(req, res) {
   const mime = MIME_TYPES[ext] || 'application/octet-stream';
   try {
     const data = fs.readFileSync(filePath);
-    res.writeHead(200, { 'Content-Type': mime });
+    res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache' });
     res.end(data);
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
