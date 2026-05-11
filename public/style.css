@@ -126,6 +126,17 @@ body { font-family: var(--font-ui); font-size: 13px; color: var(--text); backgro
 .output-table td { padding: 3px 8px; border-bottom: 1px solid var(--bg-dark); vertical-align: top; }
 .mono { font-family: var(--font-mono); font-size: 11px; }
 
+/* ---- Multisect per-row evidence (line-group detail under each match) ---- */
+.ms-detail-row > td { padding: 2px 8px 6px 28px; background: var(--bg-dark); border-bottom: 1px solid var(--border); }
+.ms-detail-row.collapsed { display: none; }
+.ms-detail-cell { display: block; }
+.ms-evidence { font-size: 11px; padding: 1px 0; line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ms-evidence .mono { font-size: 11px; }
+.ms-toggle { display: inline-block; cursor: pointer; user-select: none; color: var(--text-muted); margin-right: 4px; width: 10px; transition: transform 0.1s; }
+.ms-toggle.expanded { transform: rotate(90deg); }
+.ms-toggle:hover { color: var(--accent); }
+.ms-missing-badge { color: var(--accent-red); font-size: 10px; margin-left: 6px; }
+
 /* ---- Source view ---- */
 .source-view { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; }
 .source-line { display: flex; }

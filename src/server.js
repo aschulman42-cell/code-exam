@@ -20,7 +20,7 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
-import { parseMultisectTerms, prepareMultisectViews } from './commands/multisect.js';
+import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest } from './commands/digest.js';
 import { collectPrompts } from './commands/prompts.js';
 import { displayName } from './utils.js';
@@ -2311,6 +2311,12 @@ routes['/api/claim-search-llm'] = (req, res) => {
       const temperature = params.temperature ?? serverArgs.temperature;
       const maxResults = parseInt(params.max) || 25;
       const userMinTerms = parseInt(params.minTerms) || 0;  // 0 = auto
+      // Optional user-supplied selectivity threshold (0..1). If null/undefined,
+      // server-side tier defaults apply (TIGHT 0.5, BROAD 0.7). A value of 1.0
+      // effectively disables the filter; 0.0 drops every positive term.
+      const userSelThreshold = (typeof params.selectivityThreshold === 'number' && params.selectivityThreshold >= 0 && params.selectivityThreshold <= 1)
+        ? params.selectivityThreshold
+        : null;
 
       // Check LLM availability
       const avail = serverLLM.checkAvailability(engine);
@@ -2376,37 +2382,53 @@ routes['/api/claim-search-llm'] = (req, res) => {
       let tightStr = parsed.tight;
       let broadStr = parsed.broad;
 
-      // Sanitize
-      if (tightStr) tightStr = sanitizeLlmTerms(tightStr, 'TIGHT');
-      if (broadStr) broadStr = sanitizeLlmTerms(broadStr, 'BROAD');
+      // Sanitize (collect per-tier meta so the GUI can show what got truncated)
+      const tightSanitizeMeta = {};
+      const broadSanitizeMeta = {};
+      if (tightStr) tightStr = sanitizeLlmTerms(tightStr, 'TIGHT', tightSanitizeMeta);
+      if (broadStr) broadStr = sanitizeLlmTerms(broadStr, 'BROAD', broadSanitizeMeta);
       if (broadStr) broadStr = sanitizeBroadTerms(broadStr);
 
       const sumHits = (v) => (v ? v.function_matches.length + v.class_matches.length
         + v.file_matches.length + v.folder_matches.length : 0);
 
+      // Selectivity threshold per tier. TIGHT stricter; BROAD looser since
+      // its whole point is to be expansive. User override (from workspace
+      // input) replaces BOTH defaults when provided.
+      const TIGHT_THRESHOLD = userSelThreshold !== null ? userSelThreshold : 0.5;
+      const BROAD_THRESHOLD = userSelThreshold !== null ? userSelThreshold : 0.7;
+
       // --- Run multisect for TIGHT ---
       let tightViews = null;
       if (tightStr) {
-        const tightTerms = parseMultisectTerms(tightStr);
+        const allTightTerms = parseMultisectTerms(tightStr);
+        const filter = filterLowSelectivity(index, allTightTerms, { threshold: TIGHT_THRESHOLD, label: 'TIGHT' });
+        const tightTerms = filter.kept;
         if (tightTerms && tightTerms.length > 0) {
           const positiveTerms = tightTerms.filter(t => !t.negated);
           const minTerms = userMinTerms > 0 ? userMinTerms : Math.max(Math.floor(positiveTerms.length * 0.80), 2);
           tightViews = _runMultisectViews(index, tightTerms, minTerms, maxResults, false);
           tightViews.termsStr = tightStr;
-          console.log(`  [claim-search-llm] TIGHT: ${positiveTerms.length} positive terms, min=${minTerms}${userMinTerms > 0 ? ' (user)' : ''}, ${sumHits(tightViews)} hits across scopes`);
+          tightViews.sanitize_meta = tightSanitizeMeta;
+          tightViews.selectivity_filter = { threshold: filter.threshold, total_files: filter.total_files, dropped: filter.dropped };
+          console.log(`  [claim-search-llm] TIGHT: ${positiveTerms.length} positive terms (after selectivity filter dropped ${filter.dropped.length}), min=${minTerms}${userMinTerms > 0 ? ' (user)' : ''}, ${sumHits(tightViews)} hits across scopes`);
         }
       }
 
       // --- Run multisect for BROAD ---
       let broadViews = null;
       if (broadStr) {
-        const broadTermsParsed = parseMultisectTerms(broadStr);
+        const allBroadTerms = parseMultisectTerms(broadStr);
+        const filter = filterLowSelectivity(index, allBroadTerms, { threshold: BROAD_THRESHOLD, label: 'BROAD' });
+        const broadTermsParsed = filter.kept;
         if (broadTermsParsed && broadTermsParsed.length > 0) {
           const positiveTerms = broadTermsParsed.filter(t => !t.negated);
           const minTerms = userMinTerms > 0 ? userMinTerms : Math.max(Math.floor(positiveTerms.length * 0.60), 3);
           broadViews = _runMultisectViews(index, broadTermsParsed, minTerms, maxResults, false);
           broadViews.termsStr = broadStr;
-          console.log(`  [claim-search-llm] BROAD: ${positiveTerms.length} positive terms, min=${minTerms}${userMinTerms > 0 ? ' (user)' : ''}, ${sumHits(broadViews)} hits across scopes`);
+          broadViews.sanitize_meta = broadSanitizeMeta;
+          broadViews.selectivity_filter = { threshold: filter.threshold, total_files: filter.total_files, dropped: filter.dropped };
+          console.log(`  [claim-search-llm] BROAD: ${positiveTerms.length} positive terms (after selectivity filter dropped ${filter.dropped.length}), min=${minTerms}${userMinTerms > 0 ? ' (user)' : ''}, ${sumHits(broadViews)} hits across scopes`);
         }
       }
 

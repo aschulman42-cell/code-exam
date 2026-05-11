@@ -2934,9 +2934,92 @@ function renderStats(data) {
 // (function / class / file / folder) preceded by a numbered term legend.
 // `views` is the per-scope object returned by /api/multisect, /api/claim-search,
 // or one of the tiers of /api/claim-search-llm.
+// Build the indented per-line evidence block under a single match.
+// scopeKind: 'function' | 'class' | 'file' | 'folder'
+function _renderEvidence(m, terms, notSet, scopeKind) {
+  // Folder: per-term file lists (mirrors CLI's folder rendering)
+  if (scopeKind === 'folder') {
+    const fileSets = m.file_sets || {};
+    let html = '<div class="ms-detail-cell">';
+    for (let ti = 0; ti < terms.length; ti++) {
+      const t = terms[ti];
+      const tag = `<span class="muted">[${ti + 1}]</span>`;
+      const dispName = `<span class="mono">${escHtml(t.display)}</span>`;
+      let body;
+      if (t.negated) {
+        body = '<span class="muted">OK absent (NOT term)</span>';
+      } else {
+        const files = fileSets[ti] || [];
+        if (files.length === 0) {
+          body = '<span class="muted" style="color:var(--accent-red)">*** NOT FOUND ***</span>';
+        } else {
+          const basenames = files.slice(0, 5).map(f => {
+            const sep = Math.max(f.lastIndexOf('/'), f.lastIndexOf('\\'));
+            return sep >= 0 ? f.slice(sep + 1) : f;
+          });
+          const more = files.length > 5 ? ` <span class="muted">+${files.length - 5} more</span>` : '';
+          body = `<span class="muted">in</span> <span class="mono">${escHtml(basenames.join(', '))}</span>${more}`;
+        }
+      }
+      html += `<div class="ms-evidence">${tag} ${dispName} &nbsp; ${body}</div>`;
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // function/class/file: line-evidence rendering, grouping terms that hit the same line
+  const details = m.details || {};
+  const lineGroups = new Map();  // key -> {line_num, indices, text, ann}
+  for (let ti = 0; ti < terms.length; ti++) {
+    if (notSet.has(ti)) continue;
+    const d = details[ti];
+    if (!d) continue;
+    const fp = d.filepath || m.filepath || '';
+    const key = scopeKind === 'class' ? `${fp}\x00${d.line_num}` : String(d.line_num);
+    if (!lineGroups.has(key)) {
+      let ann = '';
+      if (scopeKind === 'class') {
+        const fn = d.func_name || '';
+        const meth = fn.includes('::') ? fn.split('::').pop() : fn.includes('.') ? fn.split('.').pop() : fn;
+        const fpLabel = (m.files && m.files.length > 1) ? ` (${shortPath(fp, 28)})` : '';
+        ann = meth ? ` <span class="muted">${escHtml(meth)}()${fpLabel}</span>` : '';
+      } else if (scopeKind === 'file') {
+        const fn = d.func_name && d.func_name !== '(global)' ? d.func_name : '(global)';
+        ann = ` <span class="muted">in ${escHtml(fn)}</span>`;
+      }
+      lineGroups.set(key, { line_num: d.line_num, indices: [], text: d.line_text || '', ann });
+    }
+    lineGroups.get(key).indices.push(ti + 1);
+  }
+  const sorted = [...lineGroups.values()].sort((a, b) => a.line_num - b.line_num);
+  let html = '<div class="ms-detail-cell">';
+  for (const g of sorted) {
+    const text = g.text.length > 120 ? g.text.slice(0, 117) + '...' : g.text;
+    const tag = g.indices.length > 1 ? `[${g.indices.join(',')}]` : `[${g.indices[0]}]`;
+    html += `<div class="ms-evidence"><span class="muted">${tag}</span> <span class="muted">L${g.line_num}</span>${g.ann} <span class="mono">${escHtml(text)}</span></div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+function _wireMultisectToggles(container) {
+  for (const t of container.querySelectorAll('.ms-toggle')) {
+    t.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const tr = t.closest('tr');
+      const detail = tr ? tr.nextElementSibling : null;
+      if (detail && detail.classList.contains('ms-detail-row')) {
+        detail.classList.toggle('collapsed');
+        t.classList.toggle('expanded');
+      }
+    });
+  }
+}
+
 function _renderScopeViews(views, opts = {}) {
   const { showLegend = true, headingPrefix = '' } = opts;
   const terms = views.terms || [];
+  const notSet = new Set(terms.map((t, i) => t.negated ? i : -1).filter(i => i >= 0));
   const nPos = views.num_positive || terms.filter(t => !t.negated).length;
   const totalHits = (views.function_matches || []).length
     + (views.class_matches || []).length
@@ -2957,7 +3040,33 @@ function _renderScopeViews(views, opts = {}) {
     if (typeof views.min_terms === 'number') {
       html += `<span class="muted" style="margin-left:6px;font-size:11px">min: ${views.min_terms}/${nPos}</span>`;
     }
+    // LLM-output sanitization meta: surface if any cap/drop/trim happened
+    const sm = views.sanitize_meta;
+    if (sm && (sm.capped > 0 || sm.dropped > 0 || sm.trimmed > 0)) {
+      const bits = [];
+      if (sm.capped > 0)  bits.push(`capped ${sm.capped} (max ${sm.max_terms})`);
+      if (sm.dropped > 0) bits.push(`dropped ${sm.dropped}`);
+      if (sm.trimmed > 0) bits.push(`trimmed ${sm.trimmed}`);
+      html += `<span style="color:var(--accent-red);margin-left:10px;font-size:10px" `
+        + `title="LLM emitted ${sm.llm_emitted} terms; kept ${sm.kept}">`
+        + `LLM→${sm.llm_emitted}, kept ${sm.kept} (${bits.join(', ')})</span>`;
+    }
     html += '</div>';
+
+    // Auto-dropped low-selectivity terms: show as struck-through chips with coverage badges
+    const sf = views.selectivity_filter;
+    if (sf && sf.dropped && sf.dropped.length > 0) {
+      const pctThreshold = Math.round(sf.threshold * 100);
+      html += `<div class="multisect-legend" style="font-size:11px;margin:0 0 8px 0;padding:4px 6px;background:var(--bg-dark);border-left:3px solid var(--accent-red)">`;
+      html += `<span style="color:var(--accent-red);font-weight:600;margin-right:6px">auto-dropped ${sf.dropped.length} low-selectivity term${sf.dropped.length !== 1 ? 's' : ''} (>${pctThreshold}% file coverage):</span>`;
+      for (const d of sf.dropped) {
+        const pct = Math.round(d.coverage * 100);
+        html += `<span class="term-chip" style="text-decoration:line-through;opacity:0.65;margin:1px 4px 1px 0" `
+          + `title="hit ${d.file_count}/${sf.total_files} files (${pct}%)">${escHtml(d.display)} `
+          + `<span class="muted" style="font-size:9px">${pct}%</span></span>`;
+      }
+      html += `</div>`;
+    }
   }
 
   if (totalHits === 0) {
@@ -2975,6 +3084,18 @@ function _renderScopeViews(views, opts = {}) {
     ? `<span class="muted" style="font-size:10px;margin-left:4px">IDF:${m.idf_score.toFixed(1)}</span>`
     : '';
 
+  // Red-alert: positive terms not found in this match. Empty when all positives hit.
+  const missingBadge = (m) => {
+    const matched = new Set(m.matched_indices || []);
+    const missing = [];
+    for (let i = 0; i < terms.length; i++) {
+      if (terms[i].negated) continue;
+      if (!matched.has(i)) missing.push(i + 1);
+    }
+    if (!missing.length) return '';
+    return `<span class="ms-missing-badge" title="positive terms not found in this match">missing: [${_compactRanges(missing)}]</span>`;
+  };
+
   // ---- FUNCTION-level ----
   const fm = views.function_matches || [];
   if (fm.length || views.function_total > 0) {
@@ -2986,11 +3107,13 @@ function _renderScopeViews(views, opts = {}) {
       html += '<table class="output-table"><tr><th>#</th><th>Function</th><th>Terms</th><th>Lines</th></tr>';
       for (let i = 0; i < fm.length; i++) {
         const m = fm[i];
-        html += `<tr><td class="muted">${i + 1}</td><td class="mono">`
+        html += `<tr><td class="muted"><span class="ms-toggle expanded" title="Hide evidence">▶</span>${i + 1}</td><td class="mono">`
           + `<span class="clickable" data-funcname="${escHtml(m.function)}" data-filepath="${escHtml(m.filepath)}">${escHtml(m.function)}</span>`
           + `<span class="muted" style="font-size:10px"> in ${escHtml(shortPath(m.filepath, 50))}</span>`
-          + matchedBadge(m) + idfBadge(m)
+          + matchedBadge(m) + idfBadge(m) + missingBadge(m)
           + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.lines || 0}</td></tr>`;
+        // Function-level: evidence row expanded by default; chevron collapses it
+        html += `<tr class="ms-detail-row"><td colspan="4">${_renderEvidence(m, terms, notSet, 'function')}</td></tr>`;
       }
       html += '</table>';
     }
@@ -3009,11 +3132,12 @@ function _renderScopeViews(views, opts = {}) {
       for (let i = 0; i < cm.length; i++) {
         const m = cm[i];
         const fileLabel = m.files.length === 1 ? shortPath(m.files[0], 40) : `${m.files.length} files`;
-        html += `<tr><td class="muted">${i + 1}</td><td class="mono">`
+        html += `<tr><td class="muted"><span class="ms-toggle" title="Show evidence">▶</span>${i + 1}</td><td class="mono">`
           + escHtml(m.class_name)
           + `<span class="muted" style="font-size:10px"> in ${escHtml(fileLabel)}</span>`
-          + matchedBadge(m) + idfBadge(m)
+          + matchedBadge(m) + idfBadge(m) + missingBadge(m)
           + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.functions.length}</td><td>${m.total_lines}</td></tr>`;
+        html += `<tr class="ms-detail-row collapsed"><td colspan="5">${_renderEvidence(m, terms, notSet, 'class')}</td></tr>`;
       }
       html += '</table>';
     }
@@ -3031,10 +3155,11 @@ function _renderScopeViews(views, opts = {}) {
       html += '<table class="output-table"><tr><th>#</th><th>File</th><th>Terms</th><th>Lines</th></tr>';
       for (let i = 0; i < fileM.length; i++) {
         const m = fileM[i];
-        html += `<tr><td class="muted">${i + 1}</td><td class="mono">`
+        html += `<tr><td class="muted"><span class="ms-toggle" title="Show evidence">▶</span>${i + 1}</td><td class="mono">`
           + `<span class="clickable" data-filepath="${escHtml(m.filepath)}">${escHtml(shortPath(m.filepath, 60))}</span>`
-          + matchedBadge(m) + idfBadge(m)
+          + matchedBadge(m) + idfBadge(m) + missingBadge(m)
           + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.lines || 0}</td></tr>`;
+        html += `<tr class="ms-detail-row collapsed"><td colspan="4">${_renderEvidence(m, terms, notSet, 'file')}</td></tr>`;
       }
       html += '</table>';
     }
@@ -3052,10 +3177,11 @@ function _renderScopeViews(views, opts = {}) {
       html += '<table class="output-table"><tr><th>#</th><th>Folder</th><th>Terms</th><th>Files</th></tr>';
       for (let i = 0; i < folderM.length; i++) {
         const m = folderM[i];
-        html += `<tr><td class="muted">${i + 1}</td><td class="mono">`
+        html += `<tr><td class="muted"><span class="ms-toggle" title="Show evidence">▶</span>${i + 1}</td><td class="mono">`
           + escHtml(m.folder + '/')
-          + matchedBadge(m) + idfBadge(m)
+          + matchedBadge(m) + idfBadge(m) + missingBadge(m)
           + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.files_involved}</td></tr>`;
+        html += `<tr class="ms-detail-row collapsed"><td colspan="4">${_renderEvidence(m, terms, notSet, 'folder')}</td></tr>`;
       }
       html += '</table>';
     }
@@ -3099,6 +3225,7 @@ function renderMultisectResults(data) {
 
   container.innerHTML = _renderScopeViews(data, { showLegend: true });
   wireClickables(container, { sourceOnly: true });
+  _wireMultisectToggles(container);
 }
 
 
@@ -4513,6 +4640,12 @@ async function runWorkspace() {
   const mask = $('#ws-mask-all')?.checked || false;
   const maskComments = $('#ws-mask-comments')?.checked || false;
   const minTermsVal = parseInt($('#ws-min-terms')?.value) || 0;
+  // Selectivity threshold (claim-search-llm only). Blank = server-side tier defaults.
+  // User value in percent (0-100); we send as fraction. 100 = filter off.
+  const selThresholdRaw = $('#ws-selectivity-threshold')?.value;
+  const selectivityThreshold = (selThresholdRaw === '' || selThresholdRaw === undefined || selThresholdRaw === null)
+    ? null
+    : Math.max(0, Math.min(100, parseInt(selThresholdRaw, 10))) / 100;
 
   // Disable Run button during processing
   const runBtn = $('#ws-run');
@@ -4534,6 +4667,7 @@ async function runWorkspace() {
       try {
         const data = await api.claimSearchLlm({
           claim: text, engine, vocabTight, noVocabulary, max: 30, minTerms: minTermsVal,
+          selectivityThreshold,
         });
         renderClaimLlmResults(data);
       } catch (err) { showMiddleTopError(err.message); }
@@ -4565,6 +4699,7 @@ async function runWorkspace() {
       try {
         const searchData = await api.claimSearchLlm({
           claim: text, engine, vocabTight, noVocabulary, max: 10, minTerms: minTermsVal,
+          selectivityThreshold,
         });
         renderClaimLlmResults(searchData);
 
@@ -4669,6 +4804,7 @@ function renderClaimLlmResults(data) {
 
   container.innerHTML = html;
   wireClickables(container, { sourceOnly: true });
+  _wireMultisectToggles(container);
 }
 
 

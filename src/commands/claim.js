@@ -50,10 +50,18 @@ TIGHT SEARCH - literal claim language, narrow:
   Rules:
   - Extract keywords that appear directly in the claim text.
   - Use regex only for morphological variants (/exchang|transfer/).
-  - For negation clauses ("without utilizing X"), generate narrow NOT \
-terms for ONLY the specific thing excluded - not broader concepts.
-    "without utilizing network protocols" -> NOT /protocol|tcp|udp|http/
-    (do NOT include bare "network" - too broad, matches "neural network").
+  - NEGATION GATING (apply BEFORE you even consider emitting any NOT term):
+    Scan the claim text for explicit exclusion language: "without",
+    "except", "other than", "instead of", "not including", "rather than",
+    "excluding", "absent". You must find one of these literal phrases.
+    * If NONE appear: emit ZERO NOT terms. Do NOT invent exclusions.
+      NOT is for what the claim explicitly disclaims, NOT for what you
+      assume is the implicit opposite or the negative of what's mentioned.
+      A patent claim about "secure connections" does NOT imply NOT /tcp|udp/.
+    * If exclusion language IS present: generate a narrow NOT term for
+      ONLY the specific thing excluded — not broader concepts.
+      Example: "without utilizing network protocols" -> NOT /protocol|tcp|udp|http/
+      (do NOT include bare "network" — too broad, matches "neural network").
   - Skip purely abstract phrasing ("a method comprising", "a system").
   - NEVER include these generic patent-boilerplate words as search terms:
     method, device, apparatus, system, step, means, unit, module,
@@ -62,7 +70,35 @@ terms for ONLY the specific thing excluded - not broader concepts.
     discrimination. Only include them if they are PART of a compound
     technical term (e.g. "finite element" is OK, bare "element" is not).
   - Skip generic hardware (CPU, memory) unless they're identifiers.
-  - Aim for 5-12 positive terms + any NOT terms.
+
+  HARD MAXIMUM: 12 positive terms. THIS IS NOT A SOFT TARGET. If your \
+draft list has more than 12 terms, you MUST PRUNE before emitting.
+
+  ALSO DROP these low-discrimination bare nouns even though they appear in \
+the claim text - they match too many files in any codebase to be useful:
+    object, data, name, common, version, supported, requirement,
+    presented, matches, parameters, extensions, exchange, application,
+    context, request, response, value, type, configuration, content,
+    information, operation, function, process, channel, layer, format,
+    list, array, table, field, record, attribute, property, state,
+    client, server, user, group, session, key, message.
+  Include these ONLY if they are part of a multi-word compound term AND \
+the compound term itself appears in the claim (e.g. "session key" is \
+borderline; just "session" or just "key" alone is NOT acceptable).
+
+  PRUNING ALGORITHM (apply mentally before emitting):
+  1. Draft candidate list from the claim text.
+  2. Drop any bare noun from the low-discrimination list above.
+  3. Drop any term that names a generic action verb (perform, configure, \
+load, transmit, select, validate, check, confirm) UNLESS the verb itself \
+is the discriminative concept of the claim (e.g. "handshake" stays).
+  4. If still > 12 terms, drop terms in descending order of how many \
+unrelated codebases would also match them.
+  5. The 12 you keep should be the ones that, taken together, identify \
+THIS claim distinctly from a generic patent on the same broad topic.
+
+  Aim for 5-10 positive terms; emit 12 only if the claim is genuinely \
+that complex. + any NOT terms.
 
 ============================================================================
 
@@ -124,6 +160,28 @@ without opening network ports."
 Example output (DO NOT COPY - these terms are for the facade patent above, not the user's patent):
 TIGHT: /facade|proxy/;server;/browser|web/;interface;/exchang|transfer/;application;host;NOT /protocol|tcp|udp|http/;NOT /port|socket|listen/
 BROAD: /facade|proxy|gateway|wrapper|shim|adapter|bridge/;server;/browser|web|front.end/;/interface|adapter|mediator|bridge/;/exchang|transfer|marshal|serial/;/application|app/;/host|embed|in.process|local/;/loopback|localhost|127\\.0\\.0\\.1/;/IPC|ipc|inter.process/;/shared.memory|shm|mmap/;/named.pipe|pipe|fifo/;/cgi.bin|cgi|local.cgi/;/legacy|moderniz|wrapper/;NOT /protocol|tcp|udp|http/;NOT /listen.*port|bind.*port|open.*port/
+
+============================================================================
+
+COUNTER-EXAMPLE (claim has NO exclusion language, so output has NO NOT terms):
+Note that the prior facade example has "without utilizing" twice in the claim
+text — that is why it has NOT terms. Most claims do NOT contain such language.
+When a claim merely DESCRIBES what something does, without DISCLAIMING anything,
+emit ZERO NOT terms.
+
+Example input: "A method for establishing a secure communication connection \
+through a computer network, the method comprising: initializing a cryptographic \
+context; negotiating cipher parameters; performing a handshake protocol exchange; \
+verifying a certificate chain; and transmitting application data over an \
+encrypted channel using session keys."
+
+Example output (note: no NOT line because the claim has no 'without' / 'except' \
+/ 'other than' language anywhere):
+TIGHT: /cryptograph|crypto/;/handshake/;/cipher/;certificate;/negotiat/;chain;hostname;session;/encrypt/;/transmit|transfer/
+BROAD: /cryptograph|crypto|cipher/;/handshake|hello/;/certificate|cert|x509/;/negotiat|exchang/;/chain|validat/;/hostname|host|fqdn/;/session|sslsession/;/encrypt|tls|ssl/;/transmit|send|write/;/key|secret/
+
+(There would be a NOT line here ONLY if the claim said something like "without \
+utilizing TLS" or "except via shared memory" — which it does not.)
 
 ============================================================================
 
@@ -326,8 +384,13 @@ SYNTAX:
 
 TIGHT terms: Use the actual technical words from the claim text. \
 Skip generic patent words: method, system, device, apparatus, comprising, wherein. \
+ALSO drop these low-discrimination bare nouns even if they're in the claim: \
+object, data, name, common, version, supported, requirement, parameters, \
+context, request, response, value, type, content, channel, layer, list, \
+field, attribute, property, state, client, server, user, session, key, message. \
 Use /regex/ only for morphological variants of the same word. \
-Aim for 5-12 terms.
+HARD MAXIMUM 12 terms. Prune ruthlessly. The 12 you keep should distinguish \
+THIS claim from a generic patent on the same topic.
 
 BROAD terms: Think like a software developer implementing the claim. \
 What variable names, function names, and class names would they use? \
@@ -537,17 +600,20 @@ function _parseResponse(rawText) {
  *   - Terms where ALL alternations fail are dropped
  *   - Max 20 terms total
  */
-export function sanitizeLlmTerms(termsStr, label = '') {
+export function sanitizeLlmTerms(termsStr, label = '', metaOut = null) {
   if (!termsStr) return termsStr;
 
   const MAX_ALT_CHARS = 30;
   const MAX_ALT_WORDS = 2;
-  const MAX_TERMS = 20;
+  // TIGHT should be narrower than BROAD. The LLM tends to over-emit despite
+  // prompt instructions ("HARD MAXIMUM 12") so we enforce the cap mechanically.
+  const MAX_TERMS = label === 'TIGHT' ? 12 : 20;
 
   const parts = termsStr.split(';');
   const cleaned = [];
   let nDropped = 0;
   let nTrimmed = 0;
+  let nCapped = 0;
 
   for (const rawPart of parts) {
     const part = rawPart.trim();
@@ -589,16 +655,27 @@ export function sanitizeLlmTerms(termsStr, label = '') {
     }
 
     if (cleaned.length >= MAX_TERMS) {
-      nDropped += parts.length - parts.indexOf(rawPart) - 1;
+      // Count remaining non-empty parts as "capped" (not degenerate)
+      const tail = parts.slice(parts.indexOf(rawPart) + 1).filter(p => p.trim());
+      nCapped += tail.length;
       break;
     }
   }
 
-  if (nDropped > 0 || nTrimmed > 0) {
+  if (nDropped > 0 || nTrimmed > 0 || nCapped > 0) {
     process.stderr.write(
-      `  [sanitize-${label}] Dropped ${nDropped} degenerate term(s), ` +
-      `trimmed ${nTrimmed} term(s), kept ${cleaned.length}\n`
+      `  [sanitize-${label}] Dropped ${nDropped} degenerate, ` +
+      `trimmed ${nTrimmed}, capped ${nCapped} (max ${MAX_TERMS}), kept ${cleaned.length}\n`
     );
+  }
+
+  if (metaOut) {
+    metaOut.llm_emitted = cleaned.length + nDropped + nTrimmed + nCapped;
+    metaOut.kept = cleaned.length;
+    metaOut.dropped = nDropped;
+    metaOut.trimmed = nTrimmed;
+    metaOut.capped = nCapped;
+    metaOut.max_terms = MAX_TERMS;
   }
 
   return cleaned.join(';');

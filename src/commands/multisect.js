@@ -157,6 +157,51 @@ function matchIdfScore(match, idfs) {
  * @param {boolean} opts.verbose - if true, skip dedup
  * @returns {Object} per-scope arrays (JSON-serializable) + counts
  */
+/**
+ * Auto-drop positive terms whose file-coverage exceeds a threshold. NOT
+ * terms are never dropped (they are user/LLM-supplied excluder logic, not
+ * candidates for selectivity-based pruning).
+ *
+ * @param {Object} index - CodeSearchIndex instance
+ * @param {Array} terms - parsed multisect terms
+ * @param {Object} opts - { threshold: 0..1, label: string for logging }
+ * @returns {{ kept, dropped, total_files, threshold, scanned }}
+ */
+export function filterLowSelectivity(index, terms, opts = {}) {
+  const { threshold = 0.5, label = '' } = opts;
+  if (!terms || !terms.length) return { kept: terms || [], dropped: [], total_files: 0, threshold, scanned: false };
+  if (!index || typeof index.computeTermFileCounts !== 'function') {
+    return { kept: terms, dropped: [], total_files: 0, threshold, scanned: false };
+  }
+  const { term_file_counts: counts, total_files } = index.computeTermFileCounts(terms);
+  if (!total_files) return { kept: terms, dropped: [], total_files: 0, threshold, scanned: false };
+
+  const kept = [];
+  const dropped = [];
+  for (let i = 0; i < terms.length; i++) {
+    if (terms[i].negated) { kept.push(terms[i]); continue; }
+    const fc = counts[i] || 0;
+    const coverage = fc / total_files;
+    if (coverage > threshold) {
+      dropped.push({
+        display: terms[i].display,
+        file_count: fc,
+        coverage,
+        original_index: i,
+      });
+    } else {
+      kept.push(terms[i]);
+    }
+  }
+  if (label && dropped.length > 0) {
+    process.stderr.write(
+      `  [selectivity-${label}] dropped ${dropped.length} term(s) > ${Math.round(threshold * 100)}% file coverage: ` +
+      `${dropped.map(d => `${d.display}(${Math.round(d.coverage * 100)}%)`).join(', ')}\n`
+    );
+  }
+  return { kept, dropped, total_files, threshold, scanned: true };
+}
+
 export function prepareMultisectViews(results, opts = {}) {
   const { totalFiles = 0, maxPerScope = 25, verbose = false } = opts;
   const idfs = totalFiles > 0 ? computeIdfScores(results, totalFiles) : null;

@@ -8206,6 +8206,53 @@ export class CodeSearchIndex {
    * @param {boolean} opts.showProgress
    * @returns {Object|null} results with function_matches, file_matches, folder_matches
    */
+  /**
+   * Cheap per-term file-coverage scan. Returns the same `term_file_counts`
+   * shape that `multisectSearch` produces in Phase 1, but skips Phase 1b
+   * (class candidates), Phase 2 (function-level detail), and NOT scanning.
+   * Used by the LLM claim-search selectivity filter to identify and drop
+   * low-discrimination terms before running the real multisect.
+   *
+   * @param {Array<{regex, negated}>} terms
+   * @param {Object} opts
+   * @returns {{term_file_counts: number[], total_files: number}}
+   */
+  computeTermFileCounts(terms, opts = {}) {
+    const { includePath, excludePath } = opts;
+    this._ensureFunctionIndex();
+    const nTerms = terms.length;
+    const termFileSets = new Array(nTerms).fill(null).map(() => new Set());
+
+    const pathOk = (fp) => {
+      const fpL = fp.toLowerCase();
+      if (includePath && !includePath.some(p => fpL.includes(p.toLowerCase()))) return false;
+      if (excludePath && excludePath.some(p => fpL.includes(p.toLowerCase()))) return false;
+      return true;
+    };
+
+    for (const [filepath, lines] of this.fileLines) {
+      if (!pathOk(filepath)) continue;
+      for (let ti = 0; ti < nTerms; ti++) {
+        if (termFileSets[ti].has(filepath)) continue;
+        const regex = terms[ti].regex;
+        let found = false;
+        for (const line of lines) {
+          if (regex.test(line)) { found = true; break; }
+        }
+        if (found) {
+          termFileSets[ti].add(filepath);
+        } else {
+          regex.lastIndex = 0;
+          if (regex.test(filepath)) termFileSets[ti].add(filepath);
+        }
+      }
+    }
+
+    const counts = new Array(nTerms);
+    for (let ti = 0; ti < nTerms; ti++) counts[ti] = termFileSets[ti].size;
+    return { term_file_counts: counts, total_files: this.fileLines.size };
+  }
+
   multisectSearch(terms, opts = {}) {
     const { minTerms: minTermsArg, includePath, excludePath, showProgress = true } = opts;
 
