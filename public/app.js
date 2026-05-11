@@ -4770,7 +4770,7 @@ function renderClaimLlmResults(data) {
     state.highlightTerms = { terms: posTerms, colors: HIGHLIGHT_COLORS };
 
     html += `<div class="output-section" style="margin-top:10px">`
-      + `<h3 style="margin:0 0 4px 0;font-size:13px;color:var(--text-secondary)">TIGHT — literal claim language (${tightCount})</h3>`
+      + `<h3 style="margin:0 0 4px 0;font-size:13px;color:var(--text-secondary)">${data.vocabTight ? 'TIGHT — claim + codebase vocabulary' : 'TIGHT — literal claim language'} (${tightCount})</h3>`
       + _renderScopeViews(data.tight, { showLegend: true })
       + `</div>`;
   }

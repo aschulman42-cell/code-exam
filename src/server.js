@@ -2438,6 +2438,7 @@ routes['/api/claim-search-llm'] = (req, res) => {
         raw: rawResponse,
         skippedClaims,
         vocabChars: vocabConcordance.length,
+        vocabTight: vocabTight && vocabConcordance.length > 0,
         usage: llmResult.usage || null,
         tight: tightViews,
         broad: broadViews,
