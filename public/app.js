@@ -152,6 +152,30 @@ function escHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function copyToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => execCopyFallback(text));
+  }
+  return execCopyFallback(text);
+}
+
+function execCopyFallback(text) {
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy') ? resolve() : reject(new Error('execCommand copy failed'));
+    } catch (e) {
+      reject(e);
+    } finally {
+      document.body.removeChild(ta);
+    }
+  });
+}
+
 function shortPath(fp, maxLen = 45) {
   if (!fp) return '';
   fp = fp.replace(/\\/g, '/');
@@ -4771,6 +4795,7 @@ function renderClaimLlmResults(data) {
 
     html += `<div class="output-section" style="margin-top:10px">`
       + `<h3 style="margin:0 0 4px 0;font-size:13px;color:var(--text-secondary)">${data.vocabTight ? 'TIGHT — claim + codebase vocabulary' : 'TIGHT — literal claim language'} (${tightCount})</h3>`
+      + (data.tight.termsStr ? `<div style="display:flex;align-items:flex-start;gap:6px;margin:0 0 6px 0"><code style="flex:1;min-width:0;background:var(--bg-tertiary);padding:3px 6px;border-radius:3px;font-size:11px;white-space:pre-wrap;word-break:break-all;overflow-x:auto">${escHtml(data.tight.termsStr)}</code><button class="copy-multisect-btn" data-tier="tight" style="flex:0 0 auto;font-size:11px;padding:2px 6px;cursor:pointer" title="Copy multisect string">📋 Copy</button></div>` : '')
       + _renderScopeViews(data.tight, { showLegend: true })
       + `</div>`;
   }
@@ -4794,6 +4819,7 @@ function renderClaimLlmResults(data) {
 
     html += `<div class="output-section" style="margin-top:10px">`
       + `<h3 style="margin:0 0 4px 0;font-size:13px;color:var(--text-secondary)">BROAD — implementation patterns (${broadCount})</h3>`
+      + (data.broad.termsStr ? `<div style="display:flex;align-items:flex-start;gap:6px;margin:0 0 6px 0"><code style="flex:1;min-width:0;background:var(--bg-tertiary);padding:3px 6px;border-radius:3px;font-size:11px;white-space:pre-wrap;word-break:break-all;overflow-x:auto">${escHtml(data.broad.termsStr)}</code><button class="copy-multisect-btn" data-tier="broad" style="flex:0 0 auto;font-size:11px;padding:2px 6px;cursor:pointer" title="Copy multisect string">📋 Copy</button></div>` : '')
       + _renderScopeViews(data.broad, { showLegend: true })
       + `</div>`;
   }
@@ -4805,6 +4831,17 @@ function renderClaimLlmResults(data) {
   container.innerHTML = html;
   wireClickables(container, { sourceOnly: true });
   _wireMultisectToggles(container);
+
+  container.querySelectorAll('.copy-multisect-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tier = btn.dataset.tier;
+      const str = (tier === 'tight' ? data.tight?.termsStr : data.broad?.termsStr) || '';
+      copyToClipboard(str).then(
+        () => { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = orig; }, 1500); },
+        () => { btn.textContent = 'Failed'; }
+      );
+    });
+  });
 }
 
 

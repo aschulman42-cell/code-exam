@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Code Exam</title>
+  <script>
+    if (location.port !== '3000') {
+      location.replace('http://localhost:3000' + location.pathname + location.search + location.hash);
+    }
+  </script>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
