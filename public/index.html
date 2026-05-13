@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Code Exam</title>
+  <script>
+    if (location.port !== '3000') {
+      location.replace('http://localhost:3000' + location.pathname + location.search + location.hash);
+    }
+  </script>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -172,6 +177,10 @@
         </div>
         <div class="accordion-section" data-section="struct-diff">
           <div class="accordion-header"><span class="accordion-toggle">▸</span> Struct Diff <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+        <div class="accordion-section" data-section="surprising-funcstrings">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Notable Funcstring Matches <span class="accordion-badge"></span></div>
           <div class="accordion-content"></div>
         </div>
 

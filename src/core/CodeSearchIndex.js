@@ -7112,6 +7112,85 @@ export class CodeSearchIndex {
   }
 
   /**
+   * "Tight" structural normalization — adapts ideas from the Opstrings
+   * program (Schulman). Two extra rules on top of getStructuralNormalized:
+   *
+   *  1. Control-flow gate. A function whose normalized form contains zero
+   *     control-flow keywords (if/else/while/for/do/switch/case/return/
+   *     break/continue/goto/throw/try/catch/finally/yield) is treated as
+   *     shape-poor and excluded — null is returned. Catches the
+   *     "class-of-string-constants" and "chain of defineProperty calls"
+   *     idioms that produce structurally-trivial collisions.
+   *
+   *  2. Run-length suppression of repeated statements. After splitting the
+   *     normalized form on `;`, any contiguous run of ≥3 identical statements
+   *     collapses to `<stmt>*N`. Shrinks bag-of-declarations bodies to a
+   *     form whose size reflects distinct shapes rather than text length.
+   *
+   * Returns null for shape-poor inputs; otherwise the tightened string.
+   */
+  getStructuralNormalizedTight(bodyText) {
+    const normalized = this.getStructuralNormalized(bodyText);
+    // Control-flow gate: require ≥3 control-flow tokens. ≥1 is too lax
+    // because virtually every function has a `return`; that lets pure
+    // `return null;` stubs and one-line getters slip through. ≥3 is the
+    // smallest threshold that reliably distinguishes substantive logic
+    // from stub-shaped code in practice.
+    if (CodeSearchIndex._countControlFlowTokens(normalized) < 3) return null;
+
+    const parts = normalized.split(';').map(p => p.trim());
+    const out = [];
+    let i = 0;
+    while (i < parts.length) {
+      let j = i + 1;
+      while (j < parts.length && parts[j] === parts[i]) j++;
+      const runLen = j - i;
+      if (runLen >= 3) {
+        out.push(parts[i] === '' ? `*${runLen}` : `${parts[i]}*${runLen}`);
+      } else {
+        for (let k = i; k < j; k++) out.push(parts[k]);
+      }
+      i = j;
+    }
+    return out.join(' ; ');
+  }
+
+  /**
+   * SHA1 of the tight funcstring. Returns null when the function is
+   * shape-poor (per the control-flow gate in getStructuralNormalizedTight).
+   */
+  getStructuralHashTight(bodyText) {
+    const tight = this.getStructuralNormalizedTight(bodyText);
+    if (tight === null) return null;
+    return crypto.createHash('sha1').update(tight, 'utf-8').digest('hex');
+  }
+
+  static _CONTROL_FLOW_RE = /\b(if|else|while|for|do|switch|case|return|break|continue|goto|throw|try|catch|finally|yield)\b/g;
+
+  static _countControlFlowTokens(funcstring) {
+    const m = funcstring.match(CodeSearchIndex._CONTROL_FLOW_RE);
+    return m ? m.length : 0;
+  }
+
+  /**
+   * Count of non-blank, non-comment-only lines in a function body.
+   * Used by tight mode so `minLines` filters on actual code volume rather
+   * than raw source-line span (which is inflated by Javadoc/block-comment
+   * headers — a one-line `return null;` stub with an 18-line Javadoc
+   * preamble would otherwise pass a minLines=10 filter).
+   */
+  static _countCodeLines(bodyText) {
+    const stripped = bodyText
+      .replace(/\/\/[^\n]*/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    let n = 0;
+    for (const line of stripped.split('\n')) {
+      if (line.trim().length > 0) n++;
+    }
+    return n;
+  }
+
+  /**
    * Extract word-holes from function body text.
    *
    * Strips comments, then walks the text extracting tokens in order.
@@ -7382,6 +7461,47 @@ export class CodeSearchIndex {
   }
 
   /**
+   * Tight-mode hash cache. In-memory only (no disk persistence yet);
+   * rebuilds on first access per server lifetime. Shape-poor functions
+   * (no control-flow keyword post-normalization) are excluded outright,
+   * so the returned Map is sparser than ensureFuncHashes().
+   */
+  ensureFuncHashesTight(minLines = 3) {
+    // Cache key on minLines because tight cache filtering is line-count-
+    // sensitive (unlike the disk-cached non-tight version which always
+    // hashes minLines=3 and filters at use-time).
+    const cacheKey = `_funcHashesTight_${minLines}`;
+    if (this[cacheKey]) return this[cacheKey];
+    const allFuncs = this.listFunctions();
+    const out = new Map();
+    for (const f of allFuncs) {
+      // Cheap pre-filter: skip functions whose raw span is already below
+      // minLines (code-line count is always ≤ raw line count).
+      if (f.lines < minLines) continue;
+      const lines = this.fileLines.get(f.filepath);
+      if (!lines) continue;
+      const bodyText = lines.slice(f.start - 1, f.end).join('\n');
+      // Strict filter: code lines (comments + blanks stripped) must clear
+      // the threshold. This is what makes `min lines` mean "min lines of
+      // actual code" in tight mode rather than "min source-line span".
+      const codeLines = CodeSearchIndex._countCodeLines(bodyText);
+      if (codeLines < minLines) continue;
+      const tightHash = this.getStructuralHashTight(bodyText);
+      if (tightHash === null) continue;
+      const bodyHash = crypto.createHash('sha1').update(bodyText, 'utf-8').digest('hex');
+      const key = `${f.filepath}|||${f.name}`;
+      out.set(key, {
+        body_hash: bodyHash,
+        struct_hash: tightHash,
+        lines: codeLines,
+        raw_lines: f.lines,
+      });
+    }
+    this[cacheKey] = out;
+    return out;
+  }
+
+  /**
    * Find exact duplicate functions by SHA1 hash of body text.
    * Also computes structural and near-dupe groups.
    *
@@ -7515,6 +7635,295 @@ export class CodeSearchIndex {
     const struct = this._structDupes || [];
     struct.sort((a, b) => b.waste - a.waste);
     return struct.slice(0, n);
+  }
+
+  /**
+   * Find functions whose body shares the structural hash of a given query
+   * function — i.e., funcstring peers. Unlike getStructDupes (which only
+   * surfaces groups where bodies differ), this returns every peer of the
+   * specific function passed in, tagged exact-body vs structural-variant.
+   *
+   * Each peer carries a "surprise" score in [0,1] composed of:
+   *   nameDist:  1 - Jaccard overlap of bare-name tokens (camel/snake split)
+   *   pathDist:  1 - LCP-fraction of directory segments
+   *   crossLang: 1 if file extensions differ, 0 otherwise
+   *   score    = 0.50*nameDist + 0.35*pathDist + 0.15*crossLang
+   *
+   * The breakdown is exposed so callers can sort/filter on individual
+   * components.
+   */
+  findFuncstringPeers(funcName, fileHint = null, opts = {}) {
+    const { includeExact = false, minSurprise = 0, limit = 200, tight = false } = opts;
+    const matches = this.findFunctionMatches(funcName, fileHint);
+    if (matches.length === 0) {
+      return { error: `Function '${funcName}' not found`, matches: 0 };
+    }
+    const q = matches[0];
+    const hashes = tight ? this.ensureFuncHashesTight(3) : this.ensureFuncHashes(3, false);
+    const qKey = `${q.filepath}|||${q.name}`;
+    const qInfo = hashes.get(qKey);
+    if (!qInfo) {
+      return {
+        error: tight
+          ? `Function '${q.name}' is shape-poor under tight mode (no control-flow keyword) or under 3 lines`
+          : `Function '${q.name}' has no struct hash (likely under 3 lines)`,
+        query: { filepath: q.filepath, name: q.name },
+        matches: matches.length,
+      };
+    }
+
+    const structHash = qInfo.struct_hash;
+    const qBodyHash = qInfo.body_hash;
+    const qDisplay = this.getDisplayName ? this.getDisplayName(q.name) : q.name;
+    const qTokens = CodeSearchIndex._funcNameTokens(qDisplay);
+    const qExt = CodeSearchIndex._fileExt(q.filepath);
+
+    const peers = [];
+    for (const [key, info] of hashes) {
+      if (info.struct_hash !== structHash) continue;
+      if (key === qKey) continue;
+      const sep = key.indexOf('|||');
+      if (sep < 0) continue;
+      const fp = key.slice(0, sep);
+      const fn = key.slice(sep + 3);
+      const isExact = info.body_hash === qBodyHash;
+      if (isExact && !includeExact) continue;
+
+      const peerDisplay = this.getDisplayName ? this.getDisplayName(fn) : fn;
+      const tokens = CodeSearchIndex._funcNameTokens(peerDisplay);
+      const nameDist = CodeSearchIndex._jaccardDistance(qTokens, tokens);
+      const pathDist = CodeSearchIndex._pathDistance(q.filepath, fp);
+      const ext = CodeSearchIndex._fileExt(fp);
+      const crossLang = (ext && qExt && ext !== qExt) ? 1 : 0;
+      const score = nameDist * 0.5 + pathDist * 0.35 + crossLang * 0.15;
+      if (score < minSurprise) continue;
+
+      const idx = this.functionIndex && this.functionIndex[fp];
+      const finfo = idx ? idx[fn] : null;
+      peers.push({
+        filepath: fp,
+        name: fn,
+        displayName: this.getDisplayName ? this.getDisplayName(fn) : fn,
+        start: finfo ? finfo.start : null,
+        end: finfo ? finfo.end : null,
+        lines: info.lines,
+        kind: isExact ? 'exact-body' : 'structural-variant',
+        surprise: {
+          nameDist: +nameDist.toFixed(3),
+          pathDist: +pathDist.toFixed(3),
+          crossLang,
+          score: +score.toFixed(3),
+        },
+      });
+    }
+
+    peers.sort((a, b) => b.surprise.score - a.surprise.score);
+    const truncated = peers.length > limit;
+    return {
+      query: {
+        filepath: q.filepath,
+        name: q.name,
+        displayName: this.getDisplayName ? this.getDisplayName(q.name) : q.name,
+        lines: qInfo.lines,
+        struct_hash: structHash,
+        body_hash: qBodyHash,
+      },
+      matches: matches.length,
+      totalPeers: peers.length,
+      truncated,
+      peers: peers.slice(0, limit),
+    };
+  }
+
+  /**
+   * Codebase-wide scan: find all struct-hash groups that contain a "surprising"
+   * pair (peak pairwise surprise >= minPeakSurprise). Output is the
+   * counterpart to the Opstrings hash listing — each group is one row of
+   * "different names sharing the same structural shape", ranked by how
+   * far apart the most-distant pair in the group is.
+   *
+   * Pair sampling: for groups bigger than would yield more than
+   * `pairSampleCap` pairs (default 50), we take a deterministic sliding-step
+   * sample (j = i+1, i+2, … until cap). This keeps cost bounded on
+   * pathological groups (e.g., a 200-instance group of getter stubs) while
+   * still surfacing the peak pair in practice.
+   */
+  findSurprisingStructGroups(opts = {}) {
+    const {
+      minLines = 3,
+      minPeakSurprise = 0.5,
+      includeAllExactGroups = false,
+      limit = 100,
+      sortBy = 'peak',
+      pairSampleCap = 50,
+      tight = false,
+    } = opts;
+
+    const hashes = tight
+      ? this.ensureFuncHashesTight(minLines)
+      : this.ensureFuncHashes(minLines, false);
+    const groups = new Map();
+    for (const [key, info] of hashes) {
+      if (info.lines < minLines) continue;
+      let arr = groups.get(info.struct_hash);
+      if (!arr) { arr = []; groups.set(info.struct_hash, arr); }
+      arr.push({ key, info });
+    }
+
+    const scored = [];
+    for (const [hash, members] of groups) {
+      if (members.length < 2) continue;
+      const bodyHashes = new Set(members.map(m => m.info.body_hash));
+      const allExact = bodyHashes.size === 1;
+      if (allExact && !includeAllExactGroups) continue;
+
+      const parsed = members.map(m => {
+        const sep = m.key.indexOf('|||');
+        const fp = m.key.slice(0, sep);
+        const fn = m.key.slice(sep + 3);
+        // Tokenize on the display name when one exists — otherwise an
+        // obfuscated bare prefix (`oaA`, `QD3`, …) reads as a single junk
+        // token and produces a misleading 1.0 name-distance for functions
+        // whose inferred semantic names actually share most of their
+        // tokens (the `KW_RETRY_STRATEGY_…` portion added by
+        // inferFunctionNames).
+        const dn = this.getDisplayName ? this.getDisplayName(fn) : fn;
+        return {
+          filepath: fp, name: fn,
+          body_hash: m.info.body_hash,
+          lines: m.info.lines,
+          raw_lines: m.info.raw_lines || m.info.lines,
+          tokens: CodeSearchIndex._funcNameTokens(dn),
+          ext: CodeSearchIndex._fileExt(fp),
+        };
+      });
+
+      const N = parsed.length;
+      const pairs = [];
+      if (N * (N - 1) / 2 <= pairSampleCap) {
+        for (let i = 0; i < N; i++)
+          for (let j = i + 1; j < N; j++) pairs.push([i, j]);
+      } else {
+        for (let step = 1; step < N && pairs.length < pairSampleCap; step++) {
+          for (let i = 0; i + step < N && pairs.length < pairSampleCap; i++) {
+            pairs.push([i, i + step]);
+          }
+        }
+      }
+
+      let peak = 0, peakPair = null, sum = 0;
+      for (const [i, j] of pairs) {
+        const a = parsed[i], b = parsed[j];
+        const nd = CodeSearchIndex._jaccardDistance(a.tokens, b.tokens);
+        const pd = CodeSearchIndex._pathDistance(a.filepath, b.filepath);
+        const cl = (a.ext && b.ext && a.ext !== b.ext) ? 1 : 0;
+        const s = nd * 0.5 + pd * 0.35 + cl * 0.15;
+        sum += s;
+        if (s > peak) {
+          peak = s;
+          peakPair = { i, j, nameDist: nd, pathDist: pd, crossLang: cl, score: s };
+        }
+      }
+      const mean = pairs.length > 0 ? sum / pairs.length : 0;
+      if (peak < minPeakSurprise) continue;
+
+      const bodyCounts = {};
+      for (const p of parsed) bodyCounts[p.body_hash] = (bodyCounts[p.body_hash] || 0) + 1;
+
+      const instances = parsed.map(p => {
+        const finfo = this.functionIndex?.[p.filepath]?.[p.name] || null;
+        return {
+          filepath: p.filepath,
+          name: p.name,
+          displayName: this.getDisplayName ? this.getDisplayName(p.name) : p.name,
+          lines: p.lines,
+          raw_lines: p.raw_lines,
+          body_hash: p.body_hash,
+          start: finfo?.start || null,
+          end: finfo?.end || null,
+          exact_copies: bodyCounts[p.body_hash],
+        };
+      });
+
+      const dn = (n) => this.getDisplayName ? this.getDisplayName(n) : n;
+      scored.push({
+        struct_hash: hash,
+        count: N,
+        lines: parsed[0].lines,
+        raw_lines: parsed[0].raw_lines,
+        uniqueBodies: bodyHashes.size,
+        allExact,
+        peakSurprise: +peak.toFixed(3),
+        meanSurprise: +mean.toFixed(3),
+        peakPair: peakPair ? {
+          a: parsed[peakPair.i].name,
+          a_filepath: parsed[peakPair.i].filepath,
+          a_display: dn(parsed[peakPair.i].name),
+          b: parsed[peakPair.j].name,
+          b_filepath: parsed[peakPair.j].filepath,
+          b_display: dn(parsed[peakPair.j].name),
+          nameDist: +peakPair.nameDist.toFixed(3),
+          pathDist: +peakPair.pathDist.toFixed(3),
+          crossLang: peakPair.crossLang,
+          score: +peakPair.score.toFixed(3),
+        } : null,
+        pairsSampled: pairs.length,
+        instances,
+      });
+    }
+
+    if (sortBy === 'mean') scored.sort((a, b) => b.meanSurprise - a.meanSurprise);
+    else if (sortBy === 'lines') scored.sort((a, b) => b.lines - a.lines);
+    else scored.sort((a, b) => b.peakSurprise - a.peakSurprise);
+
+    return {
+      total: scored.length,
+      truncated: scored.length > limit,
+      groups: scored.slice(0, limit),
+    };
+  }
+
+  /**
+   * Split a function name into lowercase tokens, handling camelCase,
+   * snake_case, `::` qualifiers, and `@` suffixes. Used by funcstring-peer
+   * surprise scoring.
+   */
+  static _funcNameTokens(name) {
+    let bare = name.includes('::') ? name.split('::').pop() : name;
+    if (bare.includes('@')) bare = bare.split('@')[0];
+    const split = bare
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+      .split(/[_\W]+/)
+      .filter(Boolean)
+      .map(s => s.toLowerCase());
+    return new Set(split);
+  }
+
+  static _jaccardDistance(a, b) {
+    if (a.size === 0 && b.size === 0) return 0;
+    let inter = 0;
+    for (const x of a) if (b.has(x)) inter++;
+    const union = a.size + b.size - inter;
+    return union === 0 ? 0 : 1 - inter / union;
+  }
+
+  static _pathDistance(p1, p2) {
+    const norm = (p) => p.replace(/\\/g, '/').toLowerCase().split('/').slice(0, -1);
+    const d1 = norm(p1);
+    const d2 = norm(p2);
+    const maxLen = Math.max(d1.length, d2.length);
+    if (maxLen === 0) return p1 === p2 ? 0 : 1;
+    let lcp = 0;
+    while (lcp < d1.length && lcp < d2.length && d1[lcp] === d2[lcp]) lcp++;
+    return 1 - lcp / maxLen;
+  }
+
+  static _fileExt(p) {
+    const slash = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+    const base = slash >= 0 ? p.slice(slash + 1) : p;
+    const dot = base.lastIndexOf('.');
+    return dot >= 0 ? base.slice(dot + 1).toLowerCase() : '';
   }
 
   /**

@@ -2061,6 +2061,106 @@ routes['/api/funcstring'] = (req, res) => {
 };
 
 
+// --- Surprising funcstrings (codebase-wide scan for groups with high-surprise pairs) ---
+
+routes['/api/surprising-funcstrings'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const minLines = q.minLines ? Math.max(3, parseInt(q.minLines)) : 3;
+  const minPeakSurprise = q.minSurprise ? parseFloat(q.minSurprise) : 0.5;
+  const includeAllExactGroups = q.includeAllExact === '1' || q.includeAllExact === 'true';
+  const limit = q.limit ? Math.max(1, Math.min(500, parseInt(q.limit))) : 100;
+  const sortBy = ['peak', 'mean', 'lines'].includes(q.sortBy) ? q.sortBy : 'peak';
+  const tight = q.tight === '1' || q.tight === 'true';
+  const result = index.findSurprisingStructGroups({
+    minLines, minPeakSurprise, includeAllExactGroups, limit, sortBy, tight,
+  });
+  // Optional filter on instance names or filepaths (matches existing dupe routes)
+  let groups = result.groups;
+  if (q.filter) {
+    const pat = q.filter.toLowerCase();
+    groups = groups.filter(g =>
+      g.instances.some(i =>
+        (i.name || '').toLowerCase().includes(pat) ||
+        (i.filepath || '').toLowerCase().includes(pat))
+    );
+  }
+  jsonResponse(res, {
+    total: groups.length,
+    total_unfiltered: result.total,
+    truncated: result.truncated,
+    sortBy,
+    groups: groups.map((g, i) => ({
+      rank: i + 1,
+      struct_hash: g.struct_hash,
+      count: g.count,
+      lines: g.lines,
+      raw_lines: g.raw_lines,
+      unique_bodies: g.uniqueBodies,
+      all_exact: g.allExact,
+      peak_surprise: g.peakSurprise,
+      mean_surprise: g.meanSurprise,
+      pairs_sampled: g.pairsSampled,
+      peak_pair: g.peakPair,
+      instances: g.instances.map(inst => ({
+        filepath: inst.filepath,
+        name: inst.name,
+        display_name: inst.displayName,
+        start: inst.start, end: inst.end,
+        lines: inst.lines,
+        raw_lines: inst.raw_lines,
+        body_hash: inst.body_hash,
+        exact_copies: inst.exact_copies,
+      })),
+    })),
+  });
+};
+
+
+// --- Funcstring peers (search by structural hash with surprise ranking) ---
+
+routes['/api/funcstring-peers'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const funcSpec = q.func;
+  if (!funcSpec) return errorResponse(res, 'Missing ?func= parameter');
+  const { funcName, fileHint } = parseFuncSpec(funcSpec);
+  const includeExact = q.includeExact === '1' || q.includeExact === 'true';
+  const minSurprise = q.minSurprise ? parseFloat(q.minSurprise) : 0;
+  const limit = q.limit ? Math.max(1, Math.min(500, parseInt(q.limit))) : 200;
+  const tight = q.tight === '1' || q.tight === 'true';
+  const result = index.findFuncstringPeers(funcName, fileHint, {
+    includeExact, minSurprise, limit, tight,
+  });
+  if (result.error) return errorResponse(res, result.error, 404);
+  jsonResponse(res, {
+    query: {
+      filepath: result.query.filepath,
+      name: result.query.name,
+      display_name: result.query.displayName,
+      lines: result.query.lines,
+      struct_hash: result.query.struct_hash,
+      body_hash: result.query.body_hash,
+    },
+    matches: result.matches,
+    total_peers: result.totalPeers,
+    truncated: result.truncated,
+    peers: result.peers.map(p => ({
+      filepath: p.filepath,
+      name: p.name,
+      display_name: p.displayName,
+      start: p.start,
+      end: p.end,
+      lines: p.lines,
+      kind: p.kind,
+      surprise: p.surprise,
+    })),
+  });
+};
+
+
 // --- Structural diff all ---
 
 routes['/api/struct-diff-all'] = (req, res) => {

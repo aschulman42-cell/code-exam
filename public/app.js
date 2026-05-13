@@ -24,6 +24,14 @@ const state = {
   llmStatus: null,
   /** Most Called: filter to in-index only */
   mostCalledDefinedOnly: false,
+  /** Notable Funcstring Matches: per-section tuning */
+  surprisingFsOpts: {
+    minLines: 3,
+    minSurprise: 0.5,
+    sortBy: 'peak',
+    includeAllExact: false,
+    tight: false,
+  },
 };
 
 // ========================================================================
@@ -99,6 +107,8 @@ const api = {
   nearDupes:       (p) => api.get('near-dupes', p),
   structDupes:     (p) => api.get('struct-dupes', p),
   funcstring:      (p) => api.get('funcstring', p),
+  funcstringPeers: (p) => api.get('funcstring-peers', p),
+  surprisingFuncstrings: (p) => api.get('surprising-funcstrings', p),
   structDiffAll:   (p) => api.get('struct-diff-all', p),
   stringTable:     (p) => api.get('string-table', p),
   prompts:         (p) => api.get('prompts', p),
@@ -150,6 +160,30 @@ function h(tag, attrs = {}, children = []) {
 
 function escHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function copyToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => execCopyFallback(text));
+  }
+  return execCopyFallback(text);
+}
+
+function execCopyFallback(text) {
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy') ? resolve() : reject(new Error('execCommand copy failed'));
+    } catch (e) {
+      reject(e);
+    } finally {
+      document.body.removeChild(ta);
+    }
+  });
 }
 
 function shortPath(fp, maxLen = 45) {
@@ -370,6 +404,23 @@ async function loadSectionData(sectionId, filter = '') {
         renderStructDiffList(content, data.groups);
         badge.textContent = data.total;
         break;
+
+      case 'surprising-funcstrings': {
+        const o = state.surprisingFsOpts;
+        data = await api.surprisingFuncstrings({
+          limit: getMaxResults(),
+          filter,
+          minLines: o.minLines,
+          minSurprise: o.minSurprise,
+          sortBy: o.sortBy,
+          includeAllExact: o.includeAllExact ? 1 : 0,
+          tight: o.tight ? 1 : 0,
+        });
+        state.sectionData[sectionId] = data.groups;
+        renderSurprisingFuncstringsList(content, data.groups, data);
+        badge.textContent = data.total;
+        break;
+      }
 
       case 'strings':
         data = await api.stringTable({ filter, max: getMaxResults() * 2 });
@@ -1136,6 +1187,198 @@ function renderDupeGroupList(container, groups, type) {
   }
 }
 
+// ========================================================================
+// Surprising Funcstrings — codebase-wide scan of struct-hash groups
+// containing pairs whose names/paths/extensions are unusually distant.
+// ========================================================================
+function renderSurprisingFuncstringsList(container, groups, meta) {
+  container.innerHTML = '';
+  const o = state.surprisingFsOpts;
+  const toolbar = document.createElement('div');
+  toolbar.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;padding:4px 6px;font-size:11px;align-items:center;border-bottom:1px solid var(--border)';
+  toolbar.innerHTML = `
+    <label title="Skip functions below this size. In tight mode counts CODE lines (comments and blanks stripped); otherwise counts raw source lines including comments — so a 1-line return-stub with an 18-line Javadoc would pass min-lines=10 unless tight is also on.">
+      min lines <input type="number" id="sfs-minLines" min="3" max="200" value="${o.minLines}" style="width:48px">
+    </label>
+    <label title="Hide groups whose peak pairwise surprise falls below this threshold (0–1)">
+      min surprise <input type="number" id="sfs-minSurprise" min="0" max="1" step="0.05" value="${o.minSurprise}" style="width:54px">
+    </label>
+    <label title="Sort key — peak: best pair in group; mean: average pair; lines: function size">
+      sort
+      <select id="sfs-sortBy" style="font-size:11px">
+        <option value="peak"${o.sortBy === 'peak' ? ' selected' : ''}>peak</option>
+        <option value="mean"${o.sortBy === 'mean' ? ' selected' : ''}>mean</option>
+        <option value="lines"${o.sortBy === 'lines' ? ' selected' : ''}>lines</option>
+      </select>
+    </label>
+    <label title="Include groups where every instance is byte-identical (default off — those are just verbatim copies)">
+      <input type="checkbox" id="sfs-includeAllExact"${o.includeAllExact ? ' checked' : ''}> all-exact
+    </label>
+    <label title="Use the tight normalizer: requires ≥1 control-flow keyword (drops bag-of-constants idioms and chained defineProperty wrappers) and run-length-collapses repeated statements. First toggle rebuilds the hash table for this index — may take a few seconds on large indexes.">
+      <input type="checkbox" id="sfs-tight"${o.tight ? ' checked' : ''}> tight
+    </label>
+  `;
+  container.appendChild(toolbar);
+
+  const reload = () => {
+    o.minLines = Math.max(3, parseInt($('#sfs-minLines', toolbar).value) || 3);
+    o.minSurprise = Math.max(0, Math.min(1, parseFloat($('#sfs-minSurprise', toolbar).value) || 0));
+    o.sortBy = $('#sfs-sortBy', toolbar).value;
+    o.includeAllExact = $('#sfs-includeAllExact', toolbar).checked;
+    o.tight = $('#sfs-tight', toolbar).checked;
+    const filter = $('#left-filter').value.trim();
+    loadSectionData('surprising-funcstrings', filter);
+  };
+  $('#sfs-minLines', toolbar).addEventListener('change', reload);
+  $('#sfs-minSurprise', toolbar).addEventListener('change', reload);
+  $('#sfs-sortBy', toolbar).addEventListener('change', reload);
+  $('#sfs-includeAllExact', toolbar).addEventListener('change', reload);
+  $('#sfs-tight', toolbar).addEventListener('change', reload);
+
+  if (!groups || !groups.length) {
+    const empty = document.createElement('div');
+    empty.className = 'list-placeholder';
+    empty.textContent = 'No notable funcstring matches at these thresholds';
+    container.appendChild(empty);
+    return;
+  }
+  for (const g of groups) {
+    const shortHash = (g.struct_hash || '').slice(0, 8);
+    const pp = g.peak_pair;
+    const peerHint = pp
+      ? `${pp.a_display || pp.a} ↔ ${pp.b_display || pp.b}`
+      : `${g.count} instances`;
+    const tooltip = `peak surprise ${g.peak_surprise}\n` +
+      `mean surprise ${g.mean_surprise}\n` +
+      `${g.count} instances · ${g.lines} lines · ${g.unique_bodies} unique bodies\n` +
+      `hash ${g.struct_hash}` +
+      (pp ? `\n\npeak pair:\n  ${pp.a_display || pp.a}  (${pp.a_filepath})\n  ${pp.b_display || pp.b}  (${pp.b_filepath})` : '');
+    const item = h('div', { className: 'list-item', title: tooltip }, [
+      h('span', { className: 'rank', text: `${g.rank}` }),
+      h('span', { className: 'metric', text: g.peak_surprise.toFixed(2) }),
+      h('span', { className: 'name clickable', text: peerHint }),
+      h('span', { className: 'metric muted', text: `${g.count}×` }),
+      h('span', { className: 'metric muted', text: `${g.lines}L` }),
+      h('span', { className: 'filepath', text: shortHash + '…' }),
+    ]);
+    item.addEventListener('click', () => renderSurprisingGroupDetail(g));
+    container.appendChild(item);
+  }
+}
+
+function renderSurprisingGroupDetail(group) {
+  const container = $('#middle-top-body'), title = $('#middle-top-title');
+  const shortHash = (group.struct_hash || '').slice(0, 12);
+  title.textContent = `Notable Funcstring Match: ${shortHash}…  (peak ${group.peak_surprise.toFixed(2)})`;
+
+  const pp = group.peak_pair;
+  let html = '<div class="output-section">';
+  html += `<table class="output-table">`;
+  html += `<tr><td class="muted">struct_hash</td><td class="mono" title="${escHtml(group.struct_hash)}">${escHtml(group.struct_hash)}</td></tr>`;
+  const linesDisplay = (group.raw_lines && group.raw_lines !== group.lines)
+    ? `${group.lines} <span class="muted" style="font-size:11px">(${group.raw_lines} incl. comments/blanks)</span>`
+    : `${group.lines}`;
+  html += `<tr><td class="muted">Lines</td><td>${linesDisplay}</td></tr>`;
+  html += `<tr><td class="muted">Instances</td><td>${group.count} (${group.unique_bodies} unique bodies)</td></tr>`;
+  html += `<tr><td class="muted">Peak surprise</td><td><strong>${group.peak_surprise.toFixed(3)}</strong>` +
+          ` &nbsp; <span class="muted" style="font-size:11px">mean ${group.mean_surprise.toFixed(3)}, ${group.pairs_sampled} pair${group.pairs_sampled !== 1 ? 's' : ''} sampled</span></td></tr>`;
+  if (pp) {
+    html += `<tr><td class="muted">Peak pair</td><td><span class="mono">${escHtml(pp.a_display || pp.a)}</span>` +
+            ` ↔ <span class="mono">${escHtml(pp.b_display || pp.b)}</span>` +
+            ` <span class="muted" style="font-size:11px">(name ${pp.nameDist.toFixed(2)}, path ${pp.pathDist.toFixed(2)}${pp.crossLang ? ', cross-lang' : ''})</span></td></tr>`;
+  }
+  html += `</table></div>`;
+
+  html += '<div class="output-section">';
+  html += `<table class="output-table" id="surprising-instances">`;
+  html += `<tr><th>#</th><th>Function</th><th>File</th><th>Body</th></tr>`;
+  // Sort so members of larger exact-body clusters come first (gives a feel of
+  // "this body shape × this many places" the way the Opstrings listing did),
+  // then by filepath for stability.
+  const sorted = [...group.instances].sort((a, b) => {
+    if ((b.exact_copies || 0) !== (a.exact_copies || 0))
+      return (b.exact_copies || 0) - (a.exact_copies || 0);
+    return (a.filepath || '').localeCompare(b.filepath || '');
+  });
+  // Tag distinct body_hash clusters with short labels so the eye can
+  // group rows that share an exact body. A=largest cluster, B=next, etc.
+  const bodyLabel = new Map();
+  let nextLabel = 0;
+  const bodyOrder = [...new Set(sorted.map(i => i.body_hash))];
+  bodyOrder.forEach(h => {
+    bodyLabel.set(h, String.fromCharCode(65 + (nextLabel++ % 26)));
+  });
+  for (let i = 0; i < sorted.length; i++) {
+    const inst = sorted[i];
+    const lbl = bodyLabel.get(inst.body_hash) || '?';
+    const copies = inst.exact_copies || 1;
+    html += `<tr>`;
+    html += `<td class="muted">${i + 1}</td>`;
+    html += `<td class="mono"><span class="clickable" data-funcname="${escHtml(inst.name)}" data-filepath="${escHtml(inst.filepath)}">${escHtml(inst.display_name || inst.name)}</span></td>`;
+    html += `<td class="mono clickable file-link" data-filepath="${escHtml(inst.filepath)}" data-start="${inst.start || ''}" title="${escHtml(inst.filepath)}">${escHtml(shortPath(inst.filepath, 50))}</td>`;
+    html += `<td><span class="type-badge" title="exact-body cluster ${lbl}${copies > 1 ? ` (${copies} copies)` : ''}">${lbl}${copies > 1 ? `·${copies}` : ''}</span></td>`;
+    html += `</tr>`;
+  }
+  html += `</table></div>`;
+
+  if (sorted.length >= 2) {
+    html += `<div class="output-section"><button class="btn-secondary" id="compare-surprising-btn" style="margin:4px 0">Compare Side by Side</button></div>`;
+  }
+  html += `<div class="output-section"><button class="btn-secondary" id="show-funcstring-btn">Show funcstring (structural form)</button>`;
+  html += `<pre id="funcstring-view" style="display:none;white-space:pre-wrap;font-size:11px;color:var(--text-dim);padding:6px;background:var(--bg-dark);border:1px solid var(--border);max-height:300px;overflow:auto;margin-top:4px"></pre></div>`;
+
+  container.innerHTML = html;
+  wireClickables(container, { sourceOnly: true });
+
+  for (const el of $$('.file-link[data-filepath]', container)) {
+    el.addEventListener('click', () => {
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0) return;
+      const startLine = parseInt(el.dataset.start) || undefined;
+      onFileClick(el.dataset.filepath, startLine);
+    });
+  }
+
+  const cmpBtn = $('#compare-surprising-btn', container);
+  if (cmpBtn) {
+    cmpBtn.addEventListener('click', () => {
+      const peerLabel = pp
+        ? `${pp.a_display || pp.a} ↔ ${pp.b_display || pp.b}`
+        : `${shortHash}…`;
+      openCompareView({
+        name: peerLabel,
+        instances: sorted.map(inst => ({
+          filepath: inst.filepath,
+          name: inst.name,
+          display_name: inst.display_name || inst.name,
+          start: inst.start,
+          lines: inst.lines,
+        })),
+      }, 'surprising');
+    });
+  }
+
+  const fBtn = $('#show-funcstring-btn', container);
+  const fView = $('#funcstring-view', container);
+  if (fBtn && fView) {
+    fBtn.addEventListener('click', async () => {
+      fBtn.textContent = 'Loading…';
+      try {
+        const first = sorted[0];
+        const spec = `${first.filepath}@${first.name}`;
+        const data = await api.funcstring({ func: spec });
+        fView.textContent = data.funcstring || '(empty)';
+        fView.style.display = 'block';
+        fBtn.textContent = 'Funcstring';
+      } catch (err) {
+        fView.textContent = `Error: ${err.message}`;
+        fView.style.display = 'block';
+        fBtn.textContent = 'Show funcstring';
+      }
+    });
+  }
+}
+
 function renderDupeDetail(group, type) {
   const container = $('#middle-top-body'), title = $('#middle-top-title');
   const label = type === 'exact' ? 'Exact Dupe' : type === 'near' ? 'Near Dupe' : 'Structural Dupe';
@@ -1272,7 +1515,10 @@ async function openCompareView(group, type) {
 
   const instances = group.instances || [];
   const totalCount = instances.length || (group.files || []).length;
-  const label = type === 'near' ? 'Near Dupe' : type === 'struct' ? 'Structural Dupe' : 'Duplicate';
+  const label = type === 'near' ? 'Near Dupe'
+              : type === 'struct' ? 'Structural Dupe'
+              : type === 'surprising' ? 'Notable Funcstring Match'
+              : 'Duplicate';
   title.textContent = `${label}: ${group.name}`;
 
   // Show up to MAX_COMPARE_PANES at a time
@@ -2656,7 +2902,9 @@ function renderCallInfo(extractData, callersData, calleesData) {
   html += `<div class="output-section"><h3>Function Info: <span class="clickable" data-funcname="${escHtml(extractData.name)}" data-filepath="${escHtml(extractData.filepath)}">${funcLabel}</span></h3><table class="output-table">`;
   html += `<tr><td class="muted">File</td><td class="mono"><span class="clickable" data-filepath="${escHtml(extractData.filepath)}">${escHtml(extractData.filepath)}</span></td></tr>`;
   html += `<tr><td class="muted">Lines</td><td>${extractData.start}–${extractData.end} (${extractData.lines} lines)</td></tr>`;
-  html += `</table></div>`;
+  html += `</table>`;
+  html += `<div style="margin-top:6px"><button class="btn-secondary" id="find-funcstring-peers-btn" data-funcname="${escHtml(extractData.name)}" data-filepath="${escHtml(extractData.filepath)}">Find structural peers</button> <span class="muted" style="font-size:11px">other functions sharing this funcstring, ranked by surprise</span></div>`;
+  html += `</div>`;
 
   const ce = calleesData.callees || [];
   if (ce.length) {
@@ -2696,6 +2944,117 @@ function renderCallInfo(extractData, callersData, calleesData) {
   const expandBtn = $('#show-all-callers', container);
   if (expandBtn) {
     expandBtn.addEventListener('click', () => renderCallersOnly(extractData.name, callersData));
+  }
+
+  const peersBtn = $('#find-funcstring-peers-btn', container);
+  if (peersBtn) {
+    peersBtn.addEventListener('click', () => {
+      const fn = peersBtn.dataset.funcname;
+      const fp = peersBtn.dataset.filepath;
+      const spec = fp ? `${fp}@${fn}` : fn;
+      loadFuncstringPeers(spec, { includeExact: false });
+    });
+  }
+}
+
+async function loadFuncstringPeers(funcSpec, opts = {}) {
+  const includeExact = !!opts.includeExact;
+  showMiddleTopLoading(`Finding structural peers…`);
+  try {
+    const data = await api.funcstringPeers({
+      func: funcSpec,
+      includeExact: includeExact ? 1 : 0,
+    });
+    renderFuncstringPeers(data, funcSpec, includeExact);
+  } catch (err) {
+    showMiddleTopError(err.message);
+  }
+}
+
+function renderFuncstringPeers(data, funcSpec, includeExact) {
+  const container = $('#middle-top-body'), title = $('#middle-top-title');
+  const queryLabel = data.query.display_name || data.query.name;
+  title.textContent = `Structural peers: ${queryLabel}`;
+
+  const peers = data.peers || [];
+  const shortHash = (data.query.struct_hash || '').slice(0, 12);
+
+  let html = '<div class="output-section">';
+  html += `<h3>Structural peers of <span class="clickable" data-funcname="${escHtml(data.query.name)}" data-filepath="${escHtml(data.query.filepath)}">${escHtml(queryLabel)}</span></h3>`;
+  html += `<table class="output-table">`;
+  html += `<tr><td class="muted">File</td><td class="mono"><span class="clickable" data-filepath="${escHtml(data.query.filepath)}">${escHtml(data.query.filepath)}</span></td></tr>`;
+  html += `<tr><td class="muted">Lines</td><td>${data.query.lines}</td></tr>`;
+  html += `<tr><td class="muted">struct_hash</td><td class="mono" title="${escHtml(data.query.struct_hash)}">${escHtml(shortHash)}…</td></tr>`;
+  html += `</table>`;
+
+  html += `<div style="margin:6px 0;font-size:12px">`;
+  html += `<label style="cursor:pointer"><input type="checkbox" id="peers-include-exact" ${includeExact ? 'checked' : ''}> include exact-body matches</label>`;
+  html += `<span class="muted" style="margin-left:12px">${peers.length} peer${peers.length !== 1 ? 's' : ''}${data.truncated ? ` (truncated from ${data.total_peers})` : ''}</span>`;
+  html += `</div>`;
+  html += `</div>`;
+
+  if (peers.length === 0) {
+    html += `<div class="output-section"><p class="muted">No structural peers found${includeExact ? '' : ' (try enabling exact-body matches)'}. This function's structural shape is unique in the index.</p></div>`;
+  } else {
+    html += '<div class="output-section">';
+    html += `<table class="output-table" id="peers-table">`;
+    html += `<tr>`;
+    html += `<th>#</th>`;
+    html += `<th class="sort-col" data-sortby="score">Surprise ▼</th>`;
+    html += `<th class="sort-col" data-sortby="nameDist">Name dist</th>`;
+    html += `<th class="sort-col" data-sortby="pathDist">Path dist</th>`;
+    html += `<th>Cross-lang</th>`;
+    html += `<th>Kind</th>`;
+    html += `<th>Function</th>`;
+    html += `<th>File</th>`;
+    html += `<th>Lines</th>`;
+    html += `</tr>`;
+    for (let i = 0; i < peers.length; i++) {
+      const p = peers[i];
+      const s = p.surprise || {};
+      const kindBadge = p.kind === 'exact-body'
+        ? `<span class="type-badge" title="body bytes identical to query">exact-body</span>`
+        : `<span class="type-badge" style="background:var(--accent-bg,#1a3a4a);color:var(--accent,#7cc)" title="same funcstring, different body text">structural</span>`;
+      const xl = s.crossLang ? `<span title="different file extension">yes</span>` : '<span class="muted">no</span>';
+      html += `<tr data-row-i="${i}">`;
+      html += `<td class="muted">${i + 1}</td>`;
+      html += `<td><strong>${(s.score ?? 0).toFixed(2)}</strong></td>`;
+      html += `<td>${(s.nameDist ?? 0).toFixed(2)}</td>`;
+      html += `<td>${(s.pathDist ?? 0).toFixed(2)}</td>`;
+      html += `<td>${xl}</td>`;
+      html += `<td>${kindBadge}</td>`;
+      html += `<td class="mono"><span class="clickable" data-funcname="${escHtml(p.name)}" data-filepath="${escHtml(p.filepath)}">${escHtml(p.display_name || p.name)}</span></td>`;
+      html += `<td class="mono clickable file-link" data-filepath="${escHtml(p.filepath)}" data-start="${p.start || ''}" title="${escHtml(p.filepath)}">${escHtml(shortPath(p.filepath, 40))}</td>`;
+      html += `<td class="muted">${p.lines || ''}</td>`;
+      html += `</tr>`;
+    }
+    html += `</table></div>`;
+  }
+
+  container.innerHTML = html;
+  wireClickables(container, { sourceOnly: true });
+
+  for (const el of $$('.file-link[data-filepath]', container)) {
+    el.addEventListener('click', () => {
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0) return;
+      const startLine = parseInt(el.dataset.start) || undefined;
+      onFileClick(el.dataset.filepath, startLine);
+    });
+  }
+
+  const cb = $('#peers-include-exact', container);
+  if (cb) {
+    cb.addEventListener('change', () => loadFuncstringPeers(funcSpec, { includeExact: cb.checked }));
+  }
+
+  for (const th of $$('.sort-col', container)) {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', () => {
+      const key = th.dataset.sortby;
+      const sorted = [...(data.peers || [])].sort((a, b) => (b.surprise?.[key] ?? 0) - (a.surprise?.[key] ?? 0));
+      renderFuncstringPeers({ ...data, peers: sorted }, funcSpec, includeExact);
+    });
   }
 }
 
@@ -4771,6 +5130,7 @@ function renderClaimLlmResults(data) {
 
     html += `<div class="output-section" style="margin-top:10px">`
       + `<h3 style="margin:0 0 4px 0;font-size:13px;color:var(--text-secondary)">${data.vocabTight ? 'TIGHT — claim + codebase vocabulary' : 'TIGHT — literal claim language'} (${tightCount})</h3>`
+      + (data.tight.termsStr ? `<div style="display:flex;align-items:flex-start;gap:6px;margin:0 0 6px 0"><code style="flex:1;min-width:0;background:var(--bg-tertiary);padding:3px 6px;border-radius:3px;font-size:11px;white-space:pre-wrap;word-break:break-all;overflow-x:auto">${escHtml(data.tight.termsStr)}</code><button class="copy-multisect-btn" data-tier="tight" style="flex:0 0 auto;font-size:11px;padding:2px 6px;cursor:pointer" title="Copy multisect string">📋 Copy</button></div>` : '')
       + _renderScopeViews(data.tight, { showLegend: true })
       + `</div>`;
   }
@@ -4794,6 +5154,7 @@ function renderClaimLlmResults(data) {
 
     html += `<div class="output-section" style="margin-top:10px">`
       + `<h3 style="margin:0 0 4px 0;font-size:13px;color:var(--text-secondary)">BROAD — implementation patterns (${broadCount})</h3>`
+      + (data.broad.termsStr ? `<div style="display:flex;align-items:flex-start;gap:6px;margin:0 0 6px 0"><code style="flex:1;min-width:0;background:var(--bg-tertiary);padding:3px 6px;border-radius:3px;font-size:11px;white-space:pre-wrap;word-break:break-all;overflow-x:auto">${escHtml(data.broad.termsStr)}</code><button class="copy-multisect-btn" data-tier="broad" style="flex:0 0 auto;font-size:11px;padding:2px 6px;cursor:pointer" title="Copy multisect string">📋 Copy</button></div>` : '')
       + _renderScopeViews(data.broad, { showLegend: true })
       + `</div>`;
   }
@@ -4805,6 +5166,17 @@ function renderClaimLlmResults(data) {
   container.innerHTML = html;
   wireClickables(container, { sourceOnly: true });
   _wireMultisectToggles(container);
+
+  container.querySelectorAll('.copy-multisect-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tier = btn.dataset.tier;
+      const str = (tier === 'tight' ? data.tight?.termsStr : data.broad?.termsStr) || '';
+      copyToClipboard(str).then(
+        () => { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = orig; }, 1500); },
+        () => { btn.textContent = 'Failed'; }
+      );
+    });
+  });
 }
 
 
