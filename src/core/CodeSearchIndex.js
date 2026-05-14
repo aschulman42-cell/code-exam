@@ -21,6 +21,7 @@ import {
 } from '../utils.js';
 import { expandArchive, isSupportedArchive, createArchiveStats } from '../archive.js';
 import { processBinary, BINSTRING_EXTENSIONS } from '../binstrings.js';
+import { LOW_DISCRIMINATION_STOPWORDS } from '../commands/claim.js';
 import { createRequire } from 'module';
 
 // js-beautify: optional dependency for prettifying minified JS during indexing
@@ -8428,6 +8429,10 @@ export class CodeSearchIndex {
     for (const entry of topEntries) {
       const parts = splitCompoundToken(entry.token);
       for (const part of parts) {
+        // Skip low-discrimination bare nouns the extraction prompt already
+        // tells the LLM to ignore (issue #2 item 5). Lowercased compare so
+        // 'Name' and 'name' both filter.
+        if (LOW_DISCRIMINATION_STOPWORDS.has(part.toLowerCase())) continue;
         if (!subTokenMap.has(part)) {
           subTokenMap.set(part, {
             score: 0,

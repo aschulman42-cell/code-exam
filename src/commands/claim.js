@@ -20,14 +20,35 @@ import https from 'https';
 import http from 'http';
 
 // ============================================================================
-// LLM Prompt for patent claim -> search term extraction
+// LLM Prompt for technical-prose -> search term extraction
+// (Inputs are typically patent claims, but also RFCs, standards docs, design
+//  specs, etc. — anything that describes a software system in formal prose.)
 // ============================================================================
 
-const _CLAIM_EXTRACTION_PROMPT = `\
-You are a patent-claim-to-source-code keyword extractor with expertise in \
-both patent law terminology and software engineering implementation patterns.
+// Low-discrimination bare nouns the TIGHT-extraction prompt instructs the LLM
+// to skip. Used both inside the prompt strings below AND by the vocabulary
+// builder in CodeSearchIndex.js so the codebase-vocabulary concordance is
+// pre-filtered to the same words the prompt is already saying to ignore.
+// (Two systems used to have disjoint stop-lists — issue #2 item 5.)
+const _LOW_DISCRIMINATION_STOPWORDS = new Set([
+  'object', 'data', 'name', 'common', 'version', 'supported', 'requirement',
+  'presented', 'matches', 'parameters', 'parameter', 'extensions', 'exchange',
+  'application', 'context', 'request', 'response', 'value', 'type',
+  'configuration', 'content', 'information', 'operation', 'function',
+  'process', 'channel', 'layer', 'format', 'list', 'array', 'table', 'field',
+  'record', 'attribute', 'property', 'state', 'client', 'server', 'user',
+  'group', 'session', 'key', 'message',
+]);
+export { _LOW_DISCRIMINATION_STOPWORDS as LOW_DISCRIMINATION_STOPWORDS };
 
-INPUT: A patent claim (or set of claims) describing a software system.
+const _CLAIM_EXTRACTION_PROMPT = `\
+You are a technical-prose-to-source-code keyword extractor with expertise in \
+both formal technical writing (patent claims, standards documents, design \
+specs, RFCs) and software engineering implementation patterns.
+
+INPUT: A technical-prose description of a software system (typically a patent \
+claim, but also a specification excerpt, standards-document section, design \
+spec, or similar formal description).
 
 TASK: Extract TWO sets of search terms for a code-search tool. The tool \
 finds the smallest code location (function -> file -> folder) containing \
@@ -45,25 +66,25 @@ TERM SYNTAX:
 
 ============================================================================
 
-TIGHT SEARCH - literal claim language, narrow:
-  Purpose: Find code that uses the EXACT terminology from the claim.
+TIGHT SEARCH - literal source-text language, narrow:
+  Purpose: Find code that uses the EXACT terminology from the input.
   Rules:
-  - Extract keywords that appear directly in the claim text.
+  - Extract keywords that appear directly in the input text.
   - Use regex only for morphological variants (/exchang|transfer/).
   - NEGATION GATING (apply BEFORE you even consider emitting any NOT term):
-    Scan the claim text for explicit exclusion language: "without",
+    Scan the input text for explicit exclusion language: "without",
     "except", "other than", "instead of", "not including", "rather than",
     "excluding", "absent". You must find one of these literal phrases.
     * If NONE appear: emit ZERO NOT terms. Do NOT invent exclusions.
-      NOT is for what the claim explicitly disclaims, NOT for what you
+      NOT is for what the input explicitly disclaims, NOT for what you
       assume is the implicit opposite or the negative of what's mentioned.
-      A patent claim about "secure connections" does NOT imply NOT /tcp|udp/.
+      An input about "secure connections" does NOT imply NOT /tcp|udp/.
     * If exclusion language IS present: generate a narrow NOT term for
       ONLY the specific thing excluded — not broader concepts.
       Example: "without utilizing network protocols" -> NOT /protocol|tcp|udp|http/
       (do NOT include bare "network" — too broad, matches "neural network").
   - Skip purely abstract phrasing ("a method comprising", "a system").
-  - NEVER include these generic patent-boilerplate words as search terms:
+  - NEVER include these generic formal-prose boilerplate words as search terms:
     method, device, apparatus, system, step, means, unit, module,
     component, element, embodiment, implementation, comprising, wherein.
     These appear in virtually every source file and provide zero
@@ -75,7 +96,7 @@ TIGHT SEARCH - literal claim language, narrow:
 draft list has more than 12 terms, you MUST PRUNE before emitting.
 
   ALSO DROP these low-discrimination bare nouns even though they appear in \
-the claim text - they match too many files in any codebase to be useful:
+the input text - they match too many files in any codebase to be useful:
     object, data, name, common, version, supported, requirement,
     presented, matches, parameters, extensions, exchange, application,
     context, request, response, value, type, configuration, content,
@@ -83,39 +104,39 @@ the claim text - they match too many files in any codebase to be useful:
     list, array, table, field, record, attribute, property, state,
     client, server, user, group, session, key, message.
   Include these ONLY if they are part of a multi-word compound term AND \
-the compound term itself appears in the claim (e.g. "session key" is \
+the compound term itself appears in the input (e.g. "session key" is \
 borderline; just "session" or just "key" alone is NOT acceptable).
 
   PRUNING ALGORITHM (apply mentally before emitting):
-  1. Draft candidate list from the claim text.
+  1. Draft candidate list from the input text.
   2. Drop any bare noun from the low-discrimination list above.
   3. Drop any term that names a generic action verb (perform, configure, \
 load, transmit, select, validate, check, confirm) UNLESS the verb itself \
-is the discriminative concept of the claim (e.g. "handshake" stays).
+is the discriminative concept of the input (e.g. "handshake" stays).
   4. If still > 12 terms, drop terms in descending order of how many \
 unrelated codebases would also match them.
   5. The 12 you keep should be the ones that, taken together, identify \
-THIS claim distinctly from a generic patent on the same broad topic.
+THIS input distinctly from a generic description on the same broad topic.
 
-  Aim for 5-10 positive terms; emit 12 only if the claim is genuinely \
+  Aim for 5-10 positive terms; emit 12 only if the input is genuinely \
 that complex. + any NOT terms.
 
 ============================================================================
 
 BROAD SEARCH - implementation-aware, expansive:
-  Purpose: Find code that IMPLEMENTS the claim, even if it uses \
+  Purpose: Find code that IMPLEMENTS what is described, even if it uses \
 completely different terminology. Think like a developer.
-  
+
   Rules:
   1. IMPLEMENTATION SYNONYMS: What would a developer actually NAME these \
 things in code? A "facade server" might be called: wrapper, shim, \
 adapter, front_end, proxy, gateway, bridge, middleware. Include these.
 
   2. NEGATION -> ALTERNATIVE MECHANISMS (CRITICAL):
-     When a claim says "without utilizing X", this implies the invention \
-uses an ALTERNATIVE to X. You MUST generate positive search terms \
+     When the input says "without utilizing X", this implies the described \
+system uses an ALTERNATIVE to X. You MUST generate positive search terms \
 for plausible alternatives, not just NOT terms.
-     
+
      Examples:
      - "without utilizing network protocols" -> the code must communicate \
 some other way. Search FOR: /loopback|localhost|127\\.0\\.0\\.1/; \
@@ -124,18 +145,18 @@ some other way. Search FOR: /loopback|localhost|127\\.0\\.0\\.1/; \
      - "without opening network ports" -> Search FOR: \
 /loopback|localhost/; /unix.socket|domain.socket/; /pipe|fifo/
      - "without a database" -> Search FOR: /file.system|flat.file|csv|json/
-     
+
      Also include narrower NOT terms: NOT /tcp|udp|http/ (but NOT bare \
 "network" or "port" - these are too broad).
-  
+
   3. ARCHITECTURAL PATTERNS: Include design pattern names that implement \
-the claim's architecture: /adapter|bridge|mediator|facade|proxy|wrapper/
+the described architecture: /adapter|bridge|mediator|facade|proxy|wrapper/
 
   4. Use regex alternations generously: /term1|term2|term3/ counts as \
 ONE search term but matches any of them.
 
-  5. Include alternative mechanisms for each claim element, not just \
-the literal words. If the claim says "exchanging data", a developer \
+  5. Include alternative mechanisms for each described element, not just \
+the literal words. If the input says "exchanging data", a developer \
 might use: serialize, marshal, transfer, send, recv, pipe, stream.
 
   6. Aim for 10-20 positive terms + NOT terms.
@@ -150,23 +171,23 @@ might use: serialize, marshal, transfer, send, recv, pipe, stream.
 
 FORMAT EXAMPLE (for illustration of output FORMAT ONLY - do NOT copy these terms):
 The following shows the STRUCTURE of your response. The actual terms \
-MUST come from the user's patent claim, NOT from this example.
+MUST come from the user's input text, NOT from this example.
 
 Example input: "A system comprising a facade server that hosts an application \
 and creates an interface to a web-browser for exchanging data, wherein \
 the facade server operates without utilizing network protocols and \
 without opening network ports."
 
-Example output (DO NOT COPY - these terms are for the facade patent above, not the user's patent):
+Example output (DO NOT COPY - these terms are for the facade example above, not the user's input):
 TIGHT: /facade|proxy/;server;/browser|web/;interface;/exchang|transfer/;application;host;NOT /protocol|tcp|udp|http/;NOT /port|socket|listen/
 BROAD: /facade|proxy|gateway|wrapper|shim|adapter|bridge/;server;/browser|web|front.end/;/interface|adapter|mediator|bridge/;/exchang|transfer|marshal|serial/;/application|app/;/host|embed|in.process|local/;/loopback|localhost|127\\.0\\.0\\.1/;/IPC|ipc|inter.process/;/shared.memory|shm|mmap/;/named.pipe|pipe|fifo/;/cgi.bin|cgi|local.cgi/;/legacy|moderniz|wrapper/;NOT /protocol|tcp|udp|http/;NOT /listen.*port|bind.*port|open.*port/
 
 ============================================================================
 
-COUNTER-EXAMPLE (claim has NO exclusion language, so output has NO NOT terms):
-Note that the prior facade example has "without utilizing" twice in the claim
-text — that is why it has NOT terms. Most claims do NOT contain such language.
-When a claim merely DESCRIBES what something does, without DISCLAIMING anything,
+COUNTER-EXAMPLE (input has NO exclusion language, so output has NO NOT terms):
+Note that the prior facade example has "without utilizing" twice in the input
+text — that is why it has NOT terms. Most inputs do NOT contain such language.
+When the input merely DESCRIBES what something does, without DISCLAIMING anything,
 emit ZERO NOT terms.
 
 Example input: "A method for establishing a secure communication connection \
@@ -175,24 +196,24 @@ context; negotiating cipher parameters; performing a handshake protocol exchange
 verifying a certificate chain; and transmitting application data over an \
 encrypted channel using session keys."
 
-Example output (note: no NOT line because the claim has no 'without' / 'except' \
+Example output (note: no NOT line because the input has no 'without' / 'except' \
 / 'other than' language anywhere):
 TIGHT: /cryptograph|crypto/;/handshake/;/cipher/;certificate;/negotiat/;chain;hostname;session;/encrypt/;/transmit|transfer/
 BROAD: /cryptograph|crypto|cipher/;/handshake|hello/;/certificate|cert|x509/;/negotiat|exchang/;/chain|validat/;/hostname|host|fqdn/;/session|sslsession/;/encrypt|tls|ssl/;/transmit|send|write/;/key|secret/
 
-(There would be a NOT line here ONLY if the claim said something like "without \
+(There would be a NOT line here ONLY if the input said something like "without \
 utilizing TLS" or "except via shared memory" — which it does not.)
 
 ============================================================================
 
-CRITICAL: The example above is ONLY about a "facade server" patent. \
+CRITICAL: The example above is ONLY about a "facade server" example. \
 You MUST ignore those example terms entirely and generate NEW terms \
-based on the ACTUAL patent claim the user provides below.
-If the user's patent is about audio compression, your terms must be about \
+based on the ACTUAL input text the user provides below.
+If the user's input is about audio compression, your terms must be about \
 audio/compression/codec - NOT facade/server/browser.
 
 Respond with ONLY the two labeled lines. No explanation, no preamble.
-Extract terms from the user's ACTUAL patent claim text:
+Extract terms from the user's ACTUAL input text:
 TIGHT: ...
 BROAD: ...`;
 
@@ -370,7 +391,8 @@ function _httpPost(url, body, headers) {
 // ============================================================================
 
 const _CLAIM_EXTRACTION_PROMPT_LOCAL = `\
-Extract search terms from a patent claim for a code search tool.
+Extract search terms from a technical-prose input (patent claim, RFC, \
+standards excerpt, design spec, etc.) for a code search tool.
 
 OUTPUT: Exactly two lines:
 TIGHT: term1;term2;/regex/;NOT negated;...
@@ -382,24 +404,24 @@ SYNTAX:
 - NOT word: the code must NOT contain this word
 - NOT /word1|word2/: negated regex
 
-TIGHT terms: Use the actual technical words from the claim text. \
-Skip generic patent words: method, system, device, apparatus, comprising, wherein. \
-ALSO drop these low-discrimination bare nouns even if they're in the claim: \
+TIGHT terms: Use the actual technical words from the input text. \
+Skip generic boilerplate words: method, system, device, apparatus, comprising, wherein. \
+ALSO drop these low-discrimination bare nouns even if they appear in the input: \
 object, data, name, common, version, supported, requirement, parameters, \
 context, request, response, value, type, content, channel, layer, list, \
 field, attribute, property, state, client, server, user, session, key, message. \
 Use /regex/ only for morphological variants of the same word. \
 HARD MAXIMUM 12 terms. Prune ruthlessly. The 12 you keep should distinguish \
-THIS claim from a generic patent on the same topic.
+THIS input from a generic description on the same topic.
 
-BROAD terms: Think like a software developer implementing the claim. \
+BROAD terms: Think like a software developer implementing what's described. \
 What variable names, function names, and class names would they use? \
 Add programming synonyms and design pattern names. \
 Use /word1|word2|word3/ to group synonyms as one term. \
 Aim for 10-20 terms.
 
-IMPORTANT: Only generate terms from the patent claim below. \
-Do NOT invent terms unrelated to the claim.
+IMPORTANT: Only generate terms based strictly upon the input text below. \
+Do NOT invent terms unrelated to its subject matter.
 
 Respond with ONLY the two labeled lines, nothing else.`;
 
