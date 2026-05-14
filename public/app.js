@@ -2480,6 +2480,63 @@ async function onClassClick(className) {
   } catch (err) { showMiddleTopError(err.message); }
 }
 
+/** Class-row click from multisect/claim-search results: render method list in
+ *  middle-bottom (preserves results in middle-top) and sync the left-pane
+ *  Classes accordion. Matches the function-row sourceOnly pattern. TODO #369. */
+async function onClassClickSourceOnly(className) {
+  showMiddleBottomLoading(`Loading class ${className}…`);
+  try {
+    const data = await api.classMethods({ name: className });
+    renderClassMethodsIntoMiddleBottom(data);
+  } catch (err) {
+    showMiddleBottomError(err.message);
+  }
+  expandClassInLeftPane(className);
+}
+
+function renderClassMethodsIntoMiddleBottom(data) {
+  const container = $('#middle-bottom-body');
+  const title = $('#middle-bottom-title');
+  title.textContent = `Class: ${data.name} (${data.method_count} methods, ${data.total_lines} lines)`;
+  let html = `<div class="output-section"><h3>Methods</h3>`;
+  if (data.inferred) html += `<p style="color:var(--text-muted);font-size:11px;margin-bottom:6px">(Inferred from :: qualified method names)</p>`;
+  html += '<table class="output-table"><tr><th>Method</th><th>File</th><th>Lines</th></tr>';
+  for (const m of data.methods) {
+    html += `<tr><td class="mono"><span class="clickable" data-funcname="${escHtml(m.name)}" data-filepath="${escHtml(m.filepath)}">${escHtml(m.name)}</span></td>`;
+    html += `<td class="mono muted">${escHtml(shortPath(m.filepath, 30))}</td><td>${m.lines}</td></tr>`;
+  }
+  container.innerHTML = html + '</table></div>';
+  // sourceOnly: clicking a method shows source here (replaces this table); user can back-nav.
+  wireClickables(container, { sourceOnly: true });
+}
+
+/** Open the left-pane Classes accordion section, expand the sub-entry for
+ *  className, and scroll to it. Silently no-ops if the class isn't in the
+ *  currently-loaded subset (e.g. listClasses returned only the top 200). */
+async function expandClassInLeftPane(className) {
+  const section = $('.accordion-section[data-section="classes"]');
+  if (!section) return;
+  if (!section.classList.contains('open')) {
+    section.classList.add('open');
+    const filter = $('#left-filter').value.trim();
+    try { await loadSectionData('classes', filter); } catch { /* fall through */ }
+  }
+  const sub = $(`.sub-accordion[data-class="${cssEscape(className)}"]`, section);
+  if (!sub) return;
+  if (!sub.classList.contains('open')) {
+    sub.classList.add('open');
+    const subContent = $('.sub-accordion-content', sub);
+    if (subContent && subContent.children.length === 0) {
+      loadClassMethods(className, subContent);
+    }
+  }
+  sub.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function cssEscape(s) {
+  return (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/["\\]/g, '\\$&');
+}
+
 async function onVocabClick(token) {
   state.highlightTerms = { terms: [token], colors: HIGHLIGHT_COLORS };
   showMiddleTopLoading(`Files containing "${token}"…`);
@@ -3492,7 +3549,7 @@ function _renderScopeViews(views, opts = {}) {
         const m = cm[i];
         const fileLabel = m.files.length === 1 ? shortPath(m.files[0], 40) : `${m.files.length} files`;
         html += `<tr><td class="muted"><span class="ms-toggle" title="Show evidence">▶</span>${i + 1}</td><td class="mono">`
-          + escHtml(m.class_name)
+          + `<span class="clickable" data-classname="${escHtml(m.class_name)}">${escHtml(m.class_name)}</span>`
           + `<span class="muted" style="font-size:10px"> in ${escHtml(fileLabel)}</span>`
           + matchedBadge(m) + idfBadge(m) + missingBadge(m)
           + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.functions.length}</td><td>${m.total_lines}</td></tr>`;
@@ -3624,6 +3681,14 @@ function wireClickables(container, opts = {}) {
         showContextMenu(e, { name: null, display_name: el.dataset.filepath.split('/').pop(), filepath: el.dataset.filepath });
       });
     }
+  }
+  // Wire class clicks (multisect/claim-search class rows — TODO #369)
+  for (const el of $$('.clickable[data-classname]', container)) {
+    el.addEventListener('click', () => {
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0) return;
+      onClassClickSourceOnly(el.dataset.classname);
+    });
   }
 }
 
