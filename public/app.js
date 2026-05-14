@@ -4933,6 +4933,8 @@ function initWorkspace() {
   });
 
   $('#ws-run').addEventListener('click', runWorkspace);
+  $('#ws-show-prompt').addEventListener('click', showExtractionPrompt);
+  setupExtractionPromptOverlay();
 
   // Model browser button
   $('#ws-browse-model').addEventListener('click', openModelBrowser);
@@ -4961,6 +4963,57 @@ function initWorkspace() {
       document.addEventListener('mousemove', onMouseMove);
       document.addEventListener('mouseup', onMouseUp);
     });
+  }
+}
+
+// ========================================================================
+// Extraction-prompt viewer (TODO #368, input-side half).
+// Non-modal floating-panel popup — main UI stays interactive while open.
+// ========================================================================
+
+function setupExtractionPromptOverlay() {
+  const panel = $('#extraction-prompt-overlay');
+  if (!panel) return;
+  $('#extraction-prompt-close').addEventListener('click', () => panel.classList.add('hidden'));
+  makeDraggable(panel, $('#extraction-prompt-drag-handle'));
+  makeResizable(panel, $('#extraction-prompt-resize-se'));
+}
+
+async function showExtractionPrompt() {
+  const panel = $('#extraction-prompt-overlay');
+  const body = $('#extraction-prompt-body');
+  const meta = $('#extraction-prompt-meta');
+  if (!panel || !body) return;
+
+  let claim = $('#claim-text').value.trim();
+  if (!claim) {
+    meta.textContent = '';
+    body.textContent = 'Paste a claim in the workspace textarea first, then click "Show extraction prompt".';
+    panel.classList.remove('hidden');
+    return;
+  }
+  claim = stripAtFileHeader(claim);
+
+  const engine = $('#ws-engine').value;
+  const vocabTight = $('#ws-vocab-tight')?.checked || false;
+  const noVocabulary = $('#ws-no-vocab')?.checked || false;
+
+  meta.textContent = 'loading…';
+  body.textContent = '';
+  panel.classList.remove('hidden');
+
+  try {
+    const data = await api.claimExtractionPrompt({ claim, engine, vocabTight, noVocabulary });
+    const kwCount = (data.keywords || []).length;
+    meta.textContent = `engine: ${data.engine} • vocab: ${data.vocabChars} chars • keywords: ${kwCount}`;
+    body.innerHTML =
+        `<div style="color:var(--text-muted);margin-bottom:4px">— SYSTEM PROMPT —</div>`
+      + `<div style="margin-bottom:14px">${escHtml(data.systemPrompt || '')}</div>`
+      + `<div style="color:var(--text-muted);margin-bottom:4px">— USER MESSAGE (claim) —</div>`
+      + `<div>${escHtml(data.userMessage || '')}</div>`;
+  } catch (err) {
+    meta.textContent = '';
+    body.textContent = `Error: ${err.message}`;
   }
 }
 

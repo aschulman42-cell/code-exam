@@ -318,6 +318,7 @@
         </div>
         <div class="control-group">
           <button id="ws-run" class="btn-primary">▶ Run</button>
+          <button id="ws-show-prompt" class="btn-secondary" style="font-size:11px;padding:2px 6px;margin-left:4px" title="Show the assembled LLM extraction prompt (claim text + vocab concordance + system instructions). Opens a non-modal popup; the main UI stays interactive.">Show extraction prompt</button>
         </div>
         <span class="ws-hint" style="font-size:11px;color:#888;margin-left:8px">Tip: Right-click a function or file in the middle pane to analyze individually.</span>
       </div>
@@ -451,6 +452,17 @@
     </div>
     <div id="compare-body" class="floating-body" style="gap:1px;background:var(--border)"></div>
     <div class="floating-resize-se" id="compare-resize-se"></div>
+  </div>
+
+  <!-- EXTRACTION PROMPT FLOATING PANEL (non-modal: main UI stays interactive) -->
+  <div id="extraction-prompt-overlay" class="floating-panel hidden" style="width:55vw;height:65vh;top:10vh;right:3vw">
+    <div class="floating-header" id="extraction-prompt-drag-handle">
+      <span id="extraction-prompt-title">Extraction Prompt</span>
+      <span id="extraction-prompt-meta" style="font-size:12px;color:var(--text-muted);font-weight:400"></span>
+      <button class="pane-action" id="extraction-prompt-close" title="Close" style="font-size:16px">✕</button>
+    </div>
+    <div id="extraction-prompt-body" class="floating-body" style="flex-direction:column;overflow:auto;padding:8px;font-family:var(--font-mono,monospace);font-size:12px;white-space:pre-wrap;word-break:break-word"></div>
+    <div class="floating-resize-se" id="extraction-prompt-resize-se"></div>
   </div>
 
   <!-- GENERIC FULLSCREEN -->
