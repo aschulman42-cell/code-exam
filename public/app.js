@@ -5048,11 +5048,13 @@ async function showExtractionPrompt() {
   const panel = $('#extraction-prompt-overlay');
   const body = $('#extraction-prompt-body');
   const meta = $('#extraction-prompt-meta');
+  const caption = $('#extraction-prompt-caption');
   if (!panel || !body) return;
 
   let claim = $('#claim-text').value.trim();
   if (!claim) {
     meta.textContent = '';
+    if (caption) caption.style.display = 'none';
     body.textContent = 'Paste a claim in the workspace textarea first, then click "Show extraction prompt".';
     panel.classList.remove('hidden');
     return;
@@ -5062,6 +5064,21 @@ async function showExtractionPrompt() {
   const engine = $('#ws-engine').value;
   const vocabTight = $('#ws-vocab-tight')?.checked || false;
   const noVocabulary = $('#ws-no-vocab')?.checked || false;
+
+  // Caption: this popup renders only one branch of the Vocab-Tight conditional.
+  // Tell the user the other variant exists and how to see it.
+  if (caption) {
+    if (noVocabulary) {
+      caption.style.display = 'none';
+    } else {
+      const cur = vocabTight ? 'ON' : 'OFF';
+      const other = vocabTight ? 'OFF' : 'ON';
+      caption.textContent =
+        `Showing the Vocab-Tight = ${cur} variant. `
+        + `Toggle the checkbox and reopen to see the ${other} variant.`;
+      caption.style.display = '';
+    }
+  }
 
   meta.textContent = 'loading…';
   body.textContent = '';
@@ -5078,6 +5095,7 @@ async function showExtractionPrompt() {
       + `<div>${escHtml(data.userMessage || '')}</div>`;
   } catch (err) {
     meta.textContent = '';
+    if (caption) caption.style.display = 'none';
     body.textContent = `Error: ${err.message}`;
   }
 }
