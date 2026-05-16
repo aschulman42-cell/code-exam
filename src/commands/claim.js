@@ -536,10 +536,10 @@ export function buildExtractionPromptWithVocab(vocabConcordance, vocabTight = fa
   if (!vocabConcordance) return _CLAIM_EXTRACTION_PROMPT;
 
   const tightGuidance = vocabTight
-    ? `For TIGHT terms: you may also use vocabulary words that appear in the claim \
-or are close morphological variants of claim words. This can improve matching \
-when the codebase uses specific terminology.`
-    : `For TIGHT terms: ignore the vocabulary - use only words from the claim text.`;
+    ? `For TIGHT terms: you may also use vocabulary words that appear in the \
+input text or are close morphological variants of input words. This can \
+improve matching when the codebase uses specific terminology.`
+    : `For TIGHT terms: ignore the vocabulary - use only words from the input text.`;
 
   return _CLAIM_EXTRACTION_PROMPT + `
 
@@ -550,7 +550,7 @@ TARGET CODEBASE VOCABULARY - use this to improve BROAD term generation.
 The following vocabulary was extracted from the codebase being searched. \
 For BROAD terms, PREFER using words from this vocabulary over guessing \
 synonyms. These are actual identifiers, variable names, and function \
-names that exist in the code. Map patent claim concepts to these terms \
+names that exist in the code. Map input-text concepts to these terms \
 when there is a reasonable semantic connection.
 
 ${tightGuidance}
@@ -558,8 +558,8 @@ ${tightGuidance}
 ${vocabConcordance}
 
 IMPORTANT: Do NOT include vocabulary terms that have no plausible \
-connection to the patent claim. Only select terms that a developer \
-might use to implement the concepts described in the claim.`;
+connection to the input text. Only select terms that a developer \
+might use to implement the concepts described in the input text.`;
 }
 
 
