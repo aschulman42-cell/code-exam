@@ -561,7 +561,7 @@ METRICS / DISCOVERY:
                              "substantially all" terms. Default requires ALL positive terms;
                              use --min-terms N to require only N of them (partial matching).
                              Terms in /.../ are regex. Prefix with NOT or ! to negate.
-  --in <pattern>            Restrict vocabulary scan to files whose path matches pattern
+  --in <pattern>            Universal path filter — restrict search, multisect & vocabulary output to files whose path contains <pattern>
   --show-dupes               Show file duplicate paths in output
 
 CLAIM SEARCH (LLM-based patent claim analysis):

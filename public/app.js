@@ -4193,9 +4193,9 @@ function saveDiagramSvg(viewport) {
   const svg = viewport?.querySelector('svg');
   if (!svg) return;
   const defaultName = (state.lastMermaidRoot || 'diagram') + '.svg';
-  showSearchDialog('Save SVG', 'Filename (saves to Downloads):').then(name => {
-    if (!name) return;
-    name = sanitizeDownloadName(name);
+  showSearchDialog('Save SVG', 'Filename (saves to Downloads):').then(r => {
+    if (!r) return;
+    let name = sanitizeDownloadName(r.query);
     if (!name.endsWith('.svg')) name += '.svg';
     const svgData = new XMLSerializer().serializeToString(svg);
     const blob = new Blob([svgData], { type: 'image/svg+xml' });
@@ -4212,9 +4212,9 @@ function saveDiagramPng(viewport) {
   const svg = viewport?.querySelector('svg');
   if (!svg) return;
   const defaultName = (state.lastMermaidRoot || 'diagram') + '.png';
-  showSearchDialog('Save PNG', 'Filename (saves to Downloads):').then(name => {
-    if (!name) return;
-    name = sanitizeDownloadName(name);
+  showSearchDialog('Save PNG', 'Filename (saves to Downloads):').then(r => {
+    if (!r) return;
+    let name = sanitizeDownloadName(r.query);
     if (!name.endsWith('.png')) name += '.png';
     const origTransform = viewport.style.transform;
     viewport.style.transform = 'scale(1)';
@@ -4847,28 +4847,31 @@ async function handleMenuAction(action) {
     case 'search-literal': case 'search-regex': case 'search-fast': {
       const label = action === 'search-literal' ? 'Literal' : action === 'search-regex' ? 'Regex' : 'Fast';
       const type = action === 'search-regex' ? 'regex' : action === 'search-fast' ? 'fast' : 'literal';
-      let query = await showSearchDialog(`${label} Search`, `${label} search:`);
-      if (!query) return;
+      const r = await showSearchDialog(`${label} Search`, `${label} search:`);
+      if (!r) return;
+      let query = r.query;
       // Strip /slashes/ from regex patterns
       if (type === 'regex') { const m = query.match(/^\/(.+)\/([gimsuy]*)$/); if (m) query = m[1]; }
       showMiddleTopLoading(`Searching: "${query}"…`);
-      try { renderSearchResults(query, await api.search({ q: query, type, max: 30 })); } catch (err) { showMiddleTopError(err.message); }
+      try { renderSearchResults(query, await api.search({ q: query, type, max: 30, in: r.inPath })); } catch (err) { showMiddleTopError(err.message); }
       break;
     }
     case 'files-search': {
-      const term = await showSearchDialog('Files Search', 'Files containing:');
-      if (!term) return;
+      const r = await showSearchDialog('Files Search', 'Files containing:');
+      if (!r) return;
+      const term = r.query;
       state.highlightTerms = { terms: [term], colors: HIGHLIGHT_COLORS };
-      try { renderFilesSearchResults(term, await api.filesSearch({ q: term, max: 40 })); } catch (err) { showMiddleTopError(err.message); }
+      try { renderFilesSearchResults(term, await api.filesSearch({ q: term, max: 40, in: r.inPath })); } catch (err) { showMiddleTopError(err.message); }
       break;
     }
     case 'search-multisect': {
-      const terms = await showSearchDialog('Multisect Search', 'Terms (semicolon-separated):');
-      if (!terms) return;
+      const r = await showSearchDialog('Multisect Search', 'Terms (semicolon-separated):');
+      if (!r) return;
+      const terms = r.query;
       const minTermsVal = parseInt($('#ws-min-terms')?.value) || 0;
       showMiddleTopLoading(`Running multisect search… (Min Terms: ${minTermsVal === 0 ? 'all' : minTermsVal})`);
       try {
-        const data = await api.multisect({ terms, max: 30, min_terms: minTermsVal });
+        const data = await api.multisect({ terms, max: 30, min_terms: minTermsVal, in: r.inPath || undefined });
         renderMultisectResults(data);
       } catch (err) { showMiddleTopError(err.message); }
       break;
@@ -4884,11 +4887,17 @@ async function handleMenuAction(action) {
 // Per-title cache of last-entered value, so reopening "Multisect Search"
 // re-fills the prior term string. "Save *" dialogs are excluded from caching.
 const _searchDialogLastValue = {};
+const _searchDialogLastInPath = {};
 
+// Resolves to { query, inPath } on OK, or null on cancel/close. inPath is the
+// optional 'In path (filter)' value; empty string when unfiltered. The
+// in-path row is hidden for non-cacheable 'Save *' dialogs.
 function showSearchDialog(title, label) {
   return new Promise((resolve) => {
     const overlay = $('#search-overlay');
     const input = $('#search-dialog-input');
+    const inPathRow = $('#search-dialog-inpath-row');
+    const inPathInput = $('#search-dialog-inpath');
     const okBtn = $('#search-dialog-ok');
     const cancelBtn = $('#search-dialog-cancel');
     const closeBtn = $('#search-dialog-close');
@@ -4899,19 +4908,29 @@ function showSearchDialog(title, label) {
     $('#search-dialog-label').childNodes[0].textContent = (label || 'Query:') + ' ';
     okBtn.textContent = cacheable ? 'Search' : 'Save';
     input.value = cacheable ? (_searchDialogLastValue[key] || '') : '';
+    // The 'In path' filter applies only to real searches, not 'Save *' dialogs.
+    inPathRow.style.display = cacheable ? '' : 'none';
+    inPathInput.value = cacheable ? (_searchDialogLastInPath[key] || '') : '';
     overlay.classList.remove('hidden');
     setTimeout(() => { input.focus(); input.select(); }, 100);
 
-    function cleanup(value) {
+    function cleanup(result) {
       overlay.classList.add('hidden');
-      if (cacheable && value) _searchDialogLastValue[key] = value;
+      if (cacheable && result) {
+        _searchDialogLastValue[key] = result.query;
+        _searchDialogLastInPath[key] = result.inPath;
+      }
       okBtn.removeEventListener('click', onOk);
       cancelBtn.removeEventListener('click', onCancel);
       closeBtn.removeEventListener('click', onCancel);
       input.removeEventListener('keydown', onKey);
-      resolve(value);
+      inPathInput.removeEventListener('keydown', onKey);
+      resolve(result);
     }
-    function onOk() { cleanup(input.value.trim() || null); }
+    function onOk() {
+      const query = input.value.trim();
+      cleanup(query ? { query, inPath: inPathInput.value.trim() } : null);
+    }
     function onCancel() { cleanup(null); }
     function onKey(e) { if (e.key === 'Enter') onOk(); else if (e.key === 'Escape') onCancel(); }
 
@@ -4919,6 +4938,7 @@ function showSearchDialog(title, label) {
     cancelBtn.addEventListener('click', onCancel);
     closeBtn.addEventListener('click', onCancel);
     input.addEventListener('keydown', onKey);
+    inPathInput.addEventListener('keydown', onKey);
   });
 }
 
@@ -5135,6 +5155,7 @@ async function runWorkspace() {
   const mask = $('#ws-mask-all')?.checked || false;
   const maskComments = $('#ws-mask-comments')?.checked || false;
   const minTermsVal = parseInt($('#ws-min-terms')?.value) || 0;
+  const inPath = ($('#ws-in-path')?.value || '').trim();
   // Selectivity threshold (claim-search-llm only). Blank = server-side tier defaults.
   // User value in percent (0-100); we send as fraction. 100 = filter off.
   const selThresholdRaw = $('#ws-selectivity-threshold')?.value;
@@ -5152,7 +5173,7 @@ async function runWorkspace() {
     if (mode === 'multisect-search') {
       showMiddleTopLoading('Running multisect search…');
       try {
-        const data = await api.multisect({ terms: text, max: 30, min_terms: minTermsVal });
+        const data = await api.multisect({ terms: text, max: 30, min_terms: minTermsVal, in: inPath || undefined });
         renderMultisectResults(data);
       } catch (err) { showMiddleTopError(err.message); }
 
@@ -5162,7 +5183,7 @@ async function runWorkspace() {
       try {
         const data = await api.claimSearchLlm({
           claim: text, engine, vocabTight, noVocabulary, max: 30, minTerms: minTermsVal,
-          selectivityThreshold,
+          selectivityThreshold, in: inPath || undefined,
         });
         renderClaimLlmResults(data);
       } catch (err) { showMiddleTopError(err.message); }
@@ -5171,7 +5192,7 @@ async function runWorkspace() {
       // Search first, then send top function hit to LLM for analysis
       showMiddleTopLoading('Running multisect search…');
       try {
-        const searchData = await api.multisect({ terms: text, max: 10, min_terms: minTermsVal });
+        const searchData = await api.multisect({ terms: text, max: 10, min_terms: minTermsVal, in: inPath || undefined });
         renderMultisectResults(searchData);
         const topFunc = (searchData.function_matches || [])[0];
         if (topFunc) {
@@ -5194,7 +5215,7 @@ async function runWorkspace() {
       try {
         const searchData = await api.claimSearchLlm({
           claim: text, engine, vocabTight, noVocabulary, max: 10, minTerms: minTermsVal,
-          selectivityThreshold,
+          selectivityThreshold, in: inPath || undefined,
         });
         renderClaimLlmResults(searchData);
 

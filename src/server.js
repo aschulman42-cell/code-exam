@@ -1674,7 +1674,8 @@ routes['/api/multisect'] = (req, res) => {
   const minTerms = parseInt(q.min_terms) || 0;
   const maxResults = safeMax(q.max, 25);
   const verbose = q.verbose === 'true';
-  jsonResponse(res, _runMultisectViews(index, parsed, minTerms, maxResults, verbose));
+  const includePath = (typeof q.in === 'string' && q.in.trim()) ? q.in.trim() : null;
+  jsonResponse(res, _runMultisectViews(index, parsed, minTerms, maxResults, verbose, includePath));
 };
 
 
@@ -1689,15 +1690,23 @@ routes['/api/search'] = (req, res) => {
   const maxResults = safeMax(q.max, 20);
   const contextLines = parseInt(q.context) || 3;
   const type = q.type || 'literal'; // literal, regex, fast
+  // Optional path filter (GUI search dialog / CLI --in). Case-insensitive
+  // substring match against the filepath; blank/absent = unfiltered.
+  const includePath = (typeof q.in === 'string' && q.in.trim()) ? q.in.trim().toLowerCase() : null;
+  const pathOk = (fp) => !includePath || (fp || '').toLowerCase().includes(includePath);
 
   // Search stored content with original query
   const caseSensitive = q.case_sensitive === '1' || q.case_sensitive === 'true';
+  // With a path filter active, over-fetch so filtering doesn't starve the
+  // result set, then trim back to maxResults below.
+  const searchCap = includePath ? maxResults * 5 : maxResults;
   let results;
   if (type === 'fast' || type === 'regex') {
-    results = index.searchInverted(query, { useRegex: type === 'regex', caseSensitive, maxResults });
+    results = index.searchInverted(query, { useRegex: type === 'regex', caseSensitive, maxResults: searchCap });
   } else {
-    results = index.searchLiteral(query, { caseSensitive, maxResults, contextLines });
+    results = index.searchLiteral(query, { caseSensitive, maxResults: searchCap, contextLines });
   }
+  if (includePath) results = results.filter(r => pathOk(r.filePath)).slice(0, maxResults);
 
   // If no hits and query looks like a display name pattern (e.g. _TMPL_),
   // find original names whose display names match and search for those
@@ -1712,6 +1721,7 @@ routes['/api/search'] = (req, res) => {
         } else {
           hits = index.searchLiteral(orig, { maxResults: 3, contextLines });
         }
+        if (includePath) hits = hits.filter(r => pathOk(r.filePath));
         results.push(...hits);
         if (results.length >= maxResults) break;
       }
@@ -1734,9 +1744,12 @@ routes['/api/files-search'] = (req, res) => {
   const term = q.q;
   if (!term) return errorResponse(res, 'Missing ?q= parameter');
   const max = safeMax(q.max, 30);
+  // Optional path filter (GUI search dialog / CLI --in). Blank = unfiltered.
+  const includePath = (typeof q.in === 'string' && q.in.trim()) ? q.in.trim().toLowerCase() : null;
   const fileCounts = new Map();
   const termLower = term.toLowerCase();
   for (const [filepath, lines] of index.fileLines) {
+    if (includePath && !filepath.toLowerCase().includes(includePath)) continue;
     let count = 0;
     for (const line of lines) { if (line.toLowerCase().includes(termLower)) count++; }
     if (count > 0) fileCounts.set(filepath, count);
@@ -2416,6 +2429,7 @@ routes['/api/claim-search-llm'] = (req, res) => {
       const userSelThreshold = (typeof params.selectivityThreshold === 'number' && params.selectivityThreshold >= 0 && params.selectivityThreshold <= 1)
         ? params.selectivityThreshold
         : null;
+      const includePath = (typeof params.in === 'string' && params.in.trim()) ? params.in.trim() : null;
 
       // Check LLM availability
       const avail = serverLLM.checkAvailability(engine);
@@ -2506,7 +2520,7 @@ routes['/api/claim-search-llm'] = (req, res) => {
         if (tightTerms && tightTerms.length > 0) {
           const positiveTerms = tightTerms.filter(t => !t.negated);
           const minTerms = userMinTerms > 0 ? userMinTerms : Math.max(Math.floor(positiveTerms.length * 0.80), 2);
-          tightViews = _runMultisectViews(index, tightTerms, minTerms, maxResults, false);
+          tightViews = _runMultisectViews(index, tightTerms, minTerms, maxResults, false, includePath);
           tightViews.termsStr = tightStr;
           tightViews.sanitize_meta = tightSanitizeMeta;
           tightViews.selectivity_filter = { threshold: filter.threshold, total_files: filter.total_files, dropped: filter.dropped };
@@ -2523,7 +2537,7 @@ routes['/api/claim-search-llm'] = (req, res) => {
         if (broadTermsParsed && broadTermsParsed.length > 0) {
           const positiveTerms = broadTermsParsed.filter(t => !t.negated);
           const minTerms = userMinTerms > 0 ? userMinTerms : Math.max(Math.floor(positiveTerms.length * 0.60), 3);
-          broadViews = _runMultisectViews(index, broadTermsParsed, minTerms, maxResults, false);
+          broadViews = _runMultisectViews(index, broadTermsParsed, minTerms, maxResults, false, includePath);
           broadViews.termsStr = broadStr;
           broadViews.sanitize_meta = broadSanitizeMeta;
           broadViews.selectivity_filter = { threshold: filter.threshold, total_files: filter.total_files, dropped: filter.dropped };
@@ -2696,8 +2710,10 @@ routes['/api/analyze-llm'] = (req, res) => {
  * with IDF reranking, scope dedup, and per-scope caps. Used by /api/multisect,
  * /api/claim-search, and /api/claim-search-llm.
  */
-function _runMultisectViews(index, terms, minTerms, maxPerScope, verbose) {
-  const results = index.multisectSearch(terms, { minTerms });
+function _runMultisectViews(index, terms, minTerms, maxPerScope, verbose, includePath = null) {
+  const searchOpts = { minTerms };
+  if (includePath) searchOpts.includePath = [includePath];
+  const results = index.multisectSearch(terms, searchOpts);
   const nPositive = terms.filter(t => !t.negated).length;
   const totalFiles = (index.files && index.files.size) || 0;
   const views = prepareMultisectViews(results, { totalFiles, maxPerScope, verbose: !!verbose });
