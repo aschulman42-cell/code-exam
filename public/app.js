@@ -162,6 +162,26 @@ function escHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Inferred-name suffix split (TODO #374). Pairs with body.hide-inferred-suffix
+// CSS rule. Marker prefixes (_KW_, _CMD_, _NAME_, _IMPORT_, _FP_) are appended
+// during indexing in CodeSearchIndex.js — the suffix is uppercase/digit/
+// underscore tokens after the marker. Anything after that (e.g. ::method) is
+// part of the original identifier path and is preserved. Examples:
+//   GCz_KW_ADD_OPTION_HELP        -> base "GCz", suffix "_KW_ADD_OPTION_HELP"
+//   le6_KW_REMOVE_ALL_SCHEMAS::ctor -> base "le6", suffix "_KW_REMOVE_ALL_SCHEMAS", tail "::ctor"
+const _INFERRED_SUFFIX_RE = /_(?:KW|CMD|NAME|IMPORT|FP)_[A-Z0-9_]+/;
+function displayNameHtml(name) {
+  if (!name) return '';
+  const m = _INFERRED_SUFFIX_RE.exec(name);
+  if (!m) return escHtml(name);
+  const base = name.slice(0, m.index);
+  const suffix = m[0];
+  const tail = name.slice(m.index + suffix.length);
+  return escHtml(base)
+       + `<span class="inferred-suffix">${escHtml(suffix)}</span>`
+       + escHtml(tail);
+}
+
 function copyToClipboard(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     return navigator.clipboard.writeText(text).catch(() => execCopyFallback(text));
@@ -536,7 +556,7 @@ function renderFuncLikeList(container, items, metricKey) {
     const item = h('div', { className: 'list-item', title: `${f.filepath}\n${f.display_name || f.name}\n${metricKey}: ${metricVal}` }, [
       f.rank != null ? h('span', { className: 'rank', text: `${f.rank}` }) : null,
       h('span', { className: 'metric', text: `${metricVal}` }),
-      h('span', { className: 'name clickable', text: f.display_name || f.name }),
+      h('span', { className: 'name clickable', html: displayNameHtml(f.display_name || f.name) }),
       h('span', { className: 'metric muted', text: `${f.lines || ''}L` }),
     ].filter(Boolean));
     item.addEventListener('click', () => onFunctionClick(f));
@@ -555,7 +575,7 @@ function renderFunctionList(container, functions, total) {
   for (const f of functions) {
     const item = h('div', { className: 'list-item', title: `${f.filepath}\n${f.display_name}\n${f.lines} lines` }, [
       h('span', { className: 'metric', text: `${f.lines}` }),
-      h('span', { className: 'name clickable', text: f.display_name }),
+      h('span', { className: 'name clickable', html: displayNameHtml(f.display_name) }),
       h('span', { className: 'filepath', text: f.filepath?.replace(/\\/g, '/') || '' }),
     ]);
     item.addEventListener('click', () => onFunctionClick(f));
@@ -674,7 +694,7 @@ function renderClassListWithSub(container, classes, total) {
     const subContent = h('div', { className: 'sub-accordion-content' });
     const subHeader = h('div', { className: 'sub-accordion-header' }, [
       h('span', { className: 'sub-accordion-toggle', text: '▸' }),
-      h('span', { className: 'name', text: c.name, style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
+      h('span', { className: 'name', html: displayNameHtml(c.name), style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
       h('span', { className: 'metric', text: `${c.methods}m` }),
       h('span', { className: 'metric', text: `${c.total_lines}L` }),
       h('span', { className: 'filepath', text: c.filepath?.replace(/\\/g, '/') || '', style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
@@ -709,7 +729,7 @@ async function loadClassMethods(className, container) {
     for (const m of data.methods) {
       const item = h('div', { className: 'list-item', title: `${m.filepath}\nLine ${m.start}–${m.end} (${m.lines} lines)` }, [
         h('span', { className: 'metric', text: `${m.lines}`, style: 'min-width:24px' }),
-        h('span', { className: 'name clickable', text: m.name }),
+        h('span', { className: 'name clickable', html: displayNameHtml(m.name) }),
       ]);
       item.addEventListener('click', (e) => { e.stopPropagation(); onFunctionClick({ name: m.name, display_name: m.name, filepath: m.filepath, lines: m.lines, start: m.start, end: m.end }); });
       item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: m.name, display_name: m.name, filepath: m.filepath }); });
@@ -2497,12 +2517,12 @@ async function onClassClickSourceOnly(className) {
 function renderClassMethodsIntoMiddleBottom(data) {
   const container = $('#middle-bottom-body');
   const title = $('#middle-bottom-title');
-  title.textContent = `Class: ${data.name} (${data.method_count} methods, ${data.total_lines} lines)`;
+  title.innerHTML = `Class: ${displayNameHtml(data.name)} (${data.method_count} methods, ${data.total_lines} lines)`;
   let html = `<div class="output-section"><h3>Methods</h3>`;
   if (data.inferred) html += `<p style="color:var(--text-muted);font-size:11px;margin-bottom:6px">(Inferred from :: qualified method names)</p>`;
   html += '<table class="output-table"><tr><th>Method</th><th>File</th><th>Lines</th></tr>';
   for (const m of data.methods) {
-    html += `<tr><td class="mono"><span class="clickable" data-funcname="${escHtml(m.name)}" data-filepath="${escHtml(m.filepath)}">${escHtml(m.name)}</span></td>`;
+    html += `<tr><td class="mono"><span class="clickable" data-funcname="${escHtml(m.name)}" data-filepath="${escHtml(m.filepath)}">${displayNameHtml(m.name)}</span></td>`;
     html += `<td class="mono muted">${escHtml(shortPath(m.filepath, 30))}</td><td>${m.lines}</td></tr>`;
   }
   container.innerHTML = html + '</table></div>';
@@ -2667,7 +2687,7 @@ function clearAllPanes() {
 
 function renderSource(data) {
   const container = $('#middle-bottom-body'), title = $('#middle-bottom-title');
-  title.textContent = `${data.display_name || data.name}  (${data.filepath}, ${data.lines} lines)`;
+  title.innerHTML = `${displayNameHtml(data.display_name || data.name)}  (${escHtml(data.filepath)}, ${escHtml(String(data.lines))} lines)`;
   state.currentSourceFile = data.filepath;
   state.lastSourceRender = { kind: 'function', data };
   const lines = data.source.split('\n'), startLine = data.start || 1;
@@ -2866,11 +2886,25 @@ function linkifySourceCalls(container, contextFilepath) {
           fragments.push(document.createTextNode(text.slice(lastIdx, matchStart)));
         }
 
-        // Create clickable span for the function name
+        // Create clickable span for the function name. If the name carries
+        // an inferred suffix marker (_KW_/_CMD_/_NAME_/_IMPORT_/_FP_), wrap
+        // the suffix portion in a child .inferred-suffix span so the View >
+        // Show Inferred Name Suffixes toggle can hide it without re-render.
         const span = document.createElement('span');
         span.className = 'src-fn-link';
-        span.textContent = name;
         span.dataset.funcname = name;
+        const inf = _INFERRED_SUFFIX_RE.exec(name);
+        if (inf) {
+          span.appendChild(document.createTextNode(name.slice(0, inf.index)));
+          const suffixSpan = document.createElement('span');
+          suffixSpan.className = 'inferred-suffix';
+          suffixSpan.textContent = inf[0];
+          span.appendChild(suffixSpan);
+          const infTail = name.slice(inf.index + inf[0].length);
+          if (infTail) span.appendChild(document.createTextNode(infTail));
+        } else {
+          span.textContent = name;
+        }
         span.addEventListener('click', (e) => {
           e.stopPropagation();
           onFunctionClickSourceOnly({ name, display_name: name, filepath: null });
@@ -2952,10 +2986,12 @@ function groupCallers(callers) {
 
 function renderCallInfo(extractData, callersData, calleesData) {
   const container = $('#middle-top-body'), title = $('#middle-top-title');
-  title.textContent = extractData.display_name || extractData.name;
+  // innerHTML (not textContent) so the inferred-suffix span survives and the
+  // View > Show Inferred Name Suffixes toggle hides it live, like the source pane.
+  title.innerHTML = displayNameHtml(extractData.display_name || extractData.name);
   let html = '';
 
-  const funcLabel = escHtml(extractData.display_name || extractData.name);
+  const funcLabel = displayNameHtml(extractData.display_name || extractData.name);
   html += `<div class="output-section"><h3>Function Info: <span class="clickable" data-funcname="${escHtml(extractData.name)}" data-filepath="${escHtml(extractData.filepath)}">${funcLabel}</span></h3><table class="output-table">`;
   html += `<tr><td class="muted">File</td><td class="mono"><span class="clickable" data-filepath="${escHtml(extractData.filepath)}">${escHtml(extractData.filepath)}</span></td></tr>`;
   html += `<tr><td class="muted">Lines</td><td>${extractData.start}–${extractData.end} (${extractData.lines} lines)</td></tr>`;
@@ -3264,12 +3300,12 @@ function renderCalleesOnly(funcName, data) {
 
 function renderClassMethodsDetail(data) {
   const container = $('#middle-top-body'), title = $('#middle-top-title');
-  title.textContent = `Class: ${data.name} (${data.method_count} methods, ${data.total_lines} lines)`;
+  title.innerHTML = `Class: ${displayNameHtml(data.name)} (${data.method_count} methods, ${data.total_lines} lines)`;
   let html = `<div class="output-section"><h3>Methods</h3>`;
   if (data.inferred) html += `<p style="color:var(--text-muted);font-size:11px;margin-bottom:6px">(Inferred from :: qualified method names)</p>`;
   html += '<table class="output-table"><tr><th>Method</th><th>File</th><th>Lines</th></tr>';
   for (const m of data.methods) {
-    html += `<tr><td class="mono"><span class="clickable" data-funcname="${escHtml(m.name)}" data-filepath="${escHtml(m.filepath)}">${escHtml(m.name)}</span></td>`;
+    html += `<tr><td class="mono"><span class="clickable" data-funcname="${escHtml(m.name)}" data-filepath="${escHtml(m.filepath)}">${displayNameHtml(m.name)}</span></td>`;
     html += `<td class="mono muted">${escHtml(shortPath(m.filepath, 30))}</td><td>${m.lines}</td></tr>`;
   }
   container.innerHTML = html + '</table></div>';
@@ -3524,7 +3560,7 @@ function _renderScopeViews(views, opts = {}) {
       for (let i = 0; i < fm.length; i++) {
         const m = fm[i];
         html += `<tr><td class="muted"><span class="ms-toggle expanded" title="Hide evidence">▶</span>${i + 1}</td><td class="mono">`
-          + `<span class="clickable" data-funcname="${escHtml(m.function)}" data-filepath="${escHtml(m.filepath)}">${escHtml(m.function)}</span>`
+          + `<span class="clickable" data-funcname="${escHtml(m.function)}" data-filepath="${escHtml(m.filepath)}">${displayNameHtml(m.function)}</span>`
           + `<span class="muted" style="font-size:10px"> in ${escHtml(shortPath(m.filepath, 50))}</span>`
           + matchedBadge(m) + idfBadge(m) + missingBadge(m)
           + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.lines || 0}</td></tr>`;
@@ -3549,7 +3585,7 @@ function _renderScopeViews(views, opts = {}) {
         const m = cm[i];
         const fileLabel = m.files.length === 1 ? shortPath(m.files[0], 40) : `${m.files.length} files`;
         html += `<tr><td class="muted"><span class="ms-toggle" title="Show evidence">▶</span>${i + 1}</td><td class="mono">`
-          + `<span class="clickable" data-classname="${escHtml(m.class_name)}">${escHtml(m.class_name)}</span>`
+          + `<span class="clickable" data-classname="${escHtml(m.class_name)}">${displayNameHtml(m.class_name)}</span>`
           + `<span class="muted" style="font-size:10px"> in ${escHtml(fileLabel)}</span>`
           + matchedBadge(m) + idfBadge(m) + missingBadge(m)
           + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.functions.length}</td><td>${m.total_lines}</td></tr>`;
@@ -6020,6 +6056,15 @@ async function init() {
     document.querySelectorAll('.source-view').forEach(el => {
       el.classList.toggle('wrap-lines', e.target.checked);
     });
+  });
+  $('#opt-show-inferred-suffix')?.addEventListener('change', (e) => {
+    // Explicit add/remove (instead of two-arg toggle) so the behavior is
+    // unambiguous and easy to inspect via devtools when debugging.
+    if (e.target.checked) {
+      document.body.classList.remove('hide-inferred-suffix');
+    } else {
+      document.body.classList.add('hide-inferred-suffix');
+    }
   });
   $('#opt-break-long-lines')?.addEventListener('change', () => {
     // Re-render the source pane so line-breaking takes effect. Full re-render
