@@ -794,6 +794,80 @@ export function doStringCallDupes(index, args) {
 
 
 // ========================================================================
+// --notable-funcstr-matches: surprise-scored structural funcstring groups
+// ========================================================================
+//
+// CLI form of the GUI's "Notable Funcstring Matches". Calls the same
+// index.findSurprisingStructGroups engine method that the
+// /api/surprising-funcstrings route uses, so CLI and GUI produce
+// identical groups for the same index + thresholds.
+
+export function doNotableFuncstrMatches(index, args) {
+  const limit = args.notable_funcstr_matches;
+  const opts = {
+    limit,
+    minLines: args.nf_min_lines ? Math.max(3, args.nf_min_lines) : 3,
+    minPeakSurprise: args.nf_min_surprise != null ? parseFloat(args.nf_min_surprise) : 0.5,
+    sortBy: ['peak', 'mean', 'lines'].includes(args.nf_sort) ? args.nf_sort : 'peak',
+    tight: !!args.nf_tight,
+  };
+
+  const result = index.findSurprisingStructGroups(opts);
+  let groups = result.groups;
+
+  // Optional filter on instance name / filepath (mirrors the dupe routes).
+  if (args.filter) {
+    const pat = args.filter.toLowerCase();
+    groups = groups.filter(g =>
+      g.instances.some(i =>
+        (i.name || '').toLowerCase().includes(pat) ||
+        (i.filepath || '').toLowerCase().includes(pat)));
+  }
+
+  if (!groups.length) {
+    console.log('No notable funcstring matches at these thresholds.');
+    console.log('(Groups of functions sharing a structural funcstring whose members');
+    console.log(' are "surprising" — different names and/or distant file paths.');
+    console.log(' Try a lower --nf-min-surprise, or a Franken-index mixing your');
+    console.log(' codebase with a reference library.)');
+    return;
+  }
+
+  console.log(`\nTop ${Math.min(limit, groups.length)} notable funcstring matches ` +
+    `(sort: ${opts.sortBy}, min peak-surprise ${opts.minPeakSurprise}):`);
+  console.log(`  ${'Peak'.padStart(5)}  ${'Mean'.padStart(5)}  ${'Count'.padStart(5)}  ` +
+    `${'Lines'.padStart(6)}  ${'Hash'.padStart(10)}  Peak pair`);
+  console.log(`  ${'-'.repeat(100)}`);
+
+  for (const g of groups.slice(0, limit)) {
+    const pp = g.peakPair;
+    const pairStr = pp
+      ? `${pp.a_display || pp.a}  vs  ${pp.b_display || pp.b}`
+      : '(all bodies exact)';
+    console.log(`  ${g.peakSurprise.toFixed(2).padStart(5)}  ${g.meanSurprise.toFixed(2).padStart(5)}  ` +
+      `${String(g.count).padStart(5)}  ${String(g.lines).padStart(6)}  ` +
+      `${g.struct_hash.slice(0, 10)}  ${pairStr}`);
+
+    if (args.verbose) {
+      for (const inst of g.instances.slice(0, 8)) {
+        let fp = inst.filepath;
+        if (!args.full_path && fp.length > 50) fp = '...' + fp.slice(-47);
+        console.log(`           ${inst.displayName || inst.name}  @  ${fp}:L${inst.start || '?'}`);
+      }
+      if (g.instances.length > 8) {
+        console.log(`           … and ${g.instances.length - 8} more`);
+      }
+    }
+  }
+
+  if (result.total > limit) {
+    console.log(`\n  Showing ${limit} of ${result.total}. ` +
+      `Use --notable-funcstr-matches ${limit * 2} for more.`);
+  }
+}
+
+
+// ========================================================================
 // --string-call-diff-all: detailed output with --show-sources / --cross-source-only
 // ========================================================================
 //

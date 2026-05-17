@@ -160,6 +160,11 @@ export function parseArgs() {
     string_call_dupes: null,
     string_call_diff_all: null,
     cmp_string_call_dupes: null,
+    notable_funcstr_matches: null,
+    nf_min_lines: null,
+    nf_min_surprise: null,
+    nf_sort: null,
+    nf_tight: false,
     fingerprint_min_tokens: null,
     fingerprint_work: null,
     fingerprint_ref: null,
@@ -303,6 +308,11 @@ export function parseArgs() {
     ['string_call_dupes',    'int',            ['--string-call-dupes']],
     ['string_call_diff_all', 'int',            ['--string-call-diff-all']],
     ['cmp_string_call_dupes','value',          ['--cmp-string-call-dupes']],
+    ['notable_funcstr_matches','int',          ['--notable-funcstr-matches']],
+    ['nf_min_lines',         'int',            ['--nf-min-lines']],
+    ['nf_min_surprise',      'value',          ['--nf-min-surprise']],
+    ['nf_sort',              'value',          ['--nf-sort']],
+    ['nf_tight',             'flag',           ['--nf-tight']],
     ['fingerprint_min_tokens','int',           ['--fingerprint-min-tokens']],
     ['fingerprint_work',     'value',          ['--fingerprint-work']],
     ['fingerprint_ref',      'value',          ['--fingerprint-ref']],
@@ -623,6 +633,17 @@ DEDUP / DUPLICATES:
                              Use --fingerprint-work / --fingerprint-ref to scope the two
                              sides; --fingerprint-min-tokens to reject tiny-fingerprint
                              functions; --show-tokens to display the shared tokens.
+  --notable-funcstr-matches <n>
+                             Top N "notable funcstring matches": groups of
+                             functions sharing a structural funcstring whose
+                             members are surprising (different names and/or
+                             distant file paths) — the CLI form of the GUI's
+                             Notable Funcstring Matches, using the same engine.
+                             Options: --nf-min-lines <n> (default 3),
+                             --nf-min-surprise <f> (peak threshold, default
+                             0.5), --nf-sort <peak|mean|lines> (default peak),
+                             --nf-tight (stricter structural hashing). Honors
+                             --filter; -v lists each group's instances.
   --build-fp-renames [s]     Generate _FP_ rename-map entries for cross-source
                              fingerprint matches above score s (default 0.8). Same as
                              --build-fingerprint-renames. Accumulates with existing
