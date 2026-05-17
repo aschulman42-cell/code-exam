@@ -503,7 +503,7 @@ describe('buildExtractionPromptWithVocab', () => {
     const result = buildExtractionPromptWithVocab(vocab);
 
     // Should contain the original prompt
-    assert.ok(result.includes('You are a patent-claim-to-source-code keyword extractor'));
+    assert.ok(result.includes('You are a technical-prose-to-source-code keyword extractor'));
     // Should contain the vocabulary
     assert.ok(result.includes('cipher, certificate, tls, ssl'));
     // Should have guidance about using vocabulary for BROAD
@@ -534,7 +534,7 @@ describe('buildLocalExtractionPromptWithVocab', () => {
     const result = buildLocalExtractionPromptWithVocab(vocab);
 
     // Should contain the original local prompt
-    assert.ok(result.includes('Extract search terms from a patent claim'));
+    assert.ok(result.includes('Extract search terms from a technical-prose input'));
     // Should contain the vocabulary
     assert.ok(result.includes('cipher, handshake'));
     // Should be compact — no elaborate instructions

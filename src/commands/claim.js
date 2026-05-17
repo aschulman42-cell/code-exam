@@ -714,10 +714,25 @@ export function sanitizeLlmTerms(termsStr, label = '', metaOut = null) {
 
 
 /**
- * Remove single-character alternations from BROAD regex terms.
+ * Acronym whitelist for sanitizeBroadTerms: legitimate short tokens
+ * (< 4 chars) that survive the regex-alternate length floor. Curated
+ * from the protocol / standards / web domain. NOTE: whitelisted
+ * acronyms still match as bare substrings in multisect — word-boundary
+ * matching for short terms is tracked separately (issue #3 item 1).
+ */
+const _SHORT_TERM_WHITELIST = new Set([
+  'ssl', 'tls', 'tcp', 'udp', 'rpc', 'api', 'ca', 'cn', 'san',
+  'x509', 'jwt', 'uri', 'url', 'dns', 'ip',
+]);
+
+
+/**
+ * Remove too-short alternations from BROAD regex terms.
  *
- * The LLM sometimes generates /query|q/ or /key|k/ which match nearly
- * every file. Filter to alternations with 2+ characters.
+ * Multisect matching is per-line, case-insensitive, substring — so a
+ * short alternate like /subject|san|cn/ leaks ('san' matches the 'san'
+ * inside 'isAnonymous'). Drop alternates shorter than 4 chars unless
+ * they are whitelisted acronyms (_SHORT_TERM_WHITELIST).
  */
 export function sanitizeBroadTerms(termsStr) {
   if (!termsStr) return termsStr;
@@ -740,18 +755,22 @@ export function sanitizeBroadTerms(termsStr) {
     if (inner.startsWith('/') && inner.endsWith('/')) {
       const alts = inner.slice(1, -1).split('|');
       const origCount = alts.length;
-      const filtered = alts.filter(a => a.length >= 2);
+      const longEnough = (a) => {
+        const t = a.trim();
+        return t.length >= 4 || _SHORT_TERM_WHITELIST.has(t.toLowerCase());
+      };
+      const filtered = alts.filter(longEnough);
 
       if (filtered.length < origCount) {
-        const dropped = alts.filter(a => a.length < 2);
+        const dropped = alts.filter(a => !longEnough(a));
         nFixed++;
         process.stderr.write(
-          `  [sanitize] Removed single-char alternation(s) [${dropped}] from ${inner}\n`
+          `  [sanitize] Removed short alternation(s) [${dropped}] from ${inner}\n`
         );
       }
 
       if (filtered.length === 0) {
-        process.stderr.write(`  [sanitize] Dropping term ${part} (all single-char)\n`);
+        process.stderr.write(`  [sanitize] Dropping term ${part} (all alternations too short)\n`);
         continue;
       }
 
@@ -767,11 +786,95 @@ export function sanitizeBroadTerms(termsStr) {
 
   if (nFixed > 0) {
     process.stderr.write(
-      `  [sanitize] Fixed ${nFixed} term(s) with single-char alternations\n`
+      `  [sanitize] Fixed ${nFixed} term(s) with short alternations\n`
     );
   }
 
   return cleaned.join(';');
+}
+
+
+/**
+ * Enforce the prompt's drop-list on the LLM's own output (issue #3 item 1).
+ *
+ * The extraction prompt instructs the LLM to skip low-discrimination bare
+ * nouns (LOW_DISCRIMINATION_STOPWORDS), but the model emits them anyway
+ * because they are plausible code identifiers. This applies the same
+ * stop-list server-side, to both TIGHT and BROAD:
+ *
+ *  - a bare term in the stop-list is dropped
+ *  - a regex alternate /a|b|c/ has its stop-listed alternates removed;
+ *    if every alternate is stop-listed the whole term is dropped, and a
+ *    single survivor collapses back to a bare term
+ *  - a bare term that also appears as an alternate inside a surviving
+ *    regex term is dropped as a duplicate (the 'cipher' case)
+ *
+ * NOT terms pass through untouched — an explicit exclusion of a generic
+ * word is still meaningful.
+ */
+export function dropStopListedTerms(termsStr, label = '') {
+  if (!termsStr) return termsStr;
+
+  const STOP = _LOW_DISCRIMINATION_STOPWORDS;
+  const parts = termsStr.split(';').map(p => p.trim()).filter(Boolean);
+
+  // Pass 1: drop stop-listed bare terms and stop-listed regex alternates.
+  const kept = [];
+  let nDropped = 0;
+  let nTrimmed = 0;
+
+  for (const part of parts) {
+    let inner = part;
+    if (inner.toUpperCase().startsWith('NOT ')) {
+      kept.push(part);  // NOT terms pass through unchanged
+      continue;
+    }
+
+    if (inner.startsWith('/') && inner.endsWith('/')) {
+      const alts = inner.slice(1, -1).split('|').map(a => a.trim()).filter(Boolean);
+      const goodAlts = alts.filter(a => !STOP.has(a.toLowerCase()));
+      if (goodAlts.length === 0) { nDropped++; continue; }
+      if (goodAlts.length < alts.length) nTrimmed++;
+      kept.push(goodAlts.length === 1 ? goodAlts[0] : '/' + goodAlts.join('|') + '/');
+    } else {
+      if (STOP.has(inner.toLowerCase())) { nDropped++; continue; }
+      kept.push(part);
+    }
+  }
+
+  // Pass 2: dedupe bare terms already covered by a surviving regex alternate.
+  const altMembers = new Set();
+  for (const part of kept) {
+    let inner = part;
+    if (inner.toUpperCase().startsWith('NOT ')) inner = inner.slice(4).trim();
+    if (inner.startsWith('/') && inner.endsWith('/')) {
+      for (const a of inner.slice(1, -1).split('|')) {
+        altMembers.add(a.trim().toLowerCase());
+      }
+    }
+  }
+
+  const deduped = [];
+  let nDeduped = 0;
+  for (const part of kept) {
+    const isNot = part.toUpperCase().startsWith('NOT ');
+    const isRegex = part.startsWith('/') && part.endsWith('/');
+    if (!isNot && !isRegex && altMembers.has(part.toLowerCase())) {
+      nDeduped++;
+      continue;
+    }
+    deduped.push(part);
+  }
+
+  if (nDropped > 0 || nTrimmed > 0 || nDeduped > 0) {
+    process.stderr.write(
+      `  [sanitize-stoplist${label ? '-' + label : ''}] ` +
+      `Dropped ${nDropped} stop-listed, trimmed ${nTrimmed}, ` +
+      `deduped ${nDeduped}, kept ${deduped.length}\n`
+    );
+  }
+
+  return deduped.join(';');
 }
 
 
@@ -1109,7 +1212,11 @@ export async function doClaimSearch(index, args) {
   let tightStr = result.tight;
   let broadStr = result.broad;
 
-  // Sanitize degenerate output
+  // Sanitize degenerate output.
+  // Drop stop-listed terms first, so the term cap in sanitizeLlmTerms
+  // applies to the already-cleaned set rather than counting junk.
+  if (tightStr) tightStr = dropStopListedTerms(tightStr, 'TIGHT');
+  if (broadStr) broadStr = dropStopListedTerms(broadStr, 'BROAD');
   if (tightStr) tightStr = sanitizeLlmTerms(tightStr, 'TIGHT');
   if (broadStr) broadStr = sanitizeLlmTerms(broadStr, 'BROAD');
   if (broadStr) broadStr = sanitizeBroadTerms(broadStr);

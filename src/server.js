@@ -26,7 +26,7 @@ import { collectPrompts } from './commands/prompts.js';
 import { displayName } from './utils.js';
 import { execCommand } from './commands/interactive.js';
 import {
-  extractClaimKeywords, extractClaimTerms, sanitizeLlmTerms, sanitizeBroadTerms,
+  extractClaimKeywords, extractClaimTerms, sanitizeLlmTerms, sanitizeBroadTerms, dropStopListedTerms,
   parseTermResponse, extractFirstClaim,
   buildExtractionPromptWithVocab, buildLocalExtractionPromptWithVocab,
   CLAIM_EXTRACTION_PROMPT, CLAIM_EXTRACTION_PROMPT_LOCAL,
@@ -2495,9 +2495,12 @@ routes['/api/claim-search-llm'] = (req, res) => {
       let tightStr = parsed.tight;
       let broadStr = parsed.broad;
 
-      // Sanitize (collect per-tier meta so the GUI can show what got truncated)
+      // Sanitize (collect per-tier meta so the GUI can show what got truncated).
+      // Drop stop-listed terms first, so the term cap counts cleaned terms only.
       const tightSanitizeMeta = {};
       const broadSanitizeMeta = {};
+      if (tightStr) tightStr = dropStopListedTerms(tightStr, 'TIGHT');
+      if (broadStr) broadStr = dropStopListedTerms(broadStr, 'BROAD');
       if (tightStr) tightStr = sanitizeLlmTerms(tightStr, 'TIGHT', tightSanitizeMeta);
       if (broadStr) broadStr = sanitizeLlmTerms(broadStr, 'BROAD', broadSanitizeMeta);
       if (broadStr) broadStr = sanitizeBroadTerms(broadStr);

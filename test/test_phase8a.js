@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  sanitizeLlmTerms, sanitizeBroadTerms, extractFirstClaim,
+  sanitizeLlmTerms, sanitizeBroadTerms, dropStopListedTerms, extractFirstClaim,
 } from '../src/commands/claim.js';
 
 // Suppress stderr from sanitizer messages during tests
@@ -76,21 +76,33 @@ describe('sanitizeLlmTerms', () => {
 
 
 describe('sanitizeBroadTerms', () => {
-  it('removes single-char alternations', () => {
+  it('drops short alternations below the 4-char floor', () => {
     hushStderr();
     const input = '/query|q/;server;/key|k/';
     const result = sanitizeBroadTerms(input);
     restoreStderr();
-    assert.equal(result, 'query;server;key');
+    // q & k are sub-4-char and not whitelisted; key (3 chars) is too -> /key|k/
+    // loses all alternations and is dropped entirely.
+    assert.equal(result, 'query;server');
   });
 
-  it('keeps multi-char alternations', () => {
+  it('drops 3-char alternations that are not whitelisted acronyms', () => {
     const input = '/sequence|seq/;/value|val/';
     const result = sanitizeBroadTerms(input);
-    assert.equal(result, '/sequence|seq/;/value|val/');
+    // seq & val are 3 chars, not on the acronym whitelist -> dropped.
+    assert.equal(result, 'sequence;value');
   });
 
-  it('drops term if ALL alternations are single-char', () => {
+  it('keeps whitelisted short acronyms below the 4-char floor', () => {
+    hushStderr();
+    const input = '/secure|tls|ssl/;/subject|san|cn/';
+    const result = sanitizeBroadTerms(input);
+    restoreStderr();
+    // tls, ssl, san, cn are all whitelisted acronyms -> survive intact.
+    assert.equal(result, '/secure|tls|ssl/;/subject|san|cn/');
+  });
+
+  it('drops term if ALL alternations are too short', () => {
     hushStderr();
     const input = '/a|b|c/;server';
     const result = sanitizeBroadTerms(input);
@@ -112,12 +124,63 @@ describe('sanitizeBroadTerms', () => {
     assert.equal(result, 'facade;server;browser');
   });
 
-  it('handles mixed: some good, some single-char', () => {
+  it('handles mixed: some long, some too short', () => {
     hushStderr();
     const input = '/value|v|val/;/ok|x/';
     const result = sanitizeBroadTerms(input);
     restoreStderr();
-    assert.equal(result, '/value|val/;ok');
+    // value survives; v, val, ok, x all dropped -> /ok|x/ vanishes.
+    assert.equal(result, 'value');
+  });
+});
+
+
+describe('dropStopListedTerms', () => {
+  it('drops bare stop-listed terms', () => {
+    hushStderr();
+    const result = dropStopListedTerms('facade;session;handshake', 'BROAD');
+    restoreStderr();
+    assert.equal(result, 'facade;handshake');
+  });
+
+  it('trims stop-listed alternates from a regex term', () => {
+    hushStderr();
+    const result = dropStopListedTerms('/key|secret|keystore/', 'BROAD');
+    restoreStderr();
+    assert.equal(result, '/secret|keystore/');
+  });
+
+  it('drops a regex term when ALL alternates are stop-listed', () => {
+    hushStderr();
+    const result = dropStopListedTerms('handshake;/common|name/', 'BROAD');
+    restoreStderr();
+    assert.equal(result, 'handshake');
+  });
+
+  it('collapses a single surviving alternate to a bare term', () => {
+    hushStderr();
+    const result = dropStopListedTerms('/secret|key/', 'BROAD');
+    restoreStderr();
+    assert.equal(result, 'secret');
+  });
+
+  it('dedupes a bare term already covered by a surviving regex term', () => {
+    hushStderr();
+    const result = dropStopListedTerms('/cryptograph|crypto|cipher/;cipher', 'BROAD');
+    restoreStderr();
+    assert.equal(result, '/cryptograph|crypto|cipher/');
+  });
+
+  it('passes NOT terms through untouched', () => {
+    hushStderr();
+    const result = dropStopListedTerms('facade;NOT session;NOT /client|server/', 'TIGHT');
+    restoreStderr();
+    assert.equal(result, 'facade;NOT session;NOT /client|server/');
+  });
+
+  it('returns empty input unchanged', () => {
+    assert.equal(dropStopListedTerms('', 'BROAD'), '');
+    assert.equal(dropStopListedTerms(null, 'BROAD'), null);
   });
 });
 
@@ -179,15 +242,17 @@ describe('claim.js integration points', () => {
     assert.equal(terms[2].negated, true);
   });
 
-  it('sanitize chain matches Python behavior', () => {
+  it('sanitize chain drops degenerate and short terms', () => {
     hushStderr();
     // Simulate LLM output with degenerate terms
     let broad = '/facade|proxy|f/;server;/key|k|val|v/;NOT /tcp|t/';
     broad = sanitizeLlmTerms(broad, 'BROAD');
     broad = sanitizeBroadTerms(broad);
     restoreStderr();
-    // /f/ removed from first, /k/ and /v/ removed from third, /t/ from NOT
-    assert.equal(broad, '/facade|proxy/;server;/key|val/;NOT tcp');
+    // /facade|proxy|f/ -> /facade|proxy/ (f too short); /key|k|val|v/ dropped
+    // entirely (key & val are 3-char, not whitelisted); NOT /tcp|t/ -> NOT tcp
+    // (tcp survives as a whitelisted acronym, t dropped).
+    assert.equal(broad, '/facade|proxy/;server;NOT tcp');
   });
 
   it('prompt excludes generic patent boilerplate terms', async () => {

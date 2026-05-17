@@ -27,7 +27,7 @@ import { readFileSync, existsSync } from 'fs';
 import https from 'https';
 import http from 'http';
 import {
-  extractClaimTerms, sanitizeLlmTerms, sanitizeBroadTerms,
+  extractClaimTerms, sanitizeLlmTerms, sanitizeBroadTerms, dropStopListedTerms,
   CLAIM_EXTRACTION_PROMPT, CLAIM_EXTRACTION_PROMPT_LOCAL, parseTermResponse,
   buildExtractionPromptWithVocab, buildLocalExtractionPromptWithVocab,
   extractClaimKeywords,
@@ -1426,7 +1426,9 @@ export async function doClaimAnalyze(index, args) {
   let tightStr = result.tight;
   let broadStr = result.broad;
 
-  // Sanitize
+  // Sanitize (drop stop-listed terms before the term cap in sanitizeLlmTerms)
+  if (tightStr) tightStr = dropStopListedTerms(tightStr, 'TIGHT');
+  if (broadStr) broadStr = dropStopListedTerms(broadStr, 'BROAD');
   if (tightStr) tightStr = sanitizeLlmTerms(tightStr, 'TIGHT');
   if (broadStr) broadStr = sanitizeLlmTerms(broadStr, 'BROAD');
   if (broadStr) broadStr = sanitizeBroadTerms(broadStr);

@@ -21,7 +21,7 @@ import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { displayName } from './utils.js';
 import {
-  extractClaimKeywords, extractClaimTerms, sanitizeLlmTerms, sanitizeBroadTerms,
+  extractClaimKeywords, extractClaimTerms, sanitizeLlmTerms, sanitizeBroadTerms, dropStopListedTerms,
   parseTermResponse, extractFirstClaim,
   buildExtractionPromptWithVocab, buildLocalExtractionPromptWithVocab,
   CLAIM_EXTRACTION_PROMPT, CLAIM_EXTRACTION_PROMPT_LOCAL,
@@ -1431,7 +1431,9 @@ routes['/api/claim-search-llm'] = (req, res) => {
       let tightStr = parsed.tight;
       let broadStr = parsed.broad;
 
-      // Sanitize
+      // Sanitize (drop stop-listed terms before the term cap in sanitizeLlmTerms)
+      if (tightStr) tightStr = dropStopListedTerms(tightStr, 'TIGHT');
+      if (broadStr) broadStr = dropStopListedTerms(broadStr, 'BROAD');
       if (tightStr) tightStr = sanitizeLlmTerms(tightStr, 'TIGHT');
       if (broadStr) broadStr = sanitizeLlmTerms(broadStr, 'BROAD');
       if (broadStr) broadStr = sanitizeBroadTerms(broadStr);
