@@ -165,6 +165,8 @@ export function parseArgs() {
     nf_min_surprise: null,
     nf_sort: null,
     nf_tight: false,
+    funcstr_hashes: null,
+    fh_tight: false,
     fingerprint_min_tokens: null,
     fingerprint_work: null,
     fingerprint_ref: null,
@@ -313,6 +315,8 @@ export function parseArgs() {
     ['nf_min_surprise',      'value',          ['--nf-min-surprise']],
     ['nf_sort',              'value',          ['--nf-sort']],
     ['nf_tight',             'flag',           ['--nf-tight']],
+    ['funcstr_hashes',       'int',            ['--funcstr-hashes']],
+    ['fh_tight',             'flag',           ['--fh-tight']],
     ['fingerprint_min_tokens','int',           ['--fingerprint-min-tokens']],
     ['fingerprint_work',     'value',          ['--fingerprint-work']],
     ['fingerprint_ref',      'value',          ['--fingerprint-ref']],
@@ -644,6 +648,15 @@ DEDUP / DUPLICATES:
                              0.5), --nf-sort <peak|mean|lines> (default peak),
                              --nf-tight (stricter structural hashing). Honors
                              --filter; -v lists each group's instances.
+  --funcstr-hashes <min-lines>
+                             Dump one tab-separated row per function at least
+                             <min-lines> long: struct_hash, body_hash, lines,
+                             name, filepath. Quiet, header-less output meant
+                             for piping (awk/sort/join) — the primitive for
+                             cross-index funcstring intersection. The
+                             min-lines value is required. --fh-tight uses the
+                             stricter structural hash. Summary goes to stderr;
+                             stdout stays pure data.
   --build-fp-renames [s]     Generate _FP_ rename-map entries for cross-source
                              fingerprint matches above score s (default 0.8). Same as
                              --build-fingerprint-renames. Accumulates with existing

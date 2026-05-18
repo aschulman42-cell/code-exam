@@ -32,7 +32,7 @@ import {
   doDupefiles, doFuncDupes, doNearDupes,
   doStructDupes, doShowFuncstring, doStructDiff, doStructDiffAll,
   doStringCallDupes, doStringCallDiffAll, doCmpStringCallDupes,
-  doNotableFuncstrMatches,
+  doNotableFuncstrMatches, doFuncstrHashes,
 } from './commands/dedup.js';
 import { doBuildFpRenames } from './commands/build_fp_renames.js';
 import { doSaveFingerprints } from './commands/fingerprint.js';
@@ -146,7 +146,7 @@ if (args.build_index) {
     'list_classes', 'class_hotspots', 'discover_vocabulary',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
-    'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'build_fp_renames',
+    'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'build_fp_renames',
     'save_fingerprints',
   ];
   if (!queryCommands.some(c => args._explicit.has(c) || args[c])) {
@@ -204,7 +204,7 @@ if (args.build_rename_map) {
     'list_classes', 'class_hotspots', 'discover_vocabulary',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
-    'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'build_fp_renames',
+    'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'build_fp_renames',
     'save_fingerprints',
     'command_catalog', 'string_table', 'breadcrumbs', 'prompt_catalog', 'file_bookends', 'bundle_seams', 'digest',
   ];
@@ -302,6 +302,7 @@ if (args.string_call_dupes)                 doStringCallDupes(index, args);
 if (args.string_call_diff_all)              doStringCallDiffAll(index, args);
 if (args.cmp_string_call_dupes)             doCmpStringCallDupes(index, args);
 if (args.notable_funcstr_matches)           doNotableFuncstrMatches(index, args);
+if (args.funcstr_hashes)                    doFuncstrHashes(index, args);
 // (build_fp_renames moved earlier — runs before query commands so its
 // rename-map updates are visible to --list-functions etc.)
 if (args.save_fingerprints)                 doSaveFingerprints(index, args);
@@ -468,7 +469,7 @@ if (args.interactive) {
     'claim_search', 'claim_file',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
-    'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'build_fp_renames',
+    'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'build_fp_renames',
     'save_fingerprints',
     'command_catalog', 'string_table', 'breadcrumbs', 'prompt_catalog', 'file_bookends', 'bundle_seams', 'digest',
   ].some(c => args._explicit.has(c) || args[c]);

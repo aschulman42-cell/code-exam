@@ -868,6 +868,54 @@ export function doNotableFuncstrMatches(index, args) {
 
 
 // ========================================================================
+// --funcstr-hashes: dump every function's structural hash
+// ========================================================================
+//
+// Quiet, header-less, tab-separated — one row per function at or above the
+// required min-lines. Built for piping into awk/sort/join to intersect
+// funcstring-hash sets across indexes (issue #16, unblocks #15). The
+// min-lines value is the flag's required argument, not an option, so a
+// cross-index run can never silently include tiny generic functions.
+
+export function doFuncstrHashes(index, args) {
+  const minLines = args.funcstr_hashes;
+  const tight = !!args.fh_tight;
+  const hashes = tight
+    ? index.ensureFuncHashesTight(minLines)
+    : index.ensureFuncHashes(minLines, false);
+
+  // This command is built to be piped (| head, | awk). Exit quietly when
+  // the downstream consumer closes the pipe, instead of crashing on EPIPE.
+  process.stdout.on('error', (err) => {
+    if (err && err.code === 'EPIPE') process.exit(0);
+    throw err;
+  });
+
+  // A function "name" can carry embedded tabs/newlines (parser mis-captures
+  // — see issue #348); collapse whitespace so every row stays one clean,
+  // 5-field tab-separated record and never corrupts a downstream awk pipe.
+  const clean = (s) => String(s).replace(/[\t\r\n]+/g, ' ');
+
+  let n = 0;
+  for (const [key, info] of hashes) {
+    if (info.lines < minLines) continue;
+    const sep = key.indexOf('|||');
+    const filepath = sep >= 0 ? key.slice(0, sep) : key;
+    const name = sep >= 0 ? key.slice(sep + 3) : key;
+    process.stdout.write(
+      `${info.struct_hash}\t${info.body_hash}\t${info.lines}\t` +
+      `${clean(name)}\t${clean(filepath)}\n`);
+    n++;
+  }
+
+  // Summary on stderr so stdout stays a clean, header-less data pipe.
+  process.stderr.write(
+    `[funcstr-hashes] ${n} function(s) at >= ${minLines} lines` +
+    `${tight ? ' (tight)' : ''}\n`);
+}
+
+
+// ========================================================================
 // --string-call-diff-all: detailed output with --show-sources / --cross-source-only
 // ========================================================================
 //
