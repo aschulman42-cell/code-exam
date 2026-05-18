@@ -30,6 +30,7 @@ export function parseArgs() {
     seam_verbose: false,
     digest: null,
     index_path: '.code_search_index',
+    multi_index: null,
     skip_semantic: true,
     use_tree_sitter: false,
     extensions: null,
@@ -201,6 +202,7 @@ export function parseArgs() {
     ['seam_verbose',         'flag',           ['--seam-verbose']],
     ['digest',               'value',          ['--digest']],
     ['index_path',           'value',          ['--index-path']],
+    ['multi_index',          'value',          ['--multi-index']],
     ['skip_semantic',        'flag',           ['--skip-semantic']],
     ['use_tree_sitter',      'flag',           ['--use-tree-sitter']],
     ['extensions',           'value',          ['--extensions']],
@@ -496,6 +498,12 @@ INDEX MANAGEMENT:
   --no-rename                Disable display-time renames for this run
                              (output uses raw obfuscated names)
   --index-path <path>        Path to index directory (default: .code_search_index)
+  --multi-index @filelist    Alternative to --index-path: fan the rest of the
+                             command across many indexes. @filelist holds one
+                             index directory path per line; CodeExam runs the
+                             command against each and concatenates the output
+                             (per-index header, no aggregation). A run uses
+                             either --index-path or --multi-index, not both.
   --skip-semantic            Skip semantic/embedding indexing (default)
   --use-tree-sitter          Use tree-sitter for function parsing
   --extensions <exts>        Comma-separated file extensions to index

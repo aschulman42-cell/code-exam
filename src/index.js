@@ -6,6 +6,8 @@
  * Compatible with Python version's JSON index format.
  */
 
+import fs from 'fs';
+import { spawnSync } from 'child_process';
 import { parseArgs } from './argparse.js';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import {
@@ -63,6 +65,67 @@ if (args.scan_extensions) {
 if (args._explicit.has('list_indexes')) {
   doListIndexes(args);
   process.exit(0);
+}
+
+
+// ========================================================================
+// --multi-index: fan the rest of the command across many indexes
+// ========================================================================
+//
+// Issue #17 — #15's fan-out layer (layer 2). Runs before the single-index
+// CodeSearchIndex construction below: when --multi-index is set we never
+// build that index, we spawn one subprocess per index instead. Subprocess
+// isolation (not in-process multi-load) keeps memory bounded for very large
+// indexes (cf. #280) and stops one index's crash from aborting the run.
+
+if (args.multi_index) {
+  // --index-path and --multi-index are mutually exclusive in one run.
+  if (args._explicit.has('index_path')) {
+    process.stderr.write('Error: --multi-index and --index-path are mutually exclusive; use one or the other.\n');
+    process.exit(1);
+  }
+
+  // @filelist: one index directory path per line (same convention as
+  // --build-index). The leading @ is optional/tolerated.
+  const listPath = args.multi_index.startsWith('@') ? args.multi_index.slice(1) : args.multi_index;
+  let indexPaths;
+  try {
+    indexPaths = fs.readFileSync(listPath, 'utf8')
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(l => l && !l.startsWith('#'));
+  } catch (err) {
+    process.stderr.write(`Error: cannot read --multi-index file list '${listPath}': ${err.message}\n`);
+    process.exit(1);
+  }
+  if (indexPaths.length === 0) {
+    process.stderr.write(`Error: --multi-index file list '${listPath}' is empty.\n`);
+    process.exit(1);
+  }
+
+  // Pass through the remaining CLI args, dropping --multi-index and its value.
+  const passthrough = [];
+  const rawArgv = process.argv.slice(2);
+  for (let i = 0; i < rawArgv.length; i++) {
+    const a = rawArgv[i];
+    if (a === '--multi-index') { i++; continue; }       // skip flag + its value
+    if (a.startsWith('--multi-index=')) continue;        // skip --multi-index=val form
+    passthrough.push(a);
+  }
+
+  let failures = 0;
+  for (const p of indexPaths) {
+    process.stdout.write(`=== ${p} ===\n`);
+    const res = spawnSync(process.execPath, [process.argv[1], '--index-path', p, ...passthrough], {
+      stdio: ['ignore', 'inherit', 'inherit'],
+    });
+    if (res.status !== 0 || res.error) {
+      failures++;
+      process.stderr.write(`[multi-index] '${p}' exited with ${res.error ? res.error.message : 'status ' + res.status}\n`);
+    }
+  }
+  process.stderr.write(`[multi-index] ran across ${indexPaths.length} index(es)${failures ? `, ${failures} failed` : ''}\n`);
+  process.exit(failures ? 1 : 0);
 }
 
 
