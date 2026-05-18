@@ -617,7 +617,12 @@ DEDUP / DUPLICATES:
   --func-dupes <n>           Top N exact duplicate function groups (SHA1 body hash)
   --near-dupes <n>           Top N near-duplicate function groups (same name+size, different body)
   --struct-dupes <n>         Top N structural dupe groups (same structure, different names/values)
-  --show-funcstring [name]   Show structural funcstring for a function (or for struct-dupes results)
+  --show-funcstring [name|hash]
+                             Show the structural funcstring for a function,
+                             found by name (substring) or by a struct/body
+                             hash — 8+ hex chars, full or prefix, pairs with
+                             --funcstr-hashes. Bare flag falls back to
+                             struct-dupes results.
   --struct-diff <name>       Show word-hole differences between structural dupe variants
   --struct-diff-all <n>      One-line diff summaries for top N structural dupe groups
   --show-sources             (with --struct-diff-all / --string-call-diff-all) list each

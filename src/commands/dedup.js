@@ -353,15 +353,39 @@ export function doShowFuncstring(index, args) {
     return;
   }
 
-  // Find the function
-  const funcs = index.listFunctions();
-  const nameLower = funcName.toLowerCase();
-  const matches = funcs.filter(f =>
-    f.name.toLowerCase().includes(nameLower) ||
-    (f.displayName && f.displayName.toLowerCase().includes(nameLower)));
+  // An all-hex argument of 8+ chars is treated as a struct_hash / body_hash
+  // (full or prefix), not a function name — this resolves a hash from
+  // --funcstr-hashes or --notable-funcstr-matches back to its funcstring.
+  // Anything else is matched as a name substring, exactly as before.
+  const isHash = /^[0-9a-f]{8,}$/i.test(funcName);
+  let matches;
+
+  if (isHash) {
+    const h = funcName.toLowerCase();
+    const hashMap = index.ensureFuncHashes(3, false);
+    const matchedKeys = new Set();
+    for (const [key, info] of hashMap) {
+      if (info.struct_hash.startsWith(h) || info.body_hash.startsWith(h)) {
+        matchedKeys.add(key);
+      }
+    }
+    // Resolve to full function records (with reliable start/end) via
+    // listFunctions — the same source the name path trusts — rather than
+    // the sparser functionIndex map, whose start/end can be absent.
+    matches = index.listFunctions().filter(f =>
+      matchedKeys.has(`${f.filepath}|||${f.name}`));
+  } else {
+    const funcs = index.listFunctions();
+    const nameLower = funcName.toLowerCase();
+    matches = funcs.filter(f =>
+      f.name.toLowerCase().includes(nameLower) ||
+      (f.displayName && f.displayName.toLowerCase().includes(nameLower)));
+  }
 
   if (!matches.length) {
-    console.log(`No function matching '${funcName}' found.`);
+    console.log(isHash
+      ? `No function with a struct/body hash matching '${funcName}' found.`
+      : `No function matching '${funcName}' found.`);
     return;
   }
 
@@ -382,7 +406,9 @@ export function doShowFuncstring(index, args) {
   }
 
   if (matches.length > 5) {
-    console.log(`\n  ... and ${matches.length - 5} more matches. Use a more specific name.`);
+    console.log(isHash
+      ? `\n  ... and ${matches.length - 5} more functions sharing that hash.`
+      : `\n  ... and ${matches.length - 5} more matches. Use a more specific name.`);
   }
 }
 
