@@ -8104,7 +8104,8 @@ export class CodeSearchIndex {
         try {
           const raw = fs.readFileSync(cachePath, 'utf-8');
           const cached = JSON.parse(raw);
-          if (cached._version === 1 && cached._file_count === this.files.size) {
+          const cachedTokenCount = Object.keys(cached.tokens || {}).length;
+          if (cached._version === 1 && cached._file_count === this.files.size && cachedTokenCount > 0) {
             this._vocabulary = new Map();
             for (const [token, entry] of Object.entries(cached.tokens || {})) {
               this._vocabulary.set(token, entry);
@@ -8112,7 +8113,14 @@ export class CodeSearchIndex {
             if (showProgress) console.log(`Loaded ${this._vocabulary.size} cached vocabulary tokens`);
             return this._vocabulary;
           }
-          if (showProgress) console.log('Vocabulary cache stale, rebuilding...');
+          // An empty cached vocabulary is worth nothing -- e.g. a single-file
+          // index cached before the per-function fallback existed. Treat it as
+          // a miss so the rebuild (and the fallback) can run.
+          if (showProgress) {
+            console.log(cachedTokenCount === 0
+              ? 'Vocabulary cache is empty, recomputing...'
+              : 'Vocabulary cache stale, rebuilding...');
+          }
         } catch (e) {
           if (showProgress) console.log(`Vocabulary cache load failed, recomputing: ${e.message}`);
         }
@@ -8139,7 +8147,33 @@ export class CodeSearchIndex {
     const label = pathFilter ? `${totalFiles} files matching '${pathFilter}'` : `${totalFiles} files`;
     if (showProgress) console.log(`Building vocabulary index for ${label}...`);
 
-    const vocabulary = this._buildVocabularyFromFiles(fileEntries, totalFiles, showProgress);
+    let vocabulary = this._buildVocabularyFromDocs(fileEntries, totalFiles, showProgress, {
+      skipDoc: (fp) => TEXT_EXTENSIONS.has(path.extname(fp).toLowerCase()),
+      tokenCountOf: (fp) => {
+        const fl = this.fileLines.get(fp);
+        return fl ? fl.length : 100;
+      },
+    });
+
+    // Automatic fallback: a single-file (or otherwise tiny) corpus collapses
+    // cross-document TF-IDF -- every token has doc_freq 1 and IDF log2(1/1) = 0
+    // -- so file mode yields an empty vocabulary. Recompute treating each
+    // indexed function body as its own document, restoring a meaningful
+    // doc_freq. File mode stays the default; this only fires when it failed.
+    if (vocabulary.size === 0) {
+      const { entries: funcEntries, lineCounts } = this._functionVocabDocs(pathFilter);
+      if (funcEntries.length > 0) {
+        if (showProgress) {
+          console.log(`  File-mode vocabulary is empty (corpus is ${totalFiles} ` +
+            `file${totalFiles === 1 ? '' : 's'}); rebuilding from ${funcEntries.length} ` +
+            `function bodies as documents...`);
+        }
+        vocabulary = this._buildVocabularyFromDocs(funcEntries, funcEntries.length, showProgress, {
+          skipDoc: () => false,
+          tokenCountOf: (id) => lineCounts.get(id) || 100,
+        });
+      }
+    }
 
     // Cache global vocabulary only
     if (!pathFilter) {
@@ -8168,13 +8202,55 @@ export class CodeSearchIndex {
   }
 
   /**
-   * Core two-pass vocabulary builder.
-   * @param {Array<[string, string]>} fileEntries - [filepath, content] pairs
-   * @param {number} totalFiles - count for IDF denominator
+   * Build per-function "documents" for vocabulary discovery: each indexed
+   * function body is one document. Used as the fallback corpus when the
+   * file-level corpus is too small for cross-file TF-IDF to mean anything
+   * (a lone bundled file, etc. -- see ensureVocabulary).
+   *
+   * @param {string|null} [pathFilter] - when set, only functions whose
+   *        filepath contains this substring (case-insensitive) are included.
+   * @returns {{ entries: Array<[string, string]>, lineCounts: Map<string, number> }}
+   */
+  _functionVocabDocs(pathFilter = null) {
+    this._ensureFunctionIndex();
+    const entries = [];
+    const lineCounts = new Map();
+    const pat = pathFilter ? pathFilter.toLowerCase() : null;
+
+    for (const [filepath, funcs] of Object.entries(this.functionIndex || {})) {
+      if (pat && !filepath.toLowerCase().includes(pat)) continue;
+      const fileLines = this.fileLines.get(filepath);
+      if (!fileLines) continue;
+      for (const [funcName, info] of Object.entries(funcs)) {
+        if (!info || info.start == null || info.end == null) continue;
+        const body = fileLines.slice(info.start - 1, info.end);
+        if (body.length === 0) continue;
+        const id = `${filepath}|||${funcName}`;
+        entries.push([id, body.join('\n')]);
+        lineCounts.set(id, body.length);
+      }
+    }
+    return { entries, lineCounts };
+  }
+
+  /**
+   * Core two-pass vocabulary builder. Document-agnostic: a "document" is a
+   * `(docId, content)` pair -- normally a file, but a single function body
+   * when ensureVocabulary falls back to per-function mode for a corpus too
+   * small for cross-file TF-IDF to mean anything.
+   *
+   * @param {Array<[string, string]>} docEntries - [docId, content] pairs
+   * @param {number} totalDocs - document count; the IDF denominator
    * @param {boolean} showProgress
+   * @param {object} [opts]
+   * @param {(docId: string) => boolean} [opts.skipDoc] - skip a document entirely
+   * @param {(docId: string) => number} [opts.tokenCountOf] - document size, used
+   *        for the top-document concentration metric
    * @returns {Map}
    */
-  _buildVocabularyFromFiles(fileEntries, totalFiles, showProgress) {
+  _buildVocabularyFromDocs(docEntries, totalDocs, showProgress, opts = {}) {
+    const skipDoc = opts.skipDoc || (() => false);
+    const tokenCountOf = opts.tokenCountOf || (() => 100);
     const kw = CodeSearchIndex.STRUCTURE_KEYWORDS;
     const stopwords = CodeSearchIndex.PROGRAMMING_STOPWORDS;
     const minTokenLen = 3;
@@ -8191,19 +8267,18 @@ export class CodeSearchIndex {
     // Pass 1: Count doc_freq and total_count ONLY
     // ----------------------------------------------------------------
     const tokenStats = Object.create(null);
-    let fileNum = 0;
+    let docNum = 0;
 
-    for (const [filepath, content] of fileEntries) {
-      fileNum++;
-      if (showProgress && fileNum % 2000 === 0) {
-        process.stdout.write(`  Pass 1: scanning ${fileNum} / ${totalFiles} files...\r`);
+    for (const [docId, content] of docEntries) {
+      docNum++;
+      if (showProgress && docNum % 2000 === 0) {
+        process.stdout.write(`  Pass 1: scanning ${docNum} / ${totalDocs} documents...\r`);
       }
 
-      const ext = path.extname(filepath).toLowerCase();
-      if (TEXT_EXTENSIONS.has(ext)) continue;
+      if (skipDoc(docId)) continue;
 
       const text = content;
-      const seenInFile = new Set();
+      const seenInDoc = new Set();
       let m;
       identRe.lastIndex = 0;
 
@@ -8220,19 +8295,19 @@ export class CodeSearchIndex {
         }
         tokenStats[token].total_count++;
 
-        if (!seenInFile.has(token)) {
-          seenInFile.add(token);
+        if (!seenInDoc.has(token)) {
+          seenInDoc.add(token);
           tokenStats[token].doc_freq++;
         }
       }
     }
 
     if (showProgress) {
-      process.stdout.write(`  Pass 1: scanned ${totalFiles} files.                    \n`);
+      process.stdout.write(`  Pass 1: scanned ${totalDocs} documents.                    \n`);
     }
 
     // Score and filter
-    const freqCutoff = Math.max(5, Math.floor(totalFiles * 0.6));
+    const freqCutoff = Math.max(5, Math.floor(totalDocs * 0.6));
     const minDocFreq = 2;
 
     const scored = [];
@@ -8243,7 +8318,7 @@ export class CodeSearchIndex {
       if (stats.doc_freq < minDocFreq) continue;
       if (stats.doc_freq > freqCutoff) continue;
 
-      const idf = Math.log2(totalFiles / stats.doc_freq);
+      const idf = Math.log2(totalDocs / stats.doc_freq);
       const lengthBoost = Math.pow(token.length, 0.75);
 
       const parts = token
@@ -8276,26 +8351,25 @@ export class CodeSearchIndex {
     }
 
     // ----------------------------------------------------------------
-    // Pass 2: Representative files for top tokens only
+    // Pass 2: Representative documents for top tokens only
     // ----------------------------------------------------------------
     if (showProgress && topTokenSet.size > 0) {
-      process.stdout.write(`  Pass 2: finding representative files for top ${topTokenSet.size} tokens...\r`);
+      process.stdout.write(`  Pass 2: finding representative documents for top ${topTokenSet.size} tokens...\r`);
     }
 
-    const fileCountsForTop = Object.create(null);
+    const docCountsForTop = Object.create(null);
     for (const t of topTokenSet) {
-      fileCountsForTop[t] = Object.create(null);
+      docCountsForTop[t] = Object.create(null);
     }
 
-    fileNum = 0;
-    for (const [filepath, content] of fileEntries) {
-      fileNum++;
-      if (showProgress && fileNum % 5000 === 0) {
-        process.stdout.write(`  Pass 2: scanning ${fileNum} / ${totalFiles} files...\r`);
+    docNum = 0;
+    for (const [docId, content] of docEntries) {
+      docNum++;
+      if (showProgress && docNum % 5000 === 0) {
+        process.stdout.write(`  Pass 2: scanning ${docNum} / ${totalDocs} documents...\r`);
       }
 
-      const ext = path.extname(filepath).toLowerCase();
-      if (TEXT_EXTENSIONS.has(ext)) continue;
+      if (skipDoc(docId)) continue;
 
       const text = content;
       let m;
@@ -8305,41 +8379,39 @@ export class CodeSearchIndex {
         const token = m[0];
         if (!topTokenSet.has(token)) continue;
 
-        if (!fileCountsForTop[token][filepath]) {
-          fileCountsForTop[token][filepath] = 0;
+        if (!docCountsForTop[token][docId]) {
+          docCountsForTop[token][docId] = 0;
         }
-        fileCountsForTop[token][filepath]++;
+        docCountsForTop[token][docId]++;
       }
     }
 
     if (showProgress) {
-      process.stdout.write(`  Pass 2: scanned ${totalFiles} files.                    \n`);
+      process.stdout.write(`  Pass 2: scanned ${totalDocs} documents.                    \n`);
     }
 
-    // Build final vocabulary map
+    // Build final vocabulary map. The `top_files` field keeps its name for
+    // cache / consumer compatibility; in per-function mode each entry's
+    // `path` holds a `filepath|||funcName` document id rather than a filepath.
     const vocabulary = new Map();
 
     for (const entry of scored.slice(0, topN)) {
-      const fc = fileCountsForTop[entry.token] || {};
-      const filePairs = Object.entries(fc)
+      const dc = docCountsForTop[entry.token] || {};
+      const docPairs = Object.entries(dc)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5);
 
-      const topFiles = filePairs.map(([fp, count]) => {
-        const fileLines = this.fileLines.get(fp);
-        const fileTokenCount = fileLines ? fileLines.length : 100;
-        return {
-          path: fp,
-          count,
-          concentration: count / fileTokenCount,
-        };
-      });
+      const topDocs = docPairs.map(([docId, count]) => ({
+        path: docId,
+        count,
+        concentration: count / (tokenCountOf(docId) || 100),
+      }));
 
       vocabulary.set(entry.token, {
         doc_freq: entry.doc_freq,
         total_count: entry.total_count,
         score: entry.score,
-        top_files: topFiles,
+        top_files: topDocs,
       });
     }
 
