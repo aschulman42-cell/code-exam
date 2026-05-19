@@ -1,4 +1,4 @@
-# Code Exam
+# CodeExam
 
 An air-gapped source code examination tool for large codebases — including
 bundled, minified, or otherwise-deobfuscation-resistant JavaScript, AI
@@ -51,8 +51,11 @@ Indexes scale to multi-gigabyte source trees (tested on Chromium —
 - Function/file/class accordions; full-text, regex, and inverted-index
   (`--fast`) search
 - **Multisect**: find the smallest scope (function/file) containing all
-  of N search terms — including synonyms. Patent claims can be parsed
-  directly into multisect expressions (`--claim-search`)
+  of N search terms. Each term can be hard-required, negated
+  (`!term` / `NOT term`), or **soft** (`?term` — optional: it does not
+  gate the result set but still boosts ranking). Prose — a patent claim,
+  a design spec, a bug report — can be parsed directly into a multisect
+  expression (`--claim-search`)
 - **Cross-reference**: callers, callees, transitive call trees, file and
   folder coupling maps; Mermaid diagrams of any of these
 - **Surfacing key code**: hotspots, class hotspots, most-called,
@@ -86,6 +89,9 @@ Indexes scale to multi-gigabyte source trees (tested on Chromium —
 - **Semantic fingerprinting** — distinctive string + call patterns per
   function. Resilient to esbuild/webpack transforms; matches a bundled
   cli.js function back to its source library equivalent
+- **Funcstring hashes** — hash a function's distinctive string/call
+  signature (`--funcstr-hashes`, `--show-funcstring`) to recognize the
+  same logical function across different indexes even when names differ
 - **Portable fingerprint files** (`*.fp.json`) — share fingerprints of
   a library without redistributing its source; a curated set of common
   dependencies (Anthropic SDK, zod, ajv, etc.) can be matched against
@@ -103,9 +109,18 @@ Indexes scale to multi-gigabyte source trees (tested on Chromium —
 ### LLM-assisted (optional)
 - `--analyze <function>` — Claude (or local GGUF model) explains a
   function in context
-- `--claim-search <patent-claim>` — extracts search terms from a patent
-  claim, multi-sects to find matching code, optionally LLM-summarizes
-  each match
+- **Multisect Analyze** — runs a multisect search, then has the LLM
+  produce a structured per-term verdict grid: each search term is rated
+  `PRESENT` / `NAME-ONLY` / `IFFY` / `ABSENT` with supporting evidence
+  and a confidence level, so you can see at a glance how each term maps
+  onto the matched function
+- `--claim-search <prose>` — extracts search terms from descriptive text
+  (a patent claim, a spec, a requirement), multi-sects to find matching
+  code, optionally LLM-summarizes each match
+- **Input masking** — before a function is sent to an LLM, optionally
+  strip its comments, or go further and also mask string literals and
+  identifier names. Lets the model reason about code logic without
+  exposing potentially sensitive names or data
 - `--build-prompt <function>` — generates a digest+source prompt suitable
   for hand-pasting into any LLM (no API needed). Use this to feed
   CodeExam findings to a chat tool while keeping source local.
@@ -118,6 +133,7 @@ Indexes scale to multi-gigabyte source trees (tested on Chromium —
 - Index format compatible with the original Python implementation
 - Build from directories, glob patterns, archives (zip/tar/gz), or
   `@filelist` files
+- Query several indexes in a single run with `--multi-index @filelist`
 - Multi-language parser via tree-sitter WASM grammars + regex fallback:
   - Tree-sitter: **C, C++, Java, JavaScript, TypeScript, Python, C#,
     Go, Rust, PHP, Ruby**
@@ -161,13 +177,18 @@ CLI            Interactive       Browser UI      MCP server
 ## Testing
 
 ```bash
-node --test test/
+node --test test/*.js
 ```
 
-~240 CLI tests across 8 files. Browser-UI tests pending — see TODO #262.
+~400 tests across 15 test files, covering the indexing engine, search,
+multisect, cross-reference, fingerprinting, dedup, and the LLM-assisted
+command layer. Browser-UI tests are not yet automated.
 
 ## License / status
 
 Air-gapped-first: the browser UI binds to localhost, the MCP server uses
 stdio, and outbound network requests are opt-in and gated. Designed for
 litigation / security-review contexts where source must stay local.
+
+A patent-focused build, tailored for IP-litigation workflows, is
+developed under the name **CodeClaim**.
