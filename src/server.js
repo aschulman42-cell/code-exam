@@ -20,6 +20,7 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
+import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest } from './commands/digest.js';
 import { collectPrompts } from './commands/prompts.js';
@@ -1679,6 +1680,13 @@ routes['/api/multisect'] = (req, res) => {
 };
 
 
+// --- Build version (restart canary) ---
+
+routes['/api/version'] = (req, res) => {
+  jsonResponse(res, { build: SERVER_BUILD });
+};
+
+
 // --- Search (literal) ---
 
 routes['/api/search'] = (req, res) => {
@@ -2813,6 +2821,7 @@ const server = http.createServer(handleRequest);
 server.listen(serverArgs.port, serverArgs.host, () => {
   const indexNames = [...mgr.indexes.keys()].join(', ');
   console.log(`\nCode Exam GUI`);
+  console.log(`  Build:   ${SERVER_BUILD}`);
   console.log(`  URL:     http://${serverArgs.host}:${serverArgs.port}/`);
   console.log(`  Indexes: ${indexNames}`);
   console.log(`  Files:   ${[...mgr.indexes.values()].reduce((s, i) => s + i.files.size, 0)} total`);
