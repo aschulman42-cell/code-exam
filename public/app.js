@@ -134,6 +134,7 @@ const api = {
   indexExtensions: (p) => api.get('index-extensions', p),
   scanModels:      (p) => api.get('scan-models', p),
   switchModel:     (p) => api.post('switch-model', p),
+  version:         ()  => api.get('version'),
 };
 
 // ========================================================================
@@ -3525,11 +3526,37 @@ function _renderScopeViews(views, opts = {}) {
     return html + '<div class="list-placeholder">No matches at any scope</div>';
   }
 
-  // Compact "matched" indices badge: e.g. 1-3,5,7,9-11 (with missing ones shown faintly when small)
+  // Compact "matched" indices badge, split by term polarity into three
+  // typographic forms: hard-required hits in [brackets], soft-required hits
+  // in (parens), soft-NOT violations with a ~tilde. Term indices are 1-based
+  // in the badge; `terms[i]` carries `.hard`/`.negated` from the parser
+  // (`.hard` absent => treat as hard, for results from older servers).
+  const _isSoft = (i) => !!(terms[i] && terms[i].hard === false);
   const matchedBadge = (m) => {
-    const idxs = (m.matched_indices || []).slice().sort((a, b) => a - b).map(i => i + 1);
-    if (!idxs.length) return '';
-    return `<span class="muted" style="font-size:10px;margin-left:6px">[${_compactRanges(idxs)}]</span>`;
+    const hardHits = [], softHits = [];
+    for (const i of (m.matched_indices || [])) {
+      (_isSoft(i) ? softHits : hardHits).push(i + 1);
+    }
+    const softNot = (m.soft_not_violated || []).map(i => i + 1);
+    const parts = [];
+    if (hardHits.length) parts.push(`[${_compactRanges(hardHits.sort((a, b) => a - b))}]`);
+    if (softHits.length) parts.push(`(${_compactRanges(softHits.sort((a, b) => a - b))})`);
+    if (softNot.length)  parts.push(`~${_compactRanges(softNot.sort((a, b) => a - b))}`);
+    if (!parts.length) return '';
+    return `<span class="muted" style="font-size:10px;margin-left:6px" `
+      + `title="[hard-required] (soft-required) ~soft-NOT violated">${parts.join(' ')}</span>`;
+  };
+
+  // Soft-NOT violation flag: the scope contains a discouraged term. Unlike a
+  // hard NOT it is not filtered out — it is kept and flagged for review.
+  const verifyBadge = (m) => {
+    const sv = m.soft_not_violated || [];
+    if (!sv.length) return '';
+    const names = sv.map(i => (terms[i] && terms[i].display) || `#${i + 1}`).join(', ');
+    return `<span style="font-size:9px;margin-left:6px;padding:1px 5px;border-radius:3px;`
+      + `border:1px solid var(--accent-red);color:var(--accent-red)" `
+      + `title="contains discouraged soft-NOT term(s): ${escHtml(names)} — kept for ranking, verify manually">`
+      + `contains forbidden term — verify</span>`;
   };
 
   const idfBadge = (m) => (typeof m.idf_score === 'number' && m.idf_score > 0)
@@ -3562,7 +3589,7 @@ function _renderScopeViews(views, opts = {}) {
         html += `<tr><td class="muted"><span class="ms-toggle expanded" title="Hide evidence">▶</span>${i + 1}</td><td class="mono">`
           + `<span class="clickable" data-funcname="${escHtml(m.function)}" data-filepath="${escHtml(m.filepath)}">${displayNameHtml(m.function)}</span>`
           + `<span class="muted" style="font-size:10px"> in ${escHtml(shortPath(m.filepath, 50))}</span>`
-          + matchedBadge(m) + idfBadge(m) + missingBadge(m)
+          + matchedBadge(m) + idfBadge(m) + missingBadge(m) + verifyBadge(m)
           + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.lines || 0}</td></tr>`;
         // Function-level: evidence row expanded by default; chevron collapses it
         html += `<tr class="ms-detail-row"><td colspan="4">${_renderEvidence(m, terms, notSet, 'function')}</td></tr>`;
@@ -3587,7 +3614,7 @@ function _renderScopeViews(views, opts = {}) {
         html += `<tr><td class="muted"><span class="ms-toggle" title="Show evidence">▶</span>${i + 1}</td><td class="mono">`
           + `<span class="clickable" data-classname="${escHtml(m.class_name)}">${displayNameHtml(m.class_name)}</span>`
           + `<span class="muted" style="font-size:10px"> in ${escHtml(fileLabel)}</span>`
-          + matchedBadge(m) + idfBadge(m) + missingBadge(m)
+          + matchedBadge(m) + idfBadge(m) + missingBadge(m) + verifyBadge(m)
           + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.functions.length}</td><td>${m.total_lines}</td></tr>`;
         html += `<tr class="ms-detail-row collapsed"><td colspan="5">${_renderEvidence(m, terms, notSet, 'class')}</td></tr>`;
       }
@@ -3609,7 +3636,7 @@ function _renderScopeViews(views, opts = {}) {
         const m = fileM[i];
         html += `<tr><td class="muted"><span class="ms-toggle" title="Show evidence">▶</span>${i + 1}</td><td class="mono">`
           + `<span class="clickable" data-filepath="${escHtml(m.filepath)}">${escHtml(shortPath(m.filepath, 60))}</span>`
-          + matchedBadge(m) + idfBadge(m) + missingBadge(m)
+          + matchedBadge(m) + idfBadge(m) + missingBadge(m) + verifyBadge(m)
           + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.lines || 0}</td></tr>`;
         html += `<tr class="ms-detail-row collapsed"><td colspan="4">${_renderEvidence(m, terms, notSet, 'file')}</td></tr>`;
       }
@@ -3631,7 +3658,7 @@ function _renderScopeViews(views, opts = {}) {
         const m = folderM[i];
         html += `<tr><td class="muted"><span class="ms-toggle" title="Show evidence">▶</span>${i + 1}</td><td class="mono">`
           + escHtml(m.folder + '/')
-          + matchedBadge(m) + idfBadge(m) + missingBadge(m)
+          + matchedBadge(m) + idfBadge(m) + missingBadge(m) + verifyBadge(m)
           + `</td><td>${m.terms_matched}/${nPos}</td><td>${m.files_involved}</td></tr>`;
         html += `<tr class="ms-detail-row collapsed"><td colspan="4">${_renderEvidence(m, terms, notSet, 'folder')}</td></tr>`;
       }
@@ -6038,6 +6065,31 @@ function closeGenericFullscreen() {
 // ========================================================================
 // Init
 // ========================================================================
+// Fetch the server build number and surface it in the header next to the
+// index info, so a stale-server restart is visible at a glance. The badge
+// element is injected from JS (not index.html) to keep this change confined
+// to app.js. Silently does nothing if the server is too old to serve
+// /api/version, or is unreachable.
+async function showBuildInfo() {
+  try {
+    const data = await api.version();
+    if (!data || typeof data.build === 'undefined') return;
+    const right = $('.menubar-right');
+    if (!right) return;
+    let el = $('#build-info');
+    if (!el) {
+      el = document.createElement('span');
+      el.id = 'build-info';
+      el.className = 'index-info';
+      el.style.marginRight = '10px';
+      el.style.opacity = '0.7';
+      right.insertBefore(el, $('#index-info'));
+    }
+    el.textContent = `build ${data.build}`;
+    el.title = 'CodeExam server build (restart canary) — served by /api/version';
+  } catch { /* old/unreachable server: leave the header as-is */ }
+}
+
 async function init() {
   initMenus();
   initAccordion();
@@ -6078,6 +6130,7 @@ async function init() {
   initConsole();
   initWindowManagement();
   refreshLlmStatus();
+  showBuildInfo();
 
   // Pane navigation buttons (back/forward for both middle panes)
   $('#source-back-btn')?.addEventListener('click', () => navBack('middle-bottom'));

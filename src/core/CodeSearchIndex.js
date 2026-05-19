@@ -8670,17 +8670,36 @@ export class CodeSearchIndex {
   multisectSearch(terms, opts = {}) {
     const { minTerms: minTermsArg, includePath, excludePath, showProgress = true } = opts;
 
+    // Four-way bucketing of term indices by (hard, negated). `hard` defaults
+    // to true when the flag is absent (terms from older callers / parser).
+    // `positiveIndices` / `notIndices` keep their old all-inclusive meaning
+    // for the return shape and existing consumers.
     const positiveIndices = [];
     const notIndices = [];
+    const hardPosIndices = [];
+    const softPosIndices = [];
+    const hardNotIndices = [];
+    const softNotIndices = [];
     for (let i = 0; i < terms.length; i++) {
-      if (terms[i].negated) notIndices.push(i);
-      else positiveIndices.push(i);
+      const isHard = terms[i].hard !== false;
+      if (terms[i].negated) {
+        notIndices.push(i);
+        (isHard ? hardNotIndices : softNotIndices).push(i);
+      } else {
+        positiveIndices.push(i);
+        (isHard ? hardPosIndices : softPosIndices).push(i);
+      }
     }
     const nPositive = positiveIndices.length;
     const nTerms = terms.length;
+    const hardPosSet = new Set(hardPosIndices);
 
-    let minTerms = minTermsArg || nPositive;
-    minTerms = Math.max(1, Math.min(minTerms, nPositive));
+    // Min Terms gates on hard-required matches only — soft-required terms
+    // never disqualify a scope. An all-soft query (no hard positives) gates
+    // at 0 so soft-only results still surface, ranked by IDF.
+    const nHardPos = hardPosIndices.length;
+    let minTerms = minTermsArg ? Math.min(minTermsArg, nHardPos) : nHardPos;
+    minTerms = nHardPos > 0 ? Math.max(1, minTerms) : 0;
 
     this._ensureFunctionIndex();
 
@@ -8748,8 +8767,12 @@ export class CodeSearchIndex {
     const notIdxSet = new Set(notIndices);
     const fileSurvivors = new Set();
     for (const [fp, matchedPos] of filePosTerms) {
-      if (matchedPos.size >= minTerms) {
-        if (!notIndices.some(ni => termFileSets[ni].has(fp))) {
+      // Count only hard-required matches toward the gate; soft-required
+      // absence never disqualifies. Only hard-NOT terms exclude the file.
+      let hardMatched = 0;
+      for (const ti of matchedPos) if (hardPosSet.has(ti)) hardMatched++;
+      if (hardMatched >= minTerms) {
+        if (!hardNotIndices.some(ni => termFileSets[ni].has(fp))) {
           fileSurvivors.add(fp);
         }
       }
@@ -8814,8 +8837,8 @@ export class CodeSearchIndex {
     // Find classes whose combined term coverage meets minTerms
     const classCandidateFiles = new Set();
     for (const [className, cts] of classTermSets) {
-      const posCovered = [...cts.keys()].filter(ti => !notIdxSet.has(ti));
-      if (posCovered.length >= minTerms) {
+      const hardCovered = [...cts.keys()].filter(ti => hardPosSet.has(ti));
+      if (hardCovered.length >= minTerms) {
         // Add all files for this class to the Phase 2 scan
         const cf = classFilesP1.get(className);
         if (cf) {
@@ -8851,14 +8874,18 @@ export class CodeSearchIndex {
     const funcMap = new Map();
     // fileDetailMap[filepath] -> { termIdx: { line_num, line_text, func_name } }
     const fileDetailMap = new Map();
-    // funcNotHits: Set of fnKey strings whose body contains any NOT-term.
     // Function-scope NOT semantics: a function is excluded only if a NOT-term
     // appears within its own body (signature line included, since that's inside
     // the boundary range). Necessary because Phase 1b's class-candidate pass
     // can re-inject files containing NOT-terms past the file-level survivor
     // filter — without this, the file-level NOT-filter at file/class/folder
     // levels has no function-level counterpart.
-    const funcNotHits = new Set();
+    //   funcHardNotHits: Set of fnKey whose body contains a hard-NOT term
+    //                    (these functions are dropped).
+    //   funcSoftNotHits: Map fnKey -> Set of soft-NOT term indices found in
+    //                    the body (these functions are kept but tagged).
+    const funcHardNotHits = new Set();
+    const funcSoftNotHits = new Map();
 
     const sortedSurvivors = [...phase2Files].sort();
     for (let fpIdx = 0; fpIdx < sortedSurvivors.length; fpIdx++) {
@@ -8919,16 +8946,24 @@ export class CodeSearchIndex {
 
       // Function-level NOT-term scan within this file's function bodies.
       // (File/class/folder NOT-filters live in their builders below; this
-      // is the missing function-level counterpart.)
+      // is the missing function-level counterpart.) Hard-NOT hits drop the
+      // function; soft-NOT hits only tag it.
       for (const ni of notIndices) {
         if (!termFileSets[ni].has(fp)) continue;
         if (termPathOnlySets[ni].has(fp)) continue;
+        const isSoft = !hardNotIndices.includes(ni);
         const regex = terms[ni].regex;
         for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
           if (!regex.test(lines[lineIdx])) continue;
           const lineNum = lineIdx + 1;
           const funcName = CodeSearchIndex._bisectFuncLookup(boundaries, lineNum) || '(global)';
-          funcNotHits.add(`${fp}\x00${funcName}`);
+          const fnKey = `${fp}\x00${funcName}`;
+          if (isSoft) {
+            if (!funcSoftNotHits.has(fnKey)) funcSoftNotHits.set(fnKey, new Set());
+            funcSoftNotHits.get(fnKey).add(ni);
+          } else {
+            funcHardNotHits.add(fnKey);
+          }
         }
       }
     }
@@ -8945,11 +8980,16 @@ export class CodeSearchIndex {
       const posMatched = new Set(
         Object.keys(fm.details).map(Number).filter(ti => !notIdxSet.has(ti))
       );
-      if (posMatched.size < minTerms) continue;
-      // Function-scope NOT-filter: skip if any NOT-term appears inside the
-      // function's body (function-name match falls out for free since the
-      // signature line lives inside the boundary range).
-      if (funcNotHits.has(fnKey)) continue;
+      // Gate on hard-required matches only; soft-required ones ride along
+      // in matched_indices for ranking but never affect inclusion.
+      let hardMatched = 0;
+      for (const ti of posMatched) if (hardPosSet.has(ti)) hardMatched++;
+      if (hardMatched < minTerms) continue;
+      // Function-scope NOT-filter: skip if any hard-NOT term appears inside
+      // the function's body (function-name match falls out for free since
+      // the signature line lives inside the boundary range). Soft-NOT hits
+      // do not exclude — they are surfaced via soft_not_violated.
+      if (funcHardNotHits.has(fnKey)) continue;
 
       // Get function line count
       const boundaries = funcBoundariesCache[fm.filepath] || [];
@@ -8964,6 +9004,9 @@ export class CodeSearchIndex {
         terms_matched: posMatched.size,
         lines: funcLines || 0,
         matched_indices: posMatched,
+        soft_not_violated: funcSoftNotHits.has(fnKey)
+          ? [...funcSoftNotHits.get(fnKey)].sort((a, b) => a - b)
+          : [],
         details: fm.details,
       });
     }
@@ -9024,15 +9067,21 @@ export class CodeSearchIndex {
       const posMatched = new Set(
         Object.keys(cm.details).map(Number).filter(ti => !notIdxSet.has(ti))
       );
-      if (posMatched.size < minTerms) continue;
-      // Skip if NOT-term appears in any of the class's files
+      let hardMatched = 0;
+      for (const ti of posMatched) if (hardPosSet.has(ti)) hardMatched++;
+      if (hardMatched < minTerms) continue;
       const classFiles = cm.files;
-      if (notIndices.some(ni => [...classFiles].some(fp => termFileSets[ni].has(fp)))) continue;
+      // Skip only if a hard-NOT term appears in any of the class's files.
+      if (hardNotIndices.some(ni => [...classFiles].some(fp => termFileSets[ni].has(fp)))) continue;
+      // Soft-NOT terms present in the class's files tag it but do not skip it.
+      const softNotViolated = softNotIndices.filter(
+        ni => [...classFiles].some(fp => termFileSets[ni].has(fp)));
 
       classMatches.push({
         class_name: className,
         terms_matched: posMatched.size,
         matched_indices: posMatched,
+        soft_not_violated: softNotViolated,
         files: [...classFiles].sort(),
         functions: [...cm.functions].sort(),
         total_lines: cm.totalLines,
@@ -9050,9 +9099,12 @@ export class CodeSearchIndex {
       const posMatched = new Set(
         Object.keys(details).map(Number).filter(ti => !notIdxSet.has(ti))
       );
-      if (posMatched.size < minTerms) continue;
-      // Check NOT terms
-      if (notIndices.some(ni => termFileSets[ni].has(fp))) continue;
+      let hardMatched = 0;
+      for (const ti of posMatched) if (hardPosSet.has(ti)) hardMatched++;
+      if (hardMatched < minTerms) continue;
+      // Only hard-NOT terms exclude the file; soft-NOT terms tag it.
+      if (hardNotIndices.some(ni => termFileSets[ni].has(fp))) continue;
+      const softNotViolated = softNotIndices.filter(ni => termFileSets[ni].has(fp));
 
       const fileLineCount = (this.fileLines.get(fp) || []).length;
       fileMatches.push({
@@ -9060,6 +9112,7 @@ export class CodeSearchIndex {
         terms_matched: posMatched.size,
         lines: fileLineCount,
         matched_indices: posMatched,
+        soft_not_violated: softNotViolated,
         details,
       });
     }
@@ -9074,10 +9127,13 @@ export class CodeSearchIndex {
       const posMatched = new Set(
         Object.keys(matched).map(Number).filter(ti => !notIdxSet.has(ti))
       );
-      if (posMatched.size < minTerms) continue;
-      // Check NOT terms
-      const notHits = notIndices.filter(ni => matched[ni] && matched[ni].size > 0);
-      if (notHits.length > 0) continue;
+      let hardMatched = 0;
+      for (const ti of posMatched) if (hardPosSet.has(ti)) hardMatched++;
+      if (hardMatched < minTerms) continue;
+      // Only hard-NOT terms exclude the folder; soft-NOT terms tag it.
+      const hardNotHits = hardNotIndices.filter(ni => matched[ni] && matched[ni].size > 0);
+      if (hardNotHits.length > 0) continue;
+      const softNotViolated = softNotIndices.filter(ni => matched[ni] && matched[ni].size > 0);
 
       const allFiles = new Set();
       for (const ti of posMatched) {
@@ -9088,6 +9144,7 @@ export class CodeSearchIndex {
         folder,
         terms_matched: posMatched.size,
         matched_indices: posMatched,
+        soft_not_violated: softNotViolated,
         files_involved: allFiles.size,
         file_sets: Object.fromEntries(
           [...posMatched].map(ti => [ti, matched[ti] || new Set()])
@@ -9105,6 +9162,10 @@ export class CodeSearchIndex {
       num_terms: nTerms,
       num_positive: nPositive,
       not_indices: notIndices,
+      hard_positive_indices: hardPosIndices,
+      soft_positive_indices: softPosIndices,
+      hard_not_indices: hardNotIndices,
+      soft_not_indices: softNotIndices,
       min_terms: minTerms,
       term_file_counts: termFileCounts,
       function_matches: funcMatches,

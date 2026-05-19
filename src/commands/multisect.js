@@ -28,10 +28,19 @@ import path from 'path';
  * Terms in /.../ are regex; others are literal (case-insensitive).
  * Use ;; for a literal semicolon.
  * Prefix with NOT or ! to negate.
+ * Prefix with ? for a soft term (still desired, but does not gate the
+ * result set). `?` composes with negation: `?term` is soft-required,
+ * `?!term` / `?NOT term` is soft-NOT.
  * Dots in plain terms become .? (match any char or nothing).
  *
+ * Each parsed term carries a `(hard, negated)` pair:
+ *   term            -> (hard,false)   hard-required
+ *   !term/NOT term  -> (hard,true)    hard exclusion
+ *   ?term           -> (soft,false)   soft-required (preferred)
+ *   ?!term/?NOT term-> (soft,true)    soft-NOT (discouraged)
+ *
  * @param {string} termsStr
- * @returns {Array<{display: string, regex: RegExp, negated: boolean}>|null}
+ * @returns {Array<{display: string, regex: RegExp, negated: boolean, hard: boolean}>|null}
  */
 export function parseMultisectTerms(termsStr) {
   const PLACEHOLDER = '\x00SEMI\x00';
@@ -42,7 +51,15 @@ export function parseMultisectTerms(termsStr) {
     raw = raw.replace(new RegExp(PLACEHOLDER.replace(/\x00/g, '\\x00'), 'g'), ';').trim();
     if (!raw) continue;
 
+    // Prefix parsing: an optional leading `?` marks the term soft (does not
+    // gate); the `NOT `/`!` prefixes mark it negated. `?` is stripped first
+    // so it can compose with negation (`?!term`, `?NOT term`).
     let negated = false;
+    let hard = true;
+    if (raw.startsWith('?')) {
+      hard = false;
+      raw = raw.slice(1).trim();
+    }
     if (raw.startsWith('NOT ')) {
       negated = true;
       raw = raw.slice(4).trim();
@@ -52,13 +69,16 @@ export function parseMultisectTerms(termsStr) {
     }
     if (!raw) continue;
 
+    // Display prefix mirrors the parsed flags so the term round-trips.
+    const dispPrefix = (hard ? '' : '?') + (negated ? 'NOT ' : '');
+
     if (raw.startsWith('/') && raw.endsWith('/') && raw.length > 2) {
       // Regex term
       const pattern = raw.slice(1, -1);
       try {
         const regex = new RegExp(pattern, 'i');
-        const display = negated ? `NOT ${raw}` : raw;
-        terms.push({ display, regex, negated });
+        const display = dispPrefix + raw;
+        terms.push({ display, regex, negated, hard });
       } catch (e) {
         console.log(`Invalid regex in term '${raw}': ${e.message}`);
         return null;
@@ -69,19 +89,19 @@ export function parseMultisectTerms(termsStr) {
         const pattern = raw.replace(/\./g, '.?');
         const regex = new RegExp(pattern, 'i');
         const displayRaw = `/${pattern}/`;
-        const display = negated ? `NOT ${displayRaw}` : displayRaw;
-        terms.push({ display, regex, negated });
+        const display = dispPrefix + displayRaw;
+        terms.push({ display, regex, negated, hard });
       } catch (e) {
         // Fallback to literal
         const regex = new RegExp(escapeRegex(raw), 'i');
-        const display = negated ? `NOT ${raw}` : raw;
-        terms.push({ display, regex, negated });
+        const display = dispPrefix + raw;
+        terms.push({ display, regex, negated, hard });
       }
     } else {
       // Plain literal (case-insensitive)
       const regex = new RegExp(escapeRegex(raw), 'i');
-      const display = negated ? `NOT ${raw}` : raw;
-      terms.push({ display, regex, negated });
+      const display = dispPrefix + raw;
+      terms.push({ display, regex, negated, hard });
     }
   }
   return terms;
@@ -122,10 +142,13 @@ function shortPath(fp, maxLen = 50, highlight = null) {
 // ========================================================================
 
 function computeIdfScores(results, totalFiles) {
+  // IDF is computed for every term, including NOT terms. Hard-NOT indices
+  // never appear in a match's matched_indices so their IDF is simply unused;
+  // soft-NOT indices need a real IDF so matchIdfScore can penalize a scope
+  // that violates them.
   const idfs = [];
-  const notSet = new Set(results.not_indices);
   for (let i = 0; i < results.num_terms; i++) {
-    if (notSet.has(i) || results.term_file_counts[i] === 0 || totalFiles === 0) {
+    if (results.term_file_counts[i] === 0 || totalFiles === 0) {
       idfs.push(0);
     } else {
       idfs.push(Math.log(totalFiles / results.term_file_counts[i]));
@@ -136,7 +159,12 @@ function computeIdfScores(results, totalFiles) {
 
 function matchIdfScore(match, idfs) {
   let s = 0;
+  // Matched positive terms (hard- and soft-required alike) add their IDF —
+  // a soft-required hit is thus a ranking bonus without being a gate.
   for (const i of match.matched_indices) s += idfs[i] || 0;
+  // Each violated soft-NOT term subtracts its IDF — a discouraged term
+  // present pushes the scope down the ranking without removing it.
+  for (const i of (match.soft_not_violated || [])) s -= idfs[i] || 0;
   return s;
 }
 
@@ -270,12 +298,15 @@ export function prepareMultisectViews(results, opts = {}) {
   const folderSorted = sortByScore(folderDedup, 'folder');
 
   // Convert each entry to a JSON-safe shape with idf_score attached
+  // soft_not_violated travels through to each view shape so the UI layer
+  // (multisect-soft-term-ui) can render the "contains forbidden term" flag.
   const toFunc = (m) => ({
     filepath: m.filepath,
     function: m.function,
     terms_matched: m.terms_matched,
     lines: m.lines || 0,
     matched_indices: [...m.matched_indices].sort((a, b) => a - b),
+    soft_not_violated: m.soft_not_violated || [],
     idf_score: scoreOf(m),
     details: m.details,
   });
@@ -286,6 +317,7 @@ export function prepareMultisectViews(results, opts = {}) {
     terms_matched: m.terms_matched,
     total_lines: m.total_lines || 0,
     matched_indices: [...m.matched_indices].sort((a, b) => a - b),
+    soft_not_violated: m.soft_not_violated || [],
     idf_score: scoreOf(m),
     details: m.details,
   });
@@ -294,6 +326,7 @@ export function prepareMultisectViews(results, opts = {}) {
     terms_matched: m.terms_matched,
     lines: m.lines || 0,
     matched_indices: [...m.matched_indices].sort((a, b) => a - b),
+    soft_not_violated: m.soft_not_violated || [],
     idf_score: scoreOf(m),
     details: m.details,
   });
@@ -302,6 +335,7 @@ export function prepareMultisectViews(results, opts = {}) {
     terms_matched: m.terms_matched,
     files_involved: m.files_involved,
     matched_indices: [...m.matched_indices].sort((a, b) => a - b),
+    soft_not_violated: m.soft_not_violated || [],
     idf_score: scoreOf(m),
     file_sets: Object.fromEntries(
       Object.entries(m.file_sets || {}).map(([ti, set]) => [ti, [...set].sort()])

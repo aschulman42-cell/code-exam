@@ -2729,7 +2729,7 @@ function _runMultisectViews(index, terms, minTerms, maxPerScope, verbose, includ
   const totalFiles = (index.files && index.files.size) || 0;
   const views = prepareMultisectViews(results, { totalFiles, maxPerScope, verbose: !!verbose });
   return {
-    terms: terms.map(t => ({ display: t.display, negated: t.negated })),
+    terms: terms.map(t => ({ display: t.display, negated: t.negated, hard: t.hard !== false })),
     num_positive: nPositive,
     min_terms: results.min_terms,
     term_file_counts: results.term_file_counts || [],

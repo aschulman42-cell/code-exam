@@ -156,6 +156,54 @@ describe('Phase 5: Multi-term intersection search', () => {
       const terms = parseMultisectTerms('/[invalid/');
       assert.equal(terms, null);
     });
+
+    it('parses the four (hard, negated) prefix forms', () => {
+      // term -> (hard,false); !term/NOT term -> (hard,true);
+      // ?term -> (soft,false); ?!term/?NOT term -> (soft,true).
+      const terms = parseMultisectTerms('socket;!database;?cache;?!legacy;?NOT stub');
+      assert.equal(terms.length, 5);
+
+      // hard-required
+      assert.equal(terms[0].hard, true);
+      assert.equal(terms[0].negated, false);
+      assert.equal(terms[0].display, 'socket');
+
+      // hard-NOT
+      assert.equal(terms[1].hard, true);
+      assert.equal(terms[1].negated, true);
+      assert.equal(terms[1].display, 'NOT database');
+
+      // soft-required
+      assert.equal(terms[2].hard, false);
+      assert.equal(terms[2].negated, false);
+      assert.equal(terms[2].display, '?cache');
+
+      // soft-NOT via ?!
+      assert.equal(terms[3].hard, false);
+      assert.equal(terms[3].negated, true);
+      assert.equal(terms[3].display, '?NOT legacy');
+
+      // soft-NOT via ?NOT
+      assert.equal(terms[4].hard, false);
+      assert.equal(terms[4].negated, true);
+      assert.equal(terms[4].display, '?NOT stub');
+    });
+
+    it('applies the ? prefix to regex and dot-wildcard terms', () => {
+      const terms = parseMultisectTerms('?/conn\\w+/;?real.time');
+      assert.equal(terms.length, 2);
+      assert.equal(terms[0].hard, false);
+      assert.equal(terms[0].negated, false);
+      assert.ok(terms[0].display.startsWith('?/'));
+      assert.equal(terms[1].hard, false);
+      assert.ok(terms[1].display.startsWith('?/'));
+      assert.ok(terms[1].regex.test('real-time'));
+    });
+
+    it('defaults hard to true for unprefixed terms', () => {
+      const terms = parseMultisectTerms('socket;port;data');
+      assert.ok(terms.every(t => t.hard === true));
+    });
   });
 
   // ---- Core search tests ----
