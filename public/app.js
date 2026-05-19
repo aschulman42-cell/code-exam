@@ -5266,7 +5266,7 @@ async function runWorkspace() {
             terms: text,
             engine, mask, maskComments,
           });
-          renderLlmAnalysis(analysisData);
+          renderLlmAnalysis(analysisData, searchData.terms);
         } else {
           showAnalysisPane('No function matches found for analysis.', 'Multisect Analyze');
         }
@@ -5401,9 +5401,95 @@ function renderClaimLlmResults(data) {
 
 
 // ========================================================================
+// Multisect-analyze structured per-term verdicts (Issue #8)
+// ========================================================================
+
+// Browser port of parseMultisectAnalyzeVerdicts (src/commands/analyze.js).
+// Kept deliberately in sync: the server returns the raw analysis text, so the
+// GUI parses the structured per-term block client-side. Tolerant on purpose —
+// local LLMs vary in format compliance.
+function parseMultisectVerdicts(response) {
+  const empty = { verdicts: [], prose: (response || '').trim() };
+  if (!response || typeof response !== 'string') return empty;
+
+  const lines = response.split(/\r?\n/);
+  const verdicts = [];
+  let lastVerdictLine = -1;
+
+  // Match the verdict keyword in the segment before the first '|' only, so an
+  // "absent" row whose evidence text mentions "present" is not misread.
+  const normVerdict = (head) => {
+    const t = head.toLowerCase();
+    if (/name[\s-]*only/.test(t)) return 'name-only';
+    if (/\bpresent\b/.test(t)) return 'present';
+    if (/\babsent\b/.test(t)) return 'absent';
+    if (/\biffy\b|\bpartial\b|\bambiguous\b/.test(t)) return 'iffy';
+    return null;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    // Optional "(term text)" between the number and the delimiter; the group
+    // is optional so old-format "TERM <n>:" output still parses.
+    const m = raw.match(/^\s*(?:[-*]\s*)?(?:term\s*)?(\d+)\s*(?:\([^)]*\))?\s*[:.)\-]/i);
+    if (!m) continue;
+    // Verdict read from after the term-label prefix, before the first '|'.
+    const verdict = normVerdict(raw.slice(m[0].length).split('|')[0]);
+    if (!verdict) continue;
+
+    const evMatch = raw.match(/evidence\s*[:\-]\s*([^|]+)/i);
+    const confMatch = raw.match(/confidence\s*[:\-]\s*(high|medium|low|[A-Za-z]+)/i);
+    verdicts.push({
+      term: Number(m[1]),
+      verdict,
+      evidence: evMatch ? evMatch[1].trim() : '',
+      confidence: confMatch ? confMatch[1].trim().toLowerCase() : '',
+    });
+    lastVerdictLine = i;
+  }
+
+  if (verdicts.length === 0) return empty;
+
+  let prose = lines.slice(lastVerdictLine + 1).join('\n').trim();
+  prose = prose.replace(/^\s*(?:part\s*2\s*[-—:]*\s*)?summary\s*[:.\-—]*\s*/i, '').trim();
+  return { verdicts, prose };
+}
+
+const VERDICT_STYLE = {
+  'present':   { label: 'PRESENT',   color: '#2e7d32', bg: 'rgba(46,125,50,0.14)' },
+  'name-only': { label: 'NAME-ONLY', color: '#b8860b', bg: 'rgba(184,134,11,0.16)' },
+  'iffy':      { label: 'IFFY',      color: '#c77800', bg: 'rgba(199,120,0,0.16)' },
+  'absent':    { label: 'ABSENT',    color: '#888',    bg: 'rgba(150,150,150,0.12)' },
+};
+
+// Compact per-term grid. `terms` (optional) supplies display labels by 1-based
+// index; absent that, rows fall back to "Term N".
+function renderVerdictGrid(verdicts, terms) {
+  const cell = 'padding:3px 8px;border-bottom:1px solid var(--border);font-size:11px';
+  let rows = '';
+  for (const v of verdicts) {
+    const vs = VERDICT_STYLE[v.verdict] || VERDICT_STYLE['absent'];
+    const t = terms && terms[v.term - 1];
+    const termLabel = (t && t.display) ? t.display : `Term ${v.term}`;
+    rows += `<tr>
+      <td style="${cell};font-family:monospace">${escHtml(termLabel)}</td>
+      <td style="${cell}"><span style="color:${vs.color};background:${vs.bg};font-weight:600;font-size:10px;padding:1px 6px;border-radius:3px">${vs.label}</span></td>
+      <td style="${cell}">${escHtml(v.evidence) || '<span class="muted">—</span>'}</td>
+      <td style="${cell}">${escHtml(v.confidence) || '<span class="muted">—</span>'}</td>
+    </tr>`;
+  }
+  return `<table style="border-collapse:collapse;width:100%;margin-bottom:8px">
+    <thead><tr style="text-align:left;color:var(--text-secondary);font-size:10px">
+      <th style="padding:3px 8px">Term</th><th style="padding:3px 8px">Verdict</th>
+      <th style="padding:3px 8px">Evidence</th><th style="padding:3px 8px">Confidence</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+
+// ========================================================================
 // Render LLM analysis result (right-bottom pane)
 // ========================================================================
-function renderLlmAnalysis(data) {
+function renderLlmAnalysis(data, terms) {
   const disclaimer = data.engine === 'claude'
     ? 'AI analysis may contain errors. Verify claims against source code.'
     : 'AI analysis from local model — less accurate than cloud models. Verify against source.';
@@ -5412,40 +5498,64 @@ function renderLlmAnalysis(data) {
     ? `<span class="muted" style="margin-left:10px;font-size:11px">${data.usage.input_tokens || 0} in / ${data.usage.output_tokens || 0} out tokens</span>`
     : '';
 
-  const html = `<div class="output-section">
-    <h3 style="margin:0 0 4px 0">${escHtml(data.mode)} — ${escHtml(data.target)}</h3>
-    <div class="muted" style="margin-bottom:8px;font-size:11px">
-      Engine: ${escHtml(data.engine)} | ${data.lines} lines${usageNote}
-    </div>
-    <pre class="source-view" style="white-space:pre-wrap;font-size:12px;max-height:500px;overflow:auto">${escHtml(data.analysis)}</pre>
-    <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-      <button class="btn-secondary copy-analysis-btn" style="font-size:11px">Copy Analysis</button>
-      <button class="btn-secondary copy-prompt-btn" style="font-size:11px">Copy Prompt</button>
-      <span class="muted" style="font-size:10px;font-style:italic">${escHtml(disclaimer)}</span>
-    </div>
-  </div>`;
+  // Structured per-term grid is only meaningful for multisect-analyze, and
+  // only when the LLM actually emitted a parseable verdict block.
+  const parsed = data.mode === 'multisect-analyze' ? parseMultisectVerdicts(data.analysis) : null;
+  const hasGrid = !!(parsed && parsed.verdicts.length > 0);
 
-  showAnalysisPane(html, `Analysis: ${data.target}`, true);
+  function build(gridOn) {
+    const preStyle = 'white-space:pre-wrap;font-size:12px;max-height:500px;overflow:auto';
+    const body = (gridOn && hasGrid)
+      ? renderVerdictGrid(parsed.verdicts, terms)
+        + `<pre class="source-view" style="${preStyle}">${escHtml(parsed.prose)}</pre>`
+      : `<pre class="source-view" style="${preStyle}">${escHtml(data.analysis)}</pre>`;
+    // Grid is opt-in (default off): structured-output prompts can degrade
+    // local-LLM quality, so the user chooses when to trust the parsed grid.
+    const gridToggle = hasGrid
+      ? `<label style="margin-left:10px;font-size:11px;cursor:pointer">
+           <input type="checkbox" id="verdict-grid-toggle"${gridOn ? ' checked' : ''} style="vertical-align:middle"> Per-term grid</label>`
+      : '';
+    return `<div class="output-section">
+      <h3 style="margin:0 0 4px 0">${escHtml(data.mode)} — ${escHtml(data.target)}</h3>
+      <div class="muted" style="margin-bottom:8px;font-size:11px">
+        Engine: ${escHtml(data.engine)} | ${data.lines} lines${usageNote}${gridToggle}
+      </div>
+      ${body}
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+        <button class="btn-secondary copy-analysis-btn" style="font-size:11px">Copy Analysis</button>
+        <button class="btn-secondary copy-prompt-btn" style="font-size:11px">Copy Prompt</button>
+        <span class="muted" style="font-size:10px;font-style:italic">${escHtml(disclaimer)}</span>
+      </div>
+    </div>`;
+  }
 
-  // Wire copy buttons
-  const analysisBtn = $('#right-bottom-body .copy-analysis-btn');
-  if (analysisBtn) {
-    analysisBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(data.analysis).then(
-        () => { analysisBtn.textContent = 'Copied!'; setTimeout(() => { analysisBtn.textContent = 'Copy Analysis'; }, 2000); },
-        () => { analysisBtn.textContent = 'Failed'; }
-      );
-    });
+  function show(gridOn) {
+    showAnalysisPane(build(gridOn), `Analysis: ${data.target}`, true);
+
+    // Copy buttons always act on the full raw response / prompt, grid or not.
+    const analysisBtn = $('#right-bottom-body .copy-analysis-btn');
+    if (analysisBtn) {
+      analysisBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(data.analysis).then(
+          () => { analysisBtn.textContent = 'Copied!'; setTimeout(() => { analysisBtn.textContent = 'Copy Analysis'; }, 2000); },
+          () => { analysisBtn.textContent = 'Failed'; }
+        );
+      });
+    }
+    const promptBtn = $('#right-bottom-body .copy-prompt-btn');
+    if (promptBtn) {
+      promptBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(data.prompt).then(
+          () => { promptBtn.textContent = 'Copied!'; setTimeout(() => { promptBtn.textContent = 'Copy Prompt'; }, 2000); },
+          () => { promptBtn.textContent = 'Failed'; }
+        );
+      });
+    }
+    const toggle = $('#right-bottom-body #verdict-grid-toggle');
+    if (toggle) toggle.addEventListener('change', () => show(toggle.checked));
   }
-  const promptBtn = $('#right-bottom-body .copy-prompt-btn');
-  if (promptBtn) {
-    promptBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(data.prompt).then(
-        () => { promptBtn.textContent = 'Copied!'; setTimeout(() => { promptBtn.textContent = 'Copy Prompt'; }, 2000); },
-        () => { promptBtn.textContent = 'Failed'; }
-      );
-    });
-  }
+
+  show(false);
 }
 
 // ========================================================================

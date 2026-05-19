@@ -811,17 +811,107 @@ ${funcSource}
 SEARCH TERMS THAT LED TO THIS FUNCTION:
 ${termsList}
 
-CRITICAL INSTRUCTIONS:
-1. For each search term above, explain specifically how this function relates
-   to it - which code lines, operations, or data structures correspond.
-2. If a term is present only as a name (e.g., in a variable or function call)
-   vs. present as actual implemented logic, distinguish between the two.
-3. Describe the overall purpose of the function and how the search terms
-   connect to form a coherent picture.
-4. Be specific: cite code lines and operations.
-5. Keep your response concise - under 250 words.
+TASK: Produce your response in THREE parts, in this order: a one-line search
+restatement, a structured per-term verdict block, then a prose summary.
 
-Analyze the function in relation to the search terms:`;
+PART 0 - SEARCH RESTATEMENT: Begin your response with a single line listing
+the search terms, so the report stands on its own:
+
+  SEARCH TERMS: <term 1>; <term 2>; ...
+
+PART 1 - TERM VERDICTS: Output one line for EVERY search term above, in order.
+Use EXACTLY this format, one line per term, no blank lines between them:
+
+  TERM <n> (<term text>): <verdict> | evidence: <line numbers or a short quote> | confidence: <high|medium|low>
+
+where <term text> is the search term itself, copied verbatim from the numbered
+list above (this makes each verdict line self-describing).
+
+<verdict> must be EXACTLY one of these four keywords:
+  PRESENT    - the term is implemented as actual logic in this function
+  NAME-ONLY  - the term appears only as a name (a variable, identifier, or
+               call), not as implemented logic visible in this code
+  IFFY       - partial, configuration-only, or otherwise ambiguous relation
+  ABSENT     - nothing in this function relates to the term
+
+Example block:
+  TERM 1 (claude): PRESENT | evidence: lines 14-19 hash the request buffer | confidence: high
+  TERM 2 (anthropic): NAME-ONLY | evidence: calls validateChain() at line 22 | confidence: medium
+
+PART 2 - SUMMARY: After the verdict block, write a prose summary (under 200
+words): the overall purpose of the function and how the search terms connect
+to form a coherent picture. Cite specific code lines and operations.
+
+Begin with the SEARCH TERMS line, then the TERM VERDICTS block, then the SUMMARY:`;
+}
+
+
+/**
+ * Tolerant parser for the structured per-term verdict block emitted under the
+ * buildMultisectAnalyzePrompt instructions. Local LLMs vary in format
+ * compliance, so this scans loosely: it accepts any line that names a term by
+ * number and carries a recognizable verdict keyword, and tolerates missing or
+ * reordered evidence/confidence fields.
+ *
+ * Returns { verdicts, prose }:
+ *   verdicts - array of { term, verdict, evidence, confidence }, one per
+ *              recognized row. `term` is the 1-based term index from the
+ *              prompt's numbered list. `verdict` is normalized to one of
+ *              'present' | 'name-only' | 'iffy' | 'absent'. `evidence` and
+ *              `confidence` are '' when the model omitted them.
+ *   prose    - the summary text following the verdict block (a leading
+ *              PART 2 / SUMMARY header is stripped). Falls back to the whole
+ *              response when no verdict rows were found.
+ */
+export function parseMultisectAnalyzeVerdicts(response) {
+  const empty = { verdicts: [], prose: (response || '').trim() };
+  if (!response || typeof response !== 'string') return empty;
+
+  const lines = response.split(/\r?\n/);
+  const verdicts = [];
+  let lastVerdictLine = -1;
+
+  // Match the verdict keyword in the segment before the first '|' only, so an
+  // "absent" row whose evidence text happens to mention "present" is not
+  // misread.
+  const normVerdict = (head) => {
+    const t = head.toLowerCase();
+    if (/name[\s-]*only/.test(t)) return 'name-only';
+    if (/\bpresent\b/.test(t)) return 'present';
+    if (/\babsent\b/.test(t)) return 'absent';
+    if (/\biffy\b|\bpartial\b|\bambiguous\b/.test(t)) return 'iffy';
+    return null;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    // A verdict row names a term by number, optionally with the term text in
+    // parens: "TERM 3 (foo):", "TERM 3:", "Term 3 -", "3.", "- Term 3:" all
+    // qualify. The "(...)" group is optional so old-format output still parses.
+    const m = raw.match(/^\s*(?:[-*]\s*)?(?:term\s*)?(\d+)\s*(?:\([^)]*\))?\s*[:.)\-]/i);
+    if (!m) continue;
+    // Read the verdict from after the term-label prefix and before the first
+    // '|', so neither the parenthesized term text nor the evidence field can
+    // contribute a stray verdict keyword.
+    const verdict = normVerdict(raw.slice(m[0].length).split('|')[0]);
+    if (!verdict) continue;  // a numbered line with no verdict keyword is prose
+
+    const evMatch = raw.match(/evidence\s*[:\-]\s*([^|]+)/i);
+    const confMatch = raw.match(/confidence\s*[:\-]\s*(high|medium|low|[A-Za-z]+)/i);
+    verdicts.push({
+      term: Number(m[1]),
+      verdict,
+      evidence: evMatch ? evMatch[1].trim() : '',
+      confidence: confMatch ? confMatch[1].trim().toLowerCase() : '',
+    });
+    lastVerdictLine = i;
+  }
+
+  if (verdicts.length === 0) return empty;
+
+  let prose = lines.slice(lastVerdictLine + 1).join('\n').trim();
+  prose = prose.replace(/^\s*(?:part\s*2\s*[-—:]*\s*)?summary\s*[:.\-—]*\s*/i, '').trim();
+  return { verdicts, prose };
 }
 
 
