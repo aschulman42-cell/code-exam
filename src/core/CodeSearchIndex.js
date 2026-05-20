@@ -9014,6 +9014,35 @@ export class CodeSearchIndex {
             }
           }
         }
+
+        // Display-name attribution (Issue #24 / Option A from #22): also
+        // test this term against each function's inferred display name --
+        // not just raw content. Lets a function be attributed by its
+        // renamed name (e.g. searching `vulnerabilities` matches
+        // `ip9_KW_ENGINEERING_VULNERABILITIES`) without a per-line
+        // applyRenames() pass. Scope is deliberately narrow: only the
+        // function whose OWN inferred name advertises the term -- renamed
+        // callees inside callers' bodies are not covered (Option B would,
+        // at higher cost). Files reach this code only if they already
+        // survived Phase 1 via a content/path match on some term; a
+        // companion Phase-1 pass would be a separate follow-up.
+        if (this.getDisplayName) {
+          for (const [s, , fname] of boundaries) {
+            if (seenFuncs.has(fname)) continue;
+            const dn = this.getDisplayName(fname);
+            if (!dn || dn === fname) continue;
+            if (!regex.test(dn)) continue;
+            seenFuncs.add(fname);
+            const fnKey = `${fp}\x00${fname}`;
+            if (!funcMap.has(fnKey)) {
+              funcMap.set(fnKey, { filepath: fp, function: fname, details: {} });
+            }
+            const fmName = funcMap.get(fnKey);
+            if (fmName.details[ti] === undefined) {
+              fmName.details[ti] = { line_num: s, line_text: `[name match: ${dn}]` };
+            }
+          }
+        }
       }
 
       // Function-level NOT-term scan within this file's function bodies.
