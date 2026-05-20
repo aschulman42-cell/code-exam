@@ -4,11 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Code Exam</title>
-  <script>
-    if (location.port !== '3000') {
-      location.replace('http://localhost:3000' + location.pathname + location.search + location.hash);
-    }
-  </script>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -310,6 +305,7 @@
           <label><input type="checkbox" id="ws-mask-all"> Mask All</label>
           <label><input type="checkbox" id="ws-no-vocab"> No Vocabulary</label>
           <label><input type="checkbox" id="ws-with-digest" title="Prepend mechanical static-analysis digest to the prompt"> With Digest</label>
+          <label><input type="checkbox" id="ws-match-renames" title="Match terms against rename-rendered source so renamed callee names visible in the pane are searchable. Slower on big bundled files."> Match Renames</label>
         </div>
         <div class="control-group"><label>Min Terms <span class="muted" style="font-size:10px">(0=auto)</span></label>
           <input type="number" id="ws-min-terms" min="0" max="99" value="0" style="width:48px" title="Minimum positive terms to match. 0 = auto: 80% for TIGHT, 60% for BROAD claim search. For plain Multisect, 0 = require ALL terms.">
@@ -355,6 +351,9 @@
         </label>
         <label id="search-dialog-inpath-row" style="margin-top:8px">In path (filter):
           <input type="text" id="search-dialog-inpath" spellcheck="false" autocomplete="off" placeholder="e.g. src/commands" title="Restrict results to filepaths containing this substring (case-insensitive). Blank = unfiltered. Independent of the Workspace 'In path' field.">
+        </label>
+        <label id="search-dialog-match-renames-row" style="margin-top:8px;display:block">
+          <input type="checkbox" id="search-dialog-match-renames" title="Match against rename-rendered source so renamed callee names visible in the pane are searchable. Slower."> Match renamed names (slower)
         </label>
       </div>
       <div class="modal-footer">

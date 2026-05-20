@@ -1676,7 +1676,8 @@ routes['/api/multisect'] = (req, res) => {
   const maxResults = safeMax(q.max, 25);
   const verbose = q.verbose === 'true';
   const includePath = (typeof q.in === 'string' && q.in.trim()) ? q.in.trim() : null;
-  jsonResponse(res, _runMultisectViews(index, parsed, minTerms, maxResults, verbose, includePath));
+  const matchRenames = q.match_renames === 'true' || q.match_renames === '1';
+  jsonResponse(res, _runMultisectViews(index, parsed, minTerms, maxResults, verbose, includePath, matchRenames));
 };
 
 
@@ -2721,9 +2722,10 @@ routes['/api/analyze-llm'] = (req, res) => {
  * with IDF reranking, scope dedup, and per-scope caps. Used by /api/multisect,
  * /api/claim-search, and /api/claim-search-llm.
  */
-function _runMultisectViews(index, terms, minTerms, maxPerScope, verbose, includePath = null) {
+function _runMultisectViews(index, terms, minTerms, maxPerScope, verbose, includePath = null, matchRenames = false) {
   const searchOpts = { minTerms };
   if (includePath) searchOpts.includePath = [includePath];
+  if (matchRenames) searchOpts.matchRenames = true;
   const results = index.multisectSearch(terms, searchOpts);
   const nPositive = terms.filter(t => !t.negated).length;
   const totalFiles = (index.files && index.files.size) || 0;

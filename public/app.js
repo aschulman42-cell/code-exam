@@ -4934,7 +4934,7 @@ async function handleMenuAction(action) {
       const minTermsVal = parseInt($('#ws-min-terms')?.value) || 0;
       showMiddleTopLoading(`Running multisect search… (Min Terms: ${minTermsVal === 0 ? 'all' : minTermsVal})`);
       try {
-        const data = await api.multisect({ terms, max: 30, min_terms: minTermsVal, in: r.inPath || undefined });
+        const data = await api.multisect({ terms, max: 30, min_terms: minTermsVal, in: r.inPath || undefined, match_renames: r.matchRenames || undefined });
         renderMultisectResults(data);
       } catch (err) { showMiddleTopError(err.message); }
       break;
@@ -4951,16 +4951,21 @@ async function handleMenuAction(action) {
 // re-fills the prior term string. "Save *" dialogs are excluded from caching.
 const _searchDialogLastValue = {};
 const _searchDialogLastInPath = {};
+const _searchDialogLastMatchRenames = {};
 
-// Resolves to { query, inPath } on OK, or null on cancel/close. inPath is the
-// optional 'In path (filter)' value; empty string when unfiltered. The
-// in-path row is hidden for non-cacheable 'Save *' dialogs.
+// Resolves to { query, inPath, matchRenames } on OK, or null on cancel/close.
+// inPath is the optional 'In path (filter)' value; empty string when
+// unfiltered. matchRenames mirrors the 'Match renamed names' checkbox
+// (Issue #25). The in-path and match-renames rows are hidden for
+// non-cacheable 'Save *' dialogs.
 function showSearchDialog(title, label) {
   return new Promise((resolve) => {
     const overlay = $('#search-overlay');
     const input = $('#search-dialog-input');
     const inPathRow = $('#search-dialog-inpath-row');
     const inPathInput = $('#search-dialog-inpath');
+    const matchRenamesRow = $('#search-dialog-match-renames-row');
+    const matchRenamesInput = $('#search-dialog-match-renames');
     const okBtn = $('#search-dialog-ok');
     const cancelBtn = $('#search-dialog-cancel');
     const closeBtn = $('#search-dialog-close');
@@ -4971,9 +4976,12 @@ function showSearchDialog(title, label) {
     $('#search-dialog-label').childNodes[0].textContent = (label || 'Query:') + ' ';
     okBtn.textContent = cacheable ? 'Search' : 'Save';
     input.value = cacheable ? (_searchDialogLastValue[key] || '') : '';
-    // The 'In path' filter applies only to real searches, not 'Save *' dialogs.
+    // The 'In path' filter and 'Match renames' toggle apply only to real
+    // searches, not 'Save *' dialogs.
     inPathRow.style.display = cacheable ? '' : 'none';
     inPathInput.value = cacheable ? (_searchDialogLastInPath[key] || '') : '';
+    if (matchRenamesRow) matchRenamesRow.style.display = cacheable ? 'block' : 'none';
+    if (matchRenamesInput) matchRenamesInput.checked = cacheable && !!_searchDialogLastMatchRenames[key];
     overlay.classList.remove('hidden');
     setTimeout(() => { input.focus(); input.select(); }, 100);
 
@@ -4982,6 +4990,7 @@ function showSearchDialog(title, label) {
       if (cacheable && result) {
         _searchDialogLastValue[key] = result.query;
         _searchDialogLastInPath[key] = result.inPath;
+        _searchDialogLastMatchRenames[key] = !!result.matchRenames;
       }
       okBtn.removeEventListener('click', onOk);
       cancelBtn.removeEventListener('click', onCancel);
@@ -4992,7 +5001,9 @@ function showSearchDialog(title, label) {
     }
     function onOk() {
       const query = input.value.trim();
-      cleanup(query ? { query, inPath: inPathInput.value.trim() } : null);
+      cleanup(query
+        ? { query, inPath: inPathInput.value.trim(), matchRenames: !!(matchRenamesInput && matchRenamesInput.checked) }
+        : null);
     }
     function onCancel() { cleanup(null); }
     function onKey(e) { if (e.key === 'Enter') onOk(); else if (e.key === 'Escape') onCancel(); }
@@ -5236,7 +5247,7 @@ async function runWorkspace() {
     if (mode === 'multisect-search') {
       showMiddleTopLoading('Running multisect search…');
       try {
-        const data = await api.multisect({ terms: text, max: 30, min_terms: minTermsVal, in: inPath || undefined });
+        const data = await api.multisect({ terms: text, max: 30, min_terms: minTermsVal, in: inPath || undefined, match_renames: $('#ws-match-renames')?.checked || undefined });
         renderMultisectResults(data);
       } catch (err) { showMiddleTopError(err.message); }
 
@@ -5255,7 +5266,7 @@ async function runWorkspace() {
       // Search first, then send top function hit to LLM for analysis
       showMiddleTopLoading('Running multisect search…');
       try {
-        const searchData = await api.multisect({ terms: text, max: 10, min_terms: minTermsVal, in: inPath || undefined });
+        const searchData = await api.multisect({ terms: text, max: 10, min_terms: minTermsVal, in: inPath || undefined, match_renames: $('#ws-match-renames')?.checked || undefined });
         renderMultisectResults(searchData);
         const topFunc = (searchData.function_matches || [])[0];
         if (topFunc) {

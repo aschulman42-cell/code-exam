@@ -761,11 +761,14 @@ export function doMultisect(index, args) {
     args.include_path ? args.include_path : null;
   const excludePath = args.exclude_path || null;
 
+  const matchRenames = !!args.match_renames;
+
   const results = index.multisectSearch(terms, {
     minTerms: minTerms || null,
     includePath,
     excludePath,
     showProgress: true,
+    matchRenames,
   });
 
   if (!results) return;
@@ -775,6 +778,9 @@ export function doMultisect(index, args) {
   // Show path filter if active
   if (includePath && includePath.length > 0) {
     console.log(`  Path filter: --in ${includePath.join(', ')}`);
+  }
+  if (matchRenames) {
+    console.log(`  Match-renames: ON (matching against rename-rendered source)`);
   }
 
   // Show selectivity report

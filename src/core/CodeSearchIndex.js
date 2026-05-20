@@ -1326,6 +1326,63 @@ export class CodeSearchIndex {
   }
 
   /**
+   * Render an array of raw source lines via applyRenames, in chunks small
+   * enough to clear applyRenames's 200K-char performance guard, while
+   * carrying block-comment / template-literal state across chunk boundaries
+   * so the result matches what whole-file rendering would produce.
+   *
+   * Needed by multisectSearch's --match-renames path (Issue #25): a bundled
+   * file (16MB cli.js) cannot be passed to applyRenames as one string —
+   * applyRenames returns it unchanged. Per-line rendering with fresh state
+   * gives wrong results inside multi-line strings and template literals;
+   * chunking with carryState avoids both pitfalls.
+   *
+   * Line count is preserved (renames are substring substitutions, never add
+   * newlines), so callers can keep using the original line numbers.
+   *
+   * @param {string[]} rawLines
+   * @returns {string[]}
+   */
+  _renderLinesWithRenames(rawLines) {
+    if (!rawLines || rawLines.length === 0) return [];
+    if (typeof this.applyRenames !== 'function') return rawLines;
+    const CHUNK_MAX = 180000;  // stay clear of applyRenames's 200000 guard
+    const out = [];
+    let carryState = 'code';
+    let chunkStart = 0;
+    let chunkBytes = 0;
+
+    const flush = (endIdx) => {
+      if (endIdx <= chunkStart) return;
+      const chunk = rawLines.slice(chunkStart, endIdx).join('\n');
+      const rendered = this.applyRenames(chunk, carryState);
+      const renderedLines = rendered.split('\n');
+      // If the substitution accidentally changed line count, fall back to
+      // raw to avoid corrupting boundary lookups downstream.
+      if (renderedLines.length === endIdx - chunkStart) {
+        for (let k = 0; k < renderedLines.length; k++) out.push(renderedLines[k]);
+      } else {
+        for (let k = chunkStart; k < endIdx; k++) out.push(rawLines[k]);
+      }
+      // Advance carryState by scanning the raw chunk line-by-line.
+      for (let j = chunkStart; j < endIdx; j++) {
+        const next = _scanLineState(rawLines[j], carryState);
+        carryState = (next === 'bc' || next === 't') ? next : 'code';
+      }
+      chunkStart = endIdx;
+      chunkBytes = 0;
+    };
+
+    for (let i = 0; i < rawLines.length; i++) {
+      const lineLen = (rawLines[i] || '').length + 1;
+      if (chunkBytes + lineLen >= CHUNK_MAX && chunkStart < i) flush(i);
+      chunkBytes += lineLen;
+    }
+    flush(rawLines.length);
+    return out;
+  }
+
+  /**
    * Detect bundle-seam module boundaries in a JS file produced by esbuild
    * (or a similar lazy-factory bundler). See the long comment block above
    * _detectBundleHelpers for the pattern family and shape-based detection
@@ -8740,7 +8797,10 @@ export class CodeSearchIndex {
   }
 
   multisectSearch(terms, opts = {}) {
-    const { minTerms: minTermsArg, includePath, excludePath, showProgress = true } = opts;
+    const {
+      minTerms: minTermsArg, includePath, excludePath,
+      showProgress = true, matchRenames = false,
+    } = opts;
 
     // Four-way bucketing of term indices by (hard, negated). `hard` defaults
     // to true when the flag is absent (terms from older callers / parser).
@@ -8775,6 +8835,25 @@ export class CodeSearchIndex {
 
     this._ensureFunctionIndex();
 
+    // When matchRenames is set (Option B / Issue #25), pre-render each
+    // scanned file via _renderLinesWithRenames so the per-line term regex
+    // tests see renamed display names -- e.g. xf's body, raw `ip9()`,
+    // becomes `ip9_KW_ENGINEERING_VULNERABILITIES()` and a search for
+    // `vulnerabilities` hits xf. The helper chunks the file so it clears
+    // applyRenames's 200K-char performance guard, and carries
+    // block-comment / template-literal state across chunk boundaries so
+    // multi-line strings/comments are not mis-renamed. Line count is
+    // preserved so function-boundary line numbers still map. Done once
+    // per search call, never persisted -- opt-in cost goes with the
+    // opt-in feature.
+    const linesByFile = (matchRenames && typeof this.applyRenames === 'function')
+      ? new Map([...this.fileLines.entries()].map(
+          ([fp, raw]) => [fp, this._renderLinesWithRenames(raw)]))
+      : this.fileLines;
+    if (matchRenames && showProgress) {
+      process.stderr.write(`  --match-renames: rendered ${linesByFile.size} file(s) via applyRenames\n`);
+    }
+
     // ----------------------------------------------------------------
     // Phase 1: File-set scan
     // ----------------------------------------------------------------
@@ -8794,7 +8873,7 @@ export class CodeSearchIndex {
     let fileNum = 0;
     const totalFiles = this.fileLines.size;
 
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of linesByFile) {
       fileNum++;
       if (showProgress && fileNum % 5000 === 0) {
         process.stderr.write(`  Phase 1: ${fileNum} / ${totalFiles} files...\r`);
@@ -8962,7 +9041,7 @@ export class CodeSearchIndex {
     const sortedSurvivors = [...phase2Files].sort();
     for (let fpIdx = 0; fpIdx < sortedSurvivors.length; fpIdx++) {
       const fp = sortedSurvivors[fpIdx];
-      const lines = this.fileLines.get(fp);
+      const lines = linesByFile.get(fp);
       if (!lines || lines.length === 0) continue;
       const boundaries = funcBoundariesCache[fp];
 

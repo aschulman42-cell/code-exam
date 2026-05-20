@@ -84,6 +84,7 @@ export function parseArgs() {
     exclude_path: null,
     dedup: 'none',
     min_terms: '0',
+    match_renames: false,
 
     // Interactive
     interactive: false,
@@ -236,6 +237,7 @@ export function parseArgs() {
     ['exclude_path',         'list',           ['--exclude-path']],
     ['dedup',                'value',          ['--dedup']],
     ['min_terms',            'value',          ['--min-terms']],
+    ['match_renames',        'flag',           ['--match-renames']],
 
     ['interactive',          'flag',           ['--interactive', '-i']],
 
