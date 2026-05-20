@@ -1656,12 +1656,17 @@ function initCompareOverlay() {
 function makeDraggable(panel, handle) {
   handle.addEventListener('mousedown', (e) => {
     if (e.target.tagName === 'BUTTON') return;  // don't drag when clicking buttons
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;  // and inputs
     e.preventDefault();
     const startX = e.clientX, startY = e.clientY;
     const rect = panel.getBoundingClientRect();
     const startLeft = rect.left, startTop = rect.top;
 
-    // Switch from right-positioned to left-positioned for dragging
+    // Switch from right-positioned to left-positioned for dragging. Also
+    // force position: fixed -- floating panels already have that, but
+    // .modal-overlay dialogs (Issue #19) flex-center their .modal child
+    // (position: static), so inline left/top would otherwise be ignored.
+    panel.style.position = 'fixed';
     panel.style.left = startLeft + 'px';
     panel.style.top = startTop + 'px';
     panel.style.right = 'auto';
@@ -5605,6 +5610,11 @@ async function openModelBrowser() {
     </div>`;
   document.body.appendChild(overlay);
 
+  // Issue #19: draggable by the header bar.
+  const modalEl = overlay.querySelector('.modal');
+  const headerEl = overlay.querySelector('.modal-header');
+  if (modalEl && headerEl) makeDraggable(modalEl, headerEl);
+
   const listEl = overlay.querySelector('#model-list');
   const pathInput = overlay.querySelector('#model-scan-path');
 
@@ -6261,6 +6271,15 @@ async function init() {
 
   for (const btn of $$('#context-menu button[data-ctx]')) btn.addEventListener('click', () => handleContextAction(btn.dataset.ctx));
   document.addEventListener('click', hideContextMenu);
+
+  // Issue #19: make the static modal dialogs draggable by their header bar
+  // so they can be moved aside to see content underneath. The dynamic
+  // #model-browser-overlay is wired in openModelBrowser itself.
+  for (const overlayId of ['#search-overlay', '#load-index-overlay', '#build-index-overlay']) {
+    const modal = document.querySelector(`${overlayId} .modal`);
+    const header = document.querySelector(`${overlayId} .modal-header`);
+    if (modal && header) makeDraggable(modal, header);
+  }
 
   try {
     const data = await api.indexes();

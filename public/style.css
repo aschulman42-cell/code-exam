@@ -174,7 +174,7 @@ body.hide-inferred-suffix .inferred-suffix { display: none; }
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 300; display: flex; align-items: center; justify-content: center; }
 .modal-overlay.hidden { display: none; }
 .modal { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; width: 420px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,.5); }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; color: var(--text-bright); }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; color: var(--text-bright); cursor: move; user-select: none; }
 .modal-body { padding: 16px; }
 .modal-body label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
 .modal-body input[type="text"] { width: 100%; min-width: 0; box-sizing: border-box; background: var(--bg-input); border: 1px solid var(--border); color: var(--text-bright); padding: 6px 10px; border-radius: 3px; font-family: var(--font-mono); font-size: 13px; margin-top: 4px; outline: none; }
