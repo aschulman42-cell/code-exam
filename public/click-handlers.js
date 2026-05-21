@@ -6,12 +6,16 @@
  *
  * Cross-cutting callbacks (`navPush`, `showMiddleTopLoading`,
  * `showMiddleTopError`, `showMiddleBottomLoading`,
- * `showMiddleBottomError`, `renderSource`, `renderFileSource`,
- * `renderDisambiguation`, `renderCallInfo`, `renderClassMethodsDetail`,
- * `wireClickables`, `loadSectionData`, `loadClassMethods`,
- * `renderFilesSearchResults`) are injected via `initClickHandlers({...})`
- * to keep this module independent of app.js's still-in-progress
- * render-flow code.
+ * `showMiddleBottomError`, `renderDisambiguation`, `renderCallInfo`,
+ * `renderClassMethodsDetail`, `wireClickables`, `loadSectionData`,
+ * `loadClassMethods`, `renderFilesSearchResults`) are injected via
+ * `initClickHandlers({...})` to keep this module independent of
+ * app.js's still-in-progress render-flow code.
+ *
+ * `renderSource` and `renderFileSource` are direct imports from
+ * source-viewer.js (sibling module — no cycle since source-viewer
+ * doesn't import this module directly; it DIs the two callbacks it
+ * needs from click-handlers).
  */
 
 import { state } from './state.js';
@@ -19,6 +23,7 @@ import { api } from './api.js';
 import {
   $, $$, escHtml, displayNameHtml, shortPath, HIGHLIGHT_COLORS,
 } from './dom-utils.js';
+import { renderSource, renderFileSource } from './source-viewer.js';
 
 // ============================================================================
 // Cross-cutting callbacks (injected by initClickHandlers)
@@ -29,8 +34,6 @@ let _showMiddleTopLoading = () => {};
 let _showMiddleTopError = () => {};
 let _showMiddleBottomLoading = () => {};
 let _showMiddleBottomError = () => {};
-let _renderSource = () => {};
-let _renderFileSource = () => {};
 let _renderDisambiguation = () => {};
 let _renderCallInfo = () => {};
 let _renderClassMethodsDetail = () => {};
@@ -45,8 +48,6 @@ export function initClickHandlers(deps = {}) {
   if (typeof deps.showMiddleTopError === 'function') _showMiddleTopError = deps.showMiddleTopError;
   if (typeof deps.showMiddleBottomLoading === 'function') _showMiddleBottomLoading = deps.showMiddleBottomLoading;
   if (typeof deps.showMiddleBottomError === 'function') _showMiddleBottomError = deps.showMiddleBottomError;
-  if (typeof deps.renderSource === 'function') _renderSource = deps.renderSource;
-  if (typeof deps.renderFileSource === 'function') _renderFileSource = deps.renderFileSource;
   if (typeof deps.renderDisambiguation === 'function') _renderDisambiguation = deps.renderDisambiguation;
   if (typeof deps.renderCallInfo === 'function') _renderCallInfo = deps.renderCallInfo;
   if (typeof deps.renderClassMethodsDetail === 'function') _renderClassMethodsDetail = deps.renderClassMethodsDetail;
@@ -73,7 +74,7 @@ export async function onFunctionClick(funcInfo) {
   try {
     const extractData = await api.extract({ func: funcSpec });
     if (extractData.ambiguous) { _renderDisambiguation(extractData.matches); return; }
-    _renderSource(extractData);
+    renderSource(extractData);
 
     const callersData = await api.callers({ func: funcSpec });
     const calleesData = await api.callees({ func: funcSpec });
@@ -128,7 +129,7 @@ export async function onFunctionClickSourceOnly(funcInfo) {
       }
     }
 
-    _renderSource(extractData);
+    renderSource(extractData);
   } catch (err) {
     _showMiddleBottomError(err.message);
   }
@@ -138,7 +139,7 @@ export async function onFileClick(filepath, targetLine) {
   _showMiddleBottomLoading(`Loading ${filepath}…`);
   try {
     const data = await api.showFile({ path: filepath, line: targetLine || undefined });
-    _renderFileSource(data, targetLine);
+    renderFileSource(data, targetLine);
   } catch (err) { _showMiddleBottomError(err.message); }
 }
 

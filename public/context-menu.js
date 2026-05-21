@@ -9,11 +9,12 @@
  *
  * Cross-cutting callbacks (`showMiddleTopLoading`,
  * `showMiddleTopError`, `renderCallersOnly`, `renderCalleesOnly`,
- * `renderDigest`, `renderMermaid`, `openRelationshipView`,
- * `showAnalysisPane`, `renderLlmAnalysis`, `stripAtFileHeader`) are
- * injected via `initContextMenu({...})` since their owning render
- * flows still live in app.js. `onFunctionClick` is imported directly
- * from click-handlers.js (sibling module, one-way dep).
+ * `renderDigest`, `showAnalysisPane`, `renderLlmAnalysis`,
+ * `stripAtFileHeader`) are injected via `initContextMenu({...})`
+ * since their owning render flows still live in app.js.
+ * `onFunctionClick` is imported directly from click-handlers.js
+ * (sibling module, one-way dep). `renderMermaid` and
+ * `openRelationshipView` are imported directly from mermaid.js.
  */
 
 import { state } from './state.js';
@@ -21,6 +22,7 @@ import { api } from './api.js';
 import { $, $$, escHtml, shortPath } from './dom-utils.js';
 import { showPane } from './layout.js';
 import { onFunctionClick } from './click-handlers.js';
+import { renderMermaid, openRelationshipView } from './mermaid.js';
 
 // ============================================================================
 // Cross-cutting callbacks (injected by initContextMenu)
@@ -31,8 +33,6 @@ let _showMiddleTopError = () => {};
 let _renderCallersOnly = () => {};
 let _renderCalleesOnly = () => {};
 let _renderDigest = () => {};
-let _renderMermaid = () => {};
-let _openRelationshipView = () => {};
 let _showAnalysisPane = () => {};
 let _renderLlmAnalysis = () => {};
 let _stripAtFileHeader = (s) => s;
@@ -43,8 +43,6 @@ export function initContextMenu(deps = {}) {
   if (typeof deps.renderCallersOnly === 'function') _renderCallersOnly = deps.renderCallersOnly;
   if (typeof deps.renderCalleesOnly === 'function') _renderCalleesOnly = deps.renderCalleesOnly;
   if (typeof deps.renderDigest === 'function') _renderDigest = deps.renderDigest;
-  if (typeof deps.renderMermaid === 'function') _renderMermaid = deps.renderMermaid;
-  if (typeof deps.openRelationshipView === 'function') _openRelationshipView = deps.openRelationshipView;
   if (typeof deps.showAnalysisPane === 'function') _showAnalysisPane = deps.showAnalysisPane;
   if (typeof deps.renderLlmAnalysis === 'function') _renderLlmAnalysis = deps.renderLlmAnalysis;
   if (typeof deps.stripAtFileHeader === 'function') _stripAtFileHeader = deps.stripAtFileHeader;
@@ -178,10 +176,10 @@ export async function handleContextAction(action) {
       try {
         const data = await api.callTree({ func: funcSpec, depth: ctDepth });
         const rootName = data.target;
-        _renderMermaid(data.mermaid, $('#diagram-viewport'), rootName, {
+        renderMermaid(data.mermaid, $('#diagram-viewport'), rootName, {
           onNodeClick: (nodeId, label) => {
             if (label && label !== rootName) {
-              _openRelationshipView(rootName, label);
+              openRelationshipView(rootName, label);
             }
           },
         });
@@ -201,7 +199,7 @@ export async function handleContextAction(action) {
       body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"><div class="loading">Building file dependency tree…</div></div>';
       try {
         const data = await api.fileTree({ file: fp, depth: ftDepth });
-        _renderMermaid(data.mermaid, $('#diagram-viewport'), data.target_base);
+        renderMermaid(data.mermaid, $('#diagram-viewport'), data.target_base);
       } catch (err) {
         $('#diagram-viewport').innerHTML = `<div class="error-msg">${escHtml(err.message)}</div>`;
       }

@@ -3,15 +3,22 @@
  * plus the interactive Console (a REPL embedded in the GUI that runs
  * a subset of CodeExam's CLI command surface via /api/exec).
  *
- * Cross-cutting callbacks needed for command-output navigation
- * (`showPane`, `onFileClick`, `openFileMapEdgeDetail`,
- * `openRelationshipView`, `renderMermaid`) are injected at init via
- * `initConsole({...})` rather than imported, to keep console.js
- * independent of the render flows that still live in app.js.
+ * Cross-cutting callbacks for command-output navigation (`showPane`,
+ * `onFileClick`) are injected at init via `initConsole({...})` since
+ * their owners are not sibling modules yet (showPane lives in
+ * layout.js, onFileClick in click-handlers.js — both reachable, but
+ * we keep them as DI here to avoid this module forming part of any
+ * future cycle when more peels land). The mermaid helpers
+ * (`openFileMapEdgeDetail`, `openRelationshipView`, `renderMermaid`)
+ * are direct imports from mermaid.js — no cycle risk, since
+ * mermaid.js doesn't import this module.
  */
 
 import { $, $$, escHtml } from './dom-utils.js';
 import { api } from './api.js';
+import {
+  renderMermaid, openFileMapEdgeDetail, openRelationshipView,
+} from './mermaid.js';
 
 // ============================================================================
 // Cross-cutting callbacks (injected by initConsole)
@@ -19,16 +26,10 @@ import { api } from './api.js';
 
 let _showPane = () => {};
 let _onFileClick = () => {};
-let _openFileMapEdgeDetail = () => {};
-let _openRelationshipView = () => {};
-let _renderMermaid = () => {};
 
 export function initConsole(deps = {}) {
   if (typeof deps.showPane === 'function') _showPane = deps.showPane;
   if (typeof deps.onFileClick === 'function') _onFileClick = deps.onFileClick;
-  if (typeof deps.openFileMapEdgeDetail === 'function') _openFileMapEdgeDetail = deps.openFileMapEdgeDetail;
-  if (typeof deps.openRelationshipView === 'function') _openRelationshipView = deps.openRelationshipView;
-  if (typeof deps.renderMermaid === 'function') _renderMermaid = deps.renderMermaid;
   initRightBottomTabs();
   initConsoleInternals();
 }
@@ -200,8 +201,8 @@ export async function executeConsoleCommand(cmd) {
       if (body) {
         body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"></div>';
         const rootName = data.target;
-        _renderMermaid(data.mermaid, $('#diagram-viewport'), rootName, {
-          onNodeClick: (nodeId, label) => { if (label && label !== rootName) _openRelationshipView(rootName, label); },
+        renderMermaid(data.mermaid, $('#diagram-viewport'), rootName, {
+          onNodeClick: (nodeId, label) => { if (label && label !== rootName) openRelationshipView(rootName, label); },
         });
       }
       _showPane('right-top');
@@ -219,9 +220,9 @@ export async function executeConsoleCommand(cmd) {
       if (ttl) ttl.textContent = 'File Dependency Map';
       if (body) {
         body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"></div>';
-        _renderMermaid(data.mermaid, $('#diagram-viewport'), null, {
+        renderMermaid(data.mermaid, $('#diagram-viewport'), null, {
           onNodeClick: (nodeId, label) => { _onFileClick(label); },
-          onEdgeClick: (edgeId, labelText, nodeIdMap) => { _openFileMapEdgeDetail(edgeId, labelText, nodeIdMap); },
+          onEdgeClick: (edgeId, labelText, nodeIdMap) => { openFileMapEdgeDetail(edgeId, labelText, nodeIdMap); },
         });
       }
       _showPane('right-top');
@@ -265,7 +266,7 @@ export async function executeConsoleCommand(cmd) {
           consoleAppend('Mermaid diagram rendered in Diagram pane.', 'console-info');
           const body = $('#right-top-body'), ttl = $('#right-top-title');
           if (ttl) ttl.textContent = `Diagram: ${cmd}`;
-          if (body) { body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"></div>'; _renderMermaid(output, $('#diagram-viewport'), cmd); }
+          if (body) { body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"></div>'; renderMermaid(output, $('#diagram-viewport'), cmd); }
           _showPane('right-top');
         } else {
           for (const line of output.split('\n')) {
