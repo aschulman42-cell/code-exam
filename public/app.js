@@ -27,6 +27,16 @@ import {
 import {
   initConsole, consoleAppend, fsConsoleAppend, executeConsoleCommand,
 } from './console.js';
+import {
+  initClickHandlers,
+  onFunctionClick, onFunctionClickSourceOnly,
+  onFileClick, onClassClick, onClassClickSourceOnly,
+  onVocabClick,
+} from './click-handlers.js';
+import {
+  initContextMenu, refreshLlmStatus,
+  showContextMenu, hideContextMenu, handleContextAction,
+} from './context-menu.js';
 
 // ========================================================================
 // Accordion left pane
@@ -1952,165 +1962,6 @@ function renderStructDiffDetail(group) {
 
 
 // ========================================================================
-// Click handlers
-// ========================================================================
-async function onFunctionClick(funcInfo) {
-  state.highlightTerms = null; // Clear search highlighting for non-search context
-  const funcSpec = funcInfo.filepath
-    ? `${funcInfo.filepath}@${funcInfo.name || funcInfo.display_name}`
-    : (funcInfo.name || funcInfo.display_name);
-
-  navPush('middle-bottom');
-  showMiddleTopLoading(`Loading ${funcInfo.display_name || funcInfo.name}…`);
-
-  try {
-    const extractData = await api.extract({ func: funcSpec });
-    if (extractData.ambiguous) { renderDisambiguation(extractData.matches); return; }
-    renderSource(extractData);
-
-    const callersData = await api.callers({ func: funcSpec });
-    const calleesData = await api.callees({ func: funcSpec });
-    renderCallInfo(extractData, callersData, calleesData);
-  } catch (err) {
-    showMiddleTopError(err.message);
-  }
-}
-
-/** Source-only click: populate middle-bottom without touching middle-top (preserves search results) */
-async function onFunctionClickSourceOnly(funcInfo) {
-  const funcSpec = funcInfo.filepath
-    ? `${funcInfo.filepath}@${funcInfo.name || funcInfo.display_name}`
-    : (funcInfo.name || funcInfo.display_name);
-
-  showMiddleBottomLoading(`Loading ${funcInfo.display_name || funcInfo.name}…`);
-
-  try {
-    let extractData = await api.extract({ func: funcSpec });
-
-    // Auto-disambiguate: if ambiguous and we have a current file context, prefer
-    // the match in the same file, or the same directory. BUT: skip .d.ts type
-    // stubs when any real implementation exists elsewhere. Without this, clicking
-    // an identifier inside a .d.ts file would navigate to the signature one-liner
-    // instead of the real function body in a sibling .js/.ts.
-    if (extractData.ambiguous && extractData.matches.length > 0) {
-      const realOnly = extractData.matches.filter(m => !m.filepath.endsWith('.d.ts'));
-      const pool = realOnly.length > 0 ? realOnly : extractData.matches;
-      const ctx = state.currentSourceFile || (funcInfo.filepath || '');
-      let best = null;
-
-      if (ctx) {
-        // Exact file match
-        best = pool.find(m => m.filepath === ctx);
-        // Same directory match
-        if (!best) {
-          const ctxDir = ctx.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
-          if (ctxDir) best = pool.find(m => m.filepath.replace(/\\/g, '/').startsWith(ctxDir + '/'));
-        }
-      }
-      // Fallback: just pick the largest (most likely the real implementation)
-      if (!best) {
-        best = pool.reduce((a, b) => (b.lines > a.lines ? b : a), pool[0]);
-      }
-
-      // Re-fetch with the resolved filepath
-      const resolvedSpec = `${best.filepath}@${best.name}`;
-      extractData = await api.extract({ func: resolvedSpec });
-      if (extractData.ambiguous) {
-        renderDisambiguation(extractData.matches);
-        return;
-      }
-    }
-
-    renderSource(extractData);
-  } catch (err) {
-    showMiddleBottomError(err.message);
-  }
-}
-
-async function onFileClick(filepath, targetLine) {
-  showMiddleBottomLoading(`Loading ${filepath}…`);
-  try {
-    const data = await api.showFile({ path: filepath, line: targetLine || undefined });
-    renderFileSource(data, targetLine);
-  } catch (err) { showMiddleBottomError(err.message); }
-}
-
-async function onClassClick(className) {
-  showMiddleTopLoading(`Loading class ${className}…`);
-  try {
-    const data = await api.classMethods({ name: className });
-    renderClassMethodsDetail(data);
-  } catch (err) { showMiddleTopError(err.message); }
-}
-
-/** Class-row click from multisect/claim-search results: render method list in
- *  middle-bottom (preserves results in middle-top) and sync the left-pane
- *  Classes accordion. Matches the function-row sourceOnly pattern. TODO #369. */
-async function onClassClickSourceOnly(className) {
-  showMiddleBottomLoading(`Loading class ${className}…`);
-  try {
-    const data = await api.classMethods({ name: className });
-    renderClassMethodsIntoMiddleBottom(data);
-  } catch (err) {
-    showMiddleBottomError(err.message);
-  }
-  expandClassInLeftPane(className);
-}
-
-function renderClassMethodsIntoMiddleBottom(data) {
-  const container = $('#middle-bottom-body');
-  const title = $('#middle-bottom-title');
-  title.innerHTML = `Class: ${displayNameHtml(data.name)} (${data.method_count} methods, ${data.total_lines} lines)`;
-  let html = `<div class="output-section"><h3>Methods</h3>`;
-  if (data.inferred) html += `<p style="color:var(--text-muted);font-size:11px;margin-bottom:6px">(Inferred from :: qualified method names)</p>`;
-  html += '<table class="output-table"><tr><th>Method</th><th>File</th><th>Lines</th></tr>';
-  for (const m of data.methods) {
-    html += `<tr><td class="mono"><span class="clickable" data-funcname="${escHtml(m.name)}" data-filepath="${escHtml(m.filepath)}">${displayNameHtml(m.name)}</span></td>`;
-    html += `<td class="mono muted">${escHtml(shortPath(m.filepath, 30))}</td><td>${m.lines}</td></tr>`;
-  }
-  container.innerHTML = html + '</table></div>';
-  // sourceOnly: clicking a method shows source here (replaces this table); user can back-nav.
-  wireClickables(container, { sourceOnly: true });
-}
-
-/** Open the left-pane Classes accordion section, expand the sub-entry for
- *  className, and scroll to it. Silently no-ops if the class isn't in the
- *  currently-loaded subset (e.g. listClasses returned only the top 200). */
-async function expandClassInLeftPane(className) {
-  const section = $('.accordion-section[data-section="classes"]');
-  if (!section) return;
-  if (!section.classList.contains('open')) {
-    section.classList.add('open');
-    const filter = $('#left-filter').value.trim();
-    try { await loadSectionData('classes', filter); } catch { /* fall through */ }
-  }
-  const sub = $(`.sub-accordion[data-class="${cssEscape(className)}"]`, section);
-  if (!sub) return;
-  if (!sub.classList.contains('open')) {
-    sub.classList.add('open');
-    const subContent = $('.sub-accordion-content', sub);
-    if (subContent && subContent.children.length === 0) {
-      loadClassMethods(className, subContent);
-    }
-  }
-  sub.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-function cssEscape(s) {
-  return (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/["\\]/g, '\\$&');
-}
-
-async function onVocabClick(token) {
-  state.highlightTerms = { terms: [token], colors: HIGHLIGHT_COLORS };
-  showMiddleTopLoading(`Files containing "${token}"…`);
-  try {
-    const data = await api.filesSearch({ q: token, max: 40 });
-    renderFilesSearchResults(token, data);
-  } catch (err) { showMiddleTopError(err.message); }
-}
-
-
-// ========================================================================
 // Middle pane helpers
 // ========================================================================
 function showMiddleTopLoading(msg) { showPane('middle-top'); navPush('middle-top'); $('#middle-top-body').innerHTML = `<div class="loading">${escHtml(msg)}</div>`; $('#middle-top-title').textContent = 'Loading…'; }
@@ -3299,238 +3150,6 @@ function wireClickables(container, opts = {}) {
 
 
 // ========================================================================
-// Context menu
-// ========================================================================
-
-/** Fetch LLM engine status and cache it. Called on init and after model switch. */
-async function refreshLlmStatus() {
-  try { state.llmStatus = await api.llmStatus(); } catch { state.llmStatus = null; }
-}
-
-/** Return an engine-name suffix like "(Claude API)" or "(Local: model.gguf)" for menu labels. */
-function engineLabel() {
-  const engine = $('#ws-engine').value;
-  if (!state.llmStatus) return '';
-  const info = state.llmStatus[engine];
-  return info ? ` (${info.name})` : '';
-}
-
-/** Check engine availability before running an LLM action. Returns true if OK, else shows message. */
-function checkEngineAvailability(engine) {
-  if (!state.llmStatus) return true; // can't check, let server handle it
-  const info = state.llmStatus[engine];
-  if (info && info.available) return true;
-  if (engine === 'claude') {
-    showAnalysisPane(
-      '<b>Claude API is not configured.</b><br><br>' +
-      'To enable it, do one of the following:<br>' +
-      '&bull; Create a <code>claude.txt</code> file containing your API key in the server directory<br>' +
-      '&bull; Set the <code>ANTHROPIC_API_KEY</code> environment variable<br>' +
-      '&bull; Start the server with <code>--api-key &lt;key&gt;</code>',
-      'Engine Not Available', true);
-  } else {
-    showAnalysisPane(
-      '<b>Local GGUF model is not configured.</b><br><br>' +
-      'To enable it, do one of the following:<br>' +
-      '&bull; Click <b>Browse GGUFs</b> in the workspace controls to select a model<br>' +
-      '&bull; Start the server with <code>--model-path &lt;path-to-gguf&gt;</code>',
-      'Engine Not Available', true);
-  }
-  return false;
-}
-
-function showContextMenu(e, funcInfo) {
-  e.preventDefault();
-  state.contextTarget = funcInfo;
-  const menu = $('#context-menu');
-  menu.classList.remove('hidden');
-  menu.style.left = `${e.clientX}px`;
-  menu.style.top = `${e.clientY}px`;
-
-  // Show/hide items based on target type
-  const isFileOnly = !funcInfo.name || funcInfo.name === funcInfo.filepath;
-  const fileAnalyzeBtn = $('#ctx-analyze-file');
-  if (fileAnalyzeBtn) fileAnalyzeBtn.style.display = funcInfo.filepath ? '' : 'none';
-  // Hide function-only items for file-only targets
-  for (const btn of $$('#context-menu button[data-ctx]')) {
-    const ctx = btn.dataset.ctx;
-    if (['extract', 'callers', 'callees', 'call-tree', 'analyze', 'analyze-context'].includes(ctx)) {
-      btn.style.display = isFileOnly ? 'none' : '';
-    }
-  }
-
-  // Update LLM menu labels with engine name
-  const suffix = engineLabel();
-  const analyzeBtn = $('button[data-ctx="analyze"]');
-  const analyzeCtxBtn = $('button[data-ctx="analyze-context"]');
-  const analyzeFileBtn = $('button[data-ctx="analyze-file"]');
-  if (analyzeBtn)     analyzeBtn.textContent     = `Analyze with LLM${suffix}`;
-  if (analyzeCtxBtn)  analyzeCtxBtn.textContent  = `Analyze with LLM + Context${suffix}`;
-  if (analyzeFileBtn) analyzeFileBtn.textContent = `Analyze File with LLM${suffix}`;
-
-  requestAnimationFrame(() => {
-    const rect = menu.getBoundingClientRect();
-    if (rect.right > window.innerWidth) menu.style.left = `${window.innerWidth - rect.width - 8}px`;
-    if (rect.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - rect.height - 8}px`;
-  });
-}
-
-function hideContextMenu() { $('#context-menu').classList.add('hidden'); state.contextTarget = null; }
-
-async function handleContextAction(action) {
-  const target = state.contextTarget;
-  hideContextMenu();
-  if (!target) return;
-
-  // Some panes pass target.name (either bare or display), some pass only
-  // target.display_name. Server does reverse-rename resolution, so either
-  // form is acceptable — just pick whichever is non-empty.
-  const funcName = target.name || target.display_name;
-  const funcSpec = target.filepath ? `${target.filepath}@${funcName}` : funcName;
-
-  switch (action) {
-    case 'extract': onFunctionClick(target); break;
-
-    case 'callers':
-      showMiddleTopLoading(`Callers of ${target.name}…`);
-      try { renderCallersOnly(target.name, await api.callers({ func: funcSpec })); }
-      catch (err) { showMiddleTopError(err.message); }
-      break;
-
-    case 'callees':
-      showMiddleTopLoading(`Callees of ${target.name}…`);
-      try { renderCalleesOnly(target.name, await api.callees({ func: funcSpec })); }
-      catch (err) { showMiddleTopError(err.message); }
-      break;
-
-    case 'digest':
-      showMiddleTopLoading(`Digest of ${target.name}…`);
-      try {
-        const data = await api.digest({ name: funcSpec });
-        renderDigest(data);
-      } catch (err) { showMiddleTopError(err.message); }
-      break;
-
-    case 'call-tree': {
-      showPane('right-top');
-      const ctDepth = parseInt($('#diagram-depth')?.value) || 3;
-      const body = $('#right-top-body'), ttl = $('#right-top-title');
-      ttl.textContent = `Call tree: ${target.name} (depth ${ctDepth})`;
-      body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"><div class="loading">Building call tree…</div></div>';
-      try {
-        const data = await api.callTree({ func: funcSpec, depth: ctDepth });
-        const rootName = data.target;
-        renderMermaid(data.mermaid, $('#diagram-viewport'), rootName, {
-          onNodeClick: (nodeId, label) => {
-            if (label && label !== rootName) {
-              openRelationshipView(rootName, label);
-            }
-          },
-        });
-      } catch (err) {
-        $('#diagram-viewport').innerHTML = `<div class="error-msg">${escHtml(err.message)}</div>`;
-      }
-      break;
-    }
-
-    case 'file-tree': {
-      const fp = target.filepath;
-      if (!fp) { showMiddleTopError('No file associated with this item.'); break; }
-      showPane('right-top');
-      const ftDepth = parseInt($('#diagram-depth')?.value) || 3;
-      const body = $('#right-top-body'), ttl = $('#right-top-title');
-      ttl.textContent = `File tree: ${fp.split('/').pop()} (depth ${ftDepth})`;
-      body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"><div class="loading">Building file dependency tree…</div></div>';
-      try {
-        const data = await api.fileTree({ file: fp, depth: ftDepth });
-        renderMermaid(data.mermaid, $('#diagram-viewport'), data.target_base);
-      } catch (err) {
-        $('#diagram-viewport').innerHTML = `<div class="error-msg">${escHtml(err.message)}</div>`;
-      }
-      break;
-    }
-
-    case 'analyze': {
-      const funcSpec = target.filepath
-        ? `${target.filepath}@${target.name || target.display_name}`
-        : (target.name || target.display_name);
-      const engine = $('#ws-engine').value;
-      if (!checkEngineAvailability(engine)) break;
-      const mask = $('#ws-mask-all')?.checked || false;
-      const maskComments = $('#ws-mask-comments')?.checked || false;
-      const withDigest = $('#ws-with-digest')?.checked || false;
-      showAnalysisPane(`<div class="loading">Analyzing ${escHtml(target.name)} via ${escHtml(engine)}${withDigest ? ' (with digest)' : ''}…</div>`, 'Analyzing…', true);
-      try {
-        const data = await api.analyzeLlm({
-          func: funcSpec,
-          mode: 'analyze',
-          engine, mask, maskComments, withDigest,
-        });
-        renderLlmAnalysis(data);
-      } catch (err) {
-        showAnalysisPane(`Error: ${escHtml(err.message)}`, 'Analysis Error', true);
-      }
-      break;
-    }
-
-    case 'analyze-context': {
-      const funcSpec = target.filepath
-        ? `${target.filepath}@${target.name || target.display_name}`
-        : (target.name || target.display_name);
-      const engine = $('#ws-engine').value;
-      if (!checkEngineAvailability(engine)) break;
-      let contextText = $('#claim-text').value.trim();
-      if (!contextText) {
-        showAnalysisPane('No context text. Paste text into the Workspace textarea first, then right-click a function and choose "Analyze with LLM + Workspace Context".', 'No Context');
-        break;
-      }
-      // If textarea shows resolved @file (with separator), strip the display header
-      contextText = stripAtFileHeader(contextText);
-      const mask = $('#ws-mask-all')?.checked || false;
-      const maskComments = $('#ws-mask-comments')?.checked || false;
-      const withDigest = $('#ws-with-digest')?.checked || false;
-      showAnalysisPane(`<div class="loading">Analyzing ${escHtml(target.name)} with context via ${escHtml(engine)}${withDigest ? ' (with digest)' : ''}…</div>`, 'Analyzing…', true);
-      try {
-        const data = await api.analyzeLlm({
-          func: funcSpec,
-          mode: 'context-analyze',
-          contextText,
-          engine, mask, maskComments, withDigest,
-        });
-        renderLlmAnalysis(data);
-      } catch (err) {
-        showAnalysisPane(`Error: ${escHtml(err.message)}`, 'Analysis Error', true);
-      }
-      break;
-    }
-
-    case 'analyze-file': {
-      const fp = target.filepath || target.name;
-      if (!fp) { showAnalysisPane('No file associated with this item.', 'Error'); break; }
-      const engine = $('#ws-engine').value;
-      if (!checkEngineAvailability(engine)) break;
-      const mask = $('#ws-mask-all')?.checked || false;
-      const maskComments = $('#ws-mask-comments')?.checked || false;
-      showAnalysisPane(`<div class="loading">Analyzing file ${escHtml(shortPath(fp, 60))} via ${escHtml(engine)}…</div>`, 'Analyzing…', true);
-      try {
-        const data = await api.analyzeLlm({
-          file: fp,
-          mode: 'file-analyze',
-          engine, mask, maskComments,
-        });
-        renderLlmAnalysis(data);
-      } catch (err) {
-        showAnalysisPane(`Error: ${escHtml(err.message)}`, 'Analysis Error', true);
-      }
-      break;
-    }
-
-    default: console.log(`Context action '${action}' not implemented`, target);
-  }
-}
-
-
-// ========================================================================
 // Mermaid rendering with zoom
 // ========================================================================
 /**
@@ -4515,6 +4134,23 @@ async function init() {
   initDiagramControls();
   initCompareOverlay();
   initDialogs({ clearAllPanes, showPane, refreshLlmStatus });
+  initClickHandlers({
+    navPush,
+    showMiddleTopLoading, showMiddleTopError,
+    showMiddleBottomLoading, showMiddleBottomError,
+    renderSource, renderFileSource,
+    renderDisambiguation, renderCallInfo, renderClassMethodsDetail,
+    wireClickables,
+    loadSectionData, loadClassMethods,
+    renderFilesSearchResults,
+  });
+  initContextMenu({
+    showMiddleTopLoading, showMiddleTopError,
+    renderCallersOnly, renderCalleesOnly, renderDigest,
+    renderMermaid, openRelationshipView,
+    showAnalysisPane, renderLlmAnalysis,
+    stripAtFileHeader,
+  });
   initFilter();
 
   // View options
