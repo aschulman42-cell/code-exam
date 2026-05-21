@@ -7,14 +7,10 @@
  * the engine label and the availability gate, and splitting them
  * across modules would require two-way DI.
  *
- * Cross-cutting callbacks (`showMiddleTopLoading`,
- * `showMiddleTopError`, `renderCallersOnly`, `renderCalleesOnly`,
- * `renderDigest`, `showAnalysisPane`, `renderLlmAnalysis`,
+ * Cross-cutting callbacks (`showAnalysisPane`, `renderLlmAnalysis`,
  * `stripAtFileHeader`) are injected via `initContextMenu({...})`
- * since their owning render flows still live in app.js.
- * `onFunctionClick` is imported directly from click-handlers.js
- * (sibling module, one-way dep). `renderMermaid` and
- * `openRelationshipView` are imported directly from mermaid.js.
+ * since their owners still live in app.js. Middle-pane chrome +
+ * renderers are direct imports from middle-pane.js.
  */
 
 import { state } from './state.js';
@@ -23,26 +19,20 @@ import { $, $$, escHtml, shortPath } from './dom-utils.js';
 import { showPane } from './layout.js';
 import { onFunctionClick } from './click-handlers.js';
 import { renderMermaid, openRelationshipView } from './mermaid.js';
+import {
+  showMiddleTopLoading, showMiddleTopError,
+  renderCallersOnly, renderCalleesOnly, renderDigest,
+} from './middle-pane.js';
 
 // ============================================================================
 // Cross-cutting callbacks (injected by initContextMenu)
 // ============================================================================
 
-let _showMiddleTopLoading = () => {};
-let _showMiddleTopError = () => {};
-let _renderCallersOnly = () => {};
-let _renderCalleesOnly = () => {};
-let _renderDigest = () => {};
 let _showAnalysisPane = () => {};
 let _renderLlmAnalysis = () => {};
 let _stripAtFileHeader = (s) => s;
 
 export function initContextMenu(deps = {}) {
-  if (typeof deps.showMiddleTopLoading === 'function') _showMiddleTopLoading = deps.showMiddleTopLoading;
-  if (typeof deps.showMiddleTopError === 'function') _showMiddleTopError = deps.showMiddleTopError;
-  if (typeof deps.renderCallersOnly === 'function') _renderCallersOnly = deps.renderCallersOnly;
-  if (typeof deps.renderCalleesOnly === 'function') _renderCalleesOnly = deps.renderCalleesOnly;
-  if (typeof deps.renderDigest === 'function') _renderDigest = deps.renderDigest;
   if (typeof deps.showAnalysisPane === 'function') _showAnalysisPane = deps.showAnalysisPane;
   if (typeof deps.renderLlmAnalysis === 'function') _renderLlmAnalysis = deps.renderLlmAnalysis;
   if (typeof deps.stripAtFileHeader === 'function') _stripAtFileHeader = deps.stripAtFileHeader;
@@ -148,23 +138,23 @@ export async function handleContextAction(action) {
     case 'extract': onFunctionClick(target); break;
 
     case 'callers':
-      _showMiddleTopLoading(`Callers of ${target.name}…`);
-      try { _renderCallersOnly(target.name, await api.callers({ func: funcSpec })); }
-      catch (err) { _showMiddleTopError(err.message); }
+      showMiddleTopLoading(`Callers of ${target.name}…`);
+      try { renderCallersOnly(target.name, await api.callers({ func: funcSpec })); }
+      catch (err) { showMiddleTopError(err.message); }
       break;
 
     case 'callees':
-      _showMiddleTopLoading(`Callees of ${target.name}…`);
-      try { _renderCalleesOnly(target.name, await api.callees({ func: funcSpec })); }
-      catch (err) { _showMiddleTopError(err.message); }
+      showMiddleTopLoading(`Callees of ${target.name}…`);
+      try { renderCalleesOnly(target.name, await api.callees({ func: funcSpec })); }
+      catch (err) { showMiddleTopError(err.message); }
       break;
 
     case 'digest':
-      _showMiddleTopLoading(`Digest of ${target.name}…`);
+      showMiddleTopLoading(`Digest of ${target.name}…`);
       try {
         const data = await api.digest({ name: funcSpec });
-        _renderDigest(data);
-      } catch (err) { _showMiddleTopError(err.message); }
+        renderDigest(data);
+      } catch (err) { showMiddleTopError(err.message); }
       break;
 
     case 'call-tree': {
@@ -191,7 +181,7 @@ export async function handleContextAction(action) {
 
     case 'file-tree': {
       const fp = target.filepath;
-      if (!fp) { _showMiddleTopError('No file associated with this item.'); break; }
+      if (!fp) { showMiddleTopError('No file associated with this item.'); break; }
       showPane('right-top');
       const ftDepth = parseInt($('#diagram-depth')?.value) || 3;
       const body = $('#right-top-body'), ttl = $('#right-top-title');

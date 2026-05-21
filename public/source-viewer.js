@@ -5,13 +5,17 @@
  * Handles long-line breaking for minified bundles and search-term
  * highlighting via state.highlightTerms.
  *
- * Cross-cutting callbacks (`navUpdateButtons`, `showContextMenu`,
+ * Cross-cutting callbacks (`showContextMenu`,
  * `onFunctionClickSourceOnly`) are injected via `initSourceViewer({...})`
  * to break a potential `source-viewer → context-menu → click-handlers
  * → source-viewer` circular-import cycle. The cycle would otherwise
  * form because click-handlers.js direct-imports `renderSource` /
  * `renderFileSource` from this module, and context-menu.js
  * direct-imports `onFunctionClick` from click-handlers.js.
+ *
+ * `navUpdateButtons` is a direct import from middle-pane.js — the
+ * source-viewer ↔ middle-pane cycle is ES-module-safe (both modules
+ * only declare functions at top level).
  */
 
 import { state } from './state.js';
@@ -19,18 +23,17 @@ import {
   $, displayNameHtml, escHtml, highlightLine, INFERRED_SUFFIX_RE,
 } from './dom-utils.js';
 import { showPane } from './layout.js';
+import { navUpdateButtons } from './middle-pane.js';
 
 
 // ============================================================================
 // Cross-cutting callbacks (injected by initSourceViewer)
 // ============================================================================
 
-let _navUpdateButtons = () => {};
 let _showContextMenu = () => {};
 let _onFunctionClickSourceOnly = () => {};
 
 export function initSourceViewer(deps = {}) {
-  if (typeof deps.navUpdateButtons === 'function') _navUpdateButtons = deps.navUpdateButtons;
   if (typeof deps.showContextMenu === 'function') _showContextMenu = deps.showContextMenu;
   if (typeof deps.onFunctionClickSourceOnly === 'function') _onFunctionClickSourceOnly = deps.onFunctionClickSourceOnly;
 }
@@ -66,7 +69,7 @@ export function renderSource(data) {
   // old scroll offset — often hiding the function's definition line.
   container.scrollTop = 0;
   linkifySourceCalls(container, data.filepath);
-  _navUpdateButtons('middle-bottom');
+  navUpdateButtons('middle-bottom');
 }
 
 // Heuristic re-flow of a long (typically bundled/minified) line. Keeps the
@@ -124,7 +127,7 @@ export function renderFileSource(data, targetLine) {
   }
   container.innerHTML = html + '</div>';
   linkifySourceCalls(container, data.filepath);
-  _navUpdateButtons('middle-bottom');
+  navUpdateButtons('middle-bottom');
 
   // Scroll to target line
   if (targetLine) {

@@ -14,12 +14,10 @@
  * actually unused here but kept for symmetry with renderers that
  * might add it later).
  *
- * Cross-cutting callbacks (`navPush`, `showMiddleTopLoading`,
- * `showMiddleTopError`, `renderSearchResults`, `wireClickables`,
- * `getMaxResults`) are injected via `initPromptsAndCatalog({...})`
- * since their owners still live in app.js's middle-pane chrome and
- * accordion sections. All of these become direct imports when those
- * sections become their own peels.
+ * Cross-cutting callbacks (`wireClickables`, `getMaxResults`) are
+ * injected via `initPromptsAndCatalog({...})` since their owners
+ * still live in app.js. Middle-pane chrome + renderers are direct
+ * imports from middle-pane.js.
  */
 
 import { state } from './state.js';
@@ -31,24 +29,20 @@ import { showPane } from './layout.js';
 import {
   onFunctionClick, onFunctionClickSourceOnly, onFileClick,
 } from './click-handlers.js';
+import {
+  navPush, showMiddleTopLoading, showMiddleTopError,
+  renderSearchResults,
+} from './middle-pane.js';
 
 
 // ============================================================================
 // Cross-cutting callbacks (injected by initPromptsAndCatalog)
 // ============================================================================
 
-let _navPush = () => {};
-let _showMiddleTopLoading = () => {};
-let _showMiddleTopError = () => {};
-let _renderSearchResults = () => {};
 let _wireClickables = () => {};
 let _getMaxResults = () => 30;
 
 export function initPromptsAndCatalog(deps = {}) {
-  if (typeof deps.navPush === 'function') _navPush = deps.navPush;
-  if (typeof deps.showMiddleTopLoading === 'function') _showMiddleTopLoading = deps.showMiddleTopLoading;
-  if (typeof deps.showMiddleTopError === 'function') _showMiddleTopError = deps.showMiddleTopError;
-  if (typeof deps.renderSearchResults === 'function') _renderSearchResults = deps.renderSearchResults;
   if (typeof deps.wireClickables === 'function') _wireClickables = deps.wireClickables;
   if (typeof deps.getMaxResults === 'function') _getMaxResults = deps.getMaxResults;
 }
@@ -133,7 +127,7 @@ export function renderPromptDetail(prompt) {
   const funcLabel = prompt.funcDisplay || prompt.func || '(file scope)';
   title.textContent = `Prompt (${prompt.text.length} chars) — ${funcLabel}`;
   showPane('middle-top');
-  _navPush('middle-top');
+  navPush('middle-top');
 
   let html = '<div class="output-section">';
   html += `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">`;
@@ -156,11 +150,11 @@ export function renderPromptDetail(prompt) {
     el.addEventListener('click', async () => {
       const v = el.dataset.promptVar;
       const q = `\\b${v}\\b`;
-      _showMiddleTopLoading(`Finding references to ${v}…`);
+      showMiddleTopLoading(`Finding references to ${v}…`);
       try {
         const data = await api.search({ q, type: 'regex', case_sensitive: '1', max: 50 });
-        _renderSearchResults(q, data);
-      } catch (err) { _showMiddleTopError(err.message); }
+        renderSearchResults(q, data);
+      } catch (err) { showMiddleTopError(err.message); }
     });
   }
 
@@ -182,7 +176,7 @@ export function renderStringDetail(entry) {
   const container = $('#middle-top-body'), title = $('#middle-top-title');
   title.textContent = `String (${entry.count} occurrences in ${entry.files} file${entry.files > 1 ? 's' : ''})`;
   showPane('middle-top');
-  _navPush('middle-top');
+  navPush('middle-top');
 
   let html = '<div class="output-section">';
   // Full string value
@@ -639,7 +633,7 @@ function renderCommandDetail(item, category) {
   const name = item.name || item.path || '?';
   title.textContent = `${category}: ${name}`;
   showPane('middle-top');
-  _navPush('middle-top');
+  navPush('middle-top');
 
   let html = '<div class="output-section">';
   html += '<table class="output-table">';

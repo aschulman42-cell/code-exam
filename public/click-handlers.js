@@ -2,20 +2,19 @@
  * click-handlers.js — Entry points for user-initiated clicks in the
  * left and middle panes: function rows, file rows, class rows, vocab
  * tokens. Each handler fetches data via the api module and dispatches
- * to a render function that lives in app.js (injected at init time).
+ * to a render function in middle-pane.js or source-viewer.js.
  *
- * Cross-cutting callbacks (`navPush`, `showMiddleTopLoading`,
- * `showMiddleTopError`, `showMiddleBottomLoading`,
- * `showMiddleBottomError`, `renderDisambiguation`, `renderCallInfo`,
- * `renderClassMethodsDetail`, `wireClickables`, `loadSectionData`,
- * `loadClassMethods`, `renderFilesSearchResults`) are injected via
- * `initClickHandlers({...})` to keep this module independent of
- * app.js's still-in-progress render-flow code.
+ * Cross-cutting callbacks (`wireClickables`, `loadSectionData`,
+ * `loadClassMethods`) are still injected via `initClickHandlers({...})`
+ * because their owners still live in app.js (wireClickables in its
+ * own section, loadSectionData/loadClassMethods in the Accordion
+ * section). They'll become direct imports when those sections become
+ * their own peels.
  *
- * `renderSource` and `renderFileSource` are direct imports from
- * source-viewer.js (sibling module — no cycle since source-viewer
- * doesn't import this module directly; it DIs the two callbacks it
- * needs from click-handlers).
+ * Middle-pane chrome + renderers are direct imports from
+ * middle-pane.js (sibling module — direct-import cycle with
+ * middle-pane is ES-module-safe since neither side calls into the
+ * other at top-level evaluation time).
  */
 
 import { state } from './state.js';
@@ -24,37 +23,25 @@ import {
   $, $$, escHtml, displayNameHtml, shortPath, HIGHLIGHT_COLORS,
 } from './dom-utils.js';
 import { renderSource, renderFileSource } from './source-viewer.js';
+import {
+  navPush, showMiddleTopLoading, showMiddleTopError,
+  showMiddleBottomLoading, showMiddleBottomError,
+  renderDisambiguation, renderCallInfo, renderClassMethodsDetail,
+  renderFilesSearchResults,
+} from './middle-pane.js';
 
 // ============================================================================
 // Cross-cutting callbacks (injected by initClickHandlers)
 // ============================================================================
 
-let _navPush = () => {};
-let _showMiddleTopLoading = () => {};
-let _showMiddleTopError = () => {};
-let _showMiddleBottomLoading = () => {};
-let _showMiddleBottomError = () => {};
-let _renderDisambiguation = () => {};
-let _renderCallInfo = () => {};
-let _renderClassMethodsDetail = () => {};
 let _wireClickables = () => {};
 let _loadSectionData = async () => {};
 let _loadClassMethods = () => {};
-let _renderFilesSearchResults = () => {};
 
 export function initClickHandlers(deps = {}) {
-  if (typeof deps.navPush === 'function') _navPush = deps.navPush;
-  if (typeof deps.showMiddleTopLoading === 'function') _showMiddleTopLoading = deps.showMiddleTopLoading;
-  if (typeof deps.showMiddleTopError === 'function') _showMiddleTopError = deps.showMiddleTopError;
-  if (typeof deps.showMiddleBottomLoading === 'function') _showMiddleBottomLoading = deps.showMiddleBottomLoading;
-  if (typeof deps.showMiddleBottomError === 'function') _showMiddleBottomError = deps.showMiddleBottomError;
-  if (typeof deps.renderDisambiguation === 'function') _renderDisambiguation = deps.renderDisambiguation;
-  if (typeof deps.renderCallInfo === 'function') _renderCallInfo = deps.renderCallInfo;
-  if (typeof deps.renderClassMethodsDetail === 'function') _renderClassMethodsDetail = deps.renderClassMethodsDetail;
   if (typeof deps.wireClickables === 'function') _wireClickables = deps.wireClickables;
   if (typeof deps.loadSectionData === 'function') _loadSectionData = deps.loadSectionData;
   if (typeof deps.loadClassMethods === 'function') _loadClassMethods = deps.loadClassMethods;
-  if (typeof deps.renderFilesSearchResults === 'function') _renderFilesSearchResults = deps.renderFilesSearchResults;
 }
 
 
@@ -68,19 +55,19 @@ export async function onFunctionClick(funcInfo) {
     ? `${funcInfo.filepath}@${funcInfo.name || funcInfo.display_name}`
     : (funcInfo.name || funcInfo.display_name);
 
-  _navPush('middle-bottom');
-  _showMiddleTopLoading(`Loading ${funcInfo.display_name || funcInfo.name}…`);
+  navPush('middle-bottom');
+  showMiddleTopLoading(`Loading ${funcInfo.display_name || funcInfo.name}…`);
 
   try {
     const extractData = await api.extract({ func: funcSpec });
-    if (extractData.ambiguous) { _renderDisambiguation(extractData.matches); return; }
+    if (extractData.ambiguous) { renderDisambiguation(extractData.matches); return; }
     renderSource(extractData);
 
     const callersData = await api.callers({ func: funcSpec });
     const calleesData = await api.callees({ func: funcSpec });
-    _renderCallInfo(extractData, callersData, calleesData);
+    renderCallInfo(extractData, callersData, calleesData);
   } catch (err) {
-    _showMiddleTopError(err.message);
+    showMiddleTopError(err.message);
   }
 }
 
@@ -90,7 +77,7 @@ export async function onFunctionClickSourceOnly(funcInfo) {
     ? `${funcInfo.filepath}@${funcInfo.name || funcInfo.display_name}`
     : (funcInfo.name || funcInfo.display_name);
 
-  _showMiddleBottomLoading(`Loading ${funcInfo.display_name || funcInfo.name}…`);
+  showMiddleBottomLoading(`Loading ${funcInfo.display_name || funcInfo.name}…`);
 
   try {
     let extractData = await api.extract({ func: funcSpec });
@@ -124,43 +111,43 @@ export async function onFunctionClickSourceOnly(funcInfo) {
       const resolvedSpec = `${best.filepath}@${best.name}`;
       extractData = await api.extract({ func: resolvedSpec });
       if (extractData.ambiguous) {
-        _renderDisambiguation(extractData.matches);
+        renderDisambiguation(extractData.matches);
         return;
       }
     }
 
     renderSource(extractData);
   } catch (err) {
-    _showMiddleBottomError(err.message);
+    showMiddleBottomError(err.message);
   }
 }
 
 export async function onFileClick(filepath, targetLine) {
-  _showMiddleBottomLoading(`Loading ${filepath}…`);
+  showMiddleBottomLoading(`Loading ${filepath}…`);
   try {
     const data = await api.showFile({ path: filepath, line: targetLine || undefined });
     renderFileSource(data, targetLine);
-  } catch (err) { _showMiddleBottomError(err.message); }
+  } catch (err) { showMiddleBottomError(err.message); }
 }
 
 export async function onClassClick(className) {
-  _showMiddleTopLoading(`Loading class ${className}…`);
+  showMiddleTopLoading(`Loading class ${className}…`);
   try {
     const data = await api.classMethods({ name: className });
-    _renderClassMethodsDetail(data);
-  } catch (err) { _showMiddleTopError(err.message); }
+    renderClassMethodsDetail(data);
+  } catch (err) { showMiddleTopError(err.message); }
 }
 
 /** Class-row click from multisect/claim-search results: render method list in
  *  middle-bottom (preserves results in middle-top) and sync the left-pane
  *  Classes accordion. Matches the function-row sourceOnly pattern. TODO #369. */
 export async function onClassClickSourceOnly(className) {
-  _showMiddleBottomLoading(`Loading class ${className}…`);
+  showMiddleBottomLoading(`Loading class ${className}…`);
   try {
     const data = await api.classMethods({ name: className });
     renderClassMethodsIntoMiddleBottom(data);
   } catch (err) {
-    _showMiddleBottomError(err.message);
+    showMiddleBottomError(err.message);
   }
   expandClassInLeftPane(className);
 }
@@ -210,9 +197,9 @@ function cssEscape(s) {
 
 export async function onVocabClick(token) {
   state.highlightTerms = { terms: [token], colors: HIGHLIGHT_COLORS };
-  _showMiddleTopLoading(`Files containing "${token}"…`);
+  showMiddleTopLoading(`Files containing "${token}"…`);
   try {
     const data = await api.filesSearch({ q: token, max: 40 });
-    _renderFilesSearchResults(token, data);
-  } catch (err) { _showMiddleTopError(err.message); }
+    renderFilesSearchResults(token, data);
+  } catch (err) { showMiddleTopError(err.message); }
 }

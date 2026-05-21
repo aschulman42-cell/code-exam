@@ -5,39 +5,27 @@
  * elements; this module wires those buttons to action handlers and
  * manages dropdown open/close behavior.
  *
- * Cross-cutting callbacks (`showMiddleTopLoading`,
- * `showMiddleTopError`, `renderStats`, `renderSearchResults`,
- * `renderFilesSearchResults`, `renderMultisectResults`) are injected
- * via `initMenuBar({...})` since their owners still live in app.js's
- * middle-pane render layer. They become direct imports when that
- * layer is its own peel.
+ * All dependencies are direct imports — this is the first peeled
+ * module with zero DI dependencies after the middle-pane peel
+ * lifted the render-function callbacks into a sibling module.
  */
 
 import { state } from './state.js';
 import { api } from './api.js';
 import { $, $$, HIGHLIGHT_COLORS } from './dom-utils.js';
 import { showSearchDialog } from './dialogs.js';
+import {
+  showMiddleTopLoading, showMiddleTopError,
+  renderStats, renderSearchResults, renderFilesSearchResults,
+  renderMultisectResults,
+} from './middle-pane.js';
 
 
 // ============================================================================
-// Cross-cutting callbacks (injected by initMenuBar)
+// Menu bar setup
 // ============================================================================
 
-let _showMiddleTopLoading = () => {};
-let _showMiddleTopError = () => {};
-let _renderStats = () => {};
-let _renderSearchResults = () => {};
-let _renderFilesSearchResults = () => {};
-let _renderMultisectResults = () => {};
-
-export function initMenuBar(deps = {}) {
-  if (typeof deps.showMiddleTopLoading === 'function') _showMiddleTopLoading = deps.showMiddleTopLoading;
-  if (typeof deps.showMiddleTopError === 'function') _showMiddleTopError = deps.showMiddleTopError;
-  if (typeof deps.renderStats === 'function') _renderStats = deps.renderStats;
-  if (typeof deps.renderSearchResults === 'function') _renderSearchResults = deps.renderSearchResults;
-  if (typeof deps.renderFilesSearchResults === 'function') _renderFilesSearchResults = deps.renderFilesSearchResults;
-  if (typeof deps.renderMultisectResults === 'function') _renderMultisectResults = deps.renderMultisectResults;
-
+export function initMenuBar() {
   for (const btn of $$('.menu-btn')) {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -65,8 +53,8 @@ export function initMenuBar(deps = {}) {
 async function handleMenuAction(action) {
   switch (action) {
     case 'stats':
-      _showMiddleTopLoading('Loading stats…');
-      try { _renderStats(await api.stats()); } catch (err) { _showMiddleTopError(err.message); }
+      showMiddleTopLoading('Loading stats…');
+      try { renderStats(await api.stats()); } catch (err) { showMiddleTopError(err.message); }
       break;
     case 'load-index':
       $('#load-index-path').value = '';
@@ -95,8 +83,8 @@ async function handleMenuAction(action) {
       let query = r.query;
       // Strip /slashes/ from regex patterns
       if (type === 'regex') { const m = query.match(/^\/(.+)\/([gimsuy]*)$/); if (m) query = m[1]; }
-      _showMiddleTopLoading(`Searching: "${query}"…`);
-      try { _renderSearchResults(query, await api.search({ q: query, type, max: 30, in: r.inPath })); } catch (err) { _showMiddleTopError(err.message); }
+      showMiddleTopLoading(`Searching: "${query}"…`);
+      try { renderSearchResults(query, await api.search({ q: query, type, max: 30, in: r.inPath })); } catch (err) { showMiddleTopError(err.message); }
       break;
     }
     case 'files-search': {
@@ -104,7 +92,7 @@ async function handleMenuAction(action) {
       if (!r) return;
       const term = r.query;
       state.highlightTerms = { terms: [term], colors: HIGHLIGHT_COLORS };
-      try { _renderFilesSearchResults(term, await api.filesSearch({ q: term, max: 40, in: r.inPath })); } catch (err) { _showMiddleTopError(err.message); }
+      try { renderFilesSearchResults(term, await api.filesSearch({ q: term, max: 40, in: r.inPath })); } catch (err) { showMiddleTopError(err.message); }
       break;
     }
     case 'search-multisect': {
@@ -112,11 +100,11 @@ async function handleMenuAction(action) {
       if (!r) return;
       const terms = r.query;
       const minTermsVal = parseInt($('#ws-min-terms')?.value) || 0;
-      _showMiddleTopLoading(`Running multisect search… (Min Terms: ${minTermsVal === 0 ? 'all' : minTermsVal})`);
+      showMiddleTopLoading(`Running multisect search… (Min Terms: ${minTermsVal === 0 ? 'all' : minTermsVal})`);
       try {
         const data = await api.multisect({ terms, max: 30, min_terms: minTermsVal, in: r.inPath || undefined, match_renames: r.matchRenames || undefined });
-        _renderMultisectResults(data);
-      } catch (err) { _showMiddleTopError(err.message); }
+        renderMultisectResults(data);
+      } catch (err) { showMiddleTopError(err.message); }
       break;
     }
     default: console.log(`Menu action '${action}' not implemented`);
