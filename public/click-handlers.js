@@ -4,17 +4,17 @@
  * tokens. Each handler fetches data via the api module and dispatches
  * to a render function in middle-pane.js or source-viewer.js.
  *
- * Cross-cutting callbacks (`wireClickables`, `loadSectionData`,
- * `loadClassMethods`) are still injected via `initClickHandlers({...})`
- * because their owners still live in app.js (wireClickables in its
- * own section, loadSectionData/loadClassMethods in the Accordion
- * section). They'll become direct imports when those sections become
- * their own peels.
+ * Cross-cutting callbacks (`wireClickables`, `loadSectionData`) are
+ * still injected via `initClickHandlers({...})` because their owners
+ * still live in app.js (wireClickables in its own section,
+ * loadSectionData in the Accordion section). They'll become direct
+ * imports when those sections become their own peels.
  *
  * Middle-pane chrome + renderers are direct imports from
  * middle-pane.js (sibling module — direct-import cycle with
  * middle-pane is ES-module-safe since neither side calls into the
- * other at top-level evaluation time).
+ * other at top-level evaluation time). `loadClassMethods` is a
+ * direct import from list-renderers.js.
  */
 
 import { state } from './state.js';
@@ -29,6 +29,7 @@ import {
   renderDisambiguation, renderCallInfo, renderClassMethodsDetail,
   renderFilesSearchResults,
 } from './middle-pane.js';
+import { loadClassMethods } from './list-renderers.js';
 
 // ============================================================================
 // Cross-cutting callbacks (injected by initClickHandlers)
@@ -36,12 +37,10 @@ import {
 
 let _wireClickables = () => {};
 let _loadSectionData = async () => {};
-let _loadClassMethods = () => {};
 
 export function initClickHandlers(deps = {}) {
   if (typeof deps.wireClickables === 'function') _wireClickables = deps.wireClickables;
   if (typeof deps.loadSectionData === 'function') _loadSectionData = deps.loadSectionData;
-  if (typeof deps.loadClassMethods === 'function') _loadClassMethods = deps.loadClassMethods;
 }
 
 
@@ -185,7 +184,7 @@ async function expandClassInLeftPane(className) {
     sub.classList.add('open');
     const subContent = $('.sub-accordion-content', sub);
     if (subContent && subContent.children.length === 0) {
-      _loadClassMethods(className, subContent);
+      loadClassMethods(className, subContent);
     }
   }
   sub.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
