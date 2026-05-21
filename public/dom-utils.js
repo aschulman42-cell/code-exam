@@ -101,6 +101,62 @@ export const HIGHLIGHT_COLORS = [
   '#4B6B2E',   // olive
 ];
 
+/** Make a floating panel draggable by its header. */
+export function makeDraggable(panel, handle) {
+  handle.addEventListener('mousedown', (e) => {
+    if (e.target.tagName === 'BUTTON') return;  // don't drag when clicking buttons
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;  // and inputs
+    e.preventDefault();
+    const startX = e.clientX, startY = e.clientY;
+    const rect = panel.getBoundingClientRect();
+    const startLeft = rect.left, startTop = rect.top;
+
+    // Switch from right-positioned to left-positioned for dragging. Also
+    // force position: fixed -- floating panels already have that, but
+    // .modal-overlay dialogs (Issue #19) flex-center their .modal child
+    // (position: static), so inline left/top would otherwise be ignored.
+    panel.style.position = 'fixed';
+    panel.style.left = startLeft + 'px';
+    panel.style.top = startTop + 'px';
+    panel.style.right = 'auto';
+
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX, dy = ev.clientY - startY;
+      panel.style.left = Math.max(0, startLeft + dx) + 'px';
+      panel.style.top = Math.max(0, startTop + dy) + 'px';
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+/** Make a floating panel resizable from a corner handle. */
+export function makeResizable(panel, handle) {
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX, startY = e.clientY;
+    const startW = panel.offsetWidth, startH = panel.offsetHeight;
+
+    const onMove = (ev) => {
+      const newW = Math.max(300, startW + ev.clientX - startX);
+      const newH = Math.max(200, startH + ev.clientY - startY);
+      panel.style.width = newW + 'px';
+      panel.style.height = newH + 'px';
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
 /**
  * Highlight search terms in an already-escaped HTML line.
  * Returns HTML string with <mark> tags wrapping matches.
