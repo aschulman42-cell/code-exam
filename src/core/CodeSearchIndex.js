@@ -35,6 +35,29 @@ import {
   _classifyCommandGate,
   escapeRegex, _computeTokenRelevance,
 } from './CSI-helpers.js';
+import {
+  _funcNameTokens, _jaccardDistance, _pathDistance, _fileExt,
+} from './distance-helpers.js';
+import {
+  STRUCTURE_KEYWORDS, _countCodeLines,
+  getStructuralNormalized as _getStructuralNormalized,
+  getStructuralHash as _getStructuralHash,
+  getStructuralNormalizedTight as _getStructuralNormalizedTight,
+  getStructuralHashTight as _getStructuralHashTight,
+  extractWordHoles as _extractWordHoles,
+  structDiff as _structDiff,
+} from './structural-fingerprint.js';
+import {
+  getHotspots as _getHotspots,
+  getEntryPoints as _getEntryPoints,
+  getDomainHotspots as _getDomainHotspots,
+  getClassHotspots as _getClassHotspots,
+} from './hotspots.js';
+import {
+  getCanonicalFuncs as _getCanonicalFuncs,
+  getCopyCount as _getCopyCount,
+  isCanonical as _isCanonical,
+} from './canonical-funcs.js';
 
 // Free-function helpers and module-state moved to ./CSI-helpers.js
 // (Issue #18, Phase 1 peel 2). Imported at the top of this file.
@@ -5817,488 +5840,25 @@ export class CodeSearchIndex {
     return counts;
   }
 
-  /**
-   * Find structurally important functions: score = calls x log₂(lines).
-   * Large frequently-called functions rank highest.
-   */
-  getHotspots(n = 25, showProgress = true) {
-    const allFuncs = this.listFunctions();
-    if (!allFuncs.length) return [];
+  // ============================================================================
+  // Hotspots — implementations moved to ./hotspots.js (Issue #18 Phase 2)
+  // ============================================================================
+  getHotspots(...args) { return _getHotspots(this, ...args); }
+  getEntryPoints(...args) { return _getEntryPoints(this, ...args); }
+  getDomainHotspots(...args) { return _getDomainHotspots(this, ...args); }
+  getClassHotspots(...args) { return _getClassHotspots(this, ...args); }
 
-    const counts = this.getCallCounts(showProgress);
-
-    // bare_name -> [func records]
-    const byBare = Object.create(null);
-    for (const f of allFuncs) {
-      let bare = f.name.includes('::') ? f.name.split('::').pop() : f.name;
-      if (bare.includes('@')) bare = bare.split('@')[0];
-      if (!byBare[bare]) byBare[bare] = [];
-      byBare[bare].push(f);
-    }
-
-    const scored = [];
-    const seen = new Set();
-
-    for (const [bname, callCount] of Object.entries(counts)) {
-      if (!byBare[bname]) continue;
-      for (const f of byBare[bname]) {
-        const key = `${f.filepath}|${f.name}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        if (f.lines < 2) continue;
-
-        const score = callCount * Math.log2(Math.max(f.lines, 2));
-        scored.push({
-          name: f.name,
-          filepath: f.filepath,
-          display_name: f.displayName,
-          lines: f.lines,
-          calls: callCount,
-          score,
-          type: f.type,
-          copies: 0,
-        });
-      }
-    }
-
-    scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, n);
-  }
-
-  /**
-   * Find functions that are defined but rarely/never called - entry points.
-   * Sorted by size descending (biggest uncalled functions are most important).
-   */
-  getEntryPoints(n = 25, maxCalls = 0, showProgress = true) {
-    const allFuncs = this.listFunctions();
-    if (!allFuncs.length) return [];
-
-    const counts = this.getCallCounts(showProgress);
-    const results = [];
-
-    for (const f of allFuncs) {
-      if (f.lines < 3) continue;
-      let bare = f.name.includes('::') ? f.name.split('::').pop() : f.name;
-      if (bare.includes('@')) bare = bare.split('@')[0];
-
-      const callCount = counts[bare] || 0;
-      if (callCount <= maxCalls) {
-        results.push({
-          name: f.name,
-          filepath: f.filepath,
-          display_name: f.displayName,
-          lines: f.lines,
-          calls: callCount,
-          type: f.type,
-          copies: 0,
-        });
-      }
-    }
-
-    results.sort((a, b) => b.lines - a.lines);
-    return results;
-  }
-
-  /**
-   * Find domain-specific important functions.
-   * Score = calls x log₂(lines) / √(name_definitions_count)
-   * Functions with rare names score higher, surfacing domain code.
-   */
-  getDomainHotspots(n = 25, showProgress = true) {
-    const allFuncs = this.listFunctions();
-    if (!allFuncs.length) return [];
-
-    const counts = this.getCallCounts(showProgress);
-    const bareNameCounts = this._getBareNameCounts();
-
-    const scored = [];
-    const seen = new Set();
-
-    for (const f of allFuncs) {
-      const key = `${f.filepath}|${f.name}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      // Ad hoc: skip very small functions (trivial accessors/getters) to reduce
-      // noise in Domain Functions. Threshold and scoring formula should be revisited
-      // — see TODO #254b for deeper approaches (fan-out, PageRank, UI-structure).
-      if (f.lines < 5) continue;
-
-      let bare = f.name.includes('::') ? f.name.split('::').pop() : f.name;
-      if (bare.includes('@')) bare = bare.split('@')[0];
-
-      const callCount = counts[bare] || 0;
-      if (callCount < 1) continue;
-
-      const nameCount = bareNameCounts[bare] || 1;
-      // Weight size more heavily: sqrt(lines) instead of log2(lines) so that
-      // 200-line functions score ~7x higher than 10-line functions (vs ~4x with log2)
-      const score = callCount * Math.sqrt(Math.max(f.lines, 5)) / Math.sqrt(Math.max(nameCount, 1));
-
-      scored.push({
-        name: f.name,
-        filepath: f.filepath,
-        display_name: f.displayName,
-        lines: f.lines,
-        calls: callCount,
-        score,
-        name_count: nameCount,
-        type: f.type,
-        copies: 0,
-      });
-    }
-
-    scored.sort((a, b) => b.score - a.score);
-    return scored;
-  }
-
-  /**
-   * Classes ranked by aggregated method hotspot score.
-   * Score = sum(calls to methods) x log₂(total method lines) / √(name_count)
-   */
-  getClassHotspots(n = 25, showProgress = true) {
-    const callCounts = this.getCallCounts(showProgress);
-    const classes = this.listClasses();
-    if (!classes.length) return [];
-
-    const classNameCounts = {};
-    for (const c of classes) {
-      classNameCounts[c.name] = (classNameCounts[c.name] || 0) + 1;
-    }
-
-    for (const c of classes) {
-      let totalCalls = 0;
-      for (const method of c.methods) {
-        let bare = method.name.split('.').pop().split('::').pop();
-        if (bare.includes('@')) bare = bare.split('@')[0];
-        totalCalls += callCounts[bare] || 0;
-      }
-      c.total_calls = totalCalls;
-
-      const totalLines = c.total_method_lines > 0 ? c.total_method_lines : c.lines;
-      const nameCount = classNameCounts[c.name] || 1;
-
-      c.score = (totalCalls > 0 && totalLines > 0)
-        ? (totalCalls * Math.log2(totalLines)) / Math.sqrt(nameCount)
-        : 0;
-      c.name_count = nameCount;
-    }
-
-    classes.sort((a, b) => b.score - a.score);
-    return classes.slice(0, n * 3);
-  }
-
-
-  // ========================================================================
-  // Structural normalization ("funcstrings") - Phase 4 dedup
-  // ========================================================================
-
-  /**
-   * Structure-only keywords - these define the "tune".
-   * Types, identifiers, and literals are all "words" that get normalized.
-   */
-  static STRUCTURE_KEYWORDS = new Set([
-    // Control flow
-    'if', 'else', 'while', 'for', 'do', 'switch', 'case', 'default',
-    'break', 'continue', 'return', 'goto', 'throw', 'try', 'catch',
-    'finally', 'yield', 'await', 'async',
-    // Declaration structure (but NOT type names)
-    'class', 'struct', 'enum', 'interface', 'extends', 'implements',
-    'import', 'package', 'namespace', 'using', 'typedef', 'typename',
-    // Access/storage modifiers (structural)
-    'public', 'private', 'protected', 'static', 'final', 'const',
-    'volatile', 'abstract', 'virtual', 'override', 'inline', 'extern',
-    'synchronized', 'transient', 'native',
-    // Operators/structural
-    'new', 'delete', 'this', 'self', 'super', 'null', 'nil', 'None',
-    'true', 'false', 'True', 'False',
-    'sizeof', 'typeof', 'instanceof', 'is', 'as', 'in', 'not',
-    'and', 'or', 'xor',
-  ]);
-
-  /**
-   * Normalize function body text to its structural form ("funcstring").
-   *
-   * 1. Strip comments (// and multi-line)
-   * 2. Replace string/char literals with placeholder
-   * 3. Replace numeric literals with placeholder
-   * 4. Replace ALL identifiers and type names with placeholder
-   * 5. Keep only control-flow/structural keywords
-   * 6. Normalize whitespace
-   */
-  getStructuralNormalized(bodyText) {
-    let text = bodyText;
-
-    // Step 1: Strip comments
-    text = text.replace(/\/\/[^\n]*/g, '');
-    text = text.replace(/\/\*[\s\S]*?\*\//g, '');
-
-    // Step 2: Replace string literals
-    text = text.replace(/"(?:[^"\\]|\\.)*"/g, '"S"');
-    text = text.replace(/'(?:[^'\\]|\\.)*'/g, "'C'");
-
-    // Step 3: Replace numeric literals
-    text = text.replace(/0[xX][0-9a-fA-F]+[lLuU]*/g, '0');
-    text = text.replace(/\b\d+\.\d*(?:[eE][+-]?\d+)?[fFdD]?\b/g, '0');
-    text = text.replace(/\b\.\d+(?:[eE][+-]?\d+)?[fFdD]?\b/g, '0');
-    text = text.replace(/\b\d+[lLuU]*\b/g, '0');
-
-    // Step 4: Replace identifiers and type names - only structural keywords survive
-    const kw = CodeSearchIndex.STRUCTURE_KEYWORDS;
-    text = text.replace(/[A-Za-z_]\w*/g, (word) => kw.has(word) ? word : '_');
-
-    // Step 5: Normalize whitespace
-    text = text.replace(/\s+/g, ' ').trim();
-
-    return text;
-  }
-
-  /**
-   * Compute structural hash (SHA1 of funcstring).
-   */
-  getStructuralHash(bodyText) {
-    const normalized = this.getStructuralNormalized(bodyText);
-    return crypto.createHash('sha1').update(normalized, 'utf-8').digest('hex');
-  }
-
-  /**
-   * "Tight" structural normalization — adapts ideas from the Opstrings
-   * program (Schulman). Two extra rules on top of getStructuralNormalized:
-   *
-   *  1. Control-flow gate. A function whose normalized form contains zero
-   *     control-flow keywords (if/else/while/for/do/switch/case/return/
-   *     break/continue/goto/throw/try/catch/finally/yield) is treated as
-   *     shape-poor and excluded — null is returned. Catches the
-   *     "class-of-string-constants" and "chain of defineProperty calls"
-   *     idioms that produce structurally-trivial collisions.
-   *
-   *  2. Run-length suppression of repeated statements. After splitting the
-   *     normalized form on `;`, any contiguous run of ≥3 identical statements
-   *     collapses to `<stmt>*N`. Shrinks bag-of-declarations bodies to a
-   *     form whose size reflects distinct shapes rather than text length.
-   *
-   * Returns null for shape-poor inputs; otherwise the tightened string.
-   */
-  getStructuralNormalizedTight(bodyText) {
-    const normalized = this.getStructuralNormalized(bodyText);
-    // Control-flow gate: require ≥3 control-flow tokens. ≥1 is too lax
-    // because virtually every function has a `return`; that lets pure
-    // `return null;` stubs and one-line getters slip through. ≥3 is the
-    // smallest threshold that reliably distinguishes substantive logic
-    // from stub-shaped code in practice.
-    if (CodeSearchIndex._countControlFlowTokens(normalized) < 3) return null;
-
-    const parts = normalized.split(';').map(p => p.trim());
-    const out = [];
-    let i = 0;
-    while (i < parts.length) {
-      let j = i + 1;
-      while (j < parts.length && parts[j] === parts[i]) j++;
-      const runLen = j - i;
-      if (runLen >= 3) {
-        out.push(parts[i] === '' ? `*${runLen}` : `${parts[i]}*${runLen}`);
-      } else {
-        for (let k = i; k < j; k++) out.push(parts[k]);
-      }
-      i = j;
-    }
-    return out.join(' ; ');
-  }
-
-  /**
-   * SHA1 of the tight funcstring. Returns null when the function is
-   * shape-poor (per the control-flow gate in getStructuralNormalizedTight).
-   */
-  getStructuralHashTight(bodyText) {
-    const tight = this.getStructuralNormalizedTight(bodyText);
-    if (tight === null) return null;
-    return crypto.createHash('sha1').update(tight, 'utf-8').digest('hex');
-  }
-
-  static _CONTROL_FLOW_RE = /\b(if|else|while|for|do|switch|case|return|break|continue|goto|throw|try|catch|finally|yield)\b/g;
-
-  static _countControlFlowTokens(funcstring) {
-    const m = funcstring.match(CodeSearchIndex._CONTROL_FLOW_RE);
-    return m ? m.length : 0;
-  }
-
-  /**
-   * Count of non-blank, non-comment-only lines in a function body.
-   * Used by tight mode so `minLines` filters on actual code volume rather
-   * than raw source-line span (which is inflated by Javadoc/block-comment
-   * headers — a one-line `return null;` stub with an 18-line Javadoc
-   * preamble would otherwise pass a minLines=10 filter).
-   */
-  static _countCodeLines(bodyText) {
-    const stripped = bodyText
-      .replace(/\/\/[^\n]*/g, '')
-      .replace(/\/\*[\s\S]*?\*\//g, '');
-    let n = 0;
-    for (const line of stripped.split('\n')) {
-      if (line.trim().length > 0) n++;
-    }
-    return n;
-  }
-
-  /**
-   * Extract word-holes from function body text.
-   *
-   * Strips comments, then walks the text extracting tokens in order.
-   * Each token is classified as 'structure' (keyword/punctuation, part of the "tune")
-   * or 'word' (identifier/literal, a replaceable "word hole").
-   *
-   * Returns: [{ type: 'word'|'structure', value: string }, ...]
-   */
-  extractWordHoles(bodyText) {
-    const kw = CodeSearchIndex.STRUCTURE_KEYWORDS;
-
-    // Step 1: Strip comments (same as normalizer)
-    let text = bodyText;
-    text = text.replace(/\/\/[^\n]*/g, '');
-    text = text.replace(/\/\*[\s\S]*?\*\//g, '');
-
-    const tokens = [];
-    // Master regex: match tokens in priority order
-    // Group 1: string literal   Group 2: char literal
-    // Group 3: hex number       Group 4: float (leading digit)
-    // Group 5: float (.N)       Group 6: integer
-    // Group 7: identifier       Group 0 fallback: punctuation/operators
-    const tokenRe = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|0[xX][0-9a-fA-F]+[lLuU]*|\b\d+\.\d*(?:[eE][+-]?\d+)?[fFdD]?\b|\.\d+(?:[eE][+-]?\d+)?[fFdD]?\b|\b\d+[lLuU]*\b|[A-Za-z_]\w*|[^\s]/g;
-
-    let m;
-    while ((m = tokenRe.exec(text)) !== null) {
-      const val = m[0];
-      if (val.startsWith('"') || val.startsWith("'")) {
-        // String/char literal - word hole
-        tokens.push({ type: 'word', value: val });
-      } else if (/^[0-9]/.test(val) || (val.startsWith('.') && /^\.\d/.test(val))
-                 || /^0[xX]/.test(val)) {
-        // Numeric literal - word hole
-        tokens.push({ type: 'word', value: val });
-      } else if (/^[A-Za-z_]/.test(val)) {
-        // Identifier or keyword
-        if (kw.has(val)) {
-          tokens.push({ type: 'structure', value: val });
-        } else {
-          tokens.push({ type: 'word', value: val });
-        }
-      } else {
-        // Punctuation/operator - structure
-        tokens.push({ type: 'structure', value: val });
-      }
-    }
-    return tokens;
-  }
-
-  /**
-   * Compare structural dupe bodies by word-hole alignment.
-   *
-   * Takes an array of { body: string, label: string } objects - all must share
-   * the same structural hash.
-   *
-   * Returns: {
-   *   totalWordHoles: number,
-   *   diffs: [{ position: number, values: string[] }],  // positions that differ
-   *   substitutions: [{ from: string, to: string, count: number }], // detected rename patterns
-   *   summary: string,  // one-line summary
-   * }
-   */
-  structDiff(bodies) {
-    if (bodies.length < 2) return null;
-
-    // Extract word holes for each body
-    const tokenSets = bodies.map(b => this.extractWordHoles(b.body));
-
-    // Get word-hole-only tokens for each body
-    const wordSets = tokenSets.map(tokens =>
-      tokens.filter(t => t.type === 'word').map(t => t.value)
-    );
-
-    // Check alignment: all should have same number of word holes
-    const lengths = wordSets.map(w => w.length);
-    if (new Set(lengths).size > 1) {
-      // Misaligned - shouldn't happen for true structural dupes
-      return {
-        totalWordHoles: lengths[0],
-        diffs: [],
-        substitutions: [],
-        summary: `Word-hole count mismatch: ${lengths.join(' vs ')} - bodies may not be true structural dupes`,
-        aligned: false,
-      };
-    }
-
-    const nHoles = lengths[0];
-    if (nHoles === 0) {
-      return { totalWordHoles: 0, diffs: [], substitutions: [], summary: 'No word holes (pure structure)', aligned: true };
-    }
-
-    // Find positions where values differ
-    const diffs = [];
-    for (let i = 0; i < nHoles; i++) {
-      const vals = wordSets.map(w => w[i]);
-      if (new Set(vals).size > 1) {
-        diffs.push({ position: i, values: vals });
-      }
-    }
-
-    if (diffs.length === 0) {
-      return { totalWordHoles: nHoles, diffs: [], substitutions: [], summary: 'All word-holes identical (bodies should be exact dupes)', aligned: true };
-    }
-
-    // Detect substitution patterns: pairs of values that always co-substitute
-    // e.g. (log_error, LOG_ERROR) always appears together
-    // Build mapping: for each pair of bodies (0 vs i), collect substitution pairs
-    const subPatterns = {};
-    for (const d of diffs) {
-      const base = d.values[0];
-      for (let i = 1; i < d.values.length; i++) {
-        const other = d.values[i];
-        if (base !== other) {
-          const key = `${i}:${base}->${other}`;
-          if (!subPatterns[key]) subPatterns[key] = 0;
-          subPatterns[key]++;
-        }
-      }
-    }
-
-    // Collapse into substitution groups: "Order->Invoice x15"
-    // Group by (bodyIndex, fromVal, toVal)
-    const subGroups = {};
-    for (const [key, count] of Object.entries(subPatterns)) {
-      const bodyIdx = key.split(':')[0];
-      const arrow = key.slice(bodyIdx.length + 1);
-      if (!subGroups[arrow]) subGroups[arrow] = 0;
-      subGroups[arrow] += count;
-    }
-
-    const substitutions = Object.entries(subGroups)
-      .map(([arrow, count]) => {
-        const [from, to] = arrow.split('->');
-        return { from, to, count };
-      })
-      .sort((a, b) => b.count - a.count);
-
-    // Build summary
-    let summary;
-    if (substitutions.length <= 3) {
-      const parts = substitutions.map(s =>
-        s.count > 1 ? `${s.from} -> ${s.to} (x${s.count})` : `${s.from} -> ${s.to}`
-      );
-      summary = `${diffs.length} of ${nHoles} word-holes differ: ${parts.join(', ')}`;
-    } else {
-      const topN = substitutions.slice(0, 3).map(s =>
-        s.count > 1 ? `${s.from} -> ${s.to} (x${s.count})` : `${s.from} -> ${s.to}`
-      );
-      summary = `${diffs.length} of ${nHoles} word-holes differ: ${topN.join(', ')}, +${substitutions.length - 3} more`;
-    }
-
-    return {
-      totalWordHoles: nHoles,
-      diffs,
-      substitutions,
-      summary,
-      aligned: true,
-    };
-  }
+  // ============================================================================
+  // Structural fingerprinting — implementations moved to ./structural-fingerprint.js
+  // (Issue #18 Phase 2). STRUCTURE_KEYWORDS is also exported from that module
+  // and imported back at the top of this file for the Vocabulary code path.
+  // ============================================================================
+  getStructuralNormalized(bodyText) { return _getStructuralNormalized(bodyText); }
+  getStructuralHash(bodyText) { return _getStructuralHash(bodyText); }
+  getStructuralNormalizedTight(bodyText) { return _getStructuralNormalizedTight(bodyText); }
+  getStructuralHashTight(bodyText) { return _getStructuralHashTight(bodyText); }
+  extractWordHoles(bodyText) { return _extractWordHoles(bodyText); }
+  structDiff(bodies) { return _structDiff(bodies); }
 
   /**
    * Path to func_hashes.json cache file.
@@ -6433,7 +5993,7 @@ export class CodeSearchIndex {
       // Strict filter: code lines (comments + blanks stripped) must clear
       // the threshold. This is what makes `min lines` mean "min lines of
       // actual code" in tight mode rather than "min source-line span".
-      const codeLines = CodeSearchIndex._countCodeLines(bodyText);
+      const codeLines = _countCodeLines(bodyText);
       if (codeLines < minLines) continue;
       const tightHash = this.getStructuralHashTight(bodyText);
       if (tightHash === null) continue;
@@ -6624,8 +6184,8 @@ export class CodeSearchIndex {
     const structHash = qInfo.struct_hash;
     const qBodyHash = qInfo.body_hash;
     const qDisplay = this.getDisplayName ? this.getDisplayName(q.name) : q.name;
-    const qTokens = CodeSearchIndex._funcNameTokens(qDisplay);
-    const qExt = CodeSearchIndex._fileExt(q.filepath);
+    const qTokens = _funcNameTokens(qDisplay);
+    const qExt = _fileExt(q.filepath);
 
     const peers = [];
     for (const [key, info] of hashes) {
@@ -6639,10 +6199,10 @@ export class CodeSearchIndex {
       if (isExact && !includeExact) continue;
 
       const peerDisplay = this.getDisplayName ? this.getDisplayName(fn) : fn;
-      const tokens = CodeSearchIndex._funcNameTokens(peerDisplay);
-      const nameDist = CodeSearchIndex._jaccardDistance(qTokens, tokens);
-      const pathDist = CodeSearchIndex._pathDistance(q.filepath, fp);
-      const ext = CodeSearchIndex._fileExt(fp);
+      const tokens = _funcNameTokens(peerDisplay);
+      const nameDist = _jaccardDistance(qTokens, tokens);
+      const pathDist = _pathDistance(q.filepath, fp);
+      const ext = _fileExt(fp);
       const crossLang = (ext && qExt && ext !== qExt) ? 1 : 0;
       const score = nameDist * 0.5 + pathDist * 0.35 + crossLang * 0.15;
       if (score < minSurprise) continue;
@@ -6742,8 +6302,8 @@ export class CodeSearchIndex {
           body_hash: m.info.body_hash,
           lines: m.info.lines,
           raw_lines: m.info.raw_lines || m.info.lines,
-          tokens: CodeSearchIndex._funcNameTokens(dn),
-          ext: CodeSearchIndex._fileExt(fp),
+          tokens: _funcNameTokens(dn),
+          ext: _fileExt(fp),
         };
       });
 
@@ -6763,8 +6323,8 @@ export class CodeSearchIndex {
       let peak = 0, peakPair = null, sum = 0;
       for (const [i, j] of pairs) {
         const a = parsed[i], b = parsed[j];
-        const nd = CodeSearchIndex._jaccardDistance(a.tokens, b.tokens);
-        const pd = CodeSearchIndex._pathDistance(a.filepath, b.filepath);
+        const nd = _jaccardDistance(a.tokens, b.tokens);
+        const pd = _pathDistance(a.filepath, b.filepath);
         const cl = (a.ext && b.ext && a.ext !== b.ext) ? 1 : 0;
         const s = nd * 0.5 + pd * 0.35 + cl * 0.15;
         sum += s;
@@ -6832,109 +6392,18 @@ export class CodeSearchIndex {
     };
   }
 
-  /**
-   * Split a function name into lowercase tokens, handling camelCase,
-   * snake_case, `::` qualifiers, and `@` suffixes. Used by funcstring-peer
-   * surprise scoring.
-   */
-  static _funcNameTokens(name) {
-    let bare = name.includes('::') ? name.split('::').pop() : name;
-    if (bare.includes('@')) bare = bare.split('@')[0];
-    const split = bare
-      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
-      .split(/[_\W]+/)
-      .filter(Boolean)
-      .map(s => s.toLowerCase());
-    return new Set(split);
-  }
+  // ============================================================================
+  // Distance helpers — implementations moved to ./distance-helpers.js
+  // (Issue #18 Phase 2). No wrappers: they were static internals and the
+  // callsites in this file now use bare-name imports.
+  // ============================================================================
 
-  static _jaccardDistance(a, b) {
-    if (a.size === 0 && b.size === 0) return 0;
-    let inter = 0;
-    for (const x of a) if (b.has(x)) inter++;
-    const union = a.size + b.size - inter;
-    return union === 0 ? 0 : 1 - inter / union;
-  }
-
-  static _pathDistance(p1, p2) {
-    const norm = (p) => p.replace(/\\/g, '/').toLowerCase().split('/').slice(0, -1);
-    const d1 = norm(p1);
-    const d2 = norm(p2);
-    const maxLen = Math.max(d1.length, d2.length);
-    if (maxLen === 0) return p1 === p2 ? 0 : 1;
-    let lcp = 0;
-    while (lcp < d1.length && lcp < d2.length && d1[lcp] === d2[lcp]) lcp++;
-    return 1 - lcp / maxLen;
-  }
-
-  static _fileExt(p) {
-    const slash = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
-    const base = slash >= 0 ? p.slice(slash + 1) : p;
-    const dot = base.lastIndexOf('.');
-    return dot >= 0 ? base.slice(dot + 1).toLowerCase() : '';
-  }
-
-  /**
-   * Get mapping: each function -> its canonical representative.
-   * For functions with identical hash, picks shortest filepath as canonical.
-   */
-  getCanonicalFuncs(mode = 'exact') {
-    const cacheKey = `_canonicalFuncs_${mode}`;
-    const copiesKey = `_canonicalCopies_${mode}`;
-    if (this[cacheKey]) return this[cacheKey];
-
-    const hashes = this.ensureFuncHashes(3, false);
-    const hashKey = mode === 'exact' ? 'body_hash' : 'struct_hash';
-
-    // Group by hash
-    const groups = {};
-    for (const [key, info] of hashes) {
-      const h = info[hashKey];
-      if (!groups[h]) groups[h] = [];
-      groups[h].push(key);
-    }
-
-    const canonicalFuncs = {};
-    const canonicalCopies = {};
-
-    for (const funcs of Object.values(groups)) {
-      if (funcs.length === 1) {
-        canonicalFuncs[funcs[0]] = funcs[0];
-        continue;
-      }
-      // Pick shortest filepath as canonical
-      const canonical = funcs.slice().sort((a, b) => a.length - b.length)[0];
-      canonicalFuncs[canonical] = canonical;
-      canonicalCopies[canonical] = funcs.filter(f => f !== canonical);
-      for (const f of funcs) {
-        if (f !== canonical) canonicalFuncs[f] = canonical;
-      }
-    }
-
-    this[cacheKey] = canonicalFuncs;
-    this[copiesKey] = canonicalCopies;
-    return canonicalFuncs;
-  }
-
-  /**
-   * Get number of duplicate copies for a function (0 if no dupes).
-   */
-  getCopyCount(filepath, funcName, mode = 'exact') {
-    this.getCanonicalFuncs(mode);
-    const copies = this[`_canonicalCopies_${mode}`] || {};
-    const key = `${filepath}|||${funcName}`;
-    return (copies[key] || []).length;
-  }
-
-  /**
-   * Check if this function is the canonical representative (not a copy).
-   */
-  isCanonical(filepath, funcName, mode = 'exact') {
-    const canon = this.getCanonicalFuncs(mode);
-    const key = `${filepath}|||${funcName}`;
-    return canon[key] === key || !(key in canon);
-  }
+  // ============================================================================
+  // Canonical funcs — implementations moved to ./canonical-funcs.js (Issue #18 Phase 2)
+  // ============================================================================
+  getCanonicalFuncs(...args) { return _getCanonicalFuncs(this, ...args); }
+  getCopyCount(...args) { return _getCopyCount(this, ...args); }
+  isCanonical(...args) { return _isCanonical(this, ...args); }
 
 
   // ========================================================================
@@ -7199,7 +6668,7 @@ export class CodeSearchIndex {
   _buildVocabularyFromDocs(docEntries, totalDocs, showProgress, opts = {}) {
     const skipDoc = opts.skipDoc || (() => false);
     const tokenCountOf = opts.tokenCountOf || (() => 100);
-    const kw = CodeSearchIndex.STRUCTURE_KEYWORDS;
+    const kw = STRUCTURE_KEYWORDS;
     const stopwords = CodeSearchIndex.PROGRAMMING_STOPWORDS;
     const minTokenLen = 3;
     const maxTokenLen = 200;  // skip absurdly long tokens (concatenated strings, etc.)
