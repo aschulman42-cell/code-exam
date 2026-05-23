@@ -61,6 +61,7 @@ import {
 import {
   ensureVocabulary as _ensureVocabulary,
   getTopVocabulary as _getTopVocabulary,
+  getVocabularyForPrompt as _getVocabularyForPrompt,
   formatVocabularyForPrompt as _formatVocabularyForPrompt,
 } from './vocabulary.js';
 import {
@@ -4333,6 +4334,7 @@ export class CodeSearchIndex {
   // ============================================================================
   ensureVocabulary(...args) { return _ensureVocabulary(this, ...args); }
   getTopVocabulary(...args) { return _getTopVocabulary(this, ...args); }
+  getVocabularyForPrompt(...args) { return _getVocabularyForPrompt(this, ...args); }
   formatVocabularyForPrompt(...args) { return _formatVocabularyForPrompt(this, ...args); }
 
   // ============================================================================
