@@ -624,7 +624,7 @@ const PROVENANCE_PATTERNS = [
  * @param {string} name - Bare function/method name
  * @returns {string|null} - Label like "C stdlib (memory)" or null
  */
-export function guessProvenance(name) {
+function guessProvenance(name) {
   for (const [re, label] of PROVENANCE_PATTERNS) {
     if (re.test(name)) return label;
   }

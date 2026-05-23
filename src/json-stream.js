@@ -334,18 +334,3 @@ export function closeSource(src) {
   }
 }
 
-/**
- * Convenience: parse a JSON object file, calling callback for each entry.
- * Handles both small and large files automatically.
- *
- * @param {string} filepath
- * @param {function} callback - (key, valueStart, valueEnd, src) => void
- * @returns {{ src: ByteSource, size: number }}
- */
-export function parseJSONObjectFile(filepath, callback) {
-  const { src, size } = openJSONFile(filepath);
-  forEachEntry(src, 0, size, (key, vs, ve) => {
-    callback(key, vs, ve, src);
-  });
-  return { src, size };
-}

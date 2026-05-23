@@ -8,7 +8,7 @@
  *    against `<indexPath>/rename_map.json`. The path helper itself
  *    (`_renameMapPath`) lives on the CSI class with sibling `_*Path` helpers.
  * 2. **Display-time application** (`applyRenames`, `_renderLinesWithRenames`,
- *    `getDisplayName`, `getOriginalName`, `reverseRenames`,
+ *    `getDisplayName`, `getOriginalName`,
  *    `findOriginalsByDisplayPattern`) — substitute display names into source
  *    text or look up the mapping in either direction.
  * 3. **Build-time inference** (`inferAndSaveRenameMap`) — orchestrates KW /
@@ -230,22 +230,6 @@ export function getOriginalName(idx, displayName) {
     }
   }
   return idx._reverseRenameMap[displayName] || displayName;
-}
-
-/**
- * Reverse-apply renames in a search query so it matches the stored (original) content.
- * Replaces display names back to original obfuscated names.
- */
-export function reverseRenames(idx, text) {
-  if (!idx._reverseRenameMap) getOriginalName(idx, '');  // trigger build
-  const entries = Object.entries(idx._reverseRenameMap).sort((a, b) => b[0].length - a[0].length);
-  if (entries.length === 0) return text;
-  let result = text;
-  for (const [renamed, orig] of entries) {
-    const re = new RegExp('\\b' + escapeRegex(renamed) + '\\b', 'g');
-    result = result.replace(re, orig);
-  }
-  return result;
 }
 
 export function findOriginalsByDisplayPattern(idx, pattern) {

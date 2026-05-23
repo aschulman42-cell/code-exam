@@ -16,6 +16,10 @@
 /**
  * Get mapping: each function -> its canonical representative.
  * For functions with identical hash, picks shortest filepath as canonical.
+ *
+ * Note: production code does not currently call this. Retained because
+ * `test/test_phase4.js` exercises it as a class method; deletion would
+ * lose test coverage of the canonical-funcs grouping logic.
  */
 export function getCanonicalFuncs(idx, mode = 'exact') {
   const cacheKey = `_canonicalFuncs_${mode}`;
@@ -57,19 +61,13 @@ export function getCanonicalFuncs(idx, mode = 'exact') {
 
 /**
  * Get number of duplicate copies for a function (0 if no dupes).
+ *
+ * Note: production code does not currently call this. Retained because
+ * `test/test_phase4.js` exercises it as a class method.
  */
 export function getCopyCount(idx, filepath, funcName, mode = 'exact') {
   getCanonicalFuncs(idx, mode);
   const copies = idx[`_canonicalCopies_${mode}`] || {};
   const key = `${filepath}|||${funcName}`;
   return (copies[key] || []).length;
-}
-
-/**
- * Check if this function is the canonical representative (not a copy).
- */
-export function isCanonical(idx, filepath, funcName, mode = 'exact') {
-  const canon = getCanonicalFuncs(idx, mode);
-  const key = `${filepath}|||${funcName}`;
-  return canon[key] === key || !(key in canon);
 }

@@ -222,7 +222,7 @@ export function extractMangledNames(strings) {
  * @param {string} demanglerPath - Path to demangler executable
  * @returns {Map<string,string>} Map of mangled → demangled names
  */
-export function demangleBatch(mangledNames, demanglerPath) {
+function demangleBatch(mangledNames, demanglerPath) {
   const result = new Map();
   if (!mangledNames.length || !demanglerPath) return result;
 

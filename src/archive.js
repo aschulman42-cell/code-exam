@@ -43,15 +43,6 @@ const ZIP_EXTENSIONS = new Set([
 ]);
 
 /**
- * All archive extensions including ones we can't yet handle natively.
- * Used to move these out of BINARY_EXTENSIONS in utils.js.
- */
-export const ALL_ARCHIVE_EXTENSIONS = new Set([
-  ...SUPPORTED_ARCHIVE_EXTENSIONS,
-  '.7z', '.rar', '.bz2', '.xz', '.zst',
-]);
-
-/**
  * Executable/binary extensions that Task 2 (binstrings) will process.
  * For now, these are still skipped but tracked separately from media files.
  */
@@ -774,14 +765,3 @@ export function isSupportedArchive(filePath) {
   return SUPPORTED_ARCHIVE_EXTENSIONS.has(ext);
 }
 
-/**
- * Quick check if a file path looks like any archive (supported or not).
- */
-export function isAnyArchive(filePath) {
-  const lower = filePath.toLowerCase();
-  if (lower.endsWith('.tar.gz') || lower.endsWith('.tar.bz2') || lower.endsWith('.tar.xz')) {
-    return true;
-  }
-  const ext = path.extname(lower);
-  return ALL_ARCHIVE_EXTENSIONS.has(ext);
-}

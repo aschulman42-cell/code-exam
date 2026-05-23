@@ -59,11 +59,6 @@ export const EXT_TO_LANG = {
   '.swift': 'swift',
 };
 
-/** Extensions that use regex parsing (no tree-sitter grammar) */
-export const REGEX_INDEXABLE_EXTS = new Set([
-  '.coffee', '.hbs', '.awk', '.vbs', '.bas',
-]);
-
 /** Language-appropriate class::method separators for display */
 const LANG_SEPARATOR = {
   'cpp': '::', 'c': '::', 'c_sharp': '.',
@@ -105,60 +100,6 @@ export function eprint(...args) {
 export function eprogress(...args) {
   const msg = args.join(' ');
   process.stderr.write('\r' + msg + '        ');  // trailing spaces clear previous text
-}
-
-
-/**
- * Truncate a file path, preserving first and last components.
- */
-export function truncatePath(fp, maxLen, sep = null) {
-  if (fp.length <= maxLen) return fp;
-  if (sep === null) {
-    sep = fp.includes('\\') ? '\\' : '/';
-  }
-  const parts = fp.replace(/\\/g, '/').split('/');
-  if (parts.length <= 2) {
-    return '...' + fp.slice(-(maxLen - 3));
-  }
-  const first = parts[0];
-  const tailBudget = maxLen - first.length - 4; // 4 for "/..."
-  if (tailBudget < 10) {
-    return '...' + fp.slice(-(maxLen - 3));
-  }
-  const tail = parts.slice(1).join('/');
-  if (tail.length <= tailBudget) return fp;
-  let truncatedTail = tail.slice(-tailBudget);
-  const slashPos = truncatedTail.indexOf('/');
-  if (slashPos > 0 && slashPos < truncatedTail.length - 1) {
-    truncatedTail = truncatedTail.slice(slashPos);
-  }
-  return first + '/...' + truncatedTail;
-}
-
-
-/**
- * Create a simple args namespace for interactive mode (like Python SimpleNamespace).
- */
-export function makeIArgs(maxResults = 10, overrides = {}) {
-  return {
-    max_results: maxResults,
-    verbose: false,
-    full_path: false,
-    show_dupes: false,
-    filter: null,
-    include_path: null,
-    exclude_path: null,
-    exclude_tests: false,
-    context: 3,
-    dedup: 'none',
-    min_terms: '0',
-    require: null,
-    show_prompt: false,
-    temperature: null,
-    local_model_path: null,
-    claim_file: null,
-    ...overrides
-  };
 }
 
 
@@ -317,12 +258,3 @@ export const MEDIA_BINARY_EXTENSIONS = new Set([
   '.bin', '.dat', '.pak', '.nib', '.mo',
 ]);
 
-/**
- * Known binary/media extensions to skip even when loading from @filelist.txt.
- * Union of all non-source categories. Used as backward-compatible filter.
- */
-export const BINARY_EXTENSIONS = new Set([
-  ...MEDIA_BINARY_EXTENSIONS,
-  ...ARCHIVE_EXTENSIONS,
-  ...EXECUTABLE_EXTENSIONS,
-]);

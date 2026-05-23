@@ -17,11 +17,10 @@ import { forEachEntry, openJSONFile, closeSource, parseValue, countLocations, va
 import {
   SearchResult, DEFAULT_EXTENSIONS, TEXT_EXTENSIONS,
   ARCHIVE_EXTENSIONS, MEDIA_BINARY_EXTENSIONS, EXECUTABLE_EXTENSIONS,
-  EXT_TO_LANG, displayName, eprint, eprogress, splitCompoundToken,
+  displayName, eprint, eprogress, splitCompoundToken,
 } from '../utils.js';
 import { expandArchive, isSupportedArchive, createArchiveStats } from '../archive.js';
 import { processBinary, BINSTRING_EXTENSIONS } from '../binstrings.js';
-import { LOW_DISCRIMINATION_STOPWORDS } from '../commands/claim.js';
 import {
   _detectBundleHelpers, _findWrapperEnd, _parseEsbuildWrappers,
   _extractModulePreview, _detectNameHelper, _extractNameRecoveryPairs,
@@ -39,10 +38,9 @@ import {
   _funcNameTokens, _jaccardDistance, _pathDistance, _fileExt,
 } from './distance-helpers.js';
 import {
-  STRUCTURE_KEYWORDS, _countCodeLines,
+  _countCodeLines,
   getStructuralNormalized as _getStructuralNormalized,
   getStructuralHash as _getStructuralHash,
-  getStructuralNormalizedTight as _getStructuralNormalizedTight,
   getStructuralHashTight as _getStructuralHashTight,
   extractWordHoles as _extractWordHoles,
   structDiff as _structDiff,
@@ -56,7 +54,6 @@ import {
 import {
   getCanonicalFuncs as _getCanonicalFuncs,
   getCopyCount as _getCopyCount,
-  isCanonical as _isCanonical,
 } from './canonical-funcs.js';
 import {
   ensureVocabulary as _ensureVocabulary,
@@ -86,7 +83,6 @@ import {
   _renderLinesWithRenames as __renderLinesWithRenames,
   getDisplayName as _getDisplayName,
   getOriginalName as _getOriginalName,
-  reverseRenames as _reverseRenames,
   findOriginalsByDisplayPattern as _findOriginalsByDisplayPattern,
   inferAndSaveRenameMap as _inferAndSaveRenameMap,
 } from './rename.js';
@@ -851,7 +847,6 @@ export class CodeSearchIndex {
   // Rename map lookups (display ↔ original) — delegated to ./rename.js
   getDisplayName(funcName) { return _getDisplayName(this, funcName); }
   getOriginalName(displayName) { return _getOriginalName(this, displayName); }
-  reverseRenames(text) { return _reverseRenames(this, text); }
   findOriginalsByDisplayPattern(pattern) { return _findOriginalsByDisplayPattern(this, pattern); }
 
   // Rename inference orchestration — delegated to ./rename.js
@@ -3779,7 +3774,6 @@ export class CodeSearchIndex {
   // ============================================================================
   getStructuralNormalized(bodyText) { return _getStructuralNormalized(bodyText); }
   getStructuralHash(bodyText) { return _getStructuralHash(bodyText); }
-  getStructuralNormalizedTight(bodyText) { return _getStructuralNormalizedTight(bodyText); }
   getStructuralHashTight(bodyText) { return _getStructuralHashTight(bodyText); }
   extractWordHoles(bodyText) { return _extractWordHoles(bodyText); }
   structDiff(bodies) { return _structDiff(bodies); }
@@ -4327,7 +4321,6 @@ export class CodeSearchIndex {
   // ============================================================================
   getCanonicalFuncs(...args) { return _getCanonicalFuncs(this, ...args); }
   getCopyCount(...args) { return _getCopyCount(this, ...args); }
-  isCanonical(...args) { return _isCanonical(this, ...args); }
 
   // ============================================================================
   // Vocabulary — implementations moved to ./vocabulary.js (Issue #18 Phase 2)

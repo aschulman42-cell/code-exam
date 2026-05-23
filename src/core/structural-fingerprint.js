@@ -174,6 +174,11 @@ export function _countCodeLines(bodyText) {
  * or 'word' (identifier/literal, a replaceable "word hole").
  *
  * Returns: [{ type: 'word'|'structure', value: string }, ...]
+ *
+ * Note: production code reaches this only indirectly via the in-module
+ * `structDiff` caller. The CSI class wrapper exists so
+ * `test/test_phase4.js` can call `idx.extractWordHoles(...)`; nothing
+ * in production calls the wrapper directly.
  */
 export function extractWordHoles(bodyText) {
   // Step 1: Strip comments (same as normalizer)
