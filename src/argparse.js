@@ -82,9 +82,10 @@ export function parseArgs() {
     filter: null,
     include_path: null,
     exclude_path: null,
-    dedup: 'none',
+    dedup: 'exact',
     min_terms: '0',
     match_renames: false,
+    sort: null,           // sort mode for --functions / --files etc. ('alpha' | 'size' | null)
 
     // Interactive
     interactive: false,
@@ -125,8 +126,10 @@ export function parseArgs() {
     claim_search: null,
     claim_file: null,
     use_claude: false,
+    llm: null,            // canonical: --llm <provider>; provider name ('claude', etc.)
     api_key: null,
     claim_model: null,
+    model: null,          // canonical: --model <path>; unifies --claim-model + --analyze-model
     temperature: 0.0,
     show_prompt: false,
     vocab_tight: false,
@@ -218,15 +221,15 @@ export function parseArgs() {
     ['folders_search',       'value',          ['--folders-search']],
 
     ['stats',                'flag',           ['--stats']],
-    ['list_files',           'optional_value', ['--list-files']],
+    ['list_files',           'optional_value', ['--files'], ['--list-files']],
     ['show_file',            'value',          ['--show-file']],
-    ['list_functions',       'optional_value', ['--list-functions']],
-    ['list_functions_alpha',  'flag',          ['--list-functions-alpha']],
-    ['list_functions_size',   'flag',          ['--list-functions-size']],
+    ['list_functions',       'optional_value', ['--functions'], ['--list-functions']],
+    ['list_functions_alpha', 'flag',           [], ['--list-functions-alpha']],
+    ['list_functions_size',  'flag',           [], ['--list-functions-size']],
     ['extract',              'value',          ['--extract']],
     ['scan_extensions',      'value',          ['--scan-extensions']],
     ['index_extensions',     'flag',           ['--index-extensions']],
-    ['list_indexes',         'optional_value', ['--list-indexes']],
+    ['list_indexes',         'optional_value', ['--indexes'], ['--list-indexes']],
 
     ['max_results',          'int',            ['--max-results', '--max', '-n']],
     ['context',              'int',            ['--context']],
@@ -238,6 +241,7 @@ export function parseArgs() {
     ['dedup',                'value',          ['--dedup']],
     ['min_terms',            'value',          ['--min-terms']],
     ['match_renames',        'flag',           ['--match-renames']],
+    ['sort',                 'value',          ['--sort']],
 
     ['interactive',          'flag',           ['--interactive', '-i']],
 
@@ -264,21 +268,21 @@ export function parseArgs() {
     ['max_calls',            'int',            ['--max-calls']],
     ['gaps',                 'optional_value', ['--gaps']],
     ['domain_fns',           'int',            ['--domain-fns']],
-    ['list_classes',         'flag',           ['--list-classes']],
+    ['list_classes',         'flag',           ['--classes'], ['--list-classes']],
     ['class_hotspots',       'int',            ['--class-hotspots']],
-    ['discover_vocabulary',  'int',            ['--discover-vocabulary', '--vocabulary', '--vocab']],
+    ['discover_vocabulary',  'int',            ['--vocabulary', '--vocab'], ['--discover-vocabulary']],
     ['multisect_search',     'value',          ['--multisect-search', '--multisect']],
     ['vocab_in',             'value',          ['--in']],
     ['show_dupes',           'flag',           ['--show-dupes']],
-    ['full_path',            'flag',           ['--full-path']],
-    ['dedup',                'value',          ['--dedup']],
 
     // Phase 8a: claim search
     ['claim_search',         'value',          ['--claim-search']],
     ['claim_file',           'value',          ['--claim-file']],
-    ['use_claude',           'flag',           ['--use-claude']],
+    ['use_claude',           'flag',           [], ['--use-claude']],
+    ['llm',                  'value',          ['--llm']],
     ['api_key',              'value',          ['--api-key']],
-    ['claim_model',          'value',          ['--claim-model', '--term-extract-model']],
+    ['model',                'value',          ['--model']],
+    ['claim_model',          'value',          [], ['--claim-model', '--term-extract-model']],
     ['temperature',          'float',          ['--temperature']],
     ['show_prompt',          'flag',           ['--show-prompt']],
     ['vocab_tight',          'flag',           ['--vocab-tight']],
@@ -289,7 +293,7 @@ export function parseArgs() {
     ['claim_analyze',        'value',          ['--claim-analyze']],
     ['multisect_analyze',    'value',          ['--multisect-analyze']],
     ['file_analyze',         'value',          ['--file-analyze']],
-    ['analyze_model',        'value',          ['--analyze-model']],
+    ['analyze_model',        'value',          [], ['--analyze-model']],
     ['analyze_context',      'value',          ['--with', '--context-text']],
     ['mask_all',             'flag',           ['--mask-all']],
     ['line_numbers',         'flag',           ['--line-numbers']],
@@ -297,7 +301,7 @@ export function parseArgs() {
     ['with_digest',          'flag',           ['--with-digest']],
 
     // Phase 9: Extended extraction
-    ['follow_calls',         'flag',           ['--follow-calls']],
+    ['follow_calls',         'flag',           [], ['--follow-calls']],
     ['deep',                 'optional_value', ['--deep']],
     ['comments_only',        'flag',           ['--comments-only']],
 
@@ -340,13 +344,43 @@ export function parseArgs() {
     ['no_rename',            'flag',           ['--no-rename']],
   ];
 
-  // Build alias lookup
-  const aliasMap = new Map(); // alias -> { name, type }
-  for (const [name, type, aliases] of defs) {
+  // Build alias lookup.
+  //
+  // Each def is [name, type, canonicalAliases, deprecatedAliases?].
+  // Canonical aliases resolve silently; deprecated aliases also resolve but
+  // emit a one-time stderr warning recommending the canonical form (first
+  // entry of canonicalAliases). If a flag has no canonical aliases (an empty
+  // canonicalAliases array), the deprecated form still resolves but the
+  // warning message names the canonical command pattern that replaces it
+  // (case-specific message dispatched below).
+  const aliasMap = new Map(); // alias -> { name, type, deprecated, canonical }
+  for (const [name, type, aliases, deprecatedAliases = []] of defs) {
+    const canonical = aliases[0] || null;  // null when the only forms are deprecated (e.g. --follow-calls)
     for (const alias of aliases) {
-      aliasMap.set(alias, { name, type });
+      aliasMap.set(alias, { name, type, deprecated: false, canonical });
+    }
+    for (const alias of deprecatedAliases) {
+      aliasMap.set(alias, { name, type, deprecated: true, canonical });
     }
   }
+
+  // Per-process deduplication of deprecation warnings.
+  const warnedDeprecated = new Set();
+  const deprecationMessage = (token, canonical) => {
+    // Special-cased migration hints for cases where the replacement is not a
+    // single canonical alias (e.g. --follow-calls -> --deep 1).
+    const special = {
+      '--follow-calls':           '--deep 1',
+      '--list-functions-alpha':   '--functions --sort alpha',
+      '--list-functions-size':    '--functions --sort size',
+      '--claim-model':            '--model',
+      '--analyze-model':          '--model',
+      '--term-extract-model':     '--model',
+      '--use-claude':             '--llm claude',
+    };
+    const target = special[token] || canonical || '(no direct replacement; see docs/cli.md)';
+    return `Warning: ${token} is deprecated; use ${target} instead.`;
+  };
 
   let i = 0;
   while (i < argv.length) {
@@ -378,6 +412,11 @@ export function parseArgs() {
       }
       i++;
       continue;
+    }
+
+    if (def.deprecated && !warnedDeprecated.has(token)) {
+      console.error(deprecationMessage(token, def.canonical));
+      warnedDeprecated.add(token);
     }
 
     args._explicit.add(def.name);
@@ -475,6 +514,21 @@ export function parseArgs() {
     }
   }
 
+  // Post-parse fan-out: keep canonical and legacy fields in sync in both
+  // directions, so consumers reading either name see the same effective
+  // value regardless of which CLI form the user typed.
+  if (args.list_functions_alpha && !args.sort) args.sort = 'alpha';
+  if (args.list_functions_size && !args.sort) args.sort = 'size';
+  if (args.sort === 'alpha' && !args.list_functions_alpha) args.list_functions_alpha = true;
+  if (args.sort === 'size' && !args.list_functions_size) args.list_functions_size = true;
+  if (args.use_claude && !args.llm) args.llm = 'claude';
+  if (args.llm === 'claude') args.use_claude = true;
+  if (args.claim_model && !args.model) args.model = args.claim_model;
+  if (args.analyze_model && !args.model) args.model = args.analyze_model;
+  if (args.model && !args.claim_model) args.claim_model = args.model;
+  if (args.model && !args.analyze_model) args.analyze_model = args.model;
+  if (args.follow_calls && args.deep === null) args.deep = '1';
+
   return args;
 }
 
@@ -522,18 +576,22 @@ SEARCH:
 
 BROWSE:
   --stats                    Show index statistics
-  --list-files [pattern]     List indexed files (optional filter)
+  --files [pattern]          List indexed files (optional filter)
+                             (deprecated alias: --list-files)
   --show-file <pattern>      Display entire file contents
-  --list-functions [pattern] List functions (optional filter)
-  --list-functions-alpha     List all functions alphabetically
-  --list-functions-size      List all functions sorted by size
+  --functions [pattern]      List functions (optional filter). Use --sort
+                             alpha|size to change ordering.
+                             (deprecated alias: --list-functions)
+  --sort <mode>              Sort mode for --functions / --files (alpha|size)
+                             Replaces --list-functions-alpha / -size.
   --extract <spec>           Extract function source: FUNCTION or FILE@FUNCTION
-  --follow-calls             With --extract: also dump source of all callees
-  --deep [N]                 Same as --follow-calls, optionally N levels deep (default: 1)
+  --deep [N]                 With --extract: also dump callees, N levels deep
+                             (default: 1). Replaces --follow-calls.
   --comments-only            With --extract: show only full-line comments from the code
   --scan-extensions <path>   Count file extensions in a directory
   --index-extensions         Count file extensions in current index
-  --list-indexes [path]      List available index directories
+  --indexes [path]           List available index directories
+                             (deprecated alias: --list-indexes)
 
 DISPLAY / FILTERING (query-time, does not affect index build):
   --max-results <n>          Maximum results to display (alias: --max) (default: 20)
@@ -558,7 +616,11 @@ CALLERS / CALLEES:
                              With function name: single function inventory
                              Use --filter to search externals, --verbose for in-index list
   --most-called <n>          Show top N most frequently called functions
-  --depth <n>                Depth for transitive callers (default: 1) or call-tree (default: 3)
+  --depth <n>                Depth for transitive callers (default when used
+                             with --callers: 1) or for tree views (default
+                             when used with --call-tree / --file-tree: 3).
+                             The default is consumer-specific; check the
+                             help text of the command you are pairing with.
   --min-name-length <n>      Filter out short names in --most-called (default: 1)
   --include-macros           Include ALL_CAPS names in --most-called
   --defined-only             Only show functions defined in the index
@@ -577,9 +639,12 @@ METRICS / DISCOVERY:
   --max-calls <n>            Max call count for entry-points (default: 0 = never called)
   --gaps [n]                 Find suspicious dead code (defined, no callers, not entry-point)
   --domain-fns <n>           Top N domain-specific functions (score / sqrt(name defs))
-  --list-classes             List all classes with method counts/sizes
+  --classes                  List all classes with method counts/sizes
+                             (deprecated alias: --list-classes)
   --class-hotspots <n>       Top N classes by aggregated method hotspot score
-  --discover-vocabulary <n>  Top N domain-specific tokens by TF-IDF score (aliases: --vocabulary, --vocab)
+  --vocabulary <n>           Top N domain-specific tokens by TF-IDF score
+                             (short alias: --vocab; deprecated alias:
+                             --discover-vocabulary)
   --multisect-search <terms> Multi-term intersection search (semicolon-separated terms)
                              Finds smallest scope (function/class/file/folder) containing
                              "substantially all" terms. Default requires ALL positive terms;
@@ -589,11 +654,21 @@ METRICS / DISCOVERY:
   --show-dupes               Show file duplicate paths in output
 
 CLAIM SEARCH (LLM-based patent claim analysis):
-  --claim-search <text>      Extract search terms from patent claim text (or @file.txt)
-  --claim-file <path>        Read patent claim text from file
-  --use-claude               Use Claude API for term extraction (requires ANTHROPIC_API_KEY)
-  --api-key <key>            Anthropic API key (overrides ANTHROPIC_API_KEY env var)
-  --claim-model <path.gguf>  Use local GGUF model for term extraction (alias: --term-extract-model)
+  --claim-search <text>      Extract search terms from patent claim text
+                             (use @file.txt to read from file).
+  --claim-file <path>        Read patent claim text from file (alternative
+                             to --claim-search @file.txt; specific to the
+                             claim-search code path).
+  --llm <provider>           Select cloud LLM provider for term extraction /
+                             analysis. Currently only 'claude' is recognized.
+                             Requires the corresponding API key env var.
+                             (deprecated alias: --use-claude → --llm claude)
+  --api-key <key>            API key for the selected provider (overrides env var)
+  --model <path.gguf>        Local GGUF model path for term extraction and
+                             analysis. Replaces both --claim-model and
+                             --analyze-model. If you genuinely need different
+                             models for term-extraction vs. analysis, the
+                             two old flags are still accepted.
   --temperature <float>      LLM temperature (default: 0.0)
   --show-prompt              Display the LLM prompt and exit (no API call)
   --vocab-tight              Also use codebase vocabulary for TIGHT term generation
@@ -603,18 +678,21 @@ CLAIM SEARCH (LLM-based patent claim analysis):
 
 LLM ANALYSIS:
   --analyze <function>       Analyze a function with LLM ("what does this do?")
-  --with <text>              Context text for --analyze (patent claim, description, etc.)
-                              Analyze will explain the code in relation to this text.
-                              Supports @file.txt syntax to read from file.
+  --with <text>              Context text for --analyze (patent claim,
+                             description, etc.) Analyze will explain the
+                             code in relation to this text. Supports
+                             @file.txt syntax to read from file.
+  --claim-text <text>        Patent claim text for --claim-analyze (or
+                             @file.txt). Distinct code path from --with;
+                             --claim-text feeds the claim-analyze pipeline,
+                             --with feeds the general analyze pipeline.
   --claim-analyze <claim>    End-to-end patent claim analysis: extract terms, search,
                               analyze top matches. Takes @file.txt or inline text.
   --multisect-analyze <terms> Search for functions matching terms, analyze top hits.
                               Same term syntax as --multisect-search.
   --file-analyze <filepath>  Analyze an entire source file with LLM
-  --analyze-model <path.gguf> Path to local GGUF model for analysis (air-gap safe)
   --mask-all                 Strip comments and mask string contents before sending to LLM
   --line-numbers             Include source line numbers in LLM prompt
-  --claim-text <text>        Patent claim text for --claim-analyze (or @file.txt)
   --with-digest              Prepend the --digest output (static-analysis facts:
                              identity, callers/callees, strings, breadcrumbs,
                              comments, dupes) to the --analyze prompt. Use to
@@ -763,7 +841,8 @@ EXAMPLES:
   node src/index.js --build-index ./my-project
   node src/index.js --stats
   node src/index.js --fast "TODO"
-  node src/index.js --list-functions "main"
+  node src/index.js --functions "main"
+  node src/index.js --functions --sort size
   node src/index.js --extract "build_index"
   node src/index.js --files-search "import" --max-results 50
   node src/index.js --callers "search_literal"
@@ -781,14 +860,14 @@ EXAMPLES:
   node src/index.js --entry-points 20 --max-calls 1
   node src/index.js --gaps
   node src/index.js --domain-fns 20
-  node src/index.js --list-classes
+  node src/index.js --classes
   node src/index.js --class-hotspots 15
   node src/index.js --interactive               # enter REPL
   node src/index.js --index-path path/to/index  # auto-enters REPL
-  node src/index.js --analyze tls_connect --use-claude
-  node src/index.js --analyze tls_connect --with @patent.txt --use-claude
-  node src/index.js --claim-analyze @patent.txt --use-claude
-  node src/index.js --multisect-analyze "encrypt;key;cipher" --use-claude
-  node src/index.js --file-analyze crypto.c --use-claude --mask-all
+  node src/index.js --analyze tls_connect --llm claude
+  node src/index.js --analyze tls_connect --with @patent.txt --llm claude
+  node src/index.js --claim-analyze @patent.txt --llm claude
+  node src/index.js --multisect-analyze "encrypt;key;cipher" --llm claude
+  node src/index.js --file-analyze crypto.c --llm claude --mask-all
 `);
 }

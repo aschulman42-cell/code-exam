@@ -9,7 +9,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 **Source of truth**: `src/argparse.js`. Every entry below carries a *Verified against* line reference. `--help` output (in `src/argparse.js::printUsage`) is sanity-check material only — drift between `--help` and `argparse.js::defs` is a real possibility and should be reconciled when noticed.
 
-**Status**: first pass, generated 2026-05-24. The file is meant to be hand-maintained by Andrew without agent assistance going forward. Re-audits are welcome and should update the *Verified against* line numbers.
+**Status**: first pass generated 2026-05-24; updated 2026-05-24 for CLI normalization batch #1 (commit pending). Naming-family canonical renames applied (target-type-first); mechanical redundancies marked deprecated with one-time stderr warnings; `--use-claude` generalized to `--llm <provider>`. *Verified against* line refs refreshed for affected entries. The file is meant to be hand-maintained by Andrew without agent assistance going forward.
 
 ---
 
@@ -30,7 +30,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: First-time indexing of a codebase. The entry point for nearly every workflow — every subsequent flag operates against the index produced here.
 - **Couples with**: `--index-path`, `--extensions`, `--exclude-extensions`, `--demangler`, `--use-tree-sitter`, `--skip-semantic`, `--rename-min-lines`, `--no-rename`.
 - **Naming**: verb-noun form (`--build-index`) keeps the namespace open for sibling actions on indexes (`--rebuild-functions`, `--build-rename-map`, `--list-indexes`). Without the verb, ambiguity grows fast.
-- **Verified against**: `src/argparse.js:197`
+- **Verified against**: `src/argparse.js:200`
 
 #### `--rebuild-functions`
 
@@ -38,7 +38,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Iterating on the function-parser logic without paying the file-walk cost. Pair with parser changes during development.
 - **Couples with**: `--index-path` (operates on the existing index); `--use-tree-sitter` if the parser choice affects the rebuild.
 - **Naming**: parallel to `--build-index` — explicit verb form.
-- **Verified against**: `src/argparse.js:198`
+- **Verified against**: `src/argparse.js:201`
 
 #### `--build-rename-map`
 
@@ -46,7 +46,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Retro-fitting the rename overlays (_KW_, _CMD_, _IMPORT_, _NAME_) onto an existing index, e.g. after improving the inference code or after upgrading from a CodeExam version that didn't have a particular rename tier.
 - **Couples with**: `--index-path`, `--rename-min-lines`. The `--no-rename` flag is independent — it disables display-time renames, not their generation.
 - **Naming**: matches `--build-index` family. *(rationale unknown — investigate)* whether the asymmetry with the noun-only flags like `--digest` is intentional.
-- **Verified against**: `src/argparse.js:199`
+- **Verified against**: `src/argparse.js:202`
 
 #### `--rename-min-lines <n>`
 
@@ -54,7 +54,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Tuning rename coverage vs. noise on short functions. Higher values reduce noisy renames on trivial 2-3 line wrappers; lower values cast a wider net.
 - **Couples with**: `--build-rename-map` (only effective during rename inference, not during normal indexing).
 - **Naming**: `--rename-min-lines` matches the implementation field name (`rename_min_lines`); kebab-case in user-facing form.
-- **Verified against**: `src/argparse.js:200`
+- **Verified against**: `src/argparse.js:203`
 
 #### `--no-rename`
 
@@ -62,7 +62,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Reading code as the bundler wrote it, e.g. when cross-referencing against external tooling that doesn't know about CodeExam's rename overlays.
 - **Couples with**: every output-producing flag (display side effect; doesn't affect index state).
 - **Naming**: negation form (`--no-X`) common in Unix CLI tradition. Asymmetric: there's no `--rename` flag — renaming is the default; you opt out only.
-- **Verified against**: `src/argparse.js:340`
+- **Verified against**: `src/argparse.js:344`
 
 #### `--index-path <path>`
 
@@ -70,7 +70,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Working with multiple indexes (one per project, per branch, per investigation). The most-used flag after `--build-index`.
 - **Couples with**: every flag (defines the index that all subsequent operations target). Mutually exclusive with `--multi-index`.
 - **Naming**: `--index-path` (path-shaped form). Could plausibly be `--index` (the most common usage) — *(rationale unknown — investigate)* whether the `-path` suffix was deliberate disambiguation.
-- **Verified against**: `src/argparse.js:205`
+- **Verified against**: `src/argparse.js:208`
 
 #### `--multi-index @filelist`
 
@@ -78,7 +78,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Cross-index investigations where you want the same query against several related codebases (e.g. cli.js across multiple versions of Claude Code). A run uses either `--index-path` or `--multi-index`, not both.
 - **Couples with**: every read-only operation. Likely brittle with index-mutating operations (`--build-rename-map` etc.); behavior in that case *(verify)*.
 - **Naming**: explicit "multi" prefix flags the cardinality difference. Could have been `--indexes @filelist` (plural) — *(rationale unknown — investigate)* — possibly to keep `--index*` as a single-index namespace.
-- **Verified against**: `src/argparse.js:206`
+- **Verified against**: `src/argparse.js:209`
 
 #### `--skip-semantic`
 
@@ -86,7 +86,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: *(stub — semantic indexing path may be disabled by default in practice; verify against current state)*.
 - **Couples with**: `--build-index`.
 - **Naming**: negative-default form (`--skip-X`) signals the user is opting out of a default behavior; consistent with `--no-rename`.
-- **Verified against**: `src/argparse.js:207`
+- **Verified against**: `src/argparse.js:210`
 
 #### `--use-tree-sitter`
 
@@ -94,7 +94,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Higher-fidelity function boundary detection on languages with good tree-sitter grammars; trades regex's speed for accuracy.
 - **Couples with**: `--build-index`, `--rebuild-functions`. Affects parser dispatch in `src/core/TreeSitterParser.js`.
 - **Naming**: prefix `--use-X` — opting in to a feature.
-- **Verified against**: `src/argparse.js:208`
+- **Verified against**: `src/argparse.js:211`
 
 #### `--extensions <exts>`
 
@@ -102,7 +102,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Indexing files that aren't in the default extensions set, or restricting to a specific language family.
 - **Couples with**: `--build-index`, `--exclude-extensions`. Interaction with `--scan-extensions` / `--index-extensions` is read-only inspection of extension data.
 - **Naming**: noun-only — implies "the extensions to include." Asymmetric with `--exclude-extensions` (explicitly negated).
-- **Verified against**: `src/argparse.js:209`
+- **Verified against**: `src/argparse.js:212`
 
 #### `--exclude-extensions <exts>`
 
@@ -110,7 +110,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Trimming the index by skipping noisy or irrelevant file types (e.g. `--exclude-extensions json,md` to skip resource files).
 - **Couples with**: `--build-index`, `--extensions`.
 - **Naming**: explicit `--exclude-X` form (parallels `--include-path` / `--exclude-path`).
-- **Verified against**: `src/argparse.js:210`
+- **Verified against**: `src/argparse.js:213`
 
 #### `--demangler <path>`
 
@@ -118,7 +118,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Indexing C++ binaries or codebases where mangled symbols would otherwise be opaque.
 - **Couples with**: `--build-index` (used by `processBinary` in `src/binstrings.js`).
 - **Naming**: noun-only; the path argument is the demangler binary itself.
-- **Verified against**: `src/argparse.js:211`
+- **Verified against**: `src/argparse.js:214`
 
 ---
 
@@ -130,7 +130,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Default-mode search when you're not sure whether the query should be literal or semantic.
 - **Couples with**: `--max-results`, `--context`, `--filter`, `--include-path`, `--exclude-path`, `--full-path`, `--verbose`.
 - **Naming**: bare `--search`; the *type* of search is implicit. Other search modes carry explicit type prefixes (`--literal`, `--fast`, `--regex`).
-- **Verified against**: `src/argparse.js:213`
+- **Verified against**: `src/argparse.js:216`
 
 #### `--literal <query>`
 
@@ -138,7 +138,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Finding an exact string in the indexed code — most common when you copy-paste from another source.
 - **Couples with**: `--max-results`, `--context`, `--filter`, `--include-path`, `--exclude-path`.
 - **Naming**: type-prefixed search variant.
-- **Verified against**: `src/argparse.js:214`
+- **Verified against**: `src/argparse.js:217`
 
 #### `--fast <query>`
 
@@ -146,7 +146,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Quick scans across large indexes when speed matters more than fuzzy matching. Backed by the inverted-index data structure.
 - **Couples with**: `--max-results`, `--context`, `--filter`, `--include-path`, `--exclude-path`.
 - **Naming**: speed-property name (`--fast`) rather than mechanism name (`--inverted-index`) — user-intent framing.
-- **Verified against**: `src/argparse.js:215`
+- **Verified against**: `src/argparse.js:218`
 
 #### `--regex <pattern>`
 
@@ -154,7 +154,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Pattern matches that literal and inverted-index searches can't express (alternation, character classes, lookahead).
 - **Couples with**: `--max-results`, `--context`, `--filter`, `--include-path`, `--exclude-path`.
 - **Naming**: mechanism name — there's no clearer user-intent alias.
-- **Verified against**: `src/argparse.js:216`
+- **Verified against**: `src/argparse.js:219`
 
 #### `--files-search <query>`
 
@@ -162,7 +162,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: "Which files have the most matches?" — a coarse navigation primitive when you need to triage by file before diving into a specific match.
 - **Couples with**: `--max-results`, `--filter`, `--include-path`, `--exclude-path`.
 - **Naming**: noun-action form (`--files-search`); parallel with `--folders-search`.
-- **Verified against**: `src/argparse.js:217`
+- **Verified against**: `src/argparse.js:220`
 
 #### `--folders-search <query>`
 
@@ -170,7 +170,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Coarser version of `--files-search` — useful in large projects where folder-level grouping precedes file-level inspection.
 - **Couples with**: `--max-results`, `--filter`, `--include-path`, `--exclude-path`.
 - **Naming**: parallel with `--files-search`.
-- **Verified against**: `src/argparse.js:218`
+- **Verified against**: `src/argparse.js:221`
 
 ---
 
@@ -182,15 +182,15 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Quick sanity check on what the index contains, especially after `--build-index`.
 - **Couples with**: independent of most other flags; respects `--index-path`.
 - **Naming**: noun-only; common Unix idiom.
-- **Verified against**: `src/argparse.js:220`
+- **Verified against**: `src/argparse.js:223`
 
-#### `--list-files [pattern]`
+#### `--files [pattern]` (deprecated alias: `--list-files`)
 
 - **Does**: List indexed files. Optional pattern filters by substring match on path.
 - **Good for**: Confirming which files made it into the index; debugging extension or path-exclude misconfigurations.
-- **Couples with**: `--max-results`, `--full-path`, `--filter` (overlaps with optional positional pattern).
-- **Naming**: `--list-X` verb-noun pattern. See *Couplings → naming family* below for the broader `--list-*` family observation.
-- **Verified against**: `src/argparse.js:221`
+- **Couples with**: `--max-results`, `--full-path`, `--filter` (overlaps with optional positional pattern), `--sort`.
+- **Naming**: target-type-first (post-CLI-normalization). Old `--list-files` form still works but prints a deprecation warning to stderr.
+- **Verified against**: `src/argparse.js:224`
 
 #### `--show-file <pattern>`
 
@@ -198,31 +198,35 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Reading a file's full source from the index without separate filesystem access — useful for piping to other tools or capturing a snapshot.
 - **Couples with**: `--full-path`, rename overlays (`--no-rename`).
 - **Naming**: `--show-file` (singular) vs. `--list-files` (plural) — semantic distinction maintained (one file's content vs. many files' names).
-- **Verified against**: `src/argparse.js:222`
-
-#### `--list-functions [pattern]`
-
-- **Does**: List functions. Optional pattern filters by name substring.
-- **Good for**: The most common navigation primitive in CodeExam — "what functions exist in this code?", scoped by name.
-- **Couples with**: `--max-results`, `--filter` (separate from positional pattern — surprisingly), `--include-path`, `--exclude-path`, `--full-path`.
-- **Naming**: `--list-functions` — see *Couplings → naming family* below. User has flagged this as a redesign candidate (probably `--functions` post-redesign, emphasizing the target type over the action verb).
-- **Verified against**: `src/argparse.js:223`
-
-#### `--list-functions-alpha`
-
-- **Does**: List all functions alphabetically (no filter).
-- **Good for**: Whole-codebase enumeration when name patterns aren't enough.
-- **Couples with**: `--max-results`, `--full-path`. *(check whether `--filter` is respected — likely yes by inheritance)*.
-- **Naming**: compound `--list-functions-alpha` — the `-alpha` is a sort modifier on `--list-functions`. *(rationale unknown — investigate)* why this isn't `--list-functions --alpha`.
-- **Verified against**: `src/argparse.js:224`
-
-#### `--list-functions-size`
-
-- **Does**: List all functions sorted by size.
-- **Good for**: Finding the biggest functions in a codebase — a sometimes-useful refactor or complexity signal.
-- **Couples with**: same as `--list-functions-alpha`.
-- **Naming**: parallel with `--list-functions-alpha`. Same modifier-suffix observation.
 - **Verified against**: `src/argparse.js:225`
+
+#### `--functions [pattern]` (deprecated alias: `--list-functions`)
+
+- **Does**: List functions. Optional pattern filters by name substring. Pair with `--sort alpha|size` for ordering.
+- **Good for**: The most common navigation primitive in CodeExam — "what functions exist in this code?", scoped by name.
+- **Couples with**: `--max-results`, `--filter` (separate from positional pattern — surprisingly), `--include-path`, `--exclude-path`, `--full-path`, `--sort`.
+- **Naming**: target-type-first (post-CLI-normalization). Old `--list-functions` form still works but prints a deprecation warning. Sort is now a modifier flag (`--functions --sort alpha`) rather than a compound name.
+- **Verified against**: `src/argparse.js:226`
+
+#### `--sort <mode>` (new)
+
+- **Does**: Sort modifier for list commands. Accepts `alpha` (alphabetical) or `size` (line count, descending).
+- **Good for**: Choosing ordering on `--functions` (and any future list command that gains sort support).
+- **Couples with**: `--functions` primarily; future-extensible to `--files` and others.
+- **Naming**: bare imperative verb. Replaces the compound suffixes `-alpha` / `-size`.
+- **Verified against**: `src/argparse.js:244`
+
+#### `--list-functions-alpha` *(deprecated)*
+
+Deprecated alias. Use `--functions --sort alpha` instead. The old form continues to work but prints a one-time stderr warning. Sets both the legacy `list_functions_alpha` flag and the new `sort` field, so consumers reading either internal field work without change.
+
+- **Verified against**: `src/argparse.js:227`
+
+#### `--list-functions-size` *(deprecated)*
+
+Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior as `--list-functions-alpha`.
+
+- **Verified against**: `src/argparse.js:228`
 
 #### `--extract <spec>`
 
@@ -230,7 +234,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Pulling a specific function's full source for reading, piping, or inclusion in an LLM prompt.
 - **Couples with**: `--follow-calls`, `--deep`, `--comments-only`, rename overlays.
 - **Naming**: noun-only `--extract`. Could have been `--get-function` etc. — *(rationale unknown — investigate)*.
-- **Verified against**: `src/argparse.js:226`
+- **Verified against**: `src/argparse.js:229`
 
 #### `--scan-extensions <path>`
 
@@ -238,7 +242,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Pre-flight check before `--build-index` to see what's there.
 - **Couples with**: independent — takes a filesystem path, not an index.
 - **Naming**: `--scan-X` form — implies a filesystem scan vs. an index lookup.
-- **Verified against**: `src/argparse.js:227`
+- **Verified against**: `src/argparse.js:230`
 
 #### `--index-extensions`
 
@@ -246,15 +250,15 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Post-build verification: which extensions made it in. Complement to `--scan-extensions`.
 - **Couples with**: `--index-path`.
 - **Naming**: noun-noun form (`--index-extensions`) — first word is the data source, second is the data type. Inconsistent with `--scan-extensions` (verb-noun).
-- **Verified against**: `src/argparse.js:228`
+- **Verified against**: `src/argparse.js:231`
 
-#### `--list-indexes [path]`
+#### `--indexes [path]` (deprecated alias: `--list-indexes`)
 
 - **Does**: List available index directories. Optional path narrows the scan.
 - **Good for**: Discovering what indexes you've built when you've lost track of them.
 - **Couples with**: independent; reads directory entries, not an index.
-- **Naming**: `--list-X` family.
-- **Verified against**: `src/argparse.js:229`
+- **Naming**: target-type-first (post-CLI-normalization).
+- **Verified against**: `src/argparse.js:232`
 
 ---
 
@@ -266,7 +270,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: "Who calls this?" — the most common reverse-navigation question.
 - **Couples with**: `--depth` (transitive callers), `--exclude-tests`, `--max-results`, `--filter`, `--include-path`, `--exclude-path`.
 - **Naming**: noun-only.
-- **Verified against**: `src/argparse.js:245`
+- **Verified against**: `src/argparse.js:249`
 
 #### `--callees <spec>`
 
@@ -274,7 +278,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: "What does this call?" — the forward direction.
 - **Couples with**: same as `--callers`.
 - **Naming**: parallel.
-- **Verified against**: `src/argparse.js:246`
+- **Verified against**: `src/argparse.js:250`
 
 #### `--most-called <n>`
 
@@ -282,15 +286,15 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Finding the most-invoked APIs / utility functions — often the entry points to subsystems.
 - **Couples with**: `--defined-only`, `--min-name-length`, `--include-macros`, `--exclude-tests`.
 - **Naming**: superlative-form noun.
-- **Verified against**: `src/argparse.js:247`
+- **Verified against**: `src/argparse.js:251`
 
 #### `--depth <n>`
 
-- **Does**: Depth for transitive callers (default: 1) or for call-tree (default: 3).
+- **Does**: Depth for command consumers that follow chains. Default is **consumer-specific** (no flag-level default): `--callers` uses 1, `--call-tree` / `--file-tree` use 3.
 - **Good for**: Following call chains deeper than one hop.
-- **Couples with**: `--callers`, `--call-tree`, `--follow-calls`. **Notable irregularity**: default value differs by which command consumes it (1 vs. 3) — see Couplings below.
-- **Naming**: bare `--depth`.
-- **Verified against**: `src/argparse.js:248`
+- **Couples with**: `--callers` (default 1), `--call-tree` (default 3), `--file-tree` (default 3), `--deep` (related but separate flag for `--extract`).
+- **Naming**: bare `--depth`. The per-consumer defaults are deliberate — different commands have different "natural" depths — but the user has to read each consumer's documentation to know which default applies. Post-CLI-normalization: explicit per-consumer defaults documented in `--help`.
+- **Verified against**: `src/argparse.js:252`
 
 #### `--min-name-length <n>`
 
@@ -298,7 +302,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Suppressing noise from single-character or built-in-shadow names that pile up in minified code.
 - **Couples with**: `--most-called` primarily.
 - **Naming**: descriptive long form.
-- **Verified against**: `src/argparse.js:249`
+- **Verified against**: `src/argparse.js:253`
 
 #### `--include-macros`
 
@@ -306,7 +310,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: When macros / constants are part of what you want to see ranked.
 - **Couples with**: `--most-called`.
 - **Naming**: `--include-X` for opt-in.
-- **Verified against**: `src/argparse.js:250`
+- **Verified against**: `src/argparse.js:254`
 
 #### `--defined-only`
 
@@ -314,7 +318,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Focusing on the codebase's own functions; excluding `printf`, `console.log`, etc.
 - **Couples with**: `--most-called`.
 - **Naming**: hyphenated boolean-suffix form.
-- **Verified against**: `src/argparse.js:251`
+- **Verified against**: `src/argparse.js:255`
 
 #### `--exclude-tests`
 
@@ -322,7 +326,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Hotspot and caller scans where you want only production code, not test fixtures.
 - **Couples with**: `--callers`, `--callees`, `--most-called`, `--hotspots`, `--gaps`, `--entry-points`, others. **Notable**: detection of "test file" is heuristic (path contains `test/`, file name starts with `test_`, etc.) — see Couplings.
 - **Naming**: `--exclude-X` form (parallels `--exclude-path`).
-- **Verified against**: `src/argparse.js:252`
+- **Verified against**: `src/argparse.js:256`
 
 #### `--call-inventory [spec]`
 
@@ -330,7 +334,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: "What does this code depend on?" — surfaces external calls (library APIs, builtins) as a flat list.
 - **Couples with**: `--filter`, `--verbose`.
 - **Naming**: noun phrase.
-- **Verified against**: `src/argparse.js:255`
+- **Verified against**: `src/argparse.js:259`
 
 ---
 
@@ -342,7 +346,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Visualizing the full call neighborhood of a function in one view.
 - **Couples with**: `--depth` (default: 3 for trees), `--mermaid`, `--exclude-tests`.
 - **Naming**: noun phrase.
-- **Verified against**: `src/argparse.js:253`
+- **Verified against**: `src/argparse.js:257`
 
 #### `--class-tree [filter]`
 
@@ -350,7 +354,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Understanding inheritance chains across languages — particularly useful in indexed Java / Python / C++ codebases.
 - **Couples with**: `--mermaid`, `--max-results`, `--filter`.
 - **Naming**: noun phrase, parallel with `--call-tree`.
-- **Verified against**: `src/argparse.js:254`
+- **Verified against**: `src/argparse.js:258`
 
 #### `--file-map [filter]`
 
@@ -358,7 +362,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Module-level orientation in a codebase — which files import from which.
 - **Couples with**: `--mermaid`, `--max-results`, `--filter`.
 - **Naming**: noun-noun.
-- **Verified against**: `src/argparse.js:256`
+- **Verified against**: `src/argparse.js:260`
 
 #### `--file-tree <file>`
 
@@ -366,7 +370,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Single-file dependency walk; complement to `--file-map`.
 - **Couples with**: `--depth`, `--mermaid`.
 - **Naming**: parallel with `--file-map`.
-- **Verified against**: `src/argparse.js:257`
+- **Verified against**: `src/argparse.js:261`
 
 #### `--mermaid`
 
@@ -374,7 +378,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Generating renderable graphs for README files or visual review. Pairs with any tree/map command.
 - **Couples with**: `--call-tree`, `--class-tree`, `--file-map`, `--file-tree`. **Notable**: doesn't do anything if no graph command is in play — silent no-op.
 - **Naming**: tool-name (lowercase).
-- **Verified against**: `src/argparse.js:258`
+- **Verified against**: `src/argparse.js:262`
 
 ---
 
@@ -386,7 +390,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Finding load-bearing functions — where complexity and connectivity intersect.
 - **Couples with**: `--exclude-tests`, `--filter`, `--include-path`, `--exclude-path`, `--max-results`.
 - **Naming**: bare noun.
-- **Verified against**: `src/argparse.js:261`
+- **Verified against**: `src/argparse.js:265`
 
 #### `--hot-folders <n>`
 
@@ -394,7 +398,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Hotspot rollup at the folder level — useful when looking for the heavy subsystems.
 - **Couples with**: same as `--hotspots`.
 - **Naming**: prefixed with `hot-` to mirror `--hotspots`.
-- **Verified against**: `src/argparse.js:262`
+- **Verified against**: `src/argparse.js:266`
 
 #### `--entry-points <n>`
 
@@ -402,7 +406,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Identifying the "main" entry surfaces of a codebase (CLI handlers, exported APIs, dispatched callbacks).
 - **Couples with**: `--max-calls`, `--exclude-tests`.
 - **Naming**: noun-noun.
-- **Verified against**: `src/argparse.js:263`
+- **Verified against**: `src/argparse.js:267`
 
 #### `--max-calls <n>`
 
@@ -410,7 +414,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Loosening the entry-points definition; "≤2 callers" sometimes captures real entry points that have one helper.
 - **Couples with**: `--entry-points`.
 - **Naming**: `max-X` form, parallel with `--max-results`.
-- **Verified against**: `src/argparse.js:264`
+- **Verified against**: `src/argparse.js:268`
 
 #### `--gaps [n]`
 
@@ -418,7 +422,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Dead-code triage at scale; complement to the manual sweep done in issue #50.
 - **Couples with**: `--max-results`, `--exclude-tests`.
 - **Naming**: terse noun. *(rationale unknown — investigate)* — "gaps" is metaphorical for "gaps in the call graph"; less self-documenting than `--dead-code`.
-- **Verified against**: `src/argparse.js:265`
+- **Verified against**: `src/argparse.js:269`
 
 #### `--domain-fns <n>`
 
@@ -426,15 +430,15 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Surfacing functions whose names are distinctive in the codebase's vocabulary — often the domain logic core.
 - **Couples with**: `--max-results`, `--filter`.
 - **Naming**: abbreviation `fns` instead of `functions` — *(rationale unknown — investigate)* but probably aesthetic / typing-efficiency.
-- **Verified against**: `src/argparse.js:266`
+- **Verified against**: `src/argparse.js:270`
 
-#### `--list-classes`
+#### `--classes` (deprecated alias: `--list-classes`)
 
 - **Does**: List all classes with method counts/sizes.
 - **Good for**: Class-level overview of an OO codebase.
 - **Couples with**: `--filter`, `--max-results`, `--include-path`, `--exclude-path`.
-- **Naming**: `--list-X` family. Notably missing here: a `--functions` / `--classes` / `--files` symmetric noun-only set.
-- **Verified against**: `src/argparse.js:267`
+- **Naming**: target-type-first. Post-CLI-normalization, this completes the symmetric noun-only set with `--functions`, `--files`, `--indexes`.
+- **Verified against**: `src/argparse.js:271`
 
 #### `--class-hotspots <n>`
 
@@ -442,15 +446,15 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Class-level rollup of `--hotspots`; finds the most complex classes.
 - **Couples with**: same as `--hotspots`.
 - **Naming**: prefix `class-` modifier on `--hotspots`.
-- **Verified against**: `src/argparse.js:268`
+- **Verified against**: `src/argparse.js:272`
 
-#### `--discover-vocabulary <n>` (aliases: `--vocabulary`, `--vocab`)
+#### `--vocabulary <n>` (short alias: `--vocab`; deprecated alias: `--discover-vocabulary`)
 
 - **Does**: Top N domain-specific tokens by TF-IDF score.
 - **Good for**: Surfacing the unique vocabulary of a codebase — input to claim-search term selection and to multisect query crafting.
 - **Couples with**: `--vocab-tight`, `--in` (path filter), `--no-vocabulary` (disables it as input to other commands).
-- **Naming**: verb-noun primary (`--discover-vocabulary`); two aliases for typing convenience. *(rationale unknown — investigate)* — the verb prefix vs. bare `--vocabulary` choice.
-- **Verified against**: `src/argparse.js:269`
+- **Naming**: noun-only canonical (post-CLI-normalization). `--vocab` is kept as a documented short alias (no deprecation warning); `--discover-vocabulary` is deprecated and warns on use.
+- **Verified against**: `src/argparse.js:273`
 
 #### `--multisect-search <terms>` (alias: `--multisect`)
 
@@ -458,7 +462,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: "Find the place where all these things happen together" — the headline CodeExam search primitive.
 - **Couples with**: `--match-renames`, `--in` (path filter), `--min-terms`, `--max-results`, `--dedup`, `--filter`.
 - **Naming**: noun-noun. Alias `--multisect` reflects the dominant usage.
-- **Verified against**: `src/argparse.js:270`
+- **Verified against**: `src/argparse.js:274`
 
 #### `--in <pattern>`
 
@@ -466,7 +470,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Quick scoping to a subdirectory without remembering which flag's `--include-path` to use.
 - **Couples with**: `--multisect-search`, `--search`, `--discover-vocabulary`, others. **Notable**: parsed as `vocab_in` internally — naming asymmetry.
 - **Naming**: very terse two-letter form — `--in` reads naturally in a sentence ("multisect *in* `src/core/`"). *(rationale unknown — investigate)* whether this should be unified with `--include-path`.
-- **Verified against**: `src/argparse.js:271`
+- **Verified against**: `src/argparse.js:275`
 
 #### `--show-dupes`
 
@@ -474,7 +478,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Good for**: Debugging cases where the index contains duplicate copies of files (vendored libraries, parallel builds).
 - **Couples with**: many display paths.
 - **Naming**: hyphenated boolean.
-- **Verified against**: `src/argparse.js:272`
+- **Verified against**: `src/argparse.js:276`
 
 ---
 
@@ -488,7 +492,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Cutting noise; deeper exploration via raising the cap.
 - **Couples with**: every list-producing command.
 - **Naming**: long form `--max-results`; short alias `-n`. Multiple aliases reflect frequent use.
-- **Verified against**: `src/argparse.js:231`
+- **Verified against**: `src/argparse.js:234`
 
 #### `--context <n>`
 
@@ -496,7 +500,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Reading match context inline without re-running with `--extract`.
 - **Couples with**: search commands.
 - **Naming**: bare noun.
-- **Verified against**: `src/argparse.js:232`
+- **Verified against**: `src/argparse.js:235`
 
 #### `--verbose` (alias: `-v`)
 
@@ -504,7 +508,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Drill-down when default output is too compact.
 - **Couples with**: many commands; semantics differ per command.
 - **Naming**: bare adjective, short alias `-v` (universal Unix convention).
-- **Verified against**: `src/argparse.js:233`
+- **Verified against**: `src/argparse.js:236`
 
 #### `--full-path`
 
@@ -512,7 +516,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: When path disambiguation matters (large monorepos, multiple files with the same name).
 - **Couples with**: every output-producing command. **Notable**: declared twice in `argparse.js::defs` (lines 234 and 273) — duplicate; need to verify whether this is a bug or intentional.
 - **Naming**: hyphenated boolean.
-- **Verified against**: `src/argparse.js:234` (and `:273` — duplicate)
+- **Verified against**: `src/argparse.js:237` (and `:273` — duplicate)
 
 #### `--filter <text>`
 
@@ -520,7 +524,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Narrowing list output without re-running with a different positional pattern. Often redundant with positional pattern, depending on command.
 - **Couples with**: most list / search commands. **Notable**: overlaps with positional pattern in `--list-functions [pattern]` — see Couplings.
 - **Naming**: bare verb-noun.
-- **Verified against**: `src/argparse.js:235`
+- **Verified against**: `src/argparse.js:238`
 
 #### `--include-path <patterns>...`
 
@@ -528,7 +532,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Restricting scope to certain subdirectories or file naming patterns. More precise than `--in` for multi-pattern filters.
 - **Couples with**: most query commands. Overlap with `--in` and `--filter` — see Couplings.
 - **Naming**: `--include-X` for opt-in, parallels `--exclude-path`.
-- **Verified against**: `src/argparse.js:236`
+- **Verified against**: `src/argparse.js:239`
 
 #### `--exclude-path <patterns>...`
 
@@ -536,7 +540,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Skipping vendored code, test directories, or other noise.
 - **Couples with**: same as `--include-path`.
 - **Naming**: parallels `--include-path`.
-- **Verified against**: `src/argparse.js:237`
+- **Verified against**: `src/argparse.js:240`
 
 #### `--dedup <mode>`
 
@@ -544,7 +548,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Suppressing duplicate hits when the codebase contains vendored copies or near-duplicate functions.
 - **Couples with**: most query commands. **Notable**: declared twice in `argparse.js::defs` (lines 238 and 274) with different defaults — see Couplings.
 - **Naming**: bare noun.
-- **Verified against**: `src/argparse.js:238` (and `:274` — duplicate with different default)
+- **Verified against**: `src/argparse.js:241` (and `:274` — duplicate with different default)
 
 #### `--min-terms <n>`
 
@@ -552,7 +556,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Partial-match multisect (find scopes containing N of K terms, not all K).
 - **Couples with**: `--multisect-search`, `--claim-analyze`.
 - **Naming**: terse.
-- **Verified against**: `src/argparse.js:239`
+- **Verified against**: `src/argparse.js:242`
 
 #### `--match-renames`
 
@@ -560,7 +564,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Finding hits via the inferred display names (e.g. `_CMD_AMAZON_BEDROCK`) when the literal source uses opaque names.
 - **Couples with**: `--multisect-search`, `--multisect-analyze`.
 - **Naming**: bare verb-noun.
-- **Verified against**: `src/argparse.js:240`
+- **Verified against**: `src/argparse.js:243`
 
 ---
 
@@ -572,7 +576,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Exploratory sessions where multiple commands run against the same loaded index.
 - **Couples with**: independent (replaces all command flags with REPL input).
 - **Naming**: `-i` short alias universal in shell tradition.
-- **Verified against**: `src/argparse.js:242`
+- **Verified against**: `src/argparse.js:246`
 
 ---
 
@@ -584,23 +588,29 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Patent-litigation use case — turn a claim's natural language into multisect-ready terms.
 - **Couples with**: `--use-claude`, `--claim-model`, `--api-key`, `--temperature`, `--vocab-tight`, `--no-vocabulary`, `--show-prompt`.
 - **Naming**: noun-noun.
-- **Verified against**: `src/argparse.js:277`
+- **Verified against**: `src/argparse.js:279`
 
 #### `--claim-file <path>`
 
-- **Does**: Read patent claim text from file.
-- **Good for**: When the claim is long or contains special characters that shell quoting can't handle.
-- **Couples with**: `--claim-search`. (Same as `@file.txt` shorthand on `--claim-search`.)
-- **Naming**: parallels `--claim-search`. Probably redundant with the `@file` shorthand — *(rationale unknown — investigate)*.
-- **Verified against**: `src/argparse.js:278`
+- **Does**: Read patent claim text from file. Specific to the claim-search code path.
+- **Good for**: When the claim is long or contains special characters that shell quoting can't handle, and you want explicit "this is a file path" semantics rather than the `--claim-search @file.txt` shorthand.
+- **Couples with**: `--claim-search`. The `@file.txt` shorthand on `--claim-search` overlaps functionally but goes through a different code branch — both are supported because they were not actually redundant (see Couplings note below; my earlier deprecation framing was wrong).
+- **Naming**: noun-noun. Distinct first-class flag, not an alias.
+- **Verified against**: `src/argparse.js:280`
 
-#### `--use-claude`
+#### `--llm <provider>` (new — replaces `--use-claude`)
 
-- **Does**: Use Claude API for term extraction (requires `ANTHROPIC_API_KEY`).
-- **Good for**: Cloud LLM path. **In litigation contexts (CodeClaim per #23), this is verboten** — use local GGUF instead.
-- **Couples with**: `--claim-search`, `--claim-analyze`, `--analyze`, `--multisect-analyze`, `--file-analyze`. `--api-key` overrides the env var.
-- **Naming**: vendor-specific. *(rationale: pre-dates the public/private split — generic `--use-cloud-llm` would be more neutral.)*
-- **Verified against**: `src/argparse.js:279`
+- **Does**: Select cloud LLM provider for term extraction and analysis. Currently `claude` is the only recognized provider; the flag's existence is the foundation for future providers (`codex`, etc.) without further argparse changes.
+- **Good for**: Cloud LLM path. **In litigation contexts (CodeClaim per #23), this is verboten** — use local GGUF via `--model` instead.
+- **Couples with**: `--claim-search`, `--claim-analyze`, `--analyze`, `--multisect-analyze`, `--file-analyze`. `--api-key` provides the credential.
+- **Naming**: bare noun (`--llm <name>`). Vendor-neutral by design; opens space for additional providers.
+- **Verified against**: `src/argparse.js:282`
+
+#### `--use-claude` *(deprecated)*
+
+Deprecated alias. Use `--llm claude` instead. The old form continues to work but prints a one-time stderr warning. Post-parse, the value is fanned out so both `args.use_claude = true` and `args.llm = 'claude'` are set, keeping legacy consumers working.
+
+- **Verified against**: `src/argparse.js:281`
 
 #### `--api-key <key>`
 
@@ -608,15 +618,21 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Per-run key override (e.g. testing with a sandbox key).
 - **Couples with**: `--use-claude`.
 - **Naming**: vendor-neutral.
-- **Verified against**: `src/argparse.js:280`
+- **Verified against**: `src/argparse.js:283`
 
-#### `--claim-model <path.gguf>` (alias: `--term-extract-model`)
+#### `--model <path.gguf>` (new — unifies `--claim-model` and `--analyze-model`)
 
-- **Does**: Path to a local GGUF model for term extraction.
-- **Good for**: Air-gapped term extraction (the litigation default). The alias `--term-extract-model` is more descriptive but `--claim-model` is shorter.
-- **Couples with**: `--claim-search`, `--claim-analyze`.
-- **Naming**: two names for one feature — see Couplings.
-- **Verified against**: `src/argparse.js:281`
+- **Does**: Local GGUF model path for both term extraction (claim search) and analysis (`--analyze`, `--multisect-analyze`, `--file-analyze`). Single source for both pipelines.
+- **Good for**: Air-gapped LLM operation (the litigation default). One flag for the common case where the same model serves both roles.
+- **Couples with**: `--claim-search`, `--claim-analyze`, `--analyze`, `--multisect-analyze`, `--file-analyze`. Post-parse, fans out to both `args.claim_model` and `args.analyze_model` for legacy consumers.
+- **Naming**: bare noun. Replaces the artificial split into per-pipeline model flags.
+- **Verified against**: `src/argparse.js:284`
+
+#### `--claim-model <path.gguf>` *(deprecated; alias: `--term-extract-model` also deprecated)*
+
+Deprecated alias for `--model`. Continues to work; sets `args.claim_model` and (if `args.model` not already set) populates `args.model` for cross-pipeline consumers. Use `--model` instead. The two-flag pattern survives for users who genuinely need different models for term extraction vs. analysis.
+
+- **Verified against**: `src/argparse.js:285`
 
 #### `--temperature <float>`
 
@@ -624,7 +640,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Loosening LLM determinism for exploratory term generation.
 - **Couples with**: every LLM-using flag.
 - **Naming**: standard LLM-API term.
-- **Verified against**: `src/argparse.js:282`
+- **Verified against**: `src/argparse.js:286`
 
 #### `--show-prompt`
 
@@ -632,7 +648,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Auditing what gets sent to the LLM — reproducibility, prompt-engineering iteration, and litigation context (showing court what was asked).
 - **Couples with**: `--claim-search`, `--analyze`, others using LLM.
 - **Naming**: imperative verb-noun.
-- **Verified against**: `src/argparse.js:283`
+- **Verified against**: `src/argparse.js:287`
 
 #### `--vocab-tight`
 
@@ -640,7 +656,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Tighter term sets that lean on codebase-specific vocabulary (vs. claim-only language).
 - **Couples with**: `--claim-search`, `--claim-analyze`.
 - **Naming**: composite (vocab + tight).
-- **Verified against**: `src/argparse.js:284`
+- **Verified against**: `src/argparse.js:288`
 
 #### `--no-vocabulary` (alias: `--no-vocab`)
 
@@ -648,7 +664,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: A/B testing whether vocabulary guidance helps. Defaults that include vocabulary can be toggled off.
 - **Couples with**: `--claim-search`, `--claim-analyze`.
 - **Naming**: `--no-X` negation form.
-- **Verified against**: `src/argparse.js:285`
+- **Verified against**: `src/argparse.js:289`
 
 ---
 
@@ -660,7 +676,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Per-function natural-language summarization, especially of obfuscated or unfamiliar code.
 - **Couples with**: `--analyze-model`, `--use-claude`, `--with`, `--with-digest`, `--mask-all`, `--line-numbers`.
 - **Naming**: bare verb.
-- **Verified against**: `src/argparse.js:288`
+- **Verified against**: `src/argparse.js:292`
 
 #### `--claim-analyze <claim>`
 
@@ -668,7 +684,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: The full claim-search-and-explain pipeline in one command.
 - **Couples with**: all LLM flags, all multisect flags.
 - **Naming**: noun-verb.
-- **Verified against**: `src/argparse.js:289`
+- **Verified against**: `src/argparse.js:293`
 
 #### `--multisect-analyze <terms>`
 
@@ -676,7 +692,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: When you have terms already (not a patent claim) and want the analyze pipeline.
 - **Couples with**: same as `--multisect-search` plus LLM flags.
 - **Naming**: noun-verb, parallels `--claim-analyze`.
-- **Verified against**: `src/argparse.js:290`
+- **Verified against**: `src/argparse.js:294`
 
 #### `--file-analyze <filepath>`
 
@@ -684,15 +700,13 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: File-level summarization (especially with `--mask-all` for confidentiality).
 - **Couples with**: LLM flags, `--mask-all`.
 - **Naming**: parallels other `*-analyze` forms.
-- **Verified against**: `src/argparse.js:291`
+- **Verified against**: `src/argparse.js:295`
 
-#### `--analyze-model <path.gguf>`
+#### `--analyze-model <path.gguf>` *(deprecated)*
 
-- **Does**: Path to local GGUF model for analysis.
-- **Good for**: Air-gapped analysis path (different from `--claim-model` which is for term extraction). Two-model setup.
-- **Couples with**: `--analyze`, `--claim-analyze`, `--multisect-analyze`, `--file-analyze`.
-- **Naming**: parallels `--claim-model`. **Notable**: two separate model paths for what could be the same model — see Couplings.
-- **Verified against**: `src/argparse.js:292`
+Deprecated alias for `--model`. Continues to work; sets `args.analyze_model` and (if `args.model` not already set) populates `args.model`. Use `--model` instead.
+
+- **Verified against**: `src/argparse.js:296`
 
 #### `--with <text>` (alias: `--context-text`)
 
@@ -700,7 +714,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Asking "what does this function do *in relation to this thing*?" — the analyze prompt becomes context-aware.
 - **Couples with**: `--analyze`, others.
 - **Naming**: very terse preposition (`--with`). *(rationale: reads naturally — "analyze X with Y".)*
-- **Verified against**: `src/argparse.js:293`
+- **Verified against**: `src/argparse.js:297`
 
 #### `--mask-all`
 
@@ -708,7 +722,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Confidentiality — avoiding sending verbatim source to a cloud LLM in litigation contexts.
 - **Couples with**: any `*-analyze` command.
 - **Naming**: imperative verb-pronoun.
-- **Verified against**: `src/argparse.js:294`
+- **Verified against**: `src/argparse.js:298`
 
 #### `--line-numbers`
 
@@ -716,15 +730,15 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: When the LLM's response needs to reference specific lines.
 - **Couples with**: `*-analyze` commands.
 - **Naming**: bare noun-noun.
-- **Verified against**: `src/argparse.js:295`
+- **Verified against**: `src/argparse.js:299`
 
 #### `--claim-text <text>`
 
-- **Does**: Patent claim text for `--claim-analyze` (or `@file.txt`).
-- **Good for**: Same role as `--with`, but specifically for the `--claim-analyze` flow.
+- **Does**: Patent claim text for `--claim-analyze` (or `@file.txt`). Distinct code path from `--with`.
+- **Good for**: Feeding the claim-analyze pipeline specifically. Where `--with` sets `args.analyze_context` (consumed by the general `--analyze` flow), `--claim-text` sets `args.claim_text` (consumed by the claim-analyze flow at `src/commands/analyze.js:1236`). They look interchangeable from a user perspective but route to different downstream code.
 - **Couples with**: `--claim-analyze`.
-- **Naming**: noun-noun. *(rationale unknown — investigate)* whether this could be unified with `--with`.
-- **Verified against**: `src/argparse.js:296`
+- **Naming**: noun-noun. First-class flag — earlier framing as "deprecated alias for --with" was wrong; the two flags have distinct consumers.
+- **Verified against**: `src/argparse.js:300`
 
 #### `--with-digest`
 
@@ -732,19 +746,17 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: A/B testing the effect of CodeExam-provided context on local-LLM analysis quality. Composable with `--with`, `--mask-all`.
 - **Couples with**: `--analyze`, `--with`, `--mask-all`.
 - **Naming**: composer prefix `--with-X`.
-- **Verified against**: `src/argparse.js:297`
+- **Verified against**: `src/argparse.js:301`
 
 ---
 
 ## EXTENDED EXTRACTION
 
-#### `--follow-calls`
+#### `--follow-calls` *(deprecated)*
 
-- **Does**: With `--extract`, also dump source of all callees.
-- **Good for**: Getting a function plus its dependencies in one extraction — useful for LLM prompts that need full context.
-- **Couples with**: `--extract`, `--deep`.
-- **Naming**: imperative verb-noun.
-- **Verified against**: `src/argparse.js:300`
+Deprecated alias for `--deep 1`. Continues to work; post-parse, sets `args.deep = '1'` when used. Use `--deep [N]` instead — same behavior with explicit depth control.
+
+- **Verified against**: `src/argparse.js:304`
 
 #### `--deep [N]`
 
@@ -752,7 +764,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Deeper follow-call chains when one level isn't enough.
 - **Couples with**: `--extract`. Subsumes `--follow-calls`.
 - **Naming**: bare adjective. *(rationale unknown — investigate)* whether `--follow-calls` should be deprecated in favor of `--deep 0` / `--deep 1`.
-- **Verified against**: `src/argparse.js:301`
+- **Verified against**: `src/argparse.js:305`
 
 #### `--comments-only`
 
@@ -760,7 +772,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Quickly reading a function's intent without its implementation.
 - **Couples with**: `--extract`.
 - **Naming**: hyphenated boolean.
-- **Verified against**: `src/argparse.js:302`
+- **Verified against**: `src/argparse.js:306`
 
 ---
 
@@ -772,7 +784,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Identical file detection across an index (vendored libraries, copy-pasted modules).
 - **Couples with**: `--max-results`.
 - **Naming**: bare noun.
-- **Verified against**: `src/argparse.js:305`
+- **Verified against**: `src/argparse.js:309`
 
 #### `--func-dupes <n>`
 
@@ -780,7 +792,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Identical function detection within the index.
 - **Couples with**: `--max-results`.
 - **Naming**: abbreviated noun-noun.
-- **Verified against**: `src/argparse.js:306`
+- **Verified against**: `src/argparse.js:310`
 
 #### `--near-dupes <n>`
 
@@ -788,7 +800,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Finding functions that *should* be the same but drifted.
 - **Couples with**: same as `--func-dupes`.
 - **Naming**: parallels `--func-dupes`.
-- **Verified against**: `src/argparse.js:307`
+- **Verified against**: `src/argparse.js:311`
 
 #### `--struct-dupes <n>`
 
@@ -796,7 +808,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Cross-codebase function similarity detection — finds functions whose shape matches even after rename / refactor.
 - **Couples with**: `--show-funcstring`, `--struct-diff`, `--struct-diff-all`, `--show-sources`, `--cross-source-only`.
 - **Naming**: abbreviated `struct-` prefix.
-- **Verified against**: `src/argparse.js:308`
+- **Verified against**: `src/argparse.js:312`
 
 #### `--show-funcstring [name|hash]`
 
@@ -804,7 +816,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Reading the structural fingerprint of a specific function.
 - **Couples with**: `--struct-dupes`, `--funcstr-hashes`.
 - **Naming**: verb-noun.
-- **Verified against**: `src/argparse.js:309`
+- **Verified against**: `src/argparse.js:313`
 
 #### `--struct-diff <name>`
 
@@ -812,7 +824,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: When you've found a structural dupe group and want to see what differs.
 - **Couples with**: `--struct-dupes`.
 - **Naming**: parallels `--struct-dupes`.
-- **Verified against**: `src/argparse.js:310`
+- **Verified against**: `src/argparse.js:314`
 
 #### `--struct-diff-all <n>`
 
@@ -820,7 +832,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: High-level overview of all dupe-group differences.
 - **Couples with**: `--show-sources`, `--cross-source-only`.
 - **Naming**: same family.
-- **Verified against**: `src/argparse.js:311`
+- **Verified against**: `src/argparse.js:315`
 
 #### `--show-sources`
 
@@ -828,7 +840,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Disambiguating which source each variant came from in cross-codebase analysis.
 - **Couples with**: `--struct-diff-all`, `--string-call-diff-all`.
 - **Naming**: imperative verb-noun.
-- **Verified against**: `src/argparse.js:312`
+- **Verified against**: `src/argparse.js:316`
 
 #### `--cross-source-only`
 
@@ -836,7 +848,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Hiding within-project duplicates to focus on cross-project matches.
 - **Couples with**: `--struct-diff-all`, `--string-call-diff-all`.
 - **Naming**: hyphenated boolean.
-- **Verified against**: `src/argparse.js:313`
+- **Verified against**: `src/argparse.js:317`
 
 #### `--string-call-dupes <n>`
 
@@ -844,7 +856,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Semantic-signature matching even when structure has been reshaped (bundlers/minifiers).
 - **Couples with**: `--string-call-diff-all`, `--show-sources`, `--cross-source-only`.
 - **Naming**: compound `string-call-` prefix.
-- **Verified against**: `src/argparse.js:314`
+- **Verified against**: `src/argparse.js:318`
 
 #### `--string-call-diff-all <n>`
 
@@ -852,7 +864,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Detailed view of the matches that `--string-call-dupes` summarizes.
 - **Couples with**: `--show-sources`, `--cross-source-only`.
 - **Naming**: parallels `--struct-diff-all`.
-- **Verified against**: `src/argparse.js:315`
+- **Verified against**: `src/argparse.js:319`
 
 #### `--cmp-string-call-dupes <score>`
 
@@ -860,7 +872,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Deobfuscating bundled code against its source libraries.
 - **Couples with**: `--fingerprint-work`, `--fingerprint-ref`, `--fingerprint-min-tokens`, `--show-tokens`, `--load-fingerprints`.
 - **Naming**: `--cmp-X` prefix for "compare".
-- **Verified against**: `src/argparse.js:316`
+- **Verified against**: `src/argparse.js:320`
 
 #### `--notable-funcstr-matches <n>`
 
@@ -868,7 +880,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Finding cross-codebase function reuse with surprising rename patterns.
 - **Couples with**: `--nf-min-lines`, `--nf-min-surprise`, `--nf-sort`, `--nf-tight`, `--filter`.
 - **Naming**: long descriptive name. The `--nf-*` modifier flags use an abbreviated namespace — see Couplings.
-- **Verified against**: `src/argparse.js:317`
+- **Verified against**: `src/argparse.js:321`
 
 #### `--nf-min-lines <n>` / `--nf-min-surprise <f>` / `--nf-sort <peak|mean|lines>` / `--nf-tight`
 
@@ -884,7 +896,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Cross-index funcstring intersection via shell pipelines (`awk`, `sort`, `join`).
 - **Couples with**: `--fh-tight`. Independent of the index modifications; pure data dump.
 - **Naming**: noun-noun.
-- **Verified against**: `src/argparse.js:322`
+- **Verified against**: `src/argparse.js:326`
 
 #### `--fh-tight`
 
@@ -892,7 +904,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Comparison with results from `--nf-tight` etc. when consistency of hashing strictness matters.
 - **Couples with**: `--funcstr-hashes`.
 - **Naming**: abbreviated `fh-` namespace.
-- **Verified against**: `src/argparse.js:323`
+- **Verified against**: `src/argparse.js:327`
 
 #### `--fingerprint-min-tokens <n>`
 
@@ -900,7 +912,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Avoiding false positives from tiny-fingerprint functions where random overlap can score high.
 - **Couples with**: `--cmp-string-call-dupes`, `--build-fp-renames`.
 - **Naming**: long descriptive form.
-- **Verified against**: `src/argparse.js:324`
+- **Verified against**: `src/argparse.js:328`
 
 #### `--fingerprint-work <pattern>` / `--fingerprint-ref <pattern>`
 
@@ -916,7 +928,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Auditing why a fingerprint match scored high.
 - **Couples with**: `--cmp-string-call-dupes`.
 - **Naming**: imperative verb-noun.
-- **Verified against**: `src/argparse.js:327`
+- **Verified against**: `src/argparse.js:331`
 
 #### `--build-fp-renames [score]` (alias: `--build-fingerprint-renames`)
 
@@ -924,7 +936,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Adding fingerprint-derived renames to an existing rename map.
 - **Couples with**: `--dry-run`, `--fp-classes`, `--clean-fp`, `--fingerprint-min-tokens`, `--load-fingerprints`, `--fingerprint-work`, `--fingerprint-ref`.
 - **Naming**: parallels `--build-rename-map`.
-- **Verified against**: `src/argparse.js:328`
+- **Verified against**: `src/argparse.js:332`
 
 #### `--dry-run`
 
@@ -932,7 +944,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Preview before commit. Universal Unix idiom.
 - **Couples with**: `--build-fp-renames`.
 - **Naming**: standard idiom.
-- **Verified against**: `src/argparse.js:329`
+- **Verified against**: `src/argparse.js:333`
 
 #### `--fp-classes`
 
@@ -940,7 +952,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Whole-class renaming when individual method matches concentrate within one class.
 - **Couples with**: `--build-fp-renames`.
 - **Naming**: abbreviated `fp-` namespace, parallel with `--nf-*`, `--fh-*`.
-- **Verified against**: `src/argparse.js:330`
+- **Verified against**: `src/argparse.js:334`
 
 #### `--save-fingerprints <path>`
 
@@ -948,7 +960,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Building a library of `.fp.json` reference files for cross-codebase comparison without re-indexing.
 - **Couples with**: independent (operates on an existing index, writes out).
 - **Naming**: verb-noun.
-- **Verified against**: `src/argparse.js:331`
+- **Verified against**: `src/argparse.js:335`
 
 #### `--load-fingerprints <path>...`
 
@@ -956,7 +968,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Comparing against multiple library `.fp.json` files in one run.
 - **Couples with**: `--cmp-string-call-dupes`, `--build-fp-renames`.
 - **Naming**: parallels `--save-fingerprints`. **Notable**: when combined with `--build-fp-renames`, each loaded file is copied into the index's `fingerprints/` subdirectory — see Couplings.
-- **Verified against**: `src/argparse.js:332`
+- **Verified against**: `src/argparse.js:336`
 
 #### `--clean-fp`
 
@@ -964,7 +976,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Backing out a noisy `_FP_` pass without hand-editing.
 - **Couples with**: `--build-fp-renames`.
 - **Naming**: abbreviated `fp` namespace.
-- **Verified against**: `src/argparse.js:333`
+- **Verified against**: `src/argparse.js:337`
 
 ---
 
@@ -976,7 +988,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Understanding the command surface of an unfamiliar codebase. Especially useful in reverse-engineering bundled tools.
 - **Couples with**: `--filter`.
 - **Naming**: noun-noun.
-- **Verified against**: `src/argparse.js:336`
+- **Verified against**: `src/argparse.js:340`
 
 #### `--string-table [filter]` (alias: `--strings`)
 
@@ -984,7 +996,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Surfacing the literal vocabulary of a codebase — often a navigation signal (error messages, URLs, etc.).
 - **Couples with**: `--max-results`, `--filter`.
 - **Naming**: noun-noun primary; `--strings` alias for typing convenience.
-- **Verified against**: `src/argparse.js:337`
+- **Verified against**: `src/argparse.js:341`
 
 #### `--breadcrumbs`
 
@@ -992,7 +1004,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Understanding observability surface (telemetry calls, log levels, event categories).
 - **Couples with**: `--verbose` (expands per-function rollup), `--filter`. Known noisy on small / non-telemetry corpora — see issue #47.
 - **Naming**: metaphorical noun.
-- **Verified against**: `src/argparse.js:338`
+- **Verified against**: `src/argparse.js:342`
 
 #### `--prompt-catalog` (alias: `--prompts`)
 
@@ -1000,7 +1012,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Auditing how an LLM-using codebase prompts the model — useful for reverse-engineering Claude Code, identifying jailbreak vectors, AI-safety analysis.
 - **Couples with**: independent.
 - **Naming**: noun-noun primary; `--prompts` alias for typing.
-- **Verified against**: `src/argparse.js:339`
+- **Verified against**: `src/argparse.js:343`
 
 #### `--file-bookends [N]`
 
@@ -1008,7 +1020,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Quick head+tail view of files in an index, with renames applied. Useful for bundle analysis.
 - **Couples with**: `--filter`, `--include-path`.
 - **Naming**: metaphorical noun.
-- **Verified against**: `src/argparse.js:201`
+- **Verified against**: `src/argparse.js:204`
 
 #### `--bundle-seams [FILE]`
 
@@ -1016,7 +1028,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Splitting a single huge bundled file into virtual sub-files for analysis.
 - **Couples with**: `--seam-verbose`, `--filter`, `--include-path`, `--exclude-path`.
 - **Naming**: noun-noun.
-- **Verified against**: `src/argparse.js:202`
+- **Verified against**: `src/argparse.js:205`
 
 #### `--seam-verbose`
 
@@ -1024,7 +1036,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Module-to-original-package attribution when bundlers leak hints (paths starting with `node_modules/...`, license comments).
 - **Couples with**: `--bundle-seams`.
 - **Naming**: descriptive.
-- **Verified against**: `src/argparse.js:203`
+- **Verified against**: `src/argparse.js:206`
 
 #### `--digest <funcspec>`
 
@@ -1032,7 +1044,7 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Human orientation and LLM-analysis preamble. The unit-of-summary primitive.
 - **Couples with**: `--with-digest` (composer for `--analyze`). **Notable**: today the target type is function-only at the implementation level; #51 broadens this to class and file.
 - **Naming**: noun-only.
-- **Verified against**: `src/argparse.js:204`
+- **Verified against**: `src/argparse.js:207`
 
 ---
 
@@ -1040,39 +1052,35 @@ These modify how query results are rendered. They don't affect index state.
 
 This section surfaces the cross-flag coupling patterns that any CLI normalization (#52) will need to address. Each entry names what's irregular; the design conversation in #52 decides what to do about it.
 
+**Status**: items marked **✅ Resolved** were addressed by CLI normalization batch #1 (#58 followup, commit pending). Remaining items stay open for future batches.
+
 ### Three overlapping path-filter mechanisms
 
 `--in <pattern>`, `--include-path <patterns>...`, and `--exclude-path <patterns>...` overlap functionally. `--in` is documented as the "universal path filter" but is parsed internally as `vocab_in`. `--include-path` is `list`-typed (repeatable); `--in` is `value`-typed (single). `--filter <text>` is yet another filter applied to result names (not paths).
 
 **Question for redesign**: unify these into one primitive (target type: path or name) with a uniform argument shape.
 
-### `--list-*` naming family
+### `--list-*` naming family ✅ Resolved
 
-`--list-files`, `--list-functions`, `--list-functions-alpha`, `--list-functions-size`, `--list-classes`, `--list-indexes`. User has flagged this group as a likely redesign candidate — the verb prefix `--list-` puts emphasis on the action rather than the target type. Possible direction: `--functions [pattern]` with sort modifiers (`--alpha`, `--size`) instead of compound flag names.
+Canonical forms are now `--functions`, `--files`, `--classes`, `--indexes`. `--list-*` forms remain as deprecated aliases with one-time stderr warnings.
 
-The compound forms `--list-functions-alpha` and `--list-functions-size` are also suspicious: these are sort modifiers on `--list-functions`, but they're separate flags rather than `--list-functions --sort alpha` / `--list-functions --sort size`. Two ways to express related behavior — pick one.
+Compound sort modifiers (`--list-functions-alpha`, `--list-functions-size`) are now replaced by a `--sort <mode>` modifier flag (`--functions --sort alpha`). Old compound forms continue to work as deprecated aliases.
 
-### `--full-path` and `--dedup` declared twice
+### `--full-path` and `--dedup` declared twice ✅ Resolved
 
-`argparse.js::defs` declares `--full-path` at lines 234 and 273; `--dedup` at lines 238 and 274 (with different defaults: `'none'` vs `'exact'`). The second declaration wins because the alias map overwrites. **This is at minimum a code smell** — at worst, a bug where the default changes silently depending on declaration order. Needs an audit.
+The duplicate declarations in `argparse.js::defs` and the duplicate args-init entries were removed. Effective default for `--dedup` (which was `'exact'` due to declaration-order overwrite) is preserved as the explicit default.
 
-### `--depth` has two defaults depending on consumer
+### `--depth` has two defaults depending on consumer ✅ Resolved (documentation only)
 
-Default for transitive callers (`--callers --depth N`) is 1. Default for `--call-tree --depth N` is 3. The argparse default is `null`; the consumers pick their own. This is fine implementation-wise but invisible to the user — they have to read the docs to know which default applies.
+The per-consumer defaults (1 for `--callers`, 3 for `--call-tree` / `--file-tree`) remain intentionally different. The `--help` text now documents this explicitly under `--depth` itself, so users see the consumer-specific behavior without having to read source. A single flag-level default would be a bigger code change with real semantic implications; deferred unless it becomes an actual pain point.
 
-**Question for redesign**: per-command defaults documented at the command level, or a flag-level default that all consumers respect.
+### Two model paths for LLM operations: `--claim-model` and `--analyze-model` ✅ Resolved
 
-### Two model paths for LLM operations: `--claim-model` and `--analyze-model`
+Unified to `--model <path>`. The two old flags remain as deprecated aliases for users who genuinely need different models per pipeline; in the common case where one model serves both, the new flag fans out to populate both internal fields.
 
-`--claim-model` is for term extraction; `--analyze-model` is for analysis. Probably the same model in most cases. Two flags allows asymmetric configuration but doubles the surface.
+### `--use-claude` is vendor-specific ✅ Resolved
 
-**Question for redesign**: one `--model` flag with a sub-key for term-extraction vs. analysis if asymmetry is rare.
-
-### `--use-claude` is vendor-specific
-
-The cloud-LLM path is named after a specific vendor. As CodeExam grows beyond Anthropic-API support (or as alternative cloud providers enter), this flag locks in the legacy name.
-
-**Question for redesign**: `--use-cloud-llm` or `--llm-provider <name>` for vendor neutrality.
+Replaced by `--llm <provider>`. Currently only `claude` is recognized; the flag's existence opens space for future providers (`codex`, etc.) without further argparse changes. `--use-claude` remains as a deprecated alias.
 
 ### `--filter` overlaps with positional pattern arguments
 
@@ -1086,25 +1094,21 @@ The cloud-LLM path is named after a specific vendor. As CodeExam grows beyond An
 
 **Question for redesign**: standardize the modifier prefix (or eliminate the abbreviations and use full names like `--notable-min-lines`).
 
-### `--follow-calls` is subsumed by `--deep`
+### `--follow-calls` is subsumed by `--deep` ✅ Resolved
 
-`--follow-calls` = `--deep 1`. Both flags exist. Probably the simpler `--follow-calls` should be deprecated in favor of `--deep [N]`.
+`--follow-calls` is now a deprecated alias for `--deep 1`. Continues to work; warns once and sets the new field.
 
-### `--claim-file` is redundant with `@file.txt` shorthand on `--claim-search`
+### `--claim-file` and `--claim-search @file.txt` — distinct code paths, not redundant
 
-Both ways to read a claim from a file. Pick one — probably keep the `@file.txt` shorthand and deprecate `--claim-file`.
+Surface-level redundancy with two flags accepting file paths. Code shows they go through different branches (`args.claim_file` is read at `src/commands/claim.js:1019` in its own branch). Keep both as first-class flags; the earlier "deprecate `--claim-file`" framing was a misread of the code structure.
 
-### `--with` vs. `--claim-text`
+### `--with` vs. `--claim-text` — distinct code paths, not redundant
 
-Both pass context text to analyze commands. `--with` is the general form; `--claim-text` is `--claim-analyze`-specific. They serve overlapping purposes.
+`args.analyze_context` (set by `--with`) is consumed at `src/commands/analyze.js:1280` for the `--analyze` flow; `args.claim_text` (set by `--claim-text`) is consumed at `src/commands/analyze.js:1236` for the `--claim-analyze` flow. They look interchangeable from a user perspective but route to different downstream code. Keep both as first-class flags; the earlier "deprecate `--claim-text`" framing was a misread.
 
-**Question for redesign**: unify to `--with` and deprecate `--claim-text`.
+### `--vocabulary` / `--vocab` / `--discover-vocabulary` (aliases) ✅ Resolved
 
-### `--vocabulary` / `--vocab` / `--discover-vocabulary` (aliases)
-
-Three names for one command. Plus `--no-vocabulary` / `--no-vocab` (negation aliases) and `--vocab-tight` (composite). The `vocab` prefix is overloaded.
-
-**Question for redesign**: settle on one canonical name. Probably `--vocabulary` or just `--vocab` — the verb prefix `--discover-` is less consistent with sibling commands like `--hotspots`, `--gaps`, `--entry-points` which are noun-only.
+Canonical is `--vocabulary` (noun-only matches sibling commands like `--hotspots`, `--gaps`). `--vocab` retained as undeprecated short alias. `--discover-vocabulary` is deprecated.
 
 ### `--max-results` / `--max` / `-n` (three aliases for one flag)
 
