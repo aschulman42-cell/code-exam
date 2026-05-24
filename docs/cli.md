@@ -9,7 +9,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 **Source of truth**: `src/argparse.js`. Every entry below carries a *Verified against* line reference. `--help` output (in `src/argparse.js::printUsage`) is sanity-check material only — drift between `--help` and `argparse.js::defs` is a real possibility and should be reconciled when noticed.
 
-**Status**: first pass generated 2026-05-24; updated 2026-05-24 for CLI normalization batch #1 (commit pending). Naming-family canonical renames applied (target-type-first); mechanical redundancies marked deprecated with one-time stderr warnings; `--use-claude` generalized to `--llm <provider>`. *Verified against* line refs refreshed for affected entries. The file is meant to be hand-maintained by Andrew without agent assistance going forward.
+**Status**: first pass generated 2026-05-24 (commit `a3fab8a`); updated 2026-05-24 for CLI normalization batch #1 (commit `2b47c79`); Path A audit pass 2026-05-24 rippled batch-#1 renames through cross-references and refreshed status markers. The file is meant to be hand-maintained by Andrew without agent assistance going forward.
 
 ---
 
@@ -29,7 +29,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Does**: Builds a CodeExam index from a directory, a single file, a glob pattern, or `@filelist.txt` (one path per line).
 - **Good for**: First-time indexing of a codebase. The entry point for nearly every workflow — every subsequent flag operates against the index produced here.
 - **Couples with**: `--index-path`, `--extensions`, `--exclude-extensions`, `--demangler`, `--use-tree-sitter`, `--skip-semantic`, `--rename-min-lines`, `--no-rename`.
-- **Naming**: verb-noun form (`--build-index`) keeps the namespace open for sibling actions on indexes (`--rebuild-functions`, `--build-rename-map`, `--list-indexes`). Without the verb, ambiguity grows fast.
+- **Naming**: verb-noun form (`--build-index`) keeps the namespace open for sibling actions on indexes (`--rebuild-functions`, `--build-rename-map`, `--indexes`). Without the verb, ambiguity grows fast.
 - **Verified against**: `src/argparse.js:200`
 
 #### `--rebuild-functions`
@@ -82,9 +82,9 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 #### `--skip-semantic`
 
-- **Does**: Skip semantic/embedding indexing. Default is **on** (semantic indexing is the more expensive path).
-- **Good for**: *(stub — semantic indexing path may be disabled by default in practice; verify against current state)*.
-- **Couples with**: `--build-index`.
+- **Does**: Nominally skips semantic/embedding indexing. **Functionally a no-op today** — `skipSemantic` is plumbed through `src/core/CodeSearchIndex.js::buildIndex` (L1997) but no code in the buildIndex body branches on it. Semantic indexing was stubbed but never implemented; the default (`true`) and the flag are vestigial.
+- **Good for**: Forward-compatibility / aspiration only. There is currently no way to *enable* semantic indexing via the CLI — the flag exists in the surface but does nothing. If/when semantic indexing actually lands, this entry needs an honest rewrite.
+- **Couples with**: `--build-index` (nominally).
 - **Naming**: negative-default form (`--skip-X`) signals the user is opting out of a default behavior; consistent with `--no-rename`.
 - **Verified against**: `src/argparse.js:210`
 
@@ -197,7 +197,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Does**: Display entire file contents (matching the pattern).
 - **Good for**: Reading a file's full source from the index without separate filesystem access — useful for piping to other tools or capturing a snapshot.
 - **Couples with**: `--full-path`, rename overlays (`--no-rename`).
-- **Naming**: `--show-file` (singular) vs. `--list-files` (plural) — semantic distinction maintained (one file's content vs. many files' names).
+- **Naming**: `--show-file` (singular) vs. `--files` (plural) — semantic distinction maintained (one file's content vs. many files' names).
 - **Verified against**: `src/argparse.js:225`
 
 #### `--functions [pattern]` (deprecated alias: `--list-functions`)
@@ -232,7 +232,7 @@ Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior a
 
 - **Does**: Extract function source. `<spec>` is `FUNCTION` or `FILE@FUNCTION`.
 - **Good for**: Pulling a specific function's full source for reading, piping, or inclusion in an LLM prompt.
-- **Couples with**: `--follow-calls`, `--deep`, `--comments-only`, rename overlays.
+- **Couples with**: `--deep` (canonical), `--comments-only`, rename overlays. `--follow-calls` is a deprecated alias for `--deep 1`.
 - **Naming**: noun-only `--extract`. Could have been `--get-function` etc. — *(rationale unknown — investigate)*.
 - **Verified against**: `src/argparse.js:229`
 
@@ -468,7 +468,7 @@ Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior a
 
 - **Does**: Universal path filter — restricts search, multisect, and vocabulary output to files whose path contains `<pattern>`.
 - **Good for**: Quick scoping to a subdirectory without remembering which flag's `--include-path` to use.
-- **Couples with**: `--multisect-search`, `--search`, `--discover-vocabulary`, others. **Notable**: parsed as `vocab_in` internally — naming asymmetry.
+- **Couples with**: `--multisect-search`, `--search`, `--vocabulary`, others. **Notable**: parsed as `vocab_in` internally — naming asymmetry.
 - **Naming**: very terse two-letter form — `--in` reads naturally in a sentence ("multisect *in* `src/core/`"). *(rationale unknown — investigate)* whether this should be unified with `--include-path`.
 - **Verified against**: `src/argparse.js:275`
 
@@ -514,15 +514,15 @@ These modify how query results are rendered. They don't affect index state.
 
 - **Does**: Show full file paths in output (instead of truncated/relative).
 - **Good for**: When path disambiguation matters (large monorepos, multiple files with the same name).
-- **Couples with**: every output-producing command. **Notable**: declared twice in `argparse.js::defs` (lines 234 and 273) — duplicate; need to verify whether this is a bug or intentional.
+- **Couples with**: every output-producing command.
 - **Naming**: hyphenated boolean.
-- **Verified against**: `src/argparse.js:237` (and `:273` — duplicate)
+- **Verified against**: `src/argparse.js:237`
 
 #### `--filter <text>`
 
 - **Does**: Filter function listings by name.
 - **Good for**: Narrowing list output without re-running with a different positional pattern. Often redundant with positional pattern, depending on command.
-- **Couples with**: most list / search commands. **Notable**: overlaps with positional pattern in `--list-functions [pattern]` — see Couplings.
+- **Couples with**: most list / search commands. **Notable**: overlaps with positional pattern in `--functions [pattern]` — see Couplings.
 - **Naming**: bare verb-noun.
 - **Verified against**: `src/argparse.js:238`
 
@@ -546,9 +546,9 @@ These modify how query results are rendered. They don't affect index state.
 
 - **Does**: Dedup mode for query results: `none`, `exact`, `structural`.
 - **Good for**: Suppressing duplicate hits when the codebase contains vendored copies or near-duplicate functions.
-- **Couples with**: most query commands. **Notable**: declared twice in `argparse.js::defs` (lines 238 and 274) with different defaults — see Couplings.
+- **Couples with**: most query commands.
 - **Naming**: bare noun.
-- **Verified against**: `src/argparse.js:241` (and `:274` — duplicate with different default)
+- **Verified against**: `src/argparse.js:241`
 
 #### `--min-terms <n>`
 
@@ -586,7 +586,7 @@ These modify how query results are rendered. They don't affect index state.
 
 - **Does**: Extract search terms from patent claim text (or `@file.txt`). LLM-based.
 - **Good for**: Patent-litigation use case — turn a claim's natural language into multisect-ready terms.
-- **Couples with**: `--use-claude`, `--claim-model`, `--api-key`, `--temperature`, `--vocab-tight`, `--no-vocabulary`, `--show-prompt`.
+- **Couples with**: `--llm`, `--model`, `--api-key`, `--temperature`, `--vocab-tight`, `--no-vocabulary`, `--show-prompt`. (`--use-claude` and `--claim-model` are deprecated aliases for `--llm claude` and `--model` respectively.)
 - **Naming**: noun-noun.
 - **Verified against**: `src/argparse.js:279`
 
@@ -614,9 +614,9 @@ Deprecated alias. Use `--llm claude` instead. The old form continues to work but
 
 #### `--api-key <key>`
 
-- **Does**: Anthropic API key, overrides `ANTHROPIC_API_KEY` env var.
+- **Does**: Anthropic API key, overrides `ANTHROPIC_API_KEY` env var. *(Wording is current-state-vendor-specific; once `--llm` admits a second provider, this entry and the underlying env-var lookup will need to generalize. Not in scope for this audit pass.)*
 - **Good for**: Per-run key override (e.g. testing with a sandbox key).
-- **Couples with**: `--use-claude`.
+- **Couples with**: `--llm`.
 - **Naming**: vendor-neutral.
 - **Verified against**: `src/argparse.js:283`
 
@@ -674,7 +674,7 @@ Deprecated alias for `--model`. Continues to work; sets `args.claim_model` and (
 
 - **Does**: Analyze a function with LLM ("what does this do?").
 - **Good for**: Per-function natural-language summarization, especially of obfuscated or unfamiliar code.
-- **Couples with**: `--analyze-model`, `--use-claude`, `--with`, `--with-digest`, `--mask-all`, `--line-numbers`.
+- **Couples with**: `--model`, `--llm`, `--with`, `--with-digest`, `--mask-all`, `--line-numbers`. (`--analyze-model` and `--use-claude` are deprecated aliases for `--model` and `--llm claude` respectively.)
 - **Naming**: bare verb.
 - **Verified against**: `src/argparse.js:292`
 
@@ -760,10 +760,10 @@ Deprecated alias for `--deep 1`. Continues to work; post-parse, sets `args.deep 
 
 #### `--deep [N]`
 
-- **Does**: Same as `--follow-calls`, optionally N levels deep (default: 1).
-- **Good for**: Deeper follow-call chains when one level isn't enough.
-- **Couples with**: `--extract`. Subsumes `--follow-calls`.
-- **Naming**: bare adjective. *(rationale unknown — investigate)* whether `--follow-calls` should be deprecated in favor of `--deep 0` / `--deep 1`.
+- **Does**: With `--extract`, also dump source of callees N levels deep (default: 1).
+- **Good for**: Getting a function plus its dependencies in one extraction — useful for LLM prompts that need full context. Deeper N follows the call chain N levels.
+- **Couples with**: `--extract`. Canonical form post-batch-#1; `--follow-calls` is a deprecated alias equivalent to `--deep 1`.
+- **Naming**: bare adjective. Subsumed the older `--follow-calls` flag.
 - **Verified against**: `src/argparse.js:305`
 
 #### `--comments-only`
@@ -1052,7 +1052,7 @@ Deprecated alias for `--deep 1`. Continues to work; post-parse, sets `args.deep 
 
 This section surfaces the cross-flag coupling patterns that any CLI normalization (#52) will need to address. Each entry names what's irregular; the design conversation in #52 decides what to do about it.
 
-**Status**: items marked **✅ Resolved** were addressed by CLI normalization batch #1 (#58 followup, commit pending). Remaining items stay open for future batches.
+**Status**: items marked **✅ Resolved** were addressed by CLI normalization batch #1 (#58 followup, commit `2b47c79`). Remaining items stay open for future batches.
 
 ### Three overlapping path-filter mechanisms
 
@@ -1084,7 +1084,7 @@ Replaced by `--llm <provider>`. Currently only `claude` is recognized; the flag'
 
 ### `--filter` overlaps with positional pattern arguments
 
-`--list-functions [pattern]` accepts an optional positional pattern AND respects `--filter`. The two filter sources interact in non-obvious ways. Same pattern in `--list-files`, `--list-indexes`, `--string-table`.
+`--functions [pattern]` accepts an optional positional pattern AND respects `--filter`. The two filter sources interact in non-obvious ways. Same pattern in `--files`, `--indexes`, `--string-table`.
 
 **Question for redesign**: pick one — drop positional patterns, or drop `--filter` for these commands.
 
@@ -1118,14 +1118,14 @@ The triple-alias is unusual. `-n` (a short flag) is rare in CodeExam; most flags
 
 ### `--max-results` default of 20 collides with user expectation of "list everything"
 
-Beyond the alias question, the default value (20) is itself a design question. Command-line users typing `--list-functions` or `--list-files` often expect "list ALL of them" — the way `ls`, `find`, and most Unix tools behave. CodeExam caps at 20 unless overridden. There's a `Tips:` line at the end of partial lists pointing the user toward `--max-results N`, but the silent truncation is a usability footgun for first-time users.
+Beyond the alias question, the default value (20) is itself a design question. Command-line users typing `--functions` or `--files` often expect "list ALL of them" — the way `ls`, `find`, and most Unix tools behave. CodeExam caps at 20 unless overridden. There's a `Tips:` line at the end of partial lists pointing the user toward `--max-results N`, but the silent truncation is a usability footgun for first-time users.
 
 This isn't just a CLI question — the same pattern shows up in the GUI, where accordions stop expanding at an arbitrary point rather than scrolling naturally to reveal the rest (see GUI issue #38 for the accordion-expansion direction).
 
 **Two competing UX principles in tension**:
 
 - *Front-load by rank* (current behavior): show the user the most important subset first; don't swamp them with everything. Defensible, especially for ranked outputs like `--hotspots` or `--most-called` where the tail is much less interesting.
-- *Show everything, let the user filter* (Unix default): trust the user to pipe to `head` / `less` / `grep` if they want less. Defensible for enumerations like `--list-functions` where there's no intrinsic ranking.
+- *Show everything, let the user filter* (Unix default): trust the user to pipe to `head` / `less` / `grep` if they want less. Defensible for enumerations like `--functions` where there's no intrinsic ranking.
 
 **Question for redesign**: per-command defaults that respect the command's semantics — ranked commands keep a cap, enumeration commands default to no cap. Or per-command `--all` flag that explicitly opts out. Or an aggressive `Tips:` line that's harder to miss. Whatever the answer, today's "everything caps at 20 unless you know to ask" is a learning-curve cliff.
 
@@ -1134,7 +1134,7 @@ This isn't just a CLI question — the same pattern shows up in the GUI, where a
 ## Out of scope for this first-pass catalog
 
 - **GUI cross-references** — many CLI flags have GUI equivalents (e.g. `--filter <text>` ⟷ left-pane Filter field). Building that cross-reference is a second-pass exercise; the GUI surface is itself in flux (see #38, #57).
-- **Flag combination semantics** — beyond the *Couplings* section above, the full combinatorial space of "what does `--extract --follow-calls --deep N --comments-only` produce together?" is not catalogued here. The Couplings section lists the cross-flag couplings; full combinatorial semantics is downstream design work.
+- **Flag combination semantics** — beyond the *Couplings* section above, the full combinatorial space of "what does `--extract --deep N --comments-only` produce together?" is not catalogued here. The Couplings section lists the cross-flag couplings; full combinatorial semantics is downstream design work.
 - **Naming-rationale archeology** — `*(rationale unknown — investigate)*` markers throughout are deliberate gaps. Resolving them is per-flag git-blame work, done when a specific entry's history actually matters.
 - **The actual redesign** — this file is the inventory + analysis. The redesign proposal lives in [#52](https://github.com/aschulman42-cell/code-exam/issues/52) once this catalog is in hand.
 
