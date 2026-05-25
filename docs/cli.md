@@ -9,7 +9,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 **Source of truth**: `src/argparse.js`. Every entry below carries a *Verified against* line reference. `--help` output (in `src/argparse.js::printUsage`) is sanity-check material only — drift between `--help` and `argparse.js::defs` is a real possibility and should be reconciled when noticed.
 
-**Status**: first pass generated 2026-05-24 (commit `a3fab8a`); updated 2026-05-24 for CLI normalization batch #1 (commit `2b47c79`); Path A audit pass 2026-05-24 rippled batch-#1 renames through cross-references and refreshed status markers. The file is meant to be hand-maintained by Andrew without agent assistance going forward.
+**Status**: first pass generated 2026-05-24 (commit `a3fab8a`); updated 2026-05-24 for CLI normalization batch #1 (commit `2b47c79`); Path A audit pass 2026-05-24 rippled batch-#1 renames through cross-references and refreshed status markers; updated 2026-05-25 for target-aware `--digest` (#51, Commits A `070e894` + B `e565edd` + C — this commit). The file is meant to be hand-maintained by Andrew without agent assistance going forward.
 
 ---
 
@@ -1038,12 +1038,15 @@ Deprecated alias for `--deep 1`. Continues to work; post-parse, sets `args.deep 
 - **Naming**: descriptive.
 - **Verified against**: `src/argparse.js:206`
 
-#### `--digest <funcspec>`
+#### `--digest <target>`
 
-- **Does**: Print a structured digest of a single function — identity, callers/callees, strings, breadcrumbs, comments, command-catalog cross-reference, dupes.
-- **Good for**: Human orientation and LLM-analysis preamble. The unit-of-summary primitive.
-- **Couples with**: `--with-digest` (composer for `--analyze`). **Notable**: today the target type is function-only at the implementation level; #51 broadens this to class and file.
-- **Naming**: noun-only.
+- **Does**: Print a structured digest of a unit of code. Target-aware — auto-detects what `<target>` resolves to and produces target-shaped output:
+  - **Function**: identity, callers, callees, strings, breadcrumbs, comments, command-catalog cross-reference, dupes.
+  - **Class**: identity (with `Extends:` / `Implements:`), methods (one line each), instantiation sites, external calls aggregated across all methods, plus the shared flat strings/breadcrumbs/comments/commands sections.
+  - **File**: identity (with header excerpt), exports, imports, top-level declarations, dependency edges (imported-by + imports-from), plus the shared flat sections.
+- **Good for**: Self-contained summary of any unit of code — function, class, or file — for human orientation, as LLM-analysis preamble, or for capturing point-in-time documentation. The unit-of-summary primitive.
+- **Couples with**: `--with-digest` (composer for `--analyze`; today function-only on the analyze side — class/file analyze-with-digest is future work). File digest's dependency-edges section uses the same import-graph data as `--file-map`.
+- **Naming**: noun-only. Target type is auto-detected — no separate `--class-digest` / `--file-digest` flags. Path-shaped target (contains `/` or `\` or known file extension) routes to file digest; otherwise tries function/class index. Precedence on name ambiguity: class > function. Bare filename fuzzy-matches a unique suffix (e.g. `multisect.js` → `src/core/multisect.js` if unique; reports ambiguity otherwise).
 - **Verified against**: `src/argparse.js:207`
 
 ---

@@ -416,8 +416,23 @@ export class CodeSearchIndex {
    * @returns {object|null} digest object with target_type field, or null
    */
   buildDigest(target, opts = {}) {
-    // FILE@NAME form is always a function lookup
+    // FILE@NAME form: function-or-class lookup. Used by the GUI right-click
+    // path which always supplies file+name. We still need to dispatch on the
+    // matched entry's type — a class can come through this path (e.g. when
+    // the user right-clicks a Classes accordion header).
     if (target.includes('@')) {
+      const at = target.indexOf('@');
+      const pathHint = target.slice(0, at);
+      const funcName = target.slice(at + 1);
+      const orig = this.getOriginalName ? this.getOriginalName(funcName) : funcName;
+      const matches = this.findFunctionMatches(orig, pathHint);
+      if (matches.length > 0) {
+        const m = matches[0];
+        if (m.type === 'class') return this.buildClassDigest(m, opts);
+        if (m.type === 'function' && this._looksLikeClassBody(m)) {
+          return this.buildClassDigest(m, opts);
+        }
+      }
       const d = this.buildFunctionDigest(target, opts);
       if (d) d.target_type = 'function';
       return d;

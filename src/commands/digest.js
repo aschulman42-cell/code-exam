@@ -456,7 +456,7 @@ export function formatFileDigest(digest) {
   push(`  Type:         ${id.type}`);
   push(`  Parse method: ${id.parseMethod}`);
   if (id.headerExcerpt) {
-    push(`  Header:       ${_truncate(id.headerExcerpt, 120)}`);
+    push(`  Header:       ${_truncate(id.headerExcerpt, 500)}`);
   }
   push('');
   push('  (Counts throughout this digest are STATIC call-site counts,');

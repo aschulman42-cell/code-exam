@@ -150,9 +150,15 @@ export async function handleContextAction(action) {
       break;
 
     case 'digest':
-      showMiddleTopLoading(`Digest of ${target.name}…`);
+      showMiddleTopLoading(`Digest of ${target.name || target.display_name}…`);
       try {
-        const data = await api.digest({ name: funcSpec });
+        // For file-only targets (no function/class name), send just the
+        // filepath so the backend dispatcher routes to the file digest.
+        // For function/class targets with both name and filepath, the
+        // existing funcSpec (`filepath@name`) works for both — the
+        // dispatcher checks the matched entry's type and routes accordingly.
+        const digestSpec = target.name ? funcSpec : (target.filepath || target.display_name);
+        const data = await api.digest({ name: digestSpec });
         renderDigest(data);
       } catch (err) { showMiddleTopError(err.message); }
       break;

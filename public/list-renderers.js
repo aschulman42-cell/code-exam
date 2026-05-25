@@ -223,6 +223,13 @@ export function renderClassListWithSub(container, classes, total) {
     // Double-click: show class in middle-top
     subHeader.addEventListener('dblclick', (e) => { e.stopPropagation(); onClassClick(c.name); });
 
+    // Right-click: context menu (Digest works on classes via dispatcher in
+    // CSI's buildDigest, which routes filepath@ClassName to class digest).
+    subHeader.addEventListener('contextmenu', (e) => {
+      e.stopPropagation();
+      showContextMenu(e, { name: c.name, display_name: c.name, filepath: c.filepath });
+    });
+
     container.appendChild(sub);
   }
   if (total > classes.length) container.appendChild(h('div', { className: 'list-placeholder', text: `${classes.length} of ${total} shown` }));

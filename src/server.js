@@ -22,7 +22,7 @@ import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
-import { formatFunctionDigest } from './commands/digest.js';
+import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
 import { collectPrompts } from './commands/prompts.js';
 import { displayName } from './utils.js';
 import { execCommand } from './commands/interactive.js';
@@ -1861,14 +1861,22 @@ routes['/api/digest'] = (req, res) => {
   const spec = q.name || q.func;
   if (!spec) return errorResponse(res, 'Missing ?name= parameter');
 
-  const digestObj = index.buildFunctionDigest(spec, {
+  // buildDigest is the target-aware dispatcher (#51); routes function / class /
+  // file targets to their respective builders and adds a target_type field.
+  const digestObj = index.buildDigest(spec, {
     maxCallers: safeMax(q.max, 10),
     maxCallees: safeMax(q.max, 10),
     maxStrings: parseInt(q.max_strings) || 15,
   });
-  if (!digestObj) return errorResponse(res, `Function not found: ${spec}`, 404);
+  if (!digestObj) return errorResponse(res, `Target not found: ${spec}`, 404);
 
-  const text = formatFunctionDigest(digestObj);
+  let text;
+  switch (digestObj.target_type) {
+    case 'class': text = formatClassDigest(digestObj); break;
+    case 'file':  text = formatFileDigest(digestObj); break;
+    case 'function':
+    default:      text = formatFunctionDigest(digestObj); break;
+  }
   jsonResponse(res, { spec, text, digest: digestObj });
 };
 
