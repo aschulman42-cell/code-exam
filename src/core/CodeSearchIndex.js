@@ -399,6 +399,454 @@ export class CodeSearchIndex {
   }
 
   /**
+   * Target-aware digest dispatcher (#51). Classifies the target as a
+   * function, class, or file (with class-as-function reclassification for
+   * the long-known issue where parsers tag classes as functions) and routes
+   * to the appropriate digest builder.
+   *
+   * Function output is byte-identical to buildFunctionDigest (with a
+   * target_type='function' field added). Class and file paths produce
+   * distinct structured shapes — see buildClassDigest, buildFileDigest.
+   *
+   * Precedence when ambiguous: class > file > function. A one-line
+   * `alsoMatches` field surfaces the other target type if both resolve.
+   *
+   * @param {string} target — function/class name, FILE@name, or file path
+   * @param {object} [opts] — same opts as buildFunctionDigest
+   * @returns {object|null} digest object with target_type field, or null
+   */
+  buildDigest(target, opts = {}) {
+    // FILE@NAME form is always a function lookup
+    if (target.includes('@')) {
+      const d = this.buildFunctionDigest(target, opts);
+      if (d) d.target_type = 'function';
+      return d;
+    }
+
+    // File path detection: contains a slash, or ends with a known source-file extension
+    const looksLikeFilePath = /[\/\\]/.test(target) || /\.[a-zA-Z0-9]{1,5}$/.test(target);
+    if (looksLikeFilePath) {
+      // File digest will land in Commit B; for now, fall through to function lookup
+      // (preserves today's behavior of "file path doesn't resolve" → null)
+    }
+
+    // Function/class lookup via the function index (classes are stored there with type='class')
+    const orig = this.getOriginalName ? this.getOriginalName(target) : target;
+    const matches = this.findFunctionMatches(orig, null);
+    if (matches.length > 0) {
+      const m = matches[0];
+      if (m.type === 'class') {
+        return this.buildClassDigest(m, opts);
+      }
+      // class-as-function heuristic: function-typed entry whose body declares a class
+      if (m.type === 'function' && this._looksLikeClassBody(m)) {
+        return this.buildClassDigest(m, opts);
+      }
+      const d = this.buildFunctionDigest(target, opts);
+      if (d) d.target_type = 'function';
+      return d;
+    }
+
+    // Fallback: look in listClasses for the target name (covers inferred
+    // classes — those known only via ClassName::method but never indexed
+    // as a class entry themselves). listClasses() returns an array.
+    const allClasses = this.listClasses();
+    const fallbackClass = allClasses.find(c => {
+      const cBare = c.name.includes('::') ? c.name.split('::').pop() : c.name;
+      return cBare === target || c.name === target;
+    });
+    if (fallbackClass) {
+      const fn = { name: fallbackClass.name, filepath: fallbackClass.filepath, start: fallbackClass.start, end: fallbackClass.end, type: 'class' };
+      return this.buildClassDigest(fn, opts);
+    }
+
+    return null;
+  }
+
+  /**
+   * Heuristic: does this function-typed entry's body declare a class?
+   * Used by buildDigest to reclassify class-as-function entries that the
+   * parser miscategorized. Conservative — false negatives OK (just falls
+   * back to function digest), false positives less so (would produce
+   * class-shape output for an actual function).
+   */
+  _looksLikeClassBody(fn) {
+    const lines = this.fileLines.get(fn.filepath);
+    if (!lines) return false;
+    const headLine = lines[fn.start - 1] || '';
+    // Strong signal: the declaration line itself contains `class Name`
+    return /\bclass\s+\w/.test(headLine);
+  }
+
+  /**
+   * Extract `extends` parents and `implements` interfaces from a class
+   * declaration line. Best-effort across JS/TS/Python/C++/Java syntax.
+   * Returns { extends: string[], implements: string[] } — empty arrays
+   * when nothing parseable is found.
+   */
+  _extractClassHierarchy(declarationLine) {
+    const result = { extends: [], implements: [] };
+    if (!declarationLine) return result;
+    const line = declarationLine.trim();
+
+    // JS/TS/Java: class Foo extends Bar [implements I1, I2]
+    const jsExtends = line.match(/\bclass\s+\w+(?:<[^>]*>)?\s+extends\s+([\w.<>,\s]+?)(?:\s+implements\s|\s*\{|$)/);
+    if (jsExtends) {
+      result.extends = [jsExtends[1].trim()];
+    }
+    const jsImplements = line.match(/\bimplements\s+([\w.<>,\s]+?)(?:\s*\{|$)/);
+    if (jsImplements) {
+      result.implements = jsImplements[1].split(',').map(s => s.trim()).filter(Boolean);
+    }
+    if (result.extends.length || result.implements.length) return result;
+
+    // Python: class Foo(Bar, Baz):
+    const pyClass = line.match(/\bclass\s+\w+\s*\(([^)]+)\)\s*:/);
+    if (pyClass) {
+      result.extends = pyClass[1].split(',').map(s => s.trim()).filter(Boolean);
+      return result;
+    }
+
+    // C++: class Foo : public Bar [, public Baz]   (also struct, also virtual)
+    const cppClass = line.match(/\b(?:class|struct)\s+\w+\s*:\s*(.+?)\s*\{/);
+    if (cppClass) {
+      result.extends = cppClass[1]
+        .split(',')
+        .map(s => s.replace(/^\s*(public|private|protected|virtual)\s+/g, '').trim())
+        .filter(Boolean);
+      return result;
+    }
+
+    return result;
+  }
+
+  /**
+   * Assemble a class digest. Same general structure as the function digest
+   * but with class-shaped sections:
+   *   - identity     — class name, file(s), line range, extends/implements, method count
+   *   - methods      — one line per method (name, line range, modifier)
+   *   - instantiationSites — `new ClassName(...)` callers (uses findCallers)
+   *   - externalCalls — aggregated across all methods of the class
+   *   - strings / breadcrumbs / comments — flat (whole-class scope)
+   *   - commands     — commands handled by any method of this class
+   *
+   * Per #51 design decisions: sections stay flat (not per-method); class
+   * hierarchy stops at immediate parents; methods only (no fields in v1).
+   * Documented exhaustively in the implementation worklist's "Resolved
+   * design choices" section and in issue #60 for C++/Java specifics.
+   *
+   * @param {object} fn — function-index entry with type='class'
+   * @param {object} [opts] — maxCallers, maxCallees, maxStrings, etc.
+   * @returns {object|null}
+   */
+  buildClassDigest(fn, opts = {}) {
+    const {
+      maxCallers = 10,
+      maxCallees = 10,
+      maxStrings = 15,
+      minRepeatCount = 3,
+    } = opts;
+
+    const filepath = fn.filepath;
+    const lines = this.fileLines.get(filepath);
+    if (!lines) return null;
+    const bodyLines = lines.slice(fn.start - 1, fn.end);
+
+    // --- Identity ---
+    const dn = this.getDisplayName(fn.name);
+    const declarationLine = lines[fn.start - 1] || '';
+    const hierarchy = this._extractClassHierarchy(declarationLine);
+
+    // Cross-file methods: ask listClasses for the full method list
+    // (handles C++ split .h/.cpp case opportunistically — see issue #60).
+    // listClasses() returns an array; find by bare class name + filepath
+    // to disambiguate same-named classes across files.
+    const allClasses = this.listClasses();
+    const bareClassName = fn.name.includes('::') ? fn.name.split('::').pop() : fn.name;
+    const classRecord = allClasses.find(c => {
+      const cBare = c.name.includes('::') ? c.name.split('::').pop() : c.name;
+      return cBare === bareClassName && c.filepath === filepath;
+    }) || allClasses.find(c => {
+      const cBare = c.name.includes('::') ? c.name.split('::').pop() : c.name;
+      return cBare === bareClassName;
+    });
+    const methodEntries = classRecord ? classRecord.methods : [];
+    // Files referenced by any method (primary + additional for split-class case)
+    const fileSet = new Set([filepath]);
+    for (const me of methodEntries) fileSet.add(me.filepath);
+    const additionalFiles = [...fileSet].filter(f => f !== filepath);
+
+    // Bare-name uniqueness check (same as buildFunctionDigest)
+    this._ensureFunctionIndex();
+    const bareOf = (n) => {
+      let b = n.includes('::') ? n.split('::').pop() : n;
+      if (b.includes('@')) b = b.split('@')[0];
+      return b;
+    };
+    let bareCount = 0;
+    if (this.functionIndex) {
+      for (const funcs of Object.values(this.functionIndex)) {
+        for (const fname of Object.keys(funcs)) {
+          if (bareOf(fname) === bareClassName) bareCount++;
+        }
+      }
+    }
+
+    const identity = {
+      name: fn.name,
+      displayName: dn,
+      filepath,
+      additionalFiles: additionalFiles.length > 0 ? additionalFiles : null,
+      startLine: fn.start,
+      endLine: fn.end,
+      lineCount: fn.end - fn.start + 1,
+      type: 'class',
+      parseMethod: this.parseMethod || 'unknown',
+      extends: hierarchy.extends,
+      implements: hierarchy.implements,
+      methodCount: methodEntries.length,
+      bareUnique: bareCount === 1,
+      bareDuplicateCount: bareCount,
+    };
+
+    // --- Methods (one line per method, name + line range + modifier) ---
+    const methods = methodEntries.map(me => {
+      const methodDn = this.getDisplayName(me.name);
+      // Modifier extraction: read the method's first line and look for
+      // static / async / private / get / set keywords. Best-effort across
+      // JS/TS/Java; C++ access specifiers are block-based so this misses
+      // them (tracked in issue #60).
+      const methodFileLines = this.fileLines.get(me.filepath) || [];
+      const methodHead = methodFileLines[me.start - 1] || '';
+      const modifierBits = [];
+      if (/\bstatic\b/.test(methodHead)) modifierBits.push('static');
+      if (/\basync\b/.test(methodHead)) modifierBits.push('async');
+      if (/\bprivate\b/.test(methodHead)) modifierBits.push('private');
+      if (/\bpublic\b/.test(methodHead)) modifierBits.push('public');
+      if (/\bprotected\b/.test(methodHead)) modifierBits.push('protected');
+      if (/^\s*(get|set)\s+\w/.test(methodHead)) modifierBits.push(RegExp.$1);
+      // Underscore-prefix convention often signals "private" in JS/Python
+      const methodLeaf = me.name.includes('::') ? me.name.split('::').pop() : me.name;
+      if (modifierBits.length === 0 && /^_/.test(methodLeaf)) modifierBits.push('(private by convention)');
+      return {
+        name: me.name,
+        displayName: methodDn,
+        filepath: me.filepath,
+        startLine: me.start,
+        endLine: me.end,
+        lineCount: me.lines,
+        modifier: modifierBits.join(' ') || '',
+      };
+    }).sort((a, b) => a.startLine - b.startLine);
+
+    // --- Instantiation sites (uses findCallers on the class name) ---
+    let rawCallers = [];
+    try {
+      rawCallers = this.findCallers(fn.name, 500);
+    } catch (e) {
+      if (e.code === 'SHORT_NAME_BAILOUT') {
+        rawCallers = this._findCallersByExactRegex(fn.name, 500);
+      } else {
+        throw e;
+      }
+    }
+    const byCaller = new Map();
+    for (const c of rawCallers) {
+      const name = c.caller_function || '(file scope)';
+      if (!byCaller.has(name)) byCaller.set(name, []);
+      byCaller.get(name).push({
+        filepath: c.filepath,
+        line: c.line_number,
+        text: c.line_text || '',
+      });
+    }
+    const instantiationSection = {
+      totalSites: rawCallers.length,
+      distinctCallers: byCaller.size,
+      byCaller: [...byCaller.entries()]
+        .sort((a, b) => b[1].length - a[1].length)
+        .slice(0, maxCallers)
+        .map(([name, sites]) => ({
+          callerName: name,
+          callerDisplayName: this.getDisplayName(name),
+          siteCount: sites.length,
+          sites: sites.slice(0, 3),
+        })),
+    };
+
+    // --- External calls (aggregated across all methods of the class) ---
+    // Walk each method, collect callees, dedup across the class.
+    const classWideCalleeTally = new Map();
+    for (const me of methodEntries) {
+      try {
+        const rawCallees = this.findCallees(me.name, me.filepath);
+        for (const ce of rawCallees) {
+          const nm = ce.name || ce.display_name || '(unknown)';
+          const siteCount = Array.isArray(ce.call_sites) ? ce.call_sites.length : 1;
+          classWideCalleeTally.set(nm, (classWideCalleeTally.get(nm) || 0) + siteCount);
+        }
+      } catch { /* skip methods that error out on findCallees */ }
+    }
+    const externalCallsSection = {
+      totalSites: [...classWideCalleeTally.values()].reduce((s, n) => s + n, 0),
+      distinctCallees: classWideCalleeTally.size,
+      topByFrequency: [...classWideCalleeTally.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, maxCallees)
+        .map(([name, count]) => ({
+          calleeName: name,
+          calleeDisplayName: this.getDisplayName(name),
+          siteCount: count,
+        })),
+    };
+
+    // --- Strings (flat across class body, same machinery as function digest) ---
+    const perClassStringCounts = new Map();
+    const strRe = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|`((?:[^`\\]|\\.)*)`/g;
+    for (const line of bodyLines) {
+      if (!line) continue;
+      strRe.lastIndex = 0;
+      let m;
+      while ((m = strRe.exec(line)) !== null) {
+        const val = m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : m[3]);
+        if (!val || val.length < 2) continue;
+        perClassStringCounts.set(val, (perClassStringCounts.get(val) || 0) + 1);
+      }
+    }
+    let strTableMap = null;
+    try {
+      const strTable = this.ensureStringTable ? this.ensureStringTable(2, false) : null;
+      if (Array.isArray(strTable)) {
+        strTableMap = new Map();
+        for (const entry of strTable) {
+          if (entry && entry.value) strTableMap.set(entry.value, entry.count);
+        }
+      }
+    } catch { /* ignore */ }
+    const getGlobalCount = (val) => strTableMap ? strTableMap.get(val) ?? null : null;
+    const distinctiveStrings = [...perClassStringCounts.entries()]
+      .map(([val, localCount]) => ({ val, localCount, globalCount: getGlobalCount(val) }))
+      .sort((a, b) => {
+        const ag = a.globalCount == null ? 1 : a.globalCount;
+        const bg = b.globalCount == null ? 1 : b.globalCount;
+        return ag - bg;
+      })
+      .slice(0, maxStrings);
+    const repeatedStrings = [...perClassStringCounts.entries()]
+      .filter(([, c]) => c >= minRepeatCount)
+      .map(([val, count]) => ({ val, count }))
+      .sort((a, b) => b.count - a.count);
+    const stringsSection = {
+      totalStrings: [...perClassStringCounts.values()].reduce((s, n) => s + n, 0),
+      distinctStrings: perClassStringCounts.size,
+      distinctive: distinctiveStrings,
+      repeated: repeatedStrings,
+    };
+
+    // --- Breadcrumbs (flat across class body) ---
+    const markersByLine = new Map();
+    try {
+      const bc = this.extractBreadcrumbs ? this.extractBreadcrumbs(false) : null;
+      if (bc && bc.markers) {
+        for (const m of bc.markers) {
+          if (m.filepath !== filepath || m.line < fn.start || m.line > fn.end) continue;
+          markersByLine.set(m.line, { label: m.label, line: m.line });
+        }
+      }
+      if (bc && bc.events) {
+        for (const e of bc.events) {
+          if (e.filepath !== filepath || e.line < fn.start || e.line > fn.end) continue;
+          if (!markersByLine.has(e.line)) {
+            markersByLine.set(e.line, { label: e.name, line: e.line });
+          }
+        }
+      }
+    } catch { /* ignore */ }
+    const breadcrumbsSection = {
+      markers: [...markersByLine.values()].sort((a, b) => a.line - b.line),
+    };
+
+    // --- Comments (flat across class body — reuses _isInsideString state machine) ---
+    const comments = [];
+    let carryState = 'code';
+    for (let i = 0; i < bodyLines.length; i++) {
+      const line = bodyLines[i] || '';
+      if (carryState === 'bc') {
+        const endIdx = line.indexOf('*/');
+        const content = (endIdx >= 0 ? line.slice(0, endIdx) : line)
+          .replace(/^\s*\*\s?/, '').trim();
+        if (content) comments.push({ line: fn.start + i, kind: 'block', text: content });
+        carryState = endIdx >= 0 ? 'code' : 'bc';
+        continue;
+      }
+      let j = 0;
+      let emitted = false;
+      while (j < line.length - 1) {
+        const two = line[j] + line[j + 1];
+        if ((two === '//' || two === '/*') && !_isInsideString(line, j, carryState)) {
+          if (two === '//') {
+            const content = line.slice(j + 2).trim();
+            if (content) comments.push({ line: fn.start + i, kind: 'line', text: content });
+            emitted = true;
+            break;
+          } else {
+            const blockEnd = line.indexOf('*/', j + 2);
+            if (blockEnd >= 0) {
+              const content = line.slice(j + 2, blockEnd).trim();
+              if (content) comments.push({ line: fn.start + i, kind: 'block-inline', text: content });
+              j = blockEnd + 2;
+              continue;
+            } else {
+              const content = line.slice(j + 2).trim();
+              if (content) comments.push({ line: fn.start + i, kind: 'block', text: content });
+              carryState = 'bc';
+              emitted = true;
+              break;
+            }
+          }
+        }
+        j++;
+      }
+      if (!emitted && carryState !== 'bc') {
+        const endState = _scanLineState(line, carryState);
+        carryState = (endState === 'bc' || endState === 't') ? endState : 'code';
+      }
+    }
+
+    // --- Commands handled by any method of this class ---
+    let commandsSection = { cliOptions: [], commands: [], routes: [], guiActions: [] };
+    try {
+      const cat = this.extractCommandCatalog ? this.extractCommandCatalog(false) : null;
+      if (cat) {
+        const methodNameSet = new Set();
+        for (const me of methodEntries) {
+          methodNameSet.add(me.name);
+          methodNameSet.add(bareOf(me.name));
+        }
+        const matchesAnyMethod = (item) => {
+          const f = item.func || item.handler?.func;
+          return f && (methodNameSet.has(f) || methodNameSet.has(bareOf(f)));
+        };
+        for (const key of ['cliOptions', 'commands', 'routes', 'guiActions']) {
+          if (cat[key]) commandsSection[key] = cat[key].filter(matchesAnyMethod);
+        }
+      }
+    } catch { /* ignore */ }
+
+    return {
+      target_type: 'class',
+      identity,
+      methods,
+      instantiationSites: instantiationSection,
+      externalCalls: externalCallsSection,
+      strings: stringsSection,
+      breadcrumbs: breadcrumbsSection,
+      comments,
+      commands: commandsSection,
+    };
+  }
+
+  /**
    * #329 Phase 1: assemble a structured, non-AI digest of a single function
    * by pulling together signals from every CodeExam facility that can
    * mechanically describe the function's shape and content. No interpretation
