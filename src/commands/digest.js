@@ -1,13 +1,29 @@
 /**
- * digest.js — #329 Phase 1.
+ * digest.js — CLI handlers for `--digest` and `--comments-only`.
  *
- * CLI handler for `--digest FUNCNAME`. Calls index.buildFunctionDigest()
- * (the pure data-assembly method on CodeSearchIndex) then formats the
- * structured object as readable text for stdout.
+ * Originally landed for #329 Phase 1 (function digest). Extended for
+ * #51 (target-aware --digest across function / class / file) and #61
+ * (standalone --comments-only across the same three target types,
+ * plus gating the COMMENTS section in --digest behind --verbose).
  *
- * Strict rule: this formatter only displays what the digest object
- * contains — no derived interpretations, no AI-style summaries. Every
- * line is traceable to a mechanical extraction in buildFunctionDigest.
+ * Exports:
+ *   - `formatFunctionDigest(digest, opts)` / `formatClassDigest` /
+ *     `formatFileDigest` — render a structured digest object as text;
+ *     opts.verbose controls whether the COMMENTS section is inlined
+ *     or stubbed with a hint.
+ *   - `formatCommentsOnly(digest)` — banner + organized comments
+ *     (flat for function targets; grouped by method for classes;
+ *     grouped by top-level declaration for files).
+ *   - `doDigest(index, args)` — CLI entry for `--digest <target>`.
+ *   - `doCommentsOnly(index, args)` — CLI entry for the standalone
+ *     `--comments-only <target>` form (legacy --extract X
+ *     --comments-only modifier lives in browse.js).
+ *
+ * Strict rule for all formatters: only display what the digest
+ * object contains — no derived interpretations, no AI-style
+ * summaries. Every line is traceable to a mechanical extraction in
+ * CSI's buildDigest / buildFunctionDigest / buildClassDigest /
+ * buildFileDigest.
  */
 
 function _shortPath(fp, maxLen = 60) {
@@ -22,11 +38,37 @@ function _truncate(s, maxLen) {
 }
 
 /**
+ * Render the COMMENTS IN BODY section into the formatter's output, gating
+ * by the `verbose` opt. When verbose is false (default), emits a stub
+ * section with a hint pointing the user at `--comments-only` for the
+ * standalone command or `--digest -v` to include comments inline.
+ * Skipped entirely when the digest has no comments.
+ */
+function _renderCommentsSection(push, digest, opts, sectionLabel) {
+  if (!digest.comments || digest.comments.length === 0) return;
+  push(sectionLabel);
+  if (opts && opts.verbose) {
+    for (const c of digest.comments) {
+      // Tag distinguishes line ('//'), JSDoc ('/**'), and regular block ('/* ').
+      let tag;
+      if (c.kind === 'line') tag = '// ';
+      else if (c.kind === 'jsdoc') tag = '/**';
+      else tag = '/* ';
+      push(`    L${c.line} ${tag}  ${_truncate(c.text, 110)}`);
+    }
+  } else {
+    push('    (not shown by default — run --comments-only <target> for just');
+    push('     comments, or --digest <target> -v to include them inline here)');
+  }
+  push('');
+}
+
+/**
  * Format a digest object (from buildFunctionDigest) as plain text.
  * Sections with no content are omitted entirely (unless specifically
  * always-shown, like Identity/Callers/Callees).
  */
-export function formatFunctionDigest(digest) {
+export function formatFunctionDigest(digest, opts = {}) {
   if (!digest) return 'Function not found.\n';
   const out = [];
   const push = (s) => out.push(s);
@@ -146,15 +188,8 @@ export function formatFunctionDigest(digest) {
     push('');
   }
 
-  // --- Comments ---
-  if (digest.comments && digest.comments.length > 0) {
-    push('─── COMMENTS IN BODY ────────────────────────────────────────────────');
-    for (const c of digest.comments) {
-      const tag = c.kind === 'line' ? '//' : '/*';
-      push(`    L${c.line} ${tag}  ${_truncate(c.text, 110)}`);
-    }
-    push('');
-  }
+  // --- Comments (gated by verbose; stub-with-hint by default) ---
+  _renderCommentsSection(push, digest, opts, '─── COMMENTS IN BODY ────────────────────────────────────────────────');
 
   // --- Command-catalog cross-reference ---
   const cmd = digest.commands;
@@ -246,7 +281,7 @@ export function formatFunctionDigest(digest) {
  *
  * Per #51 design decisions: sections stay flat, no per-method nesting.
  */
-export function formatClassDigest(digest) {
+export function formatClassDigest(digest, opts = {}) {
   if (!digest) return 'Class not found.\n';
   const out = [];
   const push = (s) => out.push(s);
@@ -374,15 +409,8 @@ export function formatClassDigest(digest) {
     push('');
   }
 
-  // --- Comments (flat) ---
-  if (digest.comments && digest.comments.length > 0) {
-    push('─── COMMENTS IN BODY (flat across class) ────────────────────────────');
-    for (const c of digest.comments) {
-      const tag = c.kind === 'line' ? '//' : '/*';
-      push(`    L${c.line} ${tag}  ${_truncate(c.text, 110)}`);
-    }
-    push('');
-  }
+  // --- Comments (gated by verbose; stub-with-hint by default) ---
+  _renderCommentsSection(push, digest, opts, '─── COMMENTS IN BODY (flat across class) ────────────────────────────');
 
   // --- Command-catalog cross-reference (any method handling commands) ---
   const cmd = digest.commands;
@@ -436,7 +464,7 @@ export function formatClassDigest(digest) {
  * does it fit in the codebase?" — different question from the
  * function and class digests' "what does this unit do?"
  */
-export function formatFileDigest(digest) {
+export function formatFileDigest(digest, opts = {}) {
   if (!digest) return 'File not found.\n';
   if (digest._error === 'ambiguous') {
     const out = ['Ambiguous file target. Multiple files match:'];
@@ -570,14 +598,8 @@ export function formatFileDigest(digest) {
     push('');
   }
 
-  if (digest.comments && digest.comments.length > 0) {
-    push('─── COMMENTS IN BODY (flat across file) ─────────────────────────────');
-    for (const c of digest.comments) {
-      const tag = c.kind === 'line' ? '//' : '/*';
-      push(`    L${c.line} ${tag}  ${_truncate(c.text, 110)}`);
-    }
-    push('');
-  }
+  // --- Comments (gated by verbose; stub-with-hint by default) ---
+  _renderCommentsSection(push, digest, opts, '─── COMMENTS IN BODY (flat across file) ─────────────────────────────');
 
   const cmd = digest.commands;
   const anyCmd =
@@ -619,10 +641,193 @@ export function formatFileDigest(digest) {
 }
 
 /**
+ * Format a comments-only output (banner + organized comments) for any
+ * target type returned by `buildDigest`. Function targets render flat;
+ * class targets group comments by method with subtitles; file targets
+ * group by top-level declaration with a `(file scope)` bucket for
+ * comments outside any top-level unit.
+ *
+ * Note on parser variance: which lines fall inside a function depends
+ * on whether tree-sitter or the regex parser ran. JSDoc comments
+ * immediately *before* a function declaration are typically included
+ * in the function's range by tree-sitter but may be excluded by the
+ * regex parser. Comments-only output is faithful to whatever the
+ * parser recorded; no special handling.
+ */
+export function formatCommentsOnly(digest) {
+  if (!digest) return 'Target not found.\n';
+  if (digest._error === 'ambiguous') {
+    const out = ['Ambiguous target. Multiple files match:'];
+    for (const m of digest._ambiguousMatches) out.push('  ' + m);
+    out.push('Pass a more specific path.');
+    return out.join('\n') + '\n';
+  }
+  const out = [];
+  const push = (s) => out.push(s);
+
+  // --- Banner (identity-only, matching digest banner style) ---
+  push('═'.repeat(72));
+  if (digest.target_type === 'class') {
+    push(`  Comments in class ${digest.identity.displayName || digest.identity.name}`);
+  } else if (digest.target_type === 'file') {
+    push(`  Comments in file ${digest.identity.filepath}`);
+  } else {
+    push(`  Comments in ${digest.identity.displayName || digest.identity.name}`);
+  }
+  push('═'.repeat(72));
+  if (digest.identity.filepath && digest.target_type !== 'file') {
+    push(`  File:    ${digest.identity.filepath}`);
+  }
+  if (digest.identity.indexPath) push(`  Index:   ${digest.identity.indexPath}`);
+  if (digest.identity.startLine != null && digest.identity.endLine != null) {
+    const meta = digest.target_type === 'class' && digest.identity.methodCount != null
+      ? `  (${digest.identity.lineCount} lines, ${digest.identity.methodCount} methods)`
+      : `  (${digest.identity.lineCount} lines)`;
+    push(`  Lines:   L${digest.identity.startLine}-L${digest.identity.endLine}${meta}`);
+  } else if (digest.identity.lineCount != null) {
+    push(`  Lines:   ${digest.identity.lineCount}`);
+  }
+  push('');
+
+  const comments = digest.comments || [];
+  if (comments.length === 0) {
+    push('  (no comments found in target)');
+    return out.join('\n') + '\n';
+  }
+
+  // Helper to render one comment line. Tags distinguish the comment kind:
+  //   //    line comment        (`// foo`)
+  //   /**   JSDoc block         (`/** foo */`)
+  //   /*    regular block       (`/* foo */`)
+  // 'block-inline' is a single-line block comment; rendered with `/*` tag.
+  const emitComment = (c, indent) => {
+    let tag;
+    if (c.kind === 'line') tag = '// ';
+    else if (c.kind === 'jsdoc') tag = '/**';
+    else tag = '/* ';
+    push(`${indent}L${c.line} ${tag}  ${_truncate(c.text, 110)}`);
+  };
+
+  // Build a Set of every line that's part of any comment block — used by the
+  // walk-backward heuristic to extend each method/decl's range backward to
+  // include an immediately-preceding JSDoc block. The extractor stashes a
+  // full per-block line list on `digest.commentLines` (covers opener `/**`,
+  // closer `*/`, and content-less continuation lines, so walk-backward
+  // doesn't stop short on the closer). Fall back to the lines of emitted
+  // comments when the extractor didn't provide commentLines (older indexes).
+  const commentLineSet = new Set(
+    Array.isArray(digest.commentLines) ? digest.commentLines : comments.map(c => c.line)
+  );
+  const extendBackward = (startLine) => {
+    let ext = startLine;
+    for (let ln = startLine - 1; ln >= 1; ln--) {
+      if (commentLineSet.has(ln)) ext = ln;
+      else break;
+    }
+    return ext;
+  };
+
+  // --- Organize comments by target type ---
+  if (digest.target_type === 'function') {
+    // Flat, comments in line-order. Reads like a pseudo-spec of the function.
+    for (const c of comments) emitComment(c, '    ');
+  } else if (digest.target_type === 'class') {
+    // Group by method. Comments outside any method go under (class scope).
+    // Each method's effective range is extended backward to include any
+    // contiguous block of comments immediately preceding it — typically a
+    // JSDoc block describing the method.
+    const methods = (digest.methods || []).slice().sort((a, b) => a.startLine - b.startLine);
+    // Compute extended start for each method, capped by the previous method's endLine + 1
+    let prevEnd = 0;
+    for (const m of methods) {
+      m.attributedStart = Math.max(extendBackward(m.startLine), prevEnd + 1);
+      prevEnd = m.endLine;
+    }
+    const classScopeComments = [];
+    const byMethod = new Map();
+    for (const c of comments) {
+      let found = null;
+      for (const m of methods) {
+        if (c.line >= m.attributedStart && c.line <= m.endLine) {
+          found = m;
+          break;
+        }
+      }
+      if (found) {
+        if (!byMethod.has(found.name)) byMethod.set(found.name, []);
+        byMethod.get(found.name).push(c);
+      } else {
+        classScopeComments.push(c);
+      }
+    }
+    if (classScopeComments.length > 0) {
+      push(`▾ (class scope)`);
+      for (const c of classScopeComments) emitComment(c, '      ');
+      push('');
+    }
+    for (const m of methods) {
+      const ms = byMethod.get(m.name);
+      if (!ms || ms.length === 0) continue;
+      const leafName = m.name.includes('::') ? m.name.split('::').pop() : m.name;
+      push(`▾ ${leafName}  L${m.startLine}-L${m.endLine}  (${m.lineCount}L)`);
+      for (const c of ms) emitComment(c, '      ');
+      push('');
+    }
+  } else if (digest.target_type === 'file') {
+    // Group by top-level decl. Same walk-backward attribution as classes:
+    // a top-level function's JSDoc above its declaration gets attributed
+    // to that function instead of falling into (file scope).
+    const decls = (digest.topLevelDeclarations || []).slice().sort((a, b) => a.startLine - b.startLine);
+    let prevEnd = 0;
+    for (const d of decls) {
+      d.attributedStart = Math.max(extendBackward(d.startLine), prevEnd + 1);
+      prevEnd = d.endLine;
+    }
+    const fileScopeComments = [];
+    const byDecl = new Map();
+    for (const c of comments) {
+      let found = null;
+      for (const d of decls) {
+        if (c.line >= d.attributedStart && c.line <= d.endLine) {
+          found = d;
+          break;
+        }
+      }
+      if (found) {
+        if (!byDecl.has(found.name)) byDecl.set(found.name, []);
+        byDecl.get(found.name).push(c);
+      } else {
+        fileScopeComments.push(c);
+      }
+    }
+    if (fileScopeComments.length > 0) {
+      push(`▾ (file scope)`);
+      for (const c of fileScopeComments) emitComment(c, '      ');
+      push('');
+    }
+    for (const d of decls) {
+      const ds = byDecl.get(d.name);
+      if (!ds || ds.length === 0) continue;
+      const exportedTag = d.exported ? '  [exported]' : '';
+      push(`▾ ${d.name}  [${d.type}]  L${d.startLine}-L${d.endLine}  (${d.lineCount}L)${exportedTag}`);
+      for (const c of ds) emitComment(c, '      ');
+      push('');
+    }
+  }
+
+  return out.join('\n') + '\n';
+}
+
+/**
  * CLI handler for `--digest <target>`. Dispatches by target_type.
  * Function targets keep today's behavior (byte-identical output).
  * Class targets produce class-shape output (Commit A, #51).
  * File targets produce file-shape output (Commit B, #51).
+ *
+ * COMMENTS section is gated behind `-v` / `--verbose` per #61: by
+ * default the section renders as a stub with a hint pointing to
+ * `--comments-only` and `--digest -v`. Pass `-v` to inline the full
+ * COMMENTS section as before.
  */
 export function doDigest(index, args) {
   const spec = args.digest;
@@ -641,16 +846,45 @@ export function doDigest(index, args) {
     console.log(`Try with file hint: --digest FILE@FUNCNAME`);
     return;
   }
+  const formatterOpts = { verbose: !!args.verbose };
   switch (digest.target_type) {
     case 'class':
-      process.stdout.write(formatClassDigest(digest));
+      process.stdout.write(formatClassDigest(digest, formatterOpts));
       break;
     case 'file':
-      process.stdout.write(formatFileDigest(digest));
+      process.stdout.write(formatFileDigest(digest, formatterOpts));
       break;
     case 'function':
     default:
-      process.stdout.write(formatFunctionDigest(digest));
+      process.stdout.write(formatFunctionDigest(digest, formatterOpts));
       break;
   }
+}
+
+/**
+ * CLI handler for the standalone form of `--comments-only <target>`
+ * (#61). Reuses `buildDigest` for target classification (function /
+ * class / file) and renders only the comments via `formatCommentsOnly`.
+ * Legacy modifier form (`--extract X --comments-only`) is dispatched
+ * elsewhere (src/commands/browse.js) and unaffected.
+ */
+export function doCommentsOnly(index, args) {
+  const spec = args.comments_only;
+  if (!spec || spec === '.' || spec === true) {
+    console.log('Error: --comments-only requires a function, class, or file target.');
+    console.log('(For the legacy modifier form, pair with --extract: --extract X --comments-only)');
+    return;
+  }
+  const opts = {
+    maxCallers: 0,  // we don't need callers/callees for comments-only
+    maxCallees: 0,
+    maxStrings: 0,
+  };
+  const digest = index.buildDigest(spec, opts);
+  if (!digest) {
+    console.log(`Target not found: '${spec}'`);
+    console.log(`Try with a more specific path or full function name.`);
+    return;
+  }
+  process.stdout.write(formatCommentsOnly(digest));
 }

@@ -786,16 +786,27 @@ export class CodeSearchIndex {
     };
 
     // --- Comments (flat across class body — reuses _isInsideString state machine) ---
+    // JSDoc blocks (/** ... */) get kind='jsdoc' so the renderer can
+    // distinguish them from regular /* */ blocks and attribute them to the
+    // method they immediately precede (#61).
     const comments = [];
+    // Track every line that's part of any comment block (including openers,
+    // closers, and content-less continuation lines). Used by the renderer's
+    // walk-backward heuristic to attribute a contiguous comment block to the
+    // method it immediately precedes — works even when the closer `*/` line
+    // has no visible content of its own.
+    const commentLines = new Set();
     let carryState = 'code';
     for (let i = 0; i < bodyLines.length; i++) {
       const line = bodyLines[i] || '';
-      if (carryState === 'bc') {
+      if (carryState === 'bc' || carryState === 'jsdoc') {
         const endIdx = line.indexOf('*/');
         const content = (endIdx >= 0 ? line.slice(0, endIdx) : line)
           .replace(/^\s*\*\s?/, '').trim();
-        if (content) comments.push({ line: fn.start + i, kind: 'block', text: content });
-        carryState = endIdx >= 0 ? 'code' : 'bc';
+        const kind = carryState === 'jsdoc' ? 'jsdoc' : 'block';
+        commentLines.add(fn.start + i);
+        if (content) comments.push({ line: fn.start + i, kind, text: content });
+        carryState = endIdx >= 0 ? 'code' : carryState;
         continue;
       }
       let j = 0;
@@ -805,20 +816,26 @@ export class CodeSearchIndex {
         if ((two === '//' || two === '/*') && !_isInsideString(line, j, carryState)) {
           if (two === '//') {
             const content = line.slice(j + 2).trim();
+            commentLines.add(fn.start + i);
             if (content) comments.push({ line: fn.start + i, kind: 'line', text: content });
             emitted = true;
             break;
           } else {
+            const isJsdoc = line[j + 2] === '*' && line[j + 3] !== '/';
             const blockEnd = line.indexOf('*/', j + 2);
             if (blockEnd >= 0) {
               const content = line.slice(j + 2, blockEnd).trim();
-              if (content) comments.push({ line: fn.start + i, kind: 'block-inline', text: content });
+              const kind = isJsdoc ? 'jsdoc' : 'block-inline';
+              commentLines.add(fn.start + i);
+              if (content) comments.push({ line: fn.start + i, kind, text: content });
               j = blockEnd + 2;
               continue;
             } else {
               const content = line.slice(j + 2).trim();
-              if (content) comments.push({ line: fn.start + i, kind: 'block', text: content });
-              carryState = 'bc';
+              const kind = isJsdoc ? 'jsdoc' : 'block';
+              commentLines.add(fn.start + i);
+              if (content) comments.push({ line: fn.start + i, kind, text: content });
+              carryState = isJsdoc ? 'jsdoc' : 'bc';
               emitted = true;
               break;
             }
@@ -826,11 +843,12 @@ export class CodeSearchIndex {
         }
         j++;
       }
-      if (!emitted && carryState !== 'bc') {
+      if (!emitted && carryState !== 'bc' && carryState !== 'jsdoc') {
         const endState = _scanLineState(line, carryState);
         carryState = (endState === 'bc' || endState === 't') ? endState : 'code';
       }
     }
+    const commentLinesArr = Array.from(commentLines).sort((a, b) => a - b);
 
     // --- Commands handled by any method of this class ---
     let commandsSection = { cliOptions: [], commands: [], routes: [], guiActions: [] };
@@ -861,6 +879,7 @@ export class CodeSearchIndex {
       strings: stringsSection,
       breadcrumbs: breadcrumbsSection,
       comments,
+      commentLines: commentLinesArr,
       commands: commandsSection,
     };
   }
@@ -1239,16 +1258,24 @@ export class CodeSearchIndex {
     };
 
     // --- Comments (flat across whole file) ---
+    // JSDoc blocks (/** ... */) get kind='jsdoc' so the renderer can
+    // distinguish them from regular /* */ blocks and attribute them to the
+    // top-level declaration they immediately precede (#61).
     const comments = [];
+    // See companion comment in buildClassDigest's extractor — commentLines
+    // is the line-set used by the renderer's walk-backward attribution.
+    const commentLines = new Set();
     let carryState = 'code';
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i] || '';
-      if (carryState === 'bc') {
+      if (carryState === 'bc' || carryState === 'jsdoc') {
         const endIdx = line.indexOf('*/');
         const content = (endIdx >= 0 ? line.slice(0, endIdx) : line)
           .replace(/^\s*\*\s?/, '').trim();
-        if (content) comments.push({ line: i + 1, kind: 'block', text: content });
-        carryState = endIdx >= 0 ? 'code' : 'bc';
+        const kind = carryState === 'jsdoc' ? 'jsdoc' : 'block';
+        commentLines.add(i + 1);
+        if (content) comments.push({ line: i + 1, kind, text: content });
+        carryState = endIdx >= 0 ? 'code' : carryState;
         continue;
       }
       let j = 0;
@@ -1258,20 +1285,26 @@ export class CodeSearchIndex {
         if ((two === '//' || two === '/*') && !_isInsideString(line, j, carryState)) {
           if (two === '//') {
             const content = line.slice(j + 2).trim();
+            commentLines.add(i + 1);
             if (content) comments.push({ line: i + 1, kind: 'line', text: content });
             emitted = true;
             break;
           } else {
+            const isJsdoc = line[j + 2] === '*' && line[j + 3] !== '/';
             const blockEnd = line.indexOf('*/', j + 2);
             if (blockEnd >= 0) {
               const content = line.slice(j + 2, blockEnd).trim();
-              if (content) comments.push({ line: i + 1, kind: 'block-inline', text: content });
+              const kind = isJsdoc ? 'jsdoc' : 'block-inline';
+              commentLines.add(i + 1);
+              if (content) comments.push({ line: i + 1, kind, text: content });
               j = blockEnd + 2;
               continue;
             } else {
               const content = line.slice(j + 2).trim();
-              if (content) comments.push({ line: i + 1, kind: 'block', text: content });
-              carryState = 'bc';
+              const kind = isJsdoc ? 'jsdoc' : 'block';
+              commentLines.add(i + 1);
+              if (content) comments.push({ line: i + 1, kind, text: content });
+              carryState = isJsdoc ? 'jsdoc' : 'bc';
               emitted = true;
               break;
             }
@@ -1279,11 +1312,12 @@ export class CodeSearchIndex {
         }
         j++;
       }
-      if (!emitted && carryState !== 'bc') {
+      if (!emitted && carryState !== 'bc' && carryState !== 'jsdoc') {
         const endState = _scanLineState(line, carryState);
         carryState = (endState === 'bc' || endState === 't') ? endState : 'code';
       }
     }
+    const commentLinesArr = Array.from(commentLines).sort((a, b) => a - b);
 
     // --- Commands (any function in this file handles a command) ---
     let commandsSection = { cliOptions: [], commands: [], routes: [], guiActions: [] };
@@ -1313,6 +1347,7 @@ export class CodeSearchIndex {
       strings: stringsSection,
       breadcrumbs: breadcrumbsSection,
       comments,
+      commentLines: commentLinesArr,
       commands: commandsSection,
     };
   }
@@ -1607,17 +1642,23 @@ export class CodeSearchIndex {
     // Cross-line state: track block-comment open/close across lines using the
     // same carryState approach as applyRenames.
     const comments = [];
+    // See companion comment in buildClassDigest's extractor — commentLines
+    // is the line-set used by the renderer's walk-backward attribution.
+    const commentLines = new Set();
     let carryState = 'code';
     for (let i = 0; i < bodyLines.length; i++) {
       const line = bodyLines[i] || '';
-      // If the line begins inside an open block comment carried from the
-      // previous line, scan for `*/` and capture the text before it.
-      if (carryState === 'bc') {
+      // If the line begins inside an open block/JSDoc comment carried from
+      // the previous line, scan for `*/` and capture the text before it.
+      // `carryState === 'jsdoc'` is a /** block; emit kind='jsdoc'.
+      if (carryState === 'bc' || carryState === 'jsdoc') {
         const endIdx = line.indexOf('*/');
         const content = (endIdx >= 0 ? line.slice(0, endIdx) : line)
           .replace(/^\s*\*\s?/, '').trim();
-        if (content) comments.push({ line: fn.start + i, kind: 'block', text: content });
-        carryState = endIdx >= 0 ? 'code' : 'bc';
+        const kind = carryState === 'jsdoc' ? 'jsdoc' : 'block';
+        commentLines.add(fn.start + i);
+        if (content) comments.push({ line: fn.start + i, kind, text: content });
+        carryState = endIdx >= 0 ? 'code' : carryState;
         continue;
       }
       // Walk the line looking for `//` or `/*` at code-state positions (not
@@ -1630,21 +1671,27 @@ export class CodeSearchIndex {
         if ((two === '//' || two === '/*') && !_isInsideString(line, j, carryState)) {
           if (two === '//') {
             const content = line.slice(j + 2).trim();
+            commentLines.add(fn.start + i);
             if (content) comments.push({ line: fn.start + i, kind: 'line', text: content });
             emitted = true;
             break;
           } else {
-            // Block comment — look for matching */ on this line
+            // Block comment — JSDoc starts with /** (but not /**/, which is empty).
+            const isJsdoc = line[j + 2] === '*' && line[j + 3] !== '/';
             const blockEnd = line.indexOf('*/', j + 2);
             if (blockEnd >= 0) {
               const content = line.slice(j + 2, blockEnd).trim();
-              if (content) comments.push({ line: fn.start + i, kind: 'block-inline', text: content });
+              const kind = isJsdoc ? 'jsdoc' : 'block-inline';
+              commentLines.add(fn.start + i);
+              if (content) comments.push({ line: fn.start + i, kind, text: content });
               j = blockEnd + 2;
               continue;
             } else {
               const content = line.slice(j + 2).trim();
-              if (content) comments.push({ line: fn.start + i, kind: 'block', text: content });
-              carryState = 'bc';
+              const kind = isJsdoc ? 'jsdoc' : 'block';
+              commentLines.add(fn.start + i);
+              if (content) comments.push({ line: fn.start + i, kind, text: content });
+              carryState = isJsdoc ? 'jsdoc' : 'bc';
               emitted = true;
               break;
             }
@@ -1655,11 +1702,12 @@ export class CodeSearchIndex {
       // Update cross-line state: if we're not in a block comment at line end,
       // check whether the line leaves us in template-literal state (which can
       // also carry across lines per _scanLineState).
-      if (!emitted && carryState !== 'bc') {
+      if (!emitted && carryState !== 'bc' && carryState !== 'jsdoc') {
         const endState = _scanLineState(line, carryState);
         carryState = (endState === 'bc' || endState === 't') ? endState : 'code';
       }
     }
+    const commentLinesArr = Array.from(commentLines).sort((a, b) => a - b);
 
     // --- Command-catalog cross-reference ---
     let commandsSection = { cliOptions: [], commands: [], routes: [], guiActions: [] };
@@ -1737,6 +1785,7 @@ export class CodeSearchIndex {
       strings: stringsSection,
       breadcrumbs: breadcrumbsSection,
       comments,
+      commentLines: commentLinesArr,
       commands: commandsSection,
       dupes: dupesSection,
       asserts: assertsSection,

@@ -19,7 +19,7 @@ import {
   doExtract, doListFiles, doShowFile, doFileBookends, doBundleSeams,
   doListFunctions, doListFunctionsAlpha, doListFunctionsSize,
 } from './commands/browse.js';
-import { doDigest } from './commands/digest.js';
+import { doDigest, doCommentsOnly } from './commands/digest.js';
 import {
   doCallers, doCallees, doMostCalled, doCallInventory,
 } from './commands/callers.js';
@@ -311,6 +311,13 @@ if (args.show_file)                         doShowFile(index, args);
 if (args._explicit.has('file_bookends'))    doFileBookends(index, args);
 if (args._explicit.has('bundle_seams'))     doBundleSeams(index, args);
 if (args.digest)                            doDigest(index, args);
+// Standalone --comments-only <target> (#61). The modifier form
+// (--extract X --comments-only) is handled in browse.js — both forms
+// coexist; only the standalone form has a string value, the modifier
+// has the '.' sentinel from optional_value's flag-only branch.
+if (typeof args.comments_only === 'string' && args.comments_only !== '.' && !args.extract) {
+  doCommentsOnly(index, args);
+}
 if (args._explicit.has('list_functions'))   doListFunctions(index, args);
 if (args.list_functions_alpha)              doListFunctionsAlpha(index, args);
 if (args.list_functions_size)               doListFunctionsSize(index, args);
@@ -535,6 +542,7 @@ if (args.interactive) {
     'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'build_fp_renames',
     'save_fingerprints',
     'command_catalog', 'string_table', 'breadcrumbs', 'prompt_catalog', 'file_bookends', 'bundle_seams', 'digest',
+    'comments_only',
   ].some(c => args._explicit.has(c) || args[c]);
 
   if (!anyCommand && !args.build_index) {

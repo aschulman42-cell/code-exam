@@ -303,7 +303,7 @@ export function parseArgs() {
     // Phase 9: Extended extraction
     ['follow_calls',         'flag',           [], ['--follow-calls']],
     ['deep',                 'optional_value', ['--deep']],
-    ['comments_only',        'flag',           ['--comments-only']],
+    ['comments_only',        'optional_value', ['--comments-only']],
 
     // Phase 4: dedup
     ['dupefiles',            'int',            ['--dupefiles']],
@@ -587,7 +587,11 @@ BROWSE:
   --extract <spec>           Extract function source: FUNCTION or FILE@FUNCTION
   --deep [N]                 With --extract: also dump callees, N levels deep
                              (default: 1). Replaces --follow-calls.
-  --comments-only            With --extract: show only full-line comments from the code
+  --comments-only [target]   Standalone: print just the comments inside the
+                             named target (function / class / file), organized
+                             as a map. Without a target, acts as a legacy
+                             modifier flag for --extract (shows only comments
+                             in the extracted function's body).
   --scan-extensions <path>   Count file extensions in a directory
   --index-extensions         Count file extensions in current index
   --indexes [path]           List available index directories

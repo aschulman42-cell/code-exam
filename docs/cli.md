@@ -9,7 +9,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 **Source of truth**: `src/argparse.js`. Every entry below carries a *Verified against* line reference. `--help` output (in `src/argparse.js::printUsage`) is sanity-check material only — drift between `--help` and `argparse.js::defs` is a real possibility and should be reconciled when noticed.
 
-**Status**: first pass generated 2026-05-24 (commit `a3fab8a`); updated 2026-05-24 for CLI normalization batch #1 (commit `2b47c79`); Path A audit pass 2026-05-24 rippled batch-#1 renames through cross-references and refreshed status markers; updated 2026-05-25 for target-aware `--digest` (#51, Commits A `070e894` + B `e565edd` + C — this commit). The file is meant to be hand-maintained by Andrew without agent assistance going forward.
+**Status**: first pass generated 2026-05-24 (commit `a3fab8a`); updated 2026-05-24 for CLI normalization batch #1 (commit `2b47c79`); Path A audit pass 2026-05-24 rippled batch-#1 renames through cross-references and refreshed status markers; updated 2026-05-25 for target-aware `--digest` (#51, Commits A `070e894` + B `e565edd` + C `71051a7`); updated 2026-05-25 for `--comments-only` standalone form + COMMENTS gated behind `-v` in `--digest` + JSDoc kind distinction + walk-backward JSDoc-to-method attribution (#61, this commit). The file is meant to be hand-maintained by Andrew without agent assistance going forward.
 
 ---
 
@@ -766,12 +766,15 @@ Deprecated alias for `--deep 1`. Continues to work; post-parse, sets `args.deep 
 - **Naming**: bare adjective. Subsumed the older `--follow-calls` flag.
 - **Verified against**: `src/argparse.js:305`
 
-#### `--comments-only`
+#### `--comments-only [target]`
 
-- **Does**: With `--extract`, show only full-line comments from the code.
-- **Good for**: Quickly reading a function's intent without its implementation.
-- **Couples with**: `--extract`.
-- **Naming**: hyphenated boolean.
+- **Does**: Two forms. **Standalone**: `--comments-only <target>` prints just the comments inside the named target (function / class / file), organized as a map. **Modifier** (legacy): `--extract X --comments-only` shows only full-line comments from the extracted function's body. The two coexist; the flag's type is `optional_value` so it accepts an arg or stands alone with `--extract`.
+- **Good for**: Reading a function's intent without its implementation (legacy modifier form). Generating a "map" or "recipe" view of a class or file — per-method or per-top-level-declaration subtitles with comments indented under each, useful as documentation prep or to verify whether code's own comments form a coherent guide to its behavior (standalone form, target-aware).
+- **Couples with**: `--extract` (modifier form). `--digest --verbose` (alternative: inline the same comments inside the digest). The standalone form dispatches via the same `buildDigest` target-classifier as `--digest`.
+- **Naming**: same flag name serves both forms; behavior differentiated by arg presence.
+- **Parser note**: a function's comments-only output depends on which lines the parser recorded as part of the function. JSDoc comments *immediately before* the function declaration are typically included by tree-sitter but may be excluded by the regex parser. Output is faithful to whatever the parser recorded.
+- **Tag distinction**: each comment line is tagged by kind — `// ` for line comments, `/**` for JSDoc blocks (both multi-line `/** ... */` and single-line `/** foo */`), and `/* ` for regular non-JSDoc block comments. JSDoc visibility in the output is useful for spotting the structured intent of methods at a glance when reading a class/file as a map.
+- **JSDoc attribution (class / file)**: a JSDoc block (or any contiguous comment block) immediately preceding a method or top-level declaration is attributed to that method/decl in the output instead of falling under `(class scope)` / `(file scope)`. The renderer walks backward from each method's `startLine` through contiguous comment-occupied lines (using a `commentLines` line-set the extractor exposes on the digest) and extends the method's effective start to the top of the block. Walk-backward is capped at the previous method's `endLine + 1`, so attribution never overshoots.
 - **Verified against**: `src/argparse.js:306`
 
 ---
@@ -1045,7 +1048,7 @@ Deprecated alias for `--deep 1`. Continues to work; post-parse, sets `args.deep 
   - **Class**: identity (with `Extends:` / `Implements:`), methods (one line each), instantiation sites, external calls aggregated across all methods, plus the shared flat strings/breadcrumbs/comments/commands sections.
   - **File**: identity (with header excerpt), exports, imports, top-level declarations, dependency edges (imported-by + imports-from), plus the shared flat sections.
 - **Good for**: Self-contained summary of any unit of code — function, class, or file — for human orientation, as LLM-analysis preamble, or for capturing point-in-time documentation. The unit-of-summary primitive.
-- **Couples with**: `--with-digest` (composer for `--analyze`; today function-only on the analyze side — class/file analyze-with-digest is future work). File digest's dependency-edges section uses the same import-graph data as `--file-map`.
+- **Couples with**: `--with-digest` (composer for `--analyze`; today function-only on the analyze side — class/file analyze-with-digest is future work). File digest's dependency-edges section uses the same import-graph data as `--file-map`. `-v` / `--verbose` includes the COMMENTS section inline (default: stubbed with hint pointing to `--comments-only`).
 - **Naming**: noun-only. Target type is auto-detected — no separate `--class-digest` / `--file-digest` flags. Path-shaped target (contains `/` or `\` or known file extension) routes to file digest; otherwise tries function/class index. Precedence on name ambiguity: class > function. Bare filename fuzzy-matches a unique suffix (e.g. `multisect.js` → `src/core/multisect.js` if unique; reports ambiguity otherwise).
 - **Verified against**: `src/argparse.js:207`
 
