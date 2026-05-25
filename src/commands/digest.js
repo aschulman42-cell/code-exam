@@ -38,6 +38,7 @@ export function formatFunctionDigest(digest) {
   if (id.displayName !== id.name) push(`  (raw: ${id.name})`);
   push('═'.repeat(72));
   push(`  File:         ${id.filepath}`);
+  if (id.indexPath) push(`  Index:        ${id.indexPath}`);
   push(`  Lines:        L${id.startLine}-L${id.endLine}  (${id.lineCount} lines)`);
   push(`  Type:         ${id.type}`);
   push(`  Parse method: ${id.parseMethod}`);
@@ -257,6 +258,7 @@ export function formatClassDigest(digest) {
   if (id.displayName !== id.name) push(`  (raw: ${id.name})`);
   push('═'.repeat(72));
   push(`  File:         ${id.filepath}`);
+  if (id.indexPath) push(`  Index:        ${id.indexPath}`);
   if (id.additionalFiles && id.additionalFiles.length > 0) {
     push(`  Also in:      ${id.additionalFiles.join(', ')}`);
   }
@@ -423,10 +425,204 @@ export function formatClassDigest(digest) {
 }
 
 /**
+ * Format a file digest object (from buildFileDigest) as plain text.
+ *
+ * Sections per #51 design: identity (with header excerpt), exports,
+ * imports, top-level declarations, dependency edges (importedBy +
+ * importsFrom), then the shared flat strings/breadcrumbs/comments/
+ * commands sections.
+ *
+ * File-shape output is meant to answer "what is this file, and how
+ * does it fit in the codebase?" — different question from the
+ * function and class digests' "what does this unit do?"
+ */
+export function formatFileDigest(digest) {
+  if (!digest) return 'File not found.\n';
+  if (digest._error === 'ambiguous') {
+    const out = ['Ambiguous file target. Multiple files match:'];
+    for (const m of digest._ambiguousMatches) out.push('  ' + m);
+    out.push('Pass a more specific path (e.g. src/core/...).');
+    return out.join('\n') + '\n';
+  }
+  const out = [];
+  const push = (s) => out.push(s);
+
+  const id = digest.identity;
+  push('═'.repeat(72));
+  push(`  file ${id.filepath}`);
+  push('═'.repeat(72));
+  if (id.indexPath) push(`  Index:        ${id.indexPath}`);
+  push(`  Lines:        ${id.lineCount}`);
+  push(`  Type:         ${id.type}`);
+  push(`  Parse method: ${id.parseMethod}`);
+  if (id.headerExcerpt) {
+    push(`  Header:       ${_truncate(id.headerExcerpt, 120)}`);
+  }
+  push('');
+  push('  (Counts throughout this digest are STATIC call-site counts,');
+  push('   i.e. distinct source-code locations — NEVER dynamic runtime counts.)');
+  push('');
+
+  push('─── EXPORTS ─────────────────────────────────────────────────────────');
+  if (digest.exports.length === 0) {
+    push('  (no exports detected)');
+  } else {
+    for (const ex of digest.exports) {
+      const range = ex.startLine != null
+        ? (ex.endLine && ex.endLine !== ex.startLine
+            ? `  L${ex.startLine}-L${ex.endLine}  (${ex.lineCount}L)`
+            : `  L${ex.startLine}`)
+        : '';
+      const src = ex.source ? `  (re-exported from ${ex.source})` : '';
+      push(`    ${ex.name}  [${ex.type}]${range}${src}`);
+    }
+  }
+  push('');
+
+  push('─── IMPORTS ─────────────────────────────────────────────────────────');
+  if (digest.imports.length === 0) {
+    push('  (no imports detected)');
+  } else {
+    const builtins = digest.imports.filter(i => i.isBuiltin);
+    const project = digest.imports.filter(i => !i.isBuiltin);
+    if (project.length > 0) {
+      push(`  From project (${project.length}):`);
+      for (const imp of project) {
+        const names = imp.names.length > 0 ? `  { ${imp.names.join(', ')} }` : '';
+        push(`    ${imp.source}${names}`);
+      }
+    }
+    if (builtins.length > 0) {
+      push(`  From node builtins / packages (${builtins.length}):`);
+      for (const imp of builtins) {
+        const names = imp.names.length > 0 ? `  { ${imp.names.join(', ')} }` : '';
+        push(`    ${imp.source}${names}`);
+      }
+    }
+  }
+  push('');
+
+  push('─── TOP-LEVEL DECLARATIONS ──────────────────────────────────────────');
+  if (digest.topLevelDeclarations.length === 0) {
+    push('  (no top-level declarations indexed)');
+  } else {
+    for (const d of digest.topLevelDeclarations) {
+      const tag = d.exported ? '[exported]' : '';
+      push(`    ${d.name}  [${d.type}]  L${d.startLine}-L${d.endLine}  (${d.lineCount}L)  ${tag}`);
+    }
+  }
+  push('');
+
+  const de = digest.dependencyEdges;
+  push('─── DEPENDENCY EDGES ────────────────────────────────────────────────');
+  push('  Imported by (other files in the index that depend on this one):');
+  if (de.importedBy.length === 0) {
+    push('    (no other indexed file imports from this one)');
+  } else {
+    for (const ib of de.importedBy) {
+      const names = ib.names.length > 0 ? `  { ${ib.names.join(', ')} }` : '';
+      push(`    ${_shortPath(ib.filepath, 55)}${names}`);
+    }
+  }
+  push('  Imports from (sources this file pulls from):');
+  if (de.importsFrom.length === 0) {
+    push('    (no imports)');
+  } else {
+    for (const imf of de.importsFrom) {
+      const tag = imf.isBuiltin ? '[builtin]' :
+                  imf.resolvedFilepath ? `→ ${_shortPath(imf.resolvedFilepath, 50)}` :
+                  '[external / unresolved]';
+      push(`    ${imf.source}  ${tag}`);
+    }
+  }
+  push('');
+
+  const s = digest.strings;
+  if (s.distinctStrings > 0) {
+    push('─── STRINGS IN BODY (flat across file) ──────────────────────────────');
+    push(`  ${s.totalStrings} occurrences of ${s.distinctStrings} distinct strings`);
+    if (s.distinctive.length > 0) {
+      push('  Most distinctive (by global rarity across the index):');
+      for (const str of s.distinctive) {
+        let rarity;
+        if (str.globalCount == null) rarity = '';
+        else if (str.globalCount === 1) rarity = '  —  unique globally';
+        else rarity = `  —  ${str.globalCount} global occurrences`;
+        const lc = str.localCount > 1 ? `  ×${str.localCount} here` : '';
+        push(`    ${JSON.stringify(_truncate(str.val, 80))}${lc}${rarity}`);
+      }
+    }
+    if (s.repeated.length > 0) {
+      push('  Repeated within this file:');
+      for (const r of s.repeated) {
+        push(`    ${JSON.stringify(_truncate(r.val, 80))}  —  ${r.count} occurrences`);
+      }
+    }
+    push('');
+  }
+
+  const bc = digest.breadcrumbs;
+  if (bc.markers && bc.markers.length > 0) {
+    push('─── BREADCRUMB/TRACE LABELS (flat across file) ──────────────────────');
+    for (const m of bc.markers) {
+      push(`    L${m.line}:  ${m.label}`);
+    }
+    push('');
+  }
+
+  if (digest.comments && digest.comments.length > 0) {
+    push('─── COMMENTS IN BODY (flat across file) ─────────────────────────────');
+    for (const c of digest.comments) {
+      const tag = c.kind === 'line' ? '//' : '/*';
+      push(`    L${c.line} ${tag}  ${_truncate(c.text, 110)}`);
+    }
+    push('');
+  }
+
+  const cmd = digest.commands;
+  const anyCmd =
+    (cmd.cliOptions && cmd.cliOptions.length) ||
+    (cmd.commands && cmd.commands.length) ||
+    (cmd.routes && cmd.routes.length) ||
+    (cmd.guiActions && cmd.guiActions.length);
+  if (anyCmd) {
+    push('─── COMMAND-CATALOG CROSS-REFERENCE (any function in file) ──────────');
+    if (cmd.cliOptions?.length) {
+      push(`  CLI options handled by code in this file (${cmd.cliOptions.length}):`);
+      for (const o of cmd.cliOptions.slice(0, 10)) {
+        push(`    ${(o.flags || []).join(', ') || o.name}  ${o.help ? '— ' + _truncate(o.help, 60) : ''}`);
+      }
+      if (cmd.cliOptions.length > 10) push(`    … and ${cmd.cliOptions.length - 10} more`);
+    }
+    if (cmd.commands?.length) {
+      push(`  Commands handled by code in this file (${cmd.commands.length}):`);
+      for (const co of cmd.commands.slice(0, 10)) {
+        push(`    ${co.name}${co.description ? '  — ' + _truncate(co.description, 60) : ''}`);
+      }
+    }
+    if (cmd.routes?.length) {
+      push(`  API routes handled by code in this file (${cmd.routes.length}):`);
+      for (const r of cmd.routes.slice(0, 10)) {
+        push(`    ${r.path || r.name}`);
+      }
+    }
+    if (cmd.guiActions?.length) {
+      push(`  GUI actions handled by code in this file (${cmd.guiActions.length}):`);
+      for (const g of cmd.guiActions.slice(0, 10)) {
+        push(`    ${g.name} (${g.type || 'action'})`);
+      }
+    }
+    push('');
+  }
+
+  return out.join('\n') + '\n';
+}
+
+/**
  * CLI handler for `--digest <target>`. Dispatches by target_type.
  * Function targets keep today's behavior (byte-identical output).
- * Class targets produce the class-shape output added in Commit A.
- * File targets are TODO (Commit B will add).
+ * Class targets produce class-shape output (Commit A, #51).
+ * File targets produce file-shape output (Commit B, #51).
  */
 export function doDigest(index, args) {
   const spec = args.digest;
@@ -450,8 +646,7 @@ export function doDigest(index, args) {
       process.stdout.write(formatClassDigest(digest));
       break;
     case 'file':
-      // Commit B will land formatFileDigest; for now, advise
-      console.log(`File digest not yet implemented in this build. (Will land in CLI batch B for #51.)`);
+      process.stdout.write(formatFileDigest(digest));
       break;
     case 'function':
     default:

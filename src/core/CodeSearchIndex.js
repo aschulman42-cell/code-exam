@@ -426,8 +426,11 @@ export class CodeSearchIndex {
     // File path detection: contains a slash, or ends with a known source-file extension
     const looksLikeFilePath = /[\/\\]/.test(target) || /\.[a-zA-Z0-9]{1,5}$/.test(target);
     if (looksLikeFilePath) {
-      // File digest will land in Commit B; for now, fall through to function lookup
-      // (preserves today's behavior of "file path doesn't resolve" → null)
+      const fileDigest = this.buildFileDigest(target, opts);
+      if (fileDigest) return fileDigest;
+      // Fall through if no file matched — gives function/class lookup a
+      // chance to handle target names that happen to look path-shaped
+      // (e.g. 'foo.bar' for a method-style name).
     }
 
     // Function/class lookup via the function index (classes are stored there with type='class')
@@ -596,6 +599,7 @@ export class CodeSearchIndex {
       name: fn.name,
       displayName: dn,
       filepath,
+      indexPath: this.indexPath,
       additionalFiles: additionalFiles.length > 0 ? additionalFiles : null,
       startLine: fn.start,
       endLine: fn.end,
@@ -847,6 +851,458 @@ export class CodeSearchIndex {
   }
 
   /**
+   * Resolve a user-supplied path to a `this.fileLines` key. Tries:
+   *   - exact match (after normalizing backslashes to forward slashes)
+   *   - leading `./` stripped
+   *   - suffix match (e.g. 'multisect.js' matches 'src/core/multisect.js'
+   *     if unambiguous; with multiple candidates, returns null + sets the
+   *     `_lastResolveAmbiguity` field for the caller to report)
+   * Returns the canonical filepath key, or null if no match / ambiguous.
+   */
+  _resolveFilepathTarget(target) {
+    if (!target) return null;
+    const norm = target.replace(/\\/g, '/').replace(/^\.\//, '');
+    if (this.fileLines.has(norm)) return norm;
+    // Exact match against all keys, case-insensitive (filesystem might be CI)
+    const lowerNorm = norm.toLowerCase();
+    for (const key of this.fileLines.keys()) {
+      if (key.toLowerCase() === lowerNorm) return key;
+    }
+    // Suffix match
+    const suffixMatches = [];
+    for (const key of this.fileLines.keys()) {
+      if (key.toLowerCase().endsWith('/' + lowerNorm) || key.toLowerCase().endsWith(lowerNorm)) {
+        suffixMatches.push(key);
+      }
+    }
+    if (suffixMatches.length === 1) return suffixMatches[0];
+    if (suffixMatches.length > 1) {
+      this._lastResolveAmbiguity = suffixMatches;
+      return null;
+    }
+    return null;
+  }
+
+  /**
+   * Build a cached import graph: `filepath → [{source, names, isBuiltin}]`
+   * by regex-scanning every indexed file's top-of-file `import` statements
+   * (ES modules only for v1; CommonJS deferred per #51 scope).
+   *
+   * Cached on `this._importGraph` after first call.
+   */
+  _buildImportGraph() {
+    if (this._importGraph) return this._importGraph;
+    const graph = new Map();  // filepath -> [{source, names, isBuiltin}]
+    // node builtins — anything passed to import that isn't a path-like (./ ../ /)
+    const isBuiltinSource = (src) => !src.startsWith('.') && !src.startsWith('/') && !src.includes('\\');
+    // Match: import ... from 'src';  or  import 'src';
+    // Captures: the import clause (named / default / namespace) + the source string.
+    const importRe = /^\s*import\s+(?:([^'";]+?)\s+from\s+)?['"]([^'"]+)['"]\s*;?/gm;
+    // Named-imports parser: { a, b as c } → ['a', 'c']
+    const parseNamedImports = (clause) => {
+      const m = clause.match(/\{\s*([^}]+)\s*\}/);
+      if (!m) return null;
+      return m[1].split(',').map(s => {
+        const parts = s.trim().split(/\s+as\s+/);
+        return (parts[1] || parts[0]).trim();
+      }).filter(Boolean);
+    };
+    for (const [filepath, lines] of this.fileLines) {
+      // Only scan first ~100 lines for imports (ES modules require imports at top)
+      const head = lines.slice(0, 100).join('\n');
+      const entries = [];
+      importRe.lastIndex = 0;
+      let m;
+      while ((m = importRe.exec(head)) !== null) {
+        const clause = (m[1] || '').trim();
+        const source = m[2];
+        let names = [];
+        if (clause) {
+          const named = parseNamedImports(clause);
+          if (named) {
+            names = named;
+          } else if (clause.startsWith('*')) {
+            // `import * as Foo from ...` — namespace import
+            const aliasMatch = clause.match(/\*\s+as\s+(\w+)/);
+            if (aliasMatch) names = [aliasMatch[1] + ' (namespace)'];
+          } else {
+            // Default import
+            const defaultMatch = clause.match(/^(\w+)/);
+            if (defaultMatch) names = [defaultMatch[1] + ' (default)'];
+          }
+        }
+        entries.push({ source, names, isBuiltin: isBuiltinSource(source) });
+      }
+      if (entries.length > 0) graph.set(filepath, entries);
+    }
+    this._importGraph = graph;
+    return graph;
+  }
+
+  /**
+   * Given an import source path (e.g. './foo', '../utils.js') from a
+   * particular file, resolve it to an absolute indexed filepath if
+   * possible. Returns null for builtins and for paths that don't resolve
+   * to any indexed file.
+   */
+  _resolveImportSource(fromFilepath, source) {
+    if (!source.startsWith('.')) return null;  // builtin or package
+    // Resolve relative path
+    const fromDir = fromFilepath.split('/').slice(0, -1).join('/');
+    let resolved = source;
+    if (source.startsWith('./')) resolved = (fromDir ? fromDir + '/' : '') + source.slice(2);
+    else if (source.startsWith('../')) {
+      const parts = fromDir.split('/');
+      let rest = source;
+      while (rest.startsWith('../')) {
+        parts.pop();
+        rest = rest.slice(3);
+      }
+      resolved = parts.concat(rest).join('/');
+    }
+    // Try exact match, then with common extensions
+    if (this.fileLines.has(resolved)) return resolved;
+    for (const ext of ['.js', '.mjs', '.cjs', '.ts', '.jsx', '.tsx', '/index.js', '/index.ts']) {
+      if (this.fileLines.has(resolved + ext)) return resolved + ext;
+    }
+    return null;
+  }
+
+  /**
+   * Build a file digest. Sections per #51 design:
+   *   - identity     — file path, line count, parse method, header excerpt
+   *   - exports      — what other files can import from this file
+   *   - imports      — what this file imports from where
+   *   - topLevelDeclarations — top-of-file functions/classes/consts
+   *   - dependencyEdges      — imported-by + imports-from (reversed graph)
+   *   - strings / breadcrumbs / comments — flat across whole file
+   *   - commands     — commands handled by any function in this file
+   *
+   * Per #51 design choices: flat sections, ES modules only, fuzzy path
+   * matching with disambiguation. CommonJS and per-export nesting are
+   * future work.
+   */
+  buildFileDigest(target, opts = {}) {
+    const {
+      maxStrings = 15,
+      minRepeatCount = 3,
+    } = opts;
+
+    // Ensure function_index is loaded — the CLI path doesn't always lazy-load
+    // it before reaching us, and topLevelDeclarations + exports-enrichment
+    // depend on it.
+    this._ensureFunctionIndex();
+
+    const filepath = this._resolveFilepathTarget(target);
+    if (!filepath) {
+      if (this._lastResolveAmbiguity) {
+        const matches = this._lastResolveAmbiguity;
+        this._lastResolveAmbiguity = null;
+        return {
+          target_type: 'file',
+          _error: 'ambiguous',
+          _ambiguousMatches: matches,
+        };
+      }
+      return null;
+    }
+    const lines = this.fileLines.get(filepath);
+    if (!lines) return null;
+
+    // --- Identity ---
+    // Header excerpt: lead comment block at the top of the file (JSDoc-style
+    // /** ... */ or // ... lines), capped at first ~10 lines of comment text.
+    const headerLines = [];
+    let inBlock = false;
+    for (let i = 0; i < Math.min(30, lines.length); i++) {
+      const ln = lines[i] || '';
+      const trimmed = ln.trim();
+      if (i === 0 && trimmed.startsWith('#!')) continue;  // skip shebang
+      if (!trimmed) {
+        if (headerLines.length > 0) break;
+        continue;
+      }
+      if (trimmed.startsWith('/**') || trimmed.startsWith('/*')) {
+        inBlock = true;
+        const content = trimmed.replace(/^\/\*+\s?/, '').replace(/\*\/\s*$/, '').trim();
+        if (content) headerLines.push(content);
+        if (trimmed.includes('*/')) inBlock = false;
+        continue;
+      }
+      if (inBlock) {
+        if (trimmed.endsWith('*/')) {
+          inBlock = false;
+          const content = trimmed.replace(/\*\/\s*$/, '').replace(/^\*\s?/, '').trim();
+          if (content) headerLines.push(content);
+        } else {
+          const content = trimmed.replace(/^\*\s?/, '').trim();
+          if (content) headerLines.push(content);
+        }
+        continue;
+      }
+      if (trimmed.startsWith('//')) {
+        headerLines.push(trimmed.replace(/^\/\/\s?/, ''));
+        continue;
+      }
+      // Hit non-comment code; stop scanning
+      break;
+    }
+
+    const identity = {
+      filepath,
+      indexPath: this.indexPath,
+      lineCount: lines.length,
+      type: 'file',
+      parseMethod: this.parseMethod || 'unknown',
+      headerExcerpt: headerLines.slice(0, 10).join(' / '),
+    };
+
+    // --- Imports ---
+    const importGraph = this._buildImportGraph();
+    const imports = importGraph.get(filepath) || [];
+
+    // --- Exports ---
+    // Scan the file for export declarations
+    const exports = [];
+    const exportRe = /^\s*export\s+(?:(default)\s+)?(function|class|const|let|var|async function)\s+(\w+)/gm;
+    const text = lines.join('\n');
+    let em;
+    exportRe.lastIndex = 0;
+    while ((em = exportRe.exec(text)) !== null) {
+      const isDefault = em[1] === 'default';
+      const kind = em[2].replace('async ', '');
+      const name = em[3];
+      // Find line number by counting newlines up to em.index
+      const lineNum = text.slice(0, em.index).split('\n').length;
+      exports.push({
+        name: isDefault ? `${name} (default)` : name,
+        type: kind,
+        startLine: lineNum,
+        endLine: null,  // resolved below from function_index if available
+        lineCount: null,
+      });
+    }
+    // Also: `export { foo, bar }` and `export { foo } from './bar'` (re-exports)
+    const exportBlockRe = /^\s*export\s+\{([^}]+)\}(\s*from\s+['"]([^'"]+)['"])?/gm;
+    exportBlockRe.lastIndex = 0;
+    while ((em = exportBlockRe.exec(text)) !== null) {
+      const names = em[1].split(',').map(s => {
+        const parts = s.trim().split(/\s+as\s+/);
+        return (parts[1] || parts[0]).trim();
+      }).filter(Boolean);
+      const fromSource = em[3] || null;
+      const lineNum = text.slice(0, em.index).split('\n').length;
+      for (const n of names) {
+        exports.push({
+          name: n,
+          type: fromSource ? 're-export' : 'block',
+          source: fromSource,  // for re-exports
+          startLine: lineNum,
+          endLine: null,
+          lineCount: null,
+        });
+      }
+    }
+    // Enrich exports with line ranges from function index where available
+    const fnIndexForFile = (this.functionIndex && this.functionIndex[filepath]) || {};
+    for (const ex of exports) {
+      const bareName = ex.name.replace(/\s+\(.*\)$/, '');
+      if (fnIndexForFile[bareName]) {
+        ex.startLine = fnIndexForFile[bareName].start;
+        ex.endLine = fnIndexForFile[bareName].end;
+        ex.lineCount = ex.endLine - ex.startLine + 1;
+      }
+    }
+
+    // --- Top-level declarations ---
+    // All function_index entries for this filepath that are at top level
+    // (no :: in the name = not a method of a class).
+    const exportedNames = new Set(exports.map(e => e.name.replace(/\s+\(.*\)$/, '')));
+    const topLevelDeclarations = [];
+    for (const [name, info] of Object.entries(fnIndexForFile)) {
+      if (name.includes('::')) continue;  // method, not top-level
+      topLevelDeclarations.push({
+        name,
+        type: info.type,
+        startLine: info.start,
+        endLine: info.end,
+        lineCount: info.end - info.start + 1,
+        exported: exportedNames.has(name),
+      });
+    }
+    topLevelDeclarations.sort((a, b) => a.startLine - b.startLine);
+
+    // --- Dependency edges ---
+    // imports from (just the imports list, re-keyed for the edges section)
+    const importsFrom = imports.map(imp => ({
+      source: imp.source,
+      names: imp.names,
+      resolvedFilepath: this._resolveImportSource(filepath, imp.source),
+      isBuiltin: imp.isBuiltin,
+    }));
+    // imported by (reverse the graph)
+    const importedBy = [];
+    for (const [otherFile, otherImports] of importGraph) {
+      if (otherFile === filepath) continue;
+      for (const imp of otherImports) {
+        const resolved = this._resolveImportSource(otherFile, imp.source);
+        if (resolved === filepath) {
+          importedBy.push({
+            filepath: otherFile,
+            names: imp.names,
+          });
+          break;  // one entry per importing file
+        }
+      }
+    }
+    importedBy.sort((a, b) => a.filepath.localeCompare(b.filepath));
+
+    // --- Strings (flat across whole file body) ---
+    const perFileStringCounts = new Map();
+    const strRe = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|`((?:[^`\\]|\\.)*)`/g;
+    for (const line of lines) {
+      if (!line) continue;
+      strRe.lastIndex = 0;
+      let m;
+      while ((m = strRe.exec(line)) !== null) {
+        const val = m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : m[3]);
+        if (!val || val.length < 2) continue;
+        perFileStringCounts.set(val, (perFileStringCounts.get(val) || 0) + 1);
+      }
+    }
+    let strTableMap = null;
+    try {
+      const strTable = this.ensureStringTable ? this.ensureStringTable(2, false) : null;
+      if (Array.isArray(strTable)) {
+        strTableMap = new Map();
+        for (const entry of strTable) {
+          if (entry && entry.value) strTableMap.set(entry.value, entry.count);
+        }
+      }
+    } catch { /* ignore */ }
+    const getGlobalCount = (val) => strTableMap ? strTableMap.get(val) ?? null : null;
+    const distinctiveStrings = [...perFileStringCounts.entries()]
+      .map(([val, localCount]) => ({ val, localCount, globalCount: getGlobalCount(val) }))
+      .sort((a, b) => {
+        const ag = a.globalCount == null ? 1 : a.globalCount;
+        const bg = b.globalCount == null ? 1 : b.globalCount;
+        return ag - bg;
+      })
+      .slice(0, maxStrings);
+    const repeatedStrings = [...perFileStringCounts.entries()]
+      .filter(([, c]) => c >= minRepeatCount)
+      .map(([val, count]) => ({ val, count }))
+      .sort((a, b) => b.count - a.count);
+    const stringsSection = {
+      totalStrings: [...perFileStringCounts.values()].reduce((s, n) => s + n, 0),
+      distinctStrings: perFileStringCounts.size,
+      distinctive: distinctiveStrings,
+      repeated: repeatedStrings,
+    };
+
+    // --- Breadcrumbs (flat across whole file) ---
+    const markersByLine = new Map();
+    try {
+      const bc = this.extractBreadcrumbs ? this.extractBreadcrumbs(false) : null;
+      if (bc && bc.markers) {
+        for (const m of bc.markers) {
+          if (m.filepath !== filepath) continue;
+          markersByLine.set(m.line, { label: m.label, line: m.line });
+        }
+      }
+      if (bc && bc.events) {
+        for (const e of bc.events) {
+          if (e.filepath !== filepath) continue;
+          if (!markersByLine.has(e.line)) {
+            markersByLine.set(e.line, { label: e.name, line: e.line });
+          }
+        }
+      }
+    } catch { /* ignore */ }
+    const breadcrumbsSection = {
+      markers: [...markersByLine.values()].sort((a, b) => a.line - b.line),
+    };
+
+    // --- Comments (flat across whole file) ---
+    const comments = [];
+    let carryState = 'code';
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] || '';
+      if (carryState === 'bc') {
+        const endIdx = line.indexOf('*/');
+        const content = (endIdx >= 0 ? line.slice(0, endIdx) : line)
+          .replace(/^\s*\*\s?/, '').trim();
+        if (content) comments.push({ line: i + 1, kind: 'block', text: content });
+        carryState = endIdx >= 0 ? 'code' : 'bc';
+        continue;
+      }
+      let j = 0;
+      let emitted = false;
+      while (j < line.length - 1) {
+        const two = line[j] + line[j + 1];
+        if ((two === '//' || two === '/*') && !_isInsideString(line, j, carryState)) {
+          if (two === '//') {
+            const content = line.slice(j + 2).trim();
+            if (content) comments.push({ line: i + 1, kind: 'line', text: content });
+            emitted = true;
+            break;
+          } else {
+            const blockEnd = line.indexOf('*/', j + 2);
+            if (blockEnd >= 0) {
+              const content = line.slice(j + 2, blockEnd).trim();
+              if (content) comments.push({ line: i + 1, kind: 'block-inline', text: content });
+              j = blockEnd + 2;
+              continue;
+            } else {
+              const content = line.slice(j + 2).trim();
+              if (content) comments.push({ line: i + 1, kind: 'block', text: content });
+              carryState = 'bc';
+              emitted = true;
+              break;
+            }
+          }
+        }
+        j++;
+      }
+      if (!emitted && carryState !== 'bc') {
+        const endState = _scanLineState(line, carryState);
+        carryState = (endState === 'bc' || endState === 't') ? endState : 'code';
+      }
+    }
+
+    // --- Commands (any function in this file handles a command) ---
+    let commandsSection = { cliOptions: [], commands: [], routes: [], guiActions: [] };
+    try {
+      const cat = this.extractCommandCatalog ? this.extractCommandCatalog(false) : null;
+      if (cat) {
+        const matchesFile = (item) => {
+          const f = item.filepath || item.handler?.filepath;
+          return f === filepath;
+        };
+        for (const key of ['cliOptions', 'commands', 'routes', 'guiActions']) {
+          if (cat[key]) commandsSection[key] = cat[key].filter(matchesFile);
+        }
+      }
+    } catch { /* ignore */ }
+
+    return {
+      target_type: 'file',
+      identity,
+      exports,
+      imports,
+      topLevelDeclarations,
+      dependencyEdges: {
+        importedBy,
+        importsFrom,
+      },
+      strings: stringsSection,
+      breadcrumbs: breadcrumbsSection,
+      comments,
+      commands: commandsSection,
+    };
+  }
+
+  /**
    * #329 Phase 1: assemble a structured, non-AI digest of a single function
    * by pulling together signals from every CodeExam facility that can
    * mechanically describe the function's shape and content. No interpretation
@@ -937,6 +1393,7 @@ export class CodeSearchIndex {
       displayName: dn,
       renameTier,
       filepath,
+      indexPath: this.indexPath,
       startLine: fn.start,
       endLine: fn.end,
       lineCount: fn.end - fn.start + 1,
