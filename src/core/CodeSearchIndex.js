@@ -631,6 +631,47 @@ export class CodeSearchIndex {
     for (const me of methodEntries) fileSet.add(me.filepath);
     const additionalFiles = [...fileSet].filter(f => f !== filepath);
 
+    // --- Hierarchy maps for ancestor chain + known subclasses (#62) ---
+    // One pass over listClasses() to build parent + reverse-child maps,
+    // then per-class walks are O(depth). Built per-call; cheap enough
+    // since listClasses() result is already in hand and parser-cached.
+    const { parentMap, childMap } = this._buildClassHierarchyMaps(allClasses);
+    // Ancestor chain: per immediate parent, walk transitively. Multi-
+    // inheritance gets one sub-array per parent.
+    const ancestorChain = (hierarchy.extends || []).map(p =>
+      this._walkAncestorChain(p, parentMap)
+    );
+    // Parallel array marking whether each immediate parent is in the
+    // index. False for external base classes (e.g., `Error`, `Object`,
+    // platform/library types) so the formatter can render them with
+    // `[external]` rather than silently terminating the chain.
+    const extendsInIndex = (hierarchy.extends || []).map(p => parentMap.has(p));
+    // Known subclasses (the inverse relation): classes in the index whose
+    // declaration extends this one. Annotated with method-override count
+    // (intersection of bare method names with this class's methods).
+    const thisMethodBareNames = new Set(methodEntries.map(m => {
+      let n = m.name;
+      if (n.includes('::')) n = n.split('::').pop();
+      return n;
+    }));
+    const subRaw = (childMap.get(bareClassName) || []).map(sub => {
+      const subBareNames = (sub.methods || []).map(m => {
+        let n = m.name;
+        if (n.includes('::')) n = n.split('::').pop();
+        return n;
+      });
+      const overrideCount = subBareNames.filter(n => thisMethodBareNames.has(n)).length;
+      return {
+        bareName: sub.bareName,
+        fullName: sub.fullName,
+        filepath: sub.filepath,
+        overrideCount,
+      };
+    }).sort((a, b) => b.overrideCount - a.overrideCount);
+    const SUBCLASS_CAP = 20;
+    const knownSubclasses = subRaw.slice(0, SUBCLASS_CAP);
+    const knownSubclassesOverflow = Math.max(0, subRaw.length - SUBCLASS_CAP);
+
     // Bare-name uniqueness check (same as buildFunctionDigest)
     this._ensureFunctionIndex();
     const bareOf = (n) => {
@@ -660,6 +701,8 @@ export class CodeSearchIndex {
       type: 'class',
       parseMethod: this.parseMethod || 'unknown',
       extends: hierarchy.extends,
+      ancestorChain,
+      extendsInIndex,
       implements: hierarchy.implements,
       methodCount: methodEntries.length,
       bareUnique: bareCount === 1,
@@ -924,6 +967,8 @@ export class CodeSearchIndex {
       target_type: 'class',
       identity,
       methods,
+      knownSubclasses,
+      knownSubclassesOverflow,
       instantiationSites: instantiationSection,
       externalCalls: externalCallsSection,
       strings: stringsSection,
@@ -932,6 +977,76 @@ export class CodeSearchIndex {
       commentLines: commentLinesArr,
       commands: commandsSection,
     };
+  }
+
+  /**
+   * Build parent + reverse-child hierarchy maps for the digest's ancestor
+   * chain and KNOWN SUBCLASSES section (#62). Walks every class in the
+   * index once, parsing each declaration line via `_extractClassHierarchy`.
+   *
+   * Returns:
+   *   parentMap: Map<bareName, string[]>  — bare-name → list of bare parent names
+   *   childMap:  Map<bareName, [{bareName, fullName, filepath, methods}]>
+   *
+   * Same-bare-name collisions (e.g., `Foo` defined in two unrelated
+   * namespaces) are last-write-wins for v1 — acceptable simplification.
+   */
+  _buildClassHierarchyMaps(allClasses) {
+    const parentMap = new Map();
+    const childMap = new Map();
+    const bareOf = (n) => n.includes('::') ? n.split('::').pop() : n;
+    for (const c of allClasses) {
+      const cBare = bareOf(c.name);
+      const cLines = this.fileLines.get(c.filepath);
+      const declLine = cLines ? (cLines[c.start - 1] || '') : '';
+      const h = this._extractClassHierarchy(declLine);
+      const parents = h.extends || [];
+      parentMap.set(cBare, parents);
+      for (const p of parents) {
+        if (!childMap.has(p)) childMap.set(p, []);
+        childMap.get(p).push({
+          bareName: cBare,
+          fullName: c.name,
+          filepath: c.filepath,
+          methods: c.methods || [],
+        });
+      }
+    }
+    return { parentMap, childMap };
+  }
+
+  /**
+   * Walk a class's ancestor chain transitively for the class-digest
+   * Identity block (#62). Returns an array of bare names (or
+   * `<name> [external]` for parents not in the index, which terminate
+   * the chain). Cycle-safe via a visited set; depth-capped at 10
+   * levels so pathological hierarchies don't explode the digest.
+   *
+   * The chain starts AT (but excludes) the given immediate-parent name,
+   * which the caller already has in `identity.extends`. So for
+   * `Foo extends Bar extends Baz extends Object`, called with
+   * `bareName='Bar'`, returns `['Baz', 'Object [external]']` (assuming
+   * Object isn't in the index).
+   */
+  _walkAncestorChain(bareName, parentMap, maxDepth = 10) {
+    const result = [];
+    const visited = new Set([bareName]);
+    let cur = bareName;
+    while (result.length < maxDepth) {
+      const parents = parentMap.get(cur);
+      if (!parents || parents.length === 0) break;
+      const next = parents[0];
+      if (visited.has(next)) break;
+      visited.add(next);
+      if (parentMap.has(next)) {
+        result.push(next);
+        cur = next;
+      } else {
+        result.push(next + ' [external]');
+        break;
+      }
+    }
+    return result;
   }
 
   /**

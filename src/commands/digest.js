@@ -305,7 +305,17 @@ export function formatClassDigest(digest, opts = {}) {
   push(`  Type:         ${id.type}`);
   push(`  Parse method: ${id.parseMethod}`);
   if (id.extends && id.extends.length > 0) {
-    push(`  Extends:      ${id.extends.join(', ')}`);
+    // Render each immediate parent followed by its ancestor chain (#62):
+    //   Foo, Bar  →  "Foo ← FooP ← FooPP, Bar ← BarP"
+    // The Unicode `←` reads as "X extends Y" — direction is child → parent.
+    const parts = id.extends.map((p, i) => {
+      const chain = id.ancestorChain && id.ancestorChain[i];
+      const isExternal = id.extendsInIndex && id.extendsInIndex[i] === false;
+      const head = isExternal ? `${p} [external]` : p;
+      if (chain && chain.length > 0) return [head, ...chain].join(' ← ');
+      return head;
+    });
+    push(`  Extends:      ${parts.join(', ')}`);
   } else {
     push(`  Extends:      (none detected)`);
   }
@@ -335,6 +345,27 @@ export function formatClassDigest(digest, opts = {}) {
     }
   }
   push('');
+
+  // --- Known Subclasses (#62) ---
+  if (digest.knownSubclasses && digest.knownSubclasses.length > 0) {
+    push('─── KNOWN SUBCLASSES ────────────────────────────────────────────────');
+    push('    (classes in the index whose declaration extends this one)');
+    const nameW = Math.min(
+      40,
+      Math.max(...digest.knownSubclasses.map(s => s.bareName.length))
+    );
+    for (const sub of digest.knownSubclasses) {
+      const fp = _shortPath(sub.filepath, 50);
+      const ov = sub.overrideCount > 0
+        ? `  (${sub.overrideCount} method${sub.overrideCount === 1 ? '' : 's'} overriding)`
+        : '';
+      push(`    ${sub.bareName.padEnd(nameW)}  ${fp}${ov}`);
+    }
+    if (digest.knownSubclassesOverflow > 0) {
+      push(`    … and ${digest.knownSubclassesOverflow} more`);
+    }
+    push('');
+  }
 
   // --- Instantiation Sites ---
   const inst = digest.instantiationSites;
