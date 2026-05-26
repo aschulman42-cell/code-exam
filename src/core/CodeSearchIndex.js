@@ -432,6 +432,8 @@ export class CodeSearchIndex {
         if (m.type === 'function' && this._looksLikeClassBody(m)) {
           return this.buildClassDigest(m, opts);
         }
+        const inferredClass = this._tryInferredClassDigest(m, funcName, opts, pathHint);
+        if (inferredClass) return inferredClass;
       }
       const d = this.buildFunctionDigest(target, opts);
       if (d) d.target_type = 'function';
@@ -460,6 +462,8 @@ export class CodeSearchIndex {
       if (m.type === 'function' && this._looksLikeClassBody(m)) {
         return this.buildClassDigest(m, opts);
       }
+      const inferredClass = this._tryInferredClassDigest(m, target, opts);
+      if (inferredClass) return inferredClass;
       const d = this.buildFunctionDigest(target, opts);
       if (d) d.target_type = 'function';
       return d;
@@ -494,6 +498,31 @@ export class CodeSearchIndex {
     const headLine = lines[fn.start - 1] || '';
     // Strong signal: the declaration line itself contains `class Name`
     return /\bclass\s+\w/.test(headLine);
+  }
+
+  /**
+   * Class-precedence helper for buildDigest (#63). When the function-index
+   * matched a method `target::leaf` for a bare class-name target (very
+   * common with constructors: `Foo` matches `Foo::Foo` and hijacks what
+   * should have been the class digest), look in listClasses for a class
+   * with that bare name and return a class digest. Returns null if no
+   * class match — caller falls through to the function digest path.
+   *
+   * Especially needed for inferred classes (synthesized by listClasses
+   * from `ClassName::method` patterns), which never appear in the
+   * function index as type='class' and would otherwise be unreachable
+   * once a method match has preempted the L411 precedence rule.
+   */
+  _tryInferredClassDigest(m, target, opts, pathHint = null) {
+    if (m.type !== 'function' || !m.name.startsWith(target + '::')) return null;
+    const allClasses = this.listClasses(pathHint);
+    const classMatch = allClasses.find(c => {
+      const cBare = c.name.includes('::') ? c.name.split('::').pop() : c.name;
+      return cBare === target || c.name === target;
+    });
+    if (!classMatch) return null;
+    const fn = { name: classMatch.name, filepath: classMatch.filepath, start: classMatch.start, end: classMatch.end, type: 'class' };
+    return this.buildClassDigest(fn, opts);
   }
 
   /**
@@ -588,6 +617,14 @@ export class CodeSearchIndex {
       const cBare = c.name.includes('::') ? c.name.split('::').pop() : c.name;
       return cBare === bareClassName;
     });
+    // Inferred classes (#63): synthesized by listClasses()'s third pass
+    // when only ClassName::method patterns exist (no real `class { ... }`
+    // declaration in the index). fn.start/fn.end span only the first
+    // method, so body-scope sections (strings/breadcrumbs/comments)
+    // would mix first-method-only data with otherwise-correct sections.
+    // Detect here so we can stub those sections below and let the
+    // formatter emit a footer note explaining the absence.
+    const isInferred = classRecord?.inferred === true;
     const methodEntries = classRecord ? classRecord.methods : [];
     // Files referenced by any method (primary + additional for split-class case)
     const fileSet = new Set([filepath]);
@@ -618,7 +655,8 @@ export class CodeSearchIndex {
       additionalFiles: additionalFiles.length > 0 ? additionalFiles : null,
       startLine: fn.start,
       endLine: fn.end,
-      lineCount: fn.end - fn.start + 1,
+      lineCount: isInferred ? null : (fn.end - fn.start + 1),
+      inferred: isInferred,
       type: 'class',
       parseMethod: this.parseMethod || 'unknown',
       extends: hierarchy.extends,
@@ -755,7 +793,7 @@ export class CodeSearchIndex {
       .filter(([, c]) => c >= minRepeatCount)
       .map(([val, count]) => ({ val, count }))
       .sort((a, b) => b.count - a.count);
-    const stringsSection = {
+    let stringsSection = {
       totalStrings: [...perClassStringCounts.values()].reduce((s, n) => s + n, 0),
       distinctStrings: perClassStringCounts.size,
       distinctive: distinctiveStrings,
@@ -781,7 +819,7 @@ export class CodeSearchIndex {
         }
       }
     } catch { /* ignore */ }
-    const breadcrumbsSection = {
+    let breadcrumbsSection = {
       markers: [...markersByLine.values()].sort((a, b) => a.line - b.line),
     };
 
@@ -789,7 +827,7 @@ export class CodeSearchIndex {
     // JSDoc blocks (/** ... */) get kind='jsdoc' so the renderer can
     // distinguish them from regular /* */ blocks and attribute them to the
     // method they immediately precede (#61).
-    const comments = [];
+    let comments = [];
     // Track every line that's part of any comment block (including openers,
     // closers, and content-less continuation lines). Used by the renderer's
     // walk-backward heuristic to attribute a contiguous comment block to the
@@ -848,7 +886,19 @@ export class CodeSearchIndex {
         carryState = (endState === 'bc' || endState === 't') ? endState : 'code';
       }
     }
-    const commentLinesArr = Array.from(commentLines).sort((a, b) => a - b);
+    let commentLinesArr = Array.from(commentLines).sort((a, b) => a - b);
+
+    // For inferred classes (#63), the body-scope sections above are scoped
+    // to bodyLines = lines.slice(fn.start - 1, fn.end), which spans only
+    // the first method — not the class. Discard the partial result here;
+    // the formatter emits a footer note explaining the absence based on
+    // identity.inferred.
+    if (isInferred) {
+      stringsSection = { totalStrings: 0, distinctStrings: 0, distinctive: [], repeated: [] };
+      breadcrumbsSection = { markers: [] };
+      comments = [];
+      commentLinesArr = [];
+    }
 
     // --- Commands handled by any method of this class ---
     let commandsSection = { cliOptions: [], commands: [], routes: [], guiActions: [] };

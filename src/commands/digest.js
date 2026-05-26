@@ -297,7 +297,11 @@ export function formatClassDigest(digest, opts = {}) {
   if (id.additionalFiles && id.additionalFiles.length > 0) {
     push(`  Also in:      ${id.additionalFiles.join(', ')}`);
   }
-  push(`  Lines:        L${id.startLine}-L${id.endLine}  (${id.lineCount} lines, ${id.methodCount} methods)`);
+  if (id.inferred) {
+    push(`  Lines:        (class declaration not in index; inferred from ${id.methodCount} method${id.methodCount === 1 ? '' : 's'})`);
+  } else {
+    push(`  Lines:        L${id.startLine}-L${id.endLine}  (${id.lineCount} lines, ${id.methodCount} methods)`);
+  }
   push(`  Type:         ${id.type}`);
   push(`  Parse method: ${id.parseMethod}`);
   if (id.extends && id.extends.length > 0) {
@@ -369,6 +373,22 @@ export function formatClassDigest(digest, opts = {}) {
     }
   }
   push('');
+
+  // --- Inferred-class footer note (#63) ---
+  // For classes synthesized from ClassName::method patterns (no real
+  // `class { ... }` declaration in the index), the body-scope sections
+  // below — STRINGS, BREADCRUMBS, COMMENTS — would otherwise be scoped
+  // to just the first method's body. CodeSearchIndex.buildClassDigest
+  // stubs them out for inferred classes; we emit a single explanatory
+  // section in their place.
+  if (id.inferred) {
+    push('─── BODY-SCOPED SECTIONS ────────────────────────────────────────────');
+    push('  (strings / breadcrumbs / comments not shown: class synthesized from');
+    push('   method names; no class-declaration body to scope against. If the');
+    push('   source includes the class declaration, rebuild the index with');
+    push('   --use-tree-sitter or check the parser to pick it up — see #63, #65.)');
+    push('');
+  }
 
   // --- Strings (flat) ---
   const s = digest.strings;
