@@ -20,6 +20,7 @@ import {
   doListFunctions, doListFunctionsAlpha, doListFunctionsSize,
 } from './commands/browse.js';
 import { doDigest, doCommentsOnly } from './commands/digest.js';
+import { doExtractJsFromBinary } from './commands/extract_js_from_binary.js';
 import {
   doCallers, doCallees, doMostCalled, doCallInventory,
 } from './commands/callers.js';
@@ -64,6 +65,11 @@ if (args.scan_extensions) {
 
 if (args._explicit.has('list_indexes')) {
   doListIndexes(args);
+  process.exit(0);
+}
+
+if (args.extract_js_from_binary) {
+  doExtractJsFromBinary(args);
   process.exit(0);
 }
 

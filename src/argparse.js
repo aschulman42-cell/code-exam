@@ -190,6 +190,10 @@ export function parseArgs() {
     prompt_catalog: false,
     no_rename: false,
 
+    // Binary-bundled-JS extraction (#74)
+    extract_js_from_binary: null,
+    output_dir: null,
+
     // Track which flags were explicitly set (for dispatch logic)
     _explicit: new Set(),
   };
@@ -342,6 +346,10 @@ export function parseArgs() {
     ['breadcrumbs',          'flag',           ['--breadcrumbs']],
     ['prompt_catalog',       'flag',           ['--prompt-catalog', '--prompts']],
     ['no_rename',            'flag',           ['--no-rename']],
+
+    // Binary-bundled-JS extraction (#74)
+    ['extract_js_from_binary','value',          ['--extract-js-from-binary']],
+    ['output_dir',           'value',          ['--output-dir']],
   ];
 
   // Build alias lookup.
@@ -841,8 +849,25 @@ CONTENT ANALYSIS:
                              human orientation and as LLM-analysis preamble.
                              Takes FUNCNAME or FILE@FUNCNAME.
 
+BINARY-BUNDLED-JS EXTRACTION:
+  --extract-js-from-binary <path>
+                             Detect the bundler used to produce a native
+                             install binary (claude.exe, codex.exe, etc.)
+                             and extract the embedded JavaScript to a
+                             directory CodeExam can then index. Currently
+                             supports: Bun standalone executables (bun
+                             build --compile), including PE-signed
+                             Windows builds where the bun trailer sits
+                             before the Authenticode certificate. Future:
+                             pkg, nexe, Node SEA, Tauri asset table,
+                             Electron .asar.
+  --output-dir <dir>         With --extract-js-from-binary: target
+                             directory for extracted files. Default:
+                             <binary-basename>.extracted/
+
 EXAMPLES:
   node src/index.js --build-index ./my-project
+  node src/index.js --extract-js-from-binary path/to/claude.exe
   node src/index.js --stats
   node src/index.js --fast "TODO"
   node src/index.js --functions "main"
