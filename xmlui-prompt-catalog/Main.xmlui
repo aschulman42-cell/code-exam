@@ -174,28 +174,28 @@
             {sourceData.value.filepath}:L{sourceData.value.start_line} ({sourceData.value.line_count} lines)
           </Text>
 
-          <!-- source rendered as per-line HStacks of segments -->
-          <VStack gap="0" style="{{ fontFamily: 'monospace' }}">
-            <Items data="{sourceData.value.lines}">
-              <HStack gap="0" padding="0" style="{{ whiteSpace: wordWrap ? 'pre-wrap' : 'pre', flexWrap: wordWrap ? 'wrap' : 'nowrap' }}">
-                <Items data="{$item.segments}">
-                  <Link
-                    when="{$item.isCall}"
-                    label="{$item.text}"
-                    onClick="{
-                      const s = $item.spec;
-                      navStack = [...navStack.slice(0, navPos + 1), s];
-                      navPos = navStack.length - 1;
-                      selectedSpec = s;
-                    }" />
-                  <Text
-                    when="{!$item.isCall}"
-                    style="{{ whiteSpace: wordWrap ? 'pre-wrap' : 'pre' }}">
-                    {$item.text.length === 0 ? ' ' : $item.text}
-                  </Text>
-                </Items>
-              </HStack>
-            </Items>
+          <!-- source rendered one line per <List> row.
+               Step 1: outer <Items> → <List fixedItemSize="true"> for
+               line-level virtualization (the prototype's original perf wall).
+               Step 2 (pragmatic, not full wrapComponent): inner per-segment
+               <Items> + <Link>/<Text> replaced with a single <Text> per line
+               containing the joined segment text. Each visible line is one
+               DOM element instead of N segment components — fixes both the
+               indent-collapse (XMLUI Text+flex was dropping leading whitespace)
+               and gives the virtualizer uniform row heights.
+               Trade-off: clickable identifiers WITHIN rendered source are
+               lost in this pragmatic version. Left-pane prompt clicks and
+               back/forward nav still work. Full wrapComponent + delegated
+               click handlers (per Jon's Q3 answer) recovers in-source clicks
+               while keeping these wins; deferred to Thursday meeting.
+               Caveat: fixedItemSize="true" assumes uniform line height — true
+               when wordWrap is off. Toggle wordWrap off for clean perf test. -->
+          <VStack gap="0" style="{{ fontFamily: 'monospace' }}" height="60vh">
+            <List data="{sourceData.value.lines}" fixedItemSize="true">
+              <Text style="{{ whiteSpace: wordWrap ? 'pre-wrap' : 'pre', fontFamily: 'monospace' }}">
+                {$item.segments.map(s => s.text).join('') || ' '}
+              </Text>
+            </List>
           </VStack>
         </VStack>
 
