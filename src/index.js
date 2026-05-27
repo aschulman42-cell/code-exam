@@ -199,6 +199,7 @@ if (args.build_index) {
     demanglerPath: args.demangler,
     useTreeSitter: args.use_tree_sitter,
     renameMinLines: args.rename_min_lines || 0,
+    splitBundle: args.split_bundle,
   });
 
   if (buildStats.errors.length > 0) {

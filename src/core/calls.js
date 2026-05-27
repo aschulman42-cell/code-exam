@@ -1045,10 +1045,16 @@ export function getAllFileDeps(idx, pathFilter = null, showProgress = true) {
   const fileDeps = {};
   const selfCallRe = /(?:self|this)\s*(?:\.|->\s*)([a-zA-Z_]\w*)\s*\(/g;
 
-  for (let idx = 0; idx < filesWithFuncs.length; idx++) {
-    const srcFp = filesWithFuncs[idx];
-    if (showProgress && (idx + 1) % 50 === 0) {
-      eprint(`  ... ${idx + 1}/${total} files`);
+  // Loop counter renamed from `idx` to `i` to avoid shadowing the `idx`
+  // parameter (CodeSearchIndex instance) declared by getAllFileDeps. The
+  // shadow was a pre-existing latent bug: `idx.fileLines.get(...)` below
+  // would call .fileLines on the loop counter (a number) rather than on
+  // the index instance. Wasn't exercised on tiny indexes (n < 50) where
+  // the loop never iterated enough to reach the shadowing read.
+  for (let i = 0; i < filesWithFuncs.length; i++) {
+    const srcFp = filesWithFuncs[i];
+    if (showProgress && (i + 1) % 50 === 0) {
+      eprint(`  ... ${i + 1}/${total} files`);
     }
 
     const deps = {};

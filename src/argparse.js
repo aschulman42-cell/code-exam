@@ -197,6 +197,9 @@ export function parseArgs() {
     // Binary inspection (#77)
     inspect_binary: null,
 
+    // Bundle-seam splitting at index time (#20)
+    split_bundle: false,
+
     // Track which flags were explicitly set (for dispatch logic)
     _explicit: new Set(),
   };
@@ -359,6 +362,9 @@ export function parseArgs() {
     //   --inspect-binary "/usr/bin/*.exe" (quoted; CE expands internally)
     //   --inspect-binary @list.txt        (filelist; processed per-item)
     ['inspect_binary',       'list',           ['--inspect-binary']],
+
+    // Bundle-seam splitting at index time (#20)
+    ['split_bundle',         'flag',           ['--split-bundle']],
   ];
 
   // Build alias lookup.
@@ -560,6 +566,16 @@ USAGE:
 
 INDEX MANAGEMENT:
   --build-index <path>       Build index from directory, file, glob, or @filelist
+  --split-bundle             With --build-index: detect esbuild-style bundle
+                             seams in large JS files (>=10K lines) and split
+                             each detected bundled file into N virtual files
+                             named <orig>::<wrapper-name>.js. Each module
+                             becomes its own searchable / cross-referenceable
+                             unit. Restores meaningful multi-document
+                             vocabulary / TF-IDF / file-map on bundled apps
+                             (claude.exe's extracted cli.js, mermaid.min.js,
+                             etc.). Opt-in: when not set, bundled files are
+                             indexed as today (single entry per file).
   --rebuild-functions        Rebuild function index from loaded file contents
   --build-rename-map         (Re)infer descriptive names for an existing index;
                              writes rename_map.json + import_map.json without

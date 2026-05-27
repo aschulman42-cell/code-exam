@@ -105,6 +105,63 @@ const _SKIP_DIRS = new Set([
 ]);
 
 
+/**
+ * Derive a content-based hint for naming a bundle-seam virtual file (#20).
+ * Scans the first ~20 lines of the wrapper body for any of:
+ *   - a path-shaped string with multiple slashes (best signal — esbuild
+ *     wrappers around AWS-SDK clients leak `./dist-cjs/index.js`-style
+ *     paths, package-name-able)
+ *   - a distinctive string literal (>=6 chars, contains `-`/`_`/CamelCase
+ *     hint, looks identifier-like — e.g. `claude-code-marketplace` from
+ *     a top-level Set literal)
+ * Returns a sanitized, filesystem-safe slug (<=60 chars) or null if
+ * nothing distinctive was found. Honest about limits: aggressively-
+ * minified bundles (Bun --compile) strip class names and don't emit
+ * banner path comments, so many wrappers will return null and fall
+ * back to bare wrapper-name virtuals.
+ */
+function _deriveWrapperHint(lines, w) {
+  const N = Math.min(w.start - 1 + 20, w.end, lines.length);
+  // Pass 1: look for path-shaped strings (multiple-slash paths inside
+  // string quotes). These are the most distinctive signal when present.
+  const pathRe = /["'`]((?:[@\w.-]+\/){1,}[@\w.-]+\.(?:js|mjs|cjs|ts|tsx|jsx))["'`]/;
+  for (let i = w.start - 1; i < N; i++) {
+    const m = (lines[i] || '').match(pathRe);
+    if (m) {
+      // Sanitize: keep alphanumerics, dots, dashes, slashes; replace others
+      let slug = m[1].replace(/^\.\//, '').replace(/[^\w./-]/g, '-');
+      // Drop trailing extension for the slug (it'll re-acquire .js below)
+      slug = slug.replace(/\.(?:js|mjs|cjs|ts|tsx|jsx|d\.ts)$/, '');
+      // Replace slashes with dashes so the virtual-path slot can hold a
+      // plausibly-flat name; depth still recoverable from the dashes.
+      slug = slug.replace(/\//g, '-');
+      if (slug.length > 60) slug = slug.slice(0, 60);
+      if (slug.length >= 4) return slug;
+    }
+  }
+  // Pass 2: distinctive string literals (length >=6, identifier-shaped,
+  // with at least one of: hyphen, underscore, or internal capital).
+  const distRe = /["'`]([\w-]{6,80})["'`]/g;
+  for (let i = w.start - 1; i < N; i++) {
+    const line = lines[i] || '';
+    distRe.lastIndex = 0;
+    let m;
+    while ((m = distRe.exec(line)) !== null) {
+      const s = m[1];
+      // Filter: skip pure-lowercase short words, all-digits, common no-ops
+      if (!/[-_]|[a-z][A-Z]/.test(s)) continue;          // need a distinguishing feature
+      if (/^[0-9_-]+$/.test(s)) continue;                 // all-digits/separators
+      if (/^(use|true|false|null|undefined)$/i.test(s)) continue;
+      // Sanitize and cap length
+      let slug = s.replace(/[^\w-]/g, '-');
+      if (slug.length > 60) slug = slug.slice(0, 60);
+      if (slug.length >= 4) return slug;
+    }
+  }
+  return null;
+}
+
+
 export class CodeSearchIndex {
 
   static DEFAULT_EXTENSIONS = DEFAULT_EXTENSIONS;
@@ -3128,7 +3185,7 @@ export class CodeSearchIndex {
    * @param {boolean} [opts.skipSemantic=true]
    * @returns {object} stats
    */
-  async buildIndex(codePath, { chunkSize = 50, showProgress = true, skipSemantic = true, demanglerPath = null, useTreeSitter = false, renameMinLines = 0 } = {}) {
+  async buildIndex(codePath, { chunkSize = 50, showProgress = true, skipSemantic = true, demanglerPath = null, useTreeSitter = false, renameMinLines = 0, splitBundle = false } = {}) {
     const stats = { files_indexed: 0, total_lines: 0, chunks_created: 0, errors: [], prettified: 0 };
     const codePathStr = codePath.trim();
 
@@ -3444,6 +3501,88 @@ export class CodeSearchIndex {
       const dupeGroups = Object.values(fileHashes).filter(p => p.length > 1).length;
       console.log(`  SHA1 dedup: ${dupesSkipped} duplicate files detected ` +
                   `(${dupeGroups} groups); originals indexed, copies tracked`);
+    }
+
+    // --- Phase 1b: Bundle-seam splitting (#20, opt-in via --split-bundle) ---
+    // For each large JS-like file, detect esbuild-style module wrappers via
+    // _parseEsbuildWrappers; if 2+ modules found, replace the single bundled
+    // file with N virtual files in fileLines + files. Each virtual takes the
+    // synthetic path `<orig>::<wrapper-name>.js`. Downstream indexing phases
+    // (inverted, function, string, vocab, etc.) run over the virtuals
+    // naturally — no other code changes needed because they all read from
+    // this.fileLines / this.files.
+    //
+    // The original bundled file is removed from the maps after splitting.
+    // Trade-offs documented in the worklist item for #20.
+    if (splitBundle) {
+      let splitCount = 0;
+      let virtualsCreated = 0;
+      const fps = [...this.fileLines.keys()];
+      for (const fp of fps) {
+        // Skip if already a virtual (from a re-build over an already-split tree)
+        if (fp.includes('::')) continue;
+        // JS-like only
+        const lc = fp.toLowerCase();
+        if (!(lc.endsWith('.js') || lc.endsWith('.mjs') || lc.endsWith('.cjs'))) continue;
+        const lines = this.fileLines.get(fp);
+        if (!lines || lines.length < 10000) continue;
+
+        const wrappers = _parseEsbuildWrappers(lines);
+        const allEntries = Object.values(wrappers);
+        if (allEntries.length < 2) continue;
+
+        // Filter to non-overlapping (top-level) wrappers via greedy outer-first
+        // scan. The raw regex in _parseEsbuildWrappers matches `var X = H((`
+        // at any indentation, which catches nested wrappers inside function
+        // bodies — those would massively overlap their containing wrapper.
+        // Sort by start ascending; accept each wrapper only if it starts
+        // after the previously-accepted wrapper's end. Also skip wrappers
+        // that look like EOF-fallback parse errors (endLine === lines.length).
+        const sorted = allEntries.slice().sort((a, b) => a.start - b.start);
+        const topLevel = [];
+        let lastEnd = 0;
+        for (const w of sorted) {
+          if (w.start <= lastEnd) continue;       // nested in previously accepted
+          if (w.end >= lines.length) continue;    // EOF-fallback parser error
+          topLevel.push(w);
+          lastEnd = w.end;
+        }
+        if (topLevel.length < 2) continue;
+
+        // Create virtuals; track names to disambiguate collisions.
+        // For each wrapper, try to derive a content-based hint to append
+        // to the wrapper variable name. Improves the readability of the
+        // virtual paths from `cli.js::e0.js` to e.g.
+        // `cli.js::e0_claude-code-marketplace.js` when a hint can be
+        // recovered. Honest about limits: aggressively-minified bundles
+        // (Bun --compile, this cli.js) strip class names and don't emit
+        // `// node_modules/...` banner comments, so hint recovery is
+        // best-effort. Wrappers without a recoverable hint stay at the
+        // bare wrapper-name form.
+        const usedNames = new Set();
+        for (const w of topLevel) {
+          const hint = _deriveWrapperHint(lines, w);
+          let modName = hint ? `${w.base_name}_${hint}` : w.base_name;
+          if (usedNames.has(modName)) modName = `${modName}_L${w.start}`;
+          usedNames.add(modName);
+          const virtPath = `${fp}::${modName}.js`;
+          const virtLines = lines.slice(w.start - 1, w.end);
+          this.fileLines.set(virtPath, virtLines);
+          this.files.set(virtPath, virtLines.join('\n'));
+          virtualsCreated++;
+        }
+        this.fileLines.delete(fp);
+        this.files.delete(fp);
+        splitCount++;
+        if (showProgress) {
+          console.log(`  --split-bundle: ${fp} → ${topLevel.length} virtual files (filtered from ${allEntries.length} raw wrappers)`);
+        }
+      }
+      if (showProgress && splitCount > 0) {
+        console.log(`  --split-bundle total: ${splitCount} bundled file(s) split into ${virtualsCreated} virtual files`);
+      }
+      stats.splitBundleFiles = splitCount;
+      stats.splitBundleVirtuals = virtualsCreated;
     }
 
     // Save literal index
