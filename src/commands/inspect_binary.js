@@ -77,21 +77,43 @@ const FRAMEWORK_THRESHOLDS = {
 };
 
 export function doInspectBinary(args) {
-  const input = args.inspect_binary;
-  if (!input || typeof input !== 'string') {
-    process.stderr.write('Error: --inspect-binary requires a path, glob pattern, or @filelist.\n');
+  // args.inspect_binary is an array (argparse 'list' type), so shell-
+  // expanded globs (`--inspect-binary /usr/bin/*.exe`) capture all
+  // values. Each entry independently gets path / glob / @filelist
+  // treatment; results are concatenated.
+  const inputs = args.inspect_binary;
+  if (!inputs || !Array.isArray(inputs) || inputs.length === 0) {
+    process.stderr.write('Error: --inspect-binary requires one or more paths, glob patterns, or @filelist arguments.\n');
     process.exit(1);
   }
 
-  const items = _resolveInputPaths(input);
-  if (items.length === 0) {
-    process.stderr.write(`Error: no binaries matched input '${input}'.\n`);
+  let items = [];
+  for (const input of inputs) {
+    items = items.concat(_resolveInputPaths(input));
+  }
+
+  // Filter out directories with a warning rather than crashing on
+  // EISDIR. Bash expanding `/usr/bin/*` will catch subdirs alongside
+  // files; the user almost certainly meant the files.
+  const fileItems = [];
+  for (const item of items) {
+    try {
+      if (fs.statSync(item.resolved).isDirectory()) {
+        process.stderr.write(`(skipping directory: ${item.original})\n`);
+        continue;
+      }
+    } catch { /* let _inspectOne handle non-stat-able paths */ }
+    fileItems.push(item);
+  }
+
+  if (fileItems.length === 0) {
+    process.stderr.write(`Error: no inspectable files matched.\n`);
     process.exit(1);
   }
 
-  for (let i = 0; i < items.length; i++) {
+  for (let i = 0; i < fileItems.length; i++) {
     if (i > 0) process.stdout.write('\n');
-    _inspectOne(items[i], !!args.verbose);
+    _inspectOne(fileItems[i], !!args.verbose);
   }
 }
 

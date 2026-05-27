@@ -354,8 +354,11 @@ export function parseArgs() {
     ['extract_js_from_binary','value',          ['--extract-js-from-binary']],
     ['output_dir',           'value',          ['--output-dir']],
 
-    // Binary inspection (#77)
-    ['inspect_binary',       'value',          ['--inspect-binary']],
+    // Binary inspection (#77) — list type so shell-expanded globs work:
+    //   --inspect-binary /usr/bin/*.exe   (bash expands, all values captured)
+    //   --inspect-binary "/usr/bin/*.exe" (quoted; CE expands internally)
+    //   --inspect-binary @list.txt        (filelist; processed per-item)
+    ['inspect_binary',       'list',           ['--inspect-binary']],
   ];
 
   // Build alias lookup.
@@ -856,20 +859,28 @@ CONTENT ANALYSIS:
                              Takes FUNCNAME or FILE@FUNCNAME.
 
 BINARY ANALYSIS (Quasi-Source — see issue #76):
-  --inspect-binary <target>  Fast "what is this and where might I find
+  --inspect-binary <target...>
+                             Fast "what is this and where might I find
                              related source" report for native binaries.
-                             Detects file format, framework / bundler
-                             signatures (Bun, Tauri, Electron, PyInstaller,
-                             pkg, nexe, Node SEA, pure Rust), embedded
-                             source-locating hints (Windows .obj paths,
-                             git commit SHAs, GitHub URLs, MSVC/rustc
-                             versions), imports, code-signing, and PDB
-                             debug-info presence. <target> can be a
-                             single path, a glob (e.g.,
-                             "C:/.../bin/*.exe"), or a @filelist of
-                             one path per line. Pair with -v to expand
-                             standard-library imports and show all
-                             hint matches.
+                             Detects file format (PE / ELF / Mach-O),
+                             framework / bundler signatures (Bun, Tauri,
+                             Electron, PyInstaller, pkg, nexe, Node SEA,
+                             pure Rust), embedded source-locating hints
+                             (Windows .obj paths, SDK-relative .cpp/.h
+                             paths, git commit SHAs, GitHub URLs,
+                             MSVC/rustc versions), PE imports/exports,
+                             code-signing, and PDB debug-info presence.
+                             Symlinks (e.g. /usr/bin/node via
+                             update-alternatives) are followed via
+                             realpathSync; resolved targets surfaced.
+                             <target> can be one or more of: single
+                             path, glob (quote it like "/usr/bin/*.exe"
+                             to defer to CE; unquoted, the shell will
+                             expand and CE takes all values), or
+                             @filelist of one path per line.
+                             Directories are skipped with a warning.
+                             Pair with -v to expand standard-library
+                             imports and show all hint matches.
   --extract-js-from-binary <path>
                              Detect the bundler used to produce a native
                              install binary (claude.exe, codex.exe, etc.)
