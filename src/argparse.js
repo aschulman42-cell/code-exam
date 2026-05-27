@@ -194,6 +194,9 @@ export function parseArgs() {
     extract_js_from_binary: null,
     output_dir: null,
 
+    // Binary inspection (#77)
+    inspect_binary: null,
+
     // Track which flags were explicitly set (for dispatch logic)
     _explicit: new Set(),
   };
@@ -350,6 +353,9 @@ export function parseArgs() {
     // Binary-bundled-JS extraction (#74)
     ['extract_js_from_binary','value',          ['--extract-js-from-binary']],
     ['output_dir',           'value',          ['--output-dir']],
+
+    // Binary inspection (#77)
+    ['inspect_binary',       'value',          ['--inspect-binary']],
   ];
 
   // Build alias lookup.
@@ -849,7 +855,21 @@ CONTENT ANALYSIS:
                              human orientation and as LLM-analysis preamble.
                              Takes FUNCNAME or FILE@FUNCNAME.
 
-BINARY-BUNDLED-JS EXTRACTION:
+BINARY ANALYSIS (Quasi-Source — see issue #76):
+  --inspect-binary <target>  Fast "what is this and where might I find
+                             related source" report for native binaries.
+                             Detects file format, framework / bundler
+                             signatures (Bun, Tauri, Electron, PyInstaller,
+                             pkg, nexe, Node SEA, pure Rust), embedded
+                             source-locating hints (Windows .obj paths,
+                             git commit SHAs, GitHub URLs, MSVC/rustc
+                             versions), imports, code-signing, and PDB
+                             debug-info presence. <target> can be a
+                             single path, a glob (e.g.,
+                             "C:/.../bin/*.exe"), or a @filelist of
+                             one path per line. Pair with -v to expand
+                             standard-library imports and show all
+                             hint matches.
   --extract-js-from-binary <path>
                              Detect the bundler used to produce a native
                              install binary (claude.exe, codex.exe, etc.)

@@ -21,6 +21,7 @@ import {
 } from './commands/browse.js';
 import { doDigest, doCommentsOnly } from './commands/digest.js';
 import { doExtractJsFromBinary } from './commands/extract_js_from_binary.js';
+import { doInspectBinary } from './commands/inspect_binary.js';
 import {
   doCallers, doCallees, doMostCalled, doCallInventory,
 } from './commands/callers.js';
@@ -70,6 +71,11 @@ if (args._explicit.has('list_indexes')) {
 
 if (args.extract_js_from_binary) {
   doExtractJsFromBinary(args);
+  process.exit(0);
+}
+
+if (args.inspect_binary) {
+  doInspectBinary(args);
   process.exit(0);
 }
 

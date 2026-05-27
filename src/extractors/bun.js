@@ -82,35 +82,104 @@ const MODULE_FORMATS = { 0: 'none', 1: 'esm', 2: 'cjs' };
  * file size (no codesigning) or the PE Certificate Table offset
  * (Authenticode-signed Windows builds).
  */
+/**
+ * Detect the Bun trailer in an already-loaded file buffer. Same return
+ * shape as `detectBun(path)` but skips the file read — useful when the
+ * caller has the bytes in hand (e.g., inspect-binary, which loads the
+ * full file for its own scanning). Avoids the Windows double-open bug
+ * where the second `fs.openSync` on the same file in the same process
+ * can return a truncated view.
+ */
+export function detectBunInBuffer(fileBuf) {
+  const fileSize = fileBuf.length;
+  let payloadEnd = fileSize;
+  const cert = _readPECertOffsetFromBuf(fileBuf);
+  if (cert && cert.certOffset > 0 && cert.certOffset <= fileSize) {
+    payloadEnd = cert.certOffset;
+  }
+  const scanBack = Math.min(2 * 1024 * 1024, payloadEnd);
+  const scanStart = payloadEnd - scanBack;
+  const trailerIdxInWindow = fileBuf.subarray(scanStart, payloadEnd).lastIndexOf(TRAILER);
+  if (trailerIdxInWindow < 0) return null;
+  return {
+    trailerOffset: scanStart + trailerIdxInWindow,
+    payloadEnd,
+    fileSize,
+  };
+}
+
 export function detectBun(binaryPath) {
-  const fd = fs.openSync(binaryPath, 'r');
+  // Read the full file via open+stat+read-in-loop. Empirically on Windows,
+  // `fs.readFileSync` can return a tiny buffer (~500 bytes) on the first
+  // cold-cache access to a recently-installed binary — possibly Windows
+  // Defender or another AV product transiently substituting a stub while
+  // scanning. `fs.openSync` + `fs.fstatSync` + `fs.readSync` in a loop with
+  // the canonical stat() size is the robust pattern; it forces a real
+  // read of the actual bytes rather than whatever the OS feels like
+  // surfacing on first access.
+  let fileBuf;
   try {
-    const stat = fs.fstatSync(fd);
-    const fileSize = stat.size;
-
-    let payloadEnd = fileSize;
-    const cert = _readPECertOffset(fd);
-    if (cert && cert.certOffset > 0) {
-      payloadEnd = cert.certOffset;
+    const fd = fs.openSync(binaryPath, 'r');
+    try {
+      const size = fs.fstatSync(fd).size;
+      fileBuf = Buffer.alloc(size);
+      let total = 0;
+      while (total < size) {
+        const n = fs.readSync(fd, fileBuf, total, size - total, total);
+        if (n === 0) break;
+        total += n;
+      }
+      if (total < size) return null;  // truncated read; bail
+    } finally {
+      fs.closeSync(fd);
     }
+  } catch {
+    return null;
+  }
+  const fileSize = fileBuf.length;
 
-    // The trailer is 16 bytes. Scan the tail of the payload for it.
-    // 64 KB is generous — the trailer is the last thing before the cert.
-    const scanBack = Math.min(65536, payloadEnd);
-    const scanStart = payloadEnd - scanBack;
-    const buf = Buffer.alloc(scanBack);
-    fs.readSync(fd, buf, 0, scanBack, scanStart);
+  // Read cert offset out of the buffer (no separate fd needed)
+  let payloadEnd = fileSize;
+  const cert = _readPECertOffsetFromBuf(fileBuf);
+  if (cert && cert.certOffset > 0 && cert.certOffset <= fileSize) {
+    payloadEnd = cert.certOffset;
+  }
 
-    const trailerIdx = buf.lastIndexOf(TRAILER);
-    if (trailerIdx < 0) return null;
+  // Trailer scan: just search the payload tail. lastIndexOf is binary-safe
+  // and C-optimized. We search the last 2 MB to give generous margin
+  // against any cert-offset miscomputation.
+  const scanBack = Math.min(2 * 1024 * 1024, payloadEnd);
+  const scanStart = payloadEnd - scanBack;
+  const trailerIdxInWindow = fileBuf.subarray(scanStart, payloadEnd).lastIndexOf(TRAILER);
+  if (trailerIdxInWindow < 0) return null;
 
-    return {
-      trailerOffset: scanStart + trailerIdx,
-      payloadEnd,
-      fileSize,
-    };
-  } finally {
-    fs.closeSync(fd);
+  return {
+    trailerOffset: scanStart + trailerIdxInWindow,
+    payloadEnd,
+    fileSize,
+  };
+}
+
+/**
+ * Read PE Certificate Table offset/size directly from an in-memory file
+ * buffer. Same logic as `_readPECertOffset(fd)` but no fs calls.
+ */
+function _readPECertOffsetFromBuf(buf) {
+  try {
+    if (buf.length < 0x40) return null;
+    if (buf[0] !== 0x4d || buf[1] !== 0x5a) return null;
+    const peOffset = buf.readUInt32LE(0x3C);
+    if (peOffset + 24 + 8 > buf.length) return null;
+    if (buf.toString('ascii', peOffset, peOffset + 4) !== 'PE\0\0') return null;
+    const magic = buf.readUInt16LE(peOffset + 24);
+    const dataDirBase = (magic === 0x20b) ? 112 : 96;
+    const certDirOff = peOffset + 24 + dataDirBase + 4 * 8;
+    if (certDirOff + 8 > buf.length) return null;
+    const certOffset = buf.readUInt32LE(certDirOff);
+    const certSize = buf.readUInt32LE(certDirOff + 4);
+    return { certOffset, certSize };
+  } catch {
+    return null;
   }
 }
 
@@ -271,30 +340,45 @@ function _stripVfsPrefix(s) {
 }
 
 /**
+ * Read fully at the given position, looping past short reads.
+ */
+function _readFullyAt(fd, buf, length, position) {
+  let total = 0;
+  while (total < length) {
+    const n = fs.readSync(fd, buf, total, length - total, position + total);
+    if (n === 0) return total;  // EOF
+    total += n;
+  }
+  return total;
+}
+
+/**
  * Read the PE Certificate Table offset/size from the optional header.
  * Returns `{ certOffset, certSize }` for signed PE32+ binaries, or null
- * for unsigned binaries / non-PE files / parse errors.
+ * for unsigned binaries / non-PE files / parse errors. Uses fully-blocking
+ * reads to avoid the short-read non-determinism that bit detectBun's
+ * trailer scan.
  */
 function _readPECertOffset(fd) {
   const buf = Buffer.alloc(8);
   try {
     // MZ signature at offset 0
-    fs.readSync(fd, buf, 0, 2, 0);
+    if (_readFullyAt(fd, buf, 2, 0) < 2) return null;
     if (buf[0] !== 0x4d || buf[1] !== 0x5a) return null;  // not MZ
     // PE offset at 0x3C
-    fs.readSync(fd, buf, 0, 4, 0x3C);
+    if (_readFullyAt(fd, buf, 4, 0x3C) < 4) return null;
     const peOffset = buf.readUInt32LE(0);
     // PE signature
-    fs.readSync(fd, buf, 0, 4, peOffset);
+    if (_readFullyAt(fd, buf, 4, peOffset) < 4) return null;
     if (buf.toString('ascii', 0, 4) !== 'PE\0\0') return null;
     // Optional header magic (PE32+ = 0x20b, PE32 = 0x10b)
-    fs.readSync(fd, buf, 0, 2, peOffset + 24);
+    if (_readFullyAt(fd, buf, 2, peOffset + 24) < 2) return null;
     const magic = buf.readUInt16LE(0);
     // Certificate Table is data directory index 4
     // PE32+: data dirs at OptHdr + 112. PE32: at OptHdr + 96.
     const dataDirBase = (magic === 0x20b) ? 112 : 96;
     const certDirOff = peOffset + 24 + dataDirBase + 4 * 8;
-    fs.readSync(fd, buf, 0, 8, certDirOff);
+    if (_readFullyAt(fd, buf, 8, certDirOff) < 8) return null;
     const certOffset = buf.readUInt32LE(0);
     const certSize = buf.readUInt32LE(4);
     return { certOffset, certSize };
