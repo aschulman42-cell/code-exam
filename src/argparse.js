@@ -877,8 +877,11 @@ BINARY ANALYSIS (Quasi-Source — see issue #76):
                              path, glob (quote it like "/usr/bin/*.exe"
                              to defer to CE; unquoted, the shell will
                              expand and CE takes all values), or
-                             @filelist of one path per line.
-                             Directories are skipped with a warning.
+                             @filelist of one path per line. For
+                             recursive walk, quote a glob with **/*
+                             like "/usr/lib/**/*.so". Directories in
+                             the input set are skipped (one
+                             consolidated tip emitted at end).
                              Pair with -v to expand standard-library
                              imports and show all hint matches.
   --extract-js-from-binary <path>

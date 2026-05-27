@@ -92,14 +92,16 @@ export function doInspectBinary(args) {
     items = items.concat(_resolveInputPaths(input));
   }
 
-  // Filter out directories with a warning rather than crashing on
-  // EISDIR. Bash expanding `/usr/bin/*` will catch subdirs alongside
-  // files; the user almost certainly meant the files.
+  // Filter out directories. Bash expanding `/usr/bin/*` will catch
+  // subdirs alongside files; the user almost certainly meant the files.
+  // Skipping is silent per-entry — a single consolidated tip at the
+  // end is less noisy than one stderr line per skipped subdirectory.
   const fileItems = [];
+  const skippedDirs = [];
   for (const item of items) {
     try {
       if (fs.statSync(item.resolved).isDirectory()) {
-        process.stderr.write(`(skipping directory: ${item.original})\n`);
+        skippedDirs.push(item.original);
         continue;
       }
     } catch { /* let _inspectOne handle non-stat-able paths */ }
@@ -107,13 +109,25 @@ export function doInspectBinary(args) {
   }
 
   if (fileItems.length === 0) {
-    process.stderr.write(`Error: no inspectable files matched.\n`);
+    if (skippedDirs.length > 0) {
+      process.stderr.write(`Error: input matched only directories (${skippedDirs.length}). For recursive walk, use a glob like "<dir>/**/*" (with trailing /* to match files at any depth).\n`);
+    } else {
+      process.stderr.write(`Error: no inspectable files matched.\n`);
+    }
     process.exit(1);
   }
 
   for (let i = 0; i < fileItems.length; i++) {
     if (i > 0) process.stdout.write('\n');
     _inspectOne(fileItems[i], !!args.verbose);
+  }
+
+  // Consolidated tip at the end of the run, only when directories were
+  // skipped. One line, total — keeps the per-binary report sections
+  // visually clean while still nudging the user toward recursion when
+  // it's clearly what they wanted.
+  if (skippedDirs.length > 0) {
+    process.stdout.write(`\n(${skippedDirs.length} director${skippedDirs.length === 1 ? 'y' : 'ies'} skipped — for recursive walk, use a glob like "<dir>/**/*")\n`);
   }
 }
 
