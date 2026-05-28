@@ -79,16 +79,26 @@ export function _detectBundleHelpers(lines) {
     helpers.cjs = cjsMatch[1];
   }
 
-  // Outer IIFE detection — mermaid.min.js starts with something like
+  // Outer IIFE detection — mermaid.min.js's raw single-line form starts with
   //   (__esbuild_esm_mermaid_nm ||= {}).mermaid = (() => {
-  // or the plain form:
-  //   (() => { ... })();
-  for (let i = 0; i < Math.min(10, lines.length); i++) {
+  // After js-beautify the same opener splits across lines, with the IIFE's
+  // arrow now anchored on a later line by an `LHS = (() => {` shape:
+  //   (__esbuild_esm_mermaid_nm ||= {})
+  //   .mermaid = (() => {
+  // Scan a wider window (50 lines) to survive that split.
+  for (let i = 0; i < Math.min(50, lines.length); i++) {
     const norm = (lines[i] || '').replace(/\s+/g, '');
     if (
+      // Single-line minified form: `(name ||= {}).x = (() => {`
       /\|\|=\{\}\)\.\w+=\(\(\)=>\{/.test(norm) ||
+      // Bare IIFE: `(() => {`
       /^\(\(\)=>\{/.test(norm) ||
-      /^\(\([^)]*\)=>\{/.test(norm)
+      // Bare IIFE with params: `((a, b) => {`
+      /^\(\([^)]*\)=>\{/.test(norm) ||
+      // Assigned bare IIFE (post-beautify mermaid form): `.x = (() => {`
+      /=\(\(\)=>\{/.test(norm) ||
+      // Assigned IIFE with params: `.x = ((a, b) => {`
+      /=\(\([^)]*\)=>\{/.test(norm)
     ) {
       helpers.iifeStartLine = i + 1;
       break;
@@ -378,6 +388,235 @@ export function _extractNameRecoveryPairs(lines, helperName) {
     }
   }
   return result;
+}
+
+/**
+ * Classify a bundle's pattern based on detected helpers.
+ *   'esbuild-flat'  — helpers + wrappers at column 0 (claude-code's cli.js)
+ *   'esbuild-iife'  — everything wrapped in a top-level IIFE (mermaid.min.js)
+ *   null            — no esbuild helpers detected; not an esbuild bundle
+ *
+ * Factored out of CodeSearchIndex.detectBundleSeams so the splitter's
+ * Phase 1b can branch on pattern without pulling in the function-index
+ * dependency that detectBundleSeams uses for its gap-module pass.
+ */
+export function _detectBundlePattern(lines, helpers) {
+  if (!helpers.esm && !helpers.cjs) return null;
+  return helpers.iifeStartLine > 0 ? 'esbuild-iife' : 'esbuild-flat';
+}
+
+/**
+ * Derive a content-based hint for naming a bundle-seam virtual file (#20).
+ * Pass 0 (#20 followup): if a name-helper invocation `helper(IDENT, "STRING")`
+ * exists inside the wrapper body, capture STRING and trust it as the hint
+ * regardless of CamelCase. This is the gold-standard module-identity signal
+ * — esbuild's `__name(fn, "originalName")` helper preserves the original
+ * function name, and any wrapper that registers a named function with it is
+ * effectively telling us what to call it.
+ * Pass 1: a path-shaped string with multiple slashes (esbuild wrappers
+ * around AWS-SDK clients leak `./dist-cjs/index.js`-style paths).
+ * Pass 2: a distinctive string literal (>=6 chars, contains `-`/`_`/CamelCase
+ * hint, looks identifier-like — e.g. `claude-code-marketplace`).
+ * Returns a sanitized, filesystem-safe slug (<=60 chars) or null.
+ *
+ * @param {string[]} lines
+ * @param {{start: number, end: number}} w
+ * @param {string|null} [nameHelper] — output of _detectNameHelper, or null
+ */
+export function _deriveWrapperHint(lines, w, nameHelper = null) {
+  const N = Math.min(w.start - 1 + 20, w.end, lines.length);
+  // Pass 0: name-helper invocation — `helper(IDENT, "STRING")`.
+  if (nameHelper) {
+    const escHelper = nameHelper.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const helperRe = new RegExp(
+      '\\b' + escHelper + '\\s*\\(\\s*[A-Za-z_$][\\w$]*\\s*,\\s*["\']([\\w.-]{2,60})["\']\\s*[,)]',
+      'g'
+    );
+    for (let i = w.start - 1; i < N; i++) {
+      const line = lines[i] || '';
+      if (!line.includes(nameHelper)) continue;
+      helperRe.lastIndex = 0;
+      let m;
+      while ((m = helperRe.exec(line)) !== null) {
+        const s = m[1];
+        if (!/[a-zA-Z]/.test(s)) continue;
+        let slug = s.replace(/[^\w-]/g, '-');
+        if (slug.length > 60) slug = slug.slice(0, 60);
+        if (slug.length >= 3) return slug;
+      }
+    }
+  }
+  // Pass 1: path-shaped strings (multiple-slash paths inside string quotes).
+  const pathRe = /["'`]((?:[@\w.-]+\/){1,}[@\w.-]+\.(?:js|mjs|cjs|ts|tsx|jsx))["'`]/;
+  for (let i = w.start - 1; i < N; i++) {
+    const m = (lines[i] || '').match(pathRe);
+    if (m) {
+      let slug = m[1].replace(/^\.\//, '').replace(/[^\w./-]/g, '-');
+      slug = slug.replace(/\.(?:js|mjs|cjs|ts|tsx|jsx|d\.ts)$/, '');
+      slug = slug.replace(/\//g, '-');
+      if (slug.length > 60) slug = slug.slice(0, 60);
+      if (slug.length >= 4) return slug;
+    }
+  }
+  // Pass 2: distinctive string literals.
+  const distRe = /["'`]([\w-]{6,80})["'`]/g;
+  for (let i = w.start - 1; i < N; i++) {
+    const line = lines[i] || '';
+    distRe.lastIndex = 0;
+    let m;
+    while ((m = distRe.exec(line)) !== null) {
+      const s = m[1];
+      if (!/[-_]|[a-z][A-Z]/.test(s)) continue;
+      if (/^[0-9_-]+$/.test(s)) continue;
+      if (/^(use|true|false|null|undefined)$/i.test(s)) continue;
+      let slug = s.replace(/[^\w-]/g, '-');
+      if (slug.length > 60) slug = slug.slice(0, 60);
+      if (slug.length >= 4) return slug;
+    }
+  }
+  return null;
+}
+
+/**
+ * #20 followup: For an esbuild-IIFE bundle, walk the gaps between
+ * top-level wrapper scaffolds inside the outer IIFE and identify which
+ * gaps hold substantive code (the real function bodies) vs which are
+ * tiny and should fold into an adjacent wrapper's slice.
+ *
+ * IIFE-bundle wrappers (e.g. mermaid.min.js's `var $ie = I(() => { ... })`)
+ * are tiny name-registry scaffolds — a few lines that call
+ * `o(F, "originalName")` to register function names. The real function
+ * bodies (`function Fie(...) { ... }`) live in the gaps between these
+ * scaffolds at top-level inside the IIFE. Splitting on wrappers alone
+ * and discarding the original file loses the gap content entirely.
+ *
+ * Two outputs:
+ *   - adjustedWrappers: copy of topLevel with start lines possibly
+ *     extended backward to absorb tiny gaps. Keeps "no lost lines, no
+ *     overlaps" within the IIFE.
+ *   - substantiveGaps: substantive gap regions to materialize as their
+ *     own virtual files. Each entry: { start, end, hint } where hint is
+ *     a sanitized slug or null.
+ *
+ * Substantive-gap test: span >= 20 lines AND at least one `function NAME(`
+ * declaration. Anything smaller folds into the next wrapper's slice (or
+ * is dropped if it's the trailing gap after the last wrapper).
+ *
+ * Gap naming: if an adjacent wrapper contains `nameHelper(F, "STRING")`
+ * where F is declared in the gap, use STRING as the gap's hint — the
+ * name-registry wrapper's promised name applies to the function defined
+ * in the preceding (or following) gap. Otherwise fall back to the first
+ * function declaration's identifier.
+ *
+ * @param {string[]} lines
+ * @param {object} helpers — output of _detectBundleHelpers (iifeStartLine > 0)
+ * @param {Array<{start: number, end: number, base_name: string}>} topLevel
+ * @param {string|null} nameHelper — output of _detectNameHelper, or null
+ * @returns {{adjustedWrappers: object[], substantiveGaps: object[]}}
+ */
+export function _findGapModules(lines, helpers, topLevel, nameHelper) {
+  if (helpers.iifeStartLine <= 0 || topLevel.length === 0) {
+    return { adjustedWrappers: topLevel.slice(), substantiveGaps: [] };
+  }
+  const SUBSTANTIVE_MIN_LINES = 20;
+  // Match `function NAME(`, `async function NAME(`, and generator
+  // `function* NAME(` forms. esbuild keeps `async` in front of the
+  // function keyword post-prettification (mermaid's `async function Fie(...)`
+  // at L33411 is the canonical example).
+  const FN_DECL_RE = /^\s*(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*\(/;
+
+  const iifeStart = helpers.iifeStartLine;
+  const sorted = topLevel.slice().sort((a, b) => a.start - b.start);
+  // _findWrapperEnd's brace counter doesn't track regex literals or
+  // template-literal `${}` interpolation, so the outer IIFE end can be
+  // miscounted when there's an embedded shader/regex literal containing
+  // `{`/`}` (mermaid.min.js has a GLSL template at ~L64500). The wrappers
+  // themselves are short and unaffected; their `_findWrapperEnd` calls are
+  // correct. So if the outer-IIFE end falls inside the wrapper span,
+  // it was clipped short — extend it to just past the last wrapper so
+  // gap-detection can reach the rest of the bundle.
+  let iifeEnd = _findWrapperEnd(lines, iifeStart - 1);
+  const lastWrapperEnd = sorted[sorted.length - 1].end;
+  if (iifeEnd < lastWrapperEnd) iifeEnd = lastWrapperEnd + 1;
+  const adjustedWrappers = sorted.map(w => ({ ...w }));
+
+  // Tag each gap with adjacent wrapper indices for hint-attribution.
+  const gaps = [];
+  if (iifeStart + 1 <= sorted[0].start - 1) {
+    gaps.push({ start: iifeStart + 1, end: sorted[0].start - 1, prevIdx: -1, nextIdx: 0 });
+  }
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (sorted[i].end + 1 <= sorted[i + 1].start - 1) {
+      gaps.push({ start: sorted[i].end + 1, end: sorted[i + 1].start - 1, prevIdx: i, nextIdx: i + 1 });
+    }
+  }
+  const last = sorted.length - 1;
+  if (sorted[last].end + 1 <= iifeEnd - 1) {
+    gaps.push({ start: sorted[last].end + 1, end: iifeEnd - 1, prevIdx: last, nextIdx: -1 });
+  }
+
+  const substantiveGaps = [];
+  const escHelper = nameHelper
+    ? nameHelper.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    : null;
+
+  for (const gap of gaps) {
+    const span = gap.end - gap.start + 1;
+    const limit = Math.min(gap.end, lines.length);
+    const funcDecls = [];
+    for (let i = gap.start - 1; i < limit; i++) {
+      const m = (lines[i] || '').match(FN_DECL_RE);
+      if (m) funcDecls.push({ name: m[1], line: i + 1 });
+    }
+    const isSubstantive = span >= SUBSTANTIVE_MIN_LINES && funcDecls.length > 0;
+
+    if (!isSubstantive) {
+      // Fold into next wrapper if there is one; drop otherwise.
+      if (gap.nextIdx >= 0) {
+        const tgt = adjustedWrappers[gap.nextIdx];
+        if (gap.start < tgt.start) tgt.start = gap.start;
+      }
+      continue;
+    }
+
+    // Hint attribution. Look at adjacent wrappers for `helper(F, "STRING")`
+    // where F is declared in this gap.
+    let hint = null;
+    if (escHelper) {
+      const fnNames = new Set(funcDecls.map(f => f.name));
+      const adjIdxs = [];
+      if (gap.prevIdx >= 0) adjIdxs.push(gap.prevIdx);
+      if (gap.nextIdx >= 0) adjIdxs.push(gap.nextIdx);
+      const helperRe = new RegExp(
+        '\\b' + escHelper + '\\s*\\(\\s*([A-Za-z_$][\\w$]*)\\s*,\\s*["\']([^"\'\\\\]{2,60})["\']',
+        'g'
+      );
+      outer:
+      for (const ai of adjIdxs) {
+        const w = sorted[ai];
+        const wLimit = Math.min(w.end, lines.length);
+        for (let i = w.start - 1; i < wLimit; i++) {
+          const line = lines[i] || '';
+          if (!line.includes(nameHelper)) continue;
+          helperRe.lastIndex = 0;
+          let m;
+          while ((m = helperRe.exec(line)) !== null) {
+            if (fnNames.has(m[1])) {
+              hint = m[2];
+              break outer;
+            }
+          }
+        }
+      }
+    }
+    if (!hint) hint = funcDecls[0].name;
+
+    let slug = hint.replace(/[^\w-]/g, '-');
+    if (slug.length > 60) slug = slug.slice(0, 60);
+    substantiveGaps.push({ start: gap.start, end: gap.end, hint: slug });
+  }
+
+  return { adjustedWrappers, substantiveGaps };
 }
 
 /**
