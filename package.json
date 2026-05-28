@@ -12,7 +12,8 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test test/"
+    "test": "node --test test/",
+    "build:exe": "node scripts/build-exe.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

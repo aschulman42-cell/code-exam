@@ -49,6 +49,61 @@ import {
 
 
 // ========================================================================
+// --gui: launch the GUI server + open the user's browser.
+// Detected from raw argv before parseArgs so server.js's own arg parser
+// can re-consume process.argv with only the flags it understands.
+// Designed to work both under `node` (dev) and `bun --compile`'d
+// standalone exe (Clive's path). See #78.
+// ========================================================================
+
+const _rawArgvForGui = process.argv.slice(2);
+if (_rawArgvForGui.includes('--gui')) {
+  const _argAfter = (flag, fallback) => {
+    const i = _rawArgvForGui.indexOf(flag);
+    if (i < 0) return fallback;
+    const v = _rawArgvForGui[i + 1];
+    if (!v || v.startsWith('-')) return fallback;
+    return v;
+  };
+  const port = _argAfter('--port', '8080');
+
+  // Munge argv: server.js's parseServerArgs reads process.argv directly and
+  // doesn't know about CLI flags like --build-index. Pass it only what it
+  // understands.
+  const _serverArgv = ['--port', port, '--host', '127.0.0.1'];
+  for (const flag of ['--index-path', '--index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--temperature']) {
+    const v = _argAfter(flag, null);
+    if (v !== null) _serverArgv.push(flag, v);
+  }
+  process.argv = [process.argv[0], process.argv[1], ..._serverArgv];
+
+  // Open the user's default browser after a short delay so the server has
+  // time to bind. Best-effort: if the open fails (no DE, locked-down VM),
+  // the URL is logged by server.js and the user can paste it.
+  const { spawn } = await import('child_process');
+  const _guiUrl = `http://127.0.0.1:${port}/`;
+  setTimeout(() => {
+    try {
+      if (process.platform === 'win32') {
+        spawn('cmd', ['/c', 'start', '', _guiUrl], { detached: true, stdio: 'ignore' }).unref();
+      } else if (process.platform === 'darwin') {
+        spawn('open', [_guiUrl], { detached: true, stdio: 'ignore' }).unref();
+      } else {
+        spawn('xdg-open', [_guiUrl], { detached: true, stdio: 'ignore' }).unref();
+      }
+    } catch { /* user can read the URL from the server's startup banner */ }
+  }, 1500);
+
+  // server.js's top-level code starts the HTTP server on import.
+  await import('./server.js');
+  // Hold the process: the listening socket keeps the event loop alive, but
+  // we still need to prevent fall-through to parseArgs() below (which would
+  // see the munged argv and try to interpret --port as a CLI command).
+  await new Promise(() => {});
+}
+
+
+// ========================================================================
 // Parse arguments
 // ========================================================================
 
@@ -236,11 +291,22 @@ if (args.build_index) {
 // ========================================================================
 
 if (index.files.size === 0 && !args.build_index) {
+  // Detect invocation shape so the help text shows the right command.
+  // - `node src/index.js ...` → execPath basename is `node`
+  // - Bun --compile standalone (codeexam.exe) → execPath basename is the exe
+  const _exeBase = (() => {
+    try {
+      const b = process.execPath.split(/[\\/]/).pop() || 'node';
+      const lower = b.toLowerCase().replace(/\.exe$/, '');
+      if (lower === 'node' || lower === 'bun' || lower === 'tsx') return 'node src/index.js';
+      return b;
+    } catch { return 'node src/index.js'; }
+  })();
   console.log(`No index found at: ${args.index_path}`);
-  console.log('Build one first:');
-  console.log('  node src/index.js --build-index ./your/source/directory');
-  console.log('  node src/index.js --build-index "C:\\path\\to\\code"');
-  console.log('  node src/index.js --build-index @filelist.txt');
+  console.log('Build one first (name the index with --index-path so you can reload it later):');
+  console.log(`  ${_exeBase} --build-index ./your/source/directory --index-path .my_index`);
+  console.log(`  ${_exeBase} --build-index "C:\\path\\to\\code" --index-path .my_index`);
+  console.log(`  ${_exeBase} --build-index @filelist.txt --index-path .my_index`);
   process.exit(1);
 }
 

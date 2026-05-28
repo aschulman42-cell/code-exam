@@ -15,7 +15,28 @@ import { createRequire } from 'module';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const GRAMMARS_DIR = path.join(__dirname, '..', '..', 'grammars');
+
+// Grammar-WASM lookup. Standard dev/install path: `<repo>/grammars/`,
+// reachable from `src/core/` via `../../grammars`. Standalone-exe path
+// (Bun --compile, see #78): `__dirname` resolves into the embedded virtual
+// filesystem (e.g. `/$bunfs/root/src/core/`), so `../../grammars` won't hit
+// disk. Fall back to a `grammars/` directory sitting next to the exe itself
+// (`process.execPath`), the layout the build script ships.
+function _resolveGrammarsDir() {
+  const candidates = [
+    path.join(__dirname, '..', '..', 'grammars'),
+    path.join(path.dirname(process.execPath), 'grammars'),
+  ];
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c) && fs.statSync(c).isDirectory()) return c;
+    } catch { /* try next */ }
+  }
+  // First candidate is the dev-mode default; let the rest of the file emit
+  // its usual "wasm not found" warning rather than crashing here.
+  return candidates[0];
+}
+const GRAMMARS_DIR = _resolveGrammarsDir();
 
 // Map from language name (as used in EXT_TO_LANG) to grammar .wasm filename
 const GRAMMAR_FILES = {

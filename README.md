@@ -230,6 +230,44 @@ public/  (browser UI, modular ES extracts from the former monolithic
   `node-llama-cpp` is currently uneven; not every published GGUF loads
   cleanly)
 
+## Standalone executable (Windows)
+
+A single-file `codeexam.exe` can be built so users without Node, npm, or
+Bun installed can run CodeExam directly. v0 is Windows-only (#78); macOS
+and Linux builds are deferred.
+
+Build:
+
+```bash
+npm install                  # if you haven't already
+npm run build:exe            # requires Bun on the developer machine
+                             #   winget install Oven-sh.Bun
+```
+
+This invokes `bun build --compile --target=bun-windows-x64` via
+`scripts/build-exe.js` and writes `dist/codeexam.exe` (~100 MB — the size
+is dominated by the bundled Bun runtime, not by CodeExam itself) plus two
+sibling directories that must travel with the exe: `dist/grammars/`
+(tree-sitter WASMs, for `--use-tree-sitter` parsing) and `dist/public/`
+(browser UI assets, for `--gui` mode). Ship `dist/` as a single zip.
+
+Run:
+
+```
+codeexam.exe --build-index <source-dir>     # CLI: behaves as `node src/index.js`
+codeexam.exe --gui                          # GUI: starts server + opens browser
+codeexam.exe --gui --port 9000              # override default port (8080)
+```
+
+**Windows SmartScreen** warns "Windows protected your PC" on first run of
+an unsigned exe. Click *More info → Run anyway*. v0 ships unsigned;
+Authenticode code signing for public distribution is a future follow-up.
+
+**Lite build (no local-LLM):** if `bun --compile` can't bundle the
+`node-llama-cpp` native module on your platform, build with
+`npm run build:exe -- --no-llm`. The resulting exe runs everything
+except semantic-search / local-GGUF features.
+
 ## Testing
 
 ```bash
