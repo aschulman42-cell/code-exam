@@ -625,6 +625,23 @@ if (args.interactive) {
   ].some(c => args._explicit.has(c) || args[c]);
 
   if (!anyCommand && !args.build_index) {
+    // No command fired. Two reasons this can happen:
+    //   (a) user gave only --index-path to explore → auto-enter the REPL
+    //   (b) user mistyped a flag, so no command matched → DON'T silently
+    //       open the REPL (script-/agent-hostile: hangs on stdin). Report
+    //       the unknown flag(s), suggest the closest match, exit non-zero.
+    // #69.
+    if (args._unknownFlags && args._unknownFlags.length > 0) {
+      for (const { token, suggestion } of args._unknownFlags) {
+        process.stderr.write(
+          suggestion
+            ? `Unknown option '${token}'. Did you mean '${suggestion}'?\n`
+            : `Unknown option '${token}'.\n`
+        );
+      }
+      process.stderr.write('No command run. Use --help to see available options, or -i to explore interactively.\n');
+      process.exit(2);
+    }
     // No command given, index is loaded — auto-enter interactive mode
     doInteractive(index, args);
   }

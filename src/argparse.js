@@ -14,6 +14,45 @@ const VERSION = '0.1.0 (Node.js port)';
 
 
 /**
+ * Levenshtein edit distance, capped early once it exceeds `max` (returns
+ * max+1 in that case). Small two-row implementation — adequate for the
+ * short option strings we compare. #69.
+ */
+function _levenshtein(a, b, max) {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  let cur = new Array(b.length + 1);
+  for (let i = 1; i <= a.length; i++) {
+    cur[0] = i;
+    let rowMin = cur[0];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      if (cur[j] < rowMin) rowMin = cur[j];
+    }
+    if (rowMin > max) return max + 1;
+    [prev, cur] = [cur, prev];
+  }
+  return prev[b.length];
+}
+
+/**
+ * Find the alias closest to an unknown token (edit distance <= 2), for a
+ * "Did you mean '--files'?" hint. Returns the closest alias string or null.
+ * #69.
+ */
+function suggestClosest(token, aliasMap) {
+  let best = null;
+  let bestDist = 3; // only suggest within distance 2
+  for (const alias of aliasMap.keys()) {
+    const d = _levenshtein(token, alias, 2);
+    if (d < bestDist) { bestDist = d; best = alias; }
+  }
+  return best;
+}
+
+
+/**
  * Parse process.argv and return a normalized args object.
  * @returns {object}
  */
@@ -202,6 +241,10 @@ export function parseArgs() {
 
     // Track which flags were explicitly set (for dispatch logic)
     _explicit: new Set(),
+
+    // Unknown -prefixed tokens (typos). The dispatcher uses this to avoid
+    // silently dropping into the REPL on a mistyped flag. #69.
+    _unknownFlags: [],
   };
 
   // Definitions: [argName, type, aliases]
@@ -432,6 +475,8 @@ export function parseArgs() {
       // Unknown arg - skip (could be a positional or typo)
       if (token.startsWith('-')) {
         console.error(`Warning: Unknown option '${token}'`);
+        const suggestion = suggestClosest(token, aliasMap);
+        args._unknownFlags.push({ token, suggestion });
       }
       i++;
       continue;

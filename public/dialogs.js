@@ -220,9 +220,20 @@ function initLoadIndex() {
       }
 
       // Convert Windows paths to WSL paths (e.g. C:\foo\bar -> /mnt/c/foo/bar)
+      // ONLY when the server is actually running inside WSL. On a native
+      // Windows server (including the standalone .exe) the backend wants the
+      // C:\ form as-is; converting it produces a /mnt/c/... path the Windows
+      // filesystem can't resolve. #43.
       if (/^[A-Za-z]:\\/.test(sourcePath)) {
-        const drive = sourcePath[0].toLowerCase();
-        sourcePath = '/mnt/' + drive + sourcePath.slice(2).replace(/\\/g, '/');
+        let serverIsWSL = false;
+        try {
+          const info = await api.version();
+          serverIsWSL = !!(info && info.isWSL);
+        } catch { /* old/unreachable server: assume native, skip conversion */ }
+        if (serverIsWSL) {
+          const drive = sourcePath[0].toLowerCase();
+          sourcePath = '/mnt/' + drive + sourcePath.slice(2).replace(/\\/g, '/');
+        }
       }
 
       // Trigger rebuild using the original source path and the same index name

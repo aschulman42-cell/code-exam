@@ -1703,7 +1703,11 @@ routes['/api/multisect'] = (req, res) => {
 // --- Build version (restart canary) ---
 
 routes['/api/version'] = (req, res) => {
-  jsonResponse(res, { build: SERVER_BUILD });
+  // platform / isWSL let path-shaping clients (e.g. the Rebuild flow in
+  // public/dialogs.js) decide whether a C:\ -> /mnt/c/ conversion is
+  // actually warranted — it is only correct when the server runs inside
+  // WSL. _isWSL is computed once at startup (see above). #43.
+  jsonResponse(res, { build: SERVER_BUILD, platform: process.platform, isWSL: _isWSL });
 };
 
 
