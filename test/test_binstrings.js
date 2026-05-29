@@ -9,6 +9,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import zlib from 'zlib';
 import { execSync } from 'child_process';
 
@@ -18,7 +19,7 @@ import {
   extractMangledNames, makeFuncName, processBinary,
 } from '../src/binstrings.js';
 
-const TEST_DIR = '/tmp/ce_test_binstrings';
+const TEST_DIR = path.join(os.tmpdir(), 'ce_test_binstrings');
 const CLI = path.resolve('src/index.js');
 
 

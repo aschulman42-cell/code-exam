@@ -8,10 +8,11 @@ import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 import { doExtract } from '../src/commands/browse.js';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 
 
-const TEST_DIR = '/tmp/code_exam_test_follow';
-const INDEX_DIR = '/tmp/code_exam_test_follow_idx';
+const TEST_DIR = path.join(os.tmpdir(), 'code_exam_test_follow');
+const INDEX_DIR = path.join(os.tmpdir(), 'code_exam_test_follow_idx');
 
 // Capture console.log output
 let captured = [];
@@ -109,12 +110,12 @@ function logMessage(level, msg) {
 describe('--follow-calls', () => {
   let index;
 
-  before(() => {
+  before(async () => {
     fs.rmSync(TEST_DIR, { recursive: true, force: true });
     fs.rmSync(INDEX_DIR, { recursive: true, force: true });
     setupTestFiles();
     index = new CodeSearchIndex({ indexPath: INDEX_DIR });
-    index.buildIndex(TEST_DIR, { showProgress: false });
+    await index.buildIndex(TEST_DIR, { showProgress: false });
   });
 
   it('extracts root function normally without --follow-calls', () => {
@@ -157,10 +158,10 @@ describe('--follow-calls', () => {
 describe('--comments-only', () => {
   let index;
 
-  before(() => {
+  before(async () => {
     if (!fs.existsSync(TEST_DIR)) setupTestFiles();
     index = new CodeSearchIndex({ indexPath: INDEX_DIR });
-    if (index.files.size === 0) index.buildIndex(TEST_DIR, { showProgress: false });
+    if (index.files.size === 0) await index.buildIndex(TEST_DIR, { showProgress: false });
   });
 
   it('shows only comments from a Python function', () => {
@@ -211,10 +212,10 @@ describe('--comments-only', () => {
     assert.ok(output.includes('# Step 1'), 'should show root comments');
   });
 
-  it('reports when no comments found', () => {
+  it('reports when no comments found', async () => {
     // Create a function with no comments
-    const testDir2 = '/tmp/code_exam_test_nocomments';
-    const idxDir2 = '/tmp/code_exam_test_nocomments_idx';
+    const testDir2 = path.join(os.tmpdir(), 'code_exam_test_nocomments');
+    const idxDir2 = path.join(os.tmpdir(), 'code_exam_test_nocomments_idx');
     fs.mkdirSync(testDir2, { recursive: true });
     fs.writeFileSync(path.join(testDir2, 'bare.py'), `def bare_func(x):
     y = x + 1
@@ -222,7 +223,7 @@ describe('--comments-only', () => {
     return z
 `);
     const idx2 = new CodeSearchIndex({ indexPath: idxDir2 });
-    idx2.buildIndex(testDir2, { showProgress: false });
+    await idx2.buildIndex(testDir2, { showProgress: false });
 
     startCapture();
     doExtract(idx2, { extract: 'bare_func', follow_calls: false, comments_only: true });

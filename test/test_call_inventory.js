@@ -12,9 +12,10 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { execSync } from 'child_process';
 
-const TEST_DIR = '/tmp/ce_test_call_inventory';
+const TEST_DIR = path.join(os.tmpdir(), 'ce_test_call_inventory');
 const CLI = path.resolve('src/index.js');
 
 function runCLI(args) {

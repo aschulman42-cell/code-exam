@@ -8,11 +8,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 import { forEachEntry, parseValue } from '../src/json-stream.js';
 
-const TEST_DIR = '/tmp/code_exam_test_p3_src';
-const INDEX_DIR = '/tmp/code_exam_test_p3_idx';
+const TEST_DIR = path.join(os.tmpdir(), 'code_exam_test_p3_src');
+const INDEX_DIR = path.join(os.tmpdir(), 'code_exam_test_p3_idx');
 
 function setupTestFiles() {
   fs.mkdirSync(path.join(TEST_DIR, 'lib'), { recursive: true });
@@ -256,10 +257,10 @@ int CompositorLayer::GetDepth() const {
 describe('Phase 3: Metrics / Discovery', () => {
   let index;
 
-  it('setup: creates test files and builds index', () => {
+  it('setup: creates test files and builds index', async () => {
     setupTestFiles();
     index = new CodeSearchIndex({ indexPath: INDEX_DIR });
-    const stats = index.buildIndex(TEST_DIR, { showProgress: false });
+    const stats = await index.buildIndex(TEST_DIR, { showProgress: false });
     assert.ok(stats.files_indexed >= 8, `Expected >=8 files, got ${stats.files_indexed}`);
     assert.equal(stats.errors.length, 0);
   });

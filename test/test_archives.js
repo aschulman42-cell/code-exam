@@ -9,10 +9,11 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import zlib from 'zlib';
 import { execSync } from 'child_process';
 
-const TEST_DIR = '/tmp/ce_test_archives';
+const TEST_DIR = path.join(os.tmpdir(), 'ce_test_archives');
 const INDEX_DIR = path.join(TEST_DIR, '.code_search_index');
 const CLI = path.resolve('src/index.js');
 

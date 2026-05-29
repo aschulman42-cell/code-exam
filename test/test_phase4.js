@@ -19,11 +19,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import crypto from 'crypto';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 
-const TEST_DIR = '/tmp/code_exam_test_p4_src';
-const INDEX_DIR = '/tmp/code_exam_test_p4_idx';
+const TEST_DIR = path.join(os.tmpdir(), 'code_exam_test_p4_src');
+const INDEX_DIR = path.join(os.tmpdir(), 'code_exam_test_p4_idx');
 
 
 // ========================================================================
@@ -188,10 +189,10 @@ void func_gamma() {
 describe('Phase 4: Deduplication', () => {
   let index;
 
-  it('setup: creates test files and builds index', () => {
+  it('setup: creates test files and builds index', async () => {
     setupTestFiles();
     index = new CodeSearchIndex({ indexPath: INDEX_DIR });
-    const stats = index.buildIndex(TEST_DIR, { showProgress: false });
+    const stats = await index.buildIndex(TEST_DIR, { showProgress: false });
     assert.ok(stats.files_indexed >= 7, `Expected >=7 files, got ${stats.files_indexed}`);
     assert.equal(stats.errors.length, 0);
   });
@@ -619,8 +620,8 @@ describe('Phase 4: Deduplication', () => {
   // Binary extension exclusion
   // ------------------------------------------------------------------
 
-  it('buildIndex: directory walk already excludes non-source files', () => {
-    const mixedDir = '/tmp/code_exam_test_p4_binary';
+  it('buildIndex: directory walk already excludes non-source files', async () => {
+    const mixedDir = path.join(os.tmpdir(), 'code_exam_test_p4_binary');
     fs.mkdirSync(mixedDir, { recursive: true });
 
     // Create some source files
@@ -631,14 +632,14 @@ describe('Phase 4: Deduplication', () => {
     fs.writeFileSync(path.join(mixedDir, 'sound.mp3'), 'fake mp3 data');
     fs.writeFileSync(path.join(mixedDir, 'video.mp4'), 'fake mp4 data');
 
-    const idx = new CodeSearchIndex({ indexPath: '/tmp/code_exam_test_p4_binary_idx' });
-    const stats = idx.buildIndex(mixedDir, { showProgress: false });
+    const idx = new CodeSearchIndex({ indexPath: path.join(os.tmpdir(), 'code_exam_test_p4_binary_idx') });
+    const stats = await idx.buildIndex(mixedDir, { showProgress: false });
     // _walkDir only gathers files in DEFAULT_EXTENSIONS, so binary files never enter the pipeline
     assert.equal(stats.files_indexed, 2, `Should index 2 source files, got ${stats.files_indexed}`);
   });
 
-  it('buildIndex: skips binary files from @filelist.txt', () => {
-    const listDir = '/tmp/code_exam_test_p4_filelist';
+  it('buildIndex: skips binary files from @filelist.txt', async () => {
+    const listDir = path.join(os.tmpdir(), 'code_exam_test_p4_filelist');
     fs.mkdirSync(listDir, { recursive: true });
 
     fs.writeFileSync(path.join(listDir, 'code.py'), 'def main():\n    pass\n');
@@ -652,12 +653,12 @@ describe('Phase 4: Deduplication', () => {
       path.join(listDir, 'data.wav'),
     ].join('\n'));
 
-    const idx = new CodeSearchIndex({ indexPath: '/tmp/code_exam_test_p4_filelist_idx' });
+    const idx = new CodeSearchIndex({ indexPath: path.join(os.tmpdir(), 'code_exam_test_p4_filelist_idx') });
     const lines = [];
     const origLog = console.log;
     console.log = (...args) => lines.push(args.join(' '));
     try {
-      const stats = idx.buildIndex(`@${listPath}`, { showProgress: true });
+      const stats = await idx.buildIndex(`@${listPath}`, { showProgress: true });
       assert.equal(stats.files_indexed, 1, 'Should only index code.py from file list');
     } finally {
       console.log = origLog;
@@ -883,10 +884,10 @@ describe('Phase 4: Deduplication', () => {
     assert.ok(!vocab.has('len'), '"len" should be filtered (stopword)');
   });
 
-  it('ensureVocabulary: handles JS prototype property names as tokens', () => {
+  it('ensureVocabulary: handles JS prototype property names as tokens', async () => {
     // Regression test: tokens like "constructor", "toString", "hasOwnProperty"
     // must not collide with Object.prototype — uses Object.create(null)
-    const protoDir = '/tmp/code_exam_test_p4_proto';
+    const protoDir = path.join(os.tmpdir(), 'code_exam_test_p4_proto');
     fs.mkdirSync(protoDir, { recursive: true });
     fs.writeFileSync(path.join(protoDir, 'a.py'), [
       'def constructor(x):',
@@ -899,8 +900,8 @@ describe('Phase 4: Deduplication', () => {
       '',
     ].join('\n'));
 
-    const idx2 = new CodeSearchIndex({ indexPath: '/tmp/code_exam_test_p4_proto_idx' });
-    idx2.buildIndex(protoDir, { showProgress: false });
+    const idx2 = new CodeSearchIndex({ indexPath: path.join(os.tmpdir(), 'code_exam_test_p4_proto_idx') });
+    await idx2.buildIndex(protoDir, { showProgress: false });
     // This should NOT throw "Cannot set properties of undefined"
     assert.doesNotThrow(() => {
       idx2.ensureVocabulary(false);
@@ -981,17 +982,17 @@ describe('Phase 4: Deduplication', () => {
     assert.ok(lines.length > 0, 'Should produce output');
   });
 
-  it('ensureVocabulary: skips tokens longer than 200 chars', () => {
+  it('ensureVocabulary: skips tokens longer than 200 chars', async () => {
     // Create a file with an absurdly long identifier
-    const longDir = '/tmp/code_exam_test_p4_longtoken';
+    const longDir = path.join(os.tmpdir(), 'code_exam_test_p4_longtoken');
     fs.mkdirSync(longDir, { recursive: true });
     const longToken = 'a'.repeat(250);
     // Put it in two files so it would pass minDocFreq=2
     fs.writeFileSync(path.join(longDir, 'a.py'), `${longToken} = 1\ndef foo():\n    pass\n`);
     fs.writeFileSync(path.join(longDir, 'b.py'), `${longToken} = 2\ndef foo():\n    pass\n`);
 
-    const idx = new CodeSearchIndex({ indexPath: '/tmp/code_exam_test_p4_longtoken_idx' });
-    idx.buildIndex(longDir, { showProgress: false });
+    const idx = new CodeSearchIndex({ indexPath: path.join(os.tmpdir(), 'code_exam_test_p4_longtoken_idx') });
+    await idx.buildIndex(longDir, { showProgress: false });
     const vocab = idx.ensureVocabulary(false);
     assert.ok(!vocab.has(longToken), 'Token >200 chars should be excluded');
   });

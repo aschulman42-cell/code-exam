@@ -6,16 +6,17 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 import { parseMultisectTerms, doMultisect } from '../src/commands/multisect.js';
 
-const TEST_DIR = '/tmp/code_exam_test_p5';
-const INDEX_PATH = '/tmp/code_exam_test_p5_idx';
+const TEST_DIR = path.join(os.tmpdir(), 'code_exam_test_p5');
+const INDEX_PATH = path.join(os.tmpdir(), 'code_exam_test_p5_idx');
 
 describe('Phase 5: Multi-term intersection search', () => {
   let index;
 
-  before(() => {
+  before(async () => {
     fs.mkdirSync(TEST_DIR, { recursive: true });
 
     // Create test files with known content for predictable multisect results
@@ -96,7 +97,7 @@ describe('Phase 5: Multi-term intersection search', () => {
     ].join('\n'));
 
     index = new CodeSearchIndex({ indexPath: INDEX_PATH });
-    index.buildIndex(TEST_DIR, { showProgress: false });
+    await index.buildIndex(TEST_DIR, { showProgress: false });
   });
 
   after(() => {

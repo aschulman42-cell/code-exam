@@ -9,9 +9,10 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { execSync } from 'child_process';
 
-const TEST_DIR = '/tmp/ce_test_phase6';
+const TEST_DIR = path.join(os.tmpdir(), 'ce_test_phase6');
 const INDEX_DIR = path.join(TEST_DIR, '.code_search_index');
 const SRC_DIR = path.join(TEST_DIR, 'src');
 const CLI = path.resolve('src/index.js');
@@ -21,12 +22,20 @@ const CLI = path.resolve('src/index.js');
  */
 function runInteractive(commands, extraArgs = '') {
   const input = commands.join('\n') + '\n/quit\n';
-  const cmd = `echo "${input.replace(/"/g, '\\"')}" | node ${CLI} --interactive --index-path ${INDEX_DIR} ${extraArgs} 2>/dev/null`;
+  // Feed commands via stdin (the `input` option) and suppress stderr via
+  // stdio[2]='ignore' instead of a shell `echo ... | ... 2>/dev/null`
+  // pipeline — the latter's `/dev/null` resolves to a nonexistent
+  // C:\dev\null on Windows and crashes the run. `input` + `stdio` is
+  // cross-platform. extraArgs is split into argv tokens; CLI is passed as
+  // an explicit arg so no shell quoting is involved.
+  const cmd = `node ${CLI} --interactive --index-path ${INDEX_DIR} ${extraArgs}`;
   try {
     return execSync(cmd, {
+      input,
       encoding: 'utf-8',
       timeout: 15000,
       cwd: TEST_DIR,
+      stdio: ['pipe', 'pipe', 'ignore'],
     });
   } catch (e) {
     // Interactive mode exits with close, which may throw
@@ -39,14 +48,20 @@ function runInteractive(commands, extraArgs = '') {
  * More reliable for complex commands with special characters.
  */
 function runInteractiveFile(commands, extraArgs = '') {
-  const cmdFile = path.join(TEST_DIR, '_cmds.txt');
-  fs.writeFileSync(cmdFile, commands.join('\n') + '\n/quit\n');
-  const cmd = `node ${CLI} --interactive --index-path ${INDEX_DIR} ${extraArgs} < ${cmdFile} 2>/dev/null`;
+  // Originally wrote commands to a temp file and shell-redirected stdin
+  // (`< cmdFile`). The `input` option delivers the same bytes to the
+  // child's stdin cross-platform, so the temp file and the `< ... 2>/dev/null`
+  // redirect are both unnecessary. Kept as a separate helper since callers
+  // distinguish it from runInteractive for complex command sequences.
+  const input = commands.join('\n') + '\n/quit\n';
+  const cmd = `node ${CLI} --interactive --index-path ${INDEX_DIR} ${extraArgs}`;
   try {
     return execSync(cmd, {
+      input,
       encoding: 'utf-8',
       timeout: 15000,
       cwd: TEST_DIR,
+      stdio: ['pipe', 'pipe', 'ignore'],
     });
   } catch (e) {
     return e.stdout || '';
@@ -124,10 +139,12 @@ describe('Phase 6: Interactive Mode', () => {
       'module.exports = { Processor, runPipeline };',
     ].join('\n'));
 
-    // Build index
-    execSync(`node ${CLI} --build-index ${SRC_DIR} --index-path ${INDEX_DIR} 2>/dev/null`, {
+    // Build index. stdio[2]='ignore' suppresses stderr cross-platform
+    // (replaces the Windows-hostile `2>/dev/null` shell redirect).
+    execSync(`node ${CLI} --build-index ${SRC_DIR} --index-path ${INDEX_DIR}`, {
       encoding: 'utf-8',
       cwd: TEST_DIR,
+      stdio: ['pipe', 'pipe', 'ignore'],
     });
   });
 

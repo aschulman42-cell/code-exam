@@ -13,6 +13,7 @@ import { splitCompoundToken } from '../src/utils.js';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 
 
 // Suppress stderr from sanitizer/progress messages during tests
@@ -112,8 +113,8 @@ describe('splitCompoundToken', () => {
 // getVocabularyForPrompt / formatVocabularyForPrompt
 // ========================================================================
 
-const TEST_DIR = '/tmp/code_exam_test_vocab_extract';
-const INDEX_DIR = '/tmp/code_exam_test_vocab_extract_idx';
+const TEST_DIR = path.join(os.tmpdir(), 'code_exam_test_vocab_extract');
+const INDEX_DIR = path.join(os.tmpdir(), 'code_exam_test_vocab_extract_idx');
 
 function setupVocabTestFiles() {
   fs.mkdirSync(path.join(TEST_DIR, 'lib'), { recursive: true });
@@ -195,12 +196,12 @@ function checkCertExpiration(cert) {
 describe('getVocabularyForPrompt', () => {
   let index;
 
-  before(() => {
+  before(async () => {
     fs.rmSync(TEST_DIR, { recursive: true, force: true });
     fs.rmSync(INDEX_DIR, { recursive: true, force: true });
     setupVocabTestFiles();
     index = new CodeSearchIndex({ indexPath: INDEX_DIR });
-    index.buildIndex(TEST_DIR, { showProgress: false });
+    await index.buildIndex(TEST_DIR, { showProgress: false });
   });
 
   it('returns subTokens and functionNames', () => {
@@ -265,14 +266,14 @@ describe('getVocabularyForPrompt', () => {
 describe('formatVocabularyForPrompt', () => {
   let index;
 
-  before(() => {
+  before(async () => {
     // Reuse files from above (already created)
     if (!fs.existsSync(TEST_DIR)) {
       setupVocabTestFiles();
     }
     index = new CodeSearchIndex({ indexPath: INDEX_DIR });
     if (index.files.size === 0) {
-      index.buildIndex(TEST_DIR, { showProgress: false });
+      await index.buildIndex(TEST_DIR, { showProgress: false });
     }
   });
 
@@ -298,7 +299,7 @@ describe('formatVocabularyForPrompt', () => {
   });
 
   it('returns empty string when no vocabulary', () => {
-    const emptyIndex = new CodeSearchIndex({ indexPath: '/tmp/code_exam_empty_vocab_idx' });
+    const emptyIndex = new CodeSearchIndex({ indexPath: path.join(os.tmpdir(), 'code_exam_empty_vocab_idx') });
     const text = emptyIndex.formatVocabularyForPrompt('compact');
     assert.equal(text, '');
   });
@@ -414,14 +415,14 @@ describe('extractClaimKeywords', () => {
 describe('claim-filtered getVocabularyForPrompt', () => {
   let index;
 
-  before(() => {
+  before(async () => {
     // Reuse test files from above
     if (!fs.existsSync(TEST_DIR)) {
       setupVocabTestFiles();
     }
     index = new CodeSearchIndex({ indexPath: INDEX_DIR });
     if (index.files.size === 0) {
-      index.buildIndex(TEST_DIR, { showProgress: false });
+      await index.buildIndex(TEST_DIR, { showProgress: false });
     }
   });
 
