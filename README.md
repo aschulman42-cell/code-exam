@@ -1,7 +1,5 @@
 # CodeExam
 
-*From the author of [softwarelitigationconsulting.com](https://www.softwarelitigationconsulting.com/).*
-
 CodeExam, as its name implies, is a tool for **examining code** — primarily
 source code, but with a growing emphasis on **quasi-source**: recovering
 indexable structure from artifacts that weren't shipped as source (minified
@@ -451,5 +449,5 @@ together with term-mapping and reporting such as claim charts.
 
 ---
 
-*CodeExam and CodeClaim are developed by the author of
-[softwarelitigationconsulting.com](https://www.softwarelitigationconsulting.com/).*
+*CodeExam and CodeClaim are developed by Andrew Schulman. For more
+information, see [softwarelitigationconsulting.com](https://www.softwarelitigationconsulting.com/).*
