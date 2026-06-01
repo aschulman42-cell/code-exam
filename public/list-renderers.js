@@ -257,6 +257,39 @@ export async function loadClassMethods(className, container) {
 
 
 // ============================================================================
+// Models list (AI/ML #84) — classes whose inheritance reaches a model base
+// ============================================================================
+
+export function renderModelList(container, models, total) {
+  container.innerHTML = '';
+  if (!models || !models.length) {
+    container.innerHTML = '<div class="list-placeholder">No model classes found</div>';
+    return;
+  }
+  for (const m of models) {
+    // ambiguous bare-name match (Module/Model/Layer) gets a trailing "?"
+    const fwLabel = (m.framework || '?') + (m.ambiguous ? '?' : '');
+    const item = h('div', {
+      className: 'list-item',
+      title: `${m.filepath || ''}\nExtends ${m.base}${m.ambiguous ? '  (ambiguous base name — verify)' : ''}`,
+    }, [
+      h('span', { className: 'metric', text: fwLabel, style: 'min-width:72px;color:var(--accent,#6cf)' }),
+      h('span', { className: 'name clickable', html: displayNameHtml(m.name), style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
+      h('span', { className: 'metric', text: `${m.methods}m` }),
+      h('span', { className: 'filepath', text: m.filepath?.replace(/\\/g, '/') || '', style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+    ]);
+    // Click → show class in middle-top; right-click → context menu (Digest).
+    item.addEventListener('click', (e) => { e.stopPropagation(); onClassClick(m.name); });
+    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: m.name, display_name: m.name, filepath: m.filepath }); });
+    container.appendChild(item);
+  }
+  if (total > models.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: `${models.length} of ${total} shown` }));
+  }
+}
+
+
+// ============================================================================
 // Hot Folders list
 // ============================================================================
 

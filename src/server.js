@@ -2004,6 +2004,22 @@ routes['/api/list-classes'] = (req, res) => {
   });
 };
 
+routes['/api/list-models'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  let models = index.listModels(q.filter);
+  models.sort((a, b) => b.method_count - a.method_count);
+  const max = safeMax(q.max, 200);
+  jsonResponse(res, {
+    total: models.length,
+    models: models.slice(0, max).map(m => ({
+      name: m.name, filepath: m.filepath, framework: m.framework,
+      base: m.base, ambiguous: m.ambiguous, methods: m.method_count,
+    })),
+  });
+};
+
 routes['/api/class-methods'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);

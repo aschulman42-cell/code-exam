@@ -4871,6 +4871,125 @@ export class CodeSearchIndex {
    * List all indexed classes with aggregated method stats.
    * Handles cross-file method association (e.g., methods in .cpp, class in .h).
    */
+  /**
+   * AI/ML "Models" accordion (#84). Returns classes whose inheritance chain
+   * reaches a known ML model base, as
+   *   [{ name, filepath, framework, base, ambiguous, method_count }].
+   *
+   * Pure surfacing of inheritance data already computed by
+   * _getInheritanceMap() — no new analysis. Detection honesty:
+   *   - qualified bases (nn.Module, tf.Module, keras.layers.Layer,
+   *     BaseEstimator, ...) are unambiguous;
+   *   - bare ambiguous names (Module / Model / Layer) are matched but flagged
+   *     `ambiguous:true`, and the matched `base` is returned so the row can
+   *     show it (detect-and-report, never silently assume).
+   */
+  listModels(filter = null) {
+    this._ensureFunctionIndex();
+
+    // Confident model bases (qualified, or distinctive-bare) -> framework.
+    const CONFIDENT = {
+      'nn.Module': 'PyTorch', 'torch.nn.Module': 'PyTorch',
+      'tf.Module': 'TensorFlow', 'tf.keras.Model': 'TensorFlow',
+      'keras.layers.Layer': 'Keras', 'keras.Layer': 'Keras', 'keras.Model': 'Keras',
+      'BackendLayer': 'Keras', 'Layer': 'Keras',
+      'BaseEstimator': 'scikit-learn', 'ClassifierMixin': 'scikit-learn',
+      'RegressorMixin': 'scikit-learn', 'TransformerMixin': 'scikit-learn',
+      'ClusterMixin': 'scikit-learn', 'OutlierMixin': 'scikit-learn',
+    };
+    // Bare, multi-framework names -> best-guess framework, flagged ambiguous.
+    // NOTE: bare `Module` is deliberately excluded — it's too unreliable
+    // (DSPy's dspy.Module, and others, are not PyTorch). Real PyTorch models
+    // use qualified nn.Module / torch.nn.Module (in CONFIDENT above).
+    const AMBIG = { 'Model': 'Keras' };
+
+    // Lightweight {filepath, methodCount} per class + the set of class files.
+    const classInfo = {};
+    const classFiles = new Set();
+    for (const [fpath, functions] of Object.entries(this.functionIndex)) {
+      let hasClass = false;
+      for (const [name, info] of Object.entries(functions)) {
+        if (info && info.type === 'class') {
+          hasClass = true;
+          const bare = name.includes('::') ? name.split('::').pop() : name;
+          if (!classInfo[bare]) classInfo[bare] = { name: bare, filepath: fpath, methodCount: 0 };
+        }
+      }
+      if (hasClass) classFiles.add(fpath);
+    }
+    for (const [, functions] of Object.entries(this.functionIndex)) {
+      for (const [name, info] of Object.entries(functions)) {
+        if (info && (info.type === 'method' || info.type === 'function')
+            && (name.includes('::') || name.includes('.'))) {
+          const sep = name.includes('::') ? '::' : '.';
+          const prefix = name.slice(0, name.indexOf(sep));
+          if (classInfo[prefix]) classInfo[prefix].methodCount++;
+        }
+      }
+    }
+
+    // QUALIFIED inheritance map. Unlike _getInheritanceMap() (which reduces a
+    // parent to its last word, turning `nn.Module` into bare `Module`), keep the
+    // `nn.`/`tf.`/`keras.` qualifier so PyTorch's nn.Module is unambiguous.
+    // child(bare) -> [qualified parent strings].
+    const qmap = new Map();
+    const decl = [
+      /^\s*class\s+(\w+)\s*\(\s*([^)]+)\s*\)\s*:/,             // Python
+      /^\s*(?:export\s+)?class\s+(\w+)\s+extends\s+([\w.]+)/,  // JS/TS
+    ];
+    for (const [filepath, lines] of this.fileLines) {
+      if (classFiles.size && !classFiles.has(filepath)) continue;
+      for (const line of lines) {
+        for (const pat of decl) {
+          const mm = pat.exec(line);
+          if (!mm) continue;
+          const child = mm[1];
+          const parents = mm[2].split(',')
+            .map(s => s.replace(/<[^>]*>/g, '').replace(/=.*/, '').replace(/\s+/g, ''))
+            .filter(p => p && p !== 'object' && p !== 'metaclass');
+          if (parents.length) {
+            const ex = qmap.get(child) || [];
+            for (const p of parents) if (!ex.includes(p)) ex.push(p);
+            qmap.set(child, ex);
+          }
+          break;
+        }
+      }
+    }
+
+    // For each class, walk its qualified ancestor chain to a model base.
+    const out = [];
+    for (const cname of Object.keys(classInfo)) {
+      const seen = new Set();
+      const stack = [cname];
+      let base = null, framework = null, ambiguous = true;
+      while (stack.length) {
+        const cur = stack.pop();
+        if (seen.has(cur)) continue;
+        seen.add(cur);
+        for (const p of (qmap.get(cur) || [])) {
+          if (CONFIDENT[p]) { base = p; framework = CONFIDENT[p]; ambiguous = false; }
+          else if (base === null && AMBIG[p]) { base = p; framework = AMBIG[p]; ambiguous = true; }
+          stack.push(p);
+        }
+        if (base !== null && !ambiguous) break;  // confident hit — stop early
+      }
+      if (base !== null) {
+        const info = classInfo[cname];
+        out.push({ name: cname, filepath: info.filepath, framework, base, ambiguous, method_count: info.methodCount });
+      }
+    }
+
+    if (filter) {
+      const pat = filter.toLowerCase();
+      return out.filter(m =>
+        m.name.toLowerCase().includes(pat)
+        || (m.filepath || '').toLowerCase().includes(pat)
+        || (m.framework || '').toLowerCase().includes(pat));
+    }
+    return out;
+  }
+
   listClasses(filepath = null) {
     this._ensureFunctionIndex();
     const filterPath = filepath ? filepath.toLowerCase().replace(/\\/g, '/') : null;

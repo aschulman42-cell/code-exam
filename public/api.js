@@ -70,6 +70,7 @@ export const api = {
   search:          (p) => api.get('search', p),
   vocabulary:      (p) => api.get('vocabulary', p),
   listClasses:     (p) => api.get('list-classes', p),
+  listModels:      (p) => api.get('list-models', p),
   classMethods:    (p) => api.get('class-methods', p),
   filesSearch:     (p) => api.get('files-search', p),
   funcDupes:       (p) => api.get('func-dupes', p),
