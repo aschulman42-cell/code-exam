@@ -30,7 +30,7 @@ import {
 } from './commands/graph.js';
 import {
   doHotspots, doHotFolders, doEntryPoints, doGaps,
-  doDomainFns, doListClasses, doListModels, doClassHotspots, doVocabulary,
+  doDomainFns, doListClasses, doListModels, doListArtifacts, doClassHotspots, doVocabulary,
 } from './commands/metrics.js';
 import {
   doDupefiles, doFuncDupes, doNearDupes,
@@ -274,7 +274,7 @@ if (args.build_index) {
     'extract', 'list_files', 'show_file', 'file_bookends', 'bundle_seams', 'index_extensions', 'interactive',
     'callers', 'callees', 'most_called', 'call_tree', 'call_inventory', 'file_map', 'file_tree',
     'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
-    'list_classes', 'list_models', 'class_hotspots', 'discover_vocabulary',
+    'list_classes', 'list_models', 'list_artifacts', 'class_hotspots', 'discover_vocabulary',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
     'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'build_fp_renames',
@@ -343,7 +343,7 @@ if (args.build_rename_map) {
     'extract', 'list_files', 'show_file', 'index_extensions', 'interactive',
     'callers', 'callees', 'most_called', 'call_tree', 'call_inventory', 'file_map', 'file_tree',
     'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
-    'list_classes', 'list_models', 'class_hotspots', 'discover_vocabulary',
+    'list_classes', 'list_models', 'list_artifacts', 'class_hotspots', 'discover_vocabulary',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
     'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'build_fp_renames',
@@ -418,6 +418,7 @@ if (args._explicit.has('gaps'))             doGaps(index, args);
 if (args.domain_fns)                        doDomainFns(index, args);
 if (args.list_classes)                      doListClasses(index, args);
 if (args.list_models)                       doListModels(index, args);
+if (args.list_artifacts)                    doListArtifacts(index, args);
 if (args.class_hotspots)                    doClassHotspots(index, args);
 if (args.discover_vocabulary)               doVocabulary(index, args);
 if (args.multisect_search)                  doMultisect(index, args);
@@ -615,7 +616,7 @@ if (args.interactive) {
     'callers', 'callees', 'most_called',
     'call_tree', 'class_tree', 'call_inventory', 'file_map', 'file_tree',
     'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
-    'list_classes', 'list_models', 'class_hotspots', 'discover_vocabulary', 'multisect_search',
+    'list_classes', 'list_models', 'list_artifacts', 'class_hotspots', 'discover_vocabulary', 'multisect_search',
     'claim_search', 'claim_file',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',

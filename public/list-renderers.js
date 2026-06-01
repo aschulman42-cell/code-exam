@@ -294,6 +294,51 @@ export function renderModelList(container, models, total) {
 
 
 // ============================================================================
+// Artifacts list (#96) — model-weight load/save SITES (not units).
+// Rows are sorted server-side by family, format, file, line. Each row carries
+// a direction badge (load/save/ref), the format, and the artifact path/name.
+// Heuristic format-ref rows are marked with a leading "~" and muted, so the
+// mechanical/heuristic distinction is visible (honesty per #96).
+// ============================================================================
+
+const _ARTIFACT_DIR_COLOR = { load: '#6cf', save: '#fc6', ref: 'var(--text-muted)' };
+
+export function renderArtifactList(container, artifacts, total) {
+  container.innerHTML = '';
+  if (!artifacts || !artifacts.length) {
+    container.innerHTML = '<div class="list-placeholder">No model artifacts found '
+      + '(no load/save sites: from_pretrained, state_dict, torch.save/load, '
+      + 'safetensors, node-llama-cpp GGUF, or .gguf/.safetensors/.onnx paths)</div>';
+    return;
+  }
+  for (const a of artifacts) {
+    const heuristic = a.tag === 'heuristic';
+    const famLabel = (heuristic ? '~' : '') + (a.family || '?');
+    const dirColor = _ARTIFACT_DIR_COLOR[a.direction] || 'var(--text-muted)';
+    const nameText = a.path || a.snippet || a.format || '';
+    const item = h('div', {
+      className: 'list-item',
+      title: `${(a.filepath || '').replace(/\\/g, '/')}:${a.line}\n${a.snippet || ''}\n[${a.tag}]  ${a.family} · ${a.direction} · ${a.format}`,
+      style: heuristic ? 'opacity:0.78' : '',
+    }, [
+      h('span', { className: 'metric', text: famLabel, style: 'min-width:96px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'metric', text: a.direction, style: `min-width:34px;color:${dirColor};font-size:10px` }),
+      h('span', { className: 'metric', text: a.format, style: 'min-width:78px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'name clickable', text: nameText, style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'filepath', text: `${shortPath(a.filepath || '')}:${a.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+    ]);
+    // Click → open the file (sites have no class to focus); right-click → Digest.
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(a.filepath); });
+    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: a.filepath, display_name: a.filepath, filepath: a.filepath }); });
+    container.appendChild(item);
+  }
+  if (total > artifacts.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: `${artifacts.length} of ${total} shown` }));
+  }
+}
+
+
+// ============================================================================
 // Hot Folders list
 // ============================================================================
 

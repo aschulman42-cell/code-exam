@@ -5016,6 +5016,125 @@ export class CodeSearchIndex {
     return out;
   }
 
+  /**
+   * listArtifacts(filter) — AI/ML model-artifact load/save sites (#96).
+   *
+   * Unlike listModels() (which walks a class-inheritance map to find a defined
+   * UNIT), artifacts are usage SITES: where model weights enter/leave the
+   * program. So this is a line-level marker scan over fileLines with family
+   * classification + context-gating. One record per site:
+   *   { name, filepath, line, direction, family, familyLabel, format, tag, path, snippet }
+   *
+   * Three families (grounded in #96):
+   *   A `[mechanical]` HF / PyTorch  — from_pretrained / save_pretrained /
+   *      AutoModel* / .state_dict() / load_state_dict( / torch.save|load /
+   *      safe_open / load_file / hf_hub_download / cached_file
+   *   B `[mechanical]` node-llama-cpp — getLlama( / loadModel( / createContext( /
+   *      readGgufFileInfo( / GgufFileReader
+   *   C `[heuristic]` format-by-extension — bare .gguf/.safetensors/.onnx/.ckpt/
+   *      .pt/.bin/.pth/.h5 inside a quoted string
+   *
+   * Context-gating (the #96 caveat): `state_dict` over-counts because every
+   * nn.Module *defines* a state_dict method. We require a CALL site (a leading
+   * `.` for `.state_dict(`, and exclude `def load_state_dict`), never the
+   * declaration. Family C only fires inside a quoted path string and never on a
+   * line already claimed by a mechanical marker, so it doesn't double-count.
+   */
+  listArtifacts(filter = null) {
+    // Ordered detectors — first match on a line wins, so a mechanical marker
+    // (A/B) always beats the heuristic extension (C) on the same line.
+    const L = 'load', S = 'save';
+    const A = 'HF/PyTorch', B = 'node-llama-cpp', C = 'format-ref';
+    const detectors = [
+      // ── Family A: HF / PyTorch ──────────────────────────────────────────
+      { re: /\bsave_pretrained\s*\(/,                fam: A, dir: S, fmt: 'hf',          tag: 'mechanical' },
+      { re: /\bfrom_pretrained\s*\(/,                fam: A, dir: L, fmt: 'hf',          tag: 'mechanical' },
+      { re: /\bAuto(?:Model|Tokenizer|Config|Processor|FeatureExtractor)\w*\s*\./, fam: A, dir: L, fmt: 'hf', tag: 'mechanical' },
+      { re: /\bhf_hub_download\s*\(/,                fam: A, dir: L, fmt: 'hf-hub',      tag: 'mechanical' },
+      { re: /\bcached_file\s*\(/,                    fam: A, dir: L, fmt: 'hf-hub',      tag: 'mechanical' },
+      { re: /\btorch\.save\s*\(/,                    fam: A, dir: S, fmt: 'torch',       tag: 'mechanical' },
+      { re: /\btorch\.load\s*\(/,                    fam: A, dir: L, fmt: 'torch',       tag: 'mechanical' },
+      // state_dict: CALL sites only — `.state_dict(` (save side) and
+      // `load_state_dict(` (load side); never a `def …state_dict` declaration.
+      { re: /\bload_state_dict\s*\(/, not: /\bdef\s+load_state_dict/, fam: A, dir: L, fmt: 'state-dict', tag: 'mechanical' },
+      { re: /\.state_dict\s*\(/,                     fam: A, dir: S, fmt: 'state-dict',  tag: 'mechanical' },
+      { re: /\bsafe_open\s*\(/,                      fam: A, dir: L, fmt: 'safetensors', tag: 'mechanical' },
+      { re: /\bload_file\s*\(/,                      fam: A, dir: L, fmt: 'safetensors', tag: 'mechanical' },
+      // ── Family B: node-llama-cpp ────────────────────────────────────────
+      // Specific-enough markers fire unconditionally.
+      { re: /\bgetLlama\s*\(/,                       fam: B, dir: L, fmt: 'gguf',        tag: 'mechanical' },
+      { re: /\breadGgufFileInfo\s*\(/,               fam: B, dir: L, fmt: 'gguf',        tag: 'mechanical' },
+      { re: /\bGgufFileReader\b/,                    fam: B, dir: L, fmt: 'gguf',        tag: 'mechanical' },
+      // `.loadModel(` and `.createContext(` are GENERIC method names — most
+      // notably `.createContext(` is React Context (cli.js / any Ink-based TUI
+      // has dozens: `X.createContext({...})` + `.Provider` / `.displayName`).
+      // Gate them on same-file node-llama-cpp evidence so React contexts don't
+      // masquerade as model loads. (Verified false positives on a cli.js index.)
+      { re: /\.loadModel\s*\(/,     gated: true,     fam: B, dir: L, fmt: 'gguf',        tag: 'mechanical' },
+      { re: /\.createContext\s*\(/, gated: true,     fam: B, dir: L, fmt: 'gguf',        tag: 'mechanical' },
+    ];
+    // Family C: a model-artifact extension inside a quoted string.
+    const extRe = /["'`]([^"'`\n]*\.(gguf|safetensors|onnx|ckpt|pth|pt|bin|h5))["'`]/i;
+    // Best-effort artifact path/id extraction for A/B records.
+    const pathRe = /["'`]([^"'`\n]{1,120})["'`]/;
+    const isComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
+
+    const out = [];
+    for (const [filepath, lines] of this.fileLines) {
+      // Gate for generic Family-B markers: does this file actually use
+      // node-llama-cpp? If not, `.createContext(`/`.loadModel(` are something
+      // else (React Context, an unrelated loader, etc.) and must not count.
+      const fileHasLlama = lines.some(l =>
+        /\bgetLlama\s*\(|node-llama-cpp|loadLlamaModelFromFile|\bLlamaModel\b/.test(l));
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+        let rec = null;
+        for (const d of detectors) {
+          if (d.gated && !fileHasLlama) continue;
+          if (d.re.test(line) && !(d.not && d.not.test(line))) {
+            const pm = line.match(pathRe);
+            rec = { family: d.fam, direction: d.dir, format: d.fmt, tag: d.tag,
+                    marker: d.re.source.replace(/\\b|\\s\*|\\\(|\(\?:|[()\\]/g, '').slice(0, 24),
+                    path: pm ? pm[1] : null };
+            break;
+          }
+        }
+        if (!rec && !isComment(trimmed)) {
+          const em = line.match(extRe);
+          if (em) rec = { family: C, direction: 'ref', format: em[2].toLowerCase(),
+                          tag: 'heuristic', marker: '.' + em[2].toLowerCase(), path: em[1] };
+        }
+        if (rec) {
+          out.push({
+            name: rec.path || rec.format,
+            filepath, line: i + 1,
+            direction: rec.direction, family: rec.family, familyLabel: rec.family,
+            format: rec.format, tag: rec.tag, marker: rec.marker, path: rec.path,
+            snippet: trimmed.slice(0, 200),
+          });
+        }
+      }
+    }
+
+    let result = out;
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = out.filter(a =>
+        (a.filepath || '').toLowerCase().includes(pat)
+        || (a.format || '').toLowerCase().includes(pat)
+        || (a.family || '').toLowerCase().includes(pat)
+        || (a.path || '').toLowerCase().includes(pat)
+        || (a.snippet || '').toLowerCase().includes(pat));
+    }
+    // Stable order: family, then format, then file, then line.
+    result.sort((a, b) =>
+      a.family.localeCompare(b.family) || a.format.localeCompare(b.format)
+      || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+    return result;
+  }
+
   listClasses(filepath = null) {
     this._ensureFunctionIndex();
     const filterPath = filepath ? filepath.toLowerCase().replace(/\\/g, '/') : null;

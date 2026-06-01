@@ -2020,6 +2020,22 @@ routes['/api/list-models'] = (req, res) => {
   });
 };
 
+routes['/api/list-artifacts'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const artifacts = index.listArtifacts(q.filter);  // already sorted: family, format, file, line
+  const max = safeMax(q.max, 500);
+  jsonResponse(res, {
+    total: artifacts.length,
+    artifacts: artifacts.slice(0, max).map(a => ({
+      name: a.path || a.format, filepath: a.filepath, line: a.line,
+      direction: a.direction, family: a.family, format: a.format,
+      tag: a.tag, path: a.path, snippet: a.snippet,
+    })),
+  });
+};
+
 routes['/api/class-methods'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);

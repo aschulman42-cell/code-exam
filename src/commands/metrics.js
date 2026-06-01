@@ -371,6 +371,55 @@ export function doDomainFns(index, args) {
 // List Classes
 // ========================================================================
 
+export function doListArtifacts(index, args) {
+  const artifacts = index.listArtifacts(args.filter);
+  if (!artifacts.length) {
+    console.log('No model artifacts found (no load/save sites for HF from_pretrained/'
+      + 'state_dict, torch.save/load, safetensors, node-llama-cpp GGUF, or .gguf/'
+      + '.safetensors/.onnx/.ckpt paths).');
+    return;
+  }
+
+  // Summary by family, and a mechanical/heuristic split (honesty: heuristic
+  // format-refs are hints, not confirmed load sites).
+  const byFam = {};
+  let mech = 0, heur = 0;
+  for (const a of artifacts) {
+    byFam[a.family] = (byFam[a.family] || 0) + 1;
+    if (a.tag === 'heuristic') heur++; else mech++;
+  }
+  const summary = Object.entries(byFam).sort((a, b) => b[1] - a[1])
+    .map(([f, n]) => `${f} ${n}`).join(', ');
+
+  const max = (args._explicit && args._explicit.has('max_results'))
+    ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? artifacts.slice(0, max) : artifacts;
+
+  console.log(`\n${artifacts.length} artifact sites (${summary}; ${mech} mechanical, ${heur} heuristic)`
+    + `${max > 0 && artifacts.length > max ? `; showing ${shown.length}` : ''}:\n`);
+
+  if (args.verbose) {
+    // -v: full per-site line with the source snippet.
+    for (const a of shown) {
+      const dir = a.direction.padEnd(4);
+      const tag = a.tag === 'heuristic' ? '~' : ' ';
+      console.log(`${tag}${a.family.padEnd(14)} ${dir} ${a.format.padEnd(12)} ${(a.filepath || '').replace(/\\/g, '/')}:${a.line}`);
+      console.log(`        ${a.snippet}`);
+    }
+    return;
+  }
+
+  console.log(`${'Family'.padEnd(14)}  ${'Dir'.padEnd(4)}  ${'Format'.padEnd(12)}  ${'Path / name'.padEnd(30)}  File:line`);
+  console.log('='.repeat(110));
+  for (const a of shown) {
+    const fam = (a.tag === 'heuristic' ? '~' : '') + a.family;
+    const name = (a.path || a.format || '').slice(0, 29);
+    let fp = (a.filepath || '').replace(/\\/g, '/');
+    if (fp.length > 40) fp = '...' + fp.slice(-37);
+    console.log(`${fam.slice(0, 14).padEnd(14)}  ${a.direction.padEnd(4)}  ${a.format.slice(0, 12).padEnd(12)}  ${name.padEnd(30)}  ${fp}:${a.line}`);
+  }
+}
+
 export function doListModels(index, args) {
   let models = index.listModels(args.filter);
   if (!models.length) {
