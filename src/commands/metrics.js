@@ -371,6 +371,43 @@ export function doDomainFns(index, args) {
 // List Classes
 // ========================================================================
 
+export function doListModels(index, args) {
+  let models = index.listModels(args.filter);
+  if (!models.length) {
+    console.log('No model classes found (no class inheritance reaches a known ML '
+      + 'model base: nn.Module, tf.Module, keras Layer/Model, sklearn BaseEstimator, ...).');
+    return;
+  }
+  // Group/sort by framework, then by method count (desc).
+  models.sort((a, b) =>
+    (a.framework || '').localeCompare(b.framework || '')
+    || (b.method_count - a.method_count));
+
+  const byFw = {};
+  for (const m of models) byFw[m.framework] = (byFw[m.framework] || 0) + 1;
+  const summary = Object.entries(byFw).sort((a, b) => b[1] - a[1])
+    .map(([f, n]) => `${f} ${n}`).join(', ');
+
+  // Show all by default (greppable, like --list-classes); cap only when the
+  // user explicitly passes --max / --max-results / -n.
+  const max = (args._explicit && args._explicit.has('max_results'))
+    ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? models.slice(0, max) : models;
+
+  console.log(`\n${models.length} model classes (${summary})`
+    + `${max > 0 && models.length > max ? `; showing ${shown.length}` : ''}:\n`);
+  console.log(`${'Framework'.padEnd(14)}  ${'Meth'.padStart(5)}  ${'Class'.padEnd(34)}  ${'Extends'.padEnd(22)}  Filepath`);
+  console.log('='.repeat(118));
+  for (const m of shown) {
+    const fw = ((m.framework || '?') + (m.ambiguous ? '?' : '')).slice(0, 14);
+    const name = m.name.slice(0, 33);
+    const base = (m.base || '').slice(0, 21);
+    let fp = (m.filepath || '').replace(/\\/g, '/');
+    if (fp.length > 48) fp = '...' + fp.slice(-45);
+    console.log(`${fw.padEnd(14)}  ${String(m.method_count).padStart(5)}  ${name.padEnd(34)}  ${base.padEnd(22)}  ${fp}`);
+  }
+}
+
 export function doListClasses(index, args) {
   let classes = index.listClasses();
 
