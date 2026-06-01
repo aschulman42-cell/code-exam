@@ -269,12 +269,16 @@ export function renderModelList(container, models, total) {
   for (const m of models) {
     // ambiguous bare-name match (Module/Model/Layer) gets a trailing "?"
     const fwLabel = (m.framework || '?') + (m.ambiguous ? '?' : '');
+    // full inheritance chain: Class → parent → … → base (tooltip)
+    const chain = (m.chain && m.chain.length) ? m.chain : [m.base];
+    const fullChain = `${m.name} → ${chain.join(' → ')}`;
     const item = h('div', {
       className: 'list-item',
-      title: `${m.filepath || ''}\nExtends ${m.base}${m.ambiguous ? '  (ambiguous base name — verify)' : ''}`,
+      title: `${m.filepath || ''}\n${fullChain}${m.ambiguous ? '  (ambiguous base name — verify)' : ''}`,
     }, [
       h('span', { className: 'metric', text: fwLabel, style: 'min-width:72px;color:var(--accent,#6cf)' }),
       h('span', { className: 'name clickable', html: displayNameHtml(m.name), style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
+      h('span', { className: 'metric', text: `→ ${m.base}`, title: fullChain, style: 'color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;max-width:160px;flex-shrink:0' }),
       h('span', { className: 'metric', text: `${m.methods}m` }),
       h('span', { className: 'filepath', text: m.filepath?.replace(/\\/g, '/') || '', style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);

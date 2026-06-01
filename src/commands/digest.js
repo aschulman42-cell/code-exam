@@ -322,6 +322,10 @@ export function formatClassDigest(digest, opts = {}) {
   if (id.implements && id.implements.length > 0) {
     push(`  Implements:   ${id.implements.join(', ')}`);
   }
+  if (id.model) {
+    // AI/ML model classification (#84) — framework + the base that qualified it.
+    push(`  Model:        ${id.model.framework}${id.model.ambiguous ? '?' : ''} (via ${id.model.base})`);
+  }
   if (id.bareUnique) {
     push(`  Bare name:    unique across the index`);
   } else {

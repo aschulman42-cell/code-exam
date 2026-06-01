@@ -106,6 +106,36 @@ const _SKIP_DIRS = new Set([
 ]);
 
 
+// ---------------------------------------------------------------------------
+// AI/ML model-base classification (#84) — SINGLE source for listModels() and
+// the class digest's `Model:` line. Qualified bases are confident; bare
+// ambiguous names (Model) are flagged. Bare `Module` is intentionally absent
+// (DSPy's dspy.Module etc. are not PyTorch — real PyTorch uses nn.Module).
+// ---------------------------------------------------------------------------
+const MODEL_BASE_CONFIDENT = {
+  'nn.Module': 'PyTorch', 'torch.nn.Module': 'PyTorch',
+  'tf.Module': 'TensorFlow', 'tf.keras.Model': 'TensorFlow',
+  'keras.layers.Layer': 'Keras', 'keras.Layer': 'Keras', 'keras.Model': 'Keras',
+  'BackendLayer': 'Keras', 'Layer': 'Keras',
+  'BaseEstimator': 'scikit-learn', 'ClassifierMixin': 'scikit-learn',
+  'RegressorMixin': 'scikit-learn', 'TransformerMixin': 'scikit-learn',
+  'ClusterMixin': 'scikit-learn', 'OutlierMixin': 'scikit-learn',
+};
+const MODEL_BASE_AMBIG = { 'Model': 'Keras' };
+
+// Given an ordered list of (qualified-where-known) ancestor names, return
+// { framework, base, ambiguous } for the first confident hit, else the first
+// ambiguous hit, else null.
+function classifyModelBase(ancestorNames) {
+  let amb = null;
+  for (const p of (ancestorNames || [])) {
+    if (MODEL_BASE_CONFIDENT[p]) return { framework: MODEL_BASE_CONFIDENT[p], base: p, ambiguous: false };
+    if (!amb && MODEL_BASE_AMBIG[p]) amb = { framework: MODEL_BASE_AMBIG[p], base: p, ambiguous: true };
+  }
+  return amb;
+}
+
+
 export class CodeSearchIndex {
 
   static DEFAULT_EXTENSIONS = DEFAULT_EXTENSIONS;
@@ -705,6 +735,12 @@ export class CodeSearchIndex {
       ancestorChain,
       extendsInIndex,
       implements: hierarchy.implements,
+      // AI/ML model classification (#84): framework + qualifying base, or null.
+      // ancestorChain entries can carry a " [external]" suffix (e.g.
+      // "nn.Module [external]") — strip any trailing [..] before matching.
+      model: classifyModelBase(
+        [...(hierarchy.extends || []), ...ancestorChain.flat()]
+          .map(s => String(s).replace(/\s*\[[^\]]*\]\s*$/, '').trim())),
       methodCount: methodEntries.length,
       bareUnique: bareCount === 1,
       bareDuplicateCount: bareCount,
@@ -4887,21 +4923,9 @@ export class CodeSearchIndex {
   listModels(filter = null) {
     this._ensureFunctionIndex();
 
-    // Confident model bases (qualified, or distinctive-bare) -> framework.
-    const CONFIDENT = {
-      'nn.Module': 'PyTorch', 'torch.nn.Module': 'PyTorch',
-      'tf.Module': 'TensorFlow', 'tf.keras.Model': 'TensorFlow',
-      'keras.layers.Layer': 'Keras', 'keras.Layer': 'Keras', 'keras.Model': 'Keras',
-      'BackendLayer': 'Keras', 'Layer': 'Keras',
-      'BaseEstimator': 'scikit-learn', 'ClassifierMixin': 'scikit-learn',
-      'RegressorMixin': 'scikit-learn', 'TransformerMixin': 'scikit-learn',
-      'ClusterMixin': 'scikit-learn', 'OutlierMixin': 'scikit-learn',
-    };
-    // Bare, multi-framework names -> best-guess framework, flagged ambiguous.
-    // NOTE: bare `Module` is deliberately excluded — it's too unreliable
-    // (DSPy's dspy.Module, and others, are not PyTorch). Real PyTorch models
-    // use qualified nn.Module / torch.nn.Module (in CONFIDENT above).
-    const AMBIG = { 'Model': 'Keras' };
+    // Model-base sets are module-level (shared with the digest's Model: line).
+    const CONFIDENT = MODEL_BASE_CONFIDENT;
+    const AMBIG = MODEL_BASE_AMBIG;
 
     // Lightweight {filepath, methodCount} per class + the set of class files.
     const classInfo = {};
@@ -4958,25 +4982,27 @@ export class CodeSearchIndex {
     }
 
     // For each class, walk its qualified ancestor chain to a model base.
+    // `chain` records the ancestor path from the class to the base (exclusive of
+    // the class itself), e.g. ["Qwen2_5_VLPreTrainedModel","PreTrainedModel",
+    // "nn.Module"]. Each stack entry carries the path taken to reach it.
     const out = [];
     for (const cname of Object.keys(classInfo)) {
-      const seen = new Set();
-      const stack = [cname];
-      let base = null, framework = null, ambiguous = true;
+      const seen = new Set([cname]);
+      const stack = [[cname, []]];   // [node, chainFromClassToNode]
+      let best = null;               // { base, framework, ambiguous, chain }
       while (stack.length) {
-        const cur = stack.pop();
-        if (seen.has(cur)) continue;
-        seen.add(cur);
+        const [cur, pathToCur] = stack.pop();
         for (const p of (qmap.get(cur) || [])) {
-          if (CONFIDENT[p]) { base = p; framework = CONFIDENT[p]; ambiguous = false; }
-          else if (base === null && AMBIG[p]) { base = p; framework = AMBIG[p]; ambiguous = true; }
-          stack.push(p);
+          const chainToP = [...pathToCur, p];
+          if (CONFIDENT[p]) { best = { base: p, framework: CONFIDENT[p], ambiguous: false, chain: chainToP }; break; }
+          if (!best && AMBIG[p]) best = { base: p, framework: AMBIG[p], ambiguous: true, chain: chainToP };
+          if (!seen.has(p)) { seen.add(p); stack.push([p, chainToP]); }
         }
-        if (base !== null && !ambiguous) break;  // confident hit — stop early
+        if (best && !best.ambiguous) break;  // confident hit — stop early
       }
-      if (base !== null) {
+      if (best) {
         const info = classInfo[cname];
-        out.push({ name: cname, filepath: info.filepath, framework, base, ambiguous, method_count: info.methodCount });
+        out.push({ name: cname, filepath: info.filepath, framework: best.framework, base: best.base, ambiguous: best.ambiguous, chain: best.chain, method_count: info.methodCount });
       }
     }
 

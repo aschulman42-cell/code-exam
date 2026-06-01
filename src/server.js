@@ -2015,7 +2015,7 @@ routes['/api/list-models'] = (req, res) => {
     total: models.length,
     models: models.slice(0, max).map(m => ({
       name: m.name, filepath: m.filepath, framework: m.framework,
-      base: m.base, ambiguous: m.ambiguous, methods: m.method_count,
+      base: m.base, ambiguous: m.ambiguous, chain: m.chain, methods: m.method_count,
     })),
   });
 };

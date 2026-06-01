@@ -396,6 +396,18 @@ export function doListModels(index, args) {
 
   console.log(`\n${models.length} model classes (${summary})`
     + `${max > 0 && models.length > max ? `; showing ${shown.length}` : ''}:\n`);
+
+  if (args.verbose) {
+    // -v: full inheritance chain per model (Class -> parent -> ... -> base).
+    for (const m of shown) {
+      const fw = (m.framework || '?') + (m.ambiguous ? '?' : '');
+      const chain = (m.chain && m.chain.length) ? m.chain : [m.base];
+      console.log(`${fw}  [${m.method_count}m]  ${m.name} → ${chain.join(' → ')}`);
+      console.log(`        ${(m.filepath || '').replace(/\\/g, '/')}`);
+    }
+    return;
+  }
+
   console.log(`${'Framework'.padEnd(14)}  ${'Meth'.padStart(5)}  ${'Class'.padEnd(34)}  ${'Extends'.padEnd(22)}  Filepath`);
   console.log('='.repeat(118));
   for (const m of shown) {
