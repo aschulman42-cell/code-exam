@@ -415,6 +415,47 @@ export function doListTraining(index, args) {
   if (tierB) console.log(`\n  (~ = heuristic .fit() call — gated on ML imports, def-fit excluded)`);
 }
 
+export function doListTools(index, args) {
+  const tools = index.listTools(args.filter);
+  if (!tools.length) {
+    console.log('No tools found (no @tool/FunctionTool/StructuredTool, input_schema/'
+      + 'inputSchema, MCP setRequestHandler/server.tool/defineChatSessionFunction, or '
+      + 'tool_use/tool_calls dispatch). Note: @tool alone is LangChain-specific.');
+    return;
+  }
+
+  const byKind = {}; const byFw = {}; let heur = 0;
+  for (const t of tools) { byKind[t.kind] = (byKind[t.kind] || 0) + 1; byFw[t.framework] = (byFw[t.framework] || 0) + 1; if (t.tag === 'heuristic') heur++; }
+  const kindSummary = ['tool-def', 'mcp', 'tool-dispatch'].filter(k => byKind[k]).map(k => `${byKind[k]} ${k}`).join(', ');
+  const fwSummary = Object.entries(byFw).sort((a, b) => b[1] - a[1]).map(([f, n]) => `${f} ${n}`).join(', ');
+
+  const max = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? tools.slice(0, max) : tools;
+
+  console.log(`\n${tools.length} tool sites — ${kindSummary} (${fwSummary}; ${heur} heuristic)`
+    + `${max > 0 && tools.length > max ? `; showing ${shown.length} rows` : ''}:\n`);
+
+  if (args.verbose) {
+    for (const t of shown) {
+      const b = t.tag === 'heuristic' ? '~' : ' ';
+      console.log(`${b}${(t.framework || '').padEnd(18)} ${t.kind.padEnd(14)} ${(t.marker || '').padEnd(18)} ${t.name ? '→ ' + t.name : ''}${t.lvc ? ' [lib?]' : ''}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+    }
+    return;
+  }
+
+  console.log(`${'Framework'.padEnd(18)}  ${'Kind'.padEnd(13)}  ${'Marker'.padEnd(16)}  ${'Tool name(s)'.padEnd(26)}  File:line`);
+  console.log('='.repeat(118));
+  for (const t of shown) {
+    const fw = (t.tag === 'heuristic' ? '~' : '') + (t.framework || '');
+    let fp = (t.filepath || '').replace(/\\/g, '/');
+    if (fp.length > 30) fp = '...' + fp.slice(-27);
+    const nm = (t.name || '') + (t.lvc ? ' [lib?]' : '');
+    console.log(`${fw.slice(0, 18).padEnd(18)}  ${t.kind.padEnd(13)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${nm.slice(0, 26).padEnd(26)}  ${fp}:${t.line}`);
+  }
+  if (heur) console.log(`\n  (~ = heuristic, gated on LLM/MCP context; [lib?] = library-vs-consumer over-fire; blank name = not statically extractable)`);
+}
+
 export function doListLlmCalls(index, args) {
   const calls = index.listLlmCalls(args.filter);
   if (!calls.length) {

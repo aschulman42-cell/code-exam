@@ -160,6 +160,7 @@ export function parseArgs() {
     list_training: false,
     list_inference: false,
     list_llm_calls: false,
+    list_tools: false,
     class_hotspots: null,
     discover_vocabulary: null,
     multisect_search: null,
@@ -336,6 +337,7 @@ export function parseArgs() {
     ['list_training',        'flag',           ['--training'], ['--list-training']],
     ['list_inference',       'flag',           ['--inference'], ['--list-inference']],
     ['list_llm_calls',       'flag',           ['--llm-calls'], ['--list-llm-calls']],
+    ['list_tools',           'flag',           ['--tools'], ['--list-tools']],
     ['class_hotspots',       'int',            ['--class-hotspots']],
     ['discover_vocabulary',  'int',            ['--vocabulary', '--vocab'], ['--discover-vocabulary']],
     ['multisect_search',     'value',          ['--multisect-search', '--multisect']],
@@ -746,6 +748,7 @@ METRICS / DISCOVERY:
   --kernels                  GPU kernels (CUDA __global__, Triton @triton.jit, numba)
   --inference                Local inference/generation (generate, no_grad, .predict)
   --llm-calls                LLM API calls (messages.create, ChatOpenAI, LlamaChatSession)
+  --tools                    Tool defs / function-calling (@tool, input_schema, MCP, tool_use)
 
   --class-hotspots <n>       Top N classes by aggregated method hotspot score
   --vocabulary <n>           Top N domain-specific tokens by TF-IDF score

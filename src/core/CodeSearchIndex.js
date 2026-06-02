@@ -5686,6 +5686,124 @@ export class CodeSearchIndex {
     return result;
   }
 
+  /**
+   * listTools(filter) — the function-calling / tool layer (#104). `@tool` is
+   * LangChain-only; most tools are SCHEMAS (input_schema/inputSchema) and MCP
+   * registrations, so three sub-kinds:
+   *   tool-def      — @tool / FunctionTool / StructuredTool / input_schema (a tool
+   *                   the model can use)
+   *   mcp           — setRequestHandler / server.tool / @mcp.tool / McpServer /
+   *                   defineChatSessionFunction (node-llama-cpp, library-vs-consumer)
+   *   tool-dispatch — tool_use / tool_calls / function_call (handling the model's
+   *                   tool request)
+   * Generic markers (inputSchema, tools=[…], tool_calls, function_call) are gated
+   * on the file being LLM/agent/MCP code. Skips .md/.rst (#102).
+   */
+  listTools(filter = null) {
+    // Tier A — specific, ungated.
+    const tierA = [
+      { re: /^@(?:tool|tool_plain|function_tool)\b/, kind: 'tool-def', fw: 'LangChain',  m: '@tool' },
+      { re: /^@agent\.tool\b/,                       kind: 'tool-def', fw: 'pydantic-ai', m: '@agent.tool' },
+      { re: /^@mcp\.tool\b/,                          kind: 'mcp',      fw: 'MCP',        m: '@mcp.tool' },
+      { re: /\bStructuredTool\b/,                     kind: 'tool-def', fw: 'LangChain',  m: 'StructuredTool' },
+      { re: /\bFunctionTool\b/,                       kind: 'tool-def', fw: 'LangChain/LlamaIndex', m: 'FunctionTool' },
+      { re: /\binput_schema\b/,                       kind: 'tool-def', fw: 'Anthropic',  m: 'input_schema' },
+      { re: /\bsetRequestHandler\b/,                  kind: 'mcp',      fw: 'MCP',        m: 'setRequestHandler' },
+      { re: /\b(?:ListTools|CallTool)Request(?:Schema)?\b/, kind: 'mcp', fw: 'MCP',       m: 'MCP-request' },
+      { re: /\bserver\.tool\s*\(/,                    kind: 'mcp',      fw: 'MCP',        m: 'server.tool' },
+      { re: /\bMcpServer\b/,                          kind: 'mcp',      fw: 'MCP',        m: 'McpServer' },
+      { re: /\bdefineChatSessionFunction\b/,          kind: 'mcp',      fw: 'node-llama-cpp', m: 'defineChatSessionFunction', lvc: true },
+      { re: /\btool_use\b/,                           kind: 'tool-dispatch', fw: 'Anthropic', m: 'tool_use' },
+    ];
+    // Tier B — generic, gated on fileHasLLM.
+    const tierB = [
+      { re: /\binputSchema\b/,                        kind: 'tool-def',      fw: 'MCP',    m: 'inputSchema' },
+      { re: /\btools\s*[=:]\s*\[/,                    kind: 'tool-def',      fw: '?',      m: 'tools=[]' },
+      { re: /\btool_calls\b/,                         kind: 'tool-dispatch', fw: 'OpenAI', m: 'tool_calls' },
+      { re: /\bfunction_call\b/,                      kind: 'tool-dispatch', fw: 'OpenAI', m: 'function_call' },
+    ];
+    const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
+    const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
+
+    // Best-effort tool-NAME extraction (a name beats a bare marker like
+    // "input_schema"). Covers the real forms: same-line `tools=["Read","Edit"]`
+    // / `tools:[noopTool]`; `@tool("name")` or `@tool` → next `def NAME`;
+    // multi-line `tools = [ {"name": "internet_search"}, … ]`; and a `"name":`
+    // sibling near input_schema/inputSchema. Returns '' if nothing clean.
+    const extractToolName = (d, line, lines, i) => {
+      const reName = /["']?name["']?\s*:\s*["']([^"']+)["']/;
+      if (d.m === '@tool' || d.m === '@agent.tool' || d.m === '@mcp.tool') {
+        const am = line.match(/@[\w.]+\(\s*["']([^"']+)["']/);
+        if (am) return am[1];
+        for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+          const dm = (lines[j] || '').match(/^\s*(?:async\s+)?def\s+(\w+)/);
+          if (dm) return dm[1];
+        }
+        return '';
+      }
+      if (d.m === 'tools=[]') {
+        const inl = line.match(/tools\s*[=:]\s*\[([^\]]+)\]/);
+        if (inl && inl[1].trim()) {
+          const names = []; const re = /["']([^"'\s,]+)["']|\b([A-Za-z_]\w*)\b/g; let mm;
+          while ((mm = re.exec(inl[1])) !== null) { const n = mm[1] || mm[2]; if (n) names.push(n); }
+          if (names.length) return names.slice(0, 6).join(', ');
+        }
+        const names = [];   // multi-line array → collect "name": fields until ]/)
+        for (let j = i; j < Math.min(i + 40, lines.length); j++) {
+          const nm = (lines[j] || '').match(reName); if (nm) names.push(nm[1]);
+          if (j > i && /^\s*[\]\)]/.test(lines[j] || '')) break;
+        }
+        return names.length ? names.slice(0, 6).join(', ') : '';
+      }
+      if (d.m === 'input_schema' || d.m === 'inputSchema') {
+        for (let j = Math.max(0, i - 4); j < Math.min(i + 5, lines.length); j++) {
+          const nm = (lines[j] || '').match(reName); if (nm) return nm[1];
+        }
+        return '';
+      }
+      if (d.kind === 'mcp') { const sm = line.match(/["']([A-Za-z_][\w\- ]{1,40})["']/); if (sm) return sm[1]; }
+      return '';
+    };
+
+    const out = [];
+    for (const [filepath, lines] of this.fileLines) {
+      if (reDocFile.test(filepath)) continue;
+      const fileHasLLM =
+        lines.some(l => /\b(?:anthropic|openai|langchain|llama_index|llamaindex|cohere|mistralai|generativeai|node-llama-cpp|@anthropic-ai|@langchain|modelcontextprotocol|dspy|crewai|autogen|smolagents)\b/i.test(l))
+        || lines.some(l => /\b(?:messages\.create|chat\.completions\.create|tool_use|input_schema|setRequestHandler|defineChatSessionFunction)\b/.test(l));
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+        if (reComment(trimmed)) continue;
+        const push = (d, tier, tag) =>
+          out.push({ name: extractToolName(d, line, lines, i), filepath, line: i + 1, kind: d.kind, framework: d.fw, tier, marker: d.m, tag, lvc: !!d.lvc, snippet: trimmed.slice(0, 200) });
+
+        const a = tierA.find(d => d.re.test(trimmed));
+        if (a) { push(a, 'A', 'mechanical'); continue; }
+        if (fileHasLLM) {
+          const b = tierB.find(d => d.re.test(trimmed));
+          if (b) { push(b, 'B', 'heuristic'); continue; }
+        }
+      }
+    }
+
+    let result = out;
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = out.filter(t =>
+        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
+        || (t.framework || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
+        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+    }
+    const kindRank = { 'tool-def': 0, 'mcp': 1, 'tool-dispatch': 2 };
+    result.sort((a, b) =>
+      (a.framework || '').localeCompare(b.framework || '') || (kindRank[a.kind] - kindRank[b.kind])
+      || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+    return result;
+  }
+
   listClasses(filepath = null) {
     this._ensureFunctionIndex();
     const filterPath = filepath ? filepath.toLowerCase().replace(/\\/g, '/') : null;

@@ -547,6 +547,48 @@ export function renderLlmCallsList(container, calls, total) {
 
 
 // ============================================================================
+// Tools list (#104) — function-calling / tool layer. kind ∈ {tool-def, mcp,
+// tool-dispatch}, framework-grouped. Tier-B (heuristic, gated) rows get "~" +
+// dim; [lib?] flags library-vs-consumer over-fire. (@tool is LangChain-only;
+// most tools are schema/MCP, so cli.js etc. surface without @tool.)
+// ============================================================================
+
+const _TOOL_KIND_COLOR = { 'tool-def': '#6cf', 'mcp': '#a9f', 'tool-dispatch': '#fc6' };
+
+export function renderToolsList(container, tools, total) {
+  container.innerHTML = '';
+  if (!tools || !tools.length) {
+    container.innerHTML = '<div class="list-placeholder">No tools found '
+      + '(no @tool / FunctionTool / StructuredTool, input_schema/inputSchema, MCP '
+      + 'setRequestHandler / server.tool / defineChatSessionFunction, or tool_use/'
+      + 'tool_calls dispatch). @tool alone is LangChain-specific.</div>';
+    return;
+  }
+  for (const t of tools) {
+    const heuristic = t.tag === 'heuristic';
+    const kindColor = _TOOL_KIND_COLOR[t.kind] || 'var(--text-muted)';
+    const item = h('div', {
+      className: 'list-item',
+      title: `${(t.filepath || '').replace(/\\/g, '/')}:${t.line}\n${t.snippet || ''}\n${t.framework} · ${t.kind} · tier ${t.tier} · ${t.marker}${t.lvc ? '  (library-vs-consumer: over-fires on the lib\'s own source)' : ''}`,
+      style: heuristic ? 'opacity:0.78' : '',
+    }, [
+      h('span', { className: 'metric', text: (heuristic ? '~' : '') + (t.framework || ''), style: 'min-width:96px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'metric', text: t.kind === 'tool-dispatch' ? 'dispatch' : t.kind, style: `min-width:62px;color:${kindColor};font-size:10px` }),
+      h('span', { className: 'metric', text: t.marker || '', style: 'min-width:104px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'name clickable', text: (t.name || '—') + (t.lvc ? ' [lib?]' : ''), style: `flex:1;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${t.name ? 'var(--text-bright)' : 'var(--text-muted)'}` }),
+      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+    ]);
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath); });
+    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
+    container.appendChild(item);
+  }
+  if (total > tools.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: `${tools.length} of ${total} shown` }));
+  }
+}
+
+
+// ============================================================================
 // Hot Folders list
 // ============================================================================
 

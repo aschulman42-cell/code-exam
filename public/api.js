@@ -77,6 +77,7 @@ export const api = {
   listTraining:    (p) => api.get('list-training', p),
   listInference:   (p) => api.get('list-inference', p),
   listLlmCalls:    (p) => api.get('list-llm-calls', p),
+  listTools:       (p) => api.get('list-tools', p),
   classMethods:    (p) => api.get('class-methods', p),
   filesSearch:     (p) => api.get('files-search', p),
   funcDupes:       (p) => api.get('func-dupes', p),

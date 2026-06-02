@@ -65,7 +65,7 @@ import {
 import {
   initListRenderers,
   renderFuncLikeList, renderFunctionList, renderFileListWithSub,
-  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList,
+  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
@@ -183,6 +183,13 @@ async function loadSectionData(sectionId, filter = '') {
         data = await api.listLlmCalls({ filter, max: 500 });
         state.sectionData[sectionId] = data.calls;
         renderLlmCallsList(content, data.calls, data.total);
+        badge.textContent = data.total;
+        break;
+
+      case 'tools':
+        data = await api.listTools({ filter, max: 500 });
+        state.sectionData[sectionId] = data.tools;
+        renderToolsList(content, data.tools, data.total);
         badge.textContent = data.total;
         break;
 
