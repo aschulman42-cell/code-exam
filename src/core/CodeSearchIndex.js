@@ -5135,6 +5135,148 @@ export class CodeSearchIndex {
     return result;
   }
 
+  /**
+   * listKernels(filter) — GPU kernels (#93). Unlike Artifacts (pure sites) and
+   * Models (pure inheritance units), kernels are BOTH definitions and launches:
+   *
+   *   kernel-def : the unit
+   *     - CUDA  `__global__` function (the ONE true CUDA kernel marker)
+   *     - Triton `@triton.jit` (+ @triton.autotune/@triton.heuristics) decorated def
+   *     - numba  `@cuda.jit` decorated def
+   *   launch     : callers → kernels
+   *     - CUDA  `name<<<grid,block>>>` and `cudaLaunchKernel(`  [mechanical]
+   *     - Triton/numba `name[grid](…)`  [heuristic] — generic subscript-call, so
+   *       GATED on (a) the file importing triton/numba AND (b) `name` being a
+   *       known kernel def in this index (the #96 `createContext` lesson).
+   *   device-fn  : `__device__` (incl. `__host__ __device__`) — device helper,
+   *                NOT a kernel; surfaced as a distinct secondary category.
+   *
+   * `__host__` ALONE is an ordinary CPU function (default space) → dropped.
+   *
+   * Why the CUDA `__`-qualifiers are safe markers: they're reserved,
+   * double-underscore-prefixed execution-space qualifiers in a fixed slot before
+   * a function decl — user code can't collide (unlike a plain method name like
+   * `createContext`), so no same-file gating is needed for them.
+   */
+  listKernels(filter = null) {
+    const CUDA = 'CUDA', TRITON = 'Triton', NUMBA = 'numba';
+    const reGlobal = /\b__global__\b/;
+    const reDevice = /\b__device__\b/;
+    const reCudaName = /__global__\b[^(){};]*?\b(\w+)\s*\(/;
+    const reDevName  = /__device__\b[^(){};]*?\b(\w+)\s*\(/;
+    const reTritonDec = /^@(?:triton\.jit|triton\.autotune|triton\.heuristics)\b/;
+    const reNumbaDec  = /^@(?:cuda\.jit|numba\.cuda\.jit)\b/;
+    const reDef = /^\s*def\s+(\w+)\s*\(/;
+    const reLaunchCuda = /\b(\w+)\s*<<<[^>]*>>>/;
+    const reCudaLaunchKernel = /\bcudaLaunchKernel\s*\(/;
+    const reGridLaunch = /\b(\w+)\s*\[\s*[\w()*+\-,.\s]+\]\s*\(/;
+
+    const out = [];
+    const kernelNames = new Set();   // for grid-launch gating
+    const gridCandidates = [];       // [{filepath, line, name, snippet}]
+
+    // CUDA launch/qualifier syntax (`__global__`, `<<<…>>>`, `cudaLaunchKernel`)
+    // exists ONLY in C/C++ — gating CUDA markers to C/C++ files stops them
+    // matching e.g. a `'<<<%s>>>'` string in a Python simulator.
+    const reCppExt = /\.(cu|cuh|c|cc|cpp|cxx|c\+\+|h|hh|hpp|hxx|h\+\+|inl|ipp)$/i;
+    for (const [filepath, lines] of this.fileLines) {
+      const isCpp = reCppExt.test(filepath);
+      const fileHasTritonNumba = lines.some(l =>
+        /\bimport\s+triton\b|triton\.language|from\s+numba|import\s+numba|@cuda\.jit/.test(l));
+      const handledDefLines = new Set();
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+
+        // CUDA kernel def — __global__ (takes priority over __device__).
+        if (isCpp && reGlobal.test(line)) {
+          const m = line.match(reCudaName);
+          let name = m ? m[1] : null;
+          // Signature frequently wraps: `__global__ void` then `VectorAdd(...)`
+          // on the next line — look ahead for the first `ident(` if not found.
+          if (!name) {
+            for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
+              const nm = (lines[j] || '').match(/\b(\w+)\s*\(/);
+              if (nm) { name = nm[1]; break; }
+            }
+          }
+          name = name || '(kernel)';
+          kernelNames.add(name);
+          out.push({ name, filepath, line: i + 1, kind: 'kernel-def', family: CUDA, marker: '__global__', tag: 'mechanical', snippet: trimmed.slice(0, 200) });
+          continue;
+        }
+        // CUDA device fn — __device__ / __host__ __device__ (secondary).
+        // __host__ alone matches neither → dropped (CPU default space).
+        if (isCpp && reDevice.test(line)) {
+          const m = line.match(reDevName);
+          const name = m ? m[1] : '(device fn)';
+          out.push({ name, filepath, line: i + 1, kind: 'device-fn', family: CUDA, marker: '__device__', tag: 'mechanical', snippet: trimmed.slice(0, 200) });
+          continue;
+        }
+        // Triton / numba decorated kernel def — decorator is on the line(s)
+        // BEFORE `def`, so associate it with the following function.
+        if (reTritonDec.test(trimmed) || reNumbaDec.test(trimmed)) {
+          const fam = reNumbaDec.test(trimmed) ? NUMBA : TRITON;
+          const marker = (trimmed.match(/^@[\w.]+/) || ['@?'])[0];
+          let defName = null, defLine = i;
+          for (let j = i + 1; j < Math.min(i + 8, lines.length); j++) {
+            const dm = (lines[j] || '').match(reDef);
+            if (dm) { defName = dm[1]; defLine = j; break; }
+          }
+          if (defName && !handledDefLines.has(defLine)) {
+            handledDefLines.add(defLine);
+            kernelNames.add(defName);
+            out.push({ name: defName, filepath, line: defLine + 1, kind: 'kernel-def', family: fam, marker, tag: 'mechanical', snippet: (lines[defLine] || '').trimStart().slice(0, 200) });
+          }
+          continue;
+        }
+        // CUDA launch — name<<<...>>> (｢<<<｣ is CUDA-only syntax IN C/C++; in a
+        // Python/other file the same chars can appear inside a string, so gate).
+        const lm = isCpp ? line.match(reLaunchCuda) : null;
+        if (lm) {
+          out.push({ name: lm[1], filepath, line: i + 1, kind: 'launch', family: CUDA, marker: '<<<>>>', tag: 'mechanical', snippet: trimmed.slice(0, 200) });
+          continue;
+        }
+        if (isCpp && reCudaLaunchKernel.test(line)) {
+          out.push({ name: 'cudaLaunchKernel', filepath, line: i + 1, kind: 'launch', family: CUDA, marker: 'cudaLaunchKernel', tag: 'mechanical', snippet: trimmed.slice(0, 200) });
+          continue;
+        }
+        // Triton/numba grid launch — name[grid](...). Generic subscript-call, so
+        // defer; only kept if the file uses triton/numba AND name is a known
+        // kernel def (resolved after the full scan).
+        if (fileHasTritonNumba) {
+          const gm = line.match(reGridLaunch);
+          if (gm) gridCandidates.push({ filepath, line: i + 1, name: gm[1], snippet: trimmed.slice(0, 200) });
+        }
+      }
+    }
+
+    // Resolve grid-launch candidates against the known-kernel set.
+    for (const c of gridCandidates) {
+      if (kernelNames.has(c.name)) {
+        out.push({ name: c.name, filepath: c.filepath, line: c.line, kind: 'launch', family: 'Triton/numba', marker: '[grid]', tag: 'heuristic', snippet: c.snippet });
+      }
+    }
+
+    let result = out;
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = out.filter(k =>
+        (k.name || '').toLowerCase().includes(pat)
+        || (k.filepath || '').toLowerCase().includes(pat)
+        || (k.family || '').toLowerCase().includes(pat)
+        || (k.kind || '').toLowerCase().includes(pat)
+        || (k.snippet || '').toLowerCase().includes(pat));
+    }
+    const kindRank = { 'kernel-def': 0, 'launch': 1, 'device-fn': 2 };
+    result.sort((a, b) =>
+      a.family.localeCompare(b.family)
+      || (kindRank[a.kind] - kindRank[b.kind])
+      || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+    return result;
+  }
+
   listClasses(filepath = null) {
     this._ensureFunctionIndex();
     const filterPath = filepath ? filepath.toLowerCase().replace(/\\/g, '/') : null;

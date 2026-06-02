@@ -2036,6 +2036,21 @@ routes['/api/list-artifacts'] = (req, res) => {
   });
 };
 
+routes['/api/list-kernels'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const kernels = index.listKernels(q.filter);  // already sorted: family, kind, file, line
+  const max = safeMax(q.max, 500);
+  jsonResponse(res, {
+    total: kernels.length,
+    kernels: kernels.slice(0, max).map(k => ({
+      name: k.name, filepath: k.filepath, line: k.line, kind: k.kind,
+      family: k.family, marker: k.marker, tag: k.tag, snippet: k.snippet,
+    })),
+  });
+};
+
 routes['/api/class-methods'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);

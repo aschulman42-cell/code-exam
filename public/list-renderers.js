@@ -339,6 +339,46 @@ export function renderArtifactList(container, artifacts, total) {
 
 
 // ============================================================================
+// Kernels list (#93) — GPU kernel definitions + launch sites.
+// kind ∈ {kernel-def, launch, device-fn}, family ∈ {CUDA, Triton, numba,
+// Triton/numba}. Heuristic rows (gated grid-launches) get a leading "~" + dim.
+// ============================================================================
+
+const _KERNEL_KIND_COLOR = { 'kernel-def': '#6cf', 'launch': '#fc6', 'device-fn': 'var(--text-muted)' };
+
+export function renderKernelList(container, kernels, total) {
+  container.innerHTML = '';
+  if (!kernels || !kernels.length) {
+    container.innerHTML = '<div class="list-placeholder">No GPU kernels found '
+      + '(no CUDA __global__/&lt;&lt;&lt;&gt;&gt;&gt;, Triton @triton.jit, or numba @cuda.jit)</div>';
+    return;
+  }
+  for (const k of kernels) {
+    const heuristic = k.tag === 'heuristic';
+    const famLabel = (heuristic ? '~' : '') + (k.family || '?');
+    const kindColor = _KERNEL_KIND_COLOR[k.kind] || 'var(--text-muted)';
+    const item = h('div', {
+      className: 'list-item',
+      title: `${(k.filepath || '').replace(/\\/g, '/')}:${k.line}\n${k.snippet || ''}\n[${k.tag}]  ${k.family} · ${k.kind} · ${k.marker}`,
+      style: heuristic ? 'opacity:0.78' : '',
+    }, [
+      h('span', { className: 'metric', text: famLabel, style: 'min-width:96px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'metric', text: k.kind, style: `min-width:74px;color:${kindColor};font-size:10px` }),
+      h('span', { className: 'metric', text: k.marker || '', style: 'min-width:88px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'name clickable', text: k.name || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'filepath', text: `${shortPath(k.filepath || '')}:${k.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+    ]);
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(k.filepath); });
+    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: k.filepath, display_name: k.filepath, filepath: k.filepath }); });
+    container.appendChild(item);
+  }
+  if (total > kernels.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: `${kernels.length} of ${total} shown` }));
+  }
+}
+
+
+// ============================================================================
 // Hot Folders list
 // ============================================================================
 

@@ -371,6 +371,50 @@ export function doDomainFns(index, args) {
 // List Classes
 // ========================================================================
 
+export function doListKernels(index, args) {
+  const kernels = index.listKernels(args.filter);
+  if (!kernels.length) {
+    console.log('No GPU kernels found (no CUDA __global__/<<<>>>, Triton @triton.jit, '
+      + 'or numba @cuda.jit).');
+    return;
+  }
+
+  // Summary: defs / launches / device-fns, per family.
+  const defs = kernels.filter(k => k.kind === 'kernel-def');
+  const launches = kernels.filter(k => k.kind === 'launch');
+  const devfns = kernels.filter(k => k.kind === 'device-fn');
+  const byFamDef = {};
+  for (const d of defs) byFamDef[d.family] = (byFamDef[d.family] || 0) + 1;
+  const defSummary = Object.entries(byFamDef).sort((a, b) => b[1] - a[1])
+    .map(([f, n]) => `${f} ${n}`).join(', ');
+
+  const max = (args._explicit && args._explicit.has('max_results'))
+    ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? kernels.slice(0, max) : kernels;
+
+  console.log(`\n${defs.length} kernel defs (${defSummary}), ${launches.length} launches, `
+    + `${devfns.length} device fns`
+    + `${max > 0 && kernels.length > max ? `; showing ${shown.length} rows` : ''}:\n`);
+
+  if (args.verbose) {
+    for (const k of shown) {
+      const tag = k.tag === 'heuristic' ? '~' : ' ';
+      console.log(`${tag}${k.family.padEnd(13)} ${k.kind.padEnd(10)} ${(k.marker || '').padEnd(16)} ${k.name}`);
+      console.log(`        ${(k.filepath || '').replace(/\\/g, '/')}:${k.line}  ${k.snippet}`);
+    }
+    return;
+  }
+
+  console.log(`${'Family'.padEnd(13)}  ${'Kind'.padEnd(10)}  ${'Marker'.padEnd(16)}  ${'Name'.padEnd(28)}  File:line`);
+  console.log('='.repeat(110));
+  for (const k of shown) {
+    const fam = (k.tag === 'heuristic' ? '~' : '') + k.family;
+    let fp = (k.filepath || '').replace(/\\/g, '/');
+    if (fp.length > 38) fp = '...' + fp.slice(-35);
+    console.log(`${fam.slice(0, 13).padEnd(13)}  ${k.kind.padEnd(10)}  ${(k.marker || '').slice(0, 16).padEnd(16)}  ${(k.name || '').slice(0, 28).padEnd(28)}  ${fp}:${k.line}`);
+  }
+}
+
 export function doListArtifacts(index, args) {
   const artifacts = index.listArtifacts(args.filter);
   if (!artifacts.length) {

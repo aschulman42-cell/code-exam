@@ -72,6 +72,7 @@ export const api = {
   listClasses:     (p) => api.get('list-classes', p),
   listModels:      (p) => api.get('list-models', p),
   listArtifacts:   (p) => api.get('list-artifacts', p),
+  listKernels:     (p) => api.get('list-kernels', p),
   classMethods:    (p) => api.get('class-methods', p),
   filesSearch:     (p) => api.get('files-search', p),
   funcDupes:       (p) => api.get('func-dupes', p),
