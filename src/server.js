@@ -2051,6 +2051,22 @@ routes['/api/list-kernels'] = (req, res) => {
   });
 };
 
+routes['/api/list-datasets'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const datasets = index.listDatasets(q.filter);  // sorted: family, kind, file, line
+  const max = safeMax(q.max, 500);
+  jsonResponse(res, {
+    total: datasets.length,
+    datasets: datasets.slice(0, max).map(d => ({
+      name: d.name, filepath: d.filepath, line: d.line, kind: d.kind,
+      family: d.family, tier: d.tier, builtin: d.builtin, marker: d.marker,
+      confirmed: d.confirmed, snippet: d.snippet,
+    })),
+  });
+};
+
 routes['/api/class-methods'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);

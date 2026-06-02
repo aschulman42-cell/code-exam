@@ -371,6 +371,51 @@ export function doDomainFns(index, args) {
 // List Classes
 // ========================================================================
 
+export function doListDatasets(index, args) {
+  const datasets = index.listDatasets(args.filter);
+  if (!datasets.length) {
+    console.log('No datasets found (no Dataset/IterableDataset subclass, tf.data '
+      + 'pipeline, or ML loader: DataLoader / load_dataset / sklearn.datasets / '
+      + 'keras.datasets / torchvision.datasets / tfds.load). Generic pd.read_csv/'
+      + 'np.load I/O is intentionally not counted.');
+    return;
+  }
+
+  const defs = datasets.filter(d => d.kind === 'definition');
+  const loaders = datasets.filter(d => d.kind === 'loader');
+  const builtins = datasets.filter(d => d.builtin).length;
+  const byFam = {};
+  for (const d of datasets) byFam[d.family] = (byFam[d.family] || 0) + 1;
+  const famSummary = Object.entries(byFam).sort((a, b) => b[1] - a[1])
+    .map(([f, n]) => `${f} ${n}`).join(', ');
+
+  const max = (args._explicit && args._explicit.has('max_results'))
+    ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? datasets.slice(0, max) : datasets;
+
+  console.log(`\n${defs.length} dataset defs, ${loaders.length} loaders (${famSummary}; ${builtins} built-in)`
+    + `${max > 0 && datasets.length > max ? `; showing ${shown.length} rows` : ''}:\n`);
+
+  if (args.verbose) {
+    for (const d of shown) {
+      const b = d.builtin ? '*' : ' ';
+      console.log(`${b}${d.family.padEnd(13)} ${d.kind.padEnd(11)} ${(d.marker || '').padEnd(20)} ${d.name}`);
+      console.log(`        ${(d.filepath || '').replace(/\\/g, '/')}:${d.line}  ${d.snippet}`);
+    }
+    return;
+  }
+
+  console.log(`${'Family'.padEnd(13)}  ${'Kind'.padEnd(11)}  ${'Marker'.padEnd(20)}  ${'Name'.padEnd(24)}  File:line`);
+  console.log('='.repeat(112));
+  for (const d of shown) {
+    const fam = (d.builtin ? '*' : '') + d.family;
+    let fp = (d.filepath || '').replace(/\\/g, '/');
+    if (fp.length > 36) fp = '...' + fp.slice(-33);
+    console.log(`${fam.slice(0, 13).padEnd(13)}  ${d.kind.padEnd(11)}  ${(d.marker || '').slice(0, 20).padEnd(20)}  ${(d.name || '').slice(0, 24).padEnd(24)}  ${fp}:${d.line}`);
+  }
+  if (builtins) console.log(`\n  (* = built-in dataset — framework-provided standard/benchmark data, e.g. MNIST/CIFAR/Iris)`);
+}
+
 export function doListKernels(index, args) {
   const kernels = index.listKernels(args.filter);
   if (!kernels.length) {

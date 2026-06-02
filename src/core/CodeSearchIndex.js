@@ -5277,6 +5277,117 @@ export class CodeSearchIndex {
     return result;
   }
 
+  /**
+   * listDatasets(filter) — ML datasets (#99). Precision-tiered to avoid the
+   * generic-I/O over-trigger (the #96 `createContext` / `.bin` lesson):
+   *
+   *   Tier 1 `definition` [mechanical] — the structural unit:
+   *     - class decl whose base is Dataset/IterableDataset/TensorDataset/
+   *       ConcatDataset (PyTorch/HF). __getitem__/__len__/__iter__ are
+   *       CONFIRMATION only, NEVER standalone (scikit-learn has 22 __getitem__
+   *       on Bunch/containers that are NOT datasets — would FP).
+   *     - tf.data.Dataset pipelines (from_tensor_slices/from_generator) — TF
+   *       datasets are functional, not subclassed.
+   *   Tier 2 `loader` [mechanical] — ML-specific named loaders, with a `builtin`
+   *     flag for toy/demo datasets (load_iris/MNIST/…) so tutorial noise filters.
+   *   Tier 3 — generic I/O (pd.read_csv/np.load/open) — EXCLUDED entirely (63
+   *     read_csv in .as_ml_pytest would otherwise be bogus datasets).
+   */
+  listDatasets(filter = null) {
+    const PT = 'PyTorch', TF = 'TF/Keras', SK = 'scikit-learn', HF = 'HF', TV = 'torchvision';
+    // Tier 1a — class base names that denote a dataset definition.
+    const reDatasetClass = /^\s*(?:export\s+)?class\s+(\w+)\s*[(:][^)]*\b(Dataset|IterableDataset|TensorDataset|ConcatDataset|StackDataset|GeneratorBasedBuilder)\b/;
+    // Tier 1b — tf.data pipeline construction.
+    const reTfData = /\btf\.data\.Dataset\b|\.from_tensor_slices\s*\(|\bDataset\.from_generator\s*\(/;
+    // Tier 2 — ML-specific loaders. [marker regex, family, isLoaderName-capture]
+    const t2 = [
+      { re: /\b(?:torch\.utils\.data\.)?DataLoader\s*\(/,                fam: PT, fmt: 'DataLoader' },
+      { re: /\bload_dataset\s*\(\s*["'`]([^"'`]*)["'`]/,                 fam: HF, fmt: 'load_dataset' },
+      { re: /\bsklearn\.datasets\.(\w+)|(?:^|[^.\w])datasets\.((?:load|fetch|make)_\w+)\s*\(/, fam: SK, fmt: 'sklearn.datasets' },
+      { re: /\b(?:tf\.)?keras\.datasets\.(\w+)/,                         fam: TF, fmt: 'keras.datasets' },
+      { re: /\btorch(?:vision|audio|text)\.datasets\.(\w+)/,             fam: TV, fmt: 'torchvision.datasets' },
+      { re: /\btfds\.load\s*\(\s*["'`]([^"'`]*)["'`]/,                   fam: TF, fmt: 'tfds.load' },
+    ];
+    // toy/demo dataset ids → builtin flag.
+    const reBuiltin = /\b(load_iris|load_digits|load_wine|load_breast_cancer|load_diabetes|load_boston|fetch_\w+|make_\w+|MNIST|FashionMNIST|fashion_mnist|CIFAR10|CIFAR100|cifar10|cifar100|ImageNet|KMNIST|EMNIST|titanic|tips|iris|penguins)\b/;
+    const reConfirm = /\bdef\s+(?:__getitem__|__len__|__iter__)\s*\(/;
+    const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
+
+    const out = [];
+    for (const [filepath, lines] of this.fileLines) {
+      // Confirmation dunders are looked up within a small window after a class.
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+        if (reComment(trimmed)) continue;
+
+        // Tier 1a — dataset class definition (keyed on BASE, not dunder).
+        const cm = reDatasetClass.exec(line);
+        if (cm) {
+          // confirmation: a contract dunder within the next ~40 lines
+          let confirmed = false;
+          for (let j = i + 1; j < Math.min(i + 40, lines.length); j++) {
+            if (/^\s*class\s/.test(lines[j] || '')) break;
+            if (reConfirm.test(lines[j] || '')) { confirmed = true; break; }
+          }
+          out.push({ name: cm[1], filepath, line: i + 1, kind: 'definition',
+                     family: cm[2] === 'GeneratorBasedBuilder' ? HF : PT, tier: 1,
+                     builtin: false, marker: cm[2], confirmed,
+                     tag: 'mechanical', snippet: trimmed.slice(0, 200) });
+          continue;
+        }
+        // Tier 1b — tf.data pipeline.
+        if (reTfData.test(line)) {
+          out.push({ name: 'tf.data', filepath, line: i + 1, kind: 'definition',
+                     family: TF, tier: 1, builtin: false,
+                     marker: 'tf.data', confirmed: true, tag: 'mechanical',
+                     snippet: trimmed.slice(0, 200) });
+          continue;
+        }
+        // Tier 2 — ML loaders.
+        let hit = null;
+        for (const d of t2) {
+          const m = d.re.exec(line);
+          if (m) { hit = { d, id: m[1] || m[2] || m[3] || null }; break; }
+        }
+        if (hit) {
+          const fmt = hit.d.fmt;
+          // builtin/demo: whole loader families ARE standard/toy catalogs
+          // (keras.datasets, torchvision.datasets, tfds — all benchmark data;
+          // sklearn load_/fetch_/make_). HF load_dataset / DataLoader carry
+          // arbitrary user datasets → builtin only when the id is a known toy.
+          let builtin = reBuiltin.test(line);
+          if (fmt === 'keras.datasets' || fmt === 'torchvision.datasets' || fmt === 'tfds.load') builtin = true;
+          else if (fmt === 'sklearn.datasets' && /^(load|fetch|make)_/.test(hit.id || '')) builtin = true;
+          out.push({ name: hit.id || fmt, filepath, line: i + 1, kind: 'loader',
+                     family: hit.d.fam, tier: 2, builtin, marker: fmt,
+                     confirmed: true, tag: 'mechanical', snippet: trimmed.slice(0, 200) });
+          continue;
+        }
+        // Tier 3 (read_csv / np.load / open) — intentionally NOT detected.
+      }
+    }
+
+    let result = out;
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = out.filter(d =>
+        (d.name || '').toLowerCase().includes(pat)
+        || (d.filepath || '').toLowerCase().includes(pat)
+        || (d.family || '').toLowerCase().includes(pat)
+        || (d.kind || '').toLowerCase().includes(pat)
+        || (d.marker || '').toLowerCase().includes(pat)
+        || (d.snippet || '').toLowerCase().includes(pat));
+    }
+    const kindRank = { 'definition': 0, 'loader': 1 };
+    result.sort((a, b) =>
+      a.family.localeCompare(b.family)
+      || (kindRank[a.kind] - kindRank[b.kind])
+      || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+    return result;
+  }
+
   listClasses(filepath = null) {
     this._ensureFunctionIndex();
     const filterPath = filepath ? filepath.toLowerCase().replace(/\\/g, '/') : null;

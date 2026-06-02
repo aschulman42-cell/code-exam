@@ -379,6 +379,49 @@ export function renderKernelList(container, kernels, total) {
 
 
 // ============================================================================
+// Datasets list (#99) — Tier-1 definitions + Tier-2 ML loaders (Tier-3 generic
+// I/O like pd.read_csv is excluded upstream). kind ∈ {definition, loader};
+// built-in rows (framework-provided standard/benchmark datasets — MNIST, CIFAR,
+// Iris, …) get a "built-in" tag + dim so standard data can be eyeballed apart
+// from a project's own pipeline.
+// ============================================================================
+
+const _DATASET_KIND_COLOR = { 'definition': '#6cf', 'loader': '#fc6' };
+
+export function renderDatasetList(container, datasets, total) {
+  container.innerHTML = '';
+  if (!datasets || !datasets.length) {
+    container.innerHTML = '<div class="list-placeholder">No datasets found '
+      + '(no Dataset/IterableDataset subclass, tf.data pipeline, or ML loader — '
+      + 'DataLoader / load_dataset / sklearn·keras·torchvision.datasets / tfds.load). '
+      + 'Generic pd.read_csv / np.load I/O is intentionally not counted.</div>';
+    return;
+  }
+  for (const d of datasets) {
+    const kindColor = _DATASET_KIND_COLOR[d.kind] || 'var(--text-muted)';
+    const item = h('div', {
+      className: 'list-item',
+      title: `${(d.filepath || '').replace(/\\/g, '/')}:${d.line}\n${d.snippet || ''}\n${d.family} · ${d.kind} · ${d.marker}${d.builtin ? '  (built-in / standard dataset)' : ''}${d.kind === 'definition' && !d.confirmed ? '  (no __getitem__/__len__ confirmation)' : ''}`,
+      style: d.builtin ? 'opacity:0.78' : '',
+    }, [
+      h('span', { className: 'metric', text: d.family, style: 'min-width:88px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'metric', text: d.kind, style: `min-width:72px;color:${kindColor};font-size:10px` }),
+      h('span', { className: 'metric', text: d.marker || '', style: 'min-width:104px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'name clickable', text: d.name || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      d.builtin ? h('span', { className: 'metric', text: 'built-in', style: 'color:var(--text-muted);font-size:9px;flex-shrink:0' }) : null,
+      h('span', { className: 'filepath', text: `${shortPath(d.filepath || '')}:${d.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+    ].filter(Boolean));
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(d.filepath); });
+    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: d.filepath, display_name: d.filepath, filepath: d.filepath }); });
+    container.appendChild(item);
+  }
+  if (total > datasets.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: `${datasets.length} of ${total} shown` }));
+  }
+}
+
+
+// ============================================================================
 // Hot Folders list
 // ============================================================================
 
