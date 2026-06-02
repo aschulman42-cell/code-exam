@@ -74,6 +74,7 @@ export const api = {
   listArtifacts:   (p) => api.get('list-artifacts', p),
   listKernels:     (p) => api.get('list-kernels', p),
   listDatasets:    (p) => api.get('list-datasets', p),
+  listTraining:    (p) => api.get('list-training', p),
   classMethods:    (p) => api.get('class-methods', p),
   filesSearch:     (p) => api.get('files-search', p),
   funcDupes:       (p) => api.get('func-dupes', p),

@@ -422,6 +422,47 @@ export function renderDatasetList(container, datasets, total) {
 
 
 // ============================================================================
+// Training list (#100) — where a codebase trains. kind ∈ {training-loop,
+// training-harness}; Tier-B (heuristic gated .fit) rows get "~" + dim so the
+// mechanical loop/Trainer signal stands apart from the noisier .fit() calls.
+// ============================================================================
+
+const _TRAINING_KIND_COLOR = { 'training-loop': '#fc6', 'training-harness': '#6cf' };
+
+export function renderTrainingList(container, training, total) {
+  container.innerHTML = '';
+  if (!training || !training.length) {
+    container.innerHTML = '<div class="list-placeholder">No training found '
+      + '(no PyTorch loop — .backward()/optimizer.step()/zero_grad() — HF Trainer, '
+      + 'GradientTape, Lightning training_step, or a gated .fit() call). A bare '
+      + 'def fit(...) is intentionally not counted.</div>';
+    return;
+  }
+  for (const t of training) {
+    const heuristic = t.tier === 'B';
+    const kindColor = _TRAINING_KIND_COLOR[t.kind] || 'var(--text-muted)';
+    const item = h('div', {
+      className: 'list-item',
+      title: `${(t.filepath || '').replace(/\\/g, '/')}:${t.line}\n${t.snippet || ''}\n${t.family} · ${t.kind} · ${t.marker}${heuristic ? '  (Tier B — heuristic .fit, gated; framework source over-fires)' : '  (Tier A — mechanical)'}`,
+      style: heuristic ? 'opacity:0.78' : '',
+    }, [
+      h('span', { className: 'metric', text: (heuristic ? '~' : '') + t.family, style: 'min-width:92px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'metric', text: t.kind === 'training-harness' ? 'harness' : 'loop', style: `min-width:60px;color:${kindColor};font-size:10px` }),
+      h('span', { className: 'metric', text: t.marker || '', style: 'min-width:104px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'name clickable', text: t.name || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+    ]);
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath); });
+    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
+    container.appendChild(item);
+  }
+  if (total > training.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: `${training.length} of ${total} shown` }));
+  }
+}
+
+
+// ============================================================================
 // Hot Folders list
 // ============================================================================
 

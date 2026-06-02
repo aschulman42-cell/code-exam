@@ -5388,6 +5388,96 @@ export class CodeSearchIndex {
     return result;
   }
 
+  /**
+   * listTraining(filter) — where a codebase trains (#100). Captures a dynamic
+   * behavior statically. Two kinds:
+   *
+   *   training-loop : the call-site verbs
+   *     Tier A [mechanical] — PyTorch loop (`.backward(` / optimizer `.step(` /
+   *       `.zero_grad(`), HF `Trainer(` / `trainer.train(`, TF `GradientTape`.
+   *     Tier B [heuristic, gated] — a `.fit(` CALL (`<recv>.fit(`), EXCLUDING
+   *       `def fit/fit_transform/partial_fit` definitions (sklearn has 2763
+   *       `.fit(` — overwhelmingly defs), gated on ML imports in the file.
+   *   training-harness : `def training_step/validation_step/test_step/
+   *     configure_optimizers` (Lightning).
+   *
+   * The `.fit(`-def exclusion is the #99 `__getitem__` / #96 `state_dict` lesson:
+   * a generic method NAME must not be counted by its definition.
+   */
+  listTraining(filter = null) {
+    const PT = 'PyTorch', HF = 'HF', KT = 'Keras/TF', SK = 'scikit-learn', LT = 'Lightning', ML = 'ML';
+    const reBackward = /\.backward\s*\(/;
+    const reOptStep  = /\b(?:optimizer|optim|opt)\.step\s*\(/;
+    const reZeroGrad = /\.zero_grad\s*\(/;
+    const reGradTape = /\bGradientTape\b/;
+    const reTrainerTrain = /\b(?:trainer|self\.trainer)\.train\s*\(/;
+    const reTrainer  = /\bTrainer\s*\(/;
+    const reHarness  = /^\s*(?:async\s+)?def\s+(training_step|validation_step|test_step|configure_optimizers)\s*\(/;
+    const reFitCall  = /\b(\w+)\.fit\s*\(/;
+    const reFitDef   = /\bdef\s+(?:fit|fit_transform|partial_fit)\b/;
+    const reComment  = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
+
+    // A `.fit()` in a TEST file is exercising training, not the project's own
+    // training — and test suites of ML *libraries* (sklearn) call `.fit()`
+    // thousands of times. Exclude test files from the heuristic Tier B so the
+    // library-vs-consumer noise doesn't drown real signal. (Tier A mechanical
+    // markers are trustworthy enough to keep regardless.)
+    const reTestPath = /(?:^|[\\/])(?:tests?|conftest)(?:[\\/]|\.)|(?:^|[\\/])test_[^\\/]*$|_test\.[A-Za-z0-9]+$/i;
+    const out = [];
+    for (const [filepath, lines] of this.fileLines) {
+      const isTest = reTestPath.test(filepath);
+      const fileHasML = lines.some(l => /\b(?:import|from)\s+(?:sklearn|keras|tensorflow|tf|torch|xgboost|lightgbm)\b/.test(l));
+      // Infer the family for a bare `.fit(` from the file's imports.
+      let fitFam = ML;
+      if (lines.some(l => /\b(?:import|from)\s+(?:keras|tensorflow)\b/.test(l))) fitFam = KT;
+      else if (lines.some(l => /\bimport\s+sklearn|from\s+sklearn\b/.test(l))) fitFam = SK;
+      else if (lines.some(l => /\b(?:import|from)\s+torch\b/.test(l))) fitFam = PT;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+        if (reComment(trimmed)) continue;
+        const push = (kind, family, tier, marker, tag, name) =>
+          out.push({ name: name || marker, filepath, line: i + 1, kind, family, tier, marker, tag, snippet: trimmed.slice(0, 200) });
+
+        // Tier A loop [mechanical] — most specific first.
+        if (reBackward.test(line)) { push('training-loop', PT, 'A', 'backward', 'mechanical'); continue; }
+        if (reZeroGrad.test(line)) { push('training-loop', PT, 'A', 'zero_grad', 'mechanical'); continue; }
+        if (reOptStep.test(line))  { push('training-loop', PT, 'A', 'optimizer.step', 'mechanical'); continue; }
+        if (reGradTape.test(line)) { push('training-loop', KT, 'A', 'GradientTape', 'mechanical'); continue; }
+        if (reTrainerTrain.test(line)) { push('training-loop', HF, 'A', 'trainer.train', 'mechanical'); continue; }
+        if (reTrainer.test(line))  { push('training-loop', HF, 'A', 'Trainer', 'mechanical'); continue; }
+        // Tier A harness [mechanical].
+        const hm = reHarness.exec(line);
+        if (hm) { push('training-harness', LT, 'A', hm[1], 'mechanical', hm[1]); continue; }
+        // Tier B [heuristic, gated] — a .fit() CALL, not a def, in a non-test ML file.
+        if (fileHasML && !isTest && !reFitDef.test(line)) {
+          const fm = reFitCall.exec(line);
+          if (fm) { push('training-loop', fitFam, 'B', '.fit', 'heuristic', fm[1] + '.fit'); continue; }
+        }
+      }
+    }
+
+    let result = out;
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = out.filter(t =>
+        (t.name || '').toLowerCase().includes(pat)
+        || (t.filepath || '').toLowerCase().includes(pat)
+        || (t.family || '').toLowerCase().includes(pat)
+        || (t.kind || '').toLowerCase().includes(pat)
+        || (t.marker || '').toLowerCase().includes(pat)
+        || (t.snippet || '').toLowerCase().includes(pat));
+    }
+    const kindRank = { 'training-loop': 0, 'training-harness': 1 };
+    result.sort((a, b) =>
+      a.family.localeCompare(b.family)
+      || (kindRank[a.kind] - kindRank[b.kind])
+      || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+    return result;
+  }
+
   listClasses(filepath = null) {
     this._ensureFunctionIndex();
     const filterPath = filepath ? filepath.toLowerCase().replace(/\\/g, '/') : null;

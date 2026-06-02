@@ -371,6 +371,50 @@ export function doDomainFns(index, args) {
 // List Classes
 // ========================================================================
 
+export function doListTraining(index, args) {
+  const training = index.listTraining(args.filter);
+  if (!training.length) {
+    console.log('No training found (no PyTorch loop: .backward()/optimizer.step()/'
+      + 'zero_grad(); HF Trainer; GradientTape; Lightning training_step; or a gated '
+      + '.fit() call). Note: a bare def fit(...) definition is intentionally not counted.');
+    return;
+  }
+
+  const loops = training.filter(t => t.kind === 'training-loop');
+  const harnesses = training.filter(t => t.kind === 'training-harness');
+  const tierB = training.filter(t => t.tier === 'B').length;
+  const byFam = {};
+  for (const t of training) byFam[t.family] = (byFam[t.family] || 0) + 1;
+  const famSummary = Object.entries(byFam).sort((a, b) => b[1] - a[1])
+    .map(([f, n]) => `${f} ${n}`).join(', ');
+
+  const max = (args._explicit && args._explicit.has('max_results'))
+    ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? training.slice(0, max) : training;
+
+  console.log(`\n${loops.length} training-loop sites, ${harnesses.length} harness defs (${famSummary}; ${tierB} heuristic .fit)`
+    + `${max > 0 && training.length > max ? `; showing ${shown.length} rows` : ''}:\n`);
+
+  if (args.verbose) {
+    for (const t of shown) {
+      const b = t.tier === 'B' ? '~' : ' ';
+      console.log(`${b}${t.family.padEnd(13)} ${t.kind.padEnd(17)} ${(t.marker || '').padEnd(16)} ${t.name}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+    }
+    return;
+  }
+
+  console.log(`${'Family'.padEnd(13)}  ${'Kind'.padEnd(17)}  ${'Marker'.padEnd(16)}  ${'Name'.padEnd(22)}  File:line`);
+  console.log('='.repeat(112));
+  for (const t of shown) {
+    const fam = (t.tier === 'B' ? '~' : '') + t.family;
+    let fp = (t.filepath || '').replace(/\\/g, '/');
+    if (fp.length > 34) fp = '...' + fp.slice(-31);
+    console.log(`${fam.slice(0, 13).padEnd(13)}  ${t.kind.padEnd(17)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${(t.name || '').slice(0, 22).padEnd(22)}  ${fp}:${t.line}`);
+  }
+  if (tierB) console.log(`\n  (~ = heuristic .fit() call — gated on ML imports, def-fit excluded)`);
+}
+
 export function doListDatasets(index, args) {
   const datasets = index.listDatasets(args.filter);
   if (!datasets.length) {
