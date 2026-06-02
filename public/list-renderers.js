@@ -589,6 +589,55 @@ export function renderToolsList(container, tools, total) {
 
 
 // ============================================================================
+// Chains/Agents list (#105) — composition/orchestration. kind ∈ {chain, graph,
+// agent}, framework-grouped. Carries a SCOPE CAPTION (#106): framework-based
+// only — hand-rolled agent loops / LCEL `|` are not detected, so a 0 is not
+// proof of "no agent". Tier-B (gated generic) rows get "~" + dim.
+// ============================================================================
+
+const _CHAIN_SCOPE = 'Framework primitives (LangChain / LangGraph / DSPy / CrewAI / AutoGen) + a heuristic '
+  + 'hand-rolled-agent flag (a module that loops over an LLM call while dispatching tools). The hand-rolled flag '
+  + 'needs real module boundaries — on a single minified bundle use a --split-bundle index. LCEL │ pipelines are '
+  + 'still not detected; Detection keys on JS/TS + Python idioms (Rust/Go not yet — #108), so a low/zero count is not proof there is no agent.';
+const _CHAIN_KIND_COLOR = { 'chain': '#6cf', 'graph': '#a9f', 'agent': '#fc6' };
+
+export function renderChainsList(container, chains, total) {
+  container.innerHTML = '';
+  // Scope caption first — so it shows even on an empty result, and travels in
+  // screenshots (the "don't mislead by omission" rule, #106).
+  container.appendChild(h('div', {
+    text: _CHAIN_SCOPE,
+    style: 'padding:4px 8px;font-size:10px;color:var(--text-muted);font-style:italic;border-bottom:1px solid var(--border,#333);margin-bottom:2px',
+  }));
+  if (!chains || !chains.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: 'No framework chains/agents found (see scope above).' }));
+    return;
+  }
+  for (const t of chains) {
+    const heuristic = t.tag === 'heuristic';
+    const kindColor = _CHAIN_KIND_COLOR[t.kind] || 'var(--text-muted)';
+    const item = h('div', {
+      className: 'list-item',
+      title: `${(t.filepath || '').replace(/\\/g, '/')}:${t.line}\n${t.snippet || ''}\n${t.framework} · ${t.kind} · ${t.marker}`,
+      style: heuristic ? 'opacity:0.78' : '',
+    }, [
+      h('span', { className: 'metric', text: (heuristic ? '~' : '') + (t.framework || ''), style: 'min-width:84px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'metric', text: t.kind, style: `min-width:48px;color:${kindColor};font-size:10px` }),
+      h('span', { className: 'metric', text: t.marker || '', style: 'min-width:104px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'name clickable', text: t.name || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+    ]);
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath); });
+    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
+    container.appendChild(item);
+  }
+  if (total > chains.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: `${chains.length} of ${total} shown` }));
+  }
+}
+
+
+// ============================================================================
 // Hot Folders list
 // ============================================================================
 

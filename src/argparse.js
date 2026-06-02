@@ -161,6 +161,7 @@ export function parseArgs() {
     list_inference: false,
     list_llm_calls: false,
     list_tools: false,
+    list_chains: false,
     class_hotspots: null,
     discover_vocabulary: null,
     multisect_search: null,
@@ -338,6 +339,7 @@ export function parseArgs() {
     ['list_inference',       'flag',           ['--inference'], ['--list-inference']],
     ['list_llm_calls',       'flag',           ['--llm-calls'], ['--list-llm-calls']],
     ['list_tools',           'flag',           ['--tools'], ['--list-tools']],
+    ['list_chains',          'flag',           ['--chains'], ['--list-chains', '--agents']],
     ['class_hotspots',       'int',            ['--class-hotspots']],
     ['discover_vocabulary',  'int',            ['--vocabulary', '--vocab'], ['--discover-vocabulary']],
     ['multisect_search',     'value',          ['--multisect-search', '--multisect']],
@@ -749,6 +751,7 @@ METRICS / DISCOVERY:
   --inference                Local inference/generation (generate, no_grad, .predict)
   --llm-calls                LLM API calls (messages.create, ChatOpenAI, LlamaChatSession)
   --tools                    Tool defs / function-calling (@tool, input_schema, MCP, tool_use)
+  --chains                   Chains/agents (LangChain/LangGraph/DSPy/CrewAI; framework-based only)
 
   --class-hotspots <n>       Top N classes by aggregated method hotspot score
   --vocabulary <n>           Top N domain-specific tokens by TF-IDF score

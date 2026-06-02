@@ -415,6 +415,53 @@ export function doListTraining(index, args) {
   if (tierB) console.log(`\n  (~ = heuristic .fit() call — gated on ML imports, def-fit excluded)`);
 }
 
+// Scope caption (#106) — shown on every Chains/Agents view so a 0 isn't misread.
+const CHAINS_SCOPE = 'Scope: framework primitives (LangChain/LangGraph/DSPy/CrewAI/AutoGen/LlamaIndex) '
+  + 'PLUS a heuristic hand-rolled-agent flag (a module that loops over an LLM call while dispatching '
+  + 'tools). The hand-rolled flag needs real module boundaries — on a single minified bundle it is '
+  + 'degenerate; use a bundle-seam-split (--split-bundle) index. LCEL `|` pipelines are still not '
+  + 'detected; Detection keys on JS/TS + Python idioms (Rust/Go not yet — #108), so a low/zero count is not proof there is no agent.';
+
+export function doListChains(index, args) {
+  const chains = index.listChains(args.filter);
+  if (!chains.length) {
+    console.log('No framework chains/agents found (no LangChain LLMChain/Runnable*/AgentExecutor, '
+      + 'LangGraph StateGraph, DSPy ChainOfThought/dspy.Module, or CrewAI/AutoGen primitives).');
+    console.log(`\n  (${CHAINS_SCOPE})`);
+    return;
+  }
+
+  const byKind = {}; const byFw = {}; let heur = 0;
+  for (const t of chains) { byKind[t.kind] = (byKind[t.kind] || 0) + 1; byFw[t.framework] = (byFw[t.framework] || 0) + 1; if (t.tag === 'heuristic') heur++; }
+  const kindSummary = ['chain', 'graph', 'agent'].filter(k => byKind[k]).map(k => `${byKind[k]} ${k}`).join(', ');
+  const fwSummary = Object.entries(byFw).sort((a, b) => b[1] - a[1]).map(([f, n]) => `${f} ${n}`).join(', ');
+
+  const max = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? chains.slice(0, max) : chains;
+
+  console.log(`\n${chains.length} chain/agent sites — ${kindSummary} (${fwSummary}; ${heur} heuristic):\n`);
+
+  if (args.verbose) {
+    for (const t of shown) {
+      const b = t.tag === 'heuristic' ? '~' : ' ';
+      console.log(`${b}${(t.framework || '').padEnd(12)} ${t.kind.padEnd(7)} ${(t.marker || '').padEnd(22)} ${t.name !== t.marker ? '→ ' + t.name : ''}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+    }
+    console.log(`\n  (${CHAINS_SCOPE})`);
+    return;
+  }
+
+  console.log(`${'Framework'.padEnd(12)}  ${'Kind'.padEnd(7)}  ${'Marker'.padEnd(22)}  ${'Name'.padEnd(20)}  File:line`);
+  console.log('='.repeat(108));
+  for (const t of shown) {
+    const fw = (t.tag === 'heuristic' ? '~' : '') + (t.framework || '');
+    let fp = (t.filepath || '').replace(/\\/g, '/');
+    if (fp.length > 30) fp = '...' + fp.slice(-27);
+    console.log(`${fw.slice(0, 12).padEnd(12)}  ${t.kind.padEnd(7)}  ${(t.marker || '').slice(0, 22).padEnd(22)}  ${(t.name || '').slice(0, 20).padEnd(20)}  ${fp}:${t.line}`);
+  }
+  console.log(`\n  (${CHAINS_SCOPE})`);
+}
+
 export function doListTools(index, args) {
   const tools = index.listTools(args.filter);
   if (!tools.length) {

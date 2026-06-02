@@ -5804,6 +5804,105 @@ export class CodeSearchIndex {
     return result;
   }
 
+  /**
+   * listChains(filter) — composition / orchestration (#105). Detects FRAMEWORK
+   * primitives (LangChain / LangGraph / DSPy / CrewAI / AutoGen / LlamaIndex).
+   * Hand-rolled agent loops (cli.js, openclaw) are structurally invisible and
+   * correctly show ~0 — the GUI/CLI carries a SCOPE CAPTION (#106) so a 0 isn't
+   * misread as "no agent here". LCEL `|` is mechanically invisible (RunnableSequence
+   * catches its compiled form). Three sub-kinds: chain / graph / agent.
+   */
+  listChains(filter = null) {
+    const tierA = [
+      { re: /\bLLMChain\b/,             kind: 'chain', fw: 'LangChain', m: 'LLMChain' },
+      { re: /\bSequentialChain\b/,      kind: 'chain', fw: 'LangChain', m: 'SequentialChain' },
+      { re: /\bConversationChain\b/,    kind: 'chain', fw: 'LangChain', m: 'ConversationChain' },
+      { re: /\bRetrievalQA\b/,          kind: 'chain', fw: 'LangChain', m: 'RetrievalQA' },
+      { re: /\bcreate_\w*chain\b/,      kind: 'chain', fw: 'LangChain', m: 'create_*_chain' },
+      { re: /\bRunnable(?:Sequence|Passthrough|Parallel|Lambda)\b/, kind: 'chain', fw: 'LangChain', m: 'Runnable*' },
+      { re: /\bChainOfThought\b/,       kind: 'chain', fw: 'DSPy', m: 'ChainOfThought' },
+      { re: /\bdspy\.Module\b/,         kind: 'chain', fw: 'DSPy', m: 'dspy.Module' },
+      { re: /\bStateGraph\b/,           kind: 'graph', fw: 'LangGraph', m: 'StateGraph' },
+      { re: /\badd_conditional_edges\b/, kind: 'graph', fw: 'LangGraph', m: 'add_conditional_edges' },
+      { re: /\bMessagesState\b/,        kind: 'graph', fw: 'LangGraph', m: 'MessagesState' },
+      { re: /\bAgentExecutor\b/,        kind: 'agent', fw: 'LangChain', m: 'AgentExecutor' },
+      { re: /\bcreate_\w*_agent\b/,     kind: 'agent', fw: 'LangChain', m: 'create_*_agent' },
+      { re: /\binitialize_agent\b/,     kind: 'agent', fw: 'LangChain', m: 'initialize_agent' },
+      { re: /\b(?:Code|ToolCalling)Agent\b/, kind: 'agent', fw: 'smolagents', m: 'CodeAgent' },
+      { re: /\b(?:Assistant|UserProxy)Agent\b/, kind: 'agent', fw: 'AutoGen', m: 'AssistantAgent' },
+      { re: /\bGroupChat\b/,            kind: 'agent', fw: 'AutoGen', m: 'GroupChat' },
+      { re: /\b(?:ReActAgent|AgentRunner|FunctionAgent)\b/, kind: 'agent', fw: 'LlamaIndex', m: 'ReActAgent' },
+      { re: /\bReAct\b/,                kind: 'agent', fw: 'DSPy', m: 'ReAct' },   // case-sensitive ≠ React
+    ];
+    const reGraphGen = /\badd_(?:node|edge)\s*\(/;          // generic graph terms
+    const reAgentGen = /\b(?:Agent|Crew|Task)\s*\(/;        // generic agent ctors
+    const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
+    const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
+    const reAssign = /^(\w+)\s*=/;
+
+    // Hand-rolled agent heuristic (#98): a bespoke agent has no framework
+    // primitive — it's a module that LOOPS over an LLM CALL while DISPATCHING
+    // tool calls. Detected at FILE level (call + dispatch + loop all present in
+    // one file, no framework marker). This is meaningful only when files are
+    // real modules — a single minified bundle is degenerate (everything
+    // co-occurs), so it needs a bundle-seam-split or multi-file index. One flag
+    // per file. Tier C, clearly heuristic.
+    const reLoop = /\bwhile\s*\(|\bfor\s*\(|for\s+await|\bdo\s*\{/;
+    const reCall = /\bmessages\.create|chat\.completions\.create|\bcompletions\.create|\.generate\s*\(|create_chat_completion/;
+    const reDisp = /\btool_use\b|\btool_calls\b|\bfunction_call\b|\btool_result\b|toolResult/;
+
+    const out = [];
+    for (const [filepath, lines] of this.fileLines) {
+      if (reDocFile.test(filepath)) continue;
+      const hasLanggraph = lines.some(l => /\b(?:import|from)\s+langgraph\b|\blanggraph\b/.test(l));
+      const hasAgentFw = lines.some(l => /\b(?:crewai|pydantic_ai|smolagents|autogen|llama_index|openai[._-]?agents)\b/i.test(l));
+      let frameworkInFile = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+        if (reComment(trimmed)) continue;
+        const nameOf = (m) => { const am = trimmed.match(reAssign); return am ? am[1] : m; };
+        const push = (kind, fw, tier, m, tag) =>
+          out.push({ name: nameOf(m), filepath, line: i + 1, kind, framework: fw, tier, marker: m, tag, snippet: trimmed.slice(0, 200) });
+
+        const a = tierA.find(d => d.re.test(line));
+        if (a) { frameworkInFile = true; push(a.kind, a.fw, 'A', a.m, 'mechanical'); continue; }
+        if (hasLanggraph && reGraphGen.test(line)) { frameworkInFile = true; push('graph', 'LangGraph', 'B', 'add_node/edge', 'heuristic'); continue; }
+        if (hasAgentFw && reAgentGen.test(line)) { frameworkInFile = true; push('agent', 'CrewAI/…', 'B', 'Agent()/Crew()', 'heuristic'); continue; }
+      }
+
+      // Hand-rolled agent pass — file-level co-occurrence, non-framework files only.
+      if (!frameworkInFile) {
+        let callLine = -1, hasDisp = false, hasLoop = false;
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i] || '';
+          if (callLine < 0 && reCall.test(l)) callLine = i;
+          if (!hasDisp && reDisp.test(l)) hasDisp = true;
+          if (!hasLoop && reLoop.test(l)) hasLoop = true;
+        }
+        if (callLine >= 0 && hasDisp && hasLoop) {
+          out.push({ name: 'hand-rolled agent', filepath, line: callLine + 1, kind: 'agent', framework: 'hand-rolled', tier: 'C', marker: 'call+dispatch+loop', tag: 'heuristic', snippet: (lines[callLine] || '').trimStart().slice(0, 200) });
+        }
+      }
+    }
+
+    let result = out;
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = out.filter(t =>
+        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
+        || (t.framework || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
+        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+    }
+    const kindRank = { 'chain': 0, 'graph': 1, 'agent': 2 };
+    result.sort((a, b) =>
+      (a.framework || '').localeCompare(b.framework || '') || (kindRank[a.kind] - kindRank[b.kind])
+      || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+    return result;
+  }
+
   listClasses(filepath = null) {
     this._ensureFunctionIndex();
     const filterPath = filepath ? filepath.toLowerCase().replace(/\\/g, '/') : null;
