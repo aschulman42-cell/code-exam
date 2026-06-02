@@ -5478,6 +5478,118 @@ export class CodeSearchIndex {
     return result;
   }
 
+  /**
+   * listInference(filter) — LOCAL model inference + autoregressive generation
+   * (#101). Generation ⊂ Inference. The most generic-name-trap-dense unit, so
+   * EVERYTHING is gated on the file importing an ML framework (keeps JS/cli.js
+   * and bare configs at 0 — API-client LLM usage is a separate Wave-2 cell).
+   *
+   *   Tier A [mechanical] — clean LLM/ML-specific markers (low FP):
+   *     generation: max_new_tokens / do_sample / num_beams / GenerationConfig /
+   *                 SamplingParams (vLLM) / Text(Iterator)Streamer
+   *     inference : torch.no_grad / inference_mode / InferenceSession (ONNX)
+   *   Tier B [heuristic] — generic verbs (ML-file already required):
+   *     .generate( ; .predict(/.predict_proba( (EXCLUDE def + test files —
+   *       the #100 .fit lesson); pipeline( (require transformers import — sklearn
+   *       Pipeline is the trap); model.eval() (require torch)
+   *   Tier C [heuristic] — sampling params temperature/top_p/top_k, counted ONLY
+   *     when a Tier-A generation marker co-occurs in the same file (sklearn
+   *     top_k ×44 / cli.js temperature ×13 are otherwise FPs).
+   */
+  listInference(filter = null) {
+    const HF = 'HF', PT = 'PyTorch', VL = 'vLLM', ONX = 'ONNX', SK = 'scikit-learn', KT = 'Keras/TF', ML = 'ML';
+    const genA = [
+      { re: /\bmax_new_tokens\b/, fam: HF, m: 'max_new_tokens' },
+      { re: /\bdo_sample\b/,      fam: HF, m: 'do_sample' },
+      { re: /\bnum_beams\b/,      fam: HF, m: 'num_beams' },
+      { re: /\bGenerationConfig\b/, fam: HF, m: 'GenerationConfig' },
+      { re: /\bSamplingParams\b/, fam: VL, m: 'SamplingParams' },
+      { re: /\bText(?:Iterator)?Streamer\b/, fam: HF, m: 'TextStreamer' },
+    ];
+    const infA = [
+      { re: /\b(?:torch\.)?no_grad\s*\(/, fam: PT, m: 'no_grad' },
+      { re: /\binference_mode\b/, fam: PT, m: 'inference_mode' },
+      { re: /\bInferenceSession\b/, fam: ONX, m: 'InferenceSession' },
+    ];
+    const reGenerate = /\b(\w+)\.generate\s*\(/;
+    const rePredict  = /\b(\w+)\.predict(_proba)?\s*\(/;
+    const rePredictDef = /\bdef\s+predict(?:_proba)?\b/;
+    const rePipeline = /\bpipeline\s*\(/;
+    const reEval     = /\b(\w+)\.eval\s*\(\s*\)/;
+    const reParam    = /\b(temperature|top_p|top_k)\b/;
+    const reGenAny   = /\bmax_new_tokens\b|\bdo_sample\b|\bnum_beams\b|\bGenerationConfig\b|\bSamplingParams\b|\.generate\s*\(/;
+    const reTestPath = /(?:^|[\\/])(?:tests?|conftest)(?:[\\/]|\.)|(?:^|[\\/])test_[^\\/]*$|_test\.[A-Za-z0-9]+$/i;
+    const reComment  = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
+
+    // Documentation markup (.md/.rst) is not code — a `llm.generate(...)` /
+    // `from transformers import` in a README or SKILL.md is an EXAMPLE, not the
+    // project's inference. Skip it. (The Prompts detector, by contrast,
+    // intentionally treats SKILL.md/CLAUDE.md as first-class — different unit.)
+    const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
+    const out = [];
+    for (const [filepath, lines] of this.fileLines) {
+      if (reDocFile.test(filepath)) continue;
+      // Gate the whole unit on the file importing an ML framework — this IS
+      // local model inference (Python ML); keeps cli.js / JS / configs at 0.
+      const fileHasML = lines.some(l => /\b(?:import|from)\s+(?:sklearn|keras|tensorflow|tf|torch|transformers|vllm|onnxruntime|onnx|xgboost|lightgbm|diffusers)\b/.test(l));
+      if (!fileHasML) continue;
+      const hasTransformers = lines.some(l => /\b(?:import|from)\s+transformers\b/.test(l));
+      const hasTorch = lines.some(l => /\b(?:import|from)\s+torch\b/.test(l));
+      const fileHasGen = lines.some(l => reGenAny.test(l));
+      const isTest = reTestPath.test(filepath);
+      let fam = ML;
+      if (hasTransformers) fam = HF;
+      else if (lines.some(l => /\b(?:import|from)\s+vllm\b/.test(l))) fam = VL;
+      else if (lines.some(l => /\b(?:import|from)\s+onnxruntime\b/.test(l))) fam = ONX;
+      else if (hasTorch) fam = PT;
+      else if (lines.some(l => /\b(?:import|from)\s+(?:keras|tensorflow|tf)\b/.test(l))) fam = KT;
+      else if (lines.some(l => /\bimport\s+sklearn|from\s+sklearn\b/.test(l))) fam = SK;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+        if (reComment(trimmed)) continue;
+        const push = (kind, family, tier, marker, tag, name) =>
+          out.push({ name: name || marker, filepath, line: i + 1, kind, family, tier, marker, tag, snippet: trimmed.slice(0, 200) });
+
+        // Tier A mechanical — generation then inference.
+        let m = genA.find(d => d.re.test(line));
+        if (m) { push('generation', m.fam, 'A', m.m, 'mechanical'); continue; }
+        m = infA.find(d => d.re.test(line));
+        if (m) { push('inference', m.fam, 'A', m.m, 'mechanical'); continue; }
+        // Tier B gated calls.
+        let gm = reGenerate.exec(line);
+        if (gm) { push('generation', fam, 'B', '.generate', 'heuristic', gm[1] + '.generate'); continue; }
+        if (!rePredictDef.test(line) && !isTest) {
+          const pm = rePredict.exec(line);
+          if (pm) { push('inference', fam, 'B', pm[2] ? '.predict_proba' : '.predict', 'heuristic', pm[1] + (pm[2] ? '.predict_proba' : '.predict')); continue; }
+        }
+        if (hasTransformers && rePipeline.test(line)) { push('inference', HF, 'B', 'pipeline', 'heuristic'); continue; }
+        if (hasTorch) { const em = reEval.exec(line); if (em) { push('inference', PT, 'B', 'model.eval', 'heuristic', em[1] + '.eval'); continue; } }
+        // Tier C sampling params — only if the file has a generation marker.
+        if (fileHasGen) {
+          const cm = reParam.exec(line);
+          if (cm) { push('generation', fam, 'C', cm[1], 'heuristic'); continue; }
+        }
+      }
+    }
+
+    let result = out;
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = out.filter(t =>
+        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
+        || (t.family || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
+        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+    }
+    const kindRank = { 'generation': 0, 'inference': 1 };
+    result.sort((a, b) =>
+      a.family.localeCompare(b.family) || (kindRank[a.kind] - kindRank[b.kind])
+      || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+    return result;
+  }
+
   listClasses(filepath = null) {
     this._ensureFunctionIndex();
     const filterPath = filepath ? filepath.toLowerCase().replace(/\\/g, '/') : null;

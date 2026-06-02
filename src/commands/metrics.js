@@ -415,6 +415,48 @@ export function doListTraining(index, args) {
   if (tierB) console.log(`\n  (~ = heuristic .fit() call — gated on ML imports, def-fit excluded)`);
 }
 
+export function doListInference(index, args) {
+  const inf = index.listInference(args.filter);
+  if (!inf.length) {
+    console.log('No inference/generation found (no generate()/max_new_tokens/do_sample/'
+      + 'GenerationConfig, no_grad/inference_mode/InferenceSession, or gated .predict()). '
+      + 'API-client LLM usage (remote calls) is a separate unit, not counted here.');
+    return;
+  }
+
+  const gen = inf.filter(t => t.kind === 'generation');
+  const infr = inf.filter(t => t.kind === 'inference');
+  const heur = inf.filter(t => t.tag === 'heuristic').length;
+  const byFam = {};
+  for (const t of inf) byFam[t.family] = (byFam[t.family] || 0) + 1;
+  const famSummary = Object.entries(byFam).sort((a, b) => b[1] - a[1]).map(([f, n]) => `${f} ${n}`).join(', ');
+
+  const max = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? inf.slice(0, max) : inf;
+
+  console.log(`\n${gen.length} generation, ${infr.length} inference (${famSummary}; ${heur} heuristic)`
+    + `${max > 0 && inf.length > max ? `; showing ${shown.length} rows` : ''}:\n`);
+
+  if (args.verbose) {
+    for (const t of shown) {
+      const b = t.tag === 'heuristic' ? '~' : ' ';
+      console.log(`${b}${t.family.padEnd(13)} ${t.kind.padEnd(11)} ${('T' + t.tier).padEnd(3)} ${(t.marker || '').padEnd(16)} ${t.name}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+    }
+    return;
+  }
+
+  console.log(`${'Family'.padEnd(13)}  ${'Kind'.padEnd(11)}  ${'T'.padEnd(2)}  ${'Marker'.padEnd(16)}  ${'Name'.padEnd(22)}  File:line`);
+  console.log('='.repeat(112));
+  for (const t of shown) {
+    const fam = (t.tag === 'heuristic' ? '~' : '') + t.family;
+    let fp = (t.filepath || '').replace(/\\/g, '/');
+    if (fp.length > 32) fp = '...' + fp.slice(-29);
+    console.log(`${fam.slice(0, 13).padEnd(13)}  ${t.kind.padEnd(11)}  ${('T' + t.tier).padEnd(2)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${(t.name || '').slice(0, 22).padEnd(22)}  ${fp}:${t.line}`);
+  }
+  if (heur) console.log(`\n  (~ = heuristic/gated; T = tier A clean / B gated calls / C co-occurrence-gated params)`);
+}
+
 export function doListDatasets(index, args) {
   const datasets = index.listDatasets(args.filter);
   if (!datasets.length) {

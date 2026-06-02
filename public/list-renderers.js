@@ -463,6 +463,49 @@ export function renderTrainingList(container, training, total) {
 
 
 // ============================================================================
+// Inference/Generation list (#101) — LOCAL model inference (no_grad/predict) +
+// autoregressive generation (generate/sampling). kind ∈ {generation, inference}.
+// Tier B/C (heuristic, gated) rows get "~" + dim so the clean Tier-A markers
+// stand apart. API-client LLM usage is a separate unit, not shown here.
+// ============================================================================
+
+const _INFER_KIND_COLOR = { 'generation': '#fc6', 'inference': '#6cf' };
+
+export function renderInferenceList(container, inference, total) {
+  container.innerHTML = '';
+  if (!inference || !inference.length) {
+    container.innerHTML = '<div class="list-placeholder">No inference/generation found '
+      + '(no generate()/max_new_tokens/GenerationConfig, no_grad/inference_mode/'
+      + 'InferenceSession, or gated .predict()). Remote API-client LLM usage is a '
+      + 'separate unit, not shown here.</div>';
+    return;
+  }
+  for (const t of inference) {
+    const heuristic = t.tag === 'heuristic';
+    const kindColor = _INFER_KIND_COLOR[t.kind] || 'var(--text-muted)';
+    const item = h('div', {
+      className: 'list-item',
+      title: `${(t.filepath || '').replace(/\\/g, '/')}:${t.line}\n${t.snippet || ''}\n${t.family} · ${t.kind} · tier ${t.tier} · ${t.marker}${heuristic ? (t.tier === 'C' ? '  (Tier C — sampling param, gated on a generation co-marker)' : '  (Tier B — gated call, ML-file required)') : '  (Tier A — clean mechanical)'}`,
+      style: heuristic ? 'opacity:0.78' : '',
+    }, [
+      h('span', { className: 'metric', text: (heuristic ? '~' : '') + t.family, style: 'min-width:80px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'metric', text: t.kind === 'generation' ? 'gen' : 'infer', style: `min-width:46px;color:${kindColor};font-size:10px` }),
+      h('span', { className: 'metric', text: 'T' + t.tier, style: 'min-width:22px;color:var(--text-muted);font-size:9px' }),
+      h('span', { className: 'metric', text: t.marker || '', style: 'min-width:100px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'name clickable', text: t.name || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+    ]);
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath); });
+    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
+    container.appendChild(item);
+  }
+  if (total > inference.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: `${inference.length} of ${total} shown` }));
+  }
+}
+
+
+// ============================================================================
 // Hot Folders list
 // ============================================================================
 

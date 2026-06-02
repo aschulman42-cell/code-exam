@@ -2082,6 +2082,21 @@ routes['/api/list-training'] = (req, res) => {
   });
 };
 
+routes['/api/list-inference'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const inf = index.listInference(q.filter);  // sorted: family, kind, file, line
+  const max = safeMax(q.max, 500);
+  jsonResponse(res, {
+    total: inf.length,
+    inference: inf.slice(0, max).map(t => ({
+      name: t.name, filepath: t.filepath, line: t.line, kind: t.kind,
+      family: t.family, tier: t.tier, marker: t.marker, tag: t.tag, snippet: t.snippet,
+    })),
+  });
+};
+
 routes['/api/class-methods'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
