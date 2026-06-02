@@ -5590,6 +5590,102 @@ export class CodeSearchIndex {
     return result;
   }
 
+  /**
+   * listLlmCalls(filter) — the LLM-USE invocation layer (#103): where code issues
+   * a completion/chat request to an LLM. Companion to Prompts (authored input);
+   * NOT #101 Inference (low-level local generate), NOT Artifacts (load), NOT hooks
+   * (shell automation). First cross-language app unit (JS/TS + Python).
+   *
+   *   Tier A [mechanical] — provider-specific SDK markers (call / client / wrapper).
+   *   Tier B [heuristic]  — generic verbs (.invoke/.chat/.complete), gated on a
+   *                         LangChain/LlamaIndex or SDK import.
+   *   Tier C [heuristic]  — endpoint URLs in string literals (api.anthropic.com,
+   *                         /v1/messages, …) — catches raw fetch/requests/axios
+   *                         callers that bypass the SDK (CodeExam's remote path).
+   *
+   * `.md`/`.rst` docs skipped (#102).
+   */
+  listLlmCalls(filter = null) {
+    const tierA = [
+      // calls — chat.completions.create BEFORE completions.create (substring).
+      { re: /\bmessages\.create\s*\(/,            prov: 'Anthropic', kind: 'call',   m: 'messages.create' },
+      { re: /\bmessages\.stream\s*\(/,            prov: 'Anthropic', kind: 'call',   m: 'messages.stream' },
+      { re: /\bchat\.completions\.create\s*\(/,   prov: 'OpenAI',    kind: 'call',   m: 'chat.completions.create' },
+      { re: /\bcompletions\.create\s*\(/,         prov: 'OpenAI',    kind: 'call',   m: 'completions.create' },
+      { re: /\bresponses\.create\s*\(/,           prov: 'OpenAI',    kind: 'call',   m: 'responses.create' },
+      { re: /\bgenerate_content\s*\(/,            prov: 'Google',    kind: 'call',   m: 'generate_content' },
+      { re: /\bcreate_chat_completion\s*\(/,      prov: 'local',     kind: 'call',   m: 'create_chat_completion' },
+      { re: /\bcreate_completion\s*\(/,           prov: 'local',     kind: 'call',   m: 'create_completion' },
+      { re: /\bco\.chat\s*\(/,                    prov: 'Cohere',    kind: 'call',   m: 'co.chat' },
+      { re: /\bLlamaChatSession\s*\(/,            prov: 'local',     kind: 'call',   m: 'LlamaChatSession', lvc: true },
+      // clients — NO space before `(` (an instantiation `OpenAI(api_key=…)`),
+      // so "OpenAI (Inc.)" in a LICENSE/EULA prose line does NOT match.
+      { re: /\b(?:Async)?Anthropic\(/,            prov: 'Anthropic', kind: 'client', m: 'Anthropic()' },
+      { re: /\b(?:Async)?OpenAI\(/,               prov: 'OpenAI',    kind: 'client', m: 'OpenAI()' },
+      { re: /\bgenai\.GenerativeModel\s*\(/,      prov: 'Google',    kind: 'client', m: 'GenerativeModel()' },
+      { re: /\bMistralClient\s*\(/,               prov: 'Mistral',   kind: 'client', m: 'MistralClient()' },
+      // wrappers (LangChain / LlamaIndex)
+      { re: /\bChat(?:Anthropic|OpenAI|GoogleGenerativeAI|VertexAI|Bedrock|MistralAI|Cohere)\b/, prov: 'LangChain', kind: 'wrapper', m: 'ChatXxx' },
+    ];
+    const reInvoke = /\.(a?invoke)\s*\(/;
+    const reChatComplete = /\.(chat|complete)\s*\(/;
+    const reEndpoint = /(api\.anthropic\.com|\/v1\/messages|api\.openai\.com|\/v1\/chat\/completions|generativelanguage\.googleapis\.com|api\.cohere\.ai|api\.mistral\.ai|api\.together\.xyz|api\.groq\.com)/;
+    const endpointProv = (u) =>
+      /anthropic/.test(u) || /v1\/messages/.test(u) ? 'Anthropic'
+      : /openai|chat\/completions/.test(u) ? 'OpenAI'
+      : /googleapis/.test(u) ? 'Google' : /cohere/.test(u) ? 'Cohere'
+      : /mistral/.test(u) ? 'Mistral' : 'other';
+    const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
+    const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
+
+    const out = [];
+    for (const [filepath, lines] of this.fileLines) {
+      if (reDocFile.test(filepath)) continue;
+      const hasLangchain = lines.some(l => /\b(?:import|from|require)\b.*\b(?:langchain|llama_index|llamaindex|llamaIndex|@langchain)\b/.test(l));
+      const hasSDK = lines.some(l => /\b(?:import|from|require)\b.*\b(?:anthropic|openai|cohere|mistralai|generativeai|node-llama-cpp|@anthropic-ai|together|groq)\b/.test(l));
+      // llama-cpp-python: `from llama_cpp import Llama; llm = Llama(model_path=…)`.
+      // `Llama(` (the instantiation) is the client; gate on the import so it
+      // can't collide with an unrelated `Llama` class. (Direct calls `llm(...)`
+      // are a generic verb → recall gap, tracked in #98.)
+      const hasLlamaCpp = lines.some(l => /\b(?:from|import)\s+llama_cpp\b/.test(l));
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+        if (reComment(trimmed)) continue;
+        const push = (kind, prov, tier, marker, tag, lvc) =>
+          out.push({ name: marker, filepath, line: i + 1, kind, provider: prov, tier, marker, tag, lvc: !!lvc, snippet: trimmed.slice(0, 200) });
+
+        // Tier A — provider-specific (first match wins).
+        const a = tierA.find(d => d.re.test(line));
+        if (a) { push(a.kind, a.prov, 'A', a.m, 'mechanical', a.lvc); continue; }
+        // llama-cpp-python client (gated on its import).
+        if (hasLlamaCpp && /\bLlama\(/.test(line)) { push('client', 'local', 'A', 'Llama()', 'mechanical'); continue; }
+        // Tier B — gated generic verbs.
+        if (hasLangchain) { const im = reInvoke.exec(line); if (im) { push('call', 'LangChain', 'B', '.' + im[1], 'heuristic'); continue; } }
+        if (hasSDK) { const cm = reChatComplete.exec(line); if (cm) { push('call', 'SDK', 'B', '.' + cm[1], 'heuristic'); continue; } }
+        // Tier C — endpoint URLs in string literals.
+        const em = reEndpoint.exec(line);
+        if (em) { push('endpoint', endpointProv(em[1]), 'C', em[1], 'heuristic'); continue; }
+      }
+    }
+
+    let result = out;
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = out.filter(t =>
+        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
+        || (t.provider || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
+        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+    }
+    const kindRank = { 'call': 0, 'client': 1, 'wrapper': 2, 'endpoint': 3 };
+    result.sort((a, b) =>
+      a.provider.localeCompare(b.provider) || (kindRank[a.kind] - kindRank[b.kind])
+      || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+    return result;
+  }
+
   listClasses(filepath = null) {
     this._ensureFunctionIndex();
     const filterPath = filepath ? filepath.toLowerCase().replace(/\\/g, '/') : null;

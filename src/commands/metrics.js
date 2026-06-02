@@ -415,6 +415,46 @@ export function doListTraining(index, args) {
   if (tierB) console.log(`\n  (~ = heuristic .fit() call — gated on ML imports, def-fit excluded)`);
 }
 
+export function doListLlmCalls(index, args) {
+  const calls = index.listLlmCalls(args.filter);
+  if (!calls.length) {
+    console.log('No LLM API calls found (no messages.create / chat.completions.create / '
+      + 'ChatOpenAI / LlamaChatSession / .invoke, or api.anthropic.com·/v1/messages endpoints). '
+      + 'A pure harness that spawns an agent CLI (e.g. Bram) correctly shows none.');
+    return;
+  }
+
+  const byKind = {}; const byProv = {}; let heur = 0;
+  for (const t of calls) { byKind[t.kind] = (byKind[t.kind] || 0) + 1; byProv[t.provider] = (byProv[t.provider] || 0) + 1; if (t.tag === 'heuristic') heur++; }
+  const provSummary = Object.entries(byProv).sort((a, b) => b[1] - a[1]).map(([f, n]) => `${f} ${n}`).join(', ');
+  const kindSummary = Object.entries(byKind).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(', ');
+
+  const max = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? calls.slice(0, max) : calls;
+
+  console.log(`\n${calls.length} LLM-call sites — ${kindSummary} (${provSummary}; ${heur} heuristic)`
+    + `${max > 0 && calls.length > max ? `; showing ${shown.length} rows` : ''}:\n`);
+
+  if (args.verbose) {
+    for (const t of shown) {
+      const b = t.tag === 'heuristic' ? '~' : ' ';
+      console.log(`${b}${t.provider.padEnd(11)} ${t.kind.padEnd(9)} ${('T' + t.tier).padEnd(3)} ${(t.marker || '').padEnd(24)}${t.lvc ? ' [lib?]' : ''}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+    }
+    return;
+  }
+
+  console.log(`${'Provider'.padEnd(11)}  ${'Kind'.padEnd(9)}  ${'T'.padEnd(2)}  ${'Marker'.padEnd(26)}  File:line`);
+  console.log('='.repeat(108));
+  for (const t of shown) {
+    const prov = (t.tag === 'heuristic' ? '~' : '') + t.provider;
+    let fp = (t.filepath || '').replace(/\\/g, '/');
+    if (fp.length > 38) fp = '...' + fp.slice(-35);
+    console.log(`${prov.slice(0, 11).padEnd(11)}  ${t.kind.padEnd(9)}  ${('T' + t.tier).padEnd(2)}  ${((t.marker || '') + (t.lvc ? ' [lib?]' : '')).slice(0, 26).padEnd(26)}  ${fp}:${t.line}`);
+  }
+  if (heur) console.log(`\n  (~ = heuristic; T = A SDK marker / B gated verb / C endpoint URL; [lib?] = library-vs-consumer over-fires)`);
+}
+
 export function doListInference(index, args) {
   const inf = index.listInference(args.filter);
   if (!inf.length) {

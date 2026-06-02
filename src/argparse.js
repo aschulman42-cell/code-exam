@@ -159,6 +159,7 @@ export function parseArgs() {
     list_datasets: false,
     list_training: false,
     list_inference: false,
+    list_llm_calls: false,
     class_hotspots: null,
     discover_vocabulary: null,
     multisect_search: null,
@@ -334,6 +335,7 @@ export function parseArgs() {
     ['list_datasets',        'flag',           ['--datasets'], ['--list-datasets']],
     ['list_training',        'flag',           ['--training'], ['--list-training']],
     ['list_inference',       'flag',           ['--inference'], ['--list-inference']],
+    ['list_llm_calls',       'flag',           ['--llm-calls'], ['--list-llm-calls']],
     ['class_hotspots',       'int',            ['--class-hotspots']],
     ['discover_vocabulary',  'int',            ['--vocabulary', '--vocab'], ['--discover-vocabulary']],
     ['multisect_search',     'value',          ['--multisect-search', '--multisect']],
@@ -735,6 +737,16 @@ METRICS / DISCOVERY:
   --domain-fns <n>           Top N domain-specific functions (score / sqrt(name defs))
   --classes                  List all classes with method counts/sizes
                              (deprecated alias: --list-classes)
+
+  AI/ML detectors (list AI/ML constructs; each has a --list-<name> alias):
+  --models                   ML model classes (nn.Module / keras / sklearn subclasses)
+  --datasets                 Datasets (Dataset/IterableDataset, tf.data, ML loaders)
+  --training                 Training sites (PyTorch loop, Trainer, .fit)
+  --artifacts                Model load/save sites (from_pretrained, GGUF, safetensors)
+  --kernels                  GPU kernels (CUDA __global__, Triton @triton.jit, numba)
+  --inference                Local inference/generation (generate, no_grad, .predict)
+  --llm-calls                LLM API calls (messages.create, ChatOpenAI, LlamaChatSession)
+
   --class-hotspots <n>       Top N classes by aggregated method hotspot score
   --vocabulary <n>           Top N domain-specific tokens by TF-IDF score
                              (short alias: --vocab; deprecated alias:
