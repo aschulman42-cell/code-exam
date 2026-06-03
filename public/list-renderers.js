@@ -527,13 +527,14 @@ export function renderLlmCallsList(container, calls, total) {
     const kindColor = _LLMCALL_KIND_COLOR[t.kind] || 'var(--text-muted)';
     const item = h('div', {
       className: 'list-item',
-      title: `${(t.filepath || '').replace(/\\/g, '/')}:${t.line}\n${t.snippet || ''}\n${t.provider} · ${t.kind} · tier ${t.tier} · ${t.marker}${t.lvc ? '  (library-vs-consumer: over-fires on the SDK\'s own source)' : ''}`,
+      title: `${(t.filepath || '').replace(/\\/g, '/')}:${t.line}\n${t.snippet || ''}\n${t.provider} · ${t.kind} · tier ${t.tier} · ${t.marker}${t.lvc ? '  (library-vs-consumer: over-fires on the SDK\'s own source)' : ''}${t.model ? `\nmodel: ${t.model}${t.modelResolved ? '' : '  (unresolved identifier — #110 step 2 resolves to the literal)'}` : ''}`,
       style: heuristic ? 'opacity:0.78' : '',
     }, [
       h('span', { className: 'metric', text: (heuristic ? '~' : '') + t.provider, style: 'min-width:84px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'metric', text: t.kind, style: `min-width:60px;color:${kindColor};font-size:10px` }),
       h('span', { className: 'metric', text: 'T' + t.tier, style: 'min-width:22px;color:var(--text-muted);font-size:9px' }),
       h('span', { className: 'name clickable', text: (t.marker || '') + (t.lvc ? ' [lib?]' : ''), style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'metric', text: t.model ? '→ ' + t.model : '', style: `flex-shrink:0;max-width:170px;font-size:10px;overflow:hidden;text-overflow:ellipsis;color:${t.model && t.modelResolved ? 'var(--success,#7c7)' : 'var(--text-muted)'}${t.model && !t.modelResolved ? ';font-style:italic' : ''}` }),
       h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath); });

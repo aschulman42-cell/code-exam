@@ -5638,6 +5638,39 @@ export class CodeSearchIndex {
     const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
     const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
 
+    // #110 step 1 — literal-only model-identity extraction at the call/client site.
+    // Covers `model=` / `model_name=` / `model_id=` / `model_path=` (hosted + HF +
+    // llama.cpp) and the positional first string of GenerativeModel()/Llama(). A
+    // quoted value is a literal (modelResolved:true); a bare identifier is shown as
+    // `<var>` (modelResolved:false) — variable→literal resolution is step 2 (#96
+    // resolver). Window: the marker line, extended over following lines only while
+    // the call's parens stay open (cap 8 lines), so it can't bleed into the next
+    // statement.
+    const reModelKw = /\bmodel(?:_name|_id|_path)?\s*[:=]\s*(?:(["'`])([^"'`]+)\1|([A-Za-z_$][\w.$]*))/;
+    const reFirstStr = /\(\s*(["'`])([^"'`]+)\1/;
+    const extractModel = (lines, startIdx, marker) => {
+      let depth = 0, started = false, buf = lines[startIdx] || '';
+      for (const ch of buf) { if (ch === '(') { depth++; started = true; } else if (ch === ')') depth--; }
+      if (started && depth > 0) {
+        for (let k = startIdx + 1; k < lines.length && k < startIdx + 8; k++) {
+          const ln = lines[k] || '';
+          buf += ' ' + ln;
+          for (const ch of ln) { if (ch === '(') depth++; else if (ch === ')') depth--; }
+          if (depth <= 0) break;
+        }
+      }
+      const kw = reModelKw.exec(buf);
+      if (kw) {
+        if (kw[2] != null) return { model: kw[2].slice(0, 80), modelResolved: true };
+        if (kw[3] != null) return { model: '<' + kw[3] + '>', modelResolved: false };
+      }
+      if (marker === 'Llama()' || marker === 'GenerativeModel()') {
+        const p = reFirstStr.exec(buf);
+        if (p) return { model: p[2].slice(0, 80), modelResolved: true };
+      }
+      return { model: null, modelResolved: false };
+    };
+
     const out = [];
     for (const [filepath, lines] of this.fileLines) {
       if (reDocFile.test(filepath)) continue;
@@ -5654,8 +5687,10 @@ export class CodeSearchIndex {
         if (!line) continue;
         const trimmed = line.trimStart();
         if (reComment(trimmed)) continue;
-        const push = (kind, prov, tier, marker, tag, lvc) =>
-          out.push({ name: marker, filepath, line: i + 1, kind, provider: prov, tier, marker, tag, lvc: !!lvc, snippet: trimmed.slice(0, 200) });
+        const push = (kind, prov, tier, marker, tag, lvc) => {
+          const { model, modelResolved } = extractModel(lines, i, marker);
+          out.push({ name: marker, filepath, line: i + 1, kind, provider: prov, tier, marker, tag, lvc: !!lvc, model, modelResolved, snippet: trimmed.slice(0, 200) });
+        };
 
         // Tier A — provider-specific (first match wins).
         const a = tierA.find(d => d.re.test(line));

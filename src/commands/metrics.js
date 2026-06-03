@@ -565,21 +565,23 @@ export function doListLlmCalls(index, args) {
   if (args.verbose) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
-      console.log(`${b}${t.provider.padEnd(11)} ${t.kind.padEnd(9)} ${('T' + t.tier).padEnd(3)} ${(t.marker || '').padEnd(24)}${t.lvc ? ' [lib?]' : ''}`);
+      console.log(`${b}${t.provider.padEnd(11)} ${t.kind.padEnd(9)} ${('T' + t.tier).padEnd(3)} ${(t.marker || '').padEnd(24)}${t.lvc ? ' [lib?]' : ''}${t.model ? '  → ' + t.model : ''}`);
       console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
     }
     return;
   }
 
-  console.log(`${'Provider'.padEnd(11)}  ${'Kind'.padEnd(9)}  ${'T'.padEnd(2)}  ${'Marker'.padEnd(26)}  File:line`);
-  console.log('='.repeat(108));
+  console.log(`${'Provider'.padEnd(11)}  ${'Kind'.padEnd(9)}  ${'T'.padEnd(2)}  ${'Marker'.padEnd(26)}  ${'Model'.padEnd(28)}  File:line`);
+  console.log('='.repeat(138));
   for (const t of shown) {
     const prov = (t.tag === 'heuristic' ? '~' : '') + t.provider;
     let fp = (t.filepath || '').replace(/\\/g, '/');
     if (fp.length > 38) fp = '...' + fp.slice(-35);
-    console.log(`${prov.slice(0, 11).padEnd(11)}  ${t.kind.padEnd(9)}  ${('T' + t.tier).padEnd(2)}  ${((t.marker || '') + (t.lvc ? ' [lib?]' : '')).slice(0, 26).padEnd(26)}  ${fp}:${t.line}`);
+    console.log(`${prov.slice(0, 11).padEnd(11)}  ${t.kind.padEnd(9)}  ${('T' + t.tier).padEnd(2)}  ${((t.marker || '') + (t.lvc ? ' [lib?]' : '')).slice(0, 26).padEnd(26)}  ${(t.model || '').slice(0, 28).padEnd(28)}  ${fp}:${t.line}`);
   }
+  const unresolved = calls.filter(t => t.model && !t.modelResolved).length;
   if (heur) console.log(`\n  (~ = heuristic; T = A SDK marker / B gated verb / C endpoint URL; [lib?] = library-vs-consumer over-fires)`);
+  console.log(`  (Model from model=/model_path= arg; <var> = unresolved identifier${unresolved ? ` (${unresolved} here)` : ''} — #110 step 1, var→literal resolution is step 2)`);
 }
 
 export function doListInference(index, args) {
