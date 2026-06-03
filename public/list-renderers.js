@@ -495,14 +495,14 @@ export function renderInferenceList(container, inference, total) {
     const kindColor = _INFER_KIND_COLOR[t.kind] || 'var(--text-muted)';
     const item = h('div', {
       className: 'list-item',
-      title: `${(t.filepath || '').replace(/\\/g, '/')}:${t.line}\n${t.snippet || ''}\n${t.family} · ${t.kind} · tier ${t.tier} · ${t.marker}${heuristic ? (t.tier === 'C' ? '  (Tier C — sampling param, gated on a generation co-marker)' : '  (Tier B — gated call, ML-file required)') : '  (Tier A — clean mechanical)'}`,
+      title: `${(t.filepath || '').replace(/\\/g, '/')}:${t.line}\n${t.snippet || ''}\n${t.family} · ${t.kind} · tier ${t.tier} · ${t.marker}${heuristic ? (t.tier === 'C' ? '  (Tier C — sampling param, gated on a generation co-marker)' : '  (Tier B — gated call, ML-file required)') : '  (Tier A — clean mechanical)'}${t.id ? `\nmodel: ${t.id}${t.resolved === false ? '  (unresolved variable)' : ''}` : ''}`,
       style: heuristic ? 'opacity:0.78' : '',
     }, [
       h('span', { className: 'metric', text: (heuristic ? '~' : '') + t.family, style: 'min-width:80px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'metric', text: t.kind === 'generation' ? 'gen' : 'infer', style: `min-width:46px;color:${kindColor};font-size:10px` }),
       h('span', { className: 'metric', text: 'T' + t.tier, style: 'min-width:22px;color:var(--text-muted);font-size:9px' }),
       h('span', { className: 'metric', text: t.marker || '', style: 'min-width:100px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
-      h('span', { className: 'name clickable', text: t.name || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'name clickable', text: (t.name || '') + (t.id ? ' → ' + basenameIfPath(t.id) : ''), style: `flex:1;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${t.id && t.resolved === false ? 'var(--warning,#c79a4e)' : 'var(--text-bright)'}` }),
       h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
@@ -675,12 +675,13 @@ export function renderEmbeddingsList(container, items, total) {
     const kindColor = _EMB_KIND_COLOR[t.kind] || 'var(--text-muted)';
     const item = h('div', {
       className: 'list-item',
-      title: `${(t.filepath || '').replace(/\\/g, '/')}:${t.line}\n${t.snippet || ''}\n${t.framework} · ${t.kind} · ${t.marker}${t.kind === 'distance' ? '  (co-occurrence-gated)' : ''}`,
+      title: `${(t.filepath || '').replace(/\\/g, '/')}:${t.line}\n${t.snippet || ''}\n${t.framework} · ${t.kind} · ${t.marker}${t.kind === 'distance' ? '  (co-occurrence-gated)' : ''}${t.id ? `\nid: ${t.id}${t.resolved === false ? '  (unresolved variable)' : ''}` : ''}`,
       style: heuristic ? 'opacity:0.78' : '',
     }, [
       h('span', { className: 'metric', text: (heuristic ? '~' : '') + t.kind, style: `min-width:88px;color:${kindColor};font-size:10px;overflow:hidden;text-overflow:ellipsis` }),
       h('span', { className: 'metric', text: t.framework || '', style: 'min-width:96px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'name clickable', text: t.marker || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'metric', text: t.id ? '→ ' + basenameIfPath(t.id) : '', style: `flex-shrink:0;max-width:200px;${t.id ? 'margin-right:14px;' : ''}font-size:10px;overflow:hidden;text-overflow:ellipsis;color:${t.id && t.resolved !== false ? 'var(--success,#7c7)' : 'var(--warning,#c79a4e)'}${t.id && t.resolved === false ? ';font-style:italic' : ''}` }),
       h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });

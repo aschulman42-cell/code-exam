@@ -444,21 +444,23 @@ export function doListEmbeddings(index, args) {
   if (args.verbose) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
-      console.log(`${b}${t.kind.padEnd(13)} ${(t.framework || '').padEnd(20)} ${t.marker || ''}`);
+      console.log(`${b}${t.kind.padEnd(13)} ${(t.framework || '').padEnd(20)} ${(t.marker || '').padEnd(20)}${t.id ? '  → ' + basenameIfPath(t.id) : ''}`);
       console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
     }
     return;
   }
 
-  console.log(`${'Kind'.padEnd(13)}  ${'Framework'.padEnd(20)}  ${'Marker'.padEnd(24)}  File:line`);
-  console.log('='.repeat(108));
+  console.log(`${'Kind'.padEnd(13)}  ${'Framework'.padEnd(20)}  ${'Marker'.padEnd(24)}  ${'Model / id'.padEnd(34)}  File:line`);
+  console.log('='.repeat(144));
   for (const t of shown) {
     const kind = (t.tag === 'heuristic' ? '~' : '') + t.kind;
     let fp = (t.filepath || '').replace(/\\/g, '/');
     if (fp.length > 32) fp = '...' + fp.slice(-29);
-    console.log(`${kind.slice(0, 13).padEnd(13)}  ${(t.framework || '').slice(0, 20).padEnd(20)}  ${(t.marker || '').slice(0, 24).padEnd(24)}  ${fp}:${t.line}`);
+    console.log(`${kind.slice(0, 13).padEnd(13)}  ${(t.framework || '').slice(0, 20).padEnd(20)}  ${(t.marker || '').slice(0, 24).padEnd(24)}  ${(basenameIfPath(t.id) || '').slice(0, 34).padEnd(34)}  ${fp}:${t.line}`);
   }
+  const unres = items.filter(t => t.id && t.resolved === false).length;
   if (heur) console.log(`\n  (~ = heuristic/gated; distance is co-occurrence-gated on an embedding/vector marker. RAG = this + an LLM call, #103.)`);
+  console.log(`  (Model / id = embedding model or vector index/collection; <var>${unres ? ` (${unres})` : ''} = unresolved in-file.)`);
 }
 
 export function doListChains(index, args) {
@@ -609,21 +611,22 @@ export function doListInference(index, args) {
   if (args.verbose) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
-      console.log(`${b}${t.family.padEnd(13)} ${t.kind.padEnd(11)} ${('T' + t.tier).padEnd(3)} ${(t.marker || '').padEnd(16)} ${t.name}`);
+      console.log(`${b}${t.family.padEnd(13)} ${t.kind.padEnd(11)} ${('T' + t.tier).padEnd(3)} ${(t.marker || '').padEnd(16)} ${t.name}${t.id ? '  → ' + basenameIfPath(t.id) : ''}`);
       console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
     }
     return;
   }
 
-  console.log(`${'Family'.padEnd(13)}  ${'Kind'.padEnd(11)}  ${'T'.padEnd(2)}  ${'Marker'.padEnd(16)}  ${'Name'.padEnd(22)}  File:line`);
-  console.log('='.repeat(112));
+  console.log(`${'Family'.padEnd(13)}  ${'Kind'.padEnd(11)}  ${'T'.padEnd(2)}  ${'Marker'.padEnd(16)}  ${'Name (→ model)'.padEnd(30)}  File:line`);
+  console.log('='.repeat(120));
   for (const t of shown) {
     const fam = (t.tag === 'heuristic' ? '~' : '') + t.family;
     let fp = (t.filepath || '').replace(/\\/g, '/');
     if (fp.length > 32) fp = '...' + fp.slice(-29);
-    console.log(`${fam.slice(0, 13).padEnd(13)}  ${t.kind.padEnd(11)}  ${('T' + t.tier).padEnd(2)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${(t.name || '').slice(0, 22).padEnd(22)}  ${fp}:${t.line}`);
+    const nm = (t.name || '') + (t.id ? ' → ' + basenameIfPath(t.id) : '');
+    console.log(`${fam.slice(0, 13).padEnd(13)}  ${t.kind.padEnd(11)}  ${('T' + t.tier).padEnd(2)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${nm.slice(0, 30).padEnd(30)}  ${fp}:${t.line}`);
   }
-  if (heur) console.log(`\n  (~ = heuristic/gated; T = tier A clean / B gated calls / C co-occurrence-gated params)`);
+  if (heur) console.log(`\n  (~ = heuristic/gated; T = tier A clean / B gated calls / C co-occurrence-gated params; → model = pipeline(model=…))`);
 }
 
 export function doListDatasets(index, args) {

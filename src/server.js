@@ -2092,7 +2092,8 @@ routes['/api/list-inference'] = (req, res) => {
     total: inf.length,
     inference: inf.slice(0, max).map(t => ({
       name: t.name, filepath: t.filepath, line: t.line, kind: t.kind,
-      family: t.family, tier: t.tier, marker: t.marker, tag: t.tag, snippet: t.snippet,
+      family: t.family, tier: t.tier, marker: t.marker, tag: t.tag,
+      id: t.id, resolved: t.resolved, snippet: t.snippet,
     })),
   });
 };
@@ -2153,7 +2154,8 @@ routes['/api/list-embeddings'] = (req, res) => {
     total: items.length,
     embeddings: items.slice(0, max).map(t => ({
       name: t.name, filepath: t.filepath, line: t.line, kind: t.kind,
-      framework: t.framework, tier: t.tier, marker: t.marker, tag: t.tag, snippet: t.snippet,
+      framework: t.framework, tier: t.tier, marker: t.marker, tag: t.tag,
+      id: t.id, resolved: t.resolved, snippet: t.snippet,
     })),
   });
 };

@@ -5604,8 +5604,8 @@ export class CodeSearchIndex {
         if (!line) continue;
         const trimmed = line.trimStart();
         if (reComment(trimmed)) continue;
-        const push = (kind, family, tier, marker, tag, name) =>
-          out.push({ name: name || marker, filepath, line: i + 1, kind, family, tier, marker, tag, snippet: trimmed.slice(0, 200) });
+        const push = (kind, family, tier, marker, tag, name, id = null, resolved = true) =>
+          out.push({ name: name || marker, filepath, line: i + 1, kind, family, tier, marker, tag, id, resolved, snippet: trimmed.slice(0, 200) });
 
         // Tier A mechanical — generation then inference.
         let m = genA.find(d => d.re.test(line));
@@ -5619,7 +5619,11 @@ export class CodeSearchIndex {
           const pm = rePredict.exec(line);
           if (pm) { push('inference', fam, 'B', pm[2] ? '.predict_proba' : '.predict', 'heuristic', pm[1] + (pm[2] ? '.predict_proba' : '.predict')); continue; }
         }
-        if (hasTransformers && rePipeline.test(line)) { push('inference', HF, 'B', 'pipeline', 'heuristic'); continue; }
+        if (hasTransformers && rePipeline.test(line)) {
+          const mm = rePipeline.exec(line);
+          const { id, resolved } = this._extractCallId(line, mm.index, lines, i, 'model');
+          push('inference', HF, 'B', 'pipeline', 'heuristic', null, id, resolved); continue;
+        }
         if (hasTorch) { const em = reEval.exec(line); if (em) { push('inference', PT, 'B', 'model.eval', 'heuristic', em[1] + '.eval'); continue; } }
         // Tier C sampling params — only if the file has a generation marker.
         if (fileHasGen) {
@@ -5696,6 +5700,39 @@ export class CodeSearchIndex {
     };
 
     return dotted ? (argparseDefault() || directAssign()) : (directAssign() || argparseDefault());
+  }
+
+  /**
+   * _extractCallId(line, afterIdx, lines, useLine, idArg) — pull an id argument
+   * from a call (#110 step 2, shared by embeddings/inference). `idArg`: 'pos' =
+   * the first positional string; otherwise a `|`-list of keyword names (e.g.
+   * 'model' or 'index_name|collection_name'). Quoted literal → {id, resolved:true};
+   * identifier → resolved via _resolveLiteral (or {id:'<v>', resolved:false} when
+   * unresolvable); nothing found → {id:null, resolved:true}.
+   */
+  _extractCallId(line, afterIdx, lines, useLine, idArg) {
+    const open = line.indexOf('(', afterIdx);
+    if (open < 0) return { id: null, resolved: true };
+    const seg = line.slice(open + 1, open + 1 + 200);
+    const resolveIdent = (id) => {
+      const lit = this._resolveLiteral(lines, id, useLine);
+      return lit != null ? { id: lit, resolved: true } : { id: '<' + id + '>', resolved: false };
+    };
+    if (idArg === 'pos') {
+      const qm = seg.match(/^\s*["'`]([^"'`]+)["'`]/);
+      if (qm) return { id: qm[1], resolved: true };
+      const im = seg.match(/^\s*([A-Za-z_$][\w.$]*)\s*[,)]/);
+      if (im) return resolveIdent(im[1]);
+      return { id: null, resolved: true };
+    }
+    const km = seg.match(new RegExp('\\b(?:' + idArg + ')\\s*=\\s*(\\S+)'));
+    if (km) {
+      const q = km[1].match(/^["'`]([^"'`]+)["'`]/);
+      if (q) return { id: q[1], resolved: true };
+      const idm = km[1].match(/^([A-Za-z_$][\w.$]*)/);
+      if (idm) return resolveIdent(idm[1]);
+    }
+    return { id: null, resolved: true };
   }
 
   /**
@@ -6062,20 +6099,20 @@ export class CodeSearchIndex {
    */
   listEmbeddings(filter = null) {
     const tierA = [
-      // embedding (any purpose)
-      { re: /\bOpenAIEmbeddings\b/,        kind: 'embedding', fw: 'OpenAI', m: 'OpenAIEmbeddings' },
-      { re: /\bHuggingFaceEmbeddings\b/,   kind: 'embedding', fw: 'HF', m: 'HuggingFaceEmbeddings' },
-      { re: /\bCohereEmbeddings\b/,        kind: 'embedding', fw: 'Cohere', m: 'CohereEmbeddings' },
-      { re: /\bSentenceTransformer\b/,     kind: 'embedding', fw: 'sentence-transformers', m: 'SentenceTransformer' },
+      // embedding (any purpose) — idArg: which call arg carries the model id.
+      { re: /\bOpenAIEmbeddings\b/,        kind: 'embedding', fw: 'OpenAI', m: 'OpenAIEmbeddings', idArg: 'model' },
+      { re: /\bHuggingFaceEmbeddings\b/,   kind: 'embedding', fw: 'HF', m: 'HuggingFaceEmbeddings', idArg: 'model_name' },
+      { re: /\bCohereEmbeddings\b/,        kind: 'embedding', fw: 'Cohere', m: 'CohereEmbeddings', idArg: 'model' },
+      { re: /\bSentenceTransformer\b/,     kind: 'embedding', fw: 'sentence-transformers', m: 'SentenceTransformer', idArg: 'pos' },
       { re: /\bembed_query\b/,             kind: 'embedding', fw: 'LangChain', m: 'embed_query' },
       { re: /\bembed_documents\b/,         kind: 'embedding', fw: 'LangChain', m: 'embed_documents' },
-      { re: /\bembeddings\.create\b/,      kind: 'embedding', fw: 'OpenAI', m: 'embeddings.create' },
-      // vector-store
+      { re: /\bembeddings\.create\b/,      kind: 'embedding', fw: 'OpenAI', m: 'embeddings.create', idArg: 'model' },
+      // vector-store — idArg: the index/collection name where the ctor takes one.
       { re: /\bFAISS\b/,                   kind: 'vector-store', fw: 'FAISS', m: 'FAISS' },
-      { re: /\bPinecone\b/,                kind: 'vector-store', fw: 'Pinecone', m: 'Pinecone' },
-      { re: /\bQdrant\b/,                  kind: 'vector-store', fw: 'Qdrant', m: 'Qdrant' },
-      { re: /\bWeaviate\b/,                kind: 'vector-store', fw: 'Weaviate', m: 'Weaviate' },
-      { re: /\bMilvus\b/,                  kind: 'vector-store', fw: 'Milvus', m: 'Milvus' },
+      { re: /\bPinecone\b/,                kind: 'vector-store', fw: 'Pinecone', m: 'Pinecone', idArg: 'index_name' },
+      { re: /\bQdrant\b/,                  kind: 'vector-store', fw: 'Qdrant', m: 'Qdrant', idArg: 'collection_name' },
+      { re: /\bWeaviate\b/,                kind: 'vector-store', fw: 'Weaviate', m: 'Weaviate', idArg: 'index_name|class_name' },
+      { re: /\bMilvus\b/,                  kind: 'vector-store', fw: 'Milvus', m: 'Milvus', idArg: 'collection_name|collection' },
       { re: /\bLanceDB\b/,                 kind: 'vector-store', fw: 'LanceDB', m: 'LanceDB' },
       { re: /\bpgvector\b/,                kind: 'vector-store', fw: 'pgvector', m: 'pgvector' },
       { re: /\bVectorStore\b/,            kind: 'vector-store', fw: 'LangChain', m: 'VectorStore' },
@@ -6118,14 +6155,25 @@ export class CodeSearchIndex {
         if (!line) continue;
         const trimmed = line.trimStart();
         if (reComment(trimmed)) continue;
-        const push = (kind, fw, tier, m, tag) =>
-          out.push({ name: m, filepath, line: i + 1, kind, framework: fw, tier, marker: m, tag, snippet: trimmed.slice(0, 200) });
+        const push = (kind, fw, tier, m, tag, id = null, resolved = true) =>
+          out.push({ name: m, filepath, line: i + 1, kind, framework: fw, tier, marker: m, tag, id, resolved, snippet: trimmed.slice(0, 200) });
 
         const a = tierA.find(d => d.re.test(line));
-        if (a) { push(a.kind, a.fw, 'A', a.m, 'mechanical'); continue; }
+        if (a) {
+          let id = null, resolved = true;
+          if (a.idArg) {
+            const mm = a.re.exec(line);
+            ({ id, resolved } = this._extractCallId(line, mm.index + mm[0].length, lines, i, a.idArg));
+          }
+          push(a.kind, a.fw, 'A', a.m, 'mechanical', id, resolved); continue;
+        }
         // Tier B gated
         if (hasST && reEncode.test(line)) { push('embedding', 'sentence-transformers', 'B', '.encode', 'heuristic'); continue; }
-        if (hasChromadb && reChroma.test(line)) { push('vector-store', 'Chroma', 'B', 'Chroma', 'heuristic'); continue; }
+        if (hasChromadb && reChroma.test(line)) {
+          const mm = reChroma.exec(line);
+          const { id, resolved } = this._extractCallId(line, mm.index + mm[0].length, lines, i, 'collection_name');
+          push('vector-store', 'Chroma', 'B', 'Chroma', 'heuristic', id, resolved); continue;
+        }
         if (vecFound && reVecOp.test(line)) { push('search', '?', 'B', 'query/search', 'heuristic'); continue; }
         // Tier C — distance, co-occurrence-gated on an embedding/vector marker
         if ((embFound || vecFound) && reDistance.test(line)) {
