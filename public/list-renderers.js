@@ -328,7 +328,7 @@ export function renderArtifactList(container, artifacts, total) {
       h('span', { className: 'filepath', text: `${shortPath(a.filepath || '')}:${a.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
     // Click → open the file (sites have no class to focus); right-click → Digest.
-    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(a.filepath); });
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(a.filepath, a.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: a.filepath, display_name: a.filepath, filepath: a.filepath }); });
     container.appendChild(item);
   }
@@ -368,7 +368,7 @@ export function renderKernelList(container, kernels, total) {
       h('span', { className: 'name clickable', text: k.name || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
       h('span', { className: 'filepath', text: `${shortPath(k.filepath || '')}:${k.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
-    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(k.filepath); });
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(k.filepath, k.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: k.filepath, display_name: k.filepath, filepath: k.filepath }); });
     container.appendChild(item);
   }
@@ -411,7 +411,7 @@ export function renderDatasetList(container, datasets, total) {
       d.builtin ? h('span', { className: 'metric', text: 'built-in', style: 'color:var(--text-muted);font-size:9px;flex-shrink:0' }) : null,
       h('span', { className: 'filepath', text: `${shortPath(d.filepath || '')}:${d.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ].filter(Boolean));
-    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(d.filepath); });
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(d.filepath, d.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: d.filepath, display_name: d.filepath, filepath: d.filepath }); });
     container.appendChild(item);
   }
@@ -452,7 +452,7 @@ export function renderTrainingList(container, training, total) {
       h('span', { className: 'name clickable', text: t.name || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
       h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
-    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath); });
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
     container.appendChild(item);
   }
@@ -495,7 +495,7 @@ export function renderInferenceList(container, inference, total) {
       h('span', { className: 'name clickable', text: t.name || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
       h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
-    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath); });
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
     container.appendChild(item);
   }
@@ -537,7 +537,7 @@ export function renderLlmCallsList(container, calls, total) {
       h('span', { className: 'metric', text: t.model ? '→ ' + t.model : '', style: `flex-shrink:0;max-width:170px;${t.model ? 'margin-right:14px;' : ''}font-size:10px;overflow:hidden;text-overflow:ellipsis;color:${t.model && t.modelResolved ? 'var(--success,#7c7)' : 'var(--warning,#c79a4e)'}${t.model && !t.modelResolved ? ';font-style:italic' : ''}` }),
       h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
-    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath); });
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
     container.appendChild(item);
   }
@@ -579,7 +579,7 @@ export function renderToolsList(container, tools, total) {
       h('span', { className: 'name clickable', text: (t.name || '—') + (t.lvc ? ' [lib?]' : ''), style: `flex:1;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${t.name ? 'var(--text-bright)' : 'var(--text-muted)'}` }),
       h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
-    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath); });
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
     container.appendChild(item);
   }
@@ -628,7 +628,7 @@ export function renderChainsList(container, chains, total) {
       h('span', { className: 'name clickable', text: t.name || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
       h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
-    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath); });
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
     container.appendChild(item);
   }
@@ -673,7 +673,7 @@ export function renderEmbeddingsList(container, items, total) {
       h('span', { className: 'name clickable', text: t.marker || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
       h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
-    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath); });
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
     container.appendChild(item);
   }
