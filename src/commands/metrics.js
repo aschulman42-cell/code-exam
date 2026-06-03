@@ -422,6 +422,45 @@ const CHAINS_SCOPE = 'Scope: framework primitives (LangChain/LangGraph/DSPy/Crew
   + 'degenerate; use a bundle-seam-split (--split-bundle) index. LCEL `|` pipelines are still not '
   + 'detected; Detection keys on JS/TS + Python idioms (Rust/Go not yet — #108), so a low/zero count is not proof there is no agent.';
 
+export function doListEmbeddings(index, args) {
+  const items = index.listEmbeddings(args.filter);
+  if (!items.length) {
+    console.log('No embeddings/vector search found (no OpenAIEmbeddings/SentenceTransformer/'
+      + 'embed_query, FAISS/Chroma/Pinecone/VectorStore, similarity_search, text-splitters, or '
+      + 'co-occurrence-gated distance). Embeddings/vectors here are RAG-agnostic; distance alone '
+      + '(clustering/attention math) is intentionally excluded.');
+    return;
+  }
+  const byKind = {}; const byFw = {}; let heur = 0;
+  for (const t of items) { byKind[t.kind] = (byKind[t.kind] || 0) + 1; byFw[t.framework] = (byFw[t.framework] || 0) + 1; if (t.tag === 'heuristic') heur++; }
+  const kindSummary = ['embedding', 'vector-store', 'search', 'chunking', 'distance'].filter(k => byKind[k]).map(k => `${byKind[k]} ${k}`).join(', ');
+  const fwSummary = Object.entries(byFw).sort((a, b) => b[1] - a[1]).map(([f, n]) => `${f} ${n}`).join(', ');
+
+  const max = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? items.slice(0, max) : items;
+
+  console.log(`\n${items.length} embedding/vector sites — ${kindSummary} (${fwSummary}; ${heur} heuristic):\n`);
+
+  if (args.verbose) {
+    for (const t of shown) {
+      const b = t.tag === 'heuristic' ? '~' : ' ';
+      console.log(`${b}${t.kind.padEnd(13)} ${(t.framework || '').padEnd(20)} ${t.marker || ''}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+    }
+    return;
+  }
+
+  console.log(`${'Kind'.padEnd(13)}  ${'Framework'.padEnd(20)}  ${'Marker'.padEnd(24)}  File:line`);
+  console.log('='.repeat(108));
+  for (const t of shown) {
+    const kind = (t.tag === 'heuristic' ? '~' : '') + t.kind;
+    let fp = (t.filepath || '').replace(/\\/g, '/');
+    if (fp.length > 32) fp = '...' + fp.slice(-29);
+    console.log(`${kind.slice(0, 13).padEnd(13)}  ${(t.framework || '').slice(0, 20).padEnd(20)}  ${(t.marker || '').slice(0, 24).padEnd(24)}  ${fp}:${t.line}`);
+  }
+  if (heur) console.log(`\n  (~ = heuristic/gated; distance is co-occurrence-gated on an embedding/vector marker. RAG = this + an LLM call, #103.)`);
+}
+
 export function doListChains(index, args) {
   const chains = index.listChains(args.filter);
   if (!chains.length) {

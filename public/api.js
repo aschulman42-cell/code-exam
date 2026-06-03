@@ -79,6 +79,7 @@ export const api = {
   listLlmCalls:    (p) => api.get('list-llm-calls', p),
   listTools:       (p) => api.get('list-tools', p),
   listChains:      (p) => api.get('list-chains', p),
+  listEmbeddings:  (p) => api.get('list-embeddings', p),
   classMethods:    (p) => api.get('class-methods', p),
   filesSearch:     (p) => api.get('files-search', p),
   funcDupes:       (p) => api.get('func-dupes', p),

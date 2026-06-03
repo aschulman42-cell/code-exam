@@ -5903,6 +5903,106 @@ export class CodeSearchIndex {
     return result;
   }
 
+  /**
+   * listEmbeddings(filter) — Embeddings & Vector Search (#109). RAG-AGNOSTIC: a
+   * general capability (semantic search, clustering, dedup, recommendation), not
+   * RAG-only. RAG = this cell's `search`/`vector-store` + #103 LLM call,
+   * co-occurring (a derived Phase-2 signal, not detected here). Five sub-kinds:
+   *   embedding / vector-store / search / chunking / distance.
+   * Distance measures are co-occurrence-gated on an embedding/vector marker
+   * (sklearn euclidean ×486 / transformers dot_product ×66 are clustering/
+   * attention, NOT this). `.encode`/`Chroma`/`.query` gated. Skips .md/.rst (#102).
+   */
+  listEmbeddings(filter = null) {
+    const tierA = [
+      // embedding (any purpose)
+      { re: /\bOpenAIEmbeddings\b/,        kind: 'embedding', fw: 'OpenAI', m: 'OpenAIEmbeddings' },
+      { re: /\bHuggingFaceEmbeddings\b/,   kind: 'embedding', fw: 'HF', m: 'HuggingFaceEmbeddings' },
+      { re: /\bCohereEmbeddings\b/,        kind: 'embedding', fw: 'Cohere', m: 'CohereEmbeddings' },
+      { re: /\bSentenceTransformer\b/,     kind: 'embedding', fw: 'sentence-transformers', m: 'SentenceTransformer' },
+      { re: /\bembed_query\b/,             kind: 'embedding', fw: 'LangChain', m: 'embed_query' },
+      { re: /\bembed_documents\b/,         kind: 'embedding', fw: 'LangChain', m: 'embed_documents' },
+      { re: /\bembeddings\.create\b/,      kind: 'embedding', fw: 'OpenAI', m: 'embeddings.create' },
+      // vector-store
+      { re: /\bFAISS\b/,                   kind: 'vector-store', fw: 'FAISS', m: 'FAISS' },
+      { re: /\bPinecone\b/,                kind: 'vector-store', fw: 'Pinecone', m: 'Pinecone' },
+      { re: /\bQdrant\b/,                  kind: 'vector-store', fw: 'Qdrant', m: 'Qdrant' },
+      { re: /\bWeaviate\b/,                kind: 'vector-store', fw: 'Weaviate', m: 'Weaviate' },
+      { re: /\bMilvus\b/,                  kind: 'vector-store', fw: 'Milvus', m: 'Milvus' },
+      { re: /\bLanceDB\b/,                 kind: 'vector-store', fw: 'LanceDB', m: 'LanceDB' },
+      { re: /\bpgvector\b/,                kind: 'vector-store', fw: 'pgvector', m: 'pgvector' },
+      { re: /\bVectorStore\b/,            kind: 'vector-store', fw: 'LangChain', m: 'VectorStore' },
+      { re: /\bIndexFlat(?:L2|IP)\b/,      kind: 'vector-store', fw: 'FAISS', m: 'IndexFlat' },
+      // search / retrieval
+      { re: /\bsimilarity_search(?:_with_score)?\b/, kind: 'search', fw: 'LangChain', m: 'similarity_search' },
+      { re: /\bmax_marginal_relevance_search\b/,     kind: 'search', fw: 'LangChain', m: 'mmr_search' },
+      { re: /\bas_retriever\b/,            kind: 'search', fw: 'LangChain', m: 'as_retriever' },
+      { re: /\bsemantic_search\b/,         kind: 'search', fw: '?', m: 'semantic_search' },
+      // chunking (RAG-flavored document prep)
+      { re: /\b(?:Recursive)?CharacterTextSplitter\b/, kind: 'chunking', fw: 'LangChain', m: 'TextSplitter' },
+      { re: /\bTokenTextSplitter\b/,       kind: 'chunking', fw: 'LangChain', m: 'TokenTextSplitter' },
+      { re: /\bsplit_documents\b/,         kind: 'chunking', fw: 'LangChain', m: 'split_documents' },
+      { re: /\bsplit_text\b/,              kind: 'chunking', fw: 'LangChain', m: 'split_text' },
+      { re: /\bchunk_overlap\b/,           kind: 'chunking', fw: '?', m: 'chunk_overlap' },
+    ];
+    const reEmbAny = /\bOpenAIEmbeddings\b|\bHuggingFaceEmbeddings\b|\bCohereEmbeddings\b|\bSentenceTransformer\b|\bembed_query\b|\bembed_documents\b|\bembeddings\.create\b/;
+    const reVecAny = /\bFAISS\b|\bPinecone\b|\bQdrant\b|\bWeaviate\b|\bMilvus\b|\bLanceDB\b|\bpgvector\b|\bVectorStore\b|\bIndexFlat(?:L2|IP)\b|\bchromadb\b/;
+    const reEncode = /\.encode\s*\(/;
+    const reChroma = /\bChroma\b|\bchromadb\b/;
+    const reVecOp = /\.query\s*\(|\.search\s*\(|\.upsert\s*\(/;
+    // Distance measures are co-occurrence-gated (below), so the set can be
+    // comprehensive without FP risk — these are heavily used in plain ML
+    // (clustering/classification), but only count alongside an embedding/vector
+    // marker. cityblock = Manhattan (scipy); centroid is clustering-flavored.
+    const reDistance = /\bcosine_similarity\b|\bcosine_distance\b|\beuclidean(?:_distance)?\b|\bdot_product\b|\binner_product\b|\bmanhattan\b|\bcityblock\b|\bjaccard\b|\bminkowski\b|\bhamming\b|\bchebyshev\b|\bmahalanobis\b|\bcentroid\b|\bl2_distance\b|\bdistance_metric\b|\bmetric\s*=\s*["']cosine/;
+    const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
+    const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
+
+    const out = [];
+    for (const [filepath, lines] of this.fileLines) {
+      if (reDocFile.test(filepath)) continue;
+      const hasST = lines.some(l => /\b(?:import|from)\s+sentence_transformers\b/.test(l));
+      const hasChromadb = lines.some(l => /\bchromadb\b/i.test(l) || /\b(?:import|from).*\bChroma\b/.test(l));
+      const embFound = lines.some(l => reEmbAny.test(l));
+      const vecFound = lines.some(l => reVecAny.test(l));
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+        if (reComment(trimmed)) continue;
+        const push = (kind, fw, tier, m, tag) =>
+          out.push({ name: m, filepath, line: i + 1, kind, framework: fw, tier, marker: m, tag, snippet: trimmed.slice(0, 200) });
+
+        const a = tierA.find(d => d.re.test(line));
+        if (a) { push(a.kind, a.fw, 'A', a.m, 'mechanical'); continue; }
+        // Tier B gated
+        if (hasST && reEncode.test(line)) { push('embedding', 'sentence-transformers', 'B', '.encode', 'heuristic'); continue; }
+        if (hasChromadb && reChroma.test(line)) { push('vector-store', 'Chroma', 'B', 'Chroma', 'heuristic'); continue; }
+        if (vecFound && reVecOp.test(line)) { push('search', '?', 'B', 'query/search', 'heuristic'); continue; }
+        // Tier C — distance, co-occurrence-gated on an embedding/vector marker
+        if ((embFound || vecFound) && reDistance.test(line)) {
+          const dm = (line.match(reDistance) || ['distance'])[0].trim();
+          push('distance', '?', 'C', dm.slice(0, 20), 'heuristic'); continue;
+        }
+      }
+    }
+
+    let result = out;
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = out.filter(t =>
+        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
+        || (t.framework || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
+        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+    }
+    const kindRank = { 'embedding': 0, 'vector-store': 1, 'search': 2, 'chunking': 3, 'distance': 4 };
+    result.sort((a, b) =>
+      (kindRank[a.kind] - kindRank[b.kind]) || (a.framework || '').localeCompare(b.framework || '')
+      || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+    return result;
+  }
+
   listClasses(filepath = null) {
     this._ensureFunctionIndex();
     const filterPath = filepath ? filepath.toLowerCase().replace(/\\/g, '/') : null;

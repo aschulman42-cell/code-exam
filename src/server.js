@@ -2142,6 +2142,21 @@ routes['/api/list-chains'] = (req, res) => {
   });
 };
 
+routes['/api/list-embeddings'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const items = index.listEmbeddings(q.filter);  // sorted: kind, framework, file, line
+  const max = safeMax(q.max, 500);
+  jsonResponse(res, {
+    total: items.length,
+    embeddings: items.slice(0, max).map(t => ({
+      name: t.name, filepath: t.filepath, line: t.line, kind: t.kind,
+      framework: t.framework, tier: t.tier, marker: t.marker, tag: t.tag, snippet: t.snippet,
+    })),
+  });
+};
+
 routes['/api/class-methods'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);

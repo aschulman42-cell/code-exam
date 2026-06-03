@@ -638,6 +638,51 @@ export function renderChainsList(container, chains, total) {
 
 
 // ============================================================================
+// Embeddings & Vector Search list (#109) — RAG-agnostic. kind ∈ {embedding,
+// vector-store, search, chunking, distance}. distance is co-occurrence-gated (so
+// clustering/attention math is excluded). RAG = this + an LLM call (#103). Tier
+// B/C (heuristic) rows get "~" + dim.
+// ============================================================================
+
+const _EMB_SCOPE = 'Embeddings & vector search — RAG-agnostic (also clustering / dedup / semantic search). '
+  + 'Distance measures are co-occurrence-gated (clustering/attention math excluded). RAG = these + an LLM call '
+  + '(LLM Calls). Keys on JS/TS + Python idioms (Rust/Go #108); bespoke vector math without a library may be missed.';
+const _EMB_KIND_COLOR = { 'embedding': '#6cf', 'vector-store': '#a9f', 'search': '#fc6', 'chunking': '#9c9', 'distance': 'var(--text-muted)' };
+
+export function renderEmbeddingsList(container, items, total) {
+  container.innerHTML = '';
+  container.appendChild(h('div', {
+    text: _EMB_SCOPE,
+    style: 'padding:4px 8px;font-size:10px;color:var(--text-muted);font-style:italic;border-bottom:1px solid var(--border,#333);margin-bottom:2px',
+  }));
+  if (!items || !items.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: 'No embeddings / vector search found (see scope above).' }));
+    return;
+  }
+  for (const t of items) {
+    const heuristic = t.tag === 'heuristic';
+    const kindColor = _EMB_KIND_COLOR[t.kind] || 'var(--text-muted)';
+    const item = h('div', {
+      className: 'list-item',
+      title: `${(t.filepath || '').replace(/\\/g, '/')}:${t.line}\n${t.snippet || ''}\n${t.framework} · ${t.kind} · ${t.marker}${t.kind === 'distance' ? '  (co-occurrence-gated)' : ''}`,
+      style: heuristic ? 'opacity:0.78' : '',
+    }, [
+      h('span', { className: 'metric', text: (heuristic ? '~' : '') + t.kind, style: `min-width:88px;color:${kindColor};font-size:10px;overflow:hidden;text-overflow:ellipsis` }),
+      h('span', { className: 'metric', text: t.framework || '', style: 'min-width:96px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'name clickable', text: t.marker || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+    ]);
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath); });
+    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
+    container.appendChild(item);
+  }
+  if (total > items.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: `${items.length} of ${total} shown` }));
+  }
+}
+
+
+// ============================================================================
 // Hot Folders list
 // ============================================================================
 
