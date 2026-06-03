@@ -5591,6 +5591,60 @@ export class CodeSearchIndex {
   }
 
   /**
+   * _resolveLiteral(lines, ident, beforeLine) — same-file variable→literal
+   * resolver (#110 step 2 foundation, shared across the name-extracting cells).
+   * Given an identifier used at `beforeLine`, find its string-literal value via a
+   * lexical scan (no AST, no import graph):
+   *   - direct assignment `VAR = "lit"` / `VAR: "lit"` — nearest assignment before
+   *     the use site, whole-file last assignment as fallback;
+   *   - argparse default — `add_argument('--x', …, default="lit")` (for `args.x` /
+   *     `self.x` forms, and as a fallback for bare idents matching a flag).
+   * For dotted idents (`args.model`) the argparse default is tried first; for plain
+   * idents the direct assignment is tried first. Returns the literal or null
+   * (cross-file constants / computed values stay unresolved — no guessing).
+   */
+  _resolveLiteral(lines, ident, beforeLine) {
+    if (!ident) return null;
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const dotted = ident.includes('.');
+    const attr = dotted ? ident.split('.').pop() : ident;
+
+    const argparseDefault = () => {
+      // add_argument(...) often spans lines (the flag, then `default=` below), so
+      // accumulate the call across lines until its parens close (cap 8) before
+      // looking for `default="lit"`.
+      const flagRe = new RegExp('add_argument\\(\\s*["\']--?' + esc(attr) + '["\']', 'i');
+      const defRe = /default\s*=\s*(["'`])([^"'`]+)\1/;
+      for (let k = 0; k < lines.length; k++) {
+        if (!flagRe.test(lines[k] || '')) continue;
+        let depth = 0, buf = '';
+        for (let j = k; j < lines.length && j < k + 8; j++) {
+          const ln = lines[j] || '';
+          buf += ' ' + ln;
+          for (const ch of ln) { if (ch === '(') depth++; else if (ch === ')') depth--; }
+          if (depth <= 0) break;
+        }
+        const m = defRe.exec(buf);
+        if (m) return m[2];
+      }
+      return null;
+    };
+    const directAssign = () => {
+      const assignRe = new RegExp('\\b' + esc(attr) + '\\s*[:=]\\s*(["\'`])([^"\'`]+)\\1');
+      let prior = null, priorLine = -1, anyLast = null, anyLine = -1;
+      for (let k = 0; k < lines.length; k++) {
+        const m = assignRe.exec(lines[k] || '');
+        if (!m) continue;
+        if (k < beforeLine && k > priorLine) { prior = m[2]; priorLine = k; }
+        if (k > anyLine) { anyLast = m[2]; anyLine = k; }
+      }
+      return prior != null ? prior : anyLast;
+    };
+
+    return dotted ? (argparseDefault() || directAssign()) : (directAssign() || argparseDefault());
+  }
+
+  /**
    * listLlmCalls(filter) — the LLM-USE invocation layer (#103): where code issues
    * a completion/chat request to an LLM. Companion to Prompts (authored input);
    * NOT #101 Inference (low-level local generate), NOT Artifacts (load), NOT hooks
@@ -5662,7 +5716,11 @@ export class CodeSearchIndex {
       const kw = reModelKw.exec(buf);
       if (kw) {
         if (kw[2] != null) return { model: kw[2].slice(0, 80), modelResolved: true };
-        if (kw[3] != null) return { model: '<' + kw[3] + '>', modelResolved: false };
+        if (kw[3] != null) {
+          const lit = this._resolveLiteral(lines, kw[3], startIdx);
+          if (lit != null) return { model: lit.slice(0, 80), modelResolved: true };
+          return { model: '<' + kw[3] + '>', modelResolved: false };
+        }
       }
       if (marker === 'Llama()' || marker === 'GenerativeModel()') {
         const p = reFirstStr.exec(buf);

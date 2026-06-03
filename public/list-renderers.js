@@ -534,7 +534,7 @@ export function renderLlmCallsList(container, calls, total) {
       h('span', { className: 'metric', text: t.kind, style: `min-width:60px;color:${kindColor};font-size:10px` }),
       h('span', { className: 'metric', text: 'T' + t.tier, style: 'min-width:22px;color:var(--text-muted);font-size:9px' }),
       h('span', { className: 'name clickable', text: (t.marker || '') + (t.lvc ? ' [lib?]' : ''), style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
-      h('span', { className: 'metric', text: t.model ? '→ ' + t.model : '', style: `flex-shrink:0;max-width:170px;font-size:10px;overflow:hidden;text-overflow:ellipsis;color:${t.model && t.modelResolved ? 'var(--success,#7c7)' : 'var(--text-muted)'}${t.model && !t.modelResolved ? ';font-style:italic' : ''}` }),
+      h('span', { className: 'metric', text: t.model ? '→ ' + t.model : '', style: `flex-shrink:0;max-width:170px;${t.model ? 'margin-right:14px;' : ''}font-size:10px;overflow:hidden;text-overflow:ellipsis;color:${t.model && t.modelResolved ? 'var(--success,#7c7)' : 'var(--warning,#c79a4e)'}${t.model && !t.modelResolved ? ';font-style:italic' : ''}` }),
       h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath); });

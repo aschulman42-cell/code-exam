@@ -2107,7 +2107,8 @@ routes['/api/list-llm-calls'] = (req, res) => {
     total: calls.length,
     calls: calls.slice(0, max).map(t => ({
       name: t.name, filepath: t.filepath, line: t.line, kind: t.kind,
-      provider: t.provider, tier: t.tier, marker: t.marker, tag: t.tag, lvc: t.lvc, snippet: t.snippet,
+      provider: t.provider, tier: t.tier, marker: t.marker, tag: t.tag, lvc: t.lvc,
+      model: t.model, modelResolved: t.modelResolved, snippet: t.snippet,
     })),
   });
 };
