@@ -2031,7 +2031,7 @@ routes['/api/list-artifacts'] = (req, res) => {
     artifacts: artifacts.slice(0, max).map(a => ({
       name: a.path || a.format, filepath: a.filepath, line: a.line,
       direction: a.direction, family: a.family, format: a.format,
-      tag: a.tag, path: a.path, snippet: a.snippet,
+      tag: a.tag, path: a.path, pathResolved: a.pathResolved, snippet: a.snippet,
     })),
   });
 };

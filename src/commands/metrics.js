@@ -565,7 +565,7 @@ export function doListLlmCalls(index, args) {
   if (args.verbose) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
-      console.log(`${b}${t.provider.padEnd(11)} ${t.kind.padEnd(9)} ${('T' + t.tier).padEnd(3)} ${(t.marker || '').padEnd(24)}${t.lvc ? ' [lib?]' : ''}${t.model ? '  → ' + t.model : ''}`);
+      console.log(`${b}${t.provider.padEnd(11)} ${t.kind.padEnd(9)} ${('T' + t.tier).padEnd(3)} ${(t.marker || '').padEnd(24)}${t.lvc ? ' [lib?]' : ''}${t.model ? '  → ' + basenameIfPath(t.model) : ''}`);
       console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
     }
     return;
@@ -577,11 +577,11 @@ export function doListLlmCalls(index, args) {
     const prov = (t.tag === 'heuristic' ? '~' : '') + t.provider;
     let fp = (t.filepath || '').replace(/\\/g, '/');
     if (fp.length > 38) fp = '...' + fp.slice(-35);
-    console.log(`${prov.slice(0, 11).padEnd(11)}  ${t.kind.padEnd(9)}  ${('T' + t.tier).padEnd(2)}  ${((t.marker || '') + (t.lvc ? ' [lib?]' : '')).slice(0, 26).padEnd(26)}  ${(t.model || '').slice(0, 28).padEnd(28)}  ${fp}:${t.line}`);
+    console.log(`${prov.slice(0, 11).padEnd(11)}  ${t.kind.padEnd(9)}  ${('T' + t.tier).padEnd(2)}  ${((t.marker || '') + (t.lvc ? ' [lib?]' : '')).slice(0, 26).padEnd(26)}  ${basenameIfPath(t.model || '').slice(0, 28).padEnd(28)}  ${fp}:${t.line}`);
   }
   const unresolved = calls.filter(t => t.model && !t.modelResolved).length;
   if (heur) console.log(`\n  (~ = heuristic; T = A SDK marker / B gated verb / C endpoint URL; [lib?] = library-vs-consumer over-fires)`);
-  console.log(`  (Model from model=/model_path= arg; <var> = unresolved identifier${unresolved ? ` (${unresolved} here)` : ''} — #110 step 1, var→literal resolution is step 2)`);
+  console.log(`  (Model from model=/model_path= arg, resolved via same-file assignment / argparse default where possible; <var>${unresolved ? ` (${unresolved} here)` : ''} = couldn't resolve to a literal in-file)`);
 }
 
 export function doListInference(index, args) {
@@ -715,6 +715,15 @@ export function doListKernels(index, args) {
   }
 }
 
+// Show a filesystem path by basename (./models/foo.gguf -> foo.gguf) so long
+// paths don't truncate; leave HF hub ids (org/model) and bare ids whole.
+function basenameIfPath(v) {
+  if (!v) return v;
+  const looksPath = /^(?:\.{1,2}[\\/]|[\\/]|[A-Za-z]:[\\/])/.test(v)
+    || /[\\/][^\\/]*\.(?:gguf|safetensors|onnx|ckpt|pth|pt|bin|h5)$/i.test(v);
+  return looksPath ? (v.split(/[\\/]/).pop() || v) : v;
+}
+
 export function doListArtifacts(index, args) {
   const artifacts = index.listArtifacts(args.filter);
   if (!artifacts.length) {
@@ -753,14 +762,14 @@ export function doListArtifacts(index, args) {
     return;
   }
 
-  console.log(`${'Family'.padEnd(14)}  ${'Dir'.padEnd(4)}  ${'Format'.padEnd(12)}  ${'Path / name'.padEnd(30)}  File:line`);
-  console.log('='.repeat(110));
+  console.log(`${'Family'.padEnd(14)}  ${'Dir'.padEnd(4)}  ${'Format'.padEnd(12)}  ${'Path / name'.padEnd(40)}  File:line`);
+  console.log('='.repeat(120));
   for (const a of shown) {
     const fam = (a.tag === 'heuristic' ? '~' : '') + a.family;
-    const name = (a.path || a.format || '').slice(0, 29);
+    const name = (basenameIfPath(a.path) || a.format || '').slice(0, 39);
     let fp = (a.filepath || '').replace(/\\/g, '/');
     if (fp.length > 40) fp = '...' + fp.slice(-37);
-    console.log(`${fam.slice(0, 14).padEnd(14)}  ${a.direction.padEnd(4)}  ${a.format.slice(0, 12).padEnd(12)}  ${name.padEnd(30)}  ${fp}:${a.line}`);
+    console.log(`${fam.slice(0, 14).padEnd(14)}  ${a.direction.padEnd(4)}  ${a.format.slice(0, 12).padEnd(12)}  ${name.padEnd(40)}  ${fp}:${a.line}`);
   }
 }
 

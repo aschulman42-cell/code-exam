@@ -303,6 +303,15 @@ export function renderModelList(container, models, total) {
 
 const _ARTIFACT_DIR_COLOR = { load: '#6cf', save: '#fc6', ref: 'var(--text-muted)' };
 
+// Show a filesystem path by basename (./models/foo.gguf -> foo.gguf); leave HF
+// hub ids (org/model) and bare ids whole. Mirrors metrics.js basenameIfPath.
+function basenameIfPath(v) {
+  if (!v) return v;
+  const looksPath = /^(?:\.{1,2}[\\/]|[\\/]|[A-Za-z]:[\\/])/.test(v)
+    || /[\\/][^\\/]*\.(?:gguf|safetensors|onnx|ckpt|pth|pt|bin|h5)$/i.test(v);
+  return looksPath ? (v.split(/[\\/]/).pop() || v) : v;
+}
+
 export function renderArtifactList(container, artifacts, total) {
   container.innerHTML = '';
   if (!artifacts || !artifacts.length) {
@@ -315,16 +324,17 @@ export function renderArtifactList(container, artifacts, total) {
     const heuristic = a.tag === 'heuristic';
     const famLabel = (heuristic ? '~' : '') + (a.family || '?');
     const dirColor = _ARTIFACT_DIR_COLOR[a.direction] || 'var(--text-muted)';
-    const nameText = a.path || a.snippet || a.format || '';
+    const unresolved = a.path && a.pathResolved === false;
+    const nameText = basenameIfPath(a.path) || a.snippet || a.format || '';
     const item = h('div', {
       className: 'list-item',
-      title: `${(a.filepath || '').replace(/\\/g, '/')}:${a.line}\n${a.snippet || ''}\n[${a.tag}]  ${a.family} · ${a.direction} · ${a.format}`,
+      title: `${(a.filepath || '').replace(/\\/g, '/')}:${a.line}\n${a.snippet || ''}\n[${a.tag}]  ${a.family} · ${a.direction} · ${a.format}${a.path ? `\nid: ${a.path}${unresolved ? '  (unresolved variable)' : ''}` : ''}`,
       style: heuristic ? 'opacity:0.78' : '',
     }, [
       h('span', { className: 'metric', text: famLabel, style: 'min-width:96px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'metric', text: a.direction, style: `min-width:34px;color:${dirColor};font-size:10px` }),
       h('span', { className: 'metric', text: a.format, style: 'min-width:78px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
-      h('span', { className: 'name clickable', text: nameText, style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'name clickable', text: nameText, style: `flex:1;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${unresolved ? 'var(--warning,#c79a4e)' : 'var(--text-bright)'}${unresolved ? ';font-style:italic' : ''}` }),
       h('span', { className: 'filepath', text: `${shortPath(a.filepath || '')}:${a.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
     // Click → open the file (sites have no class to focus); right-click → Digest.
@@ -534,7 +544,7 @@ export function renderLlmCallsList(container, calls, total) {
       h('span', { className: 'metric', text: t.kind, style: `min-width:60px;color:${kindColor};font-size:10px` }),
       h('span', { className: 'metric', text: 'T' + t.tier, style: 'min-width:22px;color:var(--text-muted);font-size:9px' }),
       h('span', { className: 'name clickable', text: (t.marker || '') + (t.lvc ? ' [lib?]' : ''), style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
-      h('span', { className: 'metric', text: t.model ? '→ ' + t.model : '', style: `flex-shrink:0;max-width:170px;${t.model ? 'margin-right:14px;' : ''}font-size:10px;overflow:hidden;text-overflow:ellipsis;color:${t.model && t.modelResolved ? 'var(--success,#7c7)' : 'var(--warning,#c79a4e)'}${t.model && !t.modelResolved ? ';font-style:italic' : ''}` }),
+      h('span', { className: 'metric', text: t.model ? '→ ' + basenameIfPath(t.model) : '', style: `flex-shrink:0;max-width:170px;${t.model ? 'margin-right:14px;' : ''}font-size:10px;overflow:hidden;text-overflow:ellipsis;color:${t.model && t.modelResolved ? 'var(--success,#7c7)' : 'var(--warning,#c79a4e)'}${t.model && !t.modelResolved ? ';font-style:italic' : ''}` }),
       h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ]);
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });

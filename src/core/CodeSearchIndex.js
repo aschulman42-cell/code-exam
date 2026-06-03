@@ -5079,8 +5079,27 @@ export class CodeSearchIndex {
     const pathRe = /["'`]([^"'`\n]{1,120})["'`]/;
     const isComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
 
+    // When the artifact arg is a variable (no quoted literal), pull the
+    // identifier so _resolveLiteral can resolve it. `fromIdx` is just past the
+    // marker match (after its `(` for call markers). Covers keyword forms
+    // (repo_id=, model_path=, …) and the positional first arg.
+    const artifactArgIdent = (line, fromIdx) => {
+      const seg = line.slice(fromIdx, fromIdx + 160);
+      const kw = seg.match(/\b(?:repo_id|model_id|model_path|pretrained_model_name_or_path|path|filename|model|ckpt_path|checkpoint)\s*=\s*([A-Za-z_$][\w.$]*)/);
+      const pos = kw ? null : seg.match(/^\s*\(?\s*([A-Za-z_$][\w.$]*)\s*[,)]/);
+      const id = kw ? kw[1] : (pos ? pos[1] : null);
+      // `cls`/`self` is a method-signature param (def from_pretrained(cls, …)),
+      // not an artifact identity — don't surface it.
+      return (id === 'cls' || id === 'self') ? null : id;
+    };
+
+    // .md/.rst docs aren't code — skip them (#102). pathRe treats markdown
+    // inline-code backticks as string quotes, so without this a doc line like
+    // `AutoModelForCausalLM.from_pretrained()` becomes a bogus artifact id.
+    const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
     const out = [];
     for (const [filepath, lines] of this.fileLines) {
+      if (reDocFile.test(filepath)) continue;
       // Gate for generic Family-B markers: does this file actually use
       // node-llama-cpp? If not, `.createContext(`/`.loadModel(` are something
       // else (React Context, an unrelated loader, etc.) and must not count.
@@ -5093,25 +5112,37 @@ export class CodeSearchIndex {
         let rec = null;
         for (const d of detectors) {
           if (d.gated && !fileHasLlama) continue;
-          if (d.re.test(line) && !(d.not && d.not.test(line))) {
+          const m = d.re.exec(line);
+          if (m && !(d.not && d.not.test(line))) {
             const pm = line.match(pathRe);
+            let path = pm ? pm[1] : null;
+            let pathResolved = !!pm;            // a quoted literal is already resolved
+            if (!path) {
+              const ident = artifactArgIdent(line, m.index + m[0].length);
+              if (ident) {
+                const lit = this._resolveLiteral(lines, ident, i);
+                if (lit != null) { path = lit; pathResolved = true; }
+                else { path = '<' + ident + '>'; pathResolved = false; }
+              }
+            }
             rec = { family: d.fam, direction: d.dir, format: d.fmt, tag: d.tag,
                     marker: d.re.source.replace(/\\b|\\s\*|\\\(|\(\?:|[()\\]/g, '').slice(0, 24),
-                    path: pm ? pm[1] : null };
+                    path, pathResolved };
             break;
           }
         }
         if (!rec && !isComment(trimmed)) {
           const em = line.match(extRe);
           if (em) rec = { family: C, direction: 'ref', format: em[2].toLowerCase(),
-                          tag: 'heuristic', marker: '.' + em[2].toLowerCase(), path: em[1] };
+                          tag: 'heuristic', marker: '.' + em[2].toLowerCase(), path: em[1], pathResolved: true };
         }
         if (rec) {
           out.push({
             name: rec.path || rec.format,
             filepath, line: i + 1,
             direction: rec.direction, family: rec.family, familyLabel: rec.family,
-            format: rec.format, tag: rec.tag, marker: rec.marker, path: rec.path,
+            format: rec.format, tag: rec.tag, marker: rec.marker,
+            path: rec.path, pathResolved: rec.pathResolved,
             snippet: trimmed.slice(0, 200),
           });
         }
