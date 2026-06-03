@@ -417,16 +417,28 @@ if (args.entry_points)                      doEntryPoints(index, args);
 if (args._explicit.has('gaps'))             doGaps(index, args);
 if (args.domain_fns)                        doDomainFns(index, args);
 if (args.list_classes)                      doListClasses(index, args);
-if (args.list_models)                       doListModels(index, args);
-if (args.list_artifacts)                    doListArtifacts(index, args);
-if (args.list_kernels)                      doListKernels(index, args);
-if (args.list_datasets)                     doListDatasets(index, args);
-if (args.list_training)                     doListTraining(index, args);
-if (args.list_inference)                    doListInference(index, args);
-if (args.list_llm_calls)                    doListLlmCalls(index, args);
-if (args.list_tools)                        doListTools(index, args);
-if (args.list_chains)                       doListChains(index, args);
-if (args.list_embeddings)                   doListEmbeddings(index, args);
+// AI/ML detectors. When 2+ run together (e.g. `--multi-index` with several
+// --cmds), print a blank line + a one-line `----- name -----` header before
+// each so the outputs don't run together. A single-command run stays
+// header-free (no behavior change). The marker is distinct from the
+// `=== .index ===` multi-index banner, so multi_index_diff.py is unaffected.
+const aiMlCmds = [
+  ['list_models',     'models',     doListModels],
+  ['list_artifacts',  'artifacts',  doListArtifacts],
+  ['list_kernels',    'kernels',    doListKernels],
+  ['list_datasets',   'datasets',   doListDatasets],
+  ['list_training',   'training',   doListTraining],
+  ['list_inference',  'inference',  doListInference],
+  ['list_llm_calls',  'llm-calls',  doListLlmCalls],
+  ['list_tools',      'tools',      doListTools],
+  ['list_chains',     'chains',     doListChains],
+  ['list_embeddings', 'embeddings', doListEmbeddings],
+];
+const activeAiMl = aiMlCmds.filter(([flag]) => args[flag]);
+for (const [, label, fn] of activeAiMl) {
+  if (activeAiMl.length > 1) console.log(`\n----- ${label} -----`);
+  fn(index, args);
+}
 if (args.class_hotspots)                    doClassHotspots(index, args);
 if (args.discover_vocabulary)               doVocabulary(index, args);
 if (args.multisect_search)                  doMultisect(index, args);
