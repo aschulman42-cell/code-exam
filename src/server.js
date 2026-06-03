@@ -2160,6 +2160,22 @@ routes['/api/list-embeddings'] = (req, res) => {
   });
 };
 
+routes['/api/list-models-used'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const models = index.listModelsUsed(q.filter);  // sorted: access, count; .unresolved attached
+  const max = safeMax(q.max, 500);
+  jsonResponse(res, {
+    total: models.length,
+    unresolved: models.unresolved || 0,
+    models: models.slice(0, max).map(m => ({
+      model: m.model, access: m.access, cells: m.cells, count: m.count,
+      sites: (m.sites || []).slice(0, 50),
+    })),
+  });
+};
+
 routes['/api/class-methods'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);

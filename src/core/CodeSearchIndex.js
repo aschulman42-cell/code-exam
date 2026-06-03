@@ -6198,6 +6198,88 @@ export class CodeSearchIndex {
     return result;
   }
 
+  /**
+   * listModelsUsed(filter) — #110 step 3 capstone. A PROJECTION (not a marker
+   * scan): harvests the model ids the per-cell detectors already extracted (step
+   * 2), dedupes by id, and tags each api (hosted) vs local (loaded). Distinct from
+   * listModels (#84, models DEFINED via class inheritance) — this is models USED.
+   *
+   *   - LLM-calls   `model`  → api, or local when provider==='local' (a GGUF path).
+   *   - Artifacts   `path`   → local (loaded weights: from_pretrained/GGUF).
+   *   - Embeddings  `id`     → api for OpenAI/Cohere, local for ST/HF (kind
+   *                           'embedding' only — vector-store names aren't models).
+   *   - Inference   `id`     → local (pipeline model).
+   *
+   * Only RESOLVED ids enter the deduped list; unresolved `<var>` sites are counted
+   * and exposed as `result.unresolved` (#106 — disclosed, never silently dropped).
+   * Returns the deduped array with `.unresolved` (count) attached.
+   */
+  listModelsUsed(filter = null) {
+    const raw = [];
+    const isUnresolved = (id, resolved) => resolved === false || (typeof id === 'string' && id.startsWith('<'));
+    // Basename filesystem paths so ./models/x.gguf and x.gguf dedupe to one model;
+    // HF hub ids (org/model) stay whole.
+    const modelKey = (id) => {
+      const looksPath = /^(?:\.{1,2}[\\/]|[\\/]|[A-Za-z]:[\\/])/.test(id)
+        || /[\\/][^\\/]*\.(?:gguf|safetensors|onnx|ckpt|pth|pt|bin|h5)$/i.test(id);
+      return looksPath ? (id.split(/[\\/]/).pop() || id) : id;
+    };
+    // Not every artifact is a MODEL — the artifacts cell also loads/saves
+    // optimizer state, vocab, training args, configs, and bare suffixes. Gate
+    // the projection so "models used" stays models, not all artifacts.
+    const looksLikeModel = (id) => {
+      if (!id || /[\s*{}=]/.test(id)) return false;            // prose / glob / template / kwarg fragment
+      if (!/[a-z0-9]/i.test(id)) return false;                 // punctuation-only ("…")
+      if (/^(?:cpu|cuda|mps|gpu|auto|none)(?::\d+)?$/i.test(id)) return false;   // device strings
+      const base = id.split(/[\\/]/).pop();
+      if (/^\./.test(base)) return false;                      // bare suffix (.bin, .h5) — on the BASENAME, so ./relative/paths survive
+      if (/^(?:model|optimizer|scheduler|output|data|checkpoint|state|weights|none)$/i.test(base)) return false;  // bare generic word
+      if (/\b(?:optimizer|scheduler|training_args|trainer_state|tokenizer|special_tokens|vocab|merges|corpus|rng_state|config)\b/i.test(base)) return false;  // non-model artifact files
+      return true;
+    };
+    const add = (id, resolved, access, cell, marker, filepath, line) => {
+      if (!looksLikeModel(id)) return;
+      raw.push({ id, unresolved: isUnresolved(id, resolved), access, cell, marker, filepath, line });
+    };
+
+    for (const t of this.listLlmCalls())
+      add(t.model, t.modelResolved, t.provider === 'local' ? 'local' : 'api', 'llm-call', t.marker, t.filepath, t.line);
+    for (const a of this.listArtifacts())
+      add(a.path, a.pathResolved, 'local', 'artifact', a.marker, a.filepath, a.line);
+    for (const e of this.listEmbeddings())
+      if (e.kind === 'embedding')
+        add(e.id, e.resolved, (e.framework === 'OpenAI' || e.framework === 'Cohere') ? 'api' : 'local', 'embedding', e.marker, e.filepath, e.line);
+    for (const inf of this.listInference())
+      add(inf.id, inf.resolved, 'local', 'inference', inf.marker, inf.filepath, inf.line);
+
+    const unresolved = raw.filter(r => r.unresolved).length;
+
+    const byId = new Map();
+    for (const r of raw) {
+      if (r.unresolved) continue;                 // only concrete ids dedupe into models
+      const key = modelKey(r.id);
+      let m = byId.get(key);
+      if (!m) { m = { model: key, access: r.access, cells: new Set(), sites: [], count: 0 }; byId.set(key, m); }
+      if (m.access !== r.access) m.access = 'mixed';
+      m.cells.add(r.cell);
+      m.sites.push({ filepath: r.filepath, line: r.line, marker: r.marker, cell: r.cell });
+      m.count++;
+    }
+
+    let result = [...byId.values()].map(m => ({ model: m.model, access: m.access, cells: [...m.cells], count: m.count, sites: m.sites }));
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = result.filter(m =>
+        m.model.toLowerCase().includes(pat) || m.access.includes(pat)
+        || m.cells.join(',').toLowerCase().includes(pat));
+    }
+    const accessRank = { api: 0, local: 1, mixed: 2 };
+    result.sort((a, b) =>
+      (accessRank[a.access] - accessRank[b.access]) || (b.count - a.count) || a.model.localeCompare(b.model));
+    result.unresolved = unresolved;
+    return result;
+  }
+
   listClasses(filepath = null) {
     this._ensureFunctionIndex();
     const filterPath = filepath ? filepath.toLowerCase().replace(/\\/g, '/') : null;

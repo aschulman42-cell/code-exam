@@ -695,6 +695,47 @@ export function renderEmbeddingsList(container, items, total) {
 
 
 // ============================================================================
+// Models Used list (#110 capstone) — distinct named models the code loads/calls,
+// deduped & tagged api (hosted) / local (loaded). Distinct from the Models cell
+// (models DEFINED via class inheritance).
+// ============================================================================
+
+const _ACCESS_COLOR = { api: '#6cf', local: '#7c7', mixed: '#c79a4e' };
+
+export function renderModelsUsedList(container, models, total, unresolved) {
+  container.innerHTML = '';
+  if (!models || !models.length) {
+    container.innerHTML = '<div class="list-placeholder">No models used found '
+      + '(no resolved model id from LLM calls / artifacts / embeddings / inference). '
+      + 'Models USED (loaded/called) is distinct from models DEFINED (Models accordion).'
+      + (unresolved ? ` ${unresolved} refs were unresolved &lt;var&gt;.` : '') + '</div>';
+    return;
+  }
+  for (const m of models) {
+    const accColor = _ACCESS_COLOR[m.access] || 'var(--text-muted)';
+    const site0 = (m.sites && m.sites[0]) || {};
+    const item = h('div', {
+      className: 'list-item',
+      title: `${m.model}\naccess: ${m.access}\ncells: ${(m.cells || []).join(', ')}\n${m.count} site${m.count > 1 ? 's' : ''}${site0.filepath ? `\nfirst: ${(site0.filepath || '').replace(/\\/g, '/')}:${site0.line}` : ''}`,
+    }, [
+      h('span', { className: 'metric', text: m.access, style: `min-width:54px;color:${accColor};font-size:10px` }),
+      h('span', { className: 'name clickable', text: basenameIfPath(m.model) || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'metric', text: (m.cells || []).join(','), style: 'flex-shrink:0;max-width:160px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;margin-right:10px' }),
+      h('span', { className: 'metric', text: '×' + m.count, style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }),
+    ]);
+    if (site0.filepath) item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(site0.filepath, site0.line); });
+    container.appendChild(item);
+  }
+  if (unresolved) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: `+ ${unresolved} unresolved <var> model ref(s) — excluded; resolve via an in-file assignment` }));
+  }
+  if (total > models.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: `${models.length} of ${total} shown` }));
+  }
+}
+
+
+// ============================================================================
 // Hot Folders list
 // ============================================================================
 

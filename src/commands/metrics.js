@@ -463,6 +463,45 @@ export function doListEmbeddings(index, args) {
   console.log(`  (Model / id = embedding model or vector index/collection; <var>${unres ? ` (${unres})` : ''} = unresolved in-file.)`);
 }
 
+export function doListModelsUsed(index, args) {
+  const models = index.listModelsUsed(args.filter);
+  if (!models.length) {
+    console.log('No models used found (no resolved model id from LLM calls, artifacts, '
+      + 'embeddings, or inference). Models USED (named models the code loads/calls) is '
+      + 'distinct from models DEFINED (--models, class inheritance).'
+      + (models.unresolved ? ` (${models.unresolved} model refs were unresolved <var>.)` : ''));
+    return;
+  }
+  const api = models.filter(m => m.access === 'api').length;
+  const local = models.filter(m => m.access === 'local').length;
+  const mixed = models.filter(m => m.access === 'mixed').length;
+
+  const max = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? models.slice(0, max) : models;
+
+  console.log(`\n${models.length} models used — ${api} api, ${local} local${mixed ? `, ${mixed} mixed` : ''}`
+    + `${models.unresolved ? ` (+${models.unresolved} unresolved refs)` : ''}`
+    + `${max > 0 && models.length > max ? `; showing ${shown.length}` : ''}:\n`);
+
+  if (args.verbose) {
+    for (const m of shown) {
+      console.log(`${m.access.padEnd(6)} ${basenameIfPath(m.model)}  (${m.cells.join(', ')}, ${m.count} site${m.count > 1 ? 's' : ''})`);
+      for (const s of m.sites.slice(0, 12)) console.log(`        ${(s.filepath || '').replace(/\\/g, '/')}:${s.line}  [${s.cell}]`);
+    }
+    return;
+  }
+
+  console.log(`${'Access'.padEnd(6)}  ${'Model'.padEnd(52)}  ${'Cells'.padEnd(26)}  Sites`);
+  console.log('='.repeat(98));
+  for (const m of shown) {
+    console.log(`${m.access.padEnd(6)}  ${(basenameIfPath(m.model) || '').slice(0, 52).padEnd(52)}  ${m.cells.join(',').slice(0, 26).padEnd(26)}  ${m.count}`);
+  }
+  console.log(`\n  (Models USED — named models the code loads/calls, deduped & tagged api=hosted / local=loaded.`
+    + ` Distinct from models DEFINED (--models, class inheritance).`
+    + ` Non-model artifacts (optimizer/vocab/config, device strings) are filtered out.`
+    + (models.unresolved ? ` ${models.unresolved} refs were unresolved <var> and excluded.` : '') + `)`);
+}
+
 export function doListChains(index, args) {
   const chains = index.listChains(args.filter);
   if (!chains.length) {

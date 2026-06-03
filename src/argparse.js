@@ -163,6 +163,7 @@ export function parseArgs() {
     list_tools: false,
     list_chains: false,
     list_embeddings: false,
+    list_models_used: false,
     class_hotspots: null,
     discover_vocabulary: null,
     multisect_search: null,
@@ -342,6 +343,7 @@ export function parseArgs() {
     ['list_tools',           'flag',           ['--tools'], ['--list-tools']],
     ['list_chains',          'flag',           ['--chains'], ['--list-chains', '--agents']],
     ['list_embeddings',      'flag',           ['--embeddings'], ['--list-embeddings', '--vectors']],
+    ['list_models_used',     'flag',           ['--models-used'], ['--list-models-used']],
     ['class_hotspots',       'int',            ['--class-hotspots']],
     ['discover_vocabulary',  'int',            ['--vocabulary', '--vocab'], ['--discover-vocabulary']],
     ['multisect_search',     'value',          ['--multisect-search', '--multisect']],
@@ -755,6 +757,7 @@ METRICS / DISCOVERY:
   --tools                    Tool defs / function-calling (@tool, input_schema, MCP, tool_use)
   --chains                   Chains/agents (LangChain/LangGraph/DSPy/CrewAI; framework-based only)
   --embeddings               Embeddings & vector search (FAISS/Chroma, similarity_search, distance)
+  --models-used              Models USED — named models loaded/called across the cells, deduped (api/local)
 
   --class-hotspots <n>       Top N classes by aggregated method hotspot score
   --vocabulary <n>           Top N domain-specific tokens by TF-IDF score
