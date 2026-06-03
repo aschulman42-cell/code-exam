@@ -2062,7 +2062,7 @@ routes['/api/list-datasets'] = (req, res) => {
     datasets: datasets.slice(0, max).map(d => ({
       name: d.name, filepath: d.filepath, line: d.line, kind: d.kind,
       family: d.family, tier: d.tier, builtin: d.builtin, marker: d.marker,
-      confirmed: d.confirmed, snippet: d.snippet,
+      confirmed: d.confirmed, resolved: d.resolved, snippet: d.snippet,
     })),
   });
 };

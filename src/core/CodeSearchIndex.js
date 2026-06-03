@@ -5333,19 +5333,25 @@ export class CodeSearchIndex {
     // Tier 2 — ML-specific loaders. [marker regex, family, isLoaderName-capture]
     const t2 = [
       { re: /\b(?:torch\.utils\.data\.)?DataLoader\s*\(/,                fam: PT, fmt: 'DataLoader' },
-      { re: /\bload_dataset\s*\(\s*["'`]([^"'`]*)["'`]/,                 fam: HF, fmt: 'load_dataset' },
+      // load_dataset/tfds.load take a string-id arg — match the call regardless
+      // of arg form (was: required a quoted literal, so variable args were missed
+      // entirely), then extract+resolve the id below. `not` skips a `def`.
+      { re: /\bload_dataset\s*\(/, not: /\bdef\s+load_dataset/,          fam: HF, fmt: 'load_dataset', argId: true },
       { re: /\bsklearn\.datasets\.(\w+)|(?:^|[^.\w])datasets\.((?:load|fetch|make)_\w+)\s*\(/, fam: SK, fmt: 'sklearn.datasets' },
       { re: /\b(?:tf\.)?keras\.datasets\.(\w+)/,                         fam: TF, fmt: 'keras.datasets' },
       { re: /\btorch(?:vision|audio|text)\.datasets\.(\w+)/,             fam: TV, fmt: 'torchvision.datasets' },
-      { re: /\btfds\.load\s*\(\s*["'`]([^"'`]*)["'`]/,                   fam: TF, fmt: 'tfds.load' },
+      { re: /\btfds\.load\s*\(/,                                         fam: TF, fmt: 'tfds.load', argId: true },
     ];
     // toy/demo dataset ids → builtin flag.
     const reBuiltin = /\b(load_iris|load_digits|load_wine|load_breast_cancer|load_diabetes|load_boston|fetch_\w+|make_\w+|MNIST|FashionMNIST|fashion_mnist|CIFAR10|CIFAR100|cifar10|cifar100|ImageNet|KMNIST|EMNIST|titanic|tips|iris|penguins)\b/;
     const reConfirm = /\bdef\s+(?:__getitem__|__len__|__iter__)\s*\(/;
     const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
 
+    // .md/.rst docs aren't code — skip them (#102), as the other detectors do.
+    const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
     const out = [];
     for (const [filepath, lines] of this.fileLines) {
+      if (reDocFile.test(filepath)) continue;
       // Confirmation dunders are looked up within a small window after a class.
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -5364,14 +5370,14 @@ export class CodeSearchIndex {
           }
           out.push({ name: cm[1], filepath, line: i + 1, kind: 'definition',
                      family: cm[2] === 'GeneratorBasedBuilder' ? HF : PT, tier: 1,
-                     builtin: false, marker: cm[2], confirmed,
+                     builtin: false, marker: cm[2], confirmed, resolved: true,
                      tag: 'mechanical', snippet: trimmed.slice(0, 200) });
           continue;
         }
         // Tier 1b — tf.data pipeline.
         if (reTfData.test(line)) {
           out.push({ name: 'tf.data', filepath, line: i + 1, kind: 'definition',
-                     family: TF, tier: 1, builtin: false,
+                     family: TF, tier: 1, builtin: false, resolved: true,
                      marker: 'tf.data', confirmed: true, tag: 'mechanical',
                      snippet: trimmed.slice(0, 200) });
           continue;
@@ -5380,10 +5386,27 @@ export class CodeSearchIndex {
         let hit = null;
         for (const d of t2) {
           const m = d.re.exec(line);
-          if (m) { hit = { d, id: m[1] || m[2] || m[3] || null }; break; }
+          if (m && !(d.not && d.not.test(line))) { hit = { d, m, id: m[1] || m[2] || m[3] || null }; break; }
         }
         if (hit) {
           const fmt = hit.d.fmt;
+          // argId markers (load_dataset/tfds.load): pull the first arg — a quoted
+          // literal, or an identifier resolved via _resolveLiteral (honest <var>
+          // when unresolvable). resolved=false flags the unresolved-variable case.
+          let resolved = true;
+          if (hit.d.argId) {
+            const after = line.slice(hit.m.index + hit.m[0].length);
+            const qm = after.match(/^\s*["'`]([^"'`]*)["'`]/);
+            if (qm) { hit.id = qm[1]; }
+            else {
+              const im = after.match(/^\s*([A-Za-z_$][\w.$]*)\s*[,)]/);
+              if (im) {
+                const lit = this._resolveLiteral(lines, im[1], i);
+                if (lit != null) hit.id = lit;
+                else { hit.id = '<' + im[1] + '>'; resolved = false; }
+              }
+            }
+          }
           // builtin/demo: whole loader families ARE standard/toy catalogs
           // (keras.datasets, torchvision.datasets, tfds — all benchmark data;
           // sklearn load_/fetch_/make_). HF load_dataset / DataLoader carry
@@ -5392,7 +5415,7 @@ export class CodeSearchIndex {
           if (fmt === 'keras.datasets' || fmt === 'torchvision.datasets' || fmt === 'tfds.load') builtin = true;
           else if (fmt === 'sklearn.datasets' && /^(load|fetch|make)_/.test(hit.id || '')) builtin = true;
           out.push({ name: hit.id || fmt, filepath, line: i + 1, kind: 'loader',
-                     family: hit.d.fam, tier: 2, builtin, marker: fmt,
+                     family: hit.d.fam, tier: 2, builtin, marker: fmt, resolved,
                      confirmed: true, tag: 'mechanical', snippet: trimmed.slice(0, 200) });
           continue;
         }

@@ -411,13 +411,13 @@ export function renderDatasetList(container, datasets, total) {
     const kindColor = _DATASET_KIND_COLOR[d.kind] || 'var(--text-muted)';
     const item = h('div', {
       className: 'list-item',
-      title: `${(d.filepath || '').replace(/\\/g, '/')}:${d.line}\n${d.snippet || ''}\n${d.family} · ${d.kind} · ${d.marker}${d.builtin ? '  (built-in / standard dataset)' : ''}${d.kind === 'definition' && !d.confirmed ? '  (no __getitem__/__len__ confirmation)' : ''}`,
+      title: `${(d.filepath || '').replace(/\\/g, '/')}:${d.line}\n${d.snippet || ''}\n${d.family} · ${d.kind} · ${d.marker}${d.builtin ? '  (built-in / standard dataset)' : ''}${d.kind === 'definition' && !d.confirmed ? '  (no __getitem__/__len__ confirmation)' : ''}${d.name ? `\nid: ${d.name}${d.resolved === false ? '  (unresolved variable)' : ''}` : ''}`,
       style: d.builtin ? 'opacity:0.78' : '',
     }, [
       h('span', { className: 'metric', text: d.family, style: 'min-width:88px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'metric', text: d.kind, style: `min-width:72px;color:${kindColor};font-size:10px` }),
       h('span', { className: 'metric', text: d.marker || '', style: 'min-width:104px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
-      h('span', { className: 'name clickable', text: d.name || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'name clickable', text: basenameIfPath(d.name) || '', style: `flex:1;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${d.resolved === false ? 'var(--warning,#c79a4e)' : 'var(--text-bright)'}${d.resolved === false ? ';font-style:italic' : ''}` }),
       d.builtin ? h('span', { className: 'metric', text: 'built-in', style: 'color:var(--text-muted);font-size:9px;flex-shrink:0' }) : null,
       h('span', { className: 'filepath', text: `${shortPath(d.filepath || '')}:${d.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
     ].filter(Boolean));
