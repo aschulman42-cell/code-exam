@@ -502,6 +502,40 @@ export function doListModelsUsed(index, args) {
     + (models.unresolved ? ` ${models.unresolved} refs were unresolved <var> and excluded.` : '') + `)`);
 }
 
+export function doListStructuredOutput(index, args) {
+  const items = index.listStructuredOutput(args.filter);
+  if (!items.length) {
+    console.log('No structured output found (no with_structured_output / response_model / '
+      + 'response_format / JSON mode, output parsers, or outlines/guidance). Bare Pydantic '
+      + 'BaseModel / Zod schemas are intentionally not counted — only schemas bound to an LLM call.');
+    return;
+  }
+  const byKind = {}; const byFw = {}; let heur = 0;
+  for (const t of items) { byKind[t.kind] = (byKind[t.kind] || 0) + 1; byFw[t.framework] = (byFw[t.framework] || 0) + 1; if (t.tag === 'heuristic') heur++; }
+  const kindSummary = ['schema', 'format', 'parser', 'constrained'].filter(k => byKind[k]).map(k => `${byKind[k]} ${k}`).join(', ');
+  const fwSummary = Object.entries(byFw).sort((a, b) => b[1] - a[1]).map(([f, n]) => `${f} ${n}`).join(', ');
+  const max = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? items.slice(0, max) : items;
+  console.log(`\n${items.length} structured-output sites — ${kindSummary} (${fwSummary}; ${heur} heuristic):\n`);
+  if (args.verbose) {
+    for (const t of shown) {
+      const b = t.tag === 'heuristic' ? '~' : ' ';
+      console.log(`${b}${t.kind.padEnd(12)} ${(t.framework || '').padEnd(16)} ${(t.marker || '').padEnd(24)}${t.id ? '  → ' + t.id : ''}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+    }
+    return;
+  }
+  console.log(`${'Kind'.padEnd(12)}  ${'Framework'.padEnd(16)}  ${'Marker'.padEnd(24)}  ${'Schema'.padEnd(28)}  File:line`);
+  console.log('='.repeat(122));
+  for (const t of shown) {
+    const kind = (t.tag === 'heuristic' ? '~' : '') + t.kind;
+    let fp = (t.filepath || '').replace(/\\/g, '/');
+    if (fp.length > 32) fp = '...' + fp.slice(-29);
+    console.log(`${kind.slice(0, 12).padEnd(12)}  ${(t.framework || '').slice(0, 16).padEnd(16)}  ${(t.marker || '').slice(0, 24).padEnd(24)}  ${(t.id || '').slice(0, 28).padEnd(28)}  ${fp}:${t.line}`);
+  }
+  if (heur) console.log(`\n  (~ = heuristic/gated; bare BaseModel/Zod NOT counted — only schemas bound to an LLM call. Schema = the bound output type.)`);
+}
+
 export function doListChains(index, args) {
   const chains = index.listChains(args.filter);
   if (!chains.length) {

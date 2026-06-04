@@ -163,6 +163,7 @@ export function parseArgs() {
     list_tools: false,
     list_chains: false,
     list_embeddings: false,
+    list_structured_output: false,
     list_models_used: false,
     class_hotspots: null,
     discover_vocabulary: null,
@@ -343,6 +344,7 @@ export function parseArgs() {
     ['list_tools',           'flag',           ['--tools'], ['--list-tools']],
     ['list_chains',          'flag',           ['--chains'], ['--list-chains', '--agents']],
     ['list_embeddings',      'flag',           ['--embeddings'], ['--list-embeddings', '--vectors']],
+    ['list_structured_output', 'flag',         ['--structured-output'], ['--schemas', '--list-structured-output']],
     ['list_models_used',     'flag',           ['--models-used'], ['--list-models-used']],
     ['class_hotspots',       'int',            ['--class-hotspots']],
     ['discover_vocabulary',  'int',            ['--vocabulary', '--vocab'], ['--discover-vocabulary']],
@@ -757,6 +759,7 @@ METRICS / DISCOVERY:
   --tools                    Tool defs / function-calling (@tool, input_schema, MCP, tool_use)
   --chains                   Chains/agents (LangChain/LangGraph/DSPy/CrewAI; framework-based only)
   --embeddings               Embeddings & vector search (FAISS/Chroma, similarity_search, distance)
+  --structured-output        Structured output / schemas (with_structured_output, response_format, parsers)
   --models-used              Models USED — named models loaded/called across the cells, deduped (api/local)
 
   --class-hotspots <n>       Top N classes by aggregated method hotspot score

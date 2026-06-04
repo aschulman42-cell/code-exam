@@ -80,6 +80,7 @@ export const api = {
   listTools:       (p) => api.get('list-tools', p),
   listChains:      (p) => api.get('list-chains', p),
   listEmbeddings:  (p) => api.get('list-embeddings', p),
+  listStructuredOutput: (p) => api.get('list-structured-output', p),
   listModelsUsed:  (p) => api.get('list-models-used', p),
   classMethods:    (p) => api.get('class-methods', p),
   filesSearch:     (p) => api.get('files-search', p),

@@ -2160,6 +2160,21 @@ routes['/api/list-embeddings'] = (req, res) => {
   });
 };
 
+routes['/api/list-structured-output'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const items = index.listStructuredOutput(q.filter);  // sorted: kind, framework, file, line
+  const max = safeMax(q.max, 500);
+  jsonResponse(res, {
+    total: items.length,
+    items: items.slice(0, max).map(t => ({
+      name: t.name, filepath: t.filepath, line: t.line, kind: t.kind,
+      framework: t.framework, marker: t.marker, tag: t.tag, id: t.id, snippet: t.snippet,
+    })),
+  });
+};
+
 routes['/api/list-models-used'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);

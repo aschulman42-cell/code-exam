@@ -65,7 +65,7 @@ import {
 import {
   initListRenderers,
   renderFuncLikeList, renderFunctionList, renderFileListWithSub,
-  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderModelsUsedList, renderModelsUsedSites,
+  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
@@ -204,6 +204,12 @@ async function loadSectionData(sectionId, filter = '') {
         data = await api.listEmbeddings({ filter, max: 500 });
         state.sectionData[sectionId] = data.embeddings;
         renderEmbeddingsList(content, data.embeddings, data.total);
+        badge.textContent = data.total;
+        break;
+      case 'structured-output':
+        data = await api.listStructuredOutput({ filter, max: 500 });
+        state.sectionData[sectionId] = data.items;
+        renderStructuredOutputList(content, data.items, data.total);
         badge.textContent = data.total;
         break;
       case 'models-used':

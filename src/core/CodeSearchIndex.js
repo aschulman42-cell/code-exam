@@ -6294,6 +6294,77 @@ export class CodeSearchIndex {
     return result;
   }
 
+  /**
+   * listStructuredOutput(filter) — the output-shaping LLM-use cell (#117): how the
+   * code constrains an LLM's OUTPUT. Output-dual of Prompts; distinct from Tools
+   * (#104, what the model can DO). Four sub-kinds:
+   *   schema      — with_structured_output(Schema) / response_model=Schema (the
+   *                 schema NAME is extracted as the identity)
+   *   format      — response_format= / "json_object"|"json_schema" (API JSON mode)
+   *   parser      — Pydantic/Json/Structured/OutputFixing OutputParser
+   *   constrained — outlines / guidance (constrained decoding), gated on import
+   * Bare BaseModel/Zod are NOT counted (1506 BaseModel in langchain alone). .md
+   * skipped (#102).
+   */
+  listStructuredOutput(filter = null) {
+    const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
+    const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
+    const reWSO = /\bwith_structured_output\s*\(/;
+    const reRespModel = /\bresponse_model\s*=\s*(?:["'`]([^"'`]+)["'`]|([A-Za-z_$][\w.$]*))/;
+    const reRespFormat = /\bresponse_format\s*[=:]/;
+    const reJsonMode = /["']json_object["']|["']json_schema["']/;
+    const reParser = /\b(Pydantic|Json|Structured|OutputFixing)OutputParser\b/;
+    const reConstrained = /\b(outlines|guidance)\s*[.(]/;
+    // First arg of marker( …) — schema class ref or string, AS-IS (no resolution:
+    // a schema name is a class identity, not a path/var to resolve).
+    const firstArg = (line, fromIdx) => {
+      const open = line.indexOf('(', fromIdx);
+      if (open < 0) return null;
+      const m = line.slice(open + 1, open + 121).match(/^\s*(?:["'`]([^"'`]+)["'`]|([A-Za-z_$][\w.$]*))/);
+      return m ? (m[1] || m[2]) : null;
+    };
+
+    const out = [];
+    for (const [filepath, lines] of this.fileLines) {
+      if (reDocFile.test(filepath)) continue;
+      const hasConstrainedImport = lines.some(l => /\b(?:import|from|require)\b.*\b(?:outlines|guidance)\b/.test(l));
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+        if (reComment(trimmed)) continue;
+        const push = (kind, fw, marker, tag, id = null) =>
+          out.push({ name: id || marker, filepath, line: i + 1, kind, framework: fw, marker, tag, id, snippet: trimmed.slice(0, 200) });
+
+        let mm = reWSO.exec(line);
+        if (mm) { push('schema', 'LangChain', 'with_structured_output', 'mechanical', firstArg(line, mm.index)); continue; }
+        const rm = line.match(reRespModel);
+        if (rm) { push('schema', 'instructor', 'response_model', 'mechanical', rm[1] || rm[2]); continue; }
+        if (reRespFormat.test(line)) { push('format', 'OpenAI', 'response_format', 'mechanical'); continue; }
+        if (reJsonMode.test(line)) { push('format', 'OpenAI', 'json-mode', 'mechanical'); continue; }
+        const pm = line.match(reParser);
+        if (pm) { push('parser', 'LangChain', pm[1] + 'OutputParser', 'mechanical'); continue; }
+        if (hasConstrainedImport && reConstrained.test(line)) {
+          push('constrained', 'outlines/guidance', (line.match(/\b(outlines|guidance)\b/) || [])[1] || 'constrained', 'heuristic'); continue;
+        }
+      }
+    }
+
+    let result = out;
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = out.filter(t =>
+        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
+        || (t.kind || '').toLowerCase().includes(pat) || (t.framework || '').toLowerCase().includes(pat)
+        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+    }
+    const kindRank = { schema: 0, format: 1, parser: 2, constrained: 3 };
+    result.sort((a, b) =>
+      (kindRank[a.kind] - kindRank[b.kind]) || (a.framework || '').localeCompare(b.framework || '')
+      || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+    return result;
+  }
+
   listClasses(filepath = null) {
     this._ensureFunctionIndex();
     const filterPath = filepath ? filepath.toLowerCase().replace(/\\/g, '/') : null;

@@ -767,6 +767,45 @@ export function renderModelsUsedSites(container, model) {
 
 
 // ============================================================================
+// Structured Output list (#117) — the output-shaping LLM-use cell. kind ∈
+// {schema, format, parser, constrained}; schema rows carry the bound schema name.
+// ============================================================================
+
+const _SO_KIND_COLOR = { schema: '#6cf', format: '#7c7', parser: '#a9f', constrained: '#fc6' };
+
+export function renderStructuredOutputList(container, items, total) {
+  container.innerHTML = '';
+  if (!items || !items.length) {
+    container.innerHTML = '<div class="list-placeholder">No structured output found '
+      + '(no with_structured_output / response_model / response_format / JSON mode, output '
+      + 'parsers, or outlines/guidance). Bare BaseModel/Zod schemas are not counted.</div>';
+    return;
+  }
+  for (const t of items) {
+    const heuristic = t.tag === 'heuristic';
+    const kindColor = _SO_KIND_COLOR[t.kind] || 'var(--text-muted)';
+    const item = h('div', {
+      className: 'list-item',
+      title: `${(t.filepath || '').replace(/\\/g, '/')}:${t.line}\n${t.snippet || ''}\n${t.framework} · ${t.kind} · ${t.marker}${t.id ? `\nschema: ${t.id}` : ''}`,
+      style: heuristic ? 'opacity:0.78' : '',
+    }, [
+      h('span', { className: 'metric', text: (heuristic ? '~' : '') + t.kind, style: `min-width:84px;color:${kindColor};font-size:10px;overflow:hidden;text-overflow:ellipsis` }),
+      h('span', { className: 'metric', text: t.framework || '', style: 'min-width:90px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'name clickable', text: t.marker || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'metric', text: t.id ? '→ ' + t.id : '', style: `flex-shrink:0;max-width:200px;${t.id ? 'margin-right:12px;' : ''}font-size:10px;overflow:hidden;text-overflow:ellipsis;color:var(--success,#7c7)` }),
+      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+    ]);
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
+    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
+    container.appendChild(item);
+  }
+  if (total > items.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: `${items.length} of ${total} shown` }));
+  }
+}
+
+
+// ============================================================================
 // Hot Folders list
 // ============================================================================
 
