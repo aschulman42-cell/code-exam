@@ -11,6 +11,7 @@ import {
   sourceOfPath,
   jaccard,
 } from './fingerprint.js';
+import { loadFuncstrCorpus, classifyAgainstCorpus } from '../core/funcstr-corpus.js';
 
 
 // ========================================================================
@@ -938,6 +939,75 @@ export function doFuncstrHashes(index, args) {
   process.stderr.write(
     `[funcstr-hashes] ${n} function(s) at >= ${minLines} lines` +
     `${tight ? ' (tight)' : ''}\n`);
+}
+
+
+// ========================================================================
+// --funcstr-corpus: consume external funcstr-hashes file(s) as a reference
+// corpus and classify THIS index's functions by cross-product document-
+// frequency (#128). COMMON = boilerplate; RARE-SHARED = significant overlap;
+// NOVEL = not in corpus.
+// ========================================================================
+
+export function doFuncstrCorpus(index, args) {
+  const files = String(args.funcstr_corpus || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!files.length) {
+    console.log('Usage: --funcstr-corpus <file1.txt,file2.txt,...>  (external funcstr-hashes files)');
+    return;
+  }
+  const corpus = loadFuncstrCorpus(files, { exclude: args.exclude_corpus || null });
+  if (!corpus.byHash.size) {
+    console.log('No funcstr-hashes loaded from the corpus file(s) — check paths and format.');
+    return;
+  }
+  if (corpus.excludedProducts.length) {
+    console.log(`(excluded ${corpus.excludedProducts.length} product(s) matching "${args.exclude_corpus}": ${corpus.excludedProducts.join(', ')})`);
+  }
+  const minLines = corpus.minLines;                 // match the corpus granularity
+  const hashes = index.ensureFuncHashes(minLines, false);
+  const current = [];
+  for (const [key, info] of hashes) {
+    if (info.lines < minLines) continue;
+    const sep = key.indexOf('|||');
+    current.push({
+      hash: info.struct_hash,
+      name: sep >= 0 ? key.slice(sep + 3) : key,
+      path: sep >= 0 ? key.slice(0, sep) : key,
+      lines: info.lines,
+    });
+  }
+  const self = String(index.indexPath || index.name || '').replace(/\\/g, '/').split('/').pop() || null;
+  const commonDf = args.fc_common_df || 5;
+  const rareDf = args.fc_rare_df || 2;
+  const r = classifyAgainstCorpus(current, corpus, { currentName: self, commonDf, rareDf });
+
+  console.log(`\nfuncstr-corpus: ${corpus.products.size} products, ${corpus.byHash.size} distinct hashes (>= ${minLines} lines) vs ${current.length} functions in this index:\n`);
+  console.log(`  COMMON       ${String(r.common.length).padStart(5)}   (DF >= ${commonDf} other products — generic boilerplate)`);
+  console.log(`  RARE-SHARED  ${String(r.rareShared.length).padStart(5)}   (DF 1..${rareDf} other products — significant overlap)`);
+  console.log(`  mid          ${String(r.mid.length).padStart(5)}   (DF ${rareDf + 1}..${commonDf - 1})`);
+  console.log(`  NOVEL        ${String(r.novel.length).padStart(5)}   (not in corpus — index-specific OR uncovered boilerplate)`);
+
+  const show = args.verbose ? 1e9 : 25;
+  const base = (p) => String(p || '').replace(/\\/g, '/').split('/').pop();
+  // All distinct corpus names a hash carries, most-frequent first (for name recovery).
+  const namesOf = (cm, n = 6) => (cm && cm.names)
+    ? [...cm.names.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([nm, ct]) => ct > 1 ? `${nm}*${ct}` : nm).join(', ')
+    : '?';
+  if (r.common.length) {
+    console.log(`\n=== COMMON — boilerplate (every corpus name the hash carries; a readable one = recovered name) ===`);
+    for (const f of r.common.slice(0, show)) {
+      const cm = corpus.meta.get(f.hash) || {};
+      console.log(`  ${String(f.df)}x  ${f.name} (${base(f.path)})  ~  ${namesOf(cm, 10)}`);
+    }
+  }
+  if (r.rareShared.length) {
+    console.log(`\n=== RARE-SHARED — the high-signal cross-product overlaps ===`);
+    for (const f of r.rareShared.slice(0, show)) {
+      const cm = corpus.meta.get(f.hash) || {};
+      console.log(`  ${String(f.df)}x  ${f.name} (${base(f.path)})  <->  ${namesOf(cm)} (${base(cm.path)})  in  ${f.products.join(', ')}`);
+    }
+  }
+  console.log(`\n  (Document-frequency = distinct corpus products a structural hash appears in (a headerless corpus file counts as 1 product). The match survives renaming/reformatting, not deep refactor. NOVEL is provisional: it means "not in YOUR corpus" — broaden the corpus to move uncovered boilerplate into COMMON. Tune with --fc-common-df / --fc-rare-df.)`);
 }
 
 

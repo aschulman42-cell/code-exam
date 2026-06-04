@@ -223,6 +223,10 @@ export function parseArgs() {
     nf_sort: null,
     nf_tight: false,
     funcstr_hashes: null,
+    funcstr_corpus: null,
+    exclude_corpus: null,
+    fc_common_df: null,
+    fc_rare_df: null,
     fh_tight: false,
     fingerprint_min_tokens: null,
     fingerprint_work: null,
@@ -403,6 +407,10 @@ export function parseArgs() {
     ['nf_sort',              'value',          ['--nf-sort']],
     ['nf_tight',             'flag',           ['--nf-tight']],
     ['funcstr_hashes',       'int',            ['--funcstr-hashes']],
+    ['funcstr_corpus',       'value',          ['--funcstr-corpus']],
+    ['exclude_corpus',       'value',          ['--exclude-corpus']],
+    ['fc_common_df',         'int',            ['--fc-common-df']],
+    ['fc_rare_df',           'int',            ['--fc-rare-df']],
     ['fh_tight',             'flag',           ['--fh-tight']],
     ['fingerprint_min_tokens','int',           ['--fingerprint-min-tokens']],
     ['fingerprint_work',     'value',          ['--fingerprint-work']],
@@ -874,6 +882,21 @@ DEDUP / DUPLICATES:
                              min-lines value is required. --fh-tight uses the
                              stricter structural hash. Summary goes to stderr;
                              stdout stays pure data.
+  --funcstr-corpus <files>   Consume external funcstr-hashes file(s)
+                             (comma-separated) as a reference corpus and
+                             classify THIS index's functions by cross-product
+                             document-frequency: COMMON (boilerplate seen across
+                             many products), RARE-SHARED (rare structure shared
+                             with a specific product — significant overlap),
+                             NOVEL (not in the corpus). Handles both shapes:
+                             "=== .index ===" sections (each a product) and
+                             headerless files (whole file = one product). Tune
+                             with --fc-common-df / --fc-rare-df; -v lists COMMON.
+  --exclude-corpus <s>       With --funcstr-corpus: drop every corpus product
+                             whose name contains <s> (case-sensitive) before
+                             building the DF table. Use to exclude the target's
+                             own family (e.g. --exclude-corpus openclaw) for an
+                             honest cross-product comparison.
   --build-fp-renames [s]     Generate _FP_ rename-map entries for cross-source
                              fingerprint matches above score s (default 0.8). Same as
                              --build-fingerprint-renames. Accumulates with existing
