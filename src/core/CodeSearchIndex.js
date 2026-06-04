@@ -5891,7 +5891,7 @@ export class CodeSearchIndex {
       { re: /^@mcp\.tool\b/,                          kind: 'mcp',      fw: 'MCP',        m: '@mcp.tool' },
       { re: /\bStructuredTool\b/,                     kind: 'tool-def', fw: 'LangChain',  m: 'StructuredTool' },
       { re: /\bFunctionTool\b/,                       kind: 'tool-def', fw: 'LangChain/LlamaIndex', m: 'FunctionTool' },
-      { re: /\binput_schema\b/,                       kind: 'tool-def', fw: 'Anthropic',  m: 'input_schema' },
+      { re: /\binput_schema\b/,                       kind: 'tool-def', fw: '?',          m: 'input_schema' },  // #119: ambiguous (Anthropic API, MCP, Codex Rust) — not Anthropic-specific
       { re: /\bsetRequestHandler\b/,                  kind: 'mcp',      fw: 'MCP',        m: 'setRequestHandler' },
       { re: /\b(?:ListTools|CallTool)Request(?:Schema)?\b/, kind: 'mcp', fw: 'MCP',       m: 'MCP-request' },
       { re: /\bserver\.tool\s*\(/,                    kind: 'mcp',      fw: 'MCP',        m: 'server.tool' },
@@ -6014,7 +6014,7 @@ export class CodeSearchIndex {
       { re: /\binitialize_agent\b/,     kind: 'agent', fw: 'LangChain', m: 'initialize_agent' },
       { re: /\b(?:Code|ToolCalling)Agent\b/, kind: 'agent', fw: 'smolagents', m: 'CodeAgent' },
       { re: /\b(?:Assistant|UserProxy)Agent\b/, kind: 'agent', fw: 'AutoGen', m: 'AssistantAgent' },
-      { re: /\bGroupChat\b/,            kind: 'agent', fw: 'AutoGen', m: 'GroupChat' },
+      { re: /\bGroupChat\b/,            kind: 'agent', fw: 'AutoGen', m: 'GroupChat', gate: 'autogen' },
       { re: /\b(?:ReActAgent|AgentRunner|FunctionAgent)\b/, kind: 'agent', fw: 'LlamaIndex', m: 'ReActAgent' },
       { re: /\bReAct\b/,                kind: 'agent', fw: 'DSPy', m: 'ReAct' },   // case-sensitive ≠ React
     ];
@@ -6043,6 +6043,9 @@ export class CodeSearchIndex {
       if (reDocFile.test(filepath)) continue;
       const hasLanggraph = lines.some(l => /\b(?:import|from)\s+langgraph\b|\blanggraph\b/.test(l));
       const hasAgentFw = lines.some(l => /\b(?:crewai|pydantic_ai|smolagents|autogen|llama_index|openai[._-]?agents)\b/i.test(l));
+      // #120: GroupChat collides with messaging "group chat" (OpenClaw/Feishu) —
+      // gate that marker on an autogen import in-file.
+      const hasAutogen = lines.some(l => /\b(?:import|from|require)\b[^\n]*\b(?:autogen|pyautogen|ag2)\b/i.test(l));
       let frameworkInFile = false;
 
       for (let i = 0; i < lines.length; i++) {
@@ -6054,7 +6057,7 @@ export class CodeSearchIndex {
         const push = (kind, fw, tier, m, tag) =>
           out.push({ name: nameOf(m), filepath, line: i + 1, kind, framework: fw, tier, marker: m, tag, snippet: trimmed.slice(0, 200) });
 
-        const a = tierA.find(d => d.re.test(line));
+        const a = tierA.find(d => d.re.test(line) && !(d.gate === 'autogen' && !hasAutogen));
         if (a) { frameworkInFile = true; push(a.kind, a.fw, 'A', a.m, 'mechanical'); continue; }
         if (hasLanggraph && reGraphGen.test(line)) { frameworkInFile = true; push('graph', 'LangGraph', 'B', 'add_node/edge', 'heuristic'); continue; }
         if (hasAgentFw && reAgentGen.test(line)) { frameworkInFile = true; push('agent', 'CrewAI/…', 'B', 'Agent()/Crew()', 'heuristic'); continue; }
@@ -6252,6 +6255,11 @@ export class CodeSearchIndex {
       if (/^\./.test(base)) return false;                      // bare suffix (.bin, .h5) — on the BASENAME, so ./relative/paths survive
       if (/^(?:model|optimizer|scheduler|output|data|checkpoint|state|weights|none)$/i.test(base)) return false;  // bare generic word
       if (/\b(?:optimizer|scheduler|training_args|trainer_state|tokenizer|special_tokens|vocab|merges|corpus|rng_state|config)\b/i.test(base)) return false;  // non-model artifact files
+      // #119: a bare .bin is a generic binary (test fixtures / blobs — file.bin,
+      // x.bin, out.bin). Count it as a model only if the name carries a model
+      // signal. Model-specific extensions (.gguf/.onnx/.safetensors/.ckpt/.pth/.h5)
+      // are trusted as-is (handled above / kept).
+      if (/\.bin$/i.test(base) && !/(?:model|weights?|adapter|checkpoint|ckpt|ggml|gguf|lora|pytorch|safetensors?)/i.test(base.replace(/\.bin$/i, ''))) return false;
       return true;
     };
     const add = (id, resolved, access, cell, marker, filepath, line) => {
@@ -6342,7 +6350,7 @@ export class CodeSearchIndex {
         let mm = reWSO.exec(line);
         if (mm) { push('schema', 'LangChain', 'with_structured_output', 'mechanical', firstArg(line, mm.index)); continue; }
         const rm = line.match(reRespModel);
-        if (rm) { push('schema', 'instructor', 'response_model', 'mechanical', rm[1] || rm[2]); continue; }
+        if (rm) { push('schema', '?', 'response_model', 'mechanical', rm[1] || rm[2]); continue; }  // #119: response_model= is generic (instructor AND OpenAI SDK/pydantic)
         if (reRespFormat.test(line)) { push('format', 'OpenAI', 'response_format', 'mechanical'); continue; }
         if (reJsonMode.test(line)) { push('format', 'OpenAI', 'json-mode', 'mechanical'); continue; }
         const pm = line.match(reParser);
