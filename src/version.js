@@ -11,4 +11,4 @@
  * Deliberately NOT derived from git: a commit SHA does not change for
  * uncommitted edits, which is exactly when the staleness problem bites.
  */
-export const SERVER_BUILD = 37;
+export const SERVER_BUILD = 38;

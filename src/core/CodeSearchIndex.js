@@ -6032,7 +6032,10 @@ export class CodeSearchIndex {
     // co-occurs), so it needs a bundle-seam-split or multi-file index. One flag
     // per file. Tier C, clearly heuristic.
     const reLoop = /\bwhile\s*\(|\bfor\s*\(|for\s+await|\bdo\s*\{/;
-    const reCall = /\bmessages\.create|chat\.completions\.create|\bcompletions\.create|\.generate\s*\(|create_chat_completion/;
+    // SDK calls + raw-HTTP endpoints (#118) — a framework-less agent (Moltbook)
+    // calls the LLM via an endpoint URL, which listLlmCalls catches as Tier-C; the
+    // hand-rolled gate (call + dispatch + loop) needs to see that as a "call" too.
+    const reCall = /\bmessages\.create|chat\.completions\.create|\bcompletions\.create|\.generate\s*\(|create_chat_completion|api\.anthropic\.com|\/v1\/messages|api\.openai\.com|\/v1\/chat\/completions|generativelanguage\.googleapis\.com|api\.cohere\.ai|api\.mistral\.ai|api\.together\.xyz|api\.groq\.com/;
     const reDisp = /\btool_use\b|\btool_calls\b|\bfunction_call\b|\btool_result\b|toolResult/;
 
     const out = [];
