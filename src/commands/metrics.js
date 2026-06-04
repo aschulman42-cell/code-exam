@@ -546,7 +546,7 @@ export function doListPipelines(index, args) {
   const byShape = {}, byScope = {};
   for (const w of flows) { byShape[w.shape] = (byShape[w.shape] || 0) + 1; byScope[w.scope] = (byScope[w.scope] || 0) + 1; }
   const shapeSummary = ['RAG', 'low-level', 'training', 'agent', 'inference', 'LLM-app'].filter(s => byShape[s]).map(s => `${byShape[s]} ${s}`).join(', ');
-  const scopeSummary = ['file', 'folder'].filter(s => byScope[s]).map(s => `${byScope[s]} ${s}`).join(', ');
+  const scopeSummary = ['file', 'folder', 'module'].filter(s => byScope[s]).map(s => `${byScope[s]} ${s}`).join(', ');
   const max = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : 0;
   const shown = max > 0 ? flows.slice(0, max) : flows;
   console.log(`\n${flows.length} pipelines — ${shapeSummary} (${scopeSummary})${max > 0 && flows.length > max ? `; showing ${shown.length}` : ''}:\n`);
@@ -565,7 +565,7 @@ export function doListPipelines(index, args) {
     console.log(`${w.shape.padEnd(9)}  ${w.scope.padEnd(6)}  ${loc.padEnd(34)}  ${stagesStr(w).slice(0, 80)}`);
   }
   console.log(`\n  (Pipelines = AI/ML pipelines inferred from cell CO-OCCURRENCE (file, or leaf folder), NOT traced dataflow.`
-    + ` scope:folder = same module (looser, fallback). Cross-folder/import-graph + a graph view are deferred. Shapes by specificity: RAG>low-level>training>agent>inference>LLM-app.)`);
+    + ` scope:folder = same leaf folder; scope:module = climbed to a common ancestor (looser, capped at the repo root). Import-graph assembly + a graph view are deferred. Shapes by specificity: RAG>low-level>training>agent>inference>LLM-app.)`);
 }
 
 export function doListChains(index, args) {

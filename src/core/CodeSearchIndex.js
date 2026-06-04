@@ -6429,8 +6429,31 @@ export class CodeSearchIndex {
     for (const t of this.listKernels())       add('kernel', t, t.name || t.family);  // #116/#93: custom GPU kernels (DeepSeek/Mistral MoE) — the low-level model-impl signal
 
     const leafFolder = (fp) => { const n = fp.replace(/\\/g, '/'); const i = n.lastIndexOf('/'); return i >= 0 ? n.slice(0, i) : '.'; };
-    const fileB = new Map();    // filepath  → { cells: Map(cell → {ids:Set, sites:[]}) }
-    const folderB = new Map();  // folder    → { cells: …, files:Set }
+    // #121: module root = up to & incl. the first path segment after the zip '!'
+    // marker (`archive.zip!repo-main`), else the top-level dir. The climb NEVER
+    // crosses this — so a combined multi-model index can't fuse two models into a
+    // phantom cross-repo pipeline (assembly stays within a repo; comparison is a
+    // separate read over the per-model results).
+    const moduleRoot = (fp) => {
+      const n = fp.replace(/\\/g, '/');
+      const bang = n.indexOf('!');
+      if (bang >= 0) { const after = n.slice(bang + 1); const s = after.indexOf('/'); return n.slice(0, bang + 1) + (s >= 0 ? after.slice(0, s) : after); }
+      const s = n.indexOf('/'); return s >= 0 ? n.slice(0, s) : n;
+    };
+    // Full ancestor chain of a folder, leaf→root, capped at the module root. Used
+    // for claim propagation (block every ancestor, uncapped by depth).
+    const folderAncestors = (folder) => {
+      const root = moduleRoot(folder); const chain = []; let dir = folder;
+      while (dir && dir.startsWith(root)) { chain.push(dir); if (dir === root) break; const i = dir.lastIndexOf('/'); if (i < 0) break; dir = dir.slice(0, i); }
+      return chain;
+    };
+    // Bucket-building chain: leaf folder + up to CLIMB_DEPTH ancestors above it
+    // (we only assemble within a couple levels; a deeper flat tree shouldn't
+    // collapse into one mega-pipeline).
+    const CLIMB_DEPTH = 2;
+    const folderChain = (fp) => folderAncestors(leafFolder(fp)).slice(0, CLIMB_DEPTH + 1);
+    const fileB = new Map();    // filepath → { cells: Map(cell → {ids:Set, sites:[]}) }
+    const folderB = new Map();  // folder   → { cells, files:Set, leaves:Set }
     const bump = (b, cell, id, fp, line) => {
       let c = b.cells.get(cell); if (!c) { c = { ids: new Set(), sites: [] }; b.cells.set(cell, c); }
       if (id) c.ids.add(id); c.sites.push({ filepath: fp, line });
@@ -6438,10 +6461,12 @@ export class CodeSearchIndex {
     for (const h of hits) {
       let fb = fileB.get(h.filepath); if (!fb) { fb = { cells: new Map() }; fileB.set(h.filepath, fb); }
       bump(fb, h.cell, h.id, h.filepath, h.line);
-      const folder = leafFolder(h.filepath);
-      let gb = folderB.get(folder); if (!gb) { gb = { cells: new Map(), files: new Set() }; folderB.set(folder, gb); }
-      bump(gb, h.cell, h.id, h.filepath, h.line);
-      gb.files.add(h.filepath);
+      const leaf = leafFolder(h.filepath);
+      for (const folder of folderChain(h.filepath)) {
+        let gb = folderB.get(folder); if (!gb) { gb = { cells: new Map(), files: new Set(), leaves: new Set() }; folderB.set(folder, gb); }
+        bump(gb, h.cell, h.id, h.filepath, h.line);
+        gb.files.add(h.filepath); gb.leaves.add(leaf);
+      }
     }
 
     // Shapes, built in priority order — shapes[0] is the headline.
@@ -6472,24 +6497,56 @@ export class CodeSearchIndex {
       return { shape: shapes[0], shapes, scope, location, stages, cellCount: bucket.cells.size };
     };
 
+    // universalRoot = the deepest folder that is an ancestor of EVERY contributing
+    // file (the index's whole-repo root), computed from the real path structure —
+    // build-agnostic (same whether the index came from a zip or a directory). A
+    // climbed pipeline AT this folder spans the entire index ("the repo has these
+    // cells somewhere"), too loose to be a real pipeline, so it's dropped. When
+    // files share no common folder (a flat index like sklearn: `cluster/…`,
+    // `ensemble/…`), universalRoot is '' and nothing is excluded — those top-level
+    // submodules are legit assembly targets.
+    let universalRoot = null;
+    for (const h of hits) {
+      const leaf = leafFolder(h.filepath);
+      if (universalRoot === null) { universalRoot = leaf; continue; }
+      const a = universalRoot.split('/'), b = leaf.split('/');
+      let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++;
+      universalRoot = a.slice(0, i).join('/');
+      if (!universalRoot) break;
+    }
+
     const out = [];
-    const fileShapesByFolder = new Map();   // folder → Set(shapes already claimed by a file)
+    // claimedByFolder[folder] = shapes already reported at or below it (by a file or
+    // a deeper folder). Reporting a shape propagates it up the whole ancestor chain,
+    // so a looser ancestor never re-reports a tighter scope's pipeline.
+    const claimedByFolder = new Map();
+    const claimUp = (folder, sh) => { for (const anc of folderAncestors(folder)) { let s = claimedByFolder.get(anc); if (!s) { s = new Set(); claimedByFolder.set(anc, s); } s.add(sh); } };
+    // 1) file-scoped — tightest.
     for (const [fp, fb] of fileB) {
       if (fb.cells.size < 2) continue;                         // a single cell isn't a pipeline
       const shapes = classify(new Set(fb.cells.keys()));
       if (!shapes.length) continue;
       out.push(makeRow(shapes, 'file', fp, fb));
-      const folder = leafFolder(fp);
-      let claimed = fileShapesByFolder.get(folder); if (!claimed) { claimed = new Set(); fileShapesByFolder.set(folder, claimed); }
-      for (const sh of shapes) claimed.add(sh);
+      for (const sh of shapes) claimUp(leafFolder(fp), sh);
     }
-    for (const [folder, gb] of folderB) {
-      if (gb.files.size < 2 || gb.cells.size < 2) continue;    // folder fallback needs ≥2 files
+    // 2) folder / module — deepest first, so a shape lands at the TIGHTEST folder
+    // that forms it; report only shapes not already claimed below.
+    const folders = [...folderB.keys()].sort((a, b) => (b.split('/').length - a.split('/').length) || a.localeCompare(b));
+    for (const folder of folders) {
+      const gb = folderB.get(folder);
+      if (gb.files.size < 2 || gb.cells.size < 2) continue;    // needs genuine cross-file aggregation
       const shapes = classify(new Set(gb.cells.keys()));
-      const claimed = fileShapesByFolder.get(folder) || new Set();
-      const fresh = shapes.filter(sh => !claimed.has(sh));     // only shapes no file already formed
+      const claimed = claimedByFolder.get(folder) || new Set();
+      const fresh = shapes.filter(sh => !claimed.has(sh));     // only shapes no tighter bucket formed
       if (!fresh.length) continue;
-      out.push(makeRow(fresh, 'folder', folder, gb));
+      // pure leaf (all files directly in it) → 'folder'; climbed across subfolders
+      // → 'module' (looser confidence, disclosed).
+      const scope = (gb.leaves.size === 1 && gb.leaves.has(folder)) ? 'folder' : 'module';
+      // Don't report a CLIMBED pipeline at the whole-index root (see universalRoot
+      // above) — too loose. Subfolders below it are kept.
+      if (scope === 'module' && universalRoot && folder === universalRoot) continue;
+      out.push(makeRow(fresh, scope, folder, gb));
+      for (const sh of fresh) claimUp(folder, sh);
     }
 
     let result = out;
@@ -6501,8 +6558,9 @@ export class CodeSearchIndex {
         || w.stages.some(st => st.cell.includes(pat) || st.ids.join(',').toLowerCase().includes(pat)));
     }
     const shapeRank = { RAG: 0, 'low-level': 1, training: 2, agent: 3, inference: 4, 'LLM-app': 5 };
+    const scopeRank = { file: 0, folder: 1, module: 2 };
     result.sort((a, b) =>
-      (a.scope === b.scope ? 0 : a.scope === 'file' ? -1 : 1)
+      (scopeRank[a.scope] - scopeRank[b.scope])
       || (shapeRank[a.shape] - shapeRank[b.shape]) || (b.cellCount - a.cellCount)
       || a.location.localeCompare(b.location));
     return result;
