@@ -536,6 +536,38 @@ export function doListStructuredOutput(index, args) {
   if (heur) console.log(`\n  (~ = heuristic/gated; bare BaseModel/Zod NOT counted — only schemas bound to an LLM call. Schema = the bound output type.)`);
 }
 
+export function doListPipelines(index, args) {
+  const flows = index.listPipelines(args.filter);
+  if (!flows.length) {
+    console.log('No AI/ML pipelines found (no file or leaf-folder where 2+ cells co-occur to form a '
+      + 'RAG / low-level / training / inference / agent / LLM-app shape). Single-cell usage is not a pipeline.');
+    return;
+  }
+  const byShape = {}, byScope = {};
+  for (const w of flows) { byShape[w.shape] = (byShape[w.shape] || 0) + 1; byScope[w.scope] = (byScope[w.scope] || 0) + 1; }
+  const shapeSummary = ['RAG', 'low-level', 'training', 'agent', 'inference', 'LLM-app'].filter(s => byShape[s]).map(s => `${byShape[s]} ${s}`).join(', ');
+  const scopeSummary = ['file', 'folder'].filter(s => byScope[s]).map(s => `${byScope[s]} ${s}`).join(', ');
+  const max = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? flows.slice(0, max) : flows;
+  console.log(`\n${flows.length} pipelines — ${shapeSummary} (${scopeSummary})${max > 0 && flows.length > max ? `; showing ${shown.length}` : ''}:\n`);
+  const stagesStr = (w) => w.stages.map(s => s.cell + (s.ids.length ? `(${basenameIfPath(s.ids[0])}${s.ids.length > 1 ? ',…' : ''})` : '')).join(' → ');
+  if (args.verbose) {
+    for (const w of shown) {
+      console.log(`${w.scope.padEnd(6)} ${w.shape.padEnd(9)} ${w.location.replace(/\\/g, '/')}${w.shapes.length > 1 ? `  [also: ${w.shapes.slice(1).join(', ')}]` : ''}`);
+      console.log(`        ${stagesStr(w)}`);
+    }
+    return;
+  }
+  console.log(`${'Shape'.padEnd(9)}  ${'Scope'.padEnd(6)}  ${'Location'.padEnd(34)}  Stages`);
+  console.log('='.repeat(140));
+  for (const w of shown) {
+    let loc = w.location.replace(/\\/g, '/'); if (loc.length > 34) loc = '...' + loc.slice(-31);
+    console.log(`${w.shape.padEnd(9)}  ${w.scope.padEnd(6)}  ${loc.padEnd(34)}  ${stagesStr(w).slice(0, 80)}`);
+  }
+  console.log(`\n  (Pipelines = AI/ML pipelines inferred from cell CO-OCCURRENCE (file, or leaf folder), NOT traced dataflow.`
+    + ` scope:folder = same module (looser, fallback). Cross-folder/import-graph + a graph view are deferred. Shapes by specificity: RAG>low-level>training>agent>inference>LLM-app.)`);
+}
+
 export function doListChains(index, args) {
   const chains = index.listChains(args.filter);
   if (!chains.length) {

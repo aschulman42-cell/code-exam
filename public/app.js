@@ -65,7 +65,7 @@ import {
 import {
   initListRenderers,
   renderFuncLikeList, renderFunctionList, renderFileListWithSub,
-  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites,
+  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineStages,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
@@ -216,6 +216,12 @@ async function loadSectionData(sectionId, filter = '') {
         data = await api.listModelsUsed({ filter, max: 500 });
         state.sectionData[sectionId] = data.models;
         renderModelsUsedList(content, data.models, data.total, data.unresolved, onModelUsedClick);
+        badge.textContent = data.total;
+        break;
+      case 'pipelines':
+        data = await api.listPipelines({ filter, max: 500 });
+        state.sectionData[sectionId] = data.pipelines;
+        renderPipelinesList(content, data.pipelines, data.total, onPipelineClick);
         badge.textContent = data.total;
         break;
 
@@ -426,6 +432,15 @@ function onModelUsedClick(model) {
   navPush('middle-top');
   $('#middle-top-title').textContent = `Model: ${model.model}`;
   renderModelsUsedSites($('#middle-top-body'), model);
+}
+
+// #116: drill into a Pipeline row — show its stages (cell · ids · sites) in the
+// top-middle pane; each site clicks through to source in the lower pane.
+function onPipelineClick(w) {
+  showPane('middle-top');
+  navPush('middle-top');
+  $('#middle-top-title').textContent = `Pipeline: ${w.shape} (${w.scope})`;
+  renderPipelineStages($('#middle-top-body'), w);
 }
 
 /** Add/remove 'has-overflow' class to show bottom fade when content is scrollable */

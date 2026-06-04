@@ -6376,6 +6376,138 @@ export class CodeSearchIndex {
     return result;
   }
 
+  /**
+   * listPipelines(filter) — the connected-flow projection (#116). A PROJECTION,
+   * not a marker scan: it harvests the per-cell detector hits, buckets them at TWO
+   * granularities, classifies each bucket's pipeline SHAPE by which cells co-occur,
+   * and threads the cell identities (model/dataset/schema names) through the stages.
+   *
+   * Granularity (file → leaf-folder fallback, Andrew's idea): file-level
+   * co-occurrence is tight but fails on well-factored code that centralizes a
+   * shared step across files (OpenClaw/Moltbook put the LLM call in one client
+   * module). So a folder bucket = the LEAF folder (immediate dirname); a
+   * folder-scoped pipeline is reported only for a shape NO single file in it
+   * already formed (the fallback — no double-reporting).
+   *
+   * Shape priority (RAG > low-level > training > agent > inference > LLM-app) is by
+   * SPECIFICITY / SUBSUMPTION, picking the most informative HEADLINE when several
+   * match (all matches are still listed in `shapes`):
+   *   - low-level (custom GPU kernels + model/inference) ranks just under RAG: rare
+   *     and distinctive (DeepSeek/Mistral MoE kernels), so it headlines when present.
+   *   - LLM-app is LAST: it's the generic catch-all (almost any LLM code qualifies);
+   *     RAG and agent are SPECIALIZATIONS of it (RAG = LLM-app + retrieval; agent =
+   *     LLM-app + tool-loop), so the richer label wins the headline.
+   *   - RAG is FIRST: embed+vector-store+search is the most DISTINCTIVE signature
+   *     (those cells co-occur ~only in retrieval), so a match is high-confidence.
+   *   - training/agent/inference (middle) are all more specific than LLM-app and
+   *     rarely co-occur with each other; agent>inference because agent subsumes
+   *     LLM-app, inference is a narrower model-running shape.
+   *
+   * Honest (#106): co-occurrence (file or leaf-folder), NOT traced dataflow;
+   * cross-FOLDER / import-graph assembly + a real graph are deferred Phase-2.5.
+   */
+  listPipelines(filter = null) {
+    const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
+    // Harvest (filepath, line, cell, id) from every cell. The `id` is the most
+    // useful identity for the stage label (model/schema/dataset/framework name).
+    const hits = [];
+    const add = (cell, t, id) => { if (t && t.filepath && !reDocFile.test(t.filepath)) hits.push({ filepath: t.filepath, line: t.line, cell, id: id || null }); };
+    for (const t of this.listModels())       add('model', t, t.name);
+    for (const a of this.listArtifacts())     add(a.direction === 'save' ? 'artifact-save' : (a.direction === 'load' ? 'artifact-load' : 'artifact-ref'), a, a.path);
+    for (const d of this.listDatasets())      add('dataset', d, d.name);
+    for (const t of this.listTraining())      add('training', t, null);
+    for (const t of this.listInference())     add('inference', t, t.id);
+    for (const t of this.listLlmCalls())      add('llm-call', t, t.model || (t.provider && t.provider !== 'other' ? t.provider : null));
+    for (const t of this.listTools())         add(t.kind === 'tool-dispatch' ? 'tool-dispatch' : 'tool-def', t, t.name);
+    for (const t of this.listChains())        add('agent', t, t.framework);
+    for (const e of this.listEmbeddings()) {
+      const cell = e.kind === 'embedding' ? 'embed' : e.kind;   // embed / vector-store / search / chunking / distance
+      if (cell === 'distance') continue;
+      add(cell, e, e.id || e.framework);
+    }
+    for (const t of this.listStructuredOutput()) add('structured-output', t, t.id);
+    for (const t of this.listKernels())       add('kernel', t, t.name || t.family);  // #116/#93: custom GPU kernels (DeepSeek/Mistral MoE) — the low-level model-impl signal
+
+    const leafFolder = (fp) => { const n = fp.replace(/\\/g, '/'); const i = n.lastIndexOf('/'); return i >= 0 ? n.slice(0, i) : '.'; };
+    const fileB = new Map();    // filepath  → { cells: Map(cell → {ids:Set, sites:[]}) }
+    const folderB = new Map();  // folder    → { cells: …, files:Set }
+    const bump = (b, cell, id, fp, line) => {
+      let c = b.cells.get(cell); if (!c) { c = { ids: new Set(), sites: [] }; b.cells.set(cell, c); }
+      if (id) c.ids.add(id); c.sites.push({ filepath: fp, line });
+    };
+    for (const h of hits) {
+      let fb = fileB.get(h.filepath); if (!fb) { fb = { cells: new Map() }; fileB.set(h.filepath, fb); }
+      bump(fb, h.cell, h.id, h.filepath, h.line);
+      const folder = leafFolder(h.filepath);
+      let gb = folderB.get(folder); if (!gb) { gb = { cells: new Map(), files: new Set() }; folderB.set(folder, gb); }
+      bump(gb, h.cell, h.id, h.filepath, h.line);
+      gb.files.add(h.filepath);
+    }
+
+    // Shapes, built in priority order — shapes[0] is the headline.
+    const classify = (cells) => {
+      const has = (c) => cells.has(c);
+      const s = [];
+      if ((has('embed') && has('vector-store')) || (has('vector-store') && has('search'))) s.push('RAG');
+      // low-level = custom GPU kernels co-occurring with model/inference/training —
+      // the codebase IS the model's low-level implementation (DeepSeek/Mistral MoE
+      // kernels), not a consumer. Distinctive + rare, so it headlines high.
+      if (has('kernel') && (has('model') || has('inference') || has('training') || has('artifact-load') || has('artifact-save'))) s.push('low-level');
+      if ((has('dataset') && has('training')) || (has('training') && has('artifact-save'))) s.push('training');
+      // agent = an explicit chains/agents detection, OR (the cross-file case) an
+      // LLM call co-occurring with tool-DISPATCH (handling the model's tool_use —
+      // the agentic signal, vs tool-def which only declares tools).
+      if (has('agent') || (has('llm-call') && has('tool-dispatch'))) s.push('agent');
+      if (has('inference') && (has('artifact-load') || has('model'))) s.push('inference');
+      if (has('llm-call') && (has('structured-output') || has('tool-def') || has('tool-dispatch'))) s.push('LLM-app');
+      return s;
+    };
+    const STAGE_ORDER = ['dataset', 'chunking', 'embed', 'vector-store', 'search', 'model', 'kernel', 'artifact-load', 'training', 'artifact-save', 'inference', 'llm-call', 'structured-output', 'tool-def', 'tool-dispatch', 'agent'];
+    const makeRow = (shapes, scope, location, bucket) => {
+      const stages = [];
+      for (const cell of STAGE_ORDER) {
+        const c = bucket.cells.get(cell);
+        if (c) stages.push({ cell, ids: [...c.ids].slice(0, 6), count: c.sites.length, sites: c.sites.slice(0, 50) });
+      }
+      return { shape: shapes[0], shapes, scope, location, stages, cellCount: bucket.cells.size };
+    };
+
+    const out = [];
+    const fileShapesByFolder = new Map();   // folder → Set(shapes already claimed by a file)
+    for (const [fp, fb] of fileB) {
+      if (fb.cells.size < 2) continue;                         // a single cell isn't a pipeline
+      const shapes = classify(new Set(fb.cells.keys()));
+      if (!shapes.length) continue;
+      out.push(makeRow(shapes, 'file', fp, fb));
+      const folder = leafFolder(fp);
+      let claimed = fileShapesByFolder.get(folder); if (!claimed) { claimed = new Set(); fileShapesByFolder.set(folder, claimed); }
+      for (const sh of shapes) claimed.add(sh);
+    }
+    for (const [folder, gb] of folderB) {
+      if (gb.files.size < 2 || gb.cells.size < 2) continue;    // folder fallback needs ≥2 files
+      const shapes = classify(new Set(gb.cells.keys()));
+      const claimed = fileShapesByFolder.get(folder) || new Set();
+      const fresh = shapes.filter(sh => !claimed.has(sh));     // only shapes no file already formed
+      if (!fresh.length) continue;
+      out.push(makeRow(fresh, 'folder', folder, gb));
+    }
+
+    let result = out;
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = out.filter(w =>
+        w.shape.toLowerCase().includes(pat) || (w.location || '').toLowerCase().includes(pat)
+        || w.scope.includes(pat) || w.shapes.join(',').toLowerCase().includes(pat)
+        || w.stages.some(st => st.cell.includes(pat) || st.ids.join(',').toLowerCase().includes(pat)));
+    }
+    const shapeRank = { RAG: 0, 'low-level': 1, training: 2, agent: 3, inference: 4, 'LLM-app': 5 };
+    result.sort((a, b) =>
+      (a.scope === b.scope ? 0 : a.scope === 'file' ? -1 : 1)
+      || (shapeRank[a.shape] - shapeRank[b.shape]) || (b.cellCount - a.cellCount)
+      || a.location.localeCompare(b.location));
+    return result;
+  }
+
   listClasses(filepath = null) {
     this._ensureFunctionIndex();
     const filterPath = filepath ? filepath.toLowerCase().replace(/\\/g, '/') : null;

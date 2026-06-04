@@ -806,6 +806,69 @@ export function renderStructuredOutputList(container, items, total) {
 
 
 // ============================================================================
+// Pipelines list (#116) — connected AI/ML pipelines by cell co-occurrence (file
+// or leaf folder). Click a pipeline → its stages (cell · ids · sites) in the top
+// pane → source. shape ∈ {RAG, training, agent, inference, LLM-app}.
+// ============================================================================
+
+const _SHAPE_COLOR = { RAG: '#6cf', 'low-level': '#f88', training: '#fc6', agent: '#a9f', inference: '#7c7', 'LLM-app': '#9cf' };
+function _stagesText(w) {
+  return (w.stages || []).map(s => s.cell + (s.ids && s.ids.length ? `(${basenameIfPath(s.ids[0])}${s.ids.length > 1 ? '…' : ''})` : '')).join(' → ');
+}
+
+export function renderPipelinesList(container, flows, total, onPipelineClick) {
+  container.innerHTML = '';
+  container.appendChild(h('div', {
+    text: 'Pipelines by cell co-occurrence (file, or leaf folder) — not traced dataflow. scope:folder = same module.',
+    style: 'padding:4px 8px;font-size:10px;color:var(--text-muted);font-style:italic;border-bottom:1px solid var(--border,#333);margin-bottom:2px',
+  }));
+  if (!flows || !flows.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: 'No AI/ML pipelines found (no file/leaf-folder where 2+ cells form a shape).' }));
+    return;
+  }
+  for (const w of flows) {
+    const color = _SHAPE_COLOR[w.shape] || 'var(--text-muted)';
+    const item = h('div', {
+      className: 'list-item',
+      title: `${w.shape}${w.shapes.length > 1 ? ` (also: ${w.shapes.slice(1).join(', ')})` : ''}  ·  scope: ${w.scope}\n${(w.location || '').replace(/\\/g, '/')}\n${_stagesText(w)}`,
+    }, [
+      h('span', { className: 'metric', text: w.shape, style: `min-width:64px;color:${color};font-size:10px;font-weight:600` }),
+      h('span', { className: 'metric', text: w.scope, style: `min-width:46px;color:${w.scope === 'folder' ? 'var(--warning,#c79a4e)' : 'var(--text-muted)'};font-size:9px` }),
+      h('span', { className: 'name clickable', text: _stagesText(w), style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'filepath', text: shortPath(w.location || ''), style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0;max-width:180px' }),
+    ]);
+    item.addEventListener('click', (e) => { e.stopPropagation(); if (onPipelineClick) onPipelineClick(w); });
+    container.appendChild(item);
+  }
+  if (total > flows.length) container.appendChild(h('div', { className: 'list-placeholder', text: `${flows.length} of ${total} shown` }));
+}
+
+// Drill-down: a pipeline's stages (cell · ids · sites) into a container (top pane);
+// each site clicks through to source. Same model → stages → source pattern as #115.
+export function renderPipelineStages(container, w) {
+  container.innerHTML = '';
+  if (!w) { container.innerHTML = '<div class="list-placeholder">No pipeline.</div>'; return; }
+  container.appendChild(h('div', {
+    text: `${w.shape}  ·  ${w.scope}  ·  ${(w.location || '').replace(/\\/g, '/')}${w.shapes.length > 1 ? `   [also: ${w.shapes.slice(1).join(', ')}]` : ''}`,
+    style: 'padding:4px 8px;font-size:11px;color:var(--text-bright);border-bottom:1px solid var(--border,#333);margin-bottom:2px',
+  }));
+  for (const s of (w.stages || [])) {
+    container.appendChild(h('div', {
+      text: `${s.cell}${s.ids && s.ids.length ? '  — ' + s.ids.join(', ') : ''}  (${s.count})`,
+      style: 'padding:3px 8px 1px;font-size:10px;color:var(--accent,#6cf)',
+    }));
+    for (const site of (s.sites || []).slice(0, 25)) {
+      const item = h('div', { className: 'list-item', style: 'padding-left:18px', title: `${(site.filepath || '').replace(/\\/g, '/')}:${site.line}` }, [
+        h('span', { className: 'filepath clickable', text: `${shortPath(site.filepath || '')}:${site.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis' }),
+      ]);
+      item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(site.filepath, site.line); });
+      container.appendChild(item);
+    }
+  }
+}
+
+
+// ============================================================================
 // Hot Folders list
 // ============================================================================
 

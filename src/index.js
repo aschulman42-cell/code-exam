@@ -30,7 +30,7 @@ import {
 } from './commands/graph.js';
 import {
   doHotspots, doHotFolders, doEntryPoints, doGaps,
-  doDomainFns, doListClasses, doListModels, doListArtifacts, doListKernels, doListDatasets, doListTraining, doListInference, doListLlmCalls, doListTools, doListChains, doListEmbeddings, doListStructuredOutput, doListModelsUsed, doClassHotspots, doVocabulary,
+  doDomainFns, doListClasses, doListModels, doListArtifacts, doListKernels, doListDatasets, doListTraining, doListInference, doListLlmCalls, doListTools, doListChains, doListEmbeddings, doListStructuredOutput, doListModelsUsed, doListPipelines, doClassHotspots, doVocabulary,
 } from './commands/metrics.js';
 import {
   doDupefiles, doFuncDupes, doNearDupes,
@@ -274,7 +274,7 @@ if (args.build_index) {
     'extract', 'list_files', 'show_file', 'file_bookends', 'bundle_seams', 'index_extensions', 'interactive',
     'callers', 'callees', 'most_called', 'call_tree', 'call_inventory', 'file_map', 'file_tree',
     'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
-    'list_classes', 'list_models', 'list_artifacts', 'list_kernels', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'class_hotspots', 'discover_vocabulary',
+    'list_classes', 'list_models', 'list_artifacts', 'list_kernels', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'list_pipelines', 'class_hotspots', 'discover_vocabulary',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
     'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'build_fp_renames',
@@ -343,7 +343,7 @@ if (args.build_rename_map) {
     'extract', 'list_files', 'show_file', 'index_extensions', 'interactive',
     'callers', 'callees', 'most_called', 'call_tree', 'call_inventory', 'file_map', 'file_tree',
     'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
-    'list_classes', 'list_models', 'list_artifacts', 'list_kernels', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'class_hotspots', 'discover_vocabulary',
+    'list_classes', 'list_models', 'list_artifacts', 'list_kernels', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'list_pipelines', 'class_hotspots', 'discover_vocabulary',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
     'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'build_fp_renames',
@@ -435,6 +435,7 @@ const aiMlCmds = [
   ['list_embeddings', 'embeddings', doListEmbeddings],
   ['list_structured_output', 'structured-output', doListStructuredOutput],
   ['list_models_used', 'models-used', doListModelsUsed],
+  ['list_pipelines', 'pipelines', doListPipelines],
 ];
 const activeAiMl = aiMlCmds.filter(([flag]) => args[flag]);
 for (const [, label, fn] of activeAiMl) {
@@ -638,7 +639,7 @@ if (args.interactive) {
     'callers', 'callees', 'most_called',
     'call_tree', 'class_tree', 'call_inventory', 'file_map', 'file_tree',
     'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
-    'list_classes', 'list_models', 'list_artifacts', 'list_kernels', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'class_hotspots', 'discover_vocabulary', 'multisect_search',
+    'list_classes', 'list_models', 'list_artifacts', 'list_kernels', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'list_pipelines', 'class_hotspots', 'discover_vocabulary', 'multisect_search',
     'claim_search', 'claim_file',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',

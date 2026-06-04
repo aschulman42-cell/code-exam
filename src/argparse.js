@@ -165,6 +165,7 @@ export function parseArgs() {
     list_embeddings: false,
     list_structured_output: false,
     list_models_used: false,
+    list_pipelines: false,
     class_hotspots: null,
     discover_vocabulary: null,
     multisect_search: null,
@@ -346,6 +347,7 @@ export function parseArgs() {
     ['list_embeddings',      'flag',           ['--embeddings'], ['--list-embeddings', '--vectors']],
     ['list_structured_output', 'flag',         ['--structured-output'], ['--schemas', '--list-structured-output']],
     ['list_models_used',     'flag',           ['--models-used'], ['--list-models-used']],
+    ['list_pipelines',       'flag',           ['--pipelines'], ['--list-pipelines', '--workflows']],
     ['class_hotspots',       'int',            ['--class-hotspots']],
     ['discover_vocabulary',  'int',            ['--vocabulary', '--vocab'], ['--discover-vocabulary']],
     ['multisect_search',     'value',          ['--multisect-search', '--multisect']],
@@ -761,6 +763,7 @@ METRICS / DISCOVERY:
   --embeddings               Embeddings & vector search (FAISS/Chroma, similarity_search, distance)
   --structured-output        Structured output / schemas (with_structured_output, response_format, parsers)
   --models-used              Models USED — named models loaded/called across the cells, deduped (api/local)
+  --pipelines                Connected AI/ML pipelines (RAG/training/inference/agent/LLM-app) by cell co-occurrence
 
   --class-hotspots <n>       Top N classes by aggregated method hotspot score
   --vocabulary <n>           Top N domain-specific tokens by TF-IDF score

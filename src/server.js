@@ -2191,6 +2191,21 @@ routes['/api/list-models-used'] = (req, res) => {
   });
 };
 
+routes['/api/list-pipelines'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const flows = index.listPipelines(q.filter);  // sorted: scope, shape priority, cellCount
+  const max = safeMax(q.max, 500);
+  jsonResponse(res, {
+    total: flows.length,
+    pipelines: flows.slice(0, max).map(w => ({
+      shape: w.shape, shapes: w.shapes, scope: w.scope, location: w.location, cellCount: w.cellCount,
+      stages: (w.stages || []).map(s => ({ cell: s.cell, ids: s.ids, count: s.count, sites: (s.sites || []).slice(0, 50) })),
+    })),
+  });
+};
+
 routes['/api/class-methods'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
