@@ -6215,6 +6215,20 @@ export class CodeSearchIndex {
    * Returns the deduped array with `.unresolved` (count) attached.
    */
   listModelsUsed(filter = null) {
+    this._ensureFunctionIndex();
+    // Enclosing function for a (file, line) — innermost match — for the #115
+    // drill-down (model → sites with function names → source).
+    const funcAt = (fp, line) => {
+      const funcs = (this.functionIndex && this.functionIndex[fp]) || {};
+      let best = null, bestSpan = Infinity;
+      for (const [name, info] of Object.entries(funcs)) {
+        if (info.start <= line && line <= info.end && (info.end - info.start) < bestSpan) {
+          bestSpan = info.end - info.start; best = info.base_name || name;
+        }
+      }
+      return best;
+    };
+
     const raw = [];
     const isUnresolved = (id, resolved) => resolved === false || (typeof id === 'string' && id.startsWith('<'));
     // Basename filesystem paths so ./models/x.gguf and x.gguf dedupe to one model;
@@ -6262,7 +6276,7 @@ export class CodeSearchIndex {
       if (!m) { m = { model: key, access: r.access, cells: new Set(), sites: [], count: 0 }; byId.set(key, m); }
       if (m.access !== r.access) m.access = 'mixed';
       m.cells.add(r.cell);
-      m.sites.push({ filepath: r.filepath, line: r.line, marker: r.marker, cell: r.cell });
+      m.sites.push({ filepath: r.filepath, line: r.line, marker: r.marker, cell: r.cell, function: funcAt(r.filepath, r.line) });
       m.count++;
     }
 

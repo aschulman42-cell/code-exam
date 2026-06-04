@@ -702,7 +702,7 @@ export function renderEmbeddingsList(container, items, total) {
 
 const _ACCESS_COLOR = { api: '#6cf', local: '#7c7', mixed: '#c79a4e' };
 
-export function renderModelsUsedList(container, models, total, unresolved) {
+export function renderModelsUsedList(container, models, total, unresolved, onModelClick) {
   container.innerHTML = '';
   if (!models || !models.length) {
     container.innerHTML = '<div class="list-placeholder">No models used found '
@@ -723,7 +723,11 @@ export function renderModelsUsedList(container, models, total, unresolved) {
       h('span', { className: 'metric', text: (m.cells || []).join(','), style: 'flex-shrink:0;max-width:160px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;margin-right:10px' }),
       h('span', { className: 'metric', text: '×' + m.count, style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }),
     ]);
-    if (site0.filepath) item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(site0.filepath, site0.line); });
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (onModelClick) onModelClick(m);                       // #115: drill into the model's sites (top pane)
+      else if (site0.filepath) onFileClick(site0.filepath, site0.line);
+    });
     container.appendChild(item);
   }
   if (unresolved) {
@@ -731,6 +735,33 @@ export function renderModelsUsedList(container, models, total, unresolved) {
   }
   if (total > models.length) {
     container.appendChild(h('div', { className: 'list-placeholder', text: `${models.length} of ${total} shown` }));
+  }
+}
+
+// #115 drill-down: render one model's sites (file:line  function()  [cell]) into a
+// container (the top-middle pane); each row clicks through to source. Same indented
+// shape as `--models-used -v`, plus function names + clickability.
+export function renderModelsUsedSites(container, model) {
+  container.innerHTML = '';
+  if (!model || !model.sites || !model.sites.length) {
+    container.innerHTML = '<div class="list-placeholder">No sites for this model.</div>';
+    return;
+  }
+  container.appendChild(h('div', {
+    text: `${model.model}  ·  ${model.access}  ·  ${(model.cells || []).join(', ')}  ·  ${model.sites.length} site${model.sites.length > 1 ? 's' : ''}`,
+    style: 'padding:4px 8px;font-size:11px;color:var(--text-bright);border-bottom:1px solid var(--border,#333);margin-bottom:2px',
+  }));
+  for (const s of model.sites) {
+    const item = h('div', {
+      className: 'list-item',
+      title: `${(s.filepath || '').replace(/\\/g, '/')}:${s.line}${s.function ? `\n${s.function}()` : ''}\ncell: ${s.cell}  ·  marker: ${s.marker || ''}`,
+    }, [
+      h('span', { className: 'metric', text: s.cell || '', style: 'min-width:70px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'name clickable', text: s.function ? s.function + '()' : '—', style: `flex-shrink:0;min-width:130px;max-width:260px;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${s.function ? 'var(--text-bright)' : 'var(--text-muted)'}` }),
+      h('span', { className: 'filepath', text: `${shortPath(s.filepath || '')}:${s.line}`, style: 'flex:1;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;min-width:0' }),
+    ]);
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(s.filepath, s.line); });
+    container.appendChild(item);
   }
 }
 
