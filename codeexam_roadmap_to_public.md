@@ -43,8 +43,11 @@ funcstr-corpus (#128).
 ## Phase A — finish AI/ML for public (~4–5 focused-days MUST)
 ### MUST
 - [ ] CSI.js refactor — extract AI/ML to a new module *(keystone; first, or right
-      after the de-dupe win)*. Mixin extraction into `aiml-detectors.js`; exports a
-      `CELL_KEYS` seed for the Phase-B registry below.
+      after the de-dupe win)*. Mixin extraction into `ai-ml-detectors.js`; exports a
+      `CELL_KEYS` seed for the Phase-B registry below. `--prompt-catalog` (LLM
+      Prompts) predates the `listX` detectors and stays in its own module
+      (`src/commands/prompts.js`) by design — not part of the mixin; `CELL_KEYS`
+      keys it by `module`/`command` rather than `method`.
 - [ ] De-dupe accordions via the #115 drill-down scheme (Models/Artifacts/…)
 - [ ] CLI `-v` de-clutter (`--artifacts` etc. → `-v`)
 - [ ] `ai-ml-move-prompts` + reorder accordions (LLM → kernels)
@@ -52,11 +55,13 @@ funcstr-corpus (#128).
 - [ ] Missing-blocks survey *(first pass done; act on findings)*
 - [ ] **Multimodal / vision-language cell** (CLIP, vision/audio encoders)
 - [ ] Mermaid pipeline diagrams — multi-stage only *(pending spike)*
+- [ ] node test suite: AI/ML coverage *(no AI/ML tests today; the mixin move was
+      verified only by a before/after byte-diff — no standing regression guard.
+      `CELL_KEYS` can drive a data-driven test.)*
 ### NICE
 - [ ] #94 cross-cutting filters: quantization, layers-drill-down, config-as-data
 - [ ] AI/ML summary in File Digests (cross-file?)
 - [ ] MCP tools: Models Used, AI/ML Pipelines
-- [ ] node test suite: AI/ML coverage
 ### LATER
 - [ ] RLHF / alignment post-training cell
 - [ ] Diffusion / image-gen shape
@@ -92,6 +97,10 @@ funcstr-corpus (#128).
 ## Phase D — post-public (not on the critical path)
 - SLC writing: finish/split Multisect; "Code Examination for the Age of AI"; CC; Bram
 - GUI rework via XMLUI; PMEngine as example; meet Jon
+- **GUI automated testing** *(immediate post-public)* — the suite is CLI-only; no
+  automated coverage of the browser GUI (accordions, #115 drill-down,
+  list-renderers). Investigate XMLUI-based GUI test automation. Pairs with the
+  Phase A "node test suite: AI/ML coverage" MUST.
 
 ## Bottom line
 **~7–10 focused-days of MUST to a public repo** (~1.5× the AI/ML march, +~1 for the
