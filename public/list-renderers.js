@@ -397,7 +397,8 @@ export function renderKernelList(container, kernels, total) {
 // from a project's own pipeline.
 // ============================================================================
 
-const _DATASET_KIND_COLOR = { 'definition': '#6cf', 'loader': '#fc6' };
+export const DATASET_KIND_COLOR = { 'definition': '#6cf', 'loader': '#fc6' };
+const _DATASET_KIND_COLOR = DATASET_KIND_COLOR;
 
 export function renderDatasetList(container, datasets, total) {
   container.innerHTML = '';
@@ -1696,7 +1697,12 @@ export function renderDrilldownList(container, items, { columns, countOf, onItem
 
 // Top-middle pane: header + one row per site, click → source. columns: same shape;
 // each site needs filepath/line for the click-through.
-export function renderDrilldownSites(container, { header, sites, columns }) {
+// Top-middle pane: header + sites. Flat mode (pass `columns`) renders one row per
+// site. Sub-grouped mode (pass `subgroupBy`, e.g. s => s.snippet) collapses sites
+// that share the key (#134): a code line that repeats across N files shows once as
+// a header (+ ×count) with its file:line locations indented under it — clicking a
+// location goes to source. A unique key renders inline (snippet · file:line).
+export function renderDrilldownSites(container, { header, sites, columns, subgroupBy }) {
   container.innerHTML = '';
   if (!sites || !sites.length) {
     container.innerHTML = '<div class="list-placeholder">No sites.</div>';
@@ -1708,6 +1714,52 @@ export function renderDrilldownSites(container, { header, sites, columns }) {
       style: 'padding:4px 8px;font-size:11px;color:var(--text-bright);border-bottom:1px solid var(--border,#333);margin-bottom:2px',
     }));
   }
+
+  const locRow = (s, indent) => {
+    const item = h('div', { className: 'list-item', title: `${(s.filepath || '').replace(/\\/g, '/')}:${s.line}` }, [
+      h('span', { className: 'filepath clickable', text: `${shortPath(s.filepath || '')}:${s.line}`,
+        style: `${indent ? 'padding-left:18px;' : ''}flex:1;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;min-width:0` }),
+    ]);
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(s.filepath, s.line); });
+    return item;
+  };
+
+  if (subgroupBy) {
+    // Group WHITESPACE-INSENSITIVELY so the same line with different spacing/indent
+    // collapses (e.g. `tools = []` and `tools=[]` → one group). Key strips all
+    // whitespace; the displayed label is the first occurrence's snippet with runs
+    // collapsed to single spaces. First-seen order preserved.
+    const groups = new Map();
+    for (const s of sites) {
+      const raw = subgroupBy(s) || '';
+      const key = raw.replace(/\s+/g, '') || '(blank)';
+      if (!groups.has(key)) groups.set(key, { label: raw.replace(/\s+/g, ' ').trim() || '(blank)', locs: [] });
+      groups.get(key).locs.push(s);
+    }
+    for (const { label, locs } of groups.values()) {
+      if (locs.length === 1) {
+        // Unique line → inline (snippet · file:line) so singletons don't cost 2 rows.
+        const s = locs[0];
+        const item = h('div', { className: 'list-item', title: `${(s.filepath || '').replace(/\\/g, '/')}:${s.line}` }, [
+          h('span', { className: 'name clickable', text: label, style: 'flex:1;font-family:var(--font-mono);font-size:10px;color:var(--text-bright);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0' }),
+          h('span', { className: 'filepath', text: `${shortPath(s.filepath || '')}:${s.line}`, style: 'flex-shrink:0;max-width:260px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left' }),
+        ]);
+        item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(s.filepath, s.line); });
+        container.appendChild(item);
+      } else {
+        // Repeated line → one header (+ ×count) with indented locations beneath.
+        container.appendChild(h('div', {
+          style: 'padding:3px 8px 1px;font-family:var(--font-mono);font-size:10px;color:var(--text-bright);display:flex;gap:8px',
+        }, [
+          h('span', { text: label, style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0' }),
+          h('span', { text: '×' + locs.length, style: 'flex-shrink:0;color:var(--text-muted)' }),
+        ]));
+        for (const s of locs) container.appendChild(locRow(s, true));
+      }
+    }
+    return;
+  }
+
   for (const s of sites) {
     const spans = columns.map(c => h('span', {
       className: c.className || 'metric',

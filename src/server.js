@@ -20,7 +20,7 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
-import { groupSites, KERNELS_DRILLDOWN } from './core/ai-ml-detectors.js';
+import { groupSites, KERNELS_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
@@ -2005,73 +2005,30 @@ routes['/api/list-classes'] = (req, res) => {
   });
 };
 
-routes['/api/list-models'] = (req, res) => {
+// #134 drill-down: one generic route per AI/ML cell. Groups the flat detector rows
+// by the cell's name-identity keyFn, returns deduped groups (each `row(rep)` +
+// count + sites). `instances` is the pre-dedup count (badge). The flat `listX`
+// itself is unchanged, so raw `--multi-index` consumers are unaffected.
+const drilldownRoute = (method, spec, key) => (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
-  let models = index.listModels(q.filter);
-  models.sort((a, b) => b.method_count - a.method_count);
-  const max = safeMax(q.max, 200);
-  jsonResponse(res, {
-    total: models.length,
-    models: models.slice(0, max).map(m => ({
-      name: m.name, filepath: m.filepath, framework: m.framework,
-      base: m.base, ambiguous: m.ambiguous, chain: m.chain, methods: m.method_count,
-    })),
-  });
-};
-
-routes['/api/list-artifacts'] = (req, res) => {
-  const q = parseQuery(req.url);
-  const index = mgr.get(q.index);
-  if (!index) return errorResponse(res, 'No index loaded', 404);
-  const artifacts = index.listArtifacts(q.filter);  // already sorted: family, format, file, line
-  const max = safeMax(q.max, 500);
-  jsonResponse(res, {
-    total: artifacts.length,
-    artifacts: artifacts.slice(0, max).map(a => ({
-      name: a.path || a.format, filepath: a.filepath, line: a.line,
-      direction: a.direction, family: a.family, format: a.format,
-      tag: a.tag, path: a.path, pathResolved: a.pathResolved, snippet: a.snippet,
-    })),
-  });
-};
-
-routes['/api/list-kernels'] = (req, res) => {
-  const q = parseQuery(req.url);
-  const index = mgr.get(q.index);
-  if (!index) return errorResponse(res, 'No index loaded', 404);
-  // #134 drill-down: group by (family, kind, marker, name); names ride in each
-  // group's sites. listKernels stays flat (raw consumers unchanged). `instances`
-  // is the pre-dedup count for the badge (so the user sees there are >1 of some).
-  const flat = index.listKernels(q.filter);  // already sorted: family, kind, file, line
-  const groups = groupSites(flat, KERNELS_DRILLDOWN.keyFn, KERNELS_DRILLDOWN.pick);
+  let flat = index[method](q.filter);
+  if (spec.sort) flat = [...flat].sort(spec.sort);
+  const groups = groupSites(flat, spec.keyFn, spec.pick);
   const max = safeMax(q.max, 500);
   jsonResponse(res, {
     total: groups.length,
     instances: flat.length,
-    kernels: groups.slice(0, max).map(g => ({
-      family: g.rep.family, kind: g.rep.kind, marker: g.rep.marker, name: g.rep.name, tag: g.rep.tag,
-      count: g.count, sites: g.sites.slice(0, 50),
-    })),
+    [key]: groups.slice(0, max).map(g => ({ ...spec.row(g.rep), count: g.count, sites: g.sites.slice(0, 200) })),
   });
 };
 
-routes['/api/list-datasets'] = (req, res) => {
-  const q = parseQuery(req.url);
-  const index = mgr.get(q.index);
-  if (!index) return errorResponse(res, 'No index loaded', 404);
-  const datasets = index.listDatasets(q.filter);  // sorted: family, kind, file, line
-  const max = safeMax(q.max, 500);
-  jsonResponse(res, {
-    total: datasets.length,
-    datasets: datasets.slice(0, max).map(d => ({
-      name: d.name, filepath: d.filepath, line: d.line, kind: d.kind,
-      family: d.family, tier: d.tier, builtin: d.builtin, marker: d.marker,
-      confirmed: d.confirmed, resolved: d.resolved, snippet: d.snippet,
-    })),
-  });
-};
+routes['/api/list-models'] = drilldownRoute('listModels', MODELS_DRILLDOWN, 'models');
+routes['/api/list-artifacts'] = drilldownRoute('listArtifacts', ARTIFACTS_DRILLDOWN, 'artifacts');
+routes['/api/list-kernels'] = drilldownRoute('listKernels', KERNELS_DRILLDOWN, 'kernels');
+
+routes['/api/list-datasets'] = drilldownRoute('listDatasets', DATASETS_DRILLDOWN, 'datasets');
 
 routes['/api/list-training'] = (req, res) => {
   const q = parseQuery(req.url);
@@ -2120,20 +2077,7 @@ routes['/api/list-llm-calls'] = (req, res) => {
   });
 };
 
-routes['/api/list-tools'] = (req, res) => {
-  const q = parseQuery(req.url);
-  const index = mgr.get(q.index);
-  if (!index) return errorResponse(res, 'No index loaded', 404);
-  const tools = index.listTools(q.filter);  // sorted: framework, kind, file, line
-  const max = safeMax(q.max, 500);
-  jsonResponse(res, {
-    total: tools.length,
-    tools: tools.slice(0, max).map(t => ({
-      name: t.name, filepath: t.filepath, line: t.line, kind: t.kind,
-      framework: t.framework, tier: t.tier, marker: t.marker, tag: t.tag, lvc: t.lvc, snippet: t.snippet,
-    })),
-  });
-};
+routes['/api/list-tools'] = drilldownRoute('listTools', TOOLS_DRILLDOWN, 'tools');
 
 routes['/api/list-chains'] = (req, res) => {
   const q = parseQuery(req.url);

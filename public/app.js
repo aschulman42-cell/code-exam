@@ -65,7 +65,7 @@ import {
 import {
   initListRenderers,
   renderFuncLikeList, renderFunctionList, renderFileListWithSub,
-  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineStages, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR,
+  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineStages, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, DATASET_KIND_COLOR,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
@@ -137,18 +137,38 @@ async function loadSectionData(sectionId, filter = '') {
         badge.textContent = data.total;
         break;
 
-      case 'models':
-        data = await api.listModels({ filter, max: 200 });
+      case 'models':   // #134: deduped by name (framework, name)
+        data = await api.listModels({ filter, max: 500 });
         state.sectionData[sectionId] = data.models;
-        renderModelList(content, data.models, data.total);
-        badge.textContent = data.total;
+        renderDrilldownList(content, data.models, {
+          columns: [
+            { get: m => (m.ambiguous ? '~' : '') + (m.framework || '?'), style: 'min-width:96px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' },
+            { get: m => m.name || '', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+            { get: m => m.base ? '◂ ' + m.base : '', style: 'flex-shrink:0;max-width:200px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;margin-right:8px' },
+          ],
+          countOf: m => m.count,
+          onItemClick: m => drilldownGroupClick(m, `Model: ${m.name}`, { columns: FILEPATH_SITE_COLS }),
+          title: m => `${m.framework} · ${m.name}${m.base ? ' ◂ ' + m.base : ''}\n${m.method_count} method${m.method_count === 1 ? '' : 's'}`,
+          footer: data.total > data.models.length ? `${data.models.length} of ${data.total} shown` : '',
+        });
+        badge.textContent = data.instances != null ? data.instances : data.total;
         break;
 
-      case 'artifacts':
+      case 'artifacts':   // #134: deduped by basename (family, format, basename)
         data = await api.listArtifacts({ filter, max: 500 });
         state.sectionData[sectionId] = data.artifacts;
-        renderArtifactList(content, data.artifacts, data.total);
-        badge.textContent = data.total;
+        renderDrilldownList(content, data.artifacts, {
+          columns: [
+            { get: a => (a.tag === 'heuristic' ? '~' : '') + (a.family || '?'), style: 'min-width:110px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' },
+            { get: a => a.format || '', style: 'min-width:60px;color:var(--text-muted);font-size:10px' },
+            { get: a => a.name || '', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+          ],
+          countOf: a => a.count,
+          onItemClick: a => drilldownGroupClick(a, `Artifact: ${a.name}`, BY_SNIPPET),
+          title: a => `${a.family} · ${a.format} · ${a.name}\n${a.count} site${a.count > 1 ? 's' : ''}`,
+          footer: data.total > data.artifacts.length ? `${data.artifacts.length} of ${data.total} shown` : '',
+        });
+        badge.textContent = data.instances != null ? data.instances : data.total;
         break;
 
       case 'kernels':
@@ -169,11 +189,21 @@ async function loadSectionData(sectionId, filter = '') {
         badge.textContent = data.instances != null ? data.instances : data.total;  // instances (pre-dedup), so >1-of-some is visible
         break;
 
-      case 'datasets':
+      case 'datasets':   // #134: deduped by name (family, kind, name)
         data = await api.listDatasets({ filter, max: 500 });
         state.sectionData[sectionId] = data.datasets;
-        renderDatasetList(content, data.datasets, data.total);
-        badge.textContent = data.total;
+        renderDrilldownList(content, data.datasets, {
+          columns: [
+            { get: d => d.family || '?', style: 'min-width:96px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' },
+            { get: d => d.kind || '', style: d => `min-width:80px;font-size:10px;color:${DATASET_KIND_COLOR[d.kind] || 'var(--text-muted)'}` },
+            { get: d => d.name || '', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+          ],
+          countOf: d => d.count,
+          onItemClick: d => drilldownGroupClick(d, `Dataset: ${d.name}`, BY_SNIPPET),
+          title: d => `${d.family} · ${d.kind} · ${d.name}\n${d.count} site${d.count > 1 ? 's' : ''}`,
+          footer: data.total > data.datasets.length ? `${data.datasets.length} of ${data.total} shown` : '',
+        });
+        badge.textContent = data.instances != null ? data.instances : data.total;
         break;
 
       case 'training':
@@ -197,11 +227,21 @@ async function loadSectionData(sectionId, filter = '') {
         badge.textContent = data.total;
         break;
 
-      case 'tools':
+      case 'tools':   // #134: deduped by name (framework, kind, name)
         data = await api.listTools({ filter, max: 500 });
         state.sectionData[sectionId] = data.tools;
-        renderToolsList(content, data.tools, data.total);
-        badge.textContent = data.total;
+        renderDrilldownList(content, data.tools, {
+          columns: [
+            { get: t => (t.tag === 'heuristic' ? '~' : '') + (t.framework || '?'), style: 'min-width:110px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.kind || '', style: 'min-width:96px;color:var(--text-muted);font-size:10px' },
+            { get: t => t.name || '(unnamed)', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+          ],
+          countOf: t => t.count,
+          onItemClick: t => drilldownGroupClick(t, `Tool: ${t.name || '(unnamed)'}`, BY_SNIPPET),
+          title: t => `${t.framework} · ${t.kind} · ${t.name || '(unnamed)'}\n${t.count} site${t.count > 1 ? 's' : ''}`,
+          footer: data.total > data.tools.length ? `${data.tools.length} of ${data.total} shown` : '',
+        });
+        badge.textContent = data.instances != null ? data.instances : data.total;
         break;
 
       case 'chains':
@@ -457,12 +497,37 @@ function onKernelGroupClick(g) {
   renderDrilldownSites($('#middle-top-body'), {
     header: `${g.family} · ${g.kind} · ${g.marker} · ${g.name || '(unnamed)'}  ·  ${g.count} occurrence${g.count > 1 ? 's' : ''}`,
     sites: g.sites,
-    columns: [
-      { get: s => (s.snippet || '').trim(), className: 'name clickable', style: 'flex:1;font-family:var(--font-mono);font-size:10px;color:var(--text-bright);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0' },
-      { get: s => `${shortPath(s.filepath || '')}:${s.line}`, className: 'filepath', style: 'flex-shrink:0;max-width:300px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left' },
-    ],
+    columns: SNIPPET_SITE_COLS,
   });
 }
+
+// #134 batch-1: shared site-column sets + a generic group-click for the identity
+// cells. ×1 jumps straight to source; ×N opens the sites pane. SNIPPET cols suit
+// cells whose rows carry a code snippet (Artifacts/Datasets/Tools); FILEPATH cols
+// suit Models (a class — no line/snippet, located by file).
+const SNIPPET_SITE_COLS = [
+  { get: s => (s.snippet || '').trim(), className: 'name clickable', style: 'flex:1;font-family:var(--font-mono);font-size:10px;color:var(--text-bright);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0' },
+  { get: s => `${shortPath(s.filepath || '')}:${s.line}`, className: 'filepath', style: 'flex-shrink:0;max-width:300px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left' },
+];
+const FILEPATH_SITE_COLS = [
+  { get: s => shortPath(s.filepath || ''), className: 'filepath clickable', style: 'flex:1;font-family:var(--font-mono);font-size:10px;color:var(--text-bright);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;min-width:0' },
+];
+// siteOpts is forwarded to renderDrilldownSites: { columns } (flat) or
+// { subgroupBy } (collapse repeated snippets — Tools/Artifacts/Datasets).
+function drilldownGroupClick(g, label, siteOpts) {
+  if (g.count === 1 && g.sites && g.sites[0]) { onFileClick(g.sites[0].filepath, g.sites[0].line); return; }
+  showPane('middle-top');
+  navPush('middle-top');
+  $('#middle-top-title').textContent = label;
+  const shown = g.sites ? g.sites.length : 0;
+  const capped = shown < g.count ? ` (showing first ${shown})` : '';
+  renderDrilldownSites($('#middle-top-body'), {
+    header: `${label}  ·  ${g.count} occurrence${g.count > 1 ? 's' : ''}${capped}`,
+    sites: g.sites,
+    ...siteOpts,
+  });
+}
+const BY_SNIPPET = { subgroupBy: s => s.snippet };
 
 // #116: drill into a Pipeline row — show its stages (cell · ids · sites) in the
 // top-middle pane; each site clicks through to source in the lower pane.

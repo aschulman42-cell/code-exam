@@ -1773,4 +1773,40 @@ export function groupSites(rows, keyFn, pick) {
 export const KERNELS_DRILLDOWN = {
   keyFn: k => `${k.family}|${k.kind}|${k.marker}|${k.name || ''}`,
   pick:  k => ({ name: k.name, filepath: k.filepath, line: k.line, snippet: k.snippet, tag: k.tag }),
+  row:   k => ({ family: k.family, kind: k.kind, marker: k.marker, name: k.name, tag: k.tag }),
+};
+
+// #134 batch-1 identity cells (Models, Artifacts, Datasets, Tools). Same shape as
+// KERNELS_DRILLDOWN: keyFn (name-identity, collapse only genuine repeats), pick
+// (per-site fields), row (left-pane / response identity fields from the group rep).
+// Models has no line/snippet (a class), so its sites carry filepath + method_count.
+export const MODELS_DRILLDOWN = {
+  keyFn: m => `${m.framework}|${m.name}`,
+  pick:  m => ({ name: m.name, filepath: m.filepath, line: m.line, base: m.base, method_count: m.method_count }),
+  row:   m => ({ framework: m.framework, base: m.base, name: m.name, ambiguous: m.ambiguous, method_count: m.method_count }),
+  sort:  (a, b) => b.method_count - a.method_count,   // biggest classes first (parity with the old route)
+};
+// Basename of a model-artifact path (./models/foo.gguf -> foo.gguf) so the same
+// artifact referenced across version-dirs collapses to one identity; HF hub ids
+// (org/model) and bare ids are kept whole. Mirrors metrics.js basenameIfPath.
+function artifactBasename(v) {
+  if (!v) return '';
+  const looksPath = /^(?:\.{1,2}[\\/]|[\\/]|[A-Za-z]:[\\/])/.test(v)
+    || /[\\/][^\\/]*\.(?:gguf|safetensors|onnx|ckpt|pth|pt|bin|h5)$/i.test(v);
+  return looksPath ? (v.split(/[\\/]/).pop() || v) : v;
+}
+export const ARTIFACTS_DRILLDOWN = {
+  keyFn: a => `${a.family}|${a.format}|${artifactBasename(a.name)}`,
+  pick:  a => ({ name: a.name, filepath: a.filepath, line: a.line, snippet: a.snippet, tag: a.tag }),
+  row:   a => ({ family: a.family, format: a.format, name: artifactBasename(a.name), marker: a.marker, tag: a.tag }),
+};
+export const DATASETS_DRILLDOWN = {
+  keyFn: d => `${d.family}|${d.kind}|${d.name || ''}`,
+  pick:  d => ({ name: d.name, filepath: d.filepath, line: d.line, snippet: d.snippet, tag: d.tag }),
+  row:   d => ({ family: d.family, kind: d.kind, name: d.name, marker: d.marker, tag: d.tag }),
+};
+export const TOOLS_DRILLDOWN = {
+  keyFn: t => `${t.framework}|${t.kind}|${t.name || ''}`,
+  pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
+  row:   t => ({ framework: t.framework, kind: t.kind, name: t.name, marker: t.marker, tag: t.tag }),
 };

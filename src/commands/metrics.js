@@ -6,7 +6,7 @@
 
 import path from 'path';
 import { eprint } from '../utils.js';
-import { groupSites, KERNELS_DRILLDOWN } from '../core/ai-ml-detectors.js';
+import { groupSites, KERNELS_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN } from '../core/ai-ml-detectors.js';
 
 
 // ========================================================================
@@ -638,16 +638,20 @@ export function doListTools(index, args) {
     return;
   }
 
-  console.log(`${'Framework'.padEnd(18)}  ${'Kind'.padEnd(13)}  ${'Marker'.padEnd(16)}  ${'Tool name(s)'.padEnd(26)}  File:line`);
-  console.log('='.repeat(118));
-  for (const t of shown) {
+  // #134 de-clutter: collapse repeats of the same tool name into one row + count;
+  // -v lists every site + snippet.
+  const groups = groupSites(tools, TOOLS_DRILLDOWN.keyFn, TOOLS_DRILLDOWN.pick);
+  console.log(`${'Framework'.padEnd(18)}  ${'Kind'.padEnd(13)}  ${'Marker'.padEnd(16)}  ${'Tool name'.padEnd(26)}  Count`);
+  console.log('='.repeat(90));
+  for (const g of groups) {
+    const t = g.rep;
     const fw = (t.tag === 'heuristic' ? '~' : '') + (t.framework || '');
-    let fp = (t.filepath || '').replace(/\\/g, '/');
-    if (fp.length > 30) fp = '...' + fp.slice(-27);
-    const nm = (t.name || '') + (t.lvc ? ' [lib?]' : '');
-    console.log(`${fw.slice(0, 18).padEnd(18)}  ${t.kind.padEnd(13)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${nm.slice(0, 26).padEnd(26)}  ${fp}:${t.line}`);
+    const nm = (t.name || '(unnamed)') + (t.lvc ? ' [lib?]' : '');
+    const cnt = g.count > 1 ? `×${g.count}` : '';
+    console.log(`${fw.slice(0, 18).padEnd(18)}  ${t.kind.padEnd(13)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${nm.slice(0, 26).padEnd(26)}  ${cnt}`);
   }
-  if (heur) console.log(`\n  (~ = heuristic, gated on LLM/MCP context; [lib?] = library-vs-consumer over-fire; blank name = not statically extractable)`);
+  console.log(`\n${groups.length} unique tool${groups.length === 1 ? '' : 's'} (${tools.length} site${tools.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
+  if (heur) console.log(`  (~ = heuristic, gated on LLM/MCP context; [lib?] = library-vs-consumer over-fire; blank name = not statically extractable)`);
 }
 
 export function doListLlmCalls(index, args) {
@@ -769,15 +773,19 @@ export function doListDatasets(index, args) {
     return;
   }
 
-  console.log(`${'Family'.padEnd(13)}  ${'Kind'.padEnd(11)}  ${'Marker'.padEnd(20)}  ${'Name'.padEnd(40)}  File:line`);
-  console.log('='.repeat(128));
-  for (const d of shown) {
+  // #134 de-clutter: collapse repeats of the same dataset name into one row +
+  // count; -v lists every site + snippet.
+  const groups = groupSites(datasets, DATASETS_DRILLDOWN.keyFn, DATASETS_DRILLDOWN.pick);
+  console.log(`${'Family'.padEnd(13)}  ${'Kind'.padEnd(11)}  ${'Marker'.padEnd(20)}  ${'Name'.padEnd(34)}  Count`);
+  console.log('='.repeat(96));
+  for (const g of groups) {
+    const d = g.rep;
     const fam = (d.builtin ? '*' : '') + d.family;
-    let fp = (d.filepath || '').replace(/\\/g, '/');
-    if (fp.length > 36) fp = '...' + fp.slice(-33);
-    console.log(`${fam.slice(0, 13).padEnd(13)}  ${d.kind.padEnd(11)}  ${(d.marker || '').slice(0, 20).padEnd(20)}  ${(basenameIfPath(d.name) || '').slice(0, 40).padEnd(40)}  ${fp}:${d.line}`);
+    const cnt = g.count > 1 ? `×${g.count}` : '';
+    console.log(`${fam.slice(0, 13).padEnd(13)}  ${d.kind.padEnd(11)}  ${(d.marker || '').slice(0, 20).padEnd(20)}  ${(basenameIfPath(d.name) || '').slice(0, 34).padEnd(34)}  ${cnt}`);
   }
-  if (builtins) console.log(`\n  (* = built-in dataset — framework-provided standard/benchmark data, e.g. MNIST/CIFAR/Iris)`);
+  console.log(`\n${groups.length} unique dataset${groups.length === 1 ? '' : 's'} (${datasets.length} site${datasets.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
+  if (builtins) console.log(`  (* = built-in dataset — framework-provided standard/benchmark data, e.g. MNIST/CIFAR/Iris)`);
 }
 
 export function doListKernels(index, args) {
@@ -876,15 +884,19 @@ export function doListArtifacts(index, args) {
     return;
   }
 
-  console.log(`${'Family'.padEnd(14)}  ${'Dir'.padEnd(4)}  ${'Format'.padEnd(12)}  ${'Path / name'.padEnd(40)}  File:line`);
-  console.log('='.repeat(120));
-  for (const a of shown) {
+  // #134 de-clutter: collapse the same artifact id/path (e.g. one .gguf referenced
+  // across N version-dirs) into one row + count; -v lists every site + snippet.
+  const groups = groupSites(artifacts, ARTIFACTS_DRILLDOWN.keyFn, ARTIFACTS_DRILLDOWN.pick);
+  console.log(`${'Family'.padEnd(14)}  ${'Format'.padEnd(12)}  ${'Path / name'.padEnd(44)}  Count`);
+  console.log('='.repeat(82));
+  for (const g of groups) {
+    const a = g.rep;
     const fam = (a.tag === 'heuristic' ? '~' : '') + a.family;
-    const name = (basenameIfPath(a.path) || a.format || '').slice(0, 39);
-    let fp = (a.filepath || '').replace(/\\/g, '/');
-    if (fp.length > 40) fp = '...' + fp.slice(-37);
-    console.log(`${fam.slice(0, 14).padEnd(14)}  ${a.direction.padEnd(4)}  ${a.format.slice(0, 12).padEnd(12)}  ${name.padEnd(40)}  ${fp}:${a.line}`);
+    const name = (basenameIfPath(a.name) || a.format || '').slice(0, 43);
+    const cnt = g.count > 1 ? `×${g.count}` : '';
+    console.log(`${fam.slice(0, 14).padEnd(14)}  ${(a.format || '').slice(0, 12).padEnd(12)}  ${name.padEnd(44)}  ${cnt}`);
   }
+  console.log(`\n${groups.length} unique artifact${groups.length === 1 ? '' : 's'} (${artifacts.length} site${artifacts.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
 }
 
 export function doListModels(index, args) {
@@ -924,16 +936,20 @@ export function doListModels(index, args) {
     return;
   }
 
-  console.log(`${'Framework'.padEnd(14)}  ${'Meth'.padStart(5)}  ${'Class'.padEnd(34)}  ${'Extends'.padEnd(22)}  Filepath`);
-  console.log('='.repeat(118));
-  for (const m of shown) {
+  // #134 de-clutter: collapse same-named classes (repeats across files/versions)
+  // into one row + count; -v lists each with its inheritance chain + filepath.
+  const groups = groupSites(models, MODELS_DRILLDOWN.keyFn, MODELS_DRILLDOWN.pick);
+  console.log(`${'Framework'.padEnd(14)}  ${'Meth'.padStart(5)}  ${'Class'.padEnd(34)}  ${'Extends'.padEnd(22)}  Count`);
+  console.log('='.repeat(90));
+  for (const g of groups) {
+    const m = g.rep;
     const fw = ((m.framework || '?') + (m.ambiguous ? '?' : '')).slice(0, 14);
-    const name = m.name.slice(0, 33);
+    const name = (m.name || '').slice(0, 33);
     const base = (m.base || '').slice(0, 21);
-    let fp = (m.filepath || '').replace(/\\/g, '/');
-    if (fp.length > 48) fp = '...' + fp.slice(-45);
-    console.log(`${fw.padEnd(14)}  ${String(m.method_count).padStart(5)}  ${name.padEnd(34)}  ${base.padEnd(22)}  ${fp}`);
+    const cnt = g.count > 1 ? `×${g.count}` : '';
+    console.log(`${fw.padEnd(14)}  ${String(m.method_count).padStart(5)}  ${name.padEnd(34)}  ${base.padEnd(22)}  ${cnt}`);
   }
+  console.log(`\n${groups.length} unique model${groups.length === 1 ? '' : 's'} (${models.length} instance${models.length === 1 ? '' : 's'}); use -v for inheritance chains.`);
 }
 
 export function doListClasses(index, args) {
