@@ -354,7 +354,8 @@ export function renderArtifactList(container, artifacts, total) {
 // Triton/numba}. Heuristic rows (gated grid-launches) get a leading "~" + dim.
 // ============================================================================
 
-const _KERNEL_KIND_COLOR = { 'kernel-def': '#6cf', 'launch': '#fc6', 'device-fn': 'var(--text-muted)' };
+export const KERNEL_KIND_COLOR = { 'kernel-def': '#6cf', 'launch': '#fc6', 'device-fn': 'var(--text-muted)' };
+const _KERNEL_KIND_COLOR = KERNEL_KIND_COLOR;
 
 export function renderKernelList(container, kernels, total) {
   container.innerHTML = '';
@@ -1658,6 +1659,63 @@ export function renderStringTable(container, strings, meta) {
       h('span', { className: 'metric muted', text: `${s.files}f` }),
     ]);
     item.addEventListener('click', () => renderStringDetail(s));
+    container.appendChild(item);
+  }
+}
+
+
+// ============================================================================
+// #134 generic drill-down renderers (left list of deduped groups → sites pane).
+// Cell-agnostic: each cell supplies a `columns` config (text getter + style per
+// span). Modeled on renderModelsUsedList / renderModelsUsedSites; extract further
+// only when a 2nd cell adopts these. The genuinely generic dedup mechanism is
+// groupSites() in ai-ml-detectors.js; these just render its output.
+// ============================================================================
+
+// Left pane: one row per deduped group (columns + `×count`), click → onItemClick.
+// columns: [{ get(item)->text, className?, style? }]; countOf(item)->number.
+export function renderDrilldownList(container, items, { columns, countOf, onItemClick, title, footer }) {
+  container.innerHTML = '';
+  if (!items || !items.length) {
+    container.innerHTML = '<div class="list-placeholder">None found.</div>';
+    return;
+  }
+  for (const it of items) {
+    const spans = columns.map(c => h('span', {
+      className: c.className || 'metric',
+      text: c.get(it) || '',
+      style: (typeof c.style === 'function' ? c.style(it) : c.style) || 'font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis',
+    }));
+    spans.push(h('span', { className: 'metric', text: '×' + countOf(it), style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }));
+    const item = h('div', { className: 'list-item', title: title ? title(it) : '' }, spans);
+    item.addEventListener('click', (e) => { e.stopPropagation(); onItemClick(it); });
+    container.appendChild(item);
+  }
+  if (footer) container.appendChild(h('div', { className: 'list-placeholder', text: footer }));
+}
+
+// Top-middle pane: header + one row per site, click → source. columns: same shape;
+// each site needs filepath/line for the click-through.
+export function renderDrilldownSites(container, { header, sites, columns }) {
+  container.innerHTML = '';
+  if (!sites || !sites.length) {
+    container.innerHTML = '<div class="list-placeholder">No sites.</div>';
+    return;
+  }
+  if (header) {
+    container.appendChild(h('div', {
+      text: header,
+      style: 'padding:4px 8px;font-size:11px;color:var(--text-bright);border-bottom:1px solid var(--border,#333);margin-bottom:2px',
+    }));
+  }
+  for (const s of sites) {
+    const spans = columns.map(c => h('span', {
+      className: c.className || 'metric',
+      text: c.get(s) || '',
+      style: (typeof c.style === 'function' ? c.style(s) : c.style) || 'font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis',
+    }));
+    const item = h('div', { className: 'list-item', title: `${(s.filepath || '').replace(/\\/g, '/')}:${s.line}` }, spans);
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(s.filepath, s.line); });
     container.appendChild(item);
   }
 }

@@ -65,7 +65,7 @@ import {
 import {
   initListRenderers,
   renderFuncLikeList, renderFunctionList, renderFileListWithSub,
-  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineStages,
+  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineStages, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
@@ -153,9 +153,20 @@ async function loadSectionData(sectionId, filter = '') {
 
       case 'kernels':
         data = await api.listKernels({ filter, max: 500 });
-        state.sectionData[sectionId] = data.kernels;
-        renderKernelList(content, data.kernels, data.total);
-        badge.textContent = data.total;
+        state.sectionData[sectionId] = data.kernels;   // #134: deduped by name (family,kind,marker,name)
+        renderDrilldownList(content, data.kernels, {
+          columns: [
+            { get: k => (k.tag === 'heuristic' ? '~' : '') + (k.family || '?'), style: 'min-width:84px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' },
+            { get: k => k.kind || '', style: k => `min-width:70px;font-size:10px;color:${KERNEL_KIND_COLOR[k.kind] || 'var(--text-muted)'}` },
+            { get: k => k.marker || '', style: 'min-width:84px;font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis' },
+            { get: k => k.name || '(unnamed)', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+          ],
+          countOf: k => k.count,
+          onItemClick: onKernelGroupClick,
+          title: k => `${k.family} · ${k.kind} · ${k.marker} · ${k.name || '(unnamed)'}\n${k.count} occurrence${k.count > 1 ? 's' : ''}`,
+          footer: data.total > data.kernels.length ? `${data.kernels.length} of ${data.total} shown` : '',
+        });
+        badge.textContent = data.instances != null ? data.instances : data.total;  // instances (pre-dedup), so >1-of-some is visible
         break;
 
       case 'datasets':
@@ -432,6 +443,25 @@ function onModelUsedClick(model) {
   navPush('middle-top');
   $('#middle-top-title').textContent = `Model: ${model.model}`;
   renderModelsUsedSites($('#middle-top-body'), model);
+}
+
+// #134: drill into a Kernels group (grouped by name). A single occurrence jumps
+// straight to source (no point in a one-row pane); multiple occurrences (the 3
+// overloaded `Load`s, `act_quant_kernel` ×4) open the sites pane, where the snippet
+// distinguishes same-named variants before clicking through to source.
+function onKernelGroupClick(g) {
+  if (g.count === 1 && g.sites && g.sites[0]) { onFileClick(g.sites[0].filepath, g.sites[0].line); return; }
+  showPane('middle-top');
+  navPush('middle-top');
+  $('#middle-top-title').textContent = `Kernel: ${g.name || '(unnamed)'}`;
+  renderDrilldownSites($('#middle-top-body'), {
+    header: `${g.family} · ${g.kind} · ${g.marker} · ${g.name || '(unnamed)'}  ·  ${g.count} occurrence${g.count > 1 ? 's' : ''}`,
+    sites: g.sites,
+    columns: [
+      { get: s => (s.snippet || '').trim(), className: 'name clickable', style: 'flex:1;font-family:var(--font-mono);font-size:10px;color:var(--text-bright);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0' },
+      { get: s => `${shortPath(s.filepath || '')}:${s.line}`, className: 'filepath', style: 'flex-shrink:0;max-width:300px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left' },
+    ],
+  });
 }
 
 // #116: drill into a Pipeline row — show its stages (cell · ids · sites) in the

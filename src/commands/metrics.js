@@ -6,6 +6,7 @@
 
 import path from 'path';
 import { eprint } from '../utils.js';
+import { groupSites, KERNELS_DRILLDOWN } from '../core/ai-ml-detectors.js';
 
 
 // ========================================================================
@@ -813,14 +814,19 @@ export function doListKernels(index, args) {
     return;
   }
 
-  console.log(`${'Family'.padEnd(13)}  ${'Kind'.padEnd(10)}  ${'Marker'.padEnd(16)}  ${'Name'.padEnd(28)}  File:line`);
-  console.log('='.repeat(110));
-  for (const k of shown) {
+  // #134 de-clutter: non-verbose collapses same-named repeats (family, kind, marker,
+  // name) into one row + a count; distinct names keep their own row. -v (above) still
+  // lists every instance. Grouping keeps the row count low, so no primary is capped.
+  const groups = groupSites(kernels, KERNELS_DRILLDOWN.keyFn, KERNELS_DRILLDOWN.pick);
+  console.log(`${'Family'.padEnd(13)}  ${'Kind'.padEnd(10)}  ${'Marker'.padEnd(16)}  ${'Name'.padEnd(28)}  Count`);
+  console.log('='.repeat(80));
+  for (const g of groups) {
+    const k = g.rep;
     const fam = (k.tag === 'heuristic' ? '~' : '') + k.family;
-    let fp = (k.filepath || '').replace(/\\/g, '/');
-    if (fp.length > 38) fp = '...' + fp.slice(-35);
-    console.log(`${fam.slice(0, 13).padEnd(13)}  ${k.kind.padEnd(10)}  ${(k.marker || '').slice(0, 16).padEnd(16)}  ${(k.name || '').slice(0, 28).padEnd(28)}  ${fp}:${k.line}`);
+    const cnt = g.count > 1 ? `×${g.count}` : '';
+    console.log(`${fam.slice(0, 13).padEnd(13)}  ${k.kind.padEnd(10)}  ${(k.marker || '').slice(0, 16).padEnd(16)}  ${(k.name || '(unnamed)').slice(0, 28).padEnd(28)}  ${cnt}`);
   }
+  console.log(`\n${groups.length} unique kernel${groups.length === 1 ? '' : 's'} (${kernels.length} instance${kernels.length === 1 ? '' : 's'}); use -v to list every instance.`);
 }
 
 // Show a filesystem path by basename (./models/foo.gguf -> foo.gguf) so long

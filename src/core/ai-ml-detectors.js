@@ -1744,3 +1744,33 @@ export const CELL_KEYS = [
   { key: 'pipelines',         method: 'listPipelines' },
   { key: 'prompts',           module: 'commands/prompts.js', command: 'doPromptCatalog' },
 ];
+
+// #134 drill-down dedupe: generic grouper that collapses a flat detector row list
+// into deduped groups. keyFn(row)->string dedup key; pick(row)->the per-site object
+// to retain. Each group keeps the first row as `rep` (shared display fields), a
+// `count`, and a `sites` array. First-seen order is preserved (rows arrive sorted),
+// so grouping never reorders relative to the flat list. Pure; no `this`.
+export function groupSites(rows, keyFn, pick) {
+  const by = new Map();
+  for (const r of (rows || [])) {
+    const k = keyFn(r);
+    let g = by.get(k);
+    if (!g) { g = { key: k, rep: r, count: 0, sites: [] }; by.set(k, g); }
+    g.count++;
+    g.sites.push(pick ? pick(r) : r);
+  }
+  return [...by.values()];
+}
+
+// Per-cell drill-down spec (the only Kernels-specific part; seeds the Phase B
+// CELLS registry). IDENTITY grouping by name `(family, kind, marker, name)`:
+// collapse only same-named repeats (the 3 overloaded `Load`s -> `Load x3`;
+// `act_quant_kernel x4` across version-dirs), while substantially different names
+// (BitCast, Store, Zero) keep their own rows. Rationale (Andrew, on real data):
+// distinct names are not clutter — clutter is the *same* thing over and over; pure
+// `(family,kind,marker)` category grouping was too aggressive. The name shows in
+// the left pane; each group's `sites` are its per-occurrence locations.
+export const KERNELS_DRILLDOWN = {
+  keyFn: k => `${k.family}|${k.kind}|${k.marker}|${k.name || ''}`,
+  pick:  k => ({ name: k.name, filepath: k.filepath, line: k.line, snippet: k.snippet, tag: k.tag }),
+};

@@ -20,6 +20,7 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
+import { groupSites, KERNELS_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
@@ -2040,13 +2041,18 @@ routes['/api/list-kernels'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
-  const kernels = index.listKernels(q.filter);  // already sorted: family, kind, file, line
+  // #134 drill-down: group by (family, kind, marker, name); names ride in each
+  // group's sites. listKernels stays flat (raw consumers unchanged). `instances`
+  // is the pre-dedup count for the badge (so the user sees there are >1 of some).
+  const flat = index.listKernels(q.filter);  // already sorted: family, kind, file, line
+  const groups = groupSites(flat, KERNELS_DRILLDOWN.keyFn, KERNELS_DRILLDOWN.pick);
   const max = safeMax(q.max, 500);
   jsonResponse(res, {
-    total: kernels.length,
-    kernels: kernels.slice(0, max).map(k => ({
-      name: k.name, filepath: k.filepath, line: k.line, kind: k.kind,
-      family: k.family, marker: k.marker, tag: k.tag, snippet: k.snippet,
+    total: groups.length,
+    instances: flat.length,
+    kernels: groups.slice(0, max).map(g => ({
+      family: g.rep.family, kind: g.rep.kind, marker: g.rep.marker, name: g.rep.name, tag: g.rep.tag,
+      count: g.count, sites: g.sites.slice(0, 50),
     })),
   });
 };
