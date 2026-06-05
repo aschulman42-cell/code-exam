@@ -43,7 +43,8 @@ funcstr-corpus (#128).
 ## Phase A — finish AI/ML for public (~4–5 focused-days MUST)
 ### MUST
 - [ ] CSI.js refactor — extract AI/ML to a new module *(keystone; first, or right
-      after the de-dupe win)*
+      after the de-dupe win)*. Mixin extraction into `aiml-detectors.js`; exports a
+      `CELL_KEYS` seed for the Phase-B registry below.
 - [ ] De-dupe accordions via the #115 drill-down scheme (Models/Artifacts/…)
 - [ ] CLI `-v` de-clutter (`--artifacts` etc. → `-v`)
 - [ ] `ai-ml-move-prompts` + reorder accordions (LLM → kernels)
@@ -70,7 +71,12 @@ funcstr-corpus (#128).
 - [ ] Rename `jontest`; purge dead/old files
 - [ ] Per-file headers (name, SLC.com, one-line summary, license)
 - [ ] **Decide contribution model**: PRs vs Bram worklist → CONTRIBUTING
-- [ ] 9-file fan-out rationalization *(pairs with the refactor)*
+- [ ] 9-file fan-out rationalization *(pairs with the refactor)* — a `CELLS`
+      registry (route / responseKey / renderer per cell) extending `CELL_KEYS`,
+      replacing the per-cell hand-wiring in `metrics.js` / `argparse.js` /
+      `server.js` / `public/{api,app}.js` / `public/index.html` /
+      `public/list-renderers.js`. `aiMlCmds` (`src/index.js`, Jun 3) already did
+      this for the CLI-dispatch layer only.
 ### NICE
 - [ ] Feature "pay the rent" cull (hotspots? gaps?) *(decide via audit)*
 - [ ] Per-feature state paragraphs
