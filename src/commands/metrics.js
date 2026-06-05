@@ -6,7 +6,7 @@
 
 import path from 'path';
 import { eprint } from '../utils.js';
-import { groupSites, KERNELS_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN } from '../core/ai-ml-detectors.js';
+import { groupSites, KERNELS_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from '../core/ai-ml-detectors.js';
 
 
 // ========================================================================
@@ -405,15 +405,19 @@ export function doListTraining(index, args) {
     return;
   }
 
-  console.log(`${'Family'.padEnd(13)}  ${'Kind'.padEnd(17)}  ${'Marker'.padEnd(16)}  ${'Name'.padEnd(22)}  File:line`);
-  console.log('='.repeat(112));
-  for (const t of shown) {
+  // #134 de-clutter: collapse same (family,kind,marker,name) repeats into one row
+  // + count; -v lists every site + snippet.
+  const groups = groupSites(training, TRAINING_DRILLDOWN.keyFn, TRAINING_DRILLDOWN.pick);
+  console.log(`${'Family'.padEnd(13)}  ${'Kind'.padEnd(17)}  ${'Marker'.padEnd(16)}  ${'Name'.padEnd(22)}  Count`);
+  console.log('='.repeat(82));
+  for (const g of groups) {
+    const t = g.rep;
     const fam = (t.tier === 'B' ? '~' : '') + t.family;
-    let fp = (t.filepath || '').replace(/\\/g, '/');
-    if (fp.length > 34) fp = '...' + fp.slice(-31);
-    console.log(`${fam.slice(0, 13).padEnd(13)}  ${t.kind.padEnd(17)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${(t.name || '').slice(0, 22).padEnd(22)}  ${fp}:${t.line}`);
+    const cnt = g.count > 1 ? `×${g.count}` : '';
+    console.log(`${fam.slice(0, 13).padEnd(13)}  ${t.kind.padEnd(17)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${(t.name || '').slice(0, 22).padEnd(22)}  ${cnt}`);
   }
-  if (tierB) console.log(`\n  (~ = heuristic .fit() call — gated on ML imports, def-fit excluded)`);
+  console.log(`\n${groups.length} unique training site${groups.length === 1 ? '' : 's'} (${training.length} instance${training.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
+  if (tierB) console.log(`  (~ = heuristic .fit() call — gated on ML imports, def-fit excluded)`);
 }
 
 // Scope caption (#106) — shown on every Chains/Agents view so a 0 isn't misread.
@@ -451,16 +455,19 @@ export function doListEmbeddings(index, args) {
     return;
   }
 
-  console.log(`${'Kind'.padEnd(13)}  ${'Framework'.padEnd(20)}  ${'Marker'.padEnd(24)}  ${'Model / id'.padEnd(34)}  File:line`);
-  console.log('='.repeat(144));
-  for (const t of shown) {
+  // #134 de-clutter: collapse same (framework,kind,marker) repeats; -v full.
+  const groups = groupSites(items, EMBEDDINGS_DRILLDOWN.keyFn, EMBEDDINGS_DRILLDOWN.pick);
+  console.log(`${'Kind'.padEnd(13)}  ${'Framework'.padEnd(20)}  ${'Marker'.padEnd(24)}  ${'Model / id'.padEnd(34)}  Count`);
+  console.log('='.repeat(102));
+  for (const g of groups) {
+    const t = g.rep;
     const kind = (t.tag === 'heuristic' ? '~' : '') + t.kind;
-    let fp = (t.filepath || '').replace(/\\/g, '/');
-    if (fp.length > 32) fp = '...' + fp.slice(-29);
-    console.log(`${kind.slice(0, 13).padEnd(13)}  ${(t.framework || '').slice(0, 20).padEnd(20)}  ${(t.marker || '').slice(0, 24).padEnd(24)}  ${(basenameIfPath(t.id) || '').slice(0, 34).padEnd(34)}  ${fp}:${t.line}`);
+    const cnt = g.count > 1 ? `×${g.count}` : '';
+    console.log(`${kind.slice(0, 13).padEnd(13)}  ${(t.framework || '').slice(0, 20).padEnd(20)}  ${(t.marker || '').slice(0, 24).padEnd(24)}  ${(basenameIfPath(t.id) || '').slice(0, 34).padEnd(34)}  ${cnt}`);
   }
   const unres = items.filter(t => t.id && t.resolved === false).length;
-  if (heur) console.log(`\n  (~ = heuristic/gated; distance is co-occurrence-gated on an embedding/vector marker. RAG = this + an LLM call, #103.)`);
+  console.log(`\n${groups.length} unique embedding/vector${groups.length === 1 ? '' : 's'} (${items.length} site${items.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
+  if (heur) console.log(`  (~ = heuristic/gated; distance co-occurrence-gated. RAG = this + an LLM call, #103.)`);
   console.log(`  (Model / id = embedding model or vector index/collection; <var>${unres ? ` (${unres})` : ''} = unresolved in-file.)`);
 }
 
@@ -526,15 +533,18 @@ export function doListStructuredOutput(index, args) {
     }
     return;
   }
-  console.log(`${'Kind'.padEnd(12)}  ${'Framework'.padEnd(16)}  ${'Marker'.padEnd(24)}  ${'Schema'.padEnd(28)}  File:line`);
-  console.log('='.repeat(122));
-  for (const t of shown) {
+  // #134 de-clutter: collapse same (framework,kind,marker,name) repeats; -v full.
+  const groups = groupSites(items, STRUCTURED_OUTPUT_DRILLDOWN.keyFn, STRUCTURED_OUTPUT_DRILLDOWN.pick);
+  console.log(`${'Kind'.padEnd(12)}  ${'Framework'.padEnd(16)}  ${'Marker'.padEnd(24)}  ${'Schema'.padEnd(28)}  Count`);
+  console.log('='.repeat(94));
+  for (const g of groups) {
+    const t = g.rep;
     const kind = (t.tag === 'heuristic' ? '~' : '') + t.kind;
-    let fp = (t.filepath || '').replace(/\\/g, '/');
-    if (fp.length > 32) fp = '...' + fp.slice(-29);
-    console.log(`${kind.slice(0, 12).padEnd(12)}  ${(t.framework || '').slice(0, 16).padEnd(16)}  ${(t.marker || '').slice(0, 24).padEnd(24)}  ${(t.id || '').slice(0, 28).padEnd(28)}  ${fp}:${t.line}`);
+    const cnt = g.count > 1 ? `×${g.count}` : '';
+    console.log(`${kind.slice(0, 12).padEnd(12)}  ${(t.framework || '').slice(0, 16).padEnd(16)}  ${(t.marker || '').slice(0, 24).padEnd(24)}  ${(t.id || '').slice(0, 28).padEnd(28)}  ${cnt}`);
   }
-  if (heur) console.log(`\n  (~ = heuristic/gated; bare BaseModel/Zod NOT counted — only schemas bound to an LLM call. Schema = the bound output type.)`);
+  console.log(`\n${groups.length} unique schema${groups.length === 1 ? '' : 's'} (${items.length} site${items.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
+  if (heur) console.log(`  (~ = heuristic/gated; bare BaseModel/Zod NOT counted — only schemas bound to an LLM call.)`);
 }
 
 export function doListPipelines(index, args) {
@@ -598,15 +608,18 @@ export function doListChains(index, args) {
     return;
   }
 
-  console.log(`${'Framework'.padEnd(12)}  ${'Kind'.padEnd(7)}  ${'Marker'.padEnd(22)}  ${'Name'.padEnd(20)}  File:line`);
-  console.log('='.repeat(108));
-  for (const t of shown) {
+  // #134 de-clutter: collapse same (framework,kind,marker,name) repeats; -v full.
+  const groups = groupSites(chains, CHAINS_DRILLDOWN.keyFn, CHAINS_DRILLDOWN.pick);
+  console.log(`${'Framework'.padEnd(12)}  ${'Kind'.padEnd(7)}  ${'Marker'.padEnd(22)}  ${'Name'.padEnd(20)}  Count`);
+  console.log('='.repeat(74));
+  for (const g of groups) {
+    const t = g.rep;
     const fw = (t.tag === 'heuristic' ? '~' : '') + (t.framework || '');
-    let fp = (t.filepath || '').replace(/\\/g, '/');
-    if (fp.length > 30) fp = '...' + fp.slice(-27);
-    console.log(`${fw.slice(0, 12).padEnd(12)}  ${t.kind.padEnd(7)}  ${(t.marker || '').slice(0, 22).padEnd(22)}  ${(t.name || '').slice(0, 20).padEnd(20)}  ${fp}:${t.line}`);
+    const cnt = g.count > 1 ? `×${g.count}` : '';
+    console.log(`${fw.slice(0, 12).padEnd(12)}  ${t.kind.padEnd(7)}  ${(t.marker || '').slice(0, 22).padEnd(22)}  ${(t.name || '').slice(0, 20).padEnd(20)}  ${cnt}`);
   }
-  console.log(`\n  (${CHAINS_SCOPE})`);
+  console.log(`\n${groups.length} unique chain/agent${groups.length === 1 ? '' : 's'} (${chains.length} site${chains.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
+  console.log(`  (${CHAINS_SCOPE})`);
 }
 
 export function doListTools(index, args) {
@@ -683,17 +696,21 @@ export function doListLlmCalls(index, args) {
     return;
   }
 
-  console.log(`${'Provider'.padEnd(11)}  ${'Kind'.padEnd(9)}  ${'T'.padEnd(2)}  ${'Marker'.padEnd(26)}  ${'Model'.padEnd(28)}  File:line`);
-  console.log('='.repeat(138));
-  for (const t of shown) {
+  // #134 de-clutter: collapse same (provider,kind,marker,model) repeats — same
+  // model to the same provider becomes one row + count; -v lists every call.
+  const groups = groupSites(calls, LLMCALLS_DRILLDOWN.keyFn, LLMCALLS_DRILLDOWN.pick);
+  console.log(`${'Provider'.padEnd(11)}  ${'Kind'.padEnd(9)}  ${'Marker'.padEnd(26)}  ${'Model'.padEnd(28)}  Count`);
+  console.log('='.repeat(88));
+  for (const g of groups) {
+    const t = g.rep;
     const prov = (t.tag === 'heuristic' ? '~' : '') + t.provider;
-    let fp = (t.filepath || '').replace(/\\/g, '/');
-    if (fp.length > 38) fp = '...' + fp.slice(-35);
-    console.log(`${prov.slice(0, 11).padEnd(11)}  ${t.kind.padEnd(9)}  ${('T' + t.tier).padEnd(2)}  ${((t.marker || '') + (t.lvc ? ' [lib?]' : '')).slice(0, 26).padEnd(26)}  ${basenameIfPath(t.model || '').slice(0, 28).padEnd(28)}  ${fp}:${t.line}`);
+    const cnt = g.count > 1 ? `×${g.count}` : '';
+    console.log(`${prov.slice(0, 11).padEnd(11)}  ${t.kind.padEnd(9)}  ${((t.marker || '') + (t.lvc ? ' [lib?]' : '')).slice(0, 26).padEnd(26)}  ${basenameIfPath(t.model || '').slice(0, 28).padEnd(28)}  ${cnt}`);
   }
   const unresolved = calls.filter(t => t.model && !t.modelResolved).length;
-  if (heur) console.log(`\n  (~ = heuristic; T = A SDK marker / B gated verb / C endpoint URL; [lib?] = library-vs-consumer over-fires)`);
-  console.log(`  (Model from model=/model_path= arg, resolved via same-file assignment / argparse default where possible; <var>${unresolved ? ` (${unresolved} here)` : ''} = couldn't resolve to a literal in-file)`);
+  console.log(`\n${groups.length} unique LLM-call${groups.length === 1 ? '' : 's'} (${calls.length} site${calls.length === 1 ? '' : 's'}); use -v for every call + snippet.`);
+  if (heur) console.log(`  (~ = heuristic; [lib?] = library-vs-consumer over-fires)`);
+  console.log(`  (Model resolved via same-file assignment / argparse default where possible; <var>${unresolved ? ` (${unresolved})` : ''} = unresolved in-file)`);
 }
 
 export function doListInference(index, args) {
@@ -727,16 +744,19 @@ export function doListInference(index, args) {
     return;
   }
 
-  console.log(`${'Family'.padEnd(13)}  ${'Kind'.padEnd(11)}  ${'T'.padEnd(2)}  ${'Marker'.padEnd(16)}  ${'Name (→ model)'.padEnd(30)}  File:line`);
-  console.log('='.repeat(120));
-  for (const t of shown) {
+  // #134 de-clutter: collapse same (family,kind,marker,name) repeats; -v full.
+  const groups = groupSites(inf, INFERENCE_DRILLDOWN.keyFn, INFERENCE_DRILLDOWN.pick);
+  console.log(`${'Family'.padEnd(13)}  ${'Kind'.padEnd(11)}  ${'Marker'.padEnd(16)}  ${'Name (→ model)'.padEnd(30)}  Count`);
+  console.log('='.repeat(86));
+  for (const g of groups) {
+    const t = g.rep;
     const fam = (t.tag === 'heuristic' ? '~' : '') + t.family;
-    let fp = (t.filepath || '').replace(/\\/g, '/');
-    if (fp.length > 32) fp = '...' + fp.slice(-29);
     const nm = (t.name || '') + (t.id ? ' → ' + basenameIfPath(t.id) : '');
-    console.log(`${fam.slice(0, 13).padEnd(13)}  ${t.kind.padEnd(11)}  ${('T' + t.tier).padEnd(2)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${nm.slice(0, 30).padEnd(30)}  ${fp}:${t.line}`);
+    const cnt = g.count > 1 ? `×${g.count}` : '';
+    console.log(`${fam.slice(0, 13).padEnd(13)}  ${t.kind.padEnd(11)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${nm.slice(0, 30).padEnd(30)}  ${cnt}`);
   }
-  if (heur) console.log(`\n  (~ = heuristic/gated; T = tier A clean / B gated calls / C co-occurrence-gated params; → model = pipeline(model=…))`);
+  console.log(`\n${groups.length} unique inference site${groups.length === 1 ? '' : 's'} (${inf.length} instance${inf.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
+  if (heur) console.log(`  (~ = heuristic/gated; → model = pipeline(model=…))`);
 }
 
 export function doListDatasets(index, args) {

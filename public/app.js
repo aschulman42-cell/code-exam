@@ -65,7 +65,7 @@ import {
 import {
   initListRenderers,
   renderFuncLikeList, renderFunctionList, renderFileListWithSub,
-  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineStages, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, DATASET_KIND_COLOR,
+  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineStages, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
@@ -206,25 +206,58 @@ async function loadSectionData(sectionId, filter = '') {
         badge.textContent = data.instances != null ? data.instances : data.total;
         break;
 
-      case 'training':
+      case 'training':   // #134: deduped (family, kind, marker, name)
         data = await api.listTraining({ filter, max: 500 });
         state.sectionData[sectionId] = data.training;
-        renderTrainingList(content, data.training, data.total);
-        badge.textContent = data.total;
+        renderDrilldownList(content, data.training, {
+          columns: [
+            { get: t => (t.tier === 'B' ? '~' : '') + (t.family || '?'), style: 'min-width:96px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.kind || '', style: t => `min-width:116px;font-size:10px;color:${TRAINING_KIND_COLOR[t.kind] || 'var(--text-muted)'}` },
+            { get: t => t.marker || '', style: 'min-width:90px;font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.name || '', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+          ],
+          countOf: t => t.count,
+          onItemClick: t => drilldownGroupClick(t, `Training: ${t.name || t.marker}`, BY_SNIPPET),
+          title: t => `${t.family} · ${t.kind} · ${t.marker} · ${t.name}\n${t.count} site${t.count > 1 ? 's' : ''}`,
+          footer: data.total > data.training.length ? `${data.training.length} of ${data.total} shown` : '',
+        });
+        badge.textContent = data.instances != null ? data.instances : data.total;
         break;
 
-      case 'inference':
+      case 'inference':   // #134: deduped (family, kind, marker, name)
         data = await api.listInference({ filter, max: 500 });
         state.sectionData[sectionId] = data.inference;
-        renderInferenceList(content, data.inference, data.total);
-        badge.textContent = data.total;
+        renderDrilldownList(content, data.inference, {
+          columns: [
+            { get: t => (t.tag === 'heuristic' ? '~' : '') + (t.family || '?'), style: 'min-width:96px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.kind || '', style: t => `min-width:84px;font-size:10px;color:${INFER_KIND_COLOR[t.kind] || 'var(--text-muted)'}` },
+            { get: t => t.marker || '', style: 'min-width:90px;font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis' },
+            { get: t => (t.name || '') + (t.id ? ' → ' + t.id : ''), className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+          ],
+          countOf: t => t.count,
+          onItemClick: t => drilldownGroupClick(t, `Inference: ${t.name || t.marker}`, BY_SNIPPET),
+          title: t => `${t.family} · ${t.kind} · ${t.marker} · ${t.name}${t.id ? ' → ' + t.id : ''}\n${t.count} site${t.count > 1 ? 's' : ''}`,
+          footer: data.total > data.inference.length ? `${data.inference.length} of ${data.total} shown` : '',
+        });
+        badge.textContent = data.instances != null ? data.instances : data.total;
         break;
 
-      case 'llm-calls':
+      case 'llm-calls':   // #134: deduped (provider, kind, marker, model)
         data = await api.listLlmCalls({ filter, max: 500 });
         state.sectionData[sectionId] = data.calls;
-        renderLlmCallsList(content, data.calls, data.total);
-        badge.textContent = data.total;
+        renderDrilldownList(content, data.calls, {
+          columns: [
+            { get: t => (t.tag === 'heuristic' ? '~' : '') + (t.provider || '?'), style: 'min-width:90px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.kind || '', style: t => `min-width:60px;font-size:10px;color:${LLMCALL_KIND_COLOR[t.kind] || 'var(--text-muted)'}` },
+            { get: t => (t.marker || '') + (t.lvc ? ' [lib?]' : ''), className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.model ? '→ ' + t.model : '', style: 'flex-shrink:0;max-width:200px;color:var(--success,#7c7);font-size:10px;overflow:hidden;text-overflow:ellipsis;margin-right:8px' },
+          ],
+          countOf: t => t.count,
+          onItemClick: t => drilldownGroupClick(t, `LLM call: ${t.marker}${t.model ? ' → ' + t.model : ''}`, BY_SNIPPET),
+          title: t => `${t.provider} · ${t.kind} · ${t.marker}${t.model ? ' → ' + t.model : ''}\n${t.count} site${t.count > 1 ? 's' : ''}`,
+          footer: data.total > data.calls.length ? `${data.calls.length} of ${data.total} shown` : '',
+        });
+        badge.textContent = data.instances != null ? data.instances : data.total;
         break;
 
       case 'tools':   // #134: deduped by name (framework, kind, name)
@@ -244,24 +277,57 @@ async function loadSectionData(sectionId, filter = '') {
         badge.textContent = data.instances != null ? data.instances : data.total;
         break;
 
-      case 'chains':
+      case 'chains':   // #134: deduped (framework, kind, marker, name)
         data = await api.listChains({ filter, max: 500 });
         state.sectionData[sectionId] = data.chains;
-        renderChainsList(content, data.chains, data.total);
-        badge.textContent = data.total;
+        renderDrilldownList(content, data.chains, {
+          columns: [
+            { get: t => (t.tag === 'heuristic' ? '~' : '') + (t.framework || '?'), style: 'min-width:104px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.kind || '', style: t => `min-width:56px;font-size:10px;color:${CHAIN_KIND_COLOR[t.kind] || 'var(--text-muted)'}` },
+            { get: t => t.marker || '', style: 'min-width:120px;font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.name || '', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+          ],
+          countOf: t => t.count,
+          onItemClick: t => drilldownGroupClick(t, `Chain/Agent: ${t.name || t.marker}`, BY_SNIPPET),
+          title: t => `${t.framework} · ${t.kind} · ${t.marker} · ${t.name}\n${t.count} site${t.count > 1 ? 's' : ''}`,
+          footer: data.total > data.chains.length ? `${data.chains.length} of ${data.total} shown` : '',
+        });
+        badge.textContent = data.instances != null ? data.instances : data.total;
         break;
 
-      case 'embeddings':
+      case 'embeddings':   // #134: deduped (framework, kind, marker)
         data = await api.listEmbeddings({ filter, max: 500 });
         state.sectionData[sectionId] = data.embeddings;
-        renderEmbeddingsList(content, data.embeddings, data.total);
-        badge.textContent = data.total;
+        renderDrilldownList(content, data.embeddings, {
+          columns: [
+            { get: t => (t.tag === 'heuristic' ? '~' : '') + (t.framework || '?'), style: 'min-width:104px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.kind || '', style: 'min-width:84px;font-size:10px;color:var(--text-muted)' },
+            { get: t => t.marker || '', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.id ? '→ ' + t.id : '', style: 'flex-shrink:0;max-width:200px;color:var(--success,#7c7);font-size:10px;overflow:hidden;text-overflow:ellipsis;margin-right:8px' },
+          ],
+          countOf: t => t.count,
+          onItemClick: t => drilldownGroupClick(t, `Embeddings: ${t.marker}`, BY_SNIPPET),
+          title: t => `${t.framework} · ${t.kind} · ${t.marker}${t.id ? ' → ' + t.id : ''}\n${t.count} site${t.count > 1 ? 's' : ''}`,
+          footer: data.total > data.embeddings.length ? `${data.embeddings.length} of ${data.total} shown` : '',
+        });
+        badge.textContent = data.instances != null ? data.instances : data.total;
         break;
-      case 'structured-output':
+      case 'structured-output':   // #134: deduped (framework, kind, marker, name=id||marker)
         data = await api.listStructuredOutput({ filter, max: 500 });
         state.sectionData[sectionId] = data.items;
-        renderStructuredOutputList(content, data.items, data.total);
-        badge.textContent = data.total;
+        renderDrilldownList(content, data.items, {
+          columns: [
+            { get: t => (t.tag === 'heuristic' ? '~' : '') + (t.kind || '?'), style: t => `min-width:96px;font-size:10px;color:${SO_KIND_COLOR[t.kind] || 'var(--accent,#6cf)'}` },
+            { get: t => t.framework || '', style: 'min-width:90px;font-size:10px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.marker || '', style: 'min-width:120px;font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.name || '', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+          ],
+          countOf: t => t.count,
+          onItemClick: t => drilldownGroupClick(t, `Schema: ${t.name || t.marker}`, BY_SNIPPET),
+          title: t => `${t.framework} · ${t.kind} · ${t.marker} · ${t.name}\n${t.count} site${t.count > 1 ? 's' : ''}`,
+          footer: data.total > data.items.length ? `${data.items.length} of ${data.total} shown` : '',
+        });
+        badge.textContent = data.instances != null ? data.instances : data.total;
         break;
       case 'models-used':
         data = await api.listModelsUsed({ filter, max: 500 });

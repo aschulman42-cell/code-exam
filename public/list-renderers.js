@@ -439,7 +439,8 @@ export function renderDatasetList(container, datasets, total) {
 // mechanical loop/Trainer signal stands apart from the noisier .fit() calls.
 // ============================================================================
 
-const _TRAINING_KIND_COLOR = { 'training-loop': '#fc6', 'training-harness': '#6cf' };
+export const TRAINING_KIND_COLOR = { 'training-loop': '#fc6', 'training-harness': '#6cf' };
+const _TRAINING_KIND_COLOR = TRAINING_KIND_COLOR;
 
 export function renderTrainingList(container, training, total) {
   container.innerHTML = '';
@@ -481,7 +482,8 @@ export function renderTrainingList(container, training, total) {
 // stand apart. API-client LLM usage is a separate unit, not shown here.
 // ============================================================================
 
-const _INFER_KIND_COLOR = { 'generation': '#fc6', 'inference': '#6cf' };
+export const INFER_KIND_COLOR = { 'generation': '#fc6', 'inference': '#6cf' };
+const _INFER_KIND_COLOR = INFER_KIND_COLOR;
 
 export function renderInferenceList(container, inference, total) {
   container.innerHTML = '';
@@ -523,7 +525,8 @@ export function renderInferenceList(container, inference, total) {
 // (heuristic) rows get "~" + dim; [lib?] flags library-vs-consumer over-fire.
 // ============================================================================
 
-const _LLMCALL_KIND_COLOR = { 'call': '#fc6', 'client': '#6cf', 'wrapper': '#a9f', 'endpoint': 'var(--text-muted)' };
+export const LLMCALL_KIND_COLOR = { 'call': '#fc6', 'client': '#6cf', 'wrapper': '#a9f', 'endpoint': 'var(--text-muted)' };
+const _LLMCALL_KIND_COLOR = LLMCALL_KIND_COLOR;
 
 export function renderLlmCallsList(container, calls, total) {
   container.innerHTML = '';
@@ -612,7 +615,8 @@ const _CHAIN_SCOPE = 'Framework primitives (LangChain / LangGraph / DSPy / CrewA
   + 'hand-rolled-agent flag (a module that loops over an LLM call while dispatching tools). The hand-rolled flag '
   + 'needs real module boundaries — on a single minified bundle use a --split-bundle index. LCEL │ pipelines are '
   + 'still not detected; Detection keys on JS/TS + Python idioms (Rust/Go not yet — #108), so a low/zero count is not proof there is no agent.';
-const _CHAIN_KIND_COLOR = { 'chain': '#6cf', 'graph': '#a9f', 'agent': '#fc6' };
+export const CHAIN_KIND_COLOR = { 'chain': '#6cf', 'graph': '#a9f', 'agent': '#fc6' };
+const _CHAIN_KIND_COLOR = CHAIN_KIND_COLOR;
 
 export function renderChainsList(container, chains, total) {
   container.innerHTML = '';
@@ -773,7 +777,8 @@ export function renderModelsUsedSites(container, model) {
 // {schema, format, parser, constrained}; schema rows carry the bound schema name.
 // ============================================================================
 
-const _SO_KIND_COLOR = { schema: '#6cf', format: '#7c7', parser: '#a9f', constrained: '#fc6' };
+export const SO_KIND_COLOR = { schema: '#6cf', format: '#7c7', parser: '#a9f', constrained: '#fc6' };
+const _SO_KIND_COLOR = SO_KIND_COLOR;
 
 export function renderStructuredOutputList(container, items, total) {
   container.innerHTML = '';

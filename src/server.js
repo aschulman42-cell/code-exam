@@ -20,7 +20,7 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
-import { groupSites, KERNELS_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN } from './core/ai-ml-detectors.js';
+import { groupSites, KERNELS_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
@@ -2030,100 +2030,14 @@ routes['/api/list-kernels'] = drilldownRoute('listKernels', KERNELS_DRILLDOWN, '
 
 routes['/api/list-datasets'] = drilldownRoute('listDatasets', DATASETS_DRILLDOWN, 'datasets');
 
-routes['/api/list-training'] = (req, res) => {
-  const q = parseQuery(req.url);
-  const index = mgr.get(q.index);
-  if (!index) return errorResponse(res, 'No index loaded', 404);
-  const training = index.listTraining(q.filter);  // sorted: family, kind, file, line
-  const max = safeMax(q.max, 500);
-  jsonResponse(res, {
-    total: training.length,
-    training: training.slice(0, max).map(t => ({
-      name: t.name, filepath: t.filepath, line: t.line, kind: t.kind,
-      family: t.family, tier: t.tier, marker: t.marker, tag: t.tag, snippet: t.snippet,
-    })),
-  });
-};
-
-routes['/api/list-inference'] = (req, res) => {
-  const q = parseQuery(req.url);
-  const index = mgr.get(q.index);
-  if (!index) return errorResponse(res, 'No index loaded', 404);
-  const inf = index.listInference(q.filter);  // sorted: family, kind, file, line
-  const max = safeMax(q.max, 500);
-  jsonResponse(res, {
-    total: inf.length,
-    inference: inf.slice(0, max).map(t => ({
-      name: t.name, filepath: t.filepath, line: t.line, kind: t.kind,
-      family: t.family, tier: t.tier, marker: t.marker, tag: t.tag,
-      id: t.id, resolved: t.resolved, snippet: t.snippet,
-    })),
-  });
-};
-
-routes['/api/list-llm-calls'] = (req, res) => {
-  const q = parseQuery(req.url);
-  const index = mgr.get(q.index);
-  if (!index) return errorResponse(res, 'No index loaded', 404);
-  const calls = index.listLlmCalls(q.filter);  // sorted: provider, kind, file, line
-  const max = safeMax(q.max, 500);
-  jsonResponse(res, {
-    total: calls.length,
-    calls: calls.slice(0, max).map(t => ({
-      name: t.name, filepath: t.filepath, line: t.line, kind: t.kind,
-      provider: t.provider, tier: t.tier, marker: t.marker, tag: t.tag, lvc: t.lvc,
-      model: t.model, modelResolved: t.modelResolved, snippet: t.snippet,
-    })),
-  });
-};
-
+// #134 batch 2: all six marker-driven cells now go through the same drilldownRoute.
+routes['/api/list-training'] = drilldownRoute('listTraining', TRAINING_DRILLDOWN, 'training');
+routes['/api/list-inference'] = drilldownRoute('listInference', INFERENCE_DRILLDOWN, 'inference');
+routes['/api/list-llm-calls'] = drilldownRoute('listLlmCalls', LLMCALLS_DRILLDOWN, 'calls');
 routes['/api/list-tools'] = drilldownRoute('listTools', TOOLS_DRILLDOWN, 'tools');
-
-routes['/api/list-chains'] = (req, res) => {
-  const q = parseQuery(req.url);
-  const index = mgr.get(q.index);
-  if (!index) return errorResponse(res, 'No index loaded', 404);
-  const chains = index.listChains(q.filter);  // sorted: framework, kind, file, line
-  const max = safeMax(q.max, 500);
-  jsonResponse(res, {
-    total: chains.length,
-    chains: chains.slice(0, max).map(t => ({
-      name: t.name, filepath: t.filepath, line: t.line, kind: t.kind,
-      framework: t.framework, tier: t.tier, marker: t.marker, tag: t.tag, snippet: t.snippet,
-    })),
-  });
-};
-
-routes['/api/list-embeddings'] = (req, res) => {
-  const q = parseQuery(req.url);
-  const index = mgr.get(q.index);
-  if (!index) return errorResponse(res, 'No index loaded', 404);
-  const items = index.listEmbeddings(q.filter);  // sorted: kind, framework, file, line
-  const max = safeMax(q.max, 500);
-  jsonResponse(res, {
-    total: items.length,
-    embeddings: items.slice(0, max).map(t => ({
-      name: t.name, filepath: t.filepath, line: t.line, kind: t.kind,
-      framework: t.framework, tier: t.tier, marker: t.marker, tag: t.tag,
-      id: t.id, resolved: t.resolved, snippet: t.snippet,
-    })),
-  });
-};
-
-routes['/api/list-structured-output'] = (req, res) => {
-  const q = parseQuery(req.url);
-  const index = mgr.get(q.index);
-  if (!index) return errorResponse(res, 'No index loaded', 404);
-  const items = index.listStructuredOutput(q.filter);  // sorted: kind, framework, file, line
-  const max = safeMax(q.max, 500);
-  jsonResponse(res, {
-    total: items.length,
-    items: items.slice(0, max).map(t => ({
-      name: t.name, filepath: t.filepath, line: t.line, kind: t.kind,
-      framework: t.framework, marker: t.marker, tag: t.tag, id: t.id, snippet: t.snippet,
-    })),
-  });
-};
+routes['/api/list-chains'] = drilldownRoute('listChains', CHAINS_DRILLDOWN, 'chains');
+routes['/api/list-embeddings'] = drilldownRoute('listEmbeddings', EMBEDDINGS_DRILLDOWN, 'embeddings');
+routes['/api/list-structured-output'] = drilldownRoute('listStructuredOutput', STRUCTURED_OUTPUT_DRILLDOWN, 'items');
 
 routes['/api/list-models-used'] = (req, res) => {
   const q = parseQuery(req.url);

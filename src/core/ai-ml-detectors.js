@@ -1810,3 +1810,36 @@ export const TOOLS_DRILLDOWN = {
   pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
   row:   t => ({ framework: t.framework, kind: t.kind, name: t.name, marker: t.marker, tag: t.tag }),
 };
+
+// #134 batch-2 marker-driven cells. Default key = (group, kind, marker, identity),
+// where identity is the resolved name/model where one exists, else the marker.
+export const TRAINING_DRILLDOWN = {
+  keyFn: t => `${t.family}|${t.kind}|${t.marker}|${t.name || ''}`,
+  pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
+  row:   t => ({ family: t.family, kind: t.kind, marker: t.marker, name: t.name, tier: t.tier, tag: t.tag }),
+};
+export const INFERENCE_DRILLDOWN = {
+  keyFn: t => `${t.family}|${t.kind}|${t.marker}|${t.name || ''}`,
+  pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
+  row:   t => ({ family: t.family, kind: t.kind, marker: t.marker, name: t.name, id: t.id, tier: t.tier, tag: t.tag }),
+};
+export const LLMCALLS_DRILLDOWN = {
+  keyFn: t => `${t.provider}|${t.kind}|${t.marker}|${t.model || ''}`,   // model is the identity; name is just the marker
+  pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
+  row:   t => ({ provider: t.provider, kind: t.kind, marker: t.marker, model: t.model, name: t.name, lvc: t.lvc, tier: t.tier, tag: t.tag }),
+};
+export const CHAINS_DRILLDOWN = {
+  keyFn: t => `${t.framework}|${t.kind}|${t.marker}|${t.name || ''}`,
+  pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
+  row:   t => ({ framework: t.framework, kind: t.kind, marker: t.marker, name: t.name, tier: t.tier, tag: t.tag }),
+};
+export const EMBEDDINGS_DRILLDOWN = {
+  keyFn: t => `${t.framework}|${t.kind}|${t.marker}`,   // name === marker for embeddings
+  pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
+  row:   t => ({ framework: t.framework, kind: t.kind, marker: t.marker, name: t.name, id: t.id, tier: t.tier, tag: t.tag }),
+};
+export const STRUCTURED_OUTPUT_DRILLDOWN = {
+  keyFn: t => `${t.framework}|${t.kind}|${t.marker}|${t.name || ''}`,   // name = id||marker (schema is the identity)
+  pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
+  row:   t => ({ framework: t.framework, kind: t.kind, marker: t.marker, name: t.name, id: t.id, tag: t.tag }),
+};
