@@ -685,6 +685,14 @@ SEARCH:
   --regex <pattern>          Regex pattern search
   --files-search <query>     Show files containing a term, sorted by hit count
   --folders-search <query>   Show folders containing a term, sorted by hit count
+  --multisect-search <terms> Multi-term intersection search (semicolon-separated terms)
+                             Finds smallest scope (function/class/file/folder) containing
+                             "substantially all" terms. Default requires ALL positive terms;
+                             use --min-terms N to require only N of them (partial matching).
+                             Terms in /.../ are regex. Prefix with NOT or ! to negate.
+  --in <pattern>             Universal path filter — restrict search, multisect &
+                             vocabulary output to files whose path contains <pattern>
+  --show-dupes               Show file duplicate paths in output
 
 BROWSE:
   --stats                    Show index statistics
@@ -749,41 +757,38 @@ GRAPH:
   --mermaid                  Output Mermaid diagram instead of text
 
 METRICS / DISCOVERY:
+  --classes                  List all classes with method counts/sizes
+                             (deprecated alias: --list-classes)
+  --vocabulary <n>           Top N domain-specific tokens by TF-IDF score
+                             (short alias: --vocab; deprecated alias:
+                             --discover-vocabulary)
   --hotspots <n>             Top N structurally important functions (calls x log2(lines))
   --hot-folders <n>          Top N directories by aggregated hotspot score
+  --class-hotspots <n>       Top N classes by aggregated method hotspot score
   --entry-points <n>         Top N uncalled functions (sorted by size)
   --max-calls <n>            Max call count for entry-points (default: 0 = never called)
   --gaps [n]                 Find suspicious dead code (defined, no callers, not entry-point)
   --domain-fns <n>           Top N domain-specific functions (score / sqrt(name defs))
-  --classes                  List all classes with method counts/sizes
-                             (deprecated alias: --list-classes)
 
-  AI/ML detectors (list AI/ML constructs; each has a --list-<name> alias):
-  --models                   ML model classes (nn.Module / keras / sklearn subclasses)
-  --datasets                 Datasets (Dataset/IterableDataset, tf.data, ML loaders)
-  --training                 Training sites (PyTorch loop, Trainer, .fit)
-  --artifacts                Model load/save sites (from_pretrained, GGUF, safetensors)
-  --kernels                  GPU kernels (CUDA __global__, Triton @triton.jit, numba)
-  --inference                Local inference/generation (generate, no_grad, .predict)
+AI/ML DETECTORS (list AI/ML constructs; each has a --list-<name> alias):
+  --pipelines                Connected AI/ML pipelines (RAG/training/inference/agent/LLM-app) by cell co-occurrence
+  --prompt-catalog           Detect and display LLM prompts in the codebase:
+                             system prompts ("You are..."), getSystemPrompt methods,
+                             systemPrompt: properties, role:"system" messages, and
+                             build*Prompt functions. Full text, no truncation — pipe
+                             to a file and grep for keywords. (alias: --prompts)
   --llm-calls                LLM API calls (messages.create, ChatOpenAI, LlamaChatSession)
   --tools                    Tool defs / function-calling (@tool, input_schema, MCP, tool_use)
   --chains                   Chains/agents (LangChain/LangGraph/DSPy/CrewAI; framework-based only)
   --embeddings               Embeddings & vector search (FAISS/Chroma, similarity_search, distance)
   --structured-output        Structured output / schemas (with_structured_output, response_format, parsers)
+  --inference                Local inference/generation (generate, no_grad, .predict)
+  --training                 Training sites (PyTorch loop, Trainer, .fit)
+  --datasets                 Datasets (Dataset/IterableDataset, tf.data, ML loaders)
+  --artifacts                Model load/save sites (from_pretrained, GGUF, safetensors)
+  --models                   ML model classes (nn.Module / keras / sklearn subclasses)
   --models-used              Models USED — named models loaded/called across the cells, deduped (api/local)
-  --pipelines                Connected AI/ML pipelines (RAG/training/inference/agent/LLM-app) by cell co-occurrence
-
-  --class-hotspots <n>       Top N classes by aggregated method hotspot score
-  --vocabulary <n>           Top N domain-specific tokens by TF-IDF score
-                             (short alias: --vocab; deprecated alias:
-                             --discover-vocabulary)
-  --multisect-search <terms> Multi-term intersection search (semicolon-separated terms)
-                             Finds smallest scope (function/class/file/folder) containing
-                             "substantially all" terms. Default requires ALL positive terms;
-                             use --min-terms N to require only N of them (partial matching).
-                             Terms in /.../ are regex. Prefix with NOT or ! to negate.
-  --in <pattern>            Universal path filter — restrict search, multisect & vocabulary output to files whose path contains <pattern>
-  --show-dupes               Show file duplicate paths in output
+  --kernels                  GPU kernels (CUDA __global__, Triton @triton.jit, numba)
 
 CLAIM SEARCH (LLM-based patent claim analysis):
   --claim-search <text>      Extract search terms from patent claim text
@@ -948,11 +953,6 @@ CONTENT ANALYSIS:
   --string-table [filter]    Show frequently-occurring string literals (alias: --strings)
                              Optional filter: substring or /regex/flags
   --breadcrumbs              Show telemetry/trace markers and event categories
-  --prompt-catalog           Detect and display all LLM prompts in the codebase:
-                             system prompts ("You are..."), getSystemPrompt methods,
-                             systemPrompt: properties, role:"system" messages, and
-                             build*Prompt functions. Full text, no truncation — pipe
-                             to a file and grep for keywords. (alias: --prompts)
                              (execution flow phases inferred from log/trace calls).
                              Combine with --verbose to expand each event
                              category into its full event list AND a per-
@@ -986,30 +986,17 @@ CONTENT ANALYSIS:
 
 BINARY ANALYSIS (Quasi-Source — see issue #76):
   --inspect-binary <target...>
-                             Fast "what is this and where might I find
-                             related source" report for native binaries.
-                             Detects file format (PE / ELF / Mach-O),
-                             framework / bundler signatures (Bun, Tauri,
-                             Electron, PyInstaller, pkg, nexe, Node SEA,
-                             pure Rust), embedded source-locating hints
-                             (Windows .obj paths, SDK-relative .cpp/.h
-                             paths, git commit SHAs, GitHub URLs,
-                             MSVC/rustc versions), PE imports/exports,
-                             code-signing, and PDB debug-info presence.
-                             Symlinks (e.g. /usr/bin/node via
-                             update-alternatives) are followed via
-                             realpathSync; resolved targets surfaced.
-                             <target> can be one or more of: single
-                             path, glob (quote it like "/usr/bin/*.exe"
-                             to defer to CE; unquoted, the shell will
-                             expand and CE takes all values), or
-                             @filelist of one path per line. For
-                             recursive walk, quote a glob with **/*
-                             like "/usr/lib/**/*.so". Directories in
-                             the input set are skipped (one
-                             consolidated tip emitted at end).
-                             Pair with -v to expand standard-library
-                             imports and show all hint matches.
+                             Fast "what is this and where might I find related
+                             source" report for native binaries. Detects file
+                             format (PE/ELF/Mach-O), framework/bundler signatures
+                             (Bun, Tauri, Electron, PyInstaller, pkg, nexe, Node
+                             SEA, pure Rust), embedded source-locating hints (.obj/
+                             SDK paths, git SHAs, GitHub URLs, MSVC/rustc versions),
+                             PE imports/exports, code-signing, and PDB presence.
+                             Symlinks are followed (realpathSync). <target> is one
+                             or more paths, a quoted glob ("/usr/bin/*.exe", or
+                             "**/*.so" for recursive), or @filelist. Pair with -v
+                             to expand stdlib imports and show all hint matches.
   --extract-js-from-binary <path>
                              Detect the bundler used to produce a native
                              install binary (claude.exe, codex.exe, etc.)
