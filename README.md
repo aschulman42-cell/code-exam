@@ -33,17 +33,17 @@ What CodeExam emphasizes beyond that baseline:
 - **Optional LLM assistance**, including an **air-gapped** local-GGUF mode for
   code that must not be exposed in any way outside a protected computer.
 
-A growing focus is **examining AI-related software**. Today that means LLM
-prompt extraction and stress-testing on large AI codebases — Claude Code's
-minified `cli.js` (≈14 MB, bundled with `claude.exe`) and Codex's Rust source
-are two of the working test cases — plus indexing the major ML framework and
-model trees (PyTorch, Hugging Face Transformers, scikit-learn; model repos such
-as DeepSeek, Qwen, Llama) with the same general machinery. CodeExam is not yet
-ML-architecture-aware — it doesn't render a model's layer topology the way it
-renders call graphs — but making AI/ML and neural-net code easier to *view* and
-reason about is an explicit direction we're working toward.
+A growing focus is **examining AI-related software**, and much of that is now in
+place. CodeExam ships a dedicated **AI/ML and LLM-app detectors** suite (see
+Feature highlights below) that surfaces inferred pipelines, the models a codebase
+defines and uses, LLM calls, tools, agents/chains, embeddings, and more —
+alongside LLM prompt extraction, stress-tested on large AI codebases such as
+Claude Code's minified `cli.js` (≈14 MB, bundled with `claude.exe`) and Codex's
+Rust source. It indexes the major ML framework and model trees (PyTorch, Hugging
+Face Transformers, scikit-learn; model repos such as DeepSeek, Qwen, Llama) with
+the same general machinery. This remains an area of active development.
 
-CodeExam is ~48,000 lines of JavaScript (engine + CLI + GUI) running under
+CodeExam is ~47,000 lines of JavaScript (engine + CLI + GUI) running under
 Node.js, developed in close collaboration with Claude Code: nearly all of the
 code was written by Claude Code, in several important places building on the
 main author's earlier tooling (e.g. "Opstrings" and function digests, the
@@ -151,12 +151,13 @@ tuned toward their intended sharpness.
 - **Breadcrumbs** — telemetry markers (logging, analytics, audit calls) with
   their associated functions, useful for tracing what an obfuscated binary
   actually reports back.
-- **Prompt catalog** — detected LLM prompts in the codebase, with composite
-  expansion: ternary branches, template `${var}` interpolations, and
-  function-level assemblies built piece-by-piece via `[…].join(…)` are merged
-  into one searchable entry per logical prompt. Detects inline strings,
-  `getSystemPrompt` / `systemPrompt:` properties, `role:"system"` messages,
-  and `.md` skill files.
+- **AI/ML and LLM-app code** — extensive catalogs of the AI/ML and LLM-app
+  constructs in a codebase (models, LLM calls, tools, chains, prompts, and
+  more) — see *AI/ML and LLM-app detectors* below.
+- **Vocabulary** — TF-IDF-ranked domain-specific terms and nomenclature,
+  surfacing what a codebase is "about" (`--vocabulary` / `--vocab`).
+- **Metrics** — code-surfacing rankings (hotspots, complexity, most-called,
+  domain-specific functions) for finding where to start reading.
 
 ### Deobfuscation, renames, and fingerprints
 - Detects esbuild / minified JS and prettifies via `js-beautify`.
@@ -209,6 +210,47 @@ deliberately so, because each survives a different kind of transformation:
 No single signature is sufficient on its own; used together — structural,
 extrinsic, and (for the residual hard cases) LLM-assisted — they identify
 unknown code far more reliably than any one of them.
+
+### AI/ML and LLM-app detectors
+
+A group of heuristic detectors that surface the AI/ML and LLM-app constructs in
+a codebase — available both as a left-pane **AI/ML** section in the GUI and as
+matching CLI flags (`--pipelines`, `--models-used`, `--llm-calls`, …; each has a
+`--list-<name>` alias). They span classic ML (PyTorch / HF Transformers /
+scikit-learn) and LLM-application code (SDK calls, tools, agent/chain
+frameworks). Detection is pattern-based — it favors recall and is honest about
+its misses, and distinct names are kept rather than over-collapsed.
+
+Three views lead:
+
+- **AI/ML Pipelines (inferred)** — the connected-flow overview. CodeExam infers
+  end-to-end pipelines (RAG, training, inference, agent, LLM-app) from the
+  *co-occurrence* of the component cells below, so you see how the pieces wire
+  together instead of a flat list. The best lead-in to an unfamiliar AI codebase.
+- **Models Used** — the named models actually loaded or called across the whole
+  codebase, deduped and labeled api-vs-local (an API id like `gpt-4o`, a `.gguf`
+  path, a Hugging Face repo id). Distinct from **Models (defined)** below, which
+  lists model *classes* (`nn.Module` / Keras / scikit-learn subclasses).
+- **Prompts** — the prompt catalog (relocated here from *Catalogs*): detected
+  LLM prompts, with composite expansion — ternary branches, `${var}` templates,
+  and `[…].join(…)` assemblies merged into one searchable entry per logical
+  prompt. Detects inline strings, `getSystemPrompt` / `systemPrompt:`,
+  `role:"system"` messages, and `.md` skill files.
+
+The component detectors the Pipelines view synthesizes from — each also a
+standalone list (GUI accordion + CLI flag):
+
+- **LLM Calls** — SDK calls / endpoints (`messages.create`, `ChatOpenAI`, `LlamaChatSession`).
+- **Tools** — tool / function-calling defs and dispatch (`@tool`, `input_schema`, MCP).
+- **Chains / Agents** — orchestration via LangChain / LangGraph / DSPy / CrewAI.
+- **Embeddings / Vectors** — embedding and vector-search sites (FAISS / Chroma, similarity search).
+- **Structured Output** — schema-constrained output (`with_structured_output`, `response_format`, parsers).
+- **Inference** — local generation / prediction (`generate`, `no_grad`, `.predict`).
+- **Training** — training sites (PyTorch loops, HF `Trainer`, `.fit`).
+- **Datasets** — dataset definitions and loaders (`Dataset` / `IterableDataset`, `tf.data`).
+- **Artifacts** — model load/save sites (`from_pretrained`, GGUF, safetensors).
+- **Models (defined)** — model classes by inheritance (`nn.Module` / Keras / scikit-learn).
+- **Kernels** — GPU kernels (CUDA `__global__`, Triton `@triton.jit`, numba).
 
 ### Quasi-Source: recovering structure from non-source artifacts
 
