@@ -6,7 +6,7 @@
 
 import path from 'path';
 import { eprint } from '../utils.js';
-import { groupSites, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from '../core/ai-ml-detectors.js';
+import { groupSites, groupPipelines, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from '../core/ai-ml-detectors.js';
 
 
 // ========================================================================
@@ -565,26 +565,39 @@ export function doListPipelines(index, args) {
   // a real pipeline (#142).
   const main = flows.filter(w => w.scope !== 'module');
   const loose = flows.filter(w => w.scope === 'module');
+  // #142 drill-down dedupe: the SAME pipeline (e.g. `RAG · vector-store(LangChain)
+  // → search(LangChain)`) repeats once per file (~186 rows for .langchain),
+  // differing only by location. Collapse identical-signature flows to ONE row +
+  // ×count within each section; -v lists every member location beneath its rep.
+  // Grouping is per-section so the main/loose split (and its confidence caveat) is
+  // preserved.
+  const mainGroups = groupPipelines(main);
+  const looseGroups = groupPipelines(loose);
   const max = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : 0;
   const cap = (arr) => (max > 0 ? arr.slice(0, max) : arr);
-  console.log(`\n${flows.length} pipelines — ${shapeSummary} (${scopeSummary})${loose.length ? `; ${loose.length} loose (module-scope) shown separately` : ''}:\n`);
+  const groupCount = mainGroups.length + looseGroups.length;
+  console.log(`\n${flows.length} pipelines in ${groupCount} group${groupCount === 1 ? '' : 's'} — ${shapeSummary} (${scopeSummary})${loose.length ? `; ${loose.length} loose (module-scope) shown separately` : ''}:\n`);
   const stagesStr = (w) => w.stages.map(s => s.cell + (s.ids.length ? `(${basenameIfPath(s.ids[0])}${s.ids.length > 1 ? ',…' : ''})` : '')).join(' → ');
   const LOOSE_HDR = '── loose: module-scope (climbed to a common ancestor — cells co-occur somewhere in the subtree, NOT a traced flow); lower confidence ──';
   if (args.verbose) {
-    const vrow = (w) => {
-      console.log(`${w.scope.padEnd(6)} ${w.shape.padEnd(9)} ${w.location.replace(/\\/g, '/')}${w.shapes.length > 1 ? `  [also: ${w.shapes.slice(1).join(', ')}]` : ''}`);
+    const vgroup = (g) => {
+      const w = g.rep;
+      const cnt = g.count > 1 ? `  ×${g.count}` : '';
+      console.log(`${w.scope.padEnd(6)} ${w.shape.padEnd(9)} ${w.location.replace(/\\/g, '/')}${w.shapes.length > 1 ? `  [also: ${w.shapes.slice(1).join(', ')}]` : ''}${cnt}`);
       console.log(`        ${stagesStr(w)}`);
+      for (const m of g.members) console.log(`          - ${m.scope.padEnd(6)} ${m.location.replace(/\\/g, '/')}`);
     };
-    for (const w of cap(main)) vrow(w);
-    if (loose.length) { console.log(`\n  ${LOOSE_HDR}`); for (const w of cap(loose)) vrow(w); }
+    for (const g of cap(mainGroups)) vgroup(g);
+    if (looseGroups.length) { console.log(`\n  ${LOOSE_HDR}`); for (const g of cap(looseGroups)) vgroup(g); }
     return;
   }
-  const head = () => { console.log(`${'Shape'.padEnd(9)}  ${'Scope'.padEnd(6)}  ${'Location'.padEnd(34)}  Stages`); console.log('='.repeat(140)); };
-  const row = (w) => { let loc = w.location.replace(/\\/g, '/'); if (loc.length > 34) loc = '...' + loc.slice(-31); console.log(`${w.shape.padEnd(9)}  ${w.scope.padEnd(6)}  ${loc.padEnd(34)}  ${stagesStr(w).slice(0, 80)}`); };
+  const head = () => { console.log(`${'Shape'.padEnd(9)}  ${'Scope'.padEnd(6)}  ${'Location'.padEnd(34)}  ${'Stages'.padEnd(80)}  Count`); console.log('='.repeat(140)); };
+  const row = (g) => { const w = g.rep; let loc = w.location.replace(/\\/g, '/'); if (loc.length > 34) loc = '...' + loc.slice(-31); const cnt = g.count > 1 ? `×${g.count}` : ''; console.log(`${w.shape.padEnd(9)}  ${w.scope.padEnd(6)}  ${loc.padEnd(34)}  ${stagesStr(w).slice(0, 80).padEnd(80)}  ${cnt}`); };
   head();
-  for (const w of cap(main)) row(w);
-  if (loose.length) { console.log(`\n${LOOSE_HDR}`); head(); for (const w of cap(loose)) row(w); }
-  console.log(`\n  (Pipelines = AI/ML constructs inferred from cell CO-OCCURRENCE, NOT traced dataflow. Confidence by scope:`
+  for (const g of cap(mainGroups)) row(g);
+  if (looseGroups.length) { console.log(`\n${LOOSE_HDR}`); head(); for (const g of cap(looseGroups)) row(g); }
+  console.log(`\n${groupCount} group${groupCount === 1 ? '' : 's'} (${flows.length} pipeline${flows.length === 1 ? '' : 's'}); use -v for every member location.`);
+  console.log(`  (Pipelines = AI/ML constructs inferred from cell CO-OCCURRENCE, NOT traced dataflow. Confidence by scope:`
     + ` file > folder (leaf folder) > module (climbed to a common ancestor — "loose", shown separately above). Import-graph assembly + a graph view are deferred. Shapes by specificity: RAG>low-level>training>agent>inference>LLM-app.)`);
 }
 

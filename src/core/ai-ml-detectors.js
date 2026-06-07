@@ -1904,6 +1904,30 @@ export function groupSites(rows, keyFn, pick) {
   return [...by.values()];
 }
 
+// #142 drill-down dedupe for the Pipelines PROJECTION. Unlike the marker cells
+// above, a pipeline row is a multi-stage flow ({ shape, stages:[{cell, ids, ...}] }),
+// so its dedup signature is the shape plus the ordered stage cells with their
+// FIRST id. Using the first id only collapses genuine repeats
+// (`vector-store(LangChain) → search(LangChain)` over 186 files → ONE group) while
+// keeping distinct backends apart (`vector-store(Milvus) → …` stays its own group).
+// Rows arrive pre-sorted (file→folder→module), so first-seen order is preserved.
+// Pure; no `this`. Returns [{ sig, rep, count, members }] where members are the
+// full original rows (each retains its `stages`, so leaf drill still works).
+export function pipelineSig(w) {
+  return w.shape + '|' + (w.stages || []).map(s => s.cell + (s.ids && s.ids.length ? '(' + s.ids[0] + ')' : '')).join(' → ');
+}
+export function groupPipelines(flows) {
+  const by = new Map();
+  for (const w of (flows || [])) {
+    const sig = pipelineSig(w);
+    let g = by.get(sig);
+    if (!g) { g = { sig, rep: w, count: 0, members: [] }; by.set(sig, g); }
+    g.count++;
+    g.members.push(w);
+  }
+  return [...by.values()];
+}
+
 // Per-cell drill-down spec (the only Kernels-specific part; seeds the Phase B
 // CELLS registry). IDENTITY grouping by name `(family, kind, marker, name)`:
 // collapse only same-named repeats (the 3 overloaded `Load`s -> `Load x3`;

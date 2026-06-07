@@ -65,7 +65,7 @@ import {
 import {
   initListRenderers,
   renderFuncLikeList, renderFunctionList, renderFileListWithSub,
-  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineStages, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR,
+  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
@@ -355,8 +355,8 @@ async function loadSectionData(sectionId, filter = '') {
         break;
       case 'pipelines':
         data = await api.listPipelines({ filter, max: 500 });
-        state.sectionData[sectionId] = data.pipelines;
-        renderPipelinesList(content, data.pipelines, data.total, onPipelineClick);
+        state.sectionData[sectionId] = data.groups;
+        renderPipelinesList(content, data.groups, data.total, onPipelineGroupClick);
         badge.textContent = data.total;
         break;
 
@@ -628,7 +628,19 @@ function drilldownGroupClick(g, label, siteOpts) {
 }
 const BY_SNIPPET = { subgroupBy: s => s.snippet };
 
-// #116: drill into a Pipeline row — show its stages (cell · ids · sites) in the
+// #142 drill-down dedupe: click a pipeline GROUP (one deduped signature). A ×1
+// group jumps straight to its single pipeline's stages (no point in a one-row
+// member pane); a ×N group opens the member-files pane, where each file clicks
+// through to its own stages. Mirrors the ×1 fast-path the other AI/ML cells use.
+function onPipelineGroupClick(g) {
+  if (g.count === 1) { onPipelineClick(g.rep); return; }
+  showPane('middle-top');
+  navPush('middle-top');
+  $('#middle-top-title').textContent = `Pipeline: ${g.rep.shape} (${g.rep.scope}) ×${g.count}`;
+  renderPipelineMembers($('#middle-top-body'), g, onPipelineClick);
+}
+
+// #116: drill into a single Pipeline — show its stages (cell · ids · sites) in the
 // top-middle pane; each site clicks through to source in the lower pane.
 function onPipelineClick(w) {
   showPane('middle-top');
@@ -1293,6 +1305,23 @@ async function init() {
   $('#source-fwd-btn')?.addEventListener('click', () => navForward('middle-bottom'));
   $('#output-back-btn')?.addEventListener('click', () => navBack('middle-top'));
   $('#output-fwd-btn')?.addEventListener('click', () => navForward('middle-top'));
+
+  // Pipeline drill clicks (member rows + stage source rows) are DELEGATED on the
+  // persistent middle-top body so they survive nav back/forward — which restore
+  // innerHTML and drop per-element listeners (navRestore only re-wires source
+  // clickables, not the pipeline member-drill). #142.
+  $('#middle-top-body')?.addEventListener('click', (e) => {
+    const mem = e.target.closest('[data-pl-member]');
+    if (mem) {
+      const body = $('#middle-top-body');
+      const g = body._plGroup;
+      const i = Number(mem.getAttribute('data-pl-member'));
+      if (g && g.members && g.members[i]) (body._plMemberClick || onPipelineClick)(g.members[i]);
+      return;
+    }
+    const src = e.target.closest('[data-pl-file]');
+    if (src) onFileClick(src.getAttribute('data-pl-file'), Number(src.getAttribute('data-pl-line')));
+  });
 
   for (const btn of $$('#context-menu button[data-ctx]')) btn.addEventListener('click', () => handleContextAction(btn.dataset.ctx));
   document.addEventListener('click', hideContextMenu);

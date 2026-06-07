@@ -20,7 +20,7 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
-import { groupSites, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from './core/ai-ml-detectors.js';
+import { groupSites, groupPipelines, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
@@ -2062,11 +2062,20 @@ routes['/api/list-pipelines'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   const flows = index.listPipelines(q.filter);  // sorted: scope, shape priority, cellCount
   const max = safeMax(q.max, 500);
+  // #142 drill-down dedupe: collapse identical-signature flows (same shape + same
+  // ordered stage cells/first-ids) into groups so the GUI shows one row per group
+  // + ×count, then drills into the group's members. Each member keeps its full
+  // `stages`, so renderPipelineStages still works at the leaf. The flat
+  // listPipelines is unchanged, so --multi-index consumers are unaffected.
+  const slimRow = (w) => ({
+    shape: w.shape, shapes: w.shapes, scope: w.scope, location: w.location, cellCount: w.cellCount,
+    stages: (w.stages || []).map(s => ({ cell: s.cell, ids: s.ids, count: s.count, sites: (s.sites || []).slice(0, 50) })),
+  });
+  const groups = groupPipelines(flows);
   jsonResponse(res, {
     total: flows.length,
-    pipelines: flows.slice(0, max).map(w => ({
-      shape: w.shape, shapes: w.shapes, scope: w.scope, location: w.location, cellCount: w.cellCount,
-      stages: (w.stages || []).map(s => ({ cell: s.cell, ids: s.ids, count: s.count, sites: (s.sites || []).slice(0, 50) })),
+    groups: groups.slice(0, max).map(g => ({
+      sig: g.sig, rep: slimRow(g.rep), count: g.count, members: g.members.map(slimRow),
     })),
   });
 };

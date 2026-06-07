@@ -831,46 +831,101 @@ function _stagesText(w) {
   return (w.stages || []).map(s => s.cell + (s.ids && s.ids.length ? `(${basenameIfPath(s.ids[0])}${s.ids.length > 1 ? '…' : ''})` : '')).join(' → ');
 }
 
-export function renderPipelinesList(container, flows, total, onPipelineClick) {
+// #142 drill-down dedupe: `groups` is the server's grouped pipeline structure —
+// [{ sig, rep, count, members }] — so the SAME pipeline (e.g. RAG ·
+// vector-store(LangChain) → search(LangChain) over ~186 files) shows ONCE with a
+// ×count badge instead of one row per file. `total` is the pre-dedup flow count
+// (badge / summary). `onGroupClick(group)` drills into the group's members (or
+// straight to source for a ×1 group). Each group's scope = rep.scope, so the
+// main (file/folder) vs loose (module) split is preserved.
+export function renderPipelinesList(container, groups, total, onGroupClick) {
   container.innerHTML = '';
   container.appendChild(h('div', {
-    text: 'Pipelines by cell co-occurrence — not traced dataflow. Confidence: file > folder (leaf folder) > module (climbed to a common ancestor, shown separately below as "loose").',
+    text: 'Pipelines by cell co-occurrence — not traced dataflow. Identical pipelines are collapsed (×count); click to drill into the files. Confidence: file > folder (leaf folder) > module (climbed to a common ancestor, shown separately below as "loose").',
     style: 'padding:4px 8px;font-size:10px;color:var(--text-muted);font-style:italic;border-bottom:1px solid var(--border,#333);margin-bottom:2px',
   }));
-  if (!flows || !flows.length) {
+  if (!groups || !groups.length) {
     container.appendChild(h('div', { className: 'list-placeholder', text: 'No AI/ML pipelines found (no file/leaf-folder where 2+ cells form a shape).' }));
     return;
   }
   // file/folder = trustworthy (cells co-occur in one file or leaf folder); module =
   // "loose" (assembler climbed to a broader common ancestor — cells just co-exist in
   // the subtree, not a coherent flow). Render module in a demoted, separated section
-  // so it can't masquerade as a real pipeline (#142).
-  const renderRow = (w, dim) => {
+  // so it can't masquerade as a real pipeline (#142). A group's scope = rep.scope.
+  const renderRow = (g, dim) => {
+    const w = g.rep;
     const color = _SHAPE_COLOR[w.shape] || 'var(--text-muted)';
-    const item = h('div', {
-      className: 'list-item',
-      style: dim ? 'opacity:0.6' : '',
-      title: `${w.shape}${w.shapes.length > 1 ? ` (also: ${w.shapes.slice(1).join(', ')})` : ''}  ·  scope: ${w.scope}${dim ? '  (loose — climbed to a common ancestor; cells co-occur somewhere in the subtree, not a traced flow)' : ''}\n${(w.location || '').replace(/\\/g, '/')}\n${_stagesText(w)}`,
-    }, [
+    const spans = [
       h('span', { className: 'metric', text: w.shape, style: `min-width:64px;color:${color};font-size:10px;font-weight:600` }),
       h('span', { className: 'metric', text: w.scope, style: `min-width:46px;color:${w.scope === 'module' ? 'var(--error,#e0708a)' : w.scope === 'folder' ? 'var(--warning,#c79a4e)' : 'var(--text-muted)'};font-size:9px` }),
       h('span', { className: 'name clickable', text: _stagesText(w), style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
-      h('span', { className: 'filepath', text: shortPath(w.location || ''), style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0;max-width:180px' }),
-    ]);
-    item.addEventListener('click', (e) => { e.stopPropagation(); if (onPipelineClick) onPipelineClick(w); });
+    ];
+    if (g.count > 1) {
+      spans.push(h('span', { className: 'metric', text: '×' + g.count, style: 'min-width:40px;text-align:right;color:var(--accent,#6cf);font-size:10px;font-weight:600' }));
+    } else {
+      spans.push(h('span', { className: 'filepath', text: shortPath(w.location || ''), style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0;max-width:180px' }));
+    }
+    const item = h('div', {
+      className: 'list-item',
+      style: dim ? 'opacity:0.6' : '',
+      title: `${w.shape}${w.shapes.length > 1 ? ` (also: ${w.shapes.slice(1).join(', ')})` : ''}  ·  scope: ${w.scope}  ·  ${g.count} file${g.count > 1 ? 's' : ''}${dim ? '  (loose — climbed to a common ancestor; cells co-occur somewhere in the subtree, not a traced flow)' : ''}\n${_stagesText(w)}${g.count === 1 ? '\n' + (w.location || '').replace(/\\/g, '/') : ''}`,
+    }, spans);
+    item.addEventListener('click', (e) => { e.stopPropagation(); if (onGroupClick) onGroupClick(g); });
     container.appendChild(item);
   };
-  const main = flows.filter(w => w.scope !== 'module');
-  const loose = flows.filter(w => w.scope === 'module');
-  for (const w of main) renderRow(w, false);
+  const main = groups.filter(g => g.rep.scope !== 'module');
+  const loose = groups.filter(g => g.rep.scope === 'module');
+  const looseCount = loose.reduce((n, g) => n + g.count, 0);
+  for (const g of main) renderRow(g, false);
   if (loose.length) {
     container.appendChild(h('div', {
-      text: `loose — module-scope (climbed to a common ancestor; cells co-occur somewhere in the subtree, not a traced flow) · ${loose.length}`,
+      text: `loose — module-scope (climbed to a common ancestor; cells co-occur somewhere in the subtree, not a traced flow) · ${loose.length} group${loose.length > 1 ? 's' : ''} / ${looseCount} pipeline${looseCount > 1 ? 's' : ''}`,
       style: 'padding:5px 8px 3px;margin-top:4px;font-size:9px;text-transform:uppercase;letter-spacing:0.04em;color:var(--error,#e0708a);border-top:1px solid var(--border,#333)',
     }));
-    for (const w of loose) renderRow(w, true);
+    for (const g of loose) renderRow(g, true);
   }
-  if (total > flows.length) container.appendChild(h('div', { className: 'list-placeholder', text: `${flows.length} of ${total} shown` }));
+  const shownCount = groups.reduce((n, g) => n + g.count, 0);
+  if (total > shownCount) container.appendChild(h('div', { className: 'list-placeholder', text: `${shownCount} of ${total} pipelines shown` }));
+}
+
+// #142 drill-down dedupe: a pipeline group's member files. Each member is a full
+// pipeline row (same shape/scope/stages, different location); clicking one drills
+// into its stages via onMemberClick (the existing renderPipelineStages flow).
+export function renderPipelineMembers(container, group, onMemberClick) {
+  container.innerHTML = '';
+  if (!group || !group.members || !group.members.length) { container.innerHTML = '<div class="list-placeholder">No members.</div>'; return; }
+  // Stash group + handler on the (persistent) container so the DELEGATED click
+  // listener on #middle-top-body keeps working after nav back/forward restores
+  // the innerHTML (which drops per-element listeners). #142.
+  container._plGroup = group;
+  container._plMemberClick = onMemberClick;
+  const w0 = group.rep;
+  const color = _SHAPE_COLOR[w0.shape] || 'var(--text-muted)';
+  container.appendChild(h('div', {
+    text: `${w0.shape}  ·  ${w0.scope}  ·  ${group.count} file${group.count > 1 ? 's' : ''}`,
+    style: `padding:4px 8px;font-size:11px;color:${color};border-bottom:1px solid var(--border,#333);margin-bottom:2px`,
+  }));
+  // Surface the shared stage structure here (representative ids) so it's visible
+  // without drilling into a member — the per-FILE line-level sites still live one
+  // click deeper (they're inherently per-file). #142 feedback.
+  for (const s of (w0.stages || [])) {
+    container.appendChild(h('div', {
+      text: `${s.cell}${s.ids && s.ids.length ? '  — ' + s.ids.join(', ') : ''}`,
+      style: 'padding:3px 8px 1px;font-size:10px;color:var(--accent,#6cf)',
+    }));
+  }
+  container.appendChild(h('div', {
+    text: `files (${group.count}) — click one for its line-level sites`,
+    style: 'padding:5px 8px 2px;margin-top:3px;font-size:9px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);border-top:1px solid var(--border,#333)',
+  }));
+  group.members.forEach((m, i) => {
+    const item = h('div', { className: 'list-item', style: 'cursor:pointer', title: `${(m.location || '').replace(/\\/g, '/')}\n${_stagesText(m)}` }, [
+      h('span', { className: 'metric', text: m.scope, style: `min-width:46px;color:${m.scope === 'module' ? 'var(--error,#e0708a)' : m.scope === 'folder' ? 'var(--warning,#c79a4e)' : 'var(--text-muted)'};font-size:9px` }),
+      h('span', { className: 'filepath', text: shortPath(m.location || ''), style: 'flex:1;font-family:var(--font-mono);font-size:10px;color:var(--text-bright);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;min-width:0' }),
+    ]);
+    item.setAttribute('data-pl-member', String(i));
+    container.appendChild(item);
+  });
 }
 
 // Drill-down: a pipeline's stages (cell · ids · sites) into a container (top pane);
@@ -888,10 +943,11 @@ export function renderPipelineStages(container, w) {
       style: 'padding:3px 8px 1px;font-size:10px;color:var(--accent,#6cf)',
     }));
     for (const site of (s.sites || []).slice(0, 25)) {
-      const item = h('div', { className: 'list-item', style: 'padding-left:18px', title: `${(site.filepath || '').replace(/\\/g, '/')}:${site.line}` }, [
-        h('span', { className: 'filepath clickable', text: `${shortPath(site.filepath || '')}:${site.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis' }),
+      const item = h('div', { className: 'list-item', style: 'padding-left:18px;cursor:pointer', title: `${(site.filepath || '').replace(/\\/g, '/')}:${site.line}` }, [
+        h('span', { className: 'filepath', text: `${shortPath(site.filepath || '')}:${site.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis' }),
       ]);
-      item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(site.filepath, site.line); });
+      item.setAttribute('data-pl-file', site.filepath || '');
+      item.setAttribute('data-pl-line', String(site.line));
       container.appendChild(item);
     }
   }
