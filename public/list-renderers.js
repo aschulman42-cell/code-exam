@@ -834,18 +834,23 @@ function _stagesText(w) {
 export function renderPipelinesList(container, flows, total, onPipelineClick) {
   container.innerHTML = '';
   container.appendChild(h('div', {
-    text: 'Pipelines by cell co-occurrence (file, or leaf folder) — not traced dataflow. scope:folder = same module.',
+    text: 'Pipelines by cell co-occurrence — not traced dataflow. Confidence: file > folder (leaf folder) > module (climbed to a common ancestor, shown separately below as "loose").',
     style: 'padding:4px 8px;font-size:10px;color:var(--text-muted);font-style:italic;border-bottom:1px solid var(--border,#333);margin-bottom:2px',
   }));
   if (!flows || !flows.length) {
     container.appendChild(h('div', { className: 'list-placeholder', text: 'No AI/ML pipelines found (no file/leaf-folder where 2+ cells form a shape).' }));
     return;
   }
-  for (const w of flows) {
+  // file/folder = trustworthy (cells co-occur in one file or leaf folder); module =
+  // "loose" (assembler climbed to a broader common ancestor — cells just co-exist in
+  // the subtree, not a coherent flow). Render module in a demoted, separated section
+  // so it can't masquerade as a real pipeline (#142).
+  const renderRow = (w, dim) => {
     const color = _SHAPE_COLOR[w.shape] || 'var(--text-muted)';
     const item = h('div', {
       className: 'list-item',
-      title: `${w.shape}${w.shapes.length > 1 ? ` (also: ${w.shapes.slice(1).join(', ')})` : ''}  ·  scope: ${w.scope}\n${(w.location || '').replace(/\\/g, '/')}\n${_stagesText(w)}`,
+      style: dim ? 'opacity:0.6' : '',
+      title: `${w.shape}${w.shapes.length > 1 ? ` (also: ${w.shapes.slice(1).join(', ')})` : ''}  ·  scope: ${w.scope}${dim ? '  (loose — climbed to a common ancestor; cells co-occur somewhere in the subtree, not a traced flow)' : ''}\n${(w.location || '').replace(/\\/g, '/')}\n${_stagesText(w)}`,
     }, [
       h('span', { className: 'metric', text: w.shape, style: `min-width:64px;color:${color};font-size:10px;font-weight:600` }),
       h('span', { className: 'metric', text: w.scope, style: `min-width:46px;color:${w.scope === 'module' ? 'var(--error,#e0708a)' : w.scope === 'folder' ? 'var(--warning,#c79a4e)' : 'var(--text-muted)'};font-size:9px` }),
@@ -854,6 +859,16 @@ export function renderPipelinesList(container, flows, total, onPipelineClick) {
     ]);
     item.addEventListener('click', (e) => { e.stopPropagation(); if (onPipelineClick) onPipelineClick(w); });
     container.appendChild(item);
+  };
+  const main = flows.filter(w => w.scope !== 'module');
+  const loose = flows.filter(w => w.scope === 'module');
+  for (const w of main) renderRow(w, false);
+  if (loose.length) {
+    container.appendChild(h('div', {
+      text: `loose — module-scope (climbed to a common ancestor; cells co-occur somewhere in the subtree, not a traced flow) · ${loose.length}`,
+      style: 'padding:5px 8px 3px;margin-top:4px;font-size:9px;text-transform:uppercase;letter-spacing:0.04em;color:var(--error,#e0708a);border-top:1px solid var(--border,#333)',
+    }));
+    for (const w of loose) renderRow(w, true);
   }
   if (total > flows.length) container.appendChild(h('div', { className: 'list-placeholder', text: `${flows.length} of ${total} shown` }));
 }

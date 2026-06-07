@@ -558,25 +558,34 @@ export function doListPipelines(index, args) {
   for (const w of flows) { byShape[w.shape] = (byShape[w.shape] || 0) + 1; byScope[w.scope] = (byScope[w.scope] || 0) + 1; }
   const shapeSummary = ['RAG', 'low-level', 'training', 'agent', 'inference', 'LLM-app'].filter(s => byShape[s]).map(s => `${byShape[s]} ${s}`).join(', ');
   const scopeSummary = ['file', 'folder', 'module'].filter(s => byScope[s]).map(s => `${byScope[s]} ${s}`).join(', ');
+  // Confidence by scope: file/folder = cells co-occur in one file or leaf folder
+  // (trustworthy); module = the assembler CLIMBED to a broader common ancestor, so
+  // the cells merely co-exist somewhere in that subtree, NOT a coherent flow. Demote
+  // module to a separate, clearly-labelled "loose" section so it can't masquerade as
+  // a real pipeline (#142).
+  const main = flows.filter(w => w.scope !== 'module');
+  const loose = flows.filter(w => w.scope === 'module');
   const max = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : 0;
-  const shown = max > 0 ? flows.slice(0, max) : flows;
-  console.log(`\n${flows.length} pipelines — ${shapeSummary} (${scopeSummary})${max > 0 && flows.length > max ? `; showing ${shown.length}` : ''}:\n`);
+  const cap = (arr) => (max > 0 ? arr.slice(0, max) : arr);
+  console.log(`\n${flows.length} pipelines — ${shapeSummary} (${scopeSummary})${loose.length ? `; ${loose.length} loose (module-scope) shown separately` : ''}:\n`);
   const stagesStr = (w) => w.stages.map(s => s.cell + (s.ids.length ? `(${basenameIfPath(s.ids[0])}${s.ids.length > 1 ? ',…' : ''})` : '')).join(' → ');
+  const LOOSE_HDR = '── loose: module-scope (climbed to a common ancestor — cells co-occur somewhere in the subtree, NOT a traced flow); lower confidence ──';
   if (args.verbose) {
-    for (const w of shown) {
+    const vrow = (w) => {
       console.log(`${w.scope.padEnd(6)} ${w.shape.padEnd(9)} ${w.location.replace(/\\/g, '/')}${w.shapes.length > 1 ? `  [also: ${w.shapes.slice(1).join(', ')}]` : ''}`);
       console.log(`        ${stagesStr(w)}`);
-    }
+    };
+    for (const w of cap(main)) vrow(w);
+    if (loose.length) { console.log(`\n  ${LOOSE_HDR}`); for (const w of cap(loose)) vrow(w); }
     return;
   }
-  console.log(`${'Shape'.padEnd(9)}  ${'Scope'.padEnd(6)}  ${'Location'.padEnd(34)}  Stages`);
-  console.log('='.repeat(140));
-  for (const w of shown) {
-    let loc = w.location.replace(/\\/g, '/'); if (loc.length > 34) loc = '...' + loc.slice(-31);
-    console.log(`${w.shape.padEnd(9)}  ${w.scope.padEnd(6)}  ${loc.padEnd(34)}  ${stagesStr(w).slice(0, 80)}`);
-  }
-  console.log(`\n  (Pipelines = AI/ML pipelines inferred from cell CO-OCCURRENCE (file, or leaf folder), NOT traced dataflow.`
-    + ` scope:folder = same leaf folder; scope:module = climbed to a common ancestor (looser, capped at the repo root). Import-graph assembly + a graph view are deferred. Shapes by specificity: RAG>low-level>training>agent>inference>LLM-app.)`);
+  const head = () => { console.log(`${'Shape'.padEnd(9)}  ${'Scope'.padEnd(6)}  ${'Location'.padEnd(34)}  Stages`); console.log('='.repeat(140)); };
+  const row = (w) => { let loc = w.location.replace(/\\/g, '/'); if (loc.length > 34) loc = '...' + loc.slice(-31); console.log(`${w.shape.padEnd(9)}  ${w.scope.padEnd(6)}  ${loc.padEnd(34)}  ${stagesStr(w).slice(0, 80)}`); };
+  head();
+  for (const w of cap(main)) row(w);
+  if (loose.length) { console.log(`\n${LOOSE_HDR}`); head(); for (const w of cap(loose)) row(w); }
+  console.log(`\n  (Pipelines = AI/ML constructs inferred from cell CO-OCCURRENCE, NOT traced dataflow. Confidence by scope:`
+    + ` file > folder (leaf folder) > module (climbed to a common ancestor — "loose", shown separately above). Import-graph assembly + a graph view are deferred. Shapes by specificity: RAG>low-level>training>agent>inference>LLM-app.)`);
 }
 
 export function doListChains(index, args) {
