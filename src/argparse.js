@@ -156,6 +156,7 @@ export function parseArgs() {
     list_models: false,
     list_artifacts: false,
     list_kernels: false,
+    list_multimodal: false,
     list_datasets: false,
     list_training: false,
     list_inference: false,
@@ -342,6 +343,7 @@ export function parseArgs() {
     ['list_models',          'flag',           ['--models'], ['--list-models']],
     ['list_artifacts',       'flag',           ['--artifacts'], ['--list-artifacts']],
     ['list_kernels',         'flag',           ['--kernels'], ['--list-kernels']],
+    ['list_multimodal',      'flag',           ['--multimodal', '--vision'], ['--list-multimodal']],
     ['list_datasets',        'flag',           ['--datasets'], ['--list-datasets']],
     ['list_training',        'flag',           ['--training'], ['--list-training']],
     ['list_inference',       'flag',           ['--inference'], ['--list-inference']],
@@ -789,6 +791,7 @@ AI/ML DETECTORS (list AI/ML constructs; each has a --list-<name> alias):
   --models                   ML model classes (nn.Module / keras / sklearn subclasses)
   --models-used              Models USED — named models loaded/called across the cells, deduped (api/local)
   --kernels                  GPU kernels (CUDA __global__, Triton @triton.jit, numba)
+  --multimodal               Multimodal/vision (CLIP/ViT/ResNet/YOLO/diffusion/VLM) [alias: --vision]
 
 CLAIM SEARCH (LLM-based patent claim analysis):
   --claim-search <text>      Extract search terms from patent claim text

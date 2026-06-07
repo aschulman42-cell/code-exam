@@ -6,7 +6,7 @@
 
 import path from 'path';
 import { eprint } from '../utils.js';
-import { groupSites, KERNELS_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from '../core/ai-ml-detectors.js';
+import { groupSites, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from '../core/ai-ml-detectors.js';
 
 
 // ========================================================================
@@ -855,6 +855,48 @@ export function doListKernels(index, args) {
     console.log(`${fam.slice(0, 13).padEnd(13)}  ${k.kind.padEnd(10)}  ${(k.marker || '').slice(0, 16).padEnd(16)}  ${(k.name || '(unnamed)').slice(0, 28).padEnd(28)}  ${cnt}`);
   }
   console.log(`\n${groups.length} unique kernel${groups.length === 1 ? '' : 's'} (${kernels.length} instance${kernels.length === 1 ? '' : 's'}); use -v to list every instance.`);
+}
+
+export function doListMultimodal(index, args) {
+  const items = index.listMultimodal(args.filter);
+  if (!items.length) {
+    console.log('No multimodal/vision constructs found (no CLIP/ViT/ResNet/YOLO/'
+      + 'diffusion/VLM markers).');
+    return;
+  }
+
+  // Summary: count per kind (encoder/cnn-arch/detection-seg/generative/marker).
+  const byKind = {};
+  for (const t of items) byKind[t.kind] = (byKind[t.kind] || 0) + 1;
+  const kindSummary = Object.entries(byKind).sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${k} ${n}`).join(', ');
+
+  const max = (args._explicit && args._explicit.has('max_results'))
+    ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? items.slice(0, max) : items;
+
+  console.log(`\n${items.length} multimodal/vision site${items.length === 1 ? '' : 's'} (${kindSummary})`
+    + `${max > 0 && items.length > max ? `; showing ${shown.length} rows` : ''}:\n`);
+
+  if (args.verbose) {
+    for (const t of shown) {
+      console.log(`~${(t.family || '?').padEnd(13)} ${t.kind.padEnd(14)} ${(t.marker || '').padEnd(16)} ${t.name}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+    }
+    return;
+  }
+
+  // Non-verbose collapses same (family,kind,marker,name) repeats into one row +
+  // a count; -v (above) still lists every instance.
+  const groups = groupSites(items, MULTIMODAL_DRILLDOWN.keyFn, MULTIMODAL_DRILLDOWN.pick);
+  console.log(`${'Family'.padEnd(14)}  ${'Kind'.padEnd(14)}  ${'Marker'.padEnd(16)}  ${'Name'.padEnd(20)}  Count`);
+  console.log('='.repeat(80));
+  for (const g of groups) {
+    const t = g.rep;
+    const cnt = g.count > 1 ? `×${g.count}` : '';
+    console.log(`~${(t.family || '?').slice(0, 13).padEnd(13)}  ${t.kind.padEnd(14)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${(t.name || '(unnamed)').slice(0, 20).padEnd(20)}  ${cnt}`);
+  }
+  console.log(`\n${groups.length} unique multimodal marker${groups.length === 1 ? '' : 's'} (${items.length} instance${items.length === 1 ? '' : 's'}); use -v to list every instance.`);
 }
 
 // Show a filesystem path by basename (./models/foo.gguf -> foo.gguf) so long

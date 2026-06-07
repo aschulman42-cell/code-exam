@@ -453,6 +453,125 @@ class _AIMLMethods {
   }
 
   /**
+   * listMultimodal(filter) — vision / multimodal / generative-vision proxies
+   * (#140). Keyword-table detector (mirrors listEmbeddings' tierA structure),
+   * NOT the elaborate CUDA-syntax logic of listKernels: these are NLP-ish
+   * keyword matches over source, so every record is `tag: 'heuristic'`.
+   *
+   * Five kinds, each a representative `family` + the matched `marker` token:
+   *   encoder       — vision encoders / VLM image stacks (CLIP, ViT,
+   *                   vision_tower, pixel_values, image_processor, …)
+   *   cnn-arch      — classic CNN architectures (ResNet, VGG, Inception,
+   *                   EfficientNet, ImageNet, Conv2d / convolutional)
+   *   detection-seg — object detection + segmentation families & indicia
+   *                   (SSD, YOLO, *R-CNN, RetinaNet, DETR, U-Net, bbox,
+   *                   anchor box, IoU, NMS, mAP, semantic/instance seg)
+   *   generative    — image generative stacks (diffusion, UNet/VAE, latent,
+   *                   scheduler, denoise, text-to-image)
+   *   marker        — explicit multimodal flags (multimodal, vision-language,
+   *                   VLM)
+   *
+   * FP avoidance is cheap-only: word boundaries + capitalized/underscored
+   * forms (`\bCLIP\b`, not `clip` inside `clipboard`; `\bViT\b`, not the `vit`
+   * in `invite`). No co-occurrence gating — keep it simple and readable.
+   */
+  listMultimodal(filter = null) {
+    // [regex, family, kind, marker-label]. First match on a line wins (the
+    // table is ordered most-specific → most-generic within each theme).
+    const table = [
+      // ---- encoder (vision encoders / VLM image stacks) ----
+      { re: /\bCLIP\b/,                          fam: 'CLIP',         kind: 'encoder',       m: 'CLIP' },
+      { re: /\bViT\b/,                           fam: 'ViT',          kind: 'encoder',       m: 'ViT' },
+      { re: /\bvision_tower\b/,                  fam: 'VLM',          kind: 'encoder',       m: 'vision_tower' },
+      { re: /\bvision_model\b/,                  fam: 'VLM',          kind: 'encoder',       m: 'vision_model' },
+      { re: /\bpixel_values\b/,                  fam: 'VLM',          kind: 'encoder',       m: 'pixel_values' },
+      { re: /\bimage_processor\b/,               fam: 'VLM',          kind: 'encoder',       m: 'image_processor' },
+      { re: /\bimage_embeds\b/,                  fam: 'VLM',          kind: 'encoder',       m: 'image_embeds' },
+      { re: /\bfeature_extractor\b/,             fam: 'vision',       kind: 'encoder',       m: 'feature_extractor' },
+      // ---- cnn-arch (classic CNN architectures) ----
+      { re: /\bResNet\b|\bresnet\d+\b/,          fam: 'ResNet',       kind: 'cnn-arch',      m: 'ResNet' },
+      { re: /\bVGG\b|\bvgg\d+\b/,                fam: 'VGG',          kind: 'cnn-arch',      m: 'VGG' },
+      { re: /\bInception(?:V\d)?\b/,             fam: 'Inception',    kind: 'cnn-arch',      m: 'Inception' },
+      { re: /\bEfficientNet\b/,                  fam: 'EfficientNet', kind: 'cnn-arch',      m: 'EfficientNet' },
+      { re: /\bImageNet\b/,                      fam: 'ImageNet',     kind: 'cnn-arch',      m: 'ImageNet' },
+      { re: /\bConv2[dD]\b|\bConv2D\b/,          fam: 'CNN',          kind: 'cnn-arch',      m: 'Conv2d' },
+      { re: /\bconvolutional\b/i,                fam: 'CNN',          kind: 'cnn-arch',      m: 'convolutional' },
+      // ---- detection-seg (object detection + segmentation) ----
+      { re: /\bSSD\b/,                           fam: 'SSD',          kind: 'detection-seg', m: 'SSD' },
+      { re: /\bYOLO\b|\byolo\w*\b/,              fam: 'YOLO',         kind: 'detection-seg', m: 'YOLO' },
+      { re: /\b(?:Faster|Mask)\s*R-?CNN\b/i,     fam: 'R-CNN',        kind: 'detection-seg', m: 'R-CNN' },
+      { re: /\bRetinaNet\b/,                     fam: 'RetinaNet',    kind: 'detection-seg', m: 'RetinaNet' },
+      { re: /\bDETR\b/,                          fam: 'DETR',         kind: 'detection-seg', m: 'DETR' },
+      { re: /\bU-?Net\b/,                        fam: 'U-Net',        kind: 'detection-seg', m: 'U-Net' },
+      { re: /\b(?:semantic|instance)\s+segmentation\b/i, fam: 'segmentation', kind: 'detection-seg', m: 'segmentation' },
+      { re: /\bbounding\s*box\b|\bbbox\b/i,      fam: 'detection',    kind: 'detection-seg', m: 'bbox' },
+      { re: /\banchor[_\s]?box\w*\b|\bAnchorBoxes\b/i, fam: 'detection', kind: 'detection-seg', m: 'anchor box' },
+      { re: /\bIoU\b|\biou_threshold\b/,         fam: 'detection',    kind: 'detection-seg', m: 'IoU' },
+      { re: /\bNMS\b|\bnon[_-]?max(?:imum)?[_\s]?suppression\b/i, fam: 'detection', kind: 'detection-seg', m: 'NMS' },
+      { re: /\bmAP\b/,                           fam: 'detection',    kind: 'detection-seg', m: 'mAP' },
+      // ---- generative (image generative stacks) ----
+      // NOTE: U-Net is claimed above by detection-seg; the generative U-Net
+      // (UNet, no hyphen) is caught here so the diffusion arch still surfaces.
+      { re: /\bdiffusion\b/i,                    fam: 'diffusion',    kind: 'generative',    m: 'diffusion' },
+      { re: /\btext-to-image\b/i,                fam: 'diffusion',    kind: 'generative',    m: 'text-to-image' },
+      { re: /\bUNet\b/,                          fam: 'diffusion',    kind: 'generative',    m: 'UNet' },
+      { re: /\bVAE\b/,                           fam: 'VAE',          kind: 'generative',    m: 'VAE' },
+      { re: /\blatent\b/i,                       fam: 'diffusion',    kind: 'generative',    m: 'latent' },
+      { re: /\b(?:DDPM|DDIM|DPMSolver|Euler|PNDM|LMS|Heun|UniPC)\w*Scheduler\b|\bnoise[_\s]?scheduler\b/, fam: 'diffusion', kind: 'generative', m: 'scheduler' },
+      { re: /\bdenoise\w*\b/i,                   fam: 'diffusion',    kind: 'generative',    m: 'denoise' },
+      // ---- marker (explicit multimodal flags) ----
+      { re: /\bmultimodal\b/i,                   fam: 'multimodal',   kind: 'marker',        m: 'multimodal' },
+      { re: /\bvision-language\b/i,              fam: 'VLM',          kind: 'marker',        m: 'vision-language' },
+      { re: /\bVLM\b/,                           fam: 'VLM',          kind: 'marker',        m: 'VLM' },
+    ];
+    const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
+    const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
+
+    // Ambiguous markers that collide with non-vision usage: YOLO (pop-culture
+    // "you only live once"), SSD (solid-state disk), bbox (UI/TUI element
+    // bounding boxes, not just object-detection boxes). Gate them: a hit only
+    // counts if the SAME FILE has a non-ambiguous vision marker to anchor it.
+    // Stops `multimodal(YOLO)` in codex-rs and `bbox` in TUI-layout code.
+    const AMBIGUOUS = new Set(['YOLO', 'SSD', 'bbox']);
+
+    const out = [];
+    for (const [filepath, lines] of this.fileLines) {
+      if (reDocFile.test(filepath)) continue;
+      const fileHits = [];
+      let anchored = false;   // file has ≥1 non-ambiguous vision marker
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+        if (reComment(trimmed)) continue;
+        const d = table.find(e => e.re.test(line));
+        if (d) {
+          fileHits.push({ name: d.m, filepath, line: i + 1, kind: d.kind, family: d.fam, marker: d.m, tag: 'heuristic', snippet: trimmed.slice(0, 200) });
+          if (!AMBIGUOUS.has(d.m)) anchored = true;
+        }
+      }
+      for (const h of fileHits) {
+        if (AMBIGUOUS.has(h.marker) && !anchored) continue;   // drop unanchored ambiguous
+        out.push(h);
+      }
+    }
+
+    let result = out;
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = out.filter(t =>
+        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
+        || (t.family || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
+        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+    }
+    const kindRank = { 'encoder': 0, 'cnn-arch': 1, 'detection-seg': 2, 'generative': 3, 'marker': 4 };
+    result.sort((a, b) =>
+      (kindRank[a.kind] - kindRank[b.kind]) || (a.family || '').localeCompare(b.family || '')
+      || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+    return result;
+  }
+
+  /**
    * listDatasets(filter) — ML datasets (#99). Precision-tiered to avoid the
    * generic-I/O over-trigger (the #96 `createContext` / `.bin` lesson):
    *
@@ -1571,6 +1690,7 @@ class _AIMLMethods {
     }
     for (const t of this.listStructuredOutput()) add('structured-output', t, t.id);
     for (const t of this.listKernels())       add('kernel', t, t.name || t.family);  // #116/#93: custom GPU kernels (DeepSeek/Mistral MoE) — the low-level model-impl signal
+    for (const t of this.listMultimodal())    add('multimodal', t, t.name || t.family);  // #140: vision / VLM / generative-vision proxies
 
     const leafFolder = (fp) => { const n = fp.replace(/\\/g, '/'); const i = n.lastIndexOf('/'); return i >= 0 ? n.slice(0, i) : '.'; };
     // #121: module root = up to & incl. the first path segment after the zip '!'
@@ -1631,7 +1751,7 @@ class _AIMLMethods {
       if (has('llm-call') && (has('structured-output') || has('tool-def') || has('tool-dispatch'))) s.push('LLM-app');
       return s;
     };
-    const STAGE_ORDER = ['dataset', 'chunking', 'embed', 'vector-store', 'search', 'model', 'kernel', 'artifact-load', 'training', 'artifact-save', 'inference', 'llm-call', 'structured-output', 'tool-def', 'tool-dispatch', 'agent'];
+    const STAGE_ORDER = ['dataset', 'chunking', 'embed', 'vector-store', 'search', 'model', 'multimodal', 'kernel', 'artifact-load', 'training', 'artifact-save', 'inference', 'llm-call', 'structured-output', 'tool-def', 'tool-dispatch', 'agent'];
     const makeRow = (shapes, scope, location, bucket) => {
       const stages = [];
       for (const cell of STAGE_ORDER) {
@@ -1732,6 +1852,7 @@ export const CELL_KEYS = [
   { key: 'models',            method: 'listModels' },
   { key: 'artifacts',         method: 'listArtifacts' },
   { key: 'kernels',           method: 'listKernels' },
+  { key: 'multimodal',        method: 'listMultimodal' },
   { key: 'datasets',          method: 'listDatasets' },
   { key: 'training',          method: 'listTraining' },
   { key: 'inference',         method: 'listInference' },
@@ -1774,6 +1895,16 @@ export const KERNELS_DRILLDOWN = {
   keyFn: k => `${k.family}|${k.kind}|${k.marker}|${k.name || ''}`,
   pick:  k => ({ name: k.name, filepath: k.filepath, line: k.line, snippet: k.snippet, tag: k.tag }),
   row:   k => ({ family: k.family, kind: k.kind, marker: k.marker, name: k.name, tag: k.tag }),
+};
+
+// #140 Multimodal / Vision. Same identity-grouping shape as KERNELS_DRILLDOWN:
+// collapse only same-(family,kind,marker,name) repeats; distinct markers keep
+// their own rows. name === marker for this cell, so the key is effectively
+// (family, kind, marker).
+export const MULTIMODAL_DRILLDOWN = {
+  keyFn: t => `${t.family}|${t.kind}|${t.marker}|${t.name || ''}`,
+  pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
+  row:   t => ({ family: t.family, kind: t.kind, marker: t.marker, name: t.name, tag: t.tag }),
 };
 
 // #134 batch-1 identity cells (Models, Artifacts, Datasets, Tools). Same shape as

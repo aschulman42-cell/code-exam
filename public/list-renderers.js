@@ -357,6 +357,14 @@ export function renderArtifactList(container, artifacts, total) {
 export const KERNEL_KIND_COLOR = { 'kernel-def': '#6cf', 'launch': '#fc6', 'device-fn': 'var(--text-muted)' };
 const _KERNEL_KIND_COLOR = KERNEL_KIND_COLOR;
 
+// Multimodal / Vision (#140) — kind ∈ {encoder, cnn-arch, detection-seg,
+// generative, marker}. All rows are heuristic (keyword matches), so the app-side
+// renderer shows a leading "~"; the color distinguishes the five themes.
+export const MULTIMODAL_KIND_COLOR = {
+  'encoder': '#6cf', 'cnn-arch': '#9c6', 'detection-seg': '#fc6',
+  'generative': '#c9f', 'marker': 'var(--text-muted)',
+};
+
 export function renderKernelList(container, kernels, total) {
   container.innerHTML = '';
   if (!kernels || !kernels.length) {

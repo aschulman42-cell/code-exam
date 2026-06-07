@@ -20,7 +20,7 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
-import { groupSites, KERNELS_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from './core/ai-ml-detectors.js';
+import { groupSites, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
@@ -2027,6 +2027,7 @@ const drilldownRoute = (method, spec, key) => (req, res) => {
 routes['/api/list-models'] = drilldownRoute('listModels', MODELS_DRILLDOWN, 'models');
 routes['/api/list-artifacts'] = drilldownRoute('listArtifacts', ARTIFACTS_DRILLDOWN, 'artifacts');
 routes['/api/list-kernels'] = drilldownRoute('listKernels', KERNELS_DRILLDOWN, 'kernels');
+routes['/api/list-multimodal'] = drilldownRoute('listMultimodal', MULTIMODAL_DRILLDOWN, 'multimodal');
 
 routes['/api/list-datasets'] = drilldownRoute('listDatasets', DATASETS_DRILLDOWN, 'datasets');
 
