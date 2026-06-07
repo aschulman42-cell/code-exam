@@ -365,6 +365,13 @@ export const MULTIMODAL_KIND_COLOR = {
   'generative': '#c9f', 'marker': 'var(--text-muted)',
 };
 
+// Post-training / Fine-tuning (#140) — kind ∈ {peft, alignment, distill}. All
+// rows are heuristic (keyword matches), so the app-side renderer shows a leading
+// "~"; the color distinguishes the three mechanism families.
+export const POSTTRAINING_KIND_COLOR = {
+  'peft': '#6cf', 'alignment': '#fc6', 'distill': '#c9f',
+};
+
 export function renderKernelList(container, kernels, total) {
   container.innerHTML = '';
   if (!kernels || !kernels.length) {

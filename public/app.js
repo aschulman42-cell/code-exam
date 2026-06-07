@@ -65,7 +65,7 @@ import {
 import {
   initListRenderers,
   renderFuncLikeList, renderFunctionList, renderFileListWithSub,
-  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR,
+  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, POSTTRAINING_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
@@ -206,6 +206,26 @@ async function loadSectionData(sectionId, filter = '') {
         });
         badge.textContent = data.instances != null ? data.instances : data.total;
         break;
+
+      case 'post-training': {   // #140: fine-tuning / alignment, deduped by (family,kind,marker,name)
+        data = await api.listPostTraining({ filter, max: 500 });
+        const ptItems = data['post-training'];
+        state.sectionData[sectionId] = ptItems;
+        renderDrilldownList(content, ptItems, {
+          columns: [
+            { get: t => '~' + (t.family || '?'), style: 'min-width:84px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.kind || '', style: t => `min-width:84px;font-size:10px;color:${POSTTRAINING_KIND_COLOR[t.kind] || 'var(--text-muted)'}` },
+            { get: t => t.marker || '', style: 'min-width:84px;font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.name || '(unnamed)', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+          ],
+          countOf: t => t.count,
+          onItemClick: onPostTrainingGroupClick,
+          title: t => `${t.family} · ${t.kind} · ${t.marker} · ${t.name || '(unnamed)'}\n${t.count} occurrence${t.count > 1 ? 's' : ''}`,
+          footer: data.total > ptItems.length ? `${ptItems.length} of ${data.total} shown` : '',
+        });
+        badge.textContent = data.instances != null ? data.instances : data.total;
+        break;
+      }
 
       case 'datasets':   // #134: deduped by name (family, kind, name)
         data = await api.listDatasets({ filter, max: 500 });
@@ -593,6 +613,22 @@ function onMultimodalGroupClick(g) {
   showPane('middle-top');
   navPush('middle-top');
   $('#middle-top-title').textContent = `Multimodal: ${g.name || '(unnamed)'}`;
+  renderDrilldownSites($('#middle-top-body'), {
+    header: `${g.family} · ${g.kind} · ${g.marker} · ${g.name || '(unnamed)'}  ·  ${g.count} occurrence${g.count > 1 ? 's' : ''}`,
+    sites: g.sites,
+    columns: SNIPPET_SITE_COLS,
+  });
+}
+
+// #140: drill into a Post-training/Fine-tuning group. Mirrors
+// onMultimodalGroupClick — a single occurrence jumps straight to source;
+// multiple occurrences open the sites pane where the snippet distinguishes
+// same-marker variants.
+function onPostTrainingGroupClick(g) {
+  if (g.count === 1 && g.sites && g.sites[0]) { onFileClick(g.sites[0].filepath, g.sites[0].line); return; }
+  showPane('middle-top');
+  navPush('middle-top');
+  $('#middle-top-title').textContent = `Post-training: ${g.name || '(unnamed)'}`;
   renderDrilldownSites($('#middle-top-body'), {
     header: `${g.family} · ${g.kind} · ${g.marker} · ${g.name || '(unnamed)'}  ·  ${g.count} occurrence${g.count > 1 ? 's' : ''}`,
     sites: g.sites,

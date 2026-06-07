@@ -251,6 +251,8 @@ standalone list (GUI accordion + CLI flag):
 - **Artifacts** — model load/save sites (`from_pretrained`, GGUF, safetensors).
 - **Models (defined)** — model classes by inheritance (`nn.Module` / Keras / scikit-learn).
 - **Kernels** — GPU kernels (CUDA `__global__`, Triton `@triton.jit`, numba).
+- **Multimodal / Vision** — vision encoders (CLIP/ViT), CNN architectures (ResNet/conv), object detection/segmentation (YOLO/SSD/DETR/U-Net), generative (diffusion/VAE).
+- **Post-training / Fine-tuning** — fine-tuning & alignment mechanisms (LoRA/PEFT/adapters, SFT/DPO/PPO/GRPO, distillation), distinct from pretraining.
 
 ### Quasi-Source: recovering structure from non-source artifacts
 

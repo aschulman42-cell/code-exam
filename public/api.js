@@ -74,6 +74,7 @@ export const api = {
   listArtifacts:   (p) => api.get('list-artifacts', p),
   listKernels:     (p) => api.get('list-kernels', p),
   listMultimodal:  (p) => api.get('list-multimodal', p),
+  listPostTraining: (p) => api.get('list-post-training', p),
   listDatasets:    (p) => api.get('list-datasets', p),
   listTraining:    (p) => api.get('list-training', p),
   listInference:   (p) => api.get('list-inference', p),

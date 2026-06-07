@@ -157,6 +157,7 @@ export function parseArgs() {
     list_artifacts: false,
     list_kernels: false,
     list_multimodal: false,
+    list_post_training: false,
     list_datasets: false,
     list_training: false,
     list_inference: false,
@@ -346,6 +347,7 @@ export function parseArgs() {
     ['list_multimodal',      'flag',           ['--multimodal', '--vision'], ['--list-multimodal']],
     ['list_datasets',        'flag',           ['--datasets'], ['--list-datasets']],
     ['list_training',        'flag',           ['--training'], ['--list-training']],
+    ['list_post_training',   'flag',           ['--post-training', '--finetuning'], ['--list-post-training']],
     ['list_inference',       'flag',           ['--inference'], ['--list-inference']],
     ['list_llm_calls',       'flag',           ['--llm-calls'], ['--list-llm-calls']],
     ['list_tools',           'flag',           ['--tools'], ['--list-tools']],
@@ -786,6 +788,7 @@ AI/ML DETECTORS (list AI/ML constructs; each has a --list-<name> alias):
   --structured-output        Structured output / schemas (with_structured_output, response_format, parsers)
   --inference                Local inference/generation (generate, no_grad, .predict)
   --training                 Training sites (PyTorch loop, Trainer, .fit)
+  --post-training            Post-training/fine-tuning (LoRA/PEFT, SFT/DPO/PPO/GRPO, distillation) [alias: --finetuning]
   --datasets                 Datasets (Dataset/IterableDataset, tf.data, ML loaders)
   --artifacts                Model load/save sites (from_pretrained, GGUF, safetensors)
   --models                   ML model classes (nn.Module / keras / sklearn subclasses)

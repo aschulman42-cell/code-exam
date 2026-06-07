@@ -572,6 +572,109 @@ class _AIMLMethods {
   }
 
   /**
+   * listPostTraining(filter) — post-training / fine-tuning mechanisms (#140).
+   * Keyword-table detector (mirrors listMultimodal's structure): NLP-ish keyword
+   * matches over source, so every record is `tag: 'heuristic'`. Keys on the
+   * MECHANISMS (LoRA/PEFT, SFT/DPO/PPO/GRPO/RLHF, distillation), NOT the umbrella
+   * phrase `post-training` (~0 in code) or `preference tuning` (0 in code).
+   *
+   * Three kinds, each a representative `family` + the matched `marker` token:
+   *   peft       — parameter-efficient fine-tuning (LoRA / QLoRA / PEFT /
+   *                LoraConfig / get_peft_model / lora_ / adapter)
+   *   alignment  — instruction tuning + preference / RL alignment trainers
+   *                (SFTTrainer, DPOTrainer, PPOTrainer, GRPO, RLHF, reward model)
+   *   distill    — knowledge distillation / teacher-student
+   *
+   * Precision (two-tier markers, #140). Markers split into:
+   *   - ANCHOR (`anchor: true`) — code identifiers prose ~never contains
+   *     (LoraConfig, get_peft_model, lora_, QLoRA, SFTTrainer, DPOTrainer,
+   *     PPOTrainer, GRPO, reward_model). Self-validating: always count.
+   *   - CONCEPT (`anchor: false`) — English words that show up in comments /
+   *     strings / docs (RLHF, "reward model", distillation, adapter, bare LoRA,
+   *     PEFT/peft). Count ONLY in a file that also has an anchor hit.
+   * This stops prose from registering as code: e.g. CrewAI's RLHF ×132 (all in
+   * a YAML test cassette) and cli.js's 14 HTTP `adapter:` lines (which a stray
+   * string-constant "distillation" used to anchor) both drop to zero, while real
+   * fine-tune repos (mistral/Qwen/dspy/transformers) keep their hits. Pairs with
+   * the data/fixture-file skip below (markdown + YAML/JSON/CSV/lock).
+   */
+  listPostTraining(filter = null) {
+    // [regex, family, kind, marker-label]. First match on a line wins (the
+    // table is ordered most-specific → most-generic within each theme).
+    // [regex, family, kind, marker-label, anchor]. First match on a line wins
+    // (ordered most-specific → most-generic within each theme). anchor:true =
+    // code identifier (self-validating); anchor:false = concept word (needs an
+    // in-file anchor — see the two-tier gate below). #140.
+    const table = [
+      // ---- peft (parameter-efficient fine-tuning) ----
+      { re: /\bLoraConfig\b/,                    fam: 'LoRA',         kind: 'peft',      m: 'LoraConfig',     anchor: true  },
+      { re: /\bget_peft_model\b/,                fam: 'PEFT',         kind: 'peft',      m: 'get_peft_model', anchor: true  },
+      { re: /\bQLoRA\b/i,                        fam: 'QLoRA',        kind: 'peft',      m: 'QLoRA',          anchor: true  },
+      { re: /\blora_\w*\b/,                      fam: 'LoRA',         kind: 'peft',      m: 'lora_',          anchor: true  },
+      { re: /\bLoRA\b/,                          fam: 'LoRA',         kind: 'peft',      m: 'LoRA',           anchor: false },
+      { re: /\bPEFT\b|\bpeft\b/,                 fam: 'PEFT',         kind: 'peft',      m: 'peft',           anchor: false },
+      { re: /\badapter\b/i,                      fam: 'adapter',      kind: 'peft',      m: 'adapter',        anchor: false },
+      // ---- alignment (instruction tuning + preference / RL alignment) ----
+      { re: /\bSFTTrainer\b/,                    fam: 'SFT',          kind: 'alignment', m: 'SFTTrainer',     anchor: true  },
+      { re: /\bDPOTrainer\b/,                    fam: 'DPO',          kind: 'alignment', m: 'DPOTrainer',     anchor: true  },
+      { re: /\bPPOTrainer\b/,                    fam: 'PPO',          kind: 'alignment', m: 'PPOTrainer',     anchor: true  },
+      { re: /\breward_model\b/,                  fam: 'reward',       kind: 'alignment', m: 'reward_model',   anchor: true  },
+      { re: /\bGRPO\b/,                          fam: 'GRPO',         kind: 'alignment', m: 'GRPO',           anchor: true  },
+      { re: /\bRLHF\b/,                          fam: 'RLHF',         kind: 'alignment', m: 'RLHF',           anchor: false },
+      { re: /\breward[\s-]model\b/i,             fam: 'reward',       kind: 'alignment', m: 'reward model',   anchor: false },
+      // ---- distill (knowledge distillation / teacher-student) ----
+      { re: /\bdistillation\b/i,                 fam: 'distillation', kind: 'distill',   m: 'distillation',           anchor: false },
+      { re: /\bknowledge[\s-]distillation\b/i,   fam: 'distillation', kind: 'distill',   m: 'knowledge-distillation', anchor: false },
+      { re: /\bteacher[\s-]student\b/i,          fam: 'distillation', kind: 'distill',   m: 'teacher-student',        anchor: false },
+    ];
+    // (a) #140 precision: skip doc + DATA/fixture files. Markdown/rst is prose;
+    // YAML/JSON/JSONL/CSV/lock are configs and recorded test cassettes where
+    // concept words ("RLHF", "distillation") appear as prose, not code.
+    const reSkipFile = /\.(?:md|markdown|mdx|rst|ya?ml|json|jsonl|csv|lock)$/i;
+    const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
+
+    const out = [];
+    for (const [filepath, lines] of this.fileLines) {
+      if (reSkipFile.test(filepath)) continue;
+      const fileHits = [];
+      let anchored = false;   // file has ≥1 anchor (code-identifier) marker
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+        if (reComment(trimmed)) continue;
+        const d = table.find(e => e.re.test(line));
+        if (d) {
+          const rec = { name: d.m, filepath, line: i + 1, kind: d.kind, family: d.fam, marker: d.m, tag: 'heuristic', snippet: trimmed.slice(0, 200) };
+          fileHits.push({ rec, anchor: !!d.anchor });
+          if (d.anchor) anchored = true;
+        }
+      }
+      // (b) two-tier gate: anchor hits always count; concept-word hits count only
+      // when the file also has an anchor. A prose/string-constant "distillation"
+      // can no longer self-anchor a file full of generic "adapter" lines.
+      for (const h of fileHits) {
+        if (!h.anchor && !anchored) continue;
+        out.push(h.rec);
+      }
+    }
+
+    let result = out;
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = out.filter(t =>
+        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
+        || (t.family || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
+        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+    }
+    const kindRank = { 'peft': 0, 'alignment': 1, 'distill': 2 };
+    result.sort((a, b) =>
+      (kindRank[a.kind] - kindRank[b.kind]) || (a.family || '').localeCompare(b.family || '')
+      || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+    return result;
+  }
+
+  /**
    * listDatasets(filter) — ML datasets (#99). Precision-tiered to avoid the
    * generic-I/O over-trigger (the #96 `createContext` / `.bin` lesson):
    *
@@ -1712,6 +1815,7 @@ class _AIMLMethods {
     for (const t of this.listStructuredOutput()) add('structured-output', t, t.id);
     for (const t of this.listKernels())       add('kernel', t, t.name || t.family);  // #116/#93: custom GPU kernels (DeepSeek/Mistral MoE) — the low-level model-impl signal
     for (const t of this.listMultimodal())    add('multimodal', t, t.name || t.family);  // #140: vision / VLM / generative-vision proxies
+    for (const t of this.listPostTraining())  add('post-training', t, t.name || t.family);  // #140: fine-tuning / alignment mechanisms (LoRA/SFT/DPO/GRPO/distill)
 
     const leafFolder = (fp) => { const n = fp.replace(/\\/g, '/'); const i = n.lastIndexOf('/'); return i >= 0 ? n.slice(0, i) : '.'; };
     // #121: module root = up to & incl. the first path segment after the zip '!'
@@ -1763,6 +1867,10 @@ class _AIMLMethods {
       // the codebase IS the model's low-level implementation (DeepSeek/Mistral MoE
       // kernels), not a consumer. Distinctive + rare, so it headlines high.
       if (has('kernel') && (has('model') || has('inference') || has('training') || has('artifact-load') || has('artifact-save'))) s.push('low-level');
+      // fine-tuning = post-training mechanism (LoRA/SFT/DPO/GRPO/distill) applied
+      // to a base model — fine-tune / align an existing model, distinct from
+      // pretraining. More specific than generic `training`, so it ranks above it.
+      if (has('post-training') && (has('artifact-load') || has('model') || has('training'))) s.push('fine-tuning');
       if ((has('dataset') && has('training')) || (has('training') && has('artifact-save'))) s.push('training');
       // agent = an explicit chains/agents detection, OR (the cross-file case) an
       // LLM call co-occurring with tool-DISPATCH (handling the model's tool_use —
@@ -1772,7 +1880,7 @@ class _AIMLMethods {
       if (has('llm-call') && (has('structured-output') || has('tool-def') || has('tool-dispatch'))) s.push('LLM-app');
       return s;
     };
-    const STAGE_ORDER = ['dataset', 'chunking', 'embed', 'vector-store', 'search', 'model', 'multimodal', 'kernel', 'artifact-load', 'training', 'artifact-save', 'inference', 'llm-call', 'structured-output', 'tool-def', 'tool-dispatch', 'agent'];
+    const STAGE_ORDER = ['dataset', 'chunking', 'embed', 'vector-store', 'search', 'model', 'multimodal', 'kernel', 'artifact-load', 'training', 'post-training', 'artifact-save', 'inference', 'llm-call', 'structured-output', 'tool-def', 'tool-dispatch', 'agent'];
     const makeRow = (shapes, scope, location, bucket) => {
       const stages = [];
       for (const cell of STAGE_ORDER) {
@@ -1842,7 +1950,7 @@ class _AIMLMethods {
         || w.scope.includes(pat) || w.shapes.join(',').toLowerCase().includes(pat)
         || w.stages.some(st => st.cell.includes(pat) || st.ids.join(',').toLowerCase().includes(pat)));
     }
-    const shapeRank = { RAG: 0, 'low-level': 1, training: 2, agent: 3, inference: 4, 'LLM-app': 5 };
+    const shapeRank = { RAG: 0, 'low-level': 1, 'fine-tuning': 2, training: 3, agent: 4, inference: 5, 'LLM-app': 6 };
     const scopeRank = { file: 0, folder: 1, module: 2 };
     result.sort((a, b) =>
       (scopeRank[a.scope] - scopeRank[b.scope])
@@ -1874,6 +1982,7 @@ export const CELL_KEYS = [
   { key: 'artifacts',         method: 'listArtifacts' },
   { key: 'kernels',           method: 'listKernels' },
   { key: 'multimodal',        method: 'listMultimodal' },
+  { key: 'post-training',     method: 'listPostTraining' },
   { key: 'datasets',          method: 'listDatasets' },
   { key: 'training',          method: 'listTraining' },
   { key: 'inference',         method: 'listInference' },
@@ -1947,6 +2056,16 @@ export const KERNELS_DRILLDOWN = {
 // their own rows. name === marker for this cell, so the key is effectively
 // (family, kind, marker).
 export const MULTIMODAL_DRILLDOWN = {
+  keyFn: t => `${t.family}|${t.kind}|${t.marker}|${t.name || ''}`,
+  pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
+  row:   t => ({ family: t.family, kind: t.kind, marker: t.marker, name: t.name, tag: t.tag }),
+};
+
+// #140 Post-training / Fine-tuning. Same identity-grouping shape as
+// MULTIMODAL_DRILLDOWN: collapse only same-(family,kind,marker,name) repeats;
+// distinct markers keep their own rows. name === marker for this cell, so the
+// key is effectively (family, kind, marker).
+export const POSTTRAINING_DRILLDOWN = {
   keyFn: t => `${t.family}|${t.kind}|${t.marker}|${t.name || ''}`,
   pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
   row:   t => ({ family: t.family, kind: t.kind, marker: t.marker, name: t.name, tag: t.tag }),
