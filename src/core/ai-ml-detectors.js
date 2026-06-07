@@ -1674,7 +1674,28 @@ class _AIMLMethods {
     // Harvest (filepath, line, cell, id) from every cell. The `id` is the most
     // useful identity for the stage label (model/schema/dataset/framework name).
     const hits = [];
-    const add = (cell, t, id) => { if (t && t.filepath && !reDocFile.test(t.filepath)) hits.push({ filepath: t.filepath, line: t.line, cell, id: id || null }); };
+    // A keyword inside a string literal / doc-string is a MENTION, not usage, and
+    // shouldn't anchor a pipeline stage (e.g. a vectorstore docstring "…use CLIP
+    // models to create multimodal indexes" shouldn't make the file multimodal,
+    // #142). The hit stays in the cell LIST; only pipeline assembly is affected.
+    //
+    // Conservative + SAFE: skip a record whose source line is itself a string
+    // literal (trimmed line starts with a quote). A code line virtually never
+    // starts with a bare quote, so this never over-filters real logic.
+    //
+    // NOTE: indented docstring *body* lines (e.g. marqo.py's `…use CLIP models…`)
+    // start with prose, not a quote, so they're NOT caught here. A naive
+    // triple-quote range scanner was tried and DESYNCED on transformers' complex
+    // docstrings (embedded code examples / @auto_docstring), wrongly dropping
+    // real CLIP pipelines (modeling_clip/x_clip/flava). Robust docstring
+    // detection needs a language-aware parser → deferred; the big fake
+    // module-scope pipelines are handled by the scope-demotion item.
+    const isProseHit = (t) => {
+      const ln = (this.fileLines.get(t.filepath) || [])[t.line - 1] || '';
+      const c = ln.trimStart()[0];
+      return c === '"' || c === "'" || c === '`';
+    };
+    const add = (cell, t, id) => { if (t && t.filepath && !reDocFile.test(t.filepath) && !isProseHit(t)) hits.push({ filepath: t.filepath, line: t.line, cell, id: id || null }); };
     for (const t of this.listModels())       add('model', t, t.name);
     for (const a of this.listArtifacts())     add(a.direction === 'save' ? 'artifact-save' : (a.direction === 'load' ? 'artifact-load' : 'artifact-ref'), a, a.path);
     for (const d of this.listDatasets())      add('dataset', d, d.name);
