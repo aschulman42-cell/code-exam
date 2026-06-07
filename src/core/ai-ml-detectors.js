@@ -1086,8 +1086,8 @@ class _AIMLMethods {
     const out = [];
     for (const [filepath, lines] of this.fileLines) {
       if (reDocFile.test(filepath)) continue;
-      const hasLangchain = lines.some(l => /\b(?:import|from|require)\b.*\b(?:langchain|llama_index|llamaindex|llamaIndex|@langchain)\b/.test(l));
-      const hasSDK = lines.some(l => /\b(?:import|from|require)\b.*\b(?:anthropic|openai|cohere|mistralai|generativeai|node-llama-cpp|@anthropic-ai|together|groq)\b/.test(l));
+      const hasLangchain = lines.some(l => /\b(?:import|from|require)\b/.test(l) && /\b(?:langchain|llama_index|llamaindex|llamaIndex|@langchain)\b/.test(l));
+      const hasSDK = lines.some(l => /\b(?:import|from|require)\b/.test(l) && /\b(?:anthropic|openai|cohere|mistralai|generativeai|node-llama-cpp|@anthropic-ai|together|groq)\b/.test(l));
       // llama-cpp-python: `from llama_cpp import Llama; llm = Llama(model_path=…)`.
       // `Llama(` (the instantiation) is the client; gate on the import so it
       // can't collide with an unrelated `Llama` class. (Direct calls `llm(...)`
@@ -1308,7 +1308,7 @@ class _AIMLMethods {
       const hasAgentFw = lines.some(l => /\b(?:crewai|pydantic_ai|smolagents|autogen|llama_index|openai[._-]?agents)\b/i.test(l));
       // #120: GroupChat collides with messaging "group chat" (OpenClaw/Feishu) —
       // gate that marker on an autogen import in-file.
-      const hasAutogen = lines.some(l => /\b(?:import|from|require)\b[^\n]*\b(?:autogen|pyautogen|ag2)\b/i.test(l));
+      const hasAutogen = lines.some(l => /\b(?:import|from|require)\b/i.test(l) && /\b(?:autogen|pyautogen|ag2)\b/i.test(l));
       let frameworkInFile = false;
 
       for (let i = 0; i < lines.length; i++) {
@@ -1415,7 +1415,7 @@ class _AIMLMethods {
     for (const [filepath, lines] of this.fileLines) {
       if (reDocFile.test(filepath)) continue;
       const hasST = lines.some(l => /\b(?:import|from)\s+sentence_transformers\b/.test(l));
-      const hasChromadb = lines.some(l => /\bchromadb\b/i.test(l) || /\b(?:import|from).*\bChroma\b/.test(l));
+      const hasChromadb = lines.some(l => /\bchromadb\b/i.test(l) || (/\b(?:import|from)\b/.test(l) && /\bChroma\b/.test(l)));
       const embFound = lines.some(l => reEmbAny.test(l));
       const vecFound = lines.some(l => reVecAny.test(l));
 
@@ -1601,7 +1601,7 @@ class _AIMLMethods {
     const out = [];
     for (const [filepath, lines] of this.fileLines) {
       if (reDocFile.test(filepath)) continue;
-      const hasConstrainedImport = lines.some(l => /\b(?:import|from|require)\b.*\b(?:outlines|guidance)\b/.test(l));
+      const hasConstrainedImport = lines.some(l => /\b(?:import|from|require)\b/.test(l) && /\b(?:outlines|guidance)\b/.test(l));
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (!line) continue;
