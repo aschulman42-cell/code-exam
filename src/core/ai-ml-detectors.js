@@ -188,7 +188,7 @@ class _AIMLMethods {
     // Ordered detectors — first match on a line wins, so a mechanical marker
     // (A/B) always beats the heuristic extension (C) on the same line.
     const L = 'load', S = 'save';
-    const A = 'HF/PyTorch', B = 'node-llama-cpp', C = 'format-ref';
+    const A = 'HF/PyTorch', B = 'node-llama-cpp', C = 'format-ref', Q = 'quantization';
     const detectors = [
       // ── Family A: HF / PyTorch ──────────────────────────────────────────
       { re: /\bsave_pretrained\s*\(/,                fam: A, dir: S, fmt: 'hf',          tag: 'mechanical' },
@@ -216,6 +216,24 @@ class _AIMLMethods {
       // masquerade as model loads. (Verified false positives on a cli.js index.)
       { re: /\.loadModel\s*\(/,     gated: true,     fam: B, dir: L, fmt: 'gguf',        tag: 'mechanical' },
       { re: /\.createContext\s*\(/, gated: true,     fam: B, dir: L, fmt: 'gguf',        tag: 'mechanical' },
+      // ── Family D: quantization (load-side) ──────────────────────────────
+      // Quantized-checkpoint load markers. Placed BEFORE Family C (the bare
+      // extension family, which runs as the extRe fallback below) so they win
+      // on shared lines. All bounded (`\b<token>\b`, #143) and all dir:'load'
+      // (a quant config gates HOW a checkpoint is loaded). int4/int8 are NOT
+      // matched — too generic (dtype usage); GGUF stays with the extension
+      // family. The short acronyms GPTQ/AWQ are precision-checked against prose
+      // FPs below (doc files are already skipped via reDocFile).
+      { re: /\bBitsAndBytesConfig\b/,               fam: Q, dir: L, fmt: 'quant',       tag: 'mechanical' },
+      { re: /\bload_in_4bit\b/,                      fam: Q, dir: L, fmt: 'quant',       tag: 'mechanical' },
+      { re: /\bload_in_8bit\b/,                      fam: Q, dir: L, fmt: 'quant',       tag: 'mechanical' },
+      { re: /\bbitsandbytes\b/,                      fam: Q, dir: L, fmt: 'quant',       tag: 'mechanical' },
+      { re: /\bGPTQ\b/,                              fam: Q, dir: L, fmt: 'quant',       tag: 'mechanical' },
+      { re: /\bAutoGPTQ\b/,                          fam: Q, dir: L, fmt: 'quant',       tag: 'mechanical' },
+      { re: /\bGPTQConfig\b/,                        fam: Q, dir: L, fmt: 'quant',       tag: 'mechanical' },
+      { re: /\bAWQ\b/,                               fam: Q, dir: L, fmt: 'quant',       tag: 'mechanical' },
+      { re: /\bAutoAWQ\b/,                           fam: Q, dir: L, fmt: 'quant',       tag: 'mechanical' },
+      { re: /\bAwqConfig\b/,                         fam: Q, dir: L, fmt: 'quant',       tag: 'mechanical' },
     ];
     // Family C: a model-artifact extension inside a quoted string.
     const extRe = /["'`]([^"'`\n]*\.(gguf|safetensors|onnx|ckpt|pth|pt|bin|h5))["'`]/i;
@@ -241,9 +259,18 @@ class _AIMLMethods {
     // inline-code backticks as string quotes, so without this a doc line like
     // `AutoModelForCausalLM.from_pretrained()` becomes a bogus artifact id.
     const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
+    // Quant-family precision gate: the SHORT acronyms GPTQ/AWQ match raw byte
+    // sequences in binaries (a git `.bundle` blob in node-llama-cpp matched
+    // `\bAWQ\b`) and prose in docs/configs. The A/B/C families are either
+    // call-shaped or quoted-extension-shaped, so they don't share this risk;
+    // only Family D (fam === Q) is suppressed on data/binary/config/doc files.
+    // Verified: all .transformers quant hits are in `.py`; the lone
+    // node-llama-cpp FP was llama/gitRelease.bundle.
+    const reSkipQuant = /\.(?:md|markdown|mdx|rst|ya?ml|json|jsonl|csv|lock|bundle|bin|gguf|safetensors|onnx|ckpt|pt|pth|h5|so|dll|dylib|wasm|zip|gz|tar|op|exe)$/i;
     const out = [];
     for (const [filepath, lines] of this.fileLines) {
       if (reDocFile.test(filepath)) continue;
+      const skipQuant = reSkipQuant.test(filepath);
       // Gate for generic Family-B markers: does this file actually use
       // node-llama-cpp? If not, `.createContext(`/`.loadModel(` are something
       // else (React Context, an unrelated loader, etc.) and must not count.
@@ -256,17 +283,27 @@ class _AIMLMethods {
         let rec = null;
         for (const d of detectors) {
           if (d.gated && !fileHasLlama) continue;
+          if (d.fam === Q && skipQuant) continue;
           const m = d.re.exec(line);
           if (m && !(d.not && d.not.test(line))) {
-            const pm = line.match(pathRe);
-            let path = pm ? pm[1] : null;
-            let pathResolved = !!pm;            // a quoted literal is already resolved
-            if (!path) {
-              const ident = artifactArgIdent(line, m.index + m[0].length);
-              if (ident) {
-                const lit = this._resolveLiteral(lines, ident, i);
-                if (lit != null) { path = lit; pathResolved = true; }
-                else { path = '<' + ident + '>'; pathResolved = false; }
+            let path = null;
+            let pathResolved = false;
+            // Quant markers (BitsAndBytesConfig, GPTQ, AWQ…) are TECHNIQUES, not
+            // file-load sites — they carry no model path. Skipping path
+            // extraction keeps them out of the models-used projection (#141:
+            // `AWQ>` was leaking in as a bogus "model") and out of the artifact
+            // path column. Families A/B/C keep their normal path extraction.
+            if (d.fam !== Q) {
+              const pm = line.match(pathRe);
+              path = pm ? pm[1] : null;
+              pathResolved = !!pm;              // a quoted literal is already resolved
+              if (!path) {
+                const ident = artifactArgIdent(line, m.index + m[0].length);
+                if (ident) {
+                  const lit = this._resolveLiteral(lines, ident, i);
+                  if (lit != null) { path = lit; pathResolved = true; }
+                  else { path = '<' + ident + '>'; pathResolved = false; }
+                }
               }
             }
             rec = { family: d.fam, direction: d.dir, format: d.fmt, tag: d.tag,
@@ -588,7 +625,10 @@ class _AIMLMethods {
    * Precision (two-tier markers, #140). Markers split into:
    *   - ANCHOR (`anchor: true`) — code identifiers prose ~never contains
    *     (LoraConfig, get_peft_model, lora_, QLoRA, SFTTrainer, DPOTrainer,
-   *     PPOTrainer, GRPO, reward_model). Self-validating: always count.
+   *     PPOTrainer, GRPO, reward_model, plus the TRL `*Trainer`/`*Config`
+   *     family: GRPOTrainer/GRPOConfig, DPOConfig, SFTConfig, PPOConfig,
+   *     RewardTrainer/RewardConfig, KTOTrainer, ORPOTrainer, CPOTrainer).
+   *     Self-validating: always count.
    *   - CONCEPT (`anchor: false`) — English words that show up in comments /
    *     strings / docs (RLHF, "reward model", distillation, adapter, bare LoRA,
    *     PEFT/peft). Count ONLY in a file that also has an anchor hit.
@@ -619,6 +659,21 @@ class _AIMLMethods {
       { re: /\bDPOTrainer\b/,                    fam: 'DPO',          kind: 'alignment', m: 'DPOTrainer',     anchor: true  },
       { re: /\bPPOTrainer\b/,                    fam: 'PPO',          kind: 'alignment', m: 'PPOTrainer',     anchor: true  },
       { re: /\breward_model\b/,                  fam: 'reward',       kind: 'alignment', m: 'reward_model',   anchor: true  },
+      // TRL `*Trainer` / `*Config` classes. Bare `\bGRPO\b` does NOT match
+      // inside `GRPOTrainer` (no word boundary), so without these the precise
+      // class form would only match a docstring. Ordered BEFORE the bare-acronym
+      // concept entries (and `\bGRPOTrainer\b` BEFORE `\bGRPO\b`) so the precise
+      // class form wins the first-match in table.find.
+      { re: /\bGRPOTrainer\b/,                   fam: 'GRPO',         kind: 'alignment', m: 'GRPOTrainer',    anchor: true  },
+      { re: /\bGRPOConfig\b/,                    fam: 'GRPO',         kind: 'alignment', m: 'GRPOConfig',     anchor: true  },
+      { re: /\bDPOConfig\b/,                     fam: 'DPO',          kind: 'alignment', m: 'DPOConfig',      anchor: true  },
+      { re: /\bSFTConfig\b/,                     fam: 'SFT',          kind: 'alignment', m: 'SFTConfig',      anchor: true  },
+      { re: /\bPPOConfig\b/,                     fam: 'PPO',          kind: 'alignment', m: 'PPOConfig',      anchor: true  },
+      { re: /\bRewardTrainer\b/,                 fam: 'reward',       kind: 'alignment', m: 'RewardTrainer',  anchor: true  },
+      { re: /\bRewardConfig\b/,                  fam: 'reward',       kind: 'alignment', m: 'RewardConfig',   anchor: true  },
+      { re: /\bKTOTrainer\b/,                    fam: 'KTO',          kind: 'alignment', m: 'KTOTrainer',     anchor: true  },
+      { re: /\bORPOTrainer\b/,                   fam: 'ORPO',         kind: 'alignment', m: 'ORPOTrainer',    anchor: true  },
+      { re: /\bCPOTrainer\b/,                    fam: 'CPO',          kind: 'alignment', m: 'CPOTrainer',     anchor: true  },
       { re: /\bGRPO\b/,                          fam: 'GRPO',         kind: 'alignment', m: 'GRPO',           anchor: true  },
       { re: /\bRLHF\b/,                          fam: 'RLHF',         kind: 'alignment', m: 'RLHF',           anchor: false },
       { re: /\breward[\s-]model\b/i,             fam: 'reward',       kind: 'alignment', m: 'reward model',   anchor: false },

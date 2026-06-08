@@ -103,6 +103,13 @@ function _findPromptStringStart(line) {
     /["'`]The user will /,
     /["'`]Below is /,
     /["'`]Here is /,
+    // Reasoning / chain-of-thought prompt openers (#141). Phrase-anchored to
+    // a quote/backtick + a specific reasoning phrase, so FP risk is low.
+    /["'`]Let's think /,
+    /["'`]Think step[ -]by[ -]step/i,
+    /["'`]Let's work through /,
+    /["'`]Reason (?:step by step|through|carefully)/i,
+    /["'`]Work through (?:this|the) /i,
   ];
   for (const re of patterns) {
     const m = line.match(re);
@@ -263,7 +270,7 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
       // Catches named prompt constants like _CLAIM_EXTRACTION_PROMPT even when
       // the string content doesn't start with a recognized phrase.
       if (!detected) {
-        const promptVarMatch = line.match(/(?:const|let|var)\s+(\w*(?:PROMPT|INSTRUCTION|SYSTEM_MSG)\w*)\s*=\s*(["'`])/);
+        const promptVarMatch = line.match(/(?:const|let|var)\s+(\w*(?:PROMPT|INSTRUCTION|SYSTEM_MSG|COT|SCRATCHPAD|REASONING)\w*)\s*=\s*(["'`])/);
         if (promptVarMatch) {
           const varName = promptVarMatch[1];
           const quoteChar = promptVarMatch[2];
@@ -472,6 +479,14 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
               "don't", 'instructions', 'guidelines', 'rules', 'avoid',
               'careful', 'security', 'vulnerabilities',
               'if you', 'unless', 'prefer', 'instead', 'certain',
+              // Reasoning / technique phrases (#141). MULTI-WORD on purpose:
+              // they only add to the ≥2/≥3 hit count inside an already-long,
+              // prompt-shaped string, so FP risk stays low. Bare 'reasoning' /
+              // 'trace' / 'reflect' / 'deliberate' are intentionally excluded
+              // (too generic).
+              'think step by step', "let's think", 'step by step',
+              'chain of thought', 'reason through', 'scratchpad', 'rationale',
+              'few-shot', 'zero-shot', 'reflect on', 'self-reflection',
             ];
             let hits = 0;
             for (const kw of INSTRUCTION_KEYWORDS) {
@@ -522,6 +537,11 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
           "don't", 'instructions', 'guidelines', 'rules', 'avoid',
           'careful', 'security', 'vulnerabilities',
           'if you', 'unless', 'prefer', 'instead', 'certain',
+          // Reasoning / technique phrases (#141), mirrored from
+          // INSTRUCTION_KEYWORDS — multi-word, low FP (see note above).
+          'think step by step', "let's think", 'step by step',
+          'chain of thought', 'reason through', 'scratchpad', 'rationale',
+          'few-shot', 'zero-shot', 'reflect on', 'self-reflection',
         ];
         const dqRe = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/g;
         let dqMatch;

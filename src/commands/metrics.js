@@ -1023,6 +1023,13 @@ export function doListArtifacts(index, args) {
     console.log(`${fam.slice(0, 14).padEnd(14)}  ${(a.format || '').slice(0, 12).padEnd(12)}  ${name.padEnd(44)}  ${cnt}`);
   }
   console.log(`\n${groups.length} unique artifact${groups.length === 1 ? '' : 's'} (${artifacts.length} site${artifacts.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
+  // #141 quantization caveat: the bare GPTQ/AWQ markers also match doc/comment
+  // prose, so the count is a presence signal, not a precise code-site count.
+  // Blank line before AND after so the note doesn't blend into adjacent sections.
+  if (byFam['quantization']) {
+    console.log(`\n  Caveat: quantization is a presence signal ("this code uses quantization"), not a`);
+    console.log(`  precise site count — bare GPTQ/AWQ markers also match doc/comment mentions.`);
+  }
 }
 
 export function doListModels(index, args) {

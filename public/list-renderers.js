@@ -1766,7 +1766,7 @@ export function renderStringTable(container, strings, meta) {
 
 // Left pane: one row per deduped group (columns + `×count`), click → onItemClick.
 // columns: [{ get(item)->text, className?, style? }]; countOf(item)->number.
-export function renderDrilldownList(container, items, { columns, countOf, onItemClick, title, footer }) {
+export function renderDrilldownList(container, items, { columns, countOf, onItemClick, title, footer, caveat }) {
   container.innerHTML = '';
   if (!items || !items.length) {
     container.innerHTML = '<div class="list-placeholder">None found.</div>';
@@ -1784,6 +1784,14 @@ export function renderDrilldownList(container, items, { columns, countOf, onItem
     container.appendChild(item);
   }
   if (footer) container.appendChild(h('div', { className: 'list-placeholder', text: footer }));
+  // Caveat: a per-cell honesty note (e.g. quantization is prose-prone). Set off
+  // with its own top border + spacing so it reads as a distinct note, not a
+  // run-on of the footer (#141 — keep caveats from blending).
+  if (caveat) container.appendChild(h('div', {
+    className: 'list-placeholder',
+    style: 'margin-top:6px;padding-top:6px;border-top:1px solid var(--border,#333);opacity:0.7;font-size:10px;font-style:italic;white-space:normal;line-height:1.35',
+    text: caveat,
+  }));
 }
 
 // Top-middle pane: header + one row per site, click → source. columns: same shape;

@@ -167,6 +167,9 @@ async function loadSectionData(sectionId, filter = '') {
           onItemClick: a => drilldownGroupClick(a, `Artifact: ${a.name}`, BY_SNIPPET),
           title: a => `${a.family} · ${a.format} · ${a.name}\n${a.count} site${a.count > 1 ? 's' : ''}`,
           footer: data.total > data.artifacts.length ? `${data.artifacts.length} of ${data.total} shown` : '',
+          caveat: (data.artifacts || []).some(a => a.family === 'quantization')
+            ? 'Caveat: quantization is a presence signal ("this code uses quantization"), not a precise site count — the bare GPTQ/AWQ markers also match doc/comment mentions.'
+            : '',
         });
         badge.textContent = data.instances != null ? data.instances : data.total;
         break;
