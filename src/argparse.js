@@ -592,7 +592,13 @@ export function parseArgs() {
         if (eqValue !== null) {
           args[def.name] = eqValue;
           i++;
-        } else if (i + 1 < argv.length && !argv[i + 1].startsWith('--')) {
+        } else if (i + 1 < argv.length && !argv[i + 1].startsWith('-')) {
+          // Guard on a single '-' (not '--'): the optional value is a name /
+          // filter / pattern that never starts with a dash, so a following
+          // flag like `-v` or `--filter` must NOT be swallowed as the value.
+          // (`--class-tree -v` was reading "-v" as the class filter.) Required
+          // 'value' args keep the looser '--' guard since a regex/search term
+          // can legitimately begin with a single '-'.
           args[def.name] = argv[i + 1];
           i += 2;
         } else {
