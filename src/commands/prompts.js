@@ -641,10 +641,21 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
   // whose detected text was a placeholder (`getSystemPrompt({`) but whose
   // assembled text contains the search term is correctly returned.
   if (filter) {
+    // Filter form: bare string = case-insensitive substring (as before);
+    // /pattern/flags = regex over the same haystack (prompt text + varName +
+    // func + filepath). Regex defaults to case-insensitive since prompt text is
+    // prose; pass explicit flags to override. Lets a huge multi-index
+    // --prompt-catalog dump be narrowed to, e.g., CoT prompts:
+    //   --prompt-catalog --filter "/step.?by.?step|chain.of.thought|reflect/"
+    const re = (() => {
+      const m = /^\/(.*)\/([a-z]*)$/.exec(filter);
+      if (!m) return null;
+      try { return new RegExp(m[1], m[2] || 'i'); } catch { return null; }
+    })();
     const pat = filter.toLowerCase();
     filtered = filtered.filter(p => {
-      const haystack = (p.text + ' ' + (p.varName || '') + ' ' + (p.func || '') + ' ' + p.filepath).toLowerCase();
-      return haystack.includes(pat);
+      const haystack = (p.text + ' ' + (p.varName || '') + ' ' + (p.func || '') + ' ' + p.filepath);
+      return re ? re.test(haystack) : haystack.toLowerCase().includes(pat);
     });
   }
 

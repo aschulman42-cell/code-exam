@@ -726,7 +726,10 @@ DISPLAY / FILTERING (query-time, does not affect index build):
   --context <n>              Context lines around matches (default: 3)
   -v, --verbose              Show extra detail
   --full-path                Show full file paths in output
-  --filter <text>            Filter function listings by name
+  --filter <text>            Substring filter for most listings — functions, files,
+                             classes, the AI/ML detector cells, and --prompt-catalog.
+                             --prompt-catalog also accepts a /regex/ form, e.g.
+                             --filter "/step.?by.?step|chain.of.thought/"
   --include-path <patterns>  Only include paths containing pattern(s)
   --exclude-path <patterns>  Exclude paths containing pattern(s)
   --exclude-tests            Exclude test files from callers/metrics results
