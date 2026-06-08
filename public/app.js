@@ -65,7 +65,7 @@ import {
 import {
   initListRenderers,
   renderFuncLikeList, renderFunctionList, renderFileListWithSub,
-  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, POSTTRAINING_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR,
+  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, POSTTRAINING_KIND_COLOR, REASONING_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
@@ -225,6 +225,33 @@ async function loadSectionData(sectionId, filter = '') {
           onItemClick: onPostTrainingGroupClick,
           title: t => `${t.family} · ${t.kind} · ${t.marker} · ${t.name || '(unnamed)'}\n${t.count} occurrence${t.count > 1 ? 's' : ''}`,
           footer: data.total > ptItems.length ? `${ptItems.length} of ${data.total} shown` : '',
+        });
+        badge.textContent = data.instances != null ? data.instances : data.total;
+        break;
+      }
+
+      case 'reasoning': {   // #146: reasoning-prompt language (cot/reflection/scratchpad), deduped by (family,kind,marker,name)
+        data = await api.listReasoning({ filter, max: 500 });
+        const rsItems = data['reasoning'];
+        state.sectionData[sectionId] = rsItems;
+        renderDrilldownList(content, rsItems, {
+          columns: [
+            // family / kind / phrase. The `marker` column is dropped — for this
+            // cell it's identical to `name` (both = the matched token). Widths are
+            // CAPPED (flex:0 0, not min-width) so long, variable-length labels like
+            // "chain-of-thought" truncate and rows stay aligned (#146).
+            { get: t => '~' + (t.family || '?'), style: 'flex:0 0 112px;max-width:112px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.kind || '', style: t => `flex:0 0 80px;max-width:80px;font-size:10px;overflow:hidden;text-overflow:ellipsis;color:${REASONING_KIND_COLOR[t.kind] || 'var(--text-muted)'}` },
+            { get: t => t.name || '(unnamed)', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+          ],
+          countOf: t => t.count,
+          // Shared drilldown with snippet sub-grouping (BY_SNIPPET) so identical
+          // lines (e.g. 5× "Explain step by step." in one README) collapse and the
+          // DISTINCT hits stay visible — was a flat list before (#146).
+          onItemClick: t => drilldownGroupClick(t, `Reasoning: ${t.name || t.marker}`, BY_SNIPPET),
+          title: t => `${t.family} · ${t.kind} · ${t.marker} · ${t.name || '(unnamed)'}\n${t.count} occurrence${t.count > 1 ? 's' : ''}`,
+          footer: data.total > rsItems.length ? `${rsItems.length} of ${data.total} shown` : '',
+          caveat: 'Caveat: reasoning is inferred from prompt LANGUAGE ("think step by step", "reflect on…"), not code constructs — heuristic, and it does NOT detect structural reasoning like Tree-of-Thoughts.',
         });
         badge.textContent = data.instances != null ? data.instances : data.total;
         break;

@@ -75,6 +75,7 @@ export const api = {
   listKernels:     (p) => api.get('list-kernels', p),
   listMultimodal:  (p) => api.get('list-multimodal', p),
   listPostTraining: (p) => api.get('list-post-training', p),
+  listReasoning:   (p) => api.get('list-reasoning', p),
   listDatasets:    (p) => api.get('list-datasets', p),
   listTraining:    (p) => api.get('list-training', p),
   listInference:   (p) => api.get('list-inference', p),

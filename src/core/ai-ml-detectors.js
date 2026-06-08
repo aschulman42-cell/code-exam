@@ -730,6 +730,104 @@ class _AIMLMethods {
   }
 
   /**
+   * listReasoning(filter) — reasoning-prompt language (#146). Keyword-table
+   * detector (mirrors listPostTraining's structure). This is PROSE inference: it
+   * keys on prompt LANGUAGE that instructs a model to reason ("think step by
+   * step", "reflect on…"), not on code constructs, so every record is
+   * `tag: 'heuristic'` and the cell carries a prominent caveat. The point of #146
+   * is the pipeline `reasoning` shape it feeds (reasoning ∧ llm-call), which lights
+   * up the ~10 indexes that have CoT prompts but no chains/agents.
+   *
+   * Three kinds, each a representative `family` + the matched `marker` token:
+   *   cot         — chain-of-thought scaffolding ("step by step", "let's think")
+   *   reflection  — self-reflection ("reflect on", "reflexion", "self-reflection")
+   *   scratchpad  — explicit working-out blocks ("scratchpad", "<scratchpad>")
+   *
+   * Precision (#143 bounded regexes only — `\b<tok>\b` / fixed phrases, NEVER an
+   * unbounded `.*` gap):
+   *   - Skip DATA/binary files (configs, lockfiles, compiled blobs) where phrasing
+   *     would be noise — but KEEP `.md` (reasoning prompts live in skill/persona
+   *     markdown) and KEEP code files (prompts live in docstrings / string args).
+   *   - `scratchpad` is AMBIGUOUS — it collides with GPU "scratchpad memory". Gate
+   *     it two-tier (the post-training trick): a `scratchpad` hit counts ONLY when
+   *     the same file also has a `cot` or `reflection` marker. cot/reflection are
+   *     specific enough to self-anchor.
+   *   - DELIBERATE recall hole: no `tree of thought` marker. ToT reasoning is a
+   *     structural search over evaluated thoughts, not a canonical phrase; a
+   *     literal "tree of thought" marker would match repo names / prose and pollute
+   *     via filepath. Documented limitation, not a bug — the caveat states it.
+   * Unlike post-training, comment-led lines are NOT skipped: reasoning prompts
+   * often live in docstrings / `# ...` persona blocks; the caveat carries the FP risk.
+   */
+  listReasoning(filter = null) {
+    // [regex, family, kind, marker-label, anchor]. First match on a line wins
+    // (ordered most-specific → most-generic within each theme). anchor:true =
+    // self-validating (cot/reflection); anchor:false = ambiguous concept word
+    // (scratchpad) needing an in-file cot/reflection anchor — see the gate below.
+    const table = [
+      // ---- cot (chain-of-thought scaffolding) — all anchors ----
+      { re: /\bchain[-_\s]?of[-_\s]?thought\b/i,                 fam: 'chain-of-thought', kind: 'cot',        m: 'chain-of-thought', anchor: true  },
+      { re: /\bstep[-\s]?by[-\s]?step\b/i,                       fam: 'step-by-step',     kind: 'cot',        m: 'step-by-step',     anchor: true  },
+      { re: /\breason step by step\b/i,                          fam: 'step-by-step',     kind: 'cot',        m: 'reason-step',      anchor: true  },
+      { re: /\bthink (?:step by step|this through|it through)\b/i, fam: 'think',          kind: 'cot',        m: 'think-through',    anchor: true  },
+      { re: /\blet'?s think\b/i,                                 fam: "let's think",      kind: 'cot',        m: "let's-think",      anchor: true  },
+      // ---- reflection (self-reflection / reflexion) — all anchors ----
+      { re: /\bself[-_\s]?reflection\b/i,                        fam: 'self-reflection',  kind: 'reflection', m: 'self-reflection',  anchor: true  },
+      { re: /\breflexion\b/i,                                    fam: 'reflexion',        kind: 'reflection', m: 'reflexion',        anchor: true  },
+      { re: /\breflect on\b/i,                                   fam: 'reflect',          kind: 'reflection', m: 'reflect-on',       anchor: true  },
+      // ---- scratchpad (explicit working-out) — AMBIGUOUS, concept-gated ----
+      { re: /<scratchpad>/i,                                     fam: 'scratchpad',       kind: 'scratchpad', m: '<scratchpad>',     anchor: false },
+      { re: /\bscratchpad\b/i,                                   fam: 'scratchpad',       kind: 'scratchpad', m: 'scratchpad',       anchor: false },
+    ];
+    // (a) #146 precision: skip DATA / LOG / binary files (configs, lockfiles,
+    // trajectory dumps, compiled blobs). KEEP `.md` — reasoning prompts live in
+    // skill/persona markdown — and KEEP code files (prompts live in docstrings /
+    // string args). `.txt`/`.log`/`.out` are skipped because they're dominated by
+    // recorded run trajectories (e.g. reflexion's saved "Thought: Let's think
+    // step by step…" traces — 2896 of 2904 hits were in `.txt` logs, not prompts).
+    const reSkipFile = /\.(?:txt|log|out|ya?ml|json|jsonl|csv|lock|op|exe|bin|so|dll|dylib|bundle|wasm|o|a|class|jar|zip|gz|png|jpg|jpeg|gif|svg|pdf|ico|woff2?|ttf|map)$/i;
+
+    const out = [];
+    for (const [filepath, lines] of this.fileLines) {
+      if (reSkipFile.test(filepath)) continue;
+      const fileHits = [];
+      let anchored = false;   // file has ≥1 cot/reflection (self-validating) marker
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+        const d = table.find(e => e.re.test(line));
+        if (d) {
+          const rec = { name: d.m, filepath, line: i + 1, kind: d.kind, family: d.fam, marker: d.m, tag: 'heuristic', snippet: trimmed.slice(0, 200) };
+          fileHits.push({ rec, anchor: !!d.anchor });
+          if (d.anchor) anchored = true;
+        }
+      }
+      // (b) two-tier gate: cot/reflection hits always count; the ambiguous
+      // `scratchpad` (anchor:false) counts only when the file also has a
+      // cot/reflection marker, so GPU "scratchpad memory" doesn't self-register.
+      for (const h of fileHits) {
+        if (!h.anchor && !anchored) continue;
+        out.push(h.rec);
+      }
+    }
+
+    let result = out;
+    if (filter) {
+      const pat = filter.toLowerCase();
+      result = out.filter(t =>
+        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
+        || (t.family || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
+        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+    }
+    const kindRank = { 'cot': 0, 'reflection': 1, 'scratchpad': 2 };
+    result.sort((a, b) =>
+      (kindRank[a.kind] - kindRank[b.kind]) || (a.family || '').localeCompare(b.family || '')
+      || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+    return result;
+  }
+
+  /**
    * listDatasets(filter) — ML datasets (#99). Precision-tiered to avoid the
    * generic-I/O over-trigger (the #96 `createContext` / `.bin` lesson):
    *
@@ -1871,6 +1969,7 @@ class _AIMLMethods {
     for (const t of this.listKernels())       add('kernel', t, t.name || t.family);  // #116/#93: custom GPU kernels (DeepSeek/Mistral MoE) — the low-level model-impl signal
     for (const t of this.listMultimodal())    add('multimodal', t, t.name || t.family);  // #140: vision / VLM / generative-vision proxies
     for (const t of this.listPostTraining())  add('post-training', t, t.name || t.family);  // #140: fine-tuning / alignment mechanisms (LoRA/SFT/DPO/GRPO/distill)
+    for (const t of this.listReasoning())      add('reasoning', t, t.marker || t.kind);  // #146: reasoning-prompt language (CoT/reflection) — heuristic, feeds the `reasoning` shape
 
     const leafFolder = (fp) => { const n = fp.replace(/\\/g, '/'); const i = n.lastIndexOf('/'); return i >= 0 ? n.slice(0, i) : '.'; };
     // #121: module root = up to & incl. the first path segment after the zip '!'
@@ -1932,10 +2031,14 @@ class _AIMLMethods {
       // the agentic signal, vs tool-def which only declares tools).
       if (has('agent') || (has('llm-call') && has('tool-dispatch'))) s.push('agent');
       if (has('inference') && (has('artifact-load') || has('model'))) s.push('inference');
+      // reasoning = the code instructs a model to reason (CoT/reflection prompt
+      // language) co-occurring with an actual LLM call. More specific than bare
+      // LLM-app, less specific than agent — #146. Heuristic (prose-inferred).
+      if (has('reasoning') && has('llm-call')) s.push('reasoning');
       if (has('llm-call') && (has('structured-output') || has('tool-def') || has('tool-dispatch'))) s.push('LLM-app');
       return s;
     };
-    const STAGE_ORDER = ['dataset', 'chunking', 'embed', 'vector-store', 'search', 'model', 'multimodal', 'kernel', 'artifact-load', 'training', 'post-training', 'artifact-save', 'inference', 'llm-call', 'structured-output', 'tool-def', 'tool-dispatch', 'agent'];
+    const STAGE_ORDER = ['dataset', 'chunking', 'embed', 'vector-store', 'search', 'model', 'multimodal', 'kernel', 'artifact-load', 'training', 'post-training', 'artifact-save', 'inference', 'llm-call', 'reasoning', 'structured-output', 'tool-def', 'tool-dispatch', 'agent'];
     const makeRow = (shapes, scope, location, bucket) => {
       const stages = [];
       for (const cell of STAGE_ORDER) {
@@ -2005,7 +2108,7 @@ class _AIMLMethods {
         || w.scope.includes(pat) || w.shapes.join(',').toLowerCase().includes(pat)
         || w.stages.some(st => st.cell.includes(pat) || st.ids.join(',').toLowerCase().includes(pat)));
     }
-    const shapeRank = { RAG: 0, 'low-level': 1, 'fine-tuning': 2, training: 3, agent: 4, inference: 5, 'LLM-app': 6 };
+    const shapeRank = { RAG: 0, 'low-level': 1, 'fine-tuning': 2, training: 3, agent: 4, inference: 5, reasoning: 6, 'LLM-app': 7 };
     const scopeRank = { file: 0, folder: 1, module: 2 };
     result.sort((a, b) =>
       (scopeRank[a.scope] - scopeRank[b.scope])
@@ -2038,6 +2141,7 @@ export const CELL_KEYS = [
   { key: 'kernels',           method: 'listKernels' },
   { key: 'multimodal',        method: 'listMultimodal' },
   { key: 'post-training',     method: 'listPostTraining' },
+  { key: 'reasoning',         method: 'listReasoning' },
   { key: 'datasets',          method: 'listDatasets' },
   { key: 'training',          method: 'listTraining' },
   { key: 'inference',         method: 'listInference' },
@@ -2121,6 +2225,16 @@ export const MULTIMODAL_DRILLDOWN = {
 // distinct markers keep their own rows. name === marker for this cell, so the
 // key is effectively (family, kind, marker).
 export const POSTTRAINING_DRILLDOWN = {
+  keyFn: t => `${t.family}|${t.kind}|${t.marker}|${t.name || ''}`,
+  pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
+  row:   t => ({ family: t.family, kind: t.kind, marker: t.marker, name: t.name, tag: t.tag }),
+};
+
+// #146 Reasoning. Same identity-grouping shape as POSTTRAINING_DRILLDOWN:
+// collapse only same-(family,kind,marker,name) repeats; distinct markers keep
+// their own rows. name === marker for this cell, so the key is effectively
+// (family, kind, marker).
+export const REASONING_DRILLDOWN = {
   keyFn: t => `${t.family}|${t.kind}|${t.marker}|${t.name || ''}`,
   pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
   row:   t => ({ family: t.family, kind: t.kind, marker: t.marker, name: t.name, tag: t.tag }),

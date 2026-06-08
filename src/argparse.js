@@ -158,6 +158,7 @@ export function parseArgs() {
     list_kernels: false,
     list_multimodal: false,
     list_post_training: false,
+    list_reasoning: false,
     list_datasets: false,
     list_training: false,
     list_inference: false,
@@ -348,6 +349,7 @@ export function parseArgs() {
     ['list_datasets',        'flag',           ['--datasets'], ['--list-datasets']],
     ['list_training',        'flag',           ['--training'], ['--list-training']],
     ['list_post_training',   'flag',           ['--post-training', '--finetuning'], ['--list-post-training']],
+    ['list_reasoning',       'flag',           ['--reasoning'], ['--list-reasoning']],
     ['list_inference',       'flag',           ['--inference'], ['--list-inference']],
     ['list_llm_calls',       'flag',           ['--llm-calls'], ['--list-llm-calls']],
     ['list_tools',           'flag',           ['--tools'], ['--list-tools']],
@@ -791,6 +793,8 @@ AI/ML DETECTORS (list AI/ML constructs; each has a --list-<name> alias):
                              build*Prompt functions. Full text, no truncation — pipe
                              to a file and grep for keywords. (alias: --prompts)
   --llm-calls                LLM API calls (messages.create, ChatOpenAI, LlamaChatSession)
+  --reasoning                Reasoning-prompt language (CoT "think step by step", reflection/reflexion,
+                             scratchpad) — HEURISTIC (prompt prose, not constructs); misses Tree-of-Thoughts
   --tools                    Tool defs / function-calling (@tool, input_schema, MCP, tool_use)
   --chains                   Chains/agents (LangChain/LangGraph/DSPy/CrewAI; framework-based only)
   --embeddings               Embeddings & vector search (FAISS/Chroma, similarity_search, distance)

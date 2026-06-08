@@ -372,6 +372,13 @@ export const POSTTRAINING_KIND_COLOR = {
   'peft': '#6cf', 'alignment': '#fc6', 'distill': '#c9f',
 };
 
+// Reasoning (#146) — kind ∈ {cot, reflection, scratchpad}. All rows are
+// heuristic (prompt-language matches), so the app-side renderer shows a leading
+// "~"; the color distinguishes the three reasoning themes.
+export const REASONING_KIND_COLOR = {
+  'cot': '#6cf', 'reflection': '#fc6', 'scratchpad': '#c9f',
+};
+
 export function renderKernelList(container, kernels, total) {
   container.innerHTML = '';
   if (!kernels || !kernels.length) {
