@@ -483,6 +483,36 @@ quality is generally below what the API would produce.
   strings as if they were commands. Being tightened.
 - **GUI test automation** — not yet in place; evaluating an
   [XMLUI](https://www.xmlui.org/)-driven approach (#73).
+- **Symbol lookup ambiguity across same-named classes/functions** (#85) — in
+  large or mixed-language codebases, multiple classes/functions can share a bare
+  name (across files, versions, even languages). `--digest` and right-click →
+  Digest may merge them or mislabel the result (e.g. a Python class's digest
+  titled with a same-named C++ declaration from a vendored header). The digest
+  *body* is usually still correct; the *title/target* may be wrong. Better
+  disambiguation — file/line-qualified targeting and conflation warnings — is
+  planned.
+- **AI/ML detection is heuristic** (#98, #92, #122, #135, #136) — the detectors
+  favor recall: counts are *presence signals*, not exact site counts. Expect
+  false positives (library types like `Eigen::Dense` flagged as models, prose
+  or doc-search strings flagged as prompts, `messages.create` collisions) and
+  some misses, especially in vendored/test-heavy trees. Treat the AI/ML
+  accordions as leads to verify in source, not a precise inventory. Precision
+  and recall are being tightened cell by cell.
+- **C++ class recognition is incomplete** (#65) — the C++ parser doesn't
+  reliably catch class *declarations*; many classes surface only as inferred
+  from `::`-qualified usage, so class lists and class digests can be partial or
+  mislabeled on C++-heavy trees. Language-aware C++ digest handling (#60, #68)
+  is planned.
+- **GUI lists can silently cap results** (#137) — left-pane accordions and
+  some drilldowns cap the number of rows returned (e.g. a few hundred) without
+  always disclosing it, so a large result set may look complete when it isn't.
+  Use `--filter` to narrow, or the CLI for full output. Explicit "N of M shown"
+  disclosure everywhere is planned.
+- **Indexing very large or pathological files** (#88) — without per-file size
+  caps / parse timeouts, `--build-index` can hang (tree-sitter) or run out of
+  memory on extreme inputs; guards are planned. (The `codeexam.exe` Bun build
+  also has a known `--build-index` EEXIST bug, #91 — use the Node path
+  meanwhile.)
 
 ## Related: CodeClaim
 
