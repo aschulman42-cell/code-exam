@@ -187,7 +187,7 @@ class _AIMLMethods {
     // Ordered detectors — first match on a line wins, so a mechanical marker
     // (A/B) always beats the heuristic extension (C) on the same line.
     const L = 'load', S = 'save';
-    const A = 'HF/PyTorch', B = 'node-llama-cpp', C = 'format-ref', Q = 'quantization';
+    const A = 'HF/PyTorch', B = 'node-llama-cpp', C = 'format-ref', Q = 'quantization', M = 'MLOps';
     const detectors = [
       // ── Family A: HF / PyTorch ──────────────────────────────────────────
       { re: /\bsave_pretrained\s*\(/,                fam: A, dir: S, fmt: 'hf',          tag: 'mechanical' },
@@ -233,6 +233,21 @@ class _AIMLMethods {
       { re: /\bAWQ\b/,                               fam: Q, dir: L, fmt: 'quant',       tag: 'mechanical' },
       { re: /\bAutoAWQ\b/,                           fam: Q, dir: L, fmt: 'quant',       tag: 'mechanical' },
       { re: /\bAwqConfig\b/,                         fam: Q, dir: L, fmt: 'quant',       tag: 'mechanical' },
+      // ── Family M: MLOps registry / serving (model lifecycle) ────────────
+      // Distinctive, tool-namespaced markers (mechanical). Like Family Q these
+      // are lifecycle/technique sites, not file loads, so they carry NO path
+      // (kept out of models-used; see the d.fam !== M guard below). The Triton
+      // *Inference Server* marker is import-gated so it never collides with the
+      // GPU-kernel Triton (`@triton.jit`) in listKernels.
+      { re: /\bmlflow\.register_model\s*\(/,         fam: M, dir: S, fmt: 'mlflow-registry', tag: 'mechanical' },
+      { re: /\bmlflow\.\w+\.(?:log|save)_model\s*\(/, fam: M, dir: S, fmt: 'mlflow-registry', tag: 'mechanical' },
+      { re: /\bmlflow\.(?:pyfunc|\w+)\.load_model\s*\(/, fam: M, dir: L, fmt: 'mlflow-registry', tag: 'mechanical' },
+      { re: /@bentoml\.service\b|\bbentoml\.(?:Runner|Service)\b/, fam: M, dir: 'serve', fmt: 'bentoml',     tag: 'mechanical' },
+      { re: /\bInferenceService\b/,                  fam: M, dir: 'serve', fmt: 'kserve',        tag: 'mechanical' },
+      { re: /\bSeldonDeployment\b/,                  fam: M, dir: 'serve', fmt: 'seldon',        tag: 'mechanical' },
+      { re: /\btorch-model-archiver\b|\btorchserve\b/, fam: M, dir: 'serve', fmt: 'torchserve',  tag: 'mechanical' },
+      { re: /\bsagemaker\.\w+\.\w*Model\w*\b/,       fam: M, dir: 'serve', fmt: 'sagemaker',     tag: 'mechanical' },
+      { re: /\bInferenceServerClient\s*\(/, gatedTriton: true, fam: M, dir: 'serve', fmt: 'triton-server', tag: 'mechanical' },
     ];
     // Family C: a model-artifact extension inside a quoted string.
     const extRe = /["'`]([^"'`\n]*\.(gguf|safetensors|onnx|ckpt|pth|pt|bin|h5))["'`]/i;
@@ -275,6 +290,11 @@ class _AIMLMethods {
       // else (React Context, an unrelated loader, etc.) and must not count.
       const fileHasLlama = lines.some(l =>
         /\bgetLlama\s*\(|node-llama-cpp|loadLlamaModelFromFile|\bLlamaModel\b/.test(l));
+      // Triton *Inference Server* gate — only count InferenceServerClient when
+      // the file actually imports the triton client/backend, so we never
+      // shadow or double-count the GPU-kernel Triton (`@triton.jit`).
+      const fileHasTritonServer = lines.some(l =>
+        /\btritonclient\b|\btriton_python_backend_utils\b/.test(l));
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (!line) continue;
@@ -282,6 +302,7 @@ class _AIMLMethods {
         let rec = null;
         for (const d of detectors) {
           if (d.gated && !fileHasLlama) continue;
+          if (d.gatedTriton && !fileHasTritonServer) continue;
           if (d.fam === Q && skipQuant) continue;
           const m = d.re.exec(line);
           if (m && !(d.not && d.not.test(line))) {
@@ -292,7 +313,7 @@ class _AIMLMethods {
             // extraction keeps them out of the models-used projection (#141:
             // `AWQ>` was leaking in as a bogus "model") and out of the artifact
             // path column. Families A/B/C keep their normal path extraction.
-            if (d.fam !== Q) {
+            if (d.fam !== Q && d.fam !== M) {
               const pm = line.match(pathRe);
               path = pm ? pm[1] : null;
               pathResolved = !!pm;              // a quoted literal is already resolved
@@ -870,6 +891,9 @@ class _AIMLMethods {
       { re: /\b(?:tf\.)?keras\.datasets\.(\w+)/,                         fam: TF, fmt: 'keras.datasets' },
       { re: /\btorch(?:vision|audio|text)\.datasets\.(\w+)/,             fam: TV, fmt: 'torchvision.datasets' },
       { re: /\btfds\.load\s*\(/,                                         fam: TF, fmt: 'tfds.load', argId: true },
+      // DVC (data versioning, MLOps) — distinctive dvc.api / DVCFileSystem
+      // access; surfaced in Datasets as a versioned-data loader.
+      { re: /\bdvc\.api\.(?:read|open|get_url)\s*\(|\bDVCFileSystem\b/,   fam: 'DVC', fmt: 'dvc', argId: true },
     ];
     // toy/demo dataset ids → builtin flag.
     const reBuiltin = /\b(load_iris|load_digits|load_wine|load_breast_cancer|load_diabetes|load_boston|fetch_\w+|make_\w+|MNIST|FashionMNIST|fashion_mnist|CIFAR10|CIFAR100|cifar10|cifar100|ImageNet|KMNIST|EMNIST|titanic|tips|iris|penguins)\b/;
@@ -994,6 +1018,18 @@ class _AIMLMethods {
     const reFitDef   = /\bdef\s+(?:fit|fit_transform|partial_fit)\b/;
     const reComment  = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
 
+    // MLOps experiment-tracking (slotted here, not a new accordion). Distinctive
+    // tool-namespaced calls (mechanical, no gate); ClearML's bare `Task.init(`
+    // is generic so it's import-gated. Tracking calls cluster inside training
+    // loops, so Pipelines pick them up alongside backward/Trainer.
+    const trackA = [
+      { re: /\bmlflow\.(?:log_(?:metric|param|artifact|model|dict|figure|image|text)s?|start_run|set_experiment|autolog)\s*\(/, fam: 'MLflow', m: 'mlflow' },
+      { re: /\bwandb\.(?:init|log|watch)\s*\(/,        fam: 'W&B',         m: 'wandb' },
+      { re: /\bSummaryWriter\s*\(/,                    fam: 'TensorBoard', m: 'SummaryWriter' },
+      { re: /\bcomet_ml\.(?:Experiment|start)\b/,      fam: 'Comet',       m: 'comet_ml' },
+      { re: /\bneptune\.init_run\s*\(/,                fam: 'Neptune',     m: 'neptune' },
+    ];
+
     // A `.fit()` in a TEST file is exercising training, not the project's own
     // training — and test suites of ML *libraries* (sklearn) call `.fit()`
     // thousands of times. Exclude test files from the heuristic Tier B so the
@@ -1004,6 +1040,7 @@ class _AIMLMethods {
     for (const [filepath, lines] of this.fileLines) {
       const isTest = reTestPath.test(filepath);
       const fileHasML = lines.some(l => /\b(?:import|from)\s+(?:sklearn|keras|tensorflow|tf|torch|xgboost|lightgbm)\b/.test(l));
+      const hasClearml = lines.some(l => /\b(?:import|from)\s+clearml\b/.test(l));
       // Infer the family for a bare `.fit(` from the file's imports.
       let fitFam = ML;
       if (lines.some(l => /\b(?:import|from)\s+(?:keras|tensorflow)\b/.test(l))) fitFam = KT;
@@ -1028,6 +1065,11 @@ class _AIMLMethods {
         // Tier A harness [mechanical].
         const hm = reHarness.exec(line);
         if (hm) { push('training-harness', LT, 'A', hm[1], 'mechanical', hm[1]); continue; }
+        // MLOps experiment-tracking [mechanical] — distinctive tool calls;
+        // ClearML's generic `Task.init(` gated on a clearml import.
+        const tr = trackA.find(d => d.re.test(line));
+        if (tr) { push('tracking', tr.fam, 'A', tr.m, 'mechanical'); continue; }
+        if (hasClearml && /\bTask\.init\s*\(/.test(line)) { push('tracking', 'ClearML', 'A', 'clearml', 'mechanical'); continue; }
         // Tier B [heuristic, gated] — a .fit() CALL, not a def, in a non-test ML file.
         if (fileHasML && !isTest && !reFitDef.test(line)) {
           const fm = reFitCall.exec(line);
@@ -1041,7 +1083,7 @@ class _AIMLMethods {
       const match = makeFilterMatcher(filter);
       result = out.filter(t => match(t.name, t.filepath, t.family, t.kind, t.marker, t.snippet));
     }
-    const kindRank = { 'training-loop': 0, 'training-harness': 1 };
+    const kindRank = { 'training-loop': 0, 'training-harness': 1, 'tracking': 2 };
     result.sort((a, b) =>
       a.family.localeCompare(b.family)
       || (kindRank[a.kind] - kindRank[b.kind])
