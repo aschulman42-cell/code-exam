@@ -181,10 +181,18 @@ if (args.multi_index) {
   }
 
   let failures = 0;
-  for (const p of indexPaths) {
+  for (let idx = 0; idx < indexPaths.length; idx++) {
+    const p = indexPaths[idx];
+    // Live human progress on stderr (kept off stdout so capture/diff stays clean).
+    process.stderr.write(`[multi-index] (${idx + 1}/${indexPaths.length}) ${p}\n`);
     process.stdout.write(`=== ${p} ===\n`);
+    // CE_MULTI_INDEX signals the child to index-qualify its AI/ML command
+    // headers (`----- <index> : <cmd> -----`) so a human scrolling stdout keeps
+    // the index context. Env var (not argv) → invisible to passthrough +
+    // multi_index_diff. See src/index.js AI/ML header block.
     const res = spawnSync(process.execPath, [process.argv[1], '--index-path', p, ...passthrough], {
       stdio: ['ignore', 'inherit', 'inherit'],
+      env: { ...process.env, CE_MULTI_INDEX: '1' },
     });
     if (res.status !== 0 || res.error) {
       failures++;
@@ -441,8 +449,14 @@ const aiMlCmds = [
   ['list_pipelines', 'pipelines', doListPipelines],
 ];
 const activeAiMl = aiMlCmds.filter(([flag]) => args[flag]);
+// Under --multi-index (CE_MULTI_INDEX set by the parent), prefix the per-command
+// header with the index name so a human scrolling stdout keeps the context:
+// `----- .mistral_from_gh : models -----`. Standalone runs stay `----- models -----`.
+const idxTag = process.env.CE_MULTI_INDEX
+  ? `${(args.index_path || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop()} : `
+  : '';
 for (const [, label, fn] of activeAiMl) {
-  if (activeAiMl.length > 1) console.log(`\n----- ${label} -----`);
+  if (activeAiMl.length > 1) console.log(`\n----- ${idxTag}${label} -----`);
   fn(index, args);
 }
 if (args.class_hotspots)                    doClassHotspots(index, args);
