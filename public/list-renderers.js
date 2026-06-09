@@ -106,11 +106,11 @@ export function renderFileListWithSub(container, files, total) {
     const dir = fp.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
 
     const subContent = h('div', { className: 'sub-accordion-content' });
-    const nameSpan = h('span', { className: 'name clickable', text: name, style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' });
+    const nameSpan = h('span', { className: 'name clickable', text: name, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' });
     const subHeader = h('div', { className: 'sub-accordion-header' }, [
       h('span', { className: 'sub-accordion-toggle', text: '▸' }),
       nameSpan,
-      h('span', { className: 'filepath', text: dir, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+      h('span', { className: 'filepath', text: dir, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
     ]);
     const sub = h('div', { className: 'sub-accordion', 'data-filepath': fp }, [subHeader, subContent]);
 
@@ -202,10 +202,10 @@ export function renderClassListWithSub(container, classes, total) {
     const subContent = h('div', { className: 'sub-accordion-content' });
     const subHeader = h('div', { className: 'sub-accordion-header' }, [
       h('span', { className: 'sub-accordion-toggle', text: '▸' }),
-      h('span', { className: 'name', html: displayNameHtml(c.name), style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
+      h('span', { className: 'name', html: displayNameHtml(c.name), style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
       h('span', { className: 'metric', text: `${c.methods}m` }),
       h('span', { className: 'metric', text: `${c.total_lines}L` }),
-      h('span', { className: 'filepath', text: c.filepath?.replace(/\\/g, '/') || '', style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+      h('span', { className: 'filepath', text: c.filepath?.replace(/\\/g, '/') || '', style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
     ]);
     const sub = h('div', { className: 'sub-accordion', 'data-class': c.name }, [subHeader, subContent]);
 
@@ -277,10 +277,10 @@ export function renderModelList(container, models, total) {
       title: `${m.filepath || ''}\n${fullChain}${m.ambiguous ? '  (ambiguous base name — verify)' : ''}`,
     }, [
       h('span', { className: 'metric', text: fwLabel, style: 'min-width:72px;color:var(--accent,#6cf)' }),
-      h('span', { className: 'name clickable', html: displayNameHtml(m.name), style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
+      h('span', { className: 'name clickable', html: displayNameHtml(m.name), style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
       h('span', { className: 'metric', text: `→ ${m.base}`, title: fullChain, style: 'color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;max-width:160px;flex-shrink:0' }),
       h('span', { className: 'metric', text: `${m.methods}m` }),
-      h('span', { className: 'filepath', text: m.filepath?.replace(/\\/g, '/') || '', style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+      h('span', { className: 'filepath', text: m.filepath?.replace(/\\/g, '/') || '', style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
     ]);
     // Click → show class in middle-top; right-click → context menu (Digest).
     item.addEventListener('click', (e) => { e.stopPropagation(); onClassClick(m.name); });
@@ -334,8 +334,8 @@ export function renderArtifactList(container, artifacts, total) {
       h('span', { className: 'metric', text: famLabel, style: 'min-width:96px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'metric', text: a.direction, style: `min-width:34px;color:${dirColor};font-size:10px` }),
       h('span', { className: 'metric', text: a.format, style: 'min-width:78px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
-      h('span', { className: 'name clickable', text: nameText, style: `flex:1;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${unresolved ? 'var(--warning,#c79a4e)' : 'var(--text-bright)'}${unresolved ? ';font-style:italic' : ''}` }),
-      h('span', { className: 'filepath', text: `${shortPath(a.filepath || '')}:${a.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+      h('span', { className: 'name clickable', text: nameText, style: `flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${unresolved ? 'var(--warning,#c79a4e)' : 'var(--text-bright)'}${unresolved ? ';font-style:italic' : ''}` }),
+      h('span', { className: 'filepath', text: `${shortPath(a.filepath || '')}:${a.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
     ]);
     // Click → open the file (sites have no class to focus); right-click → Digest.
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(a.filepath, a.line); });
@@ -398,8 +398,8 @@ export function renderKernelList(container, kernels, total) {
       h('span', { className: 'metric', text: famLabel, style: 'min-width:96px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'metric', text: k.kind, style: `min-width:74px;color:${kindColor};font-size:10px` }),
       h('span', { className: 'metric', text: k.marker || '', style: 'min-width:88px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
-      h('span', { className: 'name clickable', text: k.name || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
-      h('span', { className: 'filepath', text: `${shortPath(k.filepath || '')}:${k.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+      h('span', { className: 'name clickable', text: k.name || '', style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'filepath', text: `${shortPath(k.filepath || '')}:${k.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
     ]);
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(k.filepath, k.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: k.filepath, display_name: k.filepath, filepath: k.filepath }); });
@@ -441,9 +441,9 @@ export function renderDatasetList(container, datasets, total) {
       h('span', { className: 'metric', text: d.family, style: 'min-width:88px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'metric', text: d.kind, style: `min-width:72px;color:${kindColor};font-size:10px` }),
       h('span', { className: 'metric', text: d.marker || '', style: 'min-width:104px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
-      h('span', { className: 'name clickable', text: basenameIfPath(d.name) || '', style: `flex:1;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${d.resolved === false ? 'var(--warning,#c79a4e)' : 'var(--text-bright)'}${d.resolved === false ? ';font-style:italic' : ''}` }),
+      h('span', { className: 'name clickable', text: basenameIfPath(d.name) || '', style: `flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${d.resolved === false ? 'var(--warning,#c79a4e)' : 'var(--text-bright)'}${d.resolved === false ? ';font-style:italic' : ''}` }),
       d.builtin ? h('span', { className: 'metric', text: 'built-in', style: 'color:var(--text-muted);font-size:9px;flex-shrink:0' }) : null,
-      h('span', { className: 'filepath', text: `${shortPath(d.filepath || '')}:${d.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+      h('span', { className: 'filepath', text: `${shortPath(d.filepath || '')}:${d.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
     ].filter(Boolean));
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(d.filepath, d.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: d.filepath, display_name: d.filepath, filepath: d.filepath }); });
@@ -484,8 +484,8 @@ export function renderTrainingList(container, training, total) {
       h('span', { className: 'metric', text: (heuristic ? '~' : '') + t.family, style: 'min-width:92px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'metric', text: t.kind === 'training-harness' ? 'harness' : 'loop', style: `min-width:60px;color:${kindColor};font-size:10px` }),
       h('span', { className: 'metric', text: t.marker || '', style: 'min-width:104px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
-      h('span', { className: 'name clickable', text: t.name || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
-      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+      h('span', { className: 'name clickable', text: t.name || '', style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
     ]);
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
@@ -528,8 +528,8 @@ export function renderInferenceList(container, inference, total) {
       h('span', { className: 'metric', text: t.kind === 'generation' ? 'gen' : 'infer', style: `min-width:46px;color:${kindColor};font-size:10px` }),
       h('span', { className: 'metric', text: 'T' + t.tier, style: 'min-width:22px;color:var(--text-muted);font-size:9px' }),
       h('span', { className: 'metric', text: t.marker || '', style: 'min-width:100px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
-      h('span', { className: 'name clickable', text: (t.name || '') + (t.id ? ' → ' + basenameIfPath(t.id) : ''), style: `flex:1;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${t.id && t.resolved === false ? 'var(--warning,#c79a4e)' : 'var(--text-bright)'}` }),
-      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+      h('span', { className: 'name clickable', text: (t.name || '') + (t.id ? ' → ' + basenameIfPath(t.id) : ''), style: `flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${t.id && t.resolved === false ? 'var(--warning,#c79a4e)' : 'var(--text-bright)'}` }),
+      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
     ]);
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
@@ -570,9 +570,9 @@ export function renderLlmCallsList(container, calls, total) {
       h('span', { className: 'metric', text: (heuristic ? '~' : '') + t.provider, style: 'min-width:84px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'metric', text: t.kind, style: `min-width:60px;color:${kindColor};font-size:10px` }),
       h('span', { className: 'metric', text: 'T' + t.tier, style: 'min-width:22px;color:var(--text-muted);font-size:9px' }),
-      h('span', { className: 'name clickable', text: (t.marker || '') + (t.lvc ? ' [lib?]' : ''), style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'name clickable', text: (t.marker || '') + (t.lvc ? ' [lib?]' : ''), style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
       h('span', { className: 'metric', text: t.model ? '→ ' + basenameIfPath(t.model) : '', style: `flex-shrink:0;max-width:170px;${t.model ? 'margin-right:14px;' : ''}font-size:10px;overflow:hidden;text-overflow:ellipsis;color:${t.model && t.modelResolved ? 'var(--success,#7c7)' : 'var(--warning,#c79a4e)'}${t.model && !t.modelResolved ? ';font-style:italic' : ''}` }),
-      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
     ]);
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
@@ -613,8 +613,8 @@ export function renderToolsList(container, tools, total) {
       h('span', { className: 'metric', text: (heuristic ? '~' : '') + (t.framework || ''), style: 'min-width:96px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'metric', text: t.kind === 'tool-dispatch' ? 'dispatch' : t.kind, style: `min-width:62px;color:${kindColor};font-size:10px` }),
       h('span', { className: 'metric', text: t.marker || '', style: 'min-width:104px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
-      h('span', { className: 'name clickable', text: (t.name || '—') + (t.lvc ? ' [lib?]' : ''), style: `flex:1;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${t.name ? 'var(--text-bright)' : 'var(--text-muted)'}` }),
-      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+      h('span', { className: 'name clickable', text: (t.name || '—') + (t.lvc ? ' [lib?]' : ''), style: `flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:${t.name ? 'var(--text-bright)' : 'var(--text-muted)'}` }),
+      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
     ]);
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
@@ -663,8 +663,8 @@ export function renderChainsList(container, chains, total) {
       h('span', { className: 'metric', text: (heuristic ? '~' : '') + (t.framework || ''), style: 'min-width:84px;color:var(--accent,#6cf);overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'metric', text: t.kind, style: `min-width:48px;color:${kindColor};font-size:10px` }),
       h('span', { className: 'metric', text: t.marker || '', style: 'min-width:104px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
-      h('span', { className: 'name clickable', text: t.name || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
-      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+      h('span', { className: 'name clickable', text: t.name || '', style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
     ]);
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
@@ -708,9 +708,9 @@ export function renderEmbeddingsList(container, items, total) {
     }, [
       h('span', { className: 'metric', text: (heuristic ? '~' : '') + t.kind, style: `min-width:88px;color:${kindColor};font-size:10px;overflow:hidden;text-overflow:ellipsis` }),
       h('span', { className: 'metric', text: t.framework || '', style: 'min-width:96px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
-      h('span', { className: 'name clickable', text: t.marker || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'name clickable', text: t.marker || '', style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
       h('span', { className: 'metric', text: t.id ? '→ ' + basenameIfPath(t.id) : '', style: `flex-shrink:0;max-width:200px;${t.id ? 'margin-right:14px;' : ''}font-size:10px;overflow:hidden;text-overflow:ellipsis;color:${t.id && t.resolved !== false ? 'var(--success,#7c7)' : 'var(--warning,#c79a4e)'}${t.id && t.resolved === false ? ';font-style:italic' : ''}` }),
-      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
     ]);
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
@@ -747,7 +747,7 @@ export function renderModelsUsedList(container, models, total, unresolved, onMod
       title: `${m.model}\naccess: ${m.access}\ncells: ${(m.cells || []).join(', ')}\n${m.count} site${m.count > 1 ? 's' : ''}${site0.filepath ? `\nfirst: ${(site0.filepath || '').replace(/\\/g, '/')}:${site0.line}` : ''}`,
     }, [
       h('span', { className: 'metric', text: m.access, style: `min-width:54px;color:${accColor};font-size:10px` }),
-      h('span', { className: 'name clickable', text: basenameIfPath(m.model) || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'name clickable', text: basenameIfPath(m.model) || '', style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
       h('span', { className: 'metric', text: (m.cells || []).join(','), style: 'flex-shrink:0;max-width:160px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;margin-right:10px' }),
       h('span', { className: 'metric', text: '×' + m.count, style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }),
     ]);
@@ -820,9 +820,9 @@ export function renderStructuredOutputList(container, items, total) {
     }, [
       h('span', { className: 'metric', text: (heuristic ? '~' : '') + t.kind, style: `min-width:84px;color:${kindColor};font-size:10px;overflow:hidden;text-overflow:ellipsis` }),
       h('span', { className: 'metric', text: t.framework || '', style: 'min-width:90px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
-      h('span', { className: 'name clickable', text: t.marker || '', style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'name clickable', text: t.marker || '', style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
       h('span', { className: 'metric', text: t.id ? '→ ' + t.id : '', style: `flex-shrink:0;max-width:200px;${t.id ? 'margin-right:12px;' : ''}font-size:10px;overflow:hidden;text-overflow:ellipsis;color:var(--success,#7c7)` }),
-      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }),
+      h('span', { className: 'filepath', text: `${shortPath(t.filepath || '')}:${t.line}`, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
     ]);
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(t.filepath, t.line); });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: t.filepath, display_name: t.filepath, filepath: t.filepath }); });
@@ -872,12 +872,12 @@ export function renderPipelinesList(container, groups, total, onGroupClick) {
     const spans = [
       h('span', { className: 'metric', text: w.shape, style: `min-width:64px;color:${color};font-size:10px;font-weight:600` }),
       h('span', { className: 'metric', text: w.scope, style: `min-width:46px;color:${w.scope === 'module' ? 'var(--error,#e0708a)' : w.scope === 'folder' ? 'var(--warning,#c79a4e)' : 'var(--text-muted)'};font-size:9px` }),
-      h('span', { className: 'name clickable', text: _stagesText(w), style: 'flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      h('span', { className: 'name clickable', text: _stagesText(w), style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
     ];
     if (g.count > 1) {
       spans.push(h('span', { className: 'metric', text: '×' + g.count, style: 'min-width:40px;text-align:right;color:var(--accent,#6cf);font-size:10px;font-weight:600' }));
     } else {
-      spans.push(h('span', { className: 'filepath', text: shortPath(w.location || ''), style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0;max-width:180px' }));
+      spans.push(h('span', { className: 'filepath', text: shortPath(w.location || ''), style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0;max-width:180px' }));
     }
     const item = h('div', {
       className: 'list-item',
@@ -1165,9 +1165,9 @@ export function renderClassHierarchy(container, data) {
       hasChildren
         ? h('span', { className: 'sub-accordion-toggle', text: '▸', style: 'cursor:pointer;margin-right:4px;font-size:10px;width:10px;display:inline-block' })
         : h('span', { text: ' ', style: 'margin-right:4px;width:10px;display:inline-block' }),
-      h('span', { className: 'name', text: label, style: nameStyle + ';flex:1;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'name', text: label, style: nameStyle + ';flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis' }),
       metaText ? h('span', { className: 'metric muted', text: metaText, style: 'font-size:10px' }) : null,
-      fpText ? h('span', { className: 'filepath', text: fpText, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex-shrink:1;min-width:0' }) : null,
+      fpText ? h('span', { className: 'filepath', text: fpText, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }) : null,
     ].filter(Boolean));
 
     // Children container (initially hidden)
@@ -1857,7 +1857,7 @@ export function renderDrilldownSites(container, { header, sites, columns, subgro
         container.appendChild(h('div', {
           style: 'padding:3px 8px 1px;font-family:var(--font-mono);font-size:10px;color:var(--text-bright);display:flex;gap:8px',
         }, [
-          h('span', { text: label, style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0' }),
+          h('span', { text: label, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0' }),
           h('span', { text: '×' + locs.length, style: 'flex-shrink:0;color:var(--text-muted)' }),
         ]));
         for (const s of locs) container.appendChild(locRow(s, true));
