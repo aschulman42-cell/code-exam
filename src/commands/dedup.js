@@ -12,6 +12,7 @@ import {
   jaccard,
 } from './fingerprint.js';
 import { loadFuncstrCorpus, classifyAgainstCorpus } from '../core/funcstr-corpus.js';
+import { makeFilterMatcher } from '../core/filter-match.js';
 
 
 // ========================================================================
@@ -52,9 +53,8 @@ export function doDupefiles(index, args) {
 
   // Apply filter
   if (args.filter) {
-    const fl = args.filter.toLowerCase();
-    groupInfo = groupInfo.filter(g =>
-      g.paths.some(p => p.toLowerCase().includes(fl)));
+    const match = makeFilterMatcher(args.filter);
+    groupInfo = groupInfo.filter(g => match(...g.paths));
   }
   if (args.vocab_in) {
     const pat = args.vocab_in.toLowerCase();
@@ -105,11 +105,8 @@ export function doFuncDupes(index, args) {
 
   // Apply filter
   if (args.filter) {
-    const flt = args.filter.toLowerCase();
-    groups = groups.filter(g =>
-      flt.includes(g.bare_name.toLowerCase()) ||
-      g.bare_name.toLowerCase().includes(flt) ||
-      g.instances.some(i => i.filepath.toLowerCase().includes(flt)));
+    const match = makeFilterMatcher(args.filter);
+    groups = groups.filter(g => match(g.bare_name, ...g.instances.map(i => i.filepath)));
   }
   if (args.vocab_in) {
     const pat = args.vocab_in.toLowerCase();
@@ -206,10 +203,8 @@ export function doNearDupes(index, args) {
   }
 
   if (args.filter) {
-    const flt = args.filter.toLowerCase();
-    near = near.filter(g =>
-      g.bare_name.toLowerCase().includes(flt) ||
-      g.instances.some(i => i.filepath.toLowerCase().includes(flt)));
+    const match = makeFilterMatcher(args.filter);
+    near = near.filter(g => match(g.bare_name, ...g.instances.map(i => i.filepath)));
   }
   if (args.vocab_in) {
     const pat = args.vocab_in.toLowerCase();
@@ -268,10 +263,8 @@ export function doStructDupes(index, args) {
   }
 
   if (args.filter) {
-    const flt = args.filter.toLowerCase();
-    struct = struct.filter(g =>
-      g.bare_name.toLowerCase().includes(flt) ||
-      g.instances.some(i => i.filepath.toLowerCase().includes(flt)));
+    const match = makeFilterMatcher(args.filter);
+    struct = struct.filter(g => match(g.bare_name, ...g.instances.map(i => i.filepath)));
   }
   if (args.vocab_in) {
     const pat = args.vocab_in.toLowerCase();
@@ -597,12 +590,8 @@ export function doStructDiffAll(index, args) {
   groups = groups.filter(g => g.unique_bodies >= 2);
 
   if (filter) {
-    const pat = filter.toLowerCase();
-    groups = groups.filter(g =>
-      g.bare_name.toLowerCase().includes(pat) ||
-      g.instances.some(i =>
-        (i.name || '').toLowerCase().includes(pat) ||
-        (i.filepath || '').toLowerCase().includes(pat)));
+    const match = makeFilterMatcher(filter);
+    groups = groups.filter(g => match(g.bare_name, ...g.instances.flatMap(i => [i.name, i.filepath])));
   }
   if (args.vocab_in) {
     const vpat = args.vocab_in.toLowerCase();
@@ -787,10 +776,8 @@ export function doStringCallDupes(index, args) {
   }
 
   if (args.filter) {
-    const flt = args.filter.toLowerCase();
-    groups = groups.filter(g =>
-      g.bare_name.toLowerCase().includes(flt) ||
-      g.instances.some(i => i.filepath.toLowerCase().includes(flt)));
+    const match = makeFilterMatcher(args.filter);
+    groups = groups.filter(g => match(g.bare_name, ...g.instances.map(i => i.filepath)));
   }
 
   console.log(`\nTop ${Math.min(n, groups.length)} string-call dupe groups (same semantic fingerprint — rare strings + called names):`);
@@ -844,11 +831,8 @@ export function doNotableFuncstrMatches(index, args) {
 
   // Optional filter on instance name / filepath (mirrors the dupe routes).
   if (args.filter) {
-    const pat = args.filter.toLowerCase();
-    groups = groups.filter(g =>
-      g.instances.some(i =>
-        (i.name || '').toLowerCase().includes(pat) ||
-        (i.filepath || '').toLowerCase().includes(pat)));
+    const match = makeFilterMatcher(args.filter);
+    groups = groups.filter(g => match(...g.instances.flatMap(i => [i.name, i.filepath])));
   }
 
   if (!groups.length) {
@@ -1034,12 +1018,8 @@ export function doStringCallDiffAll(index, args) {
   }
 
   if (filter) {
-    const pat = filter.toLowerCase();
-    groups = groups.filter(g =>
-      g.bare_name.toLowerCase().includes(pat) ||
-      g.instances.some(i =>
-        (i.name || '').toLowerCase().includes(pat) ||
-        (i.filepath || '').toLowerCase().includes(pat)));
+    const match = makeFilterMatcher(filter);
+    groups = groups.filter(g => match(g.bare_name, ...g.instances.flatMap(i => [i.name, i.filepath])));
   }
   if (crossSourceOnly) {
     groups = groups.filter(g => {
@@ -1105,6 +1085,7 @@ export function doCmpStringCallDupes(index, args) {
   const workSource = args.fingerprint_work || null;
   const refSource = args.fingerprint_ref || null;
   const nameFilter = args.filter || null;
+  const matchName = nameFilter ? makeFilterMatcher(nameFilter) : null;
   const maxResults = args.max_results || 50;
   const showTokens = !!args.show_tokens;
 
@@ -1166,10 +1147,7 @@ export function doCmpStringCallDupes(index, args) {
       const r = refFns[ri];
       if (r === w) continue;
       if (r.source === w.source) continue;  // cross-source only
-      if (nameFilter) {
-        const p = nameFilter.toLowerCase();
-        if (!w.name.toLowerCase().includes(p) && !r.name.toLowerCase().includes(p)) continue;
-      }
+      if (matchName && !matchName(w.name, r.name)) continue;
       const score = jaccard(w.fingerprint, r.fingerprint);
       if (score < minScore) continue;
       const key = canonKey(w, r);

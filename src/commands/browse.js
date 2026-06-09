@@ -10,6 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import { displayName, eprint } from '../utils.js';
 import { CodeSearchIndex } from '../core/CodeSearchIndex.js';
+import { makeFilterMatcher } from '../core/filter-match.js';
 
 
 // ========================================================================
@@ -694,8 +695,11 @@ export function doFileBookends(index, args) {
   // Collect + filter files
   let files = [...index.fileLines.entries()];
   if (args.filter) {
-    const f = args.filter.toLowerCase().replace(/\\/g, '/');
-    files = files.filter(([fp]) => fp.toLowerCase().replace(/\\/g, '/').includes(f));
+    // Normalize the path's backslashes to forward slashes so a forward-slash
+    // pattern matches Windows paths. Only the field is normalized, never the
+    // pattern — rewriting `\` in a /regex/ would corrupt escapes like `\.`.
+    const match = makeFilterMatcher(args.filter);
+    files = files.filter(([fp]) => match(fp.replace(/\\/g, '/')));
   }
   if (args.include_path) {
     files = files.filter(([fp]) =>
@@ -943,11 +947,9 @@ export function doListFunctions(index, args) {
 
   // Apply --filter to function names (checks both original and display name)
   if (args.filter) {
-    const filterLower = args.filter.toLowerCase();
-    functions = functions.filter(f => {
-      const dn = index.getDisplayName ? index.getDisplayName(f.name) : f.name;
-      return f.name.toLowerCase().includes(filterLower) || dn.toLowerCase().includes(filterLower);
-    });
+    const match = makeFilterMatcher(args.filter);
+    functions = functions.filter(f =>
+      match(f.name, index.getDisplayName ? index.getDisplayName(f.name) : f.name));
   }
 
   // Apply path filters
@@ -1005,8 +1007,8 @@ export function doListFunctionsAlpha(index, args) {
   let functions = index.listFunctions();
 
   if (args.filter) {
-    const filterLower = args.filter.toLowerCase();
-    functions = functions.filter(f => f.name.toLowerCase().includes(filterLower));
+    const match = makeFilterMatcher(args.filter);
+    functions = functions.filter(f => match(f.name));
   }
   if (args.include_path) {
     functions = functions.filter(f =>
@@ -1053,10 +1055,8 @@ export function doListFunctionsSize(index, args) {
 
   // Apply --filter
   if (args.filter) {
-    const filterLower = args.filter.toLowerCase();
-    functions = functions.filter(f =>
-      f.name.toLowerCase().includes(filterLower) ||
-      f.filepath.toLowerCase().includes(filterLower));
+    const match = makeFilterMatcher(args.filter);
+    functions = functions.filter(f => match(f.name, f.filepath));
   }
 
   // Apply path filters

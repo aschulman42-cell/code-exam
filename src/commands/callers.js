@@ -4,6 +4,7 @@
  */
 
 import { displayName } from '../utils.js';
+import { makeFilterMatcher } from '../core/filter-match.js';
 
 
 // ========================================================================
@@ -244,12 +245,13 @@ export function doMostCalled(index, args) {
   const definedOnly = args.defined_only || false;
   const filtersApplied = [];
 
+  const matchCaller = args.filter ? makeFilterMatcher(args.filter) : null;
   const filteredData = [];
   for (let item of callData) {
     const funcName = item.name;
 
-    // Apply --filter
-    if (args.filter && !funcName.toLowerCase().includes(args.filter.toLowerCase())) continue;
+    // Apply --filter (substring, or /regex/)
+    if (matchCaller && !matchCaller(funcName)) continue;
 
     // Min name length
     if (funcName.length < minNameLength) continue;

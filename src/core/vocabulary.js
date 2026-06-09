@@ -23,6 +23,7 @@ import { TEXT_EXTENSIONS, splitCompoundToken } from '../utils.js';
 import { LOW_DISCRIMINATION_STOPWORDS } from '../commands/claim.js';
 import { STRUCTURE_KEYWORDS } from './structural-fingerprint.js';
 import { _computeTokenRelevance } from './CSI-helpers.js';
+import { makeFilterMatcher } from './filter-match.js';
 
 
 /**
@@ -480,8 +481,8 @@ export function getTopVocabulary(idx, n = 50, filter = null, pathFilter = null) 
   let entries = [...vocab.entries()].map(([token, data]) => ({ token, ...data }));
 
   if (filter) {
-    const pat = filter.toLowerCase();
-    entries = entries.filter(e => e.token.toLowerCase().includes(pat));
+    const match = makeFilterMatcher(filter);
+    entries = entries.filter(e => match(e.token));
   }
 
   entries.sort((a, b) => b.score - a.score);

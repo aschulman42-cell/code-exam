@@ -6,6 +6,7 @@
 
 import path from 'path';
 import { eprint } from '../utils.js';
+import { makeFilterMatcher } from '../core/filter-match.js';
 import { groupSites, groupPipelines, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from '../core/ai-ml-detectors.js';
 
 
@@ -68,14 +69,14 @@ export function doHotspots(index, args) {
     return;
   }
 
+  const matchHot = args.filter ? makeFilterMatcher(args.filter) : null;
   let filtered = [];
   for (const h of hotspots) {
     const bare = bareName(h.name);
     if (bare.length < 2) continue;
     if (SKIP_KEYWORDS.has(bare)) continue;
     if (/^[A-Z][A-Z0-9_]+$/.test(bare) && bare.length >= 2) continue; // ALL_CAPS macros
-    if (args.filter && !h.display_name.toLowerCase().includes(args.filter.toLowerCase()) &&
-        !h.filepath.toLowerCase().includes(args.filter.toLowerCase())) continue;
+    if (matchHot && !matchHot(h.display_name, h.filepath)) continue;
     filtered.push(h);
   }
 
@@ -153,7 +154,8 @@ export function doHotFolders(index, args) {
   }
 
   if (args.filter) {
-    filtered = filtered.filter(([f]) => f.toLowerCase().includes(args.filter.toLowerCase()));
+    const match = makeFilterMatcher(args.filter);
+    filtered = filtered.filter(([f]) => match(f));
   }
 
   const shown = Math.min(n, filtered.length);
@@ -222,11 +224,12 @@ export function doEntryPoints(index, args) {
     return;
   }
 
+  const matchEntry = args.filter ? makeFilterMatcher(args.filter) : null;
   let filtered = [];
   for (const e of entries) {
     const bare = bareName(e.name);
     if (bare.length < 2 || SKIP_KEYWORDS.has(bare)) continue;
-    if (args.filter && !e.name.toLowerCase().includes(args.filter.toLowerCase())) continue;
+    if (matchEntry && !matchEntry(e.name)) continue;
     filtered.push(e);
   }
   filtered = applyPathFilters(filtered, args);
@@ -340,11 +343,12 @@ export function doDomainFns(index, args) {
     'typeof', 'void', 'int', 'char', 'Copyright', 'copyright',
   ]);
 
+  const matchDomain = args.filter ? makeFilterMatcher(args.filter) : null;
   let filtered = [];
   for (const d of domain) {
     const bare = bareName(d.name);
     if (bare.length < 2 || skipKw.has(bare)) continue;
-    if (args.filter && !d.name.toLowerCase().includes(args.filter.toLowerCase())) continue;
+    if (matchDomain && !matchDomain(d.name)) continue;
     filtered.push(d);
   }
   filtered = applyPathFilters(filtered, args);
@@ -1146,8 +1150,8 @@ export function doListClasses(index, args) {
   classes = applyPathFilters(classes, args);
 
   if (args.filter) {
-    const fl = args.filter.toLowerCase();
-    classes = classes.filter(c => c.name.toLowerCase().includes(fl));
+    const match = makeFilterMatcher(args.filter);
+    classes = classes.filter(c => match(c.name));
   }
 
   if (!classes.length) {
@@ -1243,9 +1247,10 @@ export function doClassHotspots(index, args) {
     return;
   }
 
+  const matchClass = args.filter ? makeFilterMatcher(args.filter) : null;
   let filtered = [];
   for (const c of classes) {
-    if (args.filter && !c.name.toLowerCase().includes(args.filter.toLowerCase())) continue;
+    if (matchClass && !matchClass(c.name)) continue;
     filtered.push(c);
   }
   filtered = applyPathFilters(filtered, args);

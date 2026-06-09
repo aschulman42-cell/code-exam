@@ -16,6 +16,8 @@
  * Pure move, no logic change. Worklist item: aiml-detectors-mixin-extract.
  */
 
+import { makeFilterMatcher } from './filter-match.js';
+
 // ---------------------------------------------------------------------------
 // AI/ML model-base classification (#84) — SINGLE source for listModels() and
 // the class digest's `Model:` line. Qualified bases are confident; bare
@@ -151,11 +153,8 @@ class _AIMLMethods {
     }
 
     if (filter) {
-      const pat = filter.toLowerCase();
-      return out.filter(m =>
-        m.name.toLowerCase().includes(pat)
-        || (m.filepath || '').toLowerCase().includes(pat)
-        || (m.framework || '').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      return out.filter(m => match(m.name, m.filepath, m.framework));
     }
     return out;
   }
@@ -332,13 +331,8 @@ class _AIMLMethods {
 
     let result = out;
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = out.filter(a =>
-        (a.filepath || '').toLowerCase().includes(pat)
-        || (a.format || '').toLowerCase().includes(pat)
-        || (a.family || '').toLowerCase().includes(pat)
-        || (a.path || '').toLowerCase().includes(pat)
-        || (a.snippet || '').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      result = out.filter(a => match(a.filepath, a.format, a.family, a.path, a.snippet));
     }
     // Stable order: family, then format, then file, then line.
     result.sort((a, b) =>
@@ -473,13 +467,8 @@ class _AIMLMethods {
 
     let result = out;
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = out.filter(k =>
-        (k.name || '').toLowerCase().includes(pat)
-        || (k.filepath || '').toLowerCase().includes(pat)
-        || (k.family || '').toLowerCase().includes(pat)
-        || (k.kind || '').toLowerCase().includes(pat)
-        || (k.snippet || '').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      result = out.filter(k => match(k.name, k.filepath, k.family, k.kind, k.snippet));
     }
     const kindRank = { 'kernel-def': 0, 'launch': 1, 'device-fn': 2 };
     result.sort((a, b) =>
@@ -595,11 +584,8 @@ class _AIMLMethods {
 
     let result = out;
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = out.filter(t =>
-        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
-        || (t.family || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
-        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      result = out.filter(t => match(t.name, t.filepath, t.family, t.kind, t.marker, t.snippet));
     }
     const kindRank = { 'encoder': 0, 'cnn-arch': 1, 'detection-seg': 2, 'generative': 3, 'marker': 4 };
     result.sort((a, b) =>
@@ -716,11 +702,8 @@ class _AIMLMethods {
 
     let result = out;
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = out.filter(t =>
-        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
-        || (t.family || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
-        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      result = out.filter(t => match(t.name, t.filepath, t.family, t.kind, t.marker, t.snippet));
     }
     const kindRank = { 'peft': 0, 'alignment': 1, 'distill': 2 };
     result.sort((a, b) =>
@@ -814,11 +797,8 @@ class _AIMLMethods {
 
     let result = out;
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = out.filter(t =>
-        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
-        || (t.family || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
-        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      result = out.filter(t => match(t.name, t.filepath, t.family, t.kind, t.marker, t.snippet));
     }
     const kindRank = { 'cot': 0, 'reflection': 1, 'scratchpad': 2 };
     result.sort((a, b) =>
@@ -944,14 +924,8 @@ class _AIMLMethods {
 
     let result = out;
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = out.filter(d =>
-        (d.name || '').toLowerCase().includes(pat)
-        || (d.filepath || '').toLowerCase().includes(pat)
-        || (d.family || '').toLowerCase().includes(pat)
-        || (d.kind || '').toLowerCase().includes(pat)
-        || (d.marker || '').toLowerCase().includes(pat)
-        || (d.snippet || '').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      result = out.filter(d => match(d.name, d.filepath, d.family, d.kind, d.marker, d.snippet));
     }
     const kindRank = { 'definition': 0, 'loader': 1 };
     result.sort((a, b) =>
@@ -1034,14 +1008,8 @@ class _AIMLMethods {
 
     let result = out;
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = out.filter(t =>
-        (t.name || '').toLowerCase().includes(pat)
-        || (t.filepath || '').toLowerCase().includes(pat)
-        || (t.family || '').toLowerCase().includes(pat)
-        || (t.kind || '').toLowerCase().includes(pat)
-        || (t.marker || '').toLowerCase().includes(pat)
-        || (t.snippet || '').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      result = out.filter(t => match(t.name, t.filepath, t.family, t.kind, t.marker, t.snippet));
     }
     const kindRank = { 'training-loop': 0, 'training-harness': 1 };
     result.sort((a, b) =>
@@ -1154,11 +1122,8 @@ class _AIMLMethods {
 
     let result = out;
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = out.filter(t =>
-        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
-        || (t.family || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
-        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      result = out.filter(t => match(t.name, t.filepath, t.family, t.kind, t.marker, t.snippet));
     }
     const kindRank = { 'generation': 0, 'inference': 1 };
     result.sort((a, b) =>
@@ -1376,11 +1341,8 @@ class _AIMLMethods {
 
     let result = out;
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = out.filter(t =>
-        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
-        || (t.provider || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
-        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      result = out.filter(t => match(t.name, t.filepath, t.provider, t.kind, t.marker, t.snippet));
     }
     const kindRank = { 'call': 0, 'client': 1, 'wrapper': 2, 'endpoint': 3 };
     result.sort((a, b) =>
@@ -1494,11 +1456,8 @@ class _AIMLMethods {
 
     let result = out;
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = out.filter(t =>
-        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
-        || (t.framework || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
-        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      result = out.filter(t => match(t.name, t.filepath, t.framework, t.kind, t.marker, t.snippet));
     }
     const kindRank = { 'tool-def': 0, 'mcp': 1, 'tool-dispatch': 2 };
     result.sort((a, b) =>
@@ -1599,11 +1558,8 @@ class _AIMLMethods {
 
     let result = out;
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = out.filter(t =>
-        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
-        || (t.framework || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
-        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      result = out.filter(t => match(t.name, t.filepath, t.framework, t.kind, t.marker, t.snippet));
     }
     const kindRank = { 'chain': 0, 'graph': 1, 'agent': 2 };
     result.sort((a, b) =>
@@ -1710,11 +1666,8 @@ class _AIMLMethods {
 
     let result = out;
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = out.filter(t =>
-        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
-        || (t.framework || '').toLowerCase().includes(pat) || (t.kind || '').toLowerCase().includes(pat)
-        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      result = out.filter(t => match(t.name, t.filepath, t.framework, t.kind, t.marker, t.snippet));
     }
     const kindRank = { 'embedding': 0, 'vector-store': 1, 'search': 2, 'chunking': 3, 'distance': 4 };
     result.sort((a, b) =>
@@ -1812,10 +1765,8 @@ class _AIMLMethods {
 
     let result = [...byId.values()].map(m => ({ model: m.model, access: m.access, cells: [...m.cells], count: m.count, sites: m.sites }));
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = result.filter(m =>
-        m.model.toLowerCase().includes(pat) || m.access.includes(pat)
-        || m.cells.join(',').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      result = result.filter(m => match(m.model, m.access, m.cells.join(',')));
     }
     const accessRank = { api: 0, local: 1, mixed: 2 };
     result.sort((a, b) =>
@@ -1882,11 +1833,8 @@ class _AIMLMethods {
 
     let result = out;
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = out.filter(t =>
-        (t.name || '').toLowerCase().includes(pat) || (t.filepath || '').toLowerCase().includes(pat)
-        || (t.kind || '').toLowerCase().includes(pat) || (t.framework || '').toLowerCase().includes(pat)
-        || (t.marker || '').toLowerCase().includes(pat) || (t.snippet || '').toLowerCase().includes(pat));
+      const match = makeFilterMatcher(filter);
+      result = out.filter(t => match(t.name, t.filepath, t.kind, t.framework, t.marker, t.snippet));
     }
     const kindRank = { schema: 0, format: 1, parser: 2, constrained: 3 };
     result.sort((a, b) =>
@@ -2102,11 +2050,10 @@ class _AIMLMethods {
 
     let result = out;
     if (filter) {
-      const pat = filter.toLowerCase();
-      result = out.filter(w =>
-        w.shape.toLowerCase().includes(pat) || (w.location || '').toLowerCase().includes(pat)
-        || w.scope.includes(pat) || w.shapes.join(',').toLowerCase().includes(pat)
-        || w.stages.some(st => st.cell.includes(pat) || st.ids.join(',').toLowerCase().includes(pat)));
+      const match = makeFilterMatcher(filter);
+      result = out.filter(w => match(
+        w.shape, w.location, w.scope, w.shapes.join(','),
+        ...w.stages.flatMap(st => [st.cell, st.ids.join(',')])));
     }
     const shapeRank = { RAG: 0, 'low-level': 1, 'fine-tuning': 2, training: 3, agent: 4, inference: 5, reasoning: 6, 'LLM-app': 7 };
     const scopeRank = { file: 0, folder: 1, module: 2 };

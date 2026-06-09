@@ -21,6 +21,7 @@ import { Worker } from 'worker_threads';
 import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { groupSites, groupPipelines, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from './core/ai-ml-detectors.js';
+import { makeFilterMatcher } from './core/filter-match.js';
 import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
@@ -778,7 +779,7 @@ routes['/api/list-files'] = (req, res) => {
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
   let files = index.listFiles();
-  if (q.filter) { const pat = q.filter.toLowerCase(); files = files.filter(f => f.toLowerCase().includes(pat)); }
+  if (q.filter) { const match = makeFilterMatcher(q.filter); files = files.filter(f => match(f)); }
   const max = safeMax(q.max, 200);
   jsonResponse(res, { total: files.length, files: files.slice(0, max) });
 };
@@ -788,7 +789,7 @@ routes['/api/list-functions'] = (req, res) => {
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
   let funcs = index.listFunctions();
-  if (q.filter) { const pat = q.filter.toLowerCase(); funcs = funcs.filter(f => f.name.toLowerCase().includes(pat) || index.getDisplayName(f.name).toLowerCase().includes(pat) || f.filepath.toLowerCase().includes(pat)); }
+  if (q.filter) { const match = makeFilterMatcher(q.filter); funcs = funcs.filter(f => match(f.name, index.getDisplayName(f.name), f.filepath)); }
   const sort = q.sort || 'lines';
   if (sort === 'lines') funcs.sort((a, b) => b.lines - a.lines);
   else if (sort === 'alpha') funcs.sort((a, b) => a.name.localeCompare(b.name));
@@ -997,7 +998,7 @@ routes['/api/hotspots'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   const n = parseInt(q.n) || 25;
   let hotspots = index.getHotspots(n * 3, true);
-  if (q.filter) { const pat = q.filter.toLowerCase(); hotspots = hotspots.filter(h => h.name.toLowerCase().includes(pat) || index.getDisplayName(h.name).toLowerCase().includes(pat) || h.filepath.toLowerCase().includes(pat)); }
+  if (q.filter) { const match = makeFilterMatcher(q.filter); hotspots = hotspots.filter(h => match(h.name, index.getDisplayName(h.name), h.filepath)); }
   jsonResponse(res, {
     hotspots: hotspots.slice(0, n).map((h, i) => ({
       rank: i + 1, name: index.getDisplayName(h.name), display_name: index.getDisplayName(h.display_name || h.name), filepath: h.filepath,
@@ -1043,7 +1044,7 @@ routes['/api/hot-folders'] = (req, res) => {
     filtered.push([folder, stats]);
     shownFolders.add(folder);
   }
-  if (q.filter) { const pat = q.filter.toLowerCase(); filtered = filtered.filter(([f]) => f.toLowerCase().includes(pat)); }
+  if (q.filter) { const match = makeFilterMatcher(q.filter); filtered = filtered.filter(([f]) => match(f)); }
 
   jsonResponse(res, {
     folders: filtered.slice(0, n).map(([folder, stats], i) => ({
@@ -1063,7 +1064,7 @@ routes['/api/entry-points'] = (req, res) => {
   const n = parseInt(q.n) || 25;
   const maxCalls = parseInt(q.max_calls) || 0;
   let entries = index.getEntryPoints(n * 3, maxCalls, true);
-  if (q.filter) { const pat = q.filter.toLowerCase(); entries = entries.filter(e => e.name.toLowerCase().includes(pat) || index.getDisplayName(e.name).toLowerCase().includes(pat) || e.filepath.toLowerCase().includes(pat)); }
+  if (q.filter) { const match = makeFilterMatcher(q.filter); entries = entries.filter(e => match(e.name, index.getDisplayName(e.name), e.filepath)); }
   jsonResponse(res, {
     entries: entries.slice(0, n).map((e, i) => ({
       rank: i + 1, name: index.getDisplayName(e.name), display_name: index.getDisplayName(e.display_name || e.name), filepath: e.filepath,
@@ -1102,7 +1103,7 @@ routes['/api/gaps'] = (req, res) => {
     if (isEntry(e.name, e.filepath)) continue;
     suspicious.push(e);
   }
-  if (q.filter) { const pat = q.filter.toLowerCase(); suspicious = suspicious.filter(s => s.name.toLowerCase().includes(pat) || index.getDisplayName(s.name).toLowerCase().includes(pat) || s.filepath.toLowerCase().includes(pat)); }
+  if (q.filter) { const match = makeFilterMatcher(q.filter); suspicious = suspicious.filter(s => match(s.name, index.getDisplayName(s.name), s.filepath)); }
 
   jsonResponse(res, {
     total: suspicious.length,
@@ -1122,7 +1123,7 @@ routes['/api/domain-fns'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   const n = parseInt(q.n) || 25;
   let results = index.getDomainHotspots(n * 3, true);
-  if (q.filter) { const pat = q.filter.toLowerCase(); results = results.filter(r => r.name.toLowerCase().includes(pat) || index.getDisplayName(r.name).toLowerCase().includes(pat) || r.filepath.toLowerCase().includes(pat)); }
+  if (q.filter) { const match = makeFilterMatcher(q.filter); results = results.filter(r => match(r.name, index.getDisplayName(r.name), r.filepath)); }
   jsonResponse(res, {
     functions: results.slice(0, n).map((r, i) => ({
       rank: i + 1, name: index.getDisplayName(r.name), display_name: index.getDisplayName(r.display_name || r.name), filepath: r.filepath,
@@ -1142,13 +1143,14 @@ routes['/api/most-called'] = (req, res) => {
   const callData = index.getCallCountsWithDefinitions(true);
 
   const definedOnly = q.defined_only === '1' || q.defined_only === 'true';
+  const matchMostCalled = q.filter ? makeFilterMatcher(q.filter) : null;
   let filtered = [];
   for (const item of callData) {
     if (item.name.length < 2) continue;
     const bare = item.name.includes('::') ? item.name.split('::').pop() : item.name;
     if (bare.length >= 2 && /^[A-Z][A-Z0-9_]+$/.test(bare)) continue;
     if (definedOnly && item.definitions.length === 0) continue;
-    if (q.filter && !item.name.toLowerCase().includes(q.filter.toLowerCase()) && !index.getDisplayName(item.name).toLowerCase().includes(q.filter.toLowerCase())) continue;
+    if (matchMostCalled && !matchMostCalled(item.name, index.getDisplayName(item.name))) continue;
     filtered.push(item);
   }
 
@@ -1171,7 +1173,7 @@ routes['/api/class-hotspots'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   const n = parseInt(q.n) || 50;
   let results = index.getClassHotspots(n, true);
-  if (q.filter) { const pat = q.filter.toLowerCase(); results = results.filter(c => c.name.toLowerCase().includes(pat) || c.filepath.toLowerCase().includes(pat)); }
+  if (q.filter) { const match = makeFilterMatcher(q.filter); results = results.filter(c => match(c.name, c.filepath)); }
   jsonResponse(res, {
     classes: results.slice(0, n).map((c, i) => ({
       rank: i + 1, name: c.name, filepath: c.filepath,
@@ -1644,9 +1646,9 @@ routes['/api/call-inventory'] = (req, res) => {
   let inIndex = result.in_index;
   let external = result.external;
   if (q.filter) {
-    const pat = q.filter.toLowerCase();
-    inIndex = inIndex.filter(i => i.name.toLowerCase().includes(pat) || (i.filepath && i.filepath.toLowerCase().includes(pat)));
-    external = external.filter(e => e.name.toLowerCase().includes(pat) || (e.provenance && e.provenance.toLowerCase().includes(pat)));
+    const match = makeFilterMatcher(q.filter);
+    inIndex = inIndex.filter(i => match(i.name, i.filepath));
+    external = external.filter(e => match(e.name, e.provenance));
   }
   jsonResponse(res, {
     summary: result.summary,
@@ -1939,13 +1941,13 @@ routes['/api/bundle-seams'] = (req, res) => {
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
 
-  const filterPat = q.filter ? q.filter.toLowerCase() : null;
+  const matchFile = q.filter ? makeFilterMatcher(q.filter) : null;
   const result = { files: [] };
 
   for (const filepath of index.fileLines.keys()) {
     const lower = filepath.toLowerCase();
     if (!(lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.cjs'))) continue;
-    if (filterPat && !lower.includes(filterPat)) continue;
+    if (matchFile && !matchFile(filepath)) continue;
     const lines = index.fileLines.get(filepath);
     if (!lines || lines.length < 1000) continue;
 
@@ -1987,14 +1989,15 @@ routes['/api/list-classes'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   let classes = index.listClasses();
   if (q.filter) {
-    const pat = q.filter.toLowerCase();
+    const match = makeFilterMatcher(q.filter);
     classes = classes.filter(c =>
-      c.name.toLowerCase().includes(pat)
-      || c.filepath.toLowerCase().includes(pat)
-      || (c.methods || []).some(m => {
-        const bare = m.name.includes('::') ? m.name.split('::').pop() : m.name;
-        return bare.toLowerCase().includes(pat) || m.name.toLowerCase().includes(pat);
-      })
+      match(
+        c.name,
+        c.filepath,
+        ...(c.methods || []).flatMap(m => [
+          m.name.includes('::') ? m.name.split('::').pop() : m.name,
+          m.name,
+        ]))
     );
   }
   classes.sort((a, b) => b.method_count - a.method_count);
@@ -2108,7 +2111,7 @@ routes['/api/func-dupes'] = (req, res) => {
   const n = parseInt(q.n) || 30;
   const minLines = parseInt(q.min_lines) || 3;
   let groups = index.getFuncDupes(n, minLines, true);
-  if (q.filter) { const pat = q.filter.toLowerCase(); groups = groups.filter(g => g.bare_name.toLowerCase().includes(pat) || g.instances.some(i => i.filepath.toLowerCase().includes(pat))); }
+  if (q.filter) { const match = makeFilterMatcher(q.filter); groups = groups.filter(g => match(g.bare_name, ...g.instances.map(i => i.filepath))); }
   jsonResponse(res, {
     total: groups.length,
     groups: groups.slice(0, n).map((g, i) => ({
@@ -2129,7 +2132,7 @@ routes['/api/near-dupes'] = (req, res) => {
   const n = parseInt(q.n) || 30;
   index.getFuncDupes(n, 3, true);
   let groups = index.getNearDupes(n);
-  if (q.filter) { const pat = q.filter.toLowerCase(); groups = groups.filter(g => g.bare_name.toLowerCase().includes(pat) || g.instances.some(i => i.filepath.toLowerCase().includes(pat))); }
+  if (q.filter) { const match = makeFilterMatcher(q.filter); groups = groups.filter(g => match(g.bare_name, ...g.instances.map(i => i.filepath))); }
   jsonResponse(res, {
     total: groups.length,
     groups: groups.slice(0, n).map((g, i) => ({
@@ -2150,7 +2153,7 @@ routes['/api/struct-dupes'] = (req, res) => {
   const n = parseInt(q.n) || 30;
   index.getFuncDupes(n, 3, true);
   let groups = index.getStructDupes(n);
-  if (q.filter) { const pat = q.filter.toLowerCase(); groups = groups.filter(g => g.bare_name.toLowerCase().includes(pat) || g.instances.some(i => i.filepath.toLowerCase().includes(pat))); }
+  if (q.filter) { const match = makeFilterMatcher(q.filter); groups = groups.filter(g => match(g.bare_name, ...g.instances.map(i => i.filepath))); }
   jsonResponse(res, {
     total: groups.length,
     groups: groups.slice(0, n).map((g, i) => ({
@@ -2210,11 +2213,9 @@ routes['/api/surprising-funcstrings'] = (req, res) => {
   // Optional filter on instance names or filepaths (matches existing dupe routes)
   let groups = result.groups;
   if (q.filter) {
-    const pat = q.filter.toLowerCase();
+    const match = makeFilterMatcher(q.filter);
     groups = groups.filter(g =>
-      g.instances.some(i =>
-        (i.name || '').toLowerCase().includes(pat) ||
-        (i.filepath || '').toLowerCase().includes(pat))
+      g.instances.some(i => match(i.name, i.filepath))
     );
   }
   jsonResponse(res, {
@@ -2301,7 +2302,7 @@ routes['/api/struct-diff-all'] = (req, res) => {
   const n = parseInt(q.n) || 30;
   index.getFuncDupes(n, 3, false);
   let groups = index.getStructDupes(n);
-  if (q.filter) { const pat = q.filter.toLowerCase(); groups = groups.filter(g => g.bare_name.toLowerCase().includes(pat) || g.instances.some(i => i.filepath.toLowerCase().includes(pat))); }
+  if (q.filter) { const match = makeFilterMatcher(q.filter); groups = groups.filter(g => match(g.bare_name, ...g.instances.map(i => i.filepath))); }
   const results = [];
   for (let i = 0; i < Math.min(groups.length, n); i++) {
     const g = groups[i];
