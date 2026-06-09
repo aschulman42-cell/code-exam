@@ -493,7 +493,10 @@ class _AIMLMethods {
    *                   (SSD, YOLO, *R-CNN, RetinaNet, DETR, U-Net, bbox,
    *                   anchor box, IoU, NMS, mAP, semantic/instance seg)
    *   generative    — image generative stacks (diffusion, UNet/VAE, latent,
-   *                   scheduler, denoise, text-to-image)
+   *                   scheduler, denoise, text-to-image) + named image-gen
+   *                   models (DALL·E, Stable Diffusion/SDXL, Imagen, Midjourney)
+   *   audio         — speech / audio encoders & features (Whisper, wav2vec2,
+   *                   HuBERT, EnCodec, SpeechT5, spectrogram/MFCC, torchaudio)
    *   marker        — explicit multimodal flags (multimodal, vision-language,
    *                   VLM)
    *
@@ -536,6 +539,16 @@ class _AIMLMethods {
       { re: /\bNMS\b|\bnon[_-]?max(?:imum)?[_\s]?suppression\b/i, fam: 'detection', kind: 'detection-seg', m: 'NMS' },
       { re: /\bmAP\b/,                           fam: 'detection',    kind: 'detection-seg', m: 'mAP' },
       // ---- generative (image generative stacks) ----
+      // Named image-gen models FIRST (most specific) so e.g. "StableDiffusion"
+      // labels as the model, not the generic `diffusion` marker below. These
+      // surface in the Multimodal accordion + pipelines; when a named model is
+      // actually called (DALL·E via images.generate) or loaded (SD via
+      // from_pretrained) it independently reaches Models-Used through the
+      // LLM-Calls / Artifacts harvest.
+      { re: /\bDALL[·\-]?E\b/i,                   fam: 'DALL-E',       kind: 'generative',    m: 'DALL-E' },
+      { re: /\bStable[\s_]?Diffusion\w*|\bSDXL\b/i, fam: 'Stable Diffusion', kind: 'generative', m: 'Stable Diffusion' },
+      { re: /\bImagen\b/,                         fam: 'Imagen',       kind: 'generative',    m: 'Imagen' },
+      { re: /\bMidjourney\b/i,                    fam: 'Midjourney',   kind: 'generative',    m: 'Midjourney' },
       // NOTE: U-Net is claimed above by detection-seg; the generative U-Net
       // (UNet, no hyphen) is caught here so the diffusion arch still surfaces.
       { re: /\bdiffusion\b/i,                    fam: 'diffusion',    kind: 'generative',    m: 'diffusion' },
@@ -545,12 +558,29 @@ class _AIMLMethods {
       { re: /\blatent\b/i,                       fam: 'diffusion',    kind: 'generative',    m: 'latent' },
       { re: /\b(?:DDPM|DDIM|DPMSolver|Euler|PNDM|LMS|Heun|UniPC)\w*Scheduler\b|\bnoise[_\s]?scheduler\b/, fam: 'diffusion', kind: 'generative', m: 'scheduler' },
       { re: /\bdenoise\w*\b/i,                   fam: 'diffusion',    kind: 'generative',    m: 'denoise' },
+      // ---- audio (speech / audio encoders & features) ----
+      // Multimodal-as-in-audio. Loaded audio models (Whisper via from_pretrained)
+      // reach Models-Used through the Artifacts harvest, same as vision models.
+      { re: /\bWhisper\w*\b/,                     fam: 'Whisper',      kind: 'audio',         m: 'Whisper' },
+      { re: /\bwav2vec2?\b/i,                     fam: 'wav2vec',      kind: 'audio',         m: 'wav2vec' },
+      { re: /\bHuBERT\b/i,                        fam: 'HuBERT',       kind: 'audio',         m: 'HuBERT' },
+      { re: /\bEnCodec\b/i,                       fam: 'EnCodec',      kind: 'audio',         m: 'EnCodec' },
+      { re: /\bSpeechT5\w*\b/,                    fam: 'SpeechT5',     kind: 'audio',         m: 'SpeechT5' },
+      { re: /\bAudioCLIP\b/i,                     fam: 'audio',        kind: 'audio',         m: 'AudioCLIP' },
+      { re: /\b(?:Mel)?Spectrogram\b|\bmel_spectrogram\b/, fam: 'audio', kind: 'audio',      m: 'spectrogram' },
+      { re: /\bMFCC\b/,                           fam: 'audio',        kind: 'audio',         m: 'MFCC' },
+      { re: /\btorchaudio\b/,                     fam: 'audio',        kind: 'audio',         m: 'torchaudio' },
       // ---- marker (explicit multimodal flags) ----
       { re: /\bmultimodal\b/i,                   fam: 'multimodal',   kind: 'marker',        m: 'multimodal' },
       { re: /\bvision-language\b/i,              fam: 'VLM',          kind: 'marker',        m: 'vision-language' },
       { re: /\bVLM\b/,                           fam: 'VLM',          kind: 'marker',        m: 'VLM' },
     ];
-    const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
+    // Skip doc AND data files. Data files (esp. tokenizer-vocab / config JSON
+    // like Mistral's tekken_*.json, 750k lines of BPE token strings) spray
+    // false positives — a `"token_str": " dalle"` BPE entry matches DALL·E, and
+    // "diffusion"/"latent"/etc. tokens match too. Mirrors the data-file skip in
+    // listPostTraining / listReasoning. Markers must come from source, not data.
+    const reSkipFile = /\.(?:md|markdown|mdx|rst|ya?ml|json|jsonl|csv|tsv|lock)$/i;
     const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
 
     // Ambiguous markers that collide with non-vision usage: YOLO (pop-culture
@@ -562,7 +592,7 @@ class _AIMLMethods {
 
     const out = [];
     for (const [filepath, lines] of this.fileLines) {
-      if (reDocFile.test(filepath)) continue;
+      if (reSkipFile.test(filepath)) continue;
       const fileHits = [];
       let anchored = false;   // file has ≥1 non-ambiguous vision marker
       for (let i = 0; i < lines.length; i++) {
@@ -587,7 +617,7 @@ class _AIMLMethods {
       const match = makeFilterMatcher(filter);
       result = out.filter(t => match(t.name, t.filepath, t.family, t.kind, t.marker, t.snippet));
     }
-    const kindRank = { 'encoder': 0, 'cnn-arch': 1, 'detection-seg': 2, 'generative': 3, 'marker': 4 };
+    const kindRank = { 'encoder': 0, 'cnn-arch': 1, 'detection-seg': 2, 'generative': 3, 'audio': 4, 'marker': 5 };
     result.sort((a, b) =>
       (kindRank[a.kind] - kindRank[b.kind]) || (a.family || '').localeCompare(b.family || '')
       || a.filepath.localeCompare(b.filepath) || a.line - b.line);
