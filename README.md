@@ -248,11 +248,12 @@ standalone list (GUI accordion + CLI flag):
 - **Inference** — local generation / prediction (`generate`, `no_grad`, `.predict`).
 - **Training** — training sites (PyTorch loops, HF `Trainer`, `.fit`).
 - **Datasets** — dataset definitions and loaders (`Dataset` / `IterableDataset`, `tf.data`).
-- **Artifacts** — model load/save sites (`from_pretrained`, GGUF, safetensors).
+- **Artifacts** — model load/save sites (`from_pretrained`, GGUF, safetensors) and quantization configs (BitsAndBytes / GPTQ / AWQ, 4-/8-bit).
 - **Models (defined)** — model classes by inheritance (`nn.Module` / Keras / scikit-learn).
 - **Kernels** — GPU kernels (CUDA `__global__`, Triton `@triton.jit`, numba).
 - **Multimodal / Vision** — vision encoders (CLIP/ViT), CNN architectures (ResNet/conv), object detection/segmentation (YOLO/SSD/DETR/U-Net), generative (diffusion/VAE).
 - **Post-training / Fine-tuning** — fine-tuning & alignment mechanisms (LoRA/PEFT/adapters, SFT/DPO/PPO/GRPO, distillation), distinct from pretraining.
+- **Reasoning / CoT** — chain-of-thought and reflection *prompt language* (`step by step`, `chain-of-thought`, reflection/scratchpad). A heuristic signal over prompt text, not a structural-reasoning detector.
 
 ### Quasi-Source: recovering structure from non-source artifacts
 
