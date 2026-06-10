@@ -1156,13 +1156,66 @@ export function doListModels(index, args) {
     + `${max > 0 && models.length > max ? `; showing ${shown.length}` : ''}:\n`);
 
   if (args.verbose) {
-    // -v: full inheritance chain per model (Class -> parent -> ... -> base).
+    // -v: full inheritance chain per model (Class -> parent -> ... -> base),
+    // plus method names and instantiation sites (#148).
+    // Wrap a comma-joined name list at `width`, never splitting a name.
+    const wrapList = (items, width = 88) => {
+      const lines = []; let cur = '';
+      for (const it of items) {
+        if (cur && cur.length + it.length + 2 > width) { lines.push(cur + ','); cur = it; }
+        else cur = cur ? `${cur}, ${it}` : it;
+      }
+      if (cur) lines.push(cur);
+      return lines;
+    };
+    // Instantiation counts, single pass (#148): per-model findCallers (the
+    // class digest's mechanism) costs ~0.3s per model — 474 sklearn models
+    // took 130s. One combined-alternation regex over fileLines gives the same
+    // bare-name "references that look like calls" semantics in seconds.
+    // Bare-name caveat stands (#85): when a name has multiple class defs the
+    // count may mix them, so it prints as ~N.
+    const instByName = new Map();   // bare name -> { count, first }
+    const instNames = [...new Set(shown.map(m => m.name))].filter(n => n.length >= 3);
+    if (instNames.length) {
+      const reInst = new RegExp(`\\b(${instNames.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\s*\\(`, 'g');
+      for (const [fp, lines] of index.fileLines) {
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (!line) continue;
+          const t = line.trimStart();
+          if (/^(?:class|def)\s/.test(t) || t.startsWith('#') || t.startsWith('//') || t.startsWith('*') || t.startsWith('>>>') || t.startsWith('...')) continue;  // decls/comments/doctest examples aren't instantiation
+          reInst.lastIndex = 0;
+          let mm;
+          while ((mm = reInst.exec(line))) {
+            const e = instByName.get(mm[1]) || { count: 0, first: null };
+            e.count++;
+            if (!e.first) e.first = { filepath: fp, line: i + 1 };
+            instByName.set(mm[1], e);
+          }
+        }
+      }
+    }
+    const defsByBare = new Map();
+    for (const m of models) defsByBare.set(m.name, (defsByBare.get(m.name) || 0) + 1);
+    let usedAmb = false;
     for (const m of shown) {
       const fw = (m.framework || '?') + (m.ambiguous ? '?' : '');
       const chain = (m.chain && m.chain.length) ? m.chain : [m.base];
       console.log(`${fw}  [${m.method_count}m]  ${m.name} → ${chain.join(' → ')}${testTag(m)}`);
       console.log(`        ${(m.filepath || '').replace(/\\/g, '/')}`);
+      for (const line of wrapList(m.methods || [])) console.log(`          ${line}`);
+      const inst = instByName.get(m.name);
+      if (inst && inst.count) {
+        const amb = (defsByBare.get(m.name) || 0) > 1 ? '~' : '';
+        if (amb) usedAmb = true;
+        console.log(`          inst: ${amb}${inst.count} site${inst.count > 1 ? 's' : ''} (first: ${(inst.first.filepath || '').replace(/\\/g, '/')}:${inst.first.line})`);
+      }
     }
+    if (usedAmb) console.log(`\n  (inst: ~N = bare-name count — same-named classes exist, sites may mix them; #85)`);
+    console.log(`\n  Tip: --class-tree renders the full class hierarchy as a tree.`);
+    console.log(`  Tip: --digest <Class> lists every instantiation with callers + source. Its`);
+    console.log(`       "Instantiation sites" section counts ALL references (imports, isinstance,`);
+    console.log(`       doc mentions), so it reads higher than inst:, which counts Class( call sites.`);
     return;
   }
 
@@ -1179,7 +1232,8 @@ export function doListModels(index, args) {
     const cnt = g.count > 1 ? `×${g.count}` : '';
     console.log(`${fw.padEnd(14)}  ${String(m.method_count).padStart(5)}  ${name.padEnd(34)}  ${base.padEnd(22)}  ${cnt}`);
   }
-  console.log(`\n${groups.length} unique model${groups.length === 1 ? '' : 's'} (${models.length} instance${models.length === 1 ? '' : 's'}); use -v for inheritance chains.`);
+  console.log(`\n${groups.length} unique model${groups.length === 1 ? '' : 's'} (${models.length} instance${models.length === 1 ? '' : 's'}); use -v for inheritance chains, methods, and instantiation sites.`);
+  console.log(`  Tip: --class-tree renders the full class hierarchy as a tree.`);
   noTestsTip(models, args, 'model classes');
 }
 

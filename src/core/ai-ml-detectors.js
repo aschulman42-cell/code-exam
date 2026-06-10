@@ -73,8 +73,14 @@ class _AIMLMethods {
     const CONFIDENT = MODEL_BASE_CONFIDENT;
     const AMBIG = MODEL_BASE_AMBIG;
 
-    // Lightweight {filepath, methodCount} per class + the set of class files.
-    const classInfo = {};
+    // Per-(file, class) info: #148/#85 soundness — keying by bare name alone
+    // made the first file win the row (a C++ .h forward-decl could steal a
+    // Python model's filepath) and conflated method counts across same-named
+    // classes. Method names/counts attribute within the class's own file
+    // (Python/JS methods live with their class; C++ split-impl classes never
+    // reach here — the decl patterns below are Python/JS only).
+    const fkey = (fp, name) => `${fp}|${name}`;
+    const classInfo = {};                       // `${file}|${bare}` -> row seed
     const classFiles = new Set();
     for (const [fpath, functions] of Object.entries(this.functionIndex)) {
       let hasClass = false;
@@ -82,18 +88,20 @@ class _AIMLMethods {
         if (info && info.type === 'class') {
           hasClass = true;
           const bare = name.includes('::') ? name.split('::').pop() : name;
-          if (!classInfo[bare]) classInfo[bare] = { name: bare, filepath: fpath, methodCount: 0 };
+          const k = fkey(fpath, bare);
+          if (!classInfo[k]) classInfo[k] = { name: bare, filepath: fpath, methodCount: 0, methods: [] };
         }
       }
       if (hasClass) classFiles.add(fpath);
     }
-    for (const [, functions] of Object.entries(this.functionIndex)) {
+    for (const [fpath, functions] of Object.entries(this.functionIndex)) {
       for (const [name, info] of Object.entries(functions)) {
         if (info && (info.type === 'method' || info.type === 'function')
             && (name.includes('::') || name.includes('.'))) {
           const sep = name.includes('::') ? '::' : '.';
           const prefix = name.slice(0, name.indexOf(sep));
-          if (classInfo[prefix]) classInfo[prefix].methodCount++;
+          const ci = classInfo[fkey(fpath, prefix)];
+          if (ci) { ci.methodCount++; ci.methods.push(name.slice(name.indexOf(sep) + sep.length)); }
         }
       }
     }
@@ -101,8 +109,14 @@ class _AIMLMethods {
     // QUALIFIED inheritance map. Unlike _getInheritanceMap() (which reduces a
     // parent to its last word, turning `nn.Module` into bare `Module`), keep the
     // `nn.`/`tf.`/`keras.` qualifier so PyTorch's nn.Module is unambiguous.
-    // child(bare) -> [qualified parent strings].
-    const qmap = new Map();
+    // #148/#85 soundness: the FIRST hop is file-qualified (`${file}|${child}`)
+    // so same-named classes in different files keep their own parent lists —
+    // previously a global bare-name merge let a non-model class "inherit" a
+    // model base through an unrelated file's same-named class. Ancestor hops
+    // beyond the first stay bare-name (the parent class usually lives in
+    // another file; resolving imports statically is out of scope — disclosed).
+    const qmapFile = new Map();   // `${file}|${child}` -> [qualified parents]
+    const qmapBare = new Map();   // child(bare)        -> [qualified parents]
     const decl = [
       /^\s*class\s+(\w+)\s*\(\s*([^)]+)\s*\)\s*:/,             // Python
       /^\s*(?:export\s+)?class\s+(\w+)\s+extends\s+([\w.]+)/,  // JS/TS
@@ -118,27 +132,41 @@ class _AIMLMethods {
             .map(s => s.replace(/<[^>]*>/g, '').replace(/=.*/, '').replace(/\s+/g, ''))
             .filter(p => p && p !== 'object' && p !== 'metaclass');
           if (parents.length) {
-            const ex = qmap.get(child) || [];
-            for (const p of parents) if (!ex.includes(p)) ex.push(p);
-            qmap.set(child, ex);
+            const kf = fkey(filepath, child);
+            const exf = qmapFile.get(kf) || [];
+            for (const p of parents) if (!exf.includes(p)) exf.push(p);
+            qmapFile.set(kf, exf);
+            const exb = qmapBare.get(child) || [];
+            for (const p of parents) if (!exb.includes(p)) exb.push(p);
+            qmapBare.set(child, exb);
           }
           break;
         }
       }
     }
 
-    // For each class, walk its qualified ancestor chain to a model base.
+    // For each (file, class), walk its qualified ancestor chain to a model base.
     // `chain` records the ancestor path from the class to the base (exclusive of
     // the class itself), e.g. ["Qwen2_5_VLPreTrainedModel","PreTrainedModel",
     // "nn.Module"]. Each stack entry carries the path taken to reach it.
     const out = [];
-    for (const cname of Object.keys(classInfo)) {
+    for (const [k, info] of Object.entries(classInfo)) {
+      const cname = info.name;
       const seen = new Set([cname]);
-      const stack = [[cname, []]];   // [node, chainFromClassToNode]
+      // First hop from THIS file's declaration only; no bare-name fallback —
+      // a class with no parsed decl in its own file forms no chain.
+      const firstParents = qmapFile.get(k) || [];
       let best = null;               // { base, framework, ambiguous, chain }
-      while (stack.length) {
+      const stack = [];
+      for (const p of firstParents) {
+        const chainToP = [p];
+        if (CONFIDENT[p]) { best = { base: p, framework: CONFIDENT[p], ambiguous: false, chain: chainToP }; break; }
+        if (!best && AMBIG[p]) best = { base: p, framework: AMBIG[p], ambiguous: true, chain: chainToP };
+        if (!seen.has(p)) { seen.add(p); stack.push([p, chainToP]); }
+      }
+      while (stack.length && (!best || best.ambiguous)) {
         const [cur, pathToCur] = stack.pop();
-        for (const p of (qmap.get(cur) || [])) {
+        for (const p of (qmapBare.get(cur) || [])) {
           const chainToP = [...pathToCur, p];
           if (CONFIDENT[p]) { best = { base: p, framework: CONFIDENT[p], ambiguous: false, chain: chainToP }; break; }
           if (!best && AMBIG[p]) best = { base: p, framework: AMBIG[p], ambiguous: true, chain: chainToP };
@@ -147,8 +175,7 @@ class _AIMLMethods {
         if (best && !best.ambiguous) break;  // confident hit — stop early
       }
       if (best) {
-        const info = classInfo[cname];
-        out.push({ name: cname, filepath: info.filepath, framework: best.framework, base: best.base, ambiguous: best.ambiguous, chain: best.chain, method_count: info.methodCount });
+        out.push({ name: cname, filepath: info.filepath, framework: best.framework, base: best.base, ambiguous: best.ambiguous, chain: best.chain, method_count: info.methodCount, methods: info.methods });
       }
     }
 
