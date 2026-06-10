@@ -64,6 +64,24 @@ function _renderCommentsSection(push, digest, opts, sectionLabel) {
 }
 
 /**
+ * digest-aiml-tip: conditional footer naming the AI/ML cells that hit the
+ * digest's file/range (digest.aiml from CSI._aimlSignalFor). No signal →
+ * no lines at all — never a blind footer. Range-aware wording: in-range hits
+ * say "this class/function carries…"; file-only hits say "…'s file
+ * (elsewhere) carries…". Cell keys double as CLI flag names.
+ */
+function aimlTipLines(digest, kind) {
+  const sig = digest && digest.aiml || [];
+  if (!sig.length) return [];
+  const inRange = sig.filter(c => c.inRange > 0);
+  const cells = inRange.length ? inRange : sig;
+  const where = (kind === 'file' || inRange.length) ? `this ${kind} carries` : `this ${kind}'s file (elsewhere) carries`;
+  const counts = cells.map(c => `${c.cell} (${inRange.length ? c.inRange : c.count})`).join(', ');
+  const flags = cells.slice(0, 3).map(c => '--' + c.cell).join(' / ');
+  return ['', `Tip: ${where} AI/ML signal — ${counts}.`, `     See ${flags} or the AI/ML accordions in the GUI.`];
+}
+
+/**
  * Format a digest object (from buildFunctionDigest) as plain text.
  * Sections with no content are omitted entirely (unless specifically
  * always-shown, like Identity/Callers/Callees).
@@ -265,6 +283,7 @@ export function formatFunctionDigest(digest, opts = {}) {
     // (we don't clutter the default output with placeholder text)
   }
 
+  for (const l of aimlTipLines(digest, 'function')) push(l);
   return out.join('\n') + '\n';
 }
 
@@ -504,6 +523,7 @@ export function formatClassDigest(digest, opts = {}) {
     push('');
   }
 
+  for (const l of aimlTipLines(digest, 'class')) push(l);
   return out.join('\n') + '\n';
 }
 
@@ -692,6 +712,7 @@ export function formatFileDigest(digest, opts = {}) {
     push('');
   }
 
+  for (const l of aimlTipLines(digest, 'file')) push(l);
   return out.join('\n') + '\n';
 }
 

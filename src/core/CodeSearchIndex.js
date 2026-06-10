@@ -38,7 +38,7 @@ import {
 import {
   _funcNameTokens, _jaccardDistance, _pathDistance, _fileExt,
 } from './distance-helpers.js';
-import { aimlMethods, classifyModelBase } from './ai-ml-detectors.js';
+import { aimlMethods, classifyModelBase, CELL_KEYS } from './ai-ml-detectors.js';
 import {
   _countCodeLines,
   getStructuralNormalized as _getStructuralNormalized,
@@ -419,6 +419,47 @@ export class CodeSearchIndex {
    * @returns {object|null} digest object with target_type field, or null
    */
   buildDigest(target, opts = {}) {
+    const digest = this._buildDigestCore(target, opts);
+    // digest-aiml-tip: conditional AI/ML signal for the digest's file/range,
+    // so formatters can show a named Tip only when there is a connection.
+    if (digest) digest.aiml = this._aimlSignalFor(digest);
+    return digest;
+  }
+
+  /**
+   * AI/ML signal scoped to one digest target. Runs the marker-cell CELL_KEYS
+   * detectors against a prototype shadow of this index whose fileLines holds
+   * ONLY the digest's file — milliseconds per digest, zero detector changes.
+   * Returns [{ cell, count, inRange }]: count = hits in the file, inRange =
+   * hits within the target's startLine–endLine (for function/class digests;
+   * file digests have no range, so inRange === count). Skipped cells:
+   * `pipelines` / `models-used` (projections under-assemble on one file) and
+   * `models` when the target has a range (its rows carry no line numbers).
+   */
+  _aimlSignalFor(digest) {
+    const id = digest && digest.identity;
+    const fp = id && id.filepath;
+    if (!fp || !this.fileLines.has(fp)) return [];
+    const scoped = Object.create(this);
+    scoped.fileLines = new Map([[fp, this.fileLines.get(fp)]]);
+    const start = id.startLine || null;
+    const end = id.endLine || null;
+    const out = [];
+    for (const { key, method } of CELL_KEYS) {
+      if (!method || key === 'pipelines' || key === 'models-used') continue;
+      if (key === 'models' && start) continue;
+      let rows = [];
+      try { rows = scoped[method]() || []; } catch { continue; }
+      if (!rows.length) continue;
+      const inRange = (start && end)
+        ? rows.filter(r => r.line >= start && r.line <= end).length
+        : rows.length;
+      out.push({ cell: key, count: rows.length, inRange });
+    }
+    return out;
+  }
+
+  _buildDigestCore(target, opts = {}) {
     // FILE@NAME form: function-or-class lookup. Used by the GUI right-click
     // path which always supplies file+name. We still need to dispatch on the
     // matched entry's type — a class can come through this path (e.g. when

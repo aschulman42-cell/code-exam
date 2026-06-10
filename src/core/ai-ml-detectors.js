@@ -2232,9 +2232,9 @@ export const aimlMethods = (() => {
 })();
 
 // Seed for the Phase B "9-file fan-out rationalization" CELLS registry (#133).
-// Intentionally not consumed yet (the full registry adds route / responseKey /
-// renderer per cell and drives metrics/server/api/app/html). Keep - not dead
-// code. The 13 detectors are CSI-prototype methods (keyed by `method`);
+// First consumer: CSI._aimlSignalFor (digest-aiml-tip) sweeps the marker-cell
+// methods. The full registry (route / responseKey / renderer per cell, driving
+// metrics/server/api/app/html) is still Phase B. The 13 detectors are CSI-prototype methods (keyed by `method`);
 // `prompts` is the one AI/ML command that predates the listX shape and lives in
 // its own module by design (src/commands/prompts.js), keyed by module/command.
 export const CELL_KEYS = [
