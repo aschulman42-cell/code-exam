@@ -17,6 +17,7 @@
  */
 
 import { $, $$ } from './dom-utils.js';
+import { state } from './state.js';
 
 // ============================================================================
 // Cross-cutting callbacks (injected by initWindowManagement)
