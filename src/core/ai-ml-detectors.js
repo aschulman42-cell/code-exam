@@ -820,6 +820,11 @@ class _AIMLMethods {
     // recorded run trajectories (e.g. reflexion's saved "Thought: Let's think
     // step by step…" traces — 2896 of 2904 hits were in `.txt` logs, not prompts).
     const reSkipFile = /\.(?:txt|log|out|ya?ml|json|jsonl|csv|lock|op|exe|bin|so|dll|dylib|bundle|wasm|o|a|class|jar|zip|gz|png|jpg|jpeg|gif|svg|pdf|ico|woff2?|ttf|map)$/i;
+    // #151: skip comment lines, like every sibling cell. API-doc comments
+    // describing a model (e.g. "// A description of the chain of thought used by
+    // a reasoning model") were counting as CoT. Real prompt signal lives in
+    // docstrings / string args, which are NOT //|#|*-prefixed, so it survives.
+    const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
 
     const out = [];
     for (const [filepath, lines] of this.fileLines) {
@@ -830,6 +835,7 @@ class _AIMLMethods {
         const line = lines[i];
         if (!line) continue;
         const trimmed = line.trimStart();
+        if (reComment(trimmed)) continue;
         const d = table.find(e => e.re.test(line));
         if (d) {
           const rec = { name: d.m, filepath, line: i + 1, kind: d.kind, family: d.fam, marker: d.m, tag: 'heuristic', snippet: trimmed.slice(0, 200) };
@@ -1592,7 +1598,18 @@ class _AIMLMethods {
     for (const [filepath, lines] of this.fileLines) {
       if (reDocFile.test(filepath)) continue;
       const hasLanggraph = lines.some(l => /\b(?:import|from)\s+langgraph\b|\blanggraph\b/.test(l));
-      const hasAgentFw = lines.some(l => /\b(?:crewai|pydantic_ai|smolagents|autogen|llama_index|openai[._-]?agents)\b/i.test(l));
+      // #151: which agent framework is actually imported here — so the generic
+      // `Agent()/Crew()` ctor below is labeled by the framework PRESENT, not a
+      // hard-coded brand. (Previously every Agent( in any agent-framework file
+      // was tagged CrewAI — 372 false CrewAI labels in openai-agents-python.)
+      const AGENT_FW = [
+        [/\bcrewai\b/i, 'CrewAI'], [/\bopenai[._-]?agents\b/i, 'OpenAI-Agents'],
+        [/\bllama_index\b/i, 'LlamaIndex'], [/\bpydantic_ai\b/i, 'PydanticAI'],
+        [/\bsmolagents\b/i, 'smolagents'], [/\b(?:autogen|pyautogen|ag2)\b/i, 'AutoGen'],
+      ];
+      const agentFwNames = AGENT_FW.filter(([re]) => lines.some(l => re.test(l))).map(([, n]) => n);
+      const hasAgentFw = agentFwNames.length > 0;
+      const agentFwLabel = hasAgentFw ? agentFwNames.join('/') : '?';
       // #120: GroupChat collides with messaging "group chat" (OpenClaw/Feishu) —
       // gate that marker on an autogen import in-file.
       const hasAutogen = lines.some(l => /\b(?:import|from|require)\b/i.test(l) && /\b(?:autogen|pyautogen|ag2)\b/i.test(l));
@@ -1610,7 +1627,7 @@ class _AIMLMethods {
         const a = tierA.find(d => d.re.test(line) && !(d.gate === 'autogen' && !hasAutogen));
         if (a) { frameworkInFile = true; push(a.kind, a.fw, 'A', a.m, 'mechanical'); continue; }
         if (hasLanggraph && reGraphGen.test(line)) { frameworkInFile = true; push('graph', 'LangGraph', 'B', 'add_node/edge', 'heuristic'); continue; }
-        if (hasAgentFw && reAgentGen.test(line)) { frameworkInFile = true; push('agent', 'CrewAI/…', 'B', 'Agent()/Crew()', 'heuristic'); continue; }
+        if (hasAgentFw && reAgentGen.test(line)) { frameworkInFile = true; push('agent', agentFwLabel, 'B', 'Agent()/Crew()', 'heuristic'); continue; }
       }
 
       // Hand-rolled agent pass — file-level co-occurrence, non-framework files only.
@@ -1668,7 +1685,7 @@ class _AIMLMethods {
       { re: /\bMilvus\b/,                  kind: 'vector-store', fw: 'Milvus', m: 'Milvus', idArg: 'collection_name|collection' },
       { re: /\bLanceDB\b/,                 kind: 'vector-store', fw: 'LanceDB', m: 'LanceDB' },
       { re: /\bpgvector\b/,                kind: 'vector-store', fw: 'pgvector', m: 'pgvector' },
-      { re: /\bVectorStore\b/,            kind: 'vector-store', fw: 'LangChain', m: 'VectorStore' },
+      { re: /\bVectorStore\b/,            kind: 'vector-store', fw: '?', m: 'VectorStore' },  // #151: generic base name (OpenAI/LangChain/LlamaIndex/custom) — don't claim LangChain
       { re: /\bIndexFlat(?:L2|IP)\b/,      kind: 'vector-store', fw: 'FAISS', m: 'IndexFlat' },
       // search / retrieval
       { re: /\bsimilarity_search(?:_with_score)?\b/, kind: 'search', fw: 'LangChain', m: 'similarity_search' },
