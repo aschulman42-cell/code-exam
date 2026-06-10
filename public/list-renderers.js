@@ -49,6 +49,10 @@ export function initListRenderers(deps = {}) {
   if (typeof deps.updateOverflowHint === 'function') _updateOverflowHint = deps.updateOverflowHint;
 }
 
+// #132: read the View-menu "Exclude Tests" checkbox live at render time, so
+// toggling just re-renders — no state plumbing. (The GUI form of --no-tests.)
+const hideTests = () => !!document.getElementById('opt-exclude-tests')?.checked;
+
 
 // ============================================================================
 // List renderers — shared function-like list (hotspots, entry-points, domain-fns, gaps)
@@ -732,6 +736,9 @@ const _ACCESS_COLOR = { api: '#6cf', local: '#7c7', mixed: '#c79a4e' };
 
 export function renderModelsUsedList(container, models, total, unresolved, onModelClick) {
   container.innerHTML = '';
+  // #132: a model is test-only when EVERY harvested site is a test path.
+  const hiddenTests = hideTests() ? (models || []).filter(m => m.isTest).length : 0;
+  if (hiddenTests) models = models.filter(m => !m.isTest);
   if (!models || !models.length) {
     container.innerHTML = '<div class="list-placeholder">No models used found '
       + '(no resolved model id from LLM calls / artifacts / embeddings / inference). '
@@ -743,8 +750,8 @@ export function renderModelsUsedList(container, models, total, unresolved, onMod
     const accColor = _ACCESS_COLOR[m.access] || 'var(--text-muted)';
     const site0 = (m.sites && m.sites[0]) || {};
     const item = h('div', {
-      className: 'list-item',
-      title: `${m.model}\naccess: ${m.access}\ncells: ${(m.cells || []).join(', ')}\n${m.count} site${m.count > 1 ? 's' : ''}${site0.filepath ? `\nfirst: ${(site0.filepath || '').replace(/\\/g, '/')}:${site0.line}` : ''}`,
+      className: 'list-item' + (m.isTest ? ' is-test' : ''),
+      title: `${m.model}\naccess: ${m.access}\ncells: ${(m.cells || []).join(', ')}\n${m.count} site${m.count > 1 ? 's' : ''}${site0.filepath ? `\nfirst: ${(site0.filepath || '').replace(/\\/g, '/')}:${site0.line}` : ''}${m.isTest ? '\n[test/example code — all sites]' : ''}`,
     }, [
       h('span', { className: 'metric', text: m.access, style: `min-width:54px;color:${accColor};font-size:10px` }),
       h('span', { className: 'name clickable', text: basenameIfPath(m.model) || '', style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
@@ -757,6 +764,9 @@ export function renderModelsUsedList(container, models, total, unresolved, onMod
       else if (site0.filepath) onFileClick(site0.filepath, site0.line);
     });
     container.appendChild(item);
+  }
+  if (hiddenTests) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: `${hiddenTests} test-only model${hiddenTests > 1 ? 's' : ''} hidden` }));
   }
   if (unresolved) {
     container.appendChild(h('div', { className: 'list-placeholder', text: `+ ${unresolved} unresolved <var> model ref(s) — excluded; resolve via an in-file assignment` }));
@@ -840,7 +850,7 @@ export function renderStructuredOutputList(container, items, total) {
 // pane → source. shape ∈ {RAG, training, agent, inference, LLM-app}.
 // ============================================================================
 
-const _SHAPE_COLOR = { RAG: '#6cf', 'low-level': '#f88', training: '#fc6', agent: '#a9f', inference: '#7c7', 'LLM-app': '#9cf' };
+const _SHAPE_COLOR = { RAG: '#6cf', 'low-level': '#f88', 'fine-tuning': '#f9a', training: '#fc6', agent: '#a9f', inference: '#7c7', reasoning: '#8dd', 'LLM-app': '#9cf' };
 function _stagesText(w) {
   return (w.stages || []).map(s => s.cell + (s.ids && s.ids.length ? `(${basenameIfPath(s.ids[0])}${s.ids.length > 1 ? '…' : ''})` : '')).join(' → ');
 }
@@ -907,8 +917,17 @@ export function renderPipelinesList(container, groups, total, onGroupClick) {
     text: 'Pipelines by cell co-occurrence — not traced dataflow. Identical pipelines are collapsed (×count); click to drill into the files. Confidence: file > folder (leaf folder) > module (climbed to a common ancestor, shown separately below as "loose").',
     style: 'padding:4px 8px;font-size:10px;color:var(--text-muted);font-style:italic;border-bottom:1px solid var(--border,#333);margin-bottom:2px',
   }));
+  // #132: drop all-test groups when "hide tests" is on (a group is test when
+  // every member location is — same rule as renderRow's dimming below).
+  // Track both grains: hidden GROUPS for the badge line, hidden PIPELINES
+  // (instances) so the "N of M shown" math stays explainable.
+  const isTestGroup = (g) => (g.members && g.members.length) ? g.members.every(m => m.isTest) : !!g.rep.isTest;
+  const hiddenGroups = hideTests() ? (groups || []).filter(isTestGroup) : [];
+  const hiddenTests = hiddenGroups.length;
+  const hiddenCount = hiddenGroups.reduce((n, g) => n + g.count, 0);
+  if (hiddenTests) groups = groups.filter(g => !isTestGroup(g));
   if (!groups || !groups.length) {
-    container.appendChild(h('div', { className: 'list-placeholder', text: 'No AI/ML pipelines found (no file/leaf-folder where 2+ cells form a shape).' }));
+    container.appendChild(h('div', { className: 'list-placeholder', text: `No AI/ML pipelines found (no file/leaf-folder where 2+ cells form a shape).${hiddenTests ? ` ${hiddenTests} test/example group${hiddenTests > 1 ? 's' : ''} hidden.` : ''}` }));
     return;
   }
   // file/folder = trustworthy (cells co-occur in one file or leaf folder); module =
@@ -917,6 +936,7 @@ export function renderPipelinesList(container, groups, total, onGroupClick) {
   // so it can't masquerade as a real pipeline (#142). A group's scope = rep.scope.
   const renderRow = (g, dim) => {
     const w = g.rep;
+    const gTest = isTestGroup(g);
     const color = _SHAPE_COLOR[w.shape] || 'var(--text-muted)';
     const spans = [
       h('span', { className: 'metric', text: w.shape, style: `min-width:64px;color:${color};font-size:10px;font-weight:600` }),
@@ -929,9 +949,9 @@ export function renderPipelinesList(container, groups, total, onGroupClick) {
       spans.push(h('span', { className: 'filepath', text: shortPath(w.location || ''), style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0;max-width:180px' }));
     }
     const item = h('div', {
-      className: 'list-item',
-      style: dim ? 'opacity:0.6' : '',
-      title: `${w.shape}${w.shapes.length > 1 ? ` (also: ${w.shapes.slice(1).join(', ')})` : ''}  ·  scope: ${w.scope}  ·  ${g.count} file${g.count > 1 ? 's' : ''}${dim ? '  (loose — climbed to a common ancestor; cells co-occur somewhere in the subtree, not a traced flow)' : ''}\n${_stagesText(w)}${g.count === 1 ? '\n' + (w.location || '').replace(/\\/g, '/') : ''}`,
+      className: 'list-item' + (gTest ? ' is-test' : ''),
+      style: dim && !gTest ? 'opacity:0.6' : '',
+      title: `${w.shape}${w.shapes.length > 1 ? ` (also: ${w.shapes.slice(1).join(', ')})` : ''}  ·  scope: ${w.scope}  ·  ${g.count} file${g.count > 1 ? 's' : ''}${dim ? '  (loose — climbed to a common ancestor; cells co-occur somewhere in the subtree, not a traced flow)' : ''}${gTest ? '  [test/example code]' : ''}\n${_stagesText(w)}${g.count === 1 ? '\n' + (w.location || '').replace(/\\/g, '/') : ''}`,
     }, spans);
     item.addEventListener('click', (e) => { e.stopPropagation(); if (onGroupClick) onGroupClick(g); });
     container.appendChild(item);
@@ -947,8 +967,12 @@ export function renderPipelinesList(container, groups, total, onGroupClick) {
     }));
     for (const g of loose) renderRow(g, true);
   }
+  if (hiddenTests) container.appendChild(h('div', { className: 'list-placeholder', text: `${hiddenTests} test/example group${hiddenTests > 1 ? 's' : ''} (${hiddenCount} pipeline${hiddenCount > 1 ? 's' : ''}) hidden` }));
   const shownCount = groups.reduce((n, g) => n + g.count, 0);
-  if (total > shownCount) container.appendChild(h('div', { className: 'list-placeholder', text: `${shownCount} of ${total} pipelines shown` }));
+  if (total > shownCount) {
+    const over = total - shownCount - hiddenCount;   // remainder beyond the hidden tests = display cap
+    container.appendChild(h('div', { className: 'list-placeholder', text: `${shownCount} of ${total} pipelines shown${hiddenCount ? ` (${hiddenCount} hidden as test/example${over > 0 ? `; ${over} over display cap` : ''})` : ''}` }));
+  }
 }
 
 // #142 drill-down dedupe: a pipeline group's member files. Each member is a full
@@ -1832,8 +1856,12 @@ export function renderStringTable(container, strings, meta) {
 // columns: [{ get(item)->text, className?, style? }]; countOf(item)->number.
 export function renderDrilldownList(container, items, { columns, countOf, onItemClick, title, footer, caveat }) {
   container.innerHTML = '';
+  // #132: rows whose every site is test/example code dim (.is-test); the
+  // "hide tests" checkbox drops them entirely, with a count in the footer.
+  const hiddenTests = hideTests() ? (items || []).filter(it => it.isTest).length : 0;
+  if (hiddenTests) items = items.filter(it => !it.isTest);
   if (!items || !items.length) {
-    container.innerHTML = '<div class="list-placeholder">None found.</div>';
+    container.innerHTML = `<div class="list-placeholder">None found.${hiddenTests ? ` (${hiddenTests} test/example row${hiddenTests > 1 ? 's' : ''} hidden)` : ''}</div>`;
     return;
   }
   for (const it of items) {
@@ -1843,10 +1871,11 @@ export function renderDrilldownList(container, items, { columns, countOf, onItem
       style: (typeof c.style === 'function' ? c.style(it) : c.style) || 'font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis',
     }));
     spans.push(h('span', { className: 'metric', text: '×' + countOf(it), style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }));
-    const item = h('div', { className: 'list-item', title: title ? title(it) : '' }, spans);
+    const item = h('div', { className: 'list-item' + (it.isTest ? ' is-test' : ''), title: (title ? title(it) : '') + (it.isTest ? '\n[test/example code]' : '') }, spans);
     item.addEventListener('click', (e) => { e.stopPropagation(); onItemClick(it); });
     container.appendChild(item);
   }
+  if (hiddenTests) container.appendChild(h('div', { className: 'list-placeholder', text: `${hiddenTests} test/example row${hiddenTests > 1 ? 's' : ''} hidden` }));
   if (footer) container.appendChild(h('div', { className: 'list-placeholder', text: footer }));
   // Caveat: a per-cell honesty note (e.g. quantization is prose-prone). Set off
   // with its own top border + spacing so it reads as a distinct note, not a

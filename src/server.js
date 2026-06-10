@@ -20,7 +20,7 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
-import { groupSites, groupPipelines, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from './core/ai-ml-detectors.js';
+import { groupSites, groupPipelines, reTestExamplePath, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { makeFilterMatcher } from './core/filter-match.js';
 import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
@@ -2023,7 +2023,12 @@ const drilldownRoute = (method, spec, key) => (req, res) => {
   jsonResponse(res, {
     total: groups.length,
     instances: flat.length,
-    [key]: groups.slice(0, max).map(g => ({ ...spec.row(g.rep), count: g.count, sites: g.sites.slice(0, 200) })),
+    // #132: a group is test/example only when EVERY site is — mixed groups stay undimmed.
+    [key]: groups.slice(0, max).map(g => ({
+      ...spec.row(g.rep), count: g.count,
+      isTest: g.sites.length > 0 && g.sites.every(s => s.filepath && reTestExamplePath.test(s.filepath)),
+      sites: g.sites.slice(0, 200),
+    })),
   });
 };
 
@@ -2055,7 +2060,7 @@ routes['/api/list-models-used'] = (req, res) => {
     total: models.length,
     unresolved: models.unresolved || 0,
     models: models.slice(0, max).map(m => ({
-      model: m.model, access: m.access, cells: m.cells, count: m.count,
+      model: m.model, access: m.access, cells: m.cells, count: m.count, isTest: m.isTest || false,
       sites: (m.sites || []).slice(0, 50),
     })),
   });
@@ -2073,7 +2078,7 @@ routes['/api/list-pipelines'] = (req, res) => {
   // `stages`, so renderPipelineStages still works at the leaf. The flat
   // listPipelines is unchanged, so --multi-index consumers are unaffected.
   const slimRow = (w) => ({
-    shape: w.shape, shapes: w.shapes, scope: w.scope, location: w.location, cellCount: w.cellCount, loop: w.loop || null,
+    shape: w.shape, shapes: w.shapes, scope: w.scope, location: w.location, cellCount: w.cellCount, loop: w.loop || null, isTest: w.isTest || false,
     stages: (w.stages || []).map(s => ({ cell: s.cell, ids: s.ids, count: s.count, sites: (s.sites || []).slice(0, 50) })),
   });
   const groups = groupPipelines(flows);

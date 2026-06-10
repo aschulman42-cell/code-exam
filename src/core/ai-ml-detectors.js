@@ -2168,12 +2168,38 @@ class _AIMLMethods {
 
 }
 
+// #132: uniform test/example tag. The union of the detectors' internal
+// reTestPath (which stays separate — it is a PRECISION GATE that excludes
+// heuristic Tier-B hits, not a display tag) and the example/demo axis:
+// tests, __tests__, spec, examples, benchmarks, demos, samples dirs;
+// conftest / test_* / *_test.* / *.test.* / *.spec.* files.
+export const reTestExamplePath = /(?:^|[\\/])(?:tests?|__tests__|spec|examples?|benchmarks?|demos?|samples?|conftest)(?:[\\/]|\.|$)|(?:^|[\\/])test_[^\\/]*$|_test\.[A-Za-z0-9]+$|\.(?:test|spec)\.[A-Za-z0-9]+$/i;
+
+// Stamp `isTest` on every record a listX returns. Three row grains:
+// marker cells carry `filepath`; Pipelines rows carry `location` (file or
+// folder — the regex is segment-based so both work); Models-Used rows carry
+// only `sites` and are test-only iff EVERY harvested site is a test path.
+function stampTests(rows) {
+  for (const r of (rows || [])) {
+    if (r.filepath != null) r.isTest = reTestExamplePath.test(r.filepath);
+    else if (r.location != null) r.isTest = reTestExamplePath.test(r.location);
+    else if (Array.isArray(r.sites)) r.isTest = r.sites.length > 0 && r.sites.every(s => reTestExamplePath.test(s.filepath || ''));
+  }
+  return rows;
+}
+
 // Prototype mixin, lifted from the carrier class above and Object.assign'd onto
-// CodeSearchIndex.prototype in CodeSearchIndex.js.
+// CodeSearchIndex.prototype in CodeSearchIndex.js. Every list* method is
+// wrapped to stamp `isTest` (#132) at this single seam — covers all cells and
+// the projections' internal cross-cell calls without touching each method.
 export const aimlMethods = (() => {
   const out = {};
   for (const name of Object.getOwnPropertyNames(_AIMLMethods.prototype)) {
-    if (name !== 'constructor') out[name] = _AIMLMethods.prototype[name];
+    if (name === 'constructor') continue;
+    const orig = _AIMLMethods.prototype[name];
+    out[name] = name.startsWith('list')
+      ? function (...a) { return stampTests(orig.apply(this, a)); }
+      : orig;
   }
   return out;
 })();

@@ -34,6 +34,26 @@ function shortPath(fp, maxLen = 42) {
   return fp.length <= maxLen ? fp : '...' + fp.slice(-(maxLen - 3));
 }
 
+// #132: --no-tests drops AI/ML records tagged `isTest` (test/example code).
+// Without the flag, verbose renderers append testTag(r) so the tag stays
+// visible in text output (and multi-index diffs can see it).
+function dropTests(rows, args) {
+  if (!args.no_tests) return rows;
+  const kept = rows.filter(r => !r.isTest);
+  if (rows.unresolved !== undefined) kept.unresolved = rows.unresolved;  // listModelsUsed tail note
+  return kept;
+}
+
+const testTag = (r) => (r.isTest ? ' [test]' : '');
+
+// #132 discoverability: the default (grouped) views don't tag individual rows,
+// so when test/example records are present, say so and point at --no-tests / -v.
+function noTestsTip(rows, args, what = 'sites') {
+  if (args.no_tests) return;
+  const n = (rows || []).filter(r => r.isTest).length;
+  if (n) console.log(`\n  Tip: ${n} of ${rows.length} ${what} are in test/example code — add --no-tests to hide them.`);
+}
+
 function applyPathFilters(items, args, fpKey = 'filepath') {
   let result = items;
   // --in universal path filter
@@ -377,7 +397,7 @@ export function doDomainFns(index, args) {
 // ========================================================================
 
 export function doListTraining(index, args) {
-  const training = index.listTraining(args.filter);
+  const training = dropTests(index.listTraining(args.filter), args);
   if (!training.length) {
     console.log('No training found (no PyTorch loop: .backward()/optimizer.step()/'
       + 'zero_grad(); HF Trainer; GradientTape; Lightning training_step; or a gated '
@@ -404,7 +424,7 @@ export function doListTraining(index, args) {
     for (const t of shown) {
       const b = t.tier === 'B' ? '~' : ' ';
       console.log(`${b}${t.family.padEnd(13)} ${t.kind.padEnd(17)} ${(t.marker || '').padEnd(16)} ${t.name}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -422,6 +442,7 @@ export function doListTraining(index, args) {
   }
   console.log(`\n${groups.length} unique training site${groups.length === 1 ? '' : 's'} (${training.length} instance${training.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
   if (tierB) console.log(`  (~ = heuristic .fit() call — gated on ML imports, def-fit excluded)`);
+  noTestsTip(training, args);
 }
 
 // Scope caption (#106) — shown on every Chains/Agents view so a 0 isn't misread.
@@ -432,7 +453,7 @@ const CHAINS_SCOPE = 'Scope: framework primitives (LangChain/LangGraph/DSPy/Crew
   + 'detected; Detection keys on JS/TS + Python idioms (Rust/Go not yet — #108), so a low/zero count is not proof there is no agent.';
 
 export function doListEmbeddings(index, args) {
-  const items = index.listEmbeddings(args.filter);
+  const items = dropTests(index.listEmbeddings(args.filter), args);
   if (!items.length) {
     console.log('No embeddings/vector search found (no OpenAIEmbeddings/SentenceTransformer/'
       + 'embed_query, FAISS/Chroma/Pinecone/VectorStore, similarity_search, text-splitters, or '
@@ -454,7 +475,7 @@ export function doListEmbeddings(index, args) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
       console.log(`${b}${t.kind.padEnd(13)} ${(t.framework || '').padEnd(20)} ${(t.marker || '').padEnd(20)}${t.id ? '  → ' + basenameIfPath(t.id) : ''}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -473,10 +494,11 @@ export function doListEmbeddings(index, args) {
   console.log(`\n${groups.length} unique embedding/vector${groups.length === 1 ? '' : 's'} (${items.length} site${items.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
   if (heur) console.log(`  (~ = heuristic/gated; distance co-occurrence-gated. RAG = this + an LLM call, #103.)`);
   console.log(`  (Model / id = embedding model or vector index/collection; <var>${unres ? ` (${unres})` : ''} = unresolved in-file.)`);
+  noTestsTip(items, args);
 }
 
 export function doListModelsUsed(index, args) {
-  const models = index.listModelsUsed(args.filter);
+  const models = dropTests(index.listModelsUsed(args.filter), args);
   if (!models.length) {
     console.log('No models used found (no resolved model id from LLM calls, artifacts, '
       + 'embeddings, or inference). Models USED (named models the code loads/calls) is '
@@ -497,7 +519,7 @@ export function doListModelsUsed(index, args) {
 
   if (args.verbose) {
     for (const m of shown) {
-      console.log(`${m.access.padEnd(6)} ${basenameIfPath(m.model)}  (${m.cells.join(', ')}, ${m.count} site${m.count > 1 ? 's' : ''})`);
+      console.log(`${m.access.padEnd(6)} ${basenameIfPath(m.model)}  (${m.cells.join(', ')}, ${m.count} site${m.count > 1 ? 's' : ''})${testTag(m)}`);
       for (const s of m.sites.slice(0, 12)) console.log(`        ${(s.filepath || '').replace(/\\/g, '/')}:${s.line}  [${s.cell}]`);
     }
     return;
@@ -512,10 +534,11 @@ export function doListModelsUsed(index, args) {
     + ` Distinct from models DEFINED (--models, class inheritance).`
     + ` Non-model artifacts (optimizer/vocab/config, device strings) are filtered out.`
     + (models.unresolved ? ` ${models.unresolved} refs were unresolved <var> and excluded.` : '') + `)`);
+  noTestsTip(models, args, 'models (every site in test/example code)');
 }
 
 export function doListStructuredOutput(index, args) {
-  const items = index.listStructuredOutput(args.filter);
+  const items = dropTests(index.listStructuredOutput(args.filter), args);
   if (!items.length) {
     console.log('No structured output found (no with_structured_output / response_model / '
       + 'response_format / JSON mode, output parsers, or outlines/guidance). Bare Pydantic '
@@ -533,7 +556,7 @@ export function doListStructuredOutput(index, args) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
       console.log(`${b}${t.kind.padEnd(12)} ${(t.framework || '').padEnd(16)} ${(t.marker || '').padEnd(24)}${t.id ? '  → ' + t.id : ''}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -549,10 +572,11 @@ export function doListStructuredOutput(index, args) {
   }
   console.log(`\n${groups.length} unique schema${groups.length === 1 ? '' : 's'} (${items.length} site${items.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
   if (heur) console.log(`  (~ = heuristic/gated; bare BaseModel/Zod NOT counted — only schemas bound to an LLM call.)`);
+  noTestsTip(items, args);
 }
 
 export function doListPipelines(index, args) {
-  const flows = index.listPipelines(args.filter);
+  const flows = dropTests(index.listPipelines(args.filter), args);
   if (!flows.length) {
     console.log('No AI/ML pipelines found (no file or leaf-folder where 2+ cells co-occur to form a '
       + 'RAG / low-level / training / inference / agent / reasoning / LLM-app shape). Single-cell usage is not a pipeline.');
@@ -587,7 +611,10 @@ export function doListPipelines(index, args) {
     const vgroup = (g) => {
       const w = g.rep;
       const cnt = g.count > 1 ? `  ×${g.count}` : '';
-      console.log(`${w.scope.padEnd(6)} ${w.shape.padEnd(9)} ${w.location.replace(/\\/g, '/')}${w.shapes.length > 1 ? `  [also: ${w.shapes.slice(1).join(', ')}]` : ''}${cnt}`);
+      // #132: a GROUP is test/example only when every member location is —
+      // the rep alone can misrepresent a mixed group.
+      const gTest = (g.members && g.members.length) ? g.members.every(x => x.isTest) : !!w.isTest;
+      console.log(`${w.scope.padEnd(6)} ${w.shape.padEnd(9)} ${w.location.replace(/\\/g, '/')}${w.shapes.length > 1 ? `  [also: ${w.shapes.slice(1).join(', ')}]` : ''}${cnt}${gTest ? ' [test]' : ''}`);
       console.log(`        ${stagesStr(w)}`);
       for (const m of g.members) console.log(`          - ${m.scope.padEnd(6)} ${m.location.replace(/\\/g, '/')}`);
     };
@@ -596,17 +623,18 @@ export function doListPipelines(index, args) {
     return;
   }
   const head = () => { console.log(`${'Shape'.padEnd(9)}  ${'Scope'.padEnd(6)}  ${'Location'.padEnd(34)}  ${'Stages'.padEnd(80)}  Count`); console.log('='.repeat(140)); };
-  const row = (g) => { const w = g.rep; let loc = w.location.replace(/\\/g, '/'); if (loc.length > 34) loc = '...' + loc.slice(-31); const cnt = g.count > 1 ? `×${g.count}` : ''; console.log(`${w.shape.padEnd(9)}  ${w.scope.padEnd(6)}  ${loc.padEnd(34)}  ${stagesStr(w).slice(0, 80).padEnd(80)}  ${cnt}`); };
+  const row = (g) => { const w = g.rep; let loc = w.location.replace(/\\/g, '/'); if (loc.length > 34) loc = '...' + loc.slice(-31); const cnt = g.count > 1 ? `×${g.count}` : ''; const gTest = (g.members && g.members.length) ? g.members.every(x => x.isTest) : !!w.isTest; console.log(`${w.shape.padEnd(9)}  ${w.scope.padEnd(6)}  ${loc.padEnd(34)}  ${stagesStr(w).slice(0, 80).padEnd(80)}  ${cnt}${gTest ? ' [test]' : ''}`); };
   head();
   for (const g of cap(mainGroups)) row(g);
   if (looseGroups.length) { console.log(`\n${LOOSE_HDR}`); head(); for (const g of cap(looseGroups)) row(g); }
   console.log(`\n${groupCount} group${groupCount === 1 ? '' : 's'} (${flows.length} pipeline${flows.length === 1 ? '' : 's'}); use -v for every member location.`);
   console.log(`  (Pipelines = AI/ML constructs inferred from cell CO-OCCURRENCE, NOT traced dataflow. Confidence by scope:`
     + ` file > folder (leaf folder) > module (climbed to a common ancestor — "loose", shown separately above). Import-graph assembly + a graph view are deferred. Shapes by specificity: RAG>low-level>fine-tuning>training>agent>inference>reasoning>LLM-app.)`);
+  noTestsTip(flows, args, 'pipelines');
 }
 
 export function doListChains(index, args) {
-  const chains = index.listChains(args.filter);
+  const chains = dropTests(index.listChains(args.filter), args);
   if (!chains.length) {
     console.log('No framework chains/agents found (no LangChain LLMChain/Runnable*/AgentExecutor, '
       + 'LangGraph StateGraph, DSPy ChainOfThought/dspy.Module, or CrewAI/AutoGen primitives).');
@@ -628,7 +656,7 @@ export function doListChains(index, args) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
       console.log(`${b}${(t.framework || '').padEnd(12)} ${t.kind.padEnd(7)} ${(t.marker || '').padEnd(22)} ${t.name !== t.marker ? '→ ' + t.name : ''}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
     }
     console.log(`\n  (${CHAINS_SCOPE})`);
     return;
@@ -646,10 +674,11 @@ export function doListChains(index, args) {
   }
   console.log(`\n${groups.length} unique chain/agent${groups.length === 1 ? '' : 's'} (${chains.length} site${chains.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
   console.log(`  (${CHAINS_SCOPE})`);
+  noTestsTip(chains, args);
 }
 
 export function doListTools(index, args) {
-  const tools = index.listTools(args.filter);
+  const tools = dropTests(index.listTools(args.filter), args);
   if (!tools.length) {
     console.log('No tools found (no @tool/FunctionTool/StructuredTool, input_schema/'
       + 'inputSchema, MCP setRequestHandler/server.tool/defineChatSessionFunction, or '
@@ -672,7 +701,7 @@ export function doListTools(index, args) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
       console.log(`${b}${(t.framework || '').padEnd(18)} ${t.kind.padEnd(14)} ${(t.marker || '').padEnd(18)} ${t.name ? '→ ' + t.name : ''}${t.lvc ? ' [lib?]' : ''}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -691,10 +720,11 @@ export function doListTools(index, args) {
   }
   console.log(`\n${groups.length} unique tool${groups.length === 1 ? '' : 's'} (${tools.length} site${tools.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
   if (heur) console.log(`  (~ = heuristic, gated on LLM/MCP context; [lib?] = library-vs-consumer over-fire; blank name = not statically extractable)`);
+  noTestsTip(tools, args);
 }
 
 export function doListLlmCalls(index, args) {
-  const calls = index.listLlmCalls(args.filter);
+  const calls = dropTests(index.listLlmCalls(args.filter), args);
   if (!calls.length) {
     console.log('No LLM API calls found (no messages.create / chat.completions.create / '
       + 'ChatOpenAI / LlamaChatSession / .invoke, or api.anthropic.com·/v1/messages endpoints). '
@@ -717,7 +747,7 @@ export function doListLlmCalls(index, args) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
       console.log(`${b}${t.provider.padEnd(11)} ${t.kind.padEnd(9)} ${('T' + t.tier).padEnd(3)} ${(t.marker || '').padEnd(24)}${t.lvc ? ' [lib?]' : ''}${t.model ? '  → ' + basenameIfPath(t.model) : ''}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -737,10 +767,11 @@ export function doListLlmCalls(index, args) {
   console.log(`\n${groups.length} unique LLM-call${groups.length === 1 ? '' : 's'} (${calls.length} site${calls.length === 1 ? '' : 's'}); use -v for every call + snippet.`);
   if (heur) console.log(`  (~ = heuristic; [lib?] = library-vs-consumer over-fires)`);
   console.log(`  (Model resolved via same-file assignment / argparse default where possible; <var>${unresolved ? ` (${unresolved})` : ''} = unresolved in-file)`);
+  noTestsTip(calls, args);
 }
 
 export function doListInference(index, args) {
-  const inf = index.listInference(args.filter);
+  const inf = dropTests(index.listInference(args.filter), args);
   if (!inf.length) {
     console.log('No inference/generation found (no generate()/max_new_tokens/do_sample/'
       + 'GenerationConfig, no_grad/inference_mode/InferenceSession, or gated .predict()). '
@@ -765,7 +796,7 @@ export function doListInference(index, args) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
       console.log(`${b}${t.family.padEnd(13)} ${t.kind.padEnd(11)} ${('T' + t.tier).padEnd(3)} ${(t.marker || '').padEnd(16)} ${t.name}${t.id ? '  → ' + basenameIfPath(t.id) : ''}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -783,10 +814,11 @@ export function doListInference(index, args) {
   }
   console.log(`\n${groups.length} unique inference site${groups.length === 1 ? '' : 's'} (${inf.length} instance${inf.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
   if (heur) console.log(`  (~ = heuristic/gated; → model = pipeline(model=…))`);
+  noTestsTip(inf, args);
 }
 
 export function doListDatasets(index, args) {
-  const datasets = index.listDatasets(args.filter);
+  const datasets = dropTests(index.listDatasets(args.filter), args);
   if (!datasets.length) {
     console.log('No datasets found (no Dataset/IterableDataset subclass, tf.data '
       + 'pipeline, or ML loader: DataLoader / load_dataset / sklearn.datasets / '
@@ -814,7 +846,7 @@ export function doListDatasets(index, args) {
     for (const d of shown) {
       const b = d.builtin ? '*' : ' ';
       console.log(`${b}${d.family.padEnd(13)} ${d.kind.padEnd(11)} ${(d.marker || '').padEnd(20)} ${basenameIfPath(d.name)}`);
-      console.log(`        ${(d.filepath || '').replace(/\\/g, '/')}:${d.line}  ${d.snippet}`);
+      console.log(`        ${(d.filepath || '').replace(/\\/g, '/')}:${d.line}${testTag(d)}  ${d.snippet}`);
     }
     return;
   }
@@ -832,10 +864,11 @@ export function doListDatasets(index, args) {
   }
   console.log(`\n${groups.length} unique dataset${groups.length === 1 ? '' : 's'} (${datasets.length} site${datasets.length === 1 ? '' : 's'}); use -v for every site + snippet.`);
   if (builtins) console.log(`  (* = built-in dataset — framework-provided standard/benchmark data, e.g. MNIST/CIFAR/Iris)`);
+  noTestsTip(datasets, args);
 }
 
 export function doListKernels(index, args) {
-  const kernels = index.listKernels(args.filter);
+  const kernels = dropTests(index.listKernels(args.filter), args);
   if (!kernels.length) {
     console.log('No GPU kernels found (no CUDA __global__/<<<>>>, Triton @triton.jit, '
       + 'or numba @cuda.jit).');
@@ -863,7 +896,7 @@ export function doListKernels(index, args) {
     for (const k of shown) {
       const tag = k.tag === 'heuristic' ? '~' : ' ';
       console.log(`${tag}${k.family.padEnd(13)} ${k.kind.padEnd(10)} ${(k.marker || '').padEnd(16)} ${k.name}`);
-      console.log(`        ${(k.filepath || '').replace(/\\/g, '/')}:${k.line}  ${k.snippet}`);
+      console.log(`        ${(k.filepath || '').replace(/\\/g, '/')}:${k.line}${testTag(k)}  ${k.snippet}`);
     }
     return;
   }
@@ -881,10 +914,11 @@ export function doListKernels(index, args) {
     console.log(`${fam.slice(0, 13).padEnd(13)}  ${k.kind.padEnd(10)}  ${(k.marker || '').slice(0, 16).padEnd(16)}  ${(k.name || '(unnamed)').slice(0, 28).padEnd(28)}  ${cnt}`);
   }
   console.log(`\n${groups.length} unique kernel${groups.length === 1 ? '' : 's'} (${kernels.length} instance${kernels.length === 1 ? '' : 's'}); use -v to list every instance.`);
+  noTestsTip(kernels, args);
 }
 
 export function doListMultimodal(index, args) {
-  const items = index.listMultimodal(args.filter);
+  const items = dropTests(index.listMultimodal(args.filter), args);
   if (!items.length) {
     console.log('No multimodal/vision constructs found (no CLIP/ViT/ResNet/YOLO/'
       + 'diffusion/VLM markers).');
@@ -907,7 +941,7 @@ export function doListMultimodal(index, args) {
   if (args.verbose) {
     for (const t of shown) {
       console.log(`~${(t.family || '?').padEnd(13)} ${t.kind.padEnd(14)} ${(t.marker || '').padEnd(16)} ${t.name}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -923,10 +957,11 @@ export function doListMultimodal(index, args) {
     console.log(`~${(t.family || '?').slice(0, 13).padEnd(13)}  ${t.kind.padEnd(14)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${(t.name || '(unnamed)').slice(0, 20).padEnd(20)}  ${cnt}`);
   }
   console.log(`\n${groups.length} unique multimodal marker${groups.length === 1 ? '' : 's'} (${items.length} instance${items.length === 1 ? '' : 's'}); use -v to list every instance.`);
+  noTestsTip(items, args);
 }
 
 export function doListPostTraining(index, args) {
-  const items = index.listPostTraining(args.filter);
+  const items = dropTests(index.listPostTraining(args.filter), args);
   if (!items.length) {
     console.log('No post-training/fine-tuning constructs found (no LoRA/PEFT, '
       + 'SFT/DPO/PPO/GRPO, or distillation markers).');
@@ -949,7 +984,7 @@ export function doListPostTraining(index, args) {
   if (args.verbose) {
     for (const t of shown) {
       console.log(`~${(t.family || '?').padEnd(13)} ${t.kind.padEnd(14)} ${(t.marker || '').padEnd(16)} ${t.name}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -965,13 +1000,14 @@ export function doListPostTraining(index, args) {
     console.log(`~${(t.family || '?').slice(0, 13).padEnd(13)}  ${t.kind.padEnd(14)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${(t.name || '(unnamed)').slice(0, 20).padEnd(20)}  ${cnt}`);
   }
   console.log(`\n${groups.length} unique post-training marker${groups.length === 1 ? '' : 's'} (${items.length} instance${items.length === 1 ? '' : 's'}); use -v to list every instance.`);
+  noTestsTip(items, args);
 }
 
 // #146 reasoning-prompt language (CoT/reflection/scratchpad). Mirrors
 // doListPostTraining (grouped table + -v full list), but with a PROMINENT
 // labeled caveat after the table because the signal is prose-inferred.
 export function doListReasoning(index, args) {
-  const items = index.listReasoning(args.filter);
+  const items = dropTests(index.listReasoning(args.filter), args);
   if (!items.length) {
     console.log('No reasoning-prompt language found (no chain-of-thought / '
       + '"step by step" / reflection / scratchpad phrasing).');
@@ -1002,7 +1038,7 @@ export function doListReasoning(index, args) {
   if (args.verbose) {
     for (const t of shown) {
       console.log(`~${(t.family || '?').padEnd(16)} ${t.kind.padEnd(11)} ${(t.marker || '').padEnd(16)} ${t.name}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}  ${t.snippet}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
     }
     printCaveat();
     return;
@@ -1019,6 +1055,7 @@ export function doListReasoning(index, args) {
     console.log(`~${(t.family || '?').slice(0, 15).padEnd(15)}  ${t.kind.padEnd(11)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${(t.name || '(unnamed)').slice(0, 20).padEnd(20)}  ${cnt}`);
   }
   console.log(`\n${groups.length} unique reasoning marker${groups.length === 1 ? '' : 's'} (${items.length} instance${items.length === 1 ? '' : 's'}); use -v to list every instance.`);
+  noTestsTip(items, args);
   printCaveat();
 }
 
@@ -1032,7 +1069,7 @@ function basenameIfPath(v) {
 }
 
 export function doListArtifacts(index, args) {
-  const artifacts = index.listArtifacts(args.filter);
+  const artifacts = dropTests(index.listArtifacts(args.filter), args);
   if (!artifacts.length) {
     console.log('No model artifacts found (no load/save sites for HF from_pretrained/'
       + 'state_dict, torch.save/load, safetensors, node-llama-cpp GGUF, or .gguf/'
@@ -1063,7 +1100,7 @@ export function doListArtifacts(index, args) {
     for (const a of shown) {
       const dir = a.direction.padEnd(4);
       const tag = a.tag === 'heuristic' ? '~' : ' ';
-      console.log(`${tag}${a.family.padEnd(14)} ${dir} ${a.format.padEnd(12)} ${(a.filepath || '').replace(/\\/g, '/')}:${a.line}`);
+      console.log(`${tag}${a.family.padEnd(14)} ${dir} ${a.format.padEnd(12)} ${(a.filepath || '').replace(/\\/g, '/')}:${a.line}${testTag(a)}`);
       console.log(`        ${a.snippet}`);
     }
     return;
@@ -1089,10 +1126,11 @@ export function doListArtifacts(index, args) {
     console.log(`\n  Caveat: quantization is a presence signal ("this code uses quantization"), not a`);
     console.log(`  precise site count — bare GPTQ/AWQ markers also match doc/comment mentions.`);
   }
+  noTestsTip(artifacts, args);
 }
 
 export function doListModels(index, args) {
-  let models = index.listModels(args.filter);
+  let models = dropTests(index.listModels(args.filter), args);
   if (!models.length) {
     console.log('No model classes found (no class inheritance reaches a known ML '
       + 'model base: nn.Module, tf.Module, keras Layer/Model, sklearn BaseEstimator, ...).');
@@ -1122,7 +1160,7 @@ export function doListModels(index, args) {
     for (const m of shown) {
       const fw = (m.framework || '?') + (m.ambiguous ? '?' : '');
       const chain = (m.chain && m.chain.length) ? m.chain : [m.base];
-      console.log(`${fw}  [${m.method_count}m]  ${m.name} → ${chain.join(' → ')}`);
+      console.log(`${fw}  [${m.method_count}m]  ${m.name} → ${chain.join(' → ')}${testTag(m)}`);
       console.log(`        ${(m.filepath || '').replace(/\\/g, '/')}`);
     }
     return;
@@ -1142,6 +1180,7 @@ export function doListModels(index, args) {
     console.log(`${fw.padEnd(14)}  ${String(m.method_count).padStart(5)}  ${name.padEnd(34)}  ${base.padEnd(22)}  ${cnt}`);
   }
   console.log(`\n${groups.length} unique model${groups.length === 1 ? '' : 's'} (${models.length} instance${models.length === 1 ? '' : 's'}); use -v for inheritance chains.`);
+  noTestsTip(models, args, 'model classes');
 }
 
 export function doListClasses(index, args) {

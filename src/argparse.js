@@ -119,6 +119,7 @@ export function parseArgs() {
     verbose: false,
     full_path: false,
     filter: null,
+    no_tests: false,
     include_path: null,
     exclude_path: null,
     dedup: 'exact',
@@ -327,6 +328,7 @@ export function parseArgs() {
     ['include_macros',       'flag',           ['--include-macros']],
     ['defined_only',         'flag',           ['--defined-only']],
     ['exclude_tests',        'flag',           ['--exclude-tests']],
+    ['no_tests',             'flag',           ['--no-tests']],
     ['call_tree',            'value',          ['--call-tree']],
     ['class_tree',           'optional_value', ['--class-tree']],
     ['call_inventory',       'optional_value', ['--call-inventory']],
@@ -741,6 +743,8 @@ DISPLAY / FILTERING (query-time, does not affect index build):
   --include-path <patterns>  Only include paths containing pattern(s)
   --exclude-path <patterns>  Exclude paths containing pattern(s)
   --exclude-tests            Exclude test files from callers/metrics results
+  --no-tests                 AI/ML cells: drop records tagged test/example code
+                             (tests, examples, benchmarks, demos dirs; test_* etc.)
   --dedup <mode>             Dedup mode: none, exact, structural
 
 MODE:

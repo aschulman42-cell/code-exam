@@ -1373,6 +1373,16 @@ async function init() {
       document.body.classList.add('hide-inferred-suffix');
     }
   });
+  // #132: View → Exclude Tests (the GUI form of --no-tests). Renderers read
+  // the checkbox at render time; toggling reloads the open accordions so the
+  // hide takes effect without a close/re-open.
+  $('#opt-exclude-tests')?.addEventListener('change', () => {
+    const filter = $('#left-filter').value.trim();
+    for (const sec of $$('.accordion-section.open')) {
+      state.sectionData[sec.dataset.section] = null;
+      loadSectionData(sec.dataset.section, filter);
+    }
+  });
   $('#opt-break-long-lines')?.addEventListener('change', () => {
     // Re-render the source pane so line-breaking takes effect. Full re-render
     // (not CSS toggle) because we're splitting lines into additional DOM
