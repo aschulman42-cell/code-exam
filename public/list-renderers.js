@@ -845,6 +845,55 @@ function _stagesText(w) {
   return (w.stages || []).map(s => s.cell + (s.ids && s.ids.length ? `(${basenameIfPath(s.ids[0])}${s.ids.length > 1 ? '…' : ''})` : '')).join(' → ');
 }
 
+// Build a left-to-right Mermaid flow from a pipeline's stages. The main flow is
+// one box per STAGE labeled with just the cell name (solid `-->` arrows). What
+// each stage actually contains — its ids (model names, schemas, frameworks) —
+// hangs off as dotted, rounded, muted "example" leaves, so the flow stays clean
+// but the detail is there (instead of a single clipped `cell(firstId…)` box).
+// Stage node ids n0..nN map back to w.stages[i] for click-through; leaf ids
+// (nIeJ) are non-clickable. Labels are sanitized (quotes/brackets break parse).
+// Leaf filter — drop ONLY the categorical, low-signal labels: orchestration
+// frameworks (which repeat on every stage — chunking/search/agent all
+// "LangChain") and access/unknown placeholders. KEEP specific products — the
+// vector store (Milvus/FAISS/Pinecone), embedder, provider, model, schema,
+// class — those are real content worth seeing. (This is also what tames the
+// dagre staircase: only meaningful leaves hang off the flow.)
+const _GENERIC_LEAF = new Set([
+  '?', 'local', 'api', 'mixed', 'SDK',
+  'LangChain', 'LangGraph', 'DSPy', 'CrewAI', 'AutoGen', 'LlamaIndex',
+  'OpenAI-Agents', 'smolagents', 'PydanticAI',
+]);
+
+export function pipelineMermaid(w) {
+  const stages = (w.stages || []);
+  const safe = (t) => String(t).replace(/"/g, "'").replace(/[[\]{}<>|`]/g, ' ').trim().slice(0, 36);
+  const lines = ['graph LR'];
+  const leaves = [];
+  stages.forEach((s, i) => {
+    lines.push(`  n${i}["${safe(s.cell)}"]`);
+    const ids = (s.ids || []).map(basenameIfPath).filter(id => id && !_GENERIC_LEAF.has(id));
+    ids.slice(0, 4).forEach((id, j) => {
+      const nid = `n${i}e${j}`;
+      lines.push(`  ${nid}(["${safe(id)}"])`);
+      lines.push(`  n${i} -.-> ${nid}`);     // dotted = "contains", not flow
+      leaves.push(nid);
+    });
+  });
+  for (let i = 0; i < stages.length - 1; i++) lines.push(`  n${i} --> n${i + 1}`);
+  // Agent-loop back-edge (the ReAct cycle): thick + labeled, distinct from the
+  // dotted example connectors. from = action stage, to = the model call.
+  if (w.loop) {
+    const idxOf = (cell) => stages.findIndex(s => s.cell === cell);
+    const fi = idxOf(w.loop.from), ti = idxOf(w.loop.to);
+    if (fi >= 0 && ti >= 0 && fi !== ti) lines.push(`  n${fi} == loop ==> n${ti}`);
+  }
+  if (leaves.length) {
+    lines.push('  classDef ex fill:#1b1f26,stroke:#3a4a66,color:#9ab8e0;');
+    lines.push(`  class ${leaves.join(',')} ex;`);
+  }
+  return lines.join('\n');
+}
+
 // #142 drill-down dedupe: `groups` is the server's grouped pipeline structure —
 // [{ sig, rep, count, members }] — so the SAME pipeline (e.g. RAG ·
 // vector-store(LangChain) → search(LangChain) over ~186 files) shows ONCE with a
@@ -944,15 +993,23 @@ export function renderPipelineMembers(container, group, onMemberClick) {
 
 // Drill-down: a pipeline's stages (cell · ids · sites) into a container (top pane);
 // each site clicks through to source. Same model → stages → source pattern as #115.
-export function renderPipelineStages(container, w) {
+export function renderPipelineStages(container, w, onDiagram) {
   container.innerHTML = '';
   if (!w) { container.innerHTML = '<div class="list-placeholder">No pipeline.</div>'; return; }
   container.appendChild(h('div', {
     text: `${w.shape}  ·  ${w.scope}  ·  ${(w.location || '').replace(/\\/g, '/')}${w.shapes.length > 1 ? `   [also: ${w.shapes.slice(1).join(', ')}]` : ''}`,
     style: 'padding:4px 8px;font-size:11px;color:var(--text-bright);border-bottom:1px solid var(--border,#333);margin-bottom:2px',
   }));
-  for (const s of (w.stages || [])) {
+  // "View as diagram" — only for ≥3-stage pipelines (a 2-stage A→B reads fine
+  // as text). Renders the LR Mermaid flow in the Diagram pane via onDiagram(w).
+  if ((w.stages || []).length >= 3 && typeof onDiagram === 'function') {
+    const btn = h('button', { className: 'btn-secondary', text: 'View as diagram', style: 'margin:4px 8px' });
+    btn.addEventListener('click', () => onDiagram(w));
+    container.appendChild(btn);
+  }
+  (w.stages || []).forEach((s, si) => {
     container.appendChild(h('div', {
+      id: `pl-stage-${si}`,
       text: `${s.cell}${s.ids && s.ids.length ? '  — ' + s.ids.join(', ') : ''}  (${s.count})`,
       style: 'padding:3px 8px 1px;font-size:10px;color:var(--accent,#6cf)',
     }));
@@ -964,7 +1021,7 @@ export function renderPipelineStages(container, w) {
       item.setAttribute('data-pl-line', String(site.line));
       container.appendChild(item);
     }
-  }
+  });
 }
 
 

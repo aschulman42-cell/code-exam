@@ -65,7 +65,7 @@ import {
 import {
   initListRenderers,
   renderFuncLikeList, renderFunctionList, renderFileListWithSub,
-  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, POSTTRAINING_KIND_COLOR, REASONING_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR,
+  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, pipelineMermaid, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, POSTTRAINING_KIND_COLOR, REASONING_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
@@ -712,7 +712,28 @@ function onPipelineClick(w) {
   showPane('middle-top');
   navPush('middle-top');
   $('#middle-top-title').textContent = `Pipeline: ${w.shape} (${w.scope})`;
-  renderPipelineStages($('#middle-top-body'), w);
+  renderPipelineStages($('#middle-top-body'), w, onPipelineDiagram);
+}
+
+// Render a pipeline as a Mermaid LR flow in the Diagram pane (#right-top),
+// reusing the file-map render path (so its pop-out + zoom work). A node click
+// opens that stage's first site in source. Only reachable from the ≥3-stage
+// "View as diagram" button in renderPipelineStages.
+function onPipelineDiagram(w) {
+  const ttl = $('#right-top-title');
+  if (ttl) ttl.textContent = `Pipeline: ${w.shape} (${w.scope})`;
+  $('#right-top-body').innerHTML = '<div class="diagram-viewport" id="diagram-viewport"></div>';
+  // No root node — pipelines are not rooted trees; passing a root name made
+  // renderMermaid materialize a stray disconnected `pipeline_<shape>` node.
+  renderMermaid(pipelineMermaid(w), $('#diagram-viewport'), null, {
+    onNodeClick: (nodeId) => {
+      const m = /^n(\d+)$/.exec(nodeId || '');
+      const stage = m ? (w.stages || [])[+m[1]] : null;
+      const site = stage && stage.sites && stage.sites[0];
+      if (site) onFileClick(site.filepath, site.line);
+    },
+  });
+  showPane('right-top');
 }
 
 /** Add/remove 'has-overflow' class to show bottom fade when content is scrollable */

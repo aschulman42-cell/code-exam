@@ -2082,7 +2082,20 @@ class _AIMLMethods {
         const c = bucket.cells.get(cell);
         if (c) stages.push({ cell, ids: [...c.ids].slice(0, 6), count: c.sites.length, sites: c.sites.slice(0, 50) });
       }
-      return { shape: shapes[0], shapes, scope, location, stages, cellCount: bucket.cells.size };
+      // Back-edge for the diagram: an agent-shaped pipeline IS a loop — the
+      // ReAct call↔dispatch cycle. For framework agents the literal for/while
+      // lives in the library, not the user's file, so we key on the agent
+      // SHAPE (the defining agentic signal), not a loop construct in source.
+      // from = action end (agent/tool-dispatch), to = the model call it iterates
+      // back to. Non-agent shapes (one-shot LLM-app, RAG, training) get no loop.
+      let loop = null;
+      if (shapes.includes('agent')) {
+        const present = new Set(stages.map(s => s.cell));
+        const from = present.has('agent') ? 'agent' : (present.has('tool-dispatch') ? 'tool-dispatch' : null);
+        const to = present.has('llm-call') ? 'llm-call' : (present.has('model') ? 'model' : null);
+        if (from && to && from !== to) loop = { from, to };
+      }
+      return { shape: shapes[0], shapes, scope, location, stages, cellCount: bucket.cells.size, loop };
     };
 
     // universalRoot = the deepest folder that is an ancestor of EVERY contributing

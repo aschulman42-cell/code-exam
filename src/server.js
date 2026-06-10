@@ -2073,7 +2073,7 @@ routes['/api/list-pipelines'] = (req, res) => {
   // `stages`, so renderPipelineStages still works at the leaf. The flat
   // listPipelines is unchanged, so --multi-index consumers are unaffected.
   const slimRow = (w) => ({
-    shape: w.shape, shapes: w.shapes, scope: w.scope, location: w.location, cellCount: w.cellCount,
+    shape: w.shape, shapes: w.shapes, scope: w.scope, location: w.location, cellCount: w.cellCount, loop: w.loop || null,
     stages: (w.stages || []).map(s => ({ cell: s.cell, ids: s.ids, count: s.count, sites: (s.sites || []).slice(0, 50) })),
   });
   const groups = groupPipelines(flows);
