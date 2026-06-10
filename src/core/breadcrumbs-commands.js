@@ -217,7 +217,21 @@ export function extractBreadcrumbs(idx, showProgress = true) {
  *
  * Returns { commands: [...], routes: [...], guiActions: [...], events: [...] }
  */
+// digest-perf-command-catalog (#90): the catalog is immutable for a loaded
+// index, but every class/file digest cross-references it — without this memo
+// each digest re-paid the full whole-index scan (~70s on text-heavy
+// .plugins_from_gh). WeakMap so a replaced index releases its entry.
+const _catalogCache = new WeakMap();
+
+// Lines longer than this are skipped by the per-line pattern battery and the
+// handler-resolution scans. Command/route/flag definition lines are short; a
+// multi-KB markdown or minified line is never one, and the backtracking-prone
+// patterns blow up on them (same guard practice as the AI/ML detectors).
+const MAX_SCAN_LINE = 500;
+
 export function extractCommandCatalog(idx, showProgress = true) {
+  const cached = _catalogCache.get(idx);
+  if (cached) return cached;
   const catalog = {
     cliOptions: [],    // --flag options from argparse-like definitions
     commands: [],      // /slash-commands from dispatch tables
@@ -231,6 +245,7 @@ export function extractCommandCatalog(idx, showProgress = true) {
 
     for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
       const line = lines[lineIdx];
+      if (!line || line.length > MAX_SCAN_LINE) continue;
       const lineNum = lineIdx + 1;
       const func = idx._findContainingFunctionFromBounds(funcBounds, lineNum);
 
@@ -428,26 +443,48 @@ export function extractCommandCatalog(idx, showProgress = true) {
   // Resolve CLI option handlers: find where args.option_name is checked
   // JS: if (args.hotspots) / args._explicit.has('hotspots')
   // Python: if args.hotspots: / elif args.hotspots:
+  //
+  // digest-perf (#90): ONE pass over the index matching all options at once.
+  // The old shape (full index scan PER option) was quadratic — 331 options ×
+  // 942k lines ≈ 62s on .plugins_from_gh, ~85% of digest time. Same
+  // first-match-in-file-order result: dispatch lines are visited in the same
+  // order, and each option takes the first line that matches it.
+  const optsByName = new Map();
   for (const opt of catalog.cliOptions) {
-    const argName = opt.name;
-    for (const [fp, flines] of idx.fileLines) {
-      for (let li = 0; li < flines.length; li++) {
-        // Skip the argparse definition lines themselves
-        if (fp === opt.filepath && Math.abs(li + 1 - opt.line) < 5) continue;
-
-        const fline = flines[li];
-        // JS dispatch: if (args.X) or args._explicit.has('X')
-        // Python dispatch: if args.X: or elif args.X:
-        if (fline.includes('args.' + argName) || fline.includes("'" + argName + "'")) {
-          // Check it looks like a dispatch (if/elif/case), not just a reference
-          const trimmed = fline.trim();
-          const isDispatch = /^(if|elif|else if|case)\b/.test(trimmed) ||
-                             trimmed.includes('_explicit.has');
-          if (!isDispatch) continue;
-
-          const handlerFunc = idx._findContainingFunctionFromBounds(
-            idx._getFuncBoundaries(fp), li + 1
-          );
+    if (!optsByName.has(opt.name)) optsByName.set(opt.name, []);
+    optsByName.get(opt.name).push(opt);
+  }
+  let unresolvedOpts = catalog.cliOptions.length;
+  const reArgsDot = /\bargs\.(\w+)/g;
+  const reQuoted = /'(\w+)'/g;
+  for (const [fp, flines] of idx.fileLines) {
+    if (!unresolvedOpts) break;
+    let funcBounds = null;   // lazy — most files have no dispatch lines
+    for (let li = 0; li < flines.length && unresolvedOpts; li++) {
+      const fline = flines[li];
+      if (!fline || fline.length > MAX_SCAN_LINE) continue;
+      // Check it looks like a dispatch (if/elif/case), not just a reference
+      const trimmed = fline.trim();
+      const isDispatch = /^(if|elif|else if|case)\b/.test(trimmed) ||
+                         trimmed.includes('_explicit.has');
+      if (!isDispatch) continue;
+      // Candidate option names on this dispatch line — JS `args.X`,
+      // quoted 'X' (covers _explicit.has('X') and Python dict forms).
+      const cands = new Set();
+      let mm;
+      reArgsDot.lastIndex = 0;
+      while ((mm = reArgsDot.exec(fline))) cands.add(mm[1]);
+      reQuoted.lastIndex = 0;
+      while ((mm = reQuoted.exec(fline))) cands.add(mm[1]);
+      for (const name of cands) {
+        const optList = optsByName.get(name);
+        if (!optList) continue;
+        for (const opt of optList) {
+          if (opt.handler) continue;
+          // Skip the argparse definition lines themselves
+          if (fp === opt.filepath && Math.abs(li + 1 - opt.line) < 5) continue;
+          if (!funcBounds) funcBounds = idx._getFuncBoundaries(fp);
+          const handlerFunc = idx._findContainingFunctionFromBounds(funcBounds, li + 1);
           // Look for the called function. Scan a 20-line window (was 3)
           // so we catch dispatches where the real handler call is several
           // lines below the `if (args.X)` guard — e.g. --build-index has
@@ -480,10 +517,9 @@ export function extractCommandCatalog(idx, showProgress = true) {
             func: handlerFunc,
             handlerFunc: handlerName,
           };
-          break;
+          unresolvedOpts--;
         }
       }
-      if (opt.handler) break;
     }
   }
 
@@ -536,6 +572,7 @@ export function extractCommandCatalog(idx, showProgress = true) {
       if (fp === action.filepath) continue; // skip the HTML definition
       for (let li = 0; li < flines.length; li++) {
         const fline = flines[li];
+        if (!fline || fline.length > MAX_SCAN_LINE) continue;
         // Match: case 'action-name': or 'action-name' in a switch/dispatch context
         if (fline.includes("'" + actionName + "'") || fline.includes('"' + actionName + '"')) {
           const handlerFunc = idx._findContainingFunctionFromBounds(
@@ -559,6 +596,7 @@ export function extractCommandCatalog(idx, showProgress = true) {
     for (const [fp, flines] of idx.fileLines) {
       if (fp === cmd.filepath) continue; // skip the .rc file
       for (let li = 0; li < flines.length; li++) {
+        if (!flines[li] || flines[li].length > MAX_SCAN_LINE) continue;
         if (flines[li].includes('case ' + cmdId + ':') || flines[li].includes('case ' + cmdId + ' :')) {
           const handlerFunc = idx._findContainingFunctionFromBounds(
             idx._getFuncBoundaries(fp), li + 1
@@ -681,5 +719,6 @@ export function extractCommandCatalog(idx, showProgress = true) {
                 `${catalog.guiActions.length} GUI actions (${total} total)`);
   }
 
+  _catalogCache.set(idx, catalog);
   return catalog;
 }
