@@ -120,6 +120,9 @@ export function parseArgs() {
     full_path: false,
     filter: null,
     no_tests: false,
+    emit_harness: null,
+    harness_template: null,
+    harness_out: null,
     include_path: null,
     exclude_path: null,
     dedup: 'exact',
@@ -329,6 +332,9 @@ export function parseArgs() {
     ['defined_only',         'flag',           ['--defined-only']],
     ['exclude_tests',        'flag',           ['--exclude-tests']],
     ['no_tests',             'flag',           ['--no-tests']],
+    ['emit_harness',         'value',          ['--emit-harness']],
+    ['harness_template',     'value',          ['--harness-template']],
+    ['harness_out',          'value',          ['--out', '--harness-out']],
     ['call_tree',            'value',          ['--call-tree']],
     ['class_tree',           'optional_value', ['--class-tree']],
     ['call_inventory',       'optional_value', ['--call-inventory']],
@@ -745,6 +751,16 @@ DISPLAY / FILTERING (query-time, does not affect index build):
   --exclude-tests            Exclude test files from callers/metrics results
   --no-tests                 AI/ML cells: drop records tagged test/example code
                              (tests, examples, benchmarks, demos dirs; test_* etc.)
+  --emit-harness <Class>     Emit a runnable PyTorch forward-hook activation
+                             harness .py for a detected model class (file@Class
+                             to disambiguate). CE never runs it — you do.
+                             Never overwrites: an existing file gets _2/_3.
+                             --harness-template NAME — only activation-hook
+                             exists today (SHAP/LIME/UMAP lanes are #95
+                             follow-ups); --out PATH (default
+                             <Class>_harness.py). "Seam" here = a model
+                             instrumentation point — unrelated to
+                             --bundle-seams (JS bundle boundaries).
   --dedup <mode>             Dedup mode: none, exact, structural
 
 MODE:
