@@ -225,6 +225,49 @@ function moduleHint(filepath) {
   return segs.slice(Math.max(0, segs.length - 4)).join('.');
 }
 
+// A derived module path is only usable as a live `import` if every dot-segment
+// is a valid Python identifier (zip stems like `d2l-en-master` are not). When
+// valid, emit a live (best-effort, maybe prefix-short) import; when not, emit a
+// FIXME comment so the harness still PY-COMPILES (it NameErrors at runtime,
+// which the user fixes by writing the real import).
+function importLine(modPath, name) {
+  const ok = modPath && modPath.split('.').every(s => /^[A-Za-z_]\w*$/.test(s));
+  return ok
+    ? `    from ${modPath} import ${name}`
+    : `    # FIXME: write the import for ${name} (auto-derived path "${modPath}" is not a valid module)`;
+}
+
+// Recover the top-level package name from the corpus's OWN absolute
+// self-imports — `from <TOP>.<rest> import` where <rest> (as a path) matches an
+// indexed file. The dominant <TOP> is the package. This is principled and
+// dogfood-able: independent of the (arbitrary) index label and of the build
+// root. Crucially it recovers the IMPORT name, not the label — e.g. the
+// `.scikit-learn` index yields `sklearn`, not the hyphenated label. Returns
+// null when no package dominates (relative-import-only code) → FIXME fallback.
+function derivePackageName(index) {
+  const stems = new Set([...index.fileLines.keys()].map(p => p.replace(/\\/g, '/').replace(/\.py$/, '')));
+  const counts = new Map();
+  const re = /^\s*(?:from|import)\s+([A-Za-z_]\w*)\.([\w.]+)/;
+  for (const [, lines] of index.fileLines) {
+    for (const ln of lines) {
+      const m = re.exec(ln);
+      if (!m) continue;
+      const rest = m[2].replace(/\./g, '/');
+      if (stems.has(rest)) counts.set(m[1], (counts.get(m[1]) || 0) + 1);
+    }
+  }
+  let best = null, bestN = 0;
+  for (const [k, n] of counts) if (n > bestN) { best = k; bestN = n; }
+  return bestN >= 3 ? best : null;   // threshold drops 1-off cross-package noise
+}
+
+// Prepend the derived package when it's valid and not already present; a wrong
+// or absent guess just becomes a FIXME via importLine's validity check.
+function withPkg(modPath, pkg) {
+  if (!pkg || !/^[A-Za-z_]\w*$/.test(pkg)) return modPath;
+  return modPath.split('.')[0] === pkg ? modPath : `${pkg}.${modPath}`;
+}
+
 // ---------------------------------------------------------------------------
 // Template rendering.
 // ---------------------------------------------------------------------------
@@ -271,7 +314,7 @@ function readingGuide(namespaceRows, className) {
   return lines.join('\n');
 }
 
-function renderHarness({ className, filepath, startLine, namespaceRows, indexPath }) {
+function renderHarness({ className, filepath, startLine, namespaceRows, indexPath, loaderBody }) {
   const nsLines = namespaceRows.map(r => {
     const comment = [r.label, r.role].filter(Boolean).join(' -- ');
     return `    ${JSON.stringify(r.path) + ','}${comment ? `  # ${comment}` : ''}`;
@@ -437,9 +480,7 @@ def load_model():
       - config-only/tiny:  build a small config and instantiate ${className}(cfg)
         with random weights — structure/namespace validation without downloads.
     """
-    raise NotImplementedError(
-        "Supply a ${className} instance and a sample input here, then rerun."
-    )
+${'$'}{LOADER_BODY}
 
 
 def main():
@@ -447,20 +488,293 @@ def main():
     model, fwd_args, fwd_kwargs = load_model()
     model = model.eval()
     records, runtime_names = instrument(model)
-    with torch.no_grad():
-        model(*fwd_args, **fwd_kwargs)
+    # The forward pass can fail on a wrong synthetic INPUT SHAPE (a # FIXME),
+    # but the static-vs-runtime cross-check below does NOT need it -- module
+    # registration (named_modules) happened at instrument() time, before this.
+    # So a shape error still leaves the STRUCTURE validation intact.
+    forward_ok = True
+    try:
+        with torch.no_grad():
+            model(*fwd_args, **fwd_kwargs)
+    except Exception as e:
+        forward_ok = False
+        print(f"\\n[forward did not complete: {type(e).__name__}: {e}]")
+        print("  Activation capture is partial. If you used --synthetic-loader this is")
+        print("  almost certainly the input SHAPE (a # FIXME in load_model). The static-")
+        print("  vs-runtime cross-check below is STILL VALID (it uses module registration,")
+        print("  which happens before the forward pass).")
     report(records)
     cross_check(runtime_names)
-    dynamic_coverage(records, runtime_names)
+    if forward_ok:
+        dynamic_coverage(records, runtime_names)
 
 
 if __name__ == "__main__":
     main()
 `.replace('${MODULE_HINT}', moduleHint(filepath))
-   .replace('${READING_GUIDE}', readingGuide(namespaceRows, className));
+   .replace('${READING_GUIDE}', readingGuide(namespaceRows, className))
+   .replace('${LOADER_BODY}', loaderBody || `    raise NotImplementedError(\n        "Supply a ${className} instance and a sample input here, then rerun."\n    )`);
 }
 
 // (renderHarness output passes through toAscii at the write site.)
+
+// ---------------------------------------------------------------------------
+// Synthetic loader (#157) — opt-in mechanical load_model() body. Best-effort:
+// removes the config/instantiation burden; input shapes are a guess / # FIXME.
+// Reframed as a STRUCTURE VALIDATOR (values are noise) in a loud banner.
+// ---------------------------------------------------------------------------
+
+// Size-like __init__/config params get shrunk so the model is tiny on CPU.
+const SIZE_PARAM = /(?:_size$|_dim$|^dim|hidden|embed|ffn|intermediate|channels?|vocab|^d_)/i;
+const COUNT_PARAM = /(?:depth|num_layers?|n_layers?|layers?|num_heads?|n_heads?|heads?|num_.*experts?|n_.*experts?|experts?|blocks?|n_group)/i;
+// Forward args that are NOT the main tensor input — skip when synthesizing randn.
+const NON_INPUT_ARG = /^(?:self|config|cfg|mask|attention_mask|.*_mask|past.*|cache.*|use_cache|position_ids|.*_ids|labels?|return_dict|output_.*|kwargs|inputs_embeds)$/i;
+
+// Scan a class body [start,end] for `def <name>(` and return the joined
+// parameter string + the line index just after the signature's closing `):`.
+function methodSig(lines, start, end, name) {
+  const open = new RegExp(`^\\s*def\\s+${name}\\s*\\(`);
+  for (let i = start - 1; i < Math.min(end, lines.length); i++) {
+    if (!open.test(lines[i] || '')) continue;
+    let buf = '', depth = 0, started = false, endIdx = i;
+    for (let j = i; j < Math.min(end, lines.length); j++) {
+      // Strip trailing line comments — multiline signatures often carry inline
+      // `# ...` notes that would otherwise parse as bogus params.
+      const ln = (lines[j] || '').replace(/#.*$/, '');
+      for (const ch of ln) {
+        if (ch === '(') { depth++; started = true; }
+        else if (ch === ')') depth--;
+      }
+      buf += (buf ? ' ' : '') + ln.trim();
+      if (started && depth <= 0) { endIdx = j; break; }
+    }
+    const m = /\(([\s\S]*)\)/.exec(buf);
+    return { params: m ? m[1] : '', sigEndIdx: endIdx };
+  }
+  return null;
+}
+
+// Split a parameter string into [{name, type, default}], paren/bracket-aware.
+function parseParams(raw) {
+  const parts = [];
+  let depth = 0, cur = '';
+  for (const ch of raw) {
+    if ('([{'.includes(ch)) depth++;
+    else if (')]}'.includes(ch)) depth--;
+    if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  if (cur.trim()) parts.push(cur);
+  return parts.map(p => p.trim()).filter(p => p && p !== 'self' && !p.startsWith('*')).map(p => {
+    let name = p, type = null, def = null;
+    const eq = p.indexOf('=');
+    if (eq >= 0) { def = p.slice(eq + 1).trim(); name = p.slice(0, eq); }
+    const colon = name.indexOf(':');
+    if (colon >= 0) { type = name.slice(colon + 1).trim(); name = name.slice(0, colon); }
+    return { name: name.trim(), type, default: def };
+  }).filter(p => /^[A-Za-z_]\w*$/.test(p.name));   // drop any non-identifier noise
+}
+
+// Shrunk value for a size/count param, else null (keep its default).
+function shrink(name) {
+  if (COUNT_PARAM.test(name)) return name.match(/experts?/i) ? 8 : 2;
+  if (SIZE_PARAM.test(name)) return 16;
+  return null;
+}
+
+// Find a Config class for a config-based model by stripping role suffixes off
+// the class name and trying `<stem>Config`. Unreliable for nested HF configs
+// (disclosed) — null falls back to the stub.
+function findConfigClass(classMap, className) {
+  let stem = className;
+  const strip = /(?:PreTrainedModel|Model|ForCausalLM|ForConditionalGeneration|ForSequenceClassification|ForMaskedLM|MoE|Block|Layer|Attention|Encoder|Decoder|Transformer|Head|Embeddings?)$/;
+  const tries = [];
+  for (let i = 0; i < 6 && stem; i++) {
+    tries.push(stem + 'Config');
+    const next = stem.replace(strip, '');
+    if (next === stem) break;
+    stem = next;
+  }
+  for (const cand of tries) if (classMap.has(cand)) return cand;
+  return null;
+}
+
+// Build the python load_model() body. Returns { body, notes }.
+function buildSyntheticLoader(index, classMap, model, className, info, pkg) {
+  const lines = index.fileLines.get(model.filepath) || [];
+  const initSig = methodSig(lines, info.start, info.end, '__init__');
+  const fwdSig = methodSig(lines, info.start, info.end, 'forward');
+  if (!fwdSig) return null;  // no forward -> can't drive it; keep stub
+  const initParams = initSig ? parseParams(initSig.params) : [];
+  const fwdParams = parseParams(fwdSig.params);
+  const notes = [];
+  let hiddenVal = null;   // shrunk hidden size, for a 3D input-shape guess
+  // Real (best-effort) imports — the index path may omit the top-level package
+  // (e.g. a transformers index rooted at src/transformers/ yields
+  // `models.deepseek_v3...`, dropping `transformers.`). FIXME-marked so the
+  // user prepends the package if the import fails.
+  const imports = [importLine(withPkg(moduleHint(model.filepath), pkg), className)];
+  // transformers quirk: `modular_*` files are build-time source, not
+  // runtime-importable; the shipped module is `modeling_*`.
+  if (/(?:^|[\\/])modular_[^\\/]*$/.test(model.filepath)) {
+    imports.push(`    # NOTE: source is a 'modular_*' file (build-time only); import from the 'modeling_*' module instead.`);
+  }
+
+  // --- instantiation ---
+  // A param is FILLABLE if it's size-like (shrink), has a default (omit), or is
+  // a config (built below). A required param that's none of these means we
+  // can't honestly synthesize -> stub-fallback (never emit broken syntax).
+  const cfgParam = initParams.find(p => /^(config|cfg|configuration)$/i.test(p.name));
+  // Numeric default of a param, else null.
+  const numDefault = (p) => (p.default != null && /^-?\d+(?:\.\d+)?$/.test(p.default.trim())) ? Number(p.default) : null;
+  // Shrink an __init__ EXTRA arg to a kwarg, or null to omit (defaults), or
+  // false when it's a required arg we can't fill. NEVER increase a param past
+  // its default — shrinking is for big dims (hidden_size 4096->16), not for
+  // small structural ones (kernel_size 3 must stay 3, not jump to 16).
+  const extraKw = (p) => {
+    const s = shrink(p.name), d = numDefault(p);
+    if (s != null && (d == null || d > s)) return `${p.name}=${s}`;
+    if (p.default != null) return null;     // has a default -> omit (keep it)
+    return false;                            // required, unfillable
+  };
+  let instantiate;
+  if (cfgParam) {
+    const cfgClass = findConfigClass(classMap, className);
+    if (!cfgClass) return { stubFallback: `config-based __init__ but no <stem>Config class found in this index` };
+    // Extra args beyond config (e.g. layer_idx) — bail if any is required+unfillable.
+    const extras = [];
+    for (const p of initParams) {
+      if (p === cfgParam) continue;
+      const kw = extraKw(p);
+      if (kw === false) return { stubFallback: `__init__ requires '${p.name}' (no default, not size-like) alongside config` };
+      if (kw) extras.push(kw);
+    }
+    const cfgInfo = classMap.get(cfgClass)[0];
+    imports.push(importLine(withPkg(moduleHint(cfgInfo.filepath), pkg), cfgClass));
+    const cfgLines = index.fileLines.get(cfgInfo.filepath) || [];
+    const cfgInit = methodSig(cfgLines, cfgInfo.start, cfgInfo.end, '__init__');
+    const cfgParams = cfgInit ? parseParams(cfgInit.params) : [];
+    // Only shrink params whose DEFAULT is numeric (or absent) — name-matching
+    // alone wrongly shrinks string/bool params (hidden_act="silu").
+    // Shrink only numeric-default params, and only when it REDUCES (never bump
+    // kernel_size 3 -> 16; only shrink big dims like hidden_size 4096 -> 16).
+    const isNumericDefault = (d) => d == null || /^-?\d+(?:\.\d+)?$/.test(d.trim());
+    const numOf = (d) => (d != null && /^-?\d+(?:\.\d+)?$/.test(d.trim())) ? Number(d) : null;
+    const overrides = cfgParams.map(p => [p.name, shrink(p.name), p.default])
+      .filter(([, v, d]) => v != null && isNumericDefault(d) && (numOf(d) == null || numOf(d) > v));
+    const kw = overrides.map(([n, v]) => `${n}=${v}`).join(', ');
+    const hid = overrides.find(([n]) => /^(?:hidden_size|hidden|d_model|embed_dim)$/i.test(n));
+    if (hid) hiddenVal = hid[1];
+    const ctorArgs = [`${cfgParam.name}=cfg`, ...extras].join(', ');
+    instantiate = [
+      `    # Config '${cfgClass}' found by name convention; numeric size params shrunk`,
+      `    # (heuristic). FIXME: shrunk dims may violate inter-param constraints`,
+      `    # (e.g. hidden_size == num_heads * head_dim); adjust if construction fails.`,
+      `    cfg = ${cfgClass}(${kw})`,
+      `    model = ${className}(${ctorArgs})`,
+    ].join('\n');
+    notes.push(`config=${cfgClass}`);
+  } else {
+    // Direct-arg __init__: shrink size args, omit defaulted ones. A required
+    // non-size arg means we can't synthesize -> stub-fallback.
+    const kws = [];
+    for (const p of initParams) {
+      const kw = extraKw(p);
+      if (kw === false) return { stubFallback: `__init__ requires '${p.name}' (no default, not size-like)` };
+      if (kw) kws.push(kw);
+    }
+    instantiate = `    model = ${className}(${kws.join(', ')})`;
+    notes.push('direct-arg init');
+  }
+
+  // --- forward inputs ---
+  // Parse docstring shapes: `name (... of shape (d1, d2))`.
+  const docShapes = {};
+  for (let j = fwdSig.sigEndIdx + 1; j < Math.min(info.end, lines.length); j++) {
+    const sm = /(\w+)\s*\(`?[^)]*shape[`\s]*\(?([^)]+)\)/i.exec(lines[j] || '');
+    if (sm) docShapes[sm[1]] = sm[2].replace(/`/g, '').trim();
+    if (/^\s*(def |return |[a-z_]+\s*=)/.test(lines[j] || '') && j > fwdSig.sigEndIdx + 1) break;
+  }
+  const inputs = fwdParams.filter(p => !NON_INPUT_ARG.test(p.name)
+    && (!p.type || /tensor/i.test(p.type)));
+  if (!inputs.length) return { stubFallback: `forward has no synthesizable tensor input` };
+  // Guess shape: numeric docstring dims if available, else a 3D
+  // (batch, seq, hidden) shape (the common transformer input) using the shrunk
+  // hidden size when known, else a generic 2D — always FIXME-marked. Seq is 16
+  // (not 4) so conv/pooling stacks don't underflow their kernel/padding.
+  const guess = hiddenVal != null ? `1, 16, ${hiddenVal}` : '2, 16';
+  const argLines = [];
+  for (const p of inputs) {
+    const shape = docShapes[p.name];
+    const numeric = shape && /^[\d,\s]+$/.test(shape);
+    if (numeric) argLines.push(`    ${p.name} = torch.randn(${shape.replace(/\s+/g, '')})`);
+    else if (shape) argLines.push(`    ${p.name} = torch.randn(${guess})   # FIXME: real shape "(${shape})" -- symbolic, set concrete dims`);
+    else argLines.push(`    ${p.name} = torch.randn(${guess})   # FIXME: shape is a guess -- set real dims`);
+  }
+  const kwargsDict = inputs.map(p => `"${p.name}": ${p.name}`).join(', ');
+
+  const body = [
+    '    # SYNTHETIC (--synthetic-loader): random weights + shape-inferred input.',
+    '    # Validates STRUCTURE (namespace, shapes, cross-check) ONLY -- activation',
+    '    # VALUES are meaningless noise. For real behavior, supply real weights +',
+    '    # an apt input. Best-effort: the import path below uses the package name',
+    "    # derived from the corpus's own imports -- if ModuleNotFoundError,",
+    '    # `pip install` the package and/or fix the path. Also fix any # FIXME shape.',
+    ...imports,
+    instantiate,
+    '    model = model.eval()',
+    ...argLines,
+    `    return model, (), {${kwargsDict}}`,
+  ].join('\n');
+  return { body, notes };
+}
+
+// Locate a model class's body range (function index entry) — shared by emit
+// and the harnessability sweep.
+function classInfoFor(index, model) {
+  const fileFuncs = index.functionIndex[model.filepath] || {};
+  const entry = Object.entries(fileFuncs).find(([n, i]) => i && i.type === 'class'
+    && (n === model.name || n.split('::').pop() === model.name));
+  return entry ? entry[1] : null;
+}
+
+// ---------------------------------------------------------------------------
+// --list-harnessable: CE-native sweep — for each model, would --emit-harness
+// (and its --synthetic-loader) succeed? Dogfoods the "which models can I test"
+// question instead of a throwaway script. Pure analysis, writes nothing.
+// ---------------------------------------------------------------------------
+export function doListHarnessable(index, args) {
+  index._ensureFunctionIndex();
+  const pkg = derivePackageName(index);
+  const classMap = buildClassMap(index);
+  const models = index.listModels(args.filter).filter(m => m.framework === 'PyTorch'
+    && !/(?:^|[\\/])modular_[^\\/]*$/.test(m.filepath));   // modular_* aren't importable
+  const ready = [], manual = [], skip = {};
+  for (const m of models) {
+    const info = classInfoFor(index, m);
+    if (!info) continue;
+    const visited = new Set([`${m.filepath}|${m.name}`]);
+    const rows = buildNamespace(index, classMap, m.filepath, info.start, info.end, '', visited, 0);
+    if (!rows.some(r => !/non-hookable/.test(r.label || ''))) { skip['no instrumentable submodules'] = (skip['no instrumentable submodules'] || 0) + 1; continue; }
+    const syn = buildSyntheticLoader(index, classMap, m, m.name, info, pkg);
+    if (syn && syn.body) ready.push(m);
+    else { manual.push(m); const r = (syn && syn.stubFallback) || 'no forward'; skip[`needs manual loader: ${r}`] = (skip[`needs manual loader: ${r}`] || 0) + 1; }
+  }
+  const pkgNote = pkg ? `package '${pkg}' (from corpus self-imports)` : 'package NOT derivable (relative-import code) — imports will be FIXME';
+  console.log(`\n${models.length} PyTorch model classes; ${pkg ? pkgNote : pkgNote}.`);
+  console.log(`  ${ready.length} synthetic-ready (--synthetic-loader auto-fills load_model)`);
+  console.log(`  ${manual.length} instrumentable but need a hand-written loader`);
+  const max = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : 25;
+  console.log(`\nSynthetic-ready (file@Class)${ready.length > max ? `, first ${max}` : ''}:`);
+  for (const m of ready.slice(0, max)) console.log(`  ${m.filepath.replace(/\\/g, '/')}@${m.name}`);
+  const reasons = Object.entries(skip).sort((a, b) => b[1] - a[1]);
+  if (reasons.length) {
+    console.log(`\nWhy the rest aren't synthetic-ready:`);
+    for (const [r, n] of reasons.slice(0, 8)) console.log(`  ${String(n).padStart(5)}  ${r}`);
+  }
+  console.log(`\n  (Run: --emit-harness <file@Class> --synthetic-loader. Synthetic = random`);
+  console.log(`   weights, STRUCTURE validation only; review the import + any # FIXME.)`);
+}
 
 // ---------------------------------------------------------------------------
 // Command.
@@ -513,17 +827,29 @@ export function doEmitHarness(index, args) {
   if (model.framework !== 'PyTorch') {
     eprint(`Note: '${className}' detected as ${model.framework}; the activation-hook template targets PyTorch nn.Module trees. Emitting anyway — review carefully.`);
   }
+  // `modular_*` files are build-time source: importing them is fragile and
+  // spews transformers' own auto_docstring warnings. If the same class lives in
+  // the `modeling_*` twin (the shipped, importable module), steer there.
+  const fp = model.filepath.replace(/\\/g, '/');
+  if (/(?:^|\/)modular_[^/]*\.py$/.test(fp)) {
+    const twin = fp.replace(/(^|\/)modular_/, '$1modeling_');
+    const hasTwin = index.listModels().some(m => m.name === className
+      && m.filepath.replace(/\\/g, '/') === twin);
+    if (hasTwin) {
+      eprint(`WARNING: '${fp}' is a 'modular_*' file (build-time source — fragile to import,`);
+      eprint(`         emits transformers' own auto_docstring warnings at runtime). The same`);
+      eprint(`         class exists in the importable 'modeling_*' module. Re-run with:`);
+      eprint(`           --emit-harness ${twin}@${className} --synthetic-loader`);
+    }
+  }
 
   // Class range from the function index.
   index._ensureFunctionIndex();
-  const fileFuncs = index.functionIndex[model.filepath] || {};
-  const entry = Object.entries(fileFuncs).find(([n, i]) => i && i.type === 'class'
-    && (n === className || n.split('::').pop() === className));
-  if (!entry) {
+  const info = classInfoFor(index, model);
+  if (!info) {
     console.log(`Could not locate the class body for '${className}' in ${model.filepath}.`);
     return;
   }
-  const [, info] = entry;
 
   const classMap = buildClassMap(index);
   const visited = new Set([`${model.filepath}|${className}`]);
@@ -533,12 +859,26 @@ export function doEmitHarness(index, args) {
     return;
   }
 
+  // #157: opt-in synthetic load_model() body. Best-effort; honest fallback to
+  // the stub (with a note) when instantiation/inputs can't be synthesized.
+  let loaderBody = null;
+  if (args.synthetic_loader) {
+    const syn = buildSyntheticLoader(index, classMap, model, className, info, derivePackageName(index));
+    if (syn && syn.body) {
+      loaderBody = syn.body;
+    } else {
+      const why = (syn && syn.stubFallback) || 'forward signature not found';
+      eprint(`Note: --synthetic-loader could not synthesize a loader (${why}); emitting the stub for you to fill.`);
+    }
+  }
+
   const text = toAscii(renderHarness({
     className,
     filepath: model.filepath,
     startLine: info.start,
     namespaceRows,
     indexPath: index.indexPath || args.index_path || '',
+    loaderBody,
   }));
 
   // Never overwrite an existing harness — the user may have filled in
@@ -558,6 +898,11 @@ export function doEmitHarness(index, args) {
   console.log(`\nEmitted ${path.resolve(outPath)}`);
   console.log(`  Target : ${className}  (${model.filepath.replace(/\\/g, '/')}:${info.start})`);
   console.log(`  Paths  : ${namespaceRows.length} static (${taps.length} hookable); ${namespaceRows.filter(r => r.role).length} role-labeled`);
-  console.log(`  Next   : fill in load_model() (model + sample input), review, then run it yourself.`);
+  if (loaderBody) {
+    console.log(`  Loader : --synthetic-loader filled load_model() (random weights, structure-only).`);
+    console.log(`           Review/fix any # FIXME shape, then run it yourself. Values are noise.`);
+  } else {
+    console.log(`  Next   : fill in load_model() (model + sample input), review, then run it yourself.`);
+  }
   console.log(`           CodeExam does not execute harnesses.`);
 }

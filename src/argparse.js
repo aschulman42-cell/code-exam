@@ -123,6 +123,8 @@ export function parseArgs() {
     emit_harness: null,
     harness_template: null,
     harness_out: null,
+    synthetic_loader: false,
+    list_harnessable: false,
     include_path: null,
     exclude_path: null,
     dedup: 'exact',
@@ -335,6 +337,8 @@ export function parseArgs() {
     ['emit_harness',         'value',          ['--emit-harness']],
     ['harness_template',     'value',          ['--harness-template']],
     ['harness_out',          'value',          ['--out', '--harness-out']],
+    ['synthetic_loader',     'flag',           ['--synthetic-loader']],
+    ['list_harnessable',     'flag',           ['--list-harnessable']],
     ['call_tree',            'value',          ['--call-tree']],
     ['class_tree',           'optional_value', ['--class-tree']],
     ['call_inventory',       'optional_value', ['--call-inventory']],
@@ -761,6 +765,15 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              <Class>_harness.py). "Seam" here = a model
                              instrumentation point — unrelated to
                              --bundle-seams (JS bundle boundaries).
+  --synthetic-loader         With --emit-harness: opt-in, mechanically fill
+                             load_model() with a shrunk-config + random-weight
+                             loader (STRUCTURE-validation only; activation
+                             values are noise). Best-effort — leaves # FIXME at
+                             shapes it can't resolve; falls back to the stub
+                             when it can't instantiate.
+  --list-harnessable         Sweep the index's PyTorch models and report which
+                             --emit-harness --synthetic-loader can auto-fill
+                             (vs need a hand-written loader). Honors --filter.
   --dedup <mode>             Dedup mode: none, exact, structural
 
 MODE:
