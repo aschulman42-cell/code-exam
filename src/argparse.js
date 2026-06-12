@@ -125,6 +125,7 @@ export function parseArgs() {
     harness_out: null,
     synthetic_loader: false,
     list_harnessable: false,
+    census_imports: false,
     include_path: null,
     exclude_path: null,
     dedup: 'exact',
@@ -339,6 +340,7 @@ export function parseArgs() {
     ['harness_out',          'value',          ['--out', '--harness-out']],
     ['synthetic_loader',     'flag',           ['--synthetic-loader']],
     ['list_harnessable',     'flag',           ['--list-harnessable']],
+    ['census_imports',       'flag',           ['--census-imports']],
     ['call_tree',            'value',          ['--call-tree']],
     ['class_tree',           'optional_value', ['--class-tree']],
     ['call_inventory',       'optional_value', ['--call-inventory']],
@@ -774,6 +776,12 @@ DISPLAY / FILTERING (query-time, does not affect index build):
   --list-harnessable         Sweep the index's PyTorch models and report which
                              --emit-harness --synthetic-loader can auto-fill
                              (vs need a hand-written loader). Honors --filter.
+  --census-imports           Ranked import census: what the code actually
+                             imports (Python today; JS/TS is #154). With
+                             --multi-index <list> it reduces ACROSS indexes —
+                             ranked by how many indexes import each target —
+                             the corpus's de facto API map. Honors --filter;
+                             -v drills per-index counts / example sites.
   --dedup <mode>             Dedup mode: none, exact, structural
 
 MODE:
