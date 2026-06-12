@@ -1,15 +1,19 @@
 /**
- * imports.js — shared per-language import extractor (#156; #154 reuses).
+ * imports.js — shared per-language import extractor (#156; #153/#154 reuse).
  *
- * Catalogs import statements as DATA — `{target, file, line}` rows where
- * `target` is the dotted path as the code states it:
+ * Catalogs import statements as DATA. Each row:
  *
- *   import a.b.c [as x][, d.e]   ->  a.b.c   d.e
- *   from a.b import X, Y as z    ->  a.b.X   a.b.Y    (leaf-qualified)
- *   from a.b import *            ->  a.b.*
- *   from . import x / from .r import y  ->  SKIPPED — relative imports are
- *     intra-package wiring, not external API usage; the census ranks the
- *     de facto external surface.
+ *   { target, file, line, module, name, alias, relative, star }
+ *
+ *   import a.b.c [as x][, d.e]   ->  target a.b.c (module a.b.c, name null)
+ *   from a.b import X, Y as z    ->  target a.b.X (module a.b, name X);
+ *                                    target a.b.Y (name Y, alias z)
+ *   from a.b import *            ->  target a.b.* (star true)
+ *   from . import x / from .r import y  ->  SKIPPED by default — relative
+ *     imports are intra-package wiring, not external API usage; the census
+ *     ranks the de facto external surface. Pass { includeRelative: true }
+ *     to get them (the #153 exports catalog needs exactly these: `__init__`
+ *     re-exports are mostly relative).
  *
  * Python (.py/.pyi) only today; JS/TS extraction is #154's scope. The AI/ML
  * detectors match imports ad hoc per framework family (ai-ml-detectors.js);
@@ -26,6 +30,11 @@ export function isPythonFile(filepath) {
 // Imports never legitimately contain `#` outside a comment.
 const stripComment = (s) => (s || '').replace(/\r+$/, '').replace(/#.*$/, '');
 
+// `Name` or `Name as Alias` (or `*`).
+const reNameAs = /^([A-Za-z_]\w*|\*)(?:\s+as\s+([A-Za-z_]\w*))?$/;
+// Plain-import path: `a.b.c` or `a.b.c as x`.
+const rePathAs = /^([A-Za-z_][\w.]*)(?:\s+as\s+([A-Za-z_]\w*))?$/;
+
 /**
  * Extract import rows from one Python file's lines.
  *
@@ -34,7 +43,7 @@ const stripComment = (s) => (s || '').replace(/\r+$/, '').replace(/#.*$/, '');
  * pathological literal can't run away. Doctest lines (`>>> import x`)
  * don't match the line anchor, so they're excluded for free.
  */
-export function extractPythonImports(lines, filepath) {
+export function extractPythonImports(lines, filepath, opts = {}) {
   const rows = [];
   const MAX_JOIN = 50;
   for (let i = 0; i < lines.length; i++) {
@@ -55,25 +64,34 @@ export function extractPythonImports(lines, filepath) {
     }
 
     let m;
-    if ((m = /^\s*from\s+([A-Za-z_][\w.]*)\s+import\s+(.+)$/.exec(line))) {
-      // Module must be absolute — a leading dot fails the regex, which is
-      // exactly the relative-import skip.
+    if ((m = /^\s*from\s+(\.+[\w.]*|[A-Za-z_][\w.]*)\s+import\s+(.+)$/.exec(line))) {
       const mod = m[1];
+      const relative = mod.startsWith('.');
+      if (relative && !opts.includeRelative) continue;
+      const join = mod.endsWith('.') ? '' : '.';
       const names = m[2].replace(/[()]/g, '');
-      for (let name of names.split(',')) {
-        name = name.replace(/\s+as\s+\w+\s*$/, '').trim();
-        if (name === '*') {
-          rows.push({ target: `${mod}.*`, file: filepath, line: startLine });
-        } else if (/^[A-Za-z_]\w*$/.test(name)) {
-          rows.push({ target: `${mod}.${name}`, file: filepath, line: startLine });
-        }
+      for (const piece of names.split(',')) {
+        const nm = reNameAs.exec(piece.trim());
+        if (!nm) continue;
+        const [, name, alias] = nm;
+        rows.push({
+          target: `${mod}${join}${name}`,
+          file: filepath, line: startLine,
+          module: mod, name, alias: alias || null,
+          relative, star: name === '*',
+        });
       }
     } else if ((m = /^\s*import\s+(.+)$/.exec(line))) {
-      for (let name of m[1].split(',')) {
-        name = name.replace(/\s+as\s+\w+\s*$/, '').trim();
-        if (/^[A-Za-z_][\w.]*$/.test(name)) {
-          rows.push({ target: name, file: filepath, line: startLine });
-        }
+      for (const piece of m[1].split(',')) {
+        const nm = rePathAs.exec(piece.trim());
+        if (!nm) continue;
+        const [, path, alias] = nm;
+        rows.push({
+          target: path,
+          file: filepath, line: startLine,
+          module: path, name: null, alias: alias || null,
+          relative: false, star: false,
+        });
       }
     }
   }

@@ -126,6 +126,7 @@ export function parseArgs() {
     synthetic_loader: false,
     list_harnessable: false,
     census_imports: false,
+    exports: null,
     include_path: null,
     exclude_path: null,
     dedup: 'exact',
@@ -341,6 +342,7 @@ export function parseArgs() {
     ['synthetic_loader',     'flag',           ['--synthetic-loader']],
     ['list_harnessable',     'flag',           ['--list-harnessable']],
     ['census_imports',       'flag',           ['--census-imports']],
+    ['exports',              'optional_value', ['--exports']],
     ['call_tree',            'value',          ['--call-tree']],
     ['class_tree',           'optional_value', ['--class-tree']],
     ['call_inventory',       'optional_value', ['--call-inventory']],
@@ -782,6 +784,15 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              ranked by how many indexes import each target —
                              the corpus's de facto API map. Honors --filter;
                              -v drills per-index counts / example sites.
+  --exports [pkg]            Declared-exports catalog (Python today): what
+                             each package SAYS its public API is, tier-marked
+                             (A __all__/@*_export, B __init__ re-exports,
+                             C heuristic floor) and resolved to definition
+                             sites. Bare --exports = per-package summary;
+                             --exports <pkg> lists that package's names
+                             (segment-matched: 'decomposition' does not pull
+                             in 'cross_decomposition'). Honors --filter; -v
+                             adds idiom + declaration sites.
   --dedup <mode>             Dedup mode: none, exact, structural
 
 MODE:
