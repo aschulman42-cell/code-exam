@@ -672,7 +672,10 @@ USAGE:
   node src/index.js [options]
 
 INDEX MANAGEMENT:
-  --build-index <path>       Build index from directory, file, glob, or @filelist
+  --build-index <path>       Build index from directory, file, glob, @filelist,
+                             archive (.zip/.tar/.gz), or .har network capture
+                             (DevTools "Save all as HAR" — indexes the JS/CSS/
+                             HTML the page actually loaded; no network access)
   --split-bundle             With --build-index: detect esbuild-style bundle
                              seams in large JS files (>=10K lines) and split
                              each detected bundled file into N virtual files

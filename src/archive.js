@@ -18,6 +18,7 @@ import zlib from 'zlib';
 import fs from 'fs';
 import path from 'path';
 import { processBinary } from './binstrings.js';
+import { DEFAULT_EXTENSIONS } from './utils.js';
 
 // ========================================================================
 // Constants
@@ -35,6 +36,7 @@ export const SUPPORTED_ARCHIVE_EXTENSIONS = new Set([
   '.tar',                                    // TAR format
   '.gz', '.tgz',                            // GZIP (may wrap tar or single file)
   '.tar.gz',                                // explicit compound ext
+  '.har',                                    // DevTools network capture (#161)
 ]);
 
 /** Extensions that are ZIP format internally */
@@ -434,6 +436,8 @@ export function expandArchive(source, opts = {}) {
     _expandGzip(buf, archiveName, depth, extensions, showProgress, demanglerPath, stats, results);
   } else if (nameForType.endsWith('.tar')) {
     _expandTar(buf, archiveName, depth, extensions, showProgress, demanglerPath, stats, results);
+  } else if (nameForType.endsWith('.har')) {
+    _expandHar(buf, archiveName, depth, extensions, showProgress, stats, results);
   } else if (_isZipBySignature(buf)) {
     // Fallback: check magic bytes even if name doesn't match
     _expandZip(buf, archiveName, depth, extensions, showProgress, demanglerPath, stats, results);
@@ -573,6 +577,177 @@ function _expandTar(buf, archiveName, depth, extensions, showProgress, demangler
     const text = entry.content.toString('utf-8');
     results.push({ virtualPath, content: text });
     stats.files++;
+  }
+}
+
+
+// ========================================================================
+// HAR expansion (#161) — DevTools network capture as an archive type
+// ========================================================================
+//
+// A .har is structured JSON: log.entries[].response.content carries the
+// bodies the browser actually loaded (auth'd pages, lazy chunks included).
+// CE makes zero network requests — the air-gap-clean half of TODO #334.
+// Text responses only in v1; binary carving is #74/#129 territory.
+
+/**
+ * Infer an extension from a mimeType, for URL paths with no extension.
+ * Substring-based, mirroring _harIsTextMime: real captures carry vendor
+ * variants ('application/json+protobuf', ...) that an exact map misses —
+ * Google Drive alone had 76 such responses filtered before this was fuzzy.
+ */
+function _harMimeExt(mime) {
+  if (/javascript|ecmascript/.test(mime)) return '.js';
+  if (mime.includes('json')) return '.json';
+  if (mime.includes('css')) return '.css';
+  if (mime.includes('html')) return '.html';
+  if (mime.includes('svg')) return '.svg';
+  if (mime.includes('xml')) return '.xml';
+  if (mime.startsWith('text/')) return '.txt';
+  return '';
+}
+
+/** Extensions treated as text when the response carries no usable mimeType. */
+const _HAR_TEXT_EXTS = new Set([
+  '.js', '.mjs', '.cjs', '.json', '.css', '.html', '.htm', '.xml', '.svg',
+  '.txt', '.map', '.ts', '.jsx', '.tsx',
+]);
+
+function _harIsTextMime(mime) {
+  return /javascript|ecmascript|json|xml|html|css|svg/.test(mime) ||
+         mime.startsWith('text/');
+}
+
+/** Web-asset extensions a network capture exists to carry. */
+const _HAR_WEB_EXTS = new Set(['.html', '.htm', '.css', '.svg']);
+
+function _setEquals(a, b) {
+  if (a.size !== b.size) return false;
+  for (const x of a) if (!b.has(x)) return false;
+  return true;
+}
+
+/**
+ * The effective extension filter for HAR entries. CE's DEFAULT_EXTENSIONS
+ * deliberately omits .html/.css/.svg (noise in most source trees), but a
+ * network capture's HTML/CSS IS the page — so the default set is augmented
+ * with web-asset extensions. An EXPLICIT --extensions choice (any set that
+ * isn't the stock default) is respected exactly.
+ */
+function _harEffectiveExtensions(extensions) {
+  if (extensions && !_setEquals(extensions, DEFAULT_EXTENSIONS)) return extensions;
+  const union = new Set(extensions || _SOURCE_LIKE_EXTENSIONS);
+  for (const e of _HAR_WEB_EXTS) union.add(e);
+  return union;
+}
+
+/**
+ * URL -> entry name: host + pathname, query stripped. `:` (port) becomes `_`
+ * so virtual paths stay unambiguous next to CE's file:line rendering. A
+ * pathname with no extension gets one inferred from the mimeType so the
+ * indexable-entry filter can see it; a bare `/` becomes index.html.
+ * Returns null for non-http(s) schemes (data:, blob:, ws:, chrome:).
+ */
+function _harEntryName(url, mime) {
+  let u;
+  try { u = new URL(url); } catch { return null; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+  let pathname = u.pathname || '/';
+  try { pathname = decodeURIComponent(pathname); } catch { /* keep raw */ }
+  if (pathname.endsWith('/')) pathname += 'index.html';
+  let name = (u.host + pathname).replace(/:/g, '_');
+  // Conservative sanitize: keep path structure, normalize oddball chars.
+  name = name.replace(/[^\w.\-/@~+]/g, '_');
+  const base = name.slice(name.lastIndexOf('/') + 1);
+  if (!/\.[A-Za-z0-9]{1,8}$/.test(base)) {
+    name += _harMimeExt(mime);
+  }
+  return name;
+}
+
+function _expandHar(buf, archiveName, depth, extensions, showProgress, stats, results) {
+  let har;
+  try {
+    har = JSON.parse(buf.toString('utf-8'));
+  } catch (e) {
+    process.stderr.write(`  WARNING: ${archiveName}: not valid HAR JSON (${e.message})\n`);
+    stats.errors++;
+    return;
+  }
+  const entries = har && har.log && Array.isArray(har.log.entries) ? har.log.entries : null;
+  if (!entries) {
+    process.stderr.write(`  WARNING: ${archiveName}: no log.entries — not a HAR capture\n`);
+    stats.errors++;
+    return;
+  }
+  stats.archives++;
+
+  const indent = '  '.repeat(depth + 1);
+  if (showProgress) {
+    process.stderr.write(`${indent}Expanding HAR: ${archiveName} (${entries.length} entries)\n`);
+  }
+
+  // seen: entry name -> array of contents already emitted under that name
+  // (repeat captures of identical content collapse; differing content gets
+  // a _2/_3 suffix — same never-overwrite convention as --emit-harness).
+  const seen = new Map();
+  const extCounts = new Map();
+  const effExtensions = _harEffectiveExtensions(extensions);
+  let kept = 0, nonText = 0, missingBody = 0, oversize = 0,
+      dupes = 0, filtered = 0, badUrl = 0;
+
+  for (const e of entries) {
+    const url = e && e.request && e.request.url;
+    const content = e && e.response && e.response.content;
+    if (!url) { badUrl++; continue; }
+    const mime = ((content && content.mimeType) || '').toLowerCase().split(';')[0].trim();
+    const probeName = _harEntryName(url, mime);
+    if (!probeName) { badUrl++; continue; }
+    // Text gate: by mimeType, or by URL extension when the mimeType is absent.
+    const probeExt = _getExtension(probeName);
+    if (mime ? !_harIsTextMime(mime) : !_HAR_TEXT_EXTS.has(probeExt)) { nonText++; continue; }
+    if (!content || content.text == null) { missingBody++; continue; }
+
+    let text = content.text;
+    if (content.encoding === 'base64') {
+      try { text = Buffer.from(text, 'base64').toString('utf-8'); }
+      catch { missingBody++; continue; }
+    }
+    if (text.length > MAX_ENTRY_SIZE) { oversize++; continue; }
+
+    if (!_isIndexableEntry(probeName, probeExt, effExtensions)) { filtered++; continue; }
+
+    let name = probeName;
+    const prior = seen.get(probeName);
+    if (prior) {
+      if (prior.includes(text)) { dupes++; continue; }
+      prior.push(text);
+      name = probeName.replace(/(\.[A-Za-z0-9]+)$/, `_${prior.length}$1`);
+      if (name === probeName) name = `${probeName}_${prior.length}`;
+    } else {
+      seen.set(probeName, [text]);
+    }
+
+    results.push({ virtualPath: archiveName + '!' + name, content: text });
+    stats.files++;
+    kept++;
+    extCounts.set(probeExt, (extCounts.get(probeExt) || 0) + 1);
+  }
+
+  stats.skippedBinary += nonText;
+
+  if (showProgress) {
+    const byExt = [...extCounts.entries()].sort((a, b) => b[1] - a[1])
+      .map(([x, n]) => `${n} ${x}`).join(', ');
+    const skips = [];
+    if (nonText) skips.push(`${nonText} non-text`);
+    if (missingBody) skips.push(`${missingBody} missing body`);
+    if (filtered) skips.push(`${filtered} filtered by extension set`);
+    if (dupes) skips.push(`${dupes} duplicate responses`);
+    if (oversize) skips.push(`${oversize} oversize`);
+    if (badUrl) skips.push(`${badUrl} non-http(s)/unparseable URL`);
+    process.stderr.write(`${indent}HAR ${archiveName}: ${kept} indexed` +
+      `${byExt ? ` (${byExt})` : ''}${skips.length ? `; skipped: ${skips.join(', ')}` : ''}\n`);
   }
 }
 

@@ -3362,6 +3362,41 @@ export class CodeSearchIndex {
       return true;
     };
 
+    // Deobfuscate/prettify minified JS/TS so functions are parseable.
+    // Shared by Phase 1 (disk files) and Phase 2 (archive/HAR entries) —
+    // archive entries used to bypass this entirely, which barely showed on
+    // zips of real source but left HAR captures (#161) as walls of minified
+    // one-liners.
+    const prettifySource = async (relPath, content) => {
+      if (!isMinified(relPath, content)) return content;
+      // Step 1: Simple regex deobfuscation (!0→true, !1→false, void 0→undefined)
+      content = deobfuscateSimple(content);
+
+      // Step 2: Try webcrack for small files (deobfuscation + prettification)
+      const deobfuscated = await tryWebcrack(content);
+      if (deobfuscated) {
+        stats.deobfuscated = (stats.deobfuscated || 0) + 1;
+        return deobfuscated;
+      }
+      const jsBeautify = getJsBeautify();
+      if (jsBeautify) {
+        // Step 3: Fall back to js-beautify (formatting only)
+        try {
+          // break_chained_methods=true puts each `.foo()` in a chain on
+          // its own line — critical for Commander.js-style `.option().option()`
+          // chains (cli.js GCz) which otherwise stay as one 10K-char line.
+          const pretty = jsBeautify(content, {
+            indent_size: 2,
+            max_preserve_newlines: 2,
+            break_chained_methods: true,
+          });
+          stats.prettified++;
+          return pretty;
+        } catch { /* beautify failed — use original */ }
+      }
+      return content;
+    };
+
     // --- Phase 1: Index regular source files ---
     for (const filePath of sourceFiles) {
       try {
@@ -3376,35 +3411,7 @@ export class CodeSearchIndex {
         }
         relPath = relPath.replace(/\\/g, '/');
 
-        // Deobfuscate/prettify minified JS/TS so functions are parseable
-        if (isMinified(relPath, content)) {
-          // Step 1: Simple regex deobfuscation (!0→true, !1→false, void 0→undefined)
-          content = deobfuscateSimple(content);
-
-          // Step 2: Try webcrack for small files (deobfuscation + prettification)
-          const deobfuscated = await tryWebcrack(content);
-          if (deobfuscated) {
-            content = deobfuscated;
-            stats.deobfuscated = (stats.deobfuscated || 0) + 1;
-          } else {
-            const jsBeautify = getJsBeautify();
-            if (jsBeautify) {
-              // Step 3: Fall back to js-beautify (formatting only)
-              try {
-                // break_chained_methods=true puts each `.foo()` in a chain on
-                // its own line — critical for Commander.js-style `.option().option()`
-                // chains (cli.js GCz) which otherwise stay as one 10K-char line.
-                content = jsBeautify(content, {
-                  indent_size: 2,
-                  max_preserve_newlines: 2,
-                  break_chained_methods: true,
-                });
-                stats.prettified++;
-              } catch { /* beautify failed — use original */ }
-            }
-          }
-        }
-
+        content = await prettifySource(relPath, content);
 
         _addFileToIndex(relPath, content, rawBytes);
       } catch (e) {
@@ -3436,7 +3443,8 @@ export class CodeSearchIndex {
 
         for (const entry of entries) {
           try {
-            _addFileToIndex(entry.virtualPath, entry.content, null);
+            const content = await prettifySource(entry.virtualPath, entry.content);
+            _addFileToIndex(entry.virtualPath, content, null);
           } catch (e) {
             stats.errors.push(`${entry.virtualPath}: ${e.message}`);
           }

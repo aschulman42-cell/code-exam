@@ -225,6 +225,7 @@ export const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.rst', '.yaml', '.yml'])
 export const ARCHIVE_EXTENSIONS = new Set([
   '.zip', '.jar', '.war', '.ear', '.apk',  // ZIP format
   '.tar', '.gz', '.tgz',                    // TAR / GZIP
+  '.har',                                   // DevTools network capture (#161)
   '.7z', '.rar', '.bz2', '.xz', '.zst',    // Not yet natively supported
 ]);
 
