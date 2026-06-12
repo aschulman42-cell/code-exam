@@ -137,21 +137,44 @@ function classifyAssignment(attr, expr) {
   return null;
 }
 
+// Gather the full assignment expression by balancing brackets from the head
+// line — NOT a fixed line window (#158: a long `nn.ModuleList([... for i in
+// range(...)])` put the `for`/child past the old 6-line window, so the list
+// read as a non-repeated container and its `blocks.{i}` taps were dropped).
+// Reads until ( [ { all close, bounded so a pathological literal can't run
+// away. Strips line comments so inline `#` notes don't skew the balance.
+// Returns { expr, endIdx } — endIdx lets the caller skip consumed lines.
+function balancedExpr(lines, startIdx, tail, hardEnd) {
+  const strip = (s) => (s || '').replace(/#.*$/, '');
+  let depth = 0;
+  const count = (s) => { for (const ch of s) { if (ch === '(' || ch === '[' || ch === '{') depth++; else if (ch === ')' || ch === ']' || ch === '}') depth--; } };
+  let buf = strip(tail);
+  count(buf);
+  let j = startIdx;
+  const limit = Math.min(hardEnd, startIdx + 200);
+  while (depth > 0 && j + 1 < limit) {
+    j++;
+    const s = strip(lines[j]);
+    buf += ' ' + s.trim();
+    count(s);
+  }
+  return { expr: buf.trim(), endIdx: j };
+}
+
 // Extract `self.x = ...` module assignments from a class body, in source
 // order, deduped by attribute (first assignment wins).
 function extractAssignments(lines, start, end) {
   const out = [];
   const seen = new Set();
   const reAssign = /^\s*self\.(\w+)\s*=\s*(.+)$/;
-  for (let i = start - 1; i < Math.min(end, lines.length); i++) {
+  const hardEnd = Math.min(end, lines.length);
+  for (let i = start - 1; i < hardEnd; i++) {
     const m = reAssign.exec(lines[i] || '');
     if (!m) continue;
     const attr = m[1];
+    const { expr, endIdx } = balancedExpr(lines, i, m[2], hardEnd);
+    i = endIdx;                          // skip the consumed continuation lines
     if (seen.has(attr)) continue;
-    // Join a small window so multiline heads (`nn.Sequential(\n nn.Linear...`,
-    // `nn.ModuleList([\n Cls(...) for ...`) still classify with all their
-    // children; bounded so giant literals don't blow up.
-    const expr = [m[2], ...lines.slice(i + 1, i + 7)].join(' ').trim();
     const desc = classifyAssignment(attr, expr);
     if (!desc) continue;
     seen.add(attr);
