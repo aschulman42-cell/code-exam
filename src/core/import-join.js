@@ -270,6 +270,59 @@ export function buildCatalogEntry(index, { language = 'python', indexName = null
   return libs;
 }
 
+// ---------------------------------------------------------------------------
+// Static consumer (#162 issue-162-imports-consumer): classify an import
+// against a SERIALIZED catalog entry — pure lookup, no live B files. This is
+// the subset of classifyOne that works on baked data: tiered-record lookup +
+// ancestor walk + lazy-package caveat. The file-read rescues (module-level
+// __all__, lazy literal/auto-discovery) that LIVE --imports-from applies are
+// NOT baked into the v1 catalog, so a name reachable only through those reads
+// as not-found here, caveated when its package is lazy.
+// ---------------------------------------------------------------------------
+
+/** The catalog package-key for an import module, honoring how the entry was
+ *  built: an inside-package library stores root-relative labels (strip the
+ *  library root segment); a site-packages library stores full dotted labels. */
+export function catalogPkgKey(entry, module) {
+  if (!entry.insidePackage) return module;
+  const segs = module.split('.');
+  return segs.slice(1).join('.');   // drop the root alias; '' => root package
+}
+
+/** Classify `name` imported from `module` against a serialized catalog
+ *  `entry`. Returns { verdict, rec?, lazyOwner? } where rec carries the
+ *  baked {tier, defSite, dottedPath, idiom}. */
+export function classifyAgainstCatalogEntry(entry, module, name) {
+  const pkgs = entry.packages || {};
+  const lookup = (label) => {
+    const key = label === '' ? '(root)' : label;
+    return pkgs[key] && pkgs[key][name];
+  };
+  const baseKey = catalogPkgKey(entry, module);
+
+  // Exact package, then ancestor packages (re-export through a parent).
+  const parts = baseKey ? baseKey.split('.') : [];
+  for (let k = parts.length; k >= 0; k--) {
+    const rec = lookup(parts.slice(0, k).join('.'));
+    if (rec && rec.tier !== 'heuristic') return { verdict: 'resolved', rec };
+  }
+  // Heuristic-tier hit: present but the floor found it, not declared public.
+  for (let k = parts.length; k >= 0; k--) {
+    const rec = lookup(parts.slice(0, k).join('.'));
+    if (rec) return { verdict: 'private', rec };
+  }
+  // Lazy-registry package whose names aren't baked into the v1 catalog.
+  const lazy = entry.lazyPackages || [];
+  if (lazy.length) {
+    const owner = lazy.find(lbl => {
+      const l = lbl === '(root)' ? '' : lbl;
+      return baseKey === l || baseKey.startsWith(l + '.') || l === '';
+    });
+    if (owner) return { verdict: 'notfound', lazyOwner: owner };
+  }
+  return { verdict: 'notfound' };
+}
+
 /**
  * Merge a per-index library map into an accumulating catalog, de-duping by
  * library name: the entry with the most exports wins; the loser's index is

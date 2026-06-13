@@ -159,6 +159,23 @@ async function loadSectionData(sectionId, filter = '') {
         break;
       }
 
+      case 'imports': {   // #162 (2a): the consumes ledger — imports grouped by library
+        data = await api.listImports({ filter, max: 1000 });
+        state.sectionData[sectionId] = data.imports;
+        renderDrilldownList(content, data.imports, {
+          columns: [
+            { get: g => g.library || '(?)', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' },
+            { get: g => `${g.targets} target${g.targets === 1 ? '' : 's'}`, style: 'flex-shrink:0;max-width:110px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted)' },
+          ],
+          countOf: g => g.count,
+          onItemClick: onImportsLibClick,
+          title: g => `${g.library}\n${g.count} import site${g.count === 1 ? '' : 's'}, ${g.targets} distinct target${g.targets === 1 ? '' : 's'}`,
+          footer: data.total > data.imports.length ? `${data.imports.length} of ${data.total} libraries shown` : '',
+        });
+        badge.textContent = data.total;
+        break;
+      }
+
       case 'models':   // #134: deduped by name (framework, name)
         data = await api.listModels({ filter, max: 500 });
         state.sectionData[sectionId] = data.models;
@@ -694,6 +711,22 @@ function onExportsPackageClick(p) {
     header: `${p.package}  ·  ${p.count} export${p.count === 1 ? '' : 's'}  (A:${p.a} B:${p.b} C:${p.c})${noteLine}`,
     sites: p.sites,
     columns: EXPORT_SITE_COLS,
+  });
+}
+
+// #162 (2a): drill into an imported library — its import sites (target +
+// file:line), each clicking through to the import statement.
+function onImportsLibClick(g) {
+  showPane('middle-top');
+  navPush('middle-top');
+  $('#middle-top-title').textContent = `Imports: ${g.library}`;
+  renderDrilldownSites($('#middle-top-body'), {
+    header: `${g.library}  ·  ${g.count} import site${g.count === 1 ? '' : 's'}, ${g.targets} distinct target${g.targets === 1 ? '' : 's'}`,
+    sites: g.sites,
+    columns: SNIPPET_SITE_COLS.length ? [
+      { get: s => s.name || '', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' },
+      { get: s => `${shortPath(s.filepath || '')}:${s.line}`, className: 'filepath', style: 'flex-shrink:0;max-width:300px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left' },
+    ] : FILEPATH_SITE_COLS,
   });
 }
 

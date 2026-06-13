@@ -43,6 +43,7 @@ import { doEmitHarness, doListHarnessable } from './commands/harness.js';
 import { doCensusImports, doCensusImportsMulti } from './commands/census.js';
 import { doExports, doEmitCatalog, doEmitCatalogMulti } from './commands/exports.js';
 import { doImportsFrom } from './commands/imports-from.js';
+import { doImports } from './commands/imports.js';
 import { doSaveFingerprints } from './commands/fingerprint.js';
 import { doInteractive } from './commands/interactive.js';
 import { doMultisect } from './commands/multisect.js';
@@ -427,6 +428,7 @@ if (args._explicit.has('exports')) {
   else doExports(index, args);
 }
 if (args.imports_from)                      doImportsFrom(index, args);
+if (args.imports)                           doImports(index, args);
 // Standalone --comments-only <target> (#61). The modifier form
 // (--extract X --comments-only) is handled in browse.js — both forms
 // coexist; only the standalone form has a string value, the modifier
@@ -694,7 +696,7 @@ if (args.interactive) {
     'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'funcstr_corpus', 'build_fp_renames',
     'save_fingerprints',
     'command_catalog', 'string_table', 'breadcrumbs', 'prompt_catalog', 'file_bookends', 'bundle_seams', 'digest',
-    'comments_only', 'emit_harness', 'list_harnessable', 'census_imports', 'exports', 'imports_from',
+    'comments_only', 'emit_harness', 'list_harnessable', 'census_imports', 'exports', 'imports_from', 'imports',
   ].some(c => args._explicit.has(c) || args[c]);
 
   if (!anyCommand && !args.build_index) {

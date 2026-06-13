@@ -128,6 +128,7 @@ export function parseArgs() {
     census_imports: false,
     exports: null,
     imports_from: null,
+    imports: null,
     emit_catalog: null,
     catalog_replace: false,
     include_path: null,
@@ -348,6 +349,7 @@ export function parseArgs() {
     ['census_imports',       'flag',           ['--census-imports']],
     ['exports',              'optional_value', ['--exports']],
     ['imports_from',         'value',          ['--imports-from']],
+    ['imports',              'value',          ['--imports']],
     ['emit_catalog',         'value',          ['--emit-catalog']],
     ['catalog_replace',      'flag',           ['--catalog-replace']],
     ['call_tree',            'value',          ['--call-tree']],
@@ -820,6 +822,15 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              coupling), not-found-in-B (version skew).
                              Honors --filter; -v adds use sites + the
                              unused-exports reverse view.
+  --imports <catalog.json>   Discovery join (#162): resolve THIS index's
+                             imports against a pre-built multi-library catalog
+                             (--exports --emit-catalog). Each import is
+                             attributed to whichever catalogued library
+                             provides it — no need to name the library. Same
+                             verdicts as --imports-from, plus the providing
+                             library. Resolves named imports AND qualified
+                             attribute access (import shap; shap.Explainer()).
+                             Honors --filter; -v adds use sites.
   --dedup <mode>             Dedup mode: none, exact, structural
 
 MODE:

@@ -23,6 +23,7 @@ import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { groupSites, groupPipelines, reTestExamplePath, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { makeFilterMatcher } from './core/filter-match.js';
 import { extractExports } from './core/exports.js';
+import { extractImports } from './core/imports.js';
 import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
@@ -2122,6 +2123,40 @@ routes['/api/exports'] = (req, res) => {
     total: pkgLabels.length,
     instances,
     exports: exportsOut.slice(0, max),
+  });
+};
+
+// #162 (2a) Imports accordion — the "consumes" ledger beside Exports'
+// "offers". Single-index import census grouped by top-level library; each
+// group's sites are the import sites (target + file:line). Catalog-graded
+// verdicts (resolved / private / not-found per import) are 2b, which needs the
+// catalog's import provenance.
+routes['/api/imports'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const { rows, pyFiles } = extractImports(index);   // external imports only (relative skipped)
+  if (pyFiles === 0) return jsonResponse(res, { total: 0, instances: 0, imports: [], pyFiles: 0 });
+
+  const byLib = new Map();
+  for (const r of rows) {
+    const lib = r.target.split('.')[0] || r.target;
+    let g = byLib.get(lib);
+    if (!g) { g = { library: lib, count: 0, targets: new Set(), sites: [] }; byLib.set(lib, g); }
+    g.count++;
+    g.targets.add(r.target);
+    if (g.sites.length < 200) g.sites.push({ name: r.target, filepath: r.file, line: r.line });
+  }
+  const match = q.filter ? makeFilterMatcher(q.filter) : null;
+  let libs = [...byLib.values()].filter(g => !match || match(g.library));
+  libs.sort((a, b) => b.count - a.count || a.library.localeCompare(b.library));
+  const max = safeMax(q.max, 500);
+  jsonResponse(res, {
+    total: libs.length,
+    instances: rows.length,
+    imports: libs.slice(0, max).map(g => ({
+      library: g.library, count: g.count, targets: g.targets.size, sites: g.sites,
+    })),
   });
 };
 
