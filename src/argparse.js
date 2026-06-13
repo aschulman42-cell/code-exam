@@ -128,6 +128,8 @@ export function parseArgs() {
     census_imports: false,
     exports: null,
     imports_from: null,
+    emit_catalog: null,
+    catalog_replace: false,
     include_path: null,
     exclude_path: null,
     dedup: 'exact',
@@ -346,6 +348,8 @@ export function parseArgs() {
     ['census_imports',       'flag',           ['--census-imports']],
     ['exports',              'optional_value', ['--exports']],
     ['imports_from',         'value',          ['--imports-from']],
+    ['emit_catalog',         'value',          ['--emit-catalog']],
+    ['catalog_replace',      'flag',           ['--catalog-replace']],
     ['call_tree',            'value',          ['--call-tree']],
     ['class_tree',           'optional_value', ['--class-tree']],
     ['call_inventory',       'optional_value', ['--call-inventory']],
@@ -800,6 +804,14 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              (segment-matched: 'decomposition' does not pull
                              in 'cross_decomposition'). Honors --filter; -v
                              adds idiom + declaration sites.
+  --emit-catalog <file>      With --exports (esp. --multi-index): write the
+                             export catalog to a reusable JSON file instead of
+                             the console — library-keyed and de-duped (one
+                             entry per importable library; overlapping indexes
+                             keep the richest copy, others noted in
+                             alsoProvidedBy). Appendable: merges into an
+                             existing file by index identity (--catalog-replace
+                             overwrites). Consumed by --imports (#162).
   --imports-from <index>     Cross-index join (#154): resolve THIS index's
                              imports of a library against that library
                              index's export catalog. Verdicts: resolved

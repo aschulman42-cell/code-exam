@@ -41,7 +41,7 @@ import {
 import { doBuildFpRenames } from './commands/build_fp_renames.js';
 import { doEmitHarness, doListHarnessable } from './commands/harness.js';
 import { doCensusImports, doCensusImportsMulti } from './commands/census.js';
-import { doExports } from './commands/exports.js';
+import { doExports, doEmitCatalog, doEmitCatalogMulti } from './commands/exports.js';
 import { doImportsFrom } from './commands/imports-from.js';
 import { doSaveFingerprints } from './commands/fingerprint.js';
 import { doInteractive } from './commands/interactive.js';
@@ -181,6 +181,13 @@ if (args.multi_index) {
   // inside keeps one bad index from aborting the run.
   if (args.census_imports) {
     const failures = doCensusImportsMulti(indexPaths, args);
+    process.exit(failures ? 1 : 0);
+  }
+
+  // --exports --emit-catalog: reduce all indexes into ONE library-keyed
+  // catalog file (#162). Same in-process divert as the census reduction.
+  if (args._explicit.has('exports') && args.emit_catalog) {
+    const failures = doEmitCatalogMulti(indexPaths, args);
     process.exit(failures ? 1 : 0);
   }
 
@@ -415,7 +422,10 @@ if (args.digest)                            doDigest(index, args);
 if (args.emit_harness)                      doEmitHarness(index, args);
 if (args.list_harnessable)                  doListHarnessable(index, args);
 if (args.census_imports)                    doCensusImports(index, args);
-if (args._explicit.has('exports'))          doExports(index, args);
+if (args._explicit.has('exports')) {
+  if (args.emit_catalog) doEmitCatalog(index, args);   // --emit-catalog diverts to file
+  else doExports(index, args);
+}
 if (args.imports_from)                      doImportsFrom(index, args);
 // Standalone --comments-only <target> (#61). The modifier form
 // (--extract X --comments-only) is handled in browse.js — both forms
