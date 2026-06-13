@@ -137,6 +137,28 @@ async function loadSectionData(sectionId, filter = '') {
         badge.textContent = data.total;
         break;
 
+      case 'exports': {   // #153: declared-exports catalog, grouped by package
+        data = await api.listExports({ filter, max: 1000 });
+        state.sectionData[sectionId] = data.exports;
+        renderDrilldownList(content, data.exports, {
+          columns: [
+            { get: p => p.package || '(root)', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' },
+            // Tier mix per package: A declared / B promoted / C heuristic floor.
+            { get: p => [p.a && `A:${p.a}`, p.b && `B:${p.b}`, p.c && `C:${p.c}`].filter(Boolean).join(' '),
+              style: 'flex-shrink:0;max-width:150px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted)' },
+            // A small marker when the package carries a caveat note (lazy
+            // registry / implicit package / computed __all__).
+            { get: p => (p.notes && p.notes.length ? '⚠' : ''), style: 'flex:0 0 14px;font-size:10px;color:var(--text-muted)' },
+          ],
+          countOf: p => p.count,
+          onItemClick: onExportsPackageClick,
+          title: p => `${p.package || '(root)'}\n${p.count} export${p.count === 1 ? '' : 's'}  (A:${p.a} B:${p.b} C:${p.c})${p.notes && p.notes.length ? '\n' + p.notes.join('\n') : ''}`,
+          footer: data.total > data.exports.length ? `${data.exports.length} of ${data.total} packages shown` : '',
+        });
+        badge.textContent = data.total;
+        break;
+      }
+
       case 'models':   // #134: deduped by name (framework, name)
         data = await api.listModels({ filter, max: 500 });
         state.sectionData[sectionId] = data.models;
@@ -660,6 +682,21 @@ function onKernelGroupClick(g) {
 // #140: drill into a Multimodal/Vision group. Mirrors onKernelGroupClick — a
 // single occurrence jumps straight to source; multiple occurrences open the
 // sites pane where the snippet distinguishes same-marker variants.
+// #153: drill into an Exports package — list its exported symbols, each
+// clickable to the resolved definition. Always opens the pane (unlike the
+// AI/ML ×1 fast-path) since a package's value is seeing its whole surface.
+function onExportsPackageClick(p) {
+  showPane('middle-top');
+  navPush('middle-top');
+  $('#middle-top-title').textContent = `Exports: ${p.package}`;
+  const noteLine = p.notes && p.notes.length ? `  ·  ${p.notes[0]}` : '';
+  renderDrilldownSites($('#middle-top-body'), {
+    header: `${p.package}  ·  ${p.count} export${p.count === 1 ? '' : 's'}  (A:${p.a} B:${p.b} C:${p.c})${noteLine}`,
+    sites: p.sites,
+    columns: EXPORT_SITE_COLS,
+  });
+}
+
 function onMultimodalGroupClick(g) {
   if (g.count === 1 && g.sites && g.sites[0]) { onFileClick(g.sites[0].filepath, g.sites[0].line); return; }
   showPane('middle-top');
@@ -698,6 +735,16 @@ const SNIPPET_SITE_COLS = [
 ];
 const FILEPATH_SITE_COLS = [
   { get: s => shortPath(s.filepath || ''), className: 'filepath clickable', style: 'flex:1;font-family:var(--font-mono);font-size:10px;color:var(--text-bright);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;min-width:0' },
+];
+// #153 Exports: per-export rows inside a package. tier glyph(s) + name +
+// dotted path (where the idiom carries one) + resolved def site. The row
+// click jumps to defSite (#153 decision 5); 'unresolved' names (in __all__
+// but no definition found — a latent bug) show as such.
+const EXPORT_SITE_COLS = [
+  { get: s => s.tiers || s.tier || '', style: 'flex:0 0 34px;font-family:var(--font-mono);font-size:10px;color:var(--accent,#6cf)' },
+  { get: s => s.name || '', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' },
+  { get: s => s.dottedPath || '', style: 'flex-shrink:0;max-width:200px;font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis' },
+  { get: s => s.filepath ? `${shortPath(s.filepath)}:${s.line}` : 'unresolved', className: 'filepath', style: 'flex-shrink:0;max-width:240px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left' },
 ];
 // siteOpts is forwarded to renderDrilldownSites: { columns } (flat) or
 // { subgroupBy } (collapse repeated snippets — Tools/Artifacts/Datasets).

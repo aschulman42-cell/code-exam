@@ -87,6 +87,7 @@ export const api = {
   listModelsUsed:  (p) => api.get('list-models-used', p),
   listPipelines:   (p) => api.get('list-pipelines', p),
   listExplainability: (p) => api.get('list-explainability', p),
+  listExports:     (p) => api.get('exports', p),
   classMethods:    (p) => api.get('class-methods', p),
   filesSearch:     (p) => api.get('files-search', p),
   funcDupes:       (p) => api.get('func-dupes', p),

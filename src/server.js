@@ -22,6 +22,7 @@ import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { groupSites, groupPipelines, reTestExamplePath, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { makeFilterMatcher } from './core/filter-match.js';
+import { extractExports } from './core/exports.js';
 import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
@@ -2039,6 +2040,90 @@ routes['/api/list-multimodal'] = drilldownRoute('listMultimodal', MULTIMODAL_DRI
 routes['/api/list-post-training'] = drilldownRoute('listPostTraining', POSTTRAINING_DRILLDOWN, 'post-training');
 routes['/api/list-reasoning'] = drilldownRoute('listReasoning', REASONING_DRILLDOWN, 'reasoning');
 routes['/api/list-explainability'] = drilldownRoute('listExplainability', EXPLAINABILITY_DRILLDOWN, 'explainability');
+
+// #153 Exports catalog. Not a marker cell — a package -> exports tree, so a
+// custom route rather than drilldownRoute. Each "group" is a package; its
+// `sites` are the package's exported names, each carrying its resolved
+// defSite so a click jumps to the definition (#153 decision 5). Merge mirrors
+// the CLI doExports: declared+promoted of the same (package,name) collapse to
+// one row showing both tiers, keeping the best defSite/dottedPath.
+routes['/api/exports'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const { records, packages, pyFiles } = extractExports(index);
+  if (pyFiles === 0) return jsonResponse(res, { total: 0, instances: 0, exports: [], pyFiles: 0 });
+
+  const match = q.filter ? makeFilterMatcher(q.filter) : null;
+  const TIER_RANK = { declared: 0, promoted: 1, heuristic: 2 };
+  const TIER_GLYPH = { declared: 'A', promoted: 'B', heuristic: 'C' };
+
+  // Merge per (package, name).
+  const merged = new Map();   // `${pkg} ${name}` -> row
+  for (const r of records) {
+    if (match && !match(r.name, r.dottedPath || '', r.package)) continue;
+    const key = `${r.package} ${r.name}`;
+    const prev = merged.get(key);
+    if (!prev) {
+      merged.set(key, { name: r.name, package: r.package, tiers: new Set([r.tier]),
+        dottedPath: r.dottedPath || null, defSite: r.defSite });
+    } else {
+      prev.tiers.add(r.tier);
+      if (!prev.defSite && r.defSite) prev.defSite = r.defSite;
+      if (!prev.dottedPath && r.dottedPath) prev.dottedPath = r.dottedPath;
+    }
+  }
+
+  // Group by package.
+  const byPkg = new Map();
+  for (const m of merged.values()) {
+    if (!byPkg.has(m.package)) byPkg.set(m.package, []);
+    byPkg.get(m.package).push(m);
+  }
+  const pkgMeta = new Map();
+  for (const p of packages.values()) pkgMeta.set(p.dotted || '(root)', p);
+
+  const max = safeMax(q.max, 500);
+  const pkgLabels = [...byPkg.keys()].sort();
+  let instances = 0;
+  const exportsOut = pkgLabels.map(label => {
+    const rows = byPkg.get(label).sort((a, b) => a.name.localeCompare(b.name));
+    instances += rows.length;
+    const a = rows.filter(r => r.tiers.has('declared')).length;
+    const b = rows.filter(r => r.tiers.has('promoted')).length;
+    const c = rows.filter(r => r.tiers.has('heuristic')).length;
+    const meta = pkgMeta.get(label);
+    const notes = (meta && meta.notes) ? [...meta.notes] : [];
+    if (meta && meta.implicit) {
+      notes.unshift('no __init__.py in the index (empty file skipped at build, or a ' +
+        'PEP 420 namespace package) — declared/promoted tiers unavailable; heuristic floor only.');
+    }
+    return {
+      package: label,
+      a, b, c,
+      count: rows.length,
+      notes,
+      // tier topmost for each export (A>B>C) drives the glyph in the sites pane.
+      sites: rows.map(r => {
+        const top = [...r.tiers].sort((x, y) => TIER_RANK[x] - TIER_RANK[y])[0];
+        return {
+          name: r.name,
+          tier: TIER_GLYPH[top] || '?',
+          tiers: [...r.tiers].map(t => TIER_GLYPH[t]).sort().join(''),
+          dottedPath: r.dottedPath || '',
+          filepath: r.defSite ? r.defSite.file : null,
+          line: r.defSite ? r.defSite.line : null,
+        };
+      }),
+    };
+  });
+
+  jsonResponse(res, {
+    total: pkgLabels.length,
+    instances,
+    exports: exportsOut.slice(0, max),
+  });
+};
 
 routes['/api/list-datasets'] = drilldownRoute('listDatasets', DATASETS_DRILLDOWN, 'datasets');
 
