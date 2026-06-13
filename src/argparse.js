@@ -131,6 +131,7 @@ export function parseArgs() {
     imports: null,
     emit_catalog: null,
     catalog_replace: false,
+    used_by: null,
     include_path: null,
     exclude_path: null,
     dedup: 'exact',
@@ -352,6 +353,7 @@ export function parseArgs() {
     ['imports',              'value',          ['--imports']],
     ['emit_catalog',         'value',          ['--emit-catalog']],
     ['catalog_replace',      'flag',           ['--catalog-replace']],
+    ['used_by',              'value',          ['--used-by']],
     ['call_tree',            'value',          ['--call-tree']],
     ['class_tree',           'optional_value', ['--class-tree']],
     ['call_inventory',       'optional_value', ['--call-inventory']],
@@ -813,7 +815,15 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              keep the richest copy, others noted in
                              alsoProvidedBy). Appendable: merges into an
                              existing file by index identity (--catalog-replace
-                             overwrites). Consumed by --imports (#162).
+                             overwrites). Consumed by --imports (#162). A
+                             --multi-index emit also records who-uses
+                             provenance (#162b).
+  --used-by <catalog>        With --exports: annotate each export with the
+                             corpus codebases that import it (the de facto
+                             API), read from a who-uses catalog (--multi-index
+                             --emit-catalog). Surfaces declared-but-unused
+                             exports (public surface nobody imports). Needs a
+                             v2 catalog.
   --imports-from <index>     Cross-index join (#154): resolve THIS index's
                              imports of a library against that library
                              index's export catalog. Verdicts: resolved

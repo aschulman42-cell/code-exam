@@ -212,7 +212,10 @@ export function classifyOne(ctx, sub, name) {
 // Catalog emit (#162 issue-162-imports-catalog) — library-keyed, de-duped.
 // ---------------------------------------------------------------------------
 
-export const CATALOG_VERSION = 1;
+// v2 adds per-library `usedBy` provenance (#162b who-uses): library.usedBy =
+// { exportName -> { importingIndex -> count } }, the de facto API. v1 catalogs
+// (export-only) are refused by readers that need provenance.
+export const CATALOG_VERSION = 2;
 
 /**
  * Build the serializable catalog contribution of one index: a map of
@@ -330,6 +333,41 @@ export function classifyAgainstCatalogEntry(entry, module, name) {
  * haphazard collection of indexes). Appendable: re-emitting an index replaces
  * its own contributions and re-evaluates the winner.
  */
+/**
+ * Credit one index's NAMED imports as who-uses provenance on the catalog
+ * (#162b). For each `from lib[.sub] import Name` whose Name resolves as an
+ * export of catalogued library `lib`, record the importing index under
+ * `catalog.libraries[lib].usedBy[Name]`. The providing index is excluded
+ * (self-import is not external use). Keyed by BARE export name so it matches
+ * regardless of which copy of the library de-dupe kept (label structures
+ * differ across inside-package vs site-packages copies). Mutates `catalog`.
+ *
+ * Named imports only in v2 — qualified attribute access (`import lib;
+ * lib.Name()`) provenance is a refinement (it needs a per-file scan of every
+ * index at emit time).
+ */
+export function annotateUsedBy(catalog, indexName, importRows) {
+  const libs = catalog.libraries || {};
+  for (const row of importRows) {
+    if (!row.name || row.star) continue;            // named imports only
+    const lib = row.module.split('.')[0];
+    const entry = libs[lib];
+    if (!entry) continue;                            // uncatalogued
+    // Self-use exclusion: the providing index AND every alsoProvidedBy index
+    // are COPIES of this library, so their imports of it are internal, not
+    // external use. (De-dupe can make a non-winning copy — e.g. .scikit-learn
+    // when .Py314_site_pkg wins sklearn — land in alsoProvidedBy; its
+    // self-imports must not count as who-uses.)
+    if (entry.index === indexName || (entry.alsoProvidedBy || []).includes(indexName)) continue;
+    const v = classifyAgainstCatalogEntry(entry, row.module, row.name);
+    if (v.verdict !== 'resolved') continue;          // only real exports get provenance
+    entry.usedBy ||= {};
+    const m = (entry.usedBy[row.name] ||= {});
+    m[indexName] = (m[indexName] || 0) + 1;
+  }
+  return catalog;
+}
+
 export function mergeCatalog(catalog, libMap) {
   catalog.libraries ||= {};
   for (const [lib, entry] of Object.entries(libMap)) {
