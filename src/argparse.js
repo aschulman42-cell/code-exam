@@ -127,6 +127,7 @@ export function parseArgs() {
     list_harnessable: false,
     census_imports: false,
     exports: null,
+    imports_from: null,
     include_path: null,
     exclude_path: null,
     dedup: 'exact',
@@ -343,6 +344,7 @@ export function parseArgs() {
     ['list_harnessable',     'flag',           ['--list-harnessable']],
     ['census_imports',       'flag',           ['--census-imports']],
     ['exports',              'optional_value', ['--exports']],
+    ['imports_from',         'value',          ['--imports-from']],
     ['call_tree',            'value',          ['--call-tree']],
     ['class_tree',           'optional_value', ['--class-tree']],
     ['call_inventory',       'optional_value', ['--call-inventory']],
@@ -796,6 +798,14 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              (segment-matched: 'decomposition' does not pull
                              in 'cross_decomposition'). Honors --filter; -v
                              adds idiom + declaration sites.
+  --imports-from <index>     Cross-index join (#154): resolve THIS index's
+                             imports of a library against that library
+                             index's export catalog. Verdicts: resolved
+                             (tier + def site), private-or-internal (exists
+                             in B but not publicly exported — fragile
+                             coupling), not-found-in-B (version skew).
+                             Honors --filter; -v adds use sites + the
+                             unused-exports reverse view.
   --dedup <mode>             Dedup mode: none, exact, structural
 
 MODE:

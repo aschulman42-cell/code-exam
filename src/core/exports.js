@@ -185,8 +185,9 @@ export function extractExportDecorators(lines, filepath) {
   return rows;
 }
 
-/** Top-level `class X` / `def x` / `async def x` / `X =` for NAME. */
-function findDefLine(lines, name) {
+/** Top-level `class X` / `def x` / `async def x` / `X =` for NAME.
+ *  Exported for the #154 imports-from join (private-or-internal verdict). */
+export function findDefLine(lines, name) {
   const reTop = new RegExp(`^(?:class|(?:async\\s+)?def)\\s+${name}\\b`);
   const reAny = new RegExp(`^\\s*(?:class|(?:async\\s+)?def)\\s+${name}\\b`);
   const reAssign = new RegExp(`^${name}\\s*=`);
