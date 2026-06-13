@@ -2193,6 +2193,203 @@ class _AIMLMethods {
     return result;
   }
 
+  /**
+   * listExplainability(filter) — model-analysis / interpretability /
+   * dimensionality-reduction usage (#155, Lane 1 of #95). Two-tier,
+   * IMPORT-GATED so prose and tokenizer-vocab JSON don't false-positive
+   * (the `"PCA"` BPE token, the transcript saying "LIME"):
+   *
+   *   Tier A `anchor-import` — `import shap` / `from shap...`, captum, lime,
+   *     umap, `from sklearn.decomposition import ...`, `from sklearn.manifold
+   *     import TSNE`. Low-FP: these are unambiguous library imports.
+   *   Tier B `concept-call` — `shap.*Explainer(`, `LimeTabularExplainer(`,
+   *     captum `IntegratedGradients(`/`LayerActivation(`, `UMAP(`, `TSNE(`,
+   *     `PCA(`/`KernelPCA(`/`IncrementalPCA(` — counted ONLY in a file that
+   *     also has a Tier-A anchor import (so a bare `PCA(` in unrelated code,
+   *     or a UI `Text(`-style collision, doesn't fire).
+   *
+   * Each row carries `kind`:
+   *   `attribution`    — shap/lime/captum/SAE post-hoc explanation
+   *   `dim-reduction`  — PCA/TSNE/UMAP/scanpy projection
+   *   `instrumentation`— manual activation tapping via PyTorch forward/
+   *     backward hooks (register_forward_hook & kin). This is Lane 2-3 of
+   *     #95 — hand-rolled interpretability with NO library to anchor on, so
+   *     it's gated on `import torch` instead and keyed to the specific hook
+   *     APIs (bare "hook"/"activation" would FP on git/React hooks and ReLU
+   *     activations). Notably this detects exactly what CE's own
+   *     --emit-harness generates, closing the #155-detect / #95-emit loop.
+   *
+   * The pipeline-step vs post-hoc split (#95's "two uses") is a named
+   * refinement, not v1.
+   */
+  listExplainability(filter = null) {
+    // [regex, family, library] — Tier-A anchor imports. `lib` gates Tier B.
+    const anchors = [
+      { re: /^\s*(?:import\s+shap\b|from\s+shap\b)/,                          fam: 'SHAP',   lib: 'shap',    kind: 'attribution' },
+      { re: /^\s*(?:import\s+captum\b|from\s+captum\b)/,                      fam: 'Captum', lib: 'captum',  kind: 'attribution' },
+      { re: /^\s*(?:import\s+lime\b|from\s+lime\b)/,                          fam: 'LIME',   lib: 'lime',    kind: 'attribution' },
+      // Sparse autoencoders / dictionary learning — mechanistic-interp feature
+      // decomposition over activations. Library users only; custom SAE
+      // nn.Module implementations are Models-cell / #159 'model structure'
+      // territory, not import-gated here.
+      { re: /^\s*(?:import\s+sae_lens\b|from\s+sae_lens\b)/,                  fam: 'SAE',    lib: 'sae_lens', kind: 'attribution' },
+      { re: /^\s*(?:import\s+dictionary_learning\b|from\s+dictionary_learning\b)/, fam: 'SAE', lib: 'dictionary-learning', kind: 'attribution' },
+      { re: /^\s*(?:import\s+umap\b|from\s+umap\b)/,                          fam: 'UMAP',   lib: 'umap',    kind: 'dim-reduction' },
+      { re: /^\s*from\s+sklearn\.decomposition\s+import\b/,                   fam: 'sklearn.decomposition', lib: 'sklearn-decomp', kind: 'dim-reduction' },
+      { re: /^\s*from\s+sklearn\.manifold\s+import\b.*\bTSNE\b/,              fam: 'sklearn.manifold',      lib: 'sklearn-manifold', kind: 'dim-reduction' },
+      // sklearn.inspection — sklearn's actual model-agnostic XAI module
+      // (permutation importance, partial dependence / ICE). The classical-XAI
+      // gap alongside decomposition/manifold.
+      { re: /^\s*from\s+sklearn\.inspection\s+import\b/,                      fam: 'sklearn.inspection',    lib: 'sklearn-inspect', kind: 'attribution' },
+      // scanpy: single-cell-genomics wrapper that drives PCA/UMAP/t-SNE under
+      // the hood (sc.tl.pca/umap/tsne). The #155 motivating case (ngs-analysis
+      // scRNA-seq plotting) reaches dim-reduction through scanpy, not sklearn.
+      { re: /^\s*(?:import\s+scanpy\b|from\s+scanpy\b)/,                      fam: 'scanpy',                lib: 'scanpy',           kind: 'dim-reduction' },
+      // Pixel attribution — Grad-CAM family (the major vision-XAI method).
+      // Both ecosystems: pytorch_grad_cam (`GradCAM`) and the Keras side —
+      // tf_keras_vis (`Gradcam`, title-case) + tf_explain. Molnar's book uses
+      // tf_keras_vis, which the pytorch-only anchor missed.
+      { re: /^\s*(?:import\s+pytorch_grad_cam\b|from\s+pytorch_grad_cam\b)/,  fam: 'Grad-CAM',              lib: 'grad-cam',        kind: 'attribution' },
+      { re: /^\s*(?:import\s+tf_keras_vis\b|from\s+tf_keras_vis\b)/,          fam: 'Grad-CAM',              lib: 'grad-cam',        kind: 'attribution' },
+      { re: /^\s*(?:import\s+tf_explain\b|from\s+tf_explain\b)/,              fam: 'tf-explain',            lib: 'tf-explain',      kind: 'attribution' },
+      // Model-agnostic / tabular XAI suites.
+      { re: /^\s*(?:import\s+eli5\b|from\s+eli5\b)/,                          fam: 'ELI5',                  lib: 'eli5',            kind: 'attribution' },
+      { re: /^\s*(?:import\s+interpret\b|from\s+interpret\b)/,                fam: 'InterpretML',           lib: 'interpret',       kind: 'attribution' },
+      { re: /^\s*(?:import\s+alibi\b|from\s+alibi\b)/,                        fam: 'alibi',                 lib: 'alibi',           kind: 'attribution' },
+      { re: /^\s*(?:import\s+dalex\b|from\s+dalex\b)/,                        fam: 'dalex',                 lib: 'dalex',           kind: 'attribution' },
+      // Counterfactual explanations.
+      { re: /^\s*(?:import\s+dice_ml\b|from\s+dice_ml\b)/,                    fam: 'DiCE',                  lib: 'dice_ml',         kind: 'attribution' },
+      // Layer-wise relevance propagation.
+      { re: /^\s*(?:import\s+zennit\b|from\s+zennit\b)/,                      fam: 'zennit',                lib: 'zennit',          kind: 'attribution' },
+      { re: /^\s*(?:import\s+innvestigate\b|from\s+innvestigate\b)/,          fam: 'iNNvestigate',          lib: 'innvestigate',    kind: 'attribution' },
+      // Mechanistic interpretability — activation capture / intervention /
+      // lenses. The current research frontier; all kind 'instrumentation'.
+      { re: /^\s*(?:import\s+transformer_lens\b|from\s+transformer_lens\b)/,  fam: 'TransformerLens',       lib: 'transformer_lens', kind: 'instrumentation' },
+      { re: /^\s*(?:import\s+nnsight\b|from\s+nnsight\b)/,                    fam: 'nnsight',               lib: 'nnsight',         kind: 'instrumentation' },
+      { re: /^\s*(?:import\s+baukit\b|from\s+baukit\b)/,                      fam: 'baukit',                lib: 'baukit',          kind: 'instrumentation' },
+      { re: /^\s*(?:import\s+tuned_lens\b|from\s+tuned_lens\b)/,              fam: 'tuned-lens',            lib: 'tuned_lens',      kind: 'instrumentation' },
+      { re: /^\s*(?:import\s+pyvene\b|from\s+pyvene\b)/,                      fam: 'pyvene',                lib: 'pyvene',          kind: 'instrumentation' },
+      // Attention / feature visualization.
+      { re: /^\s*(?:import\s+bertviz\b|from\s+bertviz\b)/,                    fam: 'bertviz',               lib: 'bertviz',         kind: 'instrumentation' },
+      { re: /^\s*(?:import\s+circuitsvis\b|from\s+circuitsvis\b)/,            fam: 'circuitsvis',           lib: 'circuitsvis',     kind: 'instrumentation' },
+      { re: /^\s*(?:import\s+lucent\b|from\s+lucent\b|import\s+lucid\b|from\s+lucid\b)/, fam: 'Lucent/Lucid', lib: 'lucent',       kind: 'instrumentation' },
+      // Concept-based.
+      { re: /^\s*(?:import\s+tcav\b|from\s+tcav\b)/,                          fam: 'TCAV',                  lib: 'tcav',            kind: 'attribution' },
+    ];
+    // Tier-B concept calls (gated on any same-file anchor). Where a `g` group
+    // is given, the captured class is the marker, so variants stay distinct
+    // (IncrementalPCA/KernelPCA, LimeTabularExplainer, IntegratedGradients —
+    // not collapsed to a generic "PCA"/"captum-attr"); else the fixed `m`.
+    const calls = [
+      { re: /\b(shap\.\w*Explainer)\s*\(/,                                              fam: 'SHAP',   kind: 'attribution',  g: 1 },
+      { re: /\b(Lime\w*Explainer)\s*\(/,                                                fam: 'LIME',   kind: 'attribution',  g: 1 },
+      { re: /\b(IntegratedGradients|LayerActivation|GradientShap|Saliency|DeepLift|Occlusion|FeatureAblation|LayerConductance|NeuronConductance)\s*\(/, fam: 'Captum', kind: 'attribution', g: 1 },
+      { re: /\b(UMAP)\s*\(/,                                                            fam: 'UMAP',   kind: 'dim-reduction', g: 1 },
+      { re: /\b(TSNE)\s*\(/,                                                            fam: 't-SNE',  kind: 'dim-reduction', g: 1 },
+      { re: /\b((?:Kernel|Incremental|MiniBatchSparse|Sparse|Truncated)?(?:PCA|SVD))\s*\(/, fam: 'PCA', kind: 'dim-reduction', g: 1 },
+      { re: /\b(SparseAutoencoder|SAE|StandardSAE|GatedSAE|JumpReLUSAE)\s*\(/,          fam: 'SAE',    kind: 'attribution',   g: 1 },
+      // scanpy tool/plotting namespaces (lowercase, so no clash with PCA( above).
+      { re: /\.tl\.umap\s*\(|\.pl\.umap\s*\(/,            fam: 'scanpy', kind: 'dim-reduction', m: 'scanpy umap' },
+      { re: /\.tl\.tsne\s*\(|\.pl\.tsne\s*\(/,            fam: 'scanpy', kind: 'dim-reduction', m: 'scanpy tsne' },
+      { re: /\.tl\.pca\s*\(|\.pl\.pca\s*\(/,              fam: 'scanpy', kind: 'dim-reduction', m: 'scanpy pca' },
+      // Grad-CAM family (vision pixel attribution). pytorch_grad_cam CAPS
+      // spelling + tf_keras_vis Title spelling (Gradcam/Scorecam/Layercam).
+      // Title-case entries start uppercase so the lowercase instance-call
+      // (`gradcam(loss)` after `gradcam = Gradcam(...)`) doesn't double-count.
+      { re: /\b(GradCAMPlusPlus|GradCAMElementWise|GradCAM|ScoreCAM|AblationCAM|EigenGradCAM|EigenCAM|XGradCAM|LayerCAM|FullGrad|HiResCAM)\s*\(/, fam: 'Grad-CAM', kind: 'attribution', g: 1 },
+      { re: /\b(GradcamPlusPlus|Gradcam|Scorecam|Layercam|Vanilla|SmoothGrad)\s*\(/, fam: 'Grad-CAM', kind: 'attribution', g: 1 },
+      // sklearn.inspection methods.
+      { re: /\b(permutation_importance|partial_dependence|PartialDependenceDisplay)\s*\(/, fam: 'sklearn.inspection', kind: 'attribution', g: 1 },
+      // eli5 / InterpretML / counterfactuals / alibi anchors (distinctive call sites).
+      { re: /\b(PermutationImportance)\s*\(/,                                           fam: 'ELI5',        kind: 'attribution', g: 1 },
+      { re: /\b(ExplainableBoostingClassifier|ExplainableBoostingRegressor)\s*\(/,      fam: 'InterpretML', kind: 'attribution', g: 1 },
+      { re: /\b(AnchorTabular|AnchorText|AnchorImage|CounterfactualProto|CounterfactualRL)\s*\(/, fam: 'alibi', kind: 'attribution', g: 1 },
+      // Mechanistic-interp concept calls (gated on those libs' anchors via 'xai').
+      { re: /\b(HookedTransformer|HookedSAETransformer|ActivationCache)\b|\.(run_with_cache)\s*\(/, fam: 'TransformerLens', kind: 'instrumentation', m: 'run_with_cache' },
+      { re: /\b(TraceDict|Trace)\s*\(/,                                                 fam: 'baukit',      kind: 'instrumentation', g: 1 },
+      { re: /\b(head_view|model_view|neuron_view)\s*\(/,                                fam: 'bertviz',     kind: 'instrumentation', g: 1 },
+      // Instrumentation (gate: 'torch', NOT an XAI anchor) — PyTorch hook
+      // registration = manual activation/gradient tapping. Specific APIs only,
+      // so no FP on git/React "hook" or ReLU "activation".
+      { re: /\.(register_forward_hook|register_full_backward_hook|register_backward_hook|register_forward_pre_hook|register_module_forward_hook|register_hook)\s*\(/, fam: 'hooks', kind: 'instrumentation', g: 1, gate: 'torch' },
+      // NOTE: HF `output_attentions=True` / `output_hidden_states=True` flags
+      // were trialed here (gate: 'transformers') and DROPPED — they FP heavily
+      // on docstring examples (`>>> model.from_pretrained(..., output_attentions=True)`)
+      // and on transformers' OWN internal VLM feature extraction, neither of
+      // which is user-driven analysis. Re-adding needs docstring-aware
+      // filtering + a consumer-vs-library-internal split (a #155 follow-up).
+    ];
+    // Skip data + prose: the #155 FPs (tokenizer JSON, transcripts). Source
+    // only — same practice as listMultimodal / listReasoning.
+    const reSkipFile = /\.(?:md|markdown|mdx|rst|txt|ya?ml|json|jsonl|csv|tsv|lock|ipynb)$/i;
+    const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
+
+    // `import torch` is the instrumentation gate but is NOT itself an
+    // explainability anchor (every model file imports torch) — tracked
+    // separately so a bare torch import never emits a row.
+    const reTorch = /^\s*(?:import\s+torch\b|from\s+torch\b)/;
+
+    const out = [];
+    for (const [filepath, lines] of this.fileLines) {
+      if (reSkipFile.test(filepath)) continue;
+      // Pass 1: anchor imports (Tier A) + which XAI libs this file imports,
+      // plus the separate torch-imported flag for instrumentation gating.
+      const fileLibs = new Set();
+      const anchorHits = [];
+      let torchImported = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        if (!torchImported && reTorch.test(line)) torchImported = true;
+        const a = anchors.find(e => e.re.test(line));
+        if (a) {
+          fileLibs.add(a.lib);
+          anchorHits.push({ name: a.fam, filepath, line: i + 1, kind: a.kind,
+            family: a.fam, marker: a.fam, tier: 'anchor-import', tag: 'mechanical',
+            snippet: line.trimStart().slice(0, 200) });
+        }
+      }
+      // Process the file if it has an XAI anchor OR imports torch (for the
+      // instrumentation pass). A bare torch file with no hooks yields nothing.
+      if (fileLibs.size === 0 && !torchImported) continue;
+      for (const h of anchorHits) out.push(h);
+      // Pass 2: concept calls. Each call's `gate` decides eligibility:
+      // default 'xai' needs an XAI anchor in the file; 'torch' needs the
+      // torch import. (Kept apart so `PCA(` doesn't fire in a torch-only file
+      // and a hook needs no XAI lib.)
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+        if (reComment(trimmed)) continue;
+        for (const c of calls) {
+          const gate = c.gate || 'xai';
+          if (gate === 'xai' && fileLibs.size === 0) continue;
+          if (gate === 'torch' && !torchImported) continue;
+          const mm = c.re.exec(line);
+          if (!mm) continue;
+          const marker = c.g ? mm[c.g] : c.m;
+          out.push({ name: marker, filepath, line: i + 1, kind: c.kind, family: c.fam,
+            marker, tier: 'concept-call', tag: 'mechanical', snippet: trimmed.slice(0, 200) });
+          break;   // first matching call wins per line
+        }
+      }
+    }
+
+    let result = out;
+    if (filter) {
+      const match = makeFilterMatcher(filter);
+      result = out.filter(t => match(t.name, t.filepath, t.family, t.kind, t.marker, t.snippet));
+    }
+    const kindRank = { 'attribution': 0, 'dim-reduction': 1, 'instrumentation': 2 };
+    const tierRank = { 'anchor-import': 0, 'concept-call': 1 };
+    result.sort((a, b) =>
+      (kindRank[a.kind] - kindRank[b.kind]) || (a.family || '').localeCompare(b.family || '')
+      || (tierRank[a.tier] - tierRank[b.tier])
+      || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+    return result;
+  }
+
 }
 
 // #132: uniform test/example tag. The union of the detectors' internal
@@ -2254,6 +2451,7 @@ export const CELL_KEYS = [
   { key: 'structured-output', method: 'listStructuredOutput' },
   { key: 'models-used',       method: 'listModelsUsed' },
   { key: 'pipelines',         method: 'listPipelines' },
+  { key: 'explainability',    method: 'listExplainability' },
   { key: 'prompts',           module: 'commands/prompts.js', command: 'doPromptCatalog' },
 ];
 
@@ -2320,6 +2518,15 @@ export const MULTIMODAL_DRILLDOWN = {
   keyFn: t => `${t.family}|${t.kind}|${t.marker}|${t.name || ''}`,
   pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
   row:   t => ({ family: t.family, kind: t.kind, marker: t.marker, name: t.name, tag: t.tag }),
+};
+
+// #155 Explainability / Analysis. Same identity-grouping shape; the tier
+// (anchor-import vs concept-call) joins the dedup key so an anchor import and
+// a concept call of the same family stay distinct rows.
+export const EXPLAINABILITY_DRILLDOWN = {
+  keyFn: t => `${t.family}|${t.kind}|${t.tier}|${t.marker}|${t.name || ''}`,
+  pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
+  row:   t => ({ family: t.family, kind: t.kind, tier: t.tier, marker: t.marker, name: t.name, tag: t.tag }),
 };
 
 // #140 Post-training / Fine-tuning. Same identity-grouping shape as

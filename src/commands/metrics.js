@@ -7,7 +7,7 @@
 import path from 'path';
 import { eprint } from '../utils.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
-import { groupSites, groupPipelines, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN } from '../core/ai-ml-detectors.js';
+import { groupSites, groupPipelines, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from '../core/ai-ml-detectors.js';
 
 
 // ========================================================================
@@ -957,6 +957,52 @@ export function doListMultimodal(index, args) {
     console.log(`~${(t.family || '?').slice(0, 13).padEnd(13)}  ${t.kind.padEnd(14)}  ${(t.marker || '').slice(0, 16).padEnd(16)}  ${(t.name || '(unnamed)').slice(0, 20).padEnd(20)}  ${cnt}`);
   }
   console.log(`\n${groups.length} unique multimodal marker${groups.length === 1 ? '' : 's'} (${items.length} instance${items.length === 1 ? '' : 's'}); use -v to list every instance.`);
+  noTestsTip(items, args);
+}
+
+// #155 Analysis / Explainability. Import-gated two-tier cell (anchor-import /
+// concept-call). Same grouped-table + -v shape as the other marker cells, but
+// the table shows the Tier column so the user sees import-anchor vs call.
+export function doListExplainability(index, args) {
+  const items = dropTests(index.listExplainability(args.filter), args);
+  if (!items.length) {
+    console.log('No analysis/explainability usage found (no SHAP/LIME/Captum/SAE/'
+      + 'PCA/t-SNE/UMAP library use, and no PyTorch hook instrumentation). Library '
+      + 'detection is import-gated; hooks are gated on an `import torch`.');
+    return;
+  }
+
+  // Summary by kind (attribution / dim-reduction) and library count.
+  const byKind = {};
+  for (const t of items) byKind[t.kind] = (byKind[t.kind] || 0) + 1;
+  const kindSummary = Object.entries(byKind).sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${k} ${n}`).join(', ');
+  const libs = [...new Set(items.map(t => t.family))].sort();
+
+  const max = (args._explicit && args._explicit.has('max_results'))
+    ? (Number(args.max_results) || 0) : 0;
+  const shown = max > 0 ? items.slice(0, max) : items;
+
+  console.log(`\n${items.length} explainability/analysis site${items.length === 1 ? '' : 's'} (${kindSummary}) across ${libs.length} librar${libs.length === 1 ? 'y' : 'ies'}: ${libs.join(', ')}`
+    + `${max > 0 && items.length > max ? `; showing ${shown.length} rows` : ''}:\n`);
+
+  if (args.verbose) {
+    for (const t of shown) {
+      console.log(`~${(t.family || '?').padEnd(22)} ${t.kind.padEnd(15)} ${(t.tier || '').padEnd(14)} ${t.name}`);
+      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
+    }
+    return;
+  }
+
+  const groups = groupSites(items, EXPLAINABILITY_DRILLDOWN.keyFn, EXPLAINABILITY_DRILLDOWN.pick);
+  console.log(`${'Family'.padEnd(22)}  ${'Kind'.padEnd(15)}  ${'Tier'.padEnd(14)}  ${'Marker'.padEnd(26)}  Count`);
+  console.log('='.repeat(91));
+  for (const g of groups) {
+    const t = g.rep;
+    const cnt = g.count > 1 ? `×${g.count}` : '';
+    console.log(`~${(t.family || '?').slice(0, 21).padEnd(21)}  ${t.kind.padEnd(15)}  ${(t.tier || '').padEnd(14)}  ${(t.marker || '').slice(0, 26).padEnd(26)}  ${cnt}`);
+  }
+  console.log(`\n${groups.length} unique explainability marker${groups.length === 1 ? '' : 's'} (${items.length} instance${items.length === 1 ? '' : 's'}); use -v to list every instance.`);
   noTestsTip(items, args);
 }
 

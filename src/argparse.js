@@ -178,6 +178,7 @@ export function parseArgs() {
     list_structured_output: false,
     list_models_used: false,
     list_pipelines: false,
+    list_explainability: false,
     class_hotspots: null,
     discover_vocabulary: null,
     multisect_search: null,
@@ -376,6 +377,7 @@ export function parseArgs() {
     ['list_structured_output', 'flag',         ['--structured-output'], ['--schemas', '--list-structured-output']],
     ['list_models_used',     'flag',           ['--models-used'], ['--list-models-used']],
     ['list_pipelines',       'flag',           ['--pipelines'], ['--list-pipelines', '--workflows']],
+    ['list_explainability',  'flag',           ['--explainability'], ['--list-explainability', '--analysis']],
     ['class_hotspots',       'int',            ['--class-hotspots']],
     ['discover_vocabulary',  'int',            ['--vocabulary', '--vocab'], ['--discover-vocabulary']],
     ['multisect_search',     'value',          ['--multisect-search', '--multisect']],
@@ -852,6 +854,9 @@ METRICS / DISCOVERY:
 
 AI/ML DETECTORS (list AI/ML constructs; each has a --list-<name> alias):
   --pipelines                Connected AI/ML pipelines (RAG/training/inference/agent/LLM-app) by cell co-occurrence
+  --explainability           Analysis/interpretability/dim-reduction usage (SHAP/LIME/Captum attribution;
+                             PCA/t-SNE/UMAP) — import-gated: a Tier-A library import in the file anchors its
+                             Tier-B calls, so prose/tokenizer-JSON don't false-positive (alias --analysis)
   --prompt-catalog           Detect and display LLM prompts in the codebase:
                              system prompts ("You are..."), getSystemPrompt methods,
                              systemPrompt: properties, role:"system" messages, and

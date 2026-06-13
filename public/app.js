@@ -65,7 +65,7 @@ import {
 import {
   initListRenderers,
   renderFuncLikeList, renderFunctionList, renderFileListWithSub,
-  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, pipelineMermaid, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, POSTTRAINING_KIND_COLOR, REASONING_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR,
+  renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, pipelineMermaid, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, POSTTRAINING_KIND_COLOR, REASONING_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR, EXPLAINABILITY_KIND_COLOR,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
@@ -252,6 +252,28 @@ async function loadSectionData(sectionId, filter = '') {
           title: t => `${t.family} · ${t.kind} · ${t.marker} · ${t.name || '(unnamed)'}\n${t.count} occurrence${t.count > 1 ? 's' : ''}`,
           footer: data.total > rsItems.length ? `${rsItems.length} of ${data.total} shown` : '',
           caveat: 'Caveat: reasoning is inferred from prompt LANGUAGE ("think step by step", "reflect on…"), not code constructs — heuristic, and it does NOT detect structural reasoning like Tree-of-Thoughts.',
+        });
+        badge.textContent = data.instances != null ? data.instances : data.total;
+        break;
+      }
+
+      case 'explainability': {   // #155: SHAP/LIME/Captum/PCA/t-SNE/UMAP, import-gated, deduped by (family,kind,tier,marker)
+        data = await api.listExplainability({ filter, max: 500 });
+        const exItems = data['explainability'];
+        state.sectionData[sectionId] = exItems;
+        renderDrilldownList(content, exItems, {
+          columns: [
+            { get: t => '~' + (t.family || '?'), style: 'flex:0 0 132px;max-width:132px;color:var(--accent,#6cf);font-size:10px;overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.kind || '', style: t => `flex:0 0 96px;max-width:96px;font-size:10px;overflow:hidden;text-overflow:ellipsis;color:${EXPLAINABILITY_KIND_COLOR[t.kind] || 'var(--text-muted)'}` },
+            // Tier (anchor-import / concept-call) — the import-gating is the cell's
+            // defining trait, so it earns a column.
+            { get: t => t.tier || '', style: 'flex:0 0 96px;max-width:96px;font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis' },
+            { get: t => t.name || '(unnamed)', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+          ],
+          countOf: t => t.count,
+          onItemClick: t => drilldownGroupClick(t, `Explainability: ${t.name || t.marker}`, BY_SNIPPET),
+          title: t => `${t.family} · ${t.kind} · ${t.tier} · ${t.name || '(unnamed)'}\n${t.count} occurrence${t.count > 1 ? 's' : ''}`,
+          footer: data.total > exItems.length ? `${exItems.length} of ${data.total} shown` : '',
         });
         badge.textContent = data.instances != null ? data.instances : data.total;
         break;

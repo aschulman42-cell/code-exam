@@ -86,6 +86,7 @@ export const api = {
   listStructuredOutput: (p) => api.get('list-structured-output', p),
   listModelsUsed:  (p) => api.get('list-models-used', p),
   listPipelines:   (p) => api.get('list-pipelines', p),
+  listExplainability: (p) => api.get('list-explainability', p),
   classMethods:    (p) => api.get('class-methods', p),
   filesSearch:     (p) => api.get('files-search', p),
   funcDupes:       (p) => api.get('func-dupes', p),

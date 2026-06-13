@@ -369,6 +369,13 @@ export const MULTIMODAL_KIND_COLOR = {
   'generative': '#c9f', 'marker': 'var(--text-muted)',
 };
 
+// Explainability / Analysis (#155) — kind ∈ {attribution, dim-reduction}.
+// attribution (SHAP/LIME/Captum) vs dim-reduction (PCA/t-SNE/UMAP) get
+// distinct hues so the two analysis families read apart at a glance.
+export const EXPLAINABILITY_KIND_COLOR = {
+  'attribution': '#f9a', 'dim-reduction': '#6cf', 'instrumentation': '#9f9',
+};
+
 // Post-training / Fine-tuning (#140) — kind ∈ {peft, alignment, distill}. All
 // rows are heuristic (keyword matches), so the app-side renderer shows a leading
 // "~"; the color distinguishes the three mechanism families.
