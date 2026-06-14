@@ -87,7 +87,16 @@ export function isMinified(relPath, content) {
   const avgLen = content.length / lines.length;
   // Minified: very few lines with very long average, OR high average line length
   // (Typical readable code: avg 30-60 chars. Minified: 500+. Semi-minified bundles: 200+)
-  return avgLen > 500;
+  if (avgLen > 500) return true;
+  // #161: tall bundles (webpack/Vite SPA output — claude.ai, Google Docs) have
+  // thousands of short-ish lines PLUS a few monster lines (a whole minified
+  // function on one line). The average lands under 500 (connectrpc: avg 117 over
+  // 8685 lines) so the avg-only gate skipped them, leaving the digest a wall of
+  // one-liners. Catch them via the longest line: normal source tops out in the
+  // low hundreds, so a 2000+-char line means minified-in-part. Pairs with
+  // --split-bundle, which reads the beautified content and benefits from it.
+  const maxLineLen = lines.reduce((m, l) => (l.length > m ? l.length : m), 0);
+  return maxLineLen > 2000;
 }
 
 /**
