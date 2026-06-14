@@ -707,10 +707,20 @@ function onExportsPackageClick(p) {
   navPush('middle-top');
   $('#middle-top-title').textContent = `Exports: ${p.package}`;
   const noteLine = p.notes && p.notes.length ? `  ·  ${p.notes[0]}` : '';
+  // #166: rows carry `usedBy` only when the server was started with
+  // --exports-catalog. Switch to the wider column set and flag the de-facto-API
+  // meaning in the header; otherwise the view is byte-identical to before.
+  const hasUsedBy = (p.sites || []).some(s => s.usedBy !== undefined);
+  const usedByNote = hasUsedBy
+    ? '  ·  ← used by = de facto API: corpus codebases importing each export (named imports only — qualified attribute access not yet counted, #162b)'
+    : '';
   renderDrilldownSites($('#middle-top-body'), {
-    header: `${p.package}  ·  ${p.count} export${p.count === 1 ? '' : 's'}  (A:${p.a} B:${p.b} C:${p.c})${noteLine}`,
+    header: `${p.package}  ·  ${p.count} export${p.count === 1 ? '' : 's'}  (A:${p.a} B:${p.b} C:${p.c})${usedByNote}${noteLine}`,
     sites: p.sites,
-    columns: EXPORT_SITE_COLS,
+    columns: hasUsedBy ? EXPORT_SITE_COLS_USEDBY : EXPORT_SITE_COLS,
+    // Top-align so a used-by list that wraps to a 2nd line doesn't vertically
+    // centre the name / def-site against it.
+    align: hasUsedBy ? 'flex-start' : undefined,
   });
 }
 
@@ -778,6 +788,24 @@ const EXPORT_SITE_COLS = [
   { get: s => s.name || '', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' },
   { get: s => s.dottedPath || '', style: 'flex-shrink:0;max-width:200px;font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis' },
   { get: s => s.filepath ? `${shortPath(s.filepath)}:${s.line}` : 'unresolved', className: 'filepath', style: 'flex-shrink:0;max-width:240px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left' },
+];
+// #166 Exports "Used by": tier glyph + name + the corpus codebases that import
+// each export (the de facto API) + def site. Drops the dotted-path column (vs
+// EXPORT_SITE_COLS) to give the importer list room. The list is MUTED (className
+// 'muted', not 'metric'), not accent-coloured — clicking through to an importer
+// is cross-index drill-down (#164, not yet built), so it must not look
+// clickable. The used-by cell WRAPS (white-space:normal) instead of clipping, so
+// a long importer list flows onto a second line under the row rather than being
+// ellipsis-truncated; margin-right keeps a clear gap before the def site. Rows
+// top-align (align:'flex-start' below) so the wrap reads cleanly. Full list also
+// stays in the cell tooltip.
+const EXPORT_SITE_COLS_USEDBY = [
+  EXPORT_SITE_COLS[0],
+  { get: s => s.name || '', className: 'name clickable', style: 'flex:0 0 auto;max-width:200px;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis' },
+  { get: s => s.usedBy ? `← used by ${s.usedBy}` : '', className: 'muted',
+    title: s => s.usedBy ? `Used by (named imports): ${s.usedBy}` : '',
+    style: 'flex:1 1 0;min-width:0;margin-right:10px;font-family:var(--font-mono);font-size:10px;white-space:normal;word-break:break-word;text-align:left' },
+  { get: s => s.filepath ? `${shortPath(s.filepath)}:${s.line}` : 'unresolved', className: 'filepath', style: 'flex-shrink:0;max-width:200px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left' },
 ];
 // siteOpts is forwarded to renderDrilldownSites: { columns } (flat) or
 // { subgroupBy } (collapse repeated snippets — Tools/Artifacts/Datasets).

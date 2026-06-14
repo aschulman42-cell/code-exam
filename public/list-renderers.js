@@ -1901,7 +1901,7 @@ export function renderDrilldownList(container, items, { columns, countOf, onItem
 // that share the key (#134): a code line that repeats across N files shows once as
 // a header (+ ×count) with its file:line locations indented under it — clicking a
 // location goes to source. A unique key renders inline (snippet · file:line).
-export function renderDrilldownSites(container, { header, sites, columns, subgroupBy }) {
+export function renderDrilldownSites(container, { header, sites, columns, subgroupBy, align }) {
   container.innerHTML = '';
   if (!sites || !sites.length) {
     container.innerHTML = '<div class="list-placeholder">No sites.</div>';
@@ -1960,12 +1960,23 @@ export function renderDrilldownSites(container, { header, sites, columns, subgro
   }
 
   for (const s of sites) {
-    const spans = columns.map(c => h('span', {
-      className: c.className || 'metric',
-      text: c.get(s) || '',
-      style: (typeof c.style === 'function' ? c.style(s) : c.style) || 'font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis',
-    }));
-    const item = h('div', { className: 'list-item', title: `${(s.filepath || '').replace(/\\/g, '/')}:${s.line}` }, spans);
+    const spans = columns.map(c => {
+      const attrs = {
+        className: c.className || 'metric',
+        text: c.get(s) || '',
+        style: (typeof c.style === 'function' ? c.style(s) : c.style) || 'font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis',
+      };
+      // Optional per-cell tooltip — used by the Exports "used by" column to
+      // carry the full importer list when the cell is ellipsis-truncated.
+      const tip = c.title ? c.title(s) : '';
+      if (tip) attrs.title = tip;
+      return h('span', attrs);
+    });
+    const itemAttrs = { className: 'list-item', title: `${(s.filepath || '').replace(/\\/g, '/')}:${s.line}` };
+    // Optional vertical alignment override (.list-item is align-items:center by
+    // default) — used when a wrapping cell makes the row multi-line.
+    if (align) itemAttrs.style = `align-items:${align}`;
+    const item = h('div', itemAttrs, spans);
     item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(s.filepath, s.line); });
     container.appendChild(item);
   }

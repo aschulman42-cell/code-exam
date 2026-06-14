@@ -24,6 +24,7 @@ import { groupSites, groupPipelines, reTestExamplePath, KERNELS_DRILLDOWN, MULTI
 import { makeFilterMatcher } from './core/filter-match.js';
 import { extractExports } from './core/exports.js';
 import { extractImports } from './core/imports.js';
+import { loadUsedByCatalog, makeUsedByFor } from './commands/exports.js';
 import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
@@ -83,12 +84,14 @@ function safeMax(raw, defaultVal, ceiling = 10000) {
 
 function parseServerArgs() {
   const args = process.argv.slice(2);
-  const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0 };
+  const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0, catalogPath: null };
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if ((a === '--index-path' || a === '--index') && args[i + 1]) {
       result.indexPaths.push(args[++i]);
+    } else if ((a === '--exports-catalog' || a === '--catalog') && args[i + 1]) {
+      result.catalogPath = args[++i];
     } else if (a === '--port' && args[i + 1]) {
       result.port = parseInt(args[++i]) || 3000;
     } else if (a === '--host' && args[i + 1]) {
@@ -164,6 +167,20 @@ for (const ip of serverArgs.indexPaths) {
 
 if (mgr.indexes.size === 0) {
   console.error('No indexes loaded — use File > Load Index or File > Build Index in the GUI, or restart with --index-path.');
+}
+
+// #166: optional who-uses catalog for the Exports "Used by" column. Specified
+// on the CLI (--exports-catalog <file>); the GUI picker is deferred. Loaded
+// once at startup; a bad path disables the column but never stops the server.
+let exportsCatalog = null;
+if (serverArgs.catalogPath) {
+  try {
+    exportsCatalog = loadUsedByCatalog(serverArgs.catalogPath);
+    const n = Object.keys(exportsCatalog.libraries).length;
+    console.log(`Loaded exports catalog "${serverArgs.catalogPath}": ${n} librar${n === 1 ? 'y' : 'ies'} (Used-by column enabled)`);
+  } catch (e) {
+    console.error(`Warning: ${e.message.replace(/^--used-by /, '--exports-catalog ')} — Used-by column disabled.`);
+  }
 }
 
 
@@ -2084,6 +2101,11 @@ routes['/api/exports'] = (req, res) => {
   const pkgMeta = new Map();
   for (const p of packages.values()) pkgMeta.set(p.dotted || '(root)', p);
 
+  // #166: per-(package, name) used-by lookup, built once per request from the
+  // CLI-supplied catalog (reuses the exact CLI --used-by resolution). Null when
+  // no catalog was passed at startup — the column then never renders.
+  const usedByFor = exportsCatalog ? makeUsedByFor(exportsCatalog, index) : null;
+
   const max = safeMax(q.max, 500);
   const pkgLabels = [...byPkg.keys()].sort();
   let instances = 0;
@@ -2107,7 +2129,7 @@ routes['/api/exports'] = (req, res) => {
       // tier topmost for each export (A>B>C) drives the glyph in the sites pane.
       sites: rows.map(r => {
         const top = [...r.tiers].sort((x, y) => TIER_RANK[x] - TIER_RANK[y])[0];
-        return {
+        const site = {
           name: r.name,
           tier: TIER_GLYPH[top] || '?',
           tiers: [...r.tiers].map(t => TIER_GLYPH[t]).sort().join(''),
@@ -2115,6 +2137,13 @@ routes['/api/exports'] = (req, res) => {
           filepath: r.defSite ? r.defSite.file : null,
           line: r.defSite ? r.defSite.line : null,
         };
+        if (usedByFor) {
+          // Defined (even if '') only when a catalog is loaded — the GUI keys
+          // the Used-by column on presence. '' = declared-but-unused in corpus.
+          const users = usedByFor(label, r.name);
+          site.usedBy = users && users.length ? users.map(u => `${u.index}(${u.count})`).join(', ') : '';
+        }
+        return site;
       }),
     };
   });
