@@ -3,8 +3,10 @@
 > Living checklist for the stretch to the public repo. The analog of the "AI/ML
 > march" checklist. Status-tagged; must / nice / later; issue cross-links.
 > **Discussion: #133.** Source: `codeexam_direction_until_public.txt`.
-> Updated **2026-06-08** (notes: `CE_public_repo_plan_notes_060826.txt`).
-> Prior update 2026-06-05 (after #133 round 1).
+> **Internal planning doc — NOT shipped in the public repo.** A public-facing
+> `ROADMAP.md`, if we decide to ship one, would be a separate, trimmed file.
+> Updated **2026-06-15** (housekeeping: tick landed work, prune dead branches).
+> Prior updates 2026-06-08 (`CE_public_repo_plan_notes_060826.txt`), 2026-06-05.
 
 ## Velocity baseline (from git)
 The AI/ML march ran May 31 → June 4 (~5 intense days, ~40 commits). June 4–8 added
@@ -12,6 +14,23 @@ three more AI/ML cells (Multimodal, Post-training, Reasoning) plus quantization,
 pipelines-quality/perf, and a batch of CLI ergonomics fixes. On a focused day we
 land 6–12 substantial commits; a detector/projection cell ≈ a 1–2-hour loop.
 Estimates are in **focused-days**; calendar conversion depends on availability.
+
+## Landed since 2026-06-08 (this housekeeping pass)
+Beyond the Phase-A ticks below:
+- **Import/export arc** — import census (#156) → declared exports (#153) →
+  cross-index join `--imports-from` (#154) → catalog build + `--imports`
+  consumer (#162) → who-uses "Used by" (#162b, GUI Exports column).
+- **`.har` ingestion** as a build-index source (#161) + the JS-prettify gate
+  fix for tall bundles (`481aa02`, #161).
+- **Explainability** detector cell (#155) — SHAP/LIME/Captum/PCA/t-SNE/UMAP,
+  Python-only, import-anchored.
+- **Synthetic-loader / emitted PY harness** (#157) — activation-capture
+  scaffolds, opt-in, mechanically bannered.
+- **Infrastructure accordion** (#168, `6dc4268`) — non-AI/ML operational stack
+  (Containers / Kubernetes / IaC / Cloud / CI-CD), with cloud-provider tags.
+- **README public-repo pass** (`a9b7157`, `8df8159`) — known-limitations
+  additions, Symbols & notation legend, on-disk index layout, cross-index
+  catalog docs, code-tree refresh.
 
 ## AI/ML status (2026-06-08)
 Fourteen precision-gated detector cells now ship: Models, Artifacts, Kernels,
@@ -51,22 +70,21 @@ shapes), quantization in Artifacts (#141), the #115 drill-down, and #134 dedupe.
 - [x] CLI `-v` de-clutter (`--artifacts` etc. → grouped + `-v`).
 - [x] `ai-ml-move-prompts` + reorder accordions.
 - [x] README AI/ML section (`5f76e98`) + `--help` AI/ML fixes.
-      *(still: add the **Reasoning** bullet — Multimodal + Post-training are in.)*
+      *(Reasoning bullet now added — `3b00bd7`.)*
 - [x] Missing-blocks survey (`missing_blocks_survey.md`).
 - [x] **Multimodal / Vision cell** (`eebee3b`, #140).
-- [ ] **Mermaid pipeline diagrams** — multi-stage only; feasibility done, render
-      not built. *Decision: MUST or NICE? Worth trying on the longer pipelines.*
+- [x] **Mermaid pipeline diagrams** — multi-stage connected flows (`17f8dbb`).
+      *Resolved MUST, shipped; README notes the isolated / very-long-pipeline limit.*
 - [~] node test suite: AI/ML coverage — partial. Suite is green (400 tests) but
       no `CELL_KEYS`-driven, per-cell AI/ML regression guard yet.
 ### New Phase A tasks (6/8 notes)
-- [ ] README: add the **Reasoning** AI/ML bullet.
-- [ ] Verify Multimodal **audio** coverage (whisper/wav2vec — it picked up
-      "whisper", but does it scan for audio encoders as a class?).
-- [ ] Verify Multimodal **DALL-E / image-gen** coverage.
+- [x] README: add the **Reasoning** AI/ML bullet (`3b00bd7`).
+- [x] Verify Multimodal **audio** coverage (whisper/wav2vec) — confirmed (`32c24e9`).
+- [x] Verify Multimodal **DALL-E / image-gen** coverage (`32c24e9`).
 - [ ] Confirm **Class/Model inheritance** is sound, and whether gaps there tie to
       method-call-resolution problems (#148, #85).
-- [ ] Resolve **diffusion/image-gen**: already covered by Multimodal `generative`,
-      or its own shape? (If covered, retire the LATER item.)
+- [x] Resolve **diffusion/image-gen**: covered by Multimodal `generative` —
+      LATER "own shape" item retired.
 - [ ] Decide which **LATER** items to pull forward now.
 ### NICE
 - [x] #94 quantization (`d118c9e`, #141 — Artifacts `quantization` family).
@@ -76,11 +94,13 @@ shapes), quantization in Artifacts (#141), the #115 drill-down, and #134 dedupe.
 ### LATER
 - [x] ~~RLHF / alignment post-training cell~~ → **done** as Post-training (#140).
 - [x] ~~Reasoning / CoT~~ → **done** (#146) *(not originally scoped)*.
-- [ ] Diffusion / image-gen shape *(pending the Phase-A resolution above)*.
-- [ ] Test-PY emitting; interpretability reconnaissance (#95).
+- [x] ~~Diffusion / image-gen own shape~~ → covered by Multimodal `generative`; retired.
+- [x] Test-PY emitting → synthetic-loader / harness shipped (#157). Interpretability
+      reconnaissance (#95) → Explainability cell shipped (#155, Python-only).
 - [ ] Remaining LLM-use cells: Memory / Evals / Skills (#116).
 - [ ] Digest / cross-model comparison (#126); product clustering (#131).
-- [ ] funcstr-corpus follow-ups: `--recover-names` (#130), test/example tag (#132).
+- [~] funcstr-corpus follow-ups: `--recover-names` (#130) open; test/example tag
+      (#132) shipped (dim + tooltip + `--no-tests`).
 
 ## Phase B — repo-ready (~2–3 focused-days MUST)
 ### MUST
@@ -134,17 +154,29 @@ shapes), quantization in Artifacts (#141), the #115 drill-down, and #134 dedupe.
 - #149 — commands with a positional filter (`--class-tree`, …) don't honor `--filter`.
 - #150 — AI/ML drilldown loses folder context on long/zip-prefixed paths.
 
+## Newer issues carrying forward detail (2026-06-15)
+- **GGUF / local-LLM** — #75 (newest-arch load failures); #36 / #160 (codebase-
+  wide LLM chat, the real gate for air-gapped chat-with-the-codebase).
+- **Non-AI/ML detection** — #168 Infrastructure (landed); framework detection deferred.
+- **Ecosystem-enumeration skill step** — #167.
+- **`.saz` / Fiddler capture ingestion** — #171 (sibling of the `.har` path).
+- **Detector hygiene** — #174 (exclude `.op` / vendored / minified from heuristic
+  detectors; subsumes #172 vocabulary noise); #173 cold-cache vocabulary.
+
 ## Bottom line
-**Phase A MUST is now largely done** (three cells + quantization shipped); the
-remaining Phase A MUST is small — the **Mermaid decision**, the **README Reasoning
-bullet**, and **AI/ML test coverage**, plus the 6/8 verification tasks. The
-critical path has shifted to **Phase B** (repo hygiene, the `CELLS`-registry
-fan-out cleanup, and cross-index testing on Packt/Manning). Estimate to public:
-**~4–6 focused-days MUST** remaining (down from ~7–10), NICE adds ~5–7 more.
+**Phase A MUST is essentially closed** — Mermaid shipped, the Reasoning bullet
+landed, and the 6/8 verification tasks (audio, DALL-E, diffusion) are resolved;
+the only Phase-A MUST still open is the **per-cell AI/ML regression guard**
+(`CELL_KEYS`-driven). The critical path is squarely **Phase B**, which is still
+substantial: repo hygiene (the `jontest` rename, root-junk cull, private/patent
+split, per-file headers), the `CELLS`-registry fan-out cleanup, GGUF end-to-end
+testing, and cross-index testing on Packt/Manning. Estimate to public:
+**~4–6 focused-days MUST** remaining, NICE adds ~5–7 more.
 
 ## Still to settle
-- Mermaid spike outcome → MUST (render long pipelines) or NICE/drop.
 - Metrics audit — keep or cut hotspots / gaps.
-- Diffusion/image-gen — already covered by Multimodal, or its own shape?
-- Audio coverage in Multimodal — confirm or add.
-- Which LATER items (if any) are pulled pre-public.
+- Which remaining LATER items (if any) are pulled pre-public.
+- GGUF / non-GGUF loader strategy (#75); whether codebase-wide chat (#36 / #160)
+  is in scope for the public cut.
+- *(Resolved this pass: Mermaid → shipped; diffusion → Multimodal `generative`;
+  audio → confirmed.)*
