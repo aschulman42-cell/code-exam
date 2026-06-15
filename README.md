@@ -332,6 +332,24 @@ help.
   - Regex-only: **Swift, Kotlin, Scala, Lua, Objective-C, CoffeeScript,
     Perl, VBScript, AWK**
 
+**Multi-index and cross-index catalogs.** Beyond querying several indexes in
+one run (`--multi-index @indexlist`), CodeExam is growing *cross-index*
+analysis. Build a reusable **export catalog** from one or more libraries with
+`--exports --emit-catalog <file>` (a v2 catalog also carries who-uses data),
+then resolve another codebase against it:
+
+- `--imports <catalog.json>` — attribute this index's imports to whichever
+  catalogued library provides each name (discovery join, #162).
+- `--exports --used-by <catalog>` — annotate each declared export with its
+  de-facto consumers — the **"Used by"** column in the GUI Exports pane —
+  surfacing public surface that nobody actually imports.
+
+A curated default imports catalog (planned filename
+`CE_initial_PY_imports_catalog.json`) is intended to ship with the public
+repo so this join runs out of the box; until then, build one from the
+libraries you care about with `--exports --emit-catalog`, then pass it to
+`--imports`.
+
 **Why a plain inverted index rather than a vector database or SQL?** Readers
 coming from recent tooling often expect a vector store (ChromaDB, FAISS) or a
 relational database, and assume either would be preferable to "plain text in
@@ -361,12 +379,19 @@ CLI            Interactive       GUI server      MCP server
               ├── calls.js               (caller/callee graph)
               ├── multisect.js           (smallest-scope-containing-all-terms)
               ├── vocabulary.js          (domain-vocabulary discovery)
+              ├── ai-ml-detectors.js     (AI/ML + LLM-app detector suite)
+              ├── imports.js             (import census / extraction)
+              ├── exports.js             (declared-exports catalog)
+              ├── import-join.js         (cross-index import↔export resolution)
+              ├── stack-detectors.js     (Infrastructure / operational-stack)
               ├── breadcrumbs-commands.js  (telemetry + command catalog)
               ├── hotspots.js            (complexity metrics)
               ├── canonical-funcs.js     (canonical-form normalization)
               ├── distance-helpers.js    (string + structural distance)
               ├── structural-fingerprint.js  (AST-shape hashing)
+              ├── funcstr-corpus.js      (funcstring corpus / cross-index intersection)
               ├── bundle-seam-detection.js   (esbuild module boundaries)
+              ├── filter-match.js        (--filter matching)
               └── CSI-helpers.js         (shared utilities)
 
 src/commands/  (per-feature command modules invoked by the CLI / REPL /
@@ -374,8 +399,11 @@ src/commands/  (per-feature command modules invoked by the CLI / REPL /
   ├── search.js, browse.js, callers.js, graph.js
   ├── metrics.js, dedup.js, multisect.js
   ├── digest.js, prompts.js, claim.js, analyze.js
+  ├── imports.js, imports-from.js, exports.js  (import census + cross-index join + exports/used-by)
+  ├── census.js, infrastructure.js  (import census, Infrastructure accordion)
+  ├── harness.js  (emitted activation-capture harness)
   ├── fingerprint.js, build_fp_renames.js
-  ├── extract_js_from_binary.js
+  ├── extract_js_from_binary.js, inspect_binary.js
   └── interactive.js  (REPL, used standalone and from the GUI Console)
 
 public/  (GUI, modular ES extracts from the former monolithic app.js)
@@ -387,6 +415,28 @@ public/  (GUI, modular ES extracts from the former monolithic app.js)
   ├── prompts-and-catalog.js, menu-bar.js
   ├── middle-pane.js, list-renderers.js
 ```
+
+### On-disk index layout
+
+A built index is a directory of plain-JSON files — no database server, no
+binary store (see *Why a plain inverted index* above). The first three are
+always present; a standard `--build-index` normally also writes the next
+four, while `vocabulary.json` appears only after `--vocabulary` has run — so
+most indexes hold 7–8 JSON files, though a lighter build can omit some (e.g.
+an index built without the dedup/funcstring pass has no `func_hashes.json`):
+
+- `literal_index.json` — raw per-file line/content store *(required)*.
+- `inverted_index.json` — token → locations map powering search *(required)*.
+- `function_index.json` — per-file function / class / symbol structure *(required)*.
+- `string_table.json` — deduplicated table of distinctive long strings (≥8 chars), shared by funcstrings and search.
+- `func_hashes.json` — cached per-function hashes for exact / near / structural dedup and funcstring intersection.
+- `rename_map.json` — inferred readable names (`_KW_`, `_NAME_`, `_IMPORT_`, `_CMD_`, `_FP_`).
+- `import_map.json` — extracted import/export data feeding the import census and cross-index joins.
+- `vocabulary.json` — cached TF-IDF vocabulary (written once `--vocabulary` has run).
+
+Export catalogs (`--emit-catalog`) and portable fingerprint files
+(`*.fp.json`) are separate, reusable artifacts — not part of the index
+directory.
 
 ## Requirements
 
@@ -468,6 +518,47 @@ capable than the Claude-API path (see the LLM-assisted notes above), so the
 non-LLM machinery does most of the work in a fully air-gapped run and LLM output
 quality is generally below what the API would produce.
 
+## Symbols & notation
+
+CodeExam's lists and digests use a few compact markers, consistently across
+the GUI accordions and the CLI:
+
+- **`~` (leading tilde, muted text)** — a **heuristic-tier** finding, as
+  opposed to a mechanical or structural one. Used throughout the AI/ML cells
+  (Artifacts, Kernels, Training, Inference, Multimodal, Post-training,
+  Reasoning, …) to keep the mechanical-vs-heuristic distinction visible
+  rather than presenting every hit with equal confidence.
+- **`[lib?]`** — a **library-vs-consumer** flag on an LLM-call site: the
+  detector suspects it is firing on an SDK's *own* source rather than on code
+  that *uses* the SDK (an over-fire to verify).
+- **`×N`** (and `N×`) — an **occurrence / instance count**: how many raw
+  sites collapsed into a deduped row (e.g. `act_quant_kernel ×4`), how many
+  identical pipelines or duplicate bodies were grouped, or how many times a
+  string occurs within one function (`×3 here` in a digest).
+- **Accordion badge counts** — where a cell has both, the badge shows
+  *instances* (the pre-dedup site count) rather than the smaller deduped row
+  count, so a "more than meets the eye" cell is visible at a glance.
+- **`?`** — an unknown / unlabeled family or grouping key (a fallback used
+  when the detector couldn't assign one).
+
+**Test / example handling.** Sites in test, example, benchmark, or demo code
+can inflate counts and dilute the "real" usage signal. By default CodeExam
+**shows** them: in the AI/ML cells, a row whose every site is test/example
+code is **dimmed** (and its tooltip notes `[test/example code]`) rather than
+hidden. You can opt to drop them entirely:
+
+- **View → Exclude Tests** in the GUI, or `--no-tests` on the CLI — remove
+  AI/ML rows whose every site is test/example code (tests, examples,
+  benchmarks, demos dirs; `test_*` files). A "*N test/example rows hidden*"
+  note then reports what was dropped.
+- `--exclude-tests` — exclude test files from caller / metrics results.
+
+(There is no inline `[test]` text badge: the visible signal for a *kept* test
+row is dimming plus the tooltip note. Likewise, unresolved identifiers — e.g.
+a model passed as a variable rather than a string literal — are shown with
+the identifier plus an "unresolved" note in the tooltip, not a special
+glyph.)
+
 ## Known limitations
 
 - **File-path lookup on Windows / mixed separators** (#67) — paths CodeExam
@@ -513,6 +604,36 @@ quality is generally below what the API would produce.
   memory on extreme inputs; guards are planned. (The `codeexam.exe` Bun build
   also has a known `--build-index` EEXIST bug, #91 — use the Node path
   meanwhile.)
+- **Mermaid pipeline diagrams render only connected flows** — the AI/ML
+  Pipelines view diagrams multi-stage **connected** flows; isolated
+  detections and very long pipelines may not diagram cleanly.
+- **Import/Export analysis is Python-only** (#165) — and the static catalog
+  path misses dynamically-exported names (star-exports, lazy registries) that
+  the live cross-index path resolves.
+- **Explainability detection is Python-only and import-anchored** (#163) —
+  XAI used without a recognizable import (custom probing/patching), and
+  non-Python XAI, are not detected.
+- **Emitted PY harnesses are scaffolds** — emitted activation-capture
+  harnesses are validated for structure, not guaranteed-runnable;
+  `--synthetic-loader` is opt-in and banners that the load is mechanical.
+- **Caller↔callee resolution under dynamic dispatch** (#85, #148) — dynamic
+  class/method dispatch is hard to resolve statically, so call-graph links
+  (`--callers`, `--call-tree`, digest caller/callee lists) can be incomplete
+  or mis-linked.
+- **GUI feature constraints** (#38, #125) — the current GUI does not allow
+  multiple instances of the same pane type (beyond a limited side-by-side
+  compare), has no in-pane search yet, and supports save/copy only from the
+  Analysis and Mermaid panes. A newer XMLUI-based GUI design is planned (the
+  result-cap (#137) and test-automation (#73) items above are related).
+- **No general LLM chat about the codebase yet** (#36, #160) — today the LLM
+  paths analyze a *single function or file* (`--analyze`, `--build-prompt`),
+  including the air-gapped local-GGUF mode; a wider "chat with the whole
+  codebase" is a goal, not yet a feature. For Claude it is largely a matter of
+  adding MCP tools; the harder, gating part is making a local GGUF drive
+  CodeExam's MCP tools effectively for fully air-gapped use. So if you're
+  wondering *"why can't I just chat with an AI about the codebase?"* — you can
+  chat about a function today; codebase-wide chat awaits broader MCP tooling
+  and capable local models.
 
 ## Related: CodeClaim
 
