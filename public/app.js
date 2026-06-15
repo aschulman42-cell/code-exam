@@ -176,6 +176,23 @@ async function loadSectionData(sectionId, filter = '') {
         break;
       }
 
+      case 'infrastructure': {   // #168: non-AI/ML operational stack by file shape
+        data = await api.get('infrastructure', { filter, max: 1000 });
+        state.sectionData[sectionId] = data.infrastructure;
+        renderDrilldownList(content, data.infrastructure, {
+          columns: [
+            { get: g => g.cell || '(?)', className: 'name clickable', style: 'flex:0 0 auto;min-width:96px;color:var(--text-bright);font-size:11px' },
+            { get: g => g.kinds || '', style: 'flex:1 1 0;min-width:0;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis' },
+          ],
+          countOf: g => g.count,
+          onItemClick: onInfraCellClick,
+          title: g => `${g.cell}\n${g.count} artifact${g.count === 1 ? '' : 's'} — ${g.kinds}`,
+          footer: data.instances != null ? `${data.instances} artifact(s) in ${data.total} cell(s); ${data.filesScanned} files scanned` : '',
+        });
+        badge.textContent = data.total;
+        break;
+      }
+
       case 'models':   // #134: deduped by name (framework, name)
         data = await api.listModels({ filter, max: 500 });
         state.sectionData[sectionId] = data.models;
@@ -737,6 +754,23 @@ function onImportsLibClick(g) {
       { get: s => s.name || '', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' },
       { get: s => `${shortPath(s.filepath || '')}:${s.line}`, className: 'filepath', style: 'flex-shrink:0;max-width:300px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left' },
     ] : FILEPATH_SITE_COLS,
+  });
+}
+
+// #168: drill into an Infrastructure cell — its artifact files, each row's kind
+// marker (heuristic prefixed ~), clicking through to the file. Muted kind glyph
+// (not accent) so it doesn't imply a separate click target.
+function onInfraCellClick(g) {
+  showPane('middle-top');
+  navPush('middle-top');
+  $('#middle-top-title').textContent = `Infrastructure: ${g.cell}`;
+  renderDrilldownSites($('#middle-top-body'), {
+    header: `${g.cell}  ·  ${g.count} artifact${g.count === 1 ? '' : 's'}  (${g.kinds})  ·  ~ = heuristic`,
+    sites: g.sites,
+    columns: [
+      { get: s => (s.tag === 'heuristic' ? '~ ' : '') + (s.kind || '') + (s.marker ? ' · ' + s.marker : ''), className: 'metric', style: 'flex:0 0 auto;min-width:150px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);text-align:left' },
+      { get: s => `${shortPath(s.filepath || '')}:${s.line}`, className: 'filepath', style: 'flex:1 1 0;min-width:0;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left' },
+    ],
   });
 }
 

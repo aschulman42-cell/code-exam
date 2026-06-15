@@ -25,6 +25,7 @@ import { makeFilterMatcher } from './core/filter-match.js';
 import { extractExports } from './core/exports.js';
 import { extractImports } from './core/imports.js';
 import { loadUsedByCatalog, makeUsedByFor } from './commands/exports.js';
+import { detectInfrastructure } from './core/stack-detectors.js';
 import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
@@ -2185,6 +2186,41 @@ routes['/api/imports'] = (req, res) => {
     instances: rows.length,
     imports: libs.slice(0, max).map(g => ({
       library: g.library, count: g.count, targets: g.targets.size, sites: g.sites,
+    })),
+  });
+};
+
+// #168 Infrastructure — non-AI/ML operational stack by file shape, grouped into
+// cells (Containers / Kubernetes / IaC / CI-CD). Mirrors /api/imports' shape:
+// top-level rows are cells, each with a kind breakdown + drill-down sites.
+routes['/api/infrastructure'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const { rows, filesScanned } = detectInfrastructure(index);
+  const match = q.filter ? makeFilterMatcher(q.filter) : null;
+  const found = rows.filter(r => !match || match(r.name, r.filepath, r.cell, r.kind));
+
+  const byCell = new Map();
+  for (const r of found) {
+    let g = byCell.get(r.cell);
+    if (!g) { g = { cell: r.cell, count: 0, kinds: {}, sites: [] }; byCell.set(r.cell, g); }
+    g.count++;
+    g.kinds[r.kind] = (g.kinds[r.kind] || 0) + 1;
+    if (g.sites.length < 500) g.sites.push({ name: r.name, filepath: r.filepath, line: r.line, kind: r.kind, tag: r.tag, marker: r.marker });
+  }
+  const order = { Containers: 0, Kubernetes: 1, 'IaC': 2, Cloud: 3, 'CI/CD': 4 };
+  const cells = [...byCell.values()].sort((a, b) => (order[a.cell] ?? 9) - (order[b.cell] ?? 9));
+  const max = safeMax(q.max, 500);
+  jsonResponse(res, {
+    total: cells.length,
+    instances: found.length,
+    filesScanned,
+    infrastructure: cells.slice(0, max).map(g => ({
+      cell: g.cell,
+      count: g.count,
+      kinds: Object.entries(g.kinds).map(([k, n]) => `${k}:${n}`).join(', '),
+      sites: g.sites,
     })),
   });
 };

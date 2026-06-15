@@ -212,6 +212,8 @@ export const DEFAULT_EXTENSIONS = new Set([
   '.lua', '.r', '.R',
   // Resource / config
   '.rc', '.resx', '.plist', '.xml', '.json',
+  // Infrastructure as code (#168 — Terraform + Azure Bicep; YAML/JSON above)
+  '.tf', '.tfvars', '.bicep',
   // Documentation / text
   '.md', '.txt', '.rst', '.yaml', '.yml',
 ]);

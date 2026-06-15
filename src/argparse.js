@@ -129,6 +129,7 @@ export function parseArgs() {
     exports: null,
     imports_from: null,
     imports: null,
+    infrastructure: false,
     emit_catalog: null,
     catalog_replace: false,
     used_by: null,
@@ -351,6 +352,7 @@ export function parseArgs() {
     ['exports',              'optional_value', ['--exports']],
     ['imports_from',         'value',          ['--imports-from']],
     ['imports',              'value',          ['--imports']],
+    ['infrastructure',       'flag',           ['--infrastructure', '--infra']],
     ['emit_catalog',         'value',          ['--emit-catalog']],
     ['catalog_replace',      'flag',           ['--catalog-replace']],
     ['used_by',              'value',          ['--used-by']],
@@ -841,6 +843,12 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              library. Resolves named imports AND qualified
                              attribute access (import shap; shap.Explainer()).
                              Honors --filter; -v adds use sites.
+  --infrastructure, --infra  Non-AI/ML operational stack (#168): Containers,
+                             Kubernetes, IaC (Terraform/CloudFormation/Pulumi/
+                             Ansible), and CI/CD (GitHub Actions/GitLab/CircleCI)
+                             by file shape. Mechanical findings unmarked,
+                             heuristic (content-sniffed) marked ~. Honors
+                             --filter; -v lists all rows per cell.
   --dedup <mode>             Dedup mode: none, exact, structural
 
 MODE:
