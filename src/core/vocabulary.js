@@ -22,8 +22,30 @@ import path from 'path';
 import { TEXT_EXTENSIONS, splitCompoundToken } from '../utils.js';
 import { LOW_DISCRIMINATION_STOPWORDS } from '../commands/claim.js';
 import { STRUCTURE_KEYWORDS } from './structural-fingerprint.js';
-import { _computeTokenRelevance } from './CSI-helpers.js';
+import { _computeTokenRelevance, isMinified } from './CSI-helpers.js';
 import { makeFilterMatcher } from './filter-match.js';
+
+
+/**
+ * #172: corpus-shape noise that swamps TF-IDF and buries domain terms —
+ * excluded from the vocabulary corpus (the files stay indexed and searchable).
+ * Mirrors the Infrastructure detector's skip (#168): vendored/dependency
+ * trees, `.op` binstring decompile dumps, and minified bundles. Path-based
+ * where possible; minified needs the content.
+ */
+const _VENDOR_RE = /(^|\/)(node_modules|site-packages|vendor|bower_components|\.venv|dist|build)\//i;
+const _BUILD_OUT_RE = /(^|\/)(bin\/(debug|release)|obj)\//i;  // .NET build output: dlls + generated XML docs
+const _LOCKFILE_RE = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|gemfile\.lock|poetry\.lock|cargo\.lock)$/i;
+export function _isNoiseDoc(fp, content) {
+  const norm = String(fp).replace(/\\/g, '/');
+  if (_VENDOR_RE.test(norm)) return true;        // vendored / generated trees
+  if (_BUILD_OUT_RE.test(norm)) return true;     // bin/Debug, bin/Release, obj — build output
+  if (_LOCKFILE_RE.test(norm)) return true;      // dependency lockfiles (integrity-hash soup)
+  if (/\.op$/i.test(norm)) return true;          // binstring / decompile dumps
+  if (/\.nupkg!/i.test(norm)) return true;        // NuGet package-archive contents (vendored)
+  if (content != null && isMinified(fp, content)) return true;  // minified bundles
+  return false;
+}
 
 
 /**
@@ -143,7 +165,7 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
         const raw = fs.readFileSync(cachePath, 'utf-8');
         const cached = JSON.parse(raw);
         const cachedTokenCount = Object.keys(cached.tokens || {}).length;
-        if (cached._version === 1 && cached._file_count === idx.files.size && cachedTokenCount > 0) {
+        if (cached._version === 2 && cached._file_count === idx.files.size && cachedTokenCount > 0) {
           idx._vocabulary = new Map();
           for (const [token, entry] of Object.entries(cached.tokens || {})) {
             idx._vocabulary.set(token, entry);
@@ -186,7 +208,12 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
   if (showProgress) console.log(`Building vocabulary index for ${label}...`);
 
   let vocabulary = _buildVocabularyFromDocs(idx, fileEntries, totalFiles, showProgress, {
-    skipDoc: (fp) => TEXT_EXTENSIONS.has(path.extname(fp).toLowerCase()),
+    skipDoc: (fp, content) => {
+      const ext = path.extname(fp).toLowerCase();
+      // .xml is markup (and the source of generated .NET API-doc noise, #172) —
+      // skip it like the other prose/markup doc types in TEXT_EXTENSIONS.
+      return TEXT_EXTENSIONS.has(ext) || ext === '.xml' || _isNoiseDoc(fp, content);
+    },
     tokenCountOf: (fp) => {
       const fl = idx.fileLines.get(fp);
       return fl ? fl.length : 100;
@@ -219,7 +246,7 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
     const cachePath = _vocabularyPath(idx);
     try {
       const cacheObj = {
-        _version: 1,
+        _version: 2,
         _file_count: idx.files.size,
         _generated: new Date().toISOString(),
         tokens: {},
@@ -313,7 +340,7 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
       process.stdout.write(`  Pass 1: scanning ${docNum} / ${totalDocs} documents...\r`);
     }
 
-    if (skipDoc(docId)) continue;
+    if (skipDoc(docId, content)) continue;
 
     const text = content;
     const seenInDoc = new Set();
@@ -407,7 +434,7 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
       process.stdout.write(`  Pass 2: scanning ${docNum} / ${totalDocs} documents...\r`);
     }
 
-    if (skipDoc(docId)) continue;
+    if (skipDoc(docId, content)) continue;
 
     const text = content;
     let m;
