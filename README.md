@@ -255,6 +255,13 @@ standalone list (GUI accordion + CLI flag):
 - **Post-training / Fine-tuning** — fine-tuning & alignment mechanisms (LoRA/PEFT/adapters, SFT/DPO/PPO/GRPO, distillation), distinct from pretraining.
 - **Reasoning / CoT** — chain-of-thought and reflection *prompt language* (`step by step`, `chain-of-thought`, reflection/scratchpad). A heuristic signal over prompt text, not a structural-reasoning detector.
 
+### Infrastructure / DevOps detection
+
+Beyond the AI/ML cells, an **Infrastructure** accordion surfaces the non-AI/ML
+operational stack — Containers, Kubernetes, IaC, Cloud, and CI/CD — detected
+mechanically from file shapes (Dockerfiles, K8s manifests, Terraform, CI
+configs) and cloud-SDK usage (#168).
+
 ### Quasi-Source: recovering structure from non-source artifacts
 
 The thesis tying several features together: a surprising amount of useful
@@ -323,14 +330,18 @@ help.
 
 ### Index management
 - Pure-Node streaming JSON parser handles 5 GB+ indexes.
-- Build from directories, glob patterns, archives (zip/tar/gz), or
-  `@filelist` files.
+- Build from directories, glob patterns, archives (zip/tar/gz), `@filelist`
+  files, or a **`.har` (browser DevTools) capture** — indexing a website's
+  JavaScript straight from a saved network log (#161).
 - Query several indexes in a single run with `--multi-index @indexlist`.
 - Multi-language parser via tree-sitter WASM grammars + regex fallback:
   - Tree-sitter: **C, C++, Java, JavaScript, TypeScript, Python, C#, Go,
     Rust, PHP, Ruby**
   - Regex-only: **Swift, Kotlin, Scala, Lua, Objective-C, CoffeeScript,
     Perl, VBScript, AWK**
+- Non-code text is indexed as searchable text (not AST-parsed): **YAML**
+  (`.yaml`/`.yml`), Markdown, plain text. YAML coverage is what the
+  Infrastructure detectors content-sniff.
 
 **Multi-index and cross-index catalogs.** Beyond querying several indexes in
 one run (`--multi-index @indexlist`), CodeExam is growing *cross-index*
