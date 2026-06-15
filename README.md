@@ -380,7 +380,7 @@ CLI            Interactive       GUI server      MCP server
               ├── multisect.js           (smallest-scope-containing-all-terms)
               ├── vocabulary.js          (domain-vocabulary discovery)
               ├── ai-ml-detectors.js     (AI/ML + LLM-app detector suite)
-              ├── imports.js             (import census / extraction)
+              ├── imports.js             (per-language import-statement extractor)
               ├── exports.js             (declared-exports catalog)
               ├── import-join.js         (cross-index import↔export resolution)
               ├── stack-detectors.js     (Infrastructure / operational-stack)
@@ -399,7 +399,7 @@ src/commands/  (per-feature command modules invoked by the CLI / REPL /
   ├── search.js, browse.js, callers.js, graph.js
   ├── metrics.js, dedup.js, multisect.js
   ├── digest.js, prompts.js, claim.js, analyze.js
-  ├── imports.js, imports-from.js, exports.js  (import census + cross-index join + exports/used-by)
+  ├── imports.js, imports-from.js, exports.js  (--imports / --imports-from cross-index joins + --exports catalog/used-by)
   ├── census.js, infrastructure.js  (import census, Infrastructure accordion)
   ├── harness.js  (emitted activation-capture harness)
   ├── fingerprint.js, build_fp_renames.js
