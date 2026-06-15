@@ -19,7 +19,7 @@ import {
   ARCHIVE_EXTENSIONS, MEDIA_BINARY_EXTENSIONS, EXECUTABLE_EXTENSIONS,
   displayName, eprint, eprogress, splitCompoundToken,
 } from '../utils.js';
-import { expandArchive, isSupportedArchive, createArchiveStats } from '../archive.js';
+import { expandArchive, isSupportedArchive, createArchiveStats, resolveIndexDir } from '../archive.js';
 import { processBinary, BINSTRING_EXTENSIONS } from '../binstrings.js';
 import {
   _detectBundleHelpers, _findWrapperEnd, _parseEsbuildWrappers,
@@ -121,7 +121,9 @@ export class CodeSearchIndex {
    */
   constructor({ indexPath = '.code_search_index', extensions = null,
                 embeddingModel = 'default', excludeCompound = null } = {}) {
-    this.indexPath = indexPath;
+    // #176: a `.zip` of an index is extracted to a cached temp dir and used
+    // as the index directory; non-zip paths pass through unchanged.
+    this.indexPath = resolveIndexDir(indexPath);
     this.extensions = extensions || new Set(DEFAULT_EXTENSIONS);
     this.embeddingModel = embeddingModel;
 

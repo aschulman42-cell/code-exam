@@ -116,7 +116,18 @@ function initLoadIndex() {
       dirListEl.appendChild(el);
     }
 
-    if (data.dirs.length === 0) {
+    // #176: zipped indexes in this directory — click to populate, dbl-click to load.
+    for (const z of (data.zips || [])) {
+      const el = document.createElement('div');
+      el.className = 'browse-item is-index';
+      const fullPath = data.current + data.sep + z.name;
+      el.innerHTML = `<span class="dir-marker">zip</span> <span>${z.name}</span><span class="index-badge">index .zip</span>`;
+      el.addEventListener('click', () => { pathInput.value = fullPath; errDiv.style.display = 'none'; });
+      el.addEventListener('dblclick', () => { pathInput.value = fullPath; $('#load-index-ok').click(); });
+      dirListEl.appendChild(el);
+    }
+
+    if (data.dirs.length === 0 && (!data.zips || data.zips.length === 0)) {
       dirListEl.innerHTML = '<div style="padding:8px;color:var(--text-muted);font-size:12px">No subdirectories</div>';
     }
   }

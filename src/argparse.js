@@ -710,7 +710,9 @@ INDEX MANAGEMENT:
                              functions. Pair with --build-rename-map.
   --no-rename                Disable display-time renames for this run
                              (output uses raw obfuscated names)
-  --index-path <path>        Path to index directory (default: .code_search_index)
+  --index-path <path>        Path to index directory (default: .code_search_index).
+                             Also accepts a .zip of an index (e.g. a shipped
+                             sample) — extracted to a temp cache on first load.
   --multi-index @filelist    Alternative to --index-path: fan the rest of the
                              command across many indexes. @filelist holds one
                              index directory path per line; CodeExam runs the

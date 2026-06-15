@@ -17,6 +17,7 @@
 import zlib from 'zlib';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { processBinary } from './binstrings.js';
 import { DEFAULT_EXTENSIONS } from './utils.js';
 
@@ -938,5 +939,160 @@ export function isSupportedArchive(filePath) {
   if (lower.endsWith('.tar.gz')) return true;
   const ext = path.extname(lower);
   return SUPPORTED_ARCHIVE_EXTENSIONS.has(ext);
+}
+
+
+// ========================================================================
+// Zipped-index support (#176): load an index packaged as a single .zip
+// ========================================================================
+
+/**
+ * Read+decompress one zip entry, sized to the entry rather than the 256 MB
+ * build-index zip-bomb cap — index artifacts are trusted and a single
+ * literal_index.json / inverted_index.json routinely runs to hundreds of MB
+ * (the README documents multi-GB indexes). ZIP64 members are not supported.
+ */
+function _readIndexEntry(buf, offset, method, compSize, uncompSize) {
+  if (offset + 30 > buf.length || buf.readUInt32LE(offset) !== 0x04034b50) return null;
+  const nameLen = buf.readUInt16LE(offset + 26);
+  const extraLen = buf.readUInt16LE(offset + 28);
+  const gpFlag = buf.readUInt16LE(offset + 6);
+  // Bit 3: real sizes live in a trailing data descriptor — central-directory
+  // sizes are 0 here, which we can't use, so skip.
+  if (compSize === 0 && uncompSize === 0 && (gpFlag & 0x08)) return null;
+  const dataOffset = offset + 30 + nameLen + extraLen;
+  if (dataOffset + compSize > buf.length) return null;
+  const compData = buf.slice(dataOffset, dataOffset + compSize);
+  if (method === 0) return compData;                 // stored
+  if (method === 8) {                                // deflate
+    try { return zlib.inflateRawSync(compData, { maxOutputLength: uncompSize + 64 }); }
+    catch { return null; }
+  }
+  return null;                                        // unsupported method
+}
+
+/**
+ * Extract every entry of a .zip to `destDir`, decompressing one entry at a
+ * time and writing it straight to disk — peak memory is ~the single largest
+ * member, not the whole index. Rejects path traversal; flags encrypted
+ * entries (which are skipped). ZIP64 (>4 GB) throws.
+ *
+ * @returns {{fileCount:number, encryptedCount:number, names:string[]}}
+ */
+export function extractZipToDir(zipPath, destDir) {
+  const buf = fs.readFileSync(zipPath);
+
+  let eocd = -1;
+  const searchStart = Math.max(0, buf.length - 65557);
+  for (let i = buf.length - 22; i >= searchStart; i--) {
+    if (buf[i] === 0x50 && buf[i + 1] === 0x4b && buf[i + 2] === 0x05 && buf[i + 3] === 0x06) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error(`Not a valid .zip (no End-of-Central-Directory record): ${zipPath}`);
+
+  const cdEntries = buf.readUInt16LE(eocd + 10);
+  const cdOffset = buf.readUInt32LE(eocd + 16);
+  if (cdOffset === 0xFFFFFFFF || cdEntries === 0xFFFF)
+    throw new Error(`ZIP64 archive (>4 GB) is not supported yet: ${zipPath}`);
+
+  fs.mkdirSync(destDir, { recursive: true });
+
+  let pos = cdOffset, fileCount = 0, encryptedCount = 0;
+  const names = [];
+  for (let i = 0; i < cdEntries; i++) {
+    if (pos + 46 > buf.length || buf.readUInt32LE(pos) !== 0x02014b50) break;
+    const gpFlag = buf.readUInt16LE(pos + 8);
+    const method = buf.readUInt16LE(pos + 10);
+    const compSize = buf.readUInt32LE(pos + 20);
+    const uncompSize = buf.readUInt32LE(pos + 24);
+    const nameLen = buf.readUInt16LE(pos + 28);
+    const extraLen = buf.readUInt16LE(pos + 30);
+    const commentLen = buf.readUInt16LE(pos + 32);
+    const localOff = buf.readUInt32LE(pos + 42);
+    const name = buf.slice(pos + 46, pos + 46 + nameLen).toString('utf-8');
+    pos += 46 + nameLen + extraLen + commentLen;
+
+    const rel = name.replace(/\\/g, '/');
+    if (rel.split('/').some(seg => seg === '..')) continue;   // path-traversal guard
+    const outPath = path.join(destDir, rel);
+
+    if (rel.endsWith('/')) { fs.mkdirSync(outPath, { recursive: true }); continue; }
+    if ((gpFlag & 0x01) !== 0) { encryptedCount++; continue; }
+
+    const data = _readIndexEntry(buf, localOff, method, compSize, uncompSize);
+    if (data == null) continue;
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, data);
+    fileCount++;
+    names.push(rel);
+  }
+  return { fileCount, encryptedCount, names };
+}
+
+/** The dir under `base` holding literal_index.json (base itself, or a single subdir), or null. */
+function _findIndexRoot(base) {
+  try {
+    if (fs.existsSync(path.join(base, 'literal_index.json'))) return base;
+    for (const ent of fs.readdirSync(base, { withFileTypes: true })) {
+      if (ent.isDirectory() && fs.existsSync(path.join(base, ent.name, 'literal_index.json')))
+        return path.join(base, ent.name);
+    }
+  } catch { /* fallthrough */ }
+  return null;
+}
+
+/**
+ * Resolve an index path that points at a `.zip` to a real directory on disk,
+ * extracting to a cached temp dir on first use (#176). Non-zip paths (and
+ * missing paths) are returned unchanged, so this is a no-op for normal
+ * directory indexes.
+ *
+ * Cache key = basename+size+mtime, so repeated runs over the same `.zip`
+ * reuse the extraction instead of re-unpacking hundreds of MB each time.
+ *
+ * @param {string} indexPath
+ * @returns {string}
+ */
+export function resolveIndexDir(indexPath) {
+  if (!indexPath || typeof indexPath !== 'string') return indexPath;
+  if (!/\.zip$/i.test(indexPath)) return indexPath;
+  let st;
+  try { st = fs.statSync(indexPath); } catch { return indexPath; }  // let downstream report a missing path
+  if (st.isDirectory()) return indexPath;                            // a directory literally named "*.zip"
+
+  const base = path.basename(indexPath).replace(/\.zip$/i, '');
+  const key = `${base}-${st.size}-${Math.round(st.mtimeMs)}`;
+  const cacheDir = path.join(os.tmpdir(), 'codeexam-zip-index', key);
+
+  const cached = _findIndexRoot(cacheDir);
+  if (cached) {
+    process.stderr.write(`[zip-index] reusing cached extraction: ${cached}\n`);
+    return cached;
+  }
+
+  const staging = `${cacheDir}.staging-${process.pid}`;
+  try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* ignore */ }
+  process.stderr.write(`[zip-index] extracting ${path.basename(indexPath)} (one-time, cached afterward)...\n`);
+  const { fileCount, encryptedCount } = extractZipToDir(indexPath, staging);
+
+  let root = _findIndexRoot(staging);
+  if (!root) {
+    try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* ignore */ }
+    if (encryptedCount > 0) {
+      throw new Error(`${path.basename(indexPath)} has ${encryptedCount} encrypted entr${encryptedCount === 1 ? 'y' : 'ies'} and no readable index files — password-protected index loading is not yet supported (#176).`);
+    }
+    throw new Error(`${path.basename(indexPath)} is not a CodeExam index zip (no literal_index.json among ${fileCount} extracted file(s)).`);
+  }
+
+  try { fs.rmSync(cacheDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  try {
+    fs.mkdirSync(path.dirname(cacheDir), { recursive: true });
+    fs.renameSync(staging, cacheDir);
+    root = _findIndexRoot(cacheDir) || cacheDir;
+  } catch {
+    // Cross-device rename or a race: use the staging extraction in place.
+    return root;
+  }
+  process.stderr.write(`[zip-index] extracted to ${root}\n`);
+  return root;
 }
 

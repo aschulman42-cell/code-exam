@@ -20,6 +20,7 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
+import { resolveIndexDir } from './archive.js';
 import { groupSites, groupPipelines, reTestExamplePath, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { makeFilterMatcher } from './core/filter-match.js';
 import { extractExports } from './core/exports.js';
@@ -778,8 +779,15 @@ routes['/api/browse-dir'] = (req, res) => {
     return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
   });
 
+  // #176: also surface .zip files so a zipped index can be picked from Browse.
+  const zips = [];
+  for (const entry of entries) {
+    if (entry.isFile() && /\.zip$/i.test(entry.name)) zips.push({ name: entry.name });
+  }
+  zips.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+
   const parent = path.dirname(dirPath);
-  jsonResponse(res, { current: dirPath, parent: parent !== dirPath ? parent : null, sep: path.sep, dirs });
+  jsonResponse(res, { current: dirPath, parent: parent !== dirPath ? parent : null, sep: path.sep, dirs, zips });
 };
 
 routes['/api/stats'] = (req, res) => {
@@ -1277,11 +1285,22 @@ routes['/api/load-index'] = (req, res) => {
       if (!indexPath) return errorResponse(res, 'Missing "path" in body');
       const mode = params.mode || 'replace';
       if (!fs.existsSync(indexPath)) return errorResponse(res, `Path not found: ${indexPath}`, 404);
+      // #176: a .zip of an index — extract to a cached temp dir and validate/
+      // load the resulting directory. resolveIndexDir is a no-op for non-zip
+      // paths, so directory indexes are unchanged.
+      let indexDir = indexPath;
+      if (/\.zip$/i.test(indexPath)) {
+        try {
+          if (fs.statSync(indexPath).isFile()) indexDir = resolveIndexDir(indexPath);
+        } catch (e) {
+          return errorResponse(res, `Cannot open zipped index ${indexPath}: ${e.message}`, 400);
+        }
+      }
       // Lightweight validation: check files exist without loading the index
       // (Loading a probe CodeSearchIndex would read the entire literal_index.json,
       // which OOMs on huge indexes like Chromium's 5.3GB literal_index.)
       const warnings = [];
-      const litPath = path.join(indexPath, 'literal_index.json');
+      const litPath = path.join(indexDir, 'literal_index.json');
       if (!fs.existsSync(litPath)) {
         return errorResponse(res, `Index at ${indexPath} is unusable: literal_index.json is missing`, 400);
       }
@@ -1292,7 +1311,7 @@ routes['/api/load-index'] = (req, res) => {
         return errorResponse(res, `Cannot read literal_index.json: ${e.message}`, 400);
       }
       for (const fname of ['inverted_index.json', 'function_index.json']) {
-        const fp = path.join(indexPath, fname);
+        const fp = path.join(indexDir, fname);
         if (!fs.existsSync(fp)) warnings.push(`${fname} is missing`);
         else {
           try { if (fs.statSync(fp).size === 0) warnings.push(`${fname} is empty`); }
@@ -1300,7 +1319,7 @@ routes['/api/load-index'] = (req, res) => {
         }
       }
       if (mode === 'replace') { mgr.indexes.clear(); mgr.activeIndex = null; }
-      const name = mgr.load(indexPath);
+      const name = mgr.load(indexDir);
       if (!name) return errorResponse(res, `No files found in index at: ${indexPath}`, 400);
       mgr.activeIndex = name;
       const resp = { loaded: name, mode, indexes: mgr.list() };
