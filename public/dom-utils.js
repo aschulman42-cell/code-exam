@@ -72,6 +72,146 @@ function execCopyFallback(text) {
   });
 }
 
+/**
+ * Download a string as a text file (client-side, no server round-trip). #177
+ */
+export function downloadText(filename, text) {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/**
+ * Pane text extraction for Save/Copy (#177).
+ *
+ * Robustness notes (hard-won on Windows/Chromium):
+ * - Reads innerText off a clone mounted off-screen so layout-derived line
+ *   breaks are correct. The clone is always the WHOLE body, never a
+ *   sub-element in isolation: the accordion's display rule is ancestor-scoped
+ *   (`.accordion-section.open > .accordion-content`), so a bare
+ *   `.accordion-content` clone loses the `.open` ancestor, renders display:none,
+ *   and innerText collapses everything onto one line.
+ * - `.list-item` rows are flex with no whitespace text nodes between their cell
+ *   spans, so innerText runs them together ("github-actions:34×34"). We insert
+ *   a tab between each row's cells before reading.
+ *
+ * Line numbers: stripped by default — matches the `--extract` CLI convention.
+ * Pass { lineNumbers: true } (GUI: Shift-click) to keep them, tab-separated.
+ * NOTE (#177 cross-surface inconsistency): the opposite of the `--show-file`
+ * CLI command, which prints line numbers. A future change could unify them or
+ * add the toggle to `--show-file`.
+ */
+function _prepPaneClone(bodyEl, lineNumbers) {
+  const clone = bodyEl.cloneNode(true);
+  // KEEP .list-placeholder: besides empty-state hints, that class also carries
+  // footer counts, truncation warnings ("Showing X of Y+"), and honesty caveats
+  // (list-renderers.js). Those MUST survive into a saved/copied file so it never
+  // looks more complete — or less qualified — than the GUI (#177). Strip only
+  // pure UI chrome.
+  clone.querySelectorAll('button, .pane-popout-placeholder, .accordion-toggle, .sub-accordion-toggle')
+    .forEach((el) => el.remove());
+  if (!lineNumbers) clone.querySelectorAll('.line-number').forEach((el) => el.remove());
+
+  // Flex rows blockify their cell children, so innerText would put each cell on
+  // its OWN line. Flatten each row to a single tab-joined string so the row
+  // stays on one line; the row is still block-level, so the line break BETWEEN
+  // rows is preserved. List/label rows collapse cell whitespace; source lines
+  // must keep code indentation intact, so they're handled separately.
+  clone.querySelectorAll('.list-item, .sub-accordion-header').forEach((row) => {
+    const parts = [];
+    for (const n of row.childNodes) {
+      const t = (n.textContent || '').replace(/\s+/g, ' ').trim();
+      if (t) parts.push(t);
+    }
+    row.textContent = parts.join('\t');
+  });
+  clone.querySelectorAll('.source-line').forEach((row) => {
+    const num = row.querySelector('.line-number');           // present only when lineNumbers
+    const content = row.querySelector('.line-content');
+    const code = content ? content.textContent : row.textContent;  // preserve indentation
+    row.textContent = (num ? num.textContent.trim() + '\t' : '') + code;
+  });
+  return clone;
+}
+
+function _mount(clone, width) {
+  clone.style.cssText = `position:fixed;left:-99999px;top:0;width:${width}px`;
+  document.body.appendChild(clone);
+  return clone;
+}
+
+function _tidy(text) {
+  return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+export function paneText(bodyEl, { lineNumbers = false } = {}) {
+  if (!bodyEl) return '';
+  const clone = _mount(_prepPaneClone(bodyEl, lineNumbers), bodyEl.clientWidth || 800);
+  const text = clone.innerText;
+  clone.remove();
+  return _tidy(text);
+}
+
+/**
+ * Left-pane (accordion) extraction (#177): only the OPEN sections (heading +
+ * content); if none open, just the category list. Clones the whole body so the
+ * `.open` display context survives.
+ */
+function accordionText(bodyEl) {
+  const clone = _mount(_prepPaneClone(bodyEl, false), bodyEl.clientWidth || 800);
+  // textContent (not innerText) for headers — the flex header blockifies its
+  // badge span, which innerText would push onto its own line ("Infrastructure\n2").
+  const hdr = (el) => (el?.textContent || '').replace(/[▸▾]/g, '').replace(/\s+/g, ' ').trim();
+  let out;
+  const open = [...clone.querySelectorAll('.accordion-section.open')];
+  if (open.length) {
+    out = open.map((sec) => {
+      const header = hdr(sec.querySelector('.accordion-header'));
+      const content = _tidy(sec.querySelector('.accordion-content')?.innerText || '');
+      return content ? `## ${header}\n${content}` : `## ${header}`;
+    }).join('\n\n');
+  } else {
+    const lines = [];
+    clone.querySelectorAll('.accordion-group-label, .accordion-header').forEach((el) => {
+      const t = hdr(el);
+      if (t) lines.push(el.classList.contains('accordion-group-label') ? `# ${t}` : `- ${t}`);
+    });
+    out = lines.join('\n');
+  }
+  clone.remove();
+  return out.trim();
+}
+
+/** Dispatch: accordion bodies use the scoped extractor; others the generic one. */
+export function extractPaneText(bodyEl, opts) {
+  if (!bodyEl) return '';
+  if (bodyEl.querySelector('.accordion-section')) return accordionText(bodyEl);
+  return paneText(bodyEl, opts);
+}
+
+/**
+ * Filename base for a Save (#177). For the accordion left pane, reflect the
+ * open sections (or "categories" if none open) rather than a fixed label;
+ * otherwise use the button's declared name.
+ */
+export function paneSaveName(bodyEl, fallback) {
+  if (bodyEl && bodyEl.querySelector('.accordion-section')) {
+    const open = [...bodyEl.querySelectorAll('.accordion-section.open')];
+    if (!open.length) return 'categories';
+    const names = open.map((s) => (s.querySelector('.accordion-header')?.textContent || '')
+      .replace(/[▸▾]/g, '').replace(/\d+/g, '').trim().toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')).filter(Boolean);
+    return names.join('_').slice(0, 40) || (fallback || 'left-pane');
+  }
+  return fallback || 'pane';
+}
+
 export function shortPath(fp, maxLen = 45) {
   if (!fp) return '';
   fp = fp.replace(/\\/g, '/');

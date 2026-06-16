@@ -67,6 +67,8 @@
     <section id="left-pane" class="pane">
       <div class="pane-filter" style="display:flex;align-items:center;gap:4px">
         <input type="text" id="left-filter" placeholder="string or /regex/" autocomplete="off" spellcheck="false" style="flex:1">
+        <button class="pane-action" data-copy="left-body" title="Copy pane text" style="flex-shrink:0">📋</button>
+        <button class="pane-action" data-save="left-body" data-name="functions" title="Save pane to text file" style="flex-shrink:0">💾</button>
         <button class="pane-action" id="left-pane-popout" title="Pop out full screen" style="flex-shrink:0;font-size:14px">⛶</button>
       </div>
       <div class="pane-body scrollable" id="left-body">
@@ -279,6 +281,8 @@
             <button class="pane-nav-btn" id="output-fwd-btn" title="Forward" style="display:none">▶</button>
           </span>
           <span id="middle-top-title">Output</span>
+          <button class="pane-action" data-copy="middle-top-body" title="Copy pane text">📋</button>
+          <button class="pane-action" data-save="middle-top-body" data-name="output" title="Save pane to text file">💾</button>
           <button class="pane-action" data-popout="middle-top" title="Pop out full screen">⛶</button>
           <button class="pane-action" data-close="middle-top" title="Close pane">✕</button>
         </div>
@@ -294,6 +298,8 @@
             <button class="pane-nav-btn" id="source-fwd-btn" title="Forward" style="display:none">▶</button>
           </span>
           <span id="middle-bottom-title">Source</span>
+          <button class="pane-action" data-copy="middle-bottom-body" title="Copy pane text (Shift: keep line numbers)">📋</button>
+          <button class="pane-action" data-save="middle-bottom-body" data-name="source" title="Save pane to text file (Shift: keep line numbers)">💾</button>
           <button class="pane-action" data-popout="middle-bottom" title="Pop out full screen">⛶</button>
           <button class="pane-action" data-close="middle-bottom" title="Close pane">✕</button>
         </div>
@@ -339,6 +345,7 @@
             <button class="pane-tab" data-tab="console">Console</button>
           </span>
           <span id="llm-status" class="status-badge hidden">Working…</span>
+          <button class="pane-action" data-save="right-bottom-body" data-name="analysis" data-md="1" title="Save analysis to text file">💾</button>
           <button class="pane-action" data-popout="right-bottom" title="Pop out full screen">⛶</button>
           <button class="pane-action" data-close="right-bottom" title="Close pane">✕</button>
         </div>
@@ -361,7 +368,9 @@
     <div class="split-handle horizontal" id="workspace-resize-handle" title="Drag to resize"></div>
     <div class="workspace-handle" id="workspace-toggle">
       <span>Claim / Multisect Workspace</span>
-      <button class="pane-action" id="workspace-popout" title="Pop out full screen" style="font-size:14px;margin-left:auto">⛶</button>
+      <button class="pane-action" data-copy="workspace-body" title="Copy workspace text" style="font-size:14px;margin-left:auto">📋</button>
+      <button class="pane-action" data-save="workspace-body" data-name="workspace" title="Save workspace to text file" style="font-size:14px">💾</button>
+      <button class="pane-action" id="workspace-popout" title="Pop out full screen" style="font-size:14px">⛶</button>
       <button id="workspace-expand-btn">▾ Collapse</button>
     </div>
     <div class="workspace-body" id="workspace-body">
@@ -562,6 +571,8 @@
     <div class="fullscreen-diagram">
       <div class="fullscreen-header">
         <span id="generic-fs-title">Panel</span>
+        <button class="pane-action" id="generic-fs-copy" title="Copy pane text (Shift: keep line numbers)">📋</button>
+        <button class="pane-action" id="generic-fs-save" title="Save pane to text file (Shift: keep line numbers)">💾</button>
         <button class="pane-action" id="generic-fs-close" title="Close">✕</button>
       </div>
       <div class="fullscreen-body scrollable" id="generic-fs-body"></div>

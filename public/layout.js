@@ -16,7 +16,7 @@
  * right-bottom pane when the user invokes the Console.
  */
 
-import { $, $$, makeDraggable, bringToFront } from './dom-utils.js';
+import { $, $$, makeDraggable, bringToFront, downloadText, extractPaneText, paneSaveName, copyToClipboard } from './dom-utils.js';
 import { state } from './state.js';
 
 // ============================================================================
@@ -191,6 +191,46 @@ export function initWindowManagement() {
     // #177: clicking anywhere in a pop-out raises its overlay above the others.
     if (overlay && win) win.addEventListener('mousedown', () => bringToFront(overlay));
   }
+
+  // #177: per-pane Save (download text) + Copy (clipboard) header icons.
+  // Capture phase + stopPropagation so a Save/Copy click inside the workspace
+  // handle doesn't also toggle the workspace (its handler only ignores
+  // #workspace-popout by id, app.js:993).
+  function flashPaneAction(btn) {
+    if (!btn) return;
+    const orig = btn.textContent;
+    btn.textContent = '✓';
+    setTimeout(() => { btn.textContent = orig; }, 1200);
+  }
+  document.addEventListener('click', (e) => {
+    const saveBtn = e.target.closest('[data-save]');
+    if (saveBtn) {
+      // Only swallow the event for workspace-handle buttons (whose ancestor
+      // toggles the workspace); elsewhere let the click bubble normally.
+      if (saveBtn.closest('#workspace-toggle')) e.stopPropagation();
+      const body = $('#' + saveBtn.dataset.save);
+      const ext = saveBtn.dataset.md ? '.md' : '.txt';
+      downloadText(paneSaveName(body, saveBtn.dataset.name) + ext, extractPaneText(body, { lineNumbers: e.shiftKey }));
+      flashPaneAction(saveBtn);
+      return;
+    }
+    const copyBtn = e.target.closest('[data-copy]');
+    if (copyBtn) {
+      if (copyBtn.closest('#workspace-toggle')) e.stopPropagation();
+      copyToClipboard(extractPaneText($('#' + copyBtn.dataset.copy), { lineNumbers: e.shiftKey })).then(() => flashPaneAction(copyBtn));
+      return;
+    }
+  }, true);
+
+  // #177: pop-out header Save/Copy act on whatever pane is currently popped.
+  $('#generic-fs-save')?.addEventListener('click', (e) => {
+    const name = ($('#generic-fs-title')?.textContent || 'pane').trim().replace(/[^\w.-]+/g, '_') || 'pane';
+    downloadText(name + '.txt', extractPaneText($('#generic-fs-body'), { lineNumbers: e.shiftKey }));
+    flashPaneAction($('#generic-fs-save'));
+  });
+  $('#generic-fs-copy')?.addEventListener('click', (e) => {
+    copyToClipboard(extractPaneText($('#generic-fs-body'), { lineNumbers: e.shiftKey })).then(() => flashPaneAction($('#generic-fs-copy')));
+  });
 }
 
 export function hidePane(id) {
@@ -214,6 +254,12 @@ export function openGenericFullscreen(paneId) {
   // pop-out doesn't reopen off-screen where it was last dragged).
   const _gwin = $('#generic-fullscreen .fullscreen-diagram');
   if (_gwin) { _gwin.style.position = ''; _gwin.style.left = ''; _gwin.style.top = ''; _gwin.style.right = ''; }
+
+  // #177: the analysis pane carries its own Copy Analysis / Copy Prompt buttons
+  // (reparented into the pop-out), so suppress the redundant generic pop-out
+  // Copy for it; every other pane gets it.
+  const _fsCopy = $('#generic-fs-copy');
+  if (_fsCopy) _fsCopy.style.display = (paneId === 'right-bottom') ? 'none' : '';
 
   if (paneId === 'right-bottom') {
     const activeTab = $('#right-bottom .pane-tab.active');
