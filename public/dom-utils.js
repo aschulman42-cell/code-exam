@@ -101,8 +101,15 @@ export const HIGHLIGHT_COLORS = [
   '#4B6B2E',   // olive
 ];
 
+// #177: shared stacking counter so clicking any floating window raises it above
+// the others (z-order for overlapping pop-outs / panels). Starts above the
+// static baselines (.floating-panel 250, .modal-overlay 300).
+let _zTop = 400;
+export function bringToFront(el) { if (el) el.style.zIndex = String(++_zTop); }
+
 /** Make a floating panel draggable by its header. */
 export function makeDraggable(panel, handle) {
+  panel.addEventListener('mousedown', () => bringToFront(panel));
   handle.addEventListener('mousedown', (e) => {
     if (e.target.tagName === 'BUTTON') return;  // don't drag when clicking buttons
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;  // and inputs

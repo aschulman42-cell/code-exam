@@ -195,10 +195,31 @@ body.hide-inferred-suffix .inferred-suffix { display: none; }
 .fullscreen-header { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; color: var(--text-bright); }
 .fullscreen-header span:first-child { flex: 1; }
 .fullscreen-body { flex: 1; overflow: auto; padding: 16px; }
+
+/* #177: pane pop-outs are MOVEABLE floating windows, not blocking overlays —
+   the user can drag them aside and see/work underneath. Scoped to the two
+   pop-out overlays only; the real .modal dialogs stay modal. */
+#generic-fullscreen, #diagram-fullscreen { background: none; pointer-events: none; }
+#generic-fullscreen .fullscreen-diagram, #diagram-fullscreen .fullscreen-diagram {
+  pointer-events: auto; width: 72vw; height: 78vh;
+  min-width: 360px; min-height: 240px; max-width: 98vw; max-height: 94vh;
+  resize: both; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,.6);
+  border: 1px solid var(--accent-dim);  /* #177: visible window edge, doesn't bleed into bg */
+}
+.fullscreen-header { cursor: move; user-select: none; }
+/* #177: stand-in shown in a pane's docked slot while its live content is popped
+   out into a floating window; click to return the pane. */
+.pane-popout-placeholder {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; min-height: 60px; padding: 12px;
+  color: var(--text-muted); font-size: 12px; text-align: center;
+  cursor: pointer; user-select: none;
+}
+.pane-popout-placeholder:hover { color: var(--accent); }
 .diagram-viewport { transform-origin: top left; transition: transform .15s; }
 
 /* ---- Floating panel (non-modal popup) ---- */
-.floating-panel { position: fixed; z-index: 250; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,.5); }
+.floating-panel { position: fixed; z-index: 250; background: var(--bg-panel); border: 1px solid var(--accent-dim); border-radius: 6px; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,.5); }
 .floating-panel.hidden { display: none; }
 .floating-panel .floating-header { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 13px; color: var(--text-bright); cursor: move; user-select: none; background: var(--bg-header); border-radius: 6px 6px 0 0; }
 .floating-panel .floating-header span:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

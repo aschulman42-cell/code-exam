@@ -16,7 +16,7 @@
  * right-bottom pane when the user invokes the Console.
  */
 
-import { $, $$ } from './dom-utils.js';
+import { $, $$, makeDraggable, bringToFront } from './dom-utils.js';
 import { state } from './state.js';
 
 // ============================================================================
@@ -176,6 +176,21 @@ export function initWindowManagement() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('#generic-fullscreen').classList.contains('hidden')) closeGenericFullscreen();
   });
+
+  // #177: make the pop-out windows draggable by their header so the user can
+  // move them aside and see/work underneath. makeDraggable is modal-aware
+  // (forces position:fixed on first drag), so the flex-centered window detaches
+  // and moves. Wired once on the static overlay markup; covers both the generic
+  // pane pop-out (left / middle / right-bottom / workspace) and the diagram
+  // pop-out (right-top). CSS makes the overlays non-blocking (pointer-events).
+  for (const ovId of ['#generic-fullscreen', '#diagram-fullscreen']) {
+    const overlay = $(ovId);
+    const win = $(`${ovId} .fullscreen-diagram`);
+    const handle = $(`${ovId} .fullscreen-header`);
+    if (win && handle) makeDraggable(win, handle);
+    // #177: clicking anywhere in a pop-out raises its overlay above the others.
+    if (overlay && win) win.addEventListener('mousedown', () => bringToFront(overlay));
+  }
 }
 
 export function hidePane(id) {
@@ -194,6 +209,11 @@ export function showPane(id) {
 
 export function openGenericFullscreen(paneId) {
   let paneBody, titleText;
+
+  // #177: re-center the floating window on each open (clear any prior drag so a
+  // pop-out doesn't reopen off-screen where it was last dragged).
+  const _gwin = $('#generic-fullscreen .fullscreen-diagram');
+  if (_gwin) { _gwin.style.position = ''; _gwin.style.left = ''; _gwin.style.top = ''; _gwin.style.right = ''; }
 
   if (paneId === 'right-bottom') {
     const activeTab = $('#right-bottom .pane-tab.active');
@@ -280,6 +300,16 @@ export function openGenericFullscreen(paneId) {
   state._fsReturnNode = paneBody;
   if (state._fsFilterBar) fsBody.appendChild(state._fsFilterBar);
   fsBody.appendChild(paneBody);
+  // #177: the pop-out *moves* (reparents) the live pane node into the floating
+  // window, so the docked slot would otherwise go blank. Drop a placeholder in
+  // its place so the empty slot reads as intentional and doubles as a one-click
+  // "pop back in" control.
+  const ph = document.createElement('div');
+  ph.className = 'pane-popout-placeholder';
+  ph.textContent = '▣ Popped out — click to return';
+  ph.addEventListener('click', closeGenericFullscreen);
+  state._fsPlaceholder = ph;
+  state._fsReturnTarget.appendChild(ph);
   overlay.classList.remove('hidden');
 }
 
@@ -293,6 +323,11 @@ function closeGenericFullscreen() {
     state._fsFilterParent.insertBefore(state._fsFilterBar, state._fsFilterParent.firstChild);
     state._fsFilterBar = null;
     state._fsFilterParent = null;
+  }
+  // #177: remove the docked-slot placeholder before the live node returns to it.
+  if (state._fsPlaceholder) {
+    state._fsPlaceholder.remove();
+    state._fsPlaceholder = null;
   }
   if (state._fsReturnTarget && state._fsReturnNode) {
     state._fsReturnTarget.appendChild(state._fsReturnNode);
