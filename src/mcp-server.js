@@ -96,7 +96,7 @@ const TOOLS = [
   },
   {
     name: 'extract',
-    description: 'Extract the full source code of a function by name. Use file@funcname for disambiguation.',
+    description: 'Extract the COMPLETE SOURCE CODE of a function from the index. The source IS available to you here — read it with this tool instead of guessing. Use file@funcname for disambiguation.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -107,7 +107,7 @@ const TOOLS = [
   },
   {
     name: 'show_file',
-    description: 'Show the full source of an indexed file, or a range of lines.',
+    description: 'Return the COMPLETE SOURCE TEXT of an indexed file (or a line range). The file IS available to you in the index — call this to read a file instead of guessing or inferring its contents.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -182,6 +182,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         n: { type: 'number', description: 'How many tokens (default 50)' },
+        with_sites: { type: 'boolean', description: 'Include 1-2 example file paths per term (default false — omit for a compact terms-only list; use search to locate a term)' },
         filter: { type: 'string', description: 'Filter vocabulary to files matching this path substring' },
       },
     },
@@ -260,7 +261,7 @@ const TOOLS = [
   },
   {
     name: 'digest',
-    description: 'Concise digest of a function, class, or file: identity, callers, callees, distinctive strings, and structure (inheritance for classes; imports/exports for files). The "tell me about X" summary — prefer this over chaining callers+callees+extract.',
+    description: 'Concise digest of a function, class, or file: identity, callers, callees, distinctive strings, and structure (inheritance for classes; imports/exports for files). The "tell me about X" summary — prefer this over chaining callers+callees+extract. The code IS available from the index — base the summary on this tool\'s output, never on guesses.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -325,6 +326,13 @@ function captureStdout(fn) {
   return chunks.join('');
 }
 
+// Truncate a long single line so a big match (minified bundle / embedded
+// prompt text) doesn't blow the caller's context window (#160 A6).
+function clipLine(s, n = 200) {
+  s = String(s);
+  return s.length > n ? s.slice(0, n) + ` ...[+${s.length - n} chars]` : s;
+}
+
 function handleTool(name, args) {
   switch (name) {
 
@@ -334,7 +342,7 @@ function handleTool(name, args) {
       const results = index.searchLiteral(query, { maxResults: max, contextLines: 0 });
       if (results.length === 0) return `No results for "${query}"`;
       return results.map(r =>
-        `${r.filePath}:${r.lineNumber}  ${r.lineText}` +
+        `${r.filePath}:${r.lineNumber}  ${clipLine(r.lineText)}` +
         (r.functionName ? `  (in ${r.functionName})` : '')
       ).join('\n');
     }
@@ -344,7 +352,7 @@ function handleTool(name, args) {
       const results = index.searchLiteral(args.pattern, { useRegex: true, maxResults: max, contextLines: 0 });
       if (results.length === 0) return `No results for /${args.pattern}/`;
       return results.map(r =>
-        `${r.filePath}:${r.lineNumber}  ${r.lineText}` +
+        `${r.filePath}:${r.lineNumber}  ${clipLine(r.lineText)}` +
         (r.functionName ? `  (in ${r.functionName})` : '')
       ).join('\n');
     }
@@ -399,22 +407,33 @@ function handleTool(name, args) {
 
     case 'show_file': {
       const fp = args.filepath;
-      // Find matching file (partial match)
-      let matchedPath = null;
-      for (const p of index.files.keys()) {
-        if (p === fp || p.endsWith(fp) || p.includes(fp)) {
-          matchedPath = p;
-          break;
-        }
+      // Match by exact path first, then suffix, then substring. (#160 A5)
+      const keys = [...index.files.keys()];
+      let matches = keys.filter(p => p === fp);
+      if (!matches.length) matches = keys.filter(p => p.endsWith(fp));
+      if (!matches.length) matches = keys.filter(p => p.includes(fp));
+      if (!matches.length) return `File not found: ${fp}`;
+      // #160 A5: don't silently pick the first of several — list candidates so
+      // the caller can disambiguate (e.g. several "rollout.py" across repos).
+      if (matches.length > 1) {
+        return `Ambiguous: ${matches.length} files match "${fp}". Pass a more specific path:\n` +
+          matches.slice(0, 20).map(p => `  ${p}`).join('\n') +
+          (matches.length > 20 ? `\n  ... and ${matches.length - 20} more` : '');
       }
-      if (!matchedPath) return `File not found: ${fp}`;
+      const matchedPath = matches[0];
       const lines = index.fileLines.get(matchedPath);
       if (!lines) return `No content for: ${matchedPath}`;
       const start = (args.start_line || 1) - 1;
-      const end = args.end_line || lines.length;
+      // #160 A4: cap an unbounded request so a big file doesn't blow the
+      // caller's context — first 200 lines unless an explicit end_line is given.
+      const DEFAULT_CAP = 200;
+      const end = args.end_line || Math.min(lines.length, start + DEFAULT_CAP);
       const slice = lines.slice(start, end);
       const numbered = slice.map((l, i) => `${start + i + 1}: ${l}`).join('\n');
-      return `${matchedPath} (${lines.length} lines total, showing ${start + 1}-${end}):\n${numbered}`;
+      const more = (!args.end_line && end < lines.length)
+        ? `\n... ${lines.length - end} more lines — pass end_line (or a start_line/end_line range) to see them.`
+        : '';
+      return `${matchedPath} (${lines.length} lines total, showing ${start + 1}-${end}):\n${numbered}${more}`;
     }
 
     case 'callers': {
@@ -501,12 +520,20 @@ function handleTool(name, args) {
 
     case 'vocabulary': {
       const n = args.n || 50;
+      // #160 A7: default to terms only — the example paths bloat a small
+      // model's context (and stalled prefill). Opt in with with_sites; use
+      // `search <term>` to locate a term's sites.
+      const withSites = !!args.with_sites;
       const vocab = index.getTopVocabulary(n, args.filter || null, null);
       if (!vocab || vocab.length === 0) return 'No vocabulary available (run --discover-vocabulary first or rebuild index)';
-      const lines = [`Top ${vocab.length} domain vocabulary tokens:`];
+      const lines = [`Top ${vocab.length} domain vocabulary tokens` +
+        (withSites ? ':' : ' (terms only; pass with_sites:true for example paths):')];
       for (const v of vocab) {
-        const files = v.top_files ? v.top_files.slice(0, 2).map(f => f.path).join(', ') : '';
-        lines.push(`  ${v.score.toFixed(0)}\t${v.token}\t(${v.doc_freq} files, ${v.total_count} hits)${files ? '  e.g. ' + files : ''}`);
+        let line = `  ${v.score.toFixed(0)}\t${v.token}\t(${v.doc_freq} files, ${v.total_count} hits)`;
+        if (withSites && v.top_files && v.top_files.length) {
+          line += '  e.g. ' + v.top_files.slice(0, 2).map(f => f.path).join(', ');
+        }
+        lines.push(line);
       }
       return lines.join('\n');
     }
@@ -522,7 +549,11 @@ function handleTool(name, args) {
         );
       }
       if (filtered.length === 0) return 'No functions found';
-      const lines = [`${filtered.length} functions${args.filter ? ` matching "${args.filter}"` : ''} (showing ${Math.min(max, filtered.length)}):`];
+      // #160 A8: same non-selective-filter warning as list_files.
+      const unselective = (args.filter && allFuncs.length && filtered.length >= allFuncs.length * 0.9)
+        ? ` (note: filter "${args.filter}" matched ${filtered.length}/${allFuncs.length} — not selective; omit it for the whole picture)`
+        : '';
+      const lines = [`${filtered.length} functions${args.filter ? ` matching "${args.filter}"` : ''} (showing ${Math.min(max, filtered.length)}):${unselective}`];
       for (const fn of filtered.slice(0, max)) {
         lines.push(`  ${fn.name}\t${fn.filepath}\t${fn.lines}L`);
       }
@@ -531,13 +562,19 @@ function handleTool(name, args) {
 
     case 'list_files': {
       const max = args.max || 100;
-      let files = [...index.files.keys()];
+      const all = [...index.files.keys()];
+      let files = all;
       if (args.filter) {
         const f = args.filter.toLowerCase();
         files = files.filter(p => p.toLowerCase().includes(f));
       }
       if (files.length === 0) return 'No files found';
-      return `${files.length} files${args.filter ? ` matching "${args.filter}"` : ''} (showing ${Math.min(max, files.length)}):\n` +
+      // #160 A8: warn on a non-selective filter — "main" matches every
+      // `repo-main.zip!...` path, so a caller mistakes it for structure.
+      const unselective = (args.filter && all.length && files.length >= all.length * 0.9)
+        ? `\n(note: filter "${args.filter}" matched ${files.length}/${all.length} files — not selective; omit the filter to see the whole structure.)`
+        : '';
+      return `${files.length} files${args.filter ? ` matching "${args.filter}"` : ''} (showing ${Math.min(max, files.length)}):${unselective}\n` +
         files.slice(0, max).join('\n');
     }
 
@@ -588,6 +625,13 @@ function handleTool(name, args) {
     }
 
     case 'list_indexes': {
+      // #160 A2: report the *currently loaded* index first. list_indexes
+      // scans a directory for index dirs; without this a caller mistakes an
+      // empty scan for "no index loaded" even when one is active.
+      const active = (index && index.files && index.files.size)
+        ? `Currently loaded index: ${index.indexPath || '(unknown path)'} (${index.files.size} files). `
+          + `Query it directly with stats / search / digest — you do NOT need load_index unless switching indexes.\n\n`
+        : `No index is currently loaded.\n\n`;
       const searchPath = args.path || process.cwd();
       if (!fs.existsSync(searchPath) || !fs.statSync(searchPath).isDirectory()) {
         return `Not a directory: ${searchPath}`;
@@ -621,7 +665,7 @@ function handleTool(name, args) {
       }
 
       if (indexesFound.length === 0) {
-        return `No CodeExam indexes found in: ${searchPath}\n(Looking for directories containing literal_index.json)`;
+        return active + `No CodeExam indexes found in: ${searchPath}\n(Looking for directories containing literal_index.json)`;
       }
 
       const lines = [`Indexes in ${searchPath}:\n`];
@@ -636,12 +680,18 @@ function handleTool(name, args) {
         lines.push(`  ${info.name.padEnd(30)} ${(info.literal_mb || '?').toString().padStart(10)} ${(info.modified || '?').padEnd(18)} ${compStr}`);
       }
       lines.push(`\n  ${indexesFound.length} index(es) found`);
-      return lines.join('\n');
+      return active + lines.join('\n');
     }
 
     case 'load_index': {
       const idxPath = args.index_path;
-      if (!idxPath) return 'Error: index_path is required';
+      // #160 A3: guide a weak caller instead of a bare failure.
+      if (!idxPath) {
+        const loaded = (index && index.files && index.files.size)
+          ? ` An index is already loaded (${index.indexPath || 'active'}, ${index.files.size} files) — you can just call stats/search/digest without loading.`
+          : '';
+        return `index_path is required to load an index.${loaded} To see available index directories, call list_indexes first, then pass one of their paths as index_path.`;
+      }
       if (!fs.existsSync(idxPath) || !fs.statSync(idxPath).isDirectory()) {
         return `Not a valid index directory: ${idxPath}`;
       }

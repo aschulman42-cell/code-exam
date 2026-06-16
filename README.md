@@ -529,6 +529,18 @@ capable than the Claude-API path (see the LLM-assisted notes above), so the
 non-LLM machinery does most of the work in a fully air-gapped run and LLM output
 quality is generally below what the API would produce.
 
+**Local-model MCP chat (experimental).** The MCP tool surface has been validated
+driving a *local* GGUF model through an MCP-aware host (LM Studio): Qwen3-4B and
+Qwen2.5-Coder-7B both discovered, loaded, and chained the tools (`stats`,
+`vocabulary`, `digest`, `show_file`, …) to answer free-form questions about an
+unseen codebase. Honest caveats from that testing: a small model needs
+**forceful system-prompt grounding** ("the source IS available via these tools;
+never guess") or it may refuse a tool and hallucinate instead; tool-calling
+reliability and exploration quality scale with model size; retrieved content can
+itself contain prompts that nudge a small model (treat tool output as data); and
+on a 16 GB / no-GPU machine a 7B is impractically slow — prefer a ~4B there. A
+built-in, air-gapped chat mode is planned.
+
 ## Symbols & notation
 
 CodeExam's lists and digests use a few compact markers, consistently across
