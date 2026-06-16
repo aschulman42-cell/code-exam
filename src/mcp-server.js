@@ -21,6 +21,9 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { displayName } from './utils.js';
+import { doCallTree } from './commands/graph.js';
+import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
+import { pathToFileURL } from 'url';
 
 // ========================================================================
 // Parse args
@@ -39,22 +42,14 @@ function parseArgs() {
 
 const serverArgs = parseArgs();
 
-// Redirect all console output to stderr so stdout stays clean for MCP protocol
-const _origLog = console.log;
-const _origWarn = console.warn;
-const _origError = console.error;
-console.log = (...args) => process.stderr.write(args.join(' ') + '\n');
-console.warn = (...args) => process.stderr.write(args.join(' ') + '\n');
-console.error = (...args) => process.stderr.write(args.join(' ') + '\n');
+// The index, console-redirect, and stdio connect are initialized in main()
+// (run only when this file is the entry point), so the module can be imported
+// by tests — which call setIndex() + handleTool() — without loading a default
+// index, exiting on a missing one, or starting the stdio server.
+let index = null;
 
-// Load index
-console.log(`Loading index: ${serverArgs.indexPath}`);
-let index = new CodeSearchIndex({ indexPath: serverArgs.indexPath });
-if (index.files.size === 0) {
-  console.error(`No files in index at ${serverArgs.indexPath}`);
-  process.exit(1);
-}
-console.log(`Loaded: ${index.files.size} files`);
+/** Test seam: inject a loaded CodeSearchIndex, bypassing argv/stdio. */
+export function setIndex(idx) { index = idx; }
 
 
 // ========================================================================
@@ -263,12 +258,72 @@ const TOOLS = [
       required: ['index_path'],
     },
   },
+  {
+    name: 'digest',
+    description: 'Concise digest of a function, class, or file: identity, callers, callees, distinctive strings, and structure (inheritance for classes; imports/exports for files). The "tell me about X" summary — prefer this over chaining callers+callees+extract.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'Function, class, or file name; optionally file-qualified as "file@name"' },
+        max_results: { type: 'number', description: 'Max callers/callees/strings to include (default 10)' },
+        verbose: { type: 'boolean', description: 'Include more detail' },
+      },
+      required: ['target'],
+    },
+  },
+  {
+    name: 'call_tree',
+    description: 'Transitive call tree for a function (multi-hop): what it calls downward, plus the caller chains that reach it. Use for tracing how code flows, not just the one-hop callers/callees tools.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        function_name: { type: 'string', description: 'Function name, optionally file-qualified as "file@name"' },
+        depth: { type: 'number', description: 'Max downward depth (default 3)' },
+      },
+      required: ['function_name'],
+    },
+  },
+  {
+    name: 'command_catalog',
+    description: 'The target codebase\'s own user-facing commands: CLI options/flags, slash-commands, API routes, and GUI actions, each linked to its handler. Answers "what can this program do / what commands does it expose". Heuristic — verify in source.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filter: { type: 'string', description: 'Filter entries by name/flag substring' },
+        max: { type: 'number', description: 'Max entries per section (default 40)' },
+      },
+    },
+  },
+  {
+    name: 'models_used',
+    description: 'AI/ML models the codebase actually loads or calls, deduped and tagged api=hosted / local=loaded. Distinct from models DEFINED (class inheritance). Answers "what models does this use". Heuristic, recall-favoring.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filter: { type: 'string', description: 'Filter by model id substring or /regex/' },
+        max: { type: 'number', description: 'Max models to list (default 50)' },
+      },
+    },
+  },
 ];
 
 
 // ========================================================================
 // Tool implementations
 // ========================================================================
+
+// Capture a command function's stdout (some command modules print rather than
+// return). Swapping console.log / process.stdout.write also protects the MCP
+// stdio JSON-RPC channel from stray writes by the captured function.
+function captureStdout(fn) {
+  const origLog = console.log;
+  const origWrite = process.stdout.write.bind(process.stdout);
+  const chunks = [];
+  console.log = (...a) => { chunks.push(a.map(String).join(' ') + '\n'); };
+  process.stdout.write = (s) => { chunks.push(typeof s === 'string' ? s : String(s)); return true; };
+  try { fn(); } finally { console.log = origLog; process.stdout.write = origWrite; }
+  return chunks.join('');
+}
 
 function handleTool(name, args) {
   switch (name) {
@@ -608,6 +663,81 @@ function handleTool(name, args) {
       }
     }
 
+    case 'digest': {
+      const opts = {
+        maxCallers: args.max_results || 10,
+        maxCallees: args.max_results || 10,
+        maxStrings: Math.max(15, args.max_results || 15),
+      };
+      const digest = index.buildDigest(args.target, opts);
+      if (!digest) return `Target not found: '${args.target}' (try a file hint: file@name)`;
+      const fopts = { verbose: !!args.verbose };
+      switch (digest.target_type) {
+        case 'class': return formatClassDigest(digest, fopts);
+        case 'file': return formatFileDigest(digest, fopts);
+        default: return formatFunctionDigest(digest, fopts);
+      }
+    }
+
+    case 'call_tree': {
+      const out = captureStdout(() => doCallTree(index, {
+        call_tree: args.function_name,
+        depth: args.depth != null ? args.depth : 3,
+      }));
+      return out.trim() || `No call tree for: ${args.function_name}`;
+    }
+
+    case 'command_catalog': {
+      const catalog = index.extractCommandCatalog(false);
+      const filter = args.filter ? args.filter.toLowerCase() : null;
+      const max = args.max || 40;
+      const ff = (s) => !filter || (s || '').toLowerCase().includes(filter);
+      const primary = catalog.commands.filter(c => c.tier === 'primary');
+      const secondary = catalog.commands.filter(c => c.tier !== 'primary');
+      const cmdFmt = c => `  ${c.name}` +
+        (c.description ? '  — ' + c.description.slice(0, 60) : '') +
+        (c.handler ? '  -> ' + (c.handler.func || (c.handler.filepath || '').split(/[\\/]/).pop()) + ':' + c.handler.line : '');
+      const sections = [
+        ['CLI Options', catalog.cliOptions.filter(o => ff(o.flags && o.flags.join(','))),
+          o => `  ${o.flags.join(', ')}  [${o.type}]` + (o.help ? '  ' + o.help.slice(0, 60) : '')],
+        ['Commands', primary.filter(c => ff(c.name)), cmdFmt],
+        ['Other switch/case values', secondary.filter(c => ff(c.name)), cmdFmt],
+        ['API Routes', catalog.routes.filter(r => ff(r.path)), r => `  ${r.path}  [${r.filepath}:${r.line}]`],
+        ['GUI Actions', catalog.guiActions.filter(a => ff(a.name)), a => `  ${a.name} (${a.type})`],
+      ];
+      const lines = [];
+      for (const [title, items, fmt] of sections) {
+        if (!items.length) continue;
+        lines.push(`${title} (${items.length}${items.length > max ? `, showing ${max}` : ''}):`);
+        for (const it of items.slice(0, max)) lines.push(fmt(it));
+        lines.push('');
+      }
+      return lines.length ? lines.join('\n').trim()
+        : `No commands/options/routes/GUI actions detected${filter ? ` matching "${args.filter}"` : ''}.`;
+    }
+
+    case 'models_used': {
+      const models = index.listModelsUsed(args.filter);
+      if (!models.length) {
+        return `No models used found${models.unresolved ? ` (${models.unresolved} unresolved <var> refs)` : ''}. `
+          + `(Models USED = ids the code loads/calls; distinct from models DEFINED via class inheritance.)`;
+      }
+      const api = models.filter(m => m.access === 'api').length;
+      const local = models.filter(m => m.access === 'local').length;
+      const mixed = models.filter(m => m.access === 'mixed').length;
+      const max = args.max || 50;
+      const shown = models.slice(0, max);
+      const lines = [`${models.length} models used — ${api} api, ${local} local`
+        + (mixed ? `, ${mixed} mixed` : '')
+        + (models.unresolved ? ` (+${models.unresolved} unresolved)` : '')
+        + (models.length > max ? `; showing ${max}` : '') + ':'];
+      for (const m of shown) {
+        const name = (m.model || '').split(/[\\/]/).pop();
+        lines.push(`  ${(m.access || '').padEnd(6)} ${name}  (${(m.cells || []).join(',')}, ${m.count} site${m.count > 1 ? 's' : ''})`);
+      }
+      return lines.join('\n');
+    }
+
     default:
       return `Unknown tool: ${name}`;
   }
@@ -642,7 +772,29 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// Connect via stdio
-const transport = new StdioServerTransport();
-await server.connect(transport);
-console.log('MCP server running on stdio');
+// Test seam: handleTool/TOOLS are importable so the tool layer can be exercised
+// without spawning the stdio server.
+export { handleTool, TOOLS };
+
+async function main() {
+  // Redirect console output to stderr so stdout stays clean for MCP protocol.
+  console.log = (...args) => process.stderr.write(args.join(' ') + '\n');
+  console.warn = (...args) => process.stderr.write(args.join(' ') + '\n');
+  console.error = (...args) => process.stderr.write(args.join(' ') + '\n');
+
+  console.log(`Loading index: ${serverArgs.indexPath}`);
+  index = new CodeSearchIndex({ indexPath: serverArgs.indexPath });
+  if (index.files.size === 0) {
+    process.stderr.write(`No files in index at ${serverArgs.indexPath}\n`);
+    process.exit(1);
+  }
+  console.log(`Loaded: ${index.files.size} files`);
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.log('MCP server running on stdio');
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  main();
+}
