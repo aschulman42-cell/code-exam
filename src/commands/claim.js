@@ -238,7 +238,8 @@ BROAD: ...`;
  * @param {object} opts
  * @param {string} [opts.apiKey] - Anthropic API key (or ANTHROPIC_API_KEY env)
  * @param {string} [opts.apiUrl] - API endpoint override
- * @param {string} [opts.model] - Model name override
+ * @param {string} [opts.claudeModel] - Claude API model id override (from --claude-model); takes precedence over opts.model
+ * @param {string} [opts.model] - Model name override (legacy programmatic alias)
  * @param {boolean} [opts.verbose] - Print debug info
  * @param {number} [opts.temperature=0.0] - Temperature
  * @param {string} [opts.vocabConcordance] - Vocabulary concordance from index
@@ -253,7 +254,8 @@ export async function extractClaimTerms(claimText, opts = {}) {
   const apiUrl = opts.apiUrl
     || process.env.CLAIM_SEARCH_API_URL
     || 'https://api.anthropic.com/v1/messages';
-  const model = opts.model
+  const model = opts.claudeModel
+    || opts.model
     || process.env.CLAIM_SEARCH_MODEL
     || 'claude-sonnet-4-6';
   const temperature = opts.temperature ?? 0.0;
@@ -1201,6 +1203,7 @@ export async function doClaimSearch(index, args) {
       temperature,
       vocabConcordance,
       vocabTight,
+      claudeModel: args.claude_model,
     });
   }
 

@@ -53,6 +53,7 @@ class AnalysisLLM {
     this.useClaude = opts.useClaude || false;
     this.apiKey = opts.apiKey || null;
     this.modelPath = opts.modelPath || null;
+    this.claudeModel = opts.claudeModel || null;  // Claude API model id override
     this.temperature = opts.temperature ?? 0.0;
     this.verbose = opts.verbose || false;
 
@@ -94,7 +95,7 @@ class AnalysisLLM {
     if (!this.apiKey) return '(Claude API not available - no API key)';
 
     const apiUrl = process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages';
-    const model = process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6';
+    const model = this.claudeModel || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6';
 
     const payload = JSON.stringify({
       model,
@@ -234,6 +235,7 @@ function getAnalysisLLM(opts = {}) {
     const useClaude = opts.useClaude || opts.use_claude || false;
     const apiKey = opts.apiKey || opts.api_key || null;
     const modelPath = opts.modelPath || opts.analyze_model || null;
+    const claudeModel = opts.claudeModel || opts.claude_model || null;
     const temperature = opts.temperature ?? 0.0;
     const verbose = opts.verbose || false;
 
@@ -253,7 +255,7 @@ function getAnalysisLLM(opts = {}) {
     }
 
     _llmInstance = new AnalysisLLM({
-      useClaude, apiKey, modelPath, temperature, verbose,
+      useClaude, apiKey, modelPath, claudeModel, temperature, verbose,
     });
   }
   return _llmInstance;
@@ -1505,6 +1507,7 @@ export async function doClaimAnalyze(index, args) {
   } else {
     result = await extractClaimTerms(claimText, {
       apiKey, verbose, temperature, vocabConcordance, vocabTight,
+      claudeModel: args.claude_model,
     });
   }
 

@@ -200,6 +200,7 @@ export function parseArgs() {
     api_key: null,
     claim_model: null,
     model: null,          // canonical: --model <path>; unifies --claim-model + --analyze-model
+    claude_model: null,   // Claude API model id (e.g. claude-sonnet-4-6); distinct from --model (GGUF)
     temperature: 0.0,
     show_prompt: false,
     vocab_tight: false,
@@ -401,6 +402,7 @@ export function parseArgs() {
     ['llm',                  'value',          ['--llm']],
     ['api_key',              'value',          ['--api-key']],
     ['model',                'value',          ['--model']],
+    ['claude_model',         'value',          ['--claude-model']],
     ['claim_model',          'value',          [], ['--claim-model', '--term-extract-model']],
     ['temperature',          'float',          ['--temperature']],
     ['show_prompt',          'flag',           ['--show-prompt']],
@@ -938,6 +940,10 @@ CLAIM SEARCH (LLM-based patent claim analysis):
                              --analyze-model. If you genuinely need different
                              models for term-extraction vs. analysis, the
                              two old flags are still accepted.
+  --claude-model <id>        Claude API model id for term extraction / analysis
+                             (e.g. claude-sonnet-4-6). Distinct from --model
+                             (which is a local GGUF path). Overrides the
+                             CLAIM_SEARCH_MODEL env var; default claude-sonnet-4-6.
   --temperature <float>      LLM temperature (default: 0.0)
   --show-prompt              Display the LLM prompt and exit (no API call)
   --vocab-tight              Also use codebase vocabulary for TIGHT term generation

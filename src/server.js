@@ -100,6 +100,8 @@ function parseServerArgs() {
       result.host = args[++i];
     } else if ((a === '--model-path' || a === '--model' || a === '--local-model') && args[i + 1]) {
       result.modelPath = args[++i];
+    } else if (a === '--claude-model' && args[i + 1]) {
+      result.claudeModel = args[++i];
     } else if ((a === '--api-key' || a === '--key') && args[i + 1]) {
       result.apiKey = args[++i];
     } else if (a === '--temperature' && args[i + 1]) {
@@ -200,6 +202,7 @@ if (serverArgs.catalogPath) {
 class ServerLLM {
   constructor(opts = {}) {
     this.defaultModelPath = opts.modelPath || null;
+    this.defaultClaudeModel = opts.claudeModel || null;  // --claude-model server default
     this.defaultApiKey = opts.apiKey || process.env.ANTHROPIC_API_KEY || '';
     this._localModel = null;     // { llama, model, context, LlamaChatSession, contextSize }
     this._localLoading = null;   // Promise while model is loading (prevents double-load)
@@ -224,7 +227,7 @@ class ServerLLM {
     }
 
     const apiUrl = opts.apiUrl || process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages';
-    const model = opts.model || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6';
+    const model = opts.model || this.defaultClaudeModel || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6';
     const maxTokens = opts.maxTokens || 2048;
     const temperature = opts.temperature ?? 0.0;
 
