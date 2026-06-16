@@ -224,7 +224,7 @@ class ServerLLM {
     }
 
     const apiUrl = opts.apiUrl || process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages';
-    const model = opts.model || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-20250514';
+    const model = opts.model || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6';
     const maxTokens = opts.maxTokens || 2048;
     const temperature = opts.temperature ?? 0.0;
 

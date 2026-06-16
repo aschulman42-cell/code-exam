@@ -255,7 +255,7 @@ export async function extractClaimTerms(claimText, opts = {}) {
     || 'https://api.anthropic.com/v1/messages';
   const model = opts.model
     || process.env.CLAIM_SEARCH_MODEL
-    || 'claude-sonnet-4-20250514';
+    || 'claude-sonnet-4-6';
   const temperature = opts.temperature ?? 0.0;
   const verbose = opts.verbose || false;
 

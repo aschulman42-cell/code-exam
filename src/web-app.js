@@ -97,7 +97,7 @@ async function chatWithClaude(messages, tools) {
     anthropic = new Anthropic();
   }
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 4096,
     system: SYSTEM_PROMPT,
     messages,

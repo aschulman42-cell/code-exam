@@ -94,7 +94,7 @@ class AnalysisLLM {
     if (!this.apiKey) return '(Claude API not available - no API key)';
 
     const apiUrl = process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages';
-    const model = process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-20250514';
+    const model = process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6';
 
     const payload = JSON.stringify({
       model,
