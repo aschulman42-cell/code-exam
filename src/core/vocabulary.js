@@ -36,11 +36,16 @@ import { makeFilterMatcher } from './filter-match.js';
 const _VENDOR_RE = /(^|\/)(node_modules|site-packages|vendor|bower_components|\.venv|dist|build)\//i;
 const _BUILD_OUT_RE = /(^|\/)(bin\/(debug|release)|obj)\//i;  // .NET build output: dlls + generated XML docs
 const _LOCKFILE_RE = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|gemfile\.lock|poetry\.lock|cargo\.lock)$/i;
+// #172 residual (a): test/example/fixture trees — their hashes, certs, and
+// sample data are corpus-shape noise, not domain vocabulary. Segment-anchored
+// so `mytest/` / `latest/` are NOT matched.
+const _TEST_RE = /(^|\/)(tests?|__tests__|specs?|examples?|fixtures?|k6)\//i;
 export function _isNoiseDoc(fp, content) {
   const norm = String(fp).replace(/\\/g, '/');
   if (_VENDOR_RE.test(norm)) return true;        // vendored / generated trees
   if (_BUILD_OUT_RE.test(norm)) return true;     // bin/Debug, bin/Release, obj — build output
   if (_LOCKFILE_RE.test(norm)) return true;      // dependency lockfiles (integrity-hash soup)
+  if (_TEST_RE.test(norm)) return true;          // test/example/fixture trees (corpus-shape, not domain)
   if (/\.op$/i.test(norm)) return true;          // binstring / decompile dumps
   if (/\.nupkg!/i.test(norm)) return true;        // NuGet package-archive contents (vendored)
   if (content != null && isMinified(fp, content)) return true;  // minified bundles
@@ -132,6 +137,28 @@ const PROGRAMMING_STOPWORDS = new Set([
   'path', 'file', 'dir', 'filename', 'filepath',
   'test', 'spec', 'mock', 'stub', 'fixture', 'expect', 'assert',
   'TODO', 'FIXME', 'HACK', 'XXX', 'NOTE',
+  // ----------------------------------------------------------------
+  // Cross-corpus generic noise (#172 follow-on stopgap). Each below was
+  // observed as TOP-RANKED noise across >=2 *different-domain* corpora
+  // (cli.js / sr_gh / langchain / transformers / notepad++), so it is generic
+  // rather than domain vocabulary. This is deliberately a whack-a-mole
+  // band-aid; #180 (cross-corpus IDF down-weighting) is the principled fix and
+  // can peel any of these back if a corpus uses one as genuine terminology.
+  // JS runtime internals
+  'function', 'defineProperty', 'defineProperties', 'hasOwnProperty',
+  'getOwnPropertyDescriptor', 'getPrototypeOf', 'setPrototypeOf', '__esModule',
+  'Symbol', 'Reflect', 'Proxy',
+  // Python builtins / exceptions / typing
+  'ValueError', 'TypeError', 'KeyError', 'AttributeError', 'RuntimeError',
+  'NotImplementedError', 'ImportError', 'StopIteration', 'IndexError', 'OSError',
+  'classmethod', 'staticmethod', 'property', 'kwargs',
+  'annotations', '__future__', '__name__', '__main__', 'Optional', 'typing',
+  // License-header boilerplate (Apache / GPL / MIT)
+  'license', 'licenses', 'limitations', 'warranty', 'conditions',
+  'redistribute', 'copyright', 'applicable', 'compliance', 'affiliates',
+  'governing', 'sublicense', 'merchantability', 'noninfringement',
+  // Docstring structure / prose
+  'Returns', 'Args', 'Raises', 'Example', 'description', 'parameters', 'arguments',
   'true', 'false', 'null', 'nil',
   // Very short identifiers (covered by minLength=3 filter mostly)
   'fn', 'cb', 'el', 'ev', 'ex', 'id', 'it', 'ok', 'op',
@@ -165,7 +192,7 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
         const raw = fs.readFileSync(cachePath, 'utf-8');
         const cached = JSON.parse(raw);
         const cachedTokenCount = Object.keys(cached.tokens || {}).length;
-        if (cached._version === 2 && cached._file_count === idx.files.size && cachedTokenCount > 0) {
+        if (cached._version === 5 && cached._file_count === idx.files.size && cachedTokenCount > 0) {
           idx._vocabulary = new Map();
           for (const [token, entry] of Object.entries(cached.tokens || {})) {
             idx._vocabulary.set(token, entry);
@@ -246,7 +273,7 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
     const cachePath = _vocabularyPath(idx);
     try {
       const cacheObj = {
-        _version: 2,
+        _version: 5,
         _file_count: idx.files.size,
         _generated: new Date().toISOString(),
         tokens: {},

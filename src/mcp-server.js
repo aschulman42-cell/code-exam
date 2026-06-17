@@ -531,7 +531,9 @@ function handleTool(name, args) {
       for (const v of vocab) {
         let line = `  ${v.score.toFixed(0)}\t${v.token}\t(${v.doc_freq} files, ${v.total_count} hits)`;
         if (withSites && v.top_files && v.top_files.length) {
-          line += '  e.g. ' + v.top_files.slice(0, 2).map(f => f.path).join(', ');
+          // Include per-file count so a caller sees *where* (and how much) a
+          // term concentrates, not just which files contain it.
+          line += '  e.g. ' + v.top_files.slice(0, 2).map(f => `${f.path} (${f.count}×)`).join(', ');
         }
         lines.push(line);
       }

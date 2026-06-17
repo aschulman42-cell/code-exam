@@ -54,6 +54,26 @@ test('excludes minified bundles via isMinified (content-based)', () => {
   assert.equal(_isNoiseDoc('public/swagger-ui.js', minified), true);
 });
 
+test('#172 residual (a): excludes test / example / fixture trees', () => {
+  for (const p of [
+    'test/k6/har-session.js',          // the reported test-hash source
+    'project/tests/fixtures/cert.pem',
+    'src/__tests__/foo.test.js',
+    'app/spec/models/user_spec.rb',
+    'web/specs/e2e/login.js',
+    'pkg/examples/demo.py',
+    'lib/example/sample.js',
+    'svc/fixtures/data.json',
+    'app\\tests\\windows\\sep.js',     // Windows separators
+  ]) {
+    assert.equal(_isNoiseDoc(p, NORMAL), true, `should skip ${p}`);
+  }
+  // segment-anchored: "test"/"example"/"spec" inside a longer segment is kept
+  assert.equal(_isNoiseDoc('src/mytest_helper.py', NORMAL), false);
+  assert.equal(_isNoiseDoc('src/latest/config.js', NORMAL), false);
+  assert.equal(_isNoiseDoc('app/specimen/data.py', NORMAL), false);
+});
+
 test('keeps ordinary source files (the signal we want to surface)', () => {
   assert.equal(_isNoiseDoc('src/deploy/kubernetes.py', NORMAL), false);
   assert.equal(_isNoiseDoc('terraform/main.tf', 'resource "aws_s3_bucket" "b" {}'), false);
