@@ -131,12 +131,8 @@ function _prepPaneClone(bodyEl, lineNumbers) {
     }
     row.textContent = parts.join('\t');
   });
-  clone.querySelectorAll('.source-line').forEach((row) => {
-    const num = row.querySelector('.line-number');           // present only when lineNumbers
-    const content = row.querySelector('.line-content');
-    const code = content ? content.textContent : row.textContent;  // preserve indentation
-    row.textContent = (num ? num.textContent.trim() + '\t' : '') + code;
-  });
+  // (Source lines are NOT flattened here — see sourceText(): flattening them and
+  // reading via innerText collapsed `white-space: pre` indentation. #177)
   return clone;
 }
 
@@ -150,10 +146,57 @@ function _tidy(text) {
   return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// Two adjacent element cells are "visually separated" when they sit on the same
+// row but a margin/padding gap divides them (e.g. the L98 / func / snippet cells
+// of a search-result row). Geometry-based, so adjacent syntax tokens — which
+// touch with no gap — are NOT split.
+function _visualGap(a, b) {
+  const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+  return ra.height && rb.height && rb.top < ra.bottom && rb.left - ra.right > 1;
+}
+
+// A "leaf line" is a text-bearing element whose children are all inline — i.e.
+// it occupies its own line(s) of rendered text. Container elements (with block
+// children) are skipped; their leaf descendants carry the text.
+function _display(el) { return getComputedStyle(el).display; }
+function _isInlineEl(el) { return _display(el).startsWith('inline'); }
+function _isBlockLine(el) {
+  const d = _display(el);
+  return d === 'block' || d === 'flex' || d === 'list-item' || d === 'flow-root';
+}
+
+function _isLeafLine(el) {
+  if (!el.textContent || !el.textContent.trim()) return false;
+  for (const c of el.children) {
+    const d = getComputedStyle(c).display;
+    if (d === 'block' || d === 'flex' || d === 'grid' || d === 'list-item' || d === 'flow-root' || d.startsWith('table')) return false;
+  }
+  return true;
+}
+
 export function paneText(bodyEl, { lineNumbers = false } = {}) {
   if (!bodyEl) return '';
   const clone = _mount(_prepPaneClone(bodyEl, lineNumbers), bodyEl.clientWidth || 800);
-  const text = clone.innerText;
+  // 1. Restore inter-cell spacing that lives in CSS margins, not text, so cells
+  //    don't run together in innerText ("L98DynamicGenDataset" -> "L98 Dynamic…").
+  for (const el of clone.querySelectorAll('*')) {
+    const kids = [...el.children];
+    for (let i = 0; i < kids.length - 1; i++) {
+      if (_isInlineEl(kids[i]) && _isInlineEl(kids[i + 1]) && _visualGap(kids[i], kids[i + 1])) kids[i].insertAdjacentText('afterend', ' ');
+    }
+  }
+  // 2. Indent each leaf line by its visual left offset (e.g. search results
+  //    indented under their file header). NBSP so innerText doesn't collapse the
+  //    leading whitespace; converted back to plain spaces after reading.
+  const lines = [...clone.querySelectorAll('*')].filter((el) => _isLeafLine(el) && _isBlockLine(el));
+  if (lines.length) {
+    const base = Math.min(...lines.map((el) => el.getBoundingClientRect().left));
+    for (const el of lines) {
+      const indent = Math.round((el.getBoundingClientRect().left - base) / 8);
+      if (indent > 0) el.insertAdjacentText('afterbegin', '\u00A0'.repeat(indent));
+    }
+  }
+  const text = clone.innerText.replace(/\u00A0/g, ' ');
   clone.remove();
   return _tidy(text);
 }
@@ -188,9 +231,37 @@ function accordionText(bodyEl) {
   return out.trim();
 }
 
-/** Dispatch: accordion bodies use the scoped extractor; others the generic one. */
+/**
+ * Source-pane extraction (#177): read each line's `.line-content` textContent
+ * directly so `white-space: pre` indentation survives verbatim (innerText
+ * collapses leading whitespace). Long lines are hard-split into
+ * `.source-line.continuation` pieces for display — concatenate those onto the
+ * prior line WITHOUT a newline (and without a line number) so display wrapping
+ * doesn't become real line breaks in the saved file. Wrap toggles
+ * (pre ↔ pre-wrap) don't affect textContent, so this is wrap-agnostic.
+ */
+function sourceText(bodyEl, lineNumbers) {
+  let out = '';
+  for (const ln of bodyEl.querySelectorAll('.source-line')) {
+    const code = ln.querySelector('.line-content')?.textContent ?? '';
+    if (ln.classList.contains('continuation')) {
+      out += code;                                  // same logical line — no break
+    } else {
+      if (out) out += '\n';
+      if (lineNumbers) {
+        const num = ln.querySelector('.line-number');
+        if (num) out += num.textContent.trim() + '\t';
+      }
+      out += code;
+    }
+  }
+  return out;
+}
+
+/** Dispatch: source → structural (indentation-safe); accordion → scoped; else generic. */
 export function extractPaneText(bodyEl, opts) {
   if (!bodyEl) return '';
+  if (bodyEl.querySelector('.source-line')) return sourceText(bodyEl, !!(opts && opts.lineNumbers));
   if (bodyEl.querySelector('.accordion-section')) return accordionText(bodyEl);
   return paneText(bodyEl, opts);
 }
