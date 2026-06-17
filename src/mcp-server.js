@@ -101,8 +101,8 @@ const TOOLS = [
       type: 'object',
       properties: {
         function_name: { type: 'string', description: 'Function name, optionally qualified: "funcname" or "file@funcname" or "Class::method"' },
+        target: { type: 'string', description: 'Alias for "function_name" (accepted for consistency with digest).' },
       },
-      required: ['function_name'],
     },
   },
   {
@@ -125,9 +125,9 @@ const TOOLS = [
       type: 'object',
       properties: {
         function_name: { type: 'string', description: 'Function name to find callers of' },
+        target: { type: 'string', description: 'Alias for "function_name".' },
         max: { type: 'number', description: 'Max results (default 50)' },
       },
-      required: ['function_name'],
     },
   },
   {
@@ -137,8 +137,8 @@ const TOOLS = [
       type: 'object',
       properties: {
         function_name: { type: 'string', description: 'Function name, optionally with file hint: "file@funcname"' },
+        target: { type: 'string', description: 'Alias for "function_name".' },
       },
-      required: ['function_name'],
     },
   },
   {
@@ -343,7 +343,7 @@ function handleTool(name, args) {
       if (results.length === 0) return `No results for "${query}"`;
       return results.map(r =>
         `${r.filePath}:${r.lineNumber}  ${clipLine(r.lineText)}` +
-        (r.functionName ? `  (in ${r.functionName})` : '')
+        (r.functionName ? `  (in ${clipLine(r.functionName, 80)})` : '')
       ).join('\n');
     }
 
@@ -353,7 +353,7 @@ function handleTool(name, args) {
       if (results.length === 0) return `No results for /${args.pattern}/`;
       return results.map(r =>
         `${r.filePath}:${r.lineNumber}  ${clipLine(r.lineText)}` +
-        (r.functionName ? `  (in ${r.functionName})` : '')
+        (r.functionName ? `  (in ${clipLine(r.functionName, 80)})` : '')
       ).join('\n');
     }
 
@@ -370,7 +370,7 @@ function handleTool(name, args) {
       }
       const lines = [`Found ${results.function_matches.length} function matches:`];
       for (const f of results.function_matches.slice(0, max)) {
-        lines.push(`  ${f.name}  ${f.filepath}  (${f.terms_matched}/${positiveCount} terms, ${f.lines}L)`);
+        lines.push(`  ${clipLine(f.function, 80)}  ${f.filepath}  (${f.terms_matched}/${positiveCount} terms, ${f.lines}L)`);
       }
       if (results.file_matches && results.file_matches.length > 0) {
         lines.push(`\nTop file matches:`);
@@ -382,7 +382,8 @@ function handleTool(name, args) {
     }
 
     case 'extract': {
-      const spec = args.function_name;
+      const spec = args.function_name ?? args.target;
+      if (!spec) return 'extract requires "function_name" (alias: "target").';
       let fileHint = null, funcName = spec;
       if (spec.includes('@')) {
         const atPos = spec.indexOf('@');
@@ -390,7 +391,36 @@ function handleTool(name, args) {
         funcName = spec.slice(atPos + 1);
       }
       const matches = index.findFunctionMatches(funcName, fileHint);
-      if (matches.length === 0) return `Function not found: ${spec}`;
+      if (matches.length === 0) {
+        // Fuzzy fallback: a wrong file hint shouldn't be a dead end (#184 item 5).
+        if (fileHint) {
+          const elsewhere = index.findFunctionMatches(funcName, null);
+          if (elsewhere.length > 0) {
+            return `Not found in "${fileHint}". "${funcName}" is defined in:\n` +
+              elsewhere.slice(0, 10).map(m => `  ${m.filepath}@${m.name}`).join('\n') +
+              `\nRetry extract with one of these file@name forms.`;
+          }
+        }
+        // Interim for symbols not indexed as functions, e.g. `var X = factory(...)`
+        // (#184 item 4): point at the DEFINITION so show_file lands on it. Prefer
+        // assignment/declaration sites (var/let/const X, or `X =`) over incidental
+        // mentions; fall back to a bare literal search if none are found.
+        const esc = funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        let hits = index.searchLiteral(
+          `(?:var|let|const)\\s+${esc}\\b|${esc}\\s*=(?!=)`,
+          { useRegex: true, maxResults: 3, contextLines: 0 });
+        if (hits.length === 0) {
+          hits = index.searchLiteral(funcName, { maxResults: 3, contextLines: 0 });
+        }
+        if (hits.length > 0) {
+          return `Function not found: ${spec}\n` +
+            `("${funcName}" is not indexed as a function — it may be a var/const ` +
+            `assignment like \`${funcName} = factory(...)\`. It appears at:\n` +
+            hits.map(h => `  ${h.filePath}:${h.lineNumber}`).join('\n') +
+            `\nUse show_file there to read it.)`;
+        }
+        return `Function not found: ${spec}`;
+      }
       if (matches.length > 5) {
         return `Ambiguous: ${matches.length} matches for "${funcName}". Use file@funcname to disambiguate:\n` +
           matches.slice(0, 10).map(m => `  ${m.filepath}@${m.name} (${m.start}-${m.end})`).join('\n');
@@ -437,19 +467,22 @@ function handleTool(name, args) {
     }
 
     case 'callers': {
+      const fn = args.function_name ?? args.target;
+      if (!fn) return 'callers requires "function_name" (alias: "target").';
       const max = args.max || 50;
-      const callers = index.findCallers(args.function_name, max);
-      if (callers.length === 0) return `No callers found for: ${args.function_name}`;
-      const lines = [`${callers.length} callers of ${args.function_name}:`];
+      const callers = index.findCallers(fn, max);
+      if (callers.length === 0) return `No callers found for: ${fn}`;
+      const lines = [`${callers.length} callers of ${fn}:`];
       for (const c of callers) {
-        lines.push(`  ${c.filepath}:${c.line_number}  ${c.line_text.trim()}` +
-          (c.caller_function ? `  (in ${c.caller_function})` : ''));
+        lines.push(`  ${c.filepath}:${c.line_number}  ${clipLine(c.line_text.trim())}` +
+          (c.caller_function ? `  (in ${clipLine(c.caller_function, 80)})` : ''));
       }
       return lines.join('\n');
     }
 
     case 'callees': {
-      const spec = args.function_name;
+      const spec = args.function_name ?? args.target;
+      if (!spec) return 'callees requires "function_name" (alias: "target").';
       let fileHint = null, funcName = spec;
       if (spec.includes('@')) {
         const atPos = spec.indexOf('@');
@@ -463,7 +496,7 @@ function handleTool(name, args) {
         const defInfo = c.resolved_def
           ? `  [${c.resolved_def.filepath}]`
           : (c.definitions?.length ? `  [${c.definitions.length} defs]` : '  [external]');
-        lines.push(`  ${c.display_name || c.name}  (${c.call_type})${defInfo}`);
+        lines.push(`  ${clipLine(c.display_name || c.name, 80)}  (${c.call_type})${defInfo}`);
       }
       return lines.join('\n');
     }
