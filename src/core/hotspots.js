@@ -12,6 +12,31 @@
  * for `server.js`, `service.js`, `mcp-server.js`, and `metrics.js`.
  */
 
+import { _isNoiseDoc } from './vocabulary.js';
+
+/**
+ * #187: filepaths excluded from ranked listings because they are vendored /
+ * minified / generated noise (reuses the #172 `_isNoiseDoc` gate). Without it,
+ * hotspots/entry_points get swamped by vendored bundles (e.g. XMLUI) and
+ * minified files (e.g. a bundled cli.js), burying the real source. Memoized on
+ * the index; content is materialized only for code files (where `isMinified`
+ * applies), so the path-only noise classes (vendor/dist/.op/…) stay cheap.
+ */
+function _noiseFiles(idx) {
+  if (idx._hotspotNoiseFiles) return idx._hotspotNoiseFiles;
+  const noise = new Set();
+  const fileMap = idx.fileLines;
+  if (fileMap && typeof fileMap[Symbol.iterator] === 'function') {
+    for (const [fp, lines] of fileMap) {
+      const isCode = /\.(js|css|jsx|ts|tsx)$/i.test(fp);
+      const content = (isCode && Array.isArray(lines)) ? lines.join('\n') : null;
+      if (_isNoiseDoc(fp, content)) noise.add(fp);
+    }
+  }
+  idx._hotspotNoiseFiles = noise;
+  return noise;
+}
+
 /**
  * Find structurally important functions: score = calls x log₂(lines).
  * Large frequently-called functions rank highest.
@@ -40,6 +65,7 @@ export function getHotspots(idx, n = 25, showProgress = true) {
       const key = `${f.filepath}|${f.name}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      if (_noiseFiles(idx).has(f.filepath)) continue;  // #187: skip vendored/minified
       if (f.lines < 2) continue;
 
       const score = callCount * Math.log2(Math.max(f.lines, 2));
@@ -73,6 +99,7 @@ export function getEntryPoints(idx, n = 25, maxCalls = 0, showProgress = true) {
 
   for (const f of allFuncs) {
     if (f.lines < 3) continue;
+    if (_noiseFiles(idx).has(f.filepath)) continue;  // #187: skip vendored/minified
     let bare = f.name.includes('::') ? f.name.split('::').pop() : f.name;
     if (bare.includes('@')) bare = bare.split('@')[0];
 
@@ -113,6 +140,7 @@ export function getDomainHotspots(idx, n = 25, showProgress = true) {
     const key = `${f.filepath}|${f.name}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    if (_noiseFiles(idx).has(f.filepath)) continue;  // #187: skip vendored/minified
     // Ad hoc: skip very small functions (trivial accessors/getters) to reduce
     // noise in Domain Functions. Threshold and scoring formula should be revisited
     // — see TODO #254b for deeper approaches (fan-out, PageRank, UI-structure).
@@ -152,7 +180,7 @@ export function getDomainHotspots(idx, n = 25, showProgress = true) {
  */
 export function getClassHotspots(idx, n = 25, showProgress = true) {
   const callCounts = idx.getCallCounts(showProgress);
-  const classes = idx.listClasses();
+  const classes = idx.listClasses().filter(c => !_noiseFiles(idx).has(c.filepath));  // #187: skip vendored/minified
   if (!classes.length) return [];
 
   const classNameCounts = {};
