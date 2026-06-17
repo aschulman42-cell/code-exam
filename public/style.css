@@ -216,6 +216,17 @@ body.hide-inferred-suffix .inferred-suffix { display: none; }
   cursor: pointer; user-select: none;
 }
 .pane-popout-placeholder:hover { color: var(--accent); }
+/* #177: find-in-pane bar (floating, anchored to the active pane on open) and
+   match highlights. z-index above raised pop-out windows so it stays reachable. */
+.find-bar { position: fixed; z-index: 1000; display: flex; align-items: center; gap: 4px;
+  background: var(--bg-panel); border: 1px solid var(--accent-dim); border-radius: 5px;
+  padding: 4px 6px; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+.find-bar.hidden { display: none; }
+.find-bar input { width: 160px; background: var(--bg-input); border: 1px solid var(--border);
+  color: var(--text-bright); font-size: 12px; padding: 2px 6px; border-radius: 3px; }
+.find-count { font-size: 11px; color: var(--text-muted); min-width: 44px; text-align: center; }
+mark.find-hit { background: #5a4b00; color: #fff; border-radius: 1px; }
+mark.find-current { background: var(--accent); color: #000; }
 .diagram-viewport { transform-origin: top left; transition: transform .15s; }
 
 /* ---- Floating panel (non-modal popup) ---- */

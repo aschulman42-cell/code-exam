@@ -20,6 +20,107 @@ import { $, $$, makeDraggable, bringToFront, downloadText, extractPaneText, pane
 import { state } from './state.js';
 
 // ============================================================================
+// #177: find-in-pane. A floating #find-bar anchored to the active pane body;
+// matches are wrapped in <mark.find-hit> via a live-DOM text-node walk (works on
+// rendered lists/source without re-rendering). Navigation moves a .find-current
+// mark and scrolls it into view. Clearing unwraps the marks and normalize()s the
+// split text nodes back. Esc / ✕ closes.
+// ============================================================================
+let _findTarget = null;   // pane body currently being searched
+let _findHits = [];        // <mark.find-hit> elements, in document order
+let _findIdx = -1;
+let _findDebounce = null;
+
+function _findInputValue() { return ($('#find-input')?.value || '').trim(); }
+
+function _findUpdateCount() {
+  const el = $('#find-count');
+  if (el) el.textContent = _findHits.length ? `${_findIdx + 1}/${_findHits.length}` : (_findInputValue() ? '0/0' : '');
+}
+
+function _findClear() {
+  for (const mark of _findHits) {
+    if (mark.parentNode) mark.parentNode.replaceChild(document.createTextNode(mark.textContent), mark);
+  }
+  if (_findTarget) _findTarget.normalize();  // merge the split text nodes back
+  _findHits = [];
+  _findIdx = -1;
+}
+
+function _findWrap(root, query) {
+  const hits = [];
+  const q = query.toLowerCase();
+  if (!q) return hits;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(n) {
+      if (!n.nodeValue) return NodeFilter.FILTER_REJECT;
+      const p = n.parentNode;
+      if (!p || p.nodeName === 'SCRIPT' || p.nodeName === 'STYLE') return NodeFilter.FILTER_REJECT;
+      return n.nodeValue.toLowerCase().includes(q) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (const node of nodes) {
+    const text = node.nodeValue;
+    const lower = text.toLowerCase();
+    const frag = document.createDocumentFragment();
+    let last = 0, pos;
+    while ((pos = lower.indexOf(q, last)) !== -1) {
+      if (pos > last) frag.appendChild(document.createTextNode(text.slice(last, pos)));
+      const mark = document.createElement('mark');
+      mark.className = 'find-hit';
+      mark.textContent = text.slice(pos, pos + q.length);
+      frag.appendChild(mark);
+      hits.push(mark);
+      last = pos + q.length;
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    node.parentNode.replaceChild(frag, node);
+  }
+  return hits;
+}
+
+function _findGoto(delta) {
+  if (!_findHits.length) return;
+  if (_findHits[_findIdx]) _findHits[_findIdx].classList.remove('find-current');
+  _findIdx = (_findIdx + delta + _findHits.length) % _findHits.length;
+  const cur = _findHits[_findIdx];
+  cur.classList.add('find-current');
+  cur.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  _findUpdateCount();
+}
+
+function _findRun(query) {
+  _findClear();
+  if (_findTarget && query) _findHits = _findWrap(_findTarget, query);
+  if (_findHits.length) _findGoto(1);
+  else _findUpdateCount();
+}
+
+function openFind(bodyEl) {
+  if (!bodyEl) return;
+  if (_findTarget && _findTarget !== bodyEl) _findClear();
+  _findTarget = bodyEl;
+  const bar = $('#find-bar');
+  if (!bar) return;
+  bar.classList.remove('hidden');               // un-hide first so offsetWidth is real
+  const r = bodyEl.getBoundingClientRect();
+  bar.style.top = `${Math.max(4, r.top + 6)}px`;
+  bar.style.left = `${Math.max(4, r.right - bar.offsetWidth - 12)}px`;
+  const input = $('#find-input');
+  input.focus();
+  input.select();
+  _findRun(input.value.trim());
+}
+
+function closeFind() {
+  _findClear();
+  _findTarget = null;
+  $('#find-bar')?.classList.add('hidden');
+}
+
+// ============================================================================
 // Cross-cutting callbacks (injected by initWindowManagement)
 // ============================================================================
 
@@ -220,6 +321,12 @@ export function initWindowManagement() {
       copyToClipboard(extractPaneText($('#' + copyBtn.dataset.copy), { lineNumbers: e.shiftKey })).then(() => flashPaneAction(copyBtn));
       return;
     }
+    const findBtn = e.target.closest('[data-find]');
+    if (findBtn) {
+      if (findBtn.closest('#workspace-toggle')) e.stopPropagation();
+      openFind($('#' + findBtn.dataset.find));
+      return;
+    }
   }, true);
 
   // #177: pop-out header Save/Copy act on whatever pane is currently popped.
@@ -231,6 +338,21 @@ export function initWindowManagement() {
   $('#generic-fs-copy')?.addEventListener('click', (e) => {
     copyToClipboard(extractPaneText($('#generic-fs-body'), { lineNumbers: e.shiftKey })).then(() => flashPaneAction($('#generic-fs-copy')));
   });
+
+  // #177: find-in-pane wiring.
+  $('#generic-fs-find')?.addEventListener('click', () => openFind($('#generic-fs-body')));
+  $('#find-input')?.addEventListener('input', (e) => {
+    clearTimeout(_findDebounce);
+    const v = e.target.value.trim();
+    _findDebounce = setTimeout(() => _findRun(v), 120);
+  });
+  $('#find-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); _findGoto(e.shiftKey ? -1 : 1); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+  });
+  $('#find-prev')?.addEventListener('click', () => _findGoto(-1));
+  $('#find-next')?.addEventListener('click', () => _findGoto(1));
+  $('#find-close')?.addEventListener('click', closeFind);
 }
 
 export function hidePane(id) {
@@ -249,6 +371,8 @@ export function showPane(id) {
 
 export function openGenericFullscreen(paneId) {
   let paneBody, titleText;
+
+  closeFind();  // #177: clear any open find before the pane body is reparented
 
   // #177: re-center the floating window on each open (clear any prior drag so a
   // pop-out doesn't reopen off-screen where it was last dragged).
@@ -360,6 +484,7 @@ export function openGenericFullscreen(paneId) {
 }
 
 function closeGenericFullscreen() {
+  closeFind();  // #177: clear find before the popped body is reparented back
   const fsBody = $('#generic-fs-body');
   // Clear inline height on workspace textarea so it returns to flex sizing
   const ta = $('#claim-text');

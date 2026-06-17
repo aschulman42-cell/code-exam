@@ -67,6 +67,7 @@
     <section id="left-pane" class="pane">
       <div class="pane-filter" style="display:flex;align-items:center;gap:4px">
         <input type="text" id="left-filter" placeholder="string or /regex/" autocomplete="off" spellcheck="false" style="flex:1">
+        <button class="pane-action" data-find="left-body" title="Find in pane (Esc to close)" style="flex-shrink:0">🔍</button>
         <button class="pane-action" data-copy="left-body" title="Copy pane text" style="flex-shrink:0">📋</button>
         <button class="pane-action" data-save="left-body" data-name="functions" title="Save pane to text file" style="flex-shrink:0">💾</button>
         <button class="pane-action" id="left-pane-popout" title="Pop out full screen" style="flex-shrink:0;font-size:14px">⛶</button>
@@ -281,6 +282,7 @@
             <button class="pane-nav-btn" id="output-fwd-btn" title="Forward" style="display:none">▶</button>
           </span>
           <span id="middle-top-title">Output</span>
+          <button class="pane-action" data-find="middle-top-body" title="Find in pane (Esc to close)">🔍</button>
           <button class="pane-action" data-copy="middle-top-body" title="Copy pane text">📋</button>
           <button class="pane-action" data-save="middle-top-body" data-name="output" title="Save pane to text file">💾</button>
           <button class="pane-action" data-popout="middle-top" title="Pop out full screen">⛶</button>
@@ -298,6 +300,7 @@
             <button class="pane-nav-btn" id="source-fwd-btn" title="Forward" style="display:none">▶</button>
           </span>
           <span id="middle-bottom-title">Source</span>
+          <button class="pane-action" data-find="middle-bottom-body" title="Find in pane (Esc to close)">🔍</button>
           <button class="pane-action" data-copy="middle-bottom-body" title="Copy pane text (Shift: keep line numbers)">📋</button>
           <button class="pane-action" data-save="middle-bottom-body" data-name="source" title="Save pane to text file (Shift: keep line numbers)">💾</button>
           <button class="pane-action" data-popout="middle-bottom" title="Pop out full screen">⛶</button>
@@ -345,6 +348,7 @@
             <button class="pane-tab" data-tab="console">Console</button>
           </span>
           <span id="llm-status" class="status-badge hidden">Working…</span>
+          <button class="pane-action" data-find="right-bottom-body" title="Find in pane (Esc to close)">🔍</button>
           <button class="pane-action" data-save="right-bottom-body" data-name="analysis" data-md="1" title="Save analysis to text file">💾</button>
           <button class="pane-action" data-popout="right-bottom" title="Pop out full screen">⛶</button>
           <button class="pane-action" data-close="right-bottom" title="Close pane">✕</button>
@@ -571,12 +575,22 @@
     <div class="fullscreen-diagram">
       <div class="fullscreen-header">
         <span id="generic-fs-title">Panel</span>
+        <button class="pane-action" id="generic-fs-find" title="Find in pane (Esc to close)">🔍</button>
         <button class="pane-action" id="generic-fs-copy" title="Copy pane text (Shift: keep line numbers)">📋</button>
         <button class="pane-action" id="generic-fs-save" title="Save pane to text file (Shift: keep line numbers)">💾</button>
         <button class="pane-action" id="generic-fs-close" title="Close">✕</button>
       </div>
       <div class="fullscreen-body scrollable" id="generic-fs-body"></div>
     </div>
+  </div>
+
+  <!-- #177 FIND-IN-PANE BAR (floating; anchored to the active pane on open) -->
+  <div id="find-bar" class="find-bar hidden">
+    <input type="text" id="find-input" placeholder="Find…" spellcheck="false" autocomplete="off">
+    <span id="find-count" class="find-count"></span>
+    <button class="pane-action" id="find-prev" title="Previous (Shift+Enter)">↑</button>
+    <button class="pane-action" id="find-next" title="Next (Enter)">↓</button>
+    <button class="pane-action" id="find-close" title="Close (Esc)">✕</button>
   </div>
 
   <script src="/vendor/mermaid.min.js"></script>
