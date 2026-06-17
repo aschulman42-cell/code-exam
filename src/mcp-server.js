@@ -266,10 +266,10 @@ const TOOLS = [
       type: 'object',
       properties: {
         target: { type: 'string', description: 'Function, class, or file name; optionally file-qualified as "file@name"' },
+        function_name: { type: 'string', description: 'Alias for "target" (accepted for consistency with extract/callers/callees).' },
         max_results: { type: 'number', description: 'Max callers/callees/strings to include (default 10)' },
         verbose: { type: 'boolean', description: 'Include more detail' },
       },
-      required: ['target'],
     },
   },
   {
@@ -714,13 +714,15 @@ function handleTool(name, args) {
     }
 
     case 'digest': {
+      const target = args.target ?? args.function_name;
+      if (!target) return `digest requires "target" (alias: "function_name").`;
       const opts = {
         maxCallers: args.max_results || 10,
         maxCallees: args.max_results || 10,
         maxStrings: Math.max(15, args.max_results || 15),
       };
-      const digest = index.buildDigest(args.target, opts);
-      if (!digest) return `Target not found: '${args.target}' (try a file hint: file@name)`;
+      const digest = index.buildDigest(target, opts);
+      if (!digest) return `Target not found: '${target}' (try a file hint: file@name, e.g. src/foo.js@bar)`;
       const fopts = { verbose: !!args.verbose };
       switch (digest.target_type) {
         case 'class': return formatClassDigest(digest, fopts);

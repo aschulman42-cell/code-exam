@@ -111,6 +111,13 @@ export function formatFunctionDigest(digest, opts = {}) {
     push(`  Bare name:    unique across the index`);
   } else {
     push(`  Bare name:    NOT unique — ${id.bareDuplicateCount} entries share this bare name`);
+    if (id.bareCandidates && id.bareCandidates.length) {
+      push(`                this digest is for ${id.filepath}; disambiguate by passing one of these as file@name:`);
+      for (const cand of id.bareCandidates) push(`                  - ${cand}`);
+      if (id.bareDuplicateCount > id.bareCandidates.length) {
+        push(`                  … and ${id.bareDuplicateCount - id.bareCandidates.length} more`);
+      }
+    }
   }
   push('');
   push('  (Counts throughout this digest are STATIC call-site counts,');
@@ -349,6 +356,13 @@ export function formatClassDigest(digest, opts = {}) {
     push(`  Bare name:    unique across the index`);
   } else {
     push(`  Bare name:    NOT unique — ${id.bareDuplicateCount} entries share this bare name`);
+    if (id.bareCandidates && id.bareCandidates.length) {
+      push(`                this digest is for ${id.filepath}; disambiguate by passing one of these as file@name:`);
+      for (const cand of id.bareCandidates) push(`                  - ${cand}`);
+      if (id.bareDuplicateCount > id.bareCandidates.length) {
+        push(`                  … and ${id.bareDuplicateCount - id.bareCandidates.length} more`);
+      }
+    }
   }
   push('');
   push('  (Counts throughout this digest are STATIC call-site counts,');
@@ -918,8 +932,7 @@ export function doDigest(index, args) {
   };
   const digest = index.buildDigest(spec, opts);
   if (!digest) {
-    console.log(`Target not found: '${spec}'`);
-    console.log(`Try with file hint: --digest FILE@FUNCNAME`);
+    console.log(`Target not found: '${spec}' (try a file hint: file@name, e.g. --digest src/foo.js@bar)`);
     return;
   }
   const formatterOpts = { verbose: !!args.verbose };

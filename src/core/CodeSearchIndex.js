@@ -79,6 +79,7 @@ import {
   findDefinitions as _findDefinitions,
   getCallCountsWithDefinitions as _getCallCountsWithDefinitions,
   getAllFileDeps as _getAllFileDeps,
+  _findCallersByExactRegex,
 } from './calls.js';
 import {
   applyRenames as _applyRenames,
@@ -726,10 +727,14 @@ export class CodeSearchIndex {
       return b;
     };
     let bareCount = 0;
+    const bareCandidates = [];
     if (this.functionIndex) {
-      for (const funcs of Object.values(this.functionIndex)) {
+      for (const [bcFile, funcs] of Object.entries(this.functionIndex)) {
         for (const fname of Object.keys(funcs)) {
-          if (bareOf(fname) === bareClassName) bareCount++;
+          if (bareOf(fname) === bareClassName) {
+            bareCount++;
+            if (bareCandidates.length < 12) bareCandidates.push(`${bcFile}@${fname}`);
+          }
         }
       }
     }
@@ -759,6 +764,7 @@ export class CodeSearchIndex {
       methodCount: methodEntries.length,
       bareUnique: bareCount === 1,
       bareDuplicateCount: bareCount,
+      bareCandidates: bareCount > 1 ? bareCandidates : null,
     };
 
     // --- Methods (one line per method, name + line range + modifier) ---
@@ -1647,10 +1653,14 @@ export class CodeSearchIndex {
     };
     const myBare = bareOf(fn.name);
     let bareCount = 0;
+    const bareCandidates = [];
     if (this.functionIndex) {
-      for (const funcs of Object.values(this.functionIndex)) {
+      for (const [bcFile, funcs] of Object.entries(this.functionIndex)) {
         for (const fname of Object.keys(funcs)) {
-          if (bareOf(fname) === myBare) bareCount++;
+          if (bareOf(fname) === myBare) {
+            bareCount++;
+            if (bareCandidates.length < 12) bareCandidates.push(`${bcFile}@${fname}`);
+          }
         }
       }
     }
@@ -1667,6 +1677,7 @@ export class CodeSearchIndex {
       type: fn.type,
       bareUnique: bareCount === 1,
       bareDuplicateCount: bareCount,
+      bareCandidates: bareCount > 1 ? bareCandidates : null,
       parseMethod: this.parseMethod || 'unknown',
     };
 
@@ -4316,6 +4327,14 @@ export class CodeSearchIndex {
         }
       }
     }
+    // Deterministic ordering so the chosen primary (matches[0]) is stable
+    // across callers — without this, digest of a bare-name collision (e.g. a
+    // class defined in two files) picked different primaries from the GUI vs
+    // CLI depending on functionIndex iteration order. Sort by (filepath, start).
+    matches.sort((a, b) =>
+      a.filepath < b.filepath ? -1 :
+      a.filepath > b.filepath ? 1 :
+      (a.start || 0) - (b.start || 0));
     return matches;
   }
 
@@ -4728,6 +4747,7 @@ export class CodeSearchIndex {
   findDefinitions(...args) { return _findDefinitions(this, ...args); }
   getCallCountsWithDefinitions(...args) { return _getCallCountsWithDefinitions(this, ...args); }
   getAllFileDeps(...args) { return _getAllFileDeps(this, ...args); }
+  _findCallersByExactRegex(...args) { return _findCallersByExactRegex(this, ...args); }
 
 
   // ========================================================================

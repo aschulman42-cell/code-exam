@@ -792,3 +792,70 @@ class Child(Base):
     }
   });
 });
+
+
+// ========================================================================
+// Test: short-name digest crash fix + #85 bare-name disambiguation
+// ========================================================================
+
+describe('Digest: short-name crash + bare-name disambiguation', () => {
+  const SRC_DIR = path.join(TEST_DIR, 'digest_shortname');
+  const IDX_DIR = path.join(TEST_DIR, '.idx_digest_shortname');
+
+  before(() => {
+    fs.mkdirSync(SRC_DIR, { recursive: true });
+
+    // A 2-char function name that is called elsewhere. Digesting it forces
+    // findCallers() into SHORT_NAME_BAILOUT (calls.js), whose fallback used to
+    // crash with "this._findCallersByExactRegex is not a function" because that
+    // helper was exported but never bound onto CodeSearchIndex.
+    fs.writeFileSync(path.join(SRC_DIR, 'shortname.js'), `
+function zx() {
+  return 42;
+}
+function callsZx() {
+  return zx() + zx();
+}
+`);
+
+    // Same bare name in two files -> collision; digest should list both
+    // file@name candidates instead of silently picking one (#85).
+    fs.writeFileSync(path.join(SRC_DIR, 'col_a.js'), `
+function collideMe() {
+  return 'a';
+}
+`);
+    fs.writeFileSync(path.join(SRC_DIR, 'col_b.js'), `
+function collideMe() {
+  return 'b';
+}
+`);
+
+    runCLI(`--build-index ${SRC_DIR} --index-path ${IDX_DIR} --skip-semantic 2>&1`);
+  });
+
+  after(() => {
+    fs.rmSync(SRC_DIR, { recursive: true, force: true });
+    fs.rmSync(IDX_DIR, { recursive: true, force: true });
+  });
+
+  it('digesting a 2-char name with callers does not crash', () => {
+    const out = runCLI(`--digest zx --index-path ${IDX_DIR} 2>&1`);
+    assert.ok(!out.includes('is not a function'),
+      'digest must not throw the _findCallersByExactRegex TypeError: ' + out);
+    assert.ok(!/\bTypeError\b/.test(out),
+      'digest must not throw: ' + out);
+    assert.ok(out.includes('zx'),
+      'digest should render the function: ' + out);
+  });
+
+  it('bare-name collision lists file@name candidates', () => {
+    const out = runCLI(`--digest collideMe --index-path ${IDX_DIR} 2>&1`);
+    assert.ok(out.includes('NOT unique'),
+      'should flag the bare-name collision: ' + out);
+    assert.ok(out.includes('file@name'),
+      'should prompt to disambiguate with file@name: ' + out);
+    assert.ok(out.includes('col_a.js') && out.includes('col_b.js'),
+      'should list both colliding files as candidates: ' + out);
+  });
+});
