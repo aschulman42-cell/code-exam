@@ -662,7 +662,26 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
   // Sort by filepath then line number
   filtered.sort((a, b) => a.filepath.localeCompare(b.filepath) || a.lineNum - b.lineNum);
 
-  return filtered;
+  // #169: dedup. Bundlers (webpack) copy the same prompt module into every
+  // chunk, so identical prompt text shows up many times across files. Collapse
+  // by normalized (whitespace-insensitive) text — keep the first (the
+  // alphabetically-first file after the sort) and record the other locations on
+  // it. A real prompt shown 10× is still catalog noise.
+  const _seen = new Map();
+  const deduped = [];
+  for (const p of filtered) {
+    const norm = (p.text || '').replace(/\s+/g, ' ').trim();
+    const canonical = _seen.get(norm);
+    if (canonical) {
+      if (!canonical.dupLocations) canonical.dupLocations = [];
+      canonical.dupLocations.push(`${p.filepath}:L${p.lineNum}`);
+      continue;
+    }
+    _seen.set(norm, p);
+    deduped.push(p);
+  }
+
+  return deduped;
 }
 
 // Hard upper bound on prompt text — longer than every realistic system prompt
@@ -674,7 +693,7 @@ const PROMPT_MAX_CHARS = 50000;
 // deliberately NOT here — markdown-style prompts legitimately begin with it.
 const PROMPT_BAD_START = new Set(['}', ',', ')', ']', ':', ';', '.', '|', '=', '{', '[', '(']);
 
-function _looksLikeNonPrompt(text) {
+export function _looksLikeNonPrompt(text) {
   if (!text) return true;
   if (text.length > PROMPT_MAX_CHARS) return true;
 
@@ -695,6 +714,23 @@ function _looksLikeNonPrompt(text) {
       if (shortCount / tokens.length > 0.8 && !hasSentencePunct) return true;
     }
   }
+
+  // #169: markup fragments (SVG/HTML) flagged by the instruction heuristic.
+  if (/^\s*<(svg|path|!doctype|html|head|body|div|span|g|rect|circle|polygon|use|defs)\b/i.test(trimmed)) return true;
+
+  // #169: code-likeness. Reject text dominated by code/markup punctuation rather
+  // than prose. Real prompts can CONTAIN a code snippet, so both guards require
+  // an *absence of sentence structure* before rejecting — prose-with-an-example
+  // (e.g. "…For example: ${code} …") keeps its sentences and survives.
+  const sentenceEnds = (trimmed.match(/[.!?](\s|$)/g) || []).length;
+  const codePunct = (trimmed.match(/[{}()\[\];=<>]/g) || []).length;
+  if (sentenceEnds < 2 && codePunct / trimmed.length > 0.08) return true;
+  // With zero sentence structure, even one clear code token means it's a
+  // fragment, not a prompt. Real prose prompts always have >= 1 sentence-end, so
+  // this gate can't nuke them (prose without ANY ./!/? has no code tokens either).
+  const codeTokens = (trimmed.match(/=>|===|!==|==|&&|\|\||__\w+__|\(\s*\{|\}\s*\)|\}\s*else\b|\.\w+\(|;\s*$/g) || []).length;
+  if (sentenceEnds === 0 && codeTokens >= 1) return true;
+
   return false;
 }
 
@@ -732,6 +768,11 @@ export async function doPromptCatalog(index, args) {
     console.log(`  Type: ${p.type}`);
     if (p.type !== 'prompt-builder-function') {
       console.log(`  --extract ${p.filepath}@${p.func || '(file scope)'}`);
+    }
+    if (p.dupLocations && p.dupLocations.length) {
+      const shown = p.dupLocations.slice(0, 5);
+      console.log(`  Also in ${p.dupLocations.length} other location(s): ${shown.join(', ')}` +
+        (p.dupLocations.length > 5 ? ` … and ${p.dupLocations.length - 5} more` : ''));
     }
     console.log('-'.repeat(72));
     // Full text — no truncation per user requirement
