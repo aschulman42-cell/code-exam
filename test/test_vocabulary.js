@@ -82,3 +82,53 @@ test('keeps ordinary source files (the signal we want to surface)', () => {
   // null content (no minified check possible) still passes a clean path
   assert.equal(_isNoiseDoc('src/app.js', null), false);
 });
+
+// ---------------------------------------------------------------------------
+// #180: cross-corpus down-weighting. _crossCorpusWeight demotes (never deletes)
+// corpus-universal tokens; buildCrossCorpusCatalog tallies token document-
+// frequency across distinct indexes.
+// ---------------------------------------------------------------------------
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { _crossCorpusWeight, buildCrossCorpusCatalog } from '../src/core/vocabulary.js';
+
+test('#180 _crossCorpusWeight: no catalog / rare tokens are never penalized', () => {
+  assert.equal(_crossCorpusWeight('anything', null), 1);
+  const cat = { index_count: 33, tokens: { foo: 1, bar: 0 } };
+  assert.equal(_crossCorpusWeight('foo', cat), 1);     // df < 2
+  assert.equal(_crossCorpusWeight('missing', cat), 1); // df 0 (not in catalog)
+});
+
+test('#180 _crossCorpusWeight: universal tokens floored at 0.1, monotonic in df', () => {
+  const cat = { index_count: 33, tokens: { univ: 33, common: 17, niche: 3, pair: 2 } };
+  const wUniv = _crossCorpusWeight('univ', cat);
+  const wCommon = _crossCorpusWeight('common', cat);
+  const wNiche = _crossCorpusWeight('niche', cat);
+  const wPair = _crossCorpusWeight('pair', cat);
+  assert.equal(wUniv, 0.1);                                          // every index -> floor
+  assert.ok(wUniv < wCommon && wCommon < wNiche && wNiche < wPair);  // more universal -> lower
+  assert.ok(wPair <= 1 && wPair > wNiche);                           // demote, never boost
+});
+
+test('#180 buildCrossCorpusCatalog: tallies df, drops singletons, counts skips', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xcorpus-'));
+  const mk = (name, tokens) => {
+    const d = path.join(root, name);
+    fs.mkdirSync(d);
+    fs.writeFileSync(path.join(d, 'vocabulary.json'),
+      JSON.stringify({ tokens: Object.fromEntries(tokens.map(t => [t, {}])) }));
+    return d;
+  };
+  const a = mk('a', ['shared', 'common', 'onlyA']);
+  const b = mk('b', ['shared', 'common']);
+  const c = mk('c', ['shared']);
+  const missing = path.join(root, 'no-such-dir');
+  const cat = buildCrossCorpusCatalog([a, b, c, missing]);
+  assert.equal(cat.index_count, 3);
+  assert.equal(cat.skipped, 1);                 // missing dir skipped, not counted
+  assert.equal(cat.tokens.shared, 3);
+  assert.equal(cat.tokens.common, 2);
+  assert.equal('onlyA' in cat.tokens, false);   // df < 2 dropped (pure bloat)
+  fs.rmSync(root, { recursive: true, force: true });
+});

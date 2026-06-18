@@ -19,6 +19,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { TEXT_EXTENSIONS, splitCompoundToken } from '../utils.js';
 import { LOW_DISCRIMINATION_STOPWORDS } from '../commands/claim.js';
 import { STRUCTURE_KEYWORDS } from './structural-fingerprint.js';
@@ -157,6 +158,23 @@ const PROGRAMMING_STOPWORDS = new Set([
   'license', 'licenses', 'limitations', 'warranty', 'conditions',
   'redistribute', 'copyright', 'applicable', 'compliance', 'affiliates',
   'governing', 'sublicense', 'merchantability', 'noninfringement',
+  // BSD / X11 / MIT header boilerplate — surfaced by the #180 spinellis test
+  // (old-Unix C is ~all license headers). Never domain vocabulary in any corpus,
+  // so an exact stoplist is the right tool; cross-corpus IDF (#180) can't reach
+  // them because license text is license-correlated, not cross-corpus-shared.
+  // Matching is exact-case (see `stopwords.has(token)` below), so both the
+  // capitalized (header / sentence start) and lowercase (mid-clause) forms are
+  // listed. Generic English license words (permission, provided, following,
+  // modification, reserved, …) and ambiguous place / project names (Berkeley,
+  // California, NetBSD, XFree86) are deliberately left to #180's demote rather
+  // than hard-deleted in every corpus.
+  'redistribution', 'Redistribution', 'redistributions', 'Redistributions',
+  'Redistribute', 'redistributed', 'disclaimer', 'Disclaimer', 'disclaimers',
+  'endorse', 'endorsed', 'endorsement', 'acknowledgement', 'Acknowledgement',
+  'acknowledgment', 'acknowledgments', 'acknowledgements', 'pertaining',
+  'publicity', 'dealings', 'suitability', 'uninterrupted', 'mentioning',
+  'advertising', 'consortium', 'Consortium', 'XConsortium', 'Regents',
+  'Copyright', 'copyrights', 'copyrighted', 'contributors', 'Contributors',
   // Docstring structure / prose
   'Returns', 'Args', 'Raises', 'Example', 'description', 'parameters', 'arguments',
   'true', 'false', 'null', 'nil',
@@ -167,6 +185,74 @@ const PROGRAMMING_STOPWORDS = new Set([
 /** Path to vocabulary cache file. */
 export function _vocabularyPath(idx) {
   return path.join(idx.indexPath, 'vocabulary.json');
+}
+
+// ----------------------------------------------------------------
+// #180: cross-corpus down-weighting. A token in MANY indexes (function, the,
+// get, main, error, …) is corpus-universal noise, not domain vocabulary — but a
+// static stopword list can't tell "universal" from "this corpus's real domain
+// term." The catalog records, per token, how many indexes contain it; scoring
+// multiplies each token's per-index TF-IDF by a cross-corpus weight that
+// *demotes* (never deletes) universal terms — so a term still surfaces if it
+// genuinely dominates one corpus, which lets us peel back the hand-added #172
+// stopwords over time. Ships as CE_cross_corpus_vocab_catalog.json at the CE
+// root; absent → no-op (scoring is identical to before).
+// ----------------------------------------------------------------
+const _CE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const _XCORPUS_CATALOG_PATH = path.join(_CE_ROOT, 'CE_cross_corpus_vocab_catalog.json');
+let _xcorpusCatalogCache; // undefined = unloaded; null = absent/invalid
+
+function _loadCrossCorpusCatalog() {
+  if (_xcorpusCatalogCache !== undefined) return _xcorpusCatalogCache;
+  _xcorpusCatalogCache = null;
+  try {
+    if (fs.existsSync(_XCORPUS_CATALOG_PATH)) {
+      const j = JSON.parse(fs.readFileSync(_XCORPUS_CATALOG_PATH, 'utf-8'));
+      if (j && j.tokens && j.index_count > 1) _xcorpusCatalogCache = j;
+    }
+  } catch { /* absent / unreadable → no-op */ }
+  return _xcorpusCatalogCache;
+}
+
+/**
+ * Cross-corpus weight in [0.1, 1]: ~1 for distinctive tokens, approaching 0.1
+ * for a token present in (nearly) every index. Tokens in <2 indexes are never
+ * penalized. The 0.1 floor keeps this a demote, never a delete.
+ * @param {string} token
+ * @param {{index_count:number, tokens:Object}|null} catalog
+ */
+export function _crossCorpusWeight(token, catalog) {
+  if (!catalog) return 1;
+  const df = catalog.tokens[token] || 0;
+  if (df < 2) return 1;
+  const w = Math.log2(catalog.index_count / df) / Math.log2(catalog.index_count);
+  return Math.max(0.1, Math.min(1, w));
+}
+
+/**
+ * #180: build a cross-corpus catalog by tallying, across the given index
+ * directories' existing `vocabulary.json` caches, how many indexes each token
+ * appears in. Tokens in <2 indexes are dropped (no down-weight value, pure
+ * bloat). Dirs without a readable `vocabulary.json` are skipped.
+ * @param {string[]} indexDirs
+ * @returns {{index_count:number, generated_from:number, skipped:number, tokens:Object}}
+ */
+export function buildCrossCorpusCatalog(indexDirs) {
+  const counts = Object.create(null);
+  let used = 0;
+  let skipped = 0;
+  for (const dir of indexDirs) {
+    const vp = path.join(dir, 'vocabulary.json');
+    if (!fs.existsSync(vp)) { skipped++; continue; }
+    let toks;
+    try { toks = Object.keys(JSON.parse(fs.readFileSync(vp, 'utf-8')).tokens || {}); }
+    catch { skipped++; continue; }
+    used++;
+    for (const t of toks) counts[t] = (counts[t] || 0) + 1;
+  }
+  const tokens = Object.create(null);
+  for (const t of Object.keys(counts)) if (counts[t] >= 2) tokens[t] = counts[t];
+  return { index_count: used, generated_from: indexDirs.length, skipped, tokens };
 }
 
 /**
@@ -192,7 +278,7 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
         const raw = fs.readFileSync(cachePath, 'utf-8');
         const cached = JSON.parse(raw);
         const cachedTokenCount = Object.keys(cached.tokens || {}).length;
-        if (cached._version === 5 && cached._file_count === idx.files.size && cachedTokenCount > 0) {
+        if (cached._version === 7 && cached._file_count === idx.files.size && cachedTokenCount > 0) {
           idx._vocabulary = new Map();
           for (const [token, entry] of Object.entries(cached.tokens || {})) {
             idx._vocabulary.set(token, entry);
@@ -273,7 +359,7 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
     const cachePath = _vocabularyPath(idx);
     try {
       const cacheObj = {
-        _version: 5,
+        _version: 7,
         _file_count: idx.files.size,
         _generated: new Date().toISOString(),
         tokens: {},
@@ -404,6 +490,7 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
 
   const scored = [];
   const allTokenCount = Object.keys(tokenStats).length;
+  const _xcorpus = _loadCrossCorpusCatalog(); // #180: null → no penalty
 
   for (const token of Object.keys(tokenStats)) {
     const stats = tokenStats[token];
@@ -418,7 +505,8 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
       .filter(p => p.length > 0).length;
     const compoundBonus = Math.min(1 + 0.3 * (parts - 1), 2.5);
 
-    const score = stats.doc_freq * idf * lengthBoost * compoundBonus;
+    const score = stats.doc_freq * idf * lengthBoost * compoundBonus
+      * _crossCorpusWeight(token, _xcorpus); // #180: demote corpus-universal terms
 
     scored.push({
       token,
