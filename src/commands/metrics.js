@@ -1420,13 +1420,25 @@ export function doVocabulary(index, args) {
   const n = args.discover_vocabulary || 50;
   const filter = args.filter || null;
   const pathFilter = args.vocab_in || null;
+  const bare = !!args.bare;
 
   const topTokens = index.getTopVocabulary(n, filter, pathFilter);
 
   if (!topTokens.length) {
-    console.log(pathFilter
-      ? `No vocabulary tokens found in files matching '${pathFilter}'.`
-      : 'No vocabulary tokens found.');
+    if (!bare) {
+      console.log(pathFilter
+        ? `No vocabulary tokens found in files matching '${pathFilter}'.`
+        : 'No vocabulary tokens found.');
+    }
+    return;
+  }
+
+  // --bare: just the token list, one per line — no header / stats / roll-up.
+  // Build + progress diagnostics go to stderr (see vocabulary.js), so
+  // redirecting stdout captures exactly the tokens (the `awk '{print $4}'`
+  // workaround, built in).
+  if (bare) {
+    for (const entry of topTokens) console.log(entry.token);
     return;
   }
 
@@ -1475,6 +1487,57 @@ export function doVocabulary(index, args) {
   }
 
   if (topTokens.length >= n) {
-    console.log(`  Showing ${n}. Use --discover-vocabulary ${n * 2} for more.`);
+    console.log(`  Showing ${n}. Use --vocabulary ${n * 2} for more.`);
   }
+
+  // Vocab-density "key files" roll-up — "what files do I read first?"
+  printVocabDensityRollup(topTokens, args);
+}
+
+/**
+ * Rank files by vocabulary density: distribute each top token's TF-IDF score
+ * across the files where it concentrates (score x concentration, NOT raw counts
+ * — raw counts let big/dense files win, the hotspots failure mode of #187), then
+ * sum per file. `top_files` is already noise-free (the vocab build applies
+ * `_isNoiseDoc` upstream), so vendored / minified / test files can't appear.
+ * Per-function-mode doc-ids ('filepath|||funcName') are folded back to the file.
+ *
+ * This is the lightweight ranked precursor to #82 (--vocab-map), which clusters
+ * files by shared vocabulary; here we just rank, not cluster.
+ */
+export function computeVocabDensity(topTokens) {
+  const fileScore = new Map();   // file -> summed (score x concentration)
+  const fileTerms = new Map();   // file -> Set<token>
+  for (const entry of topTokens) {
+    for (const f of (entry.top_files || [])) {
+      const file = String(f.path).split('|||')[0];   // per-function-mode fold
+      const w = (entry.score || 0) * (f.concentration || 0);
+      fileScore.set(file, (fileScore.get(file) || 0) + w);
+      if (!fileTerms.has(file)) fileTerms.set(file, new Set());
+      fileTerms.get(file).add(entry.token);
+    }
+  }
+  const ranked = [...fileScore.entries()]
+    .map(([file, weight]) => ({ file, weight, terms: fileTerms.get(file).size }))
+    .sort((a, b) => b.weight - a.weight);
+  const totalW = ranked.reduce((s, r) => s + r.weight, 0);
+  return { ranked, fileCount: fileScore.size, totalW };
+}
+
+function printVocabDensityRollup(topTokens, args) {
+  const { ranked, fileCount, totalW } = computeVocabDensity(topTokens);
+  if (fileCount === 0) return;
+
+  const topK = Math.min(10, ranked.length);
+  const coverK = ranked.slice(0, topK).reduce((s, r) => s + r.weight, 0);
+
+  console.log(`\n  Key files by vocabulary density ` +
+    `(top ${topTokens.length} terms concentrate in ${fileCount} files):`);
+  for (let i = 0; i < topK; i++) {
+    const { file, terms } = ranked[i];
+    const p = args.full_path ? file : shortPath(file, 55);
+    console.log(`  ${String(i + 1).padStart(2)}. ${p.padEnd(57)} ${terms} term${terms === 1 ? '' : 's'}`);
+  }
+  console.log(`  Top ${topK} files carry ` +
+    `${(100 * coverK / (totalW || 1)).toFixed(0)}% of top-vocabulary density.`);
 }

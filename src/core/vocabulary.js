@@ -283,19 +283,19 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
           for (const [token, entry] of Object.entries(cached.tokens || {})) {
             idx._vocabulary.set(token, entry);
           }
-          if (showProgress) console.log(`Loaded ${idx._vocabulary.size} cached vocabulary tokens`);
+          if (showProgress) console.error(`Loaded ${idx._vocabulary.size} cached vocabulary tokens`);
           return idx._vocabulary;
         }
         // An empty cached vocabulary is worth nothing -- e.g. a single-file
         // index cached before the per-function fallback existed. Treat it as
         // a miss so the rebuild (and the fallback) can run.
         if (showProgress) {
-          console.log(cachedTokenCount === 0
+          console.error(cachedTokenCount === 0
             ? 'Vocabulary cache is empty, recomputing...'
             : 'Vocabulary cache stale, rebuilding...');
         }
       } catch (e) {
-        if (showProgress) console.log(`Vocabulary cache load failed, recomputing: ${e.message}`);
+        if (showProgress) console.error(`Vocabulary cache load failed, recomputing: ${e.message}`);
       }
     }
   }
@@ -306,7 +306,7 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
     const pat = pathFilter.toLowerCase();
     fileEntries = fileEntries.filter(([fp]) => fp.toLowerCase().includes(pat));
     if (fileEntries.length === 0) {
-      if (showProgress) console.log(`No files matching '${pathFilter}' found.`);
+      if (showProgress) console.error(`No files matching '${pathFilter}' found.`);
       return new Map();
     }
   }
@@ -318,7 +318,7 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
   }
 
   const label = pathFilter ? `${totalFiles} files matching '${pathFilter}'` : `${totalFiles} files`;
-  if (showProgress) console.log(`Building vocabulary index for ${label}...`);
+  if (showProgress) console.error(`Building vocabulary index for ${label}...`);
 
   let vocabulary = _buildVocabularyFromDocs(idx, fileEntries, totalFiles, showProgress, {
     skipDoc: (fp, content) => {
@@ -342,7 +342,7 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
     const { entries: funcEntries, lineCounts } = _functionVocabDocs(idx, pathFilter);
     if (funcEntries.length > 0) {
       if (showProgress) {
-        console.log(`  File-mode vocabulary is empty (corpus is ${totalFiles} ` +
+        console.error(`  File-mode vocabulary is empty (corpus is ${totalFiles} ` +
           `file${totalFiles === 1 ? '' : 's'}); rebuilding from ${funcEntries.length} ` +
           `function bodies as documents...`);
       }
@@ -370,9 +370,9 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
       }
       fs.mkdirSync(path.dirname(cachePath), { recursive: true });
       fs.writeFileSync(cachePath, JSON.stringify(cacheObj, null, 1));
-      if (showProgress) console.log(`  Saved vocabulary cache to ${path.basename(cachePath)}`);
+      if (showProgress) console.error(`  Saved vocabulary cache to ${path.basename(cachePath)}`);
     } catch (e) {
-      if (showProgress) console.log(`  Warning: could not save vocabulary cache: ${e.message}`);
+      if (showProgress) console.error(`  Warning: could not save vocabulary cache: ${e.message}`);
     }
   }
 
@@ -450,7 +450,7 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
   for (const [docId, content] of docEntries) {
     docNum++;
     if (showProgress && docNum % 2000 === 0) {
-      process.stdout.write(`  Pass 1: scanning ${docNum} / ${totalDocs} documents...\r`);
+      process.stderr.write(`  Pass 1: scanning ${docNum} / ${totalDocs} documents...\r`);
     }
 
     if (skipDoc(docId, content)) continue;
@@ -481,7 +481,7 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
   }
 
   if (showProgress) {
-    process.stdout.write(`  Pass 1: scanned ${totalDocs} documents.                    \n`);
+    process.stderr.write(`  Pass 1: scanned ${totalDocs} documents.                    \n`);
   }
 
   // Score and filter
@@ -521,7 +521,7 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
   const topTokenSet = new Set(scored.slice(0, topN).map(e => e.token));
 
   if (showProgress) {
-    console.log(`  ${scored.length} vocabulary tokens (${allTokenCount} unique, ` +
+    console.error(`  ${scored.length} vocabulary tokens (${allTokenCount} unique, ` +
       `${allTokenCount - scored.length} filtered by frequency/length)`);
   }
 
@@ -534,7 +534,7 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
   // Pass 2: Representative documents for top tokens only
   // ----------------------------------------------------------------
   if (showProgress && topTokenSet.size > 0) {
-    process.stdout.write(`  Pass 2: finding representative documents for top ${topTokenSet.size} tokens...\r`);
+    process.stderr.write(`  Pass 2: finding representative documents for top ${topTokenSet.size} tokens...\r`);
   }
 
   const docCountsForTop = Object.create(null);
@@ -546,7 +546,7 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
   for (const [docId, content] of docEntries) {
     docNum++;
     if (showProgress && docNum % 5000 === 0) {
-      process.stdout.write(`  Pass 2: scanning ${docNum} / ${totalDocs} documents...\r`);
+      process.stderr.write(`  Pass 2: scanning ${docNum} / ${totalDocs} documents...\r`);
     }
 
     if (skipDoc(docId, content)) continue;
@@ -567,7 +567,7 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
   }
 
   if (showProgress) {
-    process.stdout.write(`  Pass 2: scanned ${totalDocs} documents.                    \n`);
+    process.stderr.write(`  Pass 2: scanned ${totalDocs} documents.                    \n`);
   }
 
   // Build final vocabulary map. The `top_files` field keeps its name for

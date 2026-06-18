@@ -118,6 +118,7 @@ export function parseArgs() {
     context: 3,
     verbose: false,
     full_path: false,
+    bare: false,
     filter: null,
     no_tests: false,
     emit_harness: null,
@@ -190,6 +191,7 @@ export function parseArgs() {
     vocab_in: null,
     show_dupes: false,
     full_path: false,
+    bare: false,
     dedup: 'exact',
 
     // Phase 8a: Claim search (LLM-based term extraction)
@@ -393,6 +395,7 @@ export function parseArgs() {
     ['discover_vocabulary',  'int',            ['--vocabulary', '--vocab'], ['--discover-vocabulary']],
     ['multisect_search',     'value',          ['--multisect-search', '--multisect']],
     ['vocab_in',             'value',          ['--in']],
+    ['bare',                 'flag',           ['--bare']],
     ['show_dupes',           'flag',           ['--show-dupes']],
 
     // Phase 8a: claim search
