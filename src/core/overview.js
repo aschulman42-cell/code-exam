@@ -11,18 +11,9 @@
  * the future CLI `--overview` / GUI popup, all render from it.
  */
 import path from 'path';
-import { splitCompoundToken } from '../utils.js';
+import { extractConcepts } from './vocabulary.js';
 
 const _ext = (fp) => path.extname(fp).toLowerCase() || '(none)';
-
-// Generic identifier parts that are glue, not domain concepts. Kept small and
-// lowercase; the real domain roots (worklist, multisect, vocabulary, …) survive.
-const _GENERIC_PARTS = new Set([
-  'build', 'get', 'set', 'make', 'run', 'add', 'init', 'new', 'load', 'parse',
-  'find', 'show', 'render', 'handle', 'create', 'update', 'fetch', 'to', 'from',
-  'with', 'the', 'for', 'and', 'of', 'is', 'on', 'by', 'do', 'as', 'at', 'in',
-  'out', 'val', 'obj', 'str', 'num', 'arr', 'len', 'idx', 'tmp', 'data', 'name',
-]);
 
 // First path segment, for the collection detector. Archive virtual paths look
 // like `archive.zip!inner/path` — key off the inner path's first segment.
@@ -106,23 +97,14 @@ export function buildOverview(index) {
   let concepts = [];
   let keyFiles = [];
   try {
-    const vocab = index.getTopVocabulary(40) || [];
+    const vocab = index.getTopVocabulary(200) || [];
     topVocab = vocab.slice(0, 15).map(v => v.token);
 
-    // Concepts: salient sub-terms within CamelCase / snake_case identifiers, so
-    // roots like "worklist"/"multisect" surface even when only ever seen inside
-    // buildMultisectAnalyzePrompt etc. Scored by summed parent-token score.
-    // (Same idea applies to user-facing Vocabulary — see the follow-up issue;
-    // ideally this extraction unifies with vocabulary's sub-token logic.)
-    const subScore = new Map();
-    for (const v of vocab) {
-      for (const part of splitCompoundToken(v.token)) {
-        const p = part.toLowerCase();
-        if (p.length < 3 || _GENERIC_PARTS.has(p)) continue;
-        subScore.set(p, (subScore.get(p) || 0) + (v.score || 0));
-      }
-    }
-    concepts = [...subScore.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([p]) => p);
+    // Concepts: salient CamelCase/snake sub-terms (worklist, multisect, …),
+    // via the shared #193 extractor — sub-token cross-corpus IDF surfaces
+    // corpus-distinctive roots and drops generics (function/index/build).
+    // Reuse the vocab we just fetched (no second pass).
+    concepts = extractConcepts(index, { entries: vocab, maxConcepts: 12 });
 
     // Key files: rank by BREADTH (distinct top terms that concentrate here),
     // tie-broken by summed score × concentration. Breadth surfaces files central
@@ -156,12 +138,20 @@ export function buildOverview(index) {
     absence.push('No entry points found — unusual for application code (a library, or call-graph gaps).');
   }
   if (isCollection) {
-    absence.push(`Looks like a COLLECTION of ${substantial.length} distinct top-level projects, not one codebase (${substantial.slice(0, 4).map(f => f.folder).join(', ')}${substantial.length > 4 ? ', …' : ''}). Orient per-folder, not whole-tree.`);
+    const topN = topFolders.filter(f => f.folder !== '(root)').length;
+    absence.push(`Looks like a COLLECTION — ${substantial.length} of ${topN} top-level folders are substantial (≥10% of files), not one codebase: ${substantial.slice(0, 4).map(f => f.folder).join(', ')}${substantial.length > 4 ? ', …' : ''}. Orient per-folder, not whole-tree.`);
   }
+
+  // Peel prefix for the DISPLAYED lists (key files + entry points). Often tighter
+  // than the whole-index root: a near-single-project collection whose top results
+  // all live in one sub-zip still shares a prefix worth omitting once, even though
+  // the whole index (with its minority sibling zips) shares no common root.
+  const displayRoot = _commonRoot([...keyFiles.map(k => k.file), ...entryPoints.map(e => e.filepath)]);
 
   return {
     source: index.indexSource || null,
     root,
+    displayRoot,
     size: { files: files.length, functions, lines: stats.total_lines || 0, parse_method: stats.parse_method || 'regex' },
     languages,
     topFolders,
@@ -177,13 +167,14 @@ export function buildOverview(index) {
 /** Render a buildOverview() result as a compact (~1 page) text summary. */
 export function formatOverview(ov) {
   const L = [];
-  const strip = (p) => (ov.root && p && p.startsWith(ov.root)) ? p.slice(ov.root.length) : p;
+  const peelRoot = ov.displayRoot || ov.root;
+  const strip = (p) => (peelRoot && p && p.startsWith(peelRoot)) ? p.slice(peelRoot.length) : p;
   L.push(`# Overview${ov.source ? ` — ${ov.source}` : ''}`);
   L.push('');
   L.push(`**Size:** ${ov.size.files} files, ${ov.size.functions} functions, `
     + `${(ov.size.lines || 0).toLocaleString()} lines (${ov.size.parse_method}).`);
   L.push(`**Languages:** ${ov.languages.slice(0, 8).map(l => `${l.ext} ${l.pct}%`).join(', ')}.`);
-  if (ov.root) L.push(`**Paths under:** \`${ov.root}\` — omitted from the lists below.`);
+  if (peelRoot) L.push(`**Paths under:** \`${peelRoot}\` — omitted from the lists below.`);
 
   if (ov.isCollection) {
     L.push('');

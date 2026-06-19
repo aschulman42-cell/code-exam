@@ -230,6 +230,22 @@ export function _crossCorpusWeight(token, catalog) {
 }
 
 /**
+ * Cross-corpus weight for a SUB-token (a CamelCase/snake part). Same shape as
+ * `_crossCorpusWeight` but against the catalog's `subtokens` df map — so generic
+ * parts that recur across corpora (`function`, `index`, `handle`, `data`) demote
+ * while corpus-distinctive roots (`multisect`, `worklist`, `digest`) keep weight
+ * ~1. This is what lets concepts emerge organically (#193) instead of via a
+ * hand-maintained generic-parts list.
+ */
+export function _subtokenCrossCorpusWeight(sub, catalog) {
+  if (!catalog || !catalog.subtokens) return 1;
+  const df = catalog.subtokens[sub] || 0;
+  if (df < 2) return 1;
+  const w = Math.log2(catalog.index_count / df) / Math.log2(catalog.index_count);
+  return Math.max(0.1, Math.min(1, w));
+}
+
+/**
  * #180: build a cross-corpus catalog by tallying, across the given index
  * directories' existing `vocabulary.json` caches, how many indexes each token
  * appears in. Tokens in <2 indexes are dropped (no down-weight value, pure
@@ -239,6 +255,7 @@ export function _crossCorpusWeight(token, catalog) {
  */
 export function buildCrossCorpusCatalog(indexDirs) {
   const counts = Object.create(null);
+  const subCounts = Object.create(null);   // #193: sub-token cross-corpus df
   let used = 0;
   let skipped = 0;
   for (const dir of indexDirs) {
@@ -248,11 +265,18 @@ export function buildCrossCorpusCatalog(indexDirs) {
     try { toks = Object.keys(JSON.parse(fs.readFileSync(vp, 'utf-8')).tokens || {}); }
     catch { skipped++; continue; }
     used++;
-    for (const t of toks) counts[t] = (counts[t] || 0) + 1;
+    const subSeen = new Set();
+    for (const t of toks) {
+      counts[t] = (counts[t] || 0) + 1;
+      for (const s of splitCompoundToken(t)) subSeen.add(s);
+    }
+    for (const s of subSeen) subCounts[s] = (subCounts[s] || 0) + 1;
   }
   const tokens = Object.create(null);
   for (const t of Object.keys(counts)) if (counts[t] >= 2) tokens[t] = counts[t];
-  return { index_count: used, generated_from: indexDirs.length, skipped, tokens };
+  const subtokens = Object.create(null);
+  for (const s of Object.keys(subCounts)) if (subCounts[s] >= 2) subtokens[s] = subCounts[s];
+  return { index_count: used, generated_from: indexDirs.length, skipped, tokens, subtokens };
 }
 
 /**
@@ -631,6 +655,35 @@ export function getTopVocabulary(idx, n = 50, filter = null, pathFilter = null) 
   return entries.slice(0, n);
 }
 
+
+/**
+ * #193: top "concepts" — salient sub-terms (CamelCase/snake parts) of the top
+ * vocabulary, scored by summed parent-token TF-IDF × sub-token cross-corpus
+ * weight, so corpus-generic parts (`function`, `index`, `handle`) demote and
+ * corpus-distinctive roots (`multisect`, `worklist`, `digest`) rise. The single
+ * shared concept extractor — used by the overview and the user-facing vocab
+ * views; emerges organically from the corpora, not a hand-maintained list.
+ * @returns {string[]} ranked concept sub-terms
+ */
+export function extractConcepts(idx, { topN = 200, maxConcepts = 15, catalog, entries } = {}) {
+  if (catalog === undefined) catalog = _loadCrossCorpusCatalog(); // injectable for tests
+  const N = (catalog && catalog.index_count) || 0;
+  const list = entries || getTopVocabulary(idx, topN); // entries injectable / reusable
+  const subScore = new Map();
+  for (const e of list) {
+    for (const part of splitCompoundToken(e.token)) {
+      if (LOW_DISCRIMINATION_STOPWORDS.has(part)) continue; // part is lowercased
+      // Hard-drop near-universal parts (present in >=60% of corpora) — a stoplist
+      // DERIVED from the corpora, not declared — so even a huge parent-token score
+      // can't float `function`/`index`/`build`. Distinctive roots (df below the
+      // bar) keep their graded IDF weight.
+      const df = (catalog && catalog.subtokens && catalog.subtokens[part]) || 0;
+      if (N && df >= 0.6 * N) continue;
+      subScore.set(part, (subScore.get(part) || 0) + (e.score || 0) * _subtokenCrossCorpusWeight(part, catalog));
+    }
+  }
+  return [...subScore.entries()].sort((a, b) => b[1] - a[1]).slice(0, maxConcepts).map(([p]) => p);
+}
 
 /**
  * Build a vocabulary concordance for LLM prompts.

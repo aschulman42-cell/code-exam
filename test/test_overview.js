@@ -57,11 +57,11 @@ test('#181 buildOverview: key files ranked by breadth (distinct top terms)', () 
 
 test('#181 buildOverview: concepts surface sub-terms buried in CamelCase', () => {
   const ov = buildOverview(mockIndex());
-  // "worklist" only appears inside parseWorklistEntry → must surface as a concept
+  // "worklist" lives only inside parseWorklistEntry and is absent from the public
+  // cross-corpus catalog → reliably surfaces. (The IDF/drop logic is tested
+  // hermetically in test_vocabulary's extractConcepts test.)
+  assert.ok(Array.isArray(ov.concepts));
   assert.ok(ov.concepts.includes('worklist'), `concepts: ${ov.concepts.join(',')}`);
-  assert.ok(ov.concepts.includes('widget'));
-  // generic glue parts are filtered (parse is in the generic set)
-  assert.ok(!ov.concepts.includes('parse'));
 });
 
 test('#181 buildOverview: absence flags an empty index', () => {
@@ -87,12 +87,36 @@ test('#181 buildOverview: strips a shared root so the collection detector sees r
   assert.deepEqual(ov.topFolders.map(f => f.folder).sort(), ['projA', 'projB', 'projC']);
 });
 
+test('#193 buildOverview: displayRoot peels the shown-paths prefix when the whole index has none', () => {
+  // A near-single-project collection: a dominant zip plus a tiny sibling zip.
+  // The whole index shares no common root, but every top result lives in the
+  // dominant zip → displayRoot peels that prefix from the lists.
+  const files = new Map();
+  for (let i = 0; i < 12; i++) files.set(`big.zip!proj-main/src/f${i}.js`, 1);
+  for (let i = 0; i < 2; i++) files.set(`small.zip!other-main/x${i}.js`, 1);
+  const idx = {
+    indexSource: 'collection', files, functionIndex: {},
+    getStats: () => ({}),
+    getEntryPoints: () => [{ name: 'main', filepath: 'big.zip!proj-main/src/f0.js' }],
+    getTopVocabulary: () => [
+      { token: 'widget', score: 100, top_files: [{ path: 'big.zip!proj-main/src/f0.js', concentration: 0.5 }] },
+      { token: 'gadget', score: 80, top_files: [{ path: 'big.zip!proj-main/src/f1.js', concentration: 0.4 }] },
+    ],
+  };
+  const ov = buildOverview(idx);
+  assert.equal(ov.root, '');                              // two zips → no whole-index root
+  assert.equal(ov.displayRoot, 'big.zip!proj-main/src/'); // but the shown paths share this
+  const out = formatOverview(ov);
+  assert.match(out, /Paths under:.*big\.zip!proj-main\/src\//);
+  assert.doesNotMatch(out, /big\.zip!proj-main\/src\/f0\.js/); // peeled off the key-file rows
+});
+
 test('#181 formatOverview: renders the sections', () => {
   const out = formatOverview(buildOverview(mockIndex()));
   assert.match(out, /# Overview — \/some\/collection/);
   assert.match(out, /\*\*Size:\*\* 10 files, 3 functions/);
   assert.match(out, /Looks like a collection/);      // isCollection banner
-  assert.match(out, /Key concepts:.*widget/);
+  assert.match(out, /Key concepts:.*worklist/);
   assert.match(out, /Top identifiers:.*widget/);
   assert.match(out, /Key files \(by vocabulary density\)/);
   assert.match(out, /Entry points:/);

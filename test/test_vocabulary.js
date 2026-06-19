@@ -91,7 +91,7 @@ test('keeps ordinary source files (the signal we want to surface)', () => {
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { _crossCorpusWeight, buildCrossCorpusCatalog } from '../src/core/vocabulary.js';
+import { _crossCorpusWeight, _subtokenCrossCorpusWeight, buildCrossCorpusCatalog, extractConcepts } from '../src/core/vocabulary.js';
 
 test('#180 _crossCorpusWeight: no catalog / rare tokens are never penalized', () => {
   assert.equal(_crossCorpusWeight('anything', null), 1);
@@ -130,5 +130,30 @@ test('#180 buildCrossCorpusCatalog: tallies df, drops singletons, counts skips',
   assert.equal(cat.tokens.shared, 3);
   assert.equal(cat.tokens.common, 2);
   assert.equal('onlyA' in cat.tokens, false);   // df < 2 dropped (pure bloat)
+  assert.equal(cat.subtokens.shared, 3);        // #193: sub-tokens tallied too
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('#193 _subtokenCrossCorpusWeight: universal sub-tokens demote, distinctive keep ~1', () => {
+  const cat = { index_count: 28, subtokens: { function: 26, build: 24, multisect: 1, worklist: 0 } };
+  assert.equal(_subtokenCrossCorpusWeight('function', cat), 0.1);   // ~all corpora -> floor
+  assert.ok(_subtokenCrossCorpusWeight('build', cat) < 0.3);
+  assert.equal(_subtokenCrossCorpusWeight('multisect', cat), 1);     // df < 2 -> no penalty
+  assert.equal(_subtokenCrossCorpusWeight('worklist', cat), 1);
+  assert.equal(_subtokenCrossCorpusWeight('x', null), 1);            // no catalog -> 1
+});
+
+test('#193 extractConcepts: cross-corpus IDF drops universal parts, keeps distinctive roots', () => {
+  // Injected catalog (no disk read). df >= 0.6*N (=6) is hard-dropped.
+  const catalog = { index_count: 10, subtokens: { build: 9, index: 10, prompt: 8, multisect: 1, worklist: 0 } };
+  const entries = [
+    { token: 'buildMultisectIndex', score: 100 },
+    { token: 'worklistPrompt', score: 80 },
+  ];
+  const concepts = extractConcepts(null, { catalog, entries });
+  assert.ok(concepts.includes('multisect'), `got: ${concepts.join(',')}`); // df 1 -> kept
+  assert.ok(concepts.includes('worklist'));                                 // df 0 -> kept
+  assert.ok(!concepts.includes('build'));   // df 9 >= 6 -> dropped
+  assert.ok(!concepts.includes('index'));   // df 10 -> dropped
+  assert.ok(!concepts.includes('prompt'));  // df 8 -> dropped
 });

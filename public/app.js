@@ -554,7 +554,7 @@ async function loadSectionData(sectionId, filter = '') {
       case 'vocabulary':
         data = await api.vocabulary({ n: 100, filter });
         state.sectionData[sectionId] = data.vocabulary;
-        renderVocabList(content, data.vocabulary);
+        renderVocabList(content, data.vocabulary, data.concepts);
         badge.textContent = data.vocabulary.length;
         break;
 

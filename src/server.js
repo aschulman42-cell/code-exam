@@ -25,6 +25,7 @@ import { groupSites, groupPipelines, reTestExamplePath, KERNELS_DRILLDOWN, MULTI
 import { makeFilterMatcher } from './core/filter-match.js';
 import { extractExports } from './core/exports.js';
 import { extractImports } from './core/imports.js';
+import { extractConcepts } from './core/vocabulary.js';
 import { loadUsedByCatalog, makeUsedByFor } from './commands/exports.js';
 import { detectInfrastructure } from './core/stack-detectors.js';
 import { SERVER_BUILD } from './version.js';
@@ -1850,6 +1851,7 @@ routes['/api/vocabulary'] = (req, res) => {
   const filter = q.filter || null;
   const items = index.getTopVocabulary(n, filter);
   jsonResponse(res, {
+    concepts: extractConcepts(index),
     vocabulary: items.map((v, i) => ({ rank: i + 1, token: v.token, score: Math.round(v.score * 1000) / 1000, doc_freq: v.doc_freq, total_freq: v.total_count })),
   });
 };

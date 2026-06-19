@@ -1337,9 +1337,12 @@ export function renderClassHierarchy(container, data) {
 // Vocabulary list
 // ============================================================================
 
-export function renderVocabList(container, vocab) {
+export function renderVocabList(container, vocab, concepts) {
   container.innerHTML = '';
   if (!vocab.length) { container.innerHTML = '<div class="list-placeholder">No vocabulary</div>'; return; }
+  if (concepts && concepts.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: `Key concepts: ${concepts.join(', ')}`, style: 'font-size:10px;padding:4px 8px;color:var(--accent-blue);white-space:normal' }));
+  }
   for (const v of vocab) {
     const item = h('div', { className: 'list-item', title: `Score: ${v.score}\nDoc freq: ${v.doc_freq}\nTotal freq: ${v.total_freq}` }, [
       h('span', { className: 'rank', text: `${v.rank}` }),

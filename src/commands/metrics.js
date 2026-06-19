@@ -7,6 +7,7 @@
 import path from 'path';
 import { eprint } from '../utils.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
+import { extractConcepts } from '../core/vocabulary.js';
 import { groupSites, groupPipelines, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from '../core/ai-ml-detectors.js';
 
 
@@ -1463,6 +1464,11 @@ export function doVocabulary(index, args) {
     inLabel +
     ` (${totalTokens.toLocaleString()} unique tokens` +
     (!pathFilter ? `, ${fileCount.toLocaleString()} files` : '') + `):\n`);
+
+  // #193: salient sub-term concepts (corpus-distinctive roots via cross-corpus
+  // sub-token IDF) — what raw CamelCase identifiers bury.
+  const concepts = extractConcepts(index);
+  if (concepts.length) console.log(`  Key concepts: ${concepts.join(', ')}\n`);
 
   // Header
   console.log(`  ${'Score'.padStart(7)}  ${'Files'.padStart(5)}  ${'Hits'.padStart(6)}  ${'Token'.padEnd(35)}  Representative files`);
