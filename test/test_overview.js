@@ -61,7 +61,10 @@ test('#181 buildOverview: concepts surface sub-terms buried in CamelCase', () =>
   // cross-corpus catalog → reliably surfaces. (The IDF/drop logic is tested
   // hermetically in test_vocabulary's extractConcepts test.)
   assert.ok(Array.isArray(ov.concepts));
-  assert.ok(ov.concepts.includes('worklist'), `concepts: ${ov.concepts.join(',')}`);
+  const names = ov.concepts.map(c => c.concept);
+  assert.ok(names.includes('worklist'), `concepts: ${names.join(',')}`);
+  // #181 polish: grounded in the identifier it was split from
+  assert.equal(ov.concepts.find(c => c.concept === 'worklist').example, 'parseWorklistEntry');
 });
 
 test('#181 buildOverview: absence flags an empty index', () => {
@@ -116,8 +119,9 @@ test('#181 formatOverview: renders the sections', () => {
   assert.match(out, /# Overview — \/some\/collection/);
   assert.match(out, /\*\*Size:\*\* 10 files, 3 functions/);
   assert.match(out, /Looks like a collection/);      // isCollection banner
-  assert.match(out, /Key concepts:.*worklist/);
-  assert.match(out, /Top identifiers:.*widget/);
+  assert.match(out, /\*\*Key concepts:\*\*/);             // section header
+  assert.match(out, /- worklist \(parseWorklistEntry\)/); // one per line, concept + example
+  assert.doesNotMatch(out, /Top identifiers/);            // dropped (#181 polish)
   assert.match(out, /Key files \(by vocabulary density\)/);
   assert.match(out, /Entry points:/);
   assert.match(out, /\*\*Next:\*\*/);                 // next-hop guidance

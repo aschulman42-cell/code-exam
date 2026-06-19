@@ -11,7 +11,7 @@
  * the future CLI `--overview` / GUI popup, all render from it.
  */
 import path from 'path';
-import { extractConcepts } from './vocabulary.js';
+import { extractConcepts, conceptLabel } from './vocabulary.js';
 
 const _ext = (fp) => path.extname(fp).toLowerCase() || '(none)';
 
@@ -76,16 +76,25 @@ export function buildOverview(index) {
   try { stats = index.getStats() || {}; } catch { /* partial index */ }
 
   // Entry points (noise-excluded, #187) — also forces the function index build.
+  // Over-fetch then filter: on library / dependency-dump indexes getEntryPoints
+  // surfaces junk that reads as garbage to a human — quoted import-path "entries"
+  // (`"../../node_modules/.../parser.js"`), `KW_`-mangled decoded names, and
+  // all-`Test*` fills. Drop the first two; de-prioritize tests so they only fill
+  // the list when real entry points run out.
   let entryPoints = [];
   try {
+    const isJunkEP = (name) => !name || name.startsWith('"')
+      || name.includes('node_modules') || name.includes('/') || name.includes('_KW_');
+    const isTestEP = (name) => /^Test[A-Z_]/.test(name) || /^test_/.test(name);
     const seen = new Set();
-    entryPoints = (index.getEntryPoints(8, 0, true) || [])
+    const eps = (index.getEntryPoints(40, 0, true) || [])
       .map(e => ({
         name: (index.getDisplayName ? index.getDisplayName(e.name) : e.name) || e.name,
         filepath: e.filepath,
       }))
-      .filter(e => { if (seen.has(e.name)) return false; seen.add(e.name); return true; }) // dedup same-name
-      .slice(0, 8);
+      .filter(e => !isJunkEP(e.name))
+      .filter(e => { if (seen.has(e.name)) return false; seen.add(e.name); return true; }); // dedup same-name
+    entryPoints = [...eps.filter(e => !isTestEP(e.name)), ...eps.filter(e => isTestEP(e.name))].slice(0, 8);
   } catch { /* no call graph */ }
 
   // Function count from the (now-ensured) function index.
@@ -188,8 +197,15 @@ export function formatOverview(ov) {
     if (folders) L.push(`**Top-level:** ${folders}.`);
   }
 
-  if (ov.concepts && ov.concepts.length) { L.push(''); L.push(`**Key concepts:** ${ov.concepts.join(', ')}.`); }
-  if (ov.topVocab.length) { L.push(''); L.push(`**Top identifiers:** ${ov.topVocab.join(', ')}.`); }
+  // Key concepts, each grounded in an example identifier. The raw "Top
+  // identifiers" line is intentionally not shown (#181 polish): on SDK/generated
+  // indexes it filled with boilerplate that mis-described the codebase; ov.topVocab
+  // is still in the structured object for any consumer that wants the raw slice.
+  if (ov.concepts && ov.concepts.length) {
+    L.push('');
+    L.push('**Key concepts:**');
+    for (const c of ov.concepts) L.push(`  - ${conceptLabel(c)}`);
+  }
 
   if (ov.keyFiles.length) {
     L.push('');

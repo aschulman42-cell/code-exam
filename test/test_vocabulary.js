@@ -151,9 +151,13 @@ test('#193 extractConcepts: cross-corpus IDF drops universal parts, keeps distin
     { token: 'worklistPrompt', score: 80 },
   ];
   const concepts = extractConcepts(null, { catalog, entries });
-  assert.ok(concepts.includes('multisect'), `got: ${concepts.join(',')}`); // df 1 -> kept
-  assert.ok(concepts.includes('worklist'));                                 // df 0 -> kept
-  assert.ok(!concepts.includes('build'));   // df 9 >= 6 -> dropped
-  assert.ok(!concepts.includes('index'));   // df 10 -> dropped
-  assert.ok(!concepts.includes('prompt'));  // df 8 -> dropped
+  const names = concepts.map(c => c.concept);
+  assert.ok(names.includes('multisect'), `got: ${names.join(',')}`); // df 1 -> kept
+  assert.ok(names.includes('worklist'));                             // df 0 -> kept
+  assert.ok(!names.includes('build'));   // df 9 >= 6 -> dropped
+  assert.ok(!names.includes('index'));   // df 10 -> dropped
+  assert.ok(!names.includes('prompt'));  // df 8 -> dropped
+  // #181 polish: each concept is grounded in the larger identifier it was split from
+  assert.equal(concepts.find(c => c.concept === 'multisect').example, 'buildMultisectIndex');
+  assert.equal(concepts.find(c => c.concept === 'worklist').example, 'worklistPrompt');
 });

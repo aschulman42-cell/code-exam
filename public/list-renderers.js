@@ -1341,7 +1341,10 @@ export function renderVocabList(container, vocab, concepts) {
   container.innerHTML = '';
   if (!vocab.length) { container.innerHTML = '<div class="list-placeholder">No vocabulary</div>'; return; }
   if (concepts && concepts.length) {
-    container.appendChild(h('div', { className: 'list-placeholder', text: `Key concepts: ${concepts.join(', ')}`, style: 'font-size:10px;padding:4px 8px;color:var(--accent-blue);white-space:normal' }));
+    // Each concept is { concept, example } (#181 polish) — show concept (example),
+    // or bare for a standalone-token concept with no larger identifier.
+    const label = (c) => (c && typeof c === 'object') ? (c.example ? `${c.concept} (${c.example})` : c.concept) : c;
+    container.appendChild(h('div', { className: 'list-placeholder', text: `Key concepts: ${concepts.map(label).join(', ')}`, style: 'font-size:10px;padding:4px 8px;color:var(--accent-blue);white-space:normal' }));
   }
   for (const v of vocab) {
     const item = h('div', { className: 'list-item', title: `Score: ${v.score}\nDoc freq: ${v.doc_freq}\nTotal freq: ${v.total_freq}` }, [

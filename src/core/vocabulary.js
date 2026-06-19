@@ -663,14 +663,20 @@ export function getTopVocabulary(idx, n = 50, filter = null, pathFilter = null) 
  * corpus-distinctive roots (`multisect`, `worklist`, `digest`) rise. The single
  * shared concept extractor — used by the overview and the user-facing vocab
  * views; emerges organically from the corpora, not a hand-maintained list.
- * @returns {string[]} ranked concept sub-terms
+ * Each concept carries one `example`: the highest-scoring full identifier it was
+ * split from (`worklist` → `parseWorklistEntry`), so a reader sees a concrete
+ * identifier grounding the concept. A concept that only ever appears as a bare
+ * token (`mcp`, `claw`) has `example: null`.
+ * @returns {Array<{ concept: string, example: string|null }>} ranked concepts
  */
 export function extractConcepts(idx, { topN = 200, maxConcepts = 15, catalog, entries } = {}) {
   if (catalog === undefined) catalog = _loadCrossCorpusCatalog(); // injectable for tests
   const N = (catalog && catalog.index_count) || 0;
   const list = entries || getTopVocabulary(idx, topN); // entries injectable / reusable
   const subScore = new Map();
+  const subExample = new Map(); // part -> { token, score }: best COMPOUND identifier
   for (const e of list) {
+    const tokenLc = String(e.token).toLowerCase();
     for (const part of splitCompoundToken(e.token)) {
       if (LOW_DISCRIMINATION_STOPWORDS.has(part)) continue; // part is lowercased
       // Hard-drop near-universal parts (present in >=60% of corpora) — a stoplist
@@ -680,9 +686,24 @@ export function extractConcepts(idx, { topN = 200, maxConcepts = 15, catalog, en
       const df = (catalog && catalog.subtokens && catalog.subtokens[part]) || 0;
       if (N && df >= 0.6 * N) continue;
       subScore.set(part, (subScore.get(part) || 0) + (e.score || 0) * _subtokenCrossCorpusWeight(part, catalog));
+      // Pick a representative identifier: a token LARGER than the bare concept
+      // (`parseWorklistEntry`, not `worklist`), highest parent score wins.
+      if (tokenLc !== part) {
+        const cur = subExample.get(part);
+        if (!cur || (e.score || 0) > cur.score) subExample.set(part, { token: e.token, score: e.score || 0 });
+      }
     }
   }
-  return [...subScore.entries()].sort((a, b) => b[1] - a[1]).slice(0, maxConcepts).map(([p]) => p);
+  return [...subScore.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, maxConcepts)
+    .map(([p]) => ({ concept: p, example: subExample.get(p)?.token || null }));
+}
+
+/** Render an extractConcepts() item as `concept (example)` (or bare if no example). */
+export function conceptLabel(c) {
+  if (!c || typeof c === 'string') return c || '';
+  return c.example ? `${c.concept} (${c.example})` : c.concept;
 }
 
 /**

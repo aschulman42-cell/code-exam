@@ -20,7 +20,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { buildOverview, formatOverview } from './core/overview.js';
-import { extractConcepts } from './core/vocabulary.js';
+import { extractConcepts, conceptLabel } from './core/vocabulary.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { displayName } from './utils.js';
 import { doCallTree } from './commands/graph.js';
@@ -575,7 +575,7 @@ function handleTool(name, args) {
       const lines = [`Top ${vocab.length} domain vocabulary tokens` +
         (withSites ? ':' : ' (terms only; pass with_sites:true for example paths):')];
       const concepts = extractConcepts(index);
-      if (concepts.length) lines.push(`Key concepts (distinctive sub-terms): ${concepts.join(', ')}`, '');
+      if (concepts.length) lines.push(`Key concepts (distinctive sub-terms): ${concepts.map(conceptLabel).join(', ')}`, '');
       for (const v of vocab) {
         let line = `  ${v.score.toFixed(0)}\t${v.token}\t(${v.doc_freq} files, ${v.total_count} hits)`;
         if (withSites && v.top_files && v.top_files.length) {
