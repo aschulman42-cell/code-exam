@@ -95,6 +95,7 @@ export function parseArgs() {
     extract: null,
     scan_extensions: null,
     index_extensions: false,
+    overview: false,
     list_indexes: null,
 
     // Callers / Callees
@@ -322,6 +323,7 @@ export function parseArgs() {
     ['extract',              'value',          ['--extract']],
     ['scan_extensions',      'value',          ['--scan-extensions']],
     ['index_extensions',     'flag',           ['--index-extensions']],
+    ['overview',             'flag',           ['--overview']],
     ['list_indexes',         'optional_value', ['--indexes'], ['--list-indexes']],
 
     ['max_results',          'int',            ['--max-results', '--max', '-n']],
@@ -771,6 +773,8 @@ BROWSE:
                              in the extracted function's body).
   --scan-extensions <path>   Count file extensions in a directory
   --index-extensions         Count file extensions in current index
+  --overview                 One-shot orientation: size, languages, structure,
+                             top vocabulary, key files, entry points (run first)
   --indexes [path]           List available index directories
                              (deprecated alias: --list-indexes)
 

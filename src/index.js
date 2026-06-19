@@ -10,6 +10,7 @@ import fs from 'fs';
 import { spawnSync } from 'child_process';
 import { parseArgs } from './argparse.js';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
+import { buildOverview, formatOverview } from './core/overview.js';
 import { MEDIA_BINARY_EXTENSIONS, ARCHIVE_EXTENSIONS, EXECUTABLE_EXTENSIONS } from './utils.js';
 import { BINSTRING_EXTENSIONS } from './binstrings.js';
 import {
@@ -361,7 +362,7 @@ if (args.build_index) {
 
   // If only building (no other command), exit
   const queryCommands = [
-    'search', 'literal', 'fast', 'regex', 'files_search', 'folders_search',
+    'overview', 'search', 'literal', 'fast', 'regex', 'files_search', 'folders_search',
     'stats', 'list_functions', 'list_functions_alpha', 'list_functions_size',
     'extract', 'list_files', 'show_file', 'file_bookends', 'bundle_seams', 'index_extensions', 'interactive',
     'callers', 'callees', 'most_called', 'call_tree', 'call_inventory', 'file_map', 'file_tree',
@@ -430,7 +431,7 @@ if (args.build_rename_map) {
   console.log(`Done: ${r.namesInferred + r.cmdRenames + r.importRenames} total renames written to ${index.indexPath}/rename_map.json`);
   // If only --build-rename-map (no other command), exit
   const queryCommands = [
-    'search', 'literal', 'fast', 'regex', 'files_search', 'folders_search',
+    'overview', 'search', 'literal', 'fast', 'regex', 'files_search', 'folders_search',
     'stats', 'list_functions', 'list_functions_alpha', 'list_functions_size',
     'extract', 'list_files', 'show_file', 'index_extensions', 'interactive',
     'callers', 'callees', 'most_called', 'call_tree', 'call_inventory', 'file_map', 'file_tree',
@@ -466,6 +467,7 @@ if (args.no_rename) {
 // the just-written rename_map.json.
 if (args._explicit.has('build_fp_renames')) doBuildFpRenames(index, args);
 
+if (args.overview)                          console.log(formatOverview(buildOverview(index)));
 if (args.stats)                             doStats(index, args);
 if (args.index_extensions)                  doIndexExtensions(index, args);
 
@@ -746,7 +748,7 @@ if (args.interactive) {
   // Check if any command was dispatched
   const anyCommand = [
     'stats', 'index_extensions',
-    'search', 'literal', 'fast', 'regex', 'files_search', 'folders_search',
+    'overview', 'search', 'literal', 'fast', 'regex', 'files_search', 'folders_search',
     'extract', 'list_files', 'show_file', 'list_functions',
     'list_functions_alpha', 'list_functions_size',
     'callers', 'callees', 'most_called',

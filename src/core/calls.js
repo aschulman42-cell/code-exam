@@ -808,7 +808,7 @@ export function getCallCounts(idx, showProgress = true) {
     return {};
   }
   if (showProgress) {
-    console.log('Scanning for function calls...');
+    console.error('Scanning for function calls...');
     if (idx._invertedOnDisk) {
       console.log('  (First scan streams from disk - may take 1-3 minutes for large indexes.');
       console.log('   Subsequent metrics commands will be instant.)');
@@ -897,7 +897,7 @@ export function getCallCounts(idx, showProgress = true) {
   }, showProgress, true); // lazy=true: skip full JSON parse
 
   if (showProgress) {
-    console.log(`Scanned ${linesScanned} unique lines, found ${Object.keys(counts).length} called identifiers`);
+    console.error(`Scanned ${linesScanned} unique lines, found ${Object.keys(counts).length} called identifiers`);
   }
   idx._callCountsCache = counts;
   return counts;

@@ -19,6 +19,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
+import { buildOverview, formatOverview } from './core/overview.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { displayName } from './utils.js';
 import { doCallTree } from './commands/graph.js';
@@ -210,6 +211,14 @@ const TOOLS = [
     },
   },
   {
+    name: 'overview',
+    description: 'START HERE for an unfamiliar index. One-shot orientation: size, languages, top-level structure (flags multi-project collections like a books/repos dump), top domain vocabulary, key files by vocabulary density, entry points, and "watch" notes (e.g. nothing indexed, looks like a collection). Built from cached signals — fast. Run this FIRST, then follow its "Next:" line: vocabulary for more terms, digest <file@function> to drill into a key file or entry point.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
     name: 'stats',
     description: 'Show index statistics: file count, function count, line count, etc.',
     inputSchema: {
@@ -335,6 +344,9 @@ function clipLine(s, n = 200) {
 
 function handleTool(name, args) {
   switch (name) {
+
+    case 'overview':
+      return formatOverview(buildOverview(index));
 
     case 'search': {
       const query = args.query;
