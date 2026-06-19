@@ -397,7 +397,7 @@ export function expandArchive(source, opts = {}) {
     extensions = null,
     showProgress = true,
     demanglerPath = null,
-    stats = { archives: 0, files: 0, encrypted: 0, errors: 0, skippedBinary: 0, binstringsProcessed: 0, depthWarnings: 0 },
+    stats = { archives: 0, files: 0, encrypted: 0, errors: 0, skippedBinary: 0, binstringsProcessed: 0, depthWarnings: 0, skippedExtensions: {} },
   } = opts;
 
   if (depth > MAX_ARCHIVE_DEPTH) {
@@ -464,7 +464,7 @@ export function expandArchive(source, opts = {}) {
  * Return the stats object for external use (e.g., build summary).
  */
 export function createArchiveStats() {
-  return { archives: 0, files: 0, encrypted: 0, errors: 0, skippedBinary: 0, binstringsProcessed: 0, depthWarnings: 0 };
+  return { archives: 0, files: 0, encrypted: 0, errors: 0, skippedBinary: 0, binstringsProcessed: 0, depthWarnings: 0, skippedExtensions: {} };
 }
 
 
@@ -520,7 +520,7 @@ function _expandZip(buf, archiveName, depth, extensions, showProgress, demangler
     }
 
     // Check if this is a source file we want
-    if (!_isIndexableEntry(entryName, entryExt, extensions)) continue;
+    if (!_isIndexableEntry(entryName, entryExt, extensions)) { if (entryExt && stats && stats.skippedExtensions) stats.skippedExtensions[entryExt] = (stats.skippedExtensions[entryExt] || 0) + 1; continue; }
 
     // Decode content as UTF-8
     const text = entry.content.toString('utf-8');
@@ -573,7 +573,7 @@ function _expandTar(buf, archiveName, depth, extensions, showProgress, demangler
       continue;
     }
 
-    if (!_isIndexableEntry(entryName, entryExt, extensions)) continue;
+    if (!_isIndexableEntry(entryName, entryExt, extensions)) { if (entryExt && stats && stats.skippedExtensions) stats.skippedExtensions[entryExt] = (stats.skippedExtensions[entryExt] || 0) + 1; continue; }
 
     const text = entry.content.toString('utf-8');
     results.push({ virtualPath, content: text });
@@ -797,7 +797,7 @@ function _expandGzip(buf, archiveName, depth, extensions, showProgress, demangle
         continue;
       }
 
-      if (!_isIndexableEntry(entryName, entryExt, extensions)) continue;
+      if (!_isIndexableEntry(entryName, entryExt, extensions)) { if (entryExt && stats && stats.skippedExtensions) stats.skippedExtensions[entryExt] = (stats.skippedExtensions[entryExt] || 0) + 1; continue; }
 
       const text = entry.content.toString('utf-8');
       results.push({ virtualPath, content: text });

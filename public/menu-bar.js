@@ -84,7 +84,7 @@ async function handleMenuAction(action) {
       // Strip /slashes/ from regex patterns
       if (type === 'regex') { const m = query.match(/^\/(.+)\/([gimsuy]*)$/); if (m) query = m[1]; }
       showMiddleTopLoading(`Searching: "${query}"…`);
-      try { renderSearchResults(query, await api.search({ q: query, type, max: 30, in: r.inPath })); } catch (err) { showMiddleTopError(err.message); }
+      try { renderSearchResults(query, await api.search({ q: query, type, max: parseInt($('#opt-max-results')?.value) || 50, in: r.inPath })); } catch (err) { showMiddleTopError(err.message); }
       break;
     }
     case 'files-search': {
@@ -92,7 +92,7 @@ async function handleMenuAction(action) {
       if (!r) return;
       const term = r.query;
       state.highlightTerms = { terms: [term], colors: HIGHLIGHT_COLORS };
-      try { renderFilesSearchResults(term, await api.filesSearch({ q: term, max: 40, in: r.inPath })); } catch (err) { showMiddleTopError(err.message); }
+      try { renderFilesSearchResults(term, await api.filesSearch({ q: term, max: parseInt($('#opt-max-results')?.value) || 50, in: r.inPath })); } catch (err) { showMiddleTopError(err.message); }
       break;
     }
     case 'search-multisect': {
@@ -102,7 +102,7 @@ async function handleMenuAction(action) {
       const minTermsVal = parseInt($('#ws-min-terms')?.value) || 0;
       showMiddleTopLoading(`Running multisect search… (Min Terms: ${minTermsVal === 0 ? 'all' : minTermsVal})`);
       try {
-        const data = await api.multisect({ terms, max: 30, min_terms: minTermsVal, in: r.inPath || undefined, match_renames: r.matchRenames || undefined });
+        const data = await api.multisect({ terms, max: parseInt($('#opt-max-results')?.value) || 50, min_terms: minTermsVal, in: r.inPath || undefined, match_renames: r.matchRenames || undefined });
         renderMultisectResults(data);
       } catch (err) { showMiddleTopError(err.message); }
       break;

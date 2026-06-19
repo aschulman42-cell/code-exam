@@ -530,7 +530,7 @@ export function displayMultisectResults(results, args, totalFiles) {
       }
     }
     if (realFuncMatches.length > maxPerScope) {
-      console.log(`  ... +${realFuncMatches.length - maxPerScope} more`);
+      console.log(`  ... +${realFuncMatches.length - maxPerScope} more (use --max-results <N> to see all)`);
     }
     console.log();
   }
@@ -590,7 +590,7 @@ export function displayMultisectResults(results, args, totalFiles) {
       }
     }
     if (filteredClasses.length > maxPerScope) {
-      console.log(`  ... +${filteredClasses.length - maxPerScope} more`);
+      console.log(`  ... +${filteredClasses.length - maxPerScope} more (use --max-results <N> to see all)`);
     }
     console.log();
   }
@@ -652,7 +652,7 @@ export function displayMultisectResults(results, args, totalFiles) {
       }
     }
     if (filteredFiles.length > maxPerScope) {
-      console.log(`  ... +${filteredFiles.length - maxPerScope} more`);
+      console.log(`  ... +${filteredFiles.length - maxPerScope} more (use --max-results <N> to see all)`);
     }
     console.log();
   }
@@ -719,7 +719,7 @@ export function displayMultisectResults(results, args, totalFiles) {
       }
     }
     if (displayFolders.length > maxPerScope) {
-      console.log(`  ... +${displayFolders.length - maxPerScope} more`);
+      console.log(`  ... +${displayFolders.length - maxPerScope} more (use --max-results <N> to see all)`);
     }
     console.log();
   } else if (folderSuppressed > 0 && !verbose) {

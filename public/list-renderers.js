@@ -1158,6 +1158,11 @@ export function renderCallInventory(container, data) {
       });
       container.appendChild(item);
     }
+    if (external.length < summary.external_count) {
+      container.appendChild(h('div', { className: 'list-placeholder',
+        text: `showing ${external.length} of ${summary.external_count} — raise Max results`,
+        style: 'font-size:10px;padding:4px 10px;color:#ffd479' }));
+    }
   }
 
   // In-index section (summary — overlaps with Most Called)
@@ -1184,6 +1189,11 @@ export function renderCallInventory(container, data) {
         onFunctionClick({ name: f.name, display_name: f.qualified_name || f.name, filepath: f.filepath });
       });
       inIdxContent.appendChild(item);
+    }
+    if (in_index.length < summary.in_index_count) {
+      inIdxContent.appendChild(h('div', { className: 'list-placeholder',
+        text: `showing ${in_index.length} of ${summary.in_index_count} — raise Max results`,
+        style: 'font-size:10px;padding:4px 10px;color:#ffd479' }));
     }
     container.appendChild(inIdxToggle);
     container.appendChild(inIdxContent);
@@ -1478,6 +1488,10 @@ export function renderCallInventoryList(container, data) {
         e.provenance ? h('span', { className: 'filepath', text: e.provenance }) : null,
       ].filter(Boolean)));
     }
+    const shownExt = Math.min(40, external.length);
+    if (shownExt < summary.external_count) {
+      container.appendChild(h('div', { className: 'list-placeholder', text: `showing ${shownExt} of ${summary.external_count} — raise Max results`, style: 'font-size:10px;padding:4px 8px;color:#ffd479' }));
+    }
   }
   if (in_index.length) {
     container.appendChild(h('div', { className: 'list-placeholder', text: 'In-index targets:', style: 'font-weight:bold;padding:4px 8px;font-size:11px;margin-top:4px' }));
@@ -1489,6 +1503,10 @@ export function renderCallInventoryList(container, data) {
       ]);
       item.addEventListener('click', () => onFunctionClick({ name: t.name, filepath: t.filepath }));
       container.appendChild(item);
+    }
+    const shownIn = Math.min(20, in_index.length);
+    if (shownIn < summary.in_index_count) {
+      container.appendChild(h('div', { className: 'list-placeholder', text: `showing ${shownIn} of ${summary.in_index_count} — raise Max results`, style: 'font-size:10px;padding:4px 8px;color:#ffd479' }));
     }
   }
 }

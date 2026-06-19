@@ -3192,7 +3192,7 @@ export class CodeSearchIndex {
    * @returns {object} stats
    */
   async buildIndex(codePath, { chunkSize = 50, showProgress = true, skipSemantic = true, demanglerPath = null, useTreeSitter = false, renameMinLines = 0, splitBundle = false } = {}) {
-    const stats = { files_indexed: 0, total_lines: 0, chunks_created: 0, errors: [], prettified: 0 };
+    const stats = { files_indexed: 0, total_lines: 0, chunks_created: 0, errors: [], prettified: 0, skippedExtensions: {} };
     const codePathStr = codePath.trim();
 
     let files = [];
@@ -3465,6 +3465,9 @@ export class CodeSearchIndex {
 
         totalArchiveFiles += archiveStats.files;
         totalBinstringsFromArchives += archiveStats.binstringsProcessed;
+        for (const [ext, n] of Object.entries(archiveStats.skippedExtensions || {})) {
+          stats.skippedExtensions[ext] = (stats.skippedExtensions[ext] || 0) + n;
+        }
       } catch (e) {
         stats.errors.push(`Archive ${archivePath}: ${e.message}`);
       }

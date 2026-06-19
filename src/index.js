@@ -10,6 +10,8 @@ import fs from 'fs';
 import { spawnSync } from 'child_process';
 import { parseArgs } from './argparse.js';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
+import { MEDIA_BINARY_EXTENSIONS, ARCHIVE_EXTENSIONS, EXECUTABLE_EXTENSIONS } from './utils.js';
+import { BINSTRING_EXTENSIONS } from './binstrings.js';
 import {
   doSearch, doLiteral, doFast, doRegex,
   doFilesSearch, doFoldersSearch,
@@ -258,6 +260,21 @@ if (args.exclude_extensions) {
   }
 }
 
+// --add-extensions: union onto the current set (custom or default) — additive,
+// unlike --extensions which replaces. Lets you index .xmlui/.xs/.md on top of
+// the defaults without re-listing every default extension.
+if (args.add_extensions) {
+  if (!customExtensions) {
+    customExtensions = new Set(CodeSearchIndex.DEFAULT_EXTENSIONS);
+  }
+  for (let ext of args.add_extensions.split(',')) {
+    ext = ext.trim().toLowerCase();
+    if (!ext) continue;
+    if (!ext.startsWith('.')) ext = '.' + ext;
+    customExtensions.add(ext);
+  }
+}
+
 const index = new CodeSearchIndex({
   indexPath: args.index_path,
   extensions: customExtensions,
@@ -297,6 +314,50 @@ if (args.build_index) {
       console.log(`  ... and ${buildStats.errors.length - 10} more`);
     }
   }
+
+  // (skipped-files tip) Warn when the source has substantial files in extensions
+  // we did NOT index, so silent omissions (e.g. .xmlui) are visible instead of
+  // quietly dropped. Works for directory sources (scan the tree) AND archive/zip
+  // sources (the builder tracks skipped extensions during expansion ->
+  // buildStats.skippedExtensions). Best-effort; never fails the build.
+  try {
+    let census = null; // { ext: count } of files SKIPPED due to extension
+    if (fs.existsSync(args.build_index) && fs.statSync(args.build_index).isDirectory()) {
+      const counts = CodeSearchIndex.scanExtensions(args.build_index);
+      const eff = index.extensions;
+      census = {};
+      for (const [ext, n] of Object.entries(counts)) {
+        if (ext && ext !== '(no extension)' && !eff.has(ext)) census[ext] = n;
+      }
+    } else if (buildStats.skippedExtensions) {
+      census = buildStats.skippedExtensions; // archive / zip source
+    }
+    if (census) {
+      // Only suggest --add-extensions for plausibly-TEXT extensions. Media /
+      // binary / archive / executable are skipped by design (indexing them as
+      // text yields garbage; archives/exes are handled separately), so they're
+      // mentioned for awareness but never recommended for --add-extensions.
+      const isNonText = (ext) => MEDIA_BINARY_EXTENSIONS.has(ext)
+        || ARCHIVE_EXTENSIONS.has(ext) || EXECUTABLE_EXTENSIONS.has(ext)
+        || BINSTRING_EXTENSIONS.has(ext);
+      const entries = Object.entries(census)
+        .filter(([ext, n]) => ext && n >= 3)
+        .sort((a, b) => b[1] - a[1]);
+      const textSkipped = entries.filter(([ext]) => !isNonText(ext)).slice(0, 8);
+      const mediaSkipped = entries.filter(([ext]) => MEDIA_BINARY_EXTENSIONS.has(ext)).slice(0, 8);
+      if (textSkipped.length) {
+        const list = textSkipped.map(([ext, n]) => `${ext} (${n})`).join(', ');
+        const addList = textSkipped.map(([ext]) => ext).join(',');
+        process.stderr.write(`\nNote: source files in these text extensions were NOT indexed:\n`);
+        process.stderr.write(`      ${list}\n`);
+        process.stderr.write(`      To include them, rebuild with: --add-extensions ${addList}\n`);
+      }
+      if (mediaSkipped.length) {
+        const mlist = mediaSkipped.map(([ext, n]) => `${ext} (${n})`).join(', ');
+        process.stderr.write(`      (Also present, skipped as binary/media — not indexed as text: ${mlist})\n`);
+      }
+    }
+  } catch { /* best-effort tip; never break the build */ }
 
   // If only building (no other command), exit
   const queryCommands = [

@@ -199,7 +199,7 @@ function initVerticalSplit(handleId, topId, bottomId) {
 
 // Filter
 // ========================================================================
-export function initFilter() {
+export function initFilter({ loadSectionData }) {
   $('#left-filter').addEventListener('input', () => {
     clearTimeout(state._filterTimer);
     state._filterTimer = setTimeout(() => {

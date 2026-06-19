@@ -1096,7 +1096,7 @@ async function runWorkspace() {
     if (mode === 'multisect-search') {
       showMiddleTopLoading('Running multisect search…');
       try {
-        const data = await api.multisect({ terms: text, max: 30, min_terms: minTermsVal, in: inPath || undefined, match_renames: $('#ws-match-renames')?.checked || undefined });
+        const data = await api.multisect({ terms: text, max: getMaxResults(), min_terms: minTermsVal, in: inPath || undefined, match_renames: $('#ws-match-renames')?.checked || undefined });
         renderMultisectResults(data);
       } catch (err) { showMiddleTopError(err.message); }
 
@@ -1520,7 +1520,7 @@ async function init() {
   initContextMenu({ showAnalysisPane, renderLlmAnalysis, stripAtFileHeader });
   initSourceViewer({ showContextMenu, onFunctionClickSourceOnly });
   initPromptsAndCatalog({ wireClickables, getMaxResults });
-  initFilter();
+  initFilter({ loadSectionData });
 
   // View options
   $('#opt-wrap-lines')?.addEventListener('change', (e) => {

@@ -74,6 +74,7 @@ export function parseArgs() {
     use_tree_sitter: false,
     extensions: null,
     exclude_extensions: null,
+    add_extensions: null,
     demangler: null,
 
     // Search
@@ -302,6 +303,7 @@ export function parseArgs() {
     ['use_tree_sitter',      'flag',           ['--use-tree-sitter']],
     ['extensions',           'value',          ['--extensions']],
     ['exclude_extensions',   'value',          ['--exclude-extensions']],
+    ['add_extensions',       'value',          ['--add-extensions']],
     ['demangler',            'value',          ['--demangler']],
 
     ['search',               'value',          ['--search']],
@@ -727,6 +729,9 @@ INDEX MANAGEMENT:
   --skip-semantic            Skip semantic/embedding indexing (default)
   --use-tree-sitter          Use tree-sitter for function parsing
   --extensions <exts>        Comma-separated file extensions to index
+                             (replaces the default set)
+  --add-extensions <exts>    Comma-separated extensions to ADD to the default
+                             set (e.g. --add-extensions .xmlui,.xs,.md)
   --exclude-extensions <exts> Comma-separated extensions to exclude from index
   --demangler <path>         Path to C++ name demangler (e.g., vc++filt.exe, c++filt)
 

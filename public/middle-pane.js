@@ -517,11 +517,21 @@ export function renderClassMethodsDetail(data) {
   _wireClickables(container);
 }
 
+// Visible, non-modal banner for truncated result sets (the silent-cap fix).
+// `total` known -> "showing N of M"; unknown -> "showing N; more exist".
+function _capWarning(shown, total) {
+  const more = (total != null) ? `showing ${shown} of ${total}` : `showing ${shown}; more matches exist`;
+  return `<div style="padding:6px 12px;background:#5a3a00;color:#ffd479;font-size:12px;border-bottom:1px solid var(--border)">`
+    + `&#9888; Results capped — ${more}. Raise <b>Max Results</b> (View menu) or use CLI <code>--max-results &lt;N&gt;</code>.</div>`;
+}
+
 export function renderFilesSearchResults(token, data) {
   const container = $('#middle-top-body'), title = $('#middle-top-title');
+  const capped = data.total > data.files.length;
   title.textContent = `"${token}" — ${data.total} files, showing top ${data.files.length}`;
   if (!data.files.length) { container.innerHTML = '<div class="list-placeholder">No files found</div>'; return; }
-  let html = '<div class="output-section"><table class="output-table"><tr><th>#</th><th>File</th><th>Hits</th></tr>';
+  let html = (capped ? _capWarning(data.files.length, data.total) : '')
+    + '<div class="output-section"><table class="output-table"><tr><th>#</th><th>File</th><th>Hits</th></tr>';
   for (const f of data.files) {
     html += `<tr><td class="muted">${f.rank}</td><td class="mono"><span class="clickable" data-filepath="${escHtml(f.filepath)}">${escHtml(shortPath(f.filepath, 60))}</span></td><td>${f.hits}</td></tr>`;
   }
@@ -531,7 +541,10 @@ export function renderFilesSearchResults(token, data) {
 
 export function renderSearchResults(query, data) {
   const container = $('#middle-top-body'), title = $('#middle-top-title');
-  title.textContent = `Search: "${query}" (${data.results.length} results)`;
+  const capped = !!data.truncated;
+  title.textContent = capped
+    ? `Search: "${query}" — showing ${data.results.length}, CAPPED (more exist)`
+    : `Search: "${query}" (${data.results.length} results)`;
 
   // Store for source highlighting
   state.highlightTerms = { terms: [query], colors: HIGHLIGHT_COLORS };
@@ -546,7 +559,7 @@ export function renderSearchResults(query, data) {
     groups.get(fp).push(r);
   }
 
-  let html = '';
+  let html = capped ? _capWarning(data.results.length) : '';
   for (const [fp, hits] of groups) {
     html += '<div style="border-bottom:1px solid var(--border)">';
     html += `<div class="clickable" data-filepath="${escHtml(fp)}" style="padding:6px 12px;font-family:var(--font-mono);font-size:12px;font-weight:600;cursor:pointer;color:var(--text-bright);background:var(--bg-alt)">${escHtml(shortPath(fp, 70))} <span class="muted" style="font-weight:normal">(${hits.length} hit${hits.length > 1 ? 's' : ''})</span></div>`;
@@ -687,8 +700,18 @@ export function _renderScopeViews(views, opts = {}) {
     + (views.class_matches || []).length
     + (views.file_matches || []).length
     + (views.folder_matches || []).length;
+  const grandTotal = (views.function_total ?? (views.function_matches || []).length)
+    + (views.class_total ?? (views.class_matches || []).length)
+    + (views.file_total ?? (views.file_matches || []).length)
+    + (views.folder_total ?? (views.folder_matches || []).length);
 
   let html = '';
+  // Action-only banner; the per-scope shown/total counts live in the title
+  // (avoids two redundant, differently-phrased cap messages).
+  if (grandTotal > totalHits) {
+    html += '<div style="padding:6px 12px;background:#5a3a00;color:#ffd479;font-size:12px;border-bottom:1px solid var(--border)">'
+      + '&#9888; Some scopes capped (counts in title) — raise <b>Max Results</b> (View menu) or use CLI <code>--max-results &lt;N&gt;</code> to see all.</div>';
+  }
 
   // Numbered term legend (so screenshots are self-contained)
   if (showLegend && terms.length) {
@@ -899,8 +922,16 @@ export function renderMultisectResults(data) {
   const cmCount = (data.class_matches || []).length;
   const fileCount = (data.file_matches || []).length;
   const folderCount = (data.folder_matches || []).length;
-  const total = fmCount + cmCount + fileCount + folderCount;
-  title.textContent = `Multisect (${total} hits: ${fmCount} fn / ${cmCount} cls / ${fileCount} file / ${folderCount} folder)`;
+  // True totals from the server (function_total etc.) vs. the capped arrays —
+  // show shown/total per scope so a cap can't masquerade as "all hits"
+  // (e.g. "30/46 fn"). This is the bug where a #46 match silently vanished.
+  const fmTot = data.function_total ?? fmCount, cmTot = data.class_total ?? cmCount;
+  const fileTot = data.file_total ?? fileCount, folderTot = data.folder_total ?? folderCount;
+  const lab = (shown, tot) => shown < tot ? `${shown}/${tot}` : `${shown}`;
+  const capped = fmCount < fmTot || cmCount < cmTot || fileCount < fileTot || folderCount < folderTot;
+  title.textContent = `Multisect (${lab(fmCount, fmTot)} fn / ${lab(cmCount, cmTot)} cls / `
+    + `${lab(fileCount, fileTot)} file / ${lab(folderCount, folderTot)} folder)`
+    + (capped ? ' — CAPPED' : '');
 
   const termsDiv = $('#workspace-terms');
   termsDiv.innerHTML = '';

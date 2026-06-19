@@ -1775,15 +1775,19 @@ routes['/api/search'] = (req, res) => {
   // Search stored content with original query
   const caseSensitive = q.case_sensitive === '1' || q.case_sensitive === 'true';
   // With a path filter active, over-fetch so filtering doesn't starve the
-  // result set, then trim back to maxResults below.
-  const searchCap = includePath ? maxResults * 5 : maxResults;
+  // result set, then trim back to maxResults below. Over-fetch by 1 past the
+  // display cap either way, so we can tell the client whether results were
+  // truncated -- otherwise a full page looks complete (the silent-cap bug).
+  const searchCap = (includePath ? maxResults * 5 : maxResults) + 1;
   let results;
   if (type === 'fast' || type === 'regex') {
     results = index.searchInverted(query, { useRegex: type === 'regex', caseSensitive, maxResults: searchCap });
   } else {
     results = index.searchLiteral(query, { caseSensitive, maxResults: searchCap, contextLines });
   }
-  if (includePath) results = results.filter(r => pathOk(r.filePath)).slice(0, maxResults);
+  if (includePath) results = results.filter(r => pathOk(r.filePath));
+  let truncated = results.length > maxResults;
+  results = results.slice(0, maxResults);
 
   // If no hits and query looks like a display name pattern (e.g. _TMPL_),
   // find original names whose display names match and search for those
@@ -1806,7 +1810,7 @@ routes['/api/search'] = (req, res) => {
     }
   }
   jsonResponse(res, {
-    query, type,
+    query, type, truncated, shown: results.length, cap: maxResults,
     results: results.map(r => ({ filepath: r.filePath, line_number: r.lineNumber, line_text: index.applyRenames(r.lineText || ''), context: index.applyRenames(r.context || ''), containing_function: index.getDisplayName(r.functionName || '') || null })),
   });
 };
