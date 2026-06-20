@@ -127,7 +127,7 @@ async function loadSectionData(sectionId, filter = '') {
       case 'extensions':
         data = await api.indexExtensions();
         state.sectionData[sectionId] = data.extensions;
-        renderExtensionList(content, data.extensions, data.total_files, filter);
+        renderExtensionList(content, data.extensions, data.total_files, filter, data.skipped);
         badge.textContent = data.extensions.length;
         break;
 

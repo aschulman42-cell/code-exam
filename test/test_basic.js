@@ -190,6 +190,16 @@ describe('CodeSearchIndex', () => {
     assert.ok(results.length >= 2, 'Search should work after reload');
   });
 
+  it('#191 persistence: skippedExtensions round-trips through save/load', () => {
+    // Archive/zip builds record extensions present-but-not-indexed; persist them
+    // so the GUI Extensions accordion can surface them without re-expanding.
+    index.skippedExtensions = { '.cu': 12, '.png': 3 };
+    index._saveLiteralIndex();
+    const fresh = new CodeSearchIndex({ indexPath: INDEX_DIR });
+    assert.equal(fresh.skippedExtensions['.cu'], 12);
+    assert.equal(fresh.skippedExtensions['.png'], 3);
+  });
+
   it('JSON format: compatible with Python version', () => {
     // Verify the on-disk format matches Python's structure
     const funcIndex = JSON.parse(fs.readFileSync(path.join(INDEX_DIR, 'function_index.json'), 'utf-8'));

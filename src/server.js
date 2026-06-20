@@ -33,7 +33,8 @@ import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
 import { collectPrompts } from './commands/prompts.js';
-import { displayName } from './utils.js';
+import { displayName, MEDIA_BINARY_EXTENSIONS, ARCHIVE_EXTENSIONS, EXECUTABLE_EXTENSIONS } from './utils.js';
+import { BINSTRING_EXTENSIONS } from './binstrings.js';
 import { execCommand } from './commands/interactive.js';
 import {
   extractClaimKeywords, extractClaimTerms, sanitizeLlmTerms, sanitizeBroadTerms, dropStopListedTerms,
@@ -1711,6 +1712,36 @@ routes['/api/call-inventory'] = (req, res) => {
 
 // --- Index extensions ---
 
+// #191: compute the "present in source but not indexed" extension census for an
+// index. Directory sources are re-scanned live (diff against the indexed set);
+// archive/zip sources use the skippedExtensions persisted at build time. Returns
+// { text: [{ext,count}], media: [{ext,count}], addList } with the same
+// text-vs-media split as the --build-index skip-tip (only text is suggested for
+// --add-extensions; media/binary is mentioned for awareness, never recommended).
+function computeSkippedExtensions(index) {
+  let census = null; // { ext: count } of files skipped due to extension
+  try {
+    const src = index.indexSource;
+    if (src && fs.existsSync(src) && fs.statSync(src).isDirectory()) {
+      const counts = CodeSearchIndex.scanExtensions(src);
+      census = {};
+      for (const [ext, n] of Object.entries(counts)) {
+        if (ext && ext !== '(no extension)' && !index.extensions.has(ext)) census[ext] = n;
+      }
+    } else if (index.skippedExtensions && Object.keys(index.skippedExtensions).length) {
+      census = index.skippedExtensions; // archive/zip source (persisted at build)
+    }
+  } catch { /* source moved / unreadable: no skipped section */ }
+  if (!census) return null;
+  const isNonText = (ext) => MEDIA_BINARY_EXTENSIONS.has(ext) || ARCHIVE_EXTENSIONS.has(ext)
+    || EXECUTABLE_EXTENSIONS.has(ext) || BINSTRING_EXTENSIONS.has(ext);
+  const entries = Object.entries(census).filter(([ext, n]) => ext && n >= 3).sort((a, b) => b[1] - a[1]);
+  const text = entries.filter(([ext]) => !isNonText(ext)).slice(0, 12).map(([ext, count]) => ({ ext, count }));
+  const media = entries.filter(([ext]) => MEDIA_BINARY_EXTENSIONS.has(ext)).slice(0, 12).map(([ext, count]) => ({ ext, count }));
+  if (!text.length && !media.length) return null;
+  return { text, media, addList: text.map(t => t.ext).join(',') };
+}
+
 routes['/api/index-extensions'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
@@ -1724,7 +1755,26 @@ routes['/api/index-extensions'] = (req, res) => {
   jsonResponse(res, {
     total_files: index.files.size,
     extensions: sorted.map(([ext, count]) => ({ ext, count, pct: Math.round(count / index.files.size * 1000) / 10 })),
+    skipped: computeSkippedExtensions(index),
   });
+};
+
+// #191: list the indexed files of one extension (or the no-extension bucket),
+// for the Extensions accordion drill-down. `ext` is e.g. ".xmlui" or "(none)".
+routes['/api/files-by-extension'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const want = (q.ext || '').toLowerCase();
+  if (!want) return errorResponse(res, 'Missing ?ext= parameter');
+  const files = [];
+  for (const fp of index.files.keys()) {
+    const ext = path.extname(fp).toLowerCase() || '(none)';
+    if (ext === want) files.push(fp);
+  }
+  files.sort();
+  const max = safeMax(q.max, 500);
+  jsonResponse(res, { ext: want, total: files.length, files: files.slice(0, max) });
 };
 
 

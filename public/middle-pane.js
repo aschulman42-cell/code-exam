@@ -539,6 +539,24 @@ export function renderFilesSearchResults(token, data) {
   _wireClickables(container);
 }
 
+// #191: list the files of one extension (Extensions accordion drill-down) in
+// the upper-middle pane. Each file is clickable (opens) + right-clickable
+// (file-scoped context menu), via _wireClickables.
+export function renderFilesByExtension(ext, data) {
+  const container = $('#middle-top-body'), title = $('#middle-top-title');
+  showPane('middle-top'); navPush('middle-top');
+  const capped = data.total > data.files.length;
+  title.textContent = `${ext} — ${data.total} files${capped ? `, showing ${data.files.length}` : ''}`;
+  if (!data.files.length) { container.innerHTML = '<div class="list-placeholder">No files</div>'; return; }
+  let html = (capped ? _capWarning(data.files.length, data.total) : '')
+    + '<div class="output-section"><table class="output-table"><tr><th>#</th><th>File</th></tr>';
+  data.files.forEach((fp, i) => {
+    html += `<tr><td class="muted">${i + 1}</td><td class="mono"><span class="clickable" data-filepath="${escHtml(fp)}">${escHtml(shortPath(fp, 70))}</span></td></tr>`;
+  });
+  container.innerHTML = html + '</table></div>';
+  _wireClickables(container);
+}
+
 export function renderSearchResults(query, data) {
   const container = $('#middle-top-body'), title = $('#middle-top-title');
   const capped = !!data.truncated;

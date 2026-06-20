@@ -145,6 +145,11 @@ export class CodeSearchIndex {
     this.basePath = null;
     /** @type {string|null} */
     this.indexSource = null;
+    /** @type {Object<string,number>} — extensions present in the source but NOT
+     *  indexed (e.g. skipped during archive/zip expansion), `{ext: count}`.
+     *  Persisted at build time so the GUI Extensions accordion can surface them
+     *  for archive sources (directory sources are re-scanned live). #191 */
+    this.skippedExtensions = {};
 
     // Inverted index: loaded in memory or streamed on demand
     /** @type {boolean} */
@@ -2236,6 +2241,9 @@ export class CodeSearchIndex {
       // parse_method
       fs.writeSync(fd, `"parse_method":${JSON.stringify(this.parseMethod || 'regex')},\n`);
 
+      // skipped_extensions (#191): extensions present in source but not indexed
+      fs.writeSync(fd, `"skipped_extensions":${JSON.stringify(this.skippedExtensions || {})},\n`);
+
       // file_hashes
       fs.writeSync(fd, `"file_hashes":${JSON.stringify(this.fileHashes)},\n`);
 
@@ -2286,6 +2294,7 @@ export class CodeSearchIndex {
       this.indexSource = data.index_source || null;
       this.parseMethod = data.parse_method || null;
       this.fileHashes = data.file_hashes || {};
+      this.skippedExtensions = data.skipped_extensions || {};
       return this.files.size > 0;
     } catch (e) {
       if (e.message && (e.message.includes('string longer than') ||
@@ -2330,6 +2339,7 @@ export class CodeSearchIndex {
           case 'base_path':   this.basePath = parseValue(src, vs, ve); break;
           case 'index_source': this.indexSource = parseValue(src, vs, ve); break;
           case 'parse_method': this.parseMethod = parseValue(src, vs, ve); break;
+          case 'skipped_extensions': this.skippedExtensions = parseValue(src, vs, ve); break;
           case 'file_hashes':
             if (valueSize(vs, ve) < 100 * 1024 * 1024) {
               this.fileHashes = parseValue(src, vs, ve);
@@ -3637,6 +3647,10 @@ export class CodeSearchIndex {
       stats.splitBundleVirtuals = virtualsCreated;
       if (gapVirtualsCreated > 0) stats.splitBundleGapVirtuals = gapVirtualsCreated;
     }
+
+    // Carry the skipped-extension census (archive/zip expansion drops these) onto
+    // the index so _saveLiteralIndex persists it for the GUI Extensions accordion. #191
+    this.skippedExtensions = stats.skippedExtensions || {};
 
     // Save literal index
     this._saveLiteralIndex();

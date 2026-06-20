@@ -122,6 +122,7 @@ export const api = {
   fileTree:        (p) => api.get('file-tree', p),
   callInventory:   (p) => api.get('call-inventory', p),
   indexExtensions: (p) => api.get('index-extensions', p),
+  filesByExtension: (p) => api.get('files-by-extension', p),
   scanModels:      (p) => api.get('scan-models', p),
   switchModel:     (p) => api.post('switch-model', p),
   version:         ()  => api.get('version'),

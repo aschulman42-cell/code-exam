@@ -29,7 +29,7 @@ import {
 } from './click-handlers.js';
 import { showContextMenu } from './context-menu.js';
 import { renderMermaid } from './mermaid.js';
-import { showMiddleTopError, clearAllPanes } from './middle-pane.js';
+import { showMiddleTopError, showMiddleTopLoading, renderFilesByExtension, clearAllPanes } from './middle-pane.js';
 import { renderStringDetail } from './prompts-and-catalog.js';
 import { openCompareView } from './overlays.js';
 import { showConfirmDialog } from './dialogs.js';
@@ -172,7 +172,7 @@ export async function loadFileFunctions(filepath, container) {
 // Extensions list
 // ============================================================================
 
-export function renderExtensionList(container, extensions, totalFiles, filter) {
+export function renderExtensionList(container, extensions, totalFiles, filter, skipped) {
   container.innerHTML = '';
   if (!extensions || !extensions.length) { container.innerHTML = '<div class="list-placeholder">No extensions found</div>'; return; }
 
@@ -180,16 +180,35 @@ export function renderExtensionList(container, extensions, totalFiles, filter) {
   const filtered = pat ? extensions.filter(e => e.ext.toLowerCase().includes(pat)) : extensions;
 
   for (const e of filtered) {
-    const item = h('div', { className: 'list-item clickable', title: `${e.count} files (${e.pct}% of ${totalFiles})` }, [
+    const item = h('div', { className: 'list-item clickable', title: `${e.count} files (${e.pct}% of ${totalFiles}) — click to list` }, [
       h('span', { className: 'metric', text: `${e.count}`, style: 'min-width:32px' }),
       h('span', { className: 'name', text: e.ext, style: 'color:var(--text-bright);font-family:var(--font-mono)' }),
       h('span', { className: 'metric muted', text: `${e.pct}%`, style: 'min-width:36px;text-align:right' }),
     ]);
-    item.addEventListener('click', () => {
-      $('#left-filter').value = e.ext;
-      $('#left-filter').dispatchEvent(new Event('input'));
+    // #191: click → list this extension's files in the upper-middle pane (incl.
+    // the (none)/no-extension bucket), each file clickable + right-clickable.
+    item.addEventListener('click', async () => {
+      showMiddleTopLoading(`Listing ${e.ext} files…`);
+      try {
+        const data = await api.filesByExtension({ ext: e.ext });
+        renderFilesByExtension(e.ext, data);
+      } catch (err) { showMiddleTopError(`Could not list ${e.ext} files: ${err.message}`); }
     });
     container.appendChild(item);
+  }
+
+  // #191: "present in source but not indexed" — mirrors the --build-index
+  // skip-tip. Text extensions are actionable (rebuild with --add-extensions);
+  // media/binary are mentioned for awareness only.
+  if (skipped && ((skipped.text && skipped.text.length) || (skipped.media && skipped.media.length))) {
+    container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal;text-align:left;margin-top:8px;font-weight:600;color:var(--accent-blue)', text: 'Not indexed (present in source):' }));
+    if (skipped.text && skipped.text.length) {
+      container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal;text-align:left', text: `text: ${skipped.text.map(t => `${t.ext} (${t.count})`).join(', ')}` }));
+      if (skipped.addList) container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal;text-align:left;color:var(--text-muted)', text: `→ rebuild with --add-extensions ${skipped.addList} to include them` }));
+    }
+    if (skipped.media && skipped.media.length) {
+      container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal;text-align:left;color:var(--text-muted)', text: `media/binary (skipped by design): ${skipped.media.map(t => `${t.ext} (${t.count})`).join(', ')}` }));
+    }
   }
 }
 
