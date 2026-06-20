@@ -99,22 +99,29 @@ export function showContextMenu(e, funcInfo) {
   // instead. #194
   const isFileOnly = !funcInfo.name || funcInfo.name === funcInfo.filepath;
   const isDataStructure = funcInfo.kind === 'data-structure';
-  // "Analyze File with LLM" — for file/function targets only. Hidden for a data
-  // structure: it's a type, and the label ("File") would misdescribe the action. #194
+  // A class (#198) is also a *type*, not a callable: like a struct it gets
+  // "Find Uses" and loses caller/callee/extract/call-tree. Unlike a bare
+  // struct it keeps Show Digest + Analyze File — a class has methods, so its
+  // digest summarizes real behavior. isType covers what both share.
+  const isClass = funcInfo.kind === 'class';
+  const isType = isDataStructure || isClass;
+  // "Analyze File with LLM" — for file/function/class targets. Hidden for a
+  // data structure: it's a type, and the label ("File") would misdescribe the
+  // action. #194
   const fileAnalyzeBtn = $('#ctx-analyze-file');
   if (fileAnalyzeBtn) fileAnalyzeBtn.style.display = (funcInfo.filepath && !isDataStructure) ? '' : 'none';
   const findUsesBtn = $('button[data-ctx="find-uses"]');
-  if (findUsesBtn) findUsesBtn.style.display = (isDataStructure && funcInfo.name) ? '' : 'none';
+  if (findUsesBtn) findUsesBtn.style.display = (isType && funcInfo.name) ? '' : 'none';
   const digestBtn = $('button[data-ctx="digest"]');
   if (digestBtn) digestBtn.style.display = isDataStructure ? 'none' : '';
   // Hide the LLM-group separator when the whole LLM group is hidden (struct).
   const hr = $('#context-menu hr');
   if (hr) hr.style.display = isDataStructure ? 'none' : '';
-  // Function-only items: hidden for file-only AND for data-structure targets.
+  // Callable-only items: hidden for file-only AND for any type (struct/class).
   for (const btn of $$('#context-menu button[data-ctx]')) {
     const ctx = btn.dataset.ctx;
     if (['extract', 'callers', 'callees', 'call-tree', 'analyze', 'analyze-context'].includes(ctx)) {
-      btn.style.display = (isFileOnly || isDataStructure) ? 'none' : '';
+      btn.style.display = (isFileOnly || isType) ? 'none' : '';
     }
   }
 
@@ -150,7 +157,10 @@ export async function handleContextAction(action) {
   switch (action) {
     case 'find-uses':
       showMiddleTopLoading(`Uses of ${target.name}…`);
-      try { renderSearchResults(target.name, await api.search({ q: target.name })); }
+      // Honor the View-menu Max Results setting (default 50), like the main
+      // search box — otherwise Find Uses fell back to the server's lower
+      // default and capped at 20 regardless of the setting.
+      try { renderSearchResults(target.name, await api.search({ q: target.name, max: parseInt($('#opt-max-results')?.value) || 50 })); }
       catch (err) { showMiddleTopError(err.message); }
       break;
 
@@ -177,7 +187,9 @@ export async function handleContextAction(action) {
         // existing funcSpec (`filepath@name`) works for both — the
         // dispatcher checks the matched entry's type and routes accordingly.
         const digestSpec = target.name ? funcSpec : (target.filepath || target.display_name);
-        const data = await api.digest({ name: digestSpec });
+        // #198: tell the backend this is a class so its digest can't be
+        // preempted by a same-named constructor.
+        const data = await api.digest({ name: digestSpec, kind: target.kind === 'class' ? 'class' : undefined });
         renderDigest(data);
       } catch (err) { showMiddleTopError(err.message); }
       break;

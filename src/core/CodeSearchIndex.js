@@ -468,6 +468,23 @@ export class CodeSearchIndex {
   }
 
   _buildDigestCore(target, opts = {}) {
+    // #198: explicit class digest. The GUI's Classes accordion passes
+    // kind:'class' so a class digest can't be hijacked by a same-named
+    // constructor. The @-path's class-precedence heuristics (L483-488)
+    // catch a constructor indexed as `ClassName::ClassName`, but a
+    // constructor indexed under the *bare* name `ClassName` slips past
+    // them and would yield the constructor's function digest. When the
+    // caller knows the target is a class, resolve straight to the class
+    // entry via listClasses → buildClassDigest.
+    if (opts.kind === 'class') {
+      const at = target.indexOf('@');
+      const pathHint = at >= 0 ? target.slice(0, at) : null;
+      const bareTarget = at >= 0 ? target.slice(at + 1) : target;
+      const classDigest = this._classDigestByName(bareTarget, pathHint, opts);
+      if (classDigest) return classDigest;
+      // Fall through to normal resolution if no class matched the name.
+    }
+
     // FILE@NAME form: function-or-class lookup. Used by the GUI right-click
     // path which always supplies file+name. We still need to dispatch on the
     // matched entry's type — a class can come through this path (e.g. when
@@ -565,6 +582,24 @@ export class CodeSearchIndex {
    * function index as type='class' and would otherwise be unreachable
    * once a method match has preempted the L411 precedence rule.
    */
+  /**
+   * Resolve a class digest by (bare or qualified) class name, optionally
+   * scoped to a file. Used by the kind:'class' short-circuit in
+   * _buildDigestCore (#198) to bypass the function-index match entirely, so
+   * a class digest is never preempted by a same-named constructor. Returns
+   * null if no class matches — caller falls through to normal resolution.
+   */
+  _classDigestByName(name, pathHint = null, opts = {}) {
+    const allClasses = this.listClasses(pathHint);
+    const match = allClasses.find(c => {
+      const cBare = c.name.includes('::') ? c.name.split('::').pop() : c.name;
+      return cBare === name || c.name === name;
+    });
+    if (!match) return null;
+    const fn = { name: match.name, filepath: match.filepath, start: match.start, end: match.end, type: 'class' };
+    return this.buildClassDigest(fn, opts);
+  }
+
   _tryInferredClassDigest(m, target, opts, pathHint = null) {
     if (m.type !== 'function' || !m.name.startsWith(target + '::')) return null;
     const allClasses = this.listClasses(pathHint);

@@ -543,7 +543,7 @@ export function doClassTree(index, args) {
 
   if (!mermaid) {
     // --- Text output ---
-    console.log(`\nClass Hierarchy (${totalClasses} classes, ${totalRelationships} inheritance relationships)`);
+    console.log(`\nClass Inheritance (${totalClasses} classes, ${totalRelationships} inheritance relationships)`);
     if (filter) console.log(`  Filtered to: ${filter}`);
 
     const sp = (fp, maxLen = 50) => {

@@ -197,7 +197,9 @@ export function renderCallInfo(extractData, callersData, calleesData) {
   let html = '';
 
   const funcLabel = displayNameHtml(extractData.display_name || extractData.name);
-  html += `<div class="output-section"><h3>Function Info: <span class="clickable" data-funcname="${escHtml(extractData.name)}" data-filepath="${escHtml(extractData.filepath)}">${funcLabel}</span></h3><table class="output-table">`;
+  // #198: a class target gets "Class Info:" — "Function Info:" misdescribes a type.
+  const infoLabel = extractData.type === 'class' ? 'Class Info' : 'Function Info';
+  html += `<div class="output-section"><h3>${infoLabel}: <span class="clickable" data-funcname="${escHtml(extractData.name)}" data-filepath="${escHtml(extractData.filepath)}">${funcLabel}</span></h3><table class="output-table">`;
   html += `<tr><td class="muted">File</td><td class="mono"><span class="clickable" data-filepath="${escHtml(extractData.filepath)}">${escHtml(extractData.filepath)}</span></td></tr>`;
   html += `<tr><td class="muted">Lines</td><td>${extractData.start}–${extractData.end} (${extractData.lines} lines)</td></tr>`;
   html += `</table>`;

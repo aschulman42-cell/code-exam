@@ -243,9 +243,19 @@ export function renderClassListWithSub(container, classes, total) {
 
   for (const c of classes) {
     const subContent = h('div', { className: 'sub-accordion-content' });
+    // #198: the name is its own click target — jumps to the class's
+    // definition line in source (onFileClick with the class `start`),
+    // rather than resolving the bare name through the function index where
+    // it collides with the constructor. The rest of the header still
+    // toggles the methods sub-accordion.
+    const nameSpan = h('span', { className: 'name clickable', html: displayNameHtml(c.name), style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' });
+    if (c.start) {
+      nameSpan.title = `Open ${c.filepath}:${c.start}`;
+      nameSpan.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(c.filepath, c.start); });
+    }
     const subHeader = h('div', { className: 'sub-accordion-header' }, [
       h('span', { className: 'sub-accordion-toggle', text: '▸' }),
-      h('span', { className: 'name', html: displayNameHtml(c.name), style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
+      nameSpan,
       h('span', { className: 'metric', text: `${c.methods}m` }),
       h('span', { className: 'metric', text: `${c.total_lines}L` }),
       h('span', { className: 'filepath', text: c.filepath?.replace(/\\/g, '/') || '', style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
@@ -266,11 +276,14 @@ export function renderClassListWithSub(container, classes, total) {
     // Double-click: show class in middle-top
     subHeader.addEventListener('dblclick', (e) => { e.stopPropagation(); onClassClick(c.name); });
 
-    // Right-click: context menu (Digest works on classes via dispatcher in
-    // CSI's buildDigest, which routes filepath@ClassName to class digest).
+    // Right-click: class-appropriate context menu (#198). kind:'class' gives
+    // Find Uses + keeps Show Digest / Analyze File, and drops the callable-only
+    // items (callers/callees/call-tree/extract) that don't apply to a type.
+    // The same kind makes Show Digest target the class, not its same-named
+    // constructor (CSI buildDigest honors opts.kind).
     subHeader.addEventListener('contextmenu', (e) => {
       e.stopPropagation();
-      showContextMenu(e, { name: c.name, display_name: c.name, filepath: c.filepath });
+      showContextMenu(e, { name: c.name, display_name: c.name, filepath: c.filepath, kind: 'class' });
     });
 
     container.appendChild(sub);

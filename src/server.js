@@ -904,6 +904,7 @@ routes['/api/extract'] = (req, res) => {
     filepath: m.filepath, name: index.getDisplayName(m.name), display_name: displayName(index.getDisplayName(m.name), m.filepath),
     start: m.start, end: m.end, lines: m.end - m.start + 1,
     start_line: m.start,
+    type: m.type,  // #198: lets the info panel label a class "Class Info:" vs "Function Info:"
     source: index.applyRenames(source || '(source not available)'), language: guessLanguage(m.filepath),
   });
 };
@@ -2028,10 +2029,13 @@ routes['/api/digest'] = (req, res) => {
 
   // buildDigest is the target-aware dispatcher (#51); routes function / class /
   // file targets to their respective builders and adds a target_type field.
+  // #198: kind=class forces the class digest so a same-named constructor
+  // can't preempt it (the Classes accordion passes this).
   const digestObj = index.buildDigest(spec, {
     maxCallers: safeMax(q.max, 10),
     maxCallees: safeMax(q.max, 10),
     maxStrings: parseInt(q.max_strings) || 15,
+    kind: q.kind || undefined,
   });
   if (!digestObj) return errorResponse(res, `Target not found: ${spec}`, 404);
 
@@ -2143,7 +2147,7 @@ routes['/api/list-classes'] = (req, res) => {
   const max = safeMax(q.max, 100);
   jsonResponse(res, {
     total: classes.length,
-    classes: classes.slice(0, max).map(c => ({ name: c.name, filepath: c.filepath, methods: c.method_count, total_lines: c.total_method_lines, inferred: c.inferred || false })),
+    classes: classes.slice(0, max).map(c => ({ name: c.name, filepath: c.filepath, start: c.start, end: c.end, methods: c.method_count, total_lines: c.total_method_lines, inferred: c.inferred || false })),
   });
 };
 
