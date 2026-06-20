@@ -1468,7 +1468,7 @@ export function doVocabulary(index, args) {
   // #193: salient sub-term concepts (corpus-distinctive roots via cross-corpus
   // sub-token IDF) — what raw CamelCase identifiers bury.
   const concepts = extractConcepts(index);
-  if (concepts.length) console.log(`  Key concepts: ${concepts.map(conceptLabel).join(', ')}\n`);
+  if (concepts.length) console.log(`  Key concepts (with examples): ${concepts.map(conceptLabel).join(', ')}\n`);
 
   // Header
   console.log(`  ${'Score'.padStart(7)}  ${'Files'.padStart(5)}  ${'Hits'.padStart(6)}  ${'Token'.padEnd(35)}  Representative files`);

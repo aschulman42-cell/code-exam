@@ -42,11 +42,14 @@ function _commonRoot(paths) {
 }
 
 /**
- * Build the orientation summary. Every optional signal is guarded so a partial
- * index (no vocab cache, no function index) still yields a useful overview.
+ * Build the FAST half of the orientation summary — only signals that are
+ * already in memory (file list, line counts, extension histogram, top-level
+ * structure). No function-index build, no vocabulary, no call-graph: on a huge
+ * index (.spinellis: 6.8M lines) these are the parts that return in well under
+ * a second, so the GUI can orient the user immediately and stream the rest.
  * @param {import('./CodeSearchIndex.js').CodeSearchIndex} index
  */
-export function buildOverview(index) {
+export function buildOverviewFast(index) {
   const files = [...index.files.keys()];
   const totalFiles = files.length || 1;
 
@@ -75,18 +78,49 @@ export function buildOverview(index) {
   let stats = {};
   try { stats = index.getStats() || {}; } catch { /* partial index */ }
 
-  // Entry points (noise-excluded, #187) — also forces the function index build.
-  // Over-fetch then filter: on library / dependency-dump indexes getEntryPoints
-  // surfaces junk that reads as garbage to a human — quoted import-path "entries"
-  // (`"../../node_modules/.../parser.js"`), `KW_`-mangled decoded names, and
-  // all-`Test*` fills. Drop the first two; de-prioritize tests so they only fill
-  // the list when real entry points run out.
-  // Resolve a definition line for an identifier (function start), so GUI rows
-  // jump to the definition, not the file top. Best-effort: non-function names
-  // (consts, schemas) have no match and the caller falls back to top-of-file.
+  const absence = [];
+  if (isCollection) {
+    const topN = topFolders.filter(f => f.folder !== '(root)').length;
+    absence.push(`Looks like a COLLECTION — ${substantial.length} of ${topN} top-level folders are substantial (≥10% of files), not one codebase: ${substantial.slice(0, 4).map(f => f.folder).join(', ')}${substantial.length > 4 ? ', …' : ''}. Orient per-folder, not whole-tree.`);
+  }
+
+  return {
+    source: index.indexSource || null,
+    root,
+    size: { files: files.length, functions: null, lines: stats.total_lines || 0, parse_method: stats.parse_method || 'regex' },
+    languages,
+    topFolders,
+    isCollection,
+    absence,
+    partial: true, // deep signals (concepts/key files/entry points) not yet loaded
+  };
+}
+
+/**
+ * Build the DEEP half — the O(corpus) signals: function count, entry points
+ * (forces the function-index + call-graph build), top vocabulary, organic
+ * concepts, and vocabulary-density key files. Minutes on a very large index; the
+ * GUI requests this separately so the fast half isn't held hostage to it.
+ * @param {import('./CodeSearchIndex.js').CodeSearchIndex} index
+ */
+export function buildOverviewDeep(index) {
+  // Resolve a line for an identifier in a file: the function-definition start
+  // (via the function index), else the first whole-word textual occurrence in
+  // the file. So GUI rows jump to where the identifier actually lives — consts /
+  // schemas / module-level names (not in the function index) now land on their
+  // first mention instead of the file top (#181 fix). Both lookups are cheap:
+  // a name lookup and a single in-memory file scan; no corpus rescan.
   const lineOf = (name, fileHint) => {
-    if (!name || !index.findFunctionMatches) return null;
-    try { return index.findFunctionMatches(name, fileHint)[0]?.start || null; } catch { return null; }
+    if (!name) return null;
+    if (index.findFunctionMatches) {
+      try { const s = index.findFunctionMatches(name, fileHint)[0]?.start; if (s) return s; } catch { /* fall through */ }
+    }
+    if (fileHint && index.fileLines && index.fileLines.has(fileHint)) {
+      const re = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+      const lines = index.fileLines.get(fileHint);
+      for (let i = 0; i < lines.length; i++) { if (re.test(lines[i])) return i + 1; }
+    }
+    return null;
   };
 
   let entryPoints = [];
@@ -151,16 +185,13 @@ export function buildOverview(index) {
       .map(({ file, terms }) => ({ file, terms }));
   } catch { /* no vocab cache */ }
 
-  // Absence — a few high-signal "looks missing / off" checks.
+  // Absence — deep "looks missing / off" checks (the collection check lives in
+  // the fast half). buildOverview concatenates the two absence lists.
   const absence = [];
   if (functions === 0) {
     absence.push('No functions indexed — likely an extension/indexing gap (check the --build-index skip-tip for non-indexed source extensions).');
   } else if (entryPoints.length === 0) {
     absence.push('No entry points found — unusual for application code (a library, or call-graph gaps).');
-  }
-  if (isCollection) {
-    const topN = topFolders.filter(f => f.folder !== '(root)').length;
-    absence.push(`Looks like a COLLECTION — ${substantial.length} of ${topN} top-level folders are substantial (≥10% of files), not one codebase: ${substantial.slice(0, 4).map(f => f.folder).join(', ')}${substantial.length > 4 ? ', …' : ''}. Orient per-folder, not whole-tree.`);
   }
 
   // Peel prefix for the DISPLAYED lists (key files + entry points). Often tighter
@@ -170,18 +201,35 @@ export function buildOverview(index) {
   const displayRoot = _commonRoot([...keyFiles.map(k => k.file), ...entryPoints.map(e => e.filepath)]);
 
   return {
-    source: index.indexSource || null,
-    root,
+    functions,
     displayRoot,
-    size: { files: files.length, functions, lines: stats.total_lines || 0, parse_method: stats.parse_method || 'regex' },
-    languages,
-    topFolders,
-    isCollection,
     topVocab,
     concepts,
     keyFiles,
     entryPoints,
     absence,
+  };
+}
+
+/**
+ * Full orientation summary (fast + deep merged). Used by the CLI `--overview`
+ * and the MCP `overview` tool, which are one-shot and can afford the deep cost;
+ * the GUI fetches the two halves separately for progressive rendering.
+ * @param {import('./CodeSearchIndex.js').CodeSearchIndex} index
+ */
+export function buildOverview(index) {
+  const fast = buildOverviewFast(index);
+  const deep = buildOverviewDeep(index);
+  return {
+    ...fast,
+    size: { ...fast.size, functions: deep.functions },
+    displayRoot: deep.displayRoot,
+    topVocab: deep.topVocab,
+    concepts: deep.concepts,
+    keyFiles: deep.keyFiles,
+    entryPoints: deep.entryPoints,
+    absence: [...deep.absence, ...fast.absence],
+    partial: false,
   };
 }
 
@@ -215,7 +263,7 @@ export function formatOverview(ov) {
   // is still in the structured object for any consumer that wants the raw slice.
   if (ov.concepts && ov.concepts.length) {
     L.push('');
-    L.push('**Key concepts:**');
+    L.push('**Key concepts (with examples):**');
     for (const c of ov.concepts) L.push(`  - ${conceptLabel(c)}`);
   }
 

@@ -1366,26 +1366,30 @@ export function renderVocabList(container, vocab, concepts) {
 // "Watch" notes, and a one-way button to the File Map section.
 // ============================================================================
 
-export function renderOverviewList(container, ov) {
+export function renderOverviewList(container, ov, opts = {}) {
   container.innerHTML = '';
+  container.classList.add('overview-pane'); // roomier leading + flush-left rows (CSS)
   if (!ov || !ov.size) { container.innerHTML = '<div class="list-placeholder">No overview</div>'; return; }
 
   // Centered prose blocks for scale/structure; flush-left clickable rows for the
   // concept / key-file / entry-point lists (consistency with the other panes).
-  const block = (text) => h('div', { className: 'list-placeholder', text, style: 'white-space:normal;padding:3px 8px' });
-  const head = (text) => h('div', { className: 'list-placeholder', text, style: 'white-space:normal;padding:7px 8px 2px;font-weight:600;color:var(--accent-blue)' });
+  const block = (text) => h('div', { className: 'list-placeholder', text, style: 'white-space:normal' });
+  const head = (text) => h('div', { className: 'list-placeholder', text, style: 'white-space:normal;font-weight:600;color:var(--accent-blue)' });
   const peelRoot = ov.displayRoot || ov.root;
   const strip = (p) => (peelRoot && p && p.startsWith(peelRoot)) ? p.slice(peelRoot.length) : p;
 
-  // A flush-left row that opens `filepath` on click and offers the standard
-  // right-click menu (Find Callers/Callees/etc.). `ctxName` drives the menu:
-  // a function/identifier name enables call items; passing the filepath as the
-  // name marks it file-only (like the Files/Key-files panes do).
-  const clickRow = (label, meta, filepath, ctxName, line) => {
-    const item = h('div', { className: 'list-item', title: filepath || label }, [
-      h('span', { className: 'name clickable', text: label }),
-      h('span', { className: 'metric muted', text: meta }),
-    ]);
+  // A flush-left single-line row that opens `filepath` on click and offers the
+  // standard right-click menu (Find Callers/Callees/etc.). `ctxName` drives the
+  // menu: a function/identifier name enables call items; passing the filepath as
+  // the name marks it file-only (like the Files/Key-files panes do). `metric` is
+  // a short right-aligned count; `subpath` a secondary file path rendered in the
+  // app's ellipsis `.filepath` style (so long paths truncate cleanly, not jam
+  // a numeric metric slot).
+  const clickRow = (label, { metric, subpath, filepath, ctxName, line } = {}) => {
+    const kids = [h('span', { className: 'name clickable', text: label })];
+    if (subpath) kids.push(h('span', { className: 'filepath', text: subpath }));
+    if (metric) kids.push(h('span', { className: 'metric muted', text: metric }));
+    const item = h('div', { className: 'list-item', title: filepath || label }, kids);
     if (filepath) {
       item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(filepath, line || undefined); });
       item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: ctxName, display_name: ctxName || label, filepath }); });
@@ -1395,7 +1399,9 @@ export function renderOverviewList(container, ov) {
 
   if (ov.name) container.appendChild(h('div', { text: ov.name, style: 'text-align:center;font-weight:700;font-size:14px;padding:6px 8px 2px' }));
   const langs = (ov.languages || []).slice(0, 8).map(l => `${l.ext} ${l.pct}%`).join(', ');
-  container.appendChild(block(`${ov.size.files} files · ${ov.size.functions} functions · ${(ov.size.lines || 0).toLocaleString()} lines (${ov.size.parse_method})`));
+  // Function count is a deep signal; show "…" until the deep half arrives.
+  const fnPart = ov.size.functions == null ? '… functions' : `${ov.size.functions} functions`;
+  container.appendChild(block(`${ov.size.files} files · ${fnPart} · ${(ov.size.lines || 0).toLocaleString()} lines (${ov.size.parse_method})`));
   if (langs) container.appendChild(block(`Languages: ${langs}`));
   if (peelRoot) container.appendChild(block(`Paths under: ${peelRoot}`));
 
@@ -1410,24 +1416,45 @@ export function renderOverviewList(container, ov) {
   }
 
   if (ov.concepts && ov.concepts.length) {
-    container.appendChild(head('Key concepts:'));
+    container.appendChild(head('Key concepts (with examples):'));
     for (const c of ov.concepts) {
       const label = c.example ? `${c.concept} (${c.example})` : c.concept;
       // Clickable when we know which file the example identifier lives in; jumps
-      // to its definition line (function examples) and the context menu targets
-      // the example identifier (callers/callees), not the bare concept sub-term.
-      container.appendChild(clickRow(label, '', c.exampleFile || null, c.example || c.concept, c.exampleLine));
+      // to its definition (functions) or first mention (consts/schemas) and the
+      // context menu targets the example identifier, not the bare concept.
+      container.appendChild(clickRow(label, { filepath: c.exampleFile || null, ctxName: c.example || c.concept, line: c.exampleLine }));
     }
   }
 
   if (ov.keyFiles && ov.keyFiles.length) {
     container.appendChild(head('Key files (by vocabulary density):'));
-    for (const kf of ov.keyFiles) container.appendChild(clickRow(strip(kf.file), `  ${kf.terms} top terms`, kf.file, kf.file)); // file-only ctx
+    for (const kf of ov.keyFiles) container.appendChild(clickRow(strip(kf.file), { metric: `${kf.terms} terms`, filepath: kf.file, ctxName: kf.file })); // file-only ctx
   }
 
   if (ov.entryPoints && ov.entryPoints.length) {
     container.appendChild(head('Entry points:'));
-    for (const ep of ov.entryPoints) container.appendChild(clickRow(ep.name, `  ${strip(ep.filepath)}`, ep.filepath, ep.name, ep.line));
+    for (const ep of ov.entryPoints) container.appendChild(clickRow(ep.name, { subpath: strip(ep.filepath), filepath: ep.filepath, ctxName: ep.name, line: ep.line }));
+  }
+
+  // Deep-signals area. Three states (only when the deep half isn't merged yet):
+  //  - gated: large index — show a button so the user opts into the (server-
+  //    blocking) compute rather than triggering it accidentally on load.
+  //  - pending: compute in flight — passive note.
+  //  - failed: deep fetch errored/timed out.
+  if (ov.partial) {
+    if (opts.deepGated && opts.onLoadDeep) {
+      container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal',
+        text: 'Key concepts, key files & entry points aren’t computed yet — on a large index this can take a while and briefly makes the server busy.' }));
+      const b = h('button', { className: 'btn-secondary', text: 'Compute deep signals', style: 'margin:4px 10px' });
+      b.addEventListener('click', () => opts.onLoadDeep());
+      container.appendChild(b);
+    } else if (opts.deepFailed) {
+      container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal',
+        text: 'Deep signals failed to load (the server may be busy on a large index). Re-open the Overview to retry.' }));
+    } else {
+      container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal;color:var(--text-muted)',
+        text: '⏳ Computing key concepts, key files & entry points… (also available later in the left-pane Overview accordion)' }));
+    }
   }
 
   if (ov.absence && ov.absence.length) {
@@ -1440,6 +1467,21 @@ export function renderOverviewList(container, ov) {
   btn.addEventListener('click', () => showFileMap());
   btnRow.appendChild(btn);
   container.appendChild(btnRow);
+}
+
+// Merge the deep half into a fast overview object (in place) and clear the
+// partial flag, so a re-render shows the full overview.
+export function mergeOverviewDeep(ov, deep) {
+  if (!ov || !deep) return ov;
+  ov.size.functions = deep.functions;
+  ov.displayRoot = deep.displayRoot;
+  ov.topVocab = deep.topVocab;
+  ov.concepts = deep.concepts;
+  ov.keyFiles = deep.keyFiles;
+  ov.entryPoints = deep.entryPoints;
+  ov.absence = [...(deep.absence || []), ...(ov.absence || [])];
+  ov.partial = false;
+  return ov;
 }
 
 // Render the file dependency map into the Diagram pane — same destination as the
@@ -1461,22 +1503,65 @@ export async function showFileMap() {
   } catch (err) { showMiddleTopError(`File map failed: ${err.message}`); }
 }
 
-// #181: the Overview pop-up window (floating panel). Fetches the structured
-// overview and renders it; shown on index load and on GUI startup with a
-// command-line index.
+// Above these sizes the deep overview compute (vocabulary + call-graph) is slow
+// enough that — because the server is single-threaded — running it would block
+// every other request (e.g. loading a different index) for minutes. So we DON'T
+// auto-run it on large indexes; the user opts in via a button. Tuned so normal
+// projects auto-stream and only true monsters (.spinellis: 6.8M lines) gate.
+const OVERVIEW_DEEP_MAX_LINES = 2_000_000;
+const OVERVIEW_DEEP_MAX_FILES = 10_000;
+
+// One generation counter guards against stale deep merges: each load bumps it,
+// and a deep result whose generation is stale (the user loaded another index,
+// re-opened the pane, etc.) is discarded instead of merged into the wrong index.
+let _overviewGen = 0;
+
+/**
+ * Load the overview into `container`: render the fast half immediately, then
+ * either auto-stream the deep half (small indexes) or offer a button (large
+ * ones). `onMeta(ov)` lets the caller stash the object / set a badge. The deep
+ * fetch is generation-guarded so switching indexes mid-compute can't mis-merge.
+ */
+export async function loadOverviewInto(container, { onMeta } = {}) {
+  const gen = ++_overviewGen;
+  container.innerHTML = '<div class="list-placeholder">Loading overview…</div>';
+  let ov;
+  try {
+    ov = await api.overview(); // fast half — counts, languages, structure
+  } catch (err) {
+    if (gen === _overviewGen) container.innerHTML = `<div class="list-placeholder">No overview: ${escHtml(err.message)}</div>`;
+    return null;
+  }
+  if (gen !== _overviewGen) return null; // superseded by a newer load
+  if (onMeta) onMeta(ov);
+
+  const fetchDeep = async () => {
+    renderOverviewList(container, ov, {}); // drop the gate button → "computing…" note
+    try {
+      const deep = await api.overviewDeep();
+      if (gen !== _overviewGen) return;     // user moved on; don't mis-merge
+      mergeOverviewDeep(ov, deep);
+      renderOverviewList(container, ov, {});
+    } catch {
+      if (gen === _overviewGen) renderOverviewList(container, ov, { deepFailed: true });
+    }
+  };
+
+  const large = (ov.size.lines || 0) > OVERVIEW_DEEP_MAX_LINES || (ov.size.files || 0) > OVERVIEW_DEEP_MAX_FILES;
+  if (large) renderOverviewList(container, ov, { deepGated: true, onLoadDeep: fetchDeep });
+  else fetchDeep();
+  return ov;
+}
+
+// #181: the Overview pop-up window (floating panel). Shown on index load and on
+// GUI startup with a command-line index.
 export async function showOverviewOverlay() {
   const panel = $('#overview-overlay');
   if (!panel) return;
-  const body = $('#overview-body');
-  body.innerHTML = '<div class="list-placeholder">Loading overview…</div>';
   panel.classList.remove('hidden');
-  try {
-    const ov = await api.overview();
-    $('#overview-meta').textContent = ov.source ? ov.source : '';
-    renderOverviewList(body, ov);
-  } catch (err) {
-    body.innerHTML = `<div class="list-placeholder">No overview: ${escHtml(err.message)}</div>`;
-  }
+  await loadOverviewInto($('#overview-body'), {
+    onMeta: (ov) => { $('#overview-meta').textContent = ov.source ? ov.source : ''; },
+  });
 }
 
 export function initOverviewOverlay() {

@@ -26,7 +26,7 @@ import { makeFilterMatcher } from './core/filter-match.js';
 import { extractExports } from './core/exports.js';
 import { extractImports } from './core/imports.js';
 import { extractConcepts } from './core/vocabulary.js';
-import { buildOverview } from './core/overview.js';
+import { buildOverviewFast, buildOverviewDeep } from './core/overview.js';
 import { loadUsedByCatalog, makeUsedByFor } from './commands/exports.js';
 import { detectInfrastructure } from './core/stack-detectors.js';
 import { SERVER_BUILD } from './version.js';
@@ -1846,17 +1846,29 @@ routes['/api/files-search'] = (req, res) => {
 
 // #181: one-shot orientation summary (structured) for the GUI Overview pane.
 // Fast by contract — buildOverview leans on cached stats/vocabulary/structure.
+// Fast half — instant orientation (counts, languages, structure). The GUI
+// renders this immediately, then fetches /api/overview-deep for the rest.
 routes['/api/overview'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
-  const ov = buildOverview(index);
+  const ov = buildOverviewFast(index);
   // Short index name (e.g. `.plugins_from_gh`) for the pane title, distinct from
   // ov.source (the build source path/glob). Falls back to source if unavailable.
   const list = mgr.list() || [];
   const entry = q.index ? list.find(i => i.name === q.index) : list.find(i => i.active);
   ov.name = (entry && entry.name) || ov.source || null;
   jsonResponse(res, ov);
+};
+
+// Deep half — O(corpus) signals (function count, concepts, key files, entry
+// points). Can take minutes on a very large index; requested separately so the
+// fast half is never blocked on it.
+routes['/api/overview-deep'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  jsonResponse(res, buildOverviewDeep(index));
 };
 
 routes['/api/vocabulary'] = (req, res) => {

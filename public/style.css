@@ -117,6 +117,20 @@ body { font-family: var(--font-ui); font-size: 13px; color: var(--text); backgro
 .list-item .muted { color: var(--text-muted); }
 
 .list-placeholder { color: var(--text-muted); padding: 20px; text-align: center; font-size: 12px; line-height: 1.5; }
+
+/* #181 Overview pane/pop-up: uniform, left-aligned, comfortably-spaced. Prose
+   blocks (size, languages, folders, Watch) are left-aligned with steady leading
+   (the index-name header keeps its own centered inline style). Clickable rows
+   stay single-line with ellipsis like the rest of the app — just a touch more
+   vertical padding — so key files / entry points read as a tidy column. */
+.overview-pane .list-placeholder { padding: 3px 10px; line-height: 1.5; text-align: left; }
+.overview-pane .list-item { padding: 4px 10px; }
+/* The pop-up body is a flex column (.floating-body display:flex); that lays the
+   overview rows out as flex items, which spaces them differently from the
+   left-pane accordion's normal block flow. Force block flow so both surfaces
+   render identically. (It stays flex:1 inside the panel, so it still fills +
+   scrolls.) */
+#overview-body.overview-pane { display: block; }
 .loading { color: var(--accent-dim); padding: 12px; font-style: italic; font-size: 12px; }
 .error-msg { color: var(--accent-red); padding: 8px 12px; font-size: 12px; }
 .scrollable { overflow: auto; }

@@ -4,7 +4,7 @@
 // are exercised deterministically.
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { buildOverview, formatOverview } from '../src/core/overview.js';
+import { buildOverview, buildOverviewFast, buildOverviewDeep, formatOverview } from '../src/core/overview.js';
 
 // 10 files across 3 top-level folders: projA 40%, projB 40%, projC 20%.
 // .js x6, .py x2, .md x2. functionIndex has 3 functions total.
@@ -114,12 +114,51 @@ test('#193 buildOverview: displayRoot peels the shown-paths prefix when the whol
   assert.doesNotMatch(out, /big\.zip!proj-main\/src\/f0\.js/); // peeled off the key-file rows
 });
 
+test('#181 fast/deep split: fast omits O(corpus) signals, deep supplies them', () => {
+  const fast = buildOverviewFast(mockIndex());
+  assert.equal(fast.partial, true);
+  assert.equal(fast.size.functions, null);          // deferred to deep
+  assert.equal(fast.concepts, undefined);           // not computed in fast
+  assert.equal(fast.keyFiles, undefined);
+  assert.equal(fast.entryPoints, undefined);
+  assert.ok(fast.languages.length && fast.topFolders.length); // cheap signals present
+
+  const deep = buildOverviewDeep(mockIndex());
+  assert.equal(deep.functions, 3);
+  assert.ok(deep.concepts.some(c => c.concept === 'worklist'));
+  assert.ok(deep.keyFiles.length);
+  // merged buildOverview() == fast ∪ deep
+  const full = buildOverview(mockIndex());
+  assert.equal(full.partial, false);
+  assert.equal(full.size.functions, 3);
+  assert.ok(full.concepts.length && full.keyFiles.length);
+});
+
+test('#181 lineOf falls back to first whole-word occurrence for non-function examples', () => {
+  // Concept example `welfare_poison` is a module-level const (not in the function
+  // index) → findFunctionMatches misses; the fileLines scan finds it at line 3.
+  const idx = {
+    indexSource: '/x', files: new Map([['m/suites.py', 1]]),
+    functionIndex: {}, getStats: () => ({}), getEntryPoints: () => [],
+    findFunctionMatches: () => [],                  // no function match
+    fileLines: new Map([['m/suites.py', ['import os', '', 'WELFARE_POISON = welfare_poison()', 'x = 1']]]),
+    getTopVocabulary: () => [
+      { token: 'welfare_poison', score: 90, top_files: [{ path: 'm/suites.py', concentration: 0.9 }] },
+    ],
+  };
+  const deep = buildOverviewDeep(idx);
+  const c = deep.concepts.find(c => c.concept === 'welfare' || c.concept === 'poison');
+  assert.ok(c, `expected a welfare/poison concept, got ${deep.concepts.map(x => x.concept).join(',')}`);
+  assert.equal(c.exampleFile, 'm/suites.py');
+  assert.equal(c.exampleLine, 3);                   // first mention, not file top
+});
+
 test('#181 formatOverview: renders the sections', () => {
   const out = formatOverview(buildOverview(mockIndex()));
   assert.match(out, /# Overview — \/some\/collection/);
   assert.match(out, /\*\*Size:\*\* 10 files, 3 functions/);
   assert.match(out, /Looks like a collection/);      // isCollection banner
-  assert.match(out, /\*\*Key concepts:\*\*/);             // section header
+  assert.match(out, /\*\*Key concepts \(with examples\):\*\*/); // section header (#181 rename)
   assert.match(out, /- worklist \(parseWorklistEntry\)/); // one per line, concept + example
   assert.doesNotMatch(out, /Top identifiers/);            // dropped (#181 polish)
   assert.match(out, /Key files \(by vocabulary density\)/);

@@ -117,6 +117,7 @@ export const api = {
   buildIndex:      (p) => api.post('build-index', p),
   buildIndexStatus:(p) => api.get('build-index-status', p),
   overview:        (p) => api.get('overview', p),
+  overviewDeep:    (p) => api.get('overview-deep', p, { timeout: 600000 }), // O(corpus): allow minutes on huge indexes
   fileMap:         (p) => api.get('file-map', p),
   fileTree:        (p) => api.get('file-tree', p),
   callInventory:   (p) => api.get('call-inventory', p),

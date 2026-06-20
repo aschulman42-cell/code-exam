@@ -68,7 +68,7 @@ import {
   renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, pipelineMermaid, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, POSTTRAINING_KIND_COLOR, REASONING_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR, EXPLAINABILITY_KIND_COLOR,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList,
-  renderOverviewList, showOverviewOverlay, initOverviewOverlay,
+  loadOverviewInto, showOverviewOverlay, initOverviewOverlay,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
   renderExtensionsList, renderDupeGroupList,
   renderSurprisingFuncstringsList, renderStringTable,
@@ -553,10 +553,12 @@ async function loadSectionData(sectionId, filter = '') {
         break;
 
       case 'overview':
-        data = await api.overview();
-        state.sectionData[sectionId] = data;
-        renderOverviewList(content, data);
-        badge.textContent = data.size?.files ?? '';
+        // Shared loader: fast half immediately, deep half auto-streamed (small
+        // indexes) or behind a button (large), generation-guarded against index
+        // switches. Returns its own promise; nothing else to do in this case.
+        await loadOverviewInto(content, {
+          onMeta: (ov) => { state.sectionData[sectionId] = ov; badge.textContent = ov.size?.files ?? ''; },
+        });
         break;
 
       case 'vocabulary':
