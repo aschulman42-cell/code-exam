@@ -67,7 +67,7 @@ import {
   renderFuncLikeList, renderFunctionList, renderFileListWithSub,
   renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, pipelineMermaid, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, POSTTRAINING_KIND_COLOR, REASONING_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR, EXPLAINABILITY_KIND_COLOR,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
-  renderClassHotspotList, renderClassHierarchy, renderVocabList,
+  renderClassHotspotList, renderClassHierarchy, renderVocabList, renderDataStructuresList,
   loadOverviewInto, showOverviewOverlay, initOverviewOverlay,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
   renderExtensionsList, renderDupeGroupList,
@@ -135,6 +135,13 @@ async function loadSectionData(sectionId, filter = '') {
         data = await api.listClasses({ filter, max: 200 });
         state.sectionData[sectionId] = data.classes;
         renderClassListWithSub(content, data.classes, data.total);
+        badge.textContent = data.total;
+        break;
+
+      case 'data-structures':
+        data = await api.dataStructures({ filter, max: 500 });
+        state.sectionData[sectionId] = data.structs;
+        renderDataStructuresList(content, data.structs, data.total);
         badge.textContent = data.total;
         break;
 

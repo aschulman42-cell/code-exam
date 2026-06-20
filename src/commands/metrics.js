@@ -8,6 +8,7 @@ import path from 'path';
 import { eprint } from '../utils.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
 import { extractConcepts, conceptLabel } from '../core/vocabulary.js';
+import { extractDataStructures } from '../core/data-structs.js';
 import { groupSites, groupPipelines, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from '../core/ai-ml-detectors.js';
 
 
@@ -1282,6 +1283,24 @@ export function doListModels(index, args) {
   console.log(`\n${groups.length} unique model${groups.length === 1 ? '' : 's'} (${models.length} instance${models.length === 1 ? '' : 's'}); use -v for inheritance chains, methods, and instantiation sites.`);
   console.log(`  Tip: --class-tree renders the full class hierarchy as a tree.`);
   noTestsTip(models, args, 'model classes');
+}
+
+// #194: data structures (struct/enum/union/typedef/trait/interface/record),
+// ranked by reference count so central types surface first.
+export function doDataStructs(index, args) {
+  let structs = extractDataStructures(index);
+  structs = applyPathFilters(structs, args);
+  if (args.filter) {
+    const match = makeFilterMatcher(args.filter);
+    structs = structs.filter(s => match(s.name));
+  }
+  if (!structs.length) { console.log('No data structures found.'); return; }
+  const n = args.n || 50;
+  console.log(`Data structures (${structs.length} found, ranked by reference count):\n`);
+  for (const s of structs.slice(0, n)) {
+    console.log(`  ${String(s.refs).padStart(5)} refs  ${s.kind.padEnd(9)} ${s.name}  (${s.filepath}:${s.line})`);
+  }
+  if (structs.length > n) console.log(`\n  … and ${structs.length - n} more (use -n to show more).`);
 }
 
 export function doListClasses(index, args) {

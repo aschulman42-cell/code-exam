@@ -21,7 +21,7 @@ import { onFunctionClick } from './click-handlers.js';
 import { renderMermaid, openRelationshipView } from './mermaid.js';
 import {
   showMiddleTopLoading, showMiddleTopError,
-  renderCallersOnly, renderCalleesOnly, renderDigest,
+  renderCallersOnly, renderCalleesOnly, renderDigest, renderSearchResults,
 } from './middle-pane.js';
 
 // ============================================================================
@@ -93,15 +93,28 @@ export function showContextMenu(e, funcInfo) {
   menu.style.left = `${e.clientX}px`;
   menu.style.top = `${e.clientY}px`;
 
-  // Show/hide items based on target type
+  // Show/hide items based on target type. A data-structure target (struct/enum/
+  // union/typedef/…) is a *type*, not a callable: "Find callers/callees/extract/
+  // call-tree/digest" don't apply — it gets "Find Uses" (references to the name)
+  // instead. #194
   const isFileOnly = !funcInfo.name || funcInfo.name === funcInfo.filepath;
+  const isDataStructure = funcInfo.kind === 'data-structure';
+  // "Analyze File with LLM" — for file/function targets only. Hidden for a data
+  // structure: it's a type, and the label ("File") would misdescribe the action. #194
   const fileAnalyzeBtn = $('#ctx-analyze-file');
-  if (fileAnalyzeBtn) fileAnalyzeBtn.style.display = funcInfo.filepath ? '' : 'none';
-  // Hide function-only items for file-only targets
+  if (fileAnalyzeBtn) fileAnalyzeBtn.style.display = (funcInfo.filepath && !isDataStructure) ? '' : 'none';
+  const findUsesBtn = $('button[data-ctx="find-uses"]');
+  if (findUsesBtn) findUsesBtn.style.display = (isDataStructure && funcInfo.name) ? '' : 'none';
+  const digestBtn = $('button[data-ctx="digest"]');
+  if (digestBtn) digestBtn.style.display = isDataStructure ? 'none' : '';
+  // Hide the LLM-group separator when the whole LLM group is hidden (struct).
+  const hr = $('#context-menu hr');
+  if (hr) hr.style.display = isDataStructure ? 'none' : '';
+  // Function-only items: hidden for file-only AND for data-structure targets.
   for (const btn of $$('#context-menu button[data-ctx]')) {
     const ctx = btn.dataset.ctx;
     if (['extract', 'callers', 'callees', 'call-tree', 'analyze', 'analyze-context'].includes(ctx)) {
-      btn.style.display = isFileOnly ? 'none' : '';
+      btn.style.display = (isFileOnly || isDataStructure) ? 'none' : '';
     }
   }
 
@@ -135,6 +148,12 @@ export async function handleContextAction(action) {
   const funcSpec = target.filepath ? `${target.filepath}@${funcName}` : funcName;
 
   switch (action) {
+    case 'find-uses':
+      showMiddleTopLoading(`Uses of ${target.name}…`);
+      try { renderSearchResults(target.name, await api.search({ q: target.name })); }
+      catch (err) { showMiddleTopError(err.message); }
+      break;
+
     case 'extract': onFunctionClick(target); break;
 
     case 'callers':

@@ -123,6 +123,7 @@ export const api = {
   callInventory:   (p) => api.get('call-inventory', p),
   indexExtensions: (p) => api.get('index-extensions', p),
   filesByExtension: (p) => api.get('files-by-extension', p),
+  dataStructures:  (p) => api.get('data-structures', p),
   scanModels:      (p) => api.get('scan-models', p),
   switchModel:     (p) => api.post('switch-model', p),
   version:         ()  => api.get('version'),

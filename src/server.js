@@ -27,6 +27,7 @@ import { extractExports } from './core/exports.js';
 import { extractImports } from './core/imports.js';
 import { extractConcepts } from './core/vocabulary.js';
 import { buildOverviewFast, buildOverviewDeep } from './core/overview.js';
+import { extractDataStructures } from './core/data-structs.js';
 import { loadUsedByCatalog, makeUsedByFor } from './commands/exports.js';
 import { detectInfrastructure } from './core/stack-detectors.js';
 import { SERVER_BUILD } from './version.js';
@@ -1757,6 +1758,18 @@ routes['/api/index-extensions'] = (req, res) => {
     extensions: sorted.map(([ext, count]) => ({ ext, count, pct: Math.round(count / index.files.size * 1000) / 10 })),
     skipped: computeSkippedExtensions(index),
   });
+};
+
+// #194: data structures (struct/enum/union/typedef/trait/interface/record),
+// ranked by reference count. Complements /api/classes for systems code.
+routes['/api/data-structures'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  let structs = extractDataStructures(index);
+  if (q.filter) { const match = makeFilterMatcher(q.filter); structs = structs.filter(s => match(s.name)); }
+  const max = safeMax(q.max, 500);
+  jsonResponse(res, { total: structs.length, structs: structs.slice(0, max) });
 };
 
 // #191: list the indexed files of one extension (or the no-extension bucket),

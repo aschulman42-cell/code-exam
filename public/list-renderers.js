@@ -217,6 +217,26 @@ export function renderExtensionList(container, extensions, totalFiles, filter, s
 // Classes list — with sub-accordion to show methods inline
 // ============================================================================
 
+// #194: Data Structures — struct/enum/union/typedef/trait/interface/record,
+// ranked by reference count (header states the basis, per the issue's
+// ranking-transparency note). Each row: kind label + name (click → open at the
+// definition line; right-click → context menu) + ref count.
+export function renderDataStructuresList(container, structs, total) {
+  container.innerHTML = '';
+  if (!structs || !structs.length) { container.innerHTML = '<div class="list-placeholder">No data structures found</div>'; return; }
+  container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal;text-align:left;color:var(--text-muted)', text: `${total} data structures — ranked by reference count` }));
+  for (const s of structs) {
+    const item = h('div', { className: 'list-item', title: `${s.kind} ${s.name} — ${s.refs} references\n${s.filepath}:${s.line}` }, [
+      h('span', { className: 'rank', text: s.kind, style: 'min-width:62px;text-align:left;color:var(--accent-dim);font-family:var(--font-mono);font-size:10px' }),
+      h('span', { className: 'name clickable', text: s.name }),
+      h('span', { className: 'metric muted', text: `${s.refs}` }),
+    ]);
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(s.filepath, s.line); });
+    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: s.name, display_name: s.name, filepath: s.filepath, kind: 'data-structure' }); });
+    container.appendChild(item);
+  }
+}
+
 export function renderClassListWithSub(container, classes, total) {
   container.innerHTML = '';
   if (!classes || !classes.length) { container.innerHTML = '<div class="list-placeholder">No classes found</div>'; return; }

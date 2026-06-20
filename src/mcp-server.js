@@ -21,6 +21,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { buildOverview, formatOverview } from './core/overview.js';
 import { extractConcepts, conceptLabel } from './core/vocabulary.js';
+import { extractDataStructures } from './core/data-structs.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { displayName } from './utils.js';
 import { doCallTree } from './commands/graph.js';
@@ -234,6 +235,17 @@ const TOOLS = [
       type: 'object',
       properties: {
         filter: { type: 'string', description: 'Filter by class name substring' },
+      },
+    },
+  },
+  {
+    name: 'data_structures',
+    description: 'List data structures (struct/enum/union/typedef/trait/interface/record) ranked by reference count, so the central types surface first. Complements list_classes for systems code (C/C++/Rust/Go).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        n: { type: 'number', description: 'How many to show (default 50)' },
+        filter: { type: 'string', description: 'Filter by type-name substring' },
       },
     },
   },
@@ -655,6 +667,21 @@ function handleTool(name, args) {
       const lines = [`${filtered.length} classes${args.filter ? ` matching "${args.filter}"` : ''}:`];
       for (const c of filtered.slice(0, 50)) {
         lines.push(`  ${c.name}  (${c.methods.length} methods, ${c.filepath})`);
+      }
+      return lines.join('\n');
+    }
+
+    case 'data_structures': {
+      let structs = extractDataStructures(index);
+      if (args.filter) {
+        const f = args.filter.toLowerCase();
+        structs = structs.filter(s => s.name.toLowerCase().includes(f));
+      }
+      if (!structs.length) return 'No data structures found';
+      const n = args.n || 50;
+      const lines = [`${structs.length} data structures (ranked by reference count):`];
+      for (const s of structs.slice(0, n)) {
+        lines.push(`  ${s.refs} refs  ${s.kind}  ${s.name}  (${s.filepath}:${s.line})`);
       }
       return lines.join('\n');
     }
