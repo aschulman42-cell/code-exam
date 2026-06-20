@@ -687,17 +687,22 @@ export function extractConcepts(idx, { topN = 200, maxConcepts = 15, catalog, en
       if (N && df >= 0.6 * N) continue;
       subScore.set(part, (subScore.get(part) || 0) + (e.score || 0) * _subtokenCrossCorpusWeight(part, catalog));
       // Pick a representative identifier: a token LARGER than the bare concept
-      // (`parseWorklistEntry`, not `worklist`), highest parent score wins.
+      // (`parseWorklistEntry`, not `worklist`), highest parent score wins. Carry
+      // the token's top file too, so GUI concept rows are clickable (open the
+      // file / right-click for callers/callees) like key files & entry points.
       if (tokenLc !== part) {
         const cur = subExample.get(part);
-        if (!cur || (e.score || 0) > cur.score) subExample.set(part, { token: e.token, score: e.score || 0 });
+        if (!cur || (e.score || 0) > cur.score) {
+          const tf = (e.top_files && e.top_files[0]) ? String(e.top_files[0].path).split('|||')[0] : null;
+          subExample.set(part, { token: e.token, score: e.score || 0, file: tf });
+        }
       }
     }
   }
   return [...subScore.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, maxConcepts)
-    .map(([p]) => ({ concept: p, example: subExample.get(p)?.token || null }));
+    .map(([p]) => ({ concept: p, example: subExample.get(p)?.token || null, exampleFile: subExample.get(p)?.file || null }));
 }
 
 /** Render an extractConcepts() item as `concept (example)` (or bare if no example). */

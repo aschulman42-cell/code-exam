@@ -21,7 +21,7 @@
 import { state } from './state.js';
 import { api } from './api.js';
 import {
-  $, $$, h, escHtml, displayNameHtml, shortPath,
+  $, $$, h, escHtml, displayNameHtml, shortPath, makeDraggable, makeResizable,
 } from './dom-utils.js';
 import { showPane } from './layout.js';
 import {
@@ -1356,6 +1356,135 @@ export function renderVocabList(container, vocab, concepts) {
     item.addEventListener('click', () => onVocabClick(v.token));
     container.appendChild(item);
   }
+}
+
+
+// ============================================================================
+// Overview (#181) — one-shot orientation pane. Renders the structured
+// buildOverview() object: scale, languages, structure, key concepts (with one
+// example identifier each), clickable key files + entry points, absence
+// "Watch" notes, and a one-way button to the File Map section.
+// ============================================================================
+
+export function renderOverviewList(container, ov) {
+  container.innerHTML = '';
+  if (!ov || !ov.size) { container.innerHTML = '<div class="list-placeholder">No overview</div>'; return; }
+
+  // Centered prose blocks for scale/structure; flush-left clickable rows for the
+  // concept / key-file / entry-point lists (consistency with the other panes).
+  const block = (text) => h('div', { className: 'list-placeholder', text, style: 'white-space:normal;padding:3px 8px' });
+  const head = (text) => h('div', { className: 'list-placeholder', text, style: 'white-space:normal;padding:7px 8px 2px;font-weight:600;color:var(--accent-blue)' });
+  const peelRoot = ov.displayRoot || ov.root;
+  const strip = (p) => (peelRoot && p && p.startsWith(peelRoot)) ? p.slice(peelRoot.length) : p;
+
+  // A flush-left row that opens `filepath` on click and offers the standard
+  // right-click menu (Find Callers/Callees/etc.). `ctxName` drives the menu:
+  // a function/identifier name enables call items; passing the filepath as the
+  // name marks it file-only (like the Files/Key-files panes do).
+  const clickRow = (label, meta, filepath, ctxName, line) => {
+    const item = h('div', { className: 'list-item', title: filepath || label }, [
+      h('span', { className: 'name clickable', text: label }),
+      h('span', { className: 'metric muted', text: meta }),
+    ]);
+    if (filepath) {
+      item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(filepath, line || undefined); });
+      item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: ctxName, display_name: ctxName || label, filepath }); });
+    }
+    return item;
+  };
+
+  if (ov.name) container.appendChild(h('div', { text: ov.name, style: 'text-align:center;font-weight:700;font-size:14px;padding:6px 8px 2px' }));
+  const langs = (ov.languages || []).slice(0, 8).map(l => `${l.ext} ${l.pct}%`).join(', ');
+  container.appendChild(block(`${ov.size.files} files · ${ov.size.functions} functions · ${(ov.size.lines || 0).toLocaleString()} lines (${ov.size.parse_method})`));
+  if (langs) container.appendChild(block(`Languages: ${langs}`));
+  if (peelRoot) container.appendChild(block(`Paths under: ${peelRoot}`));
+
+  if (ov.isCollection) {
+    container.appendChild(head('⚠ Looks like a collection, not one project — top-level folders:'));
+    for (const f of (ov.topFolders || []).slice(0, 8)) {
+      if (f.folder !== '(root)') container.appendChild(block(`  ${f.folder}/  (${f.count} files, ${f.pct}%)`));
+    }
+  } else {
+    const folders = (ov.topFolders || []).filter(f => f.folder !== '(root)').slice(0, 6).map(f => `${f.folder}/ (${f.count})`).join(', ');
+    if (folders) container.appendChild(block(`Top-level: ${folders}`));
+  }
+
+  if (ov.concepts && ov.concepts.length) {
+    container.appendChild(head('Key concepts:'));
+    for (const c of ov.concepts) {
+      const label = c.example ? `${c.concept} (${c.example})` : c.concept;
+      // Clickable when we know which file the example identifier lives in; jumps
+      // to its definition line (function examples) and the context menu targets
+      // the example identifier (callers/callees), not the bare concept sub-term.
+      container.appendChild(clickRow(label, '', c.exampleFile || null, c.example || c.concept, c.exampleLine));
+    }
+  }
+
+  if (ov.keyFiles && ov.keyFiles.length) {
+    container.appendChild(head('Key files (by vocabulary density):'));
+    for (const kf of ov.keyFiles) container.appendChild(clickRow(strip(kf.file), `  ${kf.terms} top terms`, kf.file, kf.file)); // file-only ctx
+  }
+
+  if (ov.entryPoints && ov.entryPoints.length) {
+    container.appendChild(head('Entry points:'));
+    for (const ep of ov.entryPoints) container.appendChild(clickRow(ep.name, `  ${strip(ep.filepath)}`, ep.filepath, ep.name, ep.line));
+  }
+
+  if (ov.absence && ov.absence.length) {
+    container.appendChild(head('Watch:'));
+    for (const a of ov.absence) container.appendChild(block(`  ⚠ ${a}`));
+  }
+
+  const btnRow = h('div', { style: 'padding:8px' });
+  const btn = h('button', { className: 'btn-secondary', text: 'View file map' });
+  btn.addEventListener('click', () => showFileMap());
+  btnRow.appendChild(btn);
+  container.appendChild(btnRow);
+}
+
+// Render the file dependency map into the Diagram pane — same destination as the
+// `/file-map` console command. Used by the Overview's "View file map" button.
+// Leaves the Overview pop-up open (it's a draggable floating panel) so the user
+// can keep it for reference and move it aside if it overlaps the diagram.
+export async function showFileMap() {
+  try {
+    const data = await api.fileMap({});
+    const body = $('#right-top-body'), ttl = $('#right-top-title');
+    if (ttl) ttl.textContent = 'File Dependency Map';
+    if (body) {
+      body.innerHTML = '<div class="diagram-viewport" id="diagram-viewport"></div>';
+      renderMermaid(data.mermaid, $('#diagram-viewport'), null, {
+        onNodeClick: (nodeId, label) => onFileClick(label),
+      });
+    }
+    showPane('right-top');
+  } catch (err) { showMiddleTopError(`File map failed: ${err.message}`); }
+}
+
+// #181: the Overview pop-up window (floating panel). Fetches the structured
+// overview and renders it; shown on index load and on GUI startup with a
+// command-line index.
+export async function showOverviewOverlay() {
+  const panel = $('#overview-overlay');
+  if (!panel) return;
+  const body = $('#overview-body');
+  body.innerHTML = '<div class="list-placeholder">Loading overview…</div>';
+  panel.classList.remove('hidden');
+  try {
+    const ov = await api.overview();
+    $('#overview-meta').textContent = ov.source ? ov.source : '';
+    renderOverviewList(body, ov);
+  } catch (err) {
+    body.innerHTML = `<div class="list-placeholder">No overview: ${escHtml(err.message)}</div>`;
+  }
+}
+
+export function initOverviewOverlay() {
+  const panel = $('#overview-overlay');
+  if (!panel) return;
+  $('#overview-close')?.addEventListener('click', () => panel.classList.add('hidden'));
+  makeDraggable(panel, $('#overview-drag-handle'));
+  makeResizable(panel, $('#overview-resize-se'));
 }
 
 

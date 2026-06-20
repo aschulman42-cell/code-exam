@@ -68,6 +68,7 @@ import {
   renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, pipelineMermaid, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, POSTTRAINING_KIND_COLOR, REASONING_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR, EXPLAINABILITY_KIND_COLOR,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList,
+  renderOverviewList, showOverviewOverlay, initOverviewOverlay,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
   renderExtensionsList, renderDupeGroupList,
   renderSurprisingFuncstringsList, renderStringTable,
@@ -549,6 +550,13 @@ async function loadSectionData(sectionId, filter = '') {
         state.sectionData[sectionId] = data.gaps;
         renderFuncLikeList(content, data.gaps, 'lines');
         badge.textContent = data.total;
+        break;
+
+      case 'overview':
+        data = await api.overview();
+        state.sectionData[sectionId] = data;
+        renderOverviewList(content, data);
+        badge.textContent = data.size?.files ?? '';
         break;
 
       case 'vocabulary':
@@ -1558,6 +1566,10 @@ async function init() {
   });
   initConsole({ showPane, onFileClick });
   initWindowManagementWithDeps({ consoleAppend, fsConsoleAppend, executeConsoleCommand, openDiagramFullscreen });
+  initOverviewOverlay();
+  // #181: pop the Overview window whenever a new index finishes loading
+  // (dialogs.js dispatches this after api.loadIndex succeeds).
+  window.addEventListener('ce:index-loaded', () => showOverviewOverlay());
   refreshLlmStatus();
   showBuildInfo();
 
@@ -1592,6 +1604,8 @@ async function init() {
     if (data.indexes && data.indexes.length > 0) {
       const active = data.indexes.find(i => i.active) || data.indexes[0];
       $('#index-info').textContent = `${active.name} (${active.files.toLocaleString()} files)`;
+      // #181: GUI launched with a command-line index → pop the Overview window.
+      showOverviewOverlay();
     }
   } catch { /* ignore */ }
 }

@@ -177,6 +177,12 @@ function initLoadIndex() {
         $('.accordion-badge', sec).textContent = '';
       }
 
+      // #181: pop the Overview window the instant an index loads. app.js listens
+      // for this and calls showOverviewOverlay() (buildOverview is cache-fast, so
+      // the pop-up is quick). Decoupled via event so dialogs.js stays unaware of
+      // the overlay internals.
+      window.dispatchEvent(new CustomEvent('ce:index-loaded'));
+
       // Clear all content panes
       _clearAllPanes();
 

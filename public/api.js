@@ -116,6 +116,7 @@ export const api = {
   loadIndex:       (p) => api.post('load-index', p, { timeout: 600000 }),  // 10 min for huge indexes
   buildIndex:      (p) => api.post('build-index', p),
   buildIndexStatus:(p) => api.get('build-index-status', p),
+  overview:        (p) => api.get('overview', p),
   fileMap:         (p) => api.get('file-map', p),
   fileTree:        (p) => api.get('file-tree', p),
   callInventory:   (p) => api.get('call-inventory', p),

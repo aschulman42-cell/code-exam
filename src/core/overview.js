@@ -81,6 +81,14 @@ export function buildOverview(index) {
   // (`"../../node_modules/.../parser.js"`), `KW_`-mangled decoded names, and
   // all-`Test*` fills. Drop the first two; de-prioritize tests so they only fill
   // the list when real entry points run out.
+  // Resolve a definition line for an identifier (function start), so GUI rows
+  // jump to the definition, not the file top. Best-effort: non-function names
+  // (consts, schemas) have no match and the caller falls back to top-of-file.
+  const lineOf = (name, fileHint) => {
+    if (!name || !index.findFunctionMatches) return null;
+    try { return index.findFunctionMatches(name, fileHint)[0]?.start || null; } catch { return null; }
+  };
+
   let entryPoints = [];
   try {
     const isJunkEP = (name) => !name || name.startsWith('"')
@@ -91,6 +99,7 @@ export function buildOverview(index) {
       .map(e => ({
         name: (index.getDisplayName ? index.getDisplayName(e.name) : e.name) || e.name,
         filepath: e.filepath,
+        line: lineOf(e.name, e.filepath),
       }))
       .filter(e => !isJunkEP(e.name))
       .filter(e => { if (seen.has(e.name)) return false; seen.add(e.name); return true; }); // dedup same-name
@@ -114,6 +123,9 @@ export function buildOverview(index) {
     // corpus-distinctive roots and drops generics (function/index/build).
     // Reuse the vocab we just fetched (no second pass).
     concepts = extractConcepts(index, { entries: vocab, maxConcepts: 12 });
+    // Resolve a line for each example identifier so GUI concept rows jump to the
+    // definition (function examples); const/schema examples fall back to top.
+    for (const c of concepts) { if (c.example && c.exampleFile) c.exampleLine = lineOf(c.example, c.exampleFile); }
 
     // Key files: rank by BREADTH (distinct top terms that concentrate here),
     // tie-broken by summed score × concentration. Breadth surfaces files central

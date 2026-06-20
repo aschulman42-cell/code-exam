@@ -74,6 +74,13 @@
       </div>
       <div class="pane-body scrollable" id="left-body">
 
+        <!-- Orient group -->
+        <div class="accordion-group-label">Orient</div>
+        <div class="accordion-section" data-section="overview">
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Overview <span class="accordion-badge"></span></div>
+          <div class="accordion-content"></div>
+        </div>
+
         <!-- Browse group -->
         <div class="accordion-group-label">Browse</div>
         <div class="accordion-section" data-section="functions">
@@ -555,6 +562,17 @@
     </div>
     <div id="compare-body" class="floating-body" style="gap:1px;background:var(--border)"></div>
     <div class="floating-resize-se" id="compare-resize-se"></div>
+  </div>
+
+  <!-- OVERVIEW FLOATING PANEL (#181: pops up on index load / GUI startup) -->
+  <div id="overview-overlay" class="floating-panel hidden" style="width:44vw;height:72vh;top:8vh;left:28vw">
+    <div class="floating-header" id="overview-drag-handle">
+      <span id="overview-title">Overview</span>
+      <span id="overview-meta" style="font-size:12px;color:var(--text-muted);font-weight:400"></span>
+      <button class="pane-action" id="overview-close" title="Close" style="font-size:16px">✕</button>
+    </div>
+    <div id="overview-body" class="floating-body scrollable" style="flex-direction:column;overflow:auto;padding:4px"></div>
+    <div class="floating-resize-se" id="overview-resize-se"></div>
   </div>
 
   <!-- EXTRACTION PROMPT FLOATING PANEL (non-modal: main UI stays interactive) -->
