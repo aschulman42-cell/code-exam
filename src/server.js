@@ -28,6 +28,7 @@ import { extractImports } from './core/imports.js';
 import { extractConcepts } from './core/vocabulary.js';
 import { buildOverviewFast, buildOverviewDeep } from './core/overview.js';
 import { extractDataStructures } from './core/data-structs.js';
+import { extractClientServer } from './core/client-server.js';
 import { loadUsedByCatalog, makeUsedByFor } from './commands/exports.js';
 import { detectInfrastructure } from './core/stack-detectors.js';
 import { SERVER_BUILD } from './version.js';
@@ -1771,6 +1772,28 @@ routes['/api/data-structures'] = (req, res) => {
   if (q.filter) { const match = makeFilterMatcher(q.filter); structs = structs.filter(s => match(s.name)); }
   const max = safeMax(q.max, 500);
   jsonResponse(res, { total: structs.length, structs: structs.slice(0, max) });
+};
+
+// #197: client/server HTTP surface — server routes, client calls, and the
+// reconciliation (internal client calls with no matching server route).
+routes['/api/client-server'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const data = extractClientServer(index);
+  if (q.filter) {
+    const match = makeFilterMatcher(q.filter);
+    data.server = data.server.filter(s => match(s.path));
+    data.client = data.client.filter(c => match(c.url));
+    data.unmatched = data.unmatched.filter(u => match(u.pathOnly || ''));
+  }
+  const max = safeMax(q.max, 500);
+  jsonResponse(res, {
+    server: data.server.slice(0, max),
+    client: data.client.slice(0, max),
+    unmatched: data.unmatched.slice(0, max),
+    stats: data.stats,
+  });
 };
 
 // #191: list the indexed files of one extension (or the no-extension bucket),

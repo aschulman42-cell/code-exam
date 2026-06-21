@@ -9,6 +9,7 @@ import { eprint } from '../utils.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
 import { extractConcepts, conceptLabel } from '../core/vocabulary.js';
 import { extractDataStructures } from '../core/data-structs.js';
+import { extractClientServer } from '../core/client-server.js';
 import { groupSites, groupPipelines, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from '../core/ai-ml-detectors.js';
 
 
@@ -1301,6 +1302,40 @@ export function doDataStructs(index, args) {
     console.log(`  ${String(s.refs).padStart(5)} refs  ${s.kind.padEnd(9)} ${s.name}  (${s.filepath}:${s.line})`);
   }
   if (structs.length > n) console.log(`\n  … and ${structs.length - n} more (use -n to show more).`);
+}
+
+export function doClientServer(index, args) {
+  const { server, client, unmatched, stats } = extractClientServer(index);
+  if (!server.length && !client.length) { console.log('No HTTP client/server surface found.'); return; }
+  const n = args.n || 50;
+
+  console.log(`Server routes (${stats.serverCount}):\n`);
+  if (!server.length) console.log('  (none detected)');
+  for (const s of server.slice(0, n)) {
+    console.log(`  ${s.method.padEnd(8)} ${s.path}  [${s.framework}]  (${s.filepath}:${s.line})`);
+  }
+  if (server.length > n) console.log(`  … and ${server.length - n} more.`);
+
+  console.log(`\nClient calls (${stats.clientCount}):\n`);
+  if (!client.length) console.log('  (none detected)');
+  for (const c of client.slice(0, n)) {
+    const tag = c.external ? ' [external]' : (c.matched === false ? ' [no server]' : '');
+    console.log(`  ${c.method.padEnd(8)} ${c.url}  (${c.kind})${tag}  (${c.filepath}:${c.line})`);
+  }
+  if (client.length > n) console.log(`  … and ${client.length - n} more.`);
+
+  // The distinctive signal: internal client calls with no matching server route.
+  console.log(`\nClient calls with NO matching server route (${stats.unmatchedCount}):\n`);
+  if (!unmatched.length) {
+    console.log('  (none — every internal client call maps to a detected route)');
+  } else {
+    for (const u of unmatched.slice(0, n)) {
+      console.log(`  ${u.method.padEnd(8)} ${u.pathOnly}  (first seen ${u.filepath}:${u.line})`);
+    }
+    if (unmatched.length > n) console.log(`  … and ${unmatched.length - n} more.`);
+    console.log(`\n  Note: heuristic match (path only). A "missing" route may be served`);
+    console.log(`  by a framework/proxy not yet detected, or by an external service.`);
+  }
 }
 
 export function doListClasses(index, args) {

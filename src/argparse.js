@@ -171,6 +171,7 @@ export function parseArgs() {
     domain_fns: null,
     list_classes: false,
     data_structs: false,
+    client_server: false,
     list_models: false,
     list_artifacts: false,
     list_kernels: false,
@@ -380,6 +381,7 @@ export function parseArgs() {
     ['domain_fns',           'int',            ['--domain-fns']],
     ['list_classes',         'flag',           ['--classes'], ['--list-classes']],
     ['data_structs',         'flag',           ['--data-structs'], ['--structs']],
+    ['client_server',        'flag',           ['--client-server'], ['--routes']],
     ['list_models',          'flag',           ['--models'], ['--list-models']],
     ['list_artifacts',       'flag',           ['--artifacts'], ['--list-artifacts']],
     ['list_kernels',         'flag',           ['--kernels'], ['--list-kernels']],
@@ -900,6 +902,12 @@ GRAPH:
 METRICS / DISCOVERY:
   --classes                  List all classes with method counts/sizes
                              (deprecated alias: --list-classes)
+  --data-structs             List data structures (struct/enum/union/typedef/
+                             trait/interface/record) ranked by reference count
+                             (alias: --structs)
+  --client-server            Map the HTTP surface: server routes declared,
+                             client calls made, and client calls with no
+                             matching server route (alias: --routes)
   --vocabulary <n>           Top N domain-specific tokens by TF-IDF score
                              (short alias: --vocab; deprecated alias:
                              --discover-vocabulary)

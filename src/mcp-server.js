@@ -22,6 +22,7 @@ import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { buildOverview, formatOverview } from './core/overview.js';
 import { extractConcepts, conceptLabel } from './core/vocabulary.js';
 import { extractDataStructures } from './core/data-structs.js';
+import { extractClientServer } from './core/client-server.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { displayName } from './utils.js';
 import { doCallTree } from './commands/graph.js';
@@ -246,6 +247,17 @@ const TOOLS = [
       properties: {
         n: { type: 'number', description: 'How many to show (default 50)' },
         filter: { type: 'string', description: 'Filter by type-name substring' },
+      },
+    },
+  },
+  {
+    name: 'client_server',
+    description: 'Map the HTTP surface: server routes declared (Express/Flask/FastAPI/Rails/Go), client calls made (fetch/axios/XHR/requests/URL literals), and the reconciliation — internal client calls with NO matching server route (the "missing server code" signal). Heuristic, path-based matching.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        n: { type: 'number', description: 'How many of each list to show (default 50)' },
+        filter: { type: 'string', description: 'Filter by path/url substring' },
       },
     },
   },
@@ -684,6 +696,29 @@ function handleTool(name, args) {
         lines.push(`  ${s.refs} refs  ${s.kind}  ${s.name}  (${s.filepath}:${s.line})`);
       }
       return lines.join('\n');
+    }
+
+    case 'client_server': {
+      let { server, client, unmatched, stats } = extractClientServer(index);
+      if (args.filter) {
+        const f = args.filter.toLowerCase();
+        server = server.filter(s => s.path.toLowerCase().includes(f));
+        client = client.filter(c => c.url.toLowerCase().includes(f));
+        unmatched = unmatched.filter(u => (u.pathOnly || '').toLowerCase().includes(f));
+      }
+      if (!server.length && !client.length) return 'No HTTP client/server surface found';
+      const n = args.n || 50;
+      const out = [`Server routes (${stats.serverCount}):`];
+      for (const s of server.slice(0, n)) out.push(`  ${s.method} ${s.path}  [${s.framework}]  (${s.filepath}:${s.line})`);
+      out.push(`\nClient calls (${stats.clientCount}):`);
+      for (const c of client.slice(0, n)) {
+        const tag = c.external ? ' [external]' : (c.matched === false ? ' [no server]' : '');
+        out.push(`  ${c.method} ${c.url}  (${c.kind})${tag}  (${c.filepath}:${c.line})`);
+      }
+      out.push(`\nClient calls with NO matching server route (${stats.unmatchedCount}):`);
+      if (!unmatched.length) out.push('  (none)');
+      for (const u of unmatched.slice(0, n)) out.push(`  ${u.method} ${u.pathOnly}  (first seen ${u.filepath}:${u.line})`);
+      return out.join('\n');
     }
 
     case 'struct_dupes': {

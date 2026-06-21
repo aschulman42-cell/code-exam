@@ -124,6 +124,7 @@ export const api = {
   indexExtensions: (p) => api.get('index-extensions', p),
   filesByExtension: (p) => api.get('files-by-extension', p),
   dataStructures:  (p) => api.get('data-structures', p),
+  clientServer:    (p) => api.get('client-server', p),
   scanModels:      (p) => api.get('scan-models', p),
   switchModel:     (p) => api.post('switch-model', p),
   version:         ()  => api.get('version'),

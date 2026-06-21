@@ -29,7 +29,7 @@ import {
 } from './click-handlers.js';
 import { showContextMenu } from './context-menu.js';
 import { renderMermaid } from './mermaid.js';
-import { showMiddleTopError, showMiddleTopLoading, renderFilesByExtension, clearAllPanes } from './middle-pane.js';
+import { showMiddleTopError, showMiddleTopLoading, renderFilesByExtension, clearAllPanes, navPush } from './middle-pane.js';
 import { renderStringDetail } from './prompts-and-catalog.js';
 import { openCompareView } from './overlays.js';
 import { showConfirmDialog } from './dialogs.js';
@@ -235,6 +235,155 @@ export function renderDataStructuresList(container, structs, total) {
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: s.name, display_name: s.name, filepath: s.filepath, kind: 'data-structure' }); });
     container.appendChild(item);
   }
+}
+
+// #197: Client/Server — server routes declared, client calls made, and the
+// reconciliation (internal client calls with no matching server route). Each
+// row jumps to its source line; right-click → Find Uses on the path/url.
+export function renderClientServerList(container, data) {
+  container.innerHTML = '';
+  const { server = [], client = [], unmatched = [], stats = {} } = data || {};
+  if (!server.length && !client.length) {
+    container.innerHTML = '<div class="list-placeholder">No HTTP client/server surface found</div>';
+    return;
+  }
+
+  const sectionLabel = (text, style = '') =>
+    h('div', { className: 'list-placeholder', style: `white-space:normal;text-align:left;font-weight:600;margin-top:6px;${style}`, text });
+
+  const wireRow = (item, filepath, line, searchTerm) => {
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(filepath, line); });
+    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: searchTerm, display_name: searchTerm, filepath, kind: 'data-structure' }); });
+  };
+
+  // --- Server routes ---
+  container.appendChild(sectionLabel(`Server routes (${stats.serverCount ?? server.length})`, 'color:var(--accent-blue)'));
+  if (!server.length) container.appendChild(h('div', { className: 'list-placeholder', text: '(none detected)' }));
+  for (const s of server) {
+    const item = h('div', { className: 'list-item', title: `${s.method} ${s.path} [${s.framework}]\n${s.filepath}:${s.line}` }, [
+      h('span', { className: 'rank', text: s.method, style: 'min-width:54px;text-align:left;color:var(--accent-dim);font-family:var(--font-mono);font-size:10px' }),
+      h('span', { className: 'name clickable', text: s.path }),
+      h('span', { className: 'metric muted', text: s.framework, style: 'font-size:10px' }),
+    ]);
+    wireRow(item, s.filepath, s.line, s.path);
+    container.appendChild(item);
+  }
+
+  // --- Client calls — CONSOLIDATED (#197 iterate) ---
+  // De-dupe the per-call-site dump into one row per endpoint: internal calls
+  // group by path, external calls group by domain. Each row carries a call
+  // count and drills into its specific instances (file:line) in the upper-
+  // middle pane, the #191 pattern. Unmatched paths render in warn color inline.
+  const unmatchedPaths = new Set(unmatched.map(u => u.pathOnly));
+  const groups = new Map();  // key → { label, kind, external, instances: [] }
+  for (const c of client) {
+    let key, label, kind;
+    if (c.external) { key = 'ext:' + (_domainOf(c.url) || c.url); label = _domainOf(c.url) || c.url; kind = 'external'; }
+    else if (c.internal && c.pathOnly) { key = 'int:' + c.pathOnly; label = c.pathOnly; kind = 'internal'; }
+    else { key = 'other:' + c.url; label = c.url; kind = 'other'; }
+    if (!groups.has(key)) groups.set(key, { label, kind, external: c.external, instances: [] });
+    groups.get(key).instances.push(c);
+  }
+  const groupArr = [...groups.values()].sort((a, b) =>
+    (a.kind === b.kind ? 0 : a.kind === 'internal' ? -1 : 1) || b.instances.length - a.instances.length || a.label.localeCompare(b.label));
+
+  container.appendChild(sectionLabel(`Client endpoints (${groupArr.length} distinct, ${stats.clientCount ?? client.length} calls)`, 'color:var(--accent-blue)'));
+  if (!groupArr.length) container.appendChild(h('div', { className: 'list-placeholder', text: '(none detected)' }));
+  for (const g of groupArr) {
+    const isUnmatched = g.kind === 'internal' && unmatchedPaths.has(g.label);
+    const tag = g.external ? 'external' : (isUnmatched ? 'no server' : '');
+    const item = h('div', { className: 'list-item', title: `${g.label} — ${g.instances.length} call site(s)${tag ? ' — ' + tag : ''}\nClick to list instances` }, [
+      h('span', { className: 'name clickable', text: g.label, style: isUnmatched ? 'color:var(--warn,#e0a030)' : '' }),
+      tag ? h('span', { className: 'metric muted', text: tag, style: 'font-size:10px' }) : null,
+      h('span', { className: 'metric muted', text: `${g.instances.length}×`, style: 'min-width:32px;text-align:right' }),
+    ].filter(Boolean));
+    item.addEventListener('click', (e) => { e.stopPropagation(); renderHttpInstances(g.label, g.instances); });
+    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: g.label, display_name: g.label, filepath: g.instances[0]?.filepath, kind: 'data-structure' }); });
+    container.appendChild(item);
+  }
+
+  // --- Reconciliation: the distinctive signal — consolidated by path ---
+  const unmatchedByPath = new Map();
+  for (const c of client) {
+    if (!c.internal || !c.pathOnly || !unmatchedPaths.has(c.pathOnly)) continue;
+    if (!unmatchedByPath.has(c.pathOnly)) unmatchedByPath.set(c.pathOnly, []);
+    unmatchedByPath.get(c.pathOnly).push(c);
+  }
+  container.appendChild(sectionLabel(`No matching server route (${unmatchedByPath.size})`, 'color:var(--warn,#e0a030);margin-top:10px'));
+  if (!unmatchedByPath.size) {
+    container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal;text-align:left;color:var(--text-muted)', text: 'Every internal client call maps to a detected route.' }));
+  } else {
+    for (const [path, insts] of [...unmatchedByPath.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      const item = h('div', { className: 'list-item', title: `${path} — ${insts.length} call site(s)\nClick to list instances` }, [
+        h('span', { className: 'name clickable', text: path, style: 'color:var(--warn,#e0a030)' }),
+        h('span', { className: 'metric muted', text: `${insts.length}×`, style: 'min-width:32px;text-align:right' }),
+      ]);
+      item.addEventListener('click', (e) => { e.stopPropagation(); renderHttpInstances(path, insts); });
+      container.appendChild(item);
+    }
+    container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal;text-align:left;color:var(--text-muted);margin-top:4px', text: 'Heuristic (path-only match) — a "missing" route may be served by an undetected framework/proxy or an external service.' }));
+  }
+}
+
+// Domain (host) of an absolute URL, else null.
+function _domainOf(url) {
+  const m = /^https?:\/\/([^/]+)/i.exec(url);
+  return m ? m[1] : null;
+}
+
+// #197 drill-down: the specific calls for a consolidated client endpoint, in
+// the upper-middle pane (mirrors the Extensions #191 drill-down). Consolidated
+// a second time by DISTINCT URL — drilling a busy domain (e.g. github.com)
+// otherwise repeated the same URL across dozens of call sites. One row per
+// distinct URL + a call-site count; a multi-site URL expands inline to its
+// specific file:line locations. Single-site URLs jump straight to source.
+// Instances carry { method, url, kind, filepath, line }.
+export function renderHttpInstances(label, instances) {
+  const container = $('#middle-top-body'), title = $('#middle-top-title');
+  showPane('middle-top'); navPush('middle-top');
+
+  const byUrl = new Map();
+  for (const c of instances) {
+    if (!byUrl.has(c.url)) byUrl.set(c.url, []);
+    byUrl.get(c.url).push(c);
+  }
+  const urls = [...byUrl.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  title.textContent = `${label} — ${urls.length} distinct URL${urls.length !== 1 ? 's' : ''}, ${instances.length} call site${instances.length !== 1 ? 's' : ''}`;
+  container.innerHTML = '';
+  const wrap = h('div', { className: 'output-section' });
+
+  for (const [url, sites] of urls) {
+    const multi = sites.length > 1;
+    const toggle = h('span', { className: 'sub-accordion-toggle', text: multi ? '▸' : '', style: 'margin-right:4px;font-size:10px;width:10px;display:inline-block' });
+    const row = h('div', { className: 'list-item', title: `${url}\n${sites.length} call site${sites.length !== 1 ? 's' : ''}` }, [
+      toggle,
+      h('span', { className: 'rank', text: sites[0].method, style: 'min-width:54px;text-align:left;color:var(--accent-dim);font-family:var(--font-mono);font-size:10px' }),
+      h('span', { className: 'name clickable', text: url, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'metric muted', text: `${sites.length}×`, style: 'min-width:32px;text-align:right' }),
+    ]);
+    const sub = h('div', { style: 'display:none' });
+    if (multi) {
+      for (const c of sites) {
+        const loc = h('div', { className: 'list-item', style: 'padding-left:28px', title: `${c.filepath}:${c.line}` }, [
+          h('span', { className: 'name clickable', text: `${shortPath(c.filepath, 40)}:${c.line}`, style: 'font-family:var(--font-mono);font-size:10px;flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis' }),
+          h('span', { className: 'metric muted', text: c.kind, style: 'font-size:10px' }),
+        ]);
+        loc.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(c.filepath, c.line); });
+        sub.appendChild(loc);
+      }
+      row.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = sub.style.display !== 'none';
+        sub.style.display = open ? 'none' : 'block';
+        toggle.textContent = open ? '▸' : '▾';
+      });
+    } else {
+      row.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(sites[0].filepath, sites[0].line); });
+    }
+    wrap.appendChild(row);
+    wrap.appendChild(sub);
+  }
+  container.appendChild(wrap);
 }
 
 export function renderClassListWithSub(container, classes, total) {
