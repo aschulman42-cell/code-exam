@@ -1305,8 +1305,8 @@ export function doDataStructs(index, args) {
 }
 
 export function doClientServer(index, args) {
-  const { server, client, unmatched, stats } = extractClientServer(index);
-  if (!server.length && !client.length) { console.log('No HTTP client/server surface found.'); return; }
+  const { server, client, unmatched, sockets, stats } = extractClientServer(index);
+  if (!server.length && !client.length && !sockets.length) { console.log('No client/server surface found.'); return; }
   const n = args.n || 50;
 
   console.log(`Server routes (${stats.serverCount}):\n`);
@@ -1335,6 +1335,26 @@ export function doClientServer(index, args) {
     if (unmatched.length > n) console.log(`  … and ${unmatched.length - n} more.`);
     console.log(`\n  Note: heuristic match (path only). A "missing" route may be served`);
     console.log(`  by a framework/proxy not yet detected, or by an external service.`);
+  }
+
+  // #201 Part B: socket/TLS transport (non-HTTP). Grouped by role.
+  if (sockets.length) {
+    const socketClient = sockets.filter(s => s.role === 'client');
+    const socketServer = sockets.filter(s => s.role === 'server');
+    console.log(`\nSocket / TLS (${stats.socketCount}): client ${stats.socketClientCount}, server ${stats.socketServerCount}`);
+    for (const [role, list] of [['client', socketClient], ['server', socketServer]]) {
+      if (!list.length) continue;
+      console.log(`\n  ${role} (${list.length}):`);
+      for (const s of list.slice(0, n)) {
+        console.log(`    ${s.api.padEnd(16)} ${s.tls ? '[TLS] ' : ''}${s.lang}  (${s.filepath}:${s.line})`);
+      }
+      if (list.length > n) console.log(`    … and ${list.length - n} more.`);
+    }
+    if (socketClient.length && !socketServer.length) {
+      console.log(`\n  Only client-side socket/TLS detected — no server (bind/listen/accept) in this index.`);
+    } else if (socketServer.length && !socketClient.length) {
+      console.log(`\n  Only server-side socket/TLS detected — no client (connect) in this index.`);
+    }
   }
 }
 

@@ -149,10 +149,16 @@ async function loadSectionData(sectionId, filter = '') {
         data = await api.clientServer({ filter, max: 500 });
         state.sectionData[sectionId] = data;
         renderClientServerList(content, data);
-        // Badge: server routes + a ⚠ count when there are unmatched client calls.
-        badge.textContent = data.stats.unmatchedCount
-          ? `${data.stats.serverCount}/${data.stats.clientCount} ⚠${data.stats.unmatchedCount}`
-          : `${data.stats.serverCount}/${data.stats.clientCount}`;
+        // Badge: HTTP server/client counts, a socket count when present (so a
+        // socket-only index like .demo doesn't read as empty), and ⚠ for
+        // unmatched client calls.
+        {
+          const st = data.stats;
+          let b = `${st.serverCount}/${st.clientCount}`;
+          if (st.socketCount) b += ` +${st.socketCount}🔌`;
+          if (st.unmatchedCount) b += ` ⚠${st.unmatchedCount}`;
+          badge.textContent = b;
+        }
         break;
 
       case 'exports': {   // #153: declared-exports catalog, grouped by package

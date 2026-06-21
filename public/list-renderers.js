@@ -242,34 +242,50 @@ export function renderDataStructuresList(container, structs, total) {
 // row jumps to its source line; right-click → Find Uses on the path/url.
 export function renderClientServerList(container, data) {
   container.innerHTML = '';
-  const { server = [], client = [], unmatched = [], stats = {} } = data || {};
-  if (!server.length && !client.length) {
-    container.innerHTML = '<div class="list-placeholder">No HTTP client/server surface found</div>';
+  const { server = [], client = [], unmatched = [], sockets = [], stats = {} } = data || {};
+  if (!server.length && !client.length && !sockets.length) {
+    container.innerHTML = '<div class="list-placeholder">No client/server surface found</div>';
     return;
   }
 
+  // Compact header / note helpers. NOT the bare `.list-placeholder` (which is
+  // styled for whole-pane empty states — centered + tall) — using it inline
+  // ballooned empty sections into screens of whitespace (#201 iterate). These
+  // are tight, left-aligned, single-line.
   const sectionLabel = (text, style = '') =>
-    h('div', { className: 'list-placeholder', style: `white-space:normal;text-align:left;font-weight:600;margin-top:6px;${style}`, text });
+    h('div', { style: `white-space:normal;text-align:left;font-weight:600;font-size:11px;margin-top:8px;padding:2px 10px;${style}`, text });
+  const note = (text, style = '') =>
+    h('div', { style: `white-space:normal;text-align:left;font-size:11px;padding:1px 10px;color:var(--text-muted);${style}`, text });
 
-  const wireRow = (item, filepath, line, searchTerm) => {
-    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(filepath, line); });
-    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: searchTerm, display_name: searchTerm, filepath, kind: 'data-structure' }); });
-  };
-
-  // --- Server routes ---
-  container.appendChild(sectionLabel(`Server routes (${stats.serverCount ?? server.length})`, 'color:var(--accent-blue)'));
-  if (!server.length) container.appendChild(h('div', { className: 'list-placeholder', text: '(none detected)' }));
-  for (const s of server) {
-    const item = h('div', { className: 'list-item', title: `${s.method} ${s.path} [${s.framework}]\n${s.filepath}:${s.line}` }, [
-      h('span', { className: 'rank', text: s.method, style: 'min-width:54px;text-align:left;color:var(--accent-dim);font-family:var(--font-mono);font-size:10px' }),
-      h('span', { className: 'name clickable', text: s.path }),
-      h('span', { className: 'metric muted', text: s.framework, style: 'font-size:10px' }),
-    ]);
-    wireRow(item, s.filepath, s.line, s.path);
-    container.appendChild(item);
+  // --- Server routes — CONSOLIDATED by path (#201 iterate) ---
+  // Like the socket file rows show their api sequence (bind·listen·accept), a
+  // route path shows its METHOD SET — the resource's REST verb surface
+  // (GET·POST·DELETE) — instead of one row per method. Multi-declaration paths
+  // drill into the per-method/per-file declarations in the upper-middle pane.
+  if (server.length) {
+    const byPath = new Map();
+    for (const s of server) { if (!byPath.has(s.path)) byPath.set(s.path, []); byPath.get(s.path).push(s); }
+    const paths = [...byPath.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    container.appendChild(sectionLabel(`Server routes (${paths.length} path${paths.length !== 1 ? 's' : ''}, ${server.length} decl${server.length !== 1 ? 's' : ''})`, 'color:var(--accent-blue)'));
+    for (const [routePath, routes] of paths) {
+      const methods = [...new Set(routes.flatMap(r => String(r.method).split('|')))].join('·');
+      const fw = [...new Set(routes.map(r => r.framework))].join(',');
+      const item = h('div', { className: 'list-item', title: `${routePath}\n${methods}  [${fw}]\n${routes.length} declaration(s)` }, [
+        h('span', { className: 'rank', text: methods, style: 'min-width:120px;text-align:left;color:var(--accent-dim);font-family:var(--font-mono);font-size:10px;overflow:hidden;text-overflow:ellipsis' }),
+        h('span', { className: 'name clickable', text: routePath, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis' }),
+        h('span', { className: 'metric muted', text: fw, style: 'font-size:10px' }),
+      ]);
+      if (routes.length > 1) {
+        item.addEventListener('click', (e) => { e.stopPropagation(); renderServerRouteInstances(routePath, routes); });
+      } else {
+        item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(routes[0].filepath, routes[0].line); });
+      }
+      item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: routePath, display_name: routePath, filepath: routes[0].filepath, kind: 'data-structure' }); });
+      container.appendChild(item);
+    }
   }
 
-  // --- Client calls — CONSOLIDATED (#197 iterate) ---
+  // --- Client calls — CONSOLIDATED (#197 iterate), omitted when empty ---
   // De-dupe the per-call-site dump into one row per endpoint: internal calls
   // group by path, external calls group by domain. Each row carries a call
   // count and drills into its specific instances (file:line) in the upper-
@@ -287,41 +303,110 @@ export function renderClientServerList(container, data) {
   const groupArr = [...groups.values()].sort((a, b) =>
     (a.kind === b.kind ? 0 : a.kind === 'internal' ? -1 : 1) || b.instances.length - a.instances.length || a.label.localeCompare(b.label));
 
-  container.appendChild(sectionLabel(`Client endpoints (${groupArr.length} distinct, ${stats.clientCount ?? client.length} calls)`, 'color:var(--accent-blue)'));
-  if (!groupArr.length) container.appendChild(h('div', { className: 'list-placeholder', text: '(none detected)' }));
-  for (const g of groupArr) {
-    const isUnmatched = g.kind === 'internal' && unmatchedPaths.has(g.label);
-    const tag = g.external ? 'external' : (isUnmatched ? 'no server' : '');
-    const item = h('div', { className: 'list-item', title: `${g.label} — ${g.instances.length} call site(s)${tag ? ' — ' + tag : ''}\nClick to list instances` }, [
-      h('span', { className: 'name clickable', text: g.label, style: isUnmatched ? 'color:var(--warn,#e0a030)' : '' }),
-      tag ? h('span', { className: 'metric muted', text: tag, style: 'font-size:10px' }) : null,
-      h('span', { className: 'metric muted', text: `${g.instances.length}×`, style: 'min-width:32px;text-align:right' }),
-    ].filter(Boolean));
-    item.addEventListener('click', (e) => { e.stopPropagation(); renderHttpInstances(g.label, g.instances); });
-    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: g.label, display_name: g.label, filepath: g.instances[0]?.filepath, kind: 'data-structure' }); });
-    container.appendChild(item);
-  }
-
-  // --- Reconciliation: the distinctive signal — consolidated by path ---
-  const unmatchedByPath = new Map();
-  for (const c of client) {
-    if (!c.internal || !c.pathOnly || !unmatchedPaths.has(c.pathOnly)) continue;
-    if (!unmatchedByPath.has(c.pathOnly)) unmatchedByPath.set(c.pathOnly, []);
-    unmatchedByPath.get(c.pathOnly).push(c);
-  }
-  container.appendChild(sectionLabel(`No matching server route (${unmatchedByPath.size})`, 'color:var(--warn,#e0a030);margin-top:10px'));
-  if (!unmatchedByPath.size) {
-    container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal;text-align:left;color:var(--text-muted)', text: 'Every internal client call maps to a detected route.' }));
-  } else {
-    for (const [path, insts] of [...unmatchedByPath.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
-      const item = h('div', { className: 'list-item', title: `${path} — ${insts.length} call site(s)\nClick to list instances` }, [
-        h('span', { className: 'name clickable', text: path, style: 'color:var(--warn,#e0a030)' }),
-        h('span', { className: 'metric muted', text: `${insts.length}×`, style: 'min-width:32px;text-align:right' }),
-      ]);
-      item.addEventListener('click', (e) => { e.stopPropagation(); renderHttpInstances(path, insts); });
+  if (groupArr.length) {
+    container.appendChild(sectionLabel(`Client endpoints — by target (${groupArr.length} distinct, ${stats.clientCount ?? client.length} calls)`, 'color:var(--accent-blue)'));
+    for (const g of groupArr) {
+      const isUnmatched = g.kind === 'internal' && unmatchedPaths.has(g.label);
+      const tag = g.external ? 'external' : (isUnmatched ? 'no server' : '');
+      // Method set — the client-side verb pipeline on this endpoint (GET·POST),
+      // the parallel to the socket api sequence and the server method set.
+      const methods = [...new Set(g.instances.flatMap(c => String(c.method || 'ANY').split('|')))].join('·');
+      const item = h('div', { className: 'list-item', title: `${g.label} — ${methods} — ${g.instances.length} call site(s)${tag ? ' — ' + tag : ''}\nClick to list instances` }, [
+        h('span', { className: 'name clickable', text: g.label, style: `flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;${isUnmatched ? 'color:var(--warn,#e0a030)' : ''}` }),
+        h('span', { className: 'metric muted', text: methods, style: 'font-size:10px;color:var(--accent-dim);max-width:130px;overflow:hidden;text-overflow:ellipsis' }),
+        tag ? h('span', { className: 'metric muted', text: tag, style: 'font-size:10px' }) : null,
+        h('span', { className: 'metric muted', text: `${g.instances.length}×`, style: 'min-width:32px;text-align:right' }),
+      ].filter(Boolean));
+      item.addEventListener('click', (e) => { e.stopPropagation(); renderHttpInstances(g.label, g.instances); });
+      item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: g.label, display_name: g.label, filepath: g.instances[0]?.filepath, kind: 'data-structure' }); });
       container.appendChild(item);
     }
-    container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal;text-align:left;color:var(--text-muted);margin-top:4px', text: 'Heuristic (path-only match) — a "missing" route may be served by an undetected framework/proxy or an external service.' }));
+  }
+
+  // --- Client calls — by SOURCE FILE (#201 iterate) ---
+  // The same client calls, organized by the file that makes them. Unlike a
+  // server (which just declares many independent routes), a client *uses*
+  // services in sequence — so a file's calls in line order read as a
+  // pipeline, the way the socket file rows do. This complements the
+  // by-target view above; both are shown so each lens is available.
+  if (client.length) {
+    const byFile = new Map();
+    for (const c of client) { if (!byFile.has(c.filepath)) byFile.set(c.filepath, []); byFile.get(c.filepath).push(c); }
+    const files = [...byFile.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+    container.appendChild(sectionLabel(`Client calls — by source file (${files.length} file${files.length !== 1 ? 's' : ''})`, 'color:var(--accent-blue);margin-top:10px'));
+    for (const [fp, calls] of files) {
+      const methods = [...new Set(calls.flatMap(c => String(c.method || 'ANY').split('|')))].join('·');
+      const endpoints = new Set(calls.map(c => c.pathOnly || c.url)).size;
+      const item = h('div', { className: 'list-item', title: `${fp.replace(/\\/g, '/')}\n${methods} — ${calls.length} call(s) to ${endpoints} endpoint(s)\nClick to list calls in source order` }, [
+        h('span', { className: 'name clickable', text: fp.replace(/\\/g, '/'), style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;font-family:var(--font-mono);font-size:11px' }),
+        h('span', { className: 'metric muted', text: methods, style: 'font-size:10px;color:var(--accent-dim);max-width:130px;overflow:hidden;text-overflow:ellipsis' }),
+        h('span', { className: 'metric muted', text: `${calls.length}×`, style: 'min-width:30px;text-align:right' }),
+      ]);
+      item.addEventListener('click', (e) => { e.stopPropagation(); renderHttpFileCalls(fp, calls); });
+      container.appendChild(item);
+    }
+  }
+
+  // --- Reconciliation: the distinctive signal — only meaningful with calls ---
+  if (client.length) {
+    const unmatchedByPath = new Map();
+    for (const c of client) {
+      if (!c.internal || !c.pathOnly || !unmatchedPaths.has(c.pathOnly)) continue;
+      if (!unmatchedByPath.has(c.pathOnly)) unmatchedByPath.set(c.pathOnly, []);
+      unmatchedByPath.get(c.pathOnly).push(c);
+    }
+    if (unmatchedByPath.size) {
+      container.appendChild(sectionLabel(`No matching server route (${unmatchedByPath.size})`, 'color:var(--warn,#e0a030)'));
+      for (const [path, insts] of [...unmatchedByPath.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+        const item = h('div', { className: 'list-item', title: `${path} — ${insts.length} call site(s)\nClick to list instances` }, [
+          h('span', { className: 'name clickable', text: path, style: 'color:var(--warn,#e0a030)' }),
+          h('span', { className: 'metric muted', text: `${insts.length}×`, style: 'min-width:32px;text-align:right' }),
+        ]);
+        item.addEventListener('click', (e) => { e.stopPropagation(); renderHttpInstances(path, insts); });
+        container.appendChild(item);
+      }
+      container.appendChild(note('Heuristic (path-only match) — a "missing" route may be served by an undetected framework/proxy or an external service.'));
+    } else {
+      container.appendChild(note('All client calls map to a detected server route.'));
+    }
+  }
+
+  // --- Socket / TLS transport (#201 Part B), omitted when empty ---
+  // CONSOLIDATED by file (#201 iterate): a raw socket dump repeats the same
+  // api (`connect`, `accept`) across hundreds of call sites (.spinellis had
+  // 457). One row per file per role, showing the apis used + a call count;
+  // clicking drills into that file's specific call sites in the upper-middle
+  // pane (the #197 drill pattern). The path column carries dir context, not
+  // just the filename.
+  if (sockets.length) {
+    const socketClient = sockets.filter(s => s.role === 'client');
+    const socketServer = sockets.filter(s => s.role === 'server');
+    const filesOf = (list) => new Set(list.map(s => s.filepath)).size;
+    container.appendChild(sectionLabel(`Socket / TLS (${stats.socketCount ?? sockets.length}) — ${filesOf(socketClient)} client, ${filesOf(socketServer)} server file(s)`, 'color:var(--accent-blue)'));
+    for (const [role, list] of [['client', socketClient], ['server', socketServer]]) {
+      if (!list.length) continue;
+      const byFile = new Map();
+      for (const s of list) { if (!byFile.has(s.filepath)) byFile.set(s.filepath, []); byFile.get(s.filepath).push(s); }
+      const files = [...byFile.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+      container.appendChild(note(`${role} (${files.length} file${files.length !== 1 ? 's' : ''}, ${list.length} call${list.length !== 1 ? 's' : ''})`));
+      for (const [fp, insts] of files) {
+        const apis = [...new Set(insts.map(s => s.api))].join('·');
+        const tls = insts.some(s => s.tls);
+        const item = h('div', { className: 'list-item', title: `${fp.replace(/\\/g, '/')}\n${apis} — ${insts.length} call site(s)${tls ? ' (TLS)' : ''}\nClick to list call sites` }, [
+          h('span', { className: 'name clickable', text: fp.replace(/\\/g, '/'), style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;font-family:var(--font-mono);font-size:11px' }),
+          h('span', { className: 'metric muted', text: apis + (tls ? '·TLS' : ''), style: 'font-size:10px;max-width:160px;overflow:hidden;text-overflow:ellipsis' }),
+          h('span', { className: 'metric muted', text: `${insts.length}×`, style: 'min-width:30px;text-align:right' }),
+        ]);
+        item.addEventListener('click', (e) => { e.stopPropagation(); renderSocketInstances(fp, insts); });
+        container.appendChild(item);
+      }
+    }
+    // One-end-only note, mirroring the CLI — the "credible to ship" signal.
+    if (socketClient.length && !socketServer.length) {
+      container.appendChild(note('Only client-side socket/TLS detected — no server (bind/listen/accept) in this index.', 'color:var(--warn,#e0a030)'));
+    } else if (socketServer.length && !socketClient.length) {
+      container.appendChild(note('Only server-side socket/TLS detected — no client (connect) in this index.', 'color:var(--warn,#e0a030)'));
+    }
   }
 }
 
@@ -382,6 +467,72 @@ export function renderHttpInstances(label, instances) {
     }
     wrap.appendChild(row);
     wrap.appendChild(sub);
+  }
+  container.appendChild(wrap);
+}
+
+// #201 drill-down: one file's HTTP client calls in SOURCE ORDER (the pipeline
+// the client runs), in the upper-middle pane. Title is the full path; rows are
+// method · url · :line. Calls carry { method, url, kind, filepath, line }.
+export function renderHttpFileCalls(label, calls) {
+  const container = $('#middle-top-body'), title = $('#middle-top-title');
+  showPane('middle-top'); navPush('middle-top');
+  const sorted = [...calls].sort((a, b) => a.line - b.line);
+  title.textContent = `${label.replace(/\\/g, '/')} — ${sorted.length} HTTP call${sorted.length !== 1 ? 's' : ''} (in source order)`;
+  container.innerHTML = '';
+  const wrap = h('div', { className: 'output-section' });
+  for (const c of sorted) {
+    const row = h('div', { className: 'list-item', title: `${c.method} ${c.url} (${c.kind})\n${c.filepath}:${c.line}` }, [
+      h('span', { className: 'rank', text: c.method, style: 'min-width:54px;text-align:left;color:var(--accent-dim);font-family:var(--font-mono);font-size:11px' }),
+      h('span', { className: 'name clickable', text: c.url, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'metric muted', text: `:${c.line}`, style: 'font-family:var(--font-mono);font-size:11px' }),
+    ]);
+    row.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(c.filepath, c.line); });
+    wrap.appendChild(row);
+  }
+  container.appendChild(wrap);
+}
+
+// #201 drill-down: the socket/TLS call sites for one file, in the upper-middle
+// pane. Title is the FULL path (the left pane truncates it); rows are api + line,
+// each jumping to source. Instances carry { api, role, tls, lang, filepath, line }.
+export function renderSocketInstances(label, instances) {
+  const container = $('#middle-top-body'), title = $('#middle-top-title');
+  showPane('middle-top'); navPush('middle-top');
+  const sorted = [...instances].sort((a, b) => a.line - b.line);
+  title.textContent = `${label.replace(/\\/g, '/')} — ${sorted.length} socket call${sorted.length !== 1 ? 's' : ''}`;
+  container.innerHTML = '';
+  const wrap = h('div', { className: 'output-section' });
+  for (const s of sorted) {
+    const row = h('div', { className: 'list-item', title: `${s.api} (${s.role})${s.tls ? ' · TLS' : ''}\n${s.filepath}:${s.line}` }, [
+      h('span', { className: 'rank', text: s.api, style: 'min-width:120px;text-align:left;color:var(--accent-dim);font-family:var(--font-mono);font-size:11px' }),
+      h('span', { className: 'name clickable', text: `${s.role}${s.tls ? ' · TLS' : ''}`, style: 'flex:1 1 0;min-width:0' }),
+      h('span', { className: 'metric muted', text: `:${s.line}`, style: 'font-family:var(--font-mono);font-size:11px' }),
+    ]);
+    row.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(s.filepath, s.line); });
+    wrap.appendChild(row);
+  }
+  container.appendChild(wrap);
+}
+
+// #201 drill-down: the per-method/per-file declarations of one route path, in
+// the upper-middle pane (parallels the socket call-site drill). Each row jumps
+// to source. Routes carry { method, path, framework, filepath, line }.
+export function renderServerRouteInstances(label, routes) {
+  const container = $('#middle-top-body'), title = $('#middle-top-title');
+  showPane('middle-top'); navPush('middle-top');
+  const sorted = [...routes].sort((a, b) => a.filepath.localeCompare(b.filepath) || a.line - b.line);
+  title.textContent = `${label} — ${sorted.length} declaration${sorted.length !== 1 ? 's' : ''}`;
+  container.innerHTML = '';
+  const wrap = h('div', { className: 'output-section' });
+  for (const r of sorted) {
+    const row = h('div', { className: 'list-item', title: `${r.method} ${r.path} [${r.framework}]\n${r.filepath}:${r.line}` }, [
+      h('span', { className: 'rank', text: r.method, style: 'min-width:80px;text-align:left;color:var(--accent-dim);font-family:var(--font-mono);font-size:11px' }),
+      h('span', { className: 'name clickable', text: `${shortPath(r.filepath, 40)}:${r.line}`, style: 'flex:2 1 0;min-width:0;font-family:var(--font-mono);font-size:11px;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'metric muted', text: r.framework, style: 'font-size:10px' }),
+    ]);
+    row.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(r.filepath, r.line); });
+    wrap.appendChild(row);
   }
   container.appendChild(wrap);
 }

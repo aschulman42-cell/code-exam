@@ -699,14 +699,15 @@ function handleTool(name, args) {
     }
 
     case 'client_server': {
-      let { server, client, unmatched, stats } = extractClientServer(index);
+      let { server, client, unmatched, sockets, stats } = extractClientServer(index);
       if (args.filter) {
         const f = args.filter.toLowerCase();
         server = server.filter(s => s.path.toLowerCase().includes(f));
         client = client.filter(c => c.url.toLowerCase().includes(f));
         unmatched = unmatched.filter(u => (u.pathOnly || '').toLowerCase().includes(f));
+        sockets = sockets.filter(s => s.api.toLowerCase().includes(f) || s.filepath.toLowerCase().includes(f));
       }
-      if (!server.length && !client.length) return 'No HTTP client/server surface found';
+      if (!server.length && !client.length && !sockets.length) return 'No client/server surface found';
       const n = args.n || 50;
       const out = [`Server routes (${stats.serverCount}):`];
       for (const s of server.slice(0, n)) out.push(`  ${s.method} ${s.path}  [${s.framework}]  (${s.filepath}:${s.line})`);
@@ -718,6 +719,17 @@ function handleTool(name, args) {
       out.push(`\nClient calls with NO matching server route (${stats.unmatchedCount}):`);
       if (!unmatched.length) out.push('  (none)');
       for (const u of unmatched.slice(0, n)) out.push(`  ${u.method} ${u.pathOnly}  (first seen ${u.filepath}:${u.line})`);
+      if (sockets.length) {
+        out.push(`\nSocket / TLS (${stats.socketCount}): client ${stats.socketClientCount}, server ${stats.socketServerCount}`);
+        for (const role of ['client', 'server']) {
+          const list = sockets.filter(s => s.role === role);
+          if (!list.length) continue;
+          out.push(`  ${role}:`);
+          for (const s of list.slice(0, n)) out.push(`    ${s.api}  ${s.tls ? '[TLS] ' : ''}${s.lang}  (${s.filepath}:${s.line})`);
+        }
+        if (stats.socketClientCount && !stats.socketServerCount) out.push(`  (only client-side socket/TLS — no server in this index)`);
+        else if (stats.socketServerCount && !stats.socketClientCount) out.push(`  (only server-side socket/TLS — no client in this index)`);
+      }
       return out.join('\n');
     }
 

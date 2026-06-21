@@ -157,3 +157,115 @@ async function load() {
       'external URL should still be recorded as a client call');
   });
 });
+
+// ---------------------------------------------------------------------------
+// #201 Part B — socket / TLS transport
+// ---------------------------------------------------------------------------
+
+const SOCK_DIR = path.join(os.tmpdir(), 'ce_test_cs_socket_src');
+const SOCK_IDX = path.join(os.tmpdir(), 'ce_test_cs_socket_idx');
+
+describe('#201 socket/TLS transport detection', () => {
+  let result;
+
+  before(async () => {
+    fs.mkdirSync(SOCK_DIR, { recursive: true });
+
+    // C TLS client (BSD socket + OpenSSL) — connect ⇒ client.
+    fs.writeFileSync(path.join(SOCK_DIR, 'tls_client.c'), `
+#include <openssl/ssl.h>
+int run(void) {
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  connect(fd, addr, len);
+  SSL_connect(ssl);
+  return 0;
+}
+`);
+
+    // C socket server — bind/listen/accept ⇒ server.
+    fs.writeFileSync(path.join(SOCK_DIR, 'srv.c'), `
+#include <sys/socket.h>
+int serve(void) {
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  bind(fd, addr, len);
+  listen(fd, 16);
+  int c = accept(fd, NULL, NULL);
+  return c;
+}
+`);
+
+    // Java TLS server.
+    fs.writeFileSync(path.join(SOCK_DIR, 'Server.java'), `
+import javax.net.ssl.SSLServerSocketFactory;
+public class Server {
+  void run() throws Exception {
+    SSLServerSocket ss = (SSLServerSocket) factory.createServerSocket(8443);
+    ServerSocket plain = new ServerSocket(9000);
+    plain.accept();
+  }
+}
+`);
+
+    // Python TLS client.
+    fs.writeFileSync(path.join(SOCK_DIR, 'client.py'), `
+import socket
+import ssl
+def go():
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    s = socket.socket()
+    s.connect(("host", 443))
+`);
+
+    // Decoy: a .py with .connect( but NO socket/ssl markers — the file gate
+    // must keep this out (db.connect is not a socket).
+    fs.writeFileSync(path.join(SOCK_DIR, 'db.py'), `
+def open_db():
+    conn = database.connect("postgres://localhost/app")
+    return conn
+`);
+
+    const index = new CodeSearchIndex({ indexPath: SOCK_IDX });
+    await index.buildIndex(SOCK_DIR, { showProgress: false });
+    result = extractClientServer(index);
+  });
+
+  after(() => {
+    fs.rmSync(SOCK_DIR, { recursive: true, force: true });
+    fs.rmSync(SOCK_IDX, { recursive: true, force: true });
+  });
+
+  const sock = (pred) => result.sockets.filter(pred);
+
+  it('detects C client (connect/SSL_connect) as role=client', () => {
+    assert.ok(sock(s => s.lang === 'c' && s.role === 'client' && s.api === 'SSL_connect').length, 'SSL_connect');
+    assert.ok(sock(s => s.lang === 'c' && s.role === 'client' && s.api === 'connect').length, 'connect');
+  });
+
+  it('detects C server (bind/listen/accept) as role=server', () => {
+    for (const api of ['bind', 'listen', 'accept']) {
+      assert.ok(sock(s => s.lang === 'c' && s.role === 'server' && s.api === api).length, api);
+    }
+  });
+
+  it('detects Java server (ServerSocket / accept)', () => {
+    assert.ok(sock(s => s.lang === 'java' && s.role === 'server').length, 'java server');
+  });
+
+  it('detects Python TLS client and flags tls', () => {
+    assert.ok(sock(s => s.lang === 'python' && s.role === 'client' && s.api === 'TLS_CLIENT').length, 'PROTOCOL_TLS_CLIENT');
+    assert.ok(sock(s => s.lang === 'python' && s.role === 'client' && s.api === 'connect').length, 'connect');
+    assert.ok(result.sockets.every(s => s.lang !== 'python' || s.tls === true), 'python socket file is TLS');
+  });
+
+  it('file gate keeps non-socket .connect( out (db.connect)', () => {
+    assert.equal(sock(s => /db\.py/.test(s.filepath)).length, 0,
+      'database.connect in a file with no socket/ssl markers must not be a socket call');
+  });
+
+  it('stats split client vs server', () => {
+    assert.equal(result.stats.socketCount, result.sockets.length);
+    assert.equal(result.stats.socketClientCount, sock(s => s.role === 'client').length);
+    assert.equal(result.stats.socketServerCount, sock(s => s.role === 'server').length);
+    assert.ok(result.stats.socketClientCount > 0 && result.stats.socketServerCount > 0);
+  });
+});

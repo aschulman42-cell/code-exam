@@ -151,7 +151,7 @@ function _detectClient(fp, lines, client) {
     const push = (method, url, kind) => {
       if (seenUrls.has(url)) return;  // a more-specific call already caught it
       seenUrls.add(url);
-      client.push({ method, url, kind, filepath: fp, line: i + 1, ...classifyUrl(url) });
+      client.push({ transport: 'http', method, url, kind, filepath: fp, line: i + 1, ...classifyUrl(url) });
     };
 
     if (isJs) {
@@ -208,6 +208,93 @@ function classifyUrl(url) {
   return { internal: true, external: false, pathOnly: '/' + url.split(/[?#]/)[0] };
 }
 
+// ---- Socket / TLS transport (#201 Part B) -----------------------------------
+//
+// HTTP is one transport; the Client/Server abstraction is really a service
+// boundary. This detects raw socket / TLS networking — the case the `.demo`
+// index exercises (a TLS client across C/Java/Python) that the HTTP detectors
+// find nothing in. Role is decided by the primitive: `connect` ⇒ client;
+// `bind`/`listen`/`accept` ⇒ server. We key on those role-bearing calls, not on
+// bare socket() creation (which is role-ambiguous). Endpoint addresses are
+// usually config/vars, so there's no path to reconcile — the value is surfacing
+// the boundary and which side the code implements.
+
+const _C_EXTS = new Set(['.c', '.h', '.cpp', '.hpp', '.cc', '.cxx', '.hh', '.hxx', '.m', '.mm']);
+
+const _SOCKET_PATTERNS = {
+  c: [
+    { re: /\bSSL_connect\s*\(/, role: 'client', api: 'SSL_connect' },
+    { re: /\bconnect\s*\(/, role: 'client', api: 'connect' },
+    { re: /\bbind\s*\(/, role: 'server', api: 'bind' },
+    { re: /\blisten\s*\(/, role: 'server', api: 'listen' },
+    { re: /\baccept\s*\(/, role: 'server', api: 'accept' },
+  ],
+  java: [
+    { re: /\bnew\s+ServerSocket\s*\(/, role: 'server', api: 'ServerSocket' },
+    { re: /\bSSLServerSocket(?:Factory)?\b/, role: 'server', api: 'SSLServerSocket' },
+    { re: /\bnew\s+Socket\s*\(/, role: 'client', api: 'Socket' },
+    { re: /\.createSocket\s*\(/, role: 'client', api: 'createSocket' },
+    { re: /\.connect\s*\(\s*new\s+InetSocketAddress/, role: 'client', api: 'connect' },
+    { re: /\.accept\s*\(\s*\)/, role: 'server', api: 'accept' },
+  ],
+  python: [
+    { re: /PROTOCOL_TLS_SERVER\b/, role: 'server', api: 'TLS_SERVER' },
+    { re: /PROTOCOL_TLS_CLIENT\b/, role: 'client', api: 'TLS_CLIENT' },
+    { re: /\.bind\s*\(/, role: 'server', api: 'bind' },
+    { re: /\.listen\s*\(/, role: 'server', api: 'listen' },
+    { re: /\.accept\s*\(/, role: 'server', api: 'accept' },
+    { re: /\.connect\s*\(/, role: 'client', api: 'connect' },
+  ],
+  node: [
+    { re: /\btls\.createServer\s*\(/, role: 'server', api: 'tls.createServer' },
+    { re: /\bnet\.createServer\s*\(/, role: 'server', api: 'net.createServer' },
+    { re: /\btls\.connect\s*\(/, role: 'client', api: 'tls.connect' },
+    { re: /\bnet\.(?:connect|createConnection)\s*\(/, role: 'client', api: 'net.connect' },
+  ],
+};
+
+// File-level gate: the C/Java/Python primitive patterns are deliberately loose
+// (`connect(`, `.bind(`, `accept(`), so only run them when the file actually
+// involves sockets/TLS — otherwise an unrelated `accept(`/`connect(` could
+// fire. Node patterns are self-specific (`net.`/`tls.`) and need no gate.
+const _SOCKET_GATE = {
+  c: /\bsocket\s*\(|<sys\/socket\.h>|openssl\/ssl\.h|\bSSL_\w/,
+  java: /\bSocket\b|javax\.net\.ssl|\bServerSocket\b/,
+  python: /\bimport\s+socket\b|\bimport\s+ssl\b|socket\.socket|\bssl\./,
+};
+
+const _TLS_HINT = /\bSSL_\w|openssl\/ssl|javax\.net\.ssl|SSLContext|SSLSocket|\bimport\s+ssl\b|\bssl\.|PROTOCOL_TLS|\btls\./;
+
+function _socketLang(ext) {
+  if (_C_EXTS.has(ext)) return 'c';
+  if (ext === '.java' || ext === '.kt' || ext === '.scala') return 'java';
+  if (ext === '.py') return 'python';
+  if (_JS.has(ext)) return 'node';
+  return null;
+}
+
+function _detectSocket(fp, lines, sockets) {
+  const lang = _socketLang(_ext(fp));
+  if (!lang) return;
+  const text = lines.join('\n');
+  if (lang !== 'node' && _SOCKET_GATE[lang] && !_SOCKET_GATE[lang].test(text)) return;
+  const fileTls = _TLS_HINT.test(text);
+  const pats = _SOCKET_PATTERNS[lang];
+
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i];
+    const seen = new Set();  // one entry per (role,api) per line
+    for (const p of pats) {
+      const key = p.role + p.api;
+      if (seen.has(key)) continue;
+      if (p.re.test(ln)) {
+        seen.add(key);
+        sockets.push({ transport: 'socket', role: p.role, api: p.api, tls: fileTls, lang, filepath: fp, line: i + 1 });
+      }
+    }
+  }
+}
+
 // ---- Reconciliation ----------------------------------------------------------
 
 // Normalize a path to comparable segments: strip a trailing slash, lowercase,
@@ -232,32 +319,48 @@ function _pathMatches(clientPath, serverSegs) {
 }
 
 /**
- * Extract the client/server HTTP surface across the index and reconcile it.
- * @returns {{ server: Array, client: Array, unmatched: Array, stats: object }}
- *   server:    { method, path, framework, filepath, line }
- *   client:    { method, url, kind, filepath, line, internal, external, pathOnly }
- *   unmatched: client entries that are internal and match no server route
+ * Extract the client/server surface across the index and reconcile it.
+ * @returns {{ server, client, unmatched, sockets, stats }}
+ *   server:    { transport:'http', method, path, framework, filepath, line }
+ *   client:    { transport:'http', method, url, kind, filepath, line, internal, external, pathOnly }
+ *   unmatched: HTTP client entries that are internal and match no server route
  *              (the "missing server" signal) — deduped by method+pathOnly.
+ *   sockets:   { transport:'socket', role:'client'|'server', api, tls, lang, filepath, line }
+ *              raw socket/TLS networking (no path to reconcile; surfaces the
+ *              boundary + which side). #201 Part B.
  */
 export function extractClientServer(idx, { } = {}) {
   const server = [];
   const client = [];
+  const socketsRaw = [];
 
   for (const [fp, lines] of idx.fileLines) {
     if (_isNoiseDoc(fp, null)) continue;
     _detectServer(fp, lines, server);
     _detectClient(fp, lines, client);
+    _detectSocket(fp, lines, socketsRaw);
   }
 
-  // Dedup server routes by method+path+file+line.
+  // Dedup server routes by method+path+file+line; tag transport.
   const sSeen = new Set();
   const serverOut = [];
   for (const s of server) {
     const k = `${s.method}|${s.path}|${s.filepath}|${s.line}`;
     if (sSeen.has(k)) continue;
     sSeen.add(k);
-    serverOut.push(s);
+    serverOut.push({ ...s, transport: 'http' });
   }
+
+  // Dedup socket entries by role+api+file+line, then sort by role/file/line.
+  const kSeen = new Set();
+  const sockets = [];
+  for (const s of socketsRaw) {
+    const k = `${s.role}|${s.api}|${s.filepath}|${s.line}`;
+    if (kSeen.has(k)) continue;
+    kSeen.add(k);
+    sockets.push(s);
+  }
+  sockets.sort((a, b) => (a.role < b.role ? -1 : a.role > b.role ? 1 : 0) || a.filepath.localeCompare(b.filepath) || a.line - b.line);
 
   // Precompute server route segment patterns for matching.
   const serverPatterns = serverOut
@@ -293,14 +396,21 @@ export function extractClientServer(idx, { } = {}) {
   client.sort((a, b) => a.filepath.localeCompare(b.filepath) || a.line - b.line);
   unmatched.sort((a, b) => (a.pathOnly || '').localeCompare(b.pathOnly || ''));
 
+  const socketClientCount = sockets.filter(s => s.role === 'client').length;
+  const socketServerCount = sockets.filter(s => s.role === 'server').length;
+
   return {
     server: serverOut,
     client,
     unmatched,
+    sockets,
     stats: {
       serverCount: serverOut.length,
       clientCount: client.length,
       unmatchedCount: unmatched.length,
+      socketCount: sockets.length,
+      socketClientCount,
+      socketServerCount,
     },
   };
 }
