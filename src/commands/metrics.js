@@ -1320,7 +1320,8 @@ export function doClientServer(index, args) {
   if (!client.length) console.log('  (none detected)');
   for (const c of client.slice(0, n)) {
     const tag = c.external ? ' [external]' : (c.matched === false ? ' [no server]' : '');
-    console.log(`  ${c.method.padEnd(8)} ${c.url}  (${c.kind})${tag}  (${c.filepath}:${c.line})`);
+    const named = c.name ? ` (via ${c.name})` : '';
+    console.log(`  ${c.method.padEnd(8)} ${c.url}${named}  (${c.kind})${tag}  (${c.filepath}:${c.line})`);
   }
   if (client.length > n) console.log(`  … and ${client.length - n} more.`);
 

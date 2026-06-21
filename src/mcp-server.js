@@ -714,7 +714,8 @@ function handleTool(name, args) {
       out.push(`\nClient calls (${stats.clientCount}):`);
       for (const c of client.slice(0, n)) {
         const tag = c.external ? ' [external]' : (c.matched === false ? ' [no server]' : '');
-        out.push(`  ${c.method} ${c.url}  (${c.kind})${tag}  (${c.filepath}:${c.line})`);
+        const named = c.name ? ` (via ${c.name})` : '';
+        out.push(`  ${c.method} ${c.url}${named}  (${c.kind})${tag}  (${c.filepath}:${c.line})`);
       }
       out.push(`\nClient calls with NO matching server route (${stats.unmatchedCount}):`);
       if (!unmatched.length) out.push('  (none)');

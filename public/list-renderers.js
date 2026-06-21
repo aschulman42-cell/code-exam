@@ -334,12 +334,17 @@ export function renderClientServerList(container, data) {
     for (const c of client) { if (!byFile.has(c.filepath)) byFile.set(c.filepath, []); byFile.get(c.filepath).push(c); }
     const files = [...byFile.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
     container.appendChild(sectionLabel(`Client calls — by source file (${files.length} file${files.length !== 1 ? 's' : ''})`, 'color:var(--accent-blue);margin-top:10px'));
+    const SEG_CAP = 6;
     for (const [fp, calls] of files) {
-      const methods = [...new Set(calls.flatMap(c => String(c.method || 'ANY').split('|')))].join('·');
-      const endpoints = new Set(calls.map(c => c.pathOnly || c.url)).size;
-      const item = h('div', { className: 'list-item', title: `${fp.replace(/\\/g, '/')}\n${methods} — ${calls.length} call(s) to ${endpoints} endpoint(s)\nClick to list calls in source order` }, [
-        h('span', { className: 'name clickable', text: fp.replace(/\\/g, '/'), style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;font-family:var(--font-mono);font-size:11px' }),
-        h('span', { className: 'metric muted', text: methods, style: 'font-size:10px;color:var(--accent-dim);max-width:130px;overflow:hidden;text-overflow:ellipsis' }),
+      // #201 iterate: summarize by the ENDPOINTS this file hits (the services
+      // it consumes), not the HTTP method set — the distinct last path segments
+      // (`ideas·queue·leaderboard·…`), the client analog of the socket api
+      // pipeline. Full targets remain in the source-order drill.
+      const segs = [...new Set(calls.map(_endpointSeg))];
+      const summary = segs.slice(0, SEG_CAP).join('·') + (segs.length > SEG_CAP ? ` (+${segs.length - SEG_CAP})` : '');
+      const item = h('div', { className: 'list-item', title: `${fp.replace(/\\/g, '/')}\nendpoints: ${segs.join(', ')}\n${calls.length} call(s) to ${segs.length} endpoint(s)\nClick to list calls in source order` }, [
+        h('span', { className: 'name clickable', text: fp.replace(/\\/g, '/'), style: 'flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;font-family:var(--font-mono);font-size:11px' }),
+        h('span', { className: 'metric muted', text: summary, style: 'font-size:10px;color:var(--accent-dim);flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:left' }),
         h('span', { className: 'metric muted', text: `${calls.length}×`, style: 'min-width:30px;text-align:right' }),
       ]);
       item.addEventListener('click', (e) => { e.stopPropagation(); renderHttpFileCalls(fp, calls); });
@@ -416,6 +421,15 @@ function _domainOf(url) {
   return m ? m[1] : null;
 }
 
+// The last meaningful (static) path segment of a client call's endpoint — the
+// service name a file consumes. Drops dynamic segments (:id, {id}, <id>,
+// ${...}); falls back to the domain for a bare host, or '(root)'. #201 iterate.
+function _endpointSeg(c) {
+  const p = (c.pathOnly || c.url || '').replace(/^https?:\/\/[^/]+/i, '');
+  const segs = p.split(/[/?#]/).filter(Boolean).filter(s => !/^[:{<]|[}>]$|\$\{/.test(s));
+  return segs.length ? segs[segs.length - 1] : (_domainOf(c.url) || '(root)');
+}
+
 // #197 drill-down: the specific calls for a consolidated client endpoint, in
 // the upper-middle pane (mirrors the Extensions #191 drill-down). Consolidated
 // a second time by DISTINCT URL — drilling a busy domain (e.g. github.com)
@@ -439,11 +453,12 @@ export function renderHttpInstances(label, instances) {
 
   for (const [url, sites] of urls) {
     const multi = sites.length > 1;
+    const name = sites.find(s => s.name)?.name;  // the const/identifier, if any
     const toggle = h('span', { className: 'sub-accordion-toggle', text: multi ? '▸' : '', style: 'margin-right:4px;font-size:10px;width:10px;display:inline-block' });
-    const row = h('div', { className: 'list-item', title: `${url}\n${sites.length} call site${sites.length !== 1 ? 's' : ''}` }, [
+    const row = h('div', { className: 'list-item', title: `${url}${name ? ` (via ${name})` : ''}\n${sites.length} call site${sites.length !== 1 ? 's' : ''}` }, [
       toggle,
       h('span', { className: 'rank', text: sites[0].method, style: 'min-width:54px;text-align:left;color:var(--accent-dim);font-family:var(--font-mono);font-size:10px' }),
-      h('span', { className: 'name clickable', text: url, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'name clickable', text: name ? `${url}  (${name})` : url, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'metric muted', text: `${sites.length}×`, style: 'min-width:32px;text-align:right' }),
     ]);
     const sub = h('div', { style: 'display:none' });
@@ -482,9 +497,10 @@ export function renderHttpFileCalls(label, calls) {
   container.innerHTML = '';
   const wrap = h('div', { className: 'output-section' });
   for (const c of sorted) {
-    const row = h('div', { className: 'list-item', title: `${c.method} ${c.url} (${c.kind})\n${c.filepath}:${c.line}` }, [
+    const label = c.name ? `${c.url}  (${c.name})` : c.url;
+    const row = h('div', { className: 'list-item', title: `${c.method} ${c.url} (${c.kind})${c.name ? ` via ${c.name}` : ''}\n${c.filepath}:${c.line}` }, [
       h('span', { className: 'rank', text: c.method, style: 'min-width:54px;text-align:left;color:var(--accent-dim);font-family:var(--font-mono);font-size:11px' }),
-      h('span', { className: 'name clickable', text: c.url, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'name clickable', text: label, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'metric muted', text: `:${c.line}`, style: 'font-family:var(--font-mono);font-size:11px' }),
     ]);
     row.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(c.filepath, c.line); });

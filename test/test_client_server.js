@@ -55,8 +55,16 @@ func main() {
 }
 `);
 
-    // Client code: some calls match a server route, one doesn't, one external.
+    // Client code: some calls match a server route, one doesn't, one external,
+    // one via a named constant (#201 Part D), plus a package-metadata block
+    // whose URLs must NOT be counted as client calls (#201 Part D de-noise).
     fs.writeFileSync(path.join(TEST_DIR, 'client.js'), `
+const ANALYZE_URL = '/api/analyze-llm';
+let H = "win32";
+const pkg = {
+  author: { name: "Test Team", url: "https://meta.example.com/team" },
+  homepage: "https://meta.example.com/home"
+};
 async function load() {
   const a = await fetch('/api/users');
   const b = await axios.post('/api/users', payload);
@@ -66,6 +74,8 @@ async function load() {
   const f = await fetch(\`/api/items?page=\${n}\`);
   const g = await api.post('analyze-llm', payload);
   const h = await api.get('stats');
+  const i = await fetch(ANALYZE_URL);
+  const j = await fetch(H);
 }
 `);
 
@@ -155,6 +165,29 @@ async function load() {
       'external https URL must not be flagged as a missing internal route');
     assert.ok(result.client.some(c => c.external === true && /third-party/.test(c.url)),
       'external URL should still be recorded as a client call');
+  });
+
+  it('resolves a named/constant URL arg (fetch(ANALYZE_URL)) and carries the name', () => {
+    const named = result.client.find(c => c.name === 'ANALYZE_URL');
+    assert.ok(named, 'fetch(ANALYZE_URL) should be detected via the const map');
+    assert.equal(named.url, '/api/analyze-llm', 'resolved to the constant value');
+    assert.equal(named.kind, 'fetch');
+    // ...and it reconciles to the server route, not flagged as missing.
+    assert.ok(!result.unmatched.some(u => u.pathOnly === '/api/analyze-llm'),
+      'resolved constant URL should match app.post(/api/analyze-llm)');
+  });
+
+  it('de-noises metadata URLs (author.url / homepage) — not client calls', () => {
+    assert.ok(!result.client.some(c => /meta\.example\.com/.test(c.url)),
+      'package-metadata URLs must not be recorded as client calls');
+  });
+
+  it('does NOT resolve a short minified var to a non-URL value (fetch(H) ≠ "win32")', () => {
+    // `let H = "win32"` + `fetch(H)`: H is 1 char and "win32" isn't URL-shaped,
+    // so it must not resolve — the minified single-letter collision that
+    // produced a phantom /win32 endpoint.
+    assert.ok(!result.client.some(c => c.url === 'win32' || c.name === 'H'),
+      'short non-URL constant must not resolve a fetch identifier arg');
   });
 });
 

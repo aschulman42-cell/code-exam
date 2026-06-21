@@ -137,6 +137,21 @@ const _RE_URL_LITERAL = /[`'"](https?:\/\/[^`'"\s]+|\/api\/[^`'"\s?]*)[`'"]/g;
 // GraphQL op tags (no REST path — recorded separately, not reconciled).
 const _RE_GQL = /\bgql\s*`|\buseQuery\s*\(|\buseMutation\s*\(/;
 
+// #201 Part D — named/constant URL args: `const ANALYZE_URL = '/api/x'` then
+// `fetch(ANALYZE_URL)`. These calls have no quoted argument, so they were
+// missed entirely. Build a per-file const map and resolve identifier args,
+// carrying the identifier as the url's name.
+const _RE_CONST_DECL = /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[`'"]([^`'"]+)[`'"]\s*;?\s*$/;
+const _RE_FETCH_IDENT = /\bfetch\s*\(\s*([A-Za-z_$][\w$]*)\s*[),]/;
+const _RE_AXIOS_IDENT = /\baxios\.(get|post|put|delete|patch|head|options)\s*\(\s*([A-Za-z_$][\w$]*)\s*[),]/i;
+const _RE_WRAPPER_IDENT = /\b(?:api|client|http|svc|service)\.(get|post|put|delete|patch)\s*\(\s*([A-Za-z_$][\w$]*)\s*[),]/i;
+
+// #201 Part D — metadata-URL de-noise: an absolute URL sitting in an
+// author/homepage/repository/... field is package metadata, not a client
+// call. Only ever applied to absolute (http(s)://) url-literals — internal
+// `/api/...` paths are never metadata, so they're never de-noised.
+const _META_KEY = /\b(author|homepage|repository|repo|bugs|license|licence|funding|docs|documentation|website|contributors?|maintainers?)\b/i;
+
 function _detectClient(fp, lines, client) {
   const ext = _ext(fp);
   const isJs = _JS.has(ext);
@@ -144,27 +159,56 @@ function _detectClient(fp, lines, client) {
   const isHtmlish = ext === '.html' || ext === '.htm';
   if (!isJs && !isPy && !isHtmlish) return;
 
+  // Per-file map of simple string constants, for resolving named URL args
+  // (fetch(ANALYZE_URL)). Same-file top-level string literals only, with
+  // guards against minified-code false positives (a stray `let H="win32"`
+  // must not make every fetch(H) resolve to it):
+  //   - name >= 3 chars — minified 1-2 char vars (H, K, a1) collide across
+  //     scopes; real URL constants are descriptive (ANALYZE_URL, API_BASE).
+  //   - value is URL/path-shaped (starts with `/`, `http(s)://`, or has a `/`)
+  //     — excludes bare words like "win32".
+  //   - declared exactly once in the file — drop ambiguous re-declarations.
+  const constMap = new Map();
+  const constCount = new Map();
+  for (const ln of lines) {
+    const cm = ln.match(_RE_CONST_DECL);
+    if (!cm) continue;
+    const name = cm[1], val = cm[2];
+    constCount.set(name, (constCount.get(name) || 0) + 1);
+    if (name.length >= 3 && /^\/|^https?:\/\/|\//.test(val)) constMap.set(name, val);
+  }
+  for (const [name, count] of constCount) if (count > 1) constMap.delete(name);
+
   for (let i = 0; i < lines.length; i++) {
     const ln = lines[i];
     let m;
     const seenUrls = new Set();  // urls captured on this line (by any pattern)
-    const push = (method, url, kind) => {
+    const push = (method, url, kind, name) => {
       if (seenUrls.has(url)) return;  // a more-specific call already caught it
       seenUrls.add(url);
-      client.push({ transport: 'http', method, url, kind, filepath: fp, line: i + 1, ...classifyUrl(url) });
+      const entry = { transport: 'http', method, url, kind, filepath: fp, line: i + 1, ...classifyUrl(url) };
+      if (name) entry.name = name;  // the identifier the url was referenced by
+      client.push(entry);
     };
 
     if (isJs) {
       if ((m = ln.match(_RE_FETCH))) {
         const mm = ln.match(_RE_FETCH_METHOD);
         push(mm ? mm[1].toUpperCase() : 'GET', m[1], 'fetch');
+      } else if ((m = ln.match(_RE_FETCH_IDENT)) && constMap.has(m[1])) {
+        push('GET', constMap.get(m[1]), 'fetch', m[1]);
       }
       if ((m = ln.match(_RE_AXIOS_VERB))) push(m[1].toUpperCase(), m[2], 'axios');
+      else if ((m = ln.match(_RE_AXIOS_IDENT)) && constMap.has(m[2])) push(m[1].toUpperCase(), constMap.get(m[2]), 'axios', m[2]);
       if ((m = ln.match(_RE_XHR))) push(m[1].toUpperCase(), m[2], 'xhr');
-      // Client wrapper (api.get('analyze-llm')) — but not if this line is a
-      // server route declaration (defensive; app/router aren't in the wrapper
-      // set anyway). The captured fragment reconciles by last segment below.
-      if (!_isServerDeclLine(ln, true, false) && (m = ln.match(_RE_CLIENT_WRAPPER))) push(m[1].toUpperCase(), m[2], 'wrapper');
+      // Client wrapper (api.get('analyze-llm') or api.get(ANALYZE_URL)) — but
+      // not if this line is a server route declaration (defensive; app/router
+      // aren't in the wrapper set anyway). The captured fragment reconciles by
+      // last segment below.
+      if (!_isServerDeclLine(ln, true, false)) {
+        if ((m = ln.match(_RE_CLIENT_WRAPPER))) push(m[1].toUpperCase(), m[2], 'wrapper');
+        else if ((m = ln.match(_RE_WRAPPER_IDENT)) && constMap.has(m[2])) push(m[1].toUpperCase(), constMap.get(m[2]), 'wrapper', m[2]);
+      }
       if (_RE_GQL.test(ln)) push('POST', '(graphql)', 'graphql');
     } else if (isPy) {
       if ((m = ln.match(_RE_REQUESTS))) push(m[1].toUpperCase(), m[2], 'requests');
@@ -177,10 +221,25 @@ function _detectClient(fp, lines, client) {
     if (!_isServerDeclLine(ln, isJs, isPy)) {
       _RE_URL_LITERAL.lastIndex = 0;
       while ((m = _RE_URL_LITERAL.exec(ln)) !== null) {
-        push('ANY', m[1], 'url');
+        const url = m[1];
+        // De-noise (#201 Part D): an absolute URL in a metadata field
+        // (author/homepage/repository/...) is package metadata, not a call.
+        if (/^https?:\/\//i.test(url) && _isMetadataUrl(lines, i)) continue;
+        push('ANY', url, 'url');
       }
     }
   }
+}
+
+// Is an absolute url-literal on line i package metadata rather than a call?
+// True when the line carries a metadata key, or it's a `url:` field whose
+// enclosing object (a few lines up) is a metadata block. #201 Part D.
+function _isMetadataUrl(lines, i) {
+  if (_META_KEY.test(lines[i])) return true;
+  if (/["']?url["']?\s*:/.test(lines[i])) {
+    for (let j = Math.max(0, i - 3); j < i; j++) if (_META_KEY.test(lines[j])) return true;
+  }
+  return false;
 }
 
 // Is this line a server-side route declaration? Used to keep the bare
