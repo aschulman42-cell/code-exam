@@ -96,6 +96,7 @@ export function parseArgs() {
     scan_extensions: null,
     index_extensions: false,
     overview: false,
+    overview_by_ai: false,
     list_indexes: null,
 
     // Callers / Callees
@@ -117,6 +118,7 @@ export function parseArgs() {
 
     // Display modifiers
     max_results: 20,
+    timeout: null,        // minutes; currently consumed by --overview-by-ai
     context: 3,
     verbose: false,
     full_path: false,
@@ -326,9 +328,11 @@ export function parseArgs() {
     ['scan_extensions',      'value',          ['--scan-extensions']],
     ['index_extensions',     'flag',           ['--index-extensions']],
     ['overview',             'flag',           ['--overview']],
+    ['overview_by_ai',       'flag',           ['--overview-by-ai', '--overview-by-AI']],
     ['list_indexes',         'optional_value', ['--indexes'], ['--list-indexes']],
 
     ['max_results',          'int',            ['--max-results', '--max', '-n']],
+    ['timeout',              'int',            ['--timeout']],
     ['context',              'int',            ['--context']],
     ['verbose',              'flag',           ['--verbose', '-v']],
     ['full_path',            'flag',           ['--full-path']],
@@ -779,6 +783,17 @@ BROWSE:
   --index-extensions         Count file extensions in current index
   --overview                 One-shot orientation: size, languages, structure,
                              top vocabulary, key files, entry points (run first)
+  --overview-by-ai           NON-AIR-GAPPED. Prose 1-2 page orientation written
+                             by running Claude AGENTICALLY over CE's own MCP
+                             tools against this index (the model follows the
+                             orientation path: overview -> shape-appropriate
+                             tools -> synthesis). Shells out to the 'claude' CLI
+                             (must be on PATH); prints prose to stdout. Pairs
+                             with --multi-index @list for overnight batch over
+                             many indexes. Options: --claude-model <id> picks
+                             the model; --timeout <minutes> caps the run
+                             (default 20). Reads CE_AI_OVERVIEW_MODEL /
+                             CE_AI_OVERVIEW_TIMEOUT_MS env vars as fallbacks.
   --indexes [path]           List available index directories
                              (deprecated alias: --list-indexes)
 

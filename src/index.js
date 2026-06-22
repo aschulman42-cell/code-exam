@@ -231,6 +231,37 @@ if (args.multi_index) {
 
 
 // ========================================================================
+// --overview-by-ai (#196): prose orientation written by Claude over CE's MCP
+// ========================================================================
+//
+// Runs BEFORE the in-process index load below: the spawned mcp-server loads its
+// own copy of the index, so loading it here too would double the cost on huge
+// indexes (the whole point of pointing the MCP server at the dir). Non-air-
+// gapped — shells out to the `claude` CLI. With --multi-index @list this runs
+// per-index (each subprocess hits this branch), for overnight batch.
+if (args.overview_by_ai) {
+  const { runAiOverview } = await import('./core/ai-overview.js');
+  const timeoutMs = (args.timeout && args.timeout > 0)
+    ? args.timeout * 60000
+    : (parseInt(process.env.CE_AI_OVERVIEW_TIMEOUT_MS, 10) || 1200000); // default 20 min (overnight-friendly)
+  process.stderr.write(`[overview-by-ai] running claude over ${args.index_path} (timeout ${Math.round(timeoutMs / 60000)} min)…\n`);
+  try {
+    const prose = await runAiOverview({
+      indexPath: args.index_path,
+      model: args.claude_model || process.env.CE_AI_OVERVIEW_MODEL,
+      timeoutMs,
+      onStderr: (s) => { if (args.verbose) process.stderr.write(s); },
+    });
+    process.stdout.write(prose + '\n');
+    process.exit(0);
+  } catch (e) {
+    process.stderr.write(`[overview-by-ai] ${e.message}\n`);
+    process.exit(1);
+  }
+}
+
+
+// ========================================================================
 // Create or load index
 // ========================================================================
 

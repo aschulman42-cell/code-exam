@@ -118,6 +118,7 @@ export const api = {
   buildIndexStatus:(p) => api.get('build-index-status', p),
   overview:        (p) => api.get('overview', p),
   overviewDeep:    (p) => api.get('overview-deep', p, { timeout: 600000 }), // O(corpus): allow minutes on huge indexes
+  aiOverview:      (p, o) => api.get('ai-overview', p, { timeout: 620000, ...(o || {}) }), // spawns `claude` over MCP tools — slow; just above the server's 10-min route timeout so its clean error arrives first
   fileMap:         (p) => api.get('file-map', p),
   fileTree:        (p) => api.get('file-tree', p),
   callInventory:   (p) => api.get('call-inventory', p),
