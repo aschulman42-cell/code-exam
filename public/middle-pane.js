@@ -30,7 +30,7 @@ import { state } from './state.js';
 import { api } from './api.js';
 import {
   $, $$, h, escHtml, displayNameHtml,
-  shortPath, shortFuncName, highlightLine, HIGHLIGHT_COLORS,
+  shortPath, shortFuncName, highlightLine, HIGHLIGHT_COLORS, commonPathPrefix,
 } from './dom-utils.js';
 import { showPane } from './layout.js';
 import { linkifySourceCalls } from './source-viewer.js';
@@ -550,10 +550,17 @@ export function renderFilesByExtension(ext, data) {
   const capped = data.total > data.files.length;
   title.textContent = `${ext} — ${data.total} files${capped ? `, showing ${data.files.length}` : ''}`;
   if (!data.files.length) { container.innerHTML = '<div class="list-placeholder">No files</div>'; return; }
-  let html = (capped ? _capWarning(data.files.length, data.total) : '')
+  // Peel a dominant path prefix once into a header so rows show the short tail
+  // (#path-prefix-peel). Rows that don't share the prefix keep their full path.
+  const { prefix, covered, total } = commonPathPrefix(data.files);
+  const strip = (fp) => { const n = String(fp).replace(/\\/g, '/'); return prefix && n.startsWith(prefix) ? n.slice(prefix.length) : n; };
+  const peelMsg = prefix
+    ? `<div class="muted" style="padding:2px 8px;font-style:italic;font-size:11px">${covered === total ? 'Paths under' : 'Unless otherwise indicated, all paths begin with'}: ${escHtml(prefix)}</div>`
+    : '';
+  let html = (capped ? _capWarning(data.files.length, data.total) : '') + peelMsg
     + '<div class="output-section"><table class="output-table"><tr><th>#</th><th>File</th></tr>';
   data.files.forEach((fp, i) => {
-    html += `<tr><td class="muted">${i + 1}</td><td class="mono"><span class="clickable" data-filepath="${escHtml(fp)}">${escHtml(shortPath(fp, 70))}</span></td></tr>`;
+    html += `<tr><td class="muted">${i + 1}</td><td class="mono"><span class="clickable" data-filepath="${escHtml(fp)}" title="${escHtml(String(fp).replace(/\\/g, '/'))}">${escHtml(shortPath(strip(fp), 70))}</span></td></tr>`;
   });
   container.innerHTML = html + '</table></div>';
   _wireClickables(container);

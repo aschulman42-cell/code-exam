@@ -21,7 +21,7 @@
 import { state } from './state.js';
 import { api } from './api.js';
 import {
-  $, $$, h, escHtml, displayNameHtml, shortPath, makeDraggable, makeResizable,
+  $, $$, h, escHtml, displayNameHtml, shortPath, makeDraggable, makeResizable, commonPathPrefix,
 } from './dom-utils.js';
 import { showPane } from './layout.js';
 import {
@@ -257,6 +257,20 @@ export function renderClientServerList(container, data) {
   const note = (text, style = '') =>
     h('div', { style: `white-space:normal;text-align:left;font-size:11px;padding:1px 10px;color:var(--text-muted);${style}`, text });
 
+  // Peel a dominant path prefix once into a header (the .WinAPI_Classic case:
+  // every row began with the same long zip!…/Win7Samples/ prefix). Appends the
+  // header note immediately and returns a strip(fp) the row rendering uses; the
+  // few paths that don't share the prefix keep their full path ("otherwise
+  // indicated"). #path-prefix-peel.
+  const peelHeader = (paths) => {
+    const { prefix, covered, total } = commonPathPrefix(paths);
+    if (!prefix) return (fp) => String(fp).replace(/\\/g, '/');
+    container.appendChild(note(covered === total
+      ? `Paths under: ${prefix}`
+      : `Unless otherwise indicated, all paths begin with ${prefix}`, 'font-style:italic'));
+    return (fp) => { const n = String(fp).replace(/\\/g, '/'); return n.startsWith(prefix) ? n.slice(prefix.length) : n; };
+  };
+
   // --- Server routes — CONSOLIDATED by path (#201 iterate) ---
   // Like the socket file rows show their api sequence (bind·listen·accept), a
   // route path shows its METHOD SET — the resource's REST verb surface
@@ -334,6 +348,7 @@ export function renderClientServerList(container, data) {
     for (const c of client) { if (!byFile.has(c.filepath)) byFile.set(c.filepath, []); byFile.get(c.filepath).push(c); }
     const files = [...byFile.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
     container.appendChild(sectionLabel(`Client calls — by source file (${files.length} file${files.length !== 1 ? 's' : ''})`, 'color:var(--accent-blue);margin-top:10px'));
+    const stripCf = peelHeader(files.map(([fp]) => fp));
     const SEG_CAP = 6;
     for (const [fp, calls] of files) {
       // #201 iterate: summarize by the ENDPOINTS this file hits (the services
@@ -343,7 +358,7 @@ export function renderClientServerList(container, data) {
       const segs = [...new Set(calls.map(_endpointSeg))];
       const summary = segs.slice(0, SEG_CAP).join('·') + (segs.length > SEG_CAP ? ` (+${segs.length - SEG_CAP})` : '');
       const item = h('div', { className: 'list-item', title: `${fp.replace(/\\/g, '/')}\nendpoints: ${segs.join(', ')}\n${calls.length} call(s) to ${segs.length} endpoint(s)\nClick to list calls in source order` }, [
-        h('span', { className: 'name clickable', text: fp.replace(/\\/g, '/'), style: 'flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;font-family:var(--font-mono);font-size:11px' }),
+        h('span', { className: 'name clickable', text: stripCf(fp), style: 'flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;font-family:var(--font-mono);font-size:11px' }),
         h('span', { className: 'metric muted', text: summary, style: 'font-size:10px;color:var(--accent-dim);flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:left' }),
         h('span', { className: 'metric muted', text: `${calls.length}×`, style: 'min-width:30px;text-align:right' }),
       ]);
@@ -387,6 +402,7 @@ export function renderClientServerList(container, data) {
     const sv = entries.filter(e => e.role === 'server');
     const filesOf = (list) => new Set(list.map(e => e.filepath)).size;
     container.appendChild(sectionLabel(`${label} (${entries.length}) — ${filesOf(cl)} client, ${filesOf(sv)} server file(s)`, 'color:var(--accent-blue);margin-top:10px'));
+    const strip = peelHeader(entries.map(e => e.filepath));
     for (const [role, list] of [['client', cl], ['server', sv]]) {
       if (!list.length) continue;
       const byFile = new Map();
@@ -397,7 +413,7 @@ export function renderClientServerList(container, data) {
         const apis = [...new Set(insts.map(e => e.api))].join('·');
         const tls = insts.some(e => e.tls);
         const item = h('div', { className: 'list-item', title: `${fp.replace(/\\/g, '/')}\n${apis} — ${insts.length} call site(s)${tls ? ' (TLS)' : ''}\nClick to list call sites` }, [
-          h('span', { className: 'name clickable', text: fp.replace(/\\/g, '/'), style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;font-family:var(--font-mono);font-size:11px' }),
+          h('span', { className: 'name clickable', text: strip(fp), style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;font-family:var(--font-mono);font-size:11px' }),
           h('span', { className: 'metric muted', text: apis + (tls ? '·TLS' : ''), style: 'font-size:10px;max-width:170px;overflow:hidden;text-overflow:ellipsis' }),
           h('span', { className: 'metric muted', text: `${insts.length}×`, style: 'min-width:30px;text-align:right' }),
         ]);
@@ -1746,9 +1762,22 @@ export function renderOverviewList(container, ov, opts = {}) {
   // Centered prose blocks for scale/structure; flush-left clickable rows for the
   // concept / key-file / entry-point lists (consistency with the other panes).
   const block = (text) => h('div', { className: 'list-placeholder', text, style: 'white-space:normal' });
-  const head = (text) => h('div', { className: 'list-placeholder', text, style: 'white-space:normal;font-weight:600;color:var(--accent-blue)' });
-  const peelRoot = ov.displayRoot || ov.root;
-  const strip = (p) => (peelRoot && p && p.startsWith(peelRoot)) ? p.slice(peelRoot.length) : p;
+  // Section titles (Key concepts / Key files / Entry points) stand out from the
+  // flush-left rows below them: bold + underlined + centered, with breathing room.
+  const head = (text) => h('div', { className: 'list-placeholder', text, style: 'white-space:normal;font-weight:700;text-decoration:underline;text-align:center;color:var(--accent-blue);margin-top:10px' });
+  // Peel a dominant path prefix PER SECTION (key files / entry points), not
+  // over the combined set: in a collection the entry points span several repos,
+  // so a combined prefix dilutes below threshold and nothing peels — while the
+  // key files (clustered in one repo) do share a long peelable prefix. Each
+  // section computes its own prefix, appends a header, and strips its rows.
+  // #path-prefix-peel.
+  const sectionPeel = (paths) => {
+    const { prefix, covered, total } = commonPathPrefix(paths);
+    if (prefix) container.appendChild(block(covered === total
+      ? `Paths under: ${prefix}`
+      : `Unless otherwise indicated, all paths begin with ${prefix}`));
+    return (p) => { const n = String(p || '').replace(/\\/g, '/'); return prefix && n.startsWith(prefix) ? n.slice(prefix.length) : n; };
+  };
 
   // A flush-left single-line row that opens `filepath` on click and offers the
   // standard right-click menu (Find Callers/Callees/etc.). `ctxName` drives the
@@ -1775,7 +1804,6 @@ export function renderOverviewList(container, ov, opts = {}) {
   const fnPart = ov.size.functions == null ? '… functions' : `${ov.size.functions} functions`;
   container.appendChild(block(`${ov.size.files} files · ${fnPart} · ${(ov.size.lines || 0).toLocaleString()} lines (${ov.size.parse_method})`));
   if (langs) container.appendChild(block(`Languages: ${langs}`));
-  if (peelRoot) container.appendChild(block(`Paths under: ${peelRoot}`));
 
   if (ov.isCollection) {
     container.appendChild(head('⚠ Looks like a collection, not one project — top-level folders:'));
@@ -1800,12 +1828,14 @@ export function renderOverviewList(container, ov, opts = {}) {
 
   if (ov.keyFiles && ov.keyFiles.length) {
     container.appendChild(head('Key files (by vocabulary density):'));
-    for (const kf of ov.keyFiles) container.appendChild(clickRow(strip(kf.file), { metric: `${kf.terms} terms`, filepath: kf.file, ctxName: kf.file })); // file-only ctx
+    const stripKf = sectionPeel(ov.keyFiles.map(k => k.file));
+    for (const kf of ov.keyFiles) container.appendChild(clickRow(stripKf(kf.file), { metric: `${kf.terms} terms`, filepath: kf.file, ctxName: kf.file })); // file-only ctx
   }
 
   if (ov.entryPoints && ov.entryPoints.length) {
     container.appendChild(head('Entry points:'));
-    for (const ep of ov.entryPoints) container.appendChild(clickRow(ep.name, { subpath: strip(ep.filepath), filepath: ep.filepath, ctxName: ep.name, line: ep.line }));
+    const stripEp = sectionPeel(ov.entryPoints.map(e => e.filepath));
+    for (const ep of ov.entryPoints) container.appendChild(clickRow(ep.name, { subpath: stripEp(ep.filepath), filepath: ep.filepath, ctxName: ep.name, line: ep.line }));
   }
 
   // Deep-signals area. Three states (only when the deep half isn't merged yet):

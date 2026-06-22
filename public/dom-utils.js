@@ -290,6 +290,53 @@ export function shortPath(fp, maxLen = 45) {
 }
 
 /**
+ * Dominant directory prefix shared by most of `paths`. Unlike a strict common
+ * prefix (which a single outlier zeroes out), this walks segment by segment
+ * keeping the most common next dir while >= `minShare` of all paths still
+ * share it — so "all but a few" paths still yield a peelable prefix. Lets the
+ * caller peel the prefix once into a header and shorten the rows.
+ * @returns {{ prefix: string, covered: number, total: number }}
+ *   prefix ends in '/', or '' when nothing worth peeling (too short / too rare).
+ */
+export function commonPathPrefix(paths, { minShare = 0.6, minLen = 12 } = {}) {
+  const norm = (paths || []).map(p => String(p || '').replace(/\\/g, '/')).filter(Boolean);
+  const total = norm.length;
+  if (total < 2) return { prefix: '', covered: 0, total };
+  const dirs = norm.map(p => p.split('/').slice(0, -1)); // directory segments (drop filename)
+
+  // 1. Strict common dir prefix (covers ALL paths) — preferred when long enough.
+  const common = dirs[0].slice();
+  for (let i = 1; i < dirs.length && common.length; i++) {
+    const d = dirs[i];
+    let k = 0;
+    while (k < common.length && k < d.length && common[k] === d[k]) k++;
+    common.length = k;
+  }
+  const strict = common.length ? common.join('/') + '/' : '';
+  if (strict.length >= minLen) return { prefix: strict, covered: total, total };
+
+  // 2. Dominant prefix (shared by >= minShare) — the "all but a few" case,
+  // where one path diverges early and zeroes out the strict prefix.
+  const chosen = [];
+  for (let depth = 0; ; depth++) {
+    const counts = new Map();
+    for (const d of dirs) {
+      let ok = true;
+      for (let k = 0; k < chosen.length; k++) if (d[k] !== chosen[k]) { ok = false; break; }
+      if (ok && depth < d.length) counts.set(d[depth], (counts.get(d[depth]) || 0) + 1);
+    }
+    let best = null, bestN = 0;
+    for (const [seg, n] of counts) if (n > bestN) { best = seg; bestN = n; }
+    if (best == null || bestN / total < minShare) break;
+    chosen.push(best);
+  }
+  const dom = chosen.length ? chosen.join('/') + '/' : '';
+  if (dom.length < minLen) return { prefix: '', covered: 0, total };
+  const covered = norm.filter(p => p.startsWith(dom)).length;
+  return { prefix: dom, covered, total };
+}
+
+/**
  * Truncate a function display name for compact display. Unlike shortPath, the
  * INFORMATIVE part of a rename-tier display name is at the FRONT (the bare
  * name, e.g. `MCz` in `MCz_KW_NO_DEFAULT_CURRENT_PROCESS`), so we truncate
