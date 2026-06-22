@@ -49,7 +49,10 @@ const _RE_EXPRESS_VERB = /\b(?:app|router)\.(get|post|put|delete|patch|head|opti
 // Client wrapper calls: api.get('endpoint') / client.post('endpoint'). The
 // argument is often a bare fragment (no leading slash); the real URL is built
 // inside the wrapper, so we record the fragment as the url.
-const _RE_CLIENT_WRAPPER = /\b(?:api|client|http|svc|service)\.(get|post|put|delete|patch)\s*\(\s*[`'"]([^`'"]+)[`'"]/i;
+// CASE-SENSITIVE (lowercase verbs) on purpose: HTTP wrappers use `.get`/`.post`,
+// while COM/WMI uses capitalized `.Get`/`.Put` (e.g. `Service.Get("Foo")` in
+// WMI JScript). A case-insensitive match mislabeled those as HTTP calls (#201).
+const _RE_CLIENT_WRAPPER = /\b(?:api|client|http|svc|service)\.(get|post|put|delete|patch)\s*\(\s*[`'"]([^`'"]+)[`'"]/;
 const _RE_ROUTES_TABLE = /\broutes\s*\[\s*[`'"]([^`'"]+)[`'"]\s*\]\s*=/;
 
 // Flask / FastAPI / blueprint: @app.route('/x', methods=['GET']) | @router.get('/x')
@@ -144,7 +147,7 @@ const _RE_GQL = /\bgql\s*`|\buseQuery\s*\(|\buseMutation\s*\(/;
 const _RE_CONST_DECL = /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[`'"]([^`'"]+)[`'"]\s*;?\s*$/;
 const _RE_FETCH_IDENT = /\bfetch\s*\(\s*([A-Za-z_$][\w$]*)\s*[),]/;
 const _RE_AXIOS_IDENT = /\baxios\.(get|post|put|delete|patch|head|options)\s*\(\s*([A-Za-z_$][\w$]*)\s*[),]/i;
-const _RE_WRAPPER_IDENT = /\b(?:api|client|http|svc|service)\.(get|post|put|delete|patch)\s*\(\s*([A-Za-z_$][\w$]*)\s*[),]/i;
+const _RE_WRAPPER_IDENT = /\b(?:api|client|http|svc|service)\.(get|post|put|delete|patch)\s*\(\s*([A-Za-z_$][\w$]*)\s*[),]/;
 
 // #201 Part D — metadata-URL de-noise: an absolute URL sitting in an
 // author/homepage/repository/... field is package metadata, not a client
@@ -354,6 +357,84 @@ function _detectSocket(fp, lines, sockets) {
   }
 }
 
+// ---- RPC transport (#201 Part B, increment 3) -------------------------------
+// Grounded in .WinAPI_Classic (Windows RPC) and .spinellis (Sun/ONC RPC).
+// `svc_run` is deliberately EXCLUDED — it collides with ACE's thread-run method
+// (`ACE_Task::svc_run`), a false-positive trap. Names here are specific enough
+// not to need a file gate.
+//
+// gRPC `.proto` service definitions are NOT detected: CE doesn't index `.proto`
+// files by default, so they never reach `fileLines`. Deferred until `.proto` is
+// an indexed extension (CE default or `--add-extensions .proto`) — the hook is
+// trivial to add once the lines are available. Tracked on #201.
+const _RE_RPC_C = /\b(RpcServerUseProtseq\w*|RpcServerRegisterIf\w*|RpcServerListen|RpcMgmtWaitServerListen|RpcStringBindingCompose|RpcBindingFromStringBinding|NdrClientCall\d?|svc_register|registerrpc|svc(?:udp|tcp|fd|raw)_create|clnt_create|clnt_call|callrpc|CLNT_CALL)\s*\(/;
+const _RPC_SERVER_NAME = /^(RpcServer|RpcMgmtWaitServerListen|svc_register|registerrpc|svc(?:udp|tcp|fd|raw)_create)/;
+
+function _detectRpc(fp, lines, rpc) {
+  if (!_C_EXTS.has(_ext(fp))) return;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(_RE_RPC_C);
+    if (m) {
+      const name = m[1];
+      rpc.push({ transport: 'rpc', role: _RPC_SERVER_NAME.test(name) ? 'server' : 'client', api: name, lang: 'c', filepath: fp, line: i + 1 });
+    }
+  }
+}
+
+// ---- IPC transport (#201 Part B, increment 3) -------------------------------
+// Windows named pipes / mailslots (.WinAPI_Classic), Unix FIFO (.spinellis),
+// and Node IPC. CreateFile is NOT a signal — it's overwhelmingly plain file
+// I/O; the named-pipe APIs and the `\\.\pipe\` path literal are. Node IPC is
+// kept to the two unambiguous signals (process.send / process.on('message')) —
+// fork()/postMessage are too broad to include without false positives.
+const _RE_IPC_C = /\b(CreateNamedPipe[AW]?|ConnectNamedPipe|DisconnectNamedPipe|CreateMailslot[AW]?|CallNamedPipe[AW]?|WaitNamedPipe[AW]?|mkfifo)\s*\(/;
+const _IPC_SERVER_NAME = /^(CreateNamedPipe|ConnectNamedPipe|DisconnectNamedPipe|CreateMailslot|mkfifo)/;
+const _RE_PIPE_PATH = /(\\{2,4}[.?]\\{1,2}(?:pipe|mailslot)\\{1,2}[^"'\s]*)/i;
+const _RE_NODE_IPC = [
+  { re: /\bprocess\.on\s*\(\s*['"]message['"]/, role: 'server', api: "process.on('message')" },
+  { re: /\bprocess\.send\s*\(/, role: 'client', api: 'process.send' },
+];
+
+function _detectIpc(fp, lines, ipc) {
+  const ext = _ext(fp);
+  const isC = _C_EXTS.has(ext);
+  const isJs = _JS.has(ext);
+  if (!isC && !isJs) return;
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i];
+    let m;
+    if (isC && (m = ln.match(_RE_IPC_C))) {
+      const name = m[1];
+      const pm = ln.match(_RE_PIPE_PATH);
+      const entry = { transport: 'ipc', role: _IPC_SERVER_NAME.test(name) ? 'server' : 'client', api: name, lang: 'c', filepath: fp, line: i + 1 };
+      if (pm) entry.detail = pm[1];
+      ipc.push(entry);
+    } else if (isJs) {
+      const seen = new Set();
+      for (const p of _RE_NODE_IPC) {
+        const key = p.role + p.api;
+        if (seen.has(key)) continue;
+        if (p.re.test(ln)) { seen.add(key); ipc.push({ transport: 'ipc', role: p.role, api: p.api, lang: 'node', filepath: fp, line: i + 1 }); }
+      }
+    }
+  }
+}
+
+// Dedup transport entries (socket/rpc/ipc) by role+api+file+line; sort by
+// role, then file, then line.
+function _dedupTransport(raw) {
+  const seen = new Set();
+  const out = [];
+  for (const e of raw) {
+    const k = `${e.role}|${e.api}|${e.filepath}|${e.line}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(e);
+  }
+  out.sort((a, b) => (a.role < b.role ? -1 : a.role > b.role ? 1 : 0) || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+  return out;
+}
+
 // ---- Reconciliation ----------------------------------------------------------
 
 // Normalize a path to comparable segments: strip a trailing slash, lowercase,
@@ -392,12 +473,16 @@ export function extractClientServer(idx, { } = {}) {
   const server = [];
   const client = [];
   const socketsRaw = [];
+  const rpcRaw = [];
+  const ipcRaw = [];
 
   for (const [fp, lines] of idx.fileLines) {
     if (_isNoiseDoc(fp, null)) continue;
     _detectServer(fp, lines, server);
     _detectClient(fp, lines, client);
     _detectSocket(fp, lines, socketsRaw);
+    _detectRpc(fp, lines, rpcRaw);
+    _detectIpc(fp, lines, ipcRaw);
   }
 
   // Dedup server routes by method+path+file+line; tag transport.
@@ -410,16 +495,10 @@ export function extractClientServer(idx, { } = {}) {
     serverOut.push({ ...s, transport: 'http' });
   }
 
-  // Dedup socket entries by role+api+file+line, then sort by role/file/line.
-  const kSeen = new Set();
-  const sockets = [];
-  for (const s of socketsRaw) {
-    const k = `${s.role}|${s.api}|${s.filepath}|${s.line}`;
-    if (kSeen.has(k)) continue;
-    kSeen.add(k);
-    sockets.push(s);
-  }
-  sockets.sort((a, b) => (a.role < b.role ? -1 : a.role > b.role ? 1 : 0) || a.filepath.localeCompare(b.filepath) || a.line - b.line);
+  // Dedup the non-HTTP transports (socket/rpc/ipc) by role+api+file+line.
+  const sockets = _dedupTransport(socketsRaw);
+  const rpc = _dedupTransport(rpcRaw);
+  const ipc = _dedupTransport(ipcRaw);
 
   // Precompute server route segment patterns for matching.
   const serverPatterns = serverOut
@@ -455,21 +534,33 @@ export function extractClientServer(idx, { } = {}) {
   client.sort((a, b) => a.filepath.localeCompare(b.filepath) || a.line - b.line);
   unmatched.sort((a, b) => (a.pathOnly || '').localeCompare(b.pathOnly || ''));
 
-  const socketClientCount = sockets.filter(s => s.role === 'client').length;
-  const socketServerCount = sockets.filter(s => s.role === 'server').length;
+  const roleCounts = (list) => ({
+    count: list.length,
+    clientCount: list.filter(e => e.role === 'client').length,
+    serverCount: list.filter(e => e.role === 'server').length,
+  });
+  const sk = roleCounts(sockets), rp = roleCounts(rpc), ip = roleCounts(ipc);
 
   return {
     server: serverOut,
     client,
     unmatched,
     sockets,
+    rpc,
+    ipc,
     stats: {
       serverCount: serverOut.length,
       clientCount: client.length,
       unmatchedCount: unmatched.length,
-      socketCount: sockets.length,
-      socketClientCount,
-      socketServerCount,
+      socketCount: sk.count,
+      socketClientCount: sk.clientCount,
+      socketServerCount: sk.serverCount,
+      rpcCount: rp.count,
+      rpcClientCount: rp.clientCount,
+      rpcServerCount: rp.serverCount,
+      ipcCount: ip.count,
+      ipcClientCount: ip.clientCount,
+      ipcServerCount: ip.serverCount,
     },
   };
 }

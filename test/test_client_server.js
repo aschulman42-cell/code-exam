@@ -76,6 +76,7 @@ async function load() {
   const h = await api.get('stats');
   const i = await fetch(ANALYZE_URL);
   const j = await fetch(H);
+  var emb = Service.Get("EmbObjInner");
 }
 `);
 
@@ -180,6 +181,13 @@ async function load() {
   it('de-noises metadata URLs (author.url / homepage) — not client calls', () => {
     assert.ok(!result.client.some(c => /meta\.example\.com/.test(c.url)),
       'package-metadata URLs must not be recorded as client calls');
+  });
+
+  it('does NOT treat COM/WMI Service.Get("X") as an HTTP client call (case-sensitive wrapper)', () => {
+    // WMI JScript `Service.Get("EmbObjInner")` — capitalized .Get must not match
+    // the lowercase HTTP wrapper pattern (the .WinAPI_Classic false positives).
+    assert.ok(!result.client.some(c => /EmbObjInner/.test(c.url) || /EmbObjInner/.test(c.pathOnly || '')),
+      'capitalized COM .Get() must not be a client call');
   });
 
   it('does NOT resolve a short minified var to a non-URL value (fetch(H) ≠ "win32")', () => {
@@ -300,5 +308,108 @@ def open_db():
     assert.equal(result.stats.socketClientCount, sock(s => s.role === 'client').length);
     assert.equal(result.stats.socketServerCount, sock(s => s.role === 'server').length);
     assert.ok(result.stats.socketClientCount > 0 && result.stats.socketServerCount > 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #201 increment 3 — RPC + IPC transports
+// ---------------------------------------------------------------------------
+
+const RI_DIR = path.join(os.tmpdir(), 'ce_test_cs_rpcipc_src');
+const RI_IDX = path.join(os.tmpdir(), 'ce_test_cs_rpcipc_idx');
+
+describe('#201 RPC + IPC transport detection', () => {
+  let result;
+
+  before(async () => {
+    fs.mkdirSync(RI_DIR, { recursive: true });
+
+    // Windows RPC (server + client) + a svc_run decoy that must NOT match.
+    fs.writeFileSync(path.join(RI_DIR, 'winrpc.c'), `
+void server(void) {
+  RpcServerUseProtseqEp(proto, max, ep, NULL);
+  RpcServerRegisterIf(h, NULL, NULL);
+  RpcServerListen(1, 20, 0);
+}
+void client(void) {
+  RpcStringBindingCompose(uuid, proto, host, ep, opts, &s);
+  RpcBindingFromStringBinding(s, &binding);
+}
+void thread(void) {
+  svc_run();  // ACE thread method — NOT Sun RPC, must be excluded
+}
+`);
+
+    // Sun/ONC RPC (client + server).
+    fs.writeFileSync(path.join(RI_DIR, 'sunrpc.c'), `
+void c(void) {
+  CLIENT *cl = clnt_create(host, PROG, VERS, "tcp");
+  clnt_call(cl, PROC, xa, a, xr, r, tv);
+}
+void s(void) {
+  svcudp_create(sock);
+  svc_register(xprt, PROG, VERS, dispatch, proto);
+}
+`);
+
+    // Windows named pipe (server + client) + a pipe-path literal.
+    fs.writeFileSync(path.join(RI_DIR, 'pipe.c'), `
+void server(void) {
+  HANDLE h = CreateNamedPipe("\\\\\\\\.\\\\pipe\\\\demo", 0, 0, 1, 0, 0, 0, NULL);
+  ConnectNamedPipe(h, NULL);
+}
+void client(void) {
+  CallNamedPipe(name, in, inlen, out, outlen, &read, 0);
+}
+void fifo(void) {
+  mkfifo("/tmp/myfifo", 0666);
+}
+`);
+
+    // Node IPC.
+    fs.writeFileSync(path.join(RI_DIR, 'worker.js'), `
+process.on('message', (m) => handle(m));
+process.send({ ready: true });
+`);
+
+    const index = new CodeSearchIndex({ indexPath: RI_IDX });
+    await index.buildIndex(RI_DIR, { showProgress: false });
+    result = extractClientServer(index);
+  });
+
+  after(() => {
+    fs.rmSync(RI_DIR, { recursive: true, force: true });
+    fs.rmSync(RI_IDX, { recursive: true, force: true });
+  });
+
+  const rpc = (pred) => result.rpc.filter(pred);
+  const ipc = (pred) => result.ipc.filter(pred);
+
+  it('detects Windows RPC server + client roles', () => {
+    assert.ok(rpc(r => r.role === 'server' && /^RpcServer/.test(r.api)).length, 'RpcServer* = server');
+    assert.ok(rpc(r => r.role === 'client' && /^Rpc(StringBinding|BindingFrom)/.test(r.api)).length, 'RpcBinding* = client');
+  });
+
+  it('detects Sun/ONC RPC, and EXCLUDES svc_run (ACE thread method)', () => {
+    assert.ok(rpc(r => r.role === 'client' && r.api === 'clnt_create').length, 'clnt_create');
+    assert.ok(rpc(r => r.role === 'server' && r.api === 'svc_register').length, 'svc_register');
+    assert.equal(rpc(r => /svc_run/.test(r.api)).length, 0, 'svc_run must not be detected');
+  });
+
+  it('detects named-pipe server + client and mkfifo', () => {
+    assert.ok(ipc(e => e.role === 'server' && e.api === 'CreateNamedPipe').length, 'CreateNamedPipe = server');
+    assert.ok(ipc(e => e.role === 'client' && e.api === 'CallNamedPipe').length, 'CallNamedPipe = client');
+    assert.ok(ipc(e => e.role === 'server' && e.api === 'mkfifo').length, 'mkfifo = server');
+  });
+
+  it('detects Node IPC (process.send / on(message))', () => {
+    assert.ok(ipc(e => e.lang === 'node' && e.role === 'server' && /on\('message'\)/.test(e.api)).length, 'on(message)');
+    assert.ok(ipc(e => e.lang === 'node' && e.role === 'client' && e.api === 'process.send').length, 'process.send');
+  });
+
+  it('stats count rpc + ipc', () => {
+    assert.equal(result.stats.rpcCount, result.rpc.length);
+    assert.equal(result.stats.ipcCount, result.ipc.length);
+    assert.ok(result.stats.rpcCount > 0 && result.stats.ipcCount > 0);
   });
 });

@@ -1783,17 +1783,22 @@ routes['/api/client-server'] = (req, res) => {
   const data = extractClientServer(index);
   if (q.filter) {
     const match = makeFilterMatcher(q.filter);
+    const apiMatch = (e) => match(e.api) || match(e.filepath);
     data.server = data.server.filter(s => match(s.path));
     data.client = data.client.filter(c => match(c.url));
     data.unmatched = data.unmatched.filter(u => match(u.pathOnly || ''));
-    data.sockets = data.sockets.filter(s => match(s.api) || match(s.filepath));
+    data.sockets = data.sockets.filter(apiMatch);
+    data.rpc = data.rpc.filter(apiMatch);
+    data.ipc = data.ipc.filter(apiMatch);
   }
   const max = safeMax(q.max, 500);
   jsonResponse(res, {
     server: data.server.slice(0, max),
     client: data.client.slice(0, max),
     unmatched: data.unmatched.slice(0, max),
-    sockets: data.sockets.slice(0, max),  // #201 Part B — was dropped, so the GUI showed empty despite a +N socket badge
+    sockets: data.sockets.slice(0, max),  // non-HTTP transports — forwarded so the GUI can render them
+    rpc: data.rpc.slice(0, max),
+    ipc: data.ipc.slice(0, max),
     stats: data.stats,
   });
 };

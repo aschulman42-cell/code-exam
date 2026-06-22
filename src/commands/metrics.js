@@ -1305,8 +1305,8 @@ export function doDataStructs(index, args) {
 }
 
 export function doClientServer(index, args) {
-  const { server, client, unmatched, sockets, stats } = extractClientServer(index);
-  if (!server.length && !client.length && !sockets.length) { console.log('No client/server surface found.'); return; }
+  const { server, client, unmatched, sockets, rpc, ipc, stats } = extractClientServer(index);
+  if (!server.length && !client.length && !sockets.length && !rpc.length && !ipc.length) { console.log('No client/server surface found.'); return; }
   const n = args.n || 50;
 
   console.log(`Server routes (${stats.serverCount}):\n`);
@@ -1338,25 +1338,27 @@ export function doClientServer(index, args) {
     console.log(`  by a framework/proxy not yet detected, or by an external service.`);
   }
 
-  // #201 Part B: socket/TLS transport (non-HTTP). Grouped by role.
-  if (sockets.length) {
-    const socketClient = sockets.filter(s => s.role === 'client');
-    const socketServer = sockets.filter(s => s.role === 'server');
-    console.log(`\nSocket / TLS (${stats.socketCount}): client ${stats.socketClientCount}, server ${stats.socketServerCount}`);
-    for (const [role, list] of [['client', socketClient], ['server', socketServer]]) {
+  // #201 Part B: non-HTTP transports (socket/TLS, RPC, IPC), grouped by role.
+  const printTransport = (label, entries) => {
+    if (!entries.length) return;
+    const cl = entries.filter(e => e.role === 'client');
+    const sv = entries.filter(e => e.role === 'server');
+    console.log(`\n${label} (${entries.length}): client ${cl.length}, server ${sv.length}`);
+    for (const [role, list] of [['client', cl], ['server', sv]]) {
       if (!list.length) continue;
       console.log(`\n  ${role} (${list.length}):`);
-      for (const s of list.slice(0, n)) {
-        console.log(`    ${s.api.padEnd(16)} ${s.tls ? '[TLS] ' : ''}${s.lang}  (${s.filepath}:${s.line})`);
+      for (const e of list.slice(0, n)) {
+        const extra = e.detail ? `${e.detail} ` : (e.tls ? '[TLS] ' : '');
+        console.log(`    ${e.api.padEnd(16)} ${extra}${e.lang}  (${e.filepath}:${e.line})`);
       }
       if (list.length > n) console.log(`    … and ${list.length - n} more.`);
     }
-    if (socketClient.length && !socketServer.length) {
-      console.log(`\n  Only client-side socket/TLS detected — no server (bind/listen/accept) in this index.`);
-    } else if (socketServer.length && !socketClient.length) {
-      console.log(`\n  Only server-side socket/TLS detected — no client (connect) in this index.`);
-    }
-  }
+    if (cl.length && !sv.length) console.log(`\n  ${label}: client side only — no ${label} server side in this index.`);
+    else if (sv.length && !cl.length) console.log(`\n  ${label}: server side only — no ${label} client side in this index.`);
+  };
+  printTransport('Socket / TLS', sockets);
+  printTransport('RPC', rpc);
+  printTransport('IPC', ipc);
 }
 
 export function doListClasses(index, args) {

@@ -242,8 +242,8 @@ export function renderDataStructuresList(container, structs, total) {
 // row jumps to its source line; right-click → Find Uses on the path/url.
 export function renderClientServerList(container, data) {
   container.innerHTML = '';
-  const { server = [], client = [], unmatched = [], sockets = [], stats = {} } = data || {};
-  if (!server.length && !client.length && !sockets.length) {
+  const { server = [], client = [], unmatched = [], sockets = [], rpc = [], ipc = [], stats = {} } = data || {};
+  if (!server.length && !client.length && !sockets.length && !rpc.length && !ipc.length) {
     container.innerHTML = '<div class="list-placeholder">No client/server surface found</div>';
     return;
   }
@@ -376,43 +376,43 @@ export function renderClientServerList(container, data) {
     }
   }
 
-  // --- Socket / TLS transport (#201 Part B), omitted when empty ---
-  // CONSOLIDATED by file (#201 iterate): a raw socket dump repeats the same
-  // api (`connect`, `accept`) across hundreds of call sites (.spinellis had
-  // 457). One row per file per role, showing the apis used + a call count;
-  // clicking drills into that file's specific call sites in the upper-middle
-  // pane (the #197 drill pattern). The path column carries dir context, not
-  // just the filename.
-  if (sockets.length) {
-    const socketClient = sockets.filter(s => s.role === 'client');
-    const socketServer = sockets.filter(s => s.role === 'server');
-    const filesOf = (list) => new Set(list.map(s => s.filepath)).size;
-    container.appendChild(sectionLabel(`Socket / TLS (${stats.socketCount ?? sockets.length}) — ${filesOf(socketClient)} client, ${filesOf(socketServer)} server file(s)`, 'color:var(--accent-blue)'));
-    for (const [role, list] of [['client', socketClient], ['server', socketServer]]) {
+  // --- Non-HTTP transports (Socket/TLS, RPC, IPC) — #201 Part B ---
+  // Each consolidated by file per role (a raw dump repeats the same api across
+  // hundreds of call sites — .spinellis had 457 sockets). One row per file per
+  // role: apis used + count; drill → that file's call sites. Empty transports
+  // are omitted; a one-end-only note flags a missing side.
+  const appendTransport = (label, entries) => {
+    if (!entries.length) return;
+    const cl = entries.filter(e => e.role === 'client');
+    const sv = entries.filter(e => e.role === 'server');
+    const filesOf = (list) => new Set(list.map(e => e.filepath)).size;
+    container.appendChild(sectionLabel(`${label} (${entries.length}) — ${filesOf(cl)} client, ${filesOf(sv)} server file(s)`, 'color:var(--accent-blue);margin-top:10px'));
+    for (const [role, list] of [['client', cl], ['server', sv]]) {
       if (!list.length) continue;
       const byFile = new Map();
-      for (const s of list) { if (!byFile.has(s.filepath)) byFile.set(s.filepath, []); byFile.get(s.filepath).push(s); }
+      for (const e of list) { if (!byFile.has(e.filepath)) byFile.set(e.filepath, []); byFile.get(e.filepath).push(e); }
       const files = [...byFile.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
       container.appendChild(note(`${role} (${files.length} file${files.length !== 1 ? 's' : ''}, ${list.length} call${list.length !== 1 ? 's' : ''})`));
       for (const [fp, insts] of files) {
-        const apis = [...new Set(insts.map(s => s.api))].join('·');
-        const tls = insts.some(s => s.tls);
+        const apis = [...new Set(insts.map(e => e.api))].join('·');
+        const tls = insts.some(e => e.tls);
         const item = h('div', { className: 'list-item', title: `${fp.replace(/\\/g, '/')}\n${apis} — ${insts.length} call site(s)${tls ? ' (TLS)' : ''}\nClick to list call sites` }, [
           h('span', { className: 'name clickable', text: fp.replace(/\\/g, '/'), style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;font-family:var(--font-mono);font-size:11px' }),
-          h('span', { className: 'metric muted', text: apis + (tls ? '·TLS' : ''), style: 'font-size:10px;max-width:160px;overflow:hidden;text-overflow:ellipsis' }),
+          h('span', { className: 'metric muted', text: apis + (tls ? '·TLS' : ''), style: 'font-size:10px;max-width:170px;overflow:hidden;text-overflow:ellipsis' }),
           h('span', { className: 'metric muted', text: `${insts.length}×`, style: 'min-width:30px;text-align:right' }),
         ]);
-        item.addEventListener('click', (e) => { e.stopPropagation(); renderSocketInstances(fp, insts); });
+        item.addEventListener('click', (ev) => { ev.stopPropagation(); renderSocketInstances(fp, insts); });
         container.appendChild(item);
       }
     }
-    // One-end-only note, mirroring the CLI — the "credible to ship" signal.
-    if (socketClient.length && !socketServer.length) {
-      container.appendChild(note('Only client-side socket/TLS detected — no server (bind/listen/accept) in this index.', 'color:var(--warn,#e0a030)'));
-    } else if (socketServer.length && !socketClient.length) {
-      container.appendChild(note('Only server-side socket/TLS detected — no client (connect) in this index.', 'color:var(--warn,#e0a030)'));
-    }
-  }
+    // Note scopes the transport in BOTH clauses — "no client side" alone read
+    // as global when another transport (e.g. RPC) did have a client side (#201).
+    if (cl.length && !sv.length) container.appendChild(note(`${label}: client side only — no ${label} server side in this index.`, 'color:var(--warn,#e0a030)'));
+    else if (sv.length && !cl.length) container.appendChild(note(`${label}: server side only — no ${label} client side in this index.`, 'color:var(--warn,#e0a030)'));
+  };
+  appendTransport('Socket / TLS', sockets);
+  appendTransport('RPC', rpc);
+  appendTransport('IPC', ipc);
 }
 
 // Domain (host) of an absolute URL, else null.
@@ -510,19 +510,23 @@ export function renderHttpFileCalls(label, calls) {
 }
 
 // #201 drill-down: the socket/TLS call sites for one file, in the upper-middle
-// pane. Title is the FULL path (the left pane truncates it); rows are api + line,
-// each jumping to source. Instances carry { api, role, tls, lang, filepath, line }.
+// pane. Title is the FULL path (the left pane truncates it); rows are api +
+// optional detail (RPC service/method, IPC pipe path) + line, each jumping to
+// source. Serves all non-HTTP transports: { api, role, tls?, detail?, lang,
+// filepath, line }.
 export function renderSocketInstances(label, instances) {
   const container = $('#middle-top-body'), title = $('#middle-top-title');
   showPane('middle-top'); navPush('middle-top');
   const sorted = [...instances].sort((a, b) => a.line - b.line);
-  title.textContent = `${label.replace(/\\/g, '/')} — ${sorted.length} socket call${sorted.length !== 1 ? 's' : ''}`;
+  const kind = sorted[0]?.transport === 'rpc' ? 'RPC' : sorted[0]?.transport === 'ipc' ? 'IPC' : 'socket';
+  title.textContent = `${label.replace(/\\/g, '/')} — ${sorted.length} ${kind} call${sorted.length !== 1 ? 's' : ''}`;
   container.innerHTML = '';
   const wrap = h('div', { className: 'output-section' });
   for (const s of sorted) {
-    const row = h('div', { className: 'list-item', title: `${s.api} (${s.role})${s.tls ? ' · TLS' : ''}\n${s.filepath}:${s.line}` }, [
+    const detail = [s.role, s.detail, s.tls ? 'TLS' : null].filter(Boolean).join(' · ');
+    const row = h('div', { className: 'list-item', title: `${s.api} (${detail})\n${s.filepath}:${s.line}` }, [
       h('span', { className: 'rank', text: s.api, style: 'min-width:120px;text-align:left;color:var(--accent-dim);font-family:var(--font-mono);font-size:11px' }),
-      h('span', { className: 'name clickable', text: `${s.role}${s.tls ? ' · TLS' : ''}`, style: 'flex:1 1 0;min-width:0' }),
+      h('span', { className: 'name clickable', text: detail, style: 'flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis' }),
       h('span', { className: 'metric muted', text: `:${s.line}`, style: 'font-family:var(--font-mono);font-size:11px' }),
     ]);
     row.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(s.filepath, s.line); });

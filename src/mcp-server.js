@@ -699,15 +699,16 @@ function handleTool(name, args) {
     }
 
     case 'client_server': {
-      let { server, client, unmatched, sockets, stats } = extractClientServer(index);
+      let { server, client, unmatched, sockets, rpc, ipc, stats } = extractClientServer(index);
       if (args.filter) {
         const f = args.filter.toLowerCase();
+        const apiMatch = (e) => e.api.toLowerCase().includes(f) || e.filepath.toLowerCase().includes(f);
         server = server.filter(s => s.path.toLowerCase().includes(f));
         client = client.filter(c => c.url.toLowerCase().includes(f));
         unmatched = unmatched.filter(u => (u.pathOnly || '').toLowerCase().includes(f));
-        sockets = sockets.filter(s => s.api.toLowerCase().includes(f) || s.filepath.toLowerCase().includes(f));
+        sockets = sockets.filter(apiMatch); rpc = rpc.filter(apiMatch); ipc = ipc.filter(apiMatch);
       }
-      if (!server.length && !client.length && !sockets.length) return 'No client/server surface found';
+      if (!server.length && !client.length && !sockets.length && !rpc.length && !ipc.length) return 'No client/server surface found';
       const n = args.n || 50;
       const out = [`Server routes (${stats.serverCount}):`];
       for (const s of server.slice(0, n)) out.push(`  ${s.method} ${s.path}  [${s.framework}]  (${s.filepath}:${s.line})`);
@@ -720,17 +721,21 @@ function handleTool(name, args) {
       out.push(`\nClient calls with NO matching server route (${stats.unmatchedCount}):`);
       if (!unmatched.length) out.push('  (none)');
       for (const u of unmatched.slice(0, n)) out.push(`  ${u.method} ${u.pathOnly}  (first seen ${u.filepath}:${u.line})`);
-      if (sockets.length) {
-        out.push(`\nSocket / TLS (${stats.socketCount}): client ${stats.socketClientCount}, server ${stats.socketServerCount}`);
-        for (const role of ['client', 'server']) {
-          const list = sockets.filter(s => s.role === role);
+      const transportOut = (label, entries) => {
+        if (!entries.length) return;
+        const cl = entries.filter(e => e.role === 'client'), sv = entries.filter(e => e.role === 'server');
+        out.push(`\n${label} (${entries.length}): client ${cl.length}, server ${sv.length}`);
+        for (const [role, list] of [['client', cl], ['server', sv]]) {
           if (!list.length) continue;
           out.push(`  ${role}:`);
-          for (const s of list.slice(0, n)) out.push(`    ${s.api}  ${s.tls ? '[TLS] ' : ''}${s.lang}  (${s.filepath}:${s.line})`);
+          for (const e of list.slice(0, n)) out.push(`    ${e.api}  ${e.detail ? e.detail + ' ' : (e.tls ? '[TLS] ' : '')}${e.lang}  (${e.filepath}:${e.line})`);
         }
-        if (stats.socketClientCount && !stats.socketServerCount) out.push(`  (only client-side socket/TLS — no server in this index)`);
-        else if (stats.socketServerCount && !stats.socketClientCount) out.push(`  (only server-side socket/TLS — no client in this index)`);
-      }
+        if (cl.length && !sv.length) out.push(`  (${label}: client side only — no ${label} server side in this index)`);
+        else if (sv.length && !cl.length) out.push(`  (${label}: server side only — no ${label} client side in this index)`);
+      };
+      transportOut('Socket / TLS', sockets);
+      transportOut('RPC', rpc);
+      transportOut('IPC', ipc);
       return out.join('\n');
     }
 
