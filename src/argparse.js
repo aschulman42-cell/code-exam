@@ -934,7 +934,9 @@ METRICS / DISCOVERY:
                              reference count with file:line sites.
                              (alias: --resources). Honors --filter, --max-results.
                              Optional comma-separated subsections to show only
-                             those, e.g. --referenced-resources sql,env. Names:
+                             those — QUOTE them: --referenced-resources "sql,env"
+                             (unquoted, some shells e.g. PowerShell split on the
+                             comma and only the first is read). Names:
                                network  (URLs/hosts; aliases: urls)
                                env      (environment variables; aliases: envvars)
                                files    (filesystem files with extensions)
