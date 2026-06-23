@@ -244,13 +244,16 @@ if (args.overview_by_ai) {
   // CLI-only, short-lived process: silence the DEP0190 warning from the
   // shell:true `claude` spawn so it doesn't pollute saved/--multi-index output.
   process.noDeprecation = true;
-  const { runAiOverview } = await import('./core/ai-overview.js');
   const timeoutMs = (args.timeout && args.timeout > 0)
     ? args.timeout * 60000
     : (parseInt(process.env.CE_AI_OVERVIEW_TIMEOUT_MS, 10) || 1200000); // default 20 min (overnight-friendly)
   const startedAt = Date.now();
   const mins = Math.round(timeoutMs / 60000);
-  process.stderr.write(`[overview-by-ai] running claude over ${args.index_path} (timeout ${mins} min)…\n`);
+  // Engine: --model <gguf> selects the local node-llama-cpp engine (air-gapped,
+  // #196 spike); otherwise the claude CLI. (--claude-model picks the API model.)
+  const localGguf = args.model || null;
+  const engineLabel = localGguf ? `local ${localGguf.split(/[\\/]/).pop()}` : 'claude';
+  process.stderr.write(`[overview-by-ai] running ${engineLabel} over ${args.index_path} (timeout ${mins} min)…\n`);
   // Heartbeat: the run can take minutes with no output (prose prints only at the
   // end), so emit a sign of life every 20s. stderr-only — stdout stays pure
   // prose so --multi-index capture isn't polluted.
@@ -259,12 +262,26 @@ if (args.overview_by_ai) {
   }, 20000);
   if (heartbeat.unref) heartbeat.unref();
   try {
-    const prose = await runAiOverview({
-      indexPath: args.index_path,
-      model: args.claude_model || process.env.CE_AI_OVERVIEW_MODEL,
-      timeoutMs,
-      onStderr: (s) => { if (args.verbose) process.stderr.write(s); },
-    });
+    let prose;
+    if (localGguf) {
+      const { runAiOverviewLocal } = await import('./core/ai-overview-local.js');
+      ({ prose } = await runAiOverviewLocal({
+        indexPath: args.index_path,
+        modelPath: localGguf,
+        timeoutMs,
+        onStatus: (s) => { if (args.verbose) process.stderr.write(`[overview-by-ai] ${s}\n`); },
+        // -v also streams the live model output (incl. <think>) to stderr for testing.
+        onStream: args.verbose ? (c) => process.stderr.write(c) : undefined,
+      }));
+    } else {
+      const { runAiOverview } = await import('./core/ai-overview.js');
+      prose = await runAiOverview({
+        indexPath: args.index_path,
+        model: args.claude_model || process.env.CE_AI_OVERVIEW_MODEL,
+        timeoutMs,
+        onStderr: (s) => { if (args.verbose) process.stderr.write(s); },
+      });
+    }
     clearInterval(heartbeat);
     process.stderr.write(`[overview-by-ai] done in ${Math.round((Date.now() - startedAt) / 1000)}s\n`);
     process.stdout.write(prose + '\n');

@@ -785,17 +785,19 @@ BROWSE:
   --index-extensions         Count file extensions in current index
   --overview                 One-shot orientation: size, languages, structure,
                              top vocabulary, key files, entry points (run first)
-  --overview-by-ai           NON-AIR-GAPPED. Prose 1-2 page orientation written
-                             by running Claude AGENTICALLY over CE's own MCP
-                             tools against this index (the model follows the
-                             orientation path: overview -> shape-appropriate
-                             tools -> synthesis). Shells out to the 'claude' CLI
-                             (must be on PATH); prints prose to stdout. Pairs
-                             with --multi-index @list for overnight batch over
-                             many indexes. Options: --claude-model <id> picks
-                             the model; --timeout <minutes> caps the run
-                             (default 20). Reads CE_AI_OVERVIEW_MODEL /
-                             CE_AI_OVERVIEW_TIMEOUT_MS env vars as fallbacks.
+  --overview-by-ai           Prose 1-2 page orientation written by running an
+                             LLM AGENTICALLY over CE's own MCP tools against this
+                             index (overview -> shape-appropriate tools ->
+                             synthesis); prints prose to stdout. Two engines:
+                             by default shells out to the 'claude' CLI
+                             (NON-AIR-GAPPED; must be on PATH) — --claude-model
+                             <id> picks the API model. Pass --model <model.gguf>
+                             to run a LOCAL model in-process via node-llama-cpp
+                             instead (AIR-GAPPED; no CLI, no network). Pairs with
+                             --multi-index @list for overnight batch.
+                             --timeout <minutes> caps the run (default 20); reads
+                             CE_AI_OVERVIEW_MODEL / CE_AI_OVERVIEW_TIMEOUT_MS as
+                             fallbacks.
   --indexes [path]           List available index directories
                              (deprecated alias: --list-indexes)
 
