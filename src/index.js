@@ -212,7 +212,7 @@ if (args.multi_index) {
     const p = indexPaths[idx];
     // Live human progress on stderr (kept off stdout so capture/diff stays clean).
     process.stderr.write(`[multi-index] (${idx + 1}/${indexPaths.length}) ${p}\n`);
-    process.stdout.write(`=== ${p} ===\n`);
+    process.stdout.write(`\n=== ${p} ===\n\n`);
     // CE_MULTI_INDEX signals the child to index-qualify its AI/ML command
     // headers (`----- <index> : <cmd> -----`) so a human scrolling stdout keeps
     // the index context. Env var (not argv) → invisible to passthrough +
