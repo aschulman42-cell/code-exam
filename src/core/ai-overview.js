@@ -32,7 +32,7 @@ const MCP_SERVER = path.join(__dirname, '..', 'mcp-server.js');  // src/mcp-serv
 export const AI_OVERVIEW_TOOLS = [
   'overview', 'vocabulary', 'digest', 'stats', 'list_files', 'list_classes',
   'entry_points', 'hotspots', 'models_used', 'command_catalog', 'regex_search',
-  'search', 'call_tree', 'struct_dupes', 'show_file',
+  'search', 'call_tree', 'struct_dupes', 'show_file', 'referenced_resources',
 ].map(t => `mcp__code-exam__${t}`).join(',');
 
 export const AI_OVERVIEW_PROMPT = `You are orienting a code examiner to an unfamiliar codebase using the CodeExam MCP tools (mcp__code-exam__*) over the currently-loaded index. Produce a 1-2 page PROSE summary (not bullet lists). Budget: ~5-8 tool calls; do not exceed ~5 digests.
@@ -40,7 +40,7 @@ export const AI_OVERVIEW_PROMPT = `You are orienting a code examiner to an unfam
 1. DETECT THE TARGET'S SHAPE FIRST — call overview, then stats. Then choose a path:
    - Minified/bundled or binary-dominated (minified module names, .node/binary symbols like napi_*, huge per-file function counts): lead with command_catalog and regex_search on distinctive strings; do NOT call digest/vocabulary/models_used (they fail on minified code).
    - A collection (CE flags >=2 substantial top-level folders): orient PER-REPO with list_files <repo>/; do not summarize whole-tree.
-   - Readable single project: overview -> vocabulary -> digest the top 3-5 key files (stop at ~5) -> models_used. Use command_catalog if it's a CLI/route app; regex_search for internal protocols/routes (e.g. __worklist, /api/); call_tree from an entry point for control flow.
+   - Readable single project: overview -> vocabulary -> digest the top 3-5 key files (stop at ~5) -> models_used. Use command_catalog if it's a CLI/route app; regex_search for internal protocols/routes (e.g. /api/ or other internal route prefixes you observe); call_tree from an entry point for control flow. Call referenced_resources to surface the EXTERNAL surface — env vars, hosts/URLs, embedded SQL, external commands, and the data/config files the code reads/writes; if one data/config file dominates the references, call it out (use the reference counts, don't assume).
    - Always read the README/conventions for product framing if present (show_file on README*, CLAUDE.md, AGENTS.md).
 
 2. SEPARATE host app from vendored/bundled dependencies. Density-ranked signals point at the largest dependency (e.g. an AWS SDK, an editor widget, native binaries), not the host. Say which is which.
@@ -51,7 +51,7 @@ export const AI_OVERVIEW_PROMPT = `You are orienting a code examiner to an unfam
 
 5. TEXT IS INDICIA, NOT GROUND TRUTH. Naming/comments/docs drift, and docs are often stale on active code. Distinguish RELIED-UPON (confirmed in code) from CONSIDERED (doc/name/comment-derived). When a claim rests on text the code doesn't confirm, say so (e.g. "from the README; not confirmed in code").
 
-6. LEAN ON SIGNALS A CODE-GROVEL CAN'T COMPUTE: clones (struct_dupes), structural centrality (hotspots), IDF-ranked vocabulary, host-vs-vendored split, what-was-skipped. This is CE's voice — don't write a generic summary a plain file read could produce.
+6. LEAN ON SIGNALS A CODE-GROVEL CAN'T COMPUTE: clones (struct_dupes), structural centrality (hotspots), IDF-ranked vocabulary, the external surface (referenced_resources: env vars / hosts / embedded SQL / referenced data files / commands aggregated across all call sites), host-vs-vendored split, what-was-skipped. This is CE's voice — don't write a generic summary a plain file read could produce.
 
 OUTPUT (plain prose + two short labeled lists at the end):
 - The 1-2 page prose summary (what it is, architecture, what it does, the AI/ML sentence). When the codebase is itself a layer over another system (e.g. as much a layer on git/GitHub as on an agent), name BOTH layers.
