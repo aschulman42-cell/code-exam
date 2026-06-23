@@ -742,13 +742,18 @@ function handleTool(name, args) {
     case 'struct_dupes': {
       const n = args.n || 20;
       const minLines = args.min_lines || 5;
-      const dupes = index.getStructuralDupes(n, minLines);
+      // Mirror /api/struct-dupes: getStructDupes() only returns this._structDupes,
+      // which getFuncDupes() populates as a side effect — so it must run first
+      // (quiet: stdout is the MCP protocol channel). minLines honors the tool's
+      // declared min_lines param (the server route hardcodes 3).
+      index.getFuncDupes(n, minLines, false);
+      const dupes = index.getStructDupes(n);
       if (!dupes || dupes.length === 0) return 'No structural duplicates found';
       const lines = [`${dupes.length} structural duplicate groups:`];
       for (const group of dupes.slice(0, n)) {
-        lines.push(`\n  Hash: ${group.hash} (${group.functions.length} functions, ${group.lines}L):`);
-        for (const f of group.functions) {
-          lines.push(`    ${f.name}  ${f.filepath}`);
+        lines.push(`\n  ${group.bare_name} (${group.count} functions, ${group.lines}L, ${group.unique_bodies || 0} distinct bodies):`);
+        for (const inst of group.instances) {
+          lines.push(`    ${index.getDisplayName(inst.name)}  ${inst.filepath}`);
         }
       }
       return lines.join('\n');

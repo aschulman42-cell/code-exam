@@ -148,3 +148,52 @@ describe('MCP tool-ergonomics fixes (#184)', () => {
       'should point at the `const Widget =` line, not the bare `return Widget` mention: ' + out);
   });
 });
+
+// #203: the struct_dupes handler had drifted from the working /api/struct-dupes
+// route — wrong method name (getStructuralDupes vs getStructDupes), a missing
+// getFuncDupes() prerequisite (without it getStructDupes returns []), and the
+// wrong result shape (group.functions vs group.instances). It threw
+// "getStructuralDupes is not a function" on every call, which the AI Overview
+// run surfaced. This guards the corrected handler.
+describe('struct_dupes (#203 regression)', () => {
+  const SRC2 = path.join(os.tmpdir(), 'ce_mcp_structdupes_src');
+  const IDX2 = path.join(os.tmpdir(), 'ce_mcp_structdupes_idx');
+  let sdIndex;
+
+  before(async () => {
+    fs.rmSync(SRC2, { recursive: true, force: true });
+    fs.mkdirSync(SRC2, { recursive: true });
+    // Two functions with identical control flow but different names → same
+    // structural hash, different bodies → a structural duplicate group (not an
+    // exact dupe).
+    fs.writeFileSync(path.join(SRC2, 'clones.py'), `def sum_values(items):
+    total = 0
+    for entry in items:
+        total = total + entry
+        total = total * 2
+    if total > 100:
+        total = 100
+    return total
+
+def accumulate_scores(records):
+    running = 0
+    for record in records:
+        running = running + record
+        running = running * 2
+    if running > 100:
+        running = 100
+    return running
+`);
+    sdIndex = new CodeSearchIndex({ indexPath: IDX2 });
+    await sdIndex.buildIndex(SRC2, { showProgress: false });
+  });
+
+  it('detects the structural clone instead of throwing "is not a function"', () => {
+    setIndex(sdIndex);
+    const out = handleTool('struct_dupes', { n: 10, min_lines: 2 });
+    assert.equal(typeof out, 'string');
+    assert.doesNotMatch(out, /is not a function/, 'must not throw the old getStructuralDupes error');
+    assert.match(out, /structural duplicate groups/, 'should report groups: ' + out);
+    assert.ok(/sum_values|accumulate_scores/.test(out), 'group should name a clone instance: ' + out);
+  });
+});
