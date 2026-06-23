@@ -241,11 +241,23 @@ if (args.multi_index) {
 // gapped — shells out to the `claude` CLI. With --multi-index @list this runs
 // per-index (each subprocess hits this branch), for overnight batch.
 if (args.overview_by_ai) {
+  // CLI-only, short-lived process: silence the DEP0190 warning from the
+  // shell:true `claude` spawn so it doesn't pollute saved/--multi-index output.
+  process.noDeprecation = true;
   const { runAiOverview } = await import('./core/ai-overview.js');
   const timeoutMs = (args.timeout && args.timeout > 0)
     ? args.timeout * 60000
     : (parseInt(process.env.CE_AI_OVERVIEW_TIMEOUT_MS, 10) || 1200000); // default 20 min (overnight-friendly)
-  process.stderr.write(`[overview-by-ai] running claude over ${args.index_path} (timeout ${Math.round(timeoutMs / 60000)} min)…\n`);
+  const startedAt = Date.now();
+  const mins = Math.round(timeoutMs / 60000);
+  process.stderr.write(`[overview-by-ai] running claude over ${args.index_path} (timeout ${mins} min)…\n`);
+  // Heartbeat: the run can take minutes with no output (prose prints only at the
+  // end), so emit a sign of life every 20s. stderr-only — stdout stays pure
+  // prose so --multi-index capture isn't polluted.
+  const heartbeat = setInterval(() => {
+    process.stderr.write(`[overview-by-ai] still working… ${Math.round((Date.now() - startedAt) / 1000)}s elapsed (timeout ${mins} min)\n`);
+  }, 20000);
+  if (heartbeat.unref) heartbeat.unref();
   try {
     const prose = await runAiOverview({
       indexPath: args.index_path,
@@ -253,9 +265,12 @@ if (args.overview_by_ai) {
       timeoutMs,
       onStderr: (s) => { if (args.verbose) process.stderr.write(s); },
     });
+    clearInterval(heartbeat);
+    process.stderr.write(`[overview-by-ai] done in ${Math.round((Date.now() - startedAt) / 1000)}s\n`);
     process.stdout.write(prose + '\n');
     process.exit(0);
   } catch (e) {
+    clearInterval(heartbeat);
     process.stderr.write(`[overview-by-ai] ${e.message}\n`);
     process.exit(1);
   }
