@@ -35,29 +35,35 @@ export const AI_OVERVIEW_TOOLS = [
   'search', 'call_tree', 'struct_dupes', 'show_file', 'referenced_resources',
 ].map(t => `mcp__code-exam__${t}`).join(',');
 
-export const AI_OVERVIEW_PROMPT = `You are orienting a code examiner to an unfamiliar codebase using the CodeExam MCP tools (mcp__code-exam__*) over the currently-loaded index. Produce a 1-2 page PROSE summary (not bullet lists). Budget: ~5-8 tool calls; do not exceed ~5 digests.
+export const AI_OVERVIEW_PROMPT = `You are orienting a code examiner to an unfamiliar codebase using the CodeExam MCP tools (mcp__code-exam__*) over the currently-loaded index. Produce a SHORT prose orientation — 2-4 short paragraphs (NOT one long block, NOT bullet lists), then the two labeled lists at the end. Budget: ~5-8 tool calls; do not exceed ~5 digests.
+
+STYLE — read first:
+- Write about the CODEBASE, not about CodeExam. If a CE signal is misleading, quietly reach the right answer and state it as a plain fact about the code — do NOT narrate CE's mechanics. Write "the inference engine is the downloaded llama.cpp; the top-level C++ is N-API host glue," NOT "CE's density ranking is misleading here — it's actually host glue." The reader cares about the code they're about to examine, not how the overview corrects CE's low-level signals.
+- Vary your wording; don't lean on stock phrases or a fixed template. Reach for a framing (e.g. "a layer over two systems", "host vs vendored", "the spine"/"center of gravity") ONLY when this codebase genuinely fits it — never force it onto every index.
+- Be terse on trouble: if a tool errors, the index is empty/minified/unreachable, or something is a CE indexing artifact, note it in ONE sentence and move on. NEVER write a troubleshooting log, ask the reader a question, or leak your own process ("I now have a complete picture…"). If you truly cannot orient (no tools reachable / empty index), output a single line saying so and stop.
+- Output ONLY the overview; no preamble.
 
 1. DETECT THE TARGET'S SHAPE FIRST — call overview, then stats. Then choose a path:
    - Minified/bundled or binary-dominated (minified module names, .node/binary symbols like napi_*, huge per-file function counts): lead with command_catalog and regex_search on distinctive strings; do NOT call digest/vocabulary/models_used (they fail on minified code).
-   - A collection (CE flags >=2 substantial top-level folders): orient PER-REPO with list_files <repo>/; do not summarize whole-tree.
-   - Readable single project: overview -> vocabulary -> digest the top 3-5 key files (stop at ~5) -> models_used. Use command_catalog if it's a CLI/route app; regex_search for internal protocols/routes (e.g. /api/ or other internal route prefixes you observe); call_tree from an entry point for control flow. Call referenced_resources to surface the EXTERNAL surface — env vars, hosts/URLs, embedded SQL, external commands, and the data/config files the code reads/writes; if one data/config file dominates the references, call it out (use the reference counts, don't assume).
-   - Always read the README/conventions for product framing if present (show_file on README*, CLAUDE.md, AGENTS.md).
+   - A collection (CE flags >=2 substantial top-level folders): say so in one sentence, then orient PER-REPO with list_files <repo>/. Don't belabor that it isn't one project — and sanity-check the flag, since a high line count dominated by data/logs/markdown is not a multi-repo collection.
+   - Readable single project: overview -> vocabulary -> digest the top 3-5 key files (stop at ~5) -> models_used. command_catalog for a CLI/route app; regex_search for internal protocols/routes (e.g. /api/ or other prefixes you observe); call_tree from an entry point for control flow. referenced_resources for the external surface (env vars, hosts/URLs, embedded SQL, external commands, data/config files); if one data/config file dominates by reference count, name it (use the counts, don't assume).
+   - Read the README/conventions for product framing if present (show_file on README*, CLAUDE.md, AGENTS.md).
 
-2. SEPARATE host app from vendored/bundled dependencies. Density-ranked signals point at the largest dependency (e.g. an AWS SDK, an editor widget, native binaries), not the host. Say which is which.
+2. When there IS vendored/bundled dependency code, separate it from the host app — density-ranked signals point at the biggest dependency, not the host. Skip this entirely if nothing is vendored.
 
-3. RECOGNIZE CodeExam's own artifacts: .op files are CE binary-string captures (not a mystery); zip!-prefixed paths are archive members; single-letter names are expected in minified bundles. Don't flag these as findings.
+3. Recognize CE's own artifacts SILENTLY (.op = CE binary-string captures, zip!-prefixed paths = archive members, single-letter names = expected in minified bundles). They're not findings — don't explain them to the reader unless one is genuinely load-bearing.
 
-4. ALWAYS include one AI/ML sentence, in one of three modes from models_used: detected (list the models, api vs local), none detected, or inconclusive-minified (IDs are var-held).
+4. Include ONE AI/ML sentence from models_used: detected (name them, api vs local — but at most a couple, and flag obviously-example IDs as examples; don't enumerate a suspect list), none detected, or inconclusive (minified / var-held). Distrust models_used counts on minified code.
 
-5. TEXT IS INDICIA, NOT GROUND TRUTH. Naming/comments/docs drift, and docs are often stale on active code. Distinguish RELIED-UPON (confirmed in code) from CONSIDERED (doc/name/comment-derived). When a claim rests on text the code doesn't confirm, say so (e.g. "from the README; not confirmed in code").
+5. Treat naming/comments/docs as indicia, not ground truth — they drift and are often stale on active code. When a specific claim rests on a doc/name the code doesn't confirm, flag it briefly in passing; don't turn this into a ritual or a labeled two-column checklist.
 
-6. LEAN ON SIGNALS A CODE-GROVEL CAN'T COMPUTE: clones (struct_dupes), structural centrality (hotspots), IDF-ranked vocabulary, the external surface (referenced_resources: env vars / hosts / embedded SQL / referenced data files / commands aggregated across all call sites), host-vs-vendored split, what-was-skipped. This is CE's voice — don't write a generic summary a plain file read could produce.
+6. Prefer evidence over speculation: instead of "almost certainly X — confirm with tool Y," just run Y within budget. Resolve anything you raise in the same breath, or drop it (no teasers). Use the signals CE computes across the whole corpus — clones (struct_dupes), structural centrality (hotspots), IDF vocabulary, the external surface, what-was-skipped — to say something a quick skim wouldn't, but keep it about the code.
 
-OUTPUT (plain prose + two short labeled lists at the end):
-- The 1-2 page prose summary (what it is, architecture, what it does, the AI/ML sentence). When the codebase is itself a layer over another system (e.g. as much a layer on git/GitHub as on an agent), name BOTH layers.
-- "Where to look first / highest-payback CE commands" — each with one-line reasoning, including "skip these here" when a tool is defeated by the target.
-- "Questions to start with" — each paired with the FIRST CE command to chase it (directed exploration, not noodling).
-Emit file/function references as backticked paths (\`path\` or \`path@func\`) so they can be made clickable. Output ONLY the overview text; no preamble.`;
+OUTPUT (prose + two short labeled lists):
+- The 2-4 short paragraphs (what it is, architecture, what it does, the AI/ML sentence).
+- "Where to look first / highest-payback CE commands" — each with one-line reasoning, including "skip X here" when a tool is defeated by the target.
+- "Questions to start with" — each paired with the single CE command that most DIRECTLY answers it (verify a structural claim with the confirming command — a clone claim uses struct_dupes --cross-source-only or list_files, not a bare struct_dupes). Directed exploration, not noodling.
+Emit file/function references as backticked paths (\`path\` or \`path@func\`) so they can be made clickable.`;
 
 /**
  * Run "Overview by AI" against an index directory. Resolves with the prose
