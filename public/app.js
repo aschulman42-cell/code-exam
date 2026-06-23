@@ -67,7 +67,7 @@ import {
   renderFuncLikeList, renderFunctionList, renderFileListWithSub,
   renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, pipelineMermaid, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, POSTTRAINING_KIND_COLOR, REASONING_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR, EXPLAINABILITY_KIND_COLOR,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
-  renderClassHotspotList, renderClassHierarchy, renderVocabList, renderDataStructuresList, renderClientServerList,
+  renderClassHotspotList, renderClassHierarchy, renderVocabList, renderDataStructuresList, renderClientServerList, renderReferencedResourcesList,
   loadOverviewInto, showOverviewOverlay, initOverviewOverlay,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
   renderExtensionsList, renderDupeGroupList,
@@ -160,6 +160,15 @@ async function loadSectionData(sectionId, filter = '') {
           badge.textContent = b;
         }
         break;
+
+      case 'referenced-resources': {   // #203: the codebase's external surface
+        data = await api.referencedResources({ filter });
+        state.sectionData[sectionId] = data;
+        renderReferencedResourcesList(content, data);
+        const s = data.stats;
+        badge.textContent = s.network + s.env + s.filesystem + s.subprocess + s.cloud + s.models;
+        break;
+      }
 
       case 'exports': {   // #153: declared-exports catalog, grouped by package
         data = await api.listExports({ filter, max: 1000 });

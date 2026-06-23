@@ -237,6 +237,106 @@ export function renderDataStructuresList(container, structs, total) {
   }
 }
 
+// #203 drill-down: list every captured site for one referenced resource in the
+// top-middle pane (each row jumps to source in the lower pane). Fires when a
+// resource row with >1 site is clicked, so a count >1 isn't a dead end.
+function renderReferencedResourceSites(label, sites) {
+  const container = $('#middle-top-body'), title = $('#middle-top-title');
+  if (!container) return;
+  showPane('middle-top'); navPush('middle-top');
+  if (title) title.textContent = `${label} — ${sites.length} site${sites.length !== 1 ? 's' : ''}`;
+  container.innerHTML = '';
+  const wrap = h('div', { className: 'output-section' });
+  for (const s of sites) {
+    const loc = `${shortPath(s.filepath)}:${s.line}`;
+    // Force block layout + explicit styles so the row doesn't inherit the
+    // .list-item/.name flex+overflow rules (which collapsed the column layout to
+    // zero height). The source line wraps fully so per-site specifics (e.g. the
+    // full `spawn('git', ['status','--porcelain'])`) are visible without clicking.
+    const row = h('div', { className: 'list-item', style: 'display:block;height:auto;padding:3px 8px;cursor:pointer;white-space:normal', title: `${s.filepath}:${s.line}` });
+    if (s.snippet) row.appendChild(h('div', { text: s.snippet, style: 'font-family:var(--font-mono);font-size:11px;white-space:pre-wrap;word-break:break-all;color:var(--text-bright)' }));
+    row.appendChild(h('div', { text: loc, style: 'font-size:10px;color:var(--text-muted)' }));
+    row.addEventListener('click', () => onFileClick(s.filepath, s.line));
+    wrap.appendChild(row);
+  }
+  container.appendChild(wrap);
+}
+
+// #203: Referenced Resources — the codebase's EXTERNAL surface (URLs/hosts, env
+// vars, filesystem paths, embedded SQL, external commands, cloud/infra, models).
+// Rendered as collapsible sub-accordions so the small, uniquely-valuable
+// categories (env / SQL / commands) aren't buried under the big duplicative
+// ones (URLs / filesystem). Small sections auto-expand; large ones collapse
+// with a count. Filesystem is split into named files vs extension-less
+// paths/route-fragments. Rows jump to source; right-click → Find Uses.
+export function renderReferencedResourcesList(container, data) {
+  container.innerHTML = '';
+  const d = data || {};
+  const fs = d.filesystem || [];
+  const fsFiles = fs.filter(e => e.kind === 'file');
+  const fsPaths = fs.filter(e => e.kind !== 'file');
+
+  // Ordered so the small/unique categories come first; big duplicative ones last.
+  const cats = [
+    { title: 'Environment variables', arr: d.env || [], render: 'value' },
+    { title: 'Embedded SQL', arr: d.sql || [], render: 'value' },
+    { title: 'External commands', arr: d.subprocess || [], render: 'value' },
+    { title: 'Cloud / infra', arr: d.cloud || [], render: 'cloud' },
+    { title: 'Models', arr: d.models || [], render: 'model' },
+    { title: 'Filesystem — files', arr: fsFiles, render: 'value' },
+    { title: 'Network (URLs)', arr: d.network || [], render: 'network' },
+    { title: 'Filesystem — paths / routes', arr: fsPaths, render: 'value' },
+  ];
+  if (!cats.some(c => c.arr.length)) { container.innerHTML = '<div class="list-placeholder">No referenced resources found</div>'; return; }
+
+  container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal;text-align:left;color:var(--text-muted)', text: 'The codebase’s external surface — what it points to but doesn’t contain. Click a section to expand; counts are reference counts.' }));
+
+  const addRow = (parent, label, { sub, count, sites, ctxName } = {}) => {
+    const first = (sites && sites[0]) || null;
+    const kids = [h('span', { className: 'name clickable', text: label, style: 'font-family:var(--font-mono);font-size:11px;word-break:break-all' })];
+    if (sub) kids.push(h('span', { className: 'filepath', text: sub }));
+    if (count != null) kids.push(h('span', { className: 'metric muted', text: `${count}×` }));
+    const item = h('div', { className: 'list-item', title: first ? `${first.filepath}:${first.line}` : label }, kids);
+    if (first) {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Multi-site: list every captured site in the top-middle pane (so a
+        // count >1 isn't a dead end), then open the first in the lower pane.
+        if (sites.length > 1) renderReferencedResourceSites(label, sites);
+        onFileClick(first.filepath, first.line);
+      });
+      item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: ctxName || label, display_name: label, filepath: first.filepath }); });
+    }
+    parent.appendChild(item);
+  };
+
+  const rowFor = (parent, c, e) => {
+    if (c.render === 'network') addRow(parent, e.value, { sub: e.host, count: e.count, sites: e.sites, ctxName: e.value });
+    else if (c.render === 'cloud') addRow(parent, `${e.cell}: ${e.kind}${e.tag === 'heuristic' ? ' ~' : ''}`, { count: e.count, sites: e.sites });
+    else if (c.render === 'model') addRow(parent, e.model, { sub: e.access, count: e.count }); // models carry no site
+    else addRow(parent, e.value, { count: e.count, sites: e.sites, ctxName: e.value });
+  };
+
+  // All sub-sections start collapsed (uniform — a mixed open/closed state read as
+  // surprising). Counts in each header + the hint above make it a scannable menu.
+  for (const c of cats) {
+    if (!c.arr.length) continue;
+    const toggle = h('span', { className: 'accordion-toggle', text: '▸', style: 'margin-right:5px' });
+    const hdr = h('div', { className: 'list-item', style: 'cursor:pointer;font-weight:600;font-size:11px;color:var(--accent-blue);margin-top:6px' }, [
+      toggle, h('span', { text: c.title }), h('span', { className: 'metric muted', text: `${c.arr.length}`, style: 'margin-left:auto' }),
+    ]);
+    const body = h('div', { style: 'display:none' });
+    for (const e of c.arr) rowFor(body, c, e);
+    hdr.addEventListener('click', () => {
+      const hidden = body.style.display === 'none';
+      body.style.display = hidden ? '' : 'none';
+      toggle.textContent = hidden ? '▾' : '▸';
+    });
+    container.appendChild(hdr);
+    container.appendChild(body);
+  }
+}
+
 // #197: Client/Server — server routes declared, client calls made, and the
 // reconciliation (internal client calls with no matching server route). Each
 // row jumps to its source line; right-click → Find Uses on the path/url.

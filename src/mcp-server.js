@@ -23,6 +23,7 @@ import { buildOverview, formatOverview } from './core/overview.js';
 import { extractConcepts, conceptLabel } from './core/vocabulary.js';
 import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
+import { extractReferencedResources } from './core/referenced-resources.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { displayName } from './utils.js';
 import { doCallTree } from './commands/graph.js';
@@ -269,6 +270,18 @@ const TOOLS = [
       properties: {
         n: { type: 'number', description: 'How many groups to show (default 20)' },
         min_lines: { type: 'number', description: 'Minimum function size in lines (default 5)' },
+      },
+    },
+  },
+  {
+    name: 'referenced_resources',
+    description: "Map the codebase's EXTERNAL surface — what it points to but does not contain: URLs/hosts, environment variables, filesystem paths, external commands (spawn/exec/subprocess), cloud/infra config, and model IDs. Each is ranked by reference count with file:line sites. High-value orientation for 'what does this code reach out to?' — an aggregation scattered across call sites that a plain file read can't cheaply assemble.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        n: { type: 'number', description: 'Max entries per category to show (default 25)' },
+        category: { type: 'string', description: "Optional: limit to one of network | env | filesystem | sql | subprocess | cloud | models" },
+        filter: { type: 'string', description: 'Filter entries by value substring' },
       },
     },
   },
@@ -757,6 +770,41 @@ function handleTool(name, args) {
         }
       }
       return lines.join('\n');
+    }
+
+    case 'referenced_resources': {
+      const rr = extractReferencedResources(index);
+      const n = args.n || 25;
+      const filt = args.filter ? String(args.filter).toLowerCase() : null;
+      const only = args.category ? String(args.category).toLowerCase() : null;
+      const pick = (arr, key) => (filt ? arr.filter(e => key(e).toLowerCase().includes(filt)) : arr).slice(0, n);
+      // Include the first site's source-line snippet (the actual usage, e.g. the
+      // full `exec("git", […])`) when it adds info beyond the captured value.
+      const site = (e) => {
+        const s = e.sites && e.sites[0];
+        if (!s) return '';
+        const snip = (s.snippet && s.snippet !== e.value) ? ` — ${s.snippet}` : '';
+        return `${snip} (${s.filepath}:${s.line})`;
+      };
+      const out = [];
+      const section = (cat, title, arr, fmt) => {
+        if (only && only !== cat) return;
+        out.push(`\n${title} (${arr.length}):`);
+        if (!arr.length) out.push('  (none)');
+        else for (const e of arr) out.push('  ' + fmt(e));
+      };
+      const fsFiles = (rr.filesystem || []).filter(e => e.kind === 'file');
+      const fsPaths = (rr.filesystem || []).filter(e => e.kind === 'path');
+      section('network', 'Network (URLs)', pick(rr.network, e => e.value), e => `${e.count}x ${e.value}${e.host ? ' [' + e.host + ']' : ''}${site(e)}`);
+      section('env', 'Environment variables', pick(rr.env, e => e.value), e => `${e.count}x ${e.value}${site(e)}`);
+      section('filesystem', 'Filesystem — files', pick(fsFiles, e => e.value), e => `${e.count}x ${e.value}${site(e)}`);
+      section('filesystem', 'Filesystem — paths/dirs', pick(fsPaths, e => e.value), e => `${e.count}x ${e.value}${site(e)}`);
+      section('sql', 'Embedded SQL', pick(rr.sql, e => e.value), e => `${e.count}x ${e.value}${site(e)}`);
+      section('subprocess', 'External commands', pick(rr.subprocess, e => e.value), e => `${e.count}x ${e.value}${site(e)}`);
+      section('cloud', 'Cloud / infra', pick(rr.cloud, e => e.cell + e.kind), e => `${e.count}x ${e.cell}: ${e.kind}${e.tag === 'heuristic' ? ' ~' : ''}${site(e)}`);
+      section('models', 'Models', pick(rr.models, e => e.model), e => `${e.count}x ${e.model} [${e.access}]`);
+      const body = out.join('\n').trim();
+      return body || 'No referenced resources found';
     }
 
     case 'list_indexes': {

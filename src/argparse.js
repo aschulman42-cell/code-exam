@@ -174,6 +174,7 @@ export function parseArgs() {
     list_classes: false,
     data_structs: false,
     client_server: false,
+    referenced_resources: null,
     list_models: false,
     list_artifacts: false,
     list_kernels: false,
@@ -386,6 +387,7 @@ export function parseArgs() {
     ['list_classes',         'flag',           ['--classes'], ['--list-classes']],
     ['data_structs',         'flag',           ['--data-structs'], ['--structs']],
     ['client_server',        'flag',           ['--client-server'], ['--routes']],
+    ['referenced_resources', 'optional_value', ['--referenced-resources', '--resources']],
     ['list_models',          'flag',           ['--models'], ['--list-models']],
     ['list_artifacts',       'flag',           ['--artifacts'], ['--list-artifacts']],
     ['list_kernels',         'flag',           ['--kernels'], ['--list-kernels']],
@@ -923,6 +925,24 @@ METRICS / DISCOVERY:
   --client-server            Map the HTTP surface: server routes declared,
                              client calls made, and client calls with no
                              matching server route (alias: --routes)
+  --referenced-resources [subsections]
+                             Map the codebase's EXTERNAL surface — the things it
+                             points to but doesn't contain: URLs/hosts,
+                             environment variables, filesystem paths, embedded
+                             SQL, external commands (spawn/exec/subprocess),
+                             cloud/infra config, and model IDs — each ranked by
+                             reference count with file:line sites.
+                             (alias: --resources). Honors --filter, --max-results.
+                             Optional comma-separated subsections to show only
+                             those, e.g. --referenced-resources sql,env. Names:
+                               network  (URLs/hosts; aliases: urls)
+                               env      (environment variables; aliases: envvars)
+                               files    (filesystem files with extensions)
+                               paths    (filesystem dirs/route paths; alias: routes)
+                               sql      (embedded SQL; alias: embed-sql)
+                               commands (external commands; aliases: cmds, exec)
+                               cloud    (cloud/infra config; alias: infra)
+                               models   (model IDs)
   --vocabulary <n>           Top N domain-specific tokens by TF-IDF score
                              (short alias: --vocab; deprecated alias:
                              --discover-vocabulary)

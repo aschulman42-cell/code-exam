@@ -28,6 +28,7 @@ import { extractConcepts } from './core/vocabulary.js';
 import { buildOverviewFast, buildOverviewDeep } from './core/overview.js';
 import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
+import { extractReferencedResources } from './core/referenced-resources.js';
 import { runAiOverview } from './core/ai-overview.js';
 import { loadUsedByCatalog, makeUsedByFor } from './commands/exports.js';
 import { detectInfrastructure } from './core/stack-detectors.js';
@@ -1772,6 +1773,26 @@ routes['/api/data-structures'] = (req, res) => {
   if (q.filter) { const match = makeFilterMatcher(q.filter); structs = structs.filter(s => match(s.name)); }
   const max = safeMax(q.max, 500);
   jsonResponse(res, { total: structs.length, structs: structs.slice(0, max) });
+};
+
+// #203: the codebase's external surface — URLs/hosts, env vars, filesystem
+// paths, external commands, cloud/infra, model IDs. Aggregator over existing
+// detectors + net-new literal scans (see core/referenced-resources.js).
+routes['/api/referenced-resources'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const rr = extractReferencedResources(index);
+  if (q.filter) {
+    const match = makeFilterMatcher(q.filter);
+    rr.network = rr.network.filter(e => match(e.value) || match(e.host || ''));
+    rr.env = rr.env.filter(e => match(e.value));
+    rr.filesystem = rr.filesystem.filter(e => match(e.value));
+    rr.subprocess = rr.subprocess.filter(e => match(e.value));
+    rr.cloud = rr.cloud.filter(e => match(e.kind) || match(e.cell));
+    rr.models = rr.models.filter(e => match(e.model));
+  }
+  jsonResponse(res, rr);
 };
 
 // #197: client/server HTTP surface — server routes, client calls, and the

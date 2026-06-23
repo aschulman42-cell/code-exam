@@ -11,6 +11,7 @@ import { spawnSync } from 'child_process';
 import { parseArgs } from './argparse.js';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { buildOverview, formatOverview } from './core/overview.js';
+import { extractReferencedResources } from './core/referenced-resources.js';
 import { MEDIA_BINARY_EXTENSIONS, ARCHIVE_EXTENSIONS, EXECUTABLE_EXTENSIONS } from './utils.js';
 import { BINSTRING_EXTENSIONS } from './binstrings.js';
 import {
@@ -554,6 +555,69 @@ if (args.domain_fns)                        doDomainFns(index, args);
 if (args.list_classes)                      doListClasses(index, args);
 if (args.data_structs)                      doDataStructs(index, args);
 if (args.client_server)                     doClientServer(index, args);
+if (args.referenced_resources) {
+  // #203: the codebase's external surface (URLs/env/fs/sql/commands/cloud/models).
+  const rr = extractReferencedResources(index);
+  const max = args.max_results || 20;
+  const filt = args.filter ? args.filter.toLowerCase() : null;
+  // Optional subsection selection: --referenced-resources sql,env → only those.
+  const RR_ALIASES = {
+    network: 'network', urls: 'network', url: 'network',
+    env: 'env', envvars: 'env', envvar: 'env', environment: 'env',
+    files: 'files', 'fs-files': 'files',
+    paths: 'paths', 'fs-paths': 'paths', routes: 'paths', dirs: 'paths',
+    sql: 'sql', 'embed-sql': 'sql', 'embedded-sql': 'sql',
+    commands: 'commands', cmds: 'commands', cmd: 'commands', cmdlines: 'commands', exec: 'commands', subprocess: 'commands',
+    cloud: 'cloud', infra: 'cloud', infrastructure: 'cloud',
+    models: 'models', model: 'models',
+  };
+  let want = null;
+  const raw = typeof args.referenced_resources === 'string' ? args.referenced_resources : '';
+  if (raw && raw !== '.') {
+    want = new Set();
+    const unknown = [];
+    for (const tok of raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)) {
+      if (RR_ALIASES[tok]) want.add(RR_ALIASES[tok]); else unknown.push(tok);
+    }
+    if (unknown.length) process.stderr.write(`[referenced-resources] unknown subsection(s): ${unknown.join(', ')}. Valid: network, env, files, paths, sql, commands, cloud, models\n`);
+  }
+  const pick = (arr, key) => (filt ? arr.filter(e => key(e).toLowerCase().includes(filt)) : arr).slice(0, max);
+  const verbose = !!args.verbose;
+  // First-site info: the source-line snippet (the actual usage, e.g. the full
+  // `exec("git", […])`) when it adds info beyond the value, plus the location.
+  const site = (e) => {
+    const s = e.sites && e.sites[0];
+    if (!s) return '';
+    const snip = (s.snippet && s.snippet !== e.value) ? `  — ${s.snippet}` : '';
+    return `${snip}  (${s.filepath}:${s.line})`;
+  };
+  const out = ["Referenced resources — the codebase's external surface:", ''];
+  const section = (subKey, title, arr, fmt) => {
+    if (want && !want.has(subKey)) return;     // subsection filter
+    out.push(`${title} (${arr.length}):`);
+    if (!arr.length) out.push('  (none)');
+    else for (const e of arr) {
+      out.push('  ' + fmt(e));
+      // -v: list every captured site with its source line (the per-call specifics).
+      if (verbose && e.sites && e.sites.length > 1) {
+        for (const s of e.sites) out.push(`      ${s.filepath}:${s.line}${s.snippet ? '  ' + s.snippet : ''}`);
+      }
+    }
+    out.push('');
+  };
+  const fsFiles = (rr.filesystem || []).filter(e => e.kind === 'file');
+  const fsPaths = (rr.filesystem || []).filter(e => e.kind === 'path');
+  section('network', 'Network (URLs)',         pick(rr.network, e => e.value),    e => `${e.count}×  ${e.value}${e.host ? '  [' + e.host + ']' : ''}${site(e)}`);
+  section('env', 'Environment variables',      pick(rr.env, e => e.value),        e => `${e.count}×  ${e.value}${site(e)}`);
+  section('files', 'Filesystem — files',       pick(fsFiles, e => e.value),       e => `${e.count}×  ${e.value}${site(e)}`);
+  section('paths', 'Filesystem — paths/dirs',  pick(fsPaths, e => e.value),       e => `${e.count}×  ${e.value}${site(e)}`);
+  section('sql', 'Embedded SQL',               pick(rr.sql, e => e.value),        e => `${e.count}×  ${e.value}${site(e)}`);
+  section('commands', 'External commands',     pick(rr.subprocess, e => e.value), e => `${e.count}×  ${e.value}${site(e)}`);
+  section('cloud', 'Cloud / infra',            pick(rr.cloud, e => e.cell + e.kind), e => `${e.count}×  ${e.cell}: ${e.kind}${e.tag === 'heuristic' ? ' ~' : ''}${site(e)}`);
+  section('models', 'Models',                  pick(rr.models, e => e.model),     e => `${e.count}×  ${e.model}  [${e.access}]`);
+  if ((!want || want.has('network')) && rr.hosts.length) out.push(`Distinct hosts (${rr.hosts.length}): ${rr.hosts.slice(0, 40).join(', ')}`);
+  console.log(out.join('\n'));
+}
 // AI/ML detectors. When 2+ run together (e.g. `--multi-index` with several
 // --cmds), print a blank line + a one-line `----- name -----` header before
 // each so the outputs don't run together. A single-command run stays
@@ -787,7 +851,7 @@ if (args.interactive) {
     'callers', 'callees', 'most_called',
     'call_tree', 'class_tree', 'call_inventory', 'file_map', 'file_tree',
     'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
-    'list_classes', 'data_structs', 'client_server', 'list_models', 'list_artifacts', 'list_kernels', 'list_multimodal', 'list_post_training', 'list_reasoning', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'list_pipelines', 'list_explainability', 'class_hotspots', 'discover_vocabulary', 'multisect_search',
+    'list_classes', 'data_structs', 'client_server', 'referenced_resources', 'list_models', 'list_artifacts', 'list_kernels', 'list_multimodal', 'list_post_training', 'list_reasoning', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'list_pipelines', 'list_explainability', 'class_hotspots', 'discover_vocabulary', 'multisect_search',
     'claim_search', 'claim_file',
     'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
     'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
