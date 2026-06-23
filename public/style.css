@@ -163,6 +163,11 @@ body { font-family: var(--font-ui); font-size: 13px; color: var(--text); backgro
 .line-content { white-space: pre; }
 .wrap-lines .line-content { white-space: pre-wrap; word-break: break-all; }
 
+/* Search-result rows (#205): windowed on the match, clipped on one line by
+   default; "Wrap Long Lines" expands them to show the whole line. */
+.search-line { padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wrap-lines .search-line { white-space: pre-wrap; word-break: break-all; overflow: visible; }
+
 /* Inferred-name suffix (e.g. _KW_GET_COST_COUNTER on wI1). Hidden when the
    "Show Inferred Name Suffixes" View toggle is OFF. TODO #374. */
 body.hide-inferred-suffix .inferred-suffix { display: none; }

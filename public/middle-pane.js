@@ -593,14 +593,25 @@ export function renderSearchResults(query, data) {
     html += '<div style="padding:2px 12px 4px 24px">';
     let lastFunc = null;
     for (const r of hits) {
-      const hlLine = highlightLine(escHtml(r.line_text.trim()), [query], HIGHLIGHT_COLORS);
+      // Window the line on the FIRST match so a match far from the line start
+      // isn't clipped off-screen (the row clips with text-overflow). Full line
+      // stays in the tooltip; "Wrap Long Lines" expands it (.search-line CSS).
+      const full = r.line_text.trim();
+      const at = query ? full.toLowerCase().indexOf(query.toLowerCase()) : -1;
+      let shown = full, lead = false, trail = false;
+      if (at >= 0) {
+        const start = Math.max(0, at - 40);
+        const end = Math.min(full.length, at + query.length + 80);
+        shown = full.slice(start, end); lead = start > 0; trail = end < full.length;
+      }
+      const hlLine = (lead ? '… ' : '') + highlightLine(escHtml(shown), [query], HIGHLIGHT_COLORS) + (trail ? ' …' : '');
       let lineHtml = `<span class="mono muted" style="font-size:11px;margin-right:6px">L${r.line_number}</span>`;
       if (r.containing_function && r.containing_function !== lastFunc) {
         lineHtml += `<span class="clickable" data-funcname="${escHtml(r.containing_function)}" data-filepath="${escHtml(fp)}" style="font-size:11px;margin-right:6px">${escHtml(r.containing_function)}</span>`;
         lastFunc = r.containing_function;
       }
       lineHtml += `<span style="font-family:var(--font-mono);font-size:12px;color:var(--text-bright)">${hlLine}</span>`;
-      html += `<div style="padding:1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${lineHtml}</div>`;
+      html += `<div class="search-line" title="${escHtml(full)}">${lineHtml}</div>`;
     }
     html += '</div></div>';
   }

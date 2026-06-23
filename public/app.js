@@ -1566,7 +1566,10 @@ async function init() {
 
   // View options
   $('#opt-wrap-lines')?.addEventListener('change', (e) => {
-    document.querySelectorAll('.source-view').forEach(el => {
+    // Also toggle on the middle-top pane body (persistent container) so search
+    // results — which render .search-line rows there — honor the wrap setting,
+    // including results rendered after the toggle was flipped. #205.
+    document.querySelectorAll('.source-view, #middle-top-body').forEach(el => {
       el.classList.toggle('wrap-lines', e.target.checked);
     });
   });
