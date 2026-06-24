@@ -3345,7 +3345,9 @@ async function runChatToolLoop({ messages, index, indexName, fileCount, mode, ap
   const apiUrl = process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages';
   const allBlocks = [];
   let current = [...messages];
-  for (let iteration = 0; iteration < 15; iteration++) {
+  const MAX_ITERATIONS = 25;  // raised from 15 (#36): attributed/augmented modes explore harder
+  let finalReached = false;
+  for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     const payload = JSON.stringify({
       model, max_tokens: maxTokens, temperature, system, messages: current, tools,
     });
@@ -3354,7 +3356,7 @@ async function runChatToolLoop({ messages, index, indexName, fileCount, mode, ap
     });
     const content = body.content || [];
     allBlocks.push(...content);
-    if (body.stop_reason !== 'tool_use') break;
+    if (body.stop_reason !== 'tool_use') { finalReached = true; break; }
 
     const resultMap = {};
     const toolResults = [];
@@ -3373,6 +3375,19 @@ async function runChatToolLoop({ messages, index, indexName, fileCount, mode, ap
     // Strip our _result annotation before echoing assistant turn back to the API.
     const clean = content.map(({ _result, ...rest }) => rest);
     current = [...current, { role: 'assistant', content: clean }, { role: 'user', content: toolResults }];
+  }
+  // Loop exhausted while the model still wanted tools (no final text yet): make
+  // one tools-OFF call so it MUST answer from what it gathered — otherwise the
+  // user gets tool calls with no prose (#36, the Attributed-run truncation).
+  if (!finalReached) {
+    try {
+      const body = await _serverHttpPost(apiUrl, JSON.stringify({
+        model, max_tokens: maxTokens, temperature, system, messages: current,  // no `tools` → stop_reason can't be tool_use
+      }), { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' });
+      allBlocks.push(...(body.content || []));
+    } catch (e) {
+      allBlocks.push({ type: 'text', text: `(Reached the ${MAX_ITERATIONS}-step tool limit and could not produce a final summary: ${e.message})` });
+    }
   }
   return allBlocks;
 }
