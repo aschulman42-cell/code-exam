@@ -35,10 +35,13 @@ const MAX_TOOL_OUTPUT = 4000; // chars — cap each tool result so the loop does
  * @param {number} [o.contextSize] preferred context (shrinks on OOM)
  * @param {number} [o.maxTokens]   max output tokens
  * @param {number} [o.timeoutMs]   hard wall-clock cap (default 20 min)
+ * @param {('auto'|false)} [o.gpu] 'auto' (default) uses the GPU if available and
+ *   falls back to CPU when the GPU can't fit the context; false forces CPU
+ *   (loads into full system RAM — needed for large models on a small/integrated GPU)
  * @param {(s:string)=>void} [o.onStatus] progress sink (model load, tool calls)
  * @returns {Promise<{prose:string, toolCalls:number, contextSize:number}>}
  */
-export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 16384, maxTokens = 2400, timeoutMs = 1200000, onStatus, onStream } = {}) {
+export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 16384, maxTokens = 2400, timeoutMs = 1200000, gpu = 'auto', onStatus, onStream } = {}) {
   if (!indexPath) throw new Error('runAiOverviewLocal: indexPath is required.');
   if (!modelPath) throw new Error('runAiOverviewLocal: a GGUF modelPath is required (pass --model).');
   const status = (s) => { if (onStatus) onStatus(s); };
@@ -67,14 +70,39 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     }
 
     status(`loading model ${modelPath.split(/[\\/]/).pop()} …`);
-    const llama = await getLlama();
-    model = await llama.loadModel({ modelPath });
+    const sizes = [contextSize, 8192, 4096, 2048];
 
-    let context;
-    for (const sz of [contextSize, 8192, 4096, 2048]) {
-      try { context = await model.createContext({ contextSize: sz }); contextSize = sz; break; } catch { /* shrink */ }
+    // Load the model and create a context, optionally forcing CPU. Returns
+    // {m, ctx} on success or null when no context size fits (disposing the
+    // model it loaded, so the caller can retry on CPU without a leak).
+    const tryLoad = async (cpuOnly) => {
+      const llama = await getLlama(cpuOnly ? { gpu: false } : undefined);
+      const m = await llama.loadModel({ modelPath });
+      let ctx;
+      for (const sz of sizes) {
+        try { ctx = await m.createContext({ contextSize: sz }); contextSize = sz; break; } catch { /* shrink */ }
+      }
+      if (!ctx) { try { await m.dispose(); } catch { /* */ } return null; }
+      return { m, ctx };
+    };
+
+    let loaded;
+    if (gpu === false) {
+      status('using CPU (GPU disabled) …');
+      loaded = await tryLoad(true);
+    } else {
+      loaded = await tryLoad(false); // auto — GPU if available
+      if (!loaded) {
+        // The model can load onto a small/integrated GPU yet leave no room for
+        // the KV-cache (every context size OOMs). CPU uses full system RAM, so
+        // retry once there before giving up.
+        status('GPU out of memory; retrying on CPU (slower) …');
+        loaded = await tryLoad(true);
+      }
     }
-    if (!context) throw new Error('could not create a model context (out of memory?)');
+    if (!loaded) throw new Error('could not create a model context (out of memory?) — even on CPU');
+    model = loaded.m;
+    const context = loaded.ctx;
 
     // Expose the CE tools as chat functions backed by handleTool.
     const byName = new Map(TOOLS.map(t => [t.name, t]));

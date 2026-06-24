@@ -252,7 +252,7 @@ if (args.overview_by_ai) {
   // Engine: --model <gguf> selects the local node-llama-cpp engine (air-gapped,
   // #196 spike); otherwise the claude CLI. (--claude-model picks the API model.)
   const localGguf = args.model || null;
-  const engineLabel = localGguf ? `local ${localGguf.split(/[\\/]/).pop()}` : 'claude';
+  const engineLabel = localGguf ? `local ${localGguf.split(/[\\/]/).pop()}${args.cpu ? ' (CPU)' : ''}` : 'claude';
   process.stderr.write(`[overview-by-ai] running ${engineLabel} over ${args.index_path} (timeout ${mins} min)…\n`);
   // Heartbeat: the run can take minutes with no output (prose prints only at the
   // end), so emit a sign of life every 20s. stderr-only — stdout stays pure
@@ -269,7 +269,9 @@ if (args.overview_by_ai) {
         indexPath: args.index_path,
         modelPath: localGguf,
         timeoutMs,
-        onStatus: (s) => { if (args.verbose) process.stderr.write(`[overview-by-ai] ${s}\n`); },
+        gpu: args.cpu ? false : 'auto', // --cpu forces CPU; else GPU with CPU fallback on OOM
+        // model-load / CPU-fallback notes always show; per-tool chatter is verbose-only.
+        onStatus: (s) => { if (args.verbose || !s.startsWith('tool ')) process.stderr.write(`[overview-by-ai] ${s}\n`); },
         // -v also streams the live model output (incl. <think>) to stderr for testing.
         onStream: args.verbose ? (c) => process.stderr.write(c) : undefined,
       }));

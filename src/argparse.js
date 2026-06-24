@@ -97,6 +97,7 @@ export function parseArgs() {
     index_extensions: false,
     overview: false,
     overview_by_ai: false,
+    cpu: false,           // --overview-by-ai: force local GGUF onto CPU (skip GPU)
     list_indexes: null,
 
     // Callers / Callees
@@ -330,6 +331,7 @@ export function parseArgs() {
     ['index_extensions',     'flag',           ['--index-extensions']],
     ['overview',             'flag',           ['--overview']],
     ['overview_by_ai',       'flag',           ['--overview-by-ai', '--overview-by-AI']],
+    ['cpu',                  'flag',           ['--cpu']],
     ['list_indexes',         'optional_value', ['--indexes'], ['--list-indexes']],
 
     ['max_results',          'int',            ['--max-results', '--max', '-n']],
@@ -798,6 +800,10 @@ BROWSE:
                              --timeout <minutes> caps the run (default 20); reads
                              CE_AI_OVERVIEW_MODEL / CE_AI_OVERVIEW_TIMEOUT_MS as
                              fallbacks.
+  --cpu                      With --overview-by-ai --model: force the local GGUF
+                             onto the CPU (full system RAM) instead of the GPU.
+                             Use for large models on a small/integrated GPU; the
+                             default already falls back to CPU if the GPU OOMs.
   --indexes [path]           List available index directories
                              (deprecated alias: --list-indexes)
 
