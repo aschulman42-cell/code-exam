@@ -372,6 +372,12 @@ export function showPane(id) {
 export function openGenericFullscreen(paneId) {
   let paneBody, titleText;
 
+  // #36: single-slot overlay — if a pane is already popped out, restore it first.
+  // Otherwise popping a second pane runs `fsBody.innerHTML = ''` (destroying the
+  // first reparented node) and overwrites the return refs, losing the first pane
+  // (e.g. Chat + its conversation) and orphaning its "click to return" placeholder.
+  if (state._fsReturnNode) closeGenericFullscreen();
+
   closeFind();  // #177: clear any open find before the pane body is reparented
 
   // #177: re-center the floating window on each open (clear any prior drag so a
