@@ -543,9 +543,13 @@ export function parseArgs() {
   while (i < argv.length) {
     let token = argv[i];
 
-    // Handle --help
-    if (token === '--help' || token === '-h' || token === '--usage') {
-      printUsage();
+    // Handle --help (optional filter: --help cpu  or  --help=cpu)
+    if (token === '--help' || token === '-h' || token === '--usage' ||
+        token.startsWith('--help=') || token.startsWith('--usage=') || token.startsWith('-h=')) {
+      let helpFilter = null;
+      if (token.includes('=')) helpFilter = token.slice(token.indexOf('=') + 1);
+      else if (argv[i + 1] && !argv[i + 1].startsWith('-')) helpFilter = argv[i + 1];
+      printUsage(helpFilter);
       process.exit(0);
     }
     if (token === '--version') {
@@ -698,13 +702,48 @@ export function parseArgs() {
 }
 
 
-function printUsage() {
-  console.log(`
+/**
+ * Filter the usage text to the option entries (and their parent section header)
+ * matching `filter` (case-insensitive). An entry is a 2-space-indented line plus
+ * its more-indented continuation lines; section headers are column-0 lines ending
+ * in ':'. Backs `--help <filter>` (e.g. `--help cpu`).
+ */
+export function filterHelp(text, filter) {
+  const f = String(filter).toLowerCase();
+  const lines = String(text).split('\n');
+  const isHeader = (l) => /^\S.*:\s*$/.test(l);
+  const isEntry = (l) => /^ {2}\S/.test(l);
+  const out = [];
+  let section = null, sectionEmitted = false, block = null;
+  const flush = () => {
+    if (block && block.join('\n').toLowerCase().includes(f)) {
+      if (section && !sectionEmitted) { out.push('', section); sectionEmitted = true; }
+      out.push(...block);
+    }
+    block = null;
+  };
+  for (const line of lines) {
+    if (isHeader(line)) { flush(); section = line; sectionEmitted = false; }
+    else if (isEntry(line)) { flush(); block = [line]; }
+    else if (block && /^\s+\S/.test(line)) { block.push(line); }
+    else { flush(); }
+  }
+  flush();
+  const body = out.join('\n').replace(/^\n+/, '');
+  return body
+    ? `code-exam — help entries matching "${filter}":\n\n${body}`
+    : `No help entries match "${filter}". Run --help with no filter for the full list.`;
+}
+
+function printUsage(filter) {
+  const usage = `
 code-exam - Air-Gapped Source Code Examination Tool (Node.js)
 Version: ${VERSION}
 
 USAGE:
   node src/index.js [options]
+  --help [filter]            Show this help; with a filter, show only matching
+                             option entries (e.g. --help cpu)
 
 INDEX MANAGEMENT:
   --build-index <path>       Build index from directory, file, glob, @filelist,
@@ -802,8 +841,9 @@ BROWSE:
                              fallbacks.
   --cpu                      With --overview-by-ai --model: force the local GGUF
                              onto the CPU (full system RAM) instead of the GPU.
-                             Use for large models on a small/integrated GPU; the
-                             default already falls back to CPU if the GPU OOMs.
+                             Prefer this on an integrated/small GPU: the default
+                             only recovers from GPU out-of-memory, NOT from other
+                             GPU failures (e.g. backend crashes).
   --indexes [path]           List available index directories
                              (deprecated alias: --list-indexes)
 
@@ -1250,5 +1290,6 @@ EXAMPLES:
   node src/index.js --claim-analyze @patent.txt --llm claude
   node src/index.js --multisect-analyze "encrypt;key;cipher" --llm claude
   node src/index.js --file-analyze crypto.c --llm claude --mask-all
-`);
+`;
+  console.log(filter ? filterHelp(usage, filter) : usage);
 }
