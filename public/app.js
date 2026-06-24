@@ -1602,7 +1602,7 @@ function clearChat() {
   }));
 }
 
-function appendChatBubble(role, text, toolNames) {
+function appendChatBubble(role, text, toolCalls) {
   const wrap = $('#chat-messages');
   if (!wrap) return null;
   const ph = wrap.querySelector('.list-placeholder');
@@ -1612,12 +1612,24 @@ function appendChatBubble(role, text, toolNames) {
     style: 'margin:6px 0;padding:6px 9px;border-radius:6px;' +
       (role === 'user' ? 'background:rgba(120,160,255,0.12)' : 'background:rgba(255,255,255,0.04)'),
   });
-  if (toolNames && toolNames.length) {
-    bubble.appendChild(h('div', {
-      className: 'chat-tools',
-      style: 'font-size:0.8em;opacity:0.6;margin-bottom:3px',
-      text: `🔧 ${toolNames.join(', ')}`,
-    }));
+  if (toolCalls && toolCalls.length) {
+    if ($('#chat-show-tools')?.checked) {
+      // Detailed MCP-call record: name({args}) per call — grounding evidence,
+      // saved with the transcript (#36). args truncated so a huge payload
+      // doesn't bloat the record.
+      const box = h('div', { className: 'chat-tools', style: 'font-size:0.8em;opacity:0.7;margin-bottom:4px;font-family:monospace;white-space:pre-wrap;word-break:break-word' });
+      for (const tc of toolCalls) {
+        const a = JSON.stringify(tc.input || {});
+        box.appendChild(h('div', { text: `🔧 ${tc.name}(${a.length > 200 ? a.slice(0, 200) + '…' : a})` }));
+      }
+      bubble.appendChild(box);
+    } else {
+      bubble.appendChild(h('div', {
+        className: 'chat-tools',
+        style: 'font-size:0.8em;opacity:0.6;margin-bottom:3px',
+        text: `🔧 ${toolCalls.map(t => t.name).join(', ')}`,
+      }));
+    }
   }
   bubble.appendChild(h('div', { className: 'chat-text', style: 'white-space:pre-wrap;word-break:break-word', text }));
   wrap.appendChild(bubble);
@@ -1642,10 +1654,10 @@ async function sendChatMessage() {
       mode: $('#chat-mode')?.value || 'grounded',
     }, { timeout: 600000 });
     const blocks = resp.content || [];
-    const toolNames = blocks.filter(b => b.type === 'tool_use').map(b => b.name);
+    const toolCalls = blocks.filter(b => b.type === 'tool_use').map(b => ({ name: b.name, input: b.input }));
     const answer = blocks.filter(b => b.type === 'text').map(b => b.text).join('\n').trim() || '(no text response)';
     pending?.remove();
-    appendChatBubble('assistant', answer, toolNames);
+    appendChatBubble('assistant', answer, toolCalls);
     chatMessages.push({ role: 'assistant', content: answer });
   } catch (e) {
     pending?.remove();
