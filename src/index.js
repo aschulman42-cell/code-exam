@@ -244,6 +244,15 @@ if (args.overview_by_ai) {
   // CLI-only, short-lived process: silence the DEP0190 warning from the
   // shell:true `claude` spawn so it doesn't pollute saved/--multi-index output.
   process.noDeprecation = true;
+  // Validate --grounding so a typo (e.g. `--grounding foobly`) fails loudly
+  // instead of silently falling back to grounded — otherwise you can't tell the
+  // modes are wired up (#196).
+  const GROUNDING_MODES = ['grounded', 'augmented', 'attributed'];
+  if (args.grounding && !GROUNDING_MODES.includes(args.grounding)) {
+    process.stderr.write(`[overview-by-ai] invalid --grounding "${args.grounding}" — use one of: ${GROUNDING_MODES.join(', ')}\n`);
+    process.exit(1);
+  }
+  const grounding = args.grounding || 'grounded';
   const timeoutMs = (args.timeout && args.timeout > 0)
     ? args.timeout * 60000
     : (parseInt(process.env.CE_AI_OVERVIEW_TIMEOUT_MS, 10) || 1200000); // default 20 min (overnight-friendly)
@@ -253,7 +262,7 @@ if (args.overview_by_ai) {
   // #196 spike); otherwise the claude CLI. (--claude-model picks the API model.)
   const localGguf = args.model || null;
   const engineLabel = localGguf ? `local ${localGguf.split(/[\\/]/).pop()}${args.cpu ? ' (CPU)' : ''}` : 'claude';
-  process.stderr.write(`[overview-by-ai] running ${engineLabel} over ${args.index_path} (timeout ${mins} min)…\n`);
+  process.stderr.write(`[overview-by-ai] running ${engineLabel}, grounding=${grounding}, over ${args.index_path} (timeout ${mins} min)…\n`);
   // Heartbeat: the run can take minutes with no output (prose prints only at the
   // end), so emit a sign of life every 20s. stderr-only — stdout stays pure
   // prose so --multi-index capture isn't polluted.
@@ -269,6 +278,7 @@ if (args.overview_by_ai) {
         indexPath: args.index_path,
         modelPath: localGguf,
         timeoutMs,
+        grounding, // grounded (default) | augmented | attributed (#196)
         gpu: args.cpu ? false : 'auto', // --cpu forces CPU; else GPU with CPU fallback on OOM
         // model-load / CPU-fallback notes always show; per-tool chatter is verbose-only.
         onStatus: (s) => { if (args.verbose || !s.startsWith('tool ')) process.stderr.write(`[overview-by-ai] ${s}\n`); },
@@ -281,6 +291,7 @@ if (args.overview_by_ai) {
         indexPath: args.index_path,
         model: args.claude_model || process.env.CE_AI_OVERVIEW_MODEL,
         timeoutMs,
+        grounding, // grounded (default) | augmented | attributed (#196)
         onStderr: (s) => { if (args.verbose) process.stderr.write(s); },
       });
     }

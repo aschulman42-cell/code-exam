@@ -98,6 +98,7 @@ export function parseArgs() {
     overview: false,
     overview_by_ai: false,
     cpu: false,           // --overview-by-ai: force local GGUF onto CPU (skip GPU)
+    grounding: null,      // --overview-by-ai: grounded (default) | augmented | attributed
     list_indexes: null,
 
     // Callers / Callees
@@ -332,6 +333,7 @@ export function parseArgs() {
     ['overview',             'flag',           ['--overview']],
     ['overview_by_ai',       'flag',           ['--overview-by-ai', '--overview-by-AI']],
     ['cpu',                  'flag',           ['--cpu']],
+    ['grounding',            'value',          ['--grounding']],
     ['list_indexes',         'optional_value', ['--indexes'], ['--list-indexes']],
 
     ['max_results',          'int',            ['--max-results', '--max', '-n']],
@@ -844,6 +846,12 @@ BROWSE:
                              Prefer this on an integrated/small GPU: the default
                              only recovers from GPU out-of-memory, NOT from other
                              GPU failures (e.g. backend crashes).
+  --grounding <mode>         With --overview-by-ai: how freely the model may use
+                             knowledge beyond the codebase. grounded (default) =
+                             code only, says "not determinable" instead of
+                             guessing; augmented = + general knowledge; attributed
+                             = + general knowledge with provenance flagged. Same
+                             modes as the GUI chat's Grounding selector.
   --indexes [path]           List available index directories
                              (deprecated alias: --list-indexes)
 

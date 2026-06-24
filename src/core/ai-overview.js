@@ -65,6 +65,22 @@ OUTPUT (prose + two short labeled lists):
 - "Questions to start with" — each paired with the single CE command that most DIRECTLY answers it (verify a structural claim with the confirming command — a clone claim uses struct_dupes --cross-source-only or list_files, not a bare struct_dupes). Directed exploration, not noodling.
 Emit file/function references as backticked paths (\`path\` or \`path@func\`) so they can be made clickable.`;
 
+// Grounding mode (#196, mirrors the chat's #36 clauses): how freely the overview
+// may use knowledge beyond the indexed codebase. Default 'grounded' — forensic by
+// default. (Chat keeps its own copy in server.js; a later cleanup can dedupe both
+// into one shared module.)
+export const AI_OVERVIEW_GROUNDING_CLAUSES = {
+  grounded: `GROUNDING — STRICT: Base the overview ONLY on what the tools surface about this code. If something cannot be determined from the code, say so rather than filling the gap with general knowledge. Do NOT assert the purpose of a referenced library/algorithm, the research domain, or any external framing as fact about this codebase unless the code itself states it.`,
+  augmented: `GROUNDING — AUGMENTED: You may combine what the tools surface with your general knowledge for the richest orientation — naming the domain or research area, explaining what a referenced library or algorithm does, and supplying standard context the code assumes its readers already know.`,
+  attributed: `GROUNDING — ATTRIBUTED: Combine codebase evidence with general knowledge, but make provenance explicit — distinguish claims grounded in THIS code (cite the file/function/tool) from claims that come from your general knowledge or inference. Flag every non-trivial external claim as such.`,
+};
+
+// AI_OVERVIEW_PROMPT + the selected grounding clause (default grounded).
+export function aiOverviewPrompt(grounding) {
+  const clause = AI_OVERVIEW_GROUNDING_CLAUSES[grounding] || AI_OVERVIEW_GROUNDING_CLAUSES.grounded;
+  return `${AI_OVERVIEW_PROMPT}\n\n${clause}`;
+}
+
 /**
  * Run "Overview by AI" against an index directory. Resolves with the prose
  * string (claude exit 0 + non-empty stdout) or rejects with an Error whose
@@ -77,7 +93,7 @@ Emit file/function references as backticked paths (\`path\` or \`path@func\`) so
  * @param {(line:string)=>void} [opts.onStderr] Optional live stderr sink (CLI progress).
  * @returns {Promise<string>}
  */
-export function runAiOverview({ indexPath, model, timeoutMs = 600000, onStderr } = {}) {
+export function runAiOverview({ indexPath, model, timeoutMs = 600000, grounding, onStderr } = {}) {
   return new Promise((resolve, reject) => {
     if (!indexPath) return reject(new Error('runAiOverview: indexPath is required.'));
 
@@ -136,7 +152,7 @@ export function runAiOverview({ indexPath, model, timeoutMs = 600000, onStderr }
       if (codeNum === 0 && out.trim()) finish(resolve, out.trim());
       else finish(reject, new Error(`AI Overview failed (claude exit ${codeNum}). ${(err || '').slice(0, 400)}`.trim()));
     });
-    child.stdin.write(AI_OVERVIEW_PROMPT);
+    child.stdin.write(aiOverviewPrompt(grounding));
     child.stdin.end();
   });
 }

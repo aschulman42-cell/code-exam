@@ -19,7 +19,7 @@
 
 import { CodeSearchIndex } from './CodeSearchIndex.js';
 import { handleTool, TOOLS, setIndex } from '../mcp-server.js';
-import { AI_OVERVIEW_PROMPT, AI_OVERVIEW_TOOLS } from './ai-overview.js';
+import { AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './ai-overview.js';
 
 // The CE tool names the overview may call (same allow-list as the claude
 // engine), with the mcp__code-exam__ prefix stripped to the handleTool case.
@@ -41,7 +41,7 @@ const MAX_TOOL_OUTPUT = 4000; // chars — cap each tool result so the loop does
  * @param {(s:string)=>void} [o.onStatus] progress sink (model load, tool calls)
  * @returns {Promise<{prose:string, toolCalls:number, contextSize:number}>}
  */
-export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 16384, maxTokens = 2400, timeoutMs = 1200000, gpu = 'auto', onStatus, onStream } = {}) {
+export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 16384, maxTokens = 2400, timeoutMs = 1200000, gpu = 'auto', grounding, onStatus, onStream } = {}) {
   if (!indexPath) throw new Error('runAiOverviewLocal: indexPath is required.');
   if (!modelPath) throw new Error('runAiOverviewLocal: a GGUF modelPath is required (pass --model).');
   const status = (s) => { if (onStatus) onStatus(s); };
@@ -136,7 +136,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
       // onStream surfaces the live model output (incl. <think> blocks and tool
       // reasoning) for testing; the final stdout prose still strips <think>.
       raw = await Promise.race([
-        session.prompt(AI_OVERVIEW_PROMPT, { functions, maxTokens, onTextChunk: onStream ? (c) => onStream(c) : undefined }),
+        session.prompt(aiOverviewPrompt(grounding), { functions, maxTokens, onTextChunk: onStream ? (c) => onStream(c) : undefined }),
         timeout,
       ]);
     } finally {
