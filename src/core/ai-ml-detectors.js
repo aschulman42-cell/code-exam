@@ -278,8 +278,26 @@ class _AIMLMethods {
     ];
     // Family C: a model-artifact extension inside a quoted string.
     const extRe = /["'`]([^"'`\n]*\.(gguf|safetensors|onnx|ckpt|pth|pt|bin|h5))["'`]/i;
-    // Best-effort artifact path/id extraction for A/B records.
-    const pathRe = /["'`]([^"'`\n]{1,120})["'`]/;
+    // Best-effort artifact path/id extraction for A/B records. The model path is
+    // a POSITIONAL string arg; a naive "first quoted literal anywhere" grabbed
+    // incidental quotes — kwarg values (`framework="pt"`), dict-access keys
+    // (`cfg["path"]`), and object keys (`{"radius": …}`) — which leaked into
+    // models-used as bogus ids (#206). pathLiteral returns the first quoted
+    // literal that is NOT one of those contexts.
+    const reModelKwName = /^(?:repo_id|model_id|model_path|pretrained_model_name_or_path|name_or_path|path|filename|model|ckpt_path|checkpoint)$/i;
+    const pathLiteral = (line) => {
+      const re = /(['"`])((?:(?!\1).){1,120})\1/g;
+      let mm;
+      while ((mm = re.exec(line))) {
+        const before = line.slice(0, mm.index);
+        if (/\[\s*$/.test(before)) continue;                         // dict-access key: cfg["path"]
+        if (/^\s*:/.test(line.slice(re.lastIndex))) continue;        // object / JSON key: {"radius": …}
+        const kw = before.match(/([A-Za-z_]\w*)\s*=\s*$/);           // kwarg value: framework="pt"
+        if (kw && !reModelKwName.test(kw[1])) continue;
+        return mm[2];
+      }
+      return null;
+    };
     const isComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
 
     // When the artifact arg is a variable (no quoted literal), pull the
@@ -326,6 +344,12 @@ class _AIMLMethods {
         const line = lines[i];
         if (!line) continue;
         const trimmed = line.trimStart();
+        // #206: a from_pretrained / AutoModel* mention inside a comment or
+        // docstring is documentation, not an active load — matching it surfaces
+        // the detector's own examples (`AutoModelForCausalLM.from_pretrained()`,
+        // backtick'd `cls` / `[mechanical]`) as bogus models when CE examines
+        // itself. Skip full-line comments here, as the extRe fallback already does.
+        if (isComment(trimmed)) continue;
         let rec = null;
         for (const d of detectors) {
           if (d.gated && !fileHasLlama) continue;
@@ -341,9 +365,8 @@ class _AIMLMethods {
             // `AWQ>` was leaking in as a bogus "model") and out of the artifact
             // path column. Families A/B/C keep their normal path extraction.
             if (d.fam !== Q && d.fam !== M) {
-              const pm = line.match(pathRe);
-              path = pm ? pm[1] : null;
-              pathResolved = !!pm;              // a quoted literal is already resolved
+              path = pathLiteral(line);
+              pathResolved = path != null;      // a positional quoted literal is already resolved
               if (!path) {
                 const ident = artifactArgIdent(line, m.index + m[0].length);
                 if (ident) {
@@ -1838,11 +1861,23 @@ class _AIMLMethods {
     const looksLikeModel = (id) => {
       if (!id || /[\s*{}=]/.test(id)) return false;            // prose / glob / template / kwarg fragment
       if (!/[a-z0-9]/i.test(id)) return false;                 // punctuation-only ("…")
+      // #206: method-call templates captured from comments/docstrings
+      // (`AutoModelForCausalLM.from_pretrained()`) and minified / regex / shell
+      // fragments (`,.H5`, `&.Pt`) are not concrete models — a real model id or
+      // path never contains call parens or these punctuation chars. (`<var>`
+      // unresolved sites use `<…>`, which is intentionally NOT in this set so
+      // they stay disclosed via result.unresolved — see #106.)
+      if (/[(),;&|]/.test(id)) return false;
+      // dotted method-reference captured as an id (`transformers.AutoConfig.from_pretrained`,
+      // `x.save_pretrained`) — that's the call site, not a model. No real model id
+      // or path ends in one of these HF/PyTorch method names.
+      if (/\.(?:from_pretrained|save_pretrained|from_config|from_single_file|load_state_dict|state_dict)$/i.test(id)) return false;
       if (/^(?:cpu|cuda|mps|gpu|auto|none)(?::\d+)?$/i.test(id)) return false;   // device strings
       const base = id.split(/[\\/]/).pop();
       if (/^\./.test(base)) return false;                      // bare suffix (.bin, .h5) — on the BASENAME, so ./relative/paths survive
-      if (/^(?:model|optimizer|scheduler|output|data|checkpoint|state|weights|none)$/i.test(base)) return false;  // bare generic word
+      if (/^(?:model|optimizer|scheduler|output|data|checkpoint|state|weights|none|client)$/i.test(base)) return false;  // bare generic word (client: never a model id; also CE's own Llama()-marker self-match)
       if (/\b(?:optimizer|scheduler|training_args|trainer_state|tokenizer|special_tokens|vocab|merges|corpus|rng_state|config)\b/i.test(base)) return false;  // non-model artifact files
+      if (/extra_state$/i.test(base)) return false;            // #206: PyTorch state_dict reserved key (`_extra_state`)
       // #119: a bare .bin is a generic binary (test fixtures / blobs — file.bin,
       // x.bin, out.bin). Count it as a model only if the name carries a model
       // signal. Model-specific extensions (.gguf/.onnx/.safetensors/.ckpt/.pth/.h5)
