@@ -3307,15 +3307,27 @@ function guessLanguage(filepath) {
 // until appropriate hardware (#36 / #196).
 // ========================================================================
 
+// Grounding mode (#36): how freely the model may use knowledge beyond this
+// codebase. Default 'grounded' — CE's forensic identity makes the inferential
+// modes a deliberate opt-in, not a silent default that could undermine a finding.
+const CHAT_GROUNDING_CLAUSES = {
+  grounded: `GROUNDING — STRICT: Answer ONLY from what the tools surface about this code. If something cannot be determined from the code, say so explicitly ("not determinable from the code") rather than filling the gap with general knowledge. Do NOT assert the purpose of a referenced library/algorithm, the research domain, or any external framing as fact about this codebase unless the code itself states it. Stay within the evidence the tools return.`,
+  augmented: `GROUNDING — AUGMENTED: You may combine what the tools surface with your general knowledge to give the richest, most useful explanation — naming the domain or research area, explaining what a referenced library or algorithm does, and supplying standard context the code assumes its readers already know.`,
+  attributed: `GROUNDING — ATTRIBUTED: Combine codebase evidence with general knowledge for a rich explanation, but make provenance explicit — clearly distinguish claims grounded in THIS code (cite the file/function/tool that shows them) from claims that come from your general knowledge or inference. Flag every non-trivial external claim as such.`,
+};
+
 // Built per request so the model is re-grounded in the CURRENT index every turn
-// — the fix for cross-codebase confusion after an index switch (#36).
-function chatSystemPrompt(indexName, fileCount) {
+// (#36 cross-codebase fix) and carries the selected grounding clause.
+function chatSystemPrompt(indexName, fileCount, mode) {
   const id = indexName
     ? `You are examining the codebase currently indexed as "${indexName}"${fileCount ? ` (${fileCount} files)` : ''}.`
     : 'You are examining the currently indexed codebase.';
+  const grounding = CHAT_GROUNDING_CLAUSES[mode] || CHAT_GROUNDING_CLAUSES.grounded;
   return `You are a code-analysis assistant for CodeExam. ${id} You have tools that search, analyze, and explore THIS index — use them to ground every answer in this specific code, citing files and functions by name. Be concise and direct; prefer calling a tool over guessing.
 
-The active index can be switched mid-conversation: always answer about the CURRENT index named above. Earlier messages in this conversation may refer to a DIFFERENT codebase, so re-query the tools rather than trusting prior context.`;
+The active index can be switched mid-conversation: always answer about the CURRENT index named above. Earlier messages in this conversation may refer to a DIFFERENT codebase, so re-query the tools rather than trusting prior context.
+
+${grounding}`;
 }
 
 // CE's MCP tool defs -> Anthropic tool-use format.
@@ -3326,10 +3338,10 @@ function chatAnthropicTools() {
 // Multi-turn Claude tool loop. Executes tool calls in-process via handleTool
 // against `index`. Returns the flat content blocks (text + tool_use{_result})
 // the chat UI renders — same shape web-app.js produces.
-async function runChatToolLoop({ messages, index, indexName, fileCount, apiKey, model, maxTokens = 4096, temperature = 0, onToolCall }) {
+async function runChatToolLoop({ messages, index, indexName, fileCount, mode, apiKey, model, maxTokens = 4096, temperature = 0, onToolCall }) {
   setIndex(index); // point handleTool at the active GUI index (in-process; no subprocess / re-index)
   const tools = chatAnthropicTools();
-  const system = chatSystemPrompt(indexName, fileCount);
+  const system = chatSystemPrompt(indexName, fileCount, mode);
   const apiUrl = process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages';
   const allBlocks = [];
   let current = [...messages];
@@ -3383,9 +3395,10 @@ routes['/api/chat'] = (req, res) => {
       if (!avail.available) return errorResponse(res, avail.reason, 400);
       const model = params.model || serverLLM.defaultClaudeModel || 'claude-sonnet-4-6';
       const indexName = params.index || mgr.activeIndex;
-      console.log(`  [chat] ${messages.length} msg(s) over "${indexName}", model=${model}`);
+      const mode = CHAT_GROUNDING_CLAUSES[params.mode] ? params.mode : 'grounded';
+      console.log(`  [chat] ${messages.length} msg(s) over "${indexName}", model=${model}, grounding=${mode}`);
       const content = await runChatToolLoop({
-        messages, index, indexName, fileCount: index.files.size,
+        messages, index, indexName, fileCount: index.files.size, mode,
         apiKey: serverLLM.defaultApiKey,
         model,
         temperature: params.temperature ?? 0,

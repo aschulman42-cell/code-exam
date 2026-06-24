@@ -385,7 +385,14 @@
         <div class="tab-content" id="chat-panel" data-tab-content="chat" style="display:none;flex:1;flex-direction:column;min-height:0">
           <div class="chat-header" style="display:flex;align-items:center;gap:8px;padding:4px 8px;font-size:0.85em;opacity:0.85">
             <span>Chatting about: <strong id="chat-index">…</strong></span>
-            <button id="chat-clear" class="pane-action" title="Clear conversation" style="margin-left:auto">🗑</button>
+            <label style="margin-left:auto;display:flex;align-items:center;gap:4px" title="How freely the model may use knowledge beyond this codebase: Grounded = code only; Augmented = + general knowledge; Attributed = + general knowledge, provenance flagged">Grounding:
+              <select id="chat-mode" style="font-size:0.95em">
+                <option value="grounded" selected>Grounded</option>
+                <option value="augmented">Augmented</option>
+                <option value="attributed">Attributed</option>
+              </select>
+            </label>
+            <button id="chat-clear" class="pane-action" title="Clear conversation">🗑</button>
           </div>
           <div class="console-output" id="chat-messages">
             <div class="list-placeholder">Ask Claude about this codebase. It can search, analyze, and explore the loaded index with CodeExam's tools.</div>

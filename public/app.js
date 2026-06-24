@@ -1636,7 +1636,11 @@ async function sendChatMessage() {
   chatBusy = true;
   const pending = appendChatBubble('assistant', '…thinking…');
   try {
-    const resp = await api.post('chat', { messages: chatMessages, index: chatIndex || undefined }, { timeout: 600000 });
+    const resp = await api.post('chat', {
+      messages: chatMessages,
+      index: chatIndex || undefined,
+      mode: $('#chat-mode')?.value || 'grounded',
+    }, { timeout: 600000 });
     const blocks = resp.content || [];
     const toolNames = blocks.filter(b => b.type === 'tool_use').map(b => b.name);
     const answer = blocks.filter(b => b.type === 'text').map(b => b.text).join('\n').trim() || '(no text response)';
