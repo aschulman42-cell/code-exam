@@ -1515,6 +1515,7 @@ function switchToAnalysisTab() {
 // ========================================================================
 const chatMessages = [];   // {role:'user'|'assistant', content: string}
 let chatBusy = false;
+let chatIndex = null;      // index name the chat is bound to (label + switch detection)
 
 function initChatTab() {
   // console.js's initRightBottomTabs treats any non-'analysis' tab as Console.
@@ -1555,6 +1556,50 @@ function initChatTab() {
   $('#chat-input')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
   });
+  $('#chat-clear')?.addEventListener('click', clearChat);
+  // dialogs.js dispatches ce:index-loaded on every (re)load — re-label the chat
+  // and mark the switch in the stream, WITHOUT clearing history (#36).
+  window.addEventListener('ce:index-loaded', refreshChatIndexLabel);
+  refreshChatIndexLabel();  // initial label
+}
+
+async function refreshChatIndexLabel() {
+  let name = null;
+  try {
+    const data = await api.get('indexes');
+    name = (data.indexes || []).find(i => i.active)?.name || null;
+  } catch { /* leave the label as-is on error */ }
+  const label = $('#chat-index');
+  if (label) label.textContent = name || '(none)';
+  // Mark a switch in the conversation stream (history preserved, not cleared).
+  if (chatIndex && name && name !== chatIndex && chatMessages.length) {
+    appendChatDivider(`— now chatting about ${name} —`);
+  }
+  chatIndex = name;
+}
+
+function appendChatDivider(text) {
+  const wrap = $('#chat-messages');
+  if (!wrap) return;
+  const ph = wrap.querySelector('.list-placeholder');
+  if (ph) ph.remove();
+  wrap.appendChild(h('div', {
+    className: 'chat-divider',
+    style: 'text-align:center;opacity:0.55;font-size:0.8em;margin:10px 0;padding-top:6px;border-top:1px dashed rgba(255,255,255,0.2)',
+    text,
+  }));
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function clearChat() {
+  chatMessages.length = 0;
+  const wrap = $('#chat-messages');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  wrap.appendChild(h('div', {
+    className: 'list-placeholder',
+    text: "Ask Claude about this codebase. It can search, analyze, and explore the loaded index with CodeExam's tools.",
+  }));
 }
 
 function appendChatBubble(role, text, toolNames) {
@@ -1591,7 +1636,7 @@ async function sendChatMessage() {
   chatBusy = true;
   const pending = appendChatBubble('assistant', '…thinking…');
   try {
-    const resp = await api.post('chat', { messages: chatMessages }, { timeout: 600000 });
+    const resp = await api.post('chat', { messages: chatMessages, index: chatIndex || undefined }, { timeout: 600000 });
     const blocks = resp.content || [];
     const toolNames = blocks.filter(b => b.type === 'tool_use').map(b => b.name);
     const answer = blocks.filter(b => b.type === 'text').map(b => b.text).join('\n').trim() || '(no text response)';

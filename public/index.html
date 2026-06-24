@@ -383,6 +383,10 @@
           </div>
         </div>
         <div class="tab-content" id="chat-panel" data-tab-content="chat" style="display:none;flex:1;flex-direction:column;min-height:0">
+          <div class="chat-header" style="display:flex;align-items:center;gap:8px;padding:4px 8px;font-size:0.85em;opacity:0.85">
+            <span>Chatting about: <strong id="chat-index">…</strong></span>
+            <button id="chat-clear" class="pane-action" title="Clear conversation" style="margin-left:auto">🗑</button>
+          </div>
           <div class="console-output" id="chat-messages">
             <div class="list-placeholder">Ask Claude about this codebase. It can search, analyze, and explore the loaded index with CodeExam's tools.</div>
           </div>

@@ -3307,7 +3307,16 @@ function guessLanguage(filepath) {
 // until appropriate hardware (#36 / #196).
 // ========================================================================
 
-const CHAT_SYSTEM_PROMPT = `You are a code-analysis assistant for CodeExam. You have tools that search, analyze, and explore the currently indexed codebase. Use them to ground every answer in this specific code — cite files and functions by name. Be concise and direct; prefer calling a tool over guessing.`;
+// Built per request so the model is re-grounded in the CURRENT index every turn
+// — the fix for cross-codebase confusion after an index switch (#36).
+function chatSystemPrompt(indexName, fileCount) {
+  const id = indexName
+    ? `You are examining the codebase currently indexed as "${indexName}"${fileCount ? ` (${fileCount} files)` : ''}.`
+    : 'You are examining the currently indexed codebase.';
+  return `You are a code-analysis assistant for CodeExam. ${id} You have tools that search, analyze, and explore THIS index — use them to ground every answer in this specific code, citing files and functions by name. Be concise and direct; prefer calling a tool over guessing.
+
+The active index can be switched mid-conversation: always answer about the CURRENT index named above. Earlier messages in this conversation may refer to a DIFFERENT codebase, so re-query the tools rather than trusting prior context.`;
+}
 
 // CE's MCP tool defs -> Anthropic tool-use format.
 function chatAnthropicTools() {
@@ -3317,15 +3326,16 @@ function chatAnthropicTools() {
 // Multi-turn Claude tool loop. Executes tool calls in-process via handleTool
 // against `index`. Returns the flat content blocks (text + tool_use{_result})
 // the chat UI renders — same shape web-app.js produces.
-async function runChatToolLoop({ messages, index, apiKey, model, maxTokens = 4096, temperature = 0, onToolCall }) {
+async function runChatToolLoop({ messages, index, indexName, fileCount, apiKey, model, maxTokens = 4096, temperature = 0, onToolCall }) {
   setIndex(index); // point handleTool at the active GUI index (in-process; no subprocess / re-index)
   const tools = chatAnthropicTools();
+  const system = chatSystemPrompt(indexName, fileCount);
   const apiUrl = process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages';
   const allBlocks = [];
   let current = [...messages];
   for (let iteration = 0; iteration < 15; iteration++) {
     const payload = JSON.stringify({
-      model, max_tokens: maxTokens, temperature, system: CHAT_SYSTEM_PROMPT, messages: current, tools,
+      model, max_tokens: maxTokens, temperature, system, messages: current, tools,
     });
     const body = await _serverHttpPost(apiUrl, payload, {
       'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01',
@@ -3372,15 +3382,16 @@ routes['/api/chat'] = (req, res) => {
       const avail = serverLLM.checkAvailability('claude');
       if (!avail.available) return errorResponse(res, avail.reason, 400);
       const model = params.model || serverLLM.defaultClaudeModel || 'claude-sonnet-4-6';
-      console.log(`  [chat] ${messages.length} msg(s) over "${params.index || mgr.activeIndex}", model=${model}`);
+      const indexName = params.index || mgr.activeIndex;
+      console.log(`  [chat] ${messages.length} msg(s) over "${indexName}", model=${model}`);
       const content = await runChatToolLoop({
-        messages, index,
+        messages, index, indexName, fileCount: index.files.size,
         apiKey: serverLLM.defaultApiKey,
         model,
         temperature: params.temperature ?? 0,
         onToolCall: (name, input) => console.log(`  [chat] tool: ${name}(${JSON.stringify(input || {}).slice(0, 120)})`),
       });
-      jsonResponse(res, { content });
+      jsonResponse(res, { content, index: indexName });
     } catch (e) {
       console.error('chat error:', e.message);
       errorResponse(res, `Chat error: ${e.message}`, 500);
