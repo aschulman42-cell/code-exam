@@ -440,6 +440,10 @@ export function openGenericFullscreen(paneId) {
         }
       });
       return;
+    } else if (activeTab?.dataset.tab === 'chat') {
+      // Chat popout: reparent the live #chat-panel so its send/input listeners
+      // (attached to those nodes) move with it and keep working in the float.
+      paneBody = $('#chat-panel');
     } else {
       paneBody = $('#right-bottom-body');
     }

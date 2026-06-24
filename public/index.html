@@ -364,6 +364,7 @@
           <span class="pane-tabs">
             <button class="pane-tab active" data-tab="analysis">Analysis</button>
             <button class="pane-tab" data-tab="console">Console</button>
+            <button class="pane-tab" data-tab="chat">Chat</button>
           </span>
           <span id="llm-status" class="status-badge hidden">Working…</span>
           <button class="pane-action" data-find="right-bottom-body" title="Find in pane (Esc to close)">🔍</button>
@@ -379,6 +380,15 @@
           <div class="console-input-row">
             <span class="console-prompt">❯</span>
             <input type="text" id="console-input" placeholder="Type command (try /help)…" spellcheck="false" autocomplete="off">
+          </div>
+        </div>
+        <div class="tab-content" id="chat-panel" data-tab-content="chat" style="display:none;flex:1;flex-direction:column;min-height:0">
+          <div class="console-output" id="chat-messages">
+            <div class="list-placeholder">Ask Claude about this codebase. It can search, analyze, and explore the loaded index with CodeExam's tools.</div>
+          </div>
+          <div class="console-input-row">
+            <textarea id="chat-input" placeholder="Ask about this codebase…  (Enter to send · Shift+Enter = newline)" rows="2" spellcheck="false" autocomplete="off" style="flex:1;resize:none;font-family:inherit"></textarea>
+            <button id="chat-send" class="pane-action" title="Send message">➤</button>
           </div>
         </div>
       </div>

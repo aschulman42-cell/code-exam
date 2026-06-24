@@ -19,6 +19,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
+import { handleTool, TOOLS, setIndex } from './mcp-server.js';
 import { resolveIndexDir } from './archive.js';
 import { groupSites, groupPipelines, reTestExamplePath, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { makeFilterMatcher } from './core/filter-match.js';
@@ -3295,6 +3296,97 @@ function guessLanguage(filepath) {
 // ========================================================================
 // Router
 // ========================================================================
+
+// ========================================================================
+// Chat about code (#36 Phase 1) — Claude engine, in-process MCP tools
+//
+// A multi-turn Claude tool loop that drives CE's own MCP tools IN-PROCESS
+// (handleTool against the active GUI index via setIndex) — no second
+// mcp-server subprocess, so chat sees exactly the index the GUI has loaded.
+// Phase 2 (air-gapped local GGUF, mirroring ai-overview-local.js) is deferred
+// until appropriate hardware (#36 / #196).
+// ========================================================================
+
+const CHAT_SYSTEM_PROMPT = `You are a code-analysis assistant for CodeExam. You have tools that search, analyze, and explore the currently indexed codebase. Use them to ground every answer in this specific code — cite files and functions by name. Be concise and direct; prefer calling a tool over guessing.`;
+
+// CE's MCP tool defs -> Anthropic tool-use format.
+function chatAnthropicTools() {
+  return TOOLS.map(t => ({ name: t.name, description: t.description, input_schema: t.inputSchema }));
+}
+
+// Multi-turn Claude tool loop. Executes tool calls in-process via handleTool
+// against `index`. Returns the flat content blocks (text + tool_use{_result})
+// the chat UI renders — same shape web-app.js produces.
+async function runChatToolLoop({ messages, index, apiKey, model, maxTokens = 4096, temperature = 0, onToolCall }) {
+  setIndex(index); // point handleTool at the active GUI index (in-process; no subprocess / re-index)
+  const tools = chatAnthropicTools();
+  const apiUrl = process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages';
+  const allBlocks = [];
+  let current = [...messages];
+  for (let iteration = 0; iteration < 15; iteration++) {
+    const payload = JSON.stringify({
+      model, max_tokens: maxTokens, temperature, system: CHAT_SYSTEM_PROMPT, messages: current, tools,
+    });
+    const body = await _serverHttpPost(apiUrl, payload, {
+      'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01',
+    });
+    const content = body.content || [];
+    allBlocks.push(...content);
+    if (body.stop_reason !== 'tool_use') break;
+
+    const resultMap = {};
+    const toolResults = [];
+    for (const b of content) {
+      if (b.type !== 'tool_use') continue;
+      if (onToolCall) onToolCall(b.name, b.input);
+      let text;
+      try { text = String(handleTool(b.name, b.input || {})); }
+      catch (e) { text = `Error: ${e.message}`; }
+      resultMap[b.id] = text;
+      toolResults.push({ type: 'tool_result', tool_use_id: b.id, content: text });
+    }
+    for (const b of allBlocks) {
+      if (b.type === 'tool_use' && resultMap[b.id] !== undefined) b._result = resultMap[b.id];
+    }
+    // Strip our _result annotation before echoing assistant turn back to the API.
+    const clean = content.map(({ _result, ...rest }) => rest);
+    current = [...current, { role: 'assistant', content: clean }, { role: 'user', content: toolResults }];
+  }
+  return allBlocks;
+}
+
+routes['/api/chat'] = (req, res) => {
+  if (req.method !== 'POST') return errorResponse(res, 'POST required', 405);
+  let body = '';
+  req.on('data', chunk => { body += chunk; if (body.length > 2_000_000) req.destroy(); });
+  req.on('end', async () => {
+    try {
+      const params = JSON.parse(body);
+      const index = mgr.get(params.index);
+      if (!index) return errorResponse(res, 'No index loaded', 404);
+      const messages = params.messages;
+      if (!Array.isArray(messages) || messages.length === 0) return errorResponse(res, 'messages array required', 400);
+      // Phase 1 is Claude-only; local-LLM chat is deferred to post-Legion hardware (#36 / #196).
+      const engine = params.engine || 'claude';
+      if (engine !== 'claude') return errorResponse(res, 'Chat currently supports the Claude engine only; local-LLM chat is deferred (#36).', 400);
+      const avail = serverLLM.checkAvailability('claude');
+      if (!avail.available) return errorResponse(res, avail.reason, 400);
+      const model = params.model || serverLLM.defaultClaudeModel || 'claude-sonnet-4-6';
+      console.log(`  [chat] ${messages.length} msg(s) over "${params.index || mgr.activeIndex}", model=${model}`);
+      const content = await runChatToolLoop({
+        messages, index,
+        apiKey: serverLLM.defaultApiKey,
+        model,
+        temperature: params.temperature ?? 0,
+        onToolCall: (name, input) => console.log(`  [chat] tool: ${name}(${JSON.stringify(input || {}).slice(0, 120)})`),
+      });
+      jsonResponse(res, { content });
+    } catch (e) {
+      console.error('chat error:', e.message);
+      errorResponse(res, `Chat error: ${e.message}`, 500);
+    }
+  });
+};
 
 function handleRequest(req, res) {
   const urlPath = req.url.split('?')[0];

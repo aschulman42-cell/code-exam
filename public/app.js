@@ -1503,6 +1503,108 @@ function switchToAnalysisTab() {
   if (analysisTab) analysisTab.classList.add('active');
   $('#right-bottom-body').style.display = '';
   $('#console-panel').style.display = 'none';
+  const cp = $('#chat-panel'); if (cp) cp.style.display = 'none';
+}
+
+
+// ========================================================================
+// Chat about code (#36 Phase 1) — Claude-backed, drives CE's MCP tools
+// in-process via the server's /api/chat route (shares the loaded index).
+// History is kept text-only so we don't have to replay tool_use/tool_result
+// pairs; the model re-queries tools per turn as needed.
+// ========================================================================
+const chatMessages = [];   // {role:'user'|'assistant', content: string}
+let chatBusy = false;
+
+function initChatTab() {
+  // console.js's initRightBottomTabs treats any non-'analysis' tab as Console.
+  // This handler is registered AFTER it (init order), so for the Chat tab it
+  // runs last and corrects the display; for Analysis/Console it just hides chat.
+  for (const tab of $$('#right-bottom .pane-tab')) {
+    tab.addEventListener('click', () => {
+      const chatPanel = $('#chat-panel');
+      if (!chatPanel) return;
+      if (tab.dataset.tab === 'chat') {
+        $('#right-bottom-body').style.display = 'none';
+        $('#console-panel').style.display = 'none';
+        chatPanel.style.display = 'flex';
+        $('#chat-input')?.focus();
+      } else {
+        chatPanel.style.display = 'none';
+      }
+      // Point the pane's Save (💾) / Find (🔍) buttons at the ACTIVE tab's
+      // content — the markup hardcodes them to the Analysis body (#36).
+      const target = {
+        analysis: { id: 'right-bottom-body', name: 'analysis', md: true },
+        console:  { id: 'console-output',    name: 'console',  md: false },
+        chat:     { id: 'chat-messages',     name: 'chat',     md: true },
+      }[tab.dataset.tab];
+      if (target) {
+        const saveBtn = $('#right-bottom [data-save]');
+        const findBtn = $('#right-bottom [data-find]');
+        if (saveBtn) {
+          saveBtn.dataset.save = target.id;
+          saveBtn.dataset.name = target.name;
+          if (target.md) saveBtn.dataset.md = '1'; else delete saveBtn.dataset.md;
+        }
+        if (findBtn) findBtn.dataset.find = target.id;
+      }
+    });
+  }
+  $('#chat-send')?.addEventListener('click', sendChatMessage);
+  $('#chat-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+  });
+}
+
+function appendChatBubble(role, text, toolNames) {
+  const wrap = $('#chat-messages');
+  if (!wrap) return null;
+  const ph = wrap.querySelector('.list-placeholder');
+  if (ph) ph.remove();
+  const bubble = h('div', {
+    className: `chat-msg chat-${role}`,
+    style: 'margin:6px 0;padding:6px 9px;border-radius:6px;' +
+      (role === 'user' ? 'background:rgba(120,160,255,0.12)' : 'background:rgba(255,255,255,0.04)'),
+  });
+  if (toolNames && toolNames.length) {
+    bubble.appendChild(h('div', {
+      className: 'chat-tools',
+      style: 'font-size:0.8em;opacity:0.6;margin-bottom:3px',
+      text: `🔧 ${toolNames.join(', ')}`,
+    }));
+  }
+  bubble.appendChild(h('div', { className: 'chat-text', style: 'white-space:pre-wrap;word-break:break-word', text }));
+  wrap.appendChild(bubble);
+  wrap.scrollTop = wrap.scrollHeight;
+  return bubble;
+}
+
+async function sendChatMessage() {
+  if (chatBusy) return;
+  const input = $('#chat-input');
+  const text = (input?.value || '').trim();
+  if (!text) return;
+  input.value = '';
+  appendChatBubble('user', text);
+  chatMessages.push({ role: 'user', content: text });
+  chatBusy = true;
+  const pending = appendChatBubble('assistant', '…thinking…');
+  try {
+    const resp = await api.post('chat', { messages: chatMessages }, { timeout: 600000 });
+    const blocks = resp.content || [];
+    const toolNames = blocks.filter(b => b.type === 'tool_use').map(b => b.name);
+    const answer = blocks.filter(b => b.type === 'text').map(b => b.text).join('\n').trim() || '(no text response)';
+    pending?.remove();
+    appendChatBubble('assistant', answer, toolNames);
+    chatMessages.push({ role: 'assistant', content: answer });
+  } catch (e) {
+    pending?.remove();
+    appendChatBubble('assistant', `⚠ ${e.message}`);
+  } finally {
+    chatBusy = false;
+    $('#chat-input')?.focus();
+  }
 }
 
 
@@ -1602,6 +1704,7 @@ async function init() {
     else if (last.kind === 'file') renderFileSource(last.data, last.targetLine);
   });
   initConsole({ showPane, onFileClick });
+  initChatTab();  // after initConsole so the chat tab handler is registered last (wins display)
   initWindowManagementWithDeps({ consoleAppend, fsConsoleAppend, executeConsoleCommand, openDiagramFullscreen });
   initOverviewOverlay();
   // #181: pop the Overview window whenever a new index finishes loading
