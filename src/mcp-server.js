@@ -52,9 +52,29 @@ const serverArgs = parseArgs();
 // by tests — which call setIndex() + handleTool() — without loading a default
 // index, exiting on a missing one, or starting the stdio server.
 let index = null;
+let indexReady = null;   // a Promise that resolves once the index is loaded (server mode)
 
 /** Test seam: inject a loaded CodeSearchIndex, bypassing argv/stdio. */
 export function setIndex(idx) { index = idx; }
+
+// Handshake-first lazy load (#mcp-large-index-handshake-first-load). A large index
+// (e.g. .Manning_books, ~1.9 GB, takes ~98s to load; .spinellis far longer) used
+// to be loaded SYNCHRONOUSLY in main() BEFORE server.connect() — so the claude
+// CLI's MCP-startup window expired before any tool registered, and it reported
+// "server connected but exposes no tools". Now main() connects + registers tools
+// instantly and the index loads on the FIRST tool call instead. Idempotent.
+function ensureIndexLoaded() {
+  if (indexReady) return indexReady;
+  indexReady = (async () => {
+    if (index && index.files && index.files.size) return;   // already injected (tests / load_index)
+    console.log(`Loading index: ${serverArgs.indexPath} …`);
+    const idx = new CodeSearchIndex({ indexPath: serverArgs.indexPath });
+    if (!idx.files || idx.files.size === 0) throw new Error(`No files in index at ${serverArgs.indexPath}`);
+    index = idx;
+    console.log(`Loaded: ${index.files.size} files`);
+  })();
+  return indexReady;
+}
 
 
 // ========================================================================
@@ -995,6 +1015,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   try {
+    await ensureIndexLoaded();   // first tool call triggers the load; handshake already done
     const result = handleTool(name, args || {});
     return {
       content: [{ type: 'text', text: result }],
@@ -1017,17 +1038,13 @@ async function main() {
   console.warn = (...args) => process.stderr.write(args.join(' ') + '\n');
   console.error = (...args) => process.stderr.write(args.join(' ') + '\n');
 
-  console.log(`Loading index: ${serverArgs.indexPath}`);
-  index = new CodeSearchIndex({ indexPath: serverArgs.indexPath });
-  if (index.files.size === 0) {
-    process.stderr.write(`No files in index at ${serverArgs.indexPath}\n`);
-    process.exit(1);
-  }
-  console.log(`Loaded: ${index.files.size} files`);
-
+  // Connect + register tools FIRST so the claude CLI's MCP handshake completes
+  // instantly regardless of index size; the index then loads lazily on the first
+  // tool call (ensureIndexLoaded). This is the fix for large indexes timing out
+  // the handshake. (#mcp-large-index-handshake-first-load)
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.log('MCP server running on stdio');
+  console.log(`MCP server running on stdio — index '${serverArgs.indexPath}' loads on first tool call`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
