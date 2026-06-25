@@ -1648,28 +1648,104 @@ async function sendChatMessage() {
   chatBusy = true;
   const pending = appendChatBubble('assistant', '…thinking…');
   try {
-    const resp = await api.post('chat', {
-      messages: chatMessages,
-      index: chatIndex || undefined,
-      mode: $('#chat-mode')?.value || 'grounded',
-    }, { timeout: 600000 });
-    const blocks = resp.content || [];
-    const toolCalls = blocks.filter(b => b.type === 'tool_use').map(b => ({ name: b.name, input: b.input }));
-    // Prefer the server's dedicated final-answer (the synthesized reply, not a
-    // mash of interim narration). Fall back to concatenated text blocks for an
-    // older server that doesn't send `answer` yet (#36 final-answer-robustness).
-    const answer = (resp.answer && resp.answer.trim())
-      || blocks.filter(b => b.type === 'text').map(b => b.text).join('\n').trim()
-      || '(no text response)';
-    pending?.remove();
-    appendChatBubble('assistant', answer, toolCalls);
-    chatMessages.push({ role: 'assistant', content: answer });
+    if ($('#chat-stream')?.checked) {
+      await runChatStream(pending);   // Tier-2 live progress (SSE); batch path below is the fallback
+    } else {
+      const resp = await api.post('chat', {
+        messages: chatMessages,
+        index: chatIndex || undefined,
+        mode: $('#chat-mode')?.value || 'grounded',
+      }, { timeout: 600000 });
+      const blocks = resp.content || [];
+      const toolCalls = blocks.filter(b => b.type === 'tool_use').map(b => ({ name: b.name, input: b.input }));
+      // Prefer the server's dedicated final-answer (the synthesized reply, not a
+      // mash of interim narration). Fall back to concatenated text blocks for an
+      // older server that doesn't send `answer` yet (#36 final-answer-robustness).
+      const answer = (resp.answer && resp.answer.trim())
+        || blocks.filter(b => b.type === 'text').map(b => b.text).join('\n').trim()
+        || '(no text response)';
+      pending?.remove();
+      appendChatBubble('assistant', answer, toolCalls);
+      chatMessages.push({ role: 'assistant', content: answer });
+    }
   } catch (e) {
     pending?.remove();
     appendChatBubble('assistant', `⚠ ${e.message}`);
   } finally {
     chatBusy = false;
     $('#chat-input')?.focus();
+  }
+}
+
+// Tier-2 streaming send (#36): POST to /api/chat-stream and render tool-call
+// activity LIVE (SSE) into one growing bubble, then the final answer — instead of
+// a frozen "…thinking…". The events are CE's own shape (tool/done/error), so this
+// is provider-agnostic. Self-contained error handling (renders into its own
+// bubble, never throws) so sendChatMessage's batch try/catch is unaffected.
+async function runChatStream(pending) {
+  pending?.remove();
+  const wrap = $('#chat-messages');
+  const bubble = h('div', { className: 'chat-msg chat-assistant', style: 'margin:6px 0;padding:6px 9px;border-radius:6px;background:rgba(255,255,255,0.04)' });
+  const toolsBox = h('div', { className: 'chat-tools', style: 'font-size:0.8em;opacity:0.7;margin-bottom:4px' });
+  const textDiv = h('div', { className: 'chat-text', style: 'white-space:pre-wrap;word-break:break-word', text: '…working…' });
+  bubble.appendChild(toolsBox);
+  bubble.appendChild(textDiv);
+  wrap.appendChild(bubble);
+  wrap.scrollTop = wrap.scrollHeight;
+  const showTools = $('#chat-show-tools')?.checked;
+  try {
+    const resp = await fetch('/api/chat-stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: chatMessages,
+        index: chatIndex || undefined,
+        mode: $('#chat-mode')?.value || 'grounded',
+      }),
+    });
+    if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let answered = false;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        let event = 'message', dataStr = '';
+        for (const ln of frame.split('\n')) {
+          if (ln.startsWith('event:')) event = ln.slice(6).trim();
+          else if (ln.startsWith('data:')) dataStr += ln.slice(5).trim();
+        }
+        if (!dataStr) continue;
+        let data;
+        try { data = JSON.parse(dataStr); } catch { continue; }
+        if (event === 'tool') {
+          const a = JSON.stringify(data.input || {});
+          toolsBox.appendChild(h('div', {
+            text: showTools ? `🔧 ${data.name}(${a.length > 200 ? a.slice(0, 200) + '…' : a})` : `🔧 ${data.name}`,
+            style: showTools ? 'font-family:monospace;white-space:pre-wrap;word-break:break-word' : '',
+          }));
+          wrap.scrollTop = wrap.scrollHeight;
+        } else if (event === 'done') {
+          const answer = (data.answer && data.answer.trim()) || '(no text response)';
+          textDiv.textContent = answer;
+          chatMessages.push({ role: 'assistant', content: answer });
+          answered = true;
+          wrap.scrollTop = wrap.scrollHeight;
+        } else if (event === 'error') {
+          textDiv.textContent = `⚠ ${data.error}`;
+          answered = true;
+        }
+      }
+    }
+    if (!answered) textDiv.textContent = '(no text response)';
+  } catch (e) {
+    textDiv.textContent = `⚠ ${e.message}`;
   }
 }
 

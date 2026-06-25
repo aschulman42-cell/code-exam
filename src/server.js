@@ -3391,9 +3391,24 @@ async function runChatToolLoop({ messages, index, indexName, fileCount, mode, ap
   // max_tokens/pause_turn truncation, or a narrate-and-stop): make ONE tools-OFF
   // call so the model MUST answer from what it already gathered, and use ITS text.
   if (!genuineFinal) {
+    // Append an explicit "answer now" instruction so the model SUMMARIZES from
+    // what it gathered. Re-sending the tool results tools-off WITHOUT an
+    // instruction left it "expecting" to keep calling tools and sometimes
+    // returning nothing — the cause of a late "(no text response)" on
+    // exploration-heavy chats. Augment the last user turn (vs. appending a new
+    // one, which would make two consecutive user turns the API rejects).
+    const NUDGE = 'Based on everything above, write your complete final answer to my question now. Do not call any more tools.';
+    const synthMsgs = current.slice();
+    const last = synthMsgs[synthMsgs.length - 1];
+    if (last && last.role === 'user') {
+      const lc = Array.isArray(last.content) ? last.content : [{ type: 'text', text: String(last.content) }];
+      synthMsgs[synthMsgs.length - 1] = { role: 'user', content: [...lc, { type: 'text', text: NUDGE }] };
+    } else {
+      synthMsgs.push({ role: 'user', content: NUDGE });
+    }
     try {
       const body = await _serverHttpPost(apiUrl, JSON.stringify({
-        model, max_tokens: maxTokens, temperature, system, messages: current,  // no `tools` → stop_reason can't be tool_use
+        model, max_tokens: maxTokens, temperature, system, messages: synthMsgs,  // no `tools` → stop_reason can't be tool_use
       }), { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' });
       const content = body.content || [];
       allBlocks.push(...content);
@@ -3407,6 +3422,11 @@ async function runChatToolLoop({ messages, index, indexName, fileCount, mode, ap
 
   // Never hand back an empty answer — last-resort fall back to any text in the trace.
   if (!answer) answer = textOf(allBlocks);
+
+  // Diagnostic: an empty answer here means the synthesis produced no text — the
+  // root of a "(no text response)" on the client. A non-empty answer with an empty
+  // client bubble points at the delivery path instead.
+  console.log(`  [chat] final answer ${answer.length} chars (genuineFinal=${genuineFinal}, ${allBlocks.length} blocks)`);
 
   // content = the full block trace (drives the tool-call view); answer = the final
   // synthesized reply only (no interim narration). (#36 final-answer-robustness)
@@ -3444,6 +3464,65 @@ routes['/api/chat'] = (req, res) => {
     } catch (e) {
       console.error('chat error:', e.message);
       errorResponse(res, `Chat error: ${e.message}`, 500);
+    }
+  });
+};
+
+// Tier-2 live progress (#36). Same tool loop as /api/chat, but streamed as
+// Server-Sent Events so tool-call activity renders LIVE instead of a frozen
+// "…thinking…" wait. The SSE payload is CE's OWN event shape (tool / done /
+// error) — NOT a provider's token-delta format — so it stays provider-agnostic
+// when a 2nd LLM (e.g. ChatGPT) is added. The buffered /api/chat route and
+// runChatToolLoop are UNTOUCHED (the batch fallback); this only supplies an
+// onToolCall that emits an event.
+routes['/api/chat-stream'] = (req, res) => {
+  if (req.method !== 'POST') return errorResponse(res, 'POST required', 405);
+  let body = '';
+  req.on('data', chunk => { body += chunk; if (body.length > 2_000_000) req.destroy(); });
+  req.on('end', async () => {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    const send = (event, data) => { try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ } };
+    try {
+      const params = JSON.parse(body);
+      const index = mgr.get(params.index);
+      if (!index) { send('error', { error: 'No index loaded' }); return res.end(); }
+      const messages = params.messages;
+      if (!Array.isArray(messages) || messages.length === 0) { send('error', { error: 'messages array required' }); return res.end(); }
+      const engine = params.engine || 'claude';
+      if (engine !== 'claude') { send('error', { error: 'Chat currently supports the Claude engine only; local-LLM chat is deferred (#36).' }); return res.end(); }
+      const avail = serverLLM.checkAvailability('claude');
+      if (!avail.available) { send('error', { error: avail.reason }); return res.end(); }
+      const model = params.model || serverLLM.defaultClaudeModel || 'claude-sonnet-4-6';
+      const indexName = params.index || mgr.activeIndex;
+      const mode = CHAT_GROUNDING_CLAUSES[params.mode] ? params.mode : 'grounded';
+      console.log(`  [chat-stream] ${messages.length} msg(s) over "${indexName}", model=${model}, grounding=${mode}`);
+      const { answer } = await runChatToolLoop({
+        messages, index, indexName, fileCount: index.files.size, mode,
+        apiKey: serverLLM.defaultApiKey,
+        model,
+        temperature: params.temperature ?? 0,
+        onToolCall: (name, input) => {
+          console.log(`  [chat-stream] tool: ${name}(${JSON.stringify(input || {}).slice(0, 120)})`);
+          send('tool', { name, input });
+        },
+      });
+      // Only the final answer is needed client-side (tool calls already streamed
+      // live); dropping the full block trace keeps the `done` frame small. Always
+      // send it: gating on a req-'close' flag suppressed `done` because that event
+      // fires when the request BODY finishes, not on client disconnect — which is
+      // exactly what produced "(no text response)" with a valid answer server-side.
+      // send()'s try/catch already no-ops a genuinely disconnected client.
+      send('done', { answer, index: indexName });
+      res.end();
+    } catch (e) {
+      console.error('chat-stream error:', e.message);
+      send('error', { error: `Chat error: ${e.message}` });
+      try { res.end(); } catch { /* */ }
     }
   });
 };
