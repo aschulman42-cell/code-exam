@@ -254,6 +254,16 @@ if (args.overview_by_ai) {
     process.exit(1);
   }
   const grounding = args.grounding || 'grounded';
+  // Pre-flight: never spawn the LLM against a missing/empty index — a path typo
+  // otherwise spends real $ for a "this index is empty" non-answer (e.g. a wrong
+  // cwd cost $0.29). Cheap marker check (literal_index.json — the same signal
+  // --indexes uses); NO full load (a big index takes ~98s to load). Zip-path
+  // sources are left to the engine. (#overview-preflight-index-check)
+  const _idxArg = args.index_path;
+  if (!/\.zip$/i.test(_idxArg) && !fs.existsSync(`${_idxArg.replace(/[\\/]+$/, '')}/literal_index.json`)) {
+    process.stderr.write(`[overview-by-ai] No CodeExam index at "${_idxArg}" (no literal_index.json — check the path / cwd). Not calling the LLM.\n`);
+    process.exit(1);
+  }
   const timeoutMs = (args.timeout && args.timeout > 0)
     ? args.timeout * 60000
     : (parseInt(process.env.CE_AI_OVERVIEW_TIMEOUT_MS, 10) || 1200000); // default 20 min (overnight-friendly)
