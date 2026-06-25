@@ -270,11 +270,17 @@ if (args.overview_by_ai) {
     process.stderr.write(`[overview-by-ai] still working… ${Math.round((Date.now() - startedAt) / 1000)}s elapsed (timeout ${mins} min)\n`);
   }, 20000);
   if (heartbeat.unref) heartbeat.unref();
+  // --cost / --no-cost (#llm-cost-display): cost/usage shows by default for the
+  // paid claude engine; --no-cost suppresses it (e.g. clean captured output).
+  // Always stderr — stdout stays pure prose for --multi-index capture.
+  const showCost = !args.no_cost;
+  const kTok = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
   try {
-    let prose;
+    let prose, costSuffix = '';
     if (localGguf) {
       const { runAiOverviewLocal } = await import('./core/ai-overview-local.js');
-      ({ prose } = await runAiOverviewLocal({
+      let outTokens;
+      ({ prose, outTokens } = await runAiOverviewLocal({
         indexPath: args.index_path,
         modelPath: localGguf,
         timeoutMs,
@@ -285,18 +291,30 @@ if (args.overview_by_ai) {
         // -v also streams the live model output (incl. <think>) to stderr for testing.
         onStream: args.verbose ? (c) => process.stderr.write(c) : undefined,
       }));
+      // Air-gapped: no $ — just the output token count.
+      if (showCost && outTokens) costSuffix = ` (${kTok(outTokens)} tokens out · local, no API cost)`;
     } else {
       const { runAiOverview } = await import('./core/ai-overview.js');
-      prose = await runAiOverview({
+      let costUsd, usage;
+      ({ prose, costUsd, usage } = await runAiOverview({
         indexPath: args.index_path,
         model: args.claude_model || process.env.CE_AI_OVERVIEW_MODEL,
         timeoutMs,
         grounding, // grounded (default) | augmented | attributed (#196)
         onStderr: (s) => { if (args.verbose) process.stderr.write(s); },
-      });
+      }));
+      // Prefer the claude CLI's own authoritative total_cost_usd (it sums every
+      // turn of the agentic loop); annotate with token counts from usage.
+      if (showCost && costUsd != null) {
+        const u = usage || {};
+        const inT = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+        const outT = u.output_tokens || 0;
+        const toks = (inT || outT) ? `, ${kTok(inT)} in / ${kTok(outT)} out` : '';
+        costSuffix = ` (est. $${costUsd.toFixed(4)}${toks})`;
+      }
     }
     clearInterval(heartbeat);
-    process.stderr.write(`[overview-by-ai] done in ${Math.round((Date.now() - startedAt) / 1000)}s\n`);
+    process.stderr.write(`[overview-by-ai] done in ${Math.round((Date.now() - startedAt) / 1000)}s${costSuffix}\n`);
     process.stdout.write(prose + '\n');
     process.exit(0);
   } catch (e) {

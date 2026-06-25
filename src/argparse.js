@@ -99,6 +99,8 @@ export function parseArgs() {
     overview_by_ai: false,
     cpu: false,           // --overview-by-ai: force local GGUF onto CPU (skip GPU)
     grounding: null,      // --overview-by-ai: grounded (default) | augmented | attributed
+    cost: false,          // --overview-by-ai: explicit "show cost" (default; affirmation only)
+    no_cost: false,       // --overview-by-ai: suppress the cost/usage line (default: shown)
     list_indexes: null,
 
     // Callers / Callees
@@ -334,6 +336,8 @@ export function parseArgs() {
     ['overview_by_ai',       'flag',           ['--overview-by-ai', '--overview-by-AI']],
     ['cpu',                  'flag',           ['--cpu']],
     ['grounding',            'value',          ['--grounding']],
+    ['cost',                 'flag',           ['--cost']],
+    ['no_cost',              'flag',           ['--no-cost']],
     ['list_indexes',         'optional_value', ['--indexes'], ['--list-indexes']],
 
     ['max_results',          'int',            ['--max-results', '--max', '-n']],
@@ -852,6 +856,12 @@ BROWSE:
                              guessing; augmented = + general knowledge; attributed
                              = + general knowledge with provenance flagged. Same
                              modes as the GUI chat's Grounding selector.
+  --cost / --no-cost         With --overview-by-ai: show (default) or suppress the
+                             cost/usage line on stderr after the run. For the
+                             claude engine: the CLI's own est. $ + token counts;
+                             for a local --model GGUF: output token count only
+                             (air-gapped, no API cost). stderr-only, so --multi-
+                             index stdout capture stays pure prose.
   --indexes [path]           List available index directories
                              (deprecated alias: --list-indexes)
 

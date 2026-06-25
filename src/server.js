@@ -31,6 +31,7 @@ import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { runAiOverview } from './core/ai-overview.js';
+import { estimateCost } from './core/pricing.js';
 import { loadUsedByCatalog, makeUsedByFor } from './commands/exports.js';
 import { detectInfrastructure } from './core/stack-detectors.js';
 import { SERVER_BUILD } from './version.js';
@@ -264,8 +265,10 @@ class ServerLLM {
       const outTok = usage.output_tokens || 0;
       let costStr = '';
       if (!isLocal && inTok && outTok) {
-        const cost = (inTok * 3 + outTok * 15) / 1_000_000;
-        costStr = `, est. $${cost.toFixed(4)}`;
+        // Shared pricing helper (src/core/pricing.js) — was hardcoded to Sonnet's
+        // $3/$15 per 1M regardless of model, under-reporting ~40% on Opus.
+        const { usd } = estimateCost(model, usage);
+        costStr = `, est. $${usd.toFixed(4)}`;
       }
       console.log(`  [LLM] OK: ${model} (${inTok} in / ${outTok} out tokens${costStr})`);
 
@@ -2001,7 +2004,7 @@ routes['/api/ai-overview'] = (req, res) => {
 
   console.log(`  [ai-overview] running claude over ${path.basename(idxPath)} …`);
   runAiOverview({ indexPath: idxPath, model: q.model || process.env.CE_AI_OVERVIEW_MODEL, timeoutMs: 600000 })
-    .then((prose) => jsonResponse(res, { prose, index: index.indexSource || idxPath }))
+    .then(({ prose, costUsd }) => jsonResponse(res, { prose, costUsd, index: index.indexSource || idxPath }))
     .catch((e) => {
       const msg = (e && e.message) ? e.message : String(e);
       const code = /not found on PATH|Could not launch/i.test(msg) ? 400

@@ -39,7 +39,7 @@ const MAX_TOOL_OUTPUT = 4000; // chars — cap each tool result so the loop does
  *   falls back to CPU when the GPU can't fit the context; false forces CPU
  *   (loads into full system RAM — needed for large models on a small/integrated GPU)
  * @param {(s:string)=>void} [o.onStatus] progress sink (model load, tool calls)
- * @returns {Promise<{prose:string, toolCalls:number, contextSize:number}>}
+ * @returns {Promise<{prose:string, toolCalls:number, contextSize:number, outTokens:(number|null)}>}
  */
 export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 16384, maxTokens = 2400, timeoutMs = 1200000, gpu = 'auto', grounding, onStatus, onStream } = {}) {
   if (!indexPath) throw new Error('runAiOverviewLocal: indexPath is required.');
@@ -145,7 +145,11 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
 
     // Strip any chain-of-thought block (Qwen3 etc. emit <think>…</think>).
     const prose = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-    return { prose, toolCalls, contextSize };
+    // Output token count from the model's own tokenizer (air-gapped: no $ to
+    // report, just tokens). Best-effort — null if the tokenizer isn't reachable.
+    let outTokens = null;
+    try { if (prose && typeof model.tokenize === 'function') outTokens = model.tokenize(prose).length; } catch { /* */ }
+    return { prose, toolCalls, contextSize, outTokens };
   } finally {
     console.log = _log; console.warn = _warn; console.error = _err;
     try { if (model) await model.dispose(); } catch { /* */ }

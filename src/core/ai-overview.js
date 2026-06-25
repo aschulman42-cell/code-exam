@@ -82,16 +82,20 @@ export function aiOverviewPrompt(grounding) {
 }
 
 /**
- * Run "Overview by AI" against an index directory. Resolves with the prose
- * string (claude exit 0 + non-empty stdout) or rejects with an Error whose
- * message is safe to surface to the user.
+ * Run "Overview by AI" against an index directory. Resolves with
+ * `{ prose, costUsd, usage }` (claude exit 0 + non-empty result) or rejects
+ * with an Error whose message is safe to surface to the user.
+ *
+ * Uses `--output-format json` so we read the `claude` CLI's OWN cost/usage
+ * accounting (`total_cost_usd`, `usage`) rather than re-deriving it — the CLI
+ * already sums every turn of the agentic loop, which is what we want here.
  *
  * @param {object} opts
  * @param {string} opts.indexPath   Index directory to point the MCP server at (required).
  * @param {string} [opts.model]     Claude model id (e.g. claude-sonnet-4-6); omitted → CLI default.
  * @param {number} [opts.timeoutMs] Hard wall-clock limit (default 600000 = 10 min).
  * @param {(line:string)=>void} [opts.onStderr] Optional live stderr sink (CLI progress).
- * @returns {Promise<string>}
+ * @returns {Promise<{prose:string, costUsd:(number|null), usage:(object|null)}>}
  */
 export function runAiOverview({ indexPath, model, timeoutMs = 600000, grounding, onStderr } = {}) {
   return new Promise((resolve, reject) => {
@@ -113,7 +117,7 @@ export function runAiOverview({ indexPath, model, timeoutMs = 600000, grounding,
 
     // Space-containing values stay off the (shell:true) command line: prompt via
     // stdin, mcp-config via a quoted file path, tools comma-separated.
-    const args = ['-p', '--output-format', 'text',
+    const args = ['-p', '--output-format', 'json',
       '--mcp-config', `"${path.join(tmpDir, 'mcp.json')}"`,
       '--allowedTools', AI_OVERVIEW_TOOLS,
       '--permission-mode', 'bypassPermissions'];
@@ -149,8 +153,22 @@ export function runAiOverview({ indexPath, model, timeoutMs = 600000, grounding,
     }, timeoutMs);
     child.on('close', (codeNum) => {
       clearTimeout(timer);
-      if (codeNum === 0 && out.trim()) finish(resolve, out.trim());
-      else finish(reject, new Error(`AI Overview failed (claude exit ${codeNum}). ${(err || '').slice(0, 400)}`.trim()));
+      if (codeNum !== 0 || !out.trim()) {
+        return finish(reject, new Error(`AI Overview failed (claude exit ${codeNum}). ${(err || '').slice(0, 400)}`.trim()));
+      }
+      // --output-format json → one JSON envelope: { result, total_cost_usd, usage, ... }.
+      // Fall back to raw text (cost unknown) if the CLI's shape ever drifts, so the
+      // user still gets their overview rather than a hard failure.
+      let parsed = null;
+      try { parsed = JSON.parse(out); } catch { /* fall through to raw */ }
+      if (parsed && typeof parsed.result === 'string' && parsed.result.trim()) {
+        return finish(resolve, {
+          prose: parsed.result.trim(),
+          costUsd: typeof parsed.total_cost_usd === 'number' ? parsed.total_cost_usd : null,
+          usage: parsed.usage || null,
+        });
+      }
+      finish(resolve, { prose: out.trim(), costUsd: null, usage: null });
     });
     child.stdin.write(aiOverviewPrompt(grounding));
     child.stdin.end();
