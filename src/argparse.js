@@ -101,6 +101,7 @@ export function parseArgs() {
     grounding: null,      // --overview-by-ai: grounded (default) | augmented | attributed
     cost: false,          // --overview-by-ai: explicit "show cost" (default; affirmation only)
     no_cost: false,       // --overview-by-ai: suppress the cost/usage line (default: shown)
+    max_budget_usd: null, // --overview-by-ai (claude engine): hard spend cap; also CE_OVERVIEW_MAX_BUDGET env
     list_indexes: null,
 
     // Callers / Callees
@@ -339,6 +340,7 @@ export function parseArgs() {
     ['grounding',            'value',          ['--grounding']],
     ['cost',                 'flag',           ['--cost']],
     ['no_cost',              'flag',           ['--no-cost']],
+    ['max_budget_usd',       'value',          ['--max-budget-usd']],
     ['list_indexes',         'optional_value', ['--indexes'], ['--list-indexes']],
 
     ['max_results',          'int',            ['--max-results', '--max', '-n']],
@@ -864,6 +866,11 @@ BROWSE:
                              for a local --model GGUF: output token count only
                              (air-gapped, no API cost). stderr-only, so --multi-
                              index stdout capture stays pure prose.
+  --max-budget-usd <amount>  With --overview-by-ai (claude engine): hard spend cap
+                             passed to the claude CLI; the agentic run aborts if it
+                             would exceed <amount>. Default $5; also settable via
+                             the CE_OVERVIEW_MAX_BUDGET env var (this flag wins).
+                             Local --model GGUF is air-gapped — no cap.
   --indexes [path]           List available index directories
                              (deprecated alias: --list-indexes)
 

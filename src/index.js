@@ -302,6 +302,7 @@ if (args.overview_by_ai) {
         model: args.claude_model || process.env.CE_AI_OVERVIEW_MODEL,
         timeoutMs,
         grounding, // grounded (default) | augmented | attributed (#196)
+        maxBudgetUsd: args.max_budget_usd != null ? parseFloat(args.max_budget_usd) : undefined,
         onStderr: (s) => { if (args.verbose) process.stderr.write(s); },
       }));
       // Prefer the claude CLI's own authoritative total_cost_usd (it sums every
