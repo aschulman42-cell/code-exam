@@ -32,6 +32,7 @@ import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { runAiOverview } from './core/ai-overview.js';
 import { estimateCost } from './core/pricing.js';
+import { skippedExtensionCensus } from './core/extension-census.js';
 import { loadUsedByCatalog, makeUsedByFor } from './commands/exports.js';
 import { detectInfrastructure } from './core/stack-detectors.js';
 import { SERVER_BUILD } from './version.js';
@@ -1720,34 +1721,13 @@ routes['/api/call-inventory'] = (req, res) => {
 
 // --- Index extensions ---
 
-// #191: compute the "present in source but not indexed" extension census for an
-// index. Directory sources are re-scanned live (diff against the indexed set);
-// archive/zip sources use the skippedExtensions persisted at build time. Returns
-// { text: [{ext,count}], media: [{ext,count}], addList } with the same
-// text-vs-media split as the --build-index skip-tip (only text is suggested for
-// --add-extensions; media/binary is mentioned for awareness, never recommended).
+// #191: "present in source but not indexed" extension census. Delegates to the
+// shared helper (src/core/extension-census.js), which UNIONS the persisted
+// archive-internal skips with a live directory scan and drops already-indexed
+// extensions — fixing the directory-of-archives blind spot where a directory of
+// zips reported nothing because the live dir scan saw only the .zip files.
 function computeSkippedExtensions(index) {
-  let census = null; // { ext: count } of files skipped due to extension
-  try {
-    const src = index.indexSource;
-    if (src && fs.existsSync(src) && fs.statSync(src).isDirectory()) {
-      const counts = CodeSearchIndex.scanExtensions(src);
-      census = {};
-      for (const [ext, n] of Object.entries(counts)) {
-        if (ext && ext !== '(no extension)' && !index.extensions.has(ext)) census[ext] = n;
-      }
-    } else if (index.skippedExtensions && Object.keys(index.skippedExtensions).length) {
-      census = index.skippedExtensions; // archive/zip source (persisted at build)
-    }
-  } catch { /* source moved / unreadable: no skipped section */ }
-  if (!census) return null;
-  const isNonText = (ext) => MEDIA_BINARY_EXTENSIONS.has(ext) || ARCHIVE_EXTENSIONS.has(ext)
-    || EXECUTABLE_EXTENSIONS.has(ext) || BINSTRING_EXTENSIONS.has(ext);
-  const entries = Object.entries(census).filter(([ext, n]) => ext && n >= 3).sort((a, b) => b[1] - a[1]);
-  const text = entries.filter(([ext]) => !isNonText(ext)).slice(0, 12).map(([ext, count]) => ({ ext, count }));
-  const media = entries.filter(([ext]) => MEDIA_BINARY_EXTENSIONS.has(ext)).slice(0, 12).map(([ext, count]) => ({ ext, count }));
-  if (!text.length && !media.length) return null;
-  return { text, media, addList: text.map(t => t.ext).join(',') };
+  return skippedExtensionCensus(index);
 }
 
 routes['/api/index-extensions'] = (req, res) => {

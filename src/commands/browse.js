@@ -10,6 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import { displayName, eprint } from '../utils.js';
 import { CodeSearchIndex } from '../core/CodeSearchIndex.js';
+import { skippedExtensionCensus } from '../core/extension-census.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
 
 
@@ -129,6 +130,26 @@ export function doIndexExtensions(index, args) {
   }
   console.log('-'.repeat(44));
   console.log(`${'Total'.padEnd(20)} ${String(totalFiles).padStart(10)} ${String(totalLines).padStart(12)}`);
+
+  // Skipped census: extensions present in the source but NOT indexed (#191).
+  // Same shared helper + union logic the GUI Extensions accordion uses, so a
+  // directory-of-archives surfaces its zip-internal skips (e.g. .jinja2) instead
+  // of staying silent.
+  const skipped = skippedExtensionCensus(index);
+  if (skipped && skipped.text.length) {
+    console.log(`\nNot indexed (present in source):`);
+    console.log(`${'Extension'.padEnd(20)} ${'Files'.padStart(10)}`);
+    console.log('-'.repeat(31));
+    for (const { ext, count } of skipped.text) {
+      console.log(`${ext.padEnd(20)} ${String(count).padStart(10)}`);
+    }
+    console.log('-'.repeat(31));
+    console.log(`To include them, rebuild with: --add-extensions ${skipped.addList}`);
+  }
+  if (skipped && skipped.media.length) {
+    const mlist = skipped.media.map(({ ext, count }) => `${ext} (${count})`).join(', ');
+    console.log(`(Also present, skipped as binary/media — not indexed as text: ${mlist})`);
+  }
 }
 
 

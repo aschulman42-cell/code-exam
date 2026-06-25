@@ -14,6 +14,7 @@ import { buildOverview, formatOverview } from './core/overview.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { MEDIA_BINARY_EXTENSIONS, ARCHIVE_EXTENSIONS, EXECUTABLE_EXTENSIONS } from './utils.js';
 import { BINSTRING_EXTENSIONS } from './binstrings.js';
+import { skippedExtensionCensus } from './core/extension-census.js';
 import {
   doSearch, doLiteral, doFast, doRegex,
   doFilesSearch, doFoldersSearch,
@@ -412,46 +413,22 @@ if (args.build_index) {
   }
 
   // (skipped-files tip) Warn when the source has substantial files in extensions
-  // we did NOT index, so silent omissions (e.g. .xmlui) are visible instead of
-  // quietly dropped. Works for directory sources (scan the tree) AND archive/zip
-  // sources (the builder tracks skipped extensions during expansion ->
-  // buildStats.skippedExtensions). Best-effort; never fails the build.
+  // we did NOT index, so silent omissions (e.g. .jinja2 inside zips) are visible
+  // instead of quietly dropped. The shared census helper UNIONS the persisted
+  // archive-internal skips with a live directory scan, so a directory-of-archives
+  // surfaces its zip-internal skips too (the old dir-only branch missed them).
+  // See src/core/extension-census.js (#191). Best-effort; never fails the build.
   try {
-    let census = null; // { ext: count } of files SKIPPED due to extension
-    if (fs.existsSync(args.build_index) && fs.statSync(args.build_index).isDirectory()) {
-      const counts = CodeSearchIndex.scanExtensions(args.build_index);
-      const eff = index.extensions;
-      census = {};
-      for (const [ext, n] of Object.entries(counts)) {
-        if (ext && ext !== '(no extension)' && !eff.has(ext)) census[ext] = n;
-      }
-    } else if (buildStats.skippedExtensions) {
-      census = buildStats.skippedExtensions; // archive / zip source
+    const census = skippedExtensionCensus(index, { limit: 8 });
+    if (census && census.text.length) {
+      const list = census.text.map(({ ext, count }) => `${ext} (${count})`).join(', ');
+      process.stderr.write(`\nNote: source files in these text extensions were NOT indexed:\n`);
+      process.stderr.write(`      ${list}\n`);
+      process.stderr.write(`      To include them, rebuild with: --add-extensions ${census.addList}\n`);
     }
-    if (census) {
-      // Only suggest --add-extensions for plausibly-TEXT extensions. Media /
-      // binary / archive / executable are skipped by design (indexing them as
-      // text yields garbage; archives/exes are handled separately), so they're
-      // mentioned for awareness but never recommended for --add-extensions.
-      const isNonText = (ext) => MEDIA_BINARY_EXTENSIONS.has(ext)
-        || ARCHIVE_EXTENSIONS.has(ext) || EXECUTABLE_EXTENSIONS.has(ext)
-        || BINSTRING_EXTENSIONS.has(ext);
-      const entries = Object.entries(census)
-        .filter(([ext, n]) => ext && n >= 3)
-        .sort((a, b) => b[1] - a[1]);
-      const textSkipped = entries.filter(([ext]) => !isNonText(ext)).slice(0, 8);
-      const mediaSkipped = entries.filter(([ext]) => MEDIA_BINARY_EXTENSIONS.has(ext)).slice(0, 8);
-      if (textSkipped.length) {
-        const list = textSkipped.map(([ext, n]) => `${ext} (${n})`).join(', ');
-        const addList = textSkipped.map(([ext]) => ext).join(',');
-        process.stderr.write(`\nNote: source files in these text extensions were NOT indexed:\n`);
-        process.stderr.write(`      ${list}\n`);
-        process.stderr.write(`      To include them, rebuild with: --add-extensions ${addList}\n`);
-      }
-      if (mediaSkipped.length) {
-        const mlist = mediaSkipped.map(([ext, n]) => `${ext} (${n})`).join(', ');
-        process.stderr.write(`      (Also present, skipped as binary/media — not indexed as text: ${mlist})\n`);
-      }
+    if (census && census.media.length) {
+      const mlist = census.media.map(({ ext, count }) => `${ext} (${count})`).join(', ');
+      process.stderr.write(`      (Also present, skipped as binary/media — not indexed as text: ${mlist})\n`);
     }
   } catch { /* best-effort tip; never break the build */ }
 
