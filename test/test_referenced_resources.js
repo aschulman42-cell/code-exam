@@ -51,6 +51,11 @@ import subprocess
 TOKEN = os.getenv("SERVICE_TOKEN")
 HOME = os.environ["HOME"]
 
+# Bare-filename prompt-template reference via pathlib join — the literal is
+# "ai_welfare_poisoning.jinja2" (no separator inside the string). Must register
+# as a referenced file now that template extensions are allow-listed.
+PROMPT_TEMPLATE = PROMPTS_DIR / "ai_welfare_poisoning.jinja2"
+
 def run():
     subprocess.run(["ffmpeg", "-i", "in.mp4"])
     os.system("ls -la")
@@ -98,6 +103,9 @@ describe('referenced-resources extractor (#203)', () => {
     // literal (assigned to a var, not an fs-call arg) must be found.
     assert.ok(paths.has('resources/worklist.json'), 'plain config-path literal not detected');
     assert.ok(paths.has('app.config.yaml'), 'bare data-file literal not detected');
+    // Bare-filename template reference (pathlib `dir / "x.jinja2"`) — the filename
+    // literal is present even though the full path is assembled at runtime.
+    assert.ok(paths.has('ai_welfare_poisoning.jinja2'), 'bare-filename .jinja2 template ref not detected');
     // Source-module imports are internal structure, not external resources.
     assert.ok(![...paths].some(p => p.endsWith('utils.js')), 'source import should not be listed as a resource: ' + [...paths].join(', '));
     // False positives that the multi-index scan surfaced: CORBA IDL repository

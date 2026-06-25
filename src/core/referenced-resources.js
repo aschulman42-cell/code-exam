@@ -50,9 +50,16 @@ const RE_URL = /\b((?:https?|wss?|ftp|grpc):\/\/[^\s'"`)<>\]]+)/g;
 const RE_QUOTED = /(['"`])((?:(?!\1).){1,300})\1/g;
 // Source-module extensions are imports (internal structure), not external
 // resources — excluded to cut import noise. Data/config/asset extensions are
-// what an examiner wants (worklist.json, .env, settings.yaml, …).
+// what an examiner wants (worklist.json, .env, settings.yaml, …). This gates
+// BARE filenames (no path separator): a separator-bearing path with any
+// non-source extension is already accepted, but a bare `"foo.ext"` must clear
+// this allow-list to avoid flagging prose. Template / prompt-asset extensions
+// (jinja2, mustache, …) are included so bare references like
+// `quirks_dir / "ai_welfare_poisoning.jinja2"` register as referenced files
+// (they were silently dropped before — the literal IS present, just bare).
 const _SOURCE_EXTS = new Set('js jsx ts tsx mjs cjs py rb go rs java c cc cpp cxx h hpp hh cs php swift kt scala m mm'.split(' '));
-const _DATA_EXTS = new Set('json yaml yml toml ini env cfg conf config xml csv tsv sqlite db sql lock pem key crt cert log txt md sh bash bat ps1 html htm css scss proto graphql properties plist'.split(' '));
+const _DATA_EXTS = new Set(('json yaml yml toml ini env cfg conf config xml csv tsv sqlite db sql lock pem key crt cert log txt md sh bash bat ps1 html htm css scss proto graphql properties plist '
+  + 'jinja2 j2 jinja tmpl tpl mustache hbs handlebars ejs liquid njk twig erb haml').split(' '));
 
 function _looksLikePath(v) {
   if (v.includes('://')) return false;                 // URL → belongs to network
