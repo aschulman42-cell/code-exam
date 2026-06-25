@@ -128,6 +128,17 @@ const PROMPT_FILE_NAMES = new Set([
   'claude.md',  // Claude Code project instructions
 ]);
 
+// Prompt-template / prompt-asset extensions. A file with one of these sitting in
+// a prompt-convention dir is a whole-file prompt the same way a .md there is —
+// e.g. .../prompts/system_prompt_quirks/ai_welfare_poisoning.jinja2, which is
+// literally a "You are…" system prompt with no surrounding code, so the
+// code-level (string-literal) detector never sees it. Gating on the dir keeps
+// precision: a stray HTML/email .jinja2 elsewhere is NOT treated as a prompt.
+// (Precondition: the file must be indexed — .jinja2 etc. are skipped by default,
+//  so this only fires once the index was built with --add-extensions.)
+const PROMPT_TEMPLATE_EXTS = ['.jinja2', '.j2', '.jinja', '.tmpl', '.tpl', '.mustache', '.hbs', '.txt'];
+const _hasPromptTemplateExt = (basename) => PROMPT_TEMPLATE_EXTS.some(e => basename.endsWith(e));
+
 export async function collectPrompts(index, { filter = null, expandComposites = true } = {}) {
   index._ensureFunctionIndex();
 
@@ -146,12 +157,18 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
     // General YAML-frontmatter .md files are NOT included — too many
     // false positives from regular documentation with frontmatter.
     const normPath = filepath.replace(/\\/g, '/').toLowerCase();
-    const inPromptDir = basename.endsWith('.md') && (
-      /\/skills\//.test(normPath) ||
-      /\/agents\//.test(normPath) ||
-      /\/prompts\//.test(normPath) ||
-      /\/souls\//.test(normPath) ||
-      /\/personalities\//.test(normPath)
+    // A .md OR a prompt-template file (.jinja2, .tmpl, …) in a prompt-convention
+    // dir. Widening the extension gate (was .md-only) lets indexed template
+    // prompts surface; the dir gate still keeps it precise. Each dir pattern is
+    // anchored with (^|/) so a TOP-level prompt dir (path `prompts/foo`, no
+    // leading slash) matches too — it previously required a slash before the
+    // name and silently missed root-level prompts/ skills/ etc.
+    const inPromptDir = (basename.endsWith('.md') || _hasPromptTemplateExt(basename)) && (
+      /(^|\/)skills\//.test(normPath) ||
+      /(^|\/)agents\//.test(normPath) ||
+      /(^|\/)prompts\//.test(normPath) ||
+      /(^|\/)souls\//.test(normPath) ||
+      /(^|\/)personalities\//.test(normPath)
     );
 
     if (isPromptFile || inPromptDir) {
@@ -160,7 +177,8 @@ export async function collectPrompts(index, { filter = null, expandComposites = 
       if (fullText.length < 50) continue;
 
       const entry = {
-        type: isPromptFile ? 'prompt-file' : 'md-in-prompt-dir',
+        type: isPromptFile ? 'prompt-file'
+          : (basename.endsWith('.md') ? 'md-in-prompt-dir' : 'template-in-prompt-dir'),
         filepath,
         lineNum: 1,
         endLine: fileLines.length,
