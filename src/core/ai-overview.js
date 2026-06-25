@@ -94,10 +94,12 @@ export function aiOverviewPrompt(grounding) {
  * @param {string} opts.indexPath   Index directory to point the MCP server at (required).
  * @param {string} [opts.model]     Claude model id (e.g. claude-sonnet-4-6); omitted → CLI default.
  * @param {number} [opts.timeoutMs] Hard wall-clock limit (default 600000 = 10 min).
+ * @param {number} [opts.maxBudgetUsd] Hard spend ceiling passed to the claude CLI
+ *   (default: CE_OVERVIEW_MAX_BUDGET env, else $5). The agentic loop aborts if exceeded.
  * @param {(line:string)=>void} [opts.onStderr] Optional live stderr sink (CLI progress).
  * @returns {Promise<{prose:string, costUsd:(number|null), usage:(object|null)}>}
  */
-export function runAiOverview({ indexPath, model, timeoutMs = 600000, grounding, onStderr } = {}) {
+export function runAiOverview({ indexPath, model, timeoutMs = 600000, grounding, maxBudgetUsd, onStderr } = {}) {
   return new Promise((resolve, reject) => {
     if (!indexPath) return reject(new Error('runAiOverview: indexPath is required.'));
 
@@ -115,9 +117,18 @@ export function runAiOverview({ indexPath, model, timeoutMs = 600000, grounding,
     const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } };
     const finish = (fn, arg) => { if (done) return; done = true; cleanup(); fn(arg); };
 
+    // Hard spend ceiling: the `claude` CLI aborts the agentic loop if the run's
+    // cost exceeds this. Default $5 — generous over a typical ~$0.50 run, but it
+    // bounds a runaway on a very large index. CE_OVERVIEW_MAX_BUDGET overrides;
+    // an explicit maxBudgetUsd arg wins. Caps BOTH the CLI and GUI surfaces, since
+    // both go through runAiOverview. (#overview-cost-budget-cap)
+    const _envBudget = parseFloat(process.env.CE_OVERVIEW_MAX_BUDGET);
+    const budgetUsd = Number.isFinite(maxBudgetUsd) ? maxBudgetUsd
+      : (Number.isFinite(_envBudget) ? _envBudget : 5.0);
+
     // Space-containing values stay off the (shell:true) command line: prompt via
     // stdin, mcp-config via a quoted file path, tools comma-separated.
-    const args = ['-p', '--output-format', 'json',
+    const args = ['-p', '--output-format', 'json', '--max-budget-usd', String(budgetUsd),
       '--mcp-config', `"${path.join(tmpDir, 'mcp.json')}"`,
       '--allowedTools', AI_OVERVIEW_TOOLS,
       '--permission-mode', 'bypassPermissions'];
@@ -153,22 +164,32 @@ export function runAiOverview({ indexPath, model, timeoutMs = 600000, grounding,
     }, timeoutMs);
     child.on('close', (codeNum) => {
       clearTimeout(timer);
-      if (codeNum !== 0 || !out.trim()) {
-        return finish(reject, new Error(`AI Overview failed (claude exit ${codeNum}). ${(err || '').slice(0, 400)}`.trim()));
-      }
-      // --output-format json → one JSON envelope: { result, total_cost_usd, usage, ... }.
-      // Fall back to raw text (cost unknown) if the CLI's shape ever drifts, so the
-      // user still gets their overview rather than a hard failure.
+      // --output-format json → one JSON envelope: { result, total_cost_usd, usage,
+      // is_error, subtype, ... }.
       let parsed = null;
-      try { parsed = JSON.parse(out); } catch { /* fall through to raw */ }
-      if (parsed && typeof parsed.result === 'string' && parsed.result.trim()) {
+      try { parsed = JSON.parse(out); } catch { /* not the expected envelope */ }
+      const budgetHit = /budget/i.test(err) || /budget/i.test(out)
+        || (parsed && /budget/i.test(String(parsed.subtype || '')));
+
+      // Success: exit 0, a non-empty result, no error flag.
+      if (codeNum === 0 && parsed && !parsed.is_error
+          && typeof parsed.result === 'string' && parsed.result.trim()) {
         return finish(resolve, {
           prose: parsed.result.trim(),
           costUsd: typeof parsed.total_cost_usd === 'number' ? parsed.total_cost_usd : null,
           usage: parsed.usage || null,
         });
       }
-      finish(resolve, { prose: out.trim(), costUsd: null, usage: null });
+      // Budget abort (--max-budget-usd hit): clear, actionable message.
+      if (budgetHit) {
+        return finish(reject, new Error(`AI Overview hit the $${budgetUsd} spend cap (--max-budget-usd). Raise it with CE_OVERVIEW_MAX_BUDGET=<amount> and retry, or narrow the index.`));
+      }
+      // Shape drift: exit 0 with non-empty stdout that didn't parse as the
+      // expected envelope — still hand back the prose rather than hard-failing.
+      if (codeNum === 0 && !parsed && out.trim()) {
+        return finish(resolve, { prose: out.trim(), costUsd: null, usage: null });
+      }
+      finish(reject, new Error(`AI Overview failed (claude exit ${codeNum}). ${(err || '').slice(0, 400)}`.trim()));
     });
     child.stdin.write(aiOverviewPrompt(grounding));
     child.stdin.end();
