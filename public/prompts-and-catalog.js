@@ -23,7 +23,7 @@
 import { state } from './state.js';
 import { api } from './api.js';
 import {
-  $, $$, h, escHtml, displayNameHtml, shortPath, shortFuncName,
+  $, $$, h, escHtml, displayNameHtml, shortPath, shortFuncName, funcOrFileLabel,
 } from './dom-utils.js';
 import { showPane } from './layout.js';
 import {
@@ -115,7 +115,7 @@ export function renderPromptList(container, prompts, total) {
     const item = h('div', { className: 'list-item', title: tip, style: 'align-items:flex-start' }, [
       h('span', { className: 'metric', text: `${p.text.length}` }),
       h('span', { className: 'name', text: frag, style: 'font-size:11px;flex:1;min-width:0;word-break:break-word' }),
-      h('span', { className: 'metric muted', text: funcLabel, style: 'font-size:10px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;flex-shrink:0' }),
+      h('span', { className: 'metric muted', text: funcOrFileLabel(p.funcDisplay || p.func, p.filepath), style: 'font-size:10px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;flex-shrink:0' }),
     ]);
     item.addEventListener('click', () => renderPromptDetail(p));
     container.appendChild(item);

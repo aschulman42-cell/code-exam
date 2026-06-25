@@ -48,6 +48,20 @@ export function displayNameHtml(name) {
        + escHtml(tail);
 }
 
+// When a row's "function" scope is a sentinel ((file scope) / (unknown)) or empty,
+// return the file's BASENAME instead — more informative in the left pane than the
+// bare sentinel, which otherwise required a click to learn the file. Returns a
+// plain string; callers apply their own escaping / displayNameHtml, and keep
+// data-funcname as the raw sentinel so clicking still routes to the file.
+// (#left-pane-file-scope-filename)
+const _SCOPE_SENTINELS = new Set(['(file scope)', '(unknown)']);
+export function funcOrFileLabel(name, filepath) {
+  if ((!name || _SCOPE_SENTINELS.has(name)) && filepath) {
+    return String(filepath).replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop();
+  }
+  return name || '(file scope)';
+}
+
 export function copyToClipboard(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     return navigator.clipboard.writeText(text).catch(() => execCopyFallback(text));

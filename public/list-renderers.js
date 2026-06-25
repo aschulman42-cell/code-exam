@@ -21,7 +21,7 @@
 import { state } from './state.js';
 import { api } from './api.js';
 import {
-  $, $$, h, escHtml, displayNameHtml, shortPath, makeDraggable, makeResizable, commonPathPrefix,
+  $, $$, h, escHtml, displayNameHtml, shortPath, funcOrFileLabel, makeDraggable, makeResizable, commonPathPrefix,
 } from './dom-utils.js';
 import { showPane } from './layout.js';
 import {
@@ -66,7 +66,7 @@ export function renderFuncLikeList(container, items, metricKey) {
     const item = h('div', { className: 'list-item', title: `${f.filepath}\n${f.display_name || f.name}\n${metricKey}: ${metricVal}` }, [
       f.rank != null ? h('span', { className: 'rank', text: `${f.rank}` }) : null,
       h('span', { className: 'metric', text: `${metricVal}` }),
-      h('span', { className: 'name clickable', html: displayNameHtml(f.display_name || f.name) }),
+      h('span', { className: 'name clickable', html: displayNameHtml(funcOrFileLabel(f.display_name || f.name, f.filepath)) }),
       h('span', { className: 'metric muted', text: `${f.lines || ''}L` }),
     ].filter(Boolean));
     item.addEventListener('click', () => onFunctionClick(f));
