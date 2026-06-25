@@ -1655,7 +1655,12 @@ async function sendChatMessage() {
     }, { timeout: 600000 });
     const blocks = resp.content || [];
     const toolCalls = blocks.filter(b => b.type === 'tool_use').map(b => ({ name: b.name, input: b.input }));
-    const answer = blocks.filter(b => b.type === 'text').map(b => b.text).join('\n').trim() || '(no text response)';
+    // Prefer the server's dedicated final-answer (the synthesized reply, not a
+    // mash of interim narration). Fall back to concatenated text blocks for an
+    // older server that doesn't send `answer` yet (#36 final-answer-robustness).
+    const answer = (resp.answer && resp.answer.trim())
+      || blocks.filter(b => b.type === 'text').map(b => b.text).join('\n').trim()
+      || '(no text response)';
     pending?.remove();
     appendChatBubble('assistant', answer, toolCalls);
     chatMessages.push({ role: 'assistant', content: answer });

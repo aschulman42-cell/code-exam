@@ -3329,7 +3329,20 @@ async function runChatToolLoop({ messages, index, indexName, fileCount, mode, ap
   const allBlocks = [];
   let current = [...messages];
   const MAX_ITERATIONS = 25;  // raised from 15 (#36): attributed/augmented modes explore harder
-  let finalReached = false;
+
+  // Join the text blocks of one content array into trimmed prose.
+  const textOf = (content) => content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+  // An end_turn that is actually a STALL, not an answer: short prose that announces
+  // a next step it never took ("Let me find …", "Now I'll check:", a trailing
+  // colon). The model "finished" per the API but hasn't answered — synthesize below.
+  const looksUnfinished = (t) => t.length < 300 && (
+    /\b(let me|let's|now i['’]?ll|i['’]?ll now|next,? i|first,? (?:let me|i)|i will now)\b/i.test(t)
+    || /[:：]\s*$/.test(t)
+  );
+
+  let answer = '';            // the FINAL answer — NOT a mash of interim narration
+  let genuineFinal = false;   // an end_turn with real, complete text → no synthesis needed
+
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     const payload = JSON.stringify({
       model, max_tokens: maxTokens, temperature, system, messages: current, tools,
@@ -3339,40 +3352,65 @@ async function runChatToolLoop({ messages, index, indexName, fileCount, mode, ap
     });
     const content = body.content || [];
     allBlocks.push(...content);
-    if (body.stop_reason !== 'tool_use') { finalReached = true; break; }
 
-    const resultMap = {};
-    const toolResults = [];
-    for (const b of content) {
-      if (b.type !== 'tool_use') continue;
-      if (onToolCall) onToolCall(b.name, b.input);
-      let text;
-      try { text = String(handleTool(b.name, b.input || {})); }
-      catch (e) { text = `Error: ${e.message}`; }
-      resultMap[b.id] = text;
-      toolResults.push({ type: 'tool_result', tool_use_id: b.id, content: text });
+    if (body.stop_reason === 'tool_use') {
+      const resultMap = {};
+      const toolResults = [];
+      for (const b of content) {
+        if (b.type !== 'tool_use') continue;
+        if (onToolCall) onToolCall(b.name, b.input);
+        let text;
+        try { text = String(handleTool(b.name, b.input || {})); }
+        catch (e) { text = `Error: ${e.message}`; }
+        resultMap[b.id] = text;
+        toolResults.push({ type: 'tool_result', tool_use_id: b.id, content: text });
+      }
+      for (const b of allBlocks) {
+        if (b.type === 'tool_use' && resultMap[b.id] !== undefined) b._result = resultMap[b.id];
+      }
+      // Strip our _result annotation before echoing assistant turn back to the API.
+      const clean = content.map(({ _result, ...rest }) => rest);
+      current = [...current, { role: 'assistant', content: clean }, { role: 'user', content: toolResults }];
+      continue;
     }
-    for (const b of allBlocks) {
-      if (b.type === 'tool_use' && resultMap[b.id] !== undefined) b._result = resultMap[b.id];
+
+    // Non-tool stop. Only an end_turn with real, complete text is a genuine final
+    // answer. max_tokens / pause_turn are truncated mid-thought; an end_turn whose
+    // text just narrates a next step is a stall. Anything not genuine falls through
+    // to the synthesis pass below (this is the #36 "(no text response)" bug:
+    // max_tokens and narrate-and-stop were treated as final, skipping synthesis).
+    const turnText = textOf(content);
+    if (body.stop_reason === 'end_turn' && turnText && !looksUnfinished(turnText)) {
+      answer = turnText;
+      genuineFinal = true;
     }
-    // Strip our _result annotation before echoing assistant turn back to the API.
-    const clean = content.map(({ _result, ...rest }) => rest);
-    current = [...current, { role: 'assistant', content: clean }, { role: 'user', content: toolResults }];
+    break;
   }
-  // Loop exhausted while the model still wanted tools (no final text yet): make
-  // one tools-OFF call so it MUST answer from what it gathered — otherwise the
-  // user gets tool calls with no prose (#36, the Attributed-run truncation).
-  if (!finalReached) {
+
+  // No genuine final answer (iteration cap hit while still calling tools, a
+  // max_tokens/pause_turn truncation, or a narrate-and-stop): make ONE tools-OFF
+  // call so the model MUST answer from what it already gathered, and use ITS text.
+  if (!genuineFinal) {
     try {
       const body = await _serverHttpPost(apiUrl, JSON.stringify({
         model, max_tokens: maxTokens, temperature, system, messages: current,  // no `tools` → stop_reason can't be tool_use
       }), { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' });
-      allBlocks.push(...(body.content || []));
+      const content = body.content || [];
+      allBlocks.push(...content);
+      answer = textOf(content) || answer;
     } catch (e) {
-      allBlocks.push({ type: 'text', text: `(Reached the ${MAX_ITERATIONS}-step tool limit and could not produce a final summary: ${e.message})` });
+      const msg = `(Reached the ${MAX_ITERATIONS}-step tool limit and could not produce a final summary: ${e.message})`;
+      allBlocks.push({ type: 'text', text: msg });
+      answer = answer || msg;
     }
   }
-  return allBlocks;
+
+  // Never hand back an empty answer — last-resort fall back to any text in the trace.
+  if (!answer) answer = textOf(allBlocks);
+
+  // content = the full block trace (drives the tool-call view); answer = the final
+  // synthesized reply only (no interim narration). (#36 final-answer-robustness)
+  return { content: allBlocks, answer };
 }
 
 routes['/api/chat'] = (req, res) => {
@@ -3395,14 +3433,14 @@ routes['/api/chat'] = (req, res) => {
       const indexName = params.index || mgr.activeIndex;
       const mode = CHAT_GROUNDING_CLAUSES[params.mode] ? params.mode : 'grounded';
       console.log(`  [chat] ${messages.length} msg(s) over "${indexName}", model=${model}, grounding=${mode}`);
-      const content = await runChatToolLoop({
+      const { content, answer } = await runChatToolLoop({
         messages, index, indexName, fileCount: index.files.size, mode,
         apiKey: serverLLM.defaultApiKey,
         model,
         temperature: params.temperature ?? 0,
         onToolCall: (name, input) => console.log(`  [chat] tool: ${name}(${JSON.stringify(input || {}).slice(0, 120)})`),
       });
-      jsonResponse(res, { content, index: indexName });
+      jsonResponse(res, { content, answer, index: indexName });
     } catch (e) {
       console.error('chat error:', e.message);
       errorResponse(res, `Chat error: ${e.message}`, 500);
