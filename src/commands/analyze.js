@@ -15,7 +15,7 @@
 //
 // All modes:
 //   - Support --mask-all to strip comments and mask string contents
-//   - Support --use-claude (API) or --analyze-model (local GGUF)
+//   - Support --llm claude (API) or --analyze-model (local GGUF)
 //   - Support --show-prompt to see what would be sent without calling LLM
 //   - Support --line-numbers to include source line numbers in prompts
 //
@@ -34,6 +34,7 @@ import {
 } from './claim.js';
 import { parseMultisectTerms, displayMultisectResults, printSelectivityReport } from './multisect.js';
 import { displayName } from '../utils.js';
+import { estimateCost } from '../core/pricing.js';
 
 
 // ============================================================================
@@ -209,14 +210,17 @@ class AnalysisLLM {
   async generate(prompt, maxTokens = 500) {
     if (this.useClaude) return this._callClaude(prompt, maxTokens);
     if (this.modelPath) return this._callLocal(prompt, maxTokens);
-    return '(No LLM available - use --use-claude or --analyze-model)';
+    return '(No LLM available - use --llm claude or --analyze-model)';
   }
 
   getUsageSummary() {
     if (!this.useClaude || this._requestCount === 0) return '';
-    const inputCost = (this._totalInputTokens / 1_000_000) * 3.0;
-    const outputCost = (this._totalOutputTokens / 1_000_000) * 15.0;
-    const totalCost = inputCost + outputCost;
+    // Shared pricing helper — was hardcoded to Sonnet's $3/$15 per 1M regardless
+    // of model, so it under-reported ~40% once --claude-model selects Opus.
+    const model = this.claudeModel || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6';
+    const { usd: totalCost } = estimateCost(model, {
+      input_tokens: this._totalInputTokens, output_tokens: this._totalOutputTokens,
+    });
     return `Claude API Usage: ${this._requestCount} requests, ` +
       `${this._totalInputTokens.toLocaleString()} in / ${this._totalOutputTokens.toLocaleString()} out, ` +
       `~$${totalCost.toFixed(4)}`;
@@ -1162,8 +1166,40 @@ function resolveFile(index, spec) {
 // HELPERS
 // ============================================================================
 
-const _FILE_MAX_LINES_CLAUDE = 500;
+// Local (air-gapped) file analysis is bounded by the model's context window, not
+// dollars, so it keeps a line cap. Claude analysis is bounded by a projected-COST
+// guard instead (see below) — the old fixed Claude line cap (was 500) is gone.
 const _FILE_MAX_LINES_LOCAL = 200;
+
+// Projected-cost guard for paid (Claude) analysis. Decided with the user; goal:
+// "don't surprise users with large costs." Chosen over a line cap because it is
+// model-aware (Opus costs ~1.7x Sonnet for the same tokens), catches minified
+// one-liners (chars, not lines), and is uniform across --analyze and
+// --file-analyze. $0.50 default; CE_ANALYZE_COST_GUARD env overrides; --force
+// bypasses. Alternatives (remove cap entirely / raise the line number / line-
+// based --max-lines) were rejected as no-protection or arbitrary-and-model-blind.
+const _ANALYZE_COST_GUARD_USD = 0.50;
+
+// Returns a block descriptor when a Claude analysis would exceed the guard, else
+// null (always null for local — no API cost). Input tokens are estimated from
+// prompt size (~3 chars/token for code, slightly conservative so it guards a
+// touch early rather than late); output assumed ~800 tokens.
+function _analyzeCostBlock(args, promptChars) {
+  if (!args.use_claude || args.force) return null;
+  const model = args.claude_model || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6';
+  const estIn = Math.ceil(promptChars / 3);
+  const { usd } = estimateCost(model, { input_tokens: estIn, output_tokens: 800 });
+  const envGuard = parseFloat(process.env.CE_ANALYZE_COST_GUARD);
+  const guard = Number.isFinite(envGuard) ? envGuard : _ANALYZE_COST_GUARD_USD;
+  return usd > guard ? { usd, estIn, guard, model } : null;
+}
+
+function _printCostBlock(b, kind) {
+  const k = (n) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+  console.log(`\n${kind} would cost ~$${b.usd.toFixed(2)} (~${k(b.estIn)} input tokens, ${b.model}) —`);
+  console.log(`  over the $${b.guard.toFixed(2)} analyze cost guard. Large inputs can run up real cost.`);
+  console.log(`  Tip: --force to send anyway, --mask-all to shrink the prompt, or raise CE_ANALYZE_COST_GUARD.`);
+}
 
 function _printDisclaimer(isClaude) {
   if (isClaude) {
@@ -1253,9 +1289,9 @@ function _resolveClaimText(args, claimArg) {
   }
 
   console.log('--claim-analyze requires patent claim text.');
-  console.log('  --claim-analyze @patent_claim.txt --use-claude');
-  console.log('  --claim-analyze "A method comprising..." --use-claude');
-  console.log('  --claim-analyze FUNCNAME --claim-text @patent_claim.txt --use-claude');
+  console.log('  --claim-analyze @patent_claim.txt --llm claude');
+  console.log('  --claim-analyze "A method comprising..." --llm claude');
+  console.log('  --claim-analyze FUNCNAME --claim-text @patent_claim.txt --llm claude');
   return null;
 }
 
@@ -1358,13 +1394,21 @@ export async function doAnalyze(index, args) {
     process.stderr.write(`\nSending prompt to LLM (${prompt.length} chars)...\n`);
   }
 
+  const costBlock = _analyzeCostBlock(args, prompt.length);
+  if (costBlock) {
+    console.log('='.repeat(70));
+    console.log(`ANALYZE: ${filepath}@${displayName(funcName, filepath)} (${linesCount} lines)`);
+    _printCostBlock(costBlock, 'This analysis');
+    return;
+  }
+
   const llm = getAnalysisLLM(args);
   if (!llm.isAvailable()) {
     console.log();
     console.log(`Source code (${linesCount} lines):`);
     console.log(sourceForLLM);
     console.log();
-    console.log('WARNING: No LLM available. Use --use-claude or --analyze-model <path>');
+    console.log('WARNING: No LLM available. Use --llm claude or --analyze-model <path>');
     console.log('  Source extracted successfully - LLM analysis requires an AI backend.');
     _printExtractTip(filepath, funcName);
     return;
@@ -1718,7 +1762,7 @@ async function _doClaimSingleAnalyze(ext, claimText, args, maskAll, showPrompt, 
     console.log(`Source code (${lines} lines):`);
     console.log(sourceForLLM);
     console.log();
-    console.log('WARNING: No LLM available. Use --use-claude or --analyze-model <path>');
+    console.log('WARNING: No LLM available. Use --llm claude or --analyze-model <path>');
     _printExtractTip(filepath, funcName);
     return;
   }
@@ -1778,7 +1822,7 @@ async function _doClaimFileAnalyze(index, args, filepath, claimText, maskAll, sh
   const llm = getAnalysisLLM(args);
   if (!llm.isAvailable()) {
     console.log();
-    console.log(`WARNING: No LLM available. Use --use-claude or --analyze-model <path>`);
+    console.log(`WARNING: No LLM available. Use --llm claude or --analyze-model <path>`);
     return;
   }
 
@@ -1976,7 +2020,7 @@ async function _doMultisectSingleAnalyze(ext, displayTerms, args, maskAll, showP
     console.log(`Source code (${lines} lines):`);
     console.log(sourceForLLM);
     console.log();
-    console.log('WARNING: No LLM available. Use --use-claude or --analyze-model <path>');
+    console.log('WARNING: No LLM available. Use --llm claude or --analyze-model <path>');
     _printExtractTip(filepath, funcName);
     return;
   }
@@ -2015,11 +2059,11 @@ export async function doFileAnalyze(index, args) {
   const lineNumbers = args.line_numbers || false;
   const useClaude = args.use_claude || false;
 
-  const maxLines = useClaude ? _FILE_MAX_LINES_CLAUDE : _FILE_MAX_LINES_LOCAL;
-  const backend = useClaude ? 'Claude' : 'local LLM';
-
-  if (nLines > maxLines && !showPrompt) {
-    console.log(`File '${filepath}' is ${nLines} lines - too large for ${backend} file analysis (limit: ${maxLines}).`);
+  // Local (air-gapped) analysis is bounded by the model's context window, so keep
+  // a line cap. Claude analysis is bounded by a projected-COST guard applied below
+  // (after the prompt is built), which replaces the old fixed Claude line cap.
+  if (!useClaude && nLines > _FILE_MAX_LINES_LOCAL && !showPrompt) {
+    console.log(`File '${filepath}' is ${nLines} lines - too large for local file analysis (limit: ${_FILE_MAX_LINES_LOCAL}).`);
     console.log(`  Tip: Use --analyze FILE@FUNCTION to analyze individual functions.`);
     console.log(`  Tip: Use --list-functions "${filepath.split(/[\\/]/).pop()}" to see functions in this file.`);
     return;
@@ -2057,6 +2101,13 @@ export async function doFileAnalyze(index, args) {
     return;
   }
 
+  const costBlock = _analyzeCostBlock(args, prompt.length);
+  if (costBlock) {
+    _printCostBlock(costBlock, 'This file analysis');
+    console.log(`  Tip: --analyze ${filepath.split(/[\\/]/).pop()}@FUNCTION to analyze a single function instead.`);
+    return;
+  }
+
   process.stderr.write(`\n--- Prompt sent to LLM (${prompt.length} chars) ---\n`);
   process.stderr.write(prompt + '\n');
   process.stderr.write('--- End prompt ---\n\n');
@@ -2070,7 +2121,7 @@ export async function doFileAnalyze(index, args) {
     }
     console.log('  ...');
     console.log();
-    console.log('WARNING: No LLM available. Use --use-claude or --analyze-model <path>');
+    console.log('WARNING: No LLM available. Use --llm claude or --analyze-model <path>');
     return;
   }
 

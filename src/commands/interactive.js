@@ -294,7 +294,7 @@ CLAIM SEARCH (LLM-based patent claim analysis):
   /claim @file.txt       Read claim from file. Requires ANTHROPIC_API_KEY env var.
                          Options: min=N, --show-prompt
 
-LLM ANALYSIS (requires --use-claude or --analyze-model):
+LLM ANALYSIS (requires --llm claude or --analyze-model):
   /analyze <function>    Analyze a function with LLM ("what does this do?")
   /claim-analyze <claim> End-to-end: extract terms -> search -> analyze against claim
   /multisect-analyze <terms>  Search for terms, analyze top function hits
@@ -1015,7 +1015,7 @@ function dispatchCommand(query, ctx) {
       if (!rest) {
         console.log('Usage: /analyze <function>');
         console.log('       /analyze FILE@FUNCTION');
-        console.log('  Analyzes a function with LLM. Requires --use-claude or --analyze-model.');
+        console.log('  Analyzes a function with LLM. Requires --llm claude or --analyze-model.');
         console.log('  Options: --mask-all, --line-numbers, --show-prompt');
         return;
       }
@@ -1046,7 +1046,7 @@ function dispatchCommand(query, ctx) {
         console.log('Usage: /claim-analyze @patent_claim.txt');
         console.log('       /claim-analyze "A method comprising..."');
         console.log('  End-to-end: extract terms -> search -> analyze against claim.');
-        console.log('  Requires --use-claude or --analyze-model and ANTHROPIC_API_KEY.');
+        console.log('  Requires --llm claude or --analyze-model and ANTHROPIC_API_KEY.');
         console.log('  Options: --mask-all, --line-numbers, --show-prompt, min=N');
         return;
       }
@@ -1083,7 +1083,7 @@ function dispatchCommand(query, ctx) {
       if (!rest) {
         console.log('Usage: /multisect-analyze "term1;term2;term3"');
         console.log('  Searches for functions matching terms, analyzes top hits.');
-        console.log('  Requires --use-claude or --analyze-model.');
+        console.log('  Requires --llm claude or --analyze-model.');
         console.log('  Options: --mask-all, --line-numbers, --show-prompt, min=N');
         return;
       }
@@ -1123,7 +1123,7 @@ function dispatchCommand(query, ctx) {
       if (!rest) {
         console.log('Usage: /file-analyze <filepath>');
         console.log('  Analyzes an entire source file with LLM.');
-        console.log('  Requires --use-claude or --analyze-model.');
+        console.log('  Requires --llm claude or --analyze-model.');
         console.log('  Options: --mask-all, --line-numbers, --show-prompt');
         return;
       }

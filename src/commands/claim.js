@@ -10,7 +10,7 @@
 //     -> sanitize -> multisectSearch (TIGHT) -> multisectSearch (BROAD)
 //
 // Two LLM paths:
-//   --use-claude    : Anthropic API (needs ANTHROPIC_API_KEY env var)
+//   --llm claude    : Anthropic API (needs ANTHROPIC_API_KEY env var)
 //   --claim-model   : Local GGUF model via node-llama-cpp (TODO: Phase 8a+)
 // ============================================================================
 

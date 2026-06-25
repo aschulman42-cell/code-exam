@@ -228,6 +228,7 @@ export function parseArgs() {
     analyze_context: null,
     mask_all: false,
     line_numbers: false,
+    force: false,         // --analyze/--file-analyze: bypass the projected-cost guard
     claim_text: null,
     with_digest: false,
 
@@ -443,6 +444,7 @@ export function parseArgs() {
     ['analyze_context',      'value',          ['--with', '--context-text']],
     ['mask_all',             'flag',           ['--mask-all']],
     ['line_numbers',         'flag',           ['--line-numbers']],
+    ['force',                'flag',           ['--force']],
     ['claim_text',           'value',          ['--claim-text']],
     ['with_digest',          'flag',           ['--with-digest']],
 
@@ -1093,6 +1095,12 @@ LLM ANALYSIS:
   --file-analyze <filepath>  Analyze an entire source file with LLM
   --mask-all                 Strip comments and mask string contents before sending to LLM
   --line-numbers             Include source line numbers in LLM prompt
+  --force                    With --analyze / --file-analyze (Claude): bypass the
+                             projected-cost guard. By default an analysis whose
+                             estimated cost exceeds ~$0.50 is blocked with the
+                             estimate shown; --force sends it anyway. Override the
+                             threshold with the CE_ANALYZE_COST_GUARD env var.
+                             Local (air-gapped) analysis has no cost guard.
   --with-digest              Prepend the --digest output (static-analysis facts:
                              identity, callers/callees, strings, breadcrumbs,
                              comments, dupes) to the --analyze prompt. Use to
