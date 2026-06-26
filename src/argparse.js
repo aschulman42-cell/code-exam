@@ -21,6 +21,16 @@ try {
   VERSION = _pkg.version.split('.').slice(0, 2).join('.');
 } catch { /* keep fallback */ }
 
+// The product banner — shown on --help / --version / bare invocation / cmdline
+// error (everywhere except real command output). Single source for the text.
+const BANNER = `CodeExam -- GUI, CLI, and MCP tools for examining source-code and quasi-source, with AI features
+Version: ${VERSION}
+https://github.com/aschulman42-cell/code-exam`;
+
+export function printBanner(stream = process.stdout) {
+  stream.write(BANNER + '\n');
+}
+
 
 /**
  * Levenshtein edit distance, capped early once it exceeds `max` (returns
@@ -305,6 +315,9 @@ export function parseArgs() {
     // Unknown -prefixed tokens (typos). The dispatcher uses this to avoid
     // silently dropping into the REPL on a mistyped flag. #69.
     _unknownFlags: [],
+    // Unexpected bare positionals (e.g. `ce foobar`). Same treatment as unknown
+    // flags — reported + exit 2 before the index load. #69.
+    _unknownPositionals: [],
   };
 
   // Definitions: [argName, type, aliases]
@@ -586,11 +599,14 @@ export function parseArgs() {
 
     const def = aliasMap.get(token);
     if (!def) {
-      // Unknown arg - skip (could be a positional or typo)
+      // Unknown token: a mistyped flag, or an unexpected positional. Collect it;
+      // the dispatcher reports + exits (before the index load) so the error is
+      // not masked by "No index found". #69.
       if (token.startsWith('-')) {
-        console.error(`Warning: Unknown option '${token}'`);
         const suggestion = suggestClosest(token, aliasMap);
         args._unknownFlags.push({ token, suggestion });
+      } else {
+        args._unknownPositionals.push(token);
       }
       i++;
       continue;
@@ -756,9 +772,7 @@ export function filterHelp(text, filter) {
 
 function printUsage(filter) {
   const usage = `
-CodeExam -- GUI, CLI, and MCP tools for examining source-code and quasi-source, with AI features
-Version: ${VERSION}
-https://github.com/aschulman42-cell/code-exam
+${BANNER}
 
 USAGE:
   node src/index.js [options]

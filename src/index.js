@@ -8,7 +8,7 @@
 
 import fs from 'fs';
 import { spawnSync } from 'child_process';
-import { parseArgs } from './argparse.js';
+import { parseArgs, printBanner } from './argparse.js';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { buildOverview, formatOverview } from './core/overview.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
@@ -119,6 +119,26 @@ if (_rawArgvForGui.includes('--gui')) {
 // ========================================================================
 
 const args = parseArgs();
+
+
+// ========================================================================
+// Reject bad CLI input BEFORE loading an index, so a typo isn't masked by
+// "No index found". Banner (stderr) + error(s) + run-help hint, exit 2.
+// ========================================================================
+
+if (args._unknownFlags.length || args._unknownPositionals.length) {
+  printBanner(process.stderr);
+  for (const { token, suggestion } of args._unknownFlags) {
+    process.stderr.write(suggestion
+      ? `\nUnknown option '${token}'. Did you mean '${suggestion}'?\n`
+      : `\nUnknown option '${token}'.\n`);
+  }
+  for (const token of args._unknownPositionals) {
+    process.stderr.write(`\nUnexpected argument '${token}'.\n`);
+  }
+  process.stderr.write(`Run 'ce --help' for usage.\n`);
+  process.exit(2);
+}
 
 
 // ========================================================================
