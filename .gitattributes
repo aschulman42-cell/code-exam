@@ -1,0 +1,14 @@
+# POSIX launchers + shell scripts must stay LF — CRLF breaks `#!/usr/bin/env sh`
+# on Linux/macOS ("bad interpreter"). Pin them regardless of a contributor's
+# core.autocrlf setting.
+/ce          text eol=lf
+/CodeExam    text eol=lf
+*.sh         text eol=lf
+
+# Windows batch files: CRLF is conventional.
+*.bat        text eol=crlf
+
+# Binary assets — never normalize or line-ending-mangle.
+*.wasm       binary
+*.gguf       binary
+*.zip        binary
