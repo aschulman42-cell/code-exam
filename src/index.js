@@ -59,6 +59,19 @@ import {
 } from './commands/analyze.js';
 
 
+// How the user invoked CE, for help/example lines: the standalone exe basename,
+// else `node src/index.js`. (Run via the `ce` / `CodeExam` launchers, execPath
+// is still `node`, so examples show `node src/index.js` — same as before.)
+function exeBase() {
+  try {
+    const b = process.execPath.split(/[\\/]/).pop() || 'node';
+    const lower = b.toLowerCase().replace(/\.exe$/, '');
+    if (lower === 'node' || lower === 'bun' || lower === 'tsx') return 'node src/index.js';
+    return b;
+  } catch { return 'node src/index.js'; }
+}
+
+
 // ========================================================================
 // --gui: launch the GUI server + open the user's browser.
 // Detected from raw argv before parseArgs so server.js's own arg parser
@@ -93,6 +106,9 @@ if (_rawArgvForGui.includes('--gui')) {
   // the URL is logged by server.js and the user can paste it.
   const { spawn } = await import('child_process');
   const _guiUrl = `http://127.0.0.1:${port}/`;
+  printBanner();
+  console.log(`\nStarting the CodeExam GUI → ${_guiUrl}  (opening your browser)…`);
+  console.log(`  Load or build an index in the GUI (File menu / Indexes accordion). Use --port to change the port.\n`);
   setTimeout(() => {
     try {
       if (process.platform === 'win32') {
@@ -487,22 +503,25 @@ if (args.build_index) {
 // ========================================================================
 
 if (index.files.size === 0 && !args.build_index) {
-  // Detect invocation shape so the help text shows the right command.
-  // - `node src/index.js ...` → execPath basename is `node`
-  // - Bun --compile standalone (codeexam.exe) → execPath basename is the exe
-  const _exeBase = (() => {
-    try {
-      const b = process.execPath.split(/[\\/]/).pop() || 'node';
-      const lower = b.toLowerCase().replace(/\.exe$/, '');
-      if (lower === 'node' || lower === 'bun' || lower === 'tsx') return 'node src/index.js';
-      return b;
-    } catch { return 'node src/index.js'; }
-  })();
-  console.log(`No index found at: ${args.index_path}`);
-  console.log('Build one first (name the index with --index-path so you can reload it later):');
-  console.log(`  ${_exeBase} --build-index ./your/source/directory --index-path .my_index`);
-  console.log(`  ${_exeBase} --build-index "C:\\path\\to\\code" --index-path .my_index`);
-  console.log(`  ${_exeBase} --build-index @filelist.txt --index-path .my_index`);
+  const _exeBase = exeBase();
+  // First-run / no-index. Don't fixate on the internal default ".code_search_index":
+  // show a path only when the user explicitly gave one. (Once a bundled
+  // FIRST_TIME_INDEX ships via sample-index-zips, auto-load it here instead of
+  // showing this intro — see that item.)
+  printBanner();
+  if (args._explicit.has('index_path')) {
+    console.log(`\nNo index found at "${args.index_path}".\n`);
+  } else {
+    console.log('\nNo index loaded yet.\n');
+  }
+  console.log('Getting started:');
+  console.log(`  ${_exeBase} --indexes      list indexes you've already built (or the Indexes accordion in --gui)`);
+  console.log(`  ${_exeBase} --build-index <dir> --index-path .my_index    build one from a source tree`);
+  console.log(`  ${_exeBase} --index-path <dir>       load an existing index, then run a command (--overview, --search, …)`);
+  console.log(`  ${_exeBase} -i --index-path <dir>    load an index and explore it interactively (REPL)`);
+  console.log(`  ${_exeBase} --gui          open the browser UI (load or build an index there)`);
+  console.log(`  ${_exeBase} --help         all commands`);
+  console.log('\nDocs / source: https://github.com/aschulman42-cell/code-exam');
   process.exit(1);
 }
 
@@ -933,24 +952,18 @@ if (args.interactive) {
   ].some(c => args._explicit.has(c) || args[c]);
 
   if (!anyCommand && !args.build_index) {
-    // No command fired. Two reasons this can happen:
-    //   (a) user gave only --index-path to explore → auto-enter the REPL
-    //   (b) user mistyped a flag, so no command matched → DON'T silently
-    //       open the REPL (script-/agent-hostile: hangs on stdin). Report
-    //       the unknown flag(s), suggest the closest match, exit non-zero.
-    // #69.
-    if (args._unknownFlags && args._unknownFlags.length > 0) {
-      for (const { token, suggestion } of args._unknownFlags) {
-        process.stderr.write(
-          suggestion
-            ? `Unknown option '${token}'. Did you mean '${suggestion}'?\n`
-            : `Unknown option '${token}'.\n`
-        );
-      }
-      process.stderr.write('No command run. Use --help to see available options, or -i to explore interactively.\n');
-      process.exit(2);
-    }
-    // No command given, index is loaded — auto-enter interactive mode
-    doInteractive(index, args);
+    // No command given, but an index is loaded. Don't auto-enter the REPL
+    // (script-/agent-hostile: hangs on stdin) — show the banner + what you can
+    // do, and exit. Use -i to open the REPL explicitly. (Unknown-flag/positional
+    // errors were already handled before the index load.)
+    const _exe = exeBase();
+    printBanner();
+    console.log(`\nIndex "${args.index_path}" loaded — ${index.files.size} file${index.files.size === 1 ? '' : 's'}. No command given.\n`);
+    console.log('Try:');
+    console.log(`  ${_exe} --overview     high-level orientation`);
+    console.log(`  ${_exe} --gui          explore in the browser`);
+    console.log(`  ${_exe} -i             interactive REPL`);
+    console.log(`  ${_exe} --help         all commands`);
+    process.exit(0);
   }
 }
