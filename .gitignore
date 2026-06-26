@@ -1,44 +1,65 @@
 # ── CodeExam .gitignore ───────────────────────────────────────────────
-# Guards the repo tree. Scratch and dev/agent files live on disk but never
-# get committed. This works going forward; for files already tracked, the
-# untrack-* worklist items do `git rm --cached`.
+# Public-repo guard. The blessed surface is small, so DIRECTORIES use an
+# allowlist (ignore all root dirs, re-include the few we ship) and FILES use
+# a denylist. Scratch / dev / binaries live on disk but never get committed.
 
-# Dependencies & build artifacts
-node_modules/
-dist/
-__pycache__/
-*.log
-
-# Built indexes — CE creates dot-directories holding literal_index.json.
-# Ignore ALL root dot-directories (catches .demo/, .CC_cli_js/, … and the
-# dev .claude/); keep .github/. Build indexes outside the repo or under
-# _scratch/.
-/.*/
+# ── Directories: allowlist ────────────────────────────────────────────
+# Ignore every root directory — index dot-dirs (.demo/, .CC_cli_js/), dev
+# infra (.claude/, resources/), build dirs (node_modules/, dist/), and all
+# extracted-source / book-corpus dirs (cli_js/, opencode.extracted/,
+# manning_books/, react/, whisper.cpp/, …) — then re-include only the blessed.
+/*/
 !/.github/
+!/src/
+!/public/
+!/grammars/
+!/test/
+!/scripts/
+!/docs/
+!/samples/
 
-# Dev / agent infra (Bram + Claude Code) — not part of the public product
-resources/
+# Re-ignore build/dep dirs even if nested inside a blessed dir
+node_modules/
+__pycache__/
+dist/
+
+# ── Dev / agent infra (not part of the public product) ────────────────
 CLAUDE.md
-_scratch/
 
-# Secrets — never commit
+# ── Secrets — never commit ────────────────────────────────────────────
 claude*.txt
 *.key
 *.pem
 .env
 
-# OS / editor cruft
+# ── Large binaries / archives / captures / documents (untracked scratch)
+# .har captures can hold session cookies/tokens — ignored first.
+*.har
+*.saz
+*.gguf
+*.exe
+*.dll
+*.tar
+*.gz
+*.tgz
+*.7z
+*.zip
+!/samples/*.zip
+*.pdf
+*.docx
+*.doc
+*.pptx
+*.xlsx
+*.db
+*.diff
+*.fp.json
+
+# ── OS / editor cruft ─────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+*.log
 
-# One-off non-product directories (removed via untrack-nonblessed-dirs)
-files/
-claude-skills/
-xmlui-prompt-catalog/
-
-# Loose root scratch: notes, transcripts, screenshots, dead duplicates,
-# file-lists. Anchored to the repo root, so subdirs (src/, test/, docs/, …)
-# are unaffected. Standard community files are kept.
+# ── Loose root scratch (root-anchored so blessed subdirs are unaffected)
 /*.txt
 /*.jpg
 /*.png
@@ -52,3 +73,12 @@ xmlui-prompt-catalog/
 !/CONTRIBUTING.md
 !/CODE_OF_CONDUCT.md
 !/SECURITY.md
+
+# Stray scratch extensions anywhere (also sweeps src/service.xxx).
+# gitignore matching is case-sensitive here, so include upper-case outliers.
+*.awk
+*.AWK
+*.ps1
+*.tst
+*.xxx
+*.tmp
