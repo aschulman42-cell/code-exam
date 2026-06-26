@@ -1,1 +1,0 @@
-A method of searching, in which the intersection of substantially all terms is searched for in increasingly wider-scoped locations, such as first all terms in a single function, then across functions within a single class, then across functions or methods within a single file, and then across multiple files in a single folder.

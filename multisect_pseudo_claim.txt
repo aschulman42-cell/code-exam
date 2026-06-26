@@ -1,1 +1,0 @@
-A method of searching multiple search terms in code, in which the intersection of substantially all the terms is to be found in the smallest location possible: all within a single function, or among multiple functions in a single file or class, or among multiple files in a single folder or subdirectory.
