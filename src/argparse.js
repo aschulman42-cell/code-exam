@@ -88,6 +88,7 @@ export function parseArgs() {
     seam_verbose: false,
     digest: null,
     index_path: '.code_search_index',
+    port: null,
     multi_index: null,
     skip_semantic: true,
     use_tree_sitter: false,
@@ -331,7 +332,8 @@ export function parseArgs() {
     ['bundle_seams',         'optional_value', ['--bundle-seams']],
     ['seam_verbose',         'flag',           ['--seam-verbose']],
     ['digest',               'value',          ['--digest']],
-    ['index_path',           'value',          ['--index-path']],
+    ['index_path',           'value',          ['--index-path', '--load-index']],
+    ['port',                 'value',          ['--port']],
     ['multi_index',          'value',          ['--multi-index']],
     ['skip_semantic',        'flag',           ['--skip-semantic']],
     ['use_tree_sitter',      'flag',           ['--use-tree-sitter']],
@@ -804,9 +806,10 @@ INDEX MANAGEMENT:
                              functions. Pair with --build-rename-map.
   --no-rename                Disable display-time renames for this run
                              (output uses raw obfuscated names)
-  --index-path <path>        Path to index directory (default: .code_search_index).
-                             Also accepts a .zip of an index (e.g. a shipped
-                             sample) — extracted to a temp cache on first load.
+  --index-path <path>        Load an existing index (alias: --load-index).
+                             Default .code_search_index. Also accepts a .zip of
+                             an index (e.g. a shipped sample) — extracted to a
+                             temp cache on first load.
   --multi-index @filelist    Alternative to --index-path: fan the rest of the
                              command across many indexes. @filelist holds one
                              index directory path per line; CodeExam runs the
@@ -818,7 +821,9 @@ INDEX MANAGEMENT:
   --extensions <exts>        Comma-separated file extensions to index
                              (replaces the default set)
   --add-extensions <exts>    Comma-separated extensions to ADD to the default
-                             set (e.g. --add-extensions .xmlui,.xs,.md)
+                             set (e.g. --add-extensions .xmlui,.xs,.md). Quote the
+                             list if your shell treats a character specially:
+                             --add-extensions ".jinja2,.tmpl"
   --exclude-extensions <exts> Comma-separated extensions to exclude from index
   --demangler <path>         Path to C++ name demangler (e.g., vc++filt.exe, c++filt)
 
@@ -988,8 +993,12 @@ DISPLAY / FILTERING (query-time, does not affect index build):
   --dedup <mode>             Dedup mode: none, exact, structural
 
 MODE:
-  -i, --interactive          Start interactive REPL mode
-                             (auto-enters if no command given and index exists)
+  -i, --interactive          Start interactive REPL mode (needs a loaded index —
+                             pass --index-path / --load-index)
+  --gui                      Launch the browser GUI (starts a local server and
+                             opens your browser). Also accepts --index-path /
+                             --port and the --model / --api-key flags.
+  --port <n>                 GUI server port (default 8080)
 
 CALLERS / CALLEES:
   --callers <spec>           Find callers of a function (FUNC or FILE@FUNC)
@@ -1340,8 +1349,9 @@ EXAMPLES:
   node src/index.js --domain-fns 20
   node src/index.js --classes
   node src/index.js --class-hotspots 15
-  node src/index.js --interactive               # enter REPL
-  node src/index.js --index-path path/to/index  # auto-enters REPL
+  node src/index.js --index-path path/to/index --overview  # load an index, run a command
+  node src/index.js -i --index-path path/to/index          # load an index, interactive REPL
+  node src/index.js --gui                                  # browser GUI
   node src/index.js --analyze tls_connect --llm claude
   node src/index.js --analyze tls_connect --with @patent.txt --llm claude
   node src/index.js --claim-analyze @patent.txt --llm claude

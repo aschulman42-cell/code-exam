@@ -520,8 +520,7 @@ if (index.files.size === 0 && !args.build_index) {
   console.log(`  ${_exeBase} --index-path <dir>       load an existing index, then run a command (--overview, --search, …)`);
   console.log(`  ${_exeBase} -i --index-path <dir>    load an index and explore it interactively (REPL)`);
   console.log(`  ${_exeBase} --gui          open the browser UI (load or build an index there)`);
-  console.log(`  ${_exeBase} --help         all commands`);
-  console.log('\nDocs / source: https://github.com/aschulman42-cell/code-exam');
+  console.log(`  ${_exeBase} --help         all commands   (docs / source: https://github.com/aschulman42-cell/code-exam)`);
   process.exit(1);
 }
 
