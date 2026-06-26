@@ -10,7 +10,16 @@
  * Supports --help, --version, and optional-value arguments.
  */
 
-const VERSION = '0.1.0 (Node.js port)';
+import { readFileSync } from 'node:fs';
+
+// Version display (major.minor) sourced from package.json — single source of
+// truth, so it auto-tracks bumps. Fallback covers a bundled/standalone build
+// where package.json isn't on disk.
+let VERSION = '0.5';
+try {
+  const _pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  VERSION = _pkg.version.split('.').slice(0, 2).join('.');
+} catch { /* keep fallback */ }
 
 
 /**
@@ -563,7 +572,7 @@ export function parseArgs() {
       process.exit(0);
     }
     if (token === '--version') {
-      console.log(`code-exam ${VERSION}`);
+      console.log(`CodeExam ${VERSION}`);
       process.exit(0);
     }
 
@@ -747,8 +756,9 @@ export function filterHelp(text, filter) {
 
 function printUsage(filter) {
   const usage = `
-code-exam - Air-Gapped Source Code Examination Tool (Node.js)
+CodeExam -- GUI, CLI, and MCP tools for examining source-code and quasi-source, with AI features
 Version: ${VERSION}
+https://github.com/aschulman42-cell/code-exam
 
 USAGE:
   node src/index.js [options]
