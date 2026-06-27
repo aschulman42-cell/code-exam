@@ -202,13 +202,26 @@ const _CE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const _XCORPUS_CATALOG_PATH = path.join(_CE_ROOT, 'CE_cross_corpus_vocab_catalog.json');
 let _xcorpusCatalogCache; // undefined = unloaded; null = absent/invalid
 
+// #215 provenance choke-point. Which catalog shaped the output is a provenance
+// fact, so the "catalog loaded" note routes through here: stderr by default
+// (keeps stdout clean for pipes), and the single place to also emit to stdout
+// once #215's provenance-to-stdout flag lands.
+function _provenanceNote(msg) {
+  console.error(msg);
+}
+
 function _loadCrossCorpusCatalog() {
   if (_xcorpusCatalogCache !== undefined) return _xcorpusCatalogCache;
   _xcorpusCatalogCache = null;
   try {
     if (fs.existsSync(_XCORPUS_CATALOG_PATH)) {
       const j = JSON.parse(fs.readFileSync(_XCORPUS_CATALOG_PATH, 'utf-8'));
-      if (j && j.tokens && j.index_count > 1) _xcorpusCatalogCache = j;
+      if (j && j.tokens && j.index_count > 1) {
+        _xcorpusCatalogCache = j;
+        const nTok = Object.keys(j.tokens).length;
+        const nSub = j.subtokens ? Object.keys(j.subtokens).length : 0;
+        _provenanceNote(`[vocab] cross-corpus catalog loaded: ${nTok} tokens / ${nSub} subtokens across ${j.index_count} indexes (universal-term down-weighting active)`);
+      }
     }
   } catch { /* absent / unreadable → no-op */ }
   return _xcorpusCatalogCache;

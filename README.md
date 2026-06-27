@@ -139,7 +139,11 @@ tuned toward their intended sharpness.
   declared dependencies, or the standard library.
 - **Vocabulary / nomenclature discovery** — the project-specific terms a
   codebase centers on, surfaced by cross-document TF-IDF (with a
-  per-function fallback for single-file / bundled corpora).
+  per-function fallback for single-file / bundled corpora). A shipped
+  cross-corpus catalog (`CE_cross_corpus_vocab_catalog.json`, auto-loaded from
+  the repo root) sharpens this by *demoting* terms that recur across many
+  codebases (`function`, `handler`, `data`) so genuinely distinctive terms
+  rise — remove the file and results simply revert to the baseline.
 
 ### Catalogs of "what does this code do" / "where should I start reading"
 
