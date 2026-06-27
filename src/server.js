@@ -190,7 +190,10 @@ if (serverArgs.catalogPath) {
   try {
     exportsCatalog = loadUsedByCatalog(serverArgs.catalogPath);
     const n = Object.keys(exportsCatalog.libraries).length;
-    console.log(`Loaded exports catalog "${serverArgs.catalogPath}": ${n} librar${n === 1 ? 'y' : 'ies'} (Used-by column enabled)`);
+    // #215: catalog-usage is a provenance fact -> stderr (was stdout), so the
+    // server's machine-readable stdout stays clean; #215 brings a controlled
+    // stdout path back later.
+    console.error(`Loaded exports catalog "${serverArgs.catalogPath}": ${n} librar${n === 1 ? 'y' : 'ies'} (Used-by column enabled)`);
   } catch (e) {
     console.error(`Warning: ${e.message.replace(/^--used-by /, '--exports-catalog ')} — Used-by column disabled.`);
   }

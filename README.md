@@ -359,11 +359,16 @@ then resolve another codebase against it:
   de-facto consumers — the **"Used by"** column in the GUI Exports pane —
   surfacing public surface that nobody actually imports.
 
-A curated default imports catalog (planned filename
-`CE_initial_PY_imports_catalog.json`) is intended to ship with the public
-repo so this join runs out of the box; until then, build one from the
-libraries you care about with `--exports --emit-catalog`, then pass it to
-`--imports`.
+**No default catalog ships.** Exports extraction is **Python-only today**
+(JS/TS is planned, #154), so a bundled Python-only catalog would be too partial
+to represent the feature — you build your own from the libraries you care about
+and pass the filename explicitly (there is no default name). The build is
+*appendable*: re-emitting merges by library identity (`--catalog-replace`
+overwrites; `--multi-index` preserves the who-uses / v2 data), so one catalog
+can grow across many libraries. For the GUI, start the server with
+`--exports-catalog <file>` to light up the **"Used by"** column. Whenever a
+catalog is loaded, CodeExam notes which one on stderr, so the provenance of the
+join is visible.
 
 **Why a plain inverted index rather than a vector database or SQL?** Readers
 coming from recent tooling often expect a vector store (ChromaDB, FAISS) or a
