@@ -9,6 +9,7 @@
 import fs from 'fs';
 import { spawnSync } from 'child_process';
 import { parseArgs, printBanner } from './argparse.js';
+import { setAirGapped, scrubApiKey, airGappedStartupCheck, AIR_GAPPED_DISCLAIMER } from './core/air-gapped.js';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { buildOverview, formatOverview } from './core/overview.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
@@ -99,6 +100,10 @@ if (_rawArgvForGui.includes('--gui')) {
     const v = _argAfter(flag, null);
     if (v !== null) _serverArgv.push(flag, v);
   }
+  // #223: forward the boolean air-gapped flags to the GUI server.
+  for (const _f of ['--air-gapped', '--allow-connected']) {
+    if (_rawArgvForGui.includes(_f)) _serverArgv.push(_f);
+  }
   process.argv = [process.argv[0], process.argv[1], ..._serverArgv];
 
   // Open the user's default browser after a short delay so the server has
@@ -154,6 +159,21 @@ if (args._unknownFlags.length || args._unknownPositionals.length) {
   }
   process.stderr.write(`Run 'ce --help' for usage.\n`);
   process.exit(2);
+}
+
+
+// ========================================================================
+// #223: --air-gapped — block all cloud AI this run. Set the process flag,
+// scrub the key, print the CYA disclaimer, and (unless --allow-connected)
+// refuse if the internet is actually reachable.
+// ========================================================================
+
+if (args.air_gapped) {
+  setAirGapped(true, { allowConnected: args.allow_connected });
+  scrubApiKey();
+  process.stderr.write(AIR_GAPPED_DISCLAIMER + '\n');
+  const _refusal = await airGappedStartupCheck();
+  if (_refusal) { process.stderr.write(`[air-gapped] ${_refusal}\n`); process.exit(2); }
 }
 
 

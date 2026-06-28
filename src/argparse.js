@@ -230,6 +230,8 @@ export function parseArgs() {
     claim_search: null,
     claim_file: null,
     use_claude: false,
+    air_gapped: false,      // #223: block all cloud AI calls this run
+    allow_connected: false, // #223: keep the block active on a connected machine
     llm: null,            // canonical: --llm <provider>; provider name ('claude', etc.)
     api_key: null,
     claim_model: null,
@@ -452,6 +454,8 @@ export function parseArgs() {
     ['claim_file',           'value',          ['--claim-file']],
     ['use_claude',           'flag',           [], ['--use-claude']],
     ['llm',                  'value',          ['--llm']],
+    ['air_gapped',           'flag',           ['--air-gapped']],
+    ['allow_connected',      'flag',           ['--allow-connected']],
     ['api_key',              'value',          ['--api-key']],
     ['model',                'value',          ['--model']],
     ['claude_model',         'value',          ['--claude-model']],
@@ -900,6 +904,16 @@ BROWSE:
                              would exceed <amount>. Default $5; also settable via
                              the CE_OVERVIEW_MAX_BUDGET env var (this flag wins).
                              Local --model GGUF is air-gapped — no cap.
+  --air-gapped               Block ALL cloud AI calls this run (claim/analyze
+                             LLM, chat, AI Overview); ANTHROPIC_API_KEY is
+                             ignored. Use a local --model GGUF (or a localhost
+                             LLM endpoint) to still get AI. Refuses to start if
+                             the internet is reachable — pass --allow-connected
+                             to override. Does NOT isolate your environment (see
+                             AIR_GAPPED.md). For litigation / protective-order use.
+  --allow-connected          With --air-gapped: proceed even if the internet is
+                             reachable (the block stays active). For deliberately
+                             running air-gapped CE on a connected machine.
   --indexes [path]           List available index directories
                              (deprecated alias: --list-indexes)
 

@@ -31,6 +31,7 @@ import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { runAiOverview } from './core/ai-overview.js';
+import { setAirGapped, scrubApiKey, airGappedStartupCheck, isAirGapped, AIR_GAPPED_DISCLAIMER } from './core/air-gapped.js';
 import { estimateCost } from './core/pricing.js';
 import { skippedExtensionCensus } from './core/extension-census.js';
 import { loadUsedByCatalog, makeUsedByFor } from './commands/exports.js';
@@ -95,7 +96,7 @@ function safeMax(raw, defaultVal, ceiling = 10000) {
 
 function parseServerArgs() {
   const args = process.argv.slice(2);
-  const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0, catalogPath: null };
+  const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0, catalogPath: null, airGapped: false, allowConnected: false };
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -115,6 +116,10 @@ function parseServerArgs() {
       result.apiKey = args[++i];
     } else if (a === '--temperature' && args[i + 1]) {
       result.temperature = parseFloat(args[++i]) || 0.0;
+    } else if (a === '--air-gapped') {
+      result.airGapped = true;
+    } else if (a === '--allow-connected') {
+      result.allowConnected = true;
     } else if (!a.startsWith('-')) {
       result.indexPaths.push(a);
     }
@@ -170,6 +175,18 @@ class IndexManager {
 }
 
 const serverArgs = parseServerArgs();
+
+// #223: --air-gapped for the GUI server (forwarded from `ce --gui --air-gapped`).
+// Block cloud AI, scrub the key, print the disclaimer, and refuse to start if
+// the internet is reachable unless --allow-connected.
+if (serverArgs.airGapped) {
+  setAirGapped(true, { allowConnected: serverArgs.allowConnected });
+  scrubApiKey();
+  console.error(AIR_GAPPED_DISCLAIMER);
+  const _refusal = await airGappedStartupCheck();
+  if (_refusal) { console.error(`[air-gapped] ${_refusal}`); process.exit(2); }
+}
+
 const mgr = new IndexManager();
 const buildJobs = new Map();  // jobId -> { status, progress, stats, error, loaded, indexes }
 let nextBuildJobId = 1;
@@ -251,8 +268,12 @@ class ServerLLM {
       messages: [{ role: 'user', content: userMessage }],
     });
 
-    // Network egress warning
+    // #223: air-gapped blocks a remote cloud LLM (a localhost endpoint is OK).
     const isLocal = /localhost|127\.0\.0\.1|::1|0\.0\.0\.0|\.local/.test(apiUrl);
+    if (!isLocal && isAirGapped()) {
+      console.error('[air-gapped] blocked: GUI cloud LLM (claim-search/analyze)');
+      return { error: '--air-gapped: cloud LLM is blocked. Set the engine to Local in the Workspace pane (LLM controls), or restart without --air-gapped to allow cloud calls (your data would leave this machine).' };
+    }
     if (!isLocal) {
       console.log(`  [LLM] Claude API -> ${apiUrl} (model: ${model})`);
     }
@@ -3350,6 +3371,11 @@ async function runChatToolLoop({ messages, index, indexName, fileCount, mode, ap
   const tools = chatAnthropicTools();
   const system = chatSystemPrompt(indexName, fileCount, mode);
   const apiUrl = process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages';
+  // #223: air-gapped blocks the GUI cloud chat loop (a localhost endpoint is OK).
+  if (!/localhost|127\.0\.0\.1|::1|0\.0\.0\.0|\.local/.test(apiUrl) && isAirGapped()) {
+    console.error('[air-gapped] blocked: GUI chat (cloud Claude)');
+    throw new Error('--air-gapped: chat over the cloud LLM is blocked. Set the engine to Local in the Workspace pane (LLM controls), or restart without --air-gapped to allow cloud calls.');
+  }
   const allBlocks = [];
   let current = [...messages];
   const MAX_ITERATIONS = 25;  // raised from 15 (#36): attributed/augmented modes explore harder
@@ -3585,7 +3611,7 @@ server.listen(serverArgs.port, serverArgs.host, () => {
     console.log(`  Local model: ${serverArgs.modelPath}`);
   }
   if (serverLLM.defaultApiKey) {
-    console.log(`  Claude API:  key configured (${serverLLM.defaultApiKey.slice(0, 10)}...)`);
+    console.log(`  Claude API:  key configured (${serverLLM.defaultApiKey.slice(0, 10)}...)${isAirGapped() ? '  — BLOCKED by --air-gapped' : ''}`);
   } else {
     console.log(`  Claude API:  no key (set ANTHROPIC_API_KEY or --api-key)`);
   }

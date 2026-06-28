@@ -17,6 +17,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { assertLocalOnly } from './core/air-gapped.js';
 // Anthropic SDK loaded lazily in chatWithClaude() so --local-model works without API key
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -92,6 +93,7 @@ const SYSTEM_PROMPT = `You are a code analysis assistant. You have access to Cod
 let anthropic;
 
 async function chatWithClaude(messages, tools) {
+  assertLocalOnly('chat (cloud Claude)'); // #223
   if (!anthropic) {
     const Anthropic = (await import('@anthropic-ai/sdk')).default;
     anthropic = new Anthropic();

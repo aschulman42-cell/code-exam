@@ -73,6 +73,7 @@ Thumbs.db
 !/CONTRIBUTING.md
 !/CODE_OF_CONDUCT.md
 !/SECURITY.md
+!/AIR_GAPPED.md
 
 # Stray scratch extensions anywhere (also sweeps src/service.xxx).
 # gitignore matching is case-sensitive here, so include upper-case outliers.

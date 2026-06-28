@@ -35,6 +35,7 @@ import {
 import { parseMultisectTerms, displayMultisectResults, printSelectivityReport } from './multisect.js';
 import { displayName } from '../utils.js';
 import { estimateCost } from '../core/pricing.js';
+import { assertLocalOnly } from '../core/air-gapped.js';
 
 
 // ============================================================================
@@ -96,6 +97,7 @@ class AnalysisLLM {
     if (!this.apiKey) return '(Claude API not available - no API key)';
 
     const apiUrl = process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages';
+    if (!/localhost|127\.0\.0\.1|::1|0\.0\.0\.0|\.local/.test(apiUrl)) assertLocalOnly('analyze (cloud LLM)'); // #223
     const model = this.claudeModel || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6';
 
     const payload = JSON.stringify({

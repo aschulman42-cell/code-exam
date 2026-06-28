@@ -18,6 +18,7 @@ import { parseMultisectTerms, displayMultisectResults, printSelectivityReport } 
 import fs from 'fs';
 import https from 'https';
 import http from 'http';
+import { assertLocalOnly } from '../core/air-gapped.js';
 
 // ============================================================================
 // LLM Prompt for technical-prose -> search term extraction
@@ -263,6 +264,7 @@ export async function extractClaimTerms(claimText, opts = {}) {
 
   // -- SECURITY: Network egress warning --
   const isLocal = /localhost|127\.0\.0\.1|::1|0\.0\.0\.0|\.local/.test(apiUrl);
+  if (!isLocal) assertLocalOnly('claim-search (cloud LLM)'); // #223: air-gapped blocks remote
   if (isLocal) {
     process.stderr.write(`  -- NETWORK: Local LLM endpoint -> ${apiUrl}\n`);
   } else {

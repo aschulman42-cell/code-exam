@@ -22,6 +22,7 @@ import { fileURLToPath } from 'url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { estimateCost } from './pricing.js';
+import { assertLocalOnly } from './air-gapped.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url)); // src/core
 const MCP_SERVER = path.join(__dirname, '..', 'mcp-server.js');  // src/mcp-server.js
@@ -138,6 +139,7 @@ export async function runAiOverview({ indexPath, model, timeoutMs = 600000, grou
       throw new Error('AI Overview: no CodeExam MCP tools reachable (the mcp-server may have failed to start).');
     }
 
+    assertLocalOnly('AI Overview (cloud)'); // #223
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error('AI Overview needs an Anthropic API key — set the ANTHROPIC_API_KEY environment variable, or run an air-gapped overview with a local --model <gguf>.');
     }

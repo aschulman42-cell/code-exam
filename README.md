@@ -538,6 +538,11 @@ capable than the Claude-API path (see the LLM-assisted notes above), so the
 non-LLM machinery does most of the work in a fully air-gapped run and LLM output
 quality is generally below what the API would produce.
 
+For an **enforced** no-cloud run — `--air-gapped` hard-blocks every cloud AI
+call, scrubs the API key, and warns on a reachable network — plus what it does
+and does **not** guarantee (it can't police where you save), see
+**[AIR_GAPPED.md](AIR_GAPPED.md)**.
+
 **Local-model MCP chat (experimental).** The MCP tool surface has been validated
 driving a *local* GGUF model through an MCP-aware host (LM Studio): Qwen3-4B and
 Qwen2.5-Coder-7B both discovered, loaded, and chained the tools (`stats`,
