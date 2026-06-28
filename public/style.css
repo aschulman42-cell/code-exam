@@ -167,6 +167,14 @@ body { font-family: var(--font-ui); font-size: 13px; color: var(--text); backgro
    default; "Wrap Long Lines" expands them to show the whole line. */
 .search-line { padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wrap-lines .search-line { white-space: pre-wrap; word-break: break-all; overflow: visible; }
+/* #199: search/Find-Uses hit lines + file rows are clickable (open at line in
+   the lower pane). Cursor + hover highlight signal the affordance. */
+.search-line[data-filepath] { cursor: pointer; border-radius: 2px; }
+.search-line[data-filepath]:hover { background: var(--bg-hover); }
+tr.file-row[data-filepath] { cursor: pointer; }
+tr.file-row[data-filepath]:hover { background: var(--bg-hover); }
+.ms-evidence[data-filepath] { cursor: pointer; border-radius: 2px; }
+.ms-evidence[data-filepath]:hover { background: var(--bg-hover); }
 
 /* Inferred-name suffix (e.g. _KW_GET_COST_COUNTER on wI1). Hidden when the
    "Show Inferred Name Suffixes" View toggle is OFF. TODO #374. */

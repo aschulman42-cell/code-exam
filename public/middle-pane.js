@@ -535,10 +535,17 @@ export function renderFilesSearchResults(token, data) {
   let html = (capped ? _capWarning(data.files.length, data.total) : '')
     + '<div class="output-section"><table class="output-table"><tr><th>#</th><th>File</th><th>Hits</th></tr>';
   for (const f of data.files) {
-    html += `<tr><td class="muted">${f.rank}</td><td class="mono"><span class="clickable" data-filepath="${escHtml(f.filepath)}">${escHtml(shortPath(f.filepath, 60))}</span></td><td>${f.hits}</td></tr>`;
+    html += `<tr class="file-row" data-filepath="${escHtml(f.filepath)}"><td class="muted">${f.rank}</td><td class="mono"><span class="clickable" data-filepath="${escHtml(f.filepath)}">${escHtml(shortPath(f.filepath, 60))}</span></td><td>${f.hits}</td></tr>`;
   }
   container.innerHTML = html + '</table></div>';
   _wireClickables(container);
+  // #199: whole file row opens the file (not just the filepath span).
+  for (const el of $$('tr.file-row[data-filepath]', container)) {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.clickable')) return;
+      onFileClick(el.dataset.filepath);
+    });
+  }
 }
 
 // #191: list the files of one extension (Extensions accordion drill-down) in
@@ -611,12 +618,21 @@ export function renderSearchResults(query, data) {
         lastFunc = r.containing_function;
       }
       lineHtml += `<span style="font-family:var(--font-mono);font-size:12px;color:var(--text-bright)">${hlLine}</span>`;
-      html += `<div class="search-line" title="${escHtml(full)}">${lineHtml}</div>`;
+      html += `<div class="search-line" data-filepath="${escHtml(fp)}" data-start="${r.line_number}" title="${escHtml(full)}">${lineHtml}</div>`;
     }
     html += '</div></div>';
   }
   container.innerHTML = html;
   _wireClickables(container, { sourceOnly: true });
+  // #199: make each hit line clickable — open the file at that line in the
+  // lower (middle-bottom) pane, leaving the result list intact above. A click
+  // on the inner function-name span is left to _wireClickables (the guard).
+  for (const el of $$('.search-line[data-filepath]', container)) {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.clickable')) return;
+      onFileClick(el.dataset.filepath, parseInt(el.dataset.start, 10) || undefined);
+    });
+  }
 }
 
 export function renderStats(data) {
@@ -700,7 +716,7 @@ function _renderEvidence(m, terms, notSet, scopeKind) {
         const fn = d.func_name && d.func_name !== '(global)' ? d.func_name : '(global)';
         ann = ` <span class="muted">in ${escHtml(fn)}</span>`;
       }
-      lineGroups.set(key, { line_num: d.line_num, indices: [], text: d.line_text || '', ann });
+      lineGroups.set(key, { line_num: d.line_num, fp, indices: [], text: d.line_text || '', ann });
     }
     lineGroups.get(key).indices.push(ti + 1);
   }
@@ -709,7 +725,8 @@ function _renderEvidence(m, terms, notSet, scopeKind) {
   for (const g of sorted) {
     const text = g.text.length > 120 ? g.text.slice(0, 117) + '...' : g.text;
     const tag = g.indices.length > 1 ? `[${g.indices.join(',')}]` : `[${g.indices[0]}]`;
-    html += `<div class="ms-evidence"><span class="muted">${tag}</span> <span class="muted">L${g.line_num}</span>${g.ann} <span class="mono">${escHtml(text)}</span></div>`;
+    const ev = g.fp ? ` data-filepath="${escHtml(g.fp)}" data-start="${g.line_num}"` : '';
+    html += `<div class="ms-evidence"${ev}><span class="muted">${tag}</span> <span class="muted">L${g.line_num}</span>${g.ann} <span class="mono">${escHtml(text)}</span></div>`;
   }
   html += '</div>';
   return html;
@@ -725,6 +742,14 @@ export function _wireMultisectToggles(container) {
         detail.classList.toggle('collapsed');
         t.classList.toggle('expanded');
       }
+    });
+  }
+  // #199: clicking a multisect/claim evidence line opens the file at that line in
+  // the lower (middle-bottom) pane, leaving the result tables intact above.
+  for (const el of container.querySelectorAll('.ms-evidence[data-filepath]')) {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.clickable')) return;
+      onFileClick(el.dataset.filepath, parseInt(el.dataset.start, 10) || undefined);
     });
   }
 }
