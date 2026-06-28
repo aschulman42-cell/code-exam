@@ -1475,6 +1475,17 @@ routes['/api/build-index-status'] = (req, res) => {
   }
 };
 
+// gui-help: serve the repo-root README.md so the GUI Help popup can render it
+// (static serving is public/ only, so the browser can't fetch it directly).
+routes['/api/readme'] = (req, res) => {
+  try {
+    const content = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf-8');
+    jsonResponse(res, { content });
+  } catch (e) {
+    errorResponse(res, `README not found: ${e.message}`, 404);
+  }
+};
+
 
 // --- Call tree (Mermaid) ---
 

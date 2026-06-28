@@ -56,6 +56,12 @@
           <button data-action="reset-layout">Reset Layout</button>
         </div>
       </div>
+      <div class="menu-group">
+        <button class="menu-btn" data-menu="help-menu">Help ▾</button>
+        <div id="help-menu" class="dropdown">
+          <button data-action="help">README</button>
+        </div>
+      </div>
     </div>
     <div class="menubar-right">
       <span id="index-info" class="index-info">No index loaded</span>
@@ -532,6 +538,16 @@
         <button class="btn-secondary" id="load-index-rebuild" title="Rebuild this index from its original source using tree-sitter">Rebuild</button>
         <button class="btn-primary" id="load-index-ok">Load</button>
       </div>
+    </div>
+  </div>
+
+  <!-- README / HELP DIALOG -->
+  <div id="readme-overlay" class="modal-overlay hidden">
+    <div class="modal readme-modal">
+      <div class="modal-header"><span>CodeExam — README</span>
+        <button class="pane-action" id="readme-close">✕</button>
+      </div>
+      <div id="readme-body" class="modal-body readme-body"></div>
     </div>
   </div>
 
