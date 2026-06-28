@@ -82,6 +82,18 @@ CLI and GUI packaged so they run without a Node install.
 
 ## Quick start
 
+CodeExam needs **[Node.js 18+](https://nodejs.org)** and a one-time dependency
+install — run this from the project root (where `package.json` lives):
+
+```bash
+npm install
+```
+
+The bare command-line tools (indexing, search, `--overview`) run without this.
+The **GUI**, **MCP server**, precise **tree-sitter** parsing, and **local-LLM**
+features need the npm packages — without them the GUI exits with a "run
+`npm install`" hint, and tree-sitter falls back to a regex parser.
+
 ```bash
 # Build an index over a codebase (handles directories, zip/tar archives,
 # binary files, minified JS, and @filelist files)

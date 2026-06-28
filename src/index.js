@@ -126,8 +126,31 @@ if (_rawArgvForGui.includes('--gui')) {
     } catch { /* user can read the URL from the server's startup banner */ }
   }, 1500);
 
-  // server.js's top-level code starts the HTTP server on import.
-  await import('./server.js');
+  // server.js's top-level code starts the HTTP server on import. The GUI/MCP
+  // server needs npm dependencies (@modelcontextprotocol/sdk, etc.) that the
+  // bare CLI doesn't — a fresh download has no node_modules, so this import
+  // rejects at ESM link time. Catch that and print an actionable message
+  // instead of a raw ERR_MODULE_NOT_FOUND stack trace. #230.
+  try {
+    await import('./server.js');
+  } catch (e) {
+    const missingDep = e && (e.code === 'ERR_MODULE_NOT_FOUND'
+      || /Cannot find (?:package|module)/.test(e.message || ''));
+    if (missingDep) {
+      const pkg = (/Cannot find (?:package|module) '([^']+)'/.exec(e.message || '') || [])[1];
+      process.stderr.write(
+        `\nThe CodeExam GUI needs dependencies that aren't installed yet` +
+        (pkg ? ` (missing: ${pkg}).` : `.`) + `\n\n` +
+        `  Run:  npm install\n\n` +
+        `npm install reads package.json (shipped with CodeExam) and fetches the\n` +
+        `packages listed there, so run it from the CodeExam folder.\n\n` +
+        `Then re-run:  ${exeBase()} --gui\n\n` +
+        `The command-line tools (search, --build-index, --overview, …) work\n` +
+        `without this; the GUI and MCP server need the npm packages.\n`);
+      process.exit(1);
+    }
+    throw e;
+  }
   // Hold the process: the listening socket keeps the event loop alive, but
   // we still need to prevent fall-through to parseArgs() below (which would
   // see the munged argv and try to interpret --port as a CLI command).

@@ -98,7 +98,15 @@ export class TreeSitterParser {
       this._initialized = true;
       return true;
     } catch (e) {
-      console.log(`Warning: web-tree-sitter init failed: ${e.message}`);
+      const missingModule = e && (e.code === 'MODULE_NOT_FOUND'
+        || /Cannot find module/.test(e.message || ''));
+      if (missingModule) {
+        console.log('Warning: web-tree-sitter is not installed — using the regex parser instead.');
+        console.log('  For precise tree-sitter parsing (better function boundaries), run `npm install`');
+        console.log('  from the CodeExam folder (it reads package.json and installs all dependencies).');
+      } else {
+        console.log(`Warning: web-tree-sitter init failed: ${e.message}`);
+      }
       return false;
     }
   }

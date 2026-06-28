@@ -3063,7 +3063,7 @@ export class CodeSearchIndex {
     const tsParser = new TreeSitterParser();
     const initOk = await tsParser.init();
     if (!initOk) {
-      console.log('Warning: tree-sitter init failed, falling back to regex.');
+      console.log('Indexing continues with the regex parser.');
       this.buildFunctionIndex(showProgress);
       return;
     }
