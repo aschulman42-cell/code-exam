@@ -306,7 +306,7 @@ if (args.overview_by_ai) {
   const startedAt = Date.now();
   const mins = Math.round(timeoutMs / 60000);
   // Engine: --model <gguf> selects the local node-llama-cpp engine (air-gapped,
-  // #196 spike); otherwise the claude CLI. (--claude-model picks the API model.)
+  // #196 spike); otherwise the Anthropic API. (--claude-model picks the API model.)
   const localGguf = args.model || null;
   const engineLabel = localGguf ? `local ${localGguf.split(/[\\/]/).pop()}${args.cpu ? ' (CPU)' : ''}` : 'claude';
   process.stderr.write(`[overview-by-ai] running ${engineLabel}, grounding=${grounding}, over ${args.index_path} (timeout ${mins} min)…\n`);
@@ -349,10 +349,16 @@ if (args.overview_by_ai) {
         timeoutMs,
         grounding, // grounded (default) | augmented | attributed (#196)
         maxBudgetUsd: args.max_budget_usd != null ? parseFloat(args.max_budget_usd) : undefined,
-        onStderr: (s) => { if (args.verbose) process.stderr.write(s); },
+        onStderr: (s) => {
+          // Echo MCP tool calls by default so the agentic run is visible; the
+          // noisy mcp-server stderr only under -v. stderr-only — stdout stays
+          // pure prose for --multi-index capture.
+          if (args.verbose) process.stderr.write(s);
+          else if (s.startsWith('[overview] tool:')) process.stderr.write(s);
+        },
       }));
-      // Prefer the claude CLI's own authoritative total_cost_usd (it sums every
-      // turn of the agentic loop); annotate with token counts from usage.
+      // costUsd is summed per turn via core/pricing.js estimateCost; annotate
+      // with token counts from usage.
       if (showCost && costUsd != null) {
         const u = usage || {};
         const inT = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);

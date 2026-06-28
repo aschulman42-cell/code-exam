@@ -869,12 +869,12 @@ BROWSE:
                              LLM AGENTICALLY over CE's own MCP tools against this
                              index (overview -> shape-appropriate tools ->
                              synthesis); prints prose to stdout. Two engines:
-                             by default shells out to the 'claude' CLI
-                             (NON-AIR-GAPPED; must be on PATH) — --claude-model
-                             <id> picks the API model. Pass --model <model.gguf>
-                             to run a LOCAL model in-process via node-llama-cpp
-                             instead (AIR-GAPPED; no CLI, no network). Pairs with
-                             --multi-index @list for overnight batch.
+                             by default calls the Anthropic API (NON-AIR-GAPPED;
+                             needs ANTHROPIC_API_KEY) — --claude-model <id> picks
+                             the API model. Pass --model <model.gguf> to run a
+                             LOCAL model in-process via node-llama-cpp instead
+                             (AIR-GAPPED; no network). Pairs with --multi-index
+                             @list for overnight batch.
                              --timeout <minutes> caps the run (default 20); reads
                              CE_AI_OVERVIEW_MODEL / CE_AI_OVERVIEW_TIMEOUT_MS as
                              fallbacks.
@@ -891,12 +891,12 @@ BROWSE:
                              modes as the GUI chat's Grounding selector.
   --cost / --no-cost         With --overview-by-ai: show (default) or suppress the
                              cost/usage line on stderr after the run. For the
-                             claude engine: the CLI's own est. $ + token counts;
-                             for a local --model GGUF: output token count only
-                             (air-gapped, no API cost). stderr-only, so --multi-
-                             index stdout capture stays pure prose.
-  --max-budget-usd <amount>  With --overview-by-ai (claude engine): hard spend cap
-                             passed to the claude CLI; the agentic run aborts if it
+                             cloud engine: estimated $ + token counts; for a local
+                             --model GGUF: output token count only (air-gapped, no
+                             API cost). stderr-only, so --multi-index stdout
+                             capture stays pure prose.
+  --max-budget-usd <amount>  With --overview-by-ai (cloud engine): hard spend cap;
+                             the agentic run aborts once the summed per-turn cost
                              would exceed <amount>. Default $5; also settable via
                              the CE_OVERVIEW_MAX_BUDGET env var (this flag wins).
                              Local --model GGUF is air-gapped — no cap.
