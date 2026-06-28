@@ -1359,7 +1359,7 @@ routes['/api/build-index'] = (req, res) => {
   req.on('end', () => {
     try {
       const params = JSON.parse(body);
-      const { sourcePath: rawSourcePath, indexName: rawIndexName, useTreeSitter, extensions, excludeExtensions } = params;
+      const { sourcePath: rawSourcePath, indexName: rawIndexName, useTreeSitter, extensions, excludeExtensions, autoLoad = true } = params;
       if (!rawSourcePath) return errorResponse(res, 'Missing "sourcePath" in body');
       if (!rawIndexName) return errorResponse(res, 'Missing "indexName" in body');
       let sourcePath = rawSourcePath.trim();
@@ -1406,20 +1406,29 @@ routes['/api/build-index'] = (req, res) => {
             return;
           }
 
-          // Load the built index into the main thread's IndexManager
-          const idx = new CodeSearchIndex({ indexPath: resolvedIndex });
-          mgr.indexes.clear();
-          mgr.activeIndex = null;
+          // #218: decouple build from load. By default the freshly-built index
+          // is loaded (rebuild + back-compat); with autoLoad:false (the GUI
+          // Build dialog) we build to disk only and leave the loaded set
+          // untouched, so a build never silently discards the user's currently
+          // loaded index(es) — the client then offers to load it explicitly.
           const name = path.basename(resolvedIndex) || resolvedIndex;
-          mgr.indexes.set(name, idx);
-          mgr.activeIndex = name;
+          if (autoLoad) {
+            const idx = new CodeSearchIndex({ indexPath: resolvedIndex });
+            mgr.indexes.clear();
+            mgr.activeIndex = null;
+            mgr.indexes.set(name, idx);
+            mgr.activeIndex = name;
+            job.loaded = name;
+          } else {
+            job.loaded = null;
+          }
 
           const errorCount = stats.errors.length;
           const cappedErrors = stats.errors.slice(0, 50);
 
           job.status = 'done';
-          job.loaded = name;
           job.indexes = mgr.list();
+          job.indexPath = resolvedIndex;
           job.stats = {
             files_indexed: stats.files_indexed,
             total_lines: stats.total_lines,
@@ -1458,6 +1467,7 @@ routes['/api/build-index-status'] = (req, res) => {
     error: job.error,
     loaded: job.loaded,
     indexes: job.indexes,
+    indexPath: job.indexPath,   // #218: so the client can pre-fill the Load dialog
   });
   // Clean up completed/errored jobs after delivering the result
   if (job.status === 'done' || job.status === 'error') {

@@ -303,6 +303,8 @@ function initLoadIndex() {
                 $('.accordion-badge', sec).textContent = '';
               }
               _clearAllPanes();
+              // #218: pop the fast Overview after a rebuild completes too.
+              window.dispatchEvent(new CustomEvent('ce:index-loaded'));
             }, 2000);
           } else if (job.status === 'error') {
             clearInterval(rebuildPollTimer);
@@ -460,18 +462,7 @@ function initBuildIndex() {
       $('#build-index-ok').disabled = false;
       $('#build-index-cancel').disabled = false;
 
-      // Refresh UI
-      const active = result.indexes.find(i => i.active) || result.indexes[0];
-      $('#index-info').textContent = `${active.name} (${active.files.toLocaleString()} files)`;
-
-      state.sectionData = {};
-      for (const sec of $$('.accordion-section')) {
-        sec.classList.remove('open');
-        $('.accordion-content', sec).innerHTML = '';
-        $('.accordion-badge', sec).textContent = '';
-      }
-      _clearAllPanes();
-
+      // Show build errors (if any) in the middle pane.
       if (s.error_count > 0) {
         const errorLines = s.errors.map(e => escHtml(e)).join('<br>');
         const truncNote = s.error_count > 50 ? `<br><br><em>…and ${s.error_count - 50} more errors</em>` : '';
@@ -479,6 +470,19 @@ function initBuildIndex() {
         $('#middle-top-title').textContent = 'Build Errors';
         _showPane('middle-top');
       }
+
+      // #218: build no longer auto-loads (server built with autoLoad:false, so
+      // the user's currently-loaded index is untouched). Pop the Load Index
+      // dialog pre-filled with the freshly-built index so the user loads it
+      // explicitly — or cancels to keep their current index. Loading routes
+      // through the normal Load flow, which dispatches ce:index-loaded so the
+      // Overview pops. (Mirrors menu-bar.js's load-index open.)
+      $('#load-index-path').value = result.indexPath || '';
+      $('#load-index-error').style.display = 'none';
+      $('#load-index-browser').style.display = 'none';
+      $('#browse-dir-list').innerHTML = '';
+      $('#load-index-overlay').classList.remove('hidden');
+      setTimeout(() => $('#load-index-path').focus(), 100);
     }, 2000);
   }
 
@@ -498,7 +502,9 @@ function initBuildIndex() {
       const useTreeSitter = $('#build-index-tree-sitter')?.checked || false;
       const extInclude = $('#build-index-ext')?.value.trim() || '';
       const extExclude = $('#build-index-exclude-ext')?.value.trim() || '';
-      const { jobId } = await api.buildIndex({ sourcePath, indexName, useTreeSitter, extensions: extInclude, excludeExtensions: extExclude });
+      // #218: build to disk WITHOUT auto-loading; onBuildComplete pops the
+      // pre-filled Load dialog so the user loads it explicitly (or cancels).
+      const { jobId } = await api.buildIndex({ sourcePath, indexName, useTreeSitter, extensions: extInclude, excludeExtensions: extExclude, autoLoad: false });
 
       // Poll for progress
       buildPollTimer = setInterval(async () => {

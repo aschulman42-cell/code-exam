@@ -2277,6 +2277,9 @@ export function renderIndexesList(container, data) {
             $('.accordion-badge', sec).textContent = '';
           }
           clearAllPanes();
+          // #218: pop the fast Overview on accordion-load too (parity with the
+          // Load Index dialog, which dispatches ce:index-loaded in dialogs.js).
+          window.dispatchEvent(new CustomEvent('ce:index-loaded'));
         } catch (err) {
           item.innerHTML = `<span class="error-msg" style="font-size:11px">${escHtml(err.message)}</span>`;
         }
