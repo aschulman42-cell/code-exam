@@ -49,10 +49,45 @@ function classifyModelBase(ancestorNames) {
 
 export { classifyModelBase };
 
+// #227: a line carrying a regex literal with a `\b` word boundary is a pattern
+// definition, not API usage — e.g. a detector's own marker table
+// `{ re: /\bLLMChain\b/, m: 'LLMChain' }`, or any examined linter / security
+// scanner / test fixture that lists framework names. The marker scans below run
+// over _scanLines() (which blanks such lines) so CodeExam doesn't report a regex
+// that *matches* CLIP as an *instance* of CLIP. General + defensible, not a
+// self-exemption. Residue (markers in plain strings / comments) is left to the
+// root fix; #227 stays open for that.
+const _RE_REGEX_WORD_BOUNDARY = /\/[^/\n]*\\b[^/\n]*\//;
+
 // Carrier class: the detector methods are class-body syntax (no inter-method
 // commas), so they move here verbatim inside a throwaway class; the mixin
 // object below is lifted from its prototype.
 class _AIMLMethods {
+  /**
+   * #227: cached view of this.fileLines with regex/pattern-definition lines
+   * blanked (not removed — line indices/numbers are preserved), so the marker
+   * scans don't self-detect a pattern table as real usage. Built once and
+   * reused across all detectors in a run; recomputed when fileLines is replaced.
+   * Copy-on-write: a file with no pattern lines reuses its original array.
+   */
+  _scanLines() {
+    if (this._scanLinesCache && this._scanLinesSrc === this.fileLines) return this._scanLinesCache;
+    const masked = new Map();
+    for (const [filepath, lines] of this.fileLines) {
+      let out = lines;
+      for (let i = 0; i < lines.length; i++) {
+        if (_RE_REGEX_WORD_BOUNDARY.test(lines[i])) {
+          if (out === lines) out = lines.slice();
+          out[i] = '';
+        }
+      }
+      masked.set(filepath, out);
+    }
+    this._scanLinesSrc = this.fileLines;
+    this._scanLinesCache = masked;
+    return masked;
+  }
+
   /**
    * AI/ML "Models" accordion (#84). Returns classes whose inheritance chain
    * reaches a known ML model base, as
@@ -121,7 +156,7 @@ class _AIMLMethods {
       /^\s*class\s+(\w+)\s*\(\s*([^)]+)\s*\)\s*:/,             // Python
       /^\s*(?:export\s+)?class\s+(\w+)\s+extends\s+([\w.]+)/,  // JS/TS
     ];
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       if (classFiles.size && !classFiles.has(filepath)) continue;
       for (const line of lines) {
         for (const pat of decl) {
@@ -327,7 +362,7 @@ class _AIMLMethods {
     // node-llama-cpp FP was llama/gitRelease.bundle.
     const reSkipQuant = /\.(?:md|markdown|mdx|rst|ya?ml|json|jsonl|csv|lock|bundle|bin|gguf|safetensors|onnx|ckpt|pt|pth|h5|so|dll|dylib|wasm|zip|gz|tar|op|exe)$/i;
     const out = [];
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       if (reDocFile.test(filepath)) continue;
       const skipQuant = reSkipQuant.test(filepath);
       // Gate for generic Family-B markers: does this file actually use
@@ -456,7 +491,7 @@ class _AIMLMethods {
     // exists ONLY in C/C++ — gating CUDA markers to C/C++ files stops them
     // matching e.g. a `'<<<%s>>>'` string in a Python simulator.
     const reCppExt = /\.(cu|cuh|c|cc|cpp|cxx|c\+\+|h|hh|hpp|hxx|h\+\+|inl|ipp)$/i;
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       const isCpp = reCppExt.test(filepath);
       const fileHasTritonNumba = lines.some(l =>
         /\bimport\s+triton\b|triton\.language|from\s+numba|import\s+numba|@cuda\.jit/.test(l));
@@ -662,7 +697,7 @@ class _AIMLMethods {
     const AMBIGUOUS = new Set(['YOLO', 'SSD', 'bbox']);
 
     const out = [];
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       if (reSkipFile.test(filepath)) continue;
       const fileHits = [];
       let anchored = false;   // file has ≥1 non-ambiguous vision marker
@@ -776,7 +811,7 @@ class _AIMLMethods {
     const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
 
     const out = [];
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       if (reSkipFile.test(filepath)) continue;
       const fileHits = [];
       let anchored = false;   // file has ≥1 anchor (code-identifier) marker
@@ -877,7 +912,7 @@ class _AIMLMethods {
     const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
 
     const out = [];
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       if (reSkipFile.test(filepath)) continue;
       const fileHits = [];
       let anchored = false;   // file has ≥1 cot/reflection (self-validating) marker
@@ -959,7 +994,7 @@ class _AIMLMethods {
     // .md/.rst docs aren't code — skip them (#102), as the other detectors do.
     const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
     const out = [];
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       if (reDocFile.test(filepath)) continue;
       // Confirmation dunders are looked up within a small window after a class.
       for (let i = 0; i < lines.length; i++) {
@@ -1093,7 +1128,7 @@ class _AIMLMethods {
     // markers are trustworthy enough to keep regardless.)
     const reTestPath = /(?:^|[\\/])(?:tests?|conftest)(?:[\\/]|\.)|(?:^|[\\/])test_[^\\/]*$|_test\.[A-Za-z0-9]+$/i;
     const out = [];
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       const isTest = reTestPath.test(filepath);
       const fileHasML = lines.some(l => /\b(?:import|from)\s+(?:sklearn|keras|tensorflow|tf|torch|xgboost|lightgbm)\b/.test(l));
       const hasClearml = lines.some(l => /\b(?:import|from)\s+clearml\b/.test(l));
@@ -1196,7 +1231,7 @@ class _AIMLMethods {
     // intentionally treats SKILL.md/CLAUDE.md as first-class — different unit.)
     const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
     const out = [];
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       if (reDocFile.test(filepath)) continue;
       // Gate the whole unit on the file importing an ML framework — this IS
       // local model inference (Python ML); keeps cli.js / JS / configs at 0.
@@ -1433,7 +1468,7 @@ class _AIMLMethods {
     };
 
     const out = [];
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       if (reDocFile.test(filepath)) continue;
       const hasLangchain = lines.some(l => /\b(?:import|from|require)\b/.test(l) && /\b(?:langchain|llama_index|llamaindex|llamaIndex|@langchain)\b/.test(l));
       const hasSDK = lines.some(l => /\b(?:import|from|require)\b/.test(l) && /\b(?:anthropic|openai|cohere|mistralai|generativeai|node-llama-cpp|@anthropic-ai|together|groq)\b/.test(l));
@@ -1559,7 +1594,7 @@ class _AIMLMethods {
     };
 
     const out = [];
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       if (reDocFile.test(filepath)) continue;
       const fileHasLLM =
         lines.some(l => /\b(?:anthropic|openai|langchain|llama_index|llamaindex|cohere|mistralai|generativeai|node-llama-cpp|@anthropic-ai|@langchain|modelcontextprotocol|dspy|crewai|autogen|smolagents)\b/i.test(l))
@@ -1645,7 +1680,7 @@ class _AIMLMethods {
     const reDisp = /\btool_use\b|\btool_calls\b|\bfunction_call\b|\btool_result\b|toolResult/;
 
     const out = [];
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       if (reDocFile.test(filepath)) continue;
       const hasLanggraph = lines.some(l => /\b(?:import|from)\s+langgraph\b|\blanggraph\b/.test(l));
       // #151: which agent framework is actually imported here — so the generic
@@ -1763,7 +1798,7 @@ class _AIMLMethods {
     const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
 
     const out = [];
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       if (reDocFile.test(filepath)) continue;
       const hasST = lines.some(l => /\b(?:import|from)\s+sentence_transformers\b/.test(l));
       const hasChromadb = lines.some(l => /\bchromadb\b/i.test(l) || (/\b(?:import|from)\b/.test(l) && /\bChroma\b/.test(l)));
@@ -1957,7 +1992,7 @@ class _AIMLMethods {
     };
 
     const out = [];
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       if (reDocFile.test(filepath)) continue;
       const hasConstrainedImport = lines.some(l => /\b(?:import|from|require)\b/.test(l) && /\b(?:outlines|guidance)\b/.test(l));
       for (let i = 0; i < lines.length; i++) {
@@ -2365,7 +2400,7 @@ class _AIMLMethods {
     const reTorch = /^\s*(?:import\s+torch\b|from\s+torch\b)/;
 
     const out = [];
-    for (const [filepath, lines] of this.fileLines) {
+    for (const [filepath, lines] of this._scanLines()) {
       if (reSkipFile.test(filepath)) continue;
       // Pass 1: anchor imports (Tier A) + which XAI libs this file imports,
       // plus the separate torch-imported flag for instrumentation gating.
