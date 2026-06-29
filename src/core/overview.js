@@ -287,9 +287,10 @@ export function formatOverview(ov) {
 
   L.push('');
   L.push('**Next:**');
-  L.push('  - `vocabulary` — the full ranked terms (CLI: `--vocabulary 50`, or `--vocabulary 50 --bare` for a copy-paste list)');
-  L.push('  - `digest <file@function>` — drill into a key file or entry point above');
-  L.push('  - `list_files <dir>` — explore a folder');
-  L.push('  - `command_catalog` / `list_models` / `prompts` / `exports` — probe what kinds of content this index holds');
+  L.push('  - `--extract <name>` — print the source of a function by name. (The names in parentheses above, and under Entry points, are functions — pass one to `--extract` or `--digest`.)');
+  L.push('  - `--digest <file@function>` — a summary of a function or file');
+  L.push('  - `--vocabulary 50` — the full ranked terms (add `--bare` for a plain copy-paste list)');
+  L.push('  - `--files <dir>` — explore a folder');
+  L.push('  - `--command-catalog` / `--models` / `--prompts` / `--exports` — probe what kinds of content this index holds');
   return L.join('\n');
 }
