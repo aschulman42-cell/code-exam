@@ -21,8 +21,10 @@ correctness is a nice-to-have.
 | `model/hunch_net.py` | The model itself — a small `nn.Module` | `--models` |
 | `model/pipeline.py` | load → featurize → predict → explain → report | `--inference`, `--pipelines`, and a `call_tree` / mermaid diagram |
 | `model/embed.py` | Feature embeddings (`SentenceTransformer`) | `--embeddings` |
-| `harnesses/*.py` | **Real** instrumentation harnesses CodeExam generated for actual PyTorch models — a preview of the forthcoming `--emit-harness` feature (#95) | `--artifacts`, `--inference`; open them and read the headers |
 | `native/fast_score.c` | A "performance-critical" softmax in C | shows cross-language indexing |
+
+(The real CodeExam-generated harnesses are a *separate* thing, not part of Hunch —
+see [`../harnesses/`](../harnesses/) and [`../README.md`](../README.md).)
 
 ## Running Hunch (optional)
 
