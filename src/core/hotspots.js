@@ -9,7 +9,7 @@
  *
  * Class methods in CSI keep the original names and become thin wrappers
  * that forward `this` plus their arguments, preserving the external API
- * for `server.js`, `service.js`, `mcp-server.js`, and `metrics.js`.
+ * for `server.js`, `mcp-server.js`, and `metrics.js`.
  */
 
 import { _isNoiseDoc } from './vocabulary.js';

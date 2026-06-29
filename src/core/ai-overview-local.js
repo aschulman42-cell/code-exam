@@ -10,7 +10,7 @@
  * Reuses: the shared AI_OVERVIEW_PROMPT / AI_OVERVIEW_TOOLS (ai-overview.js),
  * CE's `handleTool` / `TOOLS` / `setIndex` (mcp-server.js), and the same
  * getLlama→loadModel→createContext pattern CE already uses for claim/analyze
- * (service.js). The new piece is the multi-turn function-calling loop, which
+ * (server.js). The new piece is the multi-turn function-calling loop, which
  * node-llama-cpp's `session.prompt(..., { functions })` runs for us.
  *
  * Spike status: CLI-first; validated against Qwen3-4B-Q4_K_M. GUI wiring and
