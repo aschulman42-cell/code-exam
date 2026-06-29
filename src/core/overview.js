@@ -286,10 +286,10 @@ export function formatOverview(ov) {
   }
 
   L.push('');
-  L.push('**Next:** run `vocabulary` for the full ranked terms (CLI: `--vocabulary 50`, or '
-    + '`--vocabulary 50 --bare` for a plain copy-paste list) · `digest <file@function>` on a '
-    + 'key file or entry point above · `list_files <dir>` to explore a folder · '
-    + '`command_catalog` / `list_models` / `prompts` / `exports` to probe what kinds of '
-    + 'content this index holds.');
+  L.push('**Next:**');
+  L.push('  - `vocabulary` — the full ranked terms (CLI: `--vocabulary 50`, or `--vocabulary 50 --bare` for a copy-paste list)');
+  L.push('  - `digest <file@function>` — drill into a key file or entry point above');
+  L.push('  - `list_files <dir>` — explore a folder');
+  L.push('  - `command_catalog` / `list_models` / `prompts` / `exports` — probe what kinds of content this index holds');
   return L.join('\n');
 }

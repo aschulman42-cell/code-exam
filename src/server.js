@@ -3599,6 +3599,19 @@ function handleRequest(req, res) {
 
 const server = http.createServer(handleRequest);
 
+// Friendly failure when the port is taken — almost always a CodeExam GUI already
+// running in another window, not a situation that warrants a raw EADDRINUSE stack.
+server.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error(`\nCan't start the CodeExam GUI: ${serverArgs.host}:${serverArgs.port} is already in use.`);
+    console.error(`  You likely already have a CodeExam GUI running in another window —`);
+    console.error(`  close it, or start this one on a different port:  --port <n>  (e.g. --port 8081).`);
+    process.exit(1);
+  }
+  console.error(`\nCodeExam GUI server error: ${err && err.message ? err.message : err}`);
+  process.exit(1);
+});
+
 server.listen(serverArgs.port, serverArgs.host, () => {
   const indexNames = [...mgr.indexes.keys()].join(', ');
   console.log(`\nCode Exam GUI`);

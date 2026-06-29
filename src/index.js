@@ -7,6 +7,8 @@
  */
 
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { spawnSync } from 'child_process';
 import { parseArgs, printBanner } from './argparse.js';
 import { setAirGapped, scrubApiKey, airGappedStartupCheck, AIR_GAPPED_DISCLAIMER } from './core/air-gapped.js';
@@ -65,12 +67,43 @@ import {
 // is still `node`, so examples show `node src/index.js` — same as before.)
 function exeBase() {
   try {
+    // The ce / CodeExam launchers export this as how the user actually invoked
+    // CodeExam, so help/welcome text reads `ce` rather than `node src/index.js`.
+    if (process.env.CODEEXAM_INVOKED_AS) return process.env.CODEEXAM_INVOKED_AS;
     const b = process.execPath.split(/[\\/]/).pop() || 'node';
     const lower = b.toLowerCase().replace(/\.exe$/, '');
     if (lower === 'node' || lower === 'bun' || lower === 'tsx') return 'node src/index.js';
     return b;
   } catch { return 'node src/index.js'; }
 }
+
+
+// #230 Part B: absolute path to the bundled first-run demo index — a `.zip` CE
+// loads via resolveIndexDir, sitting at the repo root next to src/.
+function firstRunIndexZip() {
+  return path.join(path.dirname(path.dirname(fileURLToPath(import.meta.url))), 'FIRST_RUN_INDEX.zip');
+}
+
+// Command keys that count as "the user asked CodeExam to do something" — used
+// both to dispatch (the `anyCommand` check) and to decide whether a no-index
+// invocation should run against the bundled demo (#230 Part B). Keep in sync.
+const _QUERY_COMMAND_KEYS = [
+  'stats', 'index_extensions',
+  'overview', 'search', 'literal', 'fast', 'regex', 'files_search', 'folders_search',
+  'extract', 'list_files', 'show_file', 'list_functions',
+  'list_functions_alpha', 'list_functions_size',
+  'callers', 'callees', 'most_called',
+  'call_tree', 'class_tree', 'call_inventory', 'file_map', 'file_tree',
+  'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
+  'list_classes', 'data_structs', 'client_server', 'referenced_resources', 'list_models', 'list_artifacts', 'list_kernels', 'list_multimodal', 'list_post_training', 'list_reasoning', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'list_pipelines', 'list_explainability', 'class_hotspots', 'discover_vocabulary', 'multisect_search',
+  'claim_search', 'claim_file',
+  'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
+  'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
+  'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'funcstr_corpus', 'build_fp_renames',
+  'save_fingerprints',
+  'command_catalog', 'string_table', 'breadcrumbs', 'prompt_catalog', 'file_bookends', 'bundle_seams', 'digest',
+  'comments_only', 'emit_harness', 'list_harnessable', 'census_imports', 'exports', 'imports_from', 'imports', 'infrastructure',
+];
 
 
 // ========================================================================
@@ -99,6 +132,14 @@ if (_rawArgvForGui.includes('--gui')) {
   for (const flag of ['--index-path', '--index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--temperature']) {
     const v = _argAfter(flag, null);
     if (v !== null) _serverArgv.push(flag, v);
+  }
+  // #230 Part B: first-run GUI — if no index path was given and the default
+  // index isn't present, point the server at the bundled demo index so `--gui`
+  // on a fresh download lands on a populated UI (its Overview auto-pops).
+  const _gaveIndexForGui = ['--index-path', '--index', '--load-index'].some(f => _argAfter(f, null) !== null);
+  if (!_gaveIndexForGui && !fs.existsSync('.code_search_index')) {
+    const _frzGui = firstRunIndexZip();
+    if (fs.existsSync(_frzGui)) _serverArgv.push('--index-path', _frzGui);
   }
   // #223: forward the boolean air-gapped flags to the GUI server.
   for (const _f of ['--air-gapped', '--allow-connected']) {
@@ -468,6 +509,24 @@ if (args.add_extensions) {
   }
 }
 
+// #230 Part B: first-run with no --index-path/--load-index, no --build-index, and
+// no default index in cwd. If the user gave a COMMAND, run it against the bundled
+// demo index. If they ran a BARE `ce` (nothing to do), show a short welcome
+// (handled at the no-index block below) — don't load or dump anything. The
+// user's own index (explicit path, or a `.code_search_index` in cwd) always wins.
+let _firstRunWelcome = false;
+if (!args._explicit.has('index_path') && !args.build_index && !fs.existsSync(args.index_path)
+    && fs.existsSync(firstRunIndexZip())) {
+  const _userGaveCommand = args.interactive
+    || _QUERY_COMMAND_KEYS.some(c => args._explicit.has(c) || args[c]);
+  if (_userGaveCommand) {
+    args.index_path = firstRunIndexZip();
+    process.stderr.write(`No index specified — using CodeExam's bundled demo index (Hunch + sample harnesses).\n\n`);
+  } else {
+    _firstRunWelcome = true;   // bare `ce` → short welcome, not a load + Overview dump
+  }
+}
+
 const index = new CodeSearchIndex({
   indexPath: args.index_path,
   extensions: customExtensions,
@@ -553,10 +612,23 @@ if (args.build_index) {
 
 if (index.files.size === 0 && !args.build_index) {
   const _exeBase = exeBase();
+  if (_firstRunWelcome) {
+    // First run: a demo index is bundled but the user ran a bare `ce`. Keep it
+    // SHORT and lead with --gui (they don't know it exists yet) — no index load,
+    // no Overview dump. Commands (--overview, --search, -i) auto-load the demo.
+    printBanner();
+    console.log(`\nWelcome. A small demo index is bundled, so you can try CodeExam right now.\n`);
+    console.log('Start here:');
+    console.log(`  ${_exeBase} --gui          open the browser UI on the demo  (best for a first look)`);
+    console.log(`  ${_exeBase} --overview     a quick tour of the demo, here in the terminal`);
+    console.log(`\nExamine your own code:`);
+    console.log(`  ${_exeBase} --build-index <dir>    index a source tree, then  ${_exeBase} --index-path <dir>`);
+    console.log(`  ${_exeBase} --help                 all commands · doc: https://github.com/aschulman42-cell/code-exam`);
+    process.exit(0);
+  }
   // First-run / no-index. Don't fixate on the internal default ".code_search_index":
-  // show a path only when the user explicitly gave one. (Once a bundled
-  // FIRST_TIME_INDEX ships via sample-index-zips, auto-load it here instead of
-  // showing this intro — see that item.)
+  // show a path only when the user explicitly gave one. (The bundled demo only
+  // auto-loads when a command is given; a bare `ce` is handled above.)
   printBanner();
   if (args._explicit.has('index_path')) {
     console.log(`\nNo index found at "${args.index_path}".\n`);
@@ -981,30 +1053,14 @@ if (args.interactive) {
   doInteractive(index, args);
 } else {
   // Check if any command was dispatched
-  const anyCommand = [
-    'stats', 'index_extensions',
-    'overview', 'search', 'literal', 'fast', 'regex', 'files_search', 'folders_search',
-    'extract', 'list_files', 'show_file', 'list_functions',
-    'list_functions_alpha', 'list_functions_size',
-    'callers', 'callees', 'most_called',
-    'call_tree', 'class_tree', 'call_inventory', 'file_map', 'file_tree',
-    'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
-    'list_classes', 'data_structs', 'client_server', 'referenced_resources', 'list_models', 'list_artifacts', 'list_kernels', 'list_multimodal', 'list_post_training', 'list_reasoning', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'list_pipelines', 'list_explainability', 'class_hotspots', 'discover_vocabulary', 'multisect_search',
-    'claim_search', 'claim_file',
-    'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
-    'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
-    'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'funcstr_corpus', 'build_fp_renames',
-    'save_fingerprints',
-    'command_catalog', 'string_table', 'breadcrumbs', 'prompt_catalog', 'file_bookends', 'bundle_seams', 'digest',
-    'comments_only', 'emit_harness', 'list_harnessable', 'census_imports', 'exports', 'imports_from', 'imports', 'infrastructure',
-  ].some(c => args._explicit.has(c) || args[c]);
+  const anyCommand = _QUERY_COMMAND_KEYS.some(c => args._explicit.has(c) || args[c]);
 
   if (!anyCommand && !args.build_index) {
+    const _exe = exeBase();
     // No command given, but an index is loaded. Don't auto-enter the REPL
     // (script-/agent-hostile: hangs on stdin) — show the banner + what you can
     // do, and exit. Use -i to open the REPL explicitly. (Unknown-flag/positional
     // errors were already handled before the index load.)
-    const _exe = exeBase();
     printBanner();
     console.log(`\nIndex "${args.index_path}" loaded — ${index.files.size} file${index.files.size === 1 ? '' : 's'}. No command given.\n`);
     console.log('Try:');

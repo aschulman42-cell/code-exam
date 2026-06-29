@@ -1,2 +1,2 @@
 #!/usr/bin/env sh
-exec node "$(dirname "$0")/src/index.js" "$@"
+CODEEXAM_INVOKED_AS=CodeExam exec node "$(dirname "$0")/src/index.js" "$@"

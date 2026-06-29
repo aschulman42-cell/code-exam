@@ -45,6 +45,7 @@ claude*.txt
 *.7z
 *.zip
 !/samples/*.zip
+!/FIRST_RUN_INDEX.zip
 *.pdf
 *.docx
 *.doc

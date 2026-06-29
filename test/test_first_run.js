@@ -3,8 +3,10 @@
  *
  * Run: node --test test/test_first_run.js
  *
- * Verifies: no index → banner + getting-started (exit 1); index loaded but no
- * command → banner + guidance (exit 0) and CE does NOT auto-drop into the REPL.
+ * Verifies: bare `ce` (no index) → short welcome leading with --gui, no load
+ * (exit 0); a command with no index (--overview) → auto-loads the bundled demo;
+ * explicit bad --index-path → "No index found" (exit 1); index loaded but no
+ * command → guidance (exit 0), no auto-drop into the REPL.
  */
 
 import { describe, it } from 'node:test';
@@ -24,18 +26,25 @@ function run(args, opts = {}) {
 }
 
 describe('first-run experience', () => {
-  it('no index (default) → banner + getting-started, exit 1, no ".code_search_index" fixation', () => {
+  it('bare `ce` (no index) → short welcome leading with --gui, no load/dump, exit 0', () => {
     const r = run([], { cwd: WORK });   // WORK has no .code_search_index, no --index-path
-    assert.equal(r.status, 1);
-    assert.match(r.stdout, /CodeExam --/);                              // banner
-    assert.match(r.stdout, /No index loaded/);                         // generic, not the internal path
-    assert.doesNotMatch(r.stdout, /\.code_search_index/);             // don't expose the internal default
-    assert.match(r.stdout, /Getting started/);
-    assert.match(r.stdout, /--indexes/);                               // see existing
-    assert.match(r.stdout, /--build-index/);                          // build advice
-    assert.match(r.stdout, /--index-path <dir>\s+load an existing index/);  // standalone load line
-    assert.match(r.stdout, /-i --index-path <dir>/);                       // distinct REPL line (-i first)
-    assert.match(r.stdout, /github\.com\/aschulman42-cell\/code-exam/);  // README/source
+    assert.equal(r.status, 0, `expected exit 0, got ${r.status}; stderr: ${r.stderr}`);
+    assert.match(r.stdout, /CodeExam --/);                  // banner
+    assert.match(r.stdout, /Welcome/);                      // a short welcome, not an info dump
+    assert.match(r.stdout, /demo index is bundled/i);
+    assert.match(r.stdout, /--gui/);                        // leads with --gui (users don't know it yet)
+    assert.match(r.stdout, /--overview/);
+    assert.match(r.stdout, /--build-index/);                // examine-your-own-code
+    assert.doesNotMatch(r.stdout, /# Overview/);            // NO Overview dump on a bare run
+    assert.doesNotMatch(r.stderr, /Loaded existing index|zip-index/);  // bare `ce` does NOT load the demo
+    assert.doesNotMatch(r.stdout, /\.code_search_index/);   // never expose the internal default name
+  });
+
+  it('command with no index (--overview) → auto-loads the bundled demo and runs it', () => {
+    const r = run(['--overview'], { cwd: WORK });
+    assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+    assert.match(r.stderr, /bundled demo index/i);          // "using bundled demo" note
+    assert.match(r.stdout, /# Overview/);                   // the demo Overview actually ran
   });
 
   it('explicit bad --index-path → "No index found at <path>", exit 1', () => {
