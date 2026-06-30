@@ -1012,6 +1012,9 @@ MODE:
   --gui                      Launch the browser GUI (starts a local server and
                              opens your browser). Also accepts --index-path /
                              --port and the --model / --api-key flags.
+  --tour [name]              Launch the GUI and start a guided spotlight tour
+                             once it loads (default: the first-run demo tour).
+                             Composes with --index-path to tour another index.
   --port <n>                 GUI server port (default 8080)
 
 CALLERS / CALLEES:

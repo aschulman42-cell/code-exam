@@ -19,6 +19,7 @@ import {
   renderStats, renderSearchResults, renderFilesSearchResults,
   renderMultisectResults,
 } from './middle-pane.js';
+import { TOURS } from './tours.js';
 
 
 // ============================================================================
@@ -59,9 +60,14 @@ export function initMenuBar() {
     });
   }
 
-  // #230 Part B: on a fresh-download GUI (the bundled demo index loaded),
-  // auto-pop the tour once. Best-effort; gated server-side + by localStorage.
-  maybeAutoOpenTour();
+  // #230 Part B: an explicit `ce --tour [name]` rides in as ?tour=<name> — start
+  // that tour immediately (bypassing the once-only ce_tour_seen guard, since the
+  // user asked for it). Otherwise, on a fresh-download GUI (bundled demo loaded),
+  // auto-pop the first-run tour once. Both best-effort.
+  const _tourParam = new URLSearchParams(location.search).get('tour');
+  if (_tourParam && TOURS[_tourParam]) sessionTourName = _tourParam;  // Help → Tour replays the launched tour
+  if (_tourParam) startInteractiveTour(_tourParam);
+  else maybeAutoOpenTour();
 }
 
 // ============================================================================
@@ -175,36 +181,14 @@ function renderMarkdown(md) {
 // overflow). A floating #tour-tip carries the title/body and Skip/Back/Next/Done
 // nav with a step count. No third-party library — stays air-gapped.
 //
-// The engine is generic over a step list. Tours live in the TOURS registry
-// below, keyed by name; adding a guided tour over the existing UI (panes, menus,
-// accordions) is just adding a named array. A step is { sel, open?, title,
-// body }: `sel` is resolved with querySelector, and `open: true` first clicks
-// the section's .accordion-header. Steps that must point at specific,
-// dynamically-rendered code entities (e.g. a tour of CodeExam's own source) need
-// a richer step vocabulary (async prepare + wait-for-element) — tracked in #240.
+// The engine is generic over a step list. The tour definitions live in
+// ./tours.js (TOURS) — a dependency-free module shared with the CLI, so
+// `ce --tour <name>` validates against the same names. See that file for the
+// step shape and the #240 note on entity-level steps.
 // ============================================================================
 
-const TOURS = {
-  // First-run walkthrough of the bundled demo index (auto-pops once; also under
-  // Help → Tour).
-  'first-run': [
-    { sel: '.accordion-section[data-section="pipelines"]', open: true,
-      title: 'AI/ML detectors',
-      body: "CodeExam found the AI/ML constructs in this demo. Open these — LLM Calls, Tools, Chains, Pipelines… — to see real usage in the Hunch app. They're tagged [example] and dimmed because it's sample code." },
-    { sel: '#middle-bottom', title: 'Read the source',
-      body: 'Click any function or file (in the accordions or the Overview) to read its source here, with call sites linkified.' },
-    { sel: '#right-pane', title: 'Diagrams',
-      body: 'Call trees and pipelines render as Mermaid diagrams here — try a call-tree on the Hunch pipeline.' },
-    { sel: '#left-filter', title: 'Search & filter',
-      body: 'Filter the lists, or search the code — full-text, regex, or multisect (the smallest scope containing N terms).' },
-    { sel: '[data-menu="index-menu"]', title: 'Your own code',
-      body: "When you're ready, build or load an index of your own codebase from the Index menu." },
-    { sel: '[data-menu="help-menu"]', title: "That's the tour",
-      body: 'This tour is always here under Help → Tour. Happy examining.' },
-  ],
-};
-
 let activeTour = null;      // the step array currently being walked (null = none)
+let sessionTourName = 'first-run';  // tour this GUI session belongs to (from ?tour=); Help → Tour replays it
 let tourStep = -1;          // -1 = no active tour; otherwise the current step index
 let tourReflowQueued = false;
 
@@ -237,13 +221,20 @@ function gotoTourStep(n, scroll = true) {
   const step = activeTour[n];
   const { spot, tip } = ensureTourEls();
   const el = document.querySelector(step.sel);
-  if (!el) return gotoTourStep(n + 1, scroll);            // target missing: skip it
+  // Skip a step whose target is missing or not visible (e.g. a pane toggled off
+  // via the Window menu, or an element absent for this index) rather than
+  // spotlighting empty space. offsetParent is null for a display:none subtree.
+  if (!el || el.offsetParent === null) return gotoTourStep(n + 1, scroll);
   tourStep = n;
   if (step.open) {
     const hdr = el.querySelector('.accordion-header');
     if (hdr && !el.classList.contains('open')) hdr.click();
   }
-  if (scroll) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  // Instant scroll, not smooth: the rect is measured in the rAF below, and a
+  // smooth scroll would still be animating then — the spotlight would land on
+  // where the target *was*, not where it ends up. That race is what made the
+  // tour appear to "disappear" mid-run on a large index (long scrolls).
+  if (scroll) el.scrollIntoView({ block: 'center' });
   requestAnimationFrame(() => {
     const r = el.getBoundingClientRect();
     spot.style.display = 'block';
@@ -275,7 +266,10 @@ function gotoTourStep(n, scroll = true) {
 // unchanged. Unknown name → no-op.
 function startInteractiveTour(name = 'first-run') {
   const steps = Array.isArray(name) ? name : TOURS[name];
-  if (!steps || !steps.length) return;
+  if (!steps || !steps.length) {
+    if (typeof name === 'string') console.warn(`[tour] no tour named "${name}" — known tours: ${Object.keys(TOURS).join(', ')}`);
+    return;
+  }
   activeTour = steps;
   ensureTourEls();
   gotoTourStep(0);
@@ -296,7 +290,7 @@ async function handleMenuAction(action) {
       openReadme();
       break;
     case 'tour':
-      startInteractiveTour();
+      startInteractiveTour(sessionTourName);
       break;
     case 'load-index':
       $('#load-index-path').value = '';

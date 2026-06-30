@@ -14,6 +14,7 @@ import { parseArgs, printBanner } from './argparse.js';
 import { setAirGapped, scrubApiKey, airGappedStartupCheck, AIR_GAPPED_DISCLAIMER } from './core/air-gapped.js';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { buildOverview, formatOverview } from './core/overview.js';
+import { TOURS } from '../public/tours.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { MEDIA_BINARY_EXTENSIONS, ARCHIVE_EXTENSIONS, EXECUTABLE_EXTENSIONS } from './utils.js';
 import { BINSTRING_EXTENSIONS } from './binstrings.js';
@@ -115,7 +116,8 @@ const _QUERY_COMMAND_KEYS = [
 // ========================================================================
 
 const _rawArgvForGui = process.argv.slice(2);
-if (_rawArgvForGui.includes('--gui')) {
+const _wantsTour = _rawArgvForGui.includes('--tour');
+if (_rawArgvForGui.includes('--gui') || _wantsTour) {
   const _argAfter = (flag, fallback) => {
     const i = _rawArgvForGui.indexOf(flag);
     if (i < 0) return fallback;
@@ -124,6 +126,17 @@ if (_rawArgvForGui.includes('--gui')) {
     return v;
   };
   const port = _argAfter('--port', '8080');
+  // --tour [name]: launch the GUI and start the named guided tour once the page
+  // loads (default 'first-run'). The name rides in the URL as ?tour=<name>,
+  // which the GUI reads in initMenuBar; `ce --tour` alone works (no --gui).
+  const _tourName = _wantsTour ? _argAfter('--tour', 'first-run') : null;
+  // Validate the tour name against the shared registry before launching, so a
+  // typo (`ce --tour bogus`) fails fast with the valid names instead of opening
+  // the browser on a tour that doesn't exist.
+  if (_tourName && !Object.keys(TOURS).includes(_tourName)) {
+    process.stderr.write(`\nNo such tour "${_tourName}". Available: ${Object.keys(TOURS).join(', ')}\n\n`);
+    process.exit(1);
+  }
 
   // Munge argv: server.js's parseServerArgs reads process.argv directly and
   // doesn't know about CLI flags like --build-index. Pass it only what it
@@ -151,9 +164,10 @@ if (_rawArgvForGui.includes('--gui')) {
   // time to bind. Best-effort: if the open fails (no DE, locked-down VM),
   // the URL is logged by server.js and the user can paste it.
   const { spawn } = await import('child_process');
-  const _guiUrl = `http://127.0.0.1:${port}/`;
+  const _guiUrl = `http://127.0.0.1:${port}/${_tourName ? `?tour=${encodeURIComponent(_tourName)}` : ''}`;
   printBanner();
   console.log(`\nStarting the CodeExam GUI → ${_guiUrl}  (opening your browser)…`);
+  if (_tourName) console.log(`  Will start the "${_tourName}" guided tour once the page loads.`);
   console.log(`  Load or build an index in the GUI (File menu / Indexes accordion). Use --port to change the port.\n`);
   setTimeout(() => {
     try {
@@ -620,6 +634,7 @@ if (index.files.size === 0 && !args.build_index) {
     console.log(`\nWelcome. A small demo index is bundled, so you can try CodeExam right now.\n`);
     console.log('Start here:');
     console.log(`  ${_exeBase} --gui          open the browser UI on the demo  (best for a first look)`);
+    console.log(`  ${_exeBase} --tour         a guided spotlight walkthrough of the demo in the browser UI`);
     console.log(`  ${_exeBase} --overview     a high-level orientation of the demo, here in the terminal`);
     console.log(`\nExamine your own code:`);
     console.log(`  ${_exeBase} --build-index <dir>    index a source tree, then  ${_exeBase} --index-path <dir>`);
@@ -1066,6 +1081,7 @@ if (args.interactive) {
     console.log('Try:');
     console.log(`  ${_exe} --overview     high-level orientation`);
     console.log(`  ${_exe} --gui          explore in the browser`);
+    console.log(`  ${_exe} --tour         guided walkthrough in the browser`);
     console.log(`  ${_exe} -i             interactive REPL`);
     console.log(`  ${_exe} --help         all commands`);
     process.exit(0);
