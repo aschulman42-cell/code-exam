@@ -44,14 +44,24 @@ export function initMenuBar() {
   });
   for (const btn of $$('.dropdown button[data-action]')) btn.addEventListener('click', () => handleMenuAction(btn.dataset.action));
 
-  // README/help modal: ✕ and backdrop click dismiss it.
+  // README modal: ✕ closes it; a backdrop click closes it too. Esc ends an
+  // active interactive tour first, otherwise closes the README. (#230 Part B)
   const readmeOverlay = $('#readme-overlay');
   if (readmeOverlay) {
     const closeReadme = () => readmeOverlay.classList.add('hidden');
     const closeBtn = $('#readme-close');
     if (closeBtn) closeBtn.addEventListener('click', closeReadme);
     readmeOverlay.addEventListener('click', (e) => { if (e.target === readmeOverlay) closeReadme(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (tourStep >= 0) endTour();                          // Esc ends an active tour
+      else if (!readmeOverlay.classList.contains('hidden')) closeReadme();
+    });
   }
+
+  // #230 Part B: on a fresh-download GUI (the bundled demo index loaded),
+  // auto-pop the tour once. Best-effort; gated server-side + by localStorage.
+  maybeAutoOpenTour();
 }
 
 // ============================================================================
@@ -64,6 +74,7 @@ async function openReadme() {
   const overlay = $('#readme-overlay');
   const body = $('#readme-body');
   if (!overlay || !body) return;
+  if ($('#readme-title')) $('#readme-title').textContent = 'CodeExam — README';
   body.innerHTML = '<div class="list-placeholder" style="padding:12px">Loading README…</div>';
   overlay.classList.remove('hidden');
   try {
@@ -75,6 +86,24 @@ async function openReadme() {
   } catch (err) {
     body.innerHTML = `<div class="error-msg" style="padding:12px">Could not load README: ${err.message}</div>`;
   }
+}
+
+// Auto-pop the interactive tour once on a fresh-download GUI — when the bundled
+// demo index is loaded (server reports firstRunDemo) and the user hasn't seen it
+// yet (localStorage guard, so it does NOT re-pop on every load). The /api/tour
+// route is still the gate: its firstRunDemo flag means "the bundled demo is what
+// got loaded". (The route also returns TOUR.md prose, now consumed only by the
+// README-linked doc — the spotlight tour below is self-contained.)
+async function maybeAutoOpenTour() {
+  try {
+    if (localStorage.getItem('ce_tour_seen')) return;
+    const res = await fetch('/api/tour');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.firstRunDemo) return;
+    localStorage.setItem('ce_tour_seen', '1');
+    startInteractiveTour();
+  } catch { /* best-effort */ }
 }
 
 // Compact Markdown -> HTML. Escapes HTML first (no injection, no raw markup),
@@ -107,9 +136,25 @@ function renderMarkdown(md) {
     const bq = line.match(/^>\s?(.*)$/);
     if (bq) { closeList(); html += `<blockquote>${inline(bq[1])}</blockquote>`; i++; continue; }
     const ul = line.match(/^\s*[-*]\s+(.*)$/);
-    if (ul) { if (listTag !== 'ul') { closeList(); html += '<ul>'; listTag = 'ul'; } html += `<li>${inline(ul[1])}</li>`; i++; continue; }
-    const ol = line.match(/^\s*\d+\.\s+(.*)$/);
-    if (ol) { if (listTag !== 'ol') { closeList(); html += '<ol>'; listTag = 'ol'; } html += `<li>${inline(ol[1])}</li>`; i++; continue; }
+    if (ul) {
+      if (listTag !== 'ul') { closeList(); html += '<ul>'; listTag = 'ul'; }
+      // Gather soft-wrapped continuation lines into this item (so a wrapped
+      // bullet renders as one item, not a bullet + stray paragraph).
+      let item = ul[1]; i++;
+      while (i < lines.length && lines[i].trim() && !special.test(lines[i])) { item += ' ' + lines[i].trim(); i++; }
+      html += `<li>${inline(item)}</li>`;
+      continue;
+    }
+    const ol = line.match(/^\s*(\d+)\.\s+(.*)$/);
+    if (ol) {
+      if (listTag !== 'ol') { closeList(); html += '<ol>'; listTag = 'ol'; }
+      // `value="N"` preserves the source number even when sub-content splits the
+      // list into separate <ol>s (otherwise every item restarts at 1).
+      let item = ol[2]; i++;
+      while (i < lines.length && lines[i].trim() && !special.test(lines[i])) { item += ' ' + lines[i].trim(); i++; }
+      html += `<li value="${ol[1]}">${inline(item)}</li>`;
+      continue;
+    }
     if (!line.trim()) { closeList(); i++; continue; }
     closeList();
     let para = line; i++;
@@ -118,6 +163,122 @@ function renderMarkdown(md) {
   }
   closeList();
   return html;
+}
+
+
+// ============================================================================
+// Interactive guided tour (#230 Part B) — dependency-free spotlight.
+//
+// A single fixed #tour-spotlight is positioned over each step's target via
+// getBoundingClientRect(); a huge spread box-shadow dims the rest of the page
+// (a top-level fixed element, so it is never clipped by a scroll pane's
+// overflow). A floating #tour-tip carries the title/body and Skip/Back/Next/Done
+// nav with a step count. No third-party library — stays air-gapped.
+//
+// The engine is generic over a step list. Tours live in the TOURS registry
+// below, keyed by name; adding a guided tour over the existing UI (panes, menus,
+// accordions) is just adding a named array. A step is { sel, open?, title,
+// body }: `sel` is resolved with querySelector, and `open: true` first clicks
+// the section's .accordion-header. Steps that must point at specific,
+// dynamically-rendered code entities (e.g. a tour of CodeExam's own source) need
+// a richer step vocabulary (async prepare + wait-for-element) — tracked in #240.
+// ============================================================================
+
+const TOURS = {
+  // First-run walkthrough of the bundled demo index (auto-pops once; also under
+  // Help → Tour).
+  'first-run': [
+    { sel: '.accordion-section[data-section="pipelines"]', open: true,
+      title: 'AI/ML detectors',
+      body: "CodeExam found the AI/ML constructs in this demo. Open these — LLM Calls, Tools, Chains, Pipelines… — to see real usage in the Hunch app. They're tagged [example] and dimmed because it's sample code." },
+    { sel: '#middle-bottom', title: 'Read the source',
+      body: 'Click any function or file (in the accordions or the Overview) to read its source here, with call sites linkified.' },
+    { sel: '#right-pane', title: 'Diagrams',
+      body: 'Call trees and pipelines render as Mermaid diagrams here — try a call-tree on the Hunch pipeline.' },
+    { sel: '#left-filter', title: 'Search & filter',
+      body: 'Filter the lists, or search the code — full-text, regex, or multisect (the smallest scope containing N terms).' },
+    { sel: '[data-menu="index-menu"]', title: 'Your own code',
+      body: "When you're ready, build or load an index of your own codebase from the Index menu." },
+    { sel: '[data-menu="help-menu"]', title: "That's the tour",
+      body: 'This tour is always here under Help → Tour. Happy examining.' },
+  ],
+};
+
+let activeTour = null;      // the step array currently being walked (null = none)
+let tourStep = -1;          // -1 = no active tour; otherwise the current step index
+let tourReflowQueued = false;
+
+function ensureTourEls() {
+  if (!$('#tour-spotlight')) {
+    const s = document.createElement('div'); s.id = 'tour-spotlight'; document.body.appendChild(s);
+    const t = document.createElement('div'); t.id = 'tour-tip'; document.body.appendChild(t);
+    // Keep the spotlight glued to its target if the window is resized mid-tour
+    // (coalesced to one reflow per frame; no re-scroll, just reposition).
+    window.addEventListener('resize', () => {
+      if (tourStep < 0 || tourReflowQueued) return;
+      tourReflowQueued = true;
+      requestAnimationFrame(() => { tourReflowQueued = false; if (tourStep >= 0) gotoTourStep(tourStep, false); });
+    });
+  }
+  return { spot: $('#tour-spotlight'), tip: $('#tour-tip') };
+}
+
+function endTour() {
+  const s = $('#tour-spotlight'), t = $('#tour-tip');
+  if (s) s.style.display = 'none';
+  if (t) t.style.display = 'none';
+  tourStep = -1;
+  activeTour = null;
+}
+
+function gotoTourStep(n, scroll = true) {
+  if (!activeTour || n < 0) return;
+  if (n >= activeTour.length) return endTour();
+  const step = activeTour[n];
+  const { spot, tip } = ensureTourEls();
+  const el = document.querySelector(step.sel);
+  if (!el) return gotoTourStep(n + 1, scroll);            // target missing: skip it
+  tourStep = n;
+  if (step.open) {
+    const hdr = el.querySelector('.accordion-header');
+    if (hdr && !el.classList.contains('open')) hdr.click();
+  }
+  if (scroll) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  requestAnimationFrame(() => {
+    const r = el.getBoundingClientRect();
+    spot.style.display = 'block';
+    spot.style.top = `${r.top - 4}px`; spot.style.left = `${r.left - 4}px`;
+    spot.style.width = `${r.width + 8}px`; spot.style.height = `${r.height + 8}px`;
+    const last = n === activeTour.length - 1;
+    tip.style.display = 'block';
+    tip.innerHTML =
+      `<div class="tour-tip-title">${step.title}</div>` +
+      `<div class="tour-tip-body">${step.body}</div>` +
+      `<div class="tour-tip-nav"><span class="tour-tip-count">${n + 1} / ${activeTour.length}</span>` +
+      `<span class="tour-tip-btns"><button id="tour-skip">Skip</button>` +
+      (n > 0 ? `<button id="tour-back">Back</button>` : '') +
+      `<button id="tour-next" class="tour-primary">${last ? 'Done' : 'Next'}</button></span></div>`;
+    // Prefer below the target; flip above if it would overflow the viewport.
+    const tr = tip.getBoundingClientRect();
+    let top = r.bottom + 10;
+    if (top + tr.height > window.innerHeight - 8) top = Math.max(8, r.top - tr.height - 10);
+    const left = Math.min(Math.max(8, r.left), window.innerWidth - tr.width - 8);
+    tip.style.top = `${top}px`; tip.style.left = `${left}px`;
+    $('#tour-next').onclick = () => gotoTourStep(n + 1);
+    const back = $('#tour-back'); if (back) back.onclick = () => gotoTourStep(n - 1);
+    $('#tour-skip').onclick = endTour;
+  });
+}
+
+// Start a named tour from the TOURS registry (or a raw step array). Defaults to
+// the first-run tour, so the no-arg callers (auto-pop, Help → Tour) are
+// unchanged. Unknown name → no-op.
+function startInteractiveTour(name = 'first-run') {
+  const steps = Array.isArray(name) ? name : TOURS[name];
+  if (!steps || !steps.length) return;
+  activeTour = steps;
+  ensureTourEls();
+  gotoTourStep(0);
 }
 
 
@@ -133,6 +294,9 @@ async function handleMenuAction(action) {
       break;
     case 'help':
       openReadme();
+      break;
+    case 'tour':
+      startInteractiveTour();
       break;
     case 'load-index':
       $('#load-index-path').value = '';

@@ -59,6 +59,7 @@
       <div class="menu-group">
         <button class="menu-btn" data-menu="help-menu">Help ▾</button>
         <div id="help-menu" class="dropdown">
+          <button data-action="tour">Tour</button>
           <button data-action="help">README</button>
         </div>
       </div>
@@ -544,7 +545,7 @@
   <!-- README / HELP DIALOG -->
   <div id="readme-overlay" class="modal-overlay hidden">
     <div class="modal readme-modal">
-      <div class="modal-header"><span>CodeExam — README</span>
+      <div class="modal-header"><span id="readme-title">CodeExam — README</span>
         <button class="pane-action" id="readme-close">✕</button>
       </div>
       <div id="readme-body" class="modal-body readme-body"></div>

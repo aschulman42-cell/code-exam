@@ -104,6 +104,10 @@ node src/server.js --index-path .code_search_index --port 3000
 # then open http://localhost:3000
 ```
 
+**First time?** A fresh download bundles a small demo index, so a bare `ce`
+shows a short welcome and `ce --gui` opens the browser UI on the demo. The GUI's
+**Help → Tour** — and [`TOUR.md`](TOUR.md) — walk you through what you're seeing.
+
 ![Prompt catalog recovered from the minified cli.js inside claude.exe](prompts_from_cli_js_from_claude_exe.jpg)
 
 *Prompt catalog — LLM prompts recovered from the minified `cli.js` bundled inside `claude.exe`.*

@@ -1507,6 +1507,20 @@ routes['/api/readme'] = (req, res) => {
   }
 };
 
+// gui-help: serve the repo-root TOUR.md for the GUI tour popup, plus a flag
+// telling the GUI whether the bundled first-run demo index is loaded — that
+// flag drives the one-time auto-pop on a fresh download (#230 Part B).
+routes['/api/tour'] = (req, res) => {
+  try {
+    const content = fs.readFileSync(path.join(__dirname, '..', 'TOUR.md'), 'utf-8');
+    const firstRunDemo = (serverArgs.indexPaths || []).some(
+      (p) => path.basename(String(p)).toLowerCase() === 'first_run_index.zip');
+    jsonResponse(res, { content, firstRunDemo });
+  } catch (e) {
+    errorResponse(res, `TOUR not found: ${e.message}`, 404);
+  }
+};
+
 
 // --- Call tree (Mermaid) ---
 
