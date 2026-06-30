@@ -118,8 +118,11 @@ const _QUERY_COMMAND_KEYS = [
 const _rawArgvForGui = process.argv.slice(2);
 const _wantsTour = _rawArgvForGui.includes('--tour');
 if (_rawArgvForGui.includes('--gui') || _wantsTour) {
+  // #239: this raw-argv scan bypasses parseArgs's normalization, so match flags
+  // in either spelling (`_`/`-` interchangeable) — `--index_path` resolves the
+  // same as `--index-path` here too.
   const _argAfter = (flag, fallback) => {
-    const i = _rawArgvForGui.indexOf(flag);
+    const i = _rawArgvForGui.findIndex(t => t.replace(/_/g, '-') === flag);
     if (i < 0) return fallback;
     const v = _rawArgvForGui[i + 1];
     if (!v || v.startsWith('-')) return fallback;
@@ -155,8 +158,9 @@ if (_rawArgvForGui.includes('--gui') || _wantsTour) {
     if (fs.existsSync(_frzGui)) _serverArgv.push('--index-path', _frzGui);
   }
   // #223: forward the boolean air-gapped flags to the GUI server.
+  // #239: accept either spelling (`--air_gapped` == `--air-gapped`).
   for (const _f of ['--air-gapped', '--allow-connected']) {
-    if (_rawArgvForGui.includes(_f)) _serverArgv.push(_f);
+    if (_rawArgvForGui.some(t => t.replace(/_/g, '-') === _f)) _serverArgv.push(_f);
   }
   process.argv = [process.argv[0], process.argv[1], ..._serverArgv];
 
@@ -337,8 +341,13 @@ if (args.multi_index) {
   const rawArgv = process.argv.slice(2);
   for (let i = 0; i < rawArgv.length; i++) {
     const a = rawArgv[i];
-    if (a === '--multi-index') { i++; continue; }       // skip flag + its value
-    if (a.startsWith('--multi-index=')) continue;        // skip --multi-index=val form
+    // #239: match either spelling (`_`/`-` interchangeable) so `--multi_index`
+    // is dropped too — otherwise each child gets both --index-path and the
+    // leftover flag and dies on the mutual-exclusivity check. (Compare a
+    // normalized copy; push the original token so values stay byte-for-byte.)
+    const aFlag = a.replace(/_/g, '-');
+    if (aFlag === '--multi-index') { i++; continue; }   // skip flag + its value
+    if (aFlag.startsWith('--multi-index=')) continue;    // skip --multi-index=val form
     passthrough.push(a);
   }
 

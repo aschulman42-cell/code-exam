@@ -603,7 +603,14 @@ export function parseArgs() {
       token = token.slice(0, eqIdx);
     }
 
-    const def = aliasMap.get(token);
+    let def = aliasMap.get(token);
+    // #239: accept the underscore spelling of a hyphenated flag (the form used by
+    // the MCP tools, internal arg keys, REPL, and docs) — e.g. `--command_catalog`
+    // resolves to `--command-catalog`. Flag-shaped tokens only; genuine unknowns
+    // still fall through to the error path below.
+    if (!def && token.startsWith('-') && token.includes('_')) {
+      def = aliasMap.get(token.replace(/_/g, '-'));
+    }
     if (!def) {
       // Unknown token: a mistyped flag, or an unexpected positional. Collect it;
       // the dispatcher reports + exits (before the index load) so the error is
