@@ -620,7 +620,7 @@ if (index.files.size === 0 && !args.build_index) {
     console.log(`\nWelcome. A small demo index is bundled, so you can try CodeExam right now.\n`);
     console.log('Start here:');
     console.log(`  ${_exeBase} --gui          open the browser UI on the demo  (best for a first look)`);
-    console.log(`  ${_exeBase} --overview     a quick tour of the demo, here in the terminal`);
+    console.log(`  ${_exeBase} --overview     a high-level orientation of the demo, here in the terminal`);
     console.log(`\nExamine your own code:`);
     console.log(`  ${_exeBase} --build-index <dir>    index a source tree, then  ${_exeBase} --index-path <dir>`);
     console.log(`  ${_exeBase} --help                 all commands · doc: https://github.com/aschulman42-cell/code-exam`);
