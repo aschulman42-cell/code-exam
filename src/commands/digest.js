@@ -26,6 +26,8 @@
  * buildFileDigest.
  */
 
+import { quotePathIfNeeded } from '../utils.js';
+
 function _shortPath(fp, maxLen = 60) {
   if (!fp || fp.length <= maxLen) return fp || '';
   return '…' + fp.slice(-(maxLen - 1));
@@ -97,7 +99,7 @@ export function formatFunctionDigest(digest, opts = {}) {
   push(`  ${id.displayName}`);
   if (id.displayName !== id.name) push(`  (raw: ${id.name})`);
   push('═'.repeat(72));
-  push(`  File:         ${id.filepath}`);
+  push(`  File:         ${quotePathIfNeeded(id.filepath)}`);
   if (id.indexPath) push(`  Index:        ${id.indexPath}`);
   push(`  Lines:        L${id.startLine}-L${id.endLine}  (${id.lineCount} lines)`);
   push(`  Type:         ${id.type}`);
@@ -113,7 +115,7 @@ export function formatFunctionDigest(digest, opts = {}) {
     push(`  Bare name:    NOT unique — ${id.bareDuplicateCount} entries share this bare name`);
     if (id.bareCandidates && id.bareCandidates.length) {
       push(`                this digest is for ${id.filepath}; disambiguate by passing one of these as file@name:`);
-      for (const cand of id.bareCandidates) push(`                  - ${cand}`);
+      for (const cand of id.bareCandidates) push(`                  - ${quotePathIfNeeded(cand)}`);
       if (id.bareDuplicateCount > id.bareCandidates.length) {
         push(`                  … and ${id.bareDuplicateCount - id.bareCandidates.length} more`);
       }
@@ -318,7 +320,7 @@ export function formatClassDigest(digest, opts = {}) {
   push(`  class ${id.displayName}`);
   if (id.displayName !== id.name) push(`  (raw: ${id.name})`);
   push('═'.repeat(72));
-  push(`  File:         ${id.filepath}`);
+  push(`  File:         ${quotePathIfNeeded(id.filepath)}`);
   if (id.indexPath) push(`  Index:        ${id.indexPath}`);
   if (id.additionalFiles && id.additionalFiles.length > 0) {
     push(`  Also in:      ${id.additionalFiles.join(', ')}`);
@@ -358,7 +360,7 @@ export function formatClassDigest(digest, opts = {}) {
     push(`  Bare name:    NOT unique — ${id.bareDuplicateCount} entries share this bare name`);
     if (id.bareCandidates && id.bareCandidates.length) {
       push(`                this digest is for ${id.filepath}; disambiguate by passing one of these as file@name:`);
-      for (const cand of id.bareCandidates) push(`                  - ${cand}`);
+      for (const cand of id.bareCandidates) push(`                  - ${quotePathIfNeeded(cand)}`);
       if (id.bareDuplicateCount > id.bareCandidates.length) {
         push(`                  … and ${id.bareDuplicateCount - id.bareCandidates.length} more`);
       }
@@ -557,7 +559,7 @@ export function formatFileDigest(digest, opts = {}) {
   if (!digest) return 'File not found.\n';
   if (digest._error === 'ambiguous') {
     const out = ['Ambiguous file target. Multiple files match:'];
-    for (const m of digest._ambiguousMatches) out.push('  ' + m);
+    for (const m of digest._ambiguousMatches) out.push('  ' + quotePathIfNeeded(m));
     out.push('Pass a more specific path (e.g. src/core/...).');
     return out.join('\n') + '\n';
   }
@@ -566,7 +568,7 @@ export function formatFileDigest(digest, opts = {}) {
 
   const id = digest.identity;
   push('═'.repeat(72));
-  push(`  file ${id.filepath}`);
+  push(`  file ${quotePathIfNeeded(id.filepath)}`);
   push('═'.repeat(72));
   if (id.indexPath) push(`  Index:        ${id.indexPath}`);
   push(`  Lines:        ${id.lineCount}`);
@@ -748,7 +750,7 @@ export function formatCommentsOnly(digest) {
   if (!digest) return 'Target not found.\n';
   if (digest._error === 'ambiguous') {
     const out = ['Ambiguous target. Multiple files match:'];
-    for (const m of digest._ambiguousMatches) out.push('  ' + m);
+    for (const m of digest._ambiguousMatches) out.push('  ' + quotePathIfNeeded(m));
     out.push('Pass a more specific path.');
     return out.join('\n') + '\n';
   }

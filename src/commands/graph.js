@@ -6,7 +6,7 @@
 
 import path from 'path';
 import crypto from 'crypto';
-import { displayName, eprint } from '../utils.js';
+import { displayName, eprint, quotePathIfNeeded } from '../utils.js';
 
 
 // ========================================================================
@@ -451,7 +451,7 @@ export function doFileTree(index, args) {
 
   if (!mermaid) {
     console.log(`\nFile tree for ${targetBase}  (${nLines} lines, ${nFuncs} functions)`);
-    console.log(`  Full path: ${targetFile}`);
+    console.log(`  Full path: ${quotePathIfNeeded(targetFile)}`);   // #241: paste-safe
     console.log(`  Depth: ${depth}   Sorted by: coupling strength (cross-file call count)`);
 
     if (Object.keys(incoming).length > 0) {
