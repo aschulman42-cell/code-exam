@@ -335,7 +335,7 @@ class ServerLLM {
       return { error: `Model file not found: ${mp}` };
     }
     try {
-      const { getLlama, LlamaChatSession } = await import('node-llama-cpp');
+      const { getLlama, LlamaChatSession, defineChatSessionFunction } = await import('node-llama-cpp');
       console.log(`  [LLM] Loading local model: ${mp}...`);
       const llama = await getLlama();
       const model = await llama.loadModel({ modelPath: mp });
@@ -350,7 +350,7 @@ class ServerLLM {
         return { error: 'Cannot allocate context for local model (tried 8192/4096/2048).' };
       }
 
-      this._localModel = { llama, model, context, LlamaChatSession, contextSize, modelPath: mp };
+      this._localModel = { llama, model, context, LlamaChatSession, defineChatSessionFunction, contextSize, modelPath: mp };
       console.log(`  [LLM] OK: Local model loaded (context: ${contextSize} tokens)`);
       return { ok: true };
     } catch (e) {
@@ -3497,6 +3497,100 @@ async function runChatToolLoop({ messages, index, indexName, fileCount, mode, ap
   return { content: allBlocks, answer };
 }
 
+// #243 Part A — local (GGUF) counterpart to runChatToolLoop. Mirrors the PROVEN
+// ai-overview-local.js pattern: expose CE's TOOLS as node-llama-cpp chat
+// functions (backed by handleTool in-process — no MCP subprocess) and let the
+// model drive a multi-turn function-calling loop via session.prompt(...,
+// { functions }). Returns the SAME { content, answer } shape as the Claude loop
+// so the routes and the GUI stay engine-agnostic. Air-gapped-safe: no cloud call.
+//
+// The tool-exposure snippet is intentionally a mirror of ai-overview-local.js
+// (not a shared extraction) so this change doesn't destabilize the working
+// overview path; a DRY refactor into a shared helper is a fair follow-up.
+// Prior conversation is flattened into a preamble (version-robust across
+// node-llama-cpp releases); higher-fidelity multi-turn history is a follow-up.
+const _asChatText = (c) => Array.isArray(c)
+  ? c.filter(b => b && b.type === 'text').map(b => b.text).join('\n')
+  : String(c || '');
+
+async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mode, onToolCall, maxTokens = 2400 }) {
+  setIndex(index); // point handleTool at the active GUI index (in-process)
+  const loaded = await serverLLM.ensureLocalModel();
+  if (loaded.error) throw new Error(loaded.error);
+  const lm = serverLLM._localModel;
+  if (!lm || !lm.defineChatSessionFunction) {
+    throw new Error('local chat: node-llama-cpp function-calling unavailable (update node-llama-cpp).');
+  }
+  const { context, LlamaChatSession, defineChatSessionFunction } = lm;
+  const system = chatSystemPrompt(indexName, fileCount, mode);
+
+  // Expose every CE tool as a node-llama-cpp chat function backed by handleTool,
+  // recording each call as a tool_use block so the GUI's tool-call view renders.
+  const blocks = [];
+  const functions = {};
+  for (const t of TOOLS) {
+    functions[t.name] = defineChatSessionFunction({
+      description: String(t.description || '').slice(0, 280),
+      params: (t.inputSchema && t.inputSchema.properties) ? t.inputSchema : { type: 'object', properties: {} },
+      handler: (args) => {
+        if (onToolCall) onToolCall(t.name, args || {});
+        let out;
+        try { out = String(handleTool(t.name, args || {})); }
+        catch (e) { out = `Error: ${e.message}`; }
+        const capped = out.slice(0, 4000); // cap so the loop doesn't blow the context
+        blocks.push({ type: 'tool_use', name: t.name, input: args || {}, _result: capped });
+        return capped;
+      },
+    });
+  }
+
+  // Preamble = prior USER questions ONLY (capped), for pronoun/reference
+  // resolution. Deliberately DROP prior assistant answers: feeding a small model
+  // its own earlier answer invites it to re-summarize from that text instead of
+  // calling tools to read the CURRENT code (the "answered without fresh tool
+  // calls" failure Andrew hit on question 2). The current question is wrapped
+  // with an explicit read-the-code-first directive to push tool use.
+  const priorQs = messages.slice(0, -1)
+    .filter(m => m.role === 'user')
+    .map(m => `- ${_asChatText(m.content).slice(0, 300)}`)
+    .join('\n');
+  const question = _asChatText(messages[messages.length - 1] && messages[messages.length - 1].content);
+  const promptText = priorQs
+    ? `Earlier questions in this chat (reference only — the code is the source of truth; do NOT answer from these or from memory):\n${priorQs}\n\nNow answer this question. First call the tools to read the ACTUAL current code, then answer from what they return:\n${question}`
+    : question;
+
+  // Strip a chain-of-thought block — closed OR truncated-open (Qwen3 etc. emit
+  // <think>…</think>; maxTokens can cut it off before the closing tag, which
+  // would otherwise leave the raw <think> as the "answer").
+  const stripThink = (s) => String(s || '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<think>[\s\S]*$/i, '')
+    .trim();
+
+  let sequence;
+  try {
+    sequence = context.getSequence();
+    const session = new LlamaChatSession({ contextSequence: sequence, systemPrompt: system });
+    let prose = stripThink(await session.prompt(promptText, { functions, maxTokens }));
+    // Small local models often call a tool then stop without composing an answer
+    // (the "(no text response)" symptom Andrew hit on question 2), or emit only a
+    // <think> block that strips to empty. Mirror the Claude loop's synthesis pass:
+    // one more turn on the SAME session (tools OFF, so it MUST answer) using the
+    // tool results already in the session's history.
+    if (!prose) {
+      const NUDGE = 'Based on the tool results above, write your complete final answer now. Do not call any more tools.';
+      try { prose = stripThink(await session.prompt(NUDGE, { maxTokens })); } catch { /* keep empty */ }
+    }
+    try { session.dispose(); } catch { /* */ }
+    if (!prose) prose = '(the local model returned no answer — try a shorter question, a larger context, or a stronger model)';
+    blocks.push({ type: 'text', text: prose });
+    console.log(`  [chat] local final answer ${prose.length} chars (${blocks.filter(b => b.type === 'tool_use').length} tool calls)`);
+    return { content: blocks, answer: prose };
+  } finally {
+    if (sequence) { try { sequence.dispose(); } catch { /* */ } }
+  }
+}
+
 routes['/api/chat'] = (req, res) => {
   if (req.method !== 'POST') return errorResponse(res, 'POST required', 405);
   let body = '';
@@ -3508,22 +3602,31 @@ routes['/api/chat'] = (req, res) => {
       if (!index) return errorResponse(res, 'No index loaded', 404);
       const messages = params.messages;
       if (!Array.isArray(messages) || messages.length === 0) return errorResponse(res, 'messages array required', 400);
-      // Phase 1 is Claude-only; local-LLM chat is deferred to post-Legion hardware (#36 / #196).
+      // #243 Part A: engine is 'claude' (cloud) or 'local' (GGUF). Both drive the
+      // same in-process CE tool loop; local is the air-gapped path.
       const engine = params.engine || 'claude';
-      if (engine !== 'claude') return errorResponse(res, 'Chat currently supports the Claude engine only; local-LLM chat is deferred (#36).', 400);
-      const avail = serverLLM.checkAvailability('claude');
-      if (!avail.available) return errorResponse(res, avail.reason, 400);
-      const model = params.model || serverLLM.defaultClaudeModel || 'claude-sonnet-4-6';
       const indexName = params.index || mgr.activeIndex;
       const mode = CHAT_GROUNDING_CLAUSES[params.mode] ? params.mode : 'grounded';
-      console.log(`  [chat] ${messages.length} msg(s) over "${indexName}", model=${model}, grounding=${mode}`);
-      const { content, answer } = await runChatToolLoop({
-        messages, index, indexName, fileCount: index.files.size, mode,
-        apiKey: serverLLM.defaultApiKey,
-        model,
-        temperature: params.temperature ?? 0,
-        onToolCall: (name, input) => console.log(`  [chat] tool: ${name}(${JSON.stringify(input || {}).slice(0, 120)})`),
-      });
+      const avail = serverLLM.checkAvailability(engine === 'local' ? 'local' : 'claude');
+      if (!avail.available) return errorResponse(res, avail.reason, 400);
+      let content, answer;
+      if (engine === 'local') {
+        console.log(`  [chat] local GGUF over "${indexName}", grounding=${mode}`);
+        ({ content, answer } = await runChatToolLoopLocal({
+          messages, index, indexName, fileCount: index.files.size, mode,
+          onToolCall: (name, input) => console.log(`  [chat] tool: ${name}(${JSON.stringify(input || {}).slice(0, 120)})`),
+        }));
+      } else {
+        const model = params.model || serverLLM.defaultClaudeModel || 'claude-sonnet-4-6';
+        console.log(`  [chat] ${messages.length} msg(s) over "${indexName}", model=${model}, grounding=${mode}`);
+        ({ content, answer } = await runChatToolLoop({
+          messages, index, indexName, fileCount: index.files.size, mode,
+          apiKey: serverLLM.defaultApiKey,
+          model,
+          temperature: params.temperature ?? 0,
+          onToolCall: (name, input) => console.log(`  [chat] tool: ${name}(${JSON.stringify(input || {}).slice(0, 120)})`),
+        }));
+      }
       jsonResponse(res, { content, answer, index: indexName });
     } catch (e) {
       console.error('chat error:', e.message);
@@ -3557,24 +3660,33 @@ routes['/api/chat-stream'] = (req, res) => {
       if (!index) { send('error', { error: 'No index loaded' }); return res.end(); }
       const messages = params.messages;
       if (!Array.isArray(messages) || messages.length === 0) { send('error', { error: 'messages array required' }); return res.end(); }
+      // #243 Part A: 'claude' (cloud) or 'local' (GGUF); tool calls stream live for both.
       const engine = params.engine || 'claude';
-      if (engine !== 'claude') { send('error', { error: 'Chat currently supports the Claude engine only; local-LLM chat is deferred (#36).' }); return res.end(); }
-      const avail = serverLLM.checkAvailability('claude');
-      if (!avail.available) { send('error', { error: avail.reason }); return res.end(); }
-      const model = params.model || serverLLM.defaultClaudeModel || 'claude-sonnet-4-6';
       const indexName = params.index || mgr.activeIndex;
       const mode = CHAT_GROUNDING_CLAUSES[params.mode] ? params.mode : 'grounded';
-      console.log(`  [chat-stream] ${messages.length} msg(s) over "${indexName}", model=${model}, grounding=${mode}`);
-      const { answer } = await runChatToolLoop({
-        messages, index, indexName, fileCount: index.files.size, mode,
-        apiKey: serverLLM.defaultApiKey,
-        model,
-        temperature: params.temperature ?? 0,
-        onToolCall: (name, input) => {
-          console.log(`  [chat-stream] tool: ${name}(${JSON.stringify(input || {}).slice(0, 120)})`);
-          send('tool', { name, input });
-        },
-      });
+      const avail = serverLLM.checkAvailability(engine === 'local' ? 'local' : 'claude');
+      if (!avail.available) { send('error', { error: avail.reason }); return res.end(); }
+      const onToolCall = (name, input) => {
+        console.log(`  [chat-stream] tool: ${name}(${JSON.stringify(input || {}).slice(0, 120)})`);
+        send('tool', { name, input });
+      };
+      let answer;
+      if (engine === 'local') {
+        console.log(`  [chat-stream] local GGUF over "${indexName}", grounding=${mode}`);
+        ({ answer } = await runChatToolLoopLocal({
+          messages, index, indexName, fileCount: index.files.size, mode, onToolCall,
+        }));
+      } else {
+        const model = params.model || serverLLM.defaultClaudeModel || 'claude-sonnet-4-6';
+        console.log(`  [chat-stream] ${messages.length} msg(s) over "${indexName}", model=${model}, grounding=${mode}`);
+        ({ answer } = await runChatToolLoop({
+          messages, index, indexName, fileCount: index.files.size, mode,
+          apiKey: serverLLM.defaultApiKey,
+          model,
+          temperature: params.temperature ?? 0,
+          onToolCall,
+        }));
+      }
       // Only the final answer is needed client-side (tool calls already streamed
       // live); dropping the full block trace keeps the `done` frame small. Always
       // send it: gating on a req-'close' flag suppressed `done` because that event

@@ -393,7 +393,13 @@
         <div class="tab-content" id="chat-panel" data-tab-content="chat" style="display:none;flex:1;flex-direction:column;min-height:0">
           <div class="chat-header" style="display:flex;align-items:center;gap:8px;padding:4px 8px;font-size:0.85em;opacity:0.85">
             <span>Chatting about: <strong id="chat-index">…</strong></span>
-            <label style="margin-left:auto;display:flex;align-items:center;gap:4px" title="How freely the model may use knowledge beyond this codebase: Grounded = code only; Augmented = + general knowledge; Attributed = + general knowledge, provenance flagged">Grounding:
+            <label style="margin-left:auto;display:flex;align-items:center;gap:4px" title="Chat LLM engine: Claude (cloud API) or a local GGUF model (air-gapped — nothing leaves this machine). Local requires the server started with --model-path.">Engine:
+              <select id="chat-engine" style="font-size:0.95em">
+                <option value="claude" selected>Claude API</option>
+                <option value="local">Local GGUF</option>
+              </select>
+            </label>
+            <label style="display:flex;align-items:center;gap:4px" title="How freely the model may use knowledge beyond this codebase: Grounded = code only; Augmented = + general knowledge; Attributed = + general knowledge, provenance flagged">Grounding:
               <select id="chat-mode" style="font-size:0.95em">
                 <option value="grounded" selected>Grounded</option>
                 <option value="augmented">Augmented</option>

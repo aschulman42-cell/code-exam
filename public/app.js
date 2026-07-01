@@ -1655,6 +1655,7 @@ async function sendChatMessage() {
         messages: chatMessages,
         index: chatIndex || undefined,
         mode: $('#chat-mode')?.value || 'grounded',
+        engine: $('#chat-engine')?.value || 'claude',
       }, { timeout: 600000 });
       const blocks = resp.content || [];
       const toolCalls = blocks.filter(b => b.type === 'tool_use').map(b => ({ name: b.name, input: b.input }));
@@ -1701,6 +1702,7 @@ async function runChatStream(pending) {
         messages: chatMessages,
         index: chatIndex || undefined,
         mode: $('#chat-mode')?.value || 'grounded',
+        engine: $('#chat-engine')?.value || 'claude',
       }),
     });
     if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
