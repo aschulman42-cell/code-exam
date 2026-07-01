@@ -17,6 +17,7 @@
  */
 
 import path from 'path';
+import { quotePathIfNeeded } from '../utils.js';
 
 // ========================================================================
 // Term parser
@@ -500,7 +501,7 @@ export function displayMultisectResults(results, args, totalFiles) {
       const m = shown[idx];
       const fp = fullPath ? m.filepath : shortPath(m.filepath, 50, pathHighlight);
       const score = idfs ? ` IDF:${matchIdfScore(m, idfs).toFixed(1)}` : '';
-      console.log(`\n  [${idx + 1}] ${m.function}  (${fp}, ${m.lines} lines)  [${m.terms_matched}/${nPos}]${score}`);
+      console.log(`\n  [${idx + 1}] ${m.function}  (${quotePathIfNeeded(fp)}, ${m.lines} lines)  [${m.terms_matched}/${nPos}]${score}`);
 
       // Show per-term detail, collapsing terms that hit the same line
       const lineGroups = new Map(); // lineNum -> { indices: [], text: '' }
@@ -618,7 +619,7 @@ export function displayMultisectResults(results, args, totalFiles) {
       const m = shown[idx];
       const fp = fullPath ? m.filepath : shortPath(m.filepath, 60, pathHighlight);
       const score = idfs ? ` IDF:${matchIdfScore(m, idfs).toFixed(1)}` : '';
-      console.log(`\n  [${idx + 1}] ${fp}  (${m.lines} lines)  [${m.terms_matched}/${nPos}]${score}`);
+      console.log(`\n  [${idx + 1}] ${quotePathIfNeeded(fp)}  (${m.lines} lines)  [${m.terms_matched}/${nPos}]${score}`);
 
       const lineGroups = new Map();
       const missingIndices = [];

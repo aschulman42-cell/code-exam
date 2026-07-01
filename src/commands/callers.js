@@ -3,7 +3,7 @@
  * Port of ce_callers.py
  */
 
-import { displayName } from '../utils.js';
+import { displayName, quotePathIfNeeded } from '../utils.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
 
 
@@ -36,7 +36,7 @@ export function doCallers(index, args) {
     console.log(`\nDefinition(s) of '${functionName}' in '${pathHint}':`);
     for (const m of matches.slice(0, 5)) {
       const linesCount = m.end - m.start + 1;
-      console.log(`  ${m.filepath}  (${linesCount} lines)`);
+      console.log(`  ${quotePathIfNeeded(m.filepath)}  (${linesCount} lines)`);
     }
     if (matches.length > 5) console.log(`  ... and ${matches.length - 5} more`);
   }
@@ -50,7 +50,7 @@ export function doCallers(index, args) {
       if (e.code === 'SHORT_NAME_BAILOUT') {
         console.log(`\n${e.message}`);
         console.log(`\nWorkaround: use grep to find callers of short-named functions:`);
-        console.log(`  node src/index.js --index-path ${index.indexPath} --regex "\\b${functionName}\\b\\s*\\("`);
+        console.log(`  node src/index.js --index-path ${quotePathIfNeeded(index.indexPath)} --regex "\\b${functionName}\\b\\s*\\("`);
         return;
       }
       throw e;
@@ -106,7 +106,7 @@ export function doCallers(index, args) {
         if (lineText.length > 80) lineText = lineText.slice(0, 77) + '...';
         const ct = c.call_type || 'direct';
         const tag = (ct === 'indirect' || ct === 'reference') ? ` [${ct}]` : '';
-        console.log(`    ${c.filepath}:${c.line_number}${tag}`);
+        console.log(`    ${quotePathIfNeeded(`${c.filepath}:${c.line_number}`)}${tag}`);
         console.log(`      ${lineText}`);
       }
       if (!args.verbose && ncalls > 3) {
@@ -190,7 +190,7 @@ export function doCallees(index, args) {
     const m = matches[0];
     const linesCount = m.end - m.start + 1;
     const dn = displayName(m.name, m.filepath);
-    console.log(`\n${dn} (${m.filepath}, ${linesCount} lines) calls ${callees.length} functions:\n`);
+    console.log(`\n${dn} (${quotePathIfNeeded(m.filepath)}, ${linesCount} lines) calls ${callees.length} functions:\n`);
   } else {
     console.log(`\n'${functionName}' calls ${callees.length} functions:\n`);
   }
@@ -210,14 +210,14 @@ export function doCallees(index, args) {
       console.log(`  ${ce.display_name}${tag} [unresolved] (${ndefs} definition${ndefs > 1 ? 's' : ''})`);
     } else if (ndefs === 1) {
       console.log(`  ${ce.display_name}${tag}`);
-      console.log(`    ${defLoc} (${defLines} lines)`);
+      console.log(`    ${quotePathIfNeeded(defLoc)} (${defLines} lines)`);
     } else {
       console.log(`  ${ce.display_name}${tag}${ambigTag} (${ndefs} definitions)`);
       if (args.verbose) {
         for (const d of ce.definitions.slice(0, 3)) {
           const dl = d.end - d.start + 1;
           const marker = (d === bestDef) ? ' ← resolved' : '';
-          console.log(`    ${d.filepath} (${dl} lines)${marker}`);
+          console.log(`    ${quotePathIfNeeded(d.filepath)} (${dl} lines)${marker}`);
         }
         if (ndefs > 3) console.log(`    ... and ${ndefs - 3} more`);
       }
@@ -405,7 +405,7 @@ export function doCallInventory(index, args) {
         const fp = fullPath ? item.filepath : _shortPath(item.filepath, 40);
         const callerCount = item.callers.length;
         const callerNote = isAll && callerCount > 1 ? `  (called by ${callerCount} functions)` : '';
-        console.log(`  ${item.qualified_name.padEnd(40)}  ${fp}  (${item.lines}L)${callerNote}`);
+        console.log(`  ${item.qualified_name.padEnd(40)}  ${quotePathIfNeeded(fp)}  (${item.lines}L)${callerNote}`);
       }
       if (in_index.length > shownIn.length) {
         console.log(`  ... +${in_index.length - shownIn.length} more`);
