@@ -8,7 +8,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { displayName, eprint } from '../utils.js';
+import { displayName, eprint, pasteToken, quotePathIfNeeded } from '../utils.js';
 import { CodeSearchIndex } from '../core/CodeSearchIndex.js';
 import { skippedExtensionCensus } from '../core/extension-census.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
@@ -1030,10 +1030,31 @@ export function doListFunctions(index, args) {
         dn = dn.replace(/\s+/g, ' ').slice(0, 77) + '...';
       }
       if (args.full_path) {
-        console.log(`  ${filepath}@${dn.padEnd(40)} L${String(f.start).padStart(5)}-${String(f.end).padEnd(5)} ${String(f.lines).padStart(4)} lines (${f.type})`);
+        // #241: emit a paste-ready file@function token. Keep the padded (aligned)
+        // form when the token has no space — byte-identical to before; only quote
+        // (and drop the padding) in the rare path/name-with-space case.
+        const core = `${filepath}@${dn}`;
+        const tok = core.includes(' ') ? quotePathIfNeeded(core) : `${filepath}@${dn.padEnd(40)}`;
+        console.log(`  ${tok} L${String(f.start).padStart(5)}-${String(f.end).padEnd(5)} ${String(f.lines).padStart(4)} lines (${f.type})`);
       } else {
         console.log(`  ${dn.padEnd(40)} L${String(f.start).padStart(5)}-${String(f.end).padEnd(5)} ${String(f.lines).padStart(4)} lines (${f.type})`);
       }
+    }
+  }
+
+  // #241/#238: when the same displayed name spans more than one file, the bare
+  // name is ambiguous to --extract — point the user at --full-path, which prints
+  // paste-ready file@function tokens. Only on the default (grouped) view.
+  if (!args.full_path) {
+    const nameFiles = new Map();
+    for (const f of functions) {
+      const dn = index.getDisplayName ? index.getDisplayName(f.name) : (f.displayName || f.name);
+      if (!nameFiles.has(dn)) nameFiles.set(dn, new Set());
+      nameFiles.get(dn).add(f.filepath);
+    }
+    const collisions = [...nameFiles.values()].filter(s => s.size > 1).length;
+    if (collisions > 0) {
+      console.log(`\nTip: ${collisions} name${collisions === 1 ? '' : 's'} appear in more than one file. Add --full-path to print file@function tokens you can paste into --extract.`);
     }
   }
 }
@@ -1071,7 +1092,7 @@ export function doListFunctionsAlpha(index, args) {
     console.log('='.repeat(80));
     for (const f of functions) {
       const dn = f.displayName || f.name;
-      const fullRef = `${f.filepath}@${dn}`;
+      const fullRef = quotePathIfNeeded(`${f.filepath}@${dn}`);  // #241: paste-safe
       console.log(`${fullRef.padEnd(70)} ${String(f.lines).padStart(6)}`);
     }
   } else {
@@ -1121,7 +1142,7 @@ export function doListFunctionsSize(index, args) {
     console.log('='.repeat(90));
     for (const f of functions) {
       const dn = f.displayName || f.name;
-      const fullRef = `${f.filepath}@${dn}`;
+      const fullRef = quotePathIfNeeded(`${f.filepath}@${dn}`);  // #241: paste-safe
       console.log(`${String(f.lines).padStart(6)}  ${fullRef}`);
     }
   } else {

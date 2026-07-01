@@ -87,6 +87,25 @@ export function displayName(funcName, filepath = '') {
 
 
 /**
+ * #238/#241: quote a token for copy-paste into a shell if it contains a space.
+ * Double quotes so it works in bash, PowerShell, and cmd; space-free strings
+ * pass through unquoted (the common case, no noise).
+ */
+export function quotePathIfNeeded(s) {
+  return typeof s === 'string' && s.includes(' ') ? `"${s}"` : s;
+}
+
+/**
+ * Render a copy-pasteable `PATH/FILE@FUNCTION` extract target, quoted if the
+ * combined token contains a space. Space-safety only — see #241 for making the
+ * `@`-separator round-trip parse-safe when the path or name itself contains `@`.
+ */
+export function pasteToken(filepath, func) {
+  return quotePathIfNeeded(`${filepath}@${func}`);
+}
+
+
+/**
  * Print to stderr for progress/diagnostic output visible during redirection.
  */
 export function eprint(...args) {

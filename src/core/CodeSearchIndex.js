@@ -17,7 +17,7 @@ import { forEachEntry, openJSONFile, closeSource, parseValue, countLocations, va
 import {
   SearchResult, DEFAULT_EXTENSIONS, TEXT_EXTENSIONS,
   ARCHIVE_EXTENSIONS, MEDIA_BINARY_EXTENSIONS, EXECUTABLE_EXTENSIONS,
-  displayName, eprint, eprogress, splitCompoundToken,
+  displayName, eprint, eprogress, splitCompoundToken, pasteToken,
 } from '../utils.js';
 import { expandArchive, isSupportedArchive, createArchiveStats, resolveIndexDir } from '../archive.js';
 import { processBinary, BINSTRING_EXTENSIONS } from '../binstrings.js';
@@ -4452,12 +4452,12 @@ export class CodeSearchIndex {
     for (let i = 0; i < Math.min(matches.length, 20); i++) {
       const m = matches[i];
       const lines = m.end - m.start + 1;
-      console.log(`  [${i + 1}] ${m.filepath}@${displayName(m.name, m.filepath)} (${lines} lines)`);
+      console.log(`  [${i + 1}] ${pasteToken(m.filepath, displayName(m.name, m.filepath))} (${lines} lines)`);
     }
     if (matches.length > 20) {
       console.log(`  ... and ${matches.length - 20} more`);
     }
-    console.log(`\nSelect by number: /extract [N]  or narrow with: /extract FILE@FUNCTION`);
+    console.log(`\nCopy one of the PATH/FILE@FUNCTION targets above into --extract (an exact target resolves directly). For two functions with the same name in one file, use NAME@LINE. In interactive mode, /extract [N] selects by number.`);
     return null;
   }
 
