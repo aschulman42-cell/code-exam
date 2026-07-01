@@ -6,7 +6,7 @@
  */
 
 import path from 'path';
-import { SearchResult, displayName } from '../utils.js';
+import { SearchResult, displayName, quotePathIfNeeded } from '../utils.js';
 
 
 // ========================================================================
@@ -135,7 +135,7 @@ export function printResults(results, { verbose = false, maxResults = null,
     }
 
     console.log('\u2500'.repeat(60));
-    console.log(`  ${filepath}  ${hitLabel}`);
+    console.log(`  ${quotePathIfNeeded(filepath)}  ${hitLabel}`);   // #241: paste-safe copy-target
 
     let prevFunc = null;
     for (const r of fileResults) {
@@ -392,7 +392,7 @@ export function doFilesSearch(index, args) {
     if (!args.full_path && fpDisplay.length > 70) {
       fpDisplay = '...' + fpDisplay.slice(-67);
     }
-    console.log(`  ${String(count).padStart(6)}  ${fpDisplay}`);
+    console.log(`  ${String(count).padStart(6)}  ${quotePathIfNeeded(fpDisplay)}`);   // #241: paste-safe
   }
 
   if (sorted.length > n) {
@@ -440,7 +440,7 @@ export function doFoldersSearch(index, args) {
     if (!args.full_path && fpDisplay.length > 60) {
       fpDisplay = '...' + fpDisplay.slice(-57);
     }
-    console.log(`  ${String(count).padStart(6)}  ${String(nfiles).padStart(6)}  ${fpDisplay}`);
+    console.log(`  ${String(count).padStart(6)}  ${String(nfiles).padStart(6)}  ${quotePathIfNeeded(fpDisplay)}`);   // #241: paste-safe
   }
 
   if (sorted.length > n) {
