@@ -1156,16 +1156,45 @@ export class CodeSearchIndex {
    *     `_lastResolveAmbiguity` field for the caller to report)
    * Returns the canonical filepath key, or null if no match / ambiguous.
    */
+  /**
+   * #238: resolve the *exact* / root-anchored file target — the part that must
+   * be unambiguous. Layered in front of the fuzzy (suffix / substring) matchers
+   * across the CLI so an exact full path always wins and a leading `/` anchors to
+   * the repo root. Returns:
+   *   { filepath }       — an exact full-path match (case-insensitive)
+   *   { anchored: true } — query began with `/` (root anchor) but had no exact
+   *                        match; the caller should report not-found WITHOUT a
+   *                        fuzzy fallback (so `/README.md` never resolves to a
+   *                        nested `hunch/README.md`)
+   *   null               — no exact/anchored match; the caller may fall back to
+   *                        its own fuzzy matching
+   */
+  resolveExactFileTarget(query) {
+    if (!query) return null;
+    const norm = String(query).replace(/\\/g, '/').replace(/^\.\//, '');
+    const exactKey = (want) => {
+      const w = want.toLowerCase();
+      for (const key of this.fileLines.keys()) {
+        if (key.replace(/\\/g, '/').toLowerCase() === w) return key;
+      }
+      return null;
+    };
+    if (norm.startsWith('/')) {
+      const hit = exactKey(norm.slice(1));   // root anchor: equal to the remainder only
+      return hit ? { filepath: hit } : { anchored: true };
+    }
+    const hit = exactKey(norm);
+    return hit ? { filepath: hit } : null;
+  }
+
   _resolveFilepathTarget(target) {
     if (!target) return null;
-    const norm = target.replace(/\\/g, '/').replace(/^\.\//, '');
-    if (this.fileLines.has(norm)) return norm;
-    // Exact match against all keys, case-insensitive (filesystem might be CI)
-    const lowerNorm = norm.toLowerCase();
-    for (const key of this.fileLines.keys()) {
-      if (key.toLowerCase() === lowerNorm) return key;
-    }
-    // Suffix match
+    // #238: an exact match / root anchor wins outright, before the suffix match.
+    const exact = this.resolveExactFileTarget(target);
+    if (exact) return exact.anchored ? null : exact.filepath;
+    // Suffix match (fuzzy fallback — only reached for a non-exact, non-anchored
+    // query).
+    const lowerNorm = target.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
     const suffixMatches = [];
     for (const key of this.fileLines.keys()) {
       if (key.toLowerCase().endsWith('/' + lowerNorm) || key.toLowerCase().endsWith(lowerNorm)) {

@@ -1118,6 +1118,17 @@ export function resolveFunction(index, spec) {
  * @returns {{ filepath, source, lines } | null}
  */
 function resolveFile(index, spec) {
+  // #238: exact full-path match / root anchor wins before partial matching.
+  const exact = index.resolveExactFileTarget(spec);
+  if (exact && !exact.anchored) {
+    const lines = index.fileLines.get(exact.filepath);
+    return { filepath: exact.filepath, source: lines.join('\n'), lines: lines.length };
+  }
+  if (exact && exact.anchored) {
+    console.log(`File '${spec}' not found at the root path in index.`);
+    return null;
+  }
+
   const specLower = spec.toLowerCase().replace(/\\/g, '/');
   const allFiles = [...index.fileLines.keys()];
 

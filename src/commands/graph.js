@@ -408,8 +408,16 @@ export function doFileTree(index, args) {
   const mermaid = args.mermaid || false;
   const verbose = args.verbose || false;
 
+  // #238: exact full-path match / root anchor wins before the substring match.
+  const _exactFile = index.resolveExactFileTarget(fileTreeArg);
+  if (_exactFile && _exactFile.anchored) {
+    console.log(`No file at root path '${fileTreeArg}' in index.`);
+    return;
+  }
   const filePattern = fileTreeArg.replace(/\\/g, '/').toLowerCase();
-  let fmatches = [...index.files.keys()].filter(fp => fp.replace(/\\/g, '/').toLowerCase().includes(filePattern));
+  let fmatches = _exactFile
+    ? [_exactFile.filepath]
+    : [...index.files.keys()].filter(fp => fp.replace(/\\/g, '/').toLowerCase().includes(filePattern));
 
   if (fmatches.length === 0) {
     console.log(`No files matching '${fileTreeArg}' in index.`);

@@ -647,35 +647,50 @@ export function doListFiles(index, args) {
 // ========================================================================
 
 export function doShowFile(index, args) {
-  const filePattern = args.show_file.replace(/\\/g, '/').toLowerCase();
+  // #238: an exact full-path match wins outright, and a leading '/' anchors to
+  // the repo root — both decided before the fuzzy substring match below, so
+  // `--show-file README.md` finds the root file (not "ambiguous") and
+  // `--show-file /README.md` never resolves to a nested one.
+  const exact = index.resolveExactFileTarget(args.show_file);
+  let filepath = exact && !exact.anchored ? exact.filepath : null;
 
-  const matches = [];
-  for (const fp of index.files.keys()) {
-    if (fp.replace(/\\/g, '/').toLowerCase().includes(filePattern)) {
-      matches.push(fp);
-    }
-  }
-
-  if (matches.length === 0) {
-    console.log(`No files matching '${args.show_file}' found in index.`);
-    console.log(`  Tip: Use /files PATTERN in interactive mode to search`);
+  if (!filepath && exact && exact.anchored) {
+    console.log(`No file at root path '${args.show_file}' found in index.`);
     return;
   }
 
-  if (matches.length > 1) {
-    matches.sort();
-    console.log(`Multiple files match '${args.show_file}':`);
-    for (let i = 0; i < Math.min(matches.length, 20); i++) {
-      console.log(`  [${i + 1}] ${matches[i]}`);
+  if (!filepath) {
+    const filePattern = args.show_file.replace(/\\/g, '/').toLowerCase();
+
+    const matches = [];
+    for (const fp of index.files.keys()) {
+      if (fp.replace(/\\/g, '/').toLowerCase().includes(filePattern)) {
+        matches.push(fp);
+      }
     }
-    if (matches.length > 20) console.log(`  ... and ${matches.length - 20} more`);
-    console.log(`\nNarrow your search, use full path, or use /file [N] to select.`);
-    // Store for [N] selection in interactive mode
-    index._lastFileMatches = matches.slice(0, 20);
-    return;
+
+    if (matches.length === 0) {
+      console.log(`No files matching '${args.show_file}' found in index.`);
+      console.log(`  Tip: Use /files PATTERN in interactive mode to search`);
+      return;
+    }
+
+    if (matches.length > 1) {
+      matches.sort();
+      console.log(`Multiple files match '${args.show_file}':`);
+      for (let i = 0; i < Math.min(matches.length, 20); i++) {
+        console.log(`  [${i + 1}] ${matches[i]}`);
+      }
+      if (matches.length > 20) console.log(`  ... and ${matches.length - 20} more`);
+      console.log(`\nNarrow your search, or re-run with one of the full paths above (an exact path resolves directly). In interactive mode, /file [N] selects by number.`);
+      // Store for [N] selection in interactive mode
+      index._lastFileMatches = matches.slice(0, 20);
+      return;
+    }
+
+    filepath = matches[0];
   }
 
-  const filepath = matches[0];
   const lines = index.fileLines.get(filepath);
   if (lines) {
     console.log(`# ${filepath}`);
