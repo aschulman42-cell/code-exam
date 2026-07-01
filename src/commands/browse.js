@@ -326,20 +326,31 @@ export function doExtract(index, args) {
     while ((m = extBeforeAt.exec(funcname)) !== null) {
       sepIdx = m.index + m[0].length - 1;  // position of the `@` itself
     }
-    // If no file-extension-preceded @ found, fall back to first @ (works for
-    // NAME@LINE and simple cases without scoped-package paths in the file).
-    if (sepIdx < 0) sepIdx = funcname.indexOf('@');
+    // If no file-extension-preceded @ found, fall back to the first @ — but only
+    // when it's a plausible FILE@FUNC / NAME@LINE separator. A real separator is
+    // followed by a function name or a line number, neither of which contains a
+    // path separator. If what follows the '@' still contains '/' or '\', the '@'
+    // is INSIDE the path (e.g. a scoped-npm `pkgs/@scope/pkg.js:1` file:line ref),
+    // NOT a separator — leave the token intact so the FILE:LNNN / bare-name
+    // branches below resolve it. (#241 parse-safety round-trip)
+    if (sepIdx < 0) {
+      const firstAt = funcname.indexOf('@');
+      const after = funcname.slice(firstAt + 1);
+      if (!after.includes('/') && !after.includes('\\')) sepIdx = firstAt;
+    }
 
-    const beforeAt = funcname.slice(0, sepIdx);
-    const afterAt = funcname.slice(sepIdx + 1);
-    if (/^\d+$/.test(afterAt)) {
-      // NAME@LINE — keep funcname intact as the disambiguator
-    } else {
-      fileHint = beforeAt;
-      funcname = afterAt;
-      if (!fileHint || !funcname) {
-        _printExtractUsage();
-        return;
+    if (sepIdx >= 0) {
+      const beforeAt = funcname.slice(0, sepIdx);
+      const afterAt = funcname.slice(sepIdx + 1);
+      if (/^\d+$/.test(afterAt)) {
+        // NAME@LINE — keep funcname intact as the disambiguator
+      } else {
+        fileHint = beforeAt;
+        funcname = afterAt;
+        if (!fileHint || !funcname) {
+          _printExtractUsage();
+          return;
+        }
       }
     }
   }
