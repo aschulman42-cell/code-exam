@@ -5,7 +5,7 @@
  */
 
 import path from 'path';
-import { eprint } from '../utils.js';
+import { eprint, quotePathIfNeeded } from '../utils.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
 import { extractConcepts, conceptLabel } from '../core/vocabulary.js';
 import { extractDataStructures } from '../core/data-structs.js';
@@ -112,7 +112,7 @@ export function doHotspots(index, args) {
   console.log(`  ${'-'.repeat(110)}`);
 
   for (const h of filtered.slice(0, n)) {
-    let fp = args.full_path ? h.filepath : shortPath(h.filepath);
+    let fp = args.full_path ? quotePathIfNeeded(h.filepath) : shortPath(h.filepath);
     let dn = index.getDisplayName ? index.getDisplayName(h.name) : h.display_name;
     if (h.copies > 0) dn = `${dn} (+${h.copies})`;
     console.log(`  ${h.score.toFixed(0).padStart(8)}  ${String(h.calls).padStart(6)}  ${String(h.lines).padStart(6)}  ${dn.padEnd(40)}  ${fp}`);
@@ -339,7 +339,7 @@ export function doGaps(index, args) {
   if (serviceGaps.length > 0) {
     console.log(`\n  WARNING: ${serviceGaps.length} gap(s) in Service/Controller files - may indicate missing route handlers:`);
     for (const sg of serviceGaps.slice(0, 10)) {
-      console.log(`      ${sg.name}  (${sg.filepath})`);
+      console.log(`      ${sg.name}  (${quotePathIfNeeded(sg.filepath)})`);
     }
   }
 
@@ -427,7 +427,7 @@ export function doListTraining(index, args) {
     for (const t of shown) {
       const b = t.tier === 'B' ? '~' : ' ';
       console.log(`${b}${t.family.padEnd(13)} ${t.kind.padEnd(17)} ${(t.marker || '').padEnd(16)} ${t.name}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
+      console.log(`        ${quotePathIfNeeded((t.filepath || '').replace(/\\/g, '/') + ':' + t.line)}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -478,7 +478,7 @@ export function doListEmbeddings(index, args) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
       console.log(`${b}${t.kind.padEnd(13)} ${(t.framework || '').padEnd(20)} ${(t.marker || '').padEnd(20)}${t.id ? '  → ' + basenameIfPath(t.id) : ''}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
+      console.log(`        ${quotePathIfNeeded((t.filepath || '').replace(/\\/g, '/') + ':' + t.line)}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -523,7 +523,7 @@ export function doListModelsUsed(index, args) {
   if (args.verbose) {
     for (const m of shown) {
       console.log(`${m.access.padEnd(6)} ${basenameIfPath(m.model)}  (${m.cells.join(', ')}, ${m.count} site${m.count > 1 ? 's' : ''})${testTag(m)}`);
-      for (const s of m.sites.slice(0, 12)) console.log(`        ${(s.filepath || '').replace(/\\/g, '/')}:${s.line}  [${s.cell}]`);
+      for (const s of m.sites.slice(0, 12)) console.log(`        ${quotePathIfNeeded((s.filepath || '').replace(/\\/g, '/') + ':' + s.line)}  [${s.cell}]`);
     }
     return;
   }
@@ -559,7 +559,7 @@ export function doListStructuredOutput(index, args) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
       console.log(`${b}${t.kind.padEnd(12)} ${(t.framework || '').padEnd(16)} ${(t.marker || '').padEnd(24)}${t.id ? '  → ' + t.id : ''}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
+      console.log(`        ${quotePathIfNeeded((t.filepath || '').replace(/\\/g, '/') + ':' + t.line)}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -617,9 +617,9 @@ export function doListPipelines(index, args) {
       // #132: a GROUP is test/example only when every member location is —
       // the rep alone can misrepresent a mixed group.
       const gTest = (g.members && g.members.length) ? g.members.every(x => x.isTest) : !!w.isTest;
-      console.log(`${w.scope.padEnd(6)} ${w.shape.padEnd(9)} ${w.location.replace(/\\/g, '/')}${w.shapes.length > 1 ? `  [also: ${w.shapes.slice(1).join(', ')}]` : ''}${cnt}${gTest ? ' [test]' : ''}`);
+      console.log(`${w.scope.padEnd(6)} ${w.shape.padEnd(9)} ${quotePathIfNeeded(w.location.replace(/\\/g, '/'))}${w.shapes.length > 1 ? `  [also: ${w.shapes.slice(1).join(', ')}]` : ''}${cnt}${gTest ? ' [test]' : ''}`);
       console.log(`        ${stagesStr(w)}`);
-      for (const m of g.members) console.log(`          - ${m.scope.padEnd(6)} ${m.location.replace(/\\/g, '/')}`);
+      for (const m of g.members) console.log(`          - ${m.scope.padEnd(6)} ${quotePathIfNeeded(m.location.replace(/\\/g, '/'))}`);
     };
     for (const g of cap(mainGroups)) vgroup(g);
     if (looseGroups.length) { console.log(`\n  ${LOOSE_HDR}`); for (const g of cap(looseGroups)) vgroup(g); }
@@ -659,7 +659,7 @@ export function doListChains(index, args) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
       console.log(`${b}${(t.framework || '').padEnd(12)} ${t.kind.padEnd(7)} ${(t.marker || '').padEnd(22)} ${t.name !== t.marker ? '→ ' + t.name : ''}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
+      console.log(`        ${quotePathIfNeeded((t.filepath || '').replace(/\\/g, '/') + ':' + t.line)}${testTag(t)}  ${t.snippet}`);
     }
     console.log(`\n  (${CHAINS_SCOPE})`);
     return;
@@ -704,7 +704,7 @@ export function doListTools(index, args) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
       console.log(`${b}${(t.framework || '').padEnd(18)} ${t.kind.padEnd(14)} ${(t.marker || '').padEnd(18)} ${t.name ? '→ ' + t.name : ''}${t.lvc ? ' [lib?]' : ''}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
+      console.log(`        ${quotePathIfNeeded((t.filepath || '').replace(/\\/g, '/') + ':' + t.line)}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -750,7 +750,7 @@ export function doListLlmCalls(index, args) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
       console.log(`${b}${t.provider.padEnd(11)} ${t.kind.padEnd(9)} ${('T' + t.tier).padEnd(3)} ${(t.marker || '').padEnd(24)}${t.lvc ? ' [lib?]' : ''}${t.model ? '  → ' + basenameIfPath(t.model) : ''}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
+      console.log(`        ${quotePathIfNeeded((t.filepath || '').replace(/\\/g, '/') + ':' + t.line)}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -799,7 +799,7 @@ export function doListInference(index, args) {
     for (const t of shown) {
       const b = t.tag === 'heuristic' ? '~' : ' ';
       console.log(`${b}${t.family.padEnd(13)} ${t.kind.padEnd(11)} ${('T' + t.tier).padEnd(3)} ${(t.marker || '').padEnd(16)} ${t.name}${t.id ? '  → ' + basenameIfPath(t.id) : ''}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
+      console.log(`        ${quotePathIfNeeded((t.filepath || '').replace(/\\/g, '/') + ':' + t.line)}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -849,7 +849,7 @@ export function doListDatasets(index, args) {
     for (const d of shown) {
       const b = d.builtin ? '*' : ' ';
       console.log(`${b}${d.family.padEnd(13)} ${d.kind.padEnd(11)} ${(d.marker || '').padEnd(20)} ${basenameIfPath(d.name)}`);
-      console.log(`        ${(d.filepath || '').replace(/\\/g, '/')}:${d.line}${testTag(d)}  ${d.snippet}`);
+      console.log(`        ${quotePathIfNeeded((d.filepath || '').replace(/\\/g, '/') + ':' + d.line)}${testTag(d)}  ${d.snippet}`);
     }
     return;
   }
@@ -899,7 +899,7 @@ export function doListKernels(index, args) {
     for (const k of shown) {
       const tag = k.tag === 'heuristic' ? '~' : ' ';
       console.log(`${tag}${k.family.padEnd(13)} ${k.kind.padEnd(10)} ${(k.marker || '').padEnd(16)} ${k.name}`);
-      console.log(`        ${(k.filepath || '').replace(/\\/g, '/')}:${k.line}${testTag(k)}  ${k.snippet}`);
+      console.log(`        ${quotePathIfNeeded((k.filepath || '').replace(/\\/g, '/') + ':' + k.line)}${testTag(k)}  ${k.snippet}`);
     }
     return;
   }
@@ -944,7 +944,7 @@ export function doListMultimodal(index, args) {
   if (args.verbose) {
     for (const t of shown) {
       console.log(`~${(t.family || '?').padEnd(13)} ${t.kind.padEnd(14)} ${(t.marker || '').padEnd(16)} ${t.name}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
+      console.log(`        ${quotePathIfNeeded((t.filepath || '').replace(/\\/g, '/') + ':' + t.line)}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -992,7 +992,7 @@ export function doListExplainability(index, args) {
   if (args.verbose) {
     for (const t of shown) {
       console.log(`~${(t.family || '?').padEnd(22)} ${t.kind.padEnd(15)} ${(t.tier || '').padEnd(14)} ${t.name}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
+      console.log(`        ${quotePathIfNeeded((t.filepath || '').replace(/\\/g, '/') + ':' + t.line)}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -1033,7 +1033,7 @@ export function doListPostTraining(index, args) {
   if (args.verbose) {
     for (const t of shown) {
       console.log(`~${(t.family || '?').padEnd(13)} ${t.kind.padEnd(14)} ${(t.marker || '').padEnd(16)} ${t.name}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
+      console.log(`        ${quotePathIfNeeded((t.filepath || '').replace(/\\/g, '/') + ':' + t.line)}${testTag(t)}  ${t.snippet}`);
     }
     return;
   }
@@ -1087,7 +1087,7 @@ export function doListReasoning(index, args) {
   if (args.verbose) {
     for (const t of shown) {
       console.log(`~${(t.family || '?').padEnd(16)} ${t.kind.padEnd(11)} ${(t.marker || '').padEnd(16)} ${t.name}`);
-      console.log(`        ${(t.filepath || '').replace(/\\/g, '/')}:${t.line}${testTag(t)}  ${t.snippet}`);
+      console.log(`        ${quotePathIfNeeded((t.filepath || '').replace(/\\/g, '/') + ':' + t.line)}${testTag(t)}  ${t.snippet}`);
     }
     printCaveat();
     return;
@@ -1149,7 +1149,7 @@ export function doListArtifacts(index, args) {
     for (const a of shown) {
       const dir = a.direction.padEnd(4);
       const tag = a.tag === 'heuristic' ? '~' : ' ';
-      console.log(`${tag}${a.family.padEnd(14)} ${dir} ${a.format.padEnd(12)} ${(a.filepath || '').replace(/\\/g, '/')}:${a.line}${testTag(a)}`);
+      console.log(`${tag}${a.family.padEnd(14)} ${dir} ${a.format.padEnd(12)} ${quotePathIfNeeded((a.filepath || '').replace(/\\/g, '/') + ':' + a.line)}${testTag(a)}`);
       console.log(`        ${a.snippet}`);
     }
     return;
@@ -1251,13 +1251,13 @@ export function doListModels(index, args) {
       const fw = (m.framework || '?') + (m.ambiguous ? '?' : '');
       const chain = (m.chain && m.chain.length) ? m.chain : [m.base];
       console.log(`${fw}  [${m.method_count}m]  ${m.name} → ${chain.join(' → ')}${testTag(m)}`);
-      console.log(`        ${(m.filepath || '').replace(/\\/g, '/')}`);
+      console.log(`        ${quotePathIfNeeded((m.filepath || '').replace(/\\/g, '/'))}`);
       for (const line of wrapList(m.methods || [])) console.log(`          ${line}`);
       const inst = instByName.get(m.name);
       if (inst && inst.count) {
         const amb = (defsByBare.get(m.name) || 0) > 1 ? '~' : '';
         if (amb) usedAmb = true;
-        console.log(`          inst: ${amb}${inst.count} site${inst.count > 1 ? 's' : ''} (first: ${(inst.first.filepath || '').replace(/\\/g, '/')}:${inst.first.line})`);
+        console.log(`          inst: ${amb}${inst.count} site${inst.count > 1 ? 's' : ''} (first: ${quotePathIfNeeded((inst.first.filepath || '').replace(/\\/g, '/') + ':' + inst.first.line)})`);
       }
     }
     if (usedAmb) console.log(`\n  (inst: ~N = bare-name count — same-named classes exist, sites may mix them; #85)`);
@@ -1299,7 +1299,7 @@ export function doDataStructs(index, args) {
   const n = args.n || 50;
   console.log(`Data structures (${structs.length} found, ranked by reference count):\n`);
   for (const s of structs.slice(0, n)) {
-    console.log(`  ${String(s.refs).padStart(5)} refs  ${s.kind.padEnd(9)} ${s.name}  (${s.filepath}:${s.line})`);
+    console.log(`  ${String(s.refs).padStart(5)} refs  ${s.kind.padEnd(9)} ${s.name}  (${quotePathIfNeeded(s.filepath + ':' + s.line)})`);
   }
   if (structs.length > n) console.log(`\n  … and ${structs.length - n} more (use -n to show more).`);
 }
@@ -1312,7 +1312,7 @@ export function doClientServer(index, args) {
   console.log(`Server routes (${stats.serverCount}):\n`);
   if (!server.length) console.log('  (none detected)');
   for (const s of server.slice(0, n)) {
-    console.log(`  ${s.method.padEnd(8)} ${s.path}  [${s.framework}]  (${s.filepath}:${s.line})`);
+    console.log(`  ${s.method.padEnd(8)} ${s.path}  [${s.framework}]  (${quotePathIfNeeded(s.filepath + ':' + s.line)})`);
   }
   if (server.length > n) console.log(`  … and ${server.length - n} more.`);
 
@@ -1321,7 +1321,7 @@ export function doClientServer(index, args) {
   for (const c of client.slice(0, n)) {
     const tag = c.external ? ' [external]' : (c.matched === false ? ' [no server]' : '');
     const named = c.name ? ` (via ${c.name})` : '';
-    console.log(`  ${c.method.padEnd(8)} ${c.url}${named}  (${c.kind})${tag}  (${c.filepath}:${c.line})`);
+    console.log(`  ${c.method.padEnd(8)} ${c.url}${named}  (${c.kind})${tag}  (${quotePathIfNeeded(c.filepath + ':' + c.line)})`);
   }
   if (client.length > n) console.log(`  … and ${client.length - n} more.`);
 
@@ -1331,7 +1331,7 @@ export function doClientServer(index, args) {
     console.log('  (none — every internal client call maps to a detected route)');
   } else {
     for (const u of unmatched.slice(0, n)) {
-      console.log(`  ${u.method.padEnd(8)} ${u.pathOnly}  (first seen ${u.filepath}:${u.line})`);
+      console.log(`  ${u.method.padEnd(8)} ${u.pathOnly}  (first seen ${quotePathIfNeeded(u.filepath + ':' + u.line)})`);
     }
     if (unmatched.length > n) console.log(`  … and ${unmatched.length - n} more.`);
     console.log(`\n  Note: heuristic match (path only). A "missing" route may be served`);
@@ -1349,7 +1349,7 @@ export function doClientServer(index, args) {
       console.log(`\n  ${role} (${list.length}):`);
       for (const e of list.slice(0, n)) {
         const extra = e.detail ? `${e.detail} ` : (e.tls ? '[TLS] ' : '');
-        console.log(`    ${e.api.padEnd(16)} ${extra}${e.lang}  (${e.filepath}:${e.line})`);
+        console.log(`    ${e.api.padEnd(16)} ${extra}${e.lang}  (${quotePathIfNeeded(e.filepath + ':' + e.line)})`);
       }
       if (list.length > n) console.log(`    … and ${list.length - n} more.`);
     }
@@ -1480,7 +1480,7 @@ export function doClassHotspots(index, args) {
   for (const c of filtered.slice(0, n)) {
     let name = c.name;
     if (name.length > 34) name = name.slice(0, 31) + '...';
-    let fp = args.full_path ? c.filepath : shortPath(c.filepath, 45);
+    let fp = args.full_path ? quotePathIfNeeded(c.filepath) : shortPath(c.filepath, 45);
     console.log(`  ${c.score.toFixed(0).padStart(8)}  ${String(c.total_calls).padStart(7)}  ${String(c.method_count).padStart(8)}  ${String(c.total_method_lines).padStart(8)}  ${String(c.name_count).padStart(5)}  ${name.padEnd(35)}  ${fp}`);
   }
 
@@ -1560,7 +1560,7 @@ export function doVocabulary(index, args) {
     // Show top 2-3 representative files, abbreviated
     const repFiles = (entry.top_files || []).slice(0, 3)
       .map(f => {
-        const p = args.full_path ? f.path : shortPath(f.path, 40);
+        const p = args.full_path ? quotePathIfNeeded(f.path) : shortPath(f.path, 40);
         return `${p} (${f.count})`;
       })
       .join(', ');
@@ -1618,7 +1618,7 @@ function printVocabDensityRollup(topTokens, args) {
     `(top ${topTokens.length} terms concentrate in ${fileCount} files):`);
   for (let i = 0; i < topK; i++) {
     const { file, terms } = ranked[i];
-    const p = args.full_path ? file : shortPath(file, 55);
+    const p = args.full_path ? quotePathIfNeeded(file) : shortPath(file, 55);
     console.log(`  ${String(i + 1).padStart(2)}. ${p.padEnd(57)} ${terms} term${terms === 1 ? '' : 's'}`);
   }
   console.log(`  Top ${topK} files carry ` +
