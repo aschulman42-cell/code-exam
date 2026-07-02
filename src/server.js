@@ -96,7 +96,7 @@ function safeMax(raw, defaultVal, ceiling = 10000) {
 
 function parseServerArgs() {
   const args = process.argv.slice(2);
-  const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0, catalogPath: null, airGapped: false, allowConnected: false };
+  const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0, catalogPath: null, airGapped: false, allowConnected: false, contextSize: null };
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -116,6 +116,9 @@ function parseServerArgs() {
       result.apiKey = args[++i];
     } else if (a === '--temperature' && args[i + 1]) {
       result.temperature = parseFloat(args[++i]) || 0.0;
+    } else if ((a === '--context-size' || a === '--context_size') && args[i + 1]) {
+      // #239 convention: accept either flag spelling.
+      result.contextSize = parseInt(args[++i]) || null;
     } else if (a === '--air-gapped') {
       result.airGapped = true;
     } else if (a === '--allow-connected') {
@@ -232,6 +235,7 @@ class ServerLLM {
   constructor(opts = {}) {
     this.defaultModelPath = opts.modelPath || null;
     this.defaultClaudeModel = opts.claudeModel || null;  // --claude-model server default
+    this.preferredContextSize = opts.contextSize || null; // --context-size: first rung of the context ladder
     this.defaultApiKey = opts.apiKey || process.env.ANTHROPIC_API_KEY || '';
     this._localModel = null;     // { llama, model, context, LlamaChatSession, contextSize }
     this._localLoading = null;   // Promise while model is loading (prevents double-load)
@@ -340,14 +344,22 @@ class ServerLLM {
       const llama = await getLlama();
       const model = await llama.loadModel({ modelPath: mp });
 
+      // Context ladder: try big, fall back on allocation failure.
+      // --context-size prepends a user-chosen first rung — agentic multi-tool
+      // investigations want 16k+ when VRAM allows (a 27B Q4 + 24k context
+      // measured 17.9 GB on a 24 GB card; see docs/cloud-gpu-chat-testing.md).
+      // The smaller rungs still protect modest hardware from OOM.
+      const ladder = this.preferredContextSize
+        ? [this.preferredContextSize, ...[8192, 4096, 2048].filter(s => s < this.preferredContextSize)]
+        : [8192, 4096, 2048];
       let context = null;
       let contextSize = 0;
-      for (const trySize of [8192, 4096, 2048]) {
+      for (const trySize of ladder) {
         try { context = await model.createContext({ contextSize: trySize }); contextSize = trySize; break; }
         catch (_) { /* try smaller */ }
       }
       if (!context) {
-        return { error: 'Cannot allocate context for local model (tried 8192/4096/2048).' };
+        return { error: `Cannot allocate context for local model (tried ${ladder.join('/')}).` };
       }
 
       this._localModel = { llama, model, context, LlamaChatSession, defineChatSessionFunction, contextSize, modelPath: mp };
@@ -447,6 +459,7 @@ function _serverHttpPost(url, body, headers) {
 const serverLLM = new ServerLLM({
   modelPath: serverArgs.modelPath,
   apiKey: serverArgs.apiKey,
+  contextSize: serverArgs.contextSize,
 });
 
 

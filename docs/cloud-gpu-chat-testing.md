@@ -52,6 +52,14 @@ end-to-end in the first run. Qwen2.5-Coder-14B-Instruct, despite its coding
 reputation, never emitted a native tool call in our run: it wrote the call as
 a JSON block in its prose instead, so zero tools executed.
 
+**Context sizing**: CE defaults to an 8192→4096→2048 fallback ladder, but
+agentic multi-tool investigations want **16k+** — strong models (Qwen3.5
+class) run 10-20-call investigations whose accumulated tool results overflow
+8k and error out. Pass `--context-size 16384` (or 24576) when VRAM allows: a
+27B Q4 plus 24k context measured 17.9 GB on a 24 GB card. The ladder still
+falls back to smaller rungs if allocation fails, so the flag is safe to
+over-ask.
+
 ---
 
 ## Step 1 — create the pod (you, in the RunPod console)

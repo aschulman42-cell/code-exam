@@ -145,7 +145,7 @@ if (_rawArgvForGui.includes('--gui') || _wantsTour) {
   // doesn't know about CLI flags like --build-index. Pass it only what it
   // understands.
   const _serverArgv = ['--port', port, '--host', '127.0.0.1'];
-  for (const flag of ['--index-path', '--index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--temperature']) {
+  for (const flag of ['--index-path', '--index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--temperature', '--context-size']) {
     const v = _argAfter(flag, null);
     if (v !== null) _serverArgv.push(flag, v);
   }
