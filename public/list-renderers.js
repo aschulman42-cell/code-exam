@@ -2006,9 +2006,13 @@ function renderAiOverviewSection(container, ov) {
   btn.addEventListener('click', () => runAiOverview(btn, result, ov, renderProse));
   sec.appendChild(btn);
   if (!cached) {
+    // Engine-aware warning: the overview follows the Workspace LLM Engine
+    // selection. Local = air-gapped; claude = cloud API.
     sec.appendChild(h('div', {
       style: 'font-size:11px;color:var(--text-muted);margin-top:4px;white-space:normal',
-      text: 'Not air-gapped: calls the Anthropic API (needs ANTHROPIC_API_KEY) across CodeExam’s MCP tools — usually a few minutes. Don’t use on confidential code that must stay offline; use a local model for that.',
+      text: _wsEngine() === 'local'
+        ? `Air-gapped: runs the loaded local model (${_wsLocalModelName()}) over CodeExam’s tools — nothing leaves this machine. Follows the Workspace LLM Engine selection.`
+        : 'Not air-gapped: calls the Anthropic API (needs ANTHROPIC_API_KEY) across CodeExam’s MCP tools — usually a few minutes. Don’t use on confidential code that must stay offline; switch the Workspace LLM Engine to a local model for that.',
     }));
   }
   sec.appendChild(result);
@@ -2016,16 +2020,30 @@ function renderAiOverviewSection(container, ov) {
   if (cached) renderProse(_aiOverviewProse);
 }
 
-// Fetch the AI Overview from the server (which runs Claude over the Anthropic
-// API across CE's MCP tools), caching the prose so it persists across re-renders.
-// Disables the button and shows a long-running note while in flight.
+// The Workspace LLM Engine selection governs which engine generates the
+// overview (one server-wide engine posture, same as chat/analyze).
+function _wsEngine() {
+  const sel = document.querySelector('#ws-engine');
+  return (sel && sel.value) || 'claude';
+}
+function _wsLocalModelName() {
+  const opt = document.querySelector('#ws-engine option[value="local"]');
+  return ((opt && opt.textContent) || 'Local GGUF Model').replace(/^Local: /, '');
+}
+
+// Fetch the AI Overview from the server — Claude over the Anthropic API, or
+// the loaded local GGUF, per the Workspace engine selection — caching the
+// prose so it persists across re-renders. Disables the button while in flight.
 async function runAiOverview(btn, result, ov, renderProse) {
   const orig = btn.textContent;
+  const engine = _wsEngine();
   btn.disabled = true;
   btn.textContent = '⏳ Generating…';
-  result.innerHTML = '<div class="list-placeholder" style="white-space:normal">Running Claude over the MCP tools — this can take a few minutes…</div>';
+  result.innerHTML = `<div class="list-placeholder" style="white-space:normal">${engine === 'local'
+    ? `Running the local model (${escHtml(_wsLocalModelName())}) over CodeExam’s tools — a few minutes on GPU, longer on CPU…`
+    : 'Running Claude over the MCP tools — this can take a few minutes…'}</div>`;
   try {
-    const data = await api.aiOverview({});
+    const data = await api.aiOverview({ engine });
     _aiOverviewProse = data.prose;
     _aiOverviewFor = ov.source || '';
     btn.textContent = '↻ Regenerate';

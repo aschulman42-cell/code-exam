@@ -30,7 +30,7 @@ import { buildOverviewFast, buildOverviewDeep } from './core/overview.js';
 import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
-import { runAiOverview } from './core/ai-overview.js';
+import { runAiOverview, AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './core/ai-overview.js';
 import { setAirGapped, scrubApiKey, airGappedStartupCheck, isAirGapped, AIR_GAPPED_DISCLAIMER } from './core/air-gapped.js';
 import { estimateCost } from './core/pricing.js';
 import { skippedExtensionCensus } from './core/extension-census.js';
@@ -2065,10 +2065,91 @@ routes['/api/overview-deep'] = (req, res) => {
 // spawn plumbing live in core/ai-overview.js so the GUI route and the CLI
 // (`--overview-by-ai`) share one implementation. Non-air-gapped: spawns the
 // `claude` CLI with CE's mcp-server pointed at the loaded index.
+// Local-engine "Overview by AI" (overview-by-ai-local-engine): the same
+// orientation prompt as the claude engine, run agentically against the
+// SERVER-LOADED model. Deliberately does NOT call runAiOverviewLocal (the CLI
+// path): that loads its own model copy, and a second copy beside the loaded
+// one measured-OOMs a 24 GB GPU. Shares the chat loop's hardening: cached
+// sequence reuse (dispose is broken upstream for some families — see
+// runChatToolLoopLocal), special-token neutralization of tool results, capped
+// results, context-scaled output, and a tool budget so an over-eager model
+// synthesizes instead of overflowing the context.
+async function runAiOverviewLocalShared({ index, grounding }) {
+  setIndex(index);
+  const loaded = await serverLLM.ensureLocalModel();
+  if (loaded.error) throw new Error(loaded.error);
+  const lm = serverLLM._localModel;
+  if (!lm || !lm.defineChatSessionFunction) {
+    throw new Error('local AI overview: node-llama-cpp function-calling unavailable (update node-llama-cpp).');
+  }
+  const { LlamaChatSession, defineChatSessionFunction } = lm;
+  const maxTokens = Math.min(6144, Math.max(2400, Math.floor(lm.contextSize / 6)));
+  const overviewToolNames = AI_OVERVIEW_TOOLS.split(',').map(t => t.replace(/^mcp__code-exam__/, ''));
+  const byName = new Map(TOOLS.map(t => [t.name, t]));
+  const toolBudgetChars = Math.max(6000, (lm.contextSize - maxTokens - 1200) * 2.5);
+  let toolCalls = 0;
+  let toolChars = 0;
+  let budgetStopped = false;
+  const functions = {};
+  for (const name of overviewToolNames) {
+    const def = byName.get(name);
+    if (!def) continue;
+    functions[name] = defineChatSessionFunction({
+      description: String(def.description || '').slice(0, 280),
+      params: (def.inputSchema && def.inputSchema.properties) ? def.inputSchema : { type: 'object', properties: {} },
+      handler: (args) => {
+        toolCalls++;
+        if (budgetStopped || toolCalls > 24 || toolChars > toolBudgetChars) {
+          if (!budgetStopped) {
+            budgetStopped = true;
+            console.log(`  [ai-overview] budget-stop after ${toolCalls - 1} calls (${toolChars} result chars)`);
+          }
+          return 'TOOL BUDGET EXHAUSTED — do not call any more tools. Write your complete overview now from the results you already have.';
+        }
+        console.log(`  [ai-overview] tool: ${name}(${JSON.stringify(args || {}).slice(0, 120)})`);
+        let out;
+        try { out = String(handleTool(name, args || {})); }
+        catch (e) { out = `Error calling ${name}: ${e.message}`; }
+        const capped = neutralizeSpecialTokens(out.slice(0, 4000), `${name} result`);
+        toolChars += capped.length;
+        return capped;
+      },
+    });
+  }
+  // Same cached-sequence reuse as runChatToolLoopLocal — never dispose.
+  if (lm.chatSequence) {
+    if (lm.chatSequence.clearHistory) await lm.chatSequence.clearHistory();
+  } else {
+    lm.chatSequence = lm.context.getSequence();
+  }
+  const session = new LlamaChatSession({ contextSequence: lm.chatSequence });
+  try {
+    const raw = await session.prompt(aiOverviewPrompt(grounding), { functions, maxTokens });
+    const prose = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*$/i, '').trim();
+    if (!prose) throw new Error('local AI overview: the model returned no prose — try a stronger model or larger --context-size.');
+    console.log(`  [ai-overview] local done: ${prose.length} chars, ${toolCalls} tool calls`);
+    return { prose, toolCalls, contextSize: lm.contextSize };
+  } finally {
+    try { session.dispose(); } catch (e) { console.warn(`  [ai-overview] session dispose failed: ${e.message}`); }
+  }
+}
+
 routes['/api/ai-overview'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
+
+  // engine=local runs the overview against the server-loaded GGUF (air-gapped);
+  // anything else keeps the original claude path.
+  if (q.engine === 'local') {
+    const mName = serverLLM.defaultModelPath ? path.basename(serverLLM.defaultModelPath) : '(no model)';
+    console.log(`  [ai-overview] running LOCAL (${mName}) over ${q.index || mgr.activeIndex} …`);
+    runAiOverviewLocalShared({ index, grounding: q.grounding })
+      .then(({ prose, toolCalls, contextSize }) => jsonResponse(res, { prose, engine: 'local', toolCalls, contextSize, costUsd: 0, index: index.indexSource || index.indexPath || (q.index || mgr.activeIndex) }))
+      .catch((e) => errorResponse(res, (e && e.message) ? e.message : String(e), 502));
+    return;
+  }
+
   const idxPath = index.indexPath;
   if (!idxPath) return errorResponse(res, 'The loaded index has no on-disk path; AI Overview needs one to point the MCP server at it.', 400);
 
