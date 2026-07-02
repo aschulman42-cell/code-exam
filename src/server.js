@@ -3600,7 +3600,16 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
   const sequence = await acquireSequence();
   try {
     const session = new LlamaChatSession({ contextSequence: sequence, systemPrompt: system });
-    let prose = stripThink(await session.prompt(promptText, { functions, maxTokens }));
+    // node-llama-cpp's Gemma wrapper silently drops systemPrompt (verified on
+    // 3.19.0 with the official QAT GGUF: system-turn instructions have no
+    // effect; the same text in a user turn works). For Gemma only, fold the
+    // grounding preamble into the user prompt; other families keep the real
+    // system turn (double-delivery would waste their context).
+    const wrapperName = session.chatWrapper && session.chatWrapper.wrapperName;
+    const effectivePrompt = wrapperName === 'Gemma'
+      ? `Instructions (follow these strictly):\n${system}\n\n---\n\n${promptText}`
+      : promptText;
+    let prose = stripThink(await session.prompt(effectivePrompt, { functions, maxTokens }));
     // Small local models often call a tool then stop without composing an answer
     // (the "(no text response)" symptom Andrew hit on question 2), or emit only a
     // <think> block that strips to empty. Mirror the Claude loop's synthesis pass:
