@@ -3552,7 +3552,7 @@ const _asChatText = (c) => Array.isArray(c)
 const LOCAL_CHAT_TOOLS = ['search', 'extract', 'show_file', 'callers',
   'callees', 'digest', 'overview', 'list_functions'];
 
-async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mode, onToolCall, maxTokens = 2400 }) {
+async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mode, onToolCall, maxTokens = null }) {
   setIndex(index); // point handleTool at the active GUI index (in-process)
   const loaded = await serverLLM.ensureLocalModel();
   if (loaded.error) throw new Error(loaded.error);
@@ -3562,6 +3562,13 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
   }
   const { LlamaChatSession, defineChatSessionFunction } = lm;
   const system = chatSystemPrompt(indexName, fileCount, mode);
+
+  // Response-length budget: scale with the loaded context unless the caller
+  // passed an explicit value — 2400 at the 8k default (laptop behavior
+  // unchanged), 4096 at 24k. The old fixed 2400 truncated page-scale answers
+  // mid-sentence at large contexts (chat-response-length). Must be resolved
+  // BEFORE the tool budget below, which reserves this many output tokens.
+  if (!maxTokens) maxTokens = Math.min(6144, Math.max(2400, Math.floor(lm.contextSize / 6)));
 
   // Acquire a chat sequence — ONE per loaded model, cached on _localModel,
   // reset between chats, never disposed. Rationale: sequence.dispose()
@@ -3670,7 +3677,17 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
     const effectivePrompt = wrapperName === 'Gemma'
       ? `Instructions (follow these strictly):\n${system}\n\n---\n\n${promptText}`
       : promptText;
-    let prose = stripThink(await session.prompt(effectivePrompt, { functions, maxTokens }));
+    // promptWithMeta (when available) reports WHY generation stopped, so a
+    // length-capped answer gets a visible marker instead of a silent
+    // mid-sentence cut — users read those as model failures.
+    let prose, stopReason = null;
+    if (typeof session.promptWithMeta === 'function') {
+      const meta = await session.promptWithMeta(effectivePrompt, { functions, maxTokens });
+      prose = stripThink(String(meta.responseText ?? ''));
+      stopReason = meta.stopReason || null;
+    } else {
+      prose = stripThink(await session.prompt(effectivePrompt, { functions, maxTokens }));
+    }
     // Small local models often call a tool then stop without composing an answer
     // (the "(no text response)" symptom Andrew hit on question 2), or emit only a
     // <think> block that strips to empty. Mirror the Claude loop's synthesis pass:
@@ -3682,6 +3699,10 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
     }
     try { session.dispose(); } catch (e) { console.warn(`  [chat] session dispose failed: ${e.message}`); }
     if (!prose) prose = '(the local model returned no answer — try a shorter question, a larger context, or a stronger model)';
+    else if (stopReason === 'maxTokens') {
+      prose += `\n\n…*[response reached CodeExam's length cap (${maxTokens} tokens) — ask for the remaining part specifically]*`;
+      console.log(`  [chat] response hit the ${maxTokens}-token cap`);
+    }
     blocks.push({ type: 'text', text: prose });
     console.log(`  [chat] local final answer ${prose.length} chars (${blocks.filter(b => b.type === 'tool_use').length} tool calls)`);
     return { content: blocks, answer: prose };
