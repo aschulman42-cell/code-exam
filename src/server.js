@@ -3513,6 +3513,14 @@ const _asChatText = (c) => Array.isArray(c)
   ? c.filter(b => b && b.type === 'text').map(b => b.text).join('\n')
   : String(c || '');
 
+// Local models degrade sharply as the tool menu grows (see
+// docs/cloud-gpu-chat-testing.md, First-run findings + Cross-model matrix:
+// 8B/14B collapse to zero calls or garbage args at 26 tools; even 32B args
+// degrade). Keep the local loop to this curated core; the cloud (Claude)
+// loop still gets all TOOLS.
+const LOCAL_CHAT_TOOLS = ['search', 'extract', 'show_file', 'callers',
+  'callees', 'digest', 'overview', 'list_functions'];
+
 async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mode, onToolCall, maxTokens = 2400 }) {
   setIndex(index); // point handleTool at the active GUI index (in-process)
   const loaded = await serverLLM.ensureLocalModel();
@@ -3524,11 +3532,12 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
   const { context, LlamaChatSession, defineChatSessionFunction } = lm;
   const system = chatSystemPrompt(indexName, fileCount, mode);
 
-  // Expose every CE tool as a node-llama-cpp chat function backed by handleTool,
-  // recording each call as a tool_use block so the GUI's tool-call view renders.
+  // Expose the curated tool core as node-llama-cpp chat functions backed by
+  // handleTool, recording each call as a tool_use block so the GUI's
+  // tool-call view renders.
   const blocks = [];
   const functions = {};
-  for (const t of TOOLS) {
+  for (const t of TOOLS.filter(tl => LOCAL_CHAT_TOOLS.includes(tl.name))) {
     functions[t.name] = defineChatSessionFunction({
       description: String(t.description || '').slice(0, 280),
       params: (t.inputSchema && t.inputSchema.properties) ? t.inputSchema : { type: 'object', properties: {} },
