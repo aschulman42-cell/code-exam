@@ -3566,6 +3566,22 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
     return lm.chatSequence;
   };
 
+  // Tool budget: strong models (Qwen3.5 class) investigate until they burst —
+  // 10-22 calls whose accumulated results overflow ANY context and error out,
+  // losing the whole investigation. Track result chars (~2.5 chars/token,
+  // conservative for code) against the context left after the output
+  // reservation and prompt overhead, plus a call-count backstop. When
+  // crossed, handlers stop executing tools and return a terminal instruction
+  // so the model synthesizes from what it already has. session.prompt drives
+  // the multi-call loop internally, so the handlers are the only place this
+  // check can live.
+  const MAX_TOOL_CALLS = 24;
+  const toolBudgetChars = Math.max(6000, (lm.contextSize - maxTokens - 1200) * 2.5);
+  let toolChars = 0;
+  let toolCalls = 0;
+  let budgetStopped = false;
+  const seenCalls = new Map(); // dedup: identical repeat calls waste context
+
   // Expose the curated tool core as node-llama-cpp chat functions backed by
   // handleTool, recording each call as a tool_use block so the GUI's
   // tool-call view renders.
@@ -3576,11 +3592,25 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
       description: String(t.description || '').slice(0, 280),
       params: (t.inputSchema && t.inputSchema.properties) ? t.inputSchema : { type: 'object', properties: {} },
       handler: (args) => {
+        toolCalls++;
+        if (budgetStopped || toolCalls > MAX_TOOL_CALLS || toolChars > toolBudgetChars) {
+          if (!budgetStopped) {
+            budgetStopped = true;
+            console.log(`  [chat] budget-stop after ${toolCalls - 1} calls (${toolChars} result chars, budget ${Math.floor(toolBudgetChars)})`);
+          }
+          return 'TOOL BUDGET EXHAUSTED — do not call any more tools. Write your complete final answer now from the results you already have.';
+        }
+        const callKey = t.name + ' ' + JSON.stringify(args || {});
+        if (seenCalls.has(callKey)) {
+          return `Duplicate call — ${t.name} already returned this result earlier in this conversation; reuse it.`;
+        }
         if (onToolCall) onToolCall(t.name, args || {});
         let out;
         try { out = String(handleTool(t.name, args || {})); }
         catch (e) { out = `Error: ${e.message}`; }
-        const capped = out.slice(0, 4000); // cap so the loop doesn't blow the context
+        const capped = out.slice(0, 4000); // cap so one result doesn't blow the context
+        seenCalls.set(callKey, true);
+        toolChars += capped.length;
         blocks.push({ type: 'tool_use', name: t.name, input: args || {}, _result: capped });
         return capped;
       },
