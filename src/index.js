@@ -145,7 +145,17 @@ if (_rawArgvForGui.includes('--gui') || _wantsTour) {
   // doesn't know about CLI flags like --build-index. Pass it only what it
   // understands.
   const _serverArgv = ['--port', port, '--host', '127.0.0.1'];
-  for (const flag of ['--index-path', '--index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--temperature', '--context-size']) {
+  // --index-path / --index are REPEATABLE (server.js loads every occurrence
+  // into its index manager); forward all of them, not just the first.
+  for (const flag of ['--index-path', '--index']) {
+    for (let i = 0; i < _rawArgvForGui.length; i++) {
+      if (_rawArgvForGui[i].replace(/_/g, '-') === flag) {
+        const v = _rawArgvForGui[i + 1];
+        if (v && !v.startsWith('-')) _serverArgv.push(flag, v);
+      }
+    }
+  }
+  for (const flag of ['--model-path', '--model', '--local-model', '--api-key', '--key', '--temperature', '--context-size']) {
     const v = _argAfter(flag, null);
     if (v !== null) _serverArgv.push(flag, v);
   }
