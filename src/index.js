@@ -175,12 +175,15 @@ if (_rawArgvForGui.includes('--gui') || _wantsTour) {
   console.log(`  Load or build an index in the GUI (File menu / Indexes accordion). Use --port to change the port.\n`);
   setTimeout(() => {
     try {
+      // A missing binary surfaces as an async 'error' event on the child,
+      // not a throw — without a handler it crashes the whole process
+      // (hit on headless Linux, where xdg-open doesn't exist).
       if (process.platform === 'win32') {
-        spawn('cmd', ['/c', 'start', '', _guiUrl], { detached: true, stdio: 'ignore' }).unref();
+        spawn('cmd', ['/c', 'start', '', _guiUrl], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
       } else if (process.platform === 'darwin') {
-        spawn('open', [_guiUrl], { detached: true, stdio: 'ignore' }).unref();
+        spawn('open', [_guiUrl], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
       } else {
-        spawn('xdg-open', [_guiUrl], { detached: true, stdio: 'ignore' }).unref();
+        spawn('xdg-open', [_guiUrl], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
       }
     } catch { /* user can read the URL from the server's startup banner */ }
   }, 1500);
