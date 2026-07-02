@@ -3552,6 +3552,34 @@ const _asChatText = (c) => Array.isArray(c)
 const LOCAL_CHAT_TOOLS = ['search', 'extract', 'show_file', 'callers',
   'callees', 'digest', 'overview', 'list_functions'];
 
+// Chat-template special tokens must never reach a local model as literal
+// text: a user who TYPES <think> in a question — or a tool result carrying
+// real template strings (this is a code-examination tool; corpora ABOUT LLMs
+// contain them) — derails the template's turn/reasoning/tool-call state.
+// Measured: literal <think> in a question dropped Qwen3.5-9B from 19 native
+// tool calls to 0 on the otherwise-identical question. Fake turn tags inside
+// hostile code comments are also a prompt-injection vector. Neutralize by
+// swapping angle brackets for ‹ › single angle quotes: visibly distinct,
+// meaning-preserving for the model and the reader, token-breaking for the
+// template. Covers: Qwen/DeepSeek think tags, Qwen tool-channel tags, the
+// ChatML/Llama/DeepSeek/Phi <|...|> family, Gemma turn tags, Mistral [INST]
+// forms, and BOS/EOS sentinels.
+const _SPECIAL_TOKEN_RE = new RegExp([
+  '</?think>',
+  '</?tool_(?:call|response)>',
+  '<\\|[^|<>]{1,32}\\|>',
+  '<(?:start|end)_of_turn>',
+  '\\[/?INST\\]', '\\[TOOL_CALLS\\]',
+  '</?s>',
+].join('|'), 'gi');
+function neutralizeSpecialTokens(s, where) {
+  const str = String(s || '');
+  const hits = str.match(_SPECIAL_TOKEN_RE);
+  if (!hits) return str;
+  console.log(`  [chat] neutralized ${hits.length} special token(s) in ${where}: ${[...new Set(hits)].slice(0, 5).join(' ')}`);
+  return str.replace(_SPECIAL_TOKEN_RE, (m) => m.replace(/</g, '‹').replace(/>/g, '›'));
+}
+
 async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mode, onToolCall, maxTokens = null }) {
   setIndex(index); // point handleTool at the active GUI index (in-process)
   const loaded = await serverLLM.ensureLocalModel();
@@ -3633,7 +3661,10 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
         let out;
         try { out = String(handleTool(t.name, args || {})); }
         catch (e) { out = `Error: ${e.message}`; }
-        const capped = out.slice(0, 4000); // cap so one result doesn't blow the context
+        // Cap so one result doesn't blow the context, then neutralize any
+        // chat-template tokens riding in the examined code. The GUI block
+        // records the neutralized form — i.e., exactly what the model saw.
+        const capped = neutralizeSpecialTokens(out.slice(0, 4000), `${t.name} result`);
         seenCalls.set(callKey, true);
         toolChars += capped.length;
         blocks.push({ type: 'tool_use', name: t.name, input: args || {}, _result: capped });
@@ -3653,9 +3684,9 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
     .map(m => `- ${_asChatText(m.content).slice(0, 300)}`)
     .join('\n');
   const question = _asChatText(messages[messages.length - 1] && messages[messages.length - 1].content);
-  const promptText = priorQs
+  const promptText = neutralizeSpecialTokens(priorQs
     ? `Earlier questions in this chat (reference only — the code is the source of truth; do NOT answer from these or from memory):\n${priorQs}\n\nNow answer this question. First call the tools to read the ACTUAL current code, then answer from what they return:\n${question}`
-    : question;
+    : question, 'user question');
 
   // Strip a chain-of-thought block — closed OR truncated-open (Qwen3 etc. emit
   // <think>…</think>; maxTokens can cut it off before the closing tag, which
