@@ -222,6 +222,46 @@ Conclusions:
   (~20 GB) won't hold a 32B Q5 GGUF (23 GB) — size the volume up front or
   use the container disk.
 
+## Cross-family matrix (2026-07-02, RTX 4090 24 GB)
+
+Same battery extended to non-Qwen families, plus a second, unfamiliar
+codebase: Q1 = doMultisect (CE's own index); Q2/Q3 = survey and
+RL-role questions against `.sr_gh`, a 1,490-file index of several public
+security-research repos. All curated-8, grounded mode, 8k context.
+
+**The gating factor is chat-template/wrapper compatibility, not model
+quality.** CE's local chat exposes tools through node-llama-cpp's
+function-calling channel, which only exists if the GGUF's chat template
+resolves to a wrapper with function support. Probe before judging a model
+(one-liner: load the model, print `session.chatWrapper.wrapperName`):
+
+| Model (quant) | Wrapper resolved | Native tool calls | Behavior |
+|---|---|---|---|
+| Llama 3.1 8B (Q5) | `Llama 3.1` | **reliable** | Sane args every time, very fast (3–6 s/question, no thinking phase). Weak comprehension: hallucinated a `do_multisect.py`, ran `callers()` on "Bloom" as if it were a function. |
+| GLM-4-9B-0414 (Q5) | `JinjaTemplate` (generic) | **never** | Narrates intended calls as prose (`extract {"function_name": ...}`) and then **fabricates the result**, including invented source code. |
+| Mistral Small 3.2 24B (Q4) | `JinjaTemplate` (generic) | **never** | "Please hold on a moment…" then stops, or invents search results (`src/main.py` — no such file). Not model weakness — the Mistral wrapper simply wasn't resolved for this GGUF's template. |
+| Gemma 3 27B (Q4) | `Gemma` | **flaky** | On a fresh context: clean `extract(doMultisect)` → correct grounded answer; a 4-call chain on the RL question (40 s). But once emitted the call as prose with a fabricated `overview` result, and its chats leak the context sequence (see below). |
+
+Conclusions:
+
+- **Stay in the Qwen3 family** — it remains the only family tested where
+  tool calls are both reliable and well-aimed at every size tier.
+- **The failure mode of an incompatible family is fabrication, not
+  refusal.** A model with no function channel doesn't say "I can't run
+  tools" — it invents tool output that looks real. For a forensic tool
+  this is the worst possible failure shape; it argues for CE detecting
+  wrapper support at model load and warning (or refusing local chat).
+- **Possible CE-side remedy** for GLM/Mistral-class failures: pass an
+  explicit family-appropriate `chatWrapper` to node-llama-cpp instead of
+  relying on auto-resolution. Untested; future work.
+- Gemma chats exposed a CE bug — the context's single sequence leaks and
+  subsequent chats fail with "No sequences left" until the model is
+  reloaded (worklist: `local-chat-sequence-leak`).
+- Cloud-bar honesty: against Claude transcripts of the same `.sr_gh`
+  questions (30+ tool calls, multi-project synthesis), every local model
+  tested is several tiers below — the locals make 1–4 calls and survey a
+  fraction of the evidence before answering.
+
 ## Cost and teardown
 
 - Ballpark (verify current rates): 24 GB ~$0.3–0.7/hr, 48 GB ~$0.8/hr, 80 GB
