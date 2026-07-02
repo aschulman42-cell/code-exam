@@ -1860,6 +1860,9 @@ async function init() {
   // switched from the other surface (chat and workspace share ONE model).
   $('#chat-engine')?.addEventListener('mousedown', () => refreshLlmStatus());
   $('#ws-engine')?.addEventListener('mousedown', () => refreshLlmStatus());
+  // Chat-side browse: same model-browser dialog the workspace uses — one
+  // loaded model serves both surfaces (unify-llm-engine-controls).
+  $('#chat-browse-model')?.addEventListener('click', openModelBrowser);
   showBuildInfo();
 
   // Pane navigation buttons (back/forward for both middle panes)

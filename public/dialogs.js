@@ -10,7 +10,7 @@
  * that live elsewhere.
  */
 
-import { $, $$, h, escHtml, makeDraggable } from './dom-utils.js';
+import { $, $$, h, escHtml, makeDraggable, bringToFront } from './dom-utils.js';
 import { api } from './api.js';
 import { state } from './state.js';
 
@@ -686,6 +686,11 @@ export async function openModelBrowser() {
       </div>
     </div>`;
   document.body.appendChild(overlay);
+  // Raise above any popped-out window: pop-outs use the shared bringToFront
+  // counter (starts at 400), which beats .modal-overlay's static z-index 300 —
+  // without this, opening the browser behind an expanded Chat pop-out hides
+  // it entirely. Same counter → a freshly opened dialog always lands on top.
+  bringToFront(overlay);
 
   // Issue #19: draggable by the header bar.
   const modalEl = overlay.querySelector('.modal');
@@ -719,10 +724,13 @@ export async function openModelBrowser() {
           item.style.opacity = '0.5';
           item.querySelector('.mono').textContent += ' — loading…';
           await api.switchModel({ path: modelPath });
-          // Auto-select the local engine; label/badge updates for BOTH the
-          // workspace and chat surfaces come from refreshLlmStatus (single
-          // source of truth — the server-wide loaded model).
+          // Picking a model implies "use the local engine" — select it on
+          // BOTH surfaces (chat + workspace share the one server-wide loaded
+          // model); label/badge updates come from refreshLlmStatus (single
+          // source of truth).
           $('#ws-engine').value = 'local';
+          const chatEngine = $('#chat-engine');
+          if (chatEngine) chatEngine.value = 'local';
           _refreshLlmStatus();
           closeModal();
         } catch (err) {
