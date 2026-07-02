@@ -3529,8 +3529,29 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
   if (!lm || !lm.defineChatSessionFunction) {
     throw new Error('local chat: node-llama-cpp function-calling unavailable (update node-llama-cpp).');
   }
-  const { context, LlamaChatSession, defineChatSessionFunction } = lm;
+  const { LlamaChatSession, defineChatSessionFunction } = lm;
   const system = chatSystemPrompt(indexName, fileCount, mode);
+
+  // Acquire a chat sequence — ONE per loaded model, cached on _localModel,
+  // reset between chats, never disposed. Rationale: sequence.dispose()
+  // silently fails to release the slot for some model families (Gemma 3 on
+  // node-llama-cpp <= 3.19.0, both unsloth and official-QAT GGUFs), so the
+  // canonical acquire/dispose-per-chat pattern locks the context out with
+  // "No sequences left" after one chat — and disposing the poisoned context
+  // in-process deadlocks native teardown, so there is no in-place recovery.
+  // Reuse sidesteps the broken dispose entirely. Verified: no cross-chat
+  // state bleed (a fresh LlamaChatSession re-evaluates the sequence from
+  // scratch; probed with distinct per-chat secrets). Chats already
+  // serialize per model — concurrent requests were equally unsupported
+  // before (the second getSequence would have thrown).
+  const acquireSequence = async () => {
+    if (lm.chatSequence) {
+      if (lm.chatSequence.clearHistory) await lm.chatSequence.clearHistory();
+      return lm.chatSequence;
+    }
+    lm.chatSequence = lm.context.getSequence();
+    return lm.chatSequence;
+  };
 
   // Expose the curated tool core as node-llama-cpp chat functions backed by
   // handleTool, recording each call as a tool_use block so the GUI's
@@ -3576,9 +3597,8 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
     .replace(/<think>[\s\S]*$/i, '')
     .trim();
 
-  let sequence;
+  const sequence = await acquireSequence();
   try {
-    sequence = context.getSequence();
     const session = new LlamaChatSession({ contextSequence: sequence, systemPrompt: system });
     let prose = stripThink(await session.prompt(promptText, { functions, maxTokens }));
     // Small local models often call a tool then stop without composing an answer
@@ -3590,13 +3610,15 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
       const NUDGE = 'Based on the tool results above, write your complete final answer now. Do not call any more tools.';
       try { prose = stripThink(await session.prompt(NUDGE, { maxTokens })); } catch { /* keep empty */ }
     }
-    try { session.dispose(); } catch { /* */ }
+    try { session.dispose(); } catch (e) { console.warn(`  [chat] session dispose failed: ${e.message}`); }
     if (!prose) prose = '(the local model returned no answer — try a shorter question, a larger context, or a stronger model)';
     blocks.push({ type: 'text', text: prose });
     console.log(`  [chat] local final answer ${prose.length} chars (${blocks.filter(b => b.type === 'tool_use').length} tool calls)`);
     return { content: blocks, answer: prose };
   } finally {
-    if (sequence) { try { sequence.dispose(); } catch { /* */ } }
+    // Deliberately NOT disposing `sequence` — it is the cached long-lived
+    // per-model sequence (see acquireSequence above); the next chat resets
+    // it with clearHistory.
   }
 }
 
