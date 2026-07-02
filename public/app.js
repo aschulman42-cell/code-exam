@@ -1855,6 +1855,11 @@ async function init() {
   // (dialogs.js dispatches this after api.loadIndex succeeds).
   window.addEventListener('ce:index-loaded', () => showOverviewOverlay());
   refreshLlmStatus();
+  // Re-fetch LLM status when either engine dropdown is opened, so labels and
+  // detail badges reflect the current server-wide loaded model even if it was
+  // switched from the other surface (chat and workspace share ONE model).
+  $('#chat-engine')?.addEventListener('mousedown', () => refreshLlmStatus());
+  $('#ws-engine')?.addEventListener('mousedown', () => refreshLlmStatus());
   showBuildInfo();
 
   // Pane navigation buttons (back/forward for both middle panes)

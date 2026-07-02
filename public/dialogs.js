@@ -719,13 +719,10 @@ export async function openModelBrowser() {
           item.style.opacity = '0.5';
           item.querySelector('.mono').textContent += ' — loading…';
           await api.switchModel({ path: modelPath });
-          // Update engine dropdown to show model name
-          const engineSel = $('#ws-engine');
-          const localOpt = engineSel.querySelector('option[value="local"]');
-          const fname = modelPath.split('/').pop().split('\\\\').pop();
-          const shortName = fname.length > 30 ? fname.slice(0, 27) + '…' : fname;
-          if (localOpt) localOpt.textContent = 'Local: ' + shortName;
-          engineSel.value = 'local';
+          // Auto-select the local engine; label/badge updates for BOTH the
+          // workspace and chat surfaces come from refreshLlmStatus (single
+          // source of truth — the server-wide loaded model).
+          $('#ws-engine').value = 'local';
           _refreshLlmStatus();
           closeModal();
         } catch (err) {

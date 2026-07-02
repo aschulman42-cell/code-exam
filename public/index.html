@@ -393,6 +393,7 @@
         <div class="tab-content" id="chat-panel" data-tab-content="chat" style="display:none;flex:1;flex-direction:column;min-height:0">
           <div class="chat-header" style="display:flex;align-items:center;gap:8px;padding:4px 8px;font-size:0.85em;opacity:0.85">
             <span>Chatting about: <strong id="chat-index">…</strong></span>
+            <span id="chat-llm-detail" style="opacity:0.7;font-size:0.95em"></span>
             <label style="margin-left:auto;display:flex;align-items:center;gap:4px" title="Chat LLM engine: Claude (cloud API) or a local GGUF model (air-gapped — nothing leaves this machine). Local requires the server started with --model-path.">Engine:
               <select id="chat-engine" style="font-size:0.95em">
                 <option value="claude" selected>Claude API</option>
@@ -451,6 +452,7 @@
             <option value="claude">Claude API</option>
           </select>
           <button id="ws-browse-model" class="btn-secondary" style="font-size:11px;padding:2px 6px" title="Browse for GGUF model">Browse GGUFs</button>
+          <span id="ws-llm-detail" style="font-size:10px;opacity:0.7"></span>
         </div>
         <div class="control-group">
           <label><input type="checkbox" id="ws-vocab-tight"> Vocab-Tight</label>

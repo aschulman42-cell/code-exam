@@ -43,9 +43,41 @@ export function initContextMenu(deps = {}) {
 // LLM engine helpers
 // ============================================================================
 
-/** Fetch LLM engine status and cache it. Called on init and after model switch. */
+/** Fetch LLM engine status and cache it. Called on init and after model switch.
+ * Also refreshes the visible LLM status surfaces — the Chat and Workspace
+ * engine dropdowns share ONE server-side loaded model, so both labels, plus
+ * the detail badges, update together from this single source of truth. */
 export async function refreshLlmStatus() {
   try { state.llmStatus = await api.llmStatus(); } catch { state.llmStatus = null; }
+  const local = state.llmStatus && state.llmStatus.local;
+  if (!local) return;
+  const d = local.detail || {};
+  const shortName = d.modelFile
+    ? (d.modelFile.length > 30 ? d.modelFile.slice(0, 27) + '…' : d.modelFile)
+    : null;
+  const parts = [];
+  if (d.modelFile) parts.push(d.modelFile);
+  if (d.contextSize) parts.push(`${d.contextSize} ctx`);
+  if (d.backend) {
+    parts.push(d.vramTotalMB
+      ? `${d.backend.toUpperCase()} ${(d.vramUsedMB / 1024).toFixed(1)}/${(d.vramTotalMB / 1024).toFixed(1)} GB`
+      : d.backend.toUpperCase());
+  }
+  const detailStr = parts.join(' — ');
+  for (const selId of ['#chat-engine', '#ws-engine']) {
+    const sel = document.querySelector(selId);
+    if (!sel) continue;
+    const localOpt = sel.querySelector('option[value="local"]');
+    if (localOpt && shortName) localOpt.textContent = 'Local: ' + shortName;
+    if (detailStr) sel.title = detailStr;
+  }
+  const chatBadge = document.querySelector('#chat-llm-detail');
+  if (chatBadge) {
+    chatBadge.textContent = detailStr ? `· ${detailStr}` : '';
+    chatBadge.title = 'Loaded local model (used when Engine = Local GGUF)';
+  }
+  const wsBadge = document.querySelector('#ws-llm-detail');
+  if (wsBadge) wsBadge.textContent = detailStr || '';
 }
 
 /** Return an engine-name suffix like "(Claude API)" or "(Local: model.gguf)" for menu labels. */

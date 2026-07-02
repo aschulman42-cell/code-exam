@@ -707,15 +707,33 @@ routes['/api/scan-indexes'] = (req, res) => {
 
 
 // --- LLM engine status (for GUI context-menu labels) ---
-routes['/api/llm-status'] = (req, res) => {
+routes['/api/llm-status'] = async (req, res) => {
   const claudeAvail = serverLLM.checkAvailability('claude');
   const localAvail  = serverLLM.checkAvailability('local');
   const localName   = serverLLM.defaultModelPath
     ? path.basename(serverLLM.defaultModelPath)
     : null;
+  // Best-effort hardware/context detail for the LOADED model, so the GUI can
+  // answer "which model is running, on what?" (llm-status-display). Absent
+  // fields render as absent client-side; failures never block the response.
+  const detail = { modelFile: localName, contextSize: null, backend: null, vramUsedMB: null, vramTotalMB: null };
+  const lm = serverLLM._localModel;
+  if (lm) {
+    detail.contextSize = lm.contextSize || null;
+    try { detail.backend = lm.llama && lm.llama.gpu ? String(lm.llama.gpu) : 'cpu'; } catch (_) { /* leave null */ }
+    try {
+      if (lm.llama && typeof lm.llama.getVramState === 'function') {
+        const v = await lm.llama.getVramState();
+        if (v && v.total) {
+          detail.vramUsedMB = Math.round(v.used / 1048576);
+          detail.vramTotalMB = Math.round(v.total / 1048576);
+        }
+      }
+    } catch (_) { /* leave null */ }
+  }
   jsonResponse(res, {
     claude: { available: claudeAvail.available, name: 'Claude API' },
-    local:  { available: localAvail.available,  name: localName ? `Local: ${localName}` : 'Local GGUF Model' },
+    local:  { available: localAvail.available,  name: localName ? `Local: ${localName}` : 'Local GGUF Model', detail },
   });
 };
 
