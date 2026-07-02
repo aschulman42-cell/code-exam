@@ -270,6 +270,55 @@ Conclusions:
   tested is several tiers below — the locals make 1–4 calls and survey a
   fraction of the evidence before answering.
 
+## Qwen3.5 generational update + Gemma re-test (2026-07-02)
+
+Later the same day, two more result sets — run on node-llama-cpp 3.19.0
+with the full fix stack from this arc committed (curated tool core, Gemma
+system-prompt fold, sequence-reuse, `--context-size`, tool budget + dedup).
+
+**Qwen3.5-27B (Q4_K_M, RTX 4090 24 GB)** — a generational leap, not an
+increment. Its investigations are recognizably Claude-shaped:
+
+- doMultisect (16k ctx): **10 calls** — extract of the target *and its
+  callees*, then reading the entire core file in sequential chunks —
+  ending in a line-cited answer (`src/commands/multisect.js:747-793`).
+  The best local answer recorded in this doc.
+- `.sr_gh` survey (24k ctx): **15 calls** — the READMEs of all five
+  sub-projects plus targeted follow-ups — a five-project synthesis in
+  60 s, structurally comparable to the cloud-Claude reference transcript.
+- The RL/Bloom question ran **22 calls and overflowed even 24k** — the
+  failure that motivated the tool budget. With budget + dedup it completes
+  in 57 s with a correct grounded answer (`budget-stop after 24 calls`,
+  7 unique tools executed, duplicates absorbed as one-liners).
+
+**Qwen3.5-9B (Q5_K_M, ~6.2 GB weights)** — the same investigative behavior
+at laptop size: 13-call line-cited doMultisect in 21 s; 21-call
+five-README survey in 30 s. Laptop note: on an 8 GB card this model runs
+at ~8k context, where its 20-call appetite makes the tool budget
+essential, not optional.
+
+**Gemma 3 27B QAT re-test (post-fix)** — supersedes the flaky verdict in
+the cross-family matrix above, which predated the system-prompt fold and
+sequence-reuse fix:
+
+- **Reliable now**: three consecutive chats, no leak, no fabrication, all
+  answers grounded in real tool output. One `digest` call answered
+  doMultisect with the correct line range plus callers and callees.
+- **Character: laconic** — 1–3 calls, 5–15 s, README-level depth where
+  Qwen3.5 reads implementation code. A competent junior, not an
+  investigator.
+- Garbage numeric args (`max: 2.5e15`) persist even with curated tools
+  and a delivered system prompt — Gemma-intrinsic; server-side arg
+  clamping remains warranted.
+- Known limitation (upstream): switching models *away* from Gemma wedges
+  the server in native teardown — load Gemma last in a session, or expect
+  a server restart when leaving it.
+
+**Recommendation update**: **Qwen3.5 supersedes Qwen3 at every tier** —
+the 3→3.5 generational jump is larger than the 8B→27B size jump within
+Qwen3. Gemma 3 QAT is a legitimate stable alternative where Google
+provenance or snappier answers matter more than investigative depth.
+
 ## Cost and teardown
 
 - Ballpark (verify current rates): 24 GB ~$0.3–0.7/hr, 48 GB ~$0.8/hr, 80 GB
