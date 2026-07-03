@@ -348,6 +348,34 @@ not as good as the Claude-API path. Closing that gap is a major ongoing focus �
 better hardware (a capable GPU) and/or loading larger local models should both
 help.
 
+### Reproducibility of local-model chat
+
+Local-model answers **vary run to run by default**: CodeExam leaves
+node-llama-cpp's sampling enabled, so the same question over the same index
+can produce a differently-worded — and differently-investigated — answer each
+time. That default is deliberate: early exploration benefits from variety,
+and comparing variant answers to the same question is itself informative in
+examination work, where small differences between related documents are the
+raw material of analysis.
+
+For examinations that must be reproducible, start CodeExam with
+`--reproducible`: the local chat loop (and the local Overview by AI) then
+pins sampling (temperature 0, fixed seed), so the same question over the same
+index with the same model file and configuration produces the same answer.
+
+The flag is named for exactly what it claims — an empirical, environment-
+scoped property, not a formal guarantee about the computation. It holds per
+machine / model file / configuration; bit-identical output across different
+machines, GPU drivers, or compute backends is **not** promised. To
+demonstrate reproducibility for the record, run the query twice in the
+actual examination environment, save both outputs, and confirm they match
+(hash them if a hashing tool is available — `certutil -hashfile` on Windows,
+`sha256sum` on Linux; a plain diff or side-by-side comparison serves the same
+purpose) — the property is then verified evidence, not a vendor promise. Record the model file (with
+quantization), context size, CodeExam version, and the `--reproducible`
+posture as part of the examination record. (The cloud/Claude chat engine is
+separately pinned at temperature 0 by default.)
+
 ### Index management
 - Pure-Node streaming JSON parser handles 5 GB+ indexes.
 - Build from directories, glob patterns, archives (zip/tar/gz), `@filelist`

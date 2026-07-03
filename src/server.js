@@ -96,7 +96,7 @@ function safeMax(raw, defaultVal, ceiling = 10000) {
 
 function parseServerArgs() {
   const args = process.argv.slice(2);
-  const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0, catalogPath: null, airGapped: false, allowConnected: false, contextSize: null };
+  const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0, catalogPath: null, airGapped: false, allowConnected: false, contextSize: null, reproducible: false };
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -119,6 +119,12 @@ function parseServerArgs() {
     } else if ((a === '--context-size' || a === '--context_size') && args[i + 1]) {
       // #239 convention: accept either flag spelling.
       result.contextSize = parseInt(args[++i]) || null;
+    } else if (a === '--reproducible') {
+      // local-chat-determinism: reproducible local-LLM runs (temperature 0 +
+      // fixed seed). Default OFF — run-to-run variation is the chosen default.
+      // Named "reproducible" (not "deterministic") deliberately: the claim is
+      // empirical and environment-scoped, not a formal guarantee.
+      result.reproducible = true;
     } else if (a === '--air-gapped') {
       result.airGapped = true;
     } else if (a === '--allow-connected') {
@@ -236,6 +242,11 @@ class ServerLLM {
     this.defaultModelPath = opts.modelPath || null;
     this.defaultClaudeModel = opts.claudeModel || null;  // --claude-model server default
     this.preferredContextSize = opts.contextSize || null; // --context-size: first rung of the context ladder
+    // --reproducible: pinned local-LLM sampling. Honest scope: same
+    // question + same index + same model file + same CE build/config on the
+    // same machine => same answer. Cross-machine or cross-driver bit-identity
+    // is NOT promised (GPU kernel scheduling can differ across backends).
+    this.reproducible = !!opts.reproducible;
     this.defaultApiKey = opts.apiKey || process.env.ANTHROPIC_API_KEY || '';
     this._localModel = null;     // { llama, model, context, LlamaChatSession, contextSize }
     this._localLoading = null;   // Promise while model is loading (prevents double-load)
@@ -460,7 +471,11 @@ const serverLLM = new ServerLLM({
   modelPath: serverArgs.modelPath,
   apiKey: serverArgs.apiKey,
   contextSize: serverArgs.contextSize,
+  reproducible: serverArgs.reproducible,
 });
+if (serverArgs.reproducible) {
+  console.log('  Local LLM sampling: REPRODUCIBLE (temperature 0, fixed seed) — scoped to this machine/model/config; verify per protocol');
+}
 
 
 // ========================================================================
@@ -2124,7 +2139,8 @@ async function runAiOverviewLocalShared({ index, grounding }) {
   }
   const session = new LlamaChatSession({ contextSequence: lm.chatSequence });
   try {
-    const raw = await session.prompt(aiOverviewPrompt(grounding), { functions, maxTokens });
+    const sampling = serverLLM.reproducible ? { temperature: 0, seed: 1 } : {};
+    const raw = await session.prompt(aiOverviewPrompt(grounding), { functions, maxTokens, ...sampling });
     const prose = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*$/i, '').trim();
     if (!prose) throw new Error('local AI overview: the model returned no prose — try a stronger model or larger --context-size.');
     console.log(`  [ai-overview] local done: ${prose.length} chars, ${toolCalls} tool calls`);
@@ -3679,6 +3695,12 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
   // BEFORE the tool budget below, which reserves this many output tokens.
   if (!maxTokens) maxTokens = Math.min(6144, Math.max(2400, Math.floor(lm.contextSize / 6)));
 
+  // --reproducible pins sampling for reproducible runs (honest scope: see
+  // the ServerLLM constructor). Default is node-llama-cpp sampling — run-to-
+  // run variation is the chosen default (exploration; comparing variant
+  // answers across runs is itself informative in examination work).
+  const sampling = serverLLM.reproducible ? { temperature: 0, seed: 1 } : {};
+
   // Acquire a chat sequence — ONE per loaded model, cached on _localModel,
   // reset between chats, never disposed. Rationale: sequence.dispose()
   // silently fails to release the slot for some model families (Gemma 3 on
@@ -3794,11 +3816,11 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
     // mid-sentence cut — users read those as model failures.
     let prose, stopReason = null;
     if (typeof session.promptWithMeta === 'function') {
-      const meta = await session.promptWithMeta(effectivePrompt, { functions, maxTokens });
+      const meta = await session.promptWithMeta(effectivePrompt, { functions, maxTokens, ...sampling });
       prose = stripThink(String(meta.responseText ?? ''));
       stopReason = meta.stopReason || null;
     } else {
-      prose = stripThink(await session.prompt(effectivePrompt, { functions, maxTokens }));
+      prose = stripThink(await session.prompt(effectivePrompt, { functions, maxTokens, ...sampling }));
     }
     // Small local models often call a tool then stop without composing an answer
     // (the "(no text response)" symptom Andrew hit on question 2), or emit only a
@@ -3807,7 +3829,7 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
     // tool results already in the session's history.
     if (!prose) {
       const NUDGE = 'Based on the tool results above, write your complete final answer now. Do not call any more tools.';
-      try { prose = stripThink(await session.prompt(NUDGE, { maxTokens })); } catch { /* keep empty */ }
+      try { prose = stripThink(await session.prompt(NUDGE, { maxTokens, ...sampling })); } catch { /* keep empty */ }
     }
     try { session.dispose(); } catch (e) { console.warn(`  [chat] session dispose failed: ${e.message}`); }
     if (!prose) prose = '(the local model returned no answer — try a shorter question, a larger context, or a stronger model)';

@@ -167,9 +167,9 @@ if (_rawArgvForGui.includes('--gui') || _wantsTour) {
     const _frzGui = firstRunIndexZip();
     if (fs.existsSync(_frzGui)) _serverArgv.push('--index-path', _frzGui);
   }
-  // #223: forward the boolean air-gapped flags to the GUI server.
+  // #223: forward the boolean flags to the GUI server.
   // #239: accept either spelling (`--air_gapped` == `--air-gapped`).
-  for (const _f of ['--air-gapped', '--allow-connected']) {
+  for (const _f of ['--air-gapped', '--allow-connected', '--reproducible']) {
     if (_rawArgvForGui.some(t => t.replace(/_/g, '-') === _f)) _serverArgv.push(_f);
   }
   process.argv = [process.argv[0], process.argv[1], ..._serverArgv];
