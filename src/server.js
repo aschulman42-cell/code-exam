@@ -3650,8 +3650,9 @@ async function runChatToolLoop({ messages, index, indexName, fileCount, mode, ap
   const tools = chatAnthropicTools();
   const system = chatSystemPrompt(indexName, fileCount, mode);
   const apiUrl = process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages';
-  // #223: air-gapped blocks the GUI cloud chat loop (a localhost endpoint is OK).
-  if (!/localhost|127\.0\.0\.1|::1|0\.0\.0\.0|\.local/.test(apiUrl) && isAirGapped()) {
+  // #223: air-gapped blocks the GUI cloud chat loop (a loopback endpoint is OK).
+  // Hostname-parsed, fail-closed (see isLocalApiUrl) — never substring-matched.
+  if (!isLocalApiUrl(apiUrl) && isAirGapped()) {
     console.error('[air-gapped] blocked: GUI chat (cloud Claude)');
     throw new Error('--air-gapped: chat over the cloud LLM is blocked. Set the engine to Local in the Workspace pane (LLM controls), or restart without --air-gapped to allow cloud calls.');
   }
