@@ -36,6 +36,7 @@ import { parseMultisectTerms, displayMultisectResults, printSelectivityReport } 
 import { displayName } from '../utils.js';
 import { estimateCost } from '../core/pricing.js';
 import { assertLocalOnly, isLocalApiUrl } from '../core/air-gapped.js';
+import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiText, openaiFinishReason } from '../core/openai-util.js';
 
 
 // ============================================================================
@@ -53,9 +54,12 @@ import { assertLocalOnly, isLocalApiUrl } from '../core/air-gapped.js';
 class AnalysisLLM {
   constructor(opts = {}) {
     this.useClaude = opts.useClaude || false;
+    this.useOpenAI = opts.useOpenAI || false;  // #243B: OpenAI/ChatGPT provider
     this.apiKey = opts.apiKey || null;
+    this.openaiKey = null;
     this.modelPath = opts.modelPath || null;
     this.claudeModel = opts.claudeModel || null;  // Claude API model id override
+    this.openaiModel = opts.openaiModel || null;  // OpenAI model id override
     this.temperature = opts.temperature ?? 0.0;
     this.verbose = opts.verbose || false;
 
@@ -66,11 +70,17 @@ class AnalysisLLM {
 
     if (this.useClaude) {
       this._initClaude(opts.apiKey);
+    } else if (this.useOpenAI) {
+      this._initOpenAI(opts.openaiKey, opts.apiKey);
     } else if (this.modelPath) {
       // Local model init is async - call ensureLocalModel() before generate()
       this._localReady = false;
     }
   }
+
+  /** True when the active backend is a cloud API (Claude or OpenAI) rather than
+   *  a local GGUF model — drives the not-air-gapped disclaimer and file caps. */
+  isCloud() { return this.useClaude || this.useOpenAI; }
 
   // --- Claude API ---
 
@@ -130,6 +140,66 @@ class AnalysisLLM {
       return text || '(Empty response)';
     } catch (e) {
       return `(Claude API error: ${String(e.message || e).slice(0, 200)})`;
+    }
+  }
+
+  // --- OpenAI / ChatGPT API (#243 Part B) ---
+
+  _initOpenAI(openaiKey, apiKeyFallback) {
+    // Key resolution mirrors _initClaude: flag > --api-key (selected provider) >
+    // env > openai.txt. --api-key applying to whichever provider is selected is
+    // the documented contract.
+    this.openaiKey = openaiKey || apiKeyFallback || process.env.OPENAI_API_KEY || '';
+    if (!this.openaiKey) {
+      for (const fname of ['openai.txt', 'openai_key.txt']) {
+        try {
+          const key = readFileSync(fname, 'utf-8').trim();
+          if (key) { this.openaiKey = key; break; }
+        } catch { /* ignore */ }
+      }
+    }
+    if (!this.openaiKey) {
+      process.stderr.write('ERROR: No OpenAI API key found. Provide --openai-key/--api-key, set OPENAI_API_KEY, or create openai.txt\n');
+    }
+  }
+
+  async _callOpenAI(prompt, maxTokens = 500) {
+    if (!this.openaiKey) return '(OpenAI API not available - no API key)';
+
+    const apiUrl = process.env.CE_OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
+    if (!isLocalApiUrl(apiUrl)) assertLocalOnly('analyze (cloud LLM)'); // #223: hostname-parsed, fail-closed
+    const model = this.openaiModel || process.env.CE_OPENAI_MODEL || 'gpt-5.1';
+
+    const payload = JSON.stringify({
+      model,
+      // Reasoning models (gpt-5*, o*) spend hidden tokens against this cap; floor
+      // it so a Claude-tuned 500 isn't consumed entirely by reasoning (openai-util).
+      max_completion_tokens: openaiCompletionBudget(model, maxTokens),
+      ...(openaiSupportsTemperature(model) ? { temperature: this.temperature } : {}),
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    try {
+      const body = await _httpPost(apiUrl, payload, {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.openaiKey}`,
+      });
+
+      this._requestCount++;
+      const u = openaiUsage(body.usage);
+      this._totalInputTokens += u.input_tokens;
+      this._totalOutputTokens += u.output_tokens;
+
+      const text = openaiText(body);
+      if (!text) {
+        if (openaiFinishReason(body) === 'length') {
+          return '(Empty response - token budget exhausted, likely by reasoning tokens; raise the budget or use a non-reasoning --openai-model)';
+        }
+        return '(Empty response)';
+      }
+      return text;
+    } catch (e) {
+      return `(OpenAI API error: ${String(e.message || e).slice(0, 200)})`;
     }
   }
 
@@ -206,24 +276,29 @@ class AnalysisLLM {
 
   isAvailable() {
     if (this.useClaude) return !!this.apiKey;
+    if (this.useOpenAI) return !!this.openaiKey;
     return !!this._llm || !!this.modelPath; // modelPath means we'll try to load
   }
 
   async generate(prompt, maxTokens = 500) {
     if (this.useClaude) return this._callClaude(prompt, maxTokens);
+    if (this.useOpenAI) return this._callOpenAI(prompt, maxTokens);
     if (this.modelPath) return this._callLocal(prompt, maxTokens);
-    return '(No LLM available - use --llm claude or --analyze-model)';
+    return '(No LLM available - use --llm claude, --llm openai, or --analyze-model)';
   }
 
   getUsageSummary() {
-    if (!this.useClaude || this._requestCount === 0) return '';
+    if (!this.isCloud() || this._requestCount === 0) return '';
     // Shared pricing helper — was hardcoded to Sonnet's $3/$15 per 1M regardless
     // of model, so it under-reported ~40% once --claude-model selects Opus.
-    const model = this.claudeModel || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6';
+    const model = this.useOpenAI
+      ? (this.openaiModel || process.env.CE_OPENAI_MODEL || 'gpt-5.1')
+      : (this.claudeModel || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6');
     const { usd: totalCost } = estimateCost(model, {
       input_tokens: this._totalInputTokens, output_tokens: this._totalOutputTokens,
     });
-    return `Claude API Usage: ${this._requestCount} requests, ` +
+    const label = this.useOpenAI ? 'OpenAI API Usage' : 'Claude API Usage';
+    return `${label}: ${this._requestCount} requests, ` +
       `${this._totalInputTokens.toLocaleString()} in / ${this._totalOutputTokens.toLocaleString()} out, ` +
       `~$${totalCost.toFixed(4)}`;
   }
@@ -239,18 +314,23 @@ let _llmInstance = null;
 function getAnalysisLLM(opts = {}) {
   if (!_llmInstance) {
     const useClaude = opts.useClaude || opts.use_claude || false;
+    const useOpenAI = opts.useOpenAI || opts.use_openai || false;
     const apiKey = opts.apiKey || opts.api_key || null;
+    const openaiKey = opts.openaiKey || opts.openai_key || null;
     const modelPath = opts.modelPath || opts.analyze_model || null;
     const claudeModel = opts.claudeModel || opts.claude_model || null;
+    const openaiModel = opts.openaiModel || opts.openai_model || null;
     const temperature = opts.temperature ?? 0.0;
     const verbose = opts.verbose || false;
 
-    if (useClaude) {
+    if (useClaude || useOpenAI) {
+      const dest = useOpenAI ? 'OpenAI\'s API' : 'Anthropic\'s API';
+      const mode = useOpenAI ? 'OPENAI (CHATGPT) API MODE' : 'CLAUDE API MODE';
       console.log();
       console.log('='.repeat(70));
-      console.log('WARNING:  WARNING: CLAUDE API MODE - NOT AIR-GAPPED');
+      console.log(`WARNING:  WARNING: ${mode} - NOT AIR-GAPPED`);
       console.log('='.repeat(70));
-      console.log('Code will be sent to Anthropic\'s API over the internet.');
+      console.log(`Code will be sent to ${dest} over the internet.`);
       if (opts.maskAll || opts.mask_all) {
         console.log('String contents will be masked before sending.');
       } else {
@@ -261,7 +341,7 @@ function getAnalysisLLM(opts = {}) {
     }
 
     _llmInstance = new AnalysisLLM({
-      useClaude, apiKey, modelPath, claudeModel, temperature, verbose,
+      useClaude, useOpenAI, apiKey, openaiKey, modelPath, claudeModel, openaiModel, temperature, verbose,
     });
   }
   return _llmInstance;
@@ -1183,6 +1263,13 @@ function resolveFile(index, spec) {
 // dollars, so it keeps a line cap. Claude analysis is bounded by a projected-COST
 // guard instead (see below) — the old fixed Claude line cap (was 500) is gone.
 const _FILE_MAX_LINES_LOCAL = 200;
+// Cloud engines (Claude / OpenAI) have no fixed line cap for the file-level
+// fallback — the model-aware projected-cost guard (_analyzeCostBlock) is the
+// real protection. Infinity => always attempt; the cost guard gates spend.
+// (Also resolves a dangling _FILE_MAX_LINES_CLAUDE reference left when the old
+// Claude line cap was replaced by the cost guard — it was undefined, so the
+// cloud file-fallback threw ReferenceError.)
+const _FILE_MAX_LINES_CLOUD = Infinity;
 
 // Projected-cost guard for paid (Claude) analysis. Decided with the user; goal:
 // "don't surprise users with large costs." Chosen over a line cap because it is
@@ -1193,13 +1280,18 @@ const _FILE_MAX_LINES_LOCAL = 200;
 // based --max-lines) were rejected as no-protection or arbitrary-and-model-blind.
 const _ANALYZE_COST_GUARD_USD = 0.50;
 
-// Returns a block descriptor when a Claude analysis would exceed the guard, else
-// null (always null for local — no API cost). Input tokens are estimated from
-// prompt size (~3 chars/token for code, slightly conservative so it guards a
-// touch early rather than late); output assumed ~800 tokens.
+// Returns a block descriptor when a cloud analysis (Claude or OpenAI) would
+// exceed the guard, else null (always null for local — no API cost). Input
+// tokens are estimated from prompt size (~3 chars/token for code, slightly
+// conservative so it guards a touch early rather than late); output assumed
+// ~800 tokens. Model-aware, so the OpenAI default (gpt-5.1) and --openai-model
+// are priced at their own rates.
 function _analyzeCostBlock(args, promptChars) {
-  if (!args.use_claude || args.force) return null;
-  const model = args.claude_model || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6';
+  const useOpenAI = args.use_openai || false;
+  if ((!args.use_claude && !useOpenAI) || args.force) return null;
+  const model = useOpenAI
+    ? (args.openai_model || process.env.CE_OPENAI_MODEL || 'gpt-5.1')
+    : (args.claude_model || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6');
   const estIn = Math.ceil(promptChars / 3);
   const { usd } = estimateCost(model, { input_tokens: estIn, output_tokens: 800 });
   const envGuard = parseFloat(process.env.CE_ANALYZE_COST_GUARD);
@@ -1436,7 +1528,7 @@ export async function doAnalyze(index, args) {
 
   const usage = llm.getUsageSummary();
   if (usage) console.log(usage);
-  _printDisclaimer(llm.useClaude);
+  _printDisclaimer(llm.isCloud());
   _printExtractTip(filepath, funcName);
 }
 
@@ -1464,6 +1556,7 @@ export async function doClaimAnalyze(index, args) {
   const maskAll = args.mask_all || false;
   const lineNumbers = args.line_numbers || false;
   const useClaude = args.use_claude || false;
+  const useOpenAI = args.use_openai || false;
 
   // Echo claim text
   console.log(`Claim text (${claimText.length} chars):`);
@@ -1477,14 +1570,17 @@ export async function doClaimAnalyze(index, args) {
   const analyzeModel = args.analyze_model || null;
   const claimModel = args.claim_model || null;
 
-  // Term extraction: --claim-model > --analyze-model > Claude API
-  // (If user only specifies --analyze-model, use it for both tasks)
-  const termModelPath = claimModel || (!useClaude ? analyzeModel : null);
+  // Term extraction: --claim-model > --analyze-model > cloud API.
+  // (If user only specifies --analyze-model, use it for both tasks.)
+  // A cloud engine (Claude or OpenAI) does term extraction on that provider,
+  // so it does not fall back to a local --analyze-model for terms.
+  const cloudApiLabel = useOpenAI ? 'OpenAI API' : 'Claude API';
+  const termModelPath = claimModel || ((!useClaude && !useOpenAI) ? analyzeModel : null);
   const termExtractionEngine = termModelPath
     ? `local: ${termModelPath}`
-    : 'Claude API';
-  const analysisEngine = useClaude
-    ? 'Claude API'
+    : cloudApiLabel;
+  const analysisEngine = (useClaude || useOpenAI)
+    ? cloudApiLabel
     : (analyzeModel ? `local: ${analyzeModel}` : '(none - will extract source only)');
   console.log(`  Term extraction: ${termExtractionEngine}`);
   console.log(`  Code analysis:   ${analysisEngine}`);
@@ -1565,6 +1661,10 @@ export async function doClaimAnalyze(index, args) {
     result = await extractClaimTerms(claimText, {
       apiKey, verbose, temperature, vocabConcordance, vocabTight,
       claudeModel: args.claude_model,
+      // #243B: route term extraction to OpenAI when --llm openai/chatgpt.
+      provider: useOpenAI ? 'openai' : 'claude',
+      openaiKey: args.openai_key || null,
+      openaiModel: args.openai_model || null,
     });
   }
 
@@ -1668,7 +1768,7 @@ export async function doClaimAnalyze(index, args) {
     // File-level fallback
     if (fileMatches.length > 0) {
       const topFile = fileMatches[0];
-      const maxLines = useClaude ? _FILE_MAX_LINES_CLAUDE : _FILE_MAX_LINES_LOCAL;
+      const maxLines = (useClaude || useOpenAI) ? _FILE_MAX_LINES_CLOUD : _FILE_MAX_LINES_LOCAL;
       if (topFile.lines <= maxLines) {
         console.log(`\n  No function-level match, but file '${topFile.filepath}' (${topFile.lines} lines) matches.`);
         console.log('  Analyzing whole file against claim...');
@@ -1789,7 +1889,7 @@ async function _doClaimSingleAnalyze(ext, claimText, args, maskAll, showPrompt, 
 
   const usage = llm.getUsageSummary();
   if (usage) console.log(usage);
-  _printDisclaimer(llm.useClaude);
+  _printDisclaimer(llm.isCloud());
   _printExtractTip(filepath, funcName);
 }
 
@@ -1848,7 +1948,7 @@ async function _doClaimFileAnalyze(index, args, filepath, claimText, maskAll, sh
 
   const usage = llm.getUsageSummary();
   if (usage) console.log(usage);
-  _printDisclaimer(llm.useClaude);
+  _printDisclaimer(llm.isCloud());
 }
 
 
@@ -1927,7 +2027,8 @@ export async function doMultisectAnalyze(index, args) {
     if (fileMatches.length > 0) {
       const topFile = fileMatches[0];
       const useClaude = args.use_claude || false;
-      const maxLines = useClaude ? _FILE_MAX_LINES_CLAUDE : _FILE_MAX_LINES_LOCAL;
+      const useOpenAI = args.use_openai || false;
+      const maxLines = (useClaude || useOpenAI) ? _FILE_MAX_LINES_CLOUD : _FILE_MAX_LINES_LOCAL;
 
       if (topFile.lines <= maxLines) {
         console.log(`\nNo single function contains all terms, but file '${topFile.filepath}' (${topFile.lines} lines) does.`);
@@ -2047,7 +2148,7 @@ async function _doMultisectSingleAnalyze(ext, displayTerms, args, maskAll, showP
 
   const usage = llm.getUsageSummary();
   if (usage) console.log(usage);
-  _printDisclaimer(llm.useClaude);
+  _printDisclaimer(llm.isCloud());
   _printExtractTip(filepath, funcName);
 }
 
@@ -2071,11 +2172,13 @@ export async function doFileAnalyze(index, args) {
   const showPrompt = args.show_prompt || false;
   const lineNumbers = args.line_numbers || false;
   const useClaude = args.use_claude || false;
+  const useOpenAI = args.use_openai || false;
 
   // Local (air-gapped) analysis is bounded by the model's context window, so keep
-  // a line cap. Claude analysis is bounded by a projected-COST guard applied below
-  // (after the prompt is built), which replaces the old fixed Claude line cap.
-  if (!useClaude && nLines > _FILE_MAX_LINES_LOCAL && !showPrompt) {
+  // a line cap. Cloud analysis (Claude or OpenAI) is bounded by a projected-COST
+  // guard applied below (after the prompt is built), which replaces the old fixed
+  // Claude line cap.
+  if (!useClaude && !useOpenAI && nLines > _FILE_MAX_LINES_LOCAL && !showPrompt) {
     console.log(`File '${filepath}' is ${nLines} lines - too large for local file analysis (limit: ${_FILE_MAX_LINES_LOCAL}).`);
     console.log(`  Tip: Use --analyze FILE@FUNCTION to analyze individual functions.`);
     console.log(`  Tip: Use --list-functions "${filepath.split(/[\\/]/).pop()}" to see functions in this file.`);
@@ -2147,7 +2250,7 @@ export async function doFileAnalyze(index, args) {
 
   const usage = llm.getUsageSummary();
   if (usage) console.log(usage);
-  _printDisclaimer(llm.useClaude);
+  _printDisclaimer(llm.isCloud());
   if (funcNames.length > 0) {
     const fname = filepath.split(/[\\/]/).pop();
     console.log(`  Tip: --analyze ${fname}@FUNCTION to analyze individual functions`);

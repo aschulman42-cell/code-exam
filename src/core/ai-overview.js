@@ -22,7 +22,8 @@ import { fileURLToPath } from 'url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { estimateCost } from './pricing.js';
-import { assertLocalOnly } from './air-gapped.js';
+import { assertLocalOnly, isLocalApiUrl } from './air-gapped.js';
+import { openaiCompletionBudget } from './openai-util.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url)); // src/core
 const MCP_SERVER = path.join(__dirname, '..', 'mcp-server.js');  // src/mcp-server.js
@@ -141,7 +142,11 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
       throw new Error('AI Overview: no CodeExam MCP tools reachable (the mcp-server may have failed to start).');
     }
 
-    assertLocalOnly('AI Overview (cloud)'); // #223
+    // #223 air-gap is enforced per-engine below: the Claude branch blocks
+    // unconditionally (the Anthropic SDK targets api.anthropic.com with no
+    // loopback override), while the OpenAI branch allows a loopback
+    // CE_OPENAI_API_URL — matching the chat/analyze surfaces, which the Overview
+    // path previously did not (it hard-blocked a loopback endpoint here).
 
     // Shared per-tool executor: run one CE MCP tool, return its text.
     const runTool = async (name, args) => {
@@ -165,6 +170,12 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
     if (engine === 'openai') {
       // #243 Part B: same agentic loop over the same mcp-server, OpenAI wire
       // format (tool_calls / role:"tool"), plain HTTPS via global fetch.
+      const apiUrl = process.env.CE_OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
+      // #223: block a REMOTE OpenAI endpoint under --air-gapped, but allow a
+      // loopback CE_OPENAI_API_URL (e.g. LM Studio) — parity with chat/analyze.
+      // Checked BEFORE the key check so an air-gapped run reports the air-gap
+      // reason (parallel to the Claude branch), not a misleading "no API key".
+      if (!isLocalApiUrl(apiUrl)) assertLocalOnly('AI Overview (cloud OpenAI)');
       const key = apiKey || process.env.OPENAI_API_KEY;
       if (!key) {
         throw new Error('AI Overview needs an OpenAI API key — set the OPENAI_API_KEY environment variable (or openai.txt / --openai-key), or run an air-gapped overview with a local --model <gguf>.');
@@ -173,13 +184,12 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
         type: 'function',
         function: { name: t.name, description: t.description, parameters: t.input_schema || { type: 'object', properties: {} } },
       }));
-      const apiUrl = process.env.CE_OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
       let messages = [{ role: 'user', content: aiOverviewPrompt(grounding) }];
       for (let turn = 0; turn < MAX_OVERVIEW_TURNS; turn++) {
         const resp = await fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-          body: JSON.stringify({ model: useModel, max_completion_tokens: 4096, messages, tools: oaTools }),
+          body: JSON.stringify({ model: useModel, max_completion_tokens: openaiCompletionBudget(useModel, 4096), messages, tools: oaTools }),
         });
         if (!resp.ok) throw new Error(`OpenAI API HTTP ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
         const body = await resp.json();
@@ -194,19 +204,36 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
         if (!Array.isArray(msg.tool_calls) || !msg.tool_calls.length) break;
         const toolMsgs = [];
         for (const tc of msg.tool_calls) {
-          let args = {};
-          try { args = JSON.parse((tc.function && tc.function.arguments) || '{}'); } catch { /* run with {} */ }
-          const { text: outText } = await runTool(tc.function && tc.function.name, args);
+          const rawArgs = (tc.function && tc.function.arguments) || '{}';
+          let args, parseErr = null;
+          try { args = JSON.parse(rawArgs); } catch (e) { parseErr = e; }
+          const validArgs = args && typeof args === 'object' && !Array.isArray(args);
+          let outText;
+          if (parseErr || !validArgs) {
+            // Don't silently run the tool with {} on malformed arguments — feed the
+            // error back so the model corrects the call instead of grounding on a
+            // wrong-scope result it believes is legitimate (#243B).
+            outText = `Error: tool arguments were not a valid JSON object: ${String(rawArgs).slice(0, 200)}`;
+          } else {
+            ({ text: outText } = await runTool(tc.function && tc.function.name, args));
+          }
           toolMsgs.push({ role: 'tool', tool_call_id: tc.id, content: outText });
         }
         messages = [...messages, { role: 'assistant', content: msg.content || null, tool_calls: msg.tool_calls }, ...toolMsgs];
       }
     } else {
-      if (!process.env.ANTHROPIC_API_KEY) {
-        throw new Error('AI Overview needs an Anthropic API key — set the ANTHROPIC_API_KEY environment variable, or run an air-gapped overview with a local --model <gguf>.');
+      // #223: Claude egresses to api.anthropic.com (no loopback override), so an
+      // air-gapped run is blocked unconditionally here.
+      assertLocalOnly('AI Overview (cloud)');
+      // Honor the forwarded key (--api-key / claude.txt), not just the env var —
+      // previously the Claude branch ignored apiKey and hard-required the env,
+      // so a --api-key-only setup failed Overview while Chat/Analyze worked.
+      const key = apiKey || process.env.ANTHROPIC_API_KEY;
+      if (!key) {
+        throw new Error('AI Overview needs an Anthropic API key — set ANTHROPIC_API_KEY, pass --api-key, create claude.txt, or run an air-gapped overview with a local --model <gguf>.');
       }
       const Anthropic = (await import('@anthropic-ai/sdk')).default;
-      const anthropic = new Anthropic();
+      const anthropic = new Anthropic({ apiKey: key });
 
       let messages = [{ role: 'user', content: aiOverviewPrompt(grounding) }];
       for (let turn = 0; turn < MAX_OVERVIEW_TURNS; turn++) {

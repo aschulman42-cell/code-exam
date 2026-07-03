@@ -134,6 +134,19 @@ function checkEngineAvailability(engine) {
   if (!state.llmStatus) return true; // can't check, let server handle it
   const info = state.llmStatus[engine];
   if (info && info.available) return true;
+  // Under --air-gapped, a cloud engine is blocked regardless of key config — say
+  // that, instead of the misleading "not configured / set a key" message. The
+  // server flags this on /api/llm-status (#223).
+  if (state.llmStatus.airGapped && (engine === 'claude' || engine === 'openai')) {
+    const eng = engine === 'openai' ? 'ChatGPT (OpenAI)' : 'Claude';
+    _showAnalysisPane(
+      '<b>Blocked by --air-gapped.</b><br><br>' +
+      `Cloud AI calls are disabled for this run, so the ${eng} API can't be used.<br><br>` +
+      'Switch the engine to <b>Local GGUF</b>, or restart the server without <code>--air-gapped</code> ' +
+      '(your data would then leave this machine).',
+      'Engine Blocked (air-gapped)', true);
+    return false;
+  }
   if (engine === 'claude') {
     _showAnalysisPane(
       '<b>Claude API is not configured.</b><br><br>' +

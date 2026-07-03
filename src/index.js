@@ -465,13 +465,24 @@ if (args.overview_by_ai) {
       if (showCost && outTokens) costSuffix = ` (${kTok(outTokens)} tokens out · local, no API cost)`;
     } else {
       const { runAiOverview } = await import('./core/ai-overview.js');
-      // OpenAI key resolution mirrors the server's (flag > env > key file).
-      let openaiKey;
+      // Cloud key resolution: --api-key applies to the SELECTED provider, then
+      // the provider-specific flag / env / key file (mirrors the server). The
+      // Claude branch previously forwarded nothing and hard-required the env var,
+      // so a --api-key / claude.txt-only setup failed Overview while Chat/Analyze
+      // worked (#243B parity fix).
+      let cloudKey = '';
       if (cloudEngine === 'openai') {
-        openaiKey = args.openai_key || process.env.OPENAI_API_KEY || '';
-        if (!openaiKey) {
+        cloudKey = args.openai_key || args.api_key || process.env.OPENAI_API_KEY || '';
+        if (!cloudKey) {
           for (const fname of ['openai.txt', 'openai_key.txt']) {
-            try { const k = fs.readFileSync(fname, 'utf-8').trim(); if (k) { openaiKey = k; break; } } catch { /* ignore */ }
+            try { const k = fs.readFileSync(fname, 'utf-8').trim(); if (k) { cloudKey = k; break; } } catch { /* ignore */ }
+          }
+        }
+      } else {
+        cloudKey = args.api_key || process.env.ANTHROPIC_API_KEY || '';
+        if (!cloudKey) {
+          for (const fname of ['claude.txt', 'claude_key.txt']) {
+            try { const k = fs.readFileSync(fname, 'utf-8').trim(); if (k) { cloudKey = k; break; } } catch { /* ignore */ }
           }
         }
       }
@@ -479,7 +490,7 @@ if (args.overview_by_ai) {
       ({ prose, costUsd, usage } = await runAiOverview({
         indexPath: args.index_path,
         engine: cloudEngine,
-        apiKey: openaiKey,
+        apiKey: cloudKey,
         model: cloudEngine === 'openai'
           ? (args.openai_model || process.env.CE_OPENAI_MODEL)
           : (args.claude_model || process.env.CE_AI_OVERVIEW_MODEL),

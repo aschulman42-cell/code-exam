@@ -15,6 +15,16 @@ const RATES = [
   [/fable-5/i,  [10, 50]],
   [/mythos-5/i, [10, 50]],
   // OpenAI (#243 Part B) — published per-1M rates; refresh when defaults move.
+  // NOTE: order matters — RATES is first-match-wins, so the cheaper -mini /
+  // -nano variants MUST precede their flagship family patterns (e.g. gpt-4o-mini
+  // before gpt-4o), or a substring family match bills them at flagship rates
+  // (~16x over on gpt-4o-mini). #243B follow-up.
+  [/gpt-4o-mini/i, [0.15, 0.6]],
+  [/gpt-4\.1-mini/i, [0.4, 1.6]],
+  [/gpt-4\.1-nano/i, [0.1, 0.4]],
+  [/gpt-5-nano/i, [0.05, 0.4]],
+  [/gpt-5-mini/i, [0.25, 2]],
+  [/o[34]-mini/i, [1.1, 4.4]],
   [/gpt-5/i,    [1.25, 10]],
   [/gpt-4o/i,   [2.5, 10]],
   [/gpt-4\.1/i, [2, 8]],

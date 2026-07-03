@@ -33,6 +33,7 @@ import { extractReferencedResources } from './core/referenced-resources.js';
 import { runAiOverview, AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './core/ai-overview.js';
 import { setAirGapped, scrubApiKey, airGappedStartupCheck, isAirGapped, isLocalApiUrl, AIR_GAPPED_DISCLAIMER } from './core/air-gapped.js';
 import { estimateCost } from './core/pricing.js';
+import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiFinishReason } from './core/openai-util.js';
 import { skippedExtensionCensus } from './core/extension-census.js';
 import { loadUsedByCatalog, makeUsedByFor } from './commands/exports.js';
 import { detectInfrastructure } from './core/stack-detectors.js';
@@ -138,8 +139,20 @@ function parseServerArgs() {
       if ((v = takeValue(a)) !== null) {
         const norm = String(v).toLowerCase();
         result.defaultEngine = (['chatgpt', 'gpt', 'openai'].includes(norm)) ? 'openai'
-          : (norm === 'claude') ? 'claude'
-          : (norm === 'local') ? 'local' : null;
+          : (norm === 'claude') ? 'claude' : null;
+        if (result.defaultEngine === null) {
+          // Strict: refuse to launch on an unrecognized provider (#246). --llm
+          // selects the CLOUD provider only; the local engine is chosen with
+          // --model-path <gguf>, so `--llm local` / `--llm <file>.gguf` are
+          // refused with a local-specific hint.
+          if (norm === 'local' || norm.endsWith('.gguf')) {
+            const ex = norm.endsWith('.gguf') ? ` (e.g. --model-path ${v})` : '';
+            console.error(`ERROR: --llm selects the CLOUD provider ('claude' or 'openai'), not a local model. For the local engine, start with --model-path <gguf>${ex} or pick Local in the Chat / Workspace Engine dropdown.`);
+          } else {
+            console.error(`ERROR: unknown --llm value '${v}'. --llm selects the cloud provider: 'claude' or 'openai' (alias 'chatgpt' / 'gpt').`);
+          }
+          process.exit(1);
+        }
       }
     } else if (a === '--openai-key' || a === '--openai_key') {
       if ((v = takeValue(a)) !== null) result.openaiKey = v;
@@ -170,6 +183,14 @@ function parseServerArgs() {
     if (fs.existsSync('.code_search_index')) {
       result.indexPaths.push('.code_search_index');
     }
+  }
+
+  // A --model-path without an explicit --llm implies the local engine is the
+  // intended default: seed the GUI Chat/Workspace dropdowns to Local so they
+  // match the loaded model rather than defaulting to the Claude cloud API.
+  // (An explicit --llm claude|openai wins — the user chose a cloud engine.)
+  if (result.modelPath && result.defaultEngine === null) {
+    result.defaultEngine = 'local';
   }
 
   return result;
@@ -223,6 +244,9 @@ if (serverArgs.airGapped) {
   setAirGapped(true, { allowConnected: serverArgs.allowConnected });
   scrubApiKey();
   console.error(AIR_GAPPED_DISCLAIMER);
+  if (serverArgs.allowConnected) {
+    console.error('[air-gapped] --allow-connected accepted: cloud AI calls stay BLOCKED; the network-reachability refusal is skipped so CodeExam can run on a connected machine.');
+  }
   const _refusal = await airGappedStartupCheck();
   if (_refusal) { console.error(`[air-gapped] ${_refusal}`); process.exit(2); }
 }
@@ -389,14 +413,20 @@ class ServerLLM {
       console.error('[air-gapped] blocked: GUI cloud LLM (OpenAI)');
       return { error: '--air-gapped: cloud LLM is blocked. Set the engine to Local in the Workspace pane (LLM controls), or restart without --air-gapped to allow cloud calls (your data would leave this machine).' };
     }
-    if (!isLocal) console.log(`  [LLM] OpenAI API -> ${apiUrl} (model: ${model})`);
+    if (!isLocal) {
+      const tnote = openaiSupportsTemperature(model) ? '' : ' [temperature not pinnable on this model — sampling default, runs may vary]';
+      console.log(`  [LLM] OpenAI API -> ${apiUrl} (model: ${model})${tnote}`);
+    }
 
     const payload = JSON.stringify({
       model,
-      max_completion_tokens: maxTokens,
-      // gpt-5 / o-series models reject non-default temperature; only the
-      // gpt-4 family accepts an explicit value (0 for parity with Claude).
-      ...(_openaiSupportsTemperature(model) ? { temperature: opts.temperature ?? 0.0 } : {}),
+      // Reasoning models (gpt-5*, o*) count hidden reasoning tokens against this
+      // cap; floor it so a Claude-tuned maxTokens isn't consumed entirely by
+      // reasoning, leaving no room for the answer (openai-util).
+      max_completion_tokens: openaiCompletionBudget(model, maxTokens),
+      // gpt-5 / o-series reject a non-default temperature; only the gpt-4 family
+      // accepts an explicit value (0 for parity with Claude).
+      ...(openaiSupportsTemperature(model) ? { temperature: opts.temperature ?? 0.0 } : {}),
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userMessage },
@@ -408,7 +438,7 @@ class ServerLLM {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
       });
-      const usage = _openaiUsage(body.usage);
+      const usage = openaiUsage(body.usage);
       let costStr = '';
       if (!isLocal && usage.input_tokens && usage.output_tokens) {
         const { usd } = estimateCost(model, usage);
@@ -416,7 +446,15 @@ class ServerLLM {
       }
       console.log(`  [LLM] OK: ${model} (${usage.input_tokens} in / ${usage.output_tokens} out tokens${costStr})`);
       const text = String((body.choices && body.choices[0] && body.choices[0].message && body.choices[0].message.content) || '').trim();
-      if (!text) return { error: 'LLM returned empty response' };
+      if (!text) {
+        // Reasoning models can spend the whole budget on hidden reasoning and
+        // return empty content with finish_reason 'length' — name the cause
+        // instead of a bare "empty response" (#243B).
+        if (openaiFinishReason(body) === 'length') {
+          return { error: 'OpenAI returned no text — the token budget was exhausted (likely by reasoning tokens). Use a larger budget or a non-reasoning model.' };
+        }
+        return { error: 'LLM returned empty response' };
+      }
       return { text, usage: { ...usage, model } };
     } catch (e) {
       return { error: `OpenAI API error: ${e.message || e}` };
@@ -548,17 +586,9 @@ class ServerLLM {
   }
 }
 
-// gpt-5 / o-series models reject an explicit temperature; the gpt-4 family
-// accepts one. Used to keep temperature-0 parity where the API allows it.
-function _openaiSupportsTemperature(model) {
-  return /gpt-4/i.test(String(model || ''));
-}
-
-// OpenAI usage {prompt_tokens, completion_tokens} -> the Anthropic-ish shape
-// pricing.estimateCost expects.
-function _openaiUsage(u = {}) {
-  return { input_tokens: u.prompt_tokens || 0, output_tokens: u.completion_tokens || 0 };
-}
+// OpenAI provider-shape helpers (temperature support, reasoning-token budget,
+// usage normalization, finish_reason) live in core/openai-util.js so the CLI,
+// GUI, and overview surfaces share one implementation.
 
 /** Simple HTTP/HTTPS POST for server-side LLM calls. */
 function _serverHttpPost(url, body, headers) {
@@ -877,6 +907,9 @@ routes['/api/llm-status'] = async (req, res) => {
     claude: { available: claudeAvail.available, name: 'Claude API' },
     openai: { available: openaiAvail.available, name: `ChatGPT API (${serverLLM.defaultOpenAIModel})` },
     local:  { available: localAvail.available,  name: localName ? `Local: ${localName}` : 'Local GGUF Model', detail },
+    // #223: lets the client show "blocked by --air-gapped" for cloud engines
+    // instead of a misleading "not configured / set a key" message.
+    airGapped: isAirGapped(),
     // --llm at launch (#243 Part B): the engine the GUI controls should start
     // on. Client applies once so it doesn't override a manual switch.
     preferred: serverArgs.defaultEngine || null,
@@ -2307,10 +2340,17 @@ routes['/api/ai-overview'] = (req, res) => {
     || (cloudEngine === 'openai' ? serverLLM.defaultOpenAIModel : process.env.CE_AI_OVERVIEW_MODEL);
   const cloudDisplayModel = cloudModel || (cloudEngine === 'openai' ? serverLLM.defaultOpenAIModel : 'claude-sonnet-4-6');
   console.log(`  [ai-overview] running ${cloudEngine} over ${path.basename(idxPath)} …`);
-  runAiOverview({ indexPath: idxPath, engine: cloudEngine, model: cloudModel, apiKey: cloudEngine === 'openai' ? serverLLM.defaultOpenAIKey : undefined, timeoutMs: 600000 })
+  // Forward the resolved key for BOTH engines — the Claude overview branch now
+  // honors it (was hard-requiring ANTHROPIC_API_KEY), so a --api-key / claude.txt
+  // server can run a Claude overview like it already runs Chat/Analyze (#243B).
+  const overviewKey = cloudEngine === 'openai' ? serverLLM.defaultOpenAIKey : serverLLM.defaultApiKey;
+  runAiOverview({ indexPath: idxPath, engine: cloudEngine, model: cloudModel, apiKey: overviewKey, timeoutMs: 600000 })
     .then(({ prose, costUsd }) => jsonResponse(res, { prose, costUsd, engine: cloudEngine, model: cloudDisplayModel, index: index.indexSource || idxPath }))
     .catch((e) => {
       const msg = (e && e.message) ? e.message : String(e);
+      // Follow the "running <engine>" line with the outcome, so the stdout log
+      // shows the refusal (e.g. --air-gapped) instead of a dangling "running".
+      console.log(`  [ai-overview] ${cloudEngine} did not complete: ${msg}`);
       const code = /not found on PATH|Could not launch/i.test(msg) ? 400
         : /timed out/i.test(msg) ? 504 : 502;
       errorResponse(res, msg, code);
@@ -3809,8 +3849,10 @@ async function runChatToolLoopOpenAI({ messages, index, indexName, fileCount, mo
 
   const post = (msgs, withTools) => _serverHttpPost(apiUrl, JSON.stringify({
     model,
-    max_completion_tokens: maxTokens,
-    ...(_openaiSupportsTemperature(model) ? { temperature: 0 } : {}),
+    // Floor the cap for reasoning models so hidden reasoning tokens don't starve
+    // the answer (openai-util).
+    max_completion_tokens: openaiCompletionBudget(model, maxTokens),
+    ...(openaiSupportsTemperature(model) ? { temperature: 0 } : {}),
     messages: msgs,
     ...(withTools ? { tools } : {}),
   }), headers);
@@ -3826,14 +3868,25 @@ async function runChatToolLoopOpenAI({ messages, index, indexName, fileCount, mo
       const toolMsgs = [];
       for (const tc of msg.tool_calls) {
         const name = tc.function && tc.function.name;
-        let input = {};
-        try { input = JSON.parse((tc.function && tc.function.arguments) || '{}'); }
-        catch { /* malformed args — run the tool with {} and let it complain */ }
-        if (onToolCall) onToolCall(name, input);
+        const rawArgs = (tc.function && tc.function.arguments) || '{}';
+        let input, parseErr = null;
+        try { input = JSON.parse(rawArgs); } catch (e) { parseErr = e; }
+        const validInput = input && typeof input === 'object' && !Array.isArray(input);
         let result;
-        try { result = String(handleTool(name, input)); }
-        catch (e) { result = `Error: ${e.message}`; }
-        allBlocks.push({ type: 'tool_use', name, input, _result: result });
+        if (parseErr || !validInput) {
+          // Don't silently run the tool with {} on malformed arguments — return an
+          // invalid-arguments error so the model retries, instead of grounding on
+          // a wrong-scope result it believes is legitimate (#243B). Mirrors the
+          // Claude loop's handleTool(name, input || {}).
+          result = `Error: tool arguments were not a valid JSON object: ${String(rawArgs).slice(0, 200)}`;
+          if (onToolCall) onToolCall(name, {});
+          allBlocks.push({ type: 'tool_use', name, input: {}, _result: result });
+        } else {
+          if (onToolCall) onToolCall(name, input);
+          try { result = String(handleTool(name, input)); }
+          catch (e) { result = `Error: ${e.message}`; }
+          allBlocks.push({ type: 'tool_use', name, input, _result: result });
+        }
         toolMsgs.push({ role: 'tool', tool_call_id: tc.id, content: result });
       }
       current = [...current, { role: 'assistant', content: msg.content || null, tool_calls: msg.tool_calls }, ...toolMsgs];
@@ -4271,8 +4324,17 @@ server.listen(serverArgs.port, serverArgs.host, () => {
   }
   if (serverLLM.defaultApiKey) {
     console.log(`  Claude API:  key configured (${serverLLM.defaultApiKey.slice(0, 10)}...)${isAirGapped() ? '  — BLOCKED by --air-gapped' : ''}`);
+  } else if (isAirGapped()) {
+    console.log(`  Claude API:  BLOCKED by --air-gapped (cloud key not loaded this run)`);
   } else {
     console.log(`  Claude API:  no key (set ANTHROPIC_API_KEY or --api-key)`);
+  }
+  if (serverLLM.defaultOpenAIKey) {
+    console.log(`  OpenAI API:  key configured (${serverLLM.defaultOpenAIKey.slice(0, 10)}...)${isAirGapped() ? '  — BLOCKED by --air-gapped' : ''}`);
+  } else if (isAirGapped()) {
+    console.log(`  OpenAI API:  BLOCKED by --air-gapped (cloud key not loaded this run)`);
+  } else {
+    console.log(`  OpenAI API:  no key (set OPENAI_API_KEY or --openai-key)`);
   }
   if (serverArgs.temperature > 0) {
     console.log(`  Temperature: ${serverArgs.temperature}`);

@@ -993,10 +993,13 @@ function dispatchCommand(query, ctx) {
       const claimArgs = {
         claim_search: claimText.startsWith('@') ? claimText : claimText,
         claim_file: null,
-        use_claude: !localModel,  // use Claude unless local model available
+        use_claude: !localModel && !ctx.cliArgs.use_openai,  // cloud=Claude unless --llm openai; a local model wins over both
+        use_openai: !localModel && !!ctx.cliArgs.use_openai,
         claim_model: ctx.cliArgs.claim_model || null,
         analyze_model: ctx.cliArgs.analyze_model || null,
         api_key: ctx.cliArgs.api_key || null,
+        openai_key: ctx.cliArgs.openai_key || null,
+        openai_model: ctx.cliArgs.openai_model || null,
         min_terms: minTerms,
         show_prompt: showPrompt,
         temperature,
@@ -1030,8 +1033,11 @@ function dispatchCommand(query, ctx) {
       return doAnalyze(index, iargs({
         analyze: rest,
         use_claude: ctx.cliArgs.use_claude || false,
+        use_openai: ctx.cliArgs.use_openai || false,
         analyze_model: ctx.cliArgs.analyze_model || null,
         api_key: ctx.cliArgs.api_key || null,
+        openai_key: ctx.cliArgs.openai_key || null,
+        openai_model: ctx.cliArgs.openai_model || null,
         temperature: ctx.cliArgs.temperature ?? 0.0,
         mask_all: maskAll,
         line_numbers: lineNumbers,
@@ -1064,9 +1070,12 @@ function dispatchCommand(query, ctx) {
       return doClaimAnalyze(index, iargs({
         claim_analyze: rest,
         use_claude: !!ctx.cliArgs.use_claude,
+        use_openai: !!ctx.cliArgs.use_openai,
         analyze_model: ctx.cliArgs.analyze_model || null,
         claim_model: ctx.cliArgs.claim_model || null,
         api_key: ctx.cliArgs.api_key || null,
+        openai_key: ctx.cliArgs.openai_key || null,
+        openai_model: ctx.cliArgs.openai_model || null,
         temperature: ctx.cliArgs.temperature ?? 0.0,
         mask_all: maskAll,
         line_numbers: lineNumbers,
@@ -1105,8 +1114,11 @@ function dispatchCommand(query, ctx) {
       return doMultisectAnalyze(index, iargs({
         multisect_analyze: mRest,
         use_claude: ctx.cliArgs.use_claude || false,
+        use_openai: ctx.cliArgs.use_openai || false,
         analyze_model: ctx.cliArgs.analyze_model || null,
         api_key: ctx.cliArgs.api_key || null,
+        openai_key: ctx.cliArgs.openai_key || null,
+        openai_model: ctx.cliArgs.openai_model || null,
         temperature: ctx.cliArgs.temperature ?? 0.0,
         mask_all: maskAll,
         line_numbers: lineNumbers,
@@ -1138,8 +1150,11 @@ function dispatchCommand(query, ctx) {
       return doFileAnalyze(index, iargs({
         file_analyze: rest,
         use_claude: ctx.cliArgs.use_claude || false,
+        use_openai: ctx.cliArgs.use_openai || false,
         analyze_model: ctx.cliArgs.analyze_model || null,
         api_key: ctx.cliArgs.api_key || null,
+        openai_key: ctx.cliArgs.openai_key || null,
+        openai_model: ctx.cliArgs.openai_model || null,
         temperature: ctx.cliArgs.temperature ?? 0.0,
         mask_all: maskAll,
         line_numbers: lineNumbers,

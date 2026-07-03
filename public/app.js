@@ -1509,7 +1509,7 @@ function switchToAnalysisTab() {
 
 
 // ========================================================================
-// Chat about code (#36 Phase 1) — Claude-backed, drives CE's MCP tools
+// Chat about code (#36 Phase 1) — cloud (Claude/ChatGPT) or local-backed, drives CE's MCP tools
 // in-process via the server's /api/chat route (shares the loaded index).
 // History is kept text-only so we don't have to replay tool_use/tool_result
 // pairs; the model re-queries tools per turn as needed.
@@ -1599,7 +1599,7 @@ function clearChat() {
   wrap.innerHTML = '';
   wrap.appendChild(h('div', {
     className: 'list-placeholder',
-    text: "Ask Claude about this codebase. It can search, analyze, and explore the loaded index with CodeExam's tools.",
+    text: "Ask the AI about this codebase. It can search, analyze, and explore the loaded index with CodeExam's tools.",
   }));
 }
 

@@ -394,7 +394,7 @@
           <div class="chat-header" style="display:flex;align-items:center;gap:8px;padding:4px 8px;font-size:0.85em;opacity:0.85">
             <span>Chatting about: <strong id="chat-index">…</strong></span>
             <span id="chat-llm-detail" style="opacity:0.7;font-size:0.95em"></span>
-            <label style="margin-left:auto;display:flex;align-items:center;gap:4px" title="Chat LLM engine: Claude (cloud API) or a local GGUF model (air-gapped — nothing leaves this machine). Local requires the server started with --model-path.">Engine:
+            <label style="margin-left:auto;display:flex;align-items:center;gap:4px" title="Chat LLM engine: Claude or ChatGPT (cloud APIs) or a local GGUF model (air-gapped — nothing leaves this machine). Local requires the server started with --model-path.">Engine:
               <select id="chat-engine" style="font-size:0.95em">
                 <option value="claude" selected>Claude API</option>
                 <option value="openai">ChatGPT API</option>
@@ -414,7 +414,7 @@
             <button id="chat-clear" class="pane-action" title="Clear conversation">🗑</button>
           </div>
           <div class="console-output" id="chat-messages">
-            <div class="list-placeholder">Ask Claude about this codebase. It can search, analyze, and explore the loaded index with CodeExam's tools.</div>
+            <div class="list-placeholder">Ask the AI about this codebase. It can search, analyze, and explore the loaded index with CodeExam's tools.</div>
           </div>
           <div class="console-input-row">
             <textarea id="chat-input" placeholder="Ask about this codebase…  (Enter to send · Shift+Enter = newline)" rows="2" spellcheck="false" autocomplete="off" style="flex:1;resize:none;font-family:inherit"></textarea>

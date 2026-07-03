@@ -741,19 +741,36 @@ export function parseArgs() {
   if (args.sort === 'alpha' && !args.list_functions_alpha) args.list_functions_alpha = true;
   if (args.sort === 'size' && !args.list_functions_size) args.list_functions_size = true;
   if (args.use_claude && !args.llm) args.llm = 'claude';
-  if (args.llm === 'claude') args.use_claude = true;
-  // #243 Part B: the OpenAI provider under either name. CLI coverage today is
-  // --overview-by-ai (plus all the GUI engines); the CLI claim/analyze family
-  // still routes only claude|local — fail FAST there rather than silently
-  // running a different provider than the user asked for.
-  if (args.llm === 'chatgpt' || args.llm === 'gpt') args.llm = 'openai';
-  if (args.llm === 'openai') {
-    args.use_openai = true;
-    if (args.claim_search || args.multisect_analyze || args.analyze) {
-      process.stderr.write('--llm openai/chatgpt is not yet wired for the CLI claim/analyze commands — use --llm claude, a local --model <gguf>, or the ChatGPT engine in the GUI. (It IS supported for --overview-by-ai.)\n');
+  // #243B: normalize --llm case-insensitively and accept the OpenAI aliases, so
+  // `--llm ChatGPT` / `GPT` / `OpenAI` don't silently fall through to the Claude
+  // default downstream (index.js:cloudEngine, getAnalysisLLM, extractClaimTerms).
+  // The GUI server's parseServerArgs already lowercases; the CLI now matches.
+  if (typeof args.llm === 'string') {
+    const norm = args.llm.toLowerCase();
+    if (['chatgpt', 'gpt', 'openai'].includes(norm)) {
+      args.llm = 'openai';
+    } else if (norm === 'claude') {
+      args.llm = 'claude';
+    } else {
+      // Strict: refuse an unrecognized provider rather than silently routing to
+      // Claude — safer for an air-gap-conscious tool (#246). --llm selects the
+      // CLOUD provider only; a local model is selected with --model <gguf>, so
+      // `--llm local` / `--llm <file>.gguf` are refused with a local-specific hint.
+      if (norm === 'local' || norm.endsWith('.gguf')) {
+        const ex = norm.endsWith('.gguf') ? ` (e.g. --model ${args.llm})` : '';
+        process.stderr.write(`ERROR: --llm selects the CLOUD provider ('claude' or 'openai'), not a local model. For a local GGUF model, use --model <gguf>${ex} instead.\n`);
+      } else {
+        process.stderr.write(`ERROR: unknown --llm value '${args.llm}'. --llm selects the cloud provider: 'claude' or 'openai' (alias 'chatgpt' / 'gpt').\n`);
+      }
       process.exit(1);
     }
   }
+  if (args.llm === 'claude') args.use_claude = true;
+  // #243B follow-up: the CLI claim/analyze family (analyze / claim-search /
+  // claim-analyze / multisect-analyze / file-analyze / claim-file) now supports
+  // OpenAI end-to-end (getAnalysisLLM + extractClaimTerms), so the prior
+  // fail-fast guard for --llm openai on those commands is gone.
+  if (args.llm === 'openai') args.use_openai = true;
   if (args.claim_model && !args.model) args.model = args.claim_model;
   if (args.analyze_model && !args.model) args.model = args.analyze_model;
   if (args.model && !args.claim_model) args.claim_model = args.model;

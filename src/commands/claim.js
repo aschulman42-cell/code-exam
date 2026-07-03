@@ -19,6 +19,8 @@ import fs from 'fs';
 import https from 'https';
 import http from 'http';
 import { assertLocalOnly, isLocalApiUrl } from '../core/air-gapped.js';
+import { estimateCost } from '../core/pricing.js';
+import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiText } from '../core/openai-util.js';
 
 // ============================================================================
 // LLM Prompt for technical-prose -> search term extraction
@@ -246,19 +248,36 @@ BROAD: ...`;
  * @param {string} [opts.vocabConcordance] - Vocabulary concordance from index
  * @returns {Promise<{tight: string|null, broad: string|null, raw: string}|{error: string}>}
  */
-export async function extractClaimTerms(claimText, opts = {}) {
-  const apiKey = opts.apiKey || process.env.ANTHROPIC_API_KEY || '';
-  if (!apiKey) {
-    return { error: 'No API key. Set ANTHROPIC_API_KEY environment variable or use --api-key KEY.' };
+function _readOpenAIKeyFile() {
+  for (const fname of ['openai.txt', 'openai_key.txt']) {
+    try { const k = fs.readFileSync(fname, 'utf-8').trim(); if (k) return k; } catch { /* ignore */ }
   }
+  return '';
+}
 
-  const apiUrl = opts.apiUrl
-    || process.env.CLAIM_SEARCH_API_URL
-    || 'https://api.anthropic.com/v1/messages';
-  const model = opts.claudeModel
-    || opts.model
-    || process.env.CLAIM_SEARCH_MODEL
-    || 'claude-sonnet-4-6';
+export async function extractClaimTerms(claimText, opts = {}) {
+  // #243B: term extraction runs on the selected cloud provider. OpenAI key
+  // resolution mirrors the server (flag > --api-key > env > openai.txt); the
+  // Anthropic path is unchanged.
+  const isOpenAI = opts.provider === 'openai' || opts.useOpenAI === true;
+  let apiKey, apiUrl, model, reqHeaders;
+  if (isOpenAI) {
+    apiKey = opts.openaiKey || opts.apiKey || process.env.OPENAI_API_KEY || _readOpenAIKeyFile();
+    if (!apiKey) {
+      return { error: 'No OpenAI API key. Set OPENAI_API_KEY, create openai.txt, or use --openai-key/--api-key.' };
+    }
+    apiUrl = opts.apiUrl || process.env.CE_OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
+    model = opts.openaiModel || process.env.CE_OPENAI_MODEL || 'gpt-5.1';
+    reqHeaders = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` };
+  } else {
+    apiKey = opts.apiKey || process.env.ANTHROPIC_API_KEY || '';
+    if (!apiKey) {
+      return { error: 'No API key. Set ANTHROPIC_API_KEY environment variable or use --api-key KEY.' };
+    }
+    apiUrl = opts.apiUrl || process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages';
+    model = opts.claudeModel || opts.model || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6';
+    reqHeaders = { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' };
+  }
   const temperature = opts.temperature ?? 0.0;
   const verbose = opts.verbose || false;
 
@@ -287,15 +306,27 @@ export async function extractClaimTerms(claimText, opts = {}) {
   const systemPrompt = opts.vocabConcordance
     ? buildExtractionPromptWithVocab(opts.vocabConcordance, opts.vocabTight || false)
     : _CLAIM_EXTRACTION_PROMPT;
-  const payload = JSON.stringify({
-    model,
-    max_tokens: 2048,
-    temperature,
-    system: systemPrompt,
-    messages: [
-      { role: 'user', content: claimText.trim() }
-    ],
-  });
+  const payload = isOpenAI
+    ? JSON.stringify({
+        model,
+        // Reasoning models spend hidden tokens against this cap; floor it so a
+        // 2048 request isn't consumed entirely by reasoning (openai-util).
+        max_completion_tokens: openaiCompletionBudget(model, 2048),
+        ...(openaiSupportsTemperature(model) ? { temperature } : {}),
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: claimText.trim() },
+        ],
+      })
+    : JSON.stringify({
+        model,
+        max_tokens: 2048,
+        temperature,
+        system: systemPrompt,
+        messages: [
+          { role: 'user', content: claimText.trim() }
+        ],
+      });
 
   if (verbose) {
     process.stderr.write(`  API: ${apiUrl}\n`);
@@ -306,31 +337,23 @@ export async function extractClaimTerms(claimText, opts = {}) {
 
   // Send request
   try {
-    const body = await _httpPost(apiUrl, payload, {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    });
+    const body = await _httpPost(apiUrl, payload, reqHeaders);
 
-    const usage = body.usage || {};
+    // Cost via the shared pricing helper (model-aware; was hardcoded to Sonnet's
+    // $3/$15 regardless of model). openaiUsage() maps OpenAI's prompt/completion
+    // token names onto the Anthropic-shaped input/output the helper expects.
+    const usage = isOpenAI ? openaiUsage(body.usage) : (body.usage || {});
     const inTok = usage.input_tokens || 0;
     const outTok = usage.output_tokens || 0;
     if (!isLocal) {
-      // Estimate cost (Sonnet: $3/$15 per MTok in/out)
-      let costStr = '';
-      if (typeof inTok === 'number' && typeof outTok === 'number') {
-        const cost = (inTok * 3 + outTok * 15) / 1_000_000;
-        costStr = `, est. $${cost.toFixed(4)}`;
-      }
-      process.stderr.write(`  OK: ${model} (${inTok} in / ${outTok} out tokens${costStr})\n`);
+      const { usd } = estimateCost(model, { input_tokens: inTok, output_tokens: outTok });
+      process.stderr.write(`  OK: ${model} (${inTok} in / ${outTok} out tokens, est. $${usd.toFixed(4)})\n`);
     }
 
-    // Extract text from response
-    const content = body.content || [];
-    const textParts = content
-      .filter(b => b.type === 'text')
-      .map(b => b.text);
-    const rawResponseText = textParts.join('\n').trim();
+    // Extract text from response (provider-shaped).
+    const rawResponseText = isOpenAI
+      ? openaiText(body)
+      : (body.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
 
     if (!rawResponseText) {
       return { error: 'LLM returned empty response' };
@@ -1207,6 +1230,10 @@ export async function doClaimSearch(index, args) {
       vocabConcordance,
       vocabTight,
       claudeModel: args.claude_model,
+      // #243B: route term extraction to OpenAI when --llm openai/chatgpt.
+      provider: args.use_openai ? 'openai' : 'claude',
+      openaiKey: args.openai_key || null,
+      openaiModel: args.openai_model || null,
     });
   }
 
