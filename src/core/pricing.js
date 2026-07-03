@@ -14,6 +14,11 @@ const RATES = [
   [/haiku-4/i,  [1, 5]],
   [/fable-5/i,  [10, 50]],
   [/mythos-5/i, [10, 50]],
+  // OpenAI (#243 Part B) — published per-1M rates; refresh when defaults move.
+  [/gpt-5/i,    [1.25, 10]],
+  [/gpt-4o/i,   [2.5, 10]],
+  [/gpt-4\.1/i, [2, 8]],
+  [/^o[34]/i,   [2, 8]],
 ];
 const DEFAULT_RATE = [5, 25]; // conservative (Opus-tier) for an unrecognized id
 

@@ -73,6 +73,7 @@ import {
   renderExtensionsList, renderDupeGroupList,
   renderSurprisingFuncstringsList, renderStringTable,
   loadFileFunctions, loadClassMethods,
+  updateAiOverviewWarning,
 } from './list-renderers.js';
 
 // ========================================================================
@@ -1860,6 +1861,9 @@ async function init() {
   // switched from the other surface (chat and workspace share ONE model).
   $('#chat-engine')?.addEventListener('mousedown', () => refreshLlmStatus());
   $('#ws-engine')?.addEventListener('mousedown', () => refreshLlmStatus());
+  // Keep any on-screen Overview-by-AI pre-run warning in sync when the
+  // Workspace engine changes (#243 Part B — the warning went stale before).
+  $('#ws-engine')?.addEventListener('change', () => updateAiOverviewWarning());
   // Chat-side browse: same model-browser dialog the workspace uses — one
   // loaded model serves both surfaces (unify-llm-engine-controls).
   $('#chat-browse-model')?.addEventListener('click', openModelBrowser);

@@ -106,14 +106,16 @@ export function aiOverviewPrompt(grounding) {
  */
 const MAX_OVERVIEW_TURNS = 16;
 
-export async function runAiOverview({ indexPath, model, timeoutMs = 600000, grounding, maxBudgetUsd, onStderr } = {}) {
+export async function runAiOverview({ indexPath, engine = 'claude', model, apiKey, timeoutMs = 600000, grounding, maxBudgetUsd, onStderr } = {}) {
   if (!indexPath) throw new Error('runAiOverview: indexPath is required.');
 
   // Spend ceiling: explicit arg wins, else CE_OVERVIEW_MAX_BUDGET env, else $5.
   const _envBudget = parseFloat(process.env.CE_OVERVIEW_MAX_BUDGET);
   const budgetUsd = Number.isFinite(maxBudgetUsd) ? maxBudgetUsd
     : (Number.isFinite(_envBudget) ? _envBudget : 5.0);
-  const useModel = model || 'claude-sonnet-4-6';
+  const useModel = model || (engine === 'openai'
+    ? (process.env.CE_OPENAI_MODEL || 'gpt-5.1')
+    : 'claude-sonnet-4-6');
 
   // Spawn CE's own mcp-server for this index and connect an in-process client.
   // Large indexes load synchronously at startup, so give the handshake the same
@@ -140,49 +142,98 @@ export async function runAiOverview({ indexPath, model, timeoutMs = 600000, grou
     }
 
     assertLocalOnly('AI Overview (cloud)'); // #223
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new Error('AI Overview needs an Anthropic API key — set the ANTHROPIC_API_KEY environment variable, or run an air-gapped overview with a local --model <gguf>.');
-    }
-    const Anthropic = (await import('@anthropic-ai/sdk')).default;
-    const anthropic = new Anthropic();
 
-    let messages = [{ role: 'user', content: aiOverviewPrompt(grounding) }];
-    const usage = { input_tokens: 0, output_tokens: 0 };
-    let prose = '';
-
-    for (let turn = 0; turn < MAX_OVERVIEW_TURNS; turn++) {
-      const response = await anthropic.messages.create({
-        model: useModel, max_tokens: 4096, messages, tools: sdkTools,
-      });
-      if (response.usage) {
-        usage.input_tokens += response.usage.input_tokens || 0;
-        usage.output_tokens += response.usage.output_tokens || 0;
+    // Shared per-tool executor: run one CE MCP tool, return its text.
+    const runTool = async (name, args) => {
+      if (onStderr) onStderr(`[overview] tool: ${name}\n`);
+      try {
+        const r = await mcpClient.callTool({ name, arguments: args });
+        return { text: (r.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n'), isError: false };
+      } catch (e) {
+        return { text: `Error: ${e.message}`, isError: true };
       }
+    };
+    const usage = { input_tokens: 0, output_tokens: 0 };
+    const checkBudget = () => {
       const { usd } = estimateCost(useModel, usage);
       if (Number.isFinite(usd) && usd > budgetUsd) {
         throw new Error(`AI Overview hit the $${budgetUsd} spend cap. Raise it with CE_OVERVIEW_MAX_BUDGET=<amount> and retry, or narrow the index.`);
       }
+    };
+    let prose = '';
 
-      // Final prose = the latest text the model emits (the closing turn).
-      const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-      if (text) prose = text;
-
-      if (response.stop_reason !== 'tool_use') break;
-
-      const toolResults = [];
-      for (const tu of response.content.filter(b => b.type === 'tool_use')) {
-        if (onStderr) onStderr(`[overview] tool: ${tu.name}\n`);
-        try {
-          const r = await mcpClient.callTool({ name: tu.name, arguments: tu.input });
-          const outText = (r.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n');
-          toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: outText });
-        } catch (e) {
-          toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: `Error: ${e.message}`, is_error: true });
-        }
+    if (engine === 'openai') {
+      // #243 Part B: same agentic loop over the same mcp-server, OpenAI wire
+      // format (tool_calls / role:"tool"), plain HTTPS via global fetch.
+      const key = apiKey || process.env.OPENAI_API_KEY;
+      if (!key) {
+        throw new Error('AI Overview needs an OpenAI API key — set the OPENAI_API_KEY environment variable (or openai.txt / --openai-key), or run an air-gapped overview with a local --model <gguf>.');
       }
-      messages = [...messages,
-        { role: 'assistant', content: response.content },
-        { role: 'user', content: toolResults }];
+      const oaTools = sdkTools.map(t => ({
+        type: 'function',
+        function: { name: t.name, description: t.description, parameters: t.input_schema || { type: 'object', properties: {} } },
+      }));
+      const apiUrl = process.env.CE_OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
+      let messages = [{ role: 'user', content: aiOverviewPrompt(grounding) }];
+      for (let turn = 0; turn < MAX_OVERVIEW_TURNS; turn++) {
+        const resp = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+          body: JSON.stringify({ model: useModel, max_completion_tokens: 4096, messages, tools: oaTools }),
+        });
+        if (!resp.ok) throw new Error(`OpenAI API HTTP ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
+        const body = await resp.json();
+        if (body.usage) {
+          usage.input_tokens += body.usage.prompt_tokens || 0;
+          usage.output_tokens += body.usage.completion_tokens || 0;
+        }
+        checkBudget();
+        const msg = (body.choices && body.choices[0] && body.choices[0].message) || {};
+        const text = String(msg.content || '').trim();
+        if (text) prose = text;
+        if (!Array.isArray(msg.tool_calls) || !msg.tool_calls.length) break;
+        const toolMsgs = [];
+        for (const tc of msg.tool_calls) {
+          let args = {};
+          try { args = JSON.parse((tc.function && tc.function.arguments) || '{}'); } catch { /* run with {} */ }
+          const { text: outText } = await runTool(tc.function && tc.function.name, args);
+          toolMsgs.push({ role: 'tool', tool_call_id: tc.id, content: outText });
+        }
+        messages = [...messages, { role: 'assistant', content: msg.content || null, tool_calls: msg.tool_calls }, ...toolMsgs];
+      }
+    } else {
+      if (!process.env.ANTHROPIC_API_KEY) {
+        throw new Error('AI Overview needs an Anthropic API key — set the ANTHROPIC_API_KEY environment variable, or run an air-gapped overview with a local --model <gguf>.');
+      }
+      const Anthropic = (await import('@anthropic-ai/sdk')).default;
+      const anthropic = new Anthropic();
+
+      let messages = [{ role: 'user', content: aiOverviewPrompt(grounding) }];
+      for (let turn = 0; turn < MAX_OVERVIEW_TURNS; turn++) {
+        const response = await anthropic.messages.create({
+          model: useModel, max_tokens: 4096, messages, tools: sdkTools,
+        });
+        if (response.usage) {
+          usage.input_tokens += response.usage.input_tokens || 0;
+          usage.output_tokens += response.usage.output_tokens || 0;
+        }
+        checkBudget();
+
+        // Final prose = the latest text the model emits (the closing turn).
+        const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+        if (text) prose = text;
+
+        if (response.stop_reason !== 'tool_use') break;
+
+        const toolResults = [];
+        for (const tu of response.content.filter(b => b.type === 'tool_use')) {
+          const { text: outText, isError } = await runTool(tu.name, tu.input);
+          toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: outText, ...(isError ? { is_error: true } : {}) });
+        }
+        messages = [...messages,
+          { role: 'assistant', content: response.content },
+          { role: 'user', content: toolResults }];
+      }
     }
 
     if (!prose) throw new Error('AI Overview produced no prose (empty model output).');

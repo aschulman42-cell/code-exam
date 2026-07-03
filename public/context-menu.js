@@ -31,6 +31,7 @@ import {
 let _showAnalysisPane = () => {};
 let _renderLlmAnalysis = () => {};
 let _stripAtFileHeader = (s) => s;
+let _preferredEngineApplied = false; // --llm launch default applied to dropdowns once
 
 export function initContextMenu(deps = {}) {
   if (typeof deps.showAnalysisPane === 'function') _showAnalysisPane = deps.showAnalysisPane;
@@ -49,6 +50,17 @@ export function initContextMenu(deps = {}) {
  * the detail badges, update together from this single source of truth. */
 export async function refreshLlmStatus() {
   try { state.llmStatus = await api.llmStatus(); } catch { state.llmStatus = null; }
+  // Apply a --llm launch default to BOTH engine dropdowns, but only ONCE — so
+  // it seeds the initial selection without clobbering a later manual switch
+  // (refreshLlmStatus also runs on every dropdown open). #243 Part B.
+  const preferred = state.llmStatus && state.llmStatus.preferred;
+  if (preferred && !_preferredEngineApplied) {
+    _preferredEngineApplied = true;
+    for (const selId of ['#chat-engine', '#ws-engine']) {
+      const sel = document.querySelector(selId);
+      if (sel && sel.querySelector(`option[value="${preferred}"]`)) sel.value = preferred;
+    }
+  }
   const local = state.llmStatus && state.llmStatus.local;
   if (!local) return;
   const d = local.detail || {};
@@ -100,6 +112,14 @@ function checkEngineAvailability(engine) {
       '&bull; Create a <code>claude.txt</code> file containing your API key in the server directory<br>' +
       '&bull; Set the <code>ANTHROPIC_API_KEY</code> environment variable<br>' +
       '&bull; Start the server with <code>--api-key &lt;key&gt;</code>',
+      'Engine Not Available', true);
+  } else if (engine === 'openai') {
+    _showAnalysisPane(
+      '<b>ChatGPT (OpenAI) API is not configured.</b><br><br>' +
+      'To enable it, do one of the following:<br>' +
+      '&bull; Create an <code>openai.txt</code> file containing your API key in the server directory<br>' +
+      '&bull; Set the <code>OPENAI_API_KEY</code> environment variable<br>' +
+      '&bull; Start the server with <code>--openai-key &lt;key&gt;</code>',
       'Engine Not Available', true);
   } else {
     _showAnalysisPane(

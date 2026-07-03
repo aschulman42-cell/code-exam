@@ -454,6 +454,8 @@ export function parseArgs() {
     ['claim_file',           'value',          ['--claim-file']],
     ['use_claude',           'flag',           [], ['--use-claude']],
     ['llm',                  'value',          ['--llm']],
+    ['openai_key',           'value',          ['--openai-key']],
+    ['openai_model',         'value',          ['--openai-model']],
     ['air_gapped',           'flag',           ['--air-gapped']],
     ['allow_connected',      'flag',           ['--allow-connected']],
     ['api_key',              'value',          ['--api-key']],
@@ -740,6 +742,18 @@ export function parseArgs() {
   if (args.sort === 'size' && !args.list_functions_size) args.list_functions_size = true;
   if (args.use_claude && !args.llm) args.llm = 'claude';
   if (args.llm === 'claude') args.use_claude = true;
+  // #243 Part B: the OpenAI provider under either name. CLI coverage today is
+  // --overview-by-ai (plus all the GUI engines); the CLI claim/analyze family
+  // still routes only claude|local — fail FAST there rather than silently
+  // running a different provider than the user asked for.
+  if (args.llm === 'chatgpt' || args.llm === 'gpt') args.llm = 'openai';
+  if (args.llm === 'openai') {
+    args.use_openai = true;
+    if (args.claim_search || args.multisect_analyze || args.analyze) {
+      process.stderr.write('--llm openai/chatgpt is not yet wired for the CLI claim/analyze commands — use --llm claude, a local --model <gguf>, or the ChatGPT engine in the GUI. (It IS supported for --overview-by-ai.)\n');
+      process.exit(1);
+    }
+  }
   if (args.claim_model && !args.model) args.model = args.claim_model;
   if (args.analyze_model && !args.model) args.model = args.analyze_model;
   if (args.model && !args.claim_model) args.claim_model = args.model;
@@ -1023,6 +1037,20 @@ MODE:
                              once it loads (default: the first-run demo tour).
                              Composes with --index-path to tour another index.
   --port <n>                 GUI server port (default 8080)
+  --context-size <n>         GUI server: preferred local-model context size
+                             (first rung of the 8192/4096/2048 ladder; falls
+                             back on OOM, so safe to over-ask). Agentic chat
+                             wants 16384+ when VRAM allows.
+  --reproducible             GUI server: pin local-model sampling (temperature
+                             0, fixed seed) so the same question over the same
+                             index/model/config repeats the same answer on this
+                             machine. Default: sampling on (answers vary).
+  --openai-key <key>         GUI server: OpenAI API key for the ChatGPT engine
+                             (or set OPENAI_API_KEY / create openai.txt).
+  --openai-model <id>        GUI server: OpenAI / ChatGPT model id (default
+                             gpt-5.1; or set CE_OPENAI_MODEL). Used by the
+                             ChatGPT engine in Chat, Analyze, and Overview
+                             by AI.
 
 CALLERS / CALLEES:
   --callers <spec>           Find callers of a function (FUNC or FILE@FUNC)
@@ -1121,9 +1149,12 @@ CLAIM SEARCH (LLM-based patent claim analysis):
   --claim-file <path>        Read patent claim text from file (alternative
                              to --claim-search @file.txt; specific to the
                              claim-search code path).
-  --llm <provider>           Select cloud LLM provider for term extraction /
-                             analysis. Currently only 'claude' is recognized.
-                             Requires the corresponding API key env var.
+  --llm <provider>           Select cloud LLM provider: 'claude' or 'openai'
+                             (alias: 'chatgpt'). Requires the corresponding
+                             API key. openai/ChatGPT coverage today:
+                             --overview-by-ai and all GUI engines; the CLI
+                             claim/analyze commands still take claude only
+                             and fail fast if openai is requested.
                              (deprecated alias: --use-claude → --llm claude)
   --api-key <key>            API key for the selected provider (overrides env var)
   --model <path.gguf>        Local GGUF model path for term extraction and

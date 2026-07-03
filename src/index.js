@@ -155,7 +155,7 @@ if (_rawArgvForGui.includes('--gui') || _wantsTour) {
       }
     }
   }
-  for (const flag of ['--model-path', '--model', '--local-model', '--api-key', '--key', '--temperature', '--context-size']) {
+  for (const flag of ['--model-path', '--model', '--local-model', '--api-key', '--key', '--temperature', '--context-size', '--openai-key', '--openai-model', '--llm']) {
     const v = _argAfter(flag, null);
     if (v !== null) _serverArgv.push(flag, v);
   }
@@ -426,9 +426,12 @@ if (args.overview_by_ai) {
   const startedAt = Date.now();
   const mins = Math.round(timeoutMs / 60000);
   // Engine: --model <gguf> selects the local node-llama-cpp engine (air-gapped,
-  // #196 spike); otherwise the Anthropic API. (--claude-model picks the API model.)
+  // #196 spike); --llm openai|chatgpt the OpenAI API (#243 Part B, with
+  // --openai-model / --openai-key); otherwise the Anthropic API
+  // (--claude-model picks the API model).
   const localGguf = args.model || null;
-  const engineLabel = localGguf ? `local ${localGguf.split(/[\\/]/).pop()}${args.cpu ? ' (CPU)' : ''}` : 'claude';
+  const cloudEngine = args.llm === 'openai' ? 'openai' : 'claude';
+  const engineLabel = localGguf ? `local ${localGguf.split(/[\\/]/).pop()}${args.cpu ? ' (CPU)' : ''}` : cloudEngine;
   process.stderr.write(`[overview-by-ai] running ${engineLabel}, grounding=${grounding}, over ${args.index_path} (timeout ${mins} min)…\n`);
   // Heartbeat: the run can take minutes with no output (prose prints only at the
   // end), so emit a sign of life every 20s. stderr-only — stdout stays pure
@@ -462,10 +465,24 @@ if (args.overview_by_ai) {
       if (showCost && outTokens) costSuffix = ` (${kTok(outTokens)} tokens out · local, no API cost)`;
     } else {
       const { runAiOverview } = await import('./core/ai-overview.js');
+      // OpenAI key resolution mirrors the server's (flag > env > key file).
+      let openaiKey;
+      if (cloudEngine === 'openai') {
+        openaiKey = args.openai_key || process.env.OPENAI_API_KEY || '';
+        if (!openaiKey) {
+          for (const fname of ['openai.txt', 'openai_key.txt']) {
+            try { const k = fs.readFileSync(fname, 'utf-8').trim(); if (k) { openaiKey = k; break; } } catch { /* ignore */ }
+          }
+        }
+      }
       let costUsd, usage;
       ({ prose, costUsd, usage } = await runAiOverview({
         indexPath: args.index_path,
-        model: args.claude_model || process.env.CE_AI_OVERVIEW_MODEL,
+        engine: cloudEngine,
+        apiKey: openaiKey,
+        model: cloudEngine === 'openai'
+          ? (args.openai_model || process.env.CE_OPENAI_MODEL)
+          : (args.claude_model || process.env.CE_AI_OVERVIEW_MODEL),
         timeoutMs,
         grounding, // grounded (default) | augmented | attributed (#196)
         maxBudgetUsd: args.max_budget_usd != null ? parseFloat(args.max_budget_usd) : undefined,

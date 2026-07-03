@@ -397,6 +397,7 @@
             <label style="margin-left:auto;display:flex;align-items:center;gap:4px" title="Chat LLM engine: Claude (cloud API) or a local GGUF model (air-gapped — nothing leaves this machine). Local requires the server started with --model-path.">Engine:
               <select id="chat-engine" style="font-size:0.95em">
                 <option value="claude" selected>Claude API</option>
+                <option value="openai">ChatGPT API</option>
                 <option value="local">Local GGUF</option>
               </select>
             </label>
@@ -451,6 +452,7 @@
           <select id="ws-engine">
             <option value="local">Local GGUF Model</option>
             <option value="claude">Claude API</option>
+            <option value="openai">ChatGPT API</option>
           </select>
           <button id="ws-browse-model" class="btn-secondary" style="font-size:11px;padding:2px 6px" title="Browse for GGUF model">Browse GGUFs</button>
           <span id="ws-llm-detail" style="font-size:10px;opacity:0.7"></span>
