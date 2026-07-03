@@ -60,7 +60,17 @@ export function isLocalApiUrl(url) {
   } catch {
     return false;
   }
-  return host === 'localhost' || host === '::1' || host === '[::1]' || /^127\./.test(host);
+  // URL keeps IPv6 literals bracketed in `.hostname`; strip so net.isIP reads them.
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+  if (host === 'localhost') return true;
+  // The numeric checks apply ONLY to a genuinely-parsed IP. A DNS name that
+  // merely starts with "127." (e.g. `127.attacker.example`) or "0.0.0.0."
+  // returns 0 from net.isIP and must NOT count as local — that was the
+  // substring-style hole this guard exists to close (#223).
+  const ipVersion = net.isIP(host);
+  if (ipVersion === 4) return host.startsWith('127.') || host === '0.0.0.0';
+  if (ipVersion === 6) return host === '::1' || host === '::';
+  return false;
 }
 
 /** Best-effort connectivity probe: a short TCP connect to the AI endpoint.

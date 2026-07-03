@@ -85,6 +85,24 @@ function firstRunIndexZip() {
   return path.join(path.dirname(path.dirname(fileURLToPath(import.meta.url))), 'FIRST_RUN_INDEX.zip');
 }
 
+// #249: point a no-index query run at the bundled demo, with a notice on BOTH
+// stderr AND stdout — so a query from the wrong directory (e.g. output piped to
+// a file with stderr discarded) can't be mistaken for a real result about the
+// user's own code. Returns true if the demo was substituted. A user-supplied
+// index (explicit path or a `.code_search_index` in cwd) always wins.
+function useDemoIndexIfNeeded(args) {
+  if (args._explicit.has('index_path') || args.build_index) return false;
+  if (fs.existsSync(args.index_path)) return false;
+  if (!fs.existsSync(firstRunIndexZip())) return false;
+  args.index_path = firstRunIndexZip();
+  const notice = "NOTE: No index found in this directory — using CodeExam's bundled DEMO "
+    + "index (Hunch + sample harnesses), NOT your code. Pass --index-path <dir>, or build "
+    + "one with --build-index.";
+  process.stderr.write(notice + '\n\n');
+  console.log(notice + '\n');
+  return true;
+}
+
 // Command keys that count as "the user asked CodeExam to do something" — used
 // both to dispatch (the `anyCommand` check) and to decide whether a no-index
 // invocation should run against the bundled demo (#230 Part B). Keep in sync.
@@ -106,6 +124,13 @@ const _QUERY_COMMAND_KEYS = [
   'comments_only', 'emit_harness', 'list_harnessable', 'census_imports', 'exports', 'imports_from', 'imports', 'infrastructure',
 ];
 
+// #249: index-MUTATING commands. They ARE real commands (so a no-index run must
+// not show the first-run welcome and exit 0 as a silent no-op), but they must
+// NOT auto-run against the bundled demo — they fall through to their handler,
+// which errors on a missing index. Kept separate from _QUERY_COMMAND_KEYS,
+// which drives the demo autoload.
+const _MUTATING_COMMAND_KEYS = ['rebuild_functions', 'build_rename_map'];
+
 
 // ========================================================================
 // --gui: launch the GUI server + open the user's browser.
@@ -115,9 +140,52 @@ const _QUERY_COMMAND_KEYS = [
 // standalone exe (Clive's path). See #78.
 // ========================================================================
 
+// Parsed here (before the GUI launch path) so `--gui`/`--tour` are recognized
+// flags and so this path gets the same unknown-flag validation the CLI path has.
+// `--tour` as a real flag (args.tour) is distinct from `--tour` appearing as
+// another flag's VALUE, e.g. `--literal "--tour"` (#249).
+const args = parseArgs();
 const _rawArgvForGui = process.argv.slice(2);
-const _wantsTour = _rawArgvForGui.includes('--tour');
-if (_rawArgvForGui.includes('--gui') || _wantsTour) {
+const _wantsTour = !!args.tour;
+if (args.gui || _wantsTour) {
+  // #247: validate every --flag against the set this GUI launch path understands
+  // and fail closed on an unknown one. Previously unrecognized flags were silently
+  // dropped, so a typo like `--air-gaped` launched a CONNECTED GUI with the
+  // air-gap flag quietly ignored. parseArgs's own unknown-flag check can't stand
+  // in here: --gui legitimately accepts server-only flags (e.g. --context-size)
+  // that the CLI parser rejects.
+  {
+    const _GUI_BOOL = new Set(['--gui', '--tour', '--air-gapped', '--allow-connected', '--reproducible']);
+    const _GUI_VALUE = new Set(['--port', '--index-path', '--index', '--load-index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--temperature', '--context-size', '--openai-key', '--openai-model', '--llm']);
+    const _unknown = [];
+    for (let i = 0; i < _rawArgvForGui.length; i++) {
+      let tok = _rawArgvForGui[i];
+      if (!tok.startsWith('--')) continue;
+      if (tok.includes('=')) tok = tok.slice(0, tok.indexOf('='));
+      const norm = tok.replace(/_/g, '-');
+      if (_GUI_VALUE.has(norm)) {
+        const v = _rawArgvForGui[i + 1];
+        if (v && !v.startsWith('-')) i++;      // consume its value
+        continue;
+      }
+      if (_GUI_BOOL.has(norm)) {
+        if (norm === '--tour') { const v = _rawArgvForGui[i + 1]; if (v && !v.startsWith('-')) i++; } // optional name
+        continue;
+      }
+      _unknown.push(tok);
+    }
+    if (_unknown.length) {
+      printBanner(process.stderr);
+      for (const tok of _unknown) {
+        const n = tok.replace(/_/g, '-').toLowerCase();
+        const hint = /air|gap/.test(n) ? " Did you mean '--air-gapped'?"
+          : /allow|connect/.test(n) ? " Did you mean '--allow-connected'?" : '';
+        process.stderr.write(`\nUnknown option '${tok}' with --gui.${hint}\n`);
+      }
+      process.stderr.write(`Run '${exeBase()} --help' for usage.\n`);
+      process.exit(2);
+    }
+  }
   // #239: this raw-argv scan bypasses parseArgs's normalization, so match flags
   // in either spelling (`_`/`-` interchangeable) — `--index_path` resolves the
   // same as `--index-path` here too.
@@ -147,11 +215,14 @@ if (_rawArgvForGui.includes('--gui') || _wantsTour) {
   const _serverArgv = ['--port', port, '--host', '127.0.0.1'];
   // --index-path / --index are REPEATABLE (server.js loads every occurrence
   // into its index manager); forward all of them, not just the first.
-  for (const flag of ['--index-path', '--index']) {
+  for (const flag of ['--index-path', '--index', '--load-index']) {
     for (let i = 0; i < _rawArgvForGui.length; i++) {
       if (_rawArgvForGui[i].replace(/_/g, '-') === flag) {
         const v = _rawArgvForGui[i + 1];
-        if (v && !v.startsWith('-')) _serverArgv.push(flag, v);
+        // #249: --load-index is a documented --index-path alias, but the GUI
+        // server's parseServerArgs only knows --index-path/--index — forward it
+        // as --index-path so the named index actually reaches the server.
+        if (v && !v.startsWith('-')) _serverArgv.push(flag === '--load-index' ? '--index-path' : flag, v);
       }
     }
   }
@@ -231,10 +302,9 @@ if (_rawArgvForGui.includes('--gui') || _wantsTour) {
 
 
 // ========================================================================
-// Parse arguments
+// Parse arguments — parsed above (before the --gui/--tour launch path so that
+// path gets the same unknown-flag validation as the CLI path). (#247)
 // ========================================================================
-
-const args = parseArgs();
 
 
 // ========================================================================
@@ -401,6 +471,9 @@ if (args.overview_by_ai) {
   // CLI-only, short-lived process: silence the DEP0190 warning from the
   // shell:true `claude` spawn so it doesn't pollute saved/--multi-index output.
   process.noDeprecation = true;
+  // #249: first-run parity — with no index in cwd, fall back to the bundled demo
+  // (like --overview) instead of erroring and naming the internal default path.
+  useDemoIndexIfNeeded(args);
   // Validate --grounding so a typo (e.g. `--grounding foobly`) fails loudly
   // instead of silently falling back to grounded — otherwise you can't tell the
   // modes are wired up (#196).
@@ -581,11 +654,16 @@ if (args.add_extensions) {
 let _firstRunWelcome = false;
 if (!args._explicit.has('index_path') && !args.build_index && !fs.existsSync(args.index_path)
     && fs.existsSync(firstRunIndexZip())) {
-  const _userGaveCommand = args.interactive
+  const _userGaveQuery = args.interactive
     || _QUERY_COMMAND_KEYS.some(c => args._explicit.has(c) || args[c]);
-  if (_userGaveCommand) {
-    args.index_path = firstRunIndexZip();
-    process.stderr.write(`No index specified — using CodeExam's bundled demo index (Hunch + sample harnesses).\n\n`);
+  const _userGaveMutating = _MUTATING_COMMAND_KEYS.some(c => args._explicit.has(c) || args[c]);
+  if (_userGaveQuery) {
+    useDemoIndexIfNeeded(args);   // query/discovery command → run against the demo, notice on both streams
+  } else if (_userGaveMutating) {
+    // #249: --rebuild-functions / --build-rename-map are real commands but mutate
+    // an index — don't silently run them against the demo, and don't show the
+    // welcome (which exits 0 as a no-op). Fall through so the command reaches its
+    // handler and errors on the missing index.
   } else {
     _firstRunWelcome = true;   // bare `ce` → short welcome, not a load + Overview dump
   }
@@ -1118,7 +1196,8 @@ if (args.interactive) {
   doInteractive(index, args);
 } else {
   // Check if any command was dispatched
-  const anyCommand = _QUERY_COMMAND_KEYS.some(c => args._explicit.has(c) || args[c]);
+  const anyCommand = _QUERY_COMMAND_KEYS.some(c => args._explicit.has(c) || args[c])
+    || _MUTATING_COMMAND_KEYS.some(c => args._explicit.has(c) || args[c]);
 
   if (!anyCommand && !args.build_index) {
     const _exe = exeBase();

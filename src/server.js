@@ -4158,7 +4158,14 @@ routes['/api/chat'] = (req, res) => {
       // #243: engine is 'claude' (cloud), 'openai' (cloud, Part B), or 'local'
       // (GGUF, the air-gapped path). All three drive the same in-process CE
       // tool loop with engine-specific wire formats.
-      const engine = ['local', 'openai'].includes(params.engine) ? params.engine : 'claude';
+      // #247: an absent engine defaults to 'claude' (long-standing behavior), but
+      // an unrecognized non-empty value is REJECTED rather than silently coerced
+      // to the cloud path — a typo like "Local" must not send an intended-local
+      // conversation to a cloud API.
+      const engine = params.engine == null || params.engine === '' ? 'claude'
+        : ['claude', 'local', 'openai'].includes(params.engine) ? params.engine
+        : null;
+      if (engine === null) return errorResponse(res, `Unknown chat engine "${params.engine}". Use 'claude', 'openai', or 'local'.`, 400);
       const indexName = params.index || mgr.activeIndex;
       const mode = CHAT_GROUNDING_CLAUSES[params.mode] ? params.mode : 'grounded';
       const avail = serverLLM.checkAvailability(engine);
@@ -4225,7 +4232,12 @@ routes['/api/chat-stream'] = (req, res) => {
       if (!Array.isArray(messages) || messages.length === 0) { send('error', { error: 'messages array required' }); return res.end(); }
       // #243: 'claude' (cloud), 'openai' (cloud, Part B), or 'local' (GGUF);
       // tool calls stream live for all three.
-      const engine = ['local', 'openai'].includes(params.engine) ? params.engine : 'claude';
+      // #247: absent engine → 'claude' (default), but an unrecognized non-empty
+      // value is rejected, never silently coerced to the cloud path.
+      const engine = params.engine == null || params.engine === '' ? 'claude'
+        : ['claude', 'local', 'openai'].includes(params.engine) ? params.engine
+        : null;
+      if (engine === null) { send('error', { error: `Unknown chat engine "${params.engine}". Use 'claude', 'openai', or 'local'.` }); return res.end(); }
       const indexName = params.index || mgr.activeIndex;
       const mode = CHAT_GROUNDING_CLAUSES[params.mode] ? params.mode : 'grounded';
       const avail = serverLLM.checkAvailability(engine);

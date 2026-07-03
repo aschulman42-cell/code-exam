@@ -35,7 +35,7 @@ import {
 import { parseMultisectTerms, displayMultisectResults, printSelectivityReport } from './multisect.js';
 import { displayName } from '../utils.js';
 import { estimateCost } from '../core/pricing.js';
-import { assertLocalOnly, isLocalApiUrl } from '../core/air-gapped.js';
+import { assertLocalOnly, isLocalApiUrl, isAirGapped } from '../core/air-gapped.js';
 import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiText, openaiFinishReason } from '../core/openai-util.js';
 
 
@@ -85,6 +85,12 @@ class AnalysisLLM {
   // --- Claude API ---
 
   _initClaude(apiKey) {
+    // #223/#247 defense-in-depth: under --air-gapped resolve NO cloud key. The
+    // env is already scrubbed at startup; this also skips the claude.txt file
+    // read, so a stray key file can't re-arm a missed call-site guard. The call
+    // sites (_callClaude) still assertLocalOnly, so this only removes the key
+    // from memory — it does not become the sole line of defense.
+    if (isAirGapped()) return;
     if (apiKey) {
       this.apiKey = apiKey;
     } else if (process.env.ANTHROPIC_API_KEY) {
@@ -149,6 +155,9 @@ class AnalysisLLM {
     // Key resolution mirrors _initClaude: flag > --api-key (selected provider) >
     // env > openai.txt. --api-key applying to whichever provider is selected is
     // the documented contract.
+    // #223/#247 defense-in-depth: resolve no cloud key under --air-gapped
+    // (mirrors _initClaude — env scrubbed, key file skipped, calls still gated).
+    if (isAirGapped()) return;
     this.openaiKey = openaiKey || apiKeyFallback || process.env.OPENAI_API_KEY || '';
     if (!this.openaiKey) {
       for (const fname of ['openai.txt', 'openai_key.txt']) {
@@ -1627,11 +1636,17 @@ export async function doClaimAnalyze(index, args) {
 
   let result;
   if (localModelPath) {
-    // Local model for term extraction
-    // Reuse the analysis LLM singleton if same model path (avoids loading twice)
+    // Local model for term extraction.
+    // Reuse the analysis LLM singleton ONLY when it is the SAME local model
+    // already loaded (avoids a second load). #247: if the analysis backend is
+    // cloud, getAnalysisLLM returns a cloud client whose generate() would send
+    // this claim text off-machine — local term extraction must never route
+    // through it. Falling back to a fresh local AnalysisLLM keeps local intent
+    // local (worst case the model loads twice, which is correctness-safe).
     let termLlm;
-    if (localModelPath === analyzeModel) {
-      termLlm = getAnalysisLLM(args);
+    const _shared = (localModelPath === analyzeModel) ? getAnalysisLLM(args) : null;
+    if (_shared && _shared.modelPath === localModelPath) {
+      termLlm = _shared;
     } else {
       termLlm = new AnalysisLLM({ modelPath: localModelPath, temperature });
     }

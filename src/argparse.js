@@ -329,6 +329,10 @@ export function parseArgs() {
     ['build_index',          'value',          ['--build-index']],
     ['rebuild_functions',    'flag',           ['--rebuild-functions']],
     ['build_rename_map',     'flag',           ['--build-rename-map']],
+    // #247/#249: recognized so the pre-parse GUI launch path can validate flags
+    // and distinguish `--tour` used as a flag from `--tour` used as a value.
+    ['gui',                  'flag',           ['--gui']],
+    ['tour',                 'flag',           ['--tour']],
     ['rename_min_lines',     'int',            ['--rename-min-lines']],
     ['file_bookends',        'optional_value', ['--file-bookends']],
     ['bundle_seams',         'optional_value', ['--bundle-seams']],

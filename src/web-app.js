@@ -17,7 +17,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { assertLocalOnly } from './core/air-gapped.js';
+import { assertLocalOnly, setAirGapped, scrubApiKey, airGappedStartupCheck, AIR_GAPPED_DISCLAIMER } from './core/air-gapped.js';
 // Anthropic SDK loaded lazily in chatWithClaude() so --local-model works without API key
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -28,7 +28,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const result = { indexPath: '.test_ndx', port: 3000, localModel: null };
+  const result = { indexPath: '.test_ndx', port: 3000, localModel: null, airGapped: false, allowConnected: false };
   for (let i = 0; i < args.length; i++) {
     if ((args[i] === '--index-path' || args[i] === '--index') && args[i + 1]) {
       result.indexPath = args[++i];
@@ -39,6 +39,10 @@ function parseArgs() {
     if ((args[i] === '--local-model' || args[i] === '--model') && args[i + 1]) {
       result.localModel = args[++i];
     }
+    // #247: this entry point previously ignored --air-gapped entirely, so its
+    // assertLocalOnly guard had nothing to enforce. Honor the flag here too.
+    if (args[i].replace(/_/g, '-') === '--air-gapped') result.airGapped = true;
+    if (args[i].replace(/_/g, '-') === '--allow-connected') result.allowConnected = true;
   }
   return result;
 }
@@ -312,6 +316,20 @@ app.post('/api/chat', async (req, res) => {
 // ========================================================================
 
 async function main() {
+  // #223/#247: apply --air-gapped before anything can reach the network. Set the
+  // flag, scrub cloud keys, print the disclaimer, refuse a reachable-network run
+  // (unless --allow-connected), and require a local model (cloud chat is blocked).
+  if (config.airGapped) {
+    setAirGapped(true, { allowConnected: config.allowConnected });
+    scrubApiKey();
+    console.error(AIR_GAPPED_DISCLAIMER);
+    const refusal = await airGappedStartupCheck();
+    if (refusal) { console.error(`[air-gapped] ${refusal}`); process.exit(2); }
+    if (!config.localModel) {
+      console.error('Error: --air-gapped blocks cloud AI. Pass --local-model <path> to use a local GGUF model.');
+      process.exit(2);
+    }
+  }
   if (!config.localModel && !process.env.ANTHROPIC_API_KEY) {
     console.error('Error: ANTHROPIC_API_KEY required (or use --local-model <path>)');
     process.exit(1);
