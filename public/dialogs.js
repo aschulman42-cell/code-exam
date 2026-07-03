@@ -21,11 +21,13 @@ import { state } from './state.js';
 let _clearAllPanes = () => {};
 let _showPane = () => {};
 let _refreshLlmStatus = () => {};
+let _setEngineValue = (sel, value) => { if (sel) sel.value = value; }; // fallback: no 'change' dispatch
 
 export function initDialogs(deps = {}) {
   if (typeof deps.clearAllPanes === 'function') _clearAllPanes = deps.clearAllPanes;
   if (typeof deps.showPane === 'function') _showPane = deps.showPane;
   if (typeof deps.refreshLlmStatus === 'function') _refreshLlmStatus = deps.refreshLlmStatus;
+  if (typeof deps.setEngineValue === 'function') _setEngineValue = deps.setEngineValue;
 
   // Issue #19: make the static modal dialogs draggable by their header bar.
   // The dynamic #model-browser-overlay is wired in openModelBrowser itself.
@@ -727,10 +729,11 @@ export async function openModelBrowser() {
           // Picking a model implies "use the local engine" — select it on
           // BOTH surfaces (chat + workspace share the one server-wide loaded
           // model); label/badge updates come from refreshLlmStatus (single
-          // source of truth).
-          $('#ws-engine').value = 'local';
-          const chatEngine = $('#chat-engine');
-          if (chatEngine) chatEngine.value = 'local';
+          // source of truth). byUser: this is an explicit engine choice — it
+          // fires 'change' (warning text updates) and blocks any late --llm
+          // launch default from overwriting it.
+          _setEngineValue($('#ws-engine'), 'local', { byUser: true });
+          _setEngineValue($('#chat-engine'), 'local', { byUser: true });
           _refreshLlmStatus();
           closeModal();
         } catch (err) {

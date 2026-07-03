@@ -32,6 +32,33 @@ let _showAnalysisPane = () => {};
 let _renderLlmAnalysis = () => {};
 let _stripAtFileHeader = (s) => s;
 let _preferredEngineApplied = false; // --llm launch default applied to dropdowns once
+let _engineTouchedByUser = false;    // a real user engine choice beats any late --llm default
+
+/** Set an engine dropdown programmatically AND fire 'change' so listeners
+ * (the Overview pre-run warning wired in app.js, etc.) update — a bare
+ * `.value =` assignment fires nothing and leaves stale UI. The dispatched
+ * event is untrusted (isTrusted false), so the user-touch watcher below
+ * ignores it; pass { byUser: true } when the set expresses an explicit user
+ * choice (e.g. picking a model in the browser implies "use Local"). */
+export function setEngineValue(sel, value, { byUser = false } = {}) {
+  if (!sel) return;
+  if (byUser) _engineTouchedByUser = true;
+  sel.value = value;
+  sel.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/** Mark the dropdowns user-touched on any genuine (isTrusted) change, so a
+ * deferred --llm launch default — applied late because the init llm-status
+ * fetch failed — can never overwrite a choice the user made in the meantime. */
+function _watchEngineTouch() {
+  for (const selId of ['#chat-engine', '#ws-engine']) {
+    const sel = document.querySelector(selId);
+    if (sel && !sel._ceTouchWatched) {
+      sel._ceTouchWatched = true;
+      sel.addEventListener('change', (e) => { if (e.isTrusted) _engineTouchedByUser = true; });
+    }
+  }
+}
 
 export function initContextMenu(deps = {}) {
   if (typeof deps.showAnalysisPane === 'function') _showAnalysisPane = deps.showAnalysisPane;
@@ -49,16 +76,18 @@ export function initContextMenu(deps = {}) {
  * engine dropdowns share ONE server-side loaded model, so both labels, plus
  * the detail badges, update together from this single source of truth. */
 export async function refreshLlmStatus() {
+  _watchEngineTouch(); // attach before any status handling so user changes are never missed
   try { state.llmStatus = await api.llmStatus(); } catch { state.llmStatus = null; }
-  // Apply a --llm launch default to BOTH engine dropdowns, but only ONCE — so
-  // it seeds the initial selection without clobbering a later manual switch
-  // (refreshLlmStatus also runs on every dropdown open). #243 Part B.
+  // Apply a --llm launch default to BOTH engine dropdowns, but only ONCE, and
+  // never after the user has touched either dropdown — a failed init fetch
+  // defers seeding to a later refresh (every dropdown open re-fetches), and
+  // that late apply must not overwrite a manual choice. #243 Part B.
   const preferred = state.llmStatus && state.llmStatus.preferred;
-  if (preferred && !_preferredEngineApplied) {
+  if (preferred && !_preferredEngineApplied && !_engineTouchedByUser) {
     _preferredEngineApplied = true;
     for (const selId of ['#chat-engine', '#ws-engine']) {
       const sel = document.querySelector(selId);
-      if (sel && sel.querySelector(`option[value="${preferred}"]`)) sel.value = preferred;
+      if (sel && sel.querySelector(`option[value="${preferred}"]`)) setEngineValue(sel, preferred);
     }
   }
   const local = state.llmStatus && state.llmStatus.local;

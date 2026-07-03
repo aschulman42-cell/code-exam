@@ -34,7 +34,7 @@ import {
   onVocabClick,
 } from './click-handlers.js';
 import {
-  initContextMenu, refreshLlmStatus,
+  initContextMenu, refreshLlmStatus, setEngineValue,
   showContextMenu, hideContextMenu, handleContextAction,
 } from './context-menu.js';
 import {
@@ -1802,7 +1802,7 @@ async function init() {
   initColumnResizers();
   initDiagramControls();
   initCompareOverlay();
-  initDialogs({ clearAllPanes, showPane, refreshLlmStatus });
+  initDialogs({ clearAllPanes, showPane, refreshLlmStatus, setEngineValue });
   initMiddlePane({ wireClickables });
   initListRenderers({ wireClickables, loadSectionData, updateOverflowHint });
   initClickHandlers({ wireClickables, loadSectionData });

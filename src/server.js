@@ -31,7 +31,7 @@ import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { runAiOverview, AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './core/ai-overview.js';
-import { setAirGapped, scrubApiKey, airGappedStartupCheck, isAirGapped, AIR_GAPPED_DISCLAIMER } from './core/air-gapped.js';
+import { setAirGapped, scrubApiKey, airGappedStartupCheck, isAirGapped, isLocalApiUrl, AIR_GAPPED_DISCLAIMER } from './core/air-gapped.js';
 import { estimateCost } from './core/pricing.js';
 import { skippedExtensionCensus } from './core/extension-census.js';
 import { loadUsedByCatalog, makeUsedByFor } from './commands/exports.js';
@@ -98,39 +98,58 @@ function parseServerArgs() {
   const args = process.argv.slice(2);
   const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0, catalogPath: null, airGapped: false, allowConnected: false, contextSize: null, reproducible: false, openaiKey: null, openaiModel: null, defaultEngine: null };
 
-  for (let i = 0; i < args.length; i++) {
+  // A value-taking flag must be followed by a non-flag token; otherwise warn
+  // and do NOT consume the next token. Without this, `--llm --air-gapped`
+  // swallows --air-gapped as the value of --llm and the server silently runs
+  // with air-gap protection OFF. (index.js's _argAfter guards the `ce --gui`
+  // wrapper the same way; this covers direct `node src/server.js` launches.)
+  let i = 0;
+  const takeValue = (flag) => {
+    const v = args[i + 1];
+    if (v === undefined || String(v).startsWith('-')) {
+      console.error(`[args] ${flag} requires a value; flag ignored`);
+      return null;
+    }
+    i++;
+    return v;
+  };
+
+  for (i = 0; i < args.length; i++) {
     const a = args[i];
-    if ((a === '--index-path' || a === '--index') && args[i + 1]) {
-      result.indexPaths.push(args[++i]);
-    } else if ((a === '--exports-catalog' || a === '--catalog') && args[i + 1]) {
-      result.catalogPath = args[++i];
-    } else if (a === '--port' && args[i + 1]) {
-      result.port = parseInt(args[++i]) || 3000;
-    } else if (a === '--host' && args[i + 1]) {
-      result.host = args[++i];
-    } else if ((a === '--model-path' || a === '--model' || a === '--local-model') && args[i + 1]) {
-      result.modelPath = args[++i];
-    } else if (a === '--claude-model' && args[i + 1]) {
-      result.claudeModel = args[++i];
-    } else if ((a === '--api-key' || a === '--key') && args[i + 1]) {
-      result.apiKey = args[++i];
-    } else if (a === '--llm' && args[i + 1]) {
+    let v;
+    if (a === '--index-path' || a === '--index') {
+      if ((v = takeValue(a)) !== null) result.indexPaths.push(v);
+    } else if (a === '--exports-catalog' || a === '--catalog') {
+      if ((v = takeValue(a)) !== null) result.catalogPath = v;
+    } else if (a === '--port') {
+      if ((v = takeValue(a)) !== null) result.port = parseInt(v) || 3000;
+    } else if (a === '--host') {
+      if ((v = takeValue(a)) !== null) result.host = v;
+    } else if (a === '--model-path' || a === '--model' || a === '--local-model') {
+      if ((v = takeValue(a)) !== null) result.modelPath = v;
+    } else if (a === '--claude-model') {
+      if ((v = takeValue(a)) !== null) result.claudeModel = v;
+    } else if (a === '--api-key' || a === '--key') {
+      if ((v = takeValue(a)) !== null) result.apiKey = v;
+    } else if (a === '--llm') {
       // GUI default engine (#243 Part B): --llm chatgpt|openai|claude sets which
       // engine the Chat + Workspace controls start on. Local stays the default
       // when a --model-path is given without --llm.
-      const v = String(args[++i]).toLowerCase();
-      result.defaultEngine = (['chatgpt', 'gpt', 'openai'].includes(v)) ? 'openai'
-        : (v === 'claude') ? 'claude'
-        : (v === 'local') ? 'local' : null;
-    } else if ((a === '--openai-key' || a === '--openai_key') && args[i + 1]) {
-      result.openaiKey = args[++i];
-    } else if ((a === '--openai-model' || a === '--openai_model') && args[i + 1]) {
-      result.openaiModel = args[++i];
-    } else if (a === '--temperature' && args[i + 1]) {
-      result.temperature = parseFloat(args[++i]) || 0.0;
-    } else if ((a === '--context-size' || a === '--context_size') && args[i + 1]) {
+      if ((v = takeValue(a)) !== null) {
+        const norm = String(v).toLowerCase();
+        result.defaultEngine = (['chatgpt', 'gpt', 'openai'].includes(norm)) ? 'openai'
+          : (norm === 'claude') ? 'claude'
+          : (norm === 'local') ? 'local' : null;
+      }
+    } else if (a === '--openai-key' || a === '--openai_key') {
+      if ((v = takeValue(a)) !== null) result.openaiKey = v;
+    } else if (a === '--openai-model' || a === '--openai_model') {
+      if ((v = takeValue(a)) !== null) result.openaiModel = v;
+    } else if (a === '--temperature') {
+      if ((v = takeValue(a)) !== null) result.temperature = parseFloat(v) || 0.0;
+    } else if (a === '--context-size' || a === '--context_size') {
       // #239 convention: accept either flag spelling.
-      result.contextSize = parseInt(args[++i]) || null;
+      if ((v = takeValue(a)) !== null) result.contextSize = parseInt(v) || null;
     } else if (a === '--reproducible') {
       // local-chat-determinism: reproducible local-LLM runs (temperature 0 +
       // fixed seed). Default OFF — run-to-run variation is the chosen default.
@@ -259,12 +278,17 @@ class ServerLLM {
     // same machine => same answer. Cross-machine or cross-driver bit-identity
     // is NOT promised (GPU kernel scheduling can differ across backends).
     this.reproducible = !!opts.reproducible;
-    this.defaultApiKey = opts.apiKey || process.env.ANTHROPIC_API_KEY || '';
+    // #223 layer 2: under --air-gapped, skip cloud-key resolution entirely.
+    // Env keys are scrubbed at startup, but the key-FILE fallbacks below would
+    // re-arm any missed or bypassed call-site guard — so neither cloud key may
+    // load at all, and /api/llm-status then honestly reports both cloud
+    // engines unavailable instead of inviting a selection that fails at call time.
+    this.defaultApiKey = isAirGapped() ? '' : (opts.apiKey || process.env.ANTHROPIC_API_KEY || '');
     this._localModel = null;     // { llama, model, context, LlamaChatSession, contextSize }
     this._localLoading = null;   // Promise while model is loading (prevents double-load)
 
     // Try reading API key from file if not in env
-    if (!this.defaultApiKey) {
+    if (!this.defaultApiKey && !isAirGapped()) {
       for (const fname of ['claude.txt', 'claude_key.txt']) {
         try {
           const key = fs.readFileSync(fname, 'utf-8').trim();
@@ -275,8 +299,8 @@ class ServerLLM {
 
     // OpenAI / ChatGPT provider (#243 Part B): key + model resolution mirrors
     // the Claude pattern (flag > env > key file).
-    this.defaultOpenAIKey = opts.openaiKey || process.env.OPENAI_API_KEY || '';
-    if (!this.defaultOpenAIKey) {
+    this.defaultOpenAIKey = isAirGapped() ? '' : (opts.openaiKey || process.env.OPENAI_API_KEY || '');
+    if (!this.defaultOpenAIKey && !isAirGapped()) {
       for (const fname of ['openai.txt', 'openai_key.txt']) {
         try {
           const key = fs.readFileSync(fname, 'utf-8').trim();
@@ -308,8 +332,9 @@ class ServerLLM {
       messages: [{ role: 'user', content: userMessage }],
     });
 
-    // #223: air-gapped blocks a remote cloud LLM (a localhost endpoint is OK).
-    const isLocal = /localhost|127\.0\.0\.1|::1|0\.0\.0\.0|\.local/.test(apiUrl);
+    // #223: air-gapped blocks a remote cloud LLM (a loopback endpoint is OK).
+    // Hostname-parsed, not substring-matched — see isLocalApiUrl.
+    const isLocal = isLocalApiUrl(apiUrl);
     if (!isLocal && isAirGapped()) {
       console.error('[air-gapped] blocked: GUI cloud LLM (claim-search/analyze)');
       return { error: '--air-gapped: cloud LLM is blocked. Set the engine to Local in the Workspace pane (LLM controls), or restart without --air-gapped to allow cloud calls (your data would leave this machine).' };
@@ -358,8 +383,8 @@ class ServerLLM {
     const model = opts.model || this.defaultOpenAIModel;
     const maxTokens = opts.maxTokens || 2048;
 
-    // Same cloud guard as the Claude branch (#223).
-    const isLocal = /localhost|127\.0\.0\.1|::1|0\.0\.0\.0|\.local/.test(apiUrl);
+    // Same cloud guard as the Claude branch (#223) — hostname-parsed, fail-closed.
+    const isLocal = isLocalApiUrl(apiUrl);
     if (!isLocal && isAirGapped()) {
       console.error('[air-gapped] blocked: GUI cloud LLM (OpenAI)');
       return { error: '--air-gapped: cloud LLM is blocked. Set the engine to Local in the Workspace pane (LLM controls), or restart without --air-gapped to allow cloud calls (your data would leave this machine).' };
@@ -504,6 +529,12 @@ class ServerLLM {
 
   /** Check if the requested engine is available without actually calling it. */
   checkAvailability(engine) {
+    // Cloud engines are honestly unavailable under --air-gapped (keys are
+    // never resolved then), with a reason that names the cause rather than
+    // a misleading "no key configured".
+    if ((engine === 'claude' || engine === 'openai') && isAirGapped()) {
+      return { available: false, reason: 'Blocked by --air-gapped: cloud AI calls are disabled this run. Use the Local GGUF engine.' };
+    }
     if (engine === 'claude') {
       if (!this.defaultApiKey) return { available: false, reason: 'No API key configured.' };
       return { available: true };
@@ -3750,7 +3781,7 @@ async function runChatToolLoopOpenAI({ messages, index, indexName, fileCount, mo
   const tools = chatOpenAITools();
   const system = chatSystemPrompt(indexName, fileCount, mode);
   const apiUrl = process.env.CE_OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
-  if (!/localhost|127\.0\.0\.1|::1|0\.0\.0\.0|\.local/.test(apiUrl) && isAirGapped()) {
+  if (!isLocalApiUrl(apiUrl) && isAirGapped()) {
     console.error('[air-gapped] blocked: GUI chat (cloud OpenAI)');
     throw new Error('--air-gapped: chat over the cloud LLM is blocked. Set the engine to Local in the Workspace pane (LLM controls), or restart without --air-gapped to allow cloud calls.');
   }
