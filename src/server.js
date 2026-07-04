@@ -292,6 +292,34 @@ if (serverArgs.catalogPath) {
 // params (engine, apiKey). Local model is loaded once and reused.
 // ========================================================================
 
+// Serialize ALL local-GGUF work — chat, AI-overview, and analyze/claim term
+// extraction share the model's single cached sequence (and clearHistory reset),
+// so overlapping local requests would prompt the same sequence concurrently and
+// corrupt both generations (garbled output or a native crash). This promise-
+// chain mutex runs local requests strictly one at a time; cloud requests are
+// unaffected. #248
+let _localTail = Promise.resolve();
+function withLocalLock(fn) {
+  const result = _localTail.then(fn, fn);
+  _localTail = result.then(() => {}, () => {});
+  return result;
+}
+
+// #248: output reserve + tool-result budget must fit the loaded context. The old
+// floors (2400 output tokens, 6000 result chars) exceeded the 2048/4096 fallback
+// rungs, guaranteeing the context overflow they were meant to prevent on modest
+// hardware. Scale with context and CLAMP the output reserve so prompt overhead
+// plus a minimum tool budget always fit — while preserving the 8k+ behavior
+// (maxTokens stays 2400 there; only the tiny rungs clamp down).
+function _localBudgets(contextSize, explicitMaxTokens) {
+  const OVERHEAD = 1200;         // system prompt + tool defs + question, approx tokens
+  const MIN_TOOL_TOKENS = 400;
+  let maxTokens = explicitMaxTokens || Math.min(6144, Math.max(2400, Math.floor(contextSize / 6)));
+  maxTokens = Math.max(256, Math.min(maxTokens, contextSize - OVERHEAD - MIN_TOOL_TOKENS));
+  const toolBudgetChars = Math.max(500, Math.floor((contextSize - maxTokens - OVERHEAD) * 2.5));
+  return { maxTokens, toolBudgetChars };
+}
+
 class ServerLLM {
   constructor(opts = {}) {
     this.defaultModelPath = opts.modelPath || null;
@@ -509,6 +537,10 @@ class ServerLLM {
         catch (_) { /* try smaller */ }
       }
       if (!context) {
+        // #248: free the just-loaded weights so a failed context allocation
+        // (e.g. switching models on a memory-constrained box) doesn't leak the
+        // whole model and wedge subsequent loads.
+        try { model.dispose(); } catch (_) {}
         return { error: `Cannot allocate context for local model (tried ${ladder.join('/')}).` };
       }
 
@@ -525,6 +557,22 @@ class ServerLLM {
     }
   }
 
+  // One chat sequence per loaded model, cached on _localModel and reused across
+  // ALL local calls (chat, overview, analyze, claim). Contexts are created with a
+  // single sequence, and sequence.dispose() is a silent no-op for some families
+  // (Gemma 3, upstream #623) that permanently consumes the slot — so acquire-
+  // once-reuse is the only pattern that survives. clearHistory() resets it
+  // between uses. Never disposed. Callers MUST hold withLocalLock. #248
+  async acquireSharedSequence() {
+    const lm = this._localModel;
+    if (lm.chatSequence) {
+      if (lm.chatSequence.clearHistory) await lm.chatSequence.clearHistory();
+      return lm.chatSequence;
+    }
+    lm.chatSequence = lm.context.getSequence();
+    return lm.chatSequence;
+  }
+
   async callLocal(systemPrompt, userMessage, opts = {}) {
     const mp = opts.modelPath || this.defaultModelPath;
     const loadResult = await this.ensureLocalModel(mp);
@@ -532,25 +580,27 @@ class ServerLLM {
 
     const maxTokens = opts.maxTokens || 2048;
     const temperature = opts.temperature ?? 0.0;
-
-    // Local models: combine system + user into single prompt
     const combinedPrompt = systemPrompt + '\n\n' + userMessage;
 
-    let sequence;
-    try {
-      const { LlamaChatSession, context } = this._localModel;
-      sequence = context.getSequence();
-      const session = new LlamaChatSession({ contextSequence: sequence });
-      console.log(`  [LLM] Sending to local model (${combinedPrompt.length} chars)...`);
-      const response = await session.prompt(combinedPrompt, { maxTokens, temperature });
-      session.dispose();
-      sequence.dispose();
-      console.log(`  [LLM] Local model response: ${response.length} chars`);
-      return { text: response.trim() };
-    } catch (e) {
-      if (sequence) { try { sequence.dispose(); } catch (_) {} }
-      return { error: `Local model error: ${e.message || e}` };
-    }
+    // #248: reuse the shared cached sequence (never a fresh getSequence, which
+    // throws "No sequences left" once a chat has claimed the slot) and serialize
+    // against chat/overview so they don't clobber each other's history.
+    return withLocalLock(async () => {
+      let session;
+      try {
+        const { LlamaChatSession } = this._localModel;
+        const sequence = await this.acquireSharedSequence();
+        session = new LlamaChatSession({ contextSequence: sequence });
+        console.log(`  [LLM] Sending to local model (${combinedPrompt.length} chars)...`);
+        const response = await session.prompt(combinedPrompt, { maxTokens, temperature });
+        console.log(`  [LLM] Local model response: ${response.length} chars`);
+        return { text: response.trim() };
+      } catch (e) {
+        return { error: `Local model error: ${e.message || e}` };
+      } finally {
+        if (session) { try { session.dispose(); } catch (_) {} }
+      }
+    });
   }
 
   // --- Unified dispatch ---
@@ -971,17 +1021,36 @@ routes['/api/switch-model'] = (req, res) => {
       if (!modelPath) return errorResponse(res, 'Missing "path" parameter');
       if (!fs.existsSync(modelPath)) return errorResponse(res, `File not found: ${modelPath}`, 404);
       console.log(`  [switch-model] Switching to: ${modelPath}`);
-      // Dispose old model if loaded
-      if (serverLLM._localModel) {
-        try {
-          if (serverLLM._localModel.context) serverLLM._localModel.context.dispose();
-          if (serverLLM._localModel.model) serverLLM._localModel.model.dispose();
-        } catch (_) {}
-        serverLLM._localModel = null;
-      }
-      serverLLM.defaultModelPath = modelPath;
-      // Eagerly load the new model so we can report errors immediately
-      const loadResult = await serverLLM.ensureLocalModel(modelPath);
+      // #248: tear down under the local lock so no chat/overview/analyze is mid-
+      // generation on the sequence we're about to drop. And do NOT dispose a
+      // context whose cached sequence was never released — for some families
+      // (Gemma 3, upstream #623) that dispose deadlocks native teardown and hangs
+      // the process. Drop the references instead (the old model's native memory is
+      // reclaimed at process exit); only dispose when no sequence was cached (safe).
+      const loadResult = await withLocalLock(async () => {
+        const old = serverLLM._localModel;
+        const prevModelPath = serverLLM.defaultModelPath;
+        if (old) {
+          try {
+            if (!old.chatSequence && old.context) old.context.dispose();
+            if (!old.chatSequence && old.model) old.model.dispose();
+          } catch (_) {}
+          serverLLM._localModel = null;
+        }
+        serverLLM.defaultModelPath = modelPath;
+        // Eagerly load the new model so we can report errors immediately.
+        const r = await serverLLM.ensureLocalModel(modelPath);
+        // #248/#623: when the old model's context couldn't be disposed (cached
+        // sequence) its memory stays resident, so on a constrained box the new
+        // model may fail to allocate. Rather than wedge the server with no model
+        // loaded, restore the still-resident old one and tell the user to restart.
+        if (r.error && old && old.chatSequence) {
+          serverLLM._localModel = old;
+          serverLLM.defaultModelPath = prevModelPath;
+          return { error: `Could not load "${path.basename(modelPath)}" while "${path.basename(prevModelPath || '')}" is still resident — its memory can't be freed in-process (upstream node-llama-cpp #623). Kept the current model; restart CodeExam with --model-path to switch cleanly.` };
+        }
+        return r;
+      });
       if (loadResult.error) return errorResponse(res, loadResult.error, 500);
       jsonResponse(res, { ok: true, model: modelPath });
     } catch (err) {
@@ -2254,6 +2323,7 @@ routes['/api/overview-deep'] = (req, res) => {
 // results, context-scaled output, and a tool budget so an over-eager model
 // synthesizes instead of overflowing the context.
 async function runAiOverviewLocalShared({ index, grounding }) {
+  return withLocalLock(async () => {
   setIndex(index);
   const loaded = await serverLLM.ensureLocalModel();
   if (loaded.error) throw new Error(loaded.error);
@@ -2262,10 +2332,9 @@ async function runAiOverviewLocalShared({ index, grounding }) {
     throw new Error('local AI overview: node-llama-cpp function-calling unavailable (update node-llama-cpp).');
   }
   const { LlamaChatSession, defineChatSessionFunction } = lm;
-  const maxTokens = Math.min(6144, Math.max(2400, Math.floor(lm.contextSize / 6)));
+  const { maxTokens, toolBudgetChars } = _localBudgets(lm.contextSize, null);
   const overviewToolNames = AI_OVERVIEW_TOOLS.split(',').map(t => t.replace(/^mcp__code-exam__/, ''));
   const byName = new Map(TOOLS.map(t => [t.name, t]));
-  const toolBudgetChars = Math.max(6000, (lm.contextSize - maxTokens - 1200) * 2.5);
   let toolCalls = 0;
   let toolChars = 0;
   let budgetStopped = false;
@@ -2296,12 +2365,8 @@ async function runAiOverviewLocalShared({ index, grounding }) {
     });
   }
   // Same cached-sequence reuse as runChatToolLoopLocal — never dispose.
-  if (lm.chatSequence) {
-    if (lm.chatSequence.clearHistory) await lm.chatSequence.clearHistory();
-  } else {
-    lm.chatSequence = lm.context.getSequence();
-  }
-  const session = new LlamaChatSession({ contextSequence: lm.chatSequence });
+  const sequence = await serverLLM.acquireSharedSequence();
+  const session = new LlamaChatSession({ contextSequence: sequence });
   try {
     const sampling = serverLLM.reproducible ? { temperature: 0, seed: 1 } : {};
     const raw = await session.prompt(aiOverviewPrompt(grounding), { functions, maxTokens, ...sampling });
@@ -2312,6 +2377,7 @@ async function runAiOverviewLocalShared({ index, grounding }) {
   } finally {
     try { session.dispose(); } catch (e) { console.warn(`  [ai-overview] session dispose failed: ${e.message}`); }
   }
+  }); // #248 withLocalLock
 }
 
 routes['/api/ai-overview'] = (req, res) => {
@@ -3962,6 +4028,7 @@ const _SPECIAL_TOKEN_RE = new RegExp([
   '</?think>',
   '</?tool_(?:call|response)>',
   '<\\|[^|<>]{1,32}\\|>',
+  '<\\uff5c[^\\uff5c<>]{1,40}\\uff5c>',
   '<(?:start|end)_of_turn>',
   '\\[/?INST\\]', '\\[TOOL_CALLS\\]',
   '</?s>',
@@ -3971,10 +4038,23 @@ function neutralizeSpecialTokens(s, where) {
   const hits = str.match(_SPECIAL_TOKEN_RE);
   if (!hits) return str;
   console.log(`  [chat] neutralized ${hits.length} special token(s) in ${where}: ${[...new Set(hits)].slice(0, 5).join(' ')}`);
-  return str.replace(_SPECIAL_TOKEN_RE, (m) => m.replace(/</g, '‹').replace(/>/g, '›'));
+  // #250: break EVERY token form, not just angle brackets. Bracket-delimited
+  // Mistral tokens ([INST] etc.) and fullwidth-bar DeepSeek tokens (<｜…｜>) carry
+  // no ASCII angle brackets, so an angle-only swap left them intact while still
+  // counting/logging them as neutralized — a live template token plus a false
+  // audit line. Swap all structural delimiters for visibly-distinct,
+  // meaning-preserving lookalikes.
+  return str.replace(_SPECIAL_TOKEN_RE, (m) => m
+    .replace(/</g, '‹').replace(/>/g, '›')
+    .replace(/\[/g, '⟦').replace(/\]/g, '⟧')
+    .replace(/[|｜]/g, '¦'));
 }
 
 async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mode, onToolCall, maxTokens = null }) {
+  // #248: serialize the entire local request (setIndex + shared-sequence chat)
+  // so a concurrent local request can neither repoint the tool index mid-loop
+  // nor clobber the shared sequence's history.
+  return withLocalLock(async () => {
   setIndex(index); // point handleTool at the active GUI index (in-process)
   const loaded = await serverLLM.ensureLocalModel();
   if (loaded.error) throw new Error(loaded.error);
@@ -3990,7 +4070,9 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
   // unchanged), 4096 at 24k. The old fixed 2400 truncated page-scale answers
   // mid-sentence at large contexts (chat-response-length). Must be resolved
   // BEFORE the tool budget below, which reserves this many output tokens.
-  if (!maxTokens) maxTokens = Math.min(6144, Math.max(2400, Math.floor(lm.contextSize / 6)));
+  // #248: budgets that provably fit the loaded context (incl. the 2048/4096 rungs).
+  const _b = _localBudgets(lm.contextSize, maxTokens);
+  maxTokens = _b.maxTokens;
 
   // --reproducible pins sampling for reproducible runs (honest scope: see
   // the ServerLLM constructor). Default is node-llama-cpp sampling — run-to-
@@ -4010,14 +4092,8 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
   // scratch; probed with distinct per-chat secrets). Chats already
   // serialize per model — concurrent requests were equally unsupported
   // before (the second getSequence would have thrown).
-  const acquireSequence = async () => {
-    if (lm.chatSequence) {
-      if (lm.chatSequence.clearHistory) await lm.chatSequence.clearHistory();
-      return lm.chatSequence;
-    }
-    lm.chatSequence = lm.context.getSequence();
-    return lm.chatSequence;
-  };
+  // Shared with callLocal + the overview loop (one cached sequence per model).
+  const acquireSequence = () => serverLLM.acquireSharedSequence();
 
   // Tool budget: strong models (Qwen3.5 class) investigate until they burst —
   // 10-22 calls whose accumulated results overflow ANY context and error out,
@@ -4029,7 +4105,7 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
   // the multi-call loop internally, so the handlers are the only place this
   // check can live.
   const MAX_TOOL_CALLS = 24;
-  const toolBudgetChars = Math.max(6000, (lm.contextSize - maxTokens - 1200) * 2.5);
+  const toolBudgetChars = _b.toolBudgetChars;
   let toolChars = 0;
   let toolCalls = 0;
   let budgetStopped = false;
@@ -4097,8 +4173,9 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
     .trim();
 
   const sequence = await acquireSequence();
+  let session;
   try {
-    const session = new LlamaChatSession({ contextSequence: sequence, systemPrompt: system });
+    session = new LlamaChatSession({ contextSequence: sequence, systemPrompt: system });
     // node-llama-cpp's Gemma wrapper silently drops systemPrompt (verified on
     // 3.19.0 with the official QAT GGUF: system-turn instructions have no
     // effect; the same text in a user turn works). For Gemma only, fold the
@@ -4126,9 +4203,22 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
     // tool results already in the session's history.
     if (!prose) {
       const NUDGE = 'Based on the tool results above, write your complete final answer now. Do not call any more tools.';
-      try { prose = stripThink(await session.prompt(NUDGE, { maxTokens, ...sampling })); } catch { /* keep empty */ }
+      // #250: recompute stopReason from the NUDGE pass — the marker below must
+      // describe the pass that actually produced the answer, not the stale first
+      // pass (for a reasoning model that spent its budget inside <think>, the
+      // first-pass stopReason would mislabel a complete nudge answer as truncated,
+      // or vice-versa).
+      try {
+        if (typeof session.promptWithMeta === 'function') {
+          const meta = await session.promptWithMeta(NUDGE, { maxTokens, ...sampling });
+          prose = stripThink(String(meta.responseText ?? ''));
+          stopReason = meta.stopReason || null;
+        } else {
+          prose = stripThink(await session.prompt(NUDGE, { maxTokens, ...sampling }));
+          stopReason = null;
+        }
+      } catch { /* keep empty */ }
     }
-    try { session.dispose(); } catch (e) { console.warn(`  [chat] session dispose failed: ${e.message}`); }
     if (!prose) prose = '(the local model returned no answer — try a shorter question, a larger context, or a stronger model)';
     else if (stopReason === 'maxTokens') {
       prose += `\n\n…*[response reached CodeExam's length cap (${maxTokens} tokens) — ask for the remaining part specifically]*`;
@@ -4138,10 +4228,14 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
     console.log(`  [chat] local final answer ${prose.length} chars (${blocks.filter(b => b.type === 'tool_use').length} tool calls)`);
     return { content: blocks, answer: prose };
   } finally {
-    // Deliberately NOT disposing `sequence` — it is the cached long-lived
-    // per-model sequence (see acquireSequence above); the next chat resets
-    // it with clearHistory.
+    // #248: dispose the SESSION on every path (success OR throw) — the old code
+    // disposed it only on success, leaking a session (with full history) on any
+    // mid-generation error. NOT disposing `sequence`: it is the cached long-lived
+    // per-model sequence (see acquireSharedSequence); the next chat resets it
+    // with clearHistory.
+    if (session) { try { session.dispose(); } catch (e) { console.warn(`  [chat] session dispose failed: ${e.message}`); } }
   }
+  }); // #248 withLocalLock
 }
 
 routes['/api/chat'] = (req, res) => {
