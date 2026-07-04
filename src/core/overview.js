@@ -234,7 +234,7 @@ export function buildOverview(index) {
 }
 
 /** Render a buildOverview() result as a compact (~1 page) text summary. */
-export function formatOverview(ov) {
+export function formatOverview(ov, { surface = 'cli' } = {}) {
   const L = [];
   const peelRoot = ov.displayRoot || ov.root;
   const strip = (p) => (peelRoot && p && p.startsWith(peelRoot)) ? p.slice(peelRoot.length) : p;
@@ -287,10 +287,22 @@ export function formatOverview(ov) {
 
   L.push('');
   L.push('**Next:**');
-  L.push('  - `--extract <name>` — print the source of a function by name. (The names in parentheses above, and under Entry points, are functions — pass one to `--extract` or `--digest`.)');
-  L.push('  - `--digest <file@function>` — a summary of a function or file');
-  L.push('  - `--vocabulary 50` — the full ranked terms (add `--bare` for a plain copy-paste list)');
-  L.push('  - `--files <dir>` — explore a folder');
-  L.push('  - `--command-catalog` / `--models` / `--prompts` / `--exports` — probe what kinds of content this index holds');
+  // #255: this text feeds two surfaces — the CLI (--overview) and the MCP
+  // overview tool. Speak each consumer's own vocabulary: an MCP client has no
+  // --flags, only tool names, so CLI hints there are dead ends (mirror image
+  // of the b4cd8fd fix).
+  if (surface === 'mcp') {
+    L.push('  - `extract <name>` — print the source of a function by name. (The names in parentheses above, and under Entry points, are functions — pass one to extract or digest.)');
+    L.push('  - `digest <file@function>` — a summary of a function or file');
+    L.push('  - `vocabulary` (n: 50) — the full ranked terms');
+    L.push('  - `list_files` (filter: <dir>) — explore a folder');
+    L.push('  - `command_catalog` / `models_used` — probe what kinds of content this index holds');
+  } else {
+    L.push('  - `--extract <name>` — print the source of a function by name. (The names in parentheses above, and under Entry points, are functions — pass one to `--extract` or `--digest`.)');
+    L.push('  - `--digest <file@function>` — a summary of a function or file');
+    L.push('  - `--vocabulary 50` — the full ranked terms (add `--bare` for a plain copy-paste list)');
+    L.push('  - `--files <dir>` — explore a folder');
+    L.push('  - `--command-catalog` / `--models` / `--prompts` / `--exports` — probe what kinds of content this index holds');
+  }
   return L.join('\n');
 }

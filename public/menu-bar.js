@@ -66,7 +66,13 @@ export function initMenuBar() {
   // auto-pop the first-run tour once. Both best-effort.
   const _tourParam = new URLSearchParams(location.search).get('tour');
   if (_tourParam && TOURS[_tourParam]) sessionTourName = _tourParam;  // Help → Tour replays the launched tour
-  if (_tourParam) startInteractiveTour(_tourParam);
+  if (_tourParam) {
+    // #255: an explicit --tour entry counts as having seen the tour — without
+    // the marker, the first-run tour auto-popped again later for users who
+    // already took it via this path.
+    try { localStorage.setItem('ce_tour_seen', '1'); } catch { /* best-effort */ }
+    startInteractiveTour(_tourParam);
+  }
   else maybeAutoOpenTour();
 }
 
@@ -215,7 +221,7 @@ function endTour() {
   activeTour = null;
 }
 
-function gotoTourStep(n, scroll = true) {
+function gotoTourStep(n, scroll = true, dir = 1) {
   if (!activeTour || n < 0) return;
   if (n >= activeTour.length) return endTour();
   const step = activeTour[n];
@@ -224,7 +230,10 @@ function gotoTourStep(n, scroll = true) {
   // Skip a step whose target is missing or not visible (e.g. a pane toggled off
   // via the Window menu, or an element absent for this index) rather than
   // spotlighting empty space. offsetParent is null for a display:none subtree.
-  if (!el || el.offsetParent === null) return gotoTourStep(n + 1, scroll);
+  // #255: skip in the TRAVEL direction — Back used to dead-end here (skipping
+  // forward back onto the step the user just left), making earlier steps
+  // unreachable past a hidden one.
+  if (!el || el.offsetParent === null) return gotoTourStep(n + dir, scroll, dir);
   tourStep = n;
   if (step.open) {
     const hdr = el.querySelector('.accordion-header');
@@ -256,7 +265,7 @@ function gotoTourStep(n, scroll = true) {
     const left = Math.min(Math.max(8, r.left), window.innerWidth - tr.width - 8);
     tip.style.top = `${top}px`; tip.style.left = `${left}px`;
     $('#tour-next').onclick = () => gotoTourStep(n + 1);
-    const back = $('#tour-back'); if (back) back.onclick = () => gotoTourStep(n - 1);
+    const back = $('#tour-back'); if (back) back.onclick = () => gotoTourStep(n - 1, true, -1);
     $('#tour-skip').onclick = endTour;
   });
 }

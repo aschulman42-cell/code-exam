@@ -414,7 +414,7 @@ function handleTool(name, args) {
   switch (name) {
 
     case 'overview':
-      return formatOverview(buildOverview(index));
+      return formatOverview(buildOverview(index), { surface: 'mcp' });
 
     case 'search': {
       const query = args.query;
