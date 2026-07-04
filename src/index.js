@@ -131,6 +131,16 @@ const _QUERY_COMMAND_KEYS = [
 // which drives the demo autoload.
 const _MUTATING_COMMAND_KEYS = ['rebuild_functions', 'build_rename_map'];
 
+// #252: the "did the user ALSO ask for something?" gates after --build-index
+// and --build-rename-map used to carry two hand-copied snapshots of
+// _QUERY_COMMAND_KEYS that had drifted (missing claim_search, digest, exports,
+// command_catalog, multisect_search, …) — those combos built the index, then
+// exited 0 WITHOUT running the requested command. Derive from the canonical
+// lists so new commands can't fall out of sync again. (--gui/--tour dispatch
+// before the build and don't need to be here.)
+const _POST_BUILD_CONTINUE_KEYS =
+  [..._QUERY_COMMAND_KEYS, ..._MUTATING_COMMAND_KEYS, 'interactive'];
+
 
 // ========================================================================
 // --gui: launch the GUI server + open the user's browser.
@@ -730,19 +740,7 @@ if (args.build_index) {
   } catch { /* best-effort tip; never break the build */ }
 
   // If only building (no other command), exit
-  const queryCommands = [
-    'overview', 'search', 'literal', 'fast', 'regex', 'files_search', 'folders_search',
-    'stats', 'list_functions', 'list_functions_alpha', 'list_functions_size',
-    'extract', 'list_files', 'show_file', 'file_bookends', 'bundle_seams', 'index_extensions', 'interactive',
-    'callers', 'callees', 'most_called', 'call_tree', 'call_inventory', 'file_map', 'file_tree',
-    'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
-    'list_classes', 'data_structs', 'client_server', 'list_models', 'list_artifacts', 'list_kernels', 'list_multimodal', 'list_post_training', 'list_reasoning', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'list_pipelines', 'list_explainability', 'class_hotspots', 'discover_vocabulary',
-    'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
-    'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
-    'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'funcstr_corpus', 'build_fp_renames',
-    'save_fingerprints',
-  ];
-  if (!queryCommands.some(c => args._explicit.has(c) || args[c])) {
+  if (!_POST_BUILD_CONTINUE_KEYS.some(c => args._explicit.has(c) || args[c])) {
     process.exit(0);
   }
 }
@@ -815,20 +813,7 @@ if (args.build_rename_map) {
   const r = index.inferAndSaveRenameMap({ showProgress: true, minFuncLines });
   console.log(`Done: ${r.namesInferred + r.cmdRenames + r.importRenames} total renames written to ${index.indexPath}/rename_map.json`);
   // If only --build-rename-map (no other command), exit
-  const queryCommands = [
-    'overview', 'search', 'literal', 'fast', 'regex', 'files_search', 'folders_search',
-    'stats', 'list_functions', 'list_functions_alpha', 'list_functions_size',
-    'extract', 'list_files', 'show_file', 'index_extensions', 'interactive',
-    'callers', 'callees', 'most_called', 'call_tree', 'call_inventory', 'file_map', 'file_tree',
-    'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
-    'list_classes', 'data_structs', 'client_server', 'list_models', 'list_artifacts', 'list_kernels', 'list_multimodal', 'list_post_training', 'list_reasoning', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'list_pipelines', 'list_explainability', 'class_hotspots', 'discover_vocabulary',
-    'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
-    'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
-    'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'funcstr_corpus', 'build_fp_renames',
-    'save_fingerprints',
-    'command_catalog', 'string_table', 'breadcrumbs', 'prompt_catalog', 'file_bookends', 'bundle_seams', 'digest',
-  ];
-  if (!queryCommands.some(c => args._explicit.has(c) || args[c])) {
+  if (!_POST_BUILD_CONTINUE_KEYS.some(c => args._explicit.has(c) || args[c])) {
     process.exit(0);
   }
 }

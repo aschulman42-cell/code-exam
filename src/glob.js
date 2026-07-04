@@ -101,8 +101,10 @@ function _globPartToRegex(part) {
     switch (ch) {
       case '*': regexStr += '.*'; break;
       case '?': regexStr += '.'; break;
-      case '.': regexStr += '\\.'; break;
-      default:  regexStr += ch; break;
+      // #252: escape ALL regex metacharacters, not just '.'. Unescaped '+'
+      // made the default '.c++'/'.h++' extension patterns throw ("Nothing to
+      // repeat") and crash the build.
+      default:  regexStr += ch.replace(/[.+^${}()|[\]\\]/, '\\$&'); break;
     }
   }
   regexStr += '$';

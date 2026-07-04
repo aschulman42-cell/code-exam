@@ -3,7 +3,7 @@
  * Port of ce_callers.py
  */
 
-import { displayName, quotePathIfNeeded } from '../utils.js';
+import { displayName, parseFuncSpec, quotePathIfNeeded } from '../utils.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
 
 
@@ -150,7 +150,9 @@ export function doCallers(index, args) {
         }
       }
 
-      visited.add(...currentLevel);
+      // #252: Set.add takes ONE argument — the spread form added only the
+      // first node per level, duplicating subtrees and inflating the count.
+      for (const t of currentLevel) visited.add(t);
       for (const v of visited) nextLevel.delete(v);
       currentLevel = nextLevel;
     }
@@ -167,15 +169,9 @@ export function doCallers(index, args) {
 
 export function doCallees(index, args) {
   const calleesArg = args.callees;
-  let pathHint = null, functionName;
-
-  if (calleesArg.includes('@')) {
-    const atPos = calleesArg.indexOf('@');
-    pathHint = calleesArg.slice(0, atPos);
-    functionName = calleesArg.slice(atPos + 1);
-  } else {
-    functionName = calleesArg;
-  }
+  // #252: same first-`@` split bug as the MCP extract/callees sites — a scoped
+  // package path (`node_modules/@scope/pkg/index.js@foo`) split at the wrong @.
+  const { fileHint: pathHint, funcName: functionName } = parseFuncSpec(calleesArg);
 
   const callees = index.findCallees(functionName, pathHint);
 
@@ -278,7 +274,10 @@ export function doMostCalled(index, args) {
         defs = defs.filter(d => !d.filepath.toLowerCase().includes('test'));
       }
       item = { ...item, definitions: defs };
-      if (args.exclude_tests && defs.length === 0 && item.definitions.length > 0) continue;
+      // #252: this used to read item.definitions AFTER the reassignment above
+      // — comparing the filtered list to itself, so the drop never fired. The
+      // enclosing block already guarantees the original list was non-empty.
+      if (args.exclude_tests && defs.length === 0) continue;
     }
 
     filteredData.push(item);

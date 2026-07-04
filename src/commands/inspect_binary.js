@@ -376,10 +376,16 @@ function _detectFormat(head) {
   if (head.readUInt32LE(0) === 0xfeedface) return { format: 'Mach-O', formatDetail: 'Mach-O 32-bit' };
   // Mach-O (64-bit)
   if (head.readUInt32LE(0) === 0xfeedfacf) return { format: 'Mach-O', formatDetail: 'Mach-O 64-bit' };
-  // Mach-O fat (universal)
-  if (head.readUInt32BE(0) === 0xcafebabe) return { format: 'Mach-O', formatDetail: 'Mach-O fat / universal' };
-  // Java class
-  if (head.readUInt32BE(0) === 0xcafebabe) return { format: 'class', formatDetail: 'Java .class' };
+  // 0xcafebabe is shared by Mach-O fat AND Java .class (#252: the second
+  // check below was identical, so the Java branch was dead code). Disambiguate
+  // the way file(1) does: bytes 4-7 big-endian are nfat_arch for a fat binary
+  // (a handful at most) but minor<<16|major version for .class (major >= 45,
+  // i.e. > 30, for every real JDK).
+  if (head.readUInt32BE(0) === 0xcafebabe) {
+    return head.readUInt32BE(4) > 30
+      ? { format: 'class', formatDetail: 'Java .class' }
+      : { format: 'Mach-O', formatDetail: 'Mach-O fat / universal' };
+  }
   // WASM
   if (head[0] === 0x00 && head[1] === 0x61 && head[2] === 0x73 && head[3] === 0x6d) {
     return { format: 'WASM', formatDetail: 'WebAssembly module' };

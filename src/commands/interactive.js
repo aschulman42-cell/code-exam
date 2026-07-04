@@ -555,9 +555,10 @@ function dispatchCommand(query, ctx) {
         index._knownFunctionsCache = null;
         console.log('Function index rebuilt and saved. Caches cleared.');
       };
-      if (useTS) return doRebuild();
-      doRebuild(); // sync path — no await needed
-      return;
+      // #252: return the promise on BOTH paths so the REPL loop's .catch()
+      // handles a throw — the bare call dropped rejections (process-killing
+      // unhandled rejection). doRebuild is async even for the non-TS path.
+      return doRebuild();
     }
 
     // ----- Strip surrounding quotes from arguments -----
@@ -629,7 +630,10 @@ function dispatchCommand(query, ctx) {
       return;
     }
     if (query.startsWith('/files-search ') || query.startsWith('/fsearch ')) {
-      const pat = query.startsWith('/f') && query[1] === 's'
+      // #252: the old alias test (`query[1] === 's'`) was never true for
+      // "/fsearch" (query[1] is 'f'), so the alias sliced at the wrong offset
+      // and searched a truncated pattern.
+      const pat = query.startsWith('/fsearch ')
         ? query.slice(9).trim()
         : query.slice(14).trim();
       doFilesSearch(index, iargs({ files_search: pat }));

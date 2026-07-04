@@ -18,6 +18,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
+import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { handleTool, TOOLS, setIndex } from './mcp-server.js';
 import { resolveIndexDir } from './archive.js';
@@ -41,7 +42,7 @@ import { SERVER_BUILD } from './version.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
 import { collectPrompts } from './commands/prompts.js';
-import { displayName, MEDIA_BINARY_EXTENSIONS, ARCHIVE_EXTENSIONS, EXECUTABLE_EXTENSIONS } from './utils.js';
+import { displayName, parseFuncSpec, MEDIA_BINARY_EXTENSIONS, ARCHIVE_EXTENSIONS, EXECUTABLE_EXTENSIONS } from './utils.js';
 import { BINSTRING_EXTENSIONS } from './binstrings.js';
 import { execCommand } from './commands/interactive.js';
 import {
@@ -737,27 +738,9 @@ function errorResponse(res, message, status = 400) {
   jsonResponse(res, { error: message }, status);
 }
 
-function parseFuncSpec(spec) {
-  if (spec && spec.includes('@')) {
-    // Find the right `@` separator. Scoped npm packages embed `@` in paths
-    // (e.g. `node_modules/@anthropic-ai/sdk/client.js@Foo`). Prefer the last
-    // `@` that immediately follows a file extension; fall back to first `@`.
-    const extAt = /\.[a-zA-Z0-9]{1,6}@/g;
-    let atPos = -1;
-    let m;
-    while ((m = extAt.exec(spec)) !== null) atPos = m.index + m[0].length - 1;
-    if (atPos < 0) atPos = spec.indexOf('@');
-    const beforeAt = spec.slice(0, atPos);
-    const afterAt = spec.slice(atPos + 1);
-    // If the part after @ is purely numeric, it's a line-number disambiguator
-    // (e.g. "getPromptForCommand@477187"), not a file@func separator.
-    if (/^\d+$/.test(afterAt)) {
-      return { fileHint: null, funcName: spec };
-    }
-    return { fileHint: beforeAt, funcName: afterAt };
-  }
-  return { fileHint: null, funcName: spec };
-}
+// parseFuncSpec (file@funcName splitting, scoped-package- and
+// line-disambiguator-aware) moved to utils.js so the MCP tools and CLI
+// commands share it (#252) — imported above.
 
 
 // ========================================================================

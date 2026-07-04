@@ -156,12 +156,13 @@ export class TreeSitterParser {
     const lang = await this.getLanguage(langName);
     if (!lang) return null;
 
+    let parser, tree;
     try {
-      const parser = new this._Parser();
+      parser = new this._Parser();
       parser.setLanguage(lang);
 
       const sourceCode = sourceLines.join('\n');
-      const tree = parser.parse(sourceCode);
+      tree = parser.parse(sourceCode);
 
       let result;
       switch (langName) {
@@ -198,11 +199,14 @@ export class TreeSitterParser {
           result = null;
       }
 
-      tree.delete();
-      parser.delete();
       return result;
     } catch (e) {
       return null; // fallback to regex
+    } finally {
+      // #252: cleanup used to sit inside the try, so a throw in an _extract*
+      // leaked the WASM parser/tree. Same finally pattern as parseEsbuildWrappers.
+      tree?.delete?.();
+      parser?.delete?.();
     }
   }
 

@@ -25,7 +25,7 @@ import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { parseMultisectTerms } from './commands/multisect.js';
-import { displayName } from './utils.js';
+import { displayName, parseFuncSpec } from './utils.js';
 import { doCallTree } from './commands/graph.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
 import { pathToFileURL } from 'url';
@@ -57,6 +57,10 @@ let indexReady = null;   // a Promise that resolves once the index is loaded (se
 /** Test seam: inject a loaded CodeSearchIndex, bypassing argv/stdio. */
 export function setIndex(idx) { index = idx; }
 
+// parseFuncSpec (file@funcName splitting, scoped-package- and
+// line-disambiguator-aware) lives in utils.js (#252) so the CLI commands can
+// share it without pulling in this module's MCP SDK imports — imported above.
+
 // Handshake-first lazy load (#mcp-large-index-handshake-first-load). A large index
 // (e.g. .Manning_books, ~1.9 GB, takes ~98s to load; .spinellis far longer) used
 // to be loaded SYNCHRONOUSLY in main() BEFORE server.connect() — so the claude
@@ -72,7 +76,13 @@ function ensureIndexLoaded() {
     if (!idx.files || idx.files.size === 0) throw new Error(`No files in index at ${serverArgs.indexPath}`);
     index = idx;
     console.log(`Loaded: ${index.files.size} files`);
-  })();
+  })().catch((e) => {
+    // #252: a failed load used to stay cached as a rejected promise, wedging
+    // every subsequent tool call (load_index, list_indexes, …) until restart.
+    // Clear the cache so the next call retries (or picks up a setIndex()).
+    indexReady = null;
+    throw e;
+  });
   return indexReady;
 }
 
@@ -454,12 +464,7 @@ function handleTool(name, args) {
     case 'extract': {
       const spec = args.function_name ?? args.target;
       if (!spec) return 'extract requires "function_name" (alias: "target").';
-      let fileHint = null, funcName = spec;
-      if (spec.includes('@')) {
-        const atPos = spec.indexOf('@');
-        fileHint = spec.slice(0, atPos);
-        funcName = spec.slice(atPos + 1);
-      }
+      const { fileHint, funcName } = parseFuncSpec(spec);
       const matches = index.findFunctionMatches(funcName, fileHint);
       if (matches.length === 0) {
         // Fuzzy fallback: a wrong file hint shouldn't be a dead end (#184 item 5).
@@ -553,12 +558,7 @@ function handleTool(name, args) {
     case 'callees': {
       const spec = args.function_name ?? args.target;
       if (!spec) return 'callees requires "function_name" (alias: "target").';
-      let fileHint = null, funcName = spec;
-      if (spec.includes('@')) {
-        const atPos = spec.indexOf('@');
-        fileHint = spec.slice(0, atPos);
-        funcName = spec.slice(atPos + 1);
-      }
+      const { fileHint, funcName } = parseFuncSpec(spec);
       const callees = index.findCallees(funcName, fileHint);
       if (callees.length === 0) return `No callees found for: ${spec}`;
       const lines = [`${callees.length} callees of ${funcName}:`];

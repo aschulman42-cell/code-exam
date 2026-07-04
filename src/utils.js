@@ -36,6 +36,38 @@ export class SearchResult {
 
 
 // ========================================================================
+// file@function spec parsing
+// ========================================================================
+
+/**
+ * Split a "file@funcName" spec into { fileHint, funcName }, handling the two
+ * `@` hazards: scoped npm packages embed `@` in paths
+ * (`node_modules/@anthropic-ai/sdk/client.js@Foo`), and a purely-numeric
+ * suffix is a line-number disambiguator (`getPromptForCommand@477187`), not a
+ * separator. Prefer the last `@` that immediately follows a file extension;
+ * fall back to the first `@`. (#252: mcp-server's extract/callees and the CLI
+ * --callees used bare first-`@` splits, breaking scoped-package specs; this is
+ * server.js's logic hoisted here so all of them share one implementation.)
+ */
+export function parseFuncSpec(spec) {
+  if (spec && spec.includes('@')) {
+    const extAt = /\.[a-zA-Z0-9]{1,6}@/g;
+    let atPos = -1;
+    let m;
+    while ((m = extAt.exec(spec)) !== null) atPos = m.index + m[0].length - 1;
+    if (atPos < 0) atPos = spec.indexOf('@');
+    const beforeAt = spec.slice(0, atPos);
+    const afterAt = spec.slice(atPos + 1);
+    if (/^\d+$/.test(afterAt)) {
+      return { fileHint: null, funcName: spec };
+    }
+    return { fileHint: beforeAt, funcName: afterAt };
+  }
+  return { fileHint: null, funcName: spec };
+}
+
+
+// ========================================================================
 // Language / extension mappings
 // ========================================================================
 

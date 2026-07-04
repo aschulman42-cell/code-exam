@@ -202,7 +202,12 @@ export function extractBun(binaryPath, outputDir) {
   const fd = fs.openSync(binaryPath, 'r');
   try {
     const offsetsBuf = Buffer.alloc(OFFSETS_SIZE);
-    fs.readSync(fd, offsetsBuf, 0, OFFSETS_SIZE, offsetsStart);
+    // #252: unchecked fs.readSync can return short; a zero-filled tail would
+    // silently corrupt the offsets/graph. Use the loop-past-short-reads helper
+    // and fail loudly if the file is truncated.
+    if (_readFullyAt(fd, offsetsBuf, OFFSETS_SIZE, offsetsStart) !== OFFSETS_SIZE) {
+      throw new Error(`Short read of Offsets block at ${offsetsStart} — truncated binary?`);
+    }
 
     const byteCount = Number(offsetsBuf.readBigUInt64LE(0));
     const modulesOffset = offsetsBuf.readUInt32LE(8);
@@ -224,7 +229,10 @@ export function extractBun(binaryPath, outputDir) {
     // in-memory approach is fine for an analysis tool, and matches Bun's
     // own runtime which mmap's the whole region.
     const graphBuf = Buffer.alloc(byteCount);
-    fs.readSync(fd, graphBuf, 0, byteCount, graphStart);
+    const graphRead = _readFullyAt(fd, graphBuf, byteCount, graphStart);
+    if (graphRead !== byteCount) {
+      throw new Error(`Short read of module graph: ${graphRead}/${byteCount} bytes — truncated binary?`);
+    }
 
     if (modulesOffset + modulesLength > byteCount) {
       throw new Error(`Modules list range [${modulesOffset}, ${modulesOffset + modulesLength}) exceeds graph (${byteCount})`);
@@ -248,7 +256,8 @@ export function extractBun(binaryPath, outputDir) {
       const moduleFormat = graphBuf.readUInt8(rec + 50);
       const side = graphBuf.readUInt8(rec + 51);
 
-      const nameStr = _readStringFromGraph(graphBuf, name) || `<unnamed-${i}>`;
+      const rawName = _readStringFromGraph(graphBuf, name);
+      const nameStr = rawName || `<unnamed-${i}>`;   // display only — see relPath below
 
       if (contents.length === 0) {
         skipped.push({ index: i, name: nameStr, reason: 'empty contents' });
@@ -259,7 +268,11 @@ export function extractBun(binaryPath, outputDir) {
         continue;
       }
 
-      const relPath = _stripVfsPrefix(nameStr) || `module-${i}.dat`;
+      // #252: an empty module name used to fall back to the `<unnamed-N>`
+      // display string, whose `<`/`>` are invalid in Windows filenames — one
+      // bad record aborted the whole extraction. Empty names now go straight
+      // to module-N.dat; the angle-bracket form stays display-only.
+      const relPath = (rawName ? _stripVfsPrefix(rawName) : '') || `module-${i}.dat`;
       const fullOutputPath = path.join(outputDir, relPath);
       // #253: module names come from an untrusted binary and can contain `..`
       // or absolute/drive-qualified paths; path.join normalizes `..`, so an
@@ -271,36 +284,44 @@ export function extractBun(binaryPath, outputDir) {
         skipped.push({ index: i, name: nameStr, reason: 'unsafe path (escapes output directory)' });
         continue;
       }
-      fs.mkdirSync(path.dirname(fullOutputPath), { recursive: true });
+      // #252: module names come from an untrusted binary; a name the OS
+      // rejects (e.g. `<`,`>`,`"` on Windows) used to throw out of the loop
+      // and abort the WHOLE extraction. Skip the bad record instead.
+      try {
+        fs.mkdirSync(path.dirname(fullOutputPath), { recursive: true });
 
-      const contentBuf = graphBuf.slice(contents.offset, contents.offset + contents.length);
-      fs.writeFileSync(fullOutputPath, contentBuf);
+        const contentBuf = graphBuf.slice(contents.offset, contents.offset + contents.length);
+        fs.writeFileSync(fullOutputPath, contentBuf);
 
-      extractedFiles.push({
-        path: relPath,
-        sourcePath: nameStr,
-        size: contents.length,
-        loader: LOADERS[loader] || `loader-${loader}`,
-        encoding: ENCODINGS[encoding] || `enc-${encoding}`,
-        moduleFormat: MODULE_FORMATS[moduleFormat] || `fmt-${moduleFormat}`,
-        side: side === 1 ? 'client' : 'server',
-        isEntryPoint: i === entryPointId,
-      });
-
-      if (sourcemap.length > 0 && sourcemap.offset + sourcemap.length <= byteCount) {
-        const smapPath = fullOutputPath + '.map';
-        const smapBuf = graphBuf.slice(sourcemap.offset, sourcemap.offset + sourcemap.length);
-        fs.writeFileSync(smapPath, smapBuf);
         extractedFiles.push({
-          path: relPath + '.map',
-          sourcePath: nameStr + '.map',
-          size: sourcemap.length,
-          loader: 'sourcemap',
-          encoding: 'binary',
-          moduleFormat: 'sourcemap',
+          path: relPath,
+          sourcePath: nameStr,
+          size: contents.length,
+          loader: LOADERS[loader] || `loader-${loader}`,
+          encoding: ENCODINGS[encoding] || `enc-${encoding}`,
+          moduleFormat: MODULE_FORMATS[moduleFormat] || `fmt-${moduleFormat}`,
           side: side === 1 ? 'client' : 'server',
-          isEntryPoint: false,
+          isEntryPoint: i === entryPointId,
         });
+
+        if (sourcemap.length > 0 && sourcemap.offset + sourcemap.length <= byteCount) {
+          const smapPath = fullOutputPath + '.map';
+          const smapBuf = graphBuf.slice(sourcemap.offset, sourcemap.offset + sourcemap.length);
+          fs.writeFileSync(smapPath, smapBuf);
+          extractedFiles.push({
+            path: relPath + '.map',
+            sourcePath: nameStr + '.map',
+            size: sourcemap.length,
+            loader: 'sourcemap',
+            encoding: 'binary',
+            moduleFormat: 'sourcemap',
+            side: side === 1 ? 'client' : 'server',
+            isEntryPoint: false,
+          });
+        }
+      } catch (e) {
+        skipped.push({ index: i, name: nameStr, reason: `write failed: ${e.code || e.message}` });
+        continue;
       }
     }
 

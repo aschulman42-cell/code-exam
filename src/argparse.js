@@ -726,8 +726,11 @@ export function parseArgs() {
           i++;
         } else {
           i++;
-          // Consume all following non-flag tokens
-          while (i < argv.length && !argv[i].startsWith('--')) {
+          // Consume all following non-flag tokens. #252: stop on a single '-'
+          // too, not just '--' — list values are paths/patterns that never
+          // start with a dash (same reasoning as the optional_value guard
+          // above), and `--inspect-binary app.exe -v` was eating the `-v`.
+          while (i < argv.length && !argv[i].startsWith('-')) {
             args[def.name].push(argv[i]);
             i++;
           }

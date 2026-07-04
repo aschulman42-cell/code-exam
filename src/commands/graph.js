@@ -346,7 +346,9 @@ export function doFileMap(index, args) {
   console.log('```mermaid');
   console.log('flowchart LR');
   const mfid = (fp) => {
-    const b = path.basename(fp).replace(/\./g, '_').replace(/-/g, '_');
+    // #252: sanitize EVERY non-word character, not just '.'/'-' — spaces or
+    // parens in a filename produced invalid Mermaid node ids.
+    const b = path.basename(fp).replace(/[^A-Za-z0-9_]/g, '_');
     const h = crypto.createHash('md5').update(fp).digest('hex').slice(0, 4);
     return `f_${b}_${h}`;
   };
@@ -496,7 +498,9 @@ export function doFileTree(index, args) {
   console.log('```mermaid');
   console.log('flowchart LR');
   const mfid = (fp) => {
-    const b = path.basename(fp).replace(/\./g, '_').replace(/-/g, '_');
+    // #252: sanitize EVERY non-word character, not just '.'/'-' — spaces or
+    // parens in a filename produced invalid Mermaid node ids.
+    const b = path.basename(fp).replace(/[^A-Za-z0-9_]/g, '_');
     const h = crypto.createHash('md5').update(fp).digest('hex').slice(0, 4);
     return `f_${b}_${h}`;
   };
