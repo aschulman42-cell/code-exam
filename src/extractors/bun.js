@@ -261,6 +261,16 @@ export function extractBun(binaryPath, outputDir) {
 
       const relPath = _stripVfsPrefix(nameStr) || `module-${i}.dat`;
       const fullOutputPath = path.join(outputDir, relPath);
+      // #253: module names come from an untrusted binary and can contain `..`
+      // or absolute/drive-qualified paths; path.join normalizes `..`, so an
+      // unchecked join can escape outputDir and write arbitrary files. Refuse
+      // anything that resolves outside the output directory. (The `.map` write
+      // below rides on this same validated fullOutputPath, so it's covered too.)
+      const _rel = path.relative(path.resolve(outputDir), path.resolve(fullOutputPath));
+      if (_rel === '' || _rel.startsWith('..') || path.isAbsolute(_rel)) {
+        skipped.push({ index: i, name: nameStr, reason: 'unsafe path (escapes output directory)' });
+        continue;
+      }
       fs.mkdirSync(path.dirname(fullOutputPath), { recursive: true });
 
       const contentBuf = graphBuf.slice(contents.offset, contents.offset + contents.length);
