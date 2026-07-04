@@ -109,8 +109,10 @@ export function deobfuscateSimple(code) {
   // !0 → true, !1 → false (safe: these are always boolean in JS)
   result = result.replace(/!0\b/g, 'true');
   result = result.replace(/!1\b/g, 'false');
-  // void 0 → undefined (safe: void 0 is always undefined in JS)
-  result = result.replace(/void 0\b/g, 'undefined');
+  // void 0 → undefined (safe: void 0 is always undefined in JS). #251: anchor the
+  // LEADING boundary too — a bare `void 0\b` also matches the tail of `avoid 0`,
+  // rewriting it to `aundefined`.
+  result = result.replace(/\bvoid 0\b/g, 'undefined');
   return result;
 }
 
@@ -694,10 +696,10 @@ export function _scanLineState(line, startState, endPos) {
   for (let i = 0; i < N; i++) {
     const ch = line[i];
     const next = i + 1 < line.length ? line[i + 1] : '';
-    const prev = i > 0 ? line[i - 1] : '';
-    // Backslash escape only matters inside string-like states
-    if (prev === '\\' && (state === 's' || state === 'd' || state === 't')) continue;
-
+    // Escape handling lives inside each string state below (the `ch === '\\'`
+    // skips). A lone look-back at `prev === '\\'` can't distinguish an escaped
+    // backslash `\\` from an escaping one, so `"C:\\"` (a Windows path literal)
+    // wedged the scanner open past the real closing quote. #251
     if (state === 'code') {
       if (ch === '/' && next === '/')      { state = 'lc'; i++; }
       else if (ch === '/' && next === '*') { state = 'bc'; i++; }
@@ -706,11 +708,14 @@ export function _scanLineState(line, startState, endPos) {
       else if (ch === '`')                 { state = 't'; }
       else if (ch === '}' && stack.length > 0) state = stack.pop();
     } else if (state === 's') {
-      if (ch === "'") state = 'code';
+      if (ch === '\\') i++;                 // escape: consume the next char
+      else if (ch === "'") state = 'code';
     } else if (state === 'd') {
-      if (ch === '"') state = 'code';
+      if (ch === '\\') i++;
+      else if (ch === '"') state = 'code';
     } else if (state === 't') {
-      if (ch === '`') state = 'code';
+      if (ch === '\\') i++;
+      else if (ch === '`') state = 'code';
       else if (ch === '$' && next === '{') {
         // Enter ${} interpolation: push template state, switch to code
         stack.push('t');

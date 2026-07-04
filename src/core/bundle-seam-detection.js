@@ -134,11 +134,10 @@ export function _findWrapperEnd(lines, startLineIdx) {
     for (let j = 0; j < line.length; j++) {
       const ch = line[j];
       const next = j + 1 < line.length ? line[j + 1] : '';
-      const prev = j > 0 ? line[j - 1] : '';
-
-      // Backslash escape only matters inside string-like states
-      if (prev === '\\' && (state === 's' || state === 'd' || state === 't')) continue;
-
+      // Escape handling lives inside each string state below (the `ch === '\\'`
+      // skips). A lone look-back at `prev === '\\'` can't distinguish an escaped
+      // backslash `\\` from an escaping one, so a `"C:\\"`-style literal wedged
+      // the scanner in string-state and desynced the brace count. #251
       if (state === 'code') {
         if (ch === '/' && next === '/') { state = 'lc'; j++; continue; }
         if (ch === '/' && next === '*') { state = 'bc'; j++; continue; }
@@ -155,11 +154,14 @@ export function _findWrapperEnd(lines, startLineIdx) {
           }
         }
       } else if (state === 's') {
-        if (ch === "'") state = 'code';
+        if (ch === '\\') j++;                // escape: consume the next char
+        else if (ch === "'") state = 'code';
       } else if (state === 'd') {
-        if (ch === '"') state = 'code';
+        if (ch === '\\') j++;
+        else if (ch === '"') state = 'code';
       } else if (state === 't') {
-        if (ch === '`') state = 'code';
+        if (ch === '\\') j++;
+        else if (ch === '`') state = 'code';
         // Template-literal ${} interpolation is NOT tracked for brace counting.
         // This could theoretically miscount but is rare in module wrappers.
       } else if (state === 'bc') {

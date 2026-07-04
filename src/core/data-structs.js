@@ -62,16 +62,25 @@ export function extractDataStructures(idx, { topN = 0 } = {}) {
     const pats = _PATTERNS[lang];
     // C idiom: `typedef struct {` … `} Foo;` — the name is on the closing line.
     let pendingTypedefAggregate = false;
+    let typedefBraceDepth = 0;
     for (let i = 0; i < lines.length; i++) {
       const ln = lines[i];
       if (lang === 'c') {
-        if (/^\s*typedef\s+(struct|enum|union)\b[^;]*\{\s*$/.test(ln)) { pendingTypedefAggregate = true; continue; }
+        if (/^\s*typedef\s+(struct|enum|union)\b[^;]*\{\s*$/.test(ln)) {
+          pendingTypedefAggregate = true; typedefBraceDepth = 1; continue;
+        }
         if (pendingTypedefAggregate) {
-          const m = ln.match(/^\s*\}\s*([A-Za-z_]\w*)\s*;/);
-          if (m) { defs.push({ name: m[1], kind: 'typedef', filepath: fp, line: i + 1 }); nameSet.add(m[1]); }
-          // The closing brace ends the aggregate (named or not); field lines with
-          // their own semicolons must NOT end it early.
-          if (/^\s*\}/.test(ln)) pendingTypedefAggregate = false;
+          // #251: track brace depth so a NESTED `} member;` doesn't end the
+          // aggregate early (recording the member as a false typedef and dropping
+          // the real tag). Only the brace that returns to depth 0 closes it.
+          for (const ch of ln) { if (ch === '{') typedefBraceDepth++; else if (ch === '}') typedefBraceDepth--; }
+          if (typedefBraceDepth <= 0) {
+            // Closing line: grab the first tag name after `}` — handles `} Foo;`,
+            // `} *PFoo;`, and multi-name `} Foo, *PFoo;` (takes the first, Foo).
+            const m = ln.match(/^\s*\}\s*\*?\s*([A-Za-z_]\w*)/);
+            if (m) { defs.push({ name: m[1], kind: 'typedef', filepath: fp, line: i + 1 }); nameSet.add(m[1]); }
+            pendingTypedefAggregate = false;
+          }
           continue;
         }
       }

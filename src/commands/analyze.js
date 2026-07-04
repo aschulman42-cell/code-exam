@@ -1454,7 +1454,10 @@ export async function doAnalyze(index, args) {
   // context improves local-LLM output quality.
   let digestText = null;
   if (args.with_digest && index.buildFunctionDigest) {
-    const digestObj = index.buildFunctionDigest(funcName);
+    // #251: pass the file-qualified spec — a bare funcName gives buildFunctionDigest
+    // no path hint, so it digests matches[0], the WRONG same-named function when
+    // the name exists in multiple files.
+    const digestObj = index.buildFunctionDigest(`${filepath}@${funcName}`);
     if (digestObj) {
       // Import formatter lazily so analyze.js doesn't hard-depend on digest.js
       const { formatFunctionDigest } = await import('./digest.js');

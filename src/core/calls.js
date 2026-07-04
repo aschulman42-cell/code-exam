@@ -1089,7 +1089,11 @@ export function getAllFileDeps(idx, pathFilter = null, showProgress = true) {
         if (selfCalls.has(callee)) continue;
         if (localFuncs.has(callee)) continue;
 
-        const cacheKey = `${idx}:${callee}`;
+        // #251: key by the SOURCE file, not the index object — `${idx}`
+        // stringified to a constant `[object Object]`, so the cache collapsed to
+        // `callee` alone and returned the first source file's target for every
+        // file sharing a callee name → wrong file-dependency edges.
+        const cacheKey = `${srcFp}:${callee}`;
         if (!targetCache.has(cacheKey)) {
           targetCache.set(cacheKey, bestTarget(srcFp, callee));
         }

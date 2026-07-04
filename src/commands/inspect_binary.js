@@ -587,6 +587,12 @@ function _emitHints(str, verbose) {
   const hints = [];
   const summary = { objPaths: 0, githubUrls: 0, gitShas: 0 };
 
+  // #251: RE_ABS_PATH / RE_REL_PATH / RE_GITHUB_URL / RE_GIT_SHA_CONTEXT are
+  // MODULE-LEVEL global (`/g`) regexes reused across binaries. A loop that breaks
+  // early on the size caps below leaves lastIndex non-zero, so the NEXT binary's
+  // scan would start mid-string and miss matches. Reset them all up front.
+  for (const re of [RE_ABS_PATH, RE_REL_PATH, RE_GITHUB_URL, RE_GIT_SHA_CONTEXT]) re.lastIndex = 0;
+
   // Source-path hints: absolute (drive-lettered) + relative (≥2 segments)
   const objSet = new Set();
   let m;
@@ -594,9 +600,7 @@ function _emitHints(str, verbose) {
     objSet.add(m[0]);
     if (objSet.size > 400) break;
   }
-  // Reset lastIndex isn't needed because we instantiated fresh regex objects,
-  // but RE_REL_PATH has its own internal state — give it a fresh scan.
-  RE_REL_PATH.lastIndex = 0;
+  RE_REL_PATH.lastIndex = 0;  // belt-and-suspenders after the RE_ABS_PATH scan above
   while ((m = RE_REL_PATH.exec(str)) !== null) {
     // Avoid double-counting matches the absolute regex already caught
     // (RE_REL_PATH can match the relative tail of an absolute path).

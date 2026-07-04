@@ -46,6 +46,25 @@ function _extractFullString(lines, lineIdx, startCol) {
     return { text: '', endLineIdx: lineIdx };
   }
 
+  // #251: Python triple-quoted string ("""...""" / '''...''') — scan across lines
+  // to the closing triple. Without this, the same-line scan below stopped at the
+  // 2nd quote of the opening delimiter, truncating multi-line Python prompts.
+  const triple = quoteChar + quoteChar + quoteChar;
+  if ((quoteChar === '"' || quoteChar === "'") && line.slice(startCol, startCol + 3) === triple) {
+    const parts = [];
+    let li = lineIdx;
+    let ci = startCol + 3;
+    const MAX_LINES = 500;
+    while (li < lines.length && li - lineIdx < MAX_LINES) {
+      const l = lines[li] || '';
+      const closeIdx = l.indexOf(triple, ci);
+      if (closeIdx >= 0) { parts.push(l.slice(ci, closeIdx)); return { text: parts.join(''), endLineIdx: li }; }
+      parts.push(l.slice(ci)); parts.push('\n');
+      li++; ci = 0;
+    }
+    return { text: parts.join(''), endLineIdx: li };
+  }
+
   // For regular quotes: scan to closing quote on the same line
   if (quoteChar !== '`') {
     let i = startCol + 1;

@@ -1197,7 +1197,11 @@ export class CodeSearchIndex {
     const lowerNorm = target.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
     const suffixMatches = [];
     for (const key of this.fileLines.keys()) {
-      if (key.toLowerCase().endsWith('/' + lowerNorm) || key.toLowerCase().endsWith(lowerNorm)) {
+      // #251: the bare `endsWith(lowerNorm)` matched across a path segment, so a
+      // query `sers.js` resolved to `users.js`. Require a `/` boundary or a
+      // whole-key match (and normalize the key's separators while here).
+      const keyNorm = key.replace(/\\/g, '/').toLowerCase();
+      if (keyNorm.endsWith('/' + lowerNorm) || keyNorm === lowerNorm) {
         suffixMatches.push(key);
       }
     }
@@ -2160,9 +2164,13 @@ export class CodeSearchIndex {
           const raw = m[0].slice(1, -1);
           if (raw.length < minLength) continue;
 
-          // Unescape basic escapes
-          const val = raw.replace(/\\n/g, '\n').replace(/\\t/g, '\t')
-            .replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\\/g, '\\');
+          // Unescape basic escapes in a SINGLE left-to-right pass (#251): the old
+          // sequential `\n`→NL … `\\`→`\` order corrupted Windows-path literals —
+          // in `C:\\newdir` the `\n` rule fired on the 2nd backslash + `n` before
+          // the `\\` rule collapsed the pair, yielding `C:\<NL>ewdir`.
+          const val = raw.replace(/\\(.)/g, (m, c) =>
+            c === 'n' ? '\n' : c === 't' ? '\t' :
+            c === '"' ? '"' : c === "'" ? "'" : c === '\\' ? '\\' : m);
 
           const func = this._findContainingFunctionFromBounds(funcBounds, lineNum);
           _addString(strings, val, filepath, lineNum, func);
@@ -3074,6 +3082,11 @@ export class CodeSearchIndex {
     fs.mkdirSync(this.indexPath, { recursive: true });
     fs.writeFileSync(this._functionIndexPath(),
                      JSON.stringify(this.functionIndex, null, 2), 'utf-8');
+    // #251: the function index just changed, so a cached func_hashes.json is now
+    // stale (dup evidence would reflect the OLD sources). Drop it so the next
+    // dup/hash query recomputes rather than serving stale hashes.
+    this._funcHashes = null;
+    try { fs.rmSync(this._funcHashesPath(), { force: true }); } catch { /* ignore */ }
 
     this.parseMethod = 'regex';
     if (showProgress) {
@@ -3179,6 +3192,9 @@ export class CodeSearchIndex {
     fs.mkdirSync(this.indexPath, { recursive: true });
     fs.writeFileSync(this._functionIndexPath(),
                      JSON.stringify(this.functionIndex, null, 2), 'utf-8');
+    // #251: invalidate the now-stale func_hashes cache (see buildFunctionIndex).
+    this._funcHashes = null;
+    try { fs.rmSync(this._funcHashesPath(), { force: true }); } catch { /* ignore */ }
 
     this.parseMethod = tsCount > 0 && regexCount > 0 ? 'tree-sitter+regex'
                      : tsCount > 0 ? 'tree-sitter' : 'regex';
@@ -4208,9 +4224,12 @@ export class CodeSearchIndex {
     if (fileFuncs[functionName]) {
       funcInfo = fileFuncs[functionName];
     } else {
-      // Try matching by base_name
+      // Try matching by base_name. #251: require an ACTUAL base_name equal to the
+      // query — the old `(info.base_name || functionName) === functionName`
+      // fallback was vacuously true for every entry when base_name was absent
+      // (legacy indexes), returning the first function's source misattributed.
       const matches = Object.entries(fileFuncs)
-        .filter(([, info]) => (info.base_name || functionName) === functionName);
+        .filter(([, info]) => info.base_name === functionName);
 
       if (matches.length === 0) {
         const available = Object.keys(fileFuncs).slice(0, 10).join(', ');

@@ -836,6 +836,10 @@ export function formatCommentsOnly(digest) {
       prevEnd = m.endLine;
     }
     const classScopeComments = [];
+    // #251: key by the method OBJECT, not `.name` — overloaded / same-named
+    // methods (C++/Java overloads, or a get/set pair) share a name and were
+    // merging each other's comments. The attribution and emission loops both
+    // iterate the same `methods` array, so object identity is a safe unique key.
     const byMethod = new Map();
     for (const c of comments) {
       let found = null;
@@ -846,8 +850,8 @@ export function formatCommentsOnly(digest) {
         }
       }
       if (found) {
-        if (!byMethod.has(found.name)) byMethod.set(found.name, []);
-        byMethod.get(found.name).push(c);
+        if (!byMethod.has(found)) byMethod.set(found, []);
+        byMethod.get(found).push(c);
       } else {
         classScopeComments.push(c);
       }
@@ -858,7 +862,7 @@ export function formatCommentsOnly(digest) {
       push('');
     }
     for (const m of methods) {
-      const ms = byMethod.get(m.name);
+      const ms = byMethod.get(m);
       if (!ms || ms.length === 0) continue;
       const leafName = m.name.includes('::') ? m.name.split('::').pop() : m.name;
       push(`▾ ${leafName}  L${m.startLine}-L${m.endLine}  (${m.lineCount}L)`);

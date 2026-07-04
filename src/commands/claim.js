@@ -1007,7 +1007,9 @@ function _runClaimTier(index, tierName, termsStr, minTermsOverride, opts) {
   }
 
   // Selectivity report
-  const totalFiles = index.files ? index.files.length : 0;
+  // #251: index.files is a Map, so `.length` is undefined — which silently
+  // disabled the selectivity/IDF weighting (totalFiles fell through to NaN/0).
+  const totalFiles = index.files ? (index.files.size ?? index.files.length ?? 0) : 0;
   console.log();
   printSelectivityReport(results, totalFiles);
 

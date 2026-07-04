@@ -58,13 +58,16 @@ const _CONTROL_FLOW_RE = /\b(if|else|while|for|do|switch|case|return|break|conti
 export function getStructuralNormalized(bodyText) {
   let text = bodyText;
 
-  // Step 1: Strip comments
-  text = text.replace(/\/\/[^\n]*/g, '');
-  text = text.replace(/\/\*[\s\S]*?\*\//g, '');
-
-  // Step 2: Replace string literals
+  // Step 1: Replace string literals FIRST (#251). Stripping comments first let a
+  // `//` inside a string (e.g. a URL "http://x") be mistaken for a line comment,
+  // corrupting the funcstring and producing false structural-dupe matches. Masking
+  // quoted strings up front neutralizes any `//` or `/*` living inside them.
   text = text.replace(/"(?:[^"\\]|\\.)*"/g, '"S"');
   text = text.replace(/'(?:[^'\\]|\\.)*'/g, "'C'");
+
+  // Step 2: Strip comments
+  text = text.replace(/\/\/[^\n]*/g, '');
+  text = text.replace(/\/\*[\s\S]*?\*\//g, '');
 
   // Step 3: Replace numeric literals
   text = text.replace(/0[xX][0-9a-fA-F]+[lLuU]*/g, '0');

@@ -62,6 +62,11 @@ export function doDupefiles(index, args) {
       g.paths.some(p => p.toLowerCase().includes(pat)));
   }
 
+  // #251: recompute over the FILTERED groups so the header's group count and its
+  // redundant-line total describe the SAME set — a --filter / --vocab-in that
+  // dropped groups previously left the pre-filter total overstating the count.
+  totalWaste = groupInfo.reduce((sum, g) => sum + g.waste, 0);
+
   console.log(`\n${groupInfo.length} duplicate file groups by SHA1 hash (${totalWaste.toLocaleString()} redundant lines):\n`);
   console.log(`  ${'Copies'.padStart(6)}  ${'Lines'.padStart(6)}  ${'Waste'.padStart(8)}  ${'Hash'.padEnd(12)}  Canonical Path`);
   console.log(`  ${'-'.repeat(100)}`);

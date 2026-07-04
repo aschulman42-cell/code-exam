@@ -279,8 +279,18 @@ export function parseValue(src, start, end) {
 export function countLocations(src, start, end) {
   let count = 0;
   let depth = 0;
+  let inStr = false;
   for (let i = start; i < end; i++) {
     const b = getByte(src, i);
+    // #251: skip everything inside JSON string values — a `[` or `]` in a
+    // filepath key/value (e.g. "src/[id].js") otherwise desynced the bracket
+    // depth and corrupted the location counts.
+    if (inStr) {
+      if (b === 0x5C) { i++; continue; }   // backslash: skip the escaped char
+      if (b === 0x22) inStr = false;       // closing quote
+      continue;
+    }
+    if (b === 0x22) { inStr = true; continue; }  // opening quote
     if (b === LBRACK) {
       depth++;
     } else if (b === RBRACK) {

@@ -89,7 +89,11 @@ export function applyRenames(idx, sourceText, initialState = 'code') {
     if (keys.length === 0) return sourceText;
     // Escape and join with | for alternation
     const pattern = keys.map(k => escapeRegex(k)).join('|');
-    idx._renameRegex = new RegExp('\\b(' + pattern + ')\\b', 'g');
+    // #251: use identifier-aware boundaries instead of `\b`. `\b` treats `$` as a
+    // non-word char, so `$`-prefixed bundler names (e.g. `$abc`) both failed to
+    // match after a non-word char AND spuriously matched `abc` inside `$abc`.
+    // `(?<![$\w]) … (?![$\w])` treats `$` and word chars as identifier chars.
+    idx._renameRegex = new RegExp('(?<![$\\w])(' + pattern + ')(?![$\\w])', 'g');
   }
 
   // Apply line by line, tracking cross-line state for block comments and
