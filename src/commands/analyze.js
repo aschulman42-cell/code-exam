@@ -33,7 +33,7 @@ import {
   extractClaimKeywords,
 } from './claim.js';
 import { parseMultisectTerms, displayMultisectResults, printSelectivityReport } from './multisect.js';
-import { displayName } from '../utils.js';
+import { displayName, claudeSupportsTemperature } from '../utils.js';
 import { estimateCost } from '../core/pricing.js';
 import { assertLocalOnly, isLocalApiUrl, isAirGapped } from '../core/air-gapped.js';
 import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiText, openaiFinishReason } from '../core/openai-util.js';
@@ -115,11 +115,14 @@ class AnalysisLLM {
     const apiUrl = process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages';
     if (!isLocalApiUrl(apiUrl)) assertLocalOnly('analyze (cloud LLM)'); // #223: hostname-parsed, fail-closed
     const model = this.claudeModel || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6';
+    // Frontier Claude models reject `temperature` (400); omit it there (#254/#215).
+    const _claudeTemp = claudeSupportsTemperature(model);
+    if (!_claudeTemp) process.stderr.write(`Note: ${model} does not accept a temperature — sampling default, runs may vary.\n`);
 
     const payload = JSON.stringify({
       model,
       max_tokens: maxTokens,
-      temperature: this.temperature,
+      ...(_claudeTemp ? { temperature: this.temperature } : {}),
       messages: [{ role: 'user', content: prompt }],
     });
 

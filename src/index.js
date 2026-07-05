@@ -168,7 +168,7 @@ if (args.gui || _wantsTour) {
   // that the CLI parser rejects.
   {
     const _GUI_BOOL = new Set(['--gui', '--tour', '--air-gapped', '--allow-connected', '--reproducible', '--provenance']);
-    const _GUI_VALUE = new Set(['--port', '--index-path', '--index', '--load-index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--temperature', '--context-size', '--openai-key', '--openai-model', '--llm']);
+    const _GUI_VALUE = new Set(['--port', '--index-path', '--index', '--load-index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--claude-model', '--temperature', '--context-size', '--openai-key', '--openai-model', '--llm']);
     const _unknown = [];
     for (let i = 0; i < _rawArgvForGui.length; i++) {
       let tok = _rawArgvForGui[i];
@@ -238,7 +238,7 @@ if (args.gui || _wantsTour) {
       }
     }
   }
-  for (const flag of ['--model-path', '--model', '--local-model', '--api-key', '--key', '--temperature', '--context-size', '--openai-key', '--openai-model', '--llm']) {
+  for (const flag of ['--model-path', '--model', '--local-model', '--api-key', '--key', '--claude-model', '--temperature', '--context-size', '--openai-key', '--openai-model', '--llm']) {
     const v = _argAfter(flag, null);
     if (v !== null) _serverArgv.push(flag, v);
   }

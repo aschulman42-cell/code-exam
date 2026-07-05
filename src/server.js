@@ -43,7 +43,7 @@ import { buildProvenanceHeader, sanitizedCommandLine } from './core/provenance.j
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
 import { collectPrompts } from './commands/prompts.js';
-import { displayName, parseFuncSpec, MEDIA_BINARY_EXTENSIONS, ARCHIVE_EXTENSIONS, EXECUTABLE_EXTENSIONS } from './utils.js';
+import { displayName, parseFuncSpec, claudeSupportsTemperature, MEDIA_BINARY_EXTENSIONS, ARCHIVE_EXTENSIONS, EXECUTABLE_EXTENSIONS } from './utils.js';
 import { BINSTRING_EXTENSIONS } from './binstrings.js';
 import { execCommand } from './commands/interactive.js';
 import {
@@ -381,11 +381,15 @@ class ServerLLM {
     const model = opts.model || this.defaultClaudeModel || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6';
     const maxTokens = opts.maxTokens || 2048;
     const temperature = opts.temperature ?? 0.0;
+    // Frontier Claude models (Opus 4.7+, Sonnet 5+, Fable) reject `temperature`
+    // with a 400; omit it there. Note the loss of sampling pinning (#254/#215).
+    const _claudeTemp = claudeSupportsTemperature(model);
+    if (!_claudeTemp) console.log(`  [claude] ${model}: temperature not pinnable on this model — sampling default, runs may vary`);
 
     const payload = JSON.stringify({
       model,
       max_tokens: maxTokens,
-      temperature,
+      ...(_claudeTemp ? { temperature } : {}),
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
     });
@@ -680,6 +684,7 @@ function _serverHttpPost(url, body, headers) {
 const serverLLM = new ServerLLM({
   modelPath: serverArgs.modelPath,
   apiKey: serverArgs.apiKey,
+  claudeModel: serverArgs.claudeModel,   // --claude-model: was parsed but dropped here, so chat/analyze always fell back to the hardcoded default
   contextSize: serverArgs.contextSize,
   reproducible: serverArgs.reproducible,
   openaiKey: serverArgs.openaiKey,
@@ -3784,6 +3789,9 @@ async function runChatToolLoop({ messages, index, indexName, fileCount, mode, ap
   const allBlocks = [];
   let current = [...messages];
   const MAX_ITERATIONS = 25;  // raised from 15 (#36): attributed/augmented modes explore harder
+  // Frontier Claude models reject `temperature` (400); omit it there (#254/#215).
+  const _claudeTemp = claudeSupportsTemperature(model);
+  if (!_claudeTemp) console.log(`  [chat] ${model}: temperature not pinnable on this model — sampling default, runs may vary`);
 
   // Join the text blocks of one content array into trimmed prose.
   const textOf = (content) => content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
@@ -3800,7 +3808,7 @@ async function runChatToolLoop({ messages, index, indexName, fileCount, mode, ap
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     const payload = JSON.stringify({
-      model, max_tokens: maxTokens, temperature, system, messages: current, tools,
+      model, max_tokens: maxTokens, ...(_claudeTemp ? { temperature } : {}), system, messages: current, tools,
     });
     const body = await _serverHttpPost(apiUrl, payload, {
       'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01',
@@ -3863,7 +3871,7 @@ async function runChatToolLoop({ messages, index, indexName, fileCount, mode, ap
     }
     try {
       const body = await _serverHttpPost(apiUrl, JSON.stringify({
-        model, max_tokens: maxTokens, temperature, system, messages: synthMsgs,  // no `tools` → stop_reason can't be tool_use
+        model, max_tokens: maxTokens, ...(_claudeTemp ? { temperature } : {}), system, messages: synthMsgs,  // no `tools` → stop_reason can't be tool_use
       }), { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' });
       const content = body.content || [];
       allBlocks.push(...content);

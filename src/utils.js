@@ -36,6 +36,33 @@ export class SearchResult {
 
 
 // ========================================================================
+// Provider capability: Claude temperature support
+// ========================================================================
+
+/**
+ * True if the given Claude model accepts a `temperature` (or other sampling)
+ * parameter. The frontier models — Opus 4.7+, Sonnet 5+, Fable, Mythos —
+ * REMOVED sampling params: sending `temperature` (even the API-default-differing
+ * 0 CE sends) returns HTTP 400 "temperature is deprecated for this model".
+ * Older families still accept it.
+ *
+ * Fail-soft: only KNOWN-accepting families return true; anything unrecognized
+ * (a future model id) returns false, because a new Anthropic model is far more
+ * likely to reject sampling params than to accept them. Omitting costs
+ * run-to-run determinism; sending to a rejecting model is a hard failure.
+ * Mirrors `openaiSupportsTemperature` in core/openai-util.js (#254/#215).
+ */
+export function claudeSupportsTemperature(model) {
+  const m = String(model || '').toLowerCase();
+  return /sonnet-4/.test(m)        // Sonnet 4.0–4.6
+    || /opus-4-[0-6]/.test(m)      // Opus 4.0–4.6 (4.7/4.8 reject)
+    || /haiku/.test(m)             // Haiku 3.x / 4.5
+    || /claude-3/.test(m)          // Claude 3 family
+    || /sonnet-3/.test(m);         // Sonnet 3.5/3.7
+}
+
+
+// ========================================================================
 // file@function spec parsing
 // ========================================================================
 

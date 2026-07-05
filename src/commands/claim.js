@@ -21,6 +21,7 @@ import http from 'http';
 import { assertLocalOnly, isLocalApiUrl } from '../core/air-gapped.js';
 import { estimateCost } from '../core/pricing.js';
 import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiText } from '../core/openai-util.js';
+import { claudeSupportsTemperature } from '../utils.js';
 
 // ============================================================================
 // LLM Prompt for technical-prose -> search term extraction
@@ -321,7 +322,8 @@ export async function extractClaimTerms(claimText, opts = {}) {
     : JSON.stringify({
         model,
         max_tokens: 2048,
-        temperature,
+        // Frontier Claude models reject `temperature` (400); omit it there (#254/#215).
+        ...(claudeSupportsTemperature(model) ? { temperature } : {}),
         system: systemPrompt,
         messages: [
           { role: 'user', content: claimText.trim() }
