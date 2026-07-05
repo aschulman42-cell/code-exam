@@ -218,23 +218,58 @@ export function renderExtensionList(container, extensions, totalFiles, filter, s
 // ============================================================================
 
 // #194: Data Structures — struct/enum/union/typedef/trait/interface/record,
-// ranked by reference count (header states the basis, per the issue's
-// ranking-transparency note). Each row: kind label + name (click → open at the
-// definition line; right-click → context menu) + ref count.
+// ONE row per unique type, ranked by file spread then reference count (header
+// states the basis, per the issue's ranking-transparency note). Single-site
+// rows click straight to the definition; multi-site rows drill into the
+// definition-site list in the upper-middle pane (same accordion → instances →
+// per-file pattern the Referenced Resources drill uses).
 export function renderDataStructuresList(container, structs, total) {
   container.innerHTML = '';
   if (!structs || !structs.length) { container.innerHTML = '<div class="list-placeholder">No data structures found</div>'; return; }
-  container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal;text-align:left;color:var(--text-muted)', text: `${total} data structures — ranked by reference count` }));
+  container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal;text-align:left;color:var(--text-muted)', text: `${total} unique data structures — ranked by file spread, then references. N× = defined in N files; right column = references.` }));
   for (const s of structs) {
-    const item = h('div', { className: 'list-item', title: `${s.kind} ${s.name} — ${s.refs} references\n${s.filepath}:${s.line}` }, [
+    const multi = !!(s.instances && s.instances.length > 1);
+    const spans = [
       h('span', { className: 'rank', text: s.kind, style: 'min-width:62px;text-align:left;color:var(--accent-dim);font-family:var(--font-mono);font-size:10px' }),
       h('span', { className: 'name clickable', text: s.name }),
-      h('span', { className: 'metric muted', text: `${s.refs}` }),
-    ]);
-    item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(s.filepath, s.line); });
+    ];
+    // Two metrics, consistent units: the file-spread badge (only when >1, the
+    // drill affordance) and the reference count on every row — mixing them in
+    // one unlabeled column read as two different lists.
+    if (multi) spans.push(h('span', { className: 'metric', text: `${s.fileCount}×`, style: 'color:var(--accent-blue);min-width:32px;text-align:right' }));
+    spans.push(h('span', { className: 'metric muted', text: `${s.refs}` }));
+    const item = h('div', { className: 'list-item', title:
+      `${s.kind} ${s.name} — ${s.refs} references — defined in ${s.fileCount || 1} file${(s.fileCount || 1) !== 1 ? 's' : ''}\n` +
+      (multi ? 'Click to list definition sites' : `${s.filepath}:${s.line}`) }, spans);
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Always refresh the sites pane so the upper-middle pane reflects the
+      // LAST click (a stale sites list from an earlier struct read as if it
+      // belonged to this one). Single-site structs also open the code directly.
+      renderDataStructInstances(s);
+      if (!multi) onFileClick(s.filepath, s.line);
+    });
     item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: s.name, display_name: s.name, filepath: s.filepath, kind: 'data-structure' }); });
     container.appendChild(item);
   }
+}
+
+// Drill-down for a multi-site data structure: list every definition site in
+// the upper-middle pane; each row jumps to that occurrence in the lower pane.
+function renderDataStructInstances(s) {
+  const container = $('#middle-top-body'), title = $('#middle-top-title');
+  if (!container) return;
+  showPane('middle-top'); navPush('middle-top');
+  if (title) title.textContent = `${s.kind} ${s.name} — ${s.instances.length} definition site${s.instances.length !== 1 ? 's' : ''}`;
+  container.innerHTML = '';
+  const wrap = h('div', { className: 'output-section' });
+  for (const inst of s.instances) {
+    const row = h('div', { className: 'list-item', style: 'display:block;height:auto;padding:3px 8px;cursor:pointer;white-space:normal', title: `${inst.filepath}:${inst.line}` });
+    row.appendChild(h('div', { text: `${shortPath(inst.filepath)}:${inst.line}`, style: 'font-family:var(--font-mono);font-size:11px;color:var(--text-bright)' }));
+    row.addEventListener('click', () => onFileClick(inst.filepath, inst.line));
+    wrap.appendChild(row);
+  }
+  container.appendChild(wrap);
 }
 
 // #203 drill-down: list every captured site for one referenced resource in the

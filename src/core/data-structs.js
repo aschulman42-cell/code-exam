@@ -48,8 +48,14 @@ const _PATTERNS = {
 const _ext = (fp) => { const i = fp.lastIndexOf('.'); return i < 0 ? '' : fp.slice(i).toLowerCase(); };
 
 /**
- * Extract data-structure definitions across the index.
- * @returns {Array<{name, kind, filepath, line, refs}>} ranked by refs desc.
+ * Extract data-structure definitions across the index — ONE entry per unique
+ * name+kind. A struct defined in N files used to appear N times, inflating the
+ * count on every surface (CLI, GUI, MCP).
+ * @returns {Array<{name, kind, filepath, line, refs, fileCount,
+ *   instances: Array<{filepath, line}>}>} ranked by fileCount desc (file
+ *   spread — a type touched by many files is more central than a locally-hot
+ *   one), then refs desc. filepath/line are the primary (first) instance so
+ *   pre-dedup consumers keep working.
  */
 export function extractDataStructures(idx, { topN = 0 } = {}) {
   const defs = [];           // { name, kind, filepath, line }
@@ -114,16 +120,31 @@ export function extractDataStructures(idx, { topN = 0 } = {}) {
     }
   }
 
-  // Dedup by name+filepath+line; attach refs (per name).
-  const seen = new Set();
-  const out = [];
+  // Collapse to ONE entry per unique name+kind, aggregating every definition
+  // site into `instances` and counting distinct defining files (`fileCount`).
+  // filepath/line stay populated with the primary (first-seen) instance for
+  // consumers that predate the dedup.
+  const byKey = new Map();
   for (const d of defs) {
-    const key = `${d.name}|${d.filepath}|${d.line}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({ ...d, refs: refs.get(d.name) || 0 });
+    const key = `${d.name}|${d.kind}`;
+    let e = byKey.get(key);
+    if (!e) {
+      e = { name: d.name, kind: d.kind, filepath: d.filepath, line: d.line,
+            refs: refs.get(d.name) || 0, instances: [], _seen: new Set() };
+      byKey.set(key, e);
+    }
+    const ikey = `${d.filepath}|${d.line}`;
+    if (!e._seen.has(ikey)) { e._seen.add(ikey); e.instances.push({ filepath: d.filepath, line: d.line }); }
+  }
+  const out = [];
+  for (const e of byKey.values()) {
+    e.fileCount = new Set(e.instances.map(i => i.filepath)).size;
+    delete e._seen;
+    out.push(e);
   }
 
-  out.sort((a, b) => b.refs - a.refs || a.name.localeCompare(b.name));
+  // Rank by file spread first (ranking by raw refs floated ubiquitous
+  // primitives like WORD/DWORD over the real structs), then refs, then name.
+  out.sort((a, b) => b.fileCount - a.fileCount || b.refs - a.refs || a.name.localeCompare(b.name));
   return topN > 0 ? out.slice(0, topN) : out;
 }

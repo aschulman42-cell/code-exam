@@ -272,7 +272,7 @@ const TOOLS = [
   },
   {
     name: 'data_structures',
-    description: 'List data structures (struct/enum/union/typedef/trait/interface/record) ranked by reference count, so the central types surface first. Complements list_classes for systems code (C/C++/Rust/Go).',
+    description: 'List data structures (struct/enum/union/typedef/trait/interface/record), one entry per unique type, ranked by file spread (distinct defining files) then reference count, so the central types surface first. Complements list_classes for systems code (C/C++/Rust/Go).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -724,9 +724,10 @@ function handleTool(name, args) {
       }
       if (!structs.length) return 'No data structures found';
       const n = args.n || 50;
-      const lines = [`${structs.length} data structures (ranked by reference count):`];
+      const lines = [`${structs.length} unique data structures (ranked by file spread, then references):`];
       for (const s of structs.slice(0, n)) {
-        lines.push(`  ${s.refs} refs  ${s.kind}  ${s.name}  (${s.filepath}:${s.line})`);
+        const spread = s.fileCount > 1 ? `  [${s.fileCount} files]` : '';
+        lines.push(`  ${s.refs} refs  ${s.kind}  ${s.name}  (${s.filepath}:${s.line})${spread}`);
       }
       return lines.join('\n');
     }

@@ -1296,18 +1296,23 @@ export function doDataStructs(index, args) {
     structs = structs.filter(s => match(s.name));
   }
   if (!structs.length) { console.log('No data structures found.'); return; }
-  const n = args.n || 50;
-  console.log(`Data structures (${structs.length} found, ranked by reference count):\n`);
+  // -n / --max / --max-results all populate args.max_results (argparse.js:376);
+  // args.n is only set on the MCP tool path. Reading args.n alone pinned the
+  // cap at 50 and made the list unpageable from the CLI.
+  const n = args.max_results || args.n || 50;
+  console.log(`Data structures (${structs.length} unique, ranked by file spread, then references):\n`);
   for (const s of structs.slice(0, n)) {
-    console.log(`  ${String(s.refs).padStart(5)} refs  ${s.kind.padEnd(9)} ${s.name}  (${quotePathIfNeeded(s.filepath + ':' + s.line)})`);
+    const spread = s.fileCount > 1 ? `  [${s.fileCount} files]` : '';
+    console.log(`  ${String(s.refs).padStart(5)} refs  ${s.kind.padEnd(9)} ${s.name}  (${quotePathIfNeeded(s.filepath + ':' + s.line)})${spread}`);
   }
-  if (structs.length > n) console.log(`\n  … and ${structs.length - n} more (use -n to show more).`);
+  if (structs.length > n) console.log(`\n  … and ${structs.length - n} more (use --max to show more).`);
 }
 
 export function doClientServer(index, args) {
   const { server, client, unmatched, sockets, rpc, ipc, stats } = extractClientServer(index);
   if (!server.length && !client.length && !sockets.length && !rpc.length && !ipc.length) { console.log('No client/server surface found.'); return; }
-  const n = args.n || 50;
+  // Same paging fix as doDataStructs: the CLI flags set args.max_results.
+  const n = args.max_results || args.n || 50;
 
   console.log(`Server routes (${stats.serverCount}):\n`);
   if (!server.length) console.log('  (none detected)');
