@@ -503,7 +503,7 @@ class ServerLLM {
 
   async ensureLocalModel(modelPath) {
     const mp = modelPath || this.defaultModelPath;
-    if (!mp) return { error: 'No local model configured. Use --model-path <path-to-gguf> when starting the server.' };
+    if (!mp) return { error: 'No local model configured — pick a GGUF via the Workspace pane’s Engine selector (Browse GGUFs), or start the server with --model-path <path-to-gguf>.' };
 
     // Already loaded with same path?
     if (this._localModel && this._localModel.modelPath === mp) return { ok: true };
@@ -640,7 +640,7 @@ class ServerLLM {
       if (!this.defaultOpenAIKey) return { available: false, reason: 'No OpenAI API key configured. Set OPENAI_API_KEY, create openai.txt, or pass --openai-key.' };
       return { available: true };
     } else {
-      if (!this.defaultModelPath) return { available: false, reason: 'No local model configured. Start server with --model-path <path-to-gguf>.' };
+      if (!this.defaultModelPath) return { available: false, reason: 'No local model configured — pick a GGUF via the Workspace pane’s Engine selector (Browse GGUFs), or start the server with --model-path <path-to-gguf>.' };
       return { available: true };
     }
   }
@@ -956,8 +956,32 @@ routes['/api/llm-status'] = async (req, res) => {
     // --llm at launch (#243 Part B): the engine the GUI controls should start
     // on. Client applies once so it doesn't override a manual switch.
     preferred: serverArgs.defaultEngine || null,
+    // #265 "Simon Says": a cloud MODEL/KEY flag was given but no --llm to
+    // actually select the cloud engine. Local-first means we do NOT flip the
+    // engine for them — but we also must not silently ignore the flag. Surface
+    // a one-time hint. An ambient ANTHROPIC_API_KEY is NOT intent (it's not a
+    // serverArgs flag), so it never triggers this.
+    configHint: _engineConfigHint(),
   });
 };
+
+/** Build the #265 engine-config hint, or null. Fires only when the user passed
+ *  a cloud-pointing FLAG (--claude-model / --openai-model / --openai-key) but
+ *  no --llm, so the local-first default stands and the flag would otherwise
+ *  look ignored. */
+function _engineConfigHint() {
+  if (serverArgs.defaultEngine) return null;   // --llm given → engine chosen, no ambiguity
+  if (serverArgs.claudeModel) {
+    return `You set a Claude model (--claude-model ${serverArgs.claudeModel}) but no engine (--llm). ` +
+      `Chat and Workspace default to Local GGUF — pick Engine: Claude API to use Claude, or restart with --llm claude.`;
+  }
+  if (serverArgs.openaiModel || serverArgs.openaiKey) {
+    const what = serverArgs.openaiModel ? `a ChatGPT model (--openai-model ${serverArgs.openaiModel})` : 'a ChatGPT key (--openai-key)';
+    return `You set ${what} but no engine (--llm). ` +
+      `Chat and Workspace default to Local GGUF — pick Engine: ChatGPT API to use it, or restart with --llm openai.`;
+  }
+  return null;
+}
 
 
 // --- Scan for available GGUF models ---

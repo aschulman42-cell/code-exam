@@ -33,6 +33,29 @@ let _renderLlmAnalysis = () => {};
 let _stripAtFileHeader = (s) => s;
 let _preferredEngineApplied = false; // --llm launch default applied to dropdowns once
 let _engineTouchedByUser = false;    // a real user engine choice beats any late --llm default
+let _configHintShown = false;        // #265 "Simon Says" engine-config hint shown once
+
+/** #265: one-time dismissable banner when the server sent a configHint (a
+ *  cloud model/key flag was given without --llm, so the local-first default
+ *  stands and the flag would otherwise look ignored). Non-blocking chrome —
+ *  created lazily, dismissed by the ✕ or by picking the named engine. */
+function showConfigHint(text) {
+  if (document.getElementById('config-hint-bar')) return;
+  const bar = document.createElement('div');
+  bar.id = 'config-hint-bar';
+  bar.style.cssText = 'position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:9999;' +
+    'max-width:min(680px,94vw);margin-top:6px;padding:7px 34px 7px 12px;border-radius:6px;' +
+    'background:#3a3320;color:#f0e6c8;border:1px solid #6b5d33;font-size:12.5px;line-height:1.4;' +
+    'box-shadow:0 2px 10px rgba(0,0,0,0.4)';
+  bar.appendChild(document.createTextNode(text));
+  const x = document.createElement('button');
+  x.textContent = '✕';
+  x.title = 'Dismiss';
+  x.style.cssText = 'position:absolute;top:4px;right:6px;background:none;border:none;color:inherit;cursor:pointer;font-size:13px;opacity:0.8';
+  x.addEventListener('click', () => bar.remove());
+  bar.appendChild(x);
+  document.body.appendChild(bar);
+}
 
 /** Set an engine dropdown programmatically AND fire 'change' so listeners
  * (the Overview pre-run warning wired in app.js, etc.) update — a bare
@@ -89,6 +112,13 @@ export async function refreshLlmStatus() {
       const sel = document.querySelector(selId);
       if (sel && sel.querySelector(`option[value="${preferred}"]`)) setEngineValue(sel, preferred);
     }
+  }
+  // #265 "Simon Says": a cloud model/key flag without --llm — the local-first
+  // default stands; surface the hint once so the flag doesn't look ignored.
+  const configHint = state.llmStatus && state.llmStatus.configHint;
+  if (configHint && !_configHintShown) {
+    _configHintShown = true;
+    showConfigHint(configHint);
   }
   const local = state.llmStatus && state.llmStatus.local;
   if (!local) return;
