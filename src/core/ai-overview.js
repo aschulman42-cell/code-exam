@@ -67,8 +67,8 @@ STYLE — read first:
 
 OUTPUT (prose + two short labeled lists):
 - The 2-4 short paragraphs (what it is, architecture, what it does, the AI/ML sentence).
-- "Where to look first / highest-payback CE commands" — each with one-line reasoning, including "skip X here" when a tool is defeated by the target.
-- "Questions to start with" — each paired with the single CE command that most DIRECTLY answers it (verify a structural claim with the confirming command — a clone claim uses struct_dupes --cross-source-only or list_files, not a bare struct_dupes). Directed exploration, not noodling.
+- "Where to look first / highest-payback CE commands" — AT MOST 5 entries, each with one-line reasoning, including "skip X here" when a tool is defeated by the target.
+- "Questions to start with" — AT MOST 5 entries, and give a MIX of surfaces: include 2-3 phrased for the GUI (e.g. "open the Functions accordion and filter for \`<term>\`", "ask the Chat pane about \`<topic>\`", "click \`<file>\` in the Files list") and 2 as CLI commands. Pair each with the single CE action/command that most DIRECTLY answers it (verify a structural claim with the confirming command — a clone claim uses struct_dupes --cross-source-only or list_files, not a bare struct_dupes). Directed exploration, not noodling.
 Emit file/function references as backticked paths (\`path\` or \`path@func\`) so they can be made clickable.`;
 
 // Grounding mode (#196, mirrors the chat's #36 clauses): how freely the overview
