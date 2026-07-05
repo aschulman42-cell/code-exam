@@ -884,8 +884,6 @@ const routes = {};
 // --- Index management ---
 
 routes['/api/indexes'] = (req, res) => {
-  // CORS allowed (same rationale as /api/prompts — used by the xmlui prototype).
-  res.setHeader('Access-Control-Allow-Origin', '*');
   jsonResponse(res, { indexes: mgr.list() });
 };
 
@@ -1243,8 +1241,6 @@ function _buildKnownNameSet(index) {
 }
 
 routes['/api/extract'] = (req, res) => {
-  // CORS allowed (same rationale as /api/prompts — used by the xmlui prototype).
-  res.setHeader('Access-Control-Allow-Origin', '*');
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
@@ -1292,7 +1288,6 @@ routes['/api/extract'] = (req, res) => {
 // Used by the xmlui prototype for click-to-navigate between functions.
 
 routes['/api/extract-linkified'] = (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
@@ -2647,9 +2642,6 @@ routes['/api/digest'] = (req, res) => {
 // truncation). Consumed by external GUI prototypes (e.g. xmlui prompt viewer).
 
 routes['/api/prompts'] = async (req, res) => {
-  // Cross-origin: allow the xmlui prototype (running on a separate dev port)
-  // to fetch prompts. Same-origin callers ignore this header.
-  res.setHeader('Access-Control-Allow-Origin', '*');
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
@@ -4500,6 +4492,22 @@ routes['/api/chat-stream'] = (req, res) => {
 };
 
 function handleRequest(req, res) {
+  // DNS-rebinding defense: when bound to loopback (the default), a request whose
+  // Host header isn't a loopback name/address is a remote site reaching
+  // 127.0.0.1 via rebinding — refuse it. Skipped when the user explicitly bound a
+  // non-loopback --host (network exposure is then intentional; see the --host
+  // caution in the docs — docs-host-network-exposure-warning).
+  if (_LOCALHOST.test(serverArgs.host)) {
+    const hostname = String(req.headers.host || '')
+      .replace(/:\d+$/, '')       // strip :port
+      .replace(/^\[|\]$/g, '')    // unwrap [::1]
+      .toLowerCase();
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '::1') {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('Forbidden: unexpected Host header (possible DNS-rebinding attempt).');
+      return;
+    }
+  }
   const urlPath = req.url.split('?')[0];
   if (urlPath.startsWith('/api/')) {
     const handler = routes[urlPath];
