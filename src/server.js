@@ -246,6 +246,11 @@ class IndexManager {
 
 const serverArgs = parseServerArgs();
 
+// Loopback test for the bind host, shared by the #266 non-loopback bind guard
+// below, validateFilePath, and the DNS-rebinding Host-allowlist. Defined up here
+// so the startup guard can use it before any model/index load.
+const _LOCALHOST = /^(127\.\d|localhost$|::1$)/;
+
 // #223: --air-gapped for the GUI server (forwarded from `ce --gui --air-gapped`).
 // Block cloud AI, scrub the key, print the disclaimer, and refuse to start if
 // the internet is reachable unless --allow-connected.
@@ -258,6 +263,20 @@ if (serverArgs.airGapped) {
   }
   const _refusal = await airGappedStartupCheck();
   if (_refusal) { console.error(`[air-gapped] ${_refusal}`); process.exit(2); }
+}
+
+// #266: non-loopback bind guard. Binding a public/LAN interface serves the
+// indexed (protected) source and local files with NO authentication. Under
+// --air-gapped that contradicts the isolation promise, so refuse to start;
+// otherwise proceed with a loud warning (the operator's deliberate choice). The
+// loopback Host-allowlist in handleRequest only fires on a loopback bind, so
+// this is the coverage for the exposed case.
+if (!_LOCALHOST.test(serverArgs.host)) {
+  if (isAirGapped()) {
+    console.error(`[air-gapped] Refusing to start: --host ${serverArgs.host} binds a non-loopback interface, which would serve your indexed source on the network — incompatible with an air-gapped run. Bind loopback (the default) and reach it over an SSH tunnel, or drop --air-gapped to serve on a trusted network.`);
+    process.exit(2);
+  }
+  console.error(`\n⚠  CodeExam GUI is bound to a NON-LOOPBACK address (--host ${serverArgs.host}) with NO authentication.\n   Anyone who can reach ${serverArgs.host}:${serverArgs.port} can read your indexed (protected) source and local files.\n   Use only on a trusted, firewalled network; for remote access, prefer binding loopback (the default) + an SSH tunnel.\n`);
 }
 
 const mgr = new IndexManager();
@@ -817,7 +836,6 @@ function toNativePath(p) {
 const _SENSITIVE_PATHS = /^\/(etc|proc|sys|dev|var\/log|var\/run|boot|root)\b/;
 const _SENSITIVE_WIN = /^[a-z]:\\(windows|program files|programdata|users\\[^\\]+\\appdata)/i;
 const _KEY_EXTENSIONS = /\.(pem|key|pfx|p12|jks|keystore|id_rsa|id_ed25519)$/i;
-const _LOCALHOST = /^(127\.\d|localhost$|::1$)/;
 
 /**
  * Check if a file path is safe to read from a web endpoint.
