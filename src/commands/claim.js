@@ -22,6 +22,7 @@ import { assertLocalOnly, isLocalApiUrl } from '../core/air-gapped.js';
 import { estimateCost } from '../core/pricing.js';
 import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiText } from '../core/openai-util.js';
 import { claudeSupportsTemperature } from '../utils.js';
+import { resolveProvider } from '../core/providers.js';
 
 // ============================================================================
 // LLM Prompt for technical-prose -> search term extraction
@@ -249,26 +250,33 @@ BROAD: ...`;
  * @param {string} [opts.vocabConcordance] - Vocabulary concordance from index
  * @returns {Promise<{tight: string|null, broad: string|null, raw: string}|{error: string}>}
  */
-function _readOpenAIKeyFile() {
-  for (const fname of ['openai.txt', 'openai_key.txt']) {
+function _readKeyFile(files) {
+  for (const fname of files) {
     try { const k = fs.readFileSync(fname, 'utf-8').trim(); if (k) return k; } catch { /* ignore */ }
   }
   return '';
 }
 
 export async function extractClaimTerms(claimText, opts = {}) {
-  // #243B: term extraction runs on the selected cloud provider. OpenAI key
-  // resolution mirrors the server (flag > --api-key > env > openai.txt); the
-  // Anthropic path is unchanged.
-  const isOpenAI = opts.provider === 'openai' || opts.useOpenAI === true;
+  // #246: term extraction runs on the selected cloud provider, resolved through
+  // the registry. openai-compat (OpenAI, Gemini) share the chat-completions
+  // shape; the anthropic wire is the Claude Messages API. Key resolution:
+  // provider flag > --api-key > provider env > provider key file.
+  const provId = opts.provider || (opts.useOpenAI ? 'openai' : 'claude');
+  const { provider, error: provErr } = resolveProvider(provId, { allowDefault: false });
+  if (!provider) return { error: provErr };
+  const isCompat = provider.wire === 'openai-compat';   // covers isOpenAI's old role + gemini
   let apiKey, apiUrl, model, reqHeaders;
-  if (isOpenAI) {
-    apiKey = opts.openaiKey || opts.apiKey || process.env.OPENAI_API_KEY || _readOpenAIKeyFile();
+  if (isCompat) {
+    const flagKey = provider.id === 'gemini' ? opts.geminiKey : opts.openaiKey;
+    apiKey = flagKey || opts.apiKey || process.env[provider.keyEnv] || _readKeyFile(provider.keyFiles);
     if (!apiKey) {
-      return { error: 'No OpenAI API key. Set OPENAI_API_KEY, create openai.txt, or use --openai-key/--api-key.' };
+      return { error: `No ${provider.label} key. Set ${provider.keyEnv}, create ${provider.keyFiles[0]}, or use ${provider.keyFlag}/--api-key.` };
     }
-    apiUrl = opts.apiUrl || process.env.CE_OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
-    model = opts.openaiModel || process.env.CE_OPENAI_MODEL || 'gpt-5.1';
+    apiUrl = opts.apiUrl || process.env.CE_OPENAI_API_URL || `${provider.baseUrl}/chat/completions`;
+    model = (provider.id === 'gemini' ? opts.geminiModel : opts.openaiModel)
+      || (provider.id === 'openai' ? process.env.CE_OPENAI_MODEL : null)
+      || provider.defaultModel;
     reqHeaders = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` };
   } else {
     apiKey = opts.apiKey || process.env.ANTHROPIC_API_KEY || '';
@@ -307,7 +315,7 @@ export async function extractClaimTerms(claimText, opts = {}) {
   const systemPrompt = opts.vocabConcordance
     ? buildExtractionPromptWithVocab(opts.vocabConcordance, opts.vocabTight || false)
     : _CLAIM_EXTRACTION_PROMPT;
-  const payload = isOpenAI
+  const payload = isCompat
     ? JSON.stringify({
         model,
         // Reasoning models spend hidden tokens against this cap; floor it so a
@@ -344,7 +352,7 @@ export async function extractClaimTerms(claimText, opts = {}) {
     // Cost via the shared pricing helper (model-aware; was hardcoded to Sonnet's
     // $3/$15 regardless of model). openaiUsage() maps OpenAI's prompt/completion
     // token names onto the Anthropic-shaped input/output the helper expects.
-    const usage = isOpenAI ? openaiUsage(body.usage) : (body.usage || {});
+    const usage = isCompat ? openaiUsage(body.usage) : (body.usage || {});
     const inTok = usage.input_tokens || 0;
     const outTok = usage.output_tokens || 0;
     if (!isLocal) {
@@ -353,7 +361,7 @@ export async function extractClaimTerms(claimText, opts = {}) {
     }
 
     // Extract text from response (provider-shaped).
-    const rawResponseText = isOpenAI
+    const rawResponseText = isCompat
       ? openaiText(body)
       : (body.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
 
@@ -1234,10 +1242,12 @@ export async function doClaimSearch(index, args) {
       vocabConcordance,
       vocabTight,
       claudeModel: args.claude_model,
-      // #243B: route term extraction to OpenAI when --llm openai/chatgpt.
-      provider: args.use_openai ? 'openai' : 'claude',
+      // #246: route term extraction through the selected cloud provider id.
+      provider: args.llm || (args.use_openai ? 'openai' : 'claude'),
       openaiKey: args.openai_key || null,
       openaiModel: args.openai_model || null,
+      geminiKey: args.gemini_key || null,
+      geminiModel: args.gemini_model || null,
     });
   }
 

@@ -21,6 +21,7 @@ import { BINSTRING_EXTENSIONS } from './binstrings.js';
 import { skippedExtensionCensus } from './core/extension-census.js';
 import { buildProvenanceHeader, sanitizedCommandLine } from './core/provenance.js';
 import { CE_VERSION } from './version.js';
+import { resolveProvider } from './core/providers.js';
 import {
   doSearch, doLiteral, doFast, doRegex,
   doFilesSearch, doFoldersSearch,
@@ -515,7 +516,13 @@ if (args.overview_by_ai) {
   // --openai-model / --openai-key); otherwise the Anthropic API
   // (--claude-model picks the API model).
   const localGguf = args.model || null;
-  const cloudEngine = args.llm === 'openai' ? 'openai' : 'claude';
+  // #246: resolve the cloud engine through the provider registry instead of
+  // the old `=== 'openai' ? openai : claude` binary, which silently routed
+  // anything non-openai (including gemini) to Claude. --llm is already
+  // validated by argparse; an empty value returns the deliberate Claude
+  // default. claude / openai / gemini are all wired via runAiOverview.
+  let cloudEngine = 'claude';
+  if (!localGguf) cloudEngine = resolveProvider(args.llm).provider.id;
   const engineLabel = localGguf ? `local ${localGguf.split(/[\\/]/).pop()}${args.cpu ? ' (CPU)' : ''}` : cloudEngine;
   process.stderr.write(`[overview-by-ai] running ${engineLabel}, grounding=${grounding}, over ${args.index_path} (timeout ${mins} min)…\n`);
   // Heartbeat: the run can take minutes with no output (prose prints only at the
@@ -563,6 +570,13 @@ if (args.overview_by_ai) {
             try { const k = fs.readFileSync(fname, 'utf-8').trim(); if (k) { cloudKey = k; break; } } catch { /* ignore */ }
           }
         }
+      } else if (cloudEngine === 'gemini') {   // #246
+        cloudKey = args.gemini_key || args.api_key || process.env.GEMINI_API_KEY || '';
+        if (!cloudKey) {
+          for (const fname of ['gemini.txt', 'gemini_key.txt']) {
+            try { const k = fs.readFileSync(fname, 'utf-8').trim(); if (k) { cloudKey = k; break; } } catch { /* ignore */ }
+          }
+        }
       } else {
         cloudKey = args.api_key || process.env.ANTHROPIC_API_KEY || '';
         if (!cloudKey) {
@@ -578,6 +592,8 @@ if (args.overview_by_ai) {
         apiKey: cloudKey,
         model: cloudEngine === 'openai'
           ? (args.openai_model || process.env.CE_OPENAI_MODEL)
+          : cloudEngine === 'gemini'
+          ? (args.gemini_model || null)
           : (args.claude_model || process.env.CE_AI_OVERVIEW_MODEL),
         timeoutMs,
         grounding, // grounded (default) | augmented | attributed (#196)

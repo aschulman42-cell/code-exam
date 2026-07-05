@@ -44,6 +44,7 @@ import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
 import { collectPrompts } from './commands/prompts.js';
 import { displayName, parseFuncSpec, claudeSupportsTemperature, MEDIA_BINARY_EXTENSIONS, ARCHIVE_EXTENSIONS, EXECUTABLE_EXTENSIONS } from './utils.js';
+import { resolveProvider, PROVIDERS } from './core/providers.js';
 import { BINSTRING_EXTENSIONS } from './binstrings.js';
 import { execCommand } from './commands/interactive.js';
 import {
@@ -99,7 +100,7 @@ function safeMax(raw, defaultVal, ceiling = 10000) {
 
 function parseServerArgs() {
   const args = process.argv.slice(2);
-  const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0, catalogPath: null, airGapped: false, allowConnected: false, contextSize: null, reproducible: false, openaiKey: null, openaiModel: null, defaultEngine: null, provenance: false };
+  const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0, catalogPath: null, airGapped: false, allowConnected: false, contextSize: null, reproducible: false, openaiKey: null, openaiModel: null, geminiKey: null, geminiModel: null, defaultEngine: null, provenance: false };
 
   // A value-taking flag must be followed by a non-flag token; otherwise warn
   // and do NOT consume the next token. Without this, `--llm --air-gapped`
@@ -135,27 +136,29 @@ function parseServerArgs() {
     } else if (a === '--api-key' || a === '--key') {
       if ((v = takeValue(a)) !== null) result.apiKey = v;
     } else if (a === '--llm') {
-      // GUI default engine (#243 Part B): --llm chatgpt|openai|claude sets which
-      // engine the Chat + Workspace controls start on. Local stays the default
-      // when a --model-path is given without --llm.
+      // GUI default engine: --llm <provider> sets which engine the Chat +
+      // Workspace controls start on. Local stays the default when a
+      // --model-path is given without --llm. #246: resolved through the ONE
+      // provider registry (fail loud on unknown; never coerce to Claude).
       if ((v = takeValue(a)) !== null) {
         const norm = String(v).toLowerCase();
-        result.defaultEngine = (['chatgpt', 'gpt', 'openai'].includes(norm)) ? 'openai'
-          : (norm === 'claude') ? 'claude' : null;
-        if (result.defaultEngine === null) {
-          // Strict: refuse to launch on an unrecognized provider (#246). --llm
-          // selects the CLOUD provider only; the local engine is chosen with
-          // --model-path <gguf>, so `--llm local` / `--llm <file>.gguf` are
-          // refused with a local-specific hint.
+        const { provider, error } = resolveProvider(norm, { allowDefault: false });
+        if (provider) {
+          result.defaultEngine = provider.id;   // claude | openai | gemini
+        } else {
           if (norm === 'local' || norm.endsWith('.gguf')) {
             const ex = norm.endsWith('.gguf') ? ` (e.g. --model-path ${v})` : '';
-            console.error(`ERROR: --llm selects the CLOUD provider ('claude' or 'openai'), not a local model. For the local engine, start with --model-path <gguf>${ex} or pick Local in the Chat / Workspace Engine dropdown.`);
+            console.error(`ERROR: --llm selects a CLOUD provider, not a local model. For the local engine, start with --model-path <gguf>${ex} or pick Local in the Chat / Workspace Engine dropdown.`);
           } else {
-            console.error(`ERROR: unknown --llm value '${v}'. --llm selects the cloud provider: 'claude' or 'openai' (alias 'chatgpt' / 'gpt').`);
+            console.error(`ERROR: ${error}`);
           }
           process.exit(1);
         }
       }
+    } else if (a === '--gemini-key' || a === '--gemini_key') {   // #246
+      if ((v = takeValue(a)) !== null) result.geminiKey = v;
+    } else if (a === '--gemini-model' || a === '--gemini_model') {
+      if ((v = takeValue(a)) !== null) result.geminiModel = v;
     } else if (a === '--openai-key' || a === '--openai_key') {
       if ((v = takeValue(a)) !== null) result.openaiKey = v;
     } else if (a === '--openai-model' || a === '--openai_model') {
@@ -367,6 +370,18 @@ class ServerLLM {
       }
     }
     this.defaultOpenAIModel = opts.openaiModel || process.env.CE_OPENAI_MODEL || 'gpt-5.1';
+
+    // #246: Gemini provider (openai-compat). Same flag > env > key file pattern.
+    this.defaultGeminiKey = isAirGapped() ? '' : (opts.geminiKey || process.env.GEMINI_API_KEY || '');
+    if (!this.defaultGeminiKey && !isAirGapped()) {
+      for (const fname of PROVIDERS.gemini.keyFiles) {
+        try {
+          const key = fs.readFileSync(fname, 'utf-8').trim();
+          if (key) { this.defaultGeminiKey = key; break; }
+        } catch { /* ignore */ }
+      }
+    }
+    this.defaultGeminiModel = opts.geminiModel || PROVIDERS.gemini.defaultModel;
   }
 
   // --- Claude API: system + user message structure ---
@@ -437,9 +452,12 @@ class ServerLLM {
   // --- OpenAI / ChatGPT API (#243 Part B): system + user message structure ---
 
   async callOpenAI(systemPrompt, userMessage, opts = {}) {
+    // #246: label + defaults come from opts for a non-OpenAI compat provider
+    // (Gemini); plain OpenAI keeps its own defaults.
+    const label = opts._providerLabel || 'OpenAI';
     const apiKey = opts.apiKey || this.defaultOpenAIKey;
     if (!apiKey) {
-      return { error: 'No OpenAI API key. Set OPENAI_API_KEY env var, create openai.txt, or pass --openai-key.' };
+      return { error: `No ${label} API key configured.` };
     }
     const apiUrl = opts.apiUrl || process.env.CE_OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
     const model = opts.model || this.defaultOpenAIModel;
@@ -448,12 +466,12 @@ class ServerLLM {
     // Same cloud guard as the Claude branch (#223) — hostname-parsed, fail-closed.
     const isLocal = isLocalApiUrl(apiUrl);
     if (!isLocal && isAirGapped()) {
-      console.error('[air-gapped] blocked: GUI cloud LLM (OpenAI)');
+      console.error(`[air-gapped] blocked: GUI cloud LLM (${label})`);
       return { error: '--air-gapped: cloud LLM is blocked. Set the engine to Local in the Workspace pane (LLM controls), or restart without --air-gapped to allow cloud calls (your data would leave this machine).' };
     }
     if (!isLocal) {
       const tnote = openaiSupportsTemperature(model) ? '' : ' [temperature not pinnable on this model — sampling default, runs may vary]';
-      console.log(`  [LLM] OpenAI API -> ${apiUrl} (model: ${model})${tnote}`);
+      console.log(`  [LLM] ${label} API -> ${apiUrl} (model: ${model})${tnote}`);
     }
 
     const payload = JSON.stringify({
@@ -618,11 +636,27 @@ class ServerLLM {
   async call(engine, systemPrompt, userMessage, opts = {}) {
     if (engine === 'claude') {
       return this.callClaude(systemPrompt, userMessage, opts);
-    } else if (engine === 'openai') {
-      return this.callOpenAI(systemPrompt, userMessage, opts);
+    } else if (engine === 'openai' || engine === 'gemini') {
+      // #246: both are openai-compat. Gemini reuses callOpenAI with the
+      // provider's endpoint/key/model injected via opts.
+      return this.callOpenAI(systemPrompt, userMessage, this._compatOpts(engine, opts));
     } else {
       return this.callLocal(systemPrompt, userMessage, opts);
     }
+  }
+
+  /** #246: opts for an openai-compat provider — inject Gemini's endpoint/key/
+   *  model; OpenAI keeps callOpenAI's own defaults. */
+  _compatOpts(engine, opts) {
+    if (engine !== 'gemini') return opts;
+    const p = PROVIDERS.gemini;
+    return {
+      ...opts,
+      apiUrl: opts.apiUrl || process.env.CE_OPENAI_API_URL || `${p.baseUrl}/chat/completions`,
+      apiKey: opts.apiKey || this.defaultGeminiKey,
+      model: opts.model || this.defaultGeminiModel,
+      _providerLabel: p.label,
+    };
   }
 
   /** Check if the requested engine is available without actually calling it. */
@@ -630,7 +664,7 @@ class ServerLLM {
     // Cloud engines are honestly unavailable under --air-gapped (keys are
     // never resolved then), with a reason that names the cause rather than
     // a misleading "no key configured".
-    if ((engine === 'claude' || engine === 'openai') && isAirGapped()) {
+    if ((engine === 'claude' || engine === 'openai' || engine === 'gemini') && isAirGapped()) {
       return { available: false, reason: 'Blocked by --air-gapped: cloud AI calls are disabled this run. Use the Local GGUF engine.' };
     }
     if (engine === 'claude') {
@@ -638,6 +672,9 @@ class ServerLLM {
       return { available: true };
     } else if (engine === 'openai') {
       if (!this.defaultOpenAIKey) return { available: false, reason: 'No OpenAI API key configured. Set OPENAI_API_KEY, create openai.txt, or pass --openai-key.' };
+      return { available: true };
+    } else if (engine === 'gemini') {
+      if (!this.defaultGeminiKey) return { available: false, reason: 'No Gemini API key configured. Set GEMINI_API_KEY, create gemini.txt, or pass --gemini-key.' };
       return { available: true };
     } else {
       if (!this.defaultModelPath) return { available: false, reason: 'No local model configured — pick a GGUF via the Workspace pane’s Engine selector (Browse GGUFs), or start the server with --model-path <path-to-gguf>.' };
@@ -689,6 +726,8 @@ const serverLLM = new ServerLLM({
   reproducible: serverArgs.reproducible,
   openaiKey: serverArgs.openaiKey,
   openaiModel: serverArgs.openaiModel,
+  geminiKey: serverArgs.geminiKey,      // #246
+  geminiModel: serverArgs.geminiModel,
 });
 if (serverArgs.reproducible) {
   console.log('  Local LLM sampling: REPRODUCIBLE (temperature 0, fixed seed) — scoped to this machine/model/config; verify per protocol');
@@ -946,9 +985,11 @@ routes['/api/llm-status'] = async (req, res) => {
     } catch (_) { /* leave null */ }
   }
   const openaiAvail = serverLLM.checkAvailability('openai');
+  const geminiAvail = serverLLM.checkAvailability('gemini');   // #246
   jsonResponse(res, {
     claude: { available: claudeAvail.available, name: 'Claude API' },
     openai: { available: openaiAvail.available, name: `ChatGPT API (${serverLLM.defaultOpenAIModel})` },
+    gemini: { available: geminiAvail.available, name: `Gemini API (${serverLLM.defaultGeminiModel})` },
     local:  { available: localAvail.available,  name: localName ? `Local: ${localName}` : 'Local GGUF Model', detail },
     // #223: lets the client show "blocked by --air-gapped" for cloud engines
     // instead of a misleading "not configured / set a key" message.
@@ -979,6 +1020,11 @@ function _engineConfigHint() {
     const what = serverArgs.openaiModel ? `a ChatGPT model (--openai-model ${serverArgs.openaiModel})` : 'a ChatGPT key (--openai-key)';
     return `You set ${what} but no engine (--llm). ` +
       `Chat and Workspace default to Local GGUF — pick Engine: ChatGPT API to use it, or restart with --llm openai.`;
+  }
+  if (serverArgs.geminiModel || serverArgs.geminiKey) {
+    const what = serverArgs.geminiModel ? `a Gemini model (--gemini-model ${serverArgs.geminiModel})` : 'a Gemini key (--gemini-key)';
+    return `You set ${what} but no engine (--llm). ` +
+      `Chat and Workspace default to Local GGUF — pick Engine: Gemini API to use it, or restart with --llm gemini.`;
   }
   return null;
 }
@@ -2227,6 +2273,7 @@ routes['/api/provenance'] = (req, res) => {
   // lands (ServerLLM ctor drops claudeModel), and this header must not
   // silently omit a model the user explicitly configured.
   const model = engine === 'openai' ? (serverArgs.openaiModel || serverLLM.defaultOpenAIModel || null)
+    : engine === 'gemini' ? (serverArgs.geminiModel || serverLLM.defaultGeminiModel || null)   // #246
     : engine === 'local' ? (serverArgs.modelPath || null)
     : (serverArgs.claudeModel || serverLLM.defaultClaudeModel || null);
   jsonResponse(res, {
@@ -2447,17 +2494,25 @@ routes['/api/ai-overview'] = (req, res) => {
   const idxPath = index.indexPath;
   if (!idxPath) return errorResponse(res, 'The loaded index has no on-disk path; AI Overview needs one to point the MCP server at it.', 400);
 
-  // Cloud engines: 'openai' (#243 Part B) or claude (default). Same agentic
-  // loop over CE's own mcp-server either way; runAiOverview dispatches.
-  const cloudEngine = q.engine === 'openai' ? 'openai' : 'claude';
+  // #246: cloud engines resolved through the registry (claude / openai /
+  // gemini). Same agentic loop over CE's own mcp-server; runAiOverview
+  // dispatches. Unknown/local already filtered above.
+  const cloudEngine = (q.engine === 'openai' || q.engine === 'gemini') ? q.engine : 'claude';
   const cloudModel = q.model
-    || (cloudEngine === 'openai' ? serverLLM.defaultOpenAIModel : process.env.CE_AI_OVERVIEW_MODEL);
-  const cloudDisplayModel = cloudModel || (cloudEngine === 'openai' ? serverLLM.defaultOpenAIModel : 'claude-sonnet-4-6');
+    || (cloudEngine === 'openai' ? serverLLM.defaultOpenAIModel
+      : cloudEngine === 'gemini' ? serverLLM.defaultGeminiModel
+      : process.env.CE_AI_OVERVIEW_MODEL);
+  const cloudDisplayModel = cloudModel
+    || (cloudEngine === 'openai' ? serverLLM.defaultOpenAIModel
+      : cloudEngine === 'gemini' ? serverLLM.defaultGeminiModel
+      : 'claude-sonnet-4-6');
   console.log(`  [ai-overview] running ${cloudEngine} over ${path.basename(idxPath)} …`);
-  // Forward the resolved key for BOTH engines — the Claude overview branch now
-  // honors it (was hard-requiring ANTHROPIC_API_KEY), so a --api-key / claude.txt
-  // server can run a Claude overview like it already runs Chat/Analyze (#243B).
-  const overviewKey = cloudEngine === 'openai' ? serverLLM.defaultOpenAIKey : serverLLM.defaultApiKey;
+  // Forward the resolved key for the selected engine — the Claude overview
+  // branch now honors it (was hard-requiring ANTHROPIC_API_KEY), parity with
+  // Chat/Analyze (#243B).
+  const overviewKey = cloudEngine === 'openai' ? serverLLM.defaultOpenAIKey
+    : cloudEngine === 'gemini' ? serverLLM.defaultGeminiKey
+    : serverLLM.defaultApiKey;
   runAiOverview({ indexPath: idxPath, engine: cloudEngine, model: cloudModel, apiKey: overviewKey, timeoutMs: 600000 })
     .then(({ prose, costUsd }) => jsonResponse(res, { prose, costUsd, engine: cloudEngine, model: cloudDisplayModel, index: index.indexSource || idxPath }))
     .catch((e) => {
@@ -3934,13 +3989,15 @@ function chatOpenAITools() {
   }));
 }
 
-async function runChatToolLoopOpenAI({ messages, index, indexName, fileCount, mode, apiKey, model, maxTokens = 4096, onToolCall }) {
+async function runChatToolLoopOpenAI({ messages, index, indexName, fileCount, mode, apiKey, model, baseUrl, maxTokens = 4096, onToolCall }) {
   setIndex(index);
   const tools = chatOpenAITools();
   const system = chatSystemPrompt(indexName, fileCount, mode);
-  const apiUrl = process.env.CE_OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
+  // #246: baseUrl parameterizes the openai-compat provider (OpenAI or Gemini);
+  // CE_OPENAI_API_URL still overrides for a localhost gateway.
+  const apiUrl = process.env.CE_OPENAI_API_URL || (baseUrl ? `${baseUrl}/chat/completions` : 'https://api.openai.com/v1/chat/completions');
   if (!isLocalApiUrl(apiUrl) && isAirGapped()) {
-    console.error('[air-gapped] blocked: GUI chat (cloud OpenAI)');
+    console.error('[air-gapped] blocked: GUI chat (cloud openai-compat)');
     throw new Error('--air-gapped: chat over the cloud LLM is blocked. Set the engine to Local in the Workspace pane (LLM controls), or restart without --air-gapped to allow cloud calls.');
   }
   const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` };
@@ -4308,9 +4365,9 @@ routes['/api/chat'] = (req, res) => {
       // to the cloud path — a typo like "Local" must not send an intended-local
       // conversation to a cloud API.
       const engine = params.engine == null || params.engine === '' ? 'claude'
-        : ['claude', 'local', 'openai'].includes(params.engine) ? params.engine
+        : ['claude', 'local', 'openai', 'gemini'].includes(params.engine) ? params.engine
         : null;
-      if (engine === null) return errorResponse(res, `Unknown chat engine "${params.engine}". Use 'claude', 'openai', or 'local'.`, 400);
+      if (engine === null) return errorResponse(res, `Unknown chat engine "${params.engine}". Use 'claude', 'openai', 'gemini', or 'local'.`, 400);
       const indexName = params.index || mgr.activeIndex;
       const mode = CHAT_GROUNDING_CLAUSES[params.mode] ? params.mode : 'grounded';
       const avail = serverLLM.checkAvailability(engine);
@@ -4322,12 +4379,15 @@ routes['/api/chat'] = (req, res) => {
           messages, index, indexName, fileCount: index.files.size, mode,
           onToolCall: (name, input) => console.log(`  [chat] tool: ${name}(${JSON.stringify(input || {}).slice(0, 120)})`),
         }));
-      } else if (engine === 'openai') {
-        const model = params.model || serverLLM.defaultOpenAIModel;
-        console.log(`  [chat] ${messages.length} msg(s) over "${indexName}", model=${model}, grounding=${mode}`);
+      } else if (engine === 'openai' || engine === 'gemini') {
+        // #246: both openai-compat; Gemini injects its baseUrl/key/model.
+        const gem = engine === 'gemini';
+        const model = params.model || (gem ? serverLLM.defaultGeminiModel : serverLLM.defaultOpenAIModel);
+        console.log(`  [chat] ${messages.length} msg(s) over "${indexName}", engine=${engine}, model=${model}, grounding=${mode}`);
         ({ content, answer } = await runChatToolLoopOpenAI({
           messages, index, indexName, fileCount: index.files.size, mode,
-          apiKey: serverLLM.defaultOpenAIKey,
+          apiKey: gem ? serverLLM.defaultGeminiKey : serverLLM.defaultOpenAIKey,
+          baseUrl: gem ? PROVIDERS.gemini.baseUrl : undefined,
           model,
           onToolCall: (name, input) => console.log(`  [chat] tool: ${name}(${JSON.stringify(input || {}).slice(0, 120)})`),
         }));
@@ -4380,9 +4440,9 @@ routes['/api/chat-stream'] = (req, res) => {
       // #247: absent engine → 'claude' (default), but an unrecognized non-empty
       // value is rejected, never silently coerced to the cloud path.
       const engine = params.engine == null || params.engine === '' ? 'claude'
-        : ['claude', 'local', 'openai'].includes(params.engine) ? params.engine
+        : ['claude', 'local', 'openai', 'gemini'].includes(params.engine) ? params.engine
         : null;
-      if (engine === null) { send('error', { error: `Unknown chat engine "${params.engine}". Use 'claude', 'openai', or 'local'.` }); return res.end(); }
+      if (engine === null) { send('error', { error: `Unknown chat engine "${params.engine}". Use 'claude', 'openai', 'gemini', or 'local'.` }); return res.end(); }
       const indexName = params.index || mgr.activeIndex;
       const mode = CHAT_GROUNDING_CLAUSES[params.mode] ? params.mode : 'grounded';
       const avail = serverLLM.checkAvailability(engine);
@@ -4397,12 +4457,15 @@ routes['/api/chat-stream'] = (req, res) => {
         ({ answer } = await runChatToolLoopLocal({
           messages, index, indexName, fileCount: index.files.size, mode, onToolCall,
         }));
-      } else if (engine === 'openai') {
-        const model = params.model || serverLLM.defaultOpenAIModel;
-        console.log(`  [chat-stream] ${messages.length} msg(s) over "${indexName}", model=${model}, grounding=${mode}`);
+      } else if (engine === 'openai' || engine === 'gemini') {
+        // #246: both openai-compat; Gemini injects its baseUrl/key/model.
+        const gem = engine === 'gemini';
+        const model = params.model || (gem ? serverLLM.defaultGeminiModel : serverLLM.defaultOpenAIModel);
+        console.log(`  [chat-stream] ${messages.length} msg(s) over "${indexName}", engine=${engine}, model=${model}, grounding=${mode}`);
         ({ answer } = await runChatToolLoopOpenAI({
           messages, index, indexName, fileCount: index.files.size, mode,
-          apiKey: serverLLM.defaultOpenAIKey,
+          apiKey: gem ? serverLLM.defaultGeminiKey : serverLLM.defaultOpenAIKey,
+          baseUrl: gem ? PROVIDERS.gemini.baseUrl : undefined,
           model,
           onToolCall,
         }));

@@ -31,11 +31,17 @@ export function isOpenAIReasoningModel(model) {
  *  for the actual answer. */
 export const OPENAI_REASONING_FLOOR = 4096;
 
-/** Resolve the max_completion_tokens to send: reasoning models are floored to
- *  OPENAI_REASONING_FLOOR; other models use the requested cap verbatim. */
+/** Resolve the max_completion_tokens to send: models that spend hidden
+ *  thinking/reasoning tokens against the cap are floored to
+ *  OPENAI_REASONING_FLOOR; others use the requested cap verbatim.
+ *  #246: Gemini 2.5+ Flash/Pro think by default over the compat endpoint —
+ *  same starvation as the OpenAI reasoning family (a small analyze cap left
+ *  only ~29 answer tokens, cut off mid-sentence), so floor them too. Harmless
+ *  for non-thinking gemini variants (just permits more output). */
 export function openaiCompletionBudget(model, requested) {
   const req = requested || 0;
-  return isOpenAIReasoningModel(model) ? Math.max(req, OPENAI_REASONING_FLOOR) : req;
+  const needsFloor = isOpenAIReasoningModel(model) || /^gemini-/i.test(String(model || ''));
+  return needsFloor ? Math.max(req, OPENAI_REASONING_FLOOR) : req;
 }
 
 /** Normalize an OpenAI chat-completions `usage` object to the Anthropic-shaped

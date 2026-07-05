@@ -37,6 +37,14 @@ const RATES = [
   [/gpt-4o/i,   [2.5, 10]],
   [/gpt-4\.1/i, [2, 8]],
   [/^o[34]/i,   [2, 8]],
+  // #246 Gemini (published per-1M rates, July 2026). Flash-lite before flash
+  // (first-match-wins), and both before the bare generation fallback. Refresh
+  // when defaults move; a future 4.x generation falls through to the last
+  // gemini row rather than the Opus-tier default.
+  [/gemini-\d+(\.\d+)?-flash-lite/i, [0.10, 0.40]],
+  [/gemini-2(\.\d+)?-flash/i,        [0.30, 2.50]],   // 2.x Flash
+  [/gemini-\d+(\.\d+)?-flash/i,      [1.50, 9.00]],   // 3.x+ Flash (default gemini-2.5-flash matched above)
+  [/gemini-\d+(\.\d+)?-pro/i,        [1.25, 10.00]],  // Pro tier
 ];
 const DEFAULT_RATE = [5, 25]; // conservative (Opus-tier) for an unrecognized id
 

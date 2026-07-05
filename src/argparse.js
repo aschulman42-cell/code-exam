@@ -11,6 +11,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { resolveProvider } from './core/providers.js';
 
 // Version display (major.minor) sourced from package.json — single source of
 // truth, so it auto-tracks bumps. Fallback covers a bundled/standalone build
@@ -463,6 +464,8 @@ export function parseArgs() {
     ['llm',                  'value',          ['--llm']],
     ['openai_key',           'value',          ['--openai-key']],
     ['openai_model',         'value',          ['--openai-model']],
+    ['gemini_key',           'value',          ['--gemini-key']],   // #246
+    ['gemini_model',         'value',          ['--gemini-model']],
     ['air_gapped',           'flag',           ['--air-gapped']],
     ['allow_connected',      'flag',           ['--allow-connected']],
     ['api_key',              'value',          ['--api-key']],
@@ -751,35 +754,31 @@ export function parseArgs() {
   if (args.sort === 'alpha' && !args.list_functions_alpha) args.list_functions_alpha = true;
   if (args.sort === 'size' && !args.list_functions_size) args.list_functions_size = true;
   if (args.use_claude && !args.llm) args.llm = 'claude';
-  // #243B: normalize --llm case-insensitively and accept the OpenAI aliases, so
-  // `--llm ChatGPT` / `GPT` / `OpenAI` don't silently fall through to the Claude
-  // default downstream (index.js:cloudEngine, getAnalysisLLM, extractClaimTerms).
-  // The GUI server's parseServerArgs already lowercases; the CLI now matches.
-  if (typeof args.llm === 'string') {
-    const norm = args.llm.toLowerCase();
-    if (['chatgpt', 'gpt', 'openai'].includes(norm)) {
-      args.llm = 'openai';
-    } else if (norm === 'claude') {
-      args.llm = 'claude';
+  // #246: normalize + validate --llm through the ONE provider registry
+  // (src/core/providers.js), so the alias/rejection list can't drift from the
+  // GUI server's copy. Unknown value → fail loud (never coerce to Claude, the
+  // old else-branch behavior). --llm selects a CLOUD provider only; a local
+  // GGUF is chosen with --model <gguf>, so --llm local / *.gguf are refused
+  // with a local-specific hint.
+  if (typeof args.llm === 'string' && args.llm) {
+    const norm = args.llm.toLowerCase().trim();
+    const { provider, error } = resolveProvider(norm, { allowDefault: false });
+    if (provider) {
+      args.llm = provider.id;   // canonical id: claude | openai | gemini
     } else {
-      // Strict: refuse an unrecognized provider rather than silently routing to
-      // Claude — safer for an air-gap-conscious tool (#246). --llm selects the
-      // CLOUD provider only; a local model is selected with --model <gguf>, so
-      // `--llm local` / `--llm <file>.gguf` are refused with a local-specific hint.
       if (norm === 'local' || norm.endsWith('.gguf')) {
         const ex = norm.endsWith('.gguf') ? ` (e.g. --model ${args.llm})` : '';
-        process.stderr.write(`ERROR: --llm selects the CLOUD provider ('claude' or 'openai'), not a local model. For a local GGUF model, use --model <gguf>${ex} instead.\n`);
+        process.stderr.write(`ERROR: --llm selects a CLOUD provider, not a local model. For a local GGUF model, use --model <gguf>${ex} instead.\n`);
       } else {
-        process.stderr.write(`ERROR: unknown --llm value '${args.llm}'. --llm selects the cloud provider: 'claude' or 'openai' (alias 'chatgpt' / 'gpt').\n`);
+        process.stderr.write(`ERROR: ${error}\n`);
       }
       process.exit(1);
     }
   }
+  // Back-compat booleans for the paths not yet migrated to the resolver; the
+  // canonical selector downstream is args.llm (the provider id). gemini has no
+  // boolean — those sites read args.llm via resolveProvider.
   if (args.llm === 'claude') args.use_claude = true;
-  // #243B follow-up: the CLI claim/analyze family (analyze / claim-search /
-  // claim-analyze / multisect-analyze / file-analyze / claim-file) now supports
-  // OpenAI end-to-end (getAnalysisLLM + extractClaimTerms), so the prior
-  // fail-fast guard for --llm openai on those commands is gone.
   if (args.llm === 'openai') args.use_openai = true;
   if (args.claim_model && !args.model) args.model = args.claim_model;
   if (args.analyze_model && !args.model) args.model = args.analyze_model;
@@ -1084,6 +1083,9 @@ MODE:
                              gpt-5.1; or set CE_OPENAI_MODEL). Used by the
                              ChatGPT engine in Chat, Analyze, and Overview
                              by AI.
+  --gemini-key <key>         Gemini API key for --llm gemini (or set
+                             GEMINI_API_KEY / create gemini.txt). #246
+  --gemini-model <id>        Gemini model id (default gemini-2.5-flash).
 
 CALLERS / CALLEES:
   --callers <spec>           Find callers of a function (FUNC or FILE@FUNC)
@@ -1182,12 +1184,12 @@ CLAIM SEARCH (LLM-based patent claim analysis):
   --claim-file <path>        Read patent claim text from file (alternative
                              to --claim-search @file.txt; specific to the
                              claim-search code path).
-  --llm <provider>           Select cloud LLM provider: 'claude' or 'openai'
-                             (alias: 'chatgpt'). Requires the corresponding
-                             API key. openai/ChatGPT coverage today:
-                             --overview-by-ai and all GUI engines; the CLI
-                             claim/analyze commands still take claude only
-                             and fail fast if openai is requested.
+  --llm <provider>           Select cloud LLM provider: 'claude', 'openai'
+                             (alias 'chatgpt'/'gpt'), or 'gemini' (alias
+                             'google'). Requires that provider's API key. An
+                             unrecognized value is rejected — never silently
+                             routed to Claude (#246). A local GGUF is --model
+                             <gguf>, not --llm.
                              (deprecated alias: --use-claude → --llm claude)
   --api-key <key>            API key for the selected provider (overrides env var)
   --model <path.gguf>        Local GGUF model path for term extraction and

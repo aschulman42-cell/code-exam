@@ -1393,9 +1393,11 @@ function renderVerdictGrid(verdicts, terms) {
 // Render LLM analysis result (right-bottom pane)
 // ========================================================================
 function renderLlmAnalysis(data, terms) {
-  const disclaimer = data.engine === 'claude'
-    ? 'AI analysis may contain errors. Verify claims against source code.'
-    : 'AI analysis from local model — less accurate than cloud models. Verify against source.';
+  // #246: key on local-vs-cloud, not `=== 'claude'` — the else-branch used to
+  // mislabel every cloud engine except Claude (OpenAI, Gemini) as "local model".
+  const disclaimer = data.engine === 'local'
+    ? 'AI analysis from a local model — may be less accurate than cloud models. Verify against source.'
+    : 'AI analysis may contain errors. Verify claims against source code.';
 
   const usageNote = data.usage
     ? `<span class="muted" style="margin-left:10px;font-size:11px">${data.usage.input_tokens || 0} in / ${data.usage.output_tokens || 0} out tokens</span>`

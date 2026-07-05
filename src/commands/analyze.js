@@ -34,6 +34,7 @@ import {
 } from './claim.js';
 import { parseMultisectTerms, displayMultisectResults, printSelectivityReport } from './multisect.js';
 import { displayName, claudeSupportsTemperature } from '../utils.js';
+import { resolveProvider, PROVIDERS } from '../core/providers.js';
 import { estimateCost } from '../core/pricing.js';
 import { assertLocalOnly, isLocalApiUrl, isAirGapped } from '../core/air-gapped.js';
 import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiText, openaiFinishReason } from '../core/openai-util.js';
@@ -51,15 +52,32 @@ import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiT
  *   - Claude API: built-in Node.js https (same as claim.js)
  *   - Local GGUF: node-llama-cpp (optional dependency)
  */
+// #246: the cloud provider selected for this run (registry entry) or null for
+// local/none. The single source for every "is this cloud?" / "which provider?"
+// decision that used to be `use_claude || use_openai` (which silently excluded
+// a 3rd provider from cost guards/caps) or `useOpenAI ? 'openai' : 'claude'`
+// (which silently picked Claude for anything else — the #246 bug).
+function selectedCloudProvider(args) {
+  const id = args.llm || (args.use_openai ? 'openai' : args.use_claude ? 'claude' : null);
+  return id ? resolveProvider(id, { allowDefault: false }).provider : null;
+}
+
 class AnalysisLLM {
   constructor(opts = {}) {
-    this.useClaude = opts.useClaude || false;
-    this.useOpenAI = opts.useOpenAI || false;  // #243B: OpenAI/ChatGPT provider
+    // #246: the cloud backend is a resolved provider registry entry (or null
+    // for a local GGUF), replacing the useClaude/useOpenAI binary. `provider`
+    // may be passed directly, else derived from the legacy booleans.
+    this.provider = opts.provider
+      || (opts.useOpenAI ? PROVIDERS.openai : opts.useClaude ? PROVIDERS.claude : null);
+    // Back-compat derived flags for external readers (label pickers, etc.).
+    this.useClaude = this.provider?.wire === 'anthropic';
+    this.useOpenAI = this.provider?.wire === 'openai-compat';  // openai OR gemini
     this.apiKey = opts.apiKey || null;
-    this.openaiKey = null;
+    this._compatKey = null;       // resolved key for the openai-compat provider
     this.modelPath = opts.modelPath || null;
     this.claudeModel = opts.claudeModel || null;  // Claude API model id override
     this.openaiModel = opts.openaiModel || null;  // OpenAI model id override
+    this.geminiModel = opts.geminiModel || null;  // Gemini model id override
     this.temperature = opts.temperature ?? 0.0;
     this.verbose = opts.verbose || false;
 
@@ -68,19 +86,20 @@ class AnalysisLLM {
     this._totalInputTokens = 0;
     this._totalOutputTokens = 0;
 
-    if (this.useClaude) {
+    if (this.provider?.wire === 'anthropic') {
       this._initClaude(opts.apiKey);
-    } else if (this.useOpenAI) {
-      this._initOpenAI(opts.openaiKey, opts.apiKey);
+    } else if (this.provider?.wire === 'openai-compat') {
+      const explicitKey = this.provider.id === 'gemini' ? opts.geminiKey : opts.openaiKey;
+      this._initCompat(explicitKey, opts.apiKey);
     } else if (this.modelPath) {
       // Local model init is async - call ensureLocalModel() before generate()
       this._localReady = false;
     }
   }
 
-  /** True when the active backend is a cloud API (Claude or OpenAI) rather than
-   *  a local GGUF model — drives the not-air-gapped disclaimer and file caps. */
-  isCloud() { return this.useClaude || this.useOpenAI; }
+  /** True when the active backend is a cloud API (Claude / OpenAI / Gemini)
+   *  rather than a local GGUF — drives the not-air-gapped disclaimer + caps. */
+  isCloud() { return !!this.provider; }
 
   // --- Claude API ---
 
@@ -152,35 +171,45 @@ class AnalysisLLM {
     }
   }
 
-  // --- OpenAI / ChatGPT API (#243 Part B) ---
+  // --- OpenAI-compatible API (#243B OpenAI; #246 generalized to any
+  //     openai-compat provider — OpenAI, Gemini, localhost gateways) ---
 
-  _initOpenAI(openaiKey, apiKeyFallback) {
-    // Key resolution mirrors _initClaude: flag > --api-key (selected provider) >
-    // env > openai.txt. --api-key applying to whichever provider is selected is
-    // the documented contract.
-    // #223/#247 defense-in-depth: resolve no cloud key under --air-gapped
-    // (mirrors _initClaude — env scrubbed, key file skipped, calls still gated).
+  /** Resolve the model id for the active openai-compat provider. Preserves
+   *  OpenAI's CE_OPENAI_MODEL env override; Gemini uses its flag or default. */
+  _compatModel() {
+    if (this.provider.id === 'openai') return this.openaiModel || process.env.CE_OPENAI_MODEL || this.provider.defaultModel;
+    if (this.provider.id === 'gemini') return this.geminiModel || this.provider.defaultModel;
+    return this.provider.defaultModel;
+  }
+
+  _initCompat(explicitKey, apiKeyFallback) {
+    // Key resolution mirrors _initClaude: provider flag > --api-key (selected
+    // provider) > provider env var > provider key file. Generalized over the
+    // registry entry so a new openai-compat provider needs no new code here.
+    // #223/#247 defense-in-depth: resolve no cloud key under --air-gapped.
     if (isAirGapped()) return;
-    this.openaiKey = openaiKey || apiKeyFallback || process.env.OPENAI_API_KEY || '';
-    if (!this.openaiKey) {
-      for (const fname of ['openai.txt', 'openai_key.txt']) {
+    this._compatKey = explicitKey || apiKeyFallback || process.env[this.provider.keyEnv] || '';
+    if (!this._compatKey) {
+      for (const fname of this.provider.keyFiles) {
         try {
           const key = readFileSync(fname, 'utf-8').trim();
-          if (key) { this.openaiKey = key; break; }
+          if (key) { this._compatKey = key; break; }
         } catch { /* ignore */ }
       }
     }
-    if (!this.openaiKey) {
-      process.stderr.write('ERROR: No OpenAI API key found. Provide --openai-key/--api-key, set OPENAI_API_KEY, or create openai.txt\n');
+    if (!this._compatKey) {
+      process.stderr.write(`ERROR: No ${this.provider.label} key found. Provide ${this.provider.keyFlag}/--api-key, set ${this.provider.keyEnv}, or create ${this.provider.keyFiles[0]}\n`);
     }
   }
 
   async _callOpenAI(prompt, maxTokens = 500) {
-    if (!this.openaiKey) return '(OpenAI API not available - no API key)';
+    if (!this._compatKey) return `(${this.provider.label} not available - no API key)`;
 
-    const apiUrl = process.env.CE_OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
+    // #246: baseUrl from the provider entry (OpenAI or Gemini's compat
+    // endpoint), still overridable to a localhost gateway via CE_OPENAI_API_URL.
+    const apiUrl = process.env.CE_OPENAI_API_URL || `${this.provider.baseUrl}/chat/completions`;
     if (!isLocalApiUrl(apiUrl)) assertLocalOnly('analyze (cloud LLM)'); // #223: hostname-parsed, fail-closed
-    const model = this.openaiModel || process.env.CE_OPENAI_MODEL || 'gpt-5.1';
+    const model = this._compatModel();
 
     const payload = JSON.stringify({
       model,
@@ -194,7 +223,7 @@ class AnalysisLLM {
     try {
       const body = await _httpPost(apiUrl, payload, {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.openaiKey}`,
+        'Authorization': `Bearer ${this._compatKey}`,
       });
 
       this._requestCount++;
@@ -205,13 +234,13 @@ class AnalysisLLM {
       const text = openaiText(body);
       if (!text) {
         if (openaiFinishReason(body) === 'length') {
-          return '(Empty response - token budget exhausted, likely by reasoning tokens; raise the budget or use a non-reasoning --openai-model)';
+          return '(Empty response - token budget exhausted, likely by reasoning tokens; raise the budget or use a non-reasoning model)';
         }
         return '(Empty response)';
       }
       return text;
     } catch (e) {
-      return `(OpenAI API error: ${String(e.message || e).slice(0, 200)})`;
+      return `(${this.provider.label} error: ${String(e.message || e).slice(0, 200)})`;
     }
   }
 
@@ -287,29 +316,29 @@ class AnalysisLLM {
   // --- Unified interface ---
 
   isAvailable() {
-    if (this.useClaude) return !!this.apiKey;
-    if (this.useOpenAI) return !!this.openaiKey;
+    if (this.provider?.wire === 'anthropic') return !!this.apiKey;
+    if (this.provider?.wire === 'openai-compat') return !!this._compatKey;
     return !!this._llm || !!this.modelPath; // modelPath means we'll try to load
   }
 
   async generate(prompt, maxTokens = 500) {
-    if (this.useClaude) return this._callClaude(prompt, maxTokens);
-    if (this.useOpenAI) return this._callOpenAI(prompt, maxTokens);
+    if (this.provider?.wire === 'anthropic') return this._callClaude(prompt, maxTokens);
+    if (this.provider?.wire === 'openai-compat') return this._callOpenAI(prompt, maxTokens);
     if (this.modelPath) return this._callLocal(prompt, maxTokens);
-    return '(No LLM available - use --llm claude, --llm openai, or --analyze-model)';
+    return '(No LLM available - use --llm claude|openai|gemini, or --analyze-model)';
   }
 
   getUsageSummary() {
     if (!this.isCloud() || this._requestCount === 0) return '';
     // Shared pricing helper — was hardcoded to Sonnet's $3/$15 per 1M regardless
     // of model, so it under-reported ~40% once --claude-model selects Opus.
-    const model = this.useOpenAI
-      ? (this.openaiModel || process.env.CE_OPENAI_MODEL || 'gpt-5.1')
+    const model = this.provider.wire === 'openai-compat'
+      ? this._compatModel()
       : (this.claudeModel || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6');
     const { usd: totalCost } = estimateCost(model, {
       input_tokens: this._totalInputTokens, output_tokens: this._totalOutputTokens,
     });
-    const label = this.useOpenAI ? 'OpenAI API Usage' : 'Claude API Usage';
+    const label = `${this.provider.label} Usage`;
     return `${label}: ${this._requestCount} requests, ` +
       `${this._totalInputTokens.toLocaleString()} in / ${this._totalOutputTokens.toLocaleString()} out, ` +
       `~$${totalCost.toFixed(4)}`;
@@ -325,24 +354,33 @@ let _llmInstance = null;
  */
 function getAnalysisLLM(opts = {}) {
   if (!_llmInstance) {
-    const useClaude = opts.useClaude || opts.use_claude || false;
-    const useOpenAI = opts.useOpenAI || opts.use_openai || false;
+    // #246: resolve the cloud provider through the registry. Priority: an
+    // explicit --llm id (incl. gemini) > the legacy use_openai/use_claude
+    // booleans. A local GGUF (analyze_model) is NOT a cloud provider — leave
+    // provider null. `allowDefault:false` means "no cloud unless asked".
+    let providerId = opts.llm
+      || (opts.use_openai || opts.useOpenAI ? 'openai'
+        : opts.use_claude || opts.useClaude ? 'claude' : null);
+    const { provider } = providerId
+      ? resolveProvider(providerId, { allowDefault: false })
+      : { provider: null };
+
     const apiKey = opts.apiKey || opts.api_key || null;
     const openaiKey = opts.openaiKey || opts.openai_key || null;
+    const geminiKey = opts.geminiKey || opts.gemini_key || null;
     const modelPath = opts.modelPath || opts.analyze_model || null;
     const claudeModel = opts.claudeModel || opts.claude_model || null;
     const openaiModel = opts.openaiModel || opts.openai_model || null;
+    const geminiModel = opts.geminiModel || opts.gemini_model || null;
     const temperature = opts.temperature ?? 0.0;
     const verbose = opts.verbose || false;
 
-    if (useClaude || useOpenAI) {
-      const dest = useOpenAI ? 'OpenAI\'s API' : 'Anthropic\'s API';
-      const mode = useOpenAI ? 'OPENAI (CHATGPT) API MODE' : 'CLAUDE API MODE';
+    if (provider) {
       console.log();
       console.log('='.repeat(70));
-      console.log(`WARNING:  WARNING: ${mode} - NOT AIR-GAPPED`);
+      console.log(`WARNING:  WARNING: ${provider.label.toUpperCase()} MODE - NOT AIR-GAPPED`);
       console.log('='.repeat(70));
-      console.log(`Code will be sent to ${dest} over the internet.`);
+      console.log(`Code will be sent to ${provider.label} over the internet.`);
       if (opts.maskAll || opts.mask_all) {
         console.log('String contents will be masked before sending.');
       } else {
@@ -353,7 +391,7 @@ function getAnalysisLLM(opts = {}) {
     }
 
     _llmInstance = new AnalysisLLM({
-      useClaude, useOpenAI, apiKey, openaiKey, modelPath, claudeModel, openaiModel, temperature, verbose,
+      provider, apiKey, openaiKey, geminiKey, modelPath, claudeModel, openaiModel, geminiModel, temperature, verbose,
     });
   }
   return _llmInstance;
@@ -1299,11 +1337,11 @@ const _ANALYZE_COST_GUARD_USD = 0.50;
 // ~800 tokens. Model-aware, so the OpenAI default (gpt-5.1) and --openai-model
 // are priced at their own rates.
 function _analyzeCostBlock(args, promptChars) {
-  const useOpenAI = args.use_openai || false;
-  if ((!args.use_claude && !useOpenAI) || args.force) return null;
-  const model = useOpenAI
-    ? (args.openai_model || process.env.CE_OPENAI_MODEL || 'gpt-5.1')
-    : (args.claude_model || process.env.CLAIM_SEARCH_MODEL || 'claude-sonnet-4-6');
+  const p = selectedCloudProvider(args);
+  if (!p || args.force) return null;
+  const model = p.id === 'openai' ? (args.openai_model || process.env.CE_OPENAI_MODEL || p.defaultModel)
+    : p.id === 'gemini' ? (args.gemini_model || p.defaultModel)
+    : (args.claude_model || process.env.CLAIM_SEARCH_MODEL || p.defaultModel);
   const estIn = Math.ceil(promptChars / 3);
   const { usd } = estimateCost(model, { input_tokens: estIn, output_tokens: 800 });
   const envGuard = parseFloat(process.env.CE_ANALYZE_COST_GUARD);
@@ -1570,8 +1608,7 @@ export async function doClaimAnalyze(index, args) {
   const showPrompt = args.show_prompt || false;
   const maskAll = args.mask_all || false;
   const lineNumbers = args.line_numbers || false;
-  const useClaude = args.use_claude || false;
-  const useOpenAI = args.use_openai || false;
+  const cloudProvider = selectedCloudProvider(args);  // #246: registry entry or null
 
   // Echo claim text
   console.log(`Claim text (${claimText.length} chars):`);
@@ -1587,14 +1624,14 @@ export async function doClaimAnalyze(index, args) {
 
   // Term extraction: --claim-model > --analyze-model > cloud API.
   // (If user only specifies --analyze-model, use it for both tasks.)
-  // A cloud engine (Claude or OpenAI) does term extraction on that provider,
-  // so it does not fall back to a local --analyze-model for terms.
-  const cloudApiLabel = useOpenAI ? 'OpenAI API' : 'Claude API';
-  const termModelPath = claimModel || ((!useClaude && !useOpenAI) ? analyzeModel : null);
+  // A cloud engine does term extraction on that provider, so it does not fall
+  // back to a local --analyze-model for terms.
+  const cloudApiLabel = cloudProvider ? cloudProvider.label : 'Claude API';
+  const termModelPath = claimModel || (!cloudProvider ? analyzeModel : null);
   const termExtractionEngine = termModelPath
     ? `local: ${termModelPath}`
     : cloudApiLabel;
-  const analysisEngine = (useClaude || useOpenAI)
+  const analysisEngine = cloudProvider
     ? cloudApiLabel
     : (analyzeModel ? `local: ${analyzeModel}` : '(none - will extract source only)');
   console.log(`  Term extraction: ${termExtractionEngine}`);
@@ -1682,10 +1719,12 @@ export async function doClaimAnalyze(index, args) {
     result = await extractClaimTerms(claimText, {
       apiKey, verbose, temperature, vocabConcordance, vocabTight,
       claudeModel: args.claude_model,
-      // #243B: route term extraction to OpenAI when --llm openai/chatgpt.
-      provider: useOpenAI ? 'openai' : 'claude',
+      // #246: route term extraction through the selected cloud provider.
+      provider: cloudProvider ? cloudProvider.id : 'claude',
       openaiKey: args.openai_key || null,
       openaiModel: args.openai_model || null,
+      geminiKey: args.gemini_key || null,
+      geminiModel: args.gemini_model || null,
     });
   }
 
@@ -1789,7 +1828,7 @@ export async function doClaimAnalyze(index, args) {
     // File-level fallback
     if (fileMatches.length > 0) {
       const topFile = fileMatches[0];
-      const maxLines = (useClaude || useOpenAI) ? _FILE_MAX_LINES_CLOUD : _FILE_MAX_LINES_LOCAL;
+      const maxLines = cloudProvider ? _FILE_MAX_LINES_CLOUD : _FILE_MAX_LINES_LOCAL;
       if (topFile.lines <= maxLines) {
         console.log(`\n  No function-level match, but file '${topFile.filepath}' (${topFile.lines} lines) matches.`);
         console.log('  Analyzing whole file against claim...');
@@ -2047,9 +2086,7 @@ export async function doMultisectAnalyze(index, args) {
     const fileMatches = results.file_matches || [];
     if (fileMatches.length > 0) {
       const topFile = fileMatches[0];
-      const useClaude = args.use_claude || false;
-      const useOpenAI = args.use_openai || false;
-      const maxLines = (useClaude || useOpenAI) ? _FILE_MAX_LINES_CLOUD : _FILE_MAX_LINES_LOCAL;
+      const maxLines = selectedCloudProvider(args) ? _FILE_MAX_LINES_CLOUD : _FILE_MAX_LINES_LOCAL;  // #246
 
       if (topFile.lines <= maxLines) {
         console.log(`\nNo single function contains all terms, but file '${topFile.filepath}' (${topFile.lines} lines) does.`);
@@ -2192,14 +2229,12 @@ export async function doFileAnalyze(index, args) {
   const maskAll = args.mask_all || false;
   const showPrompt = args.show_prompt || false;
   const lineNumbers = args.line_numbers || false;
-  const useClaude = args.use_claude || false;
-  const useOpenAI = args.use_openai || false;
+  const _cloudProvider = selectedCloudProvider(args);  // #246: any cloud provider
 
   // Local (air-gapped) analysis is bounded by the model's context window, so keep
-  // a line cap. Cloud analysis (Claude or OpenAI) is bounded by a projected-COST
-  // guard applied below (after the prompt is built), which replaces the old fixed
-  // Claude line cap.
-  if (!useClaude && !useOpenAI && nLines > _FILE_MAX_LINES_LOCAL && !showPrompt) {
+  // a line cap. Cloud analysis is bounded by a projected-COST guard applied below
+  // (after the prompt is built), which replaces the old fixed Claude line cap.
+  if (!_cloudProvider && nLines > _FILE_MAX_LINES_LOCAL && !showPrompt) {
     console.log(`File '${filepath}' is ${nLines} lines - too large for local file analysis (limit: ${_FILE_MAX_LINES_LOCAL}).`);
     console.log(`  Tip: Use --analyze FILE@FUNCTION to analyze individual functions.`);
     console.log(`  Tip: Use --list-functions "${filepath.split(/[\\/]/).pop()}" to see functions in this file.`);

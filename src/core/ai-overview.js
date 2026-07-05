@@ -24,6 +24,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { estimateCost } from './pricing.js';
 import { assertLocalOnly, isLocalApiUrl } from './air-gapped.js';
 import { openaiCompletionBudget } from './openai-util.js';
+import { PROVIDERS } from './providers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url)); // src/core
 const MCP_SERVER = path.join(__dirname, '..', 'mcp-server.js');  // src/mcp-server.js
@@ -114,7 +115,11 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
   const _envBudget = parseFloat(process.env.CE_OVERVIEW_MAX_BUDGET);
   const budgetUsd = Number.isFinite(maxBudgetUsd) ? maxBudgetUsd
     : (Number.isFinite(_envBudget) ? _envBudget : 5.0);
-  const useModel = model || (engine === 'openai'
+  // #246: gemini rides the same openai-compat agentic branch as OpenAI.
+  const _isCompat = engine === 'openai' || engine === 'gemini';
+  const useModel = model || (engine === 'gemini'
+    ? PROVIDERS.gemini.defaultModel
+    : engine === 'openai'
     ? (process.env.CE_OPENAI_MODEL || 'gpt-5.1')
     : 'claude-sonnet-4-6');
 
@@ -167,18 +172,20 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
     };
     let prose = '';
 
-    if (engine === 'openai') {
-      // #243 Part B: same agentic loop over the same mcp-server, OpenAI wire
-      // format (tool_calls / role:"tool"), plain HTTPS via global fetch.
-      const apiUrl = process.env.CE_OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
-      // #223: block a REMOTE OpenAI endpoint under --air-gapped, but allow a
-      // loopback CE_OPENAI_API_URL (e.g. LM Studio) — parity with chat/analyze.
-      // Checked BEFORE the key check so an air-gapped run reports the air-gap
-      // reason (parallel to the Claude branch), not a misleading "no API key".
-      if (!isLocalApiUrl(apiUrl)) assertLocalOnly('AI Overview (cloud OpenAI)');
-      const key = apiKey || process.env.OPENAI_API_KEY;
+    if (_isCompat) {
+      // #243B/#246: same agentic loop over the same mcp-server, OpenAI-compat
+      // wire format (tool_calls / role:"tool") for OpenAI and Gemini alike;
+      // plain HTTPS via global fetch. #246: baseUrl/key from the provider.
+      const prov = PROVIDERS[engine];
+      const apiUrl = process.env.CE_OPENAI_API_URL || `${prov.baseUrl}/chat/completions`;
+      // #223: block a REMOTE endpoint under --air-gapped, but allow a loopback
+      // CE_OPENAI_API_URL (e.g. LM Studio) — parity with chat/analyze. Checked
+      // BEFORE the key check so an air-gapped run reports the air-gap reason
+      // (parallel to the Claude branch), not a misleading "no API key".
+      if (!isLocalApiUrl(apiUrl)) assertLocalOnly(`AI Overview (cloud ${prov.label})`);
+      const key = apiKey || process.env[prov.keyEnv];
       if (!key) {
-        throw new Error('AI Overview needs an OpenAI API key — set the OPENAI_API_KEY environment variable (or openai.txt / --openai-key), or run an air-gapped overview with a local --model <gguf>.');
+        throw new Error(`AI Overview needs a ${prov.label} key — set ${prov.keyEnv} (or ${prov.keyFiles[0]} / ${prov.keyFlag}), or run an air-gapped overview with a local --model <gguf>.`);
       }
       const oaTools = sdkTools.map(t => ({
         type: 'function',
