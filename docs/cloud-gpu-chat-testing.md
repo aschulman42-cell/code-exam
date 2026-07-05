@@ -109,7 +109,12 @@ model download on purpose — it front-loads the one genuinely risky step.
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs
 node -v
 
-# 2. Clone + install CE (node-llama-cpp v3 fetches its CUDA prebuilt binary)
+# 2. Get CE onto the pod + install (node-llama-cpp v3 fetches its CUDA prebuilt
+#    binary). Public repo: clone it. PRIVATE repo (still the case pre-launch):
+#    git clone FAILS — no credentials on the pod by design. Copy a tarball up
+#    instead (Step 1's note): locally `git archive --format=tar.gz -o /tmp/ce.tar.gz HEAD`,
+#    `scp -P <port> -i ~/.ssh/id_ed25519 /tmp/ce.tar.gz root@<ip>:/root/`, then on
+#    the pod `mkdir -p code-exam && tar -xzf /root/ce.tar.gz -C code-exam`.
 git clone https://github.com/aschulman42-cell/code-exam && cd code-exam
 npm install
 
@@ -129,11 +134,14 @@ hf download unsloth/Qwen3-14B-GGUF Qwen3-14B-Q5_K_M.gguf --local-dir ./models
 # 5. Index NON-SENSITIVE code — CE's own source is ideal
 node src/index.js --build-index .
 
-# 6. Launch the GUI bound to all interfaces, inside tmux so it survives
-#    SSH disconnects
-tmux new -d -s ce "node src/index.js --gui --host 0.0.0.0 --port 8080 \
+# 6. Launch the GUI bound to all interfaces, inside tmux so it survives SSH
+#    disconnects. Use src/server.js directly, NOT `--gui`: the `ce --gui`
+#    launcher hardcodes 127.0.0.1 and REJECTS --host ("Unknown option '--host'"),
+#    and it also tries to open a browser (pointless on a headless pod).
+#    server.js IS the GUI server and honors --host.
+tmux new -d -s ce "node src/server.js --host 0.0.0.0 --port 8080 \
   --model-path ./models/Qwen3-14B-Q5_K_M.gguf \
-  --index-path .code_search_index"
+  --index-path .code_search_index --context-size 16384"
 ```
 
 Watch the server log (`tmux attach -t ce`) for the model-load line — it reports
@@ -141,16 +149,22 @@ the context size that stuck (want 8192).
 
 ## Step 3 — chat
 
-Open RunPod's proxy URL for the exposed HTTP port:
+Reach the GUI one of two ways:
 
-```
-https://<pod-id>-8080.proxy.runpod.net
-```
+- **RunPod HTTP proxy** — `https://<pod-id>-8080.proxy.runpod.net`. Two quirks:
+  it has a **cold start** (the first request, often the root `/`, can 404 or
+  stall ~30 s while the route warms up — reload), and the URL is
+  **unauthenticated** — anyone with it drives the server, which is why you index
+  only non-sensitive code (above).
+- **SSH tunnel** (private, reliable) — from your laptop
+  `ssh -L 8080:localhost:8080 root@<ip> -p <port> -i ~/.ssh/id_ed25519`, then open
+  `http://localhost:8080`. Bypasses the proxy, is authenticated by SSH, and needs
+  no `--host 0.0.0.0` (you can bind loopback on the pod if you only ever tunnel).
 
 In the chat pane set **Engine → Local GGUF** and ask something that requires
-reading code, e.g. *"explain how doMultisect works"*. (Binding to a
-non-localhost interface auto-enables CE's file-path safety validator —
-expected and harmless here.)
+reading code, e.g. *"explain how multisect works"*. (A non-localhost bind
+intentionally skips CE's loopback Host-header check — the exposure is deliberate
+— while enabling the file-path safety validator; both expected here.)
 
 ## What to look for
 

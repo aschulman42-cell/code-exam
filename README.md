@@ -104,6 +104,13 @@ node src/server.js --index-path .code_search_index --port 3000
 # then open http://localhost:3000
 ```
 
+> **Network exposure.** The GUI binds **127.0.0.1** by default, and `ce --gui`
+> rejects `--host` outright. Serving it on a network requires running
+> `node src/server.js --host <addr>` directly, which starts an **unauthenticated**
+> server — anyone who can reach it reads your indexed source and local files. Do
+> that only on a trusted, firewalled network; to reach it remotely, prefer an SSH
+> tunnel to a loopback-bound server (see `docs/cloud-gpu-chat-testing.md`).
+
 **First time?** A fresh download bundles a small demo index, so a bare `ce`
 shows a short welcome and `ce --gui` opens the browser UI on the demo. The GUI's
 **Help → Tour** — and [`TOUR.md`](TOUR.md) — walk you through what you're seeing.
