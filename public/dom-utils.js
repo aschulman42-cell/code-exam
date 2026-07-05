@@ -130,6 +130,15 @@ function _prepPaneClone(bodyEl, lineNumbers) {
   // pure UI chrome.
   clone.querySelectorAll('button, .pane-popout-placeholder, .accordion-toggle, .sub-accordion-toggle')
     .forEach((el) => el.remove());
+  // #215 saved-text cleanup: strip FORM CONTROLS and their labels. Saving a
+  // pane that carries a controls row (the Chat/Workspace engine selects,
+  // "tool calls" checkboxes, grounding selector, …) used to print every
+  // setting's NAME regardless of its state — noise in a shared artifact.
+  // A label wrapping a control is removed whole; bare selects/inputs too.
+  clone.querySelectorAll('select, input, textarea').forEach((el) => {
+    const label = el.closest('label');
+    (label || el).remove();
+  });
   if (!lineNumbers) clone.querySelectorAll('.line-number').forEach((el) => el.remove());
 
   // Flex rows blockify their cell children, so innerText would put each cell on
@@ -157,7 +166,12 @@ function _mount(clone, width) {
 }
 
 function _tidy(text) {
-  return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  // #215: normalize \r\n FIRST — interleaved \r defeated the blank-line
+  // collapse below ("\r\n\r\n\r\n" never matches /\n{3,}/), which is how
+  // saved chats ended up with long runs of blank lines on Windows.
+  return text.replace(/\r\n?/g, '\n')
+    .replace(/[^\S\n]+\n/g, '\n')        // strip trailing spaces/tabs/NBSP per line
+    .replace(/\n{3,}/g, '\n\n').trim();
 }
 
 // Two adjacent element cells are "visually separated" when they sit on the same
@@ -257,7 +271,14 @@ function accordionText(bodyEl) {
 function sourceText(bodyEl, lineNumbers) {
   let out = '';
   for (const ln of bodyEl.querySelectorAll('.source-line')) {
-    const code = ln.querySelector('.line-content')?.textContent ?? '';
+    // #215: strip newlines that rode in from a CRLF source file. A CRLF line
+    // leaves a trailing \r after `data.source.split('\n')`, and the HTML
+    // parser then NORMALIZES that \r to \n when it enters the DOM — so by the
+    // time we read `.line-content` textContent the artifact char is \n, not
+    // \r (an \r-only strip missed it, leaving a blank line between every line
+    // in the saved file). A `.line-content` is always ONE display line, so
+    // stripping all \r/\n from it is safe.
+    const code = (ln.querySelector('.line-content')?.textContent ?? '').replace(/[\r\n]+/g, '');
     if (ln.classList.contains('continuation')) {
       out += code;                                  // same logical line — no break
     } else {

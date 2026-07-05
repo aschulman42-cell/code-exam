@@ -19,6 +19,8 @@ import { extractReferencedResources } from './core/referenced-resources.js';
 import { MEDIA_BINARY_EXTENSIONS, ARCHIVE_EXTENSIONS, EXECUTABLE_EXTENSIONS } from './utils.js';
 import { BINSTRING_EXTENSIONS } from './binstrings.js';
 import { skippedExtensionCensus } from './core/extension-census.js';
+import { buildProvenanceHeader, sanitizedCommandLine } from './core/provenance.js';
+import { CE_VERSION } from './version.js';
 import {
   doSearch, doLiteral, doFast, doRegex,
   doFilesSearch, doFoldersSearch,
@@ -165,7 +167,7 @@ if (args.gui || _wantsTour) {
   // in here: --gui legitimately accepts server-only flags (e.g. --context-size)
   // that the CLI parser rejects.
   {
-    const _GUI_BOOL = new Set(['--gui', '--tour', '--air-gapped', '--allow-connected', '--reproducible']);
+    const _GUI_BOOL = new Set(['--gui', '--tour', '--air-gapped', '--allow-connected', '--reproducible', '--provenance']);
     const _GUI_VALUE = new Set(['--port', '--index-path', '--index', '--load-index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--temperature', '--context-size', '--openai-key', '--openai-model', '--llm']);
     const _unknown = [];
     for (let i = 0; i < _rawArgvForGui.length; i++) {
@@ -250,7 +252,7 @@ if (args.gui || _wantsTour) {
   }
   // #223: forward the boolean flags to the GUI server.
   // #239: accept either spelling (`--air_gapped` == `--air-gapped`).
-  for (const _f of ['--air-gapped', '--allow-connected', '--reproducible']) {
+  for (const _f of ['--air-gapped', '--allow-connected', '--reproducible', '--provenance']) {
     if (_rawArgvForGui.some(t => t.replace(/_/g, '-') === _f)) _serverArgv.push(_f);
   }
   process.argv = [process.argv[0], process.argv[1], ..._serverArgv];
@@ -786,6 +788,29 @@ if (index.files.size === 0 && !args.build_index) {
   process.exit(1);
 }
 
+
+// ========================================================================
+// #215: opt-in provenance header — the very top of this run's stdout.
+// Placed after the index checks (so the file count is real) and before any
+// command output. See src/core/provenance.js for the litigation print-out
+// roadmap (confidentiality banners, Bates, print limits) this seeds.
+// ========================================================================
+
+if (args.provenance) {
+  const _provEngine = args.llm || (args.model ? 'local' : null);
+  const _provModel = _provEngine === 'openai' ? (args.openai_model || null)
+    : _provEngine === 'local' ? (args.model || null)
+    : (args.claude_model || null);
+  console.log(buildProvenanceHeader({
+    version: CE_VERSION,
+    indexPath: args.index_path,
+    fileCount: index.files.size,
+    command: sanitizedCommandLine(),
+    engine: _provEngine,
+    model: _provModel,
+  }));
+  console.log('');
+}
 
 // ========================================================================
 // Rebuild function index (from already-loaded file_lines)

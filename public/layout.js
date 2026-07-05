@@ -18,6 +18,7 @@
 
 import { $, $$, makeDraggable, bringToFront, downloadText, extractPaneText, paneSaveName, copyToClipboard } from './dom-utils.js';
 import { state } from './state.js';
+import { api } from './api.js';
 
 // ============================================================================
 // #177: find-in-pane. A floating #find-bar anchored to the active pane body;
@@ -303,6 +304,59 @@ export function initWindowManagement() {
     btn.textContent = '✓';
     setTimeout(() => { btn.textContent = orig; }, 1200);
   }
+  // #215 Phase 2: the per-pane subject line — what this saved artifact IS.
+  // Server-agnostic identity that lives only client-side: the full source
+  // path being viewed, or the chat's engine + grounding. Heterogeneous by
+  // pane, so labeled here (the builder prints it verbatim).
+  // Rename display state — whether inferred-name suffixes are shown (View >
+  // Show Inferred Name Suffixes; the GUI counterpart of the CLI --no-rename).
+  // Belongs in the header of any pane that shows function/class names, so a
+  // reader knows whether they're seeing inferred or raw bundler names.
+  function renameStatusPart() {
+    const cb = $('#opt-show-inferred-suffix');
+    if (!cb) return null;
+    return `Inferred name suffixes: ${cb.checked ? 'shown' : 'hidden (raw names)'}`;
+  }
+  function saveSubject(paneId) {
+    const parts = [];
+    if (paneId === 'middle-bottom-body') {
+      if (state.currentSourceFile) parts.push(`Source file: ${state.currentSourceFile}`);
+      const r = renameStatusPart(); if (r) parts.push(r);   // source pane linkifies calls with display names
+    } else if (paneId === 'chat-messages') {
+      const opt = (sel) => $(sel)?.selectedOptions?.[0]?.textContent?.trim();
+      const eng = opt('#chat-engine'); if (eng) parts.push(`Engine: ${eng}`);
+      const grd = opt('#chat-mode');   if (grd) parts.push(`Grounding: ${grd}`);
+      return parts.length ? `Chat — ${parts.join(', ')}` : 'Chat transcript';
+    } else if (paneId === 'middle-top-body') {
+      // Heterogeneous pane (function digests, site lists, …) with no single
+      // current-file state — fall back to its title, which usually names the
+      // subject. A guaranteed full path here is a follow-on.
+      const t = $('#middle-top-title')?.textContent?.trim(); if (t) parts.push(`View: ${t}`);
+      const r = renameStatusPart(); if (r) parts.push(r);
+    } else if (paneId === 'left-body') {
+      const r = renameStatusPart(); if (r) parts.push(r);   // functions/classes accordion shows display names
+    }
+    return parts.length ? parts.join(' · ') : null;
+  }
+  // Include source line numbers in a save when the View-menu Line Numbers
+  // toggle is on (default on — matches the on-screen display, which always
+  // shows them), or when Shift-clicking the 💾 as an explicit override.
+  function wantLineNumbers(e) {
+    const cb = $('#opt-line-numbers');
+    return e.shiftKey || (cb ? cb.checked : false);
+  }
+  // When the server was started with --provenance, prepend the server-built
+  // provenance header to every 💾 save. Best-effort: a save must never fail
+  // (or block) because the header fetch did — fall back to plain text. The
+  // pane text is extracted synchronously BEFORE this async hop so the saved
+  // content can't shift under the fetch.
+  async function withProvenance(text, subject) {
+    try {
+      const p = await api.provenance(subject ? { subject } : undefined);
+      if (p && p.enabled && p.header) return p.header + '\n\n' + text;
+    } catch { /* header is provenance sugar; the save itself must survive */ }
+    return text;
+  }
   document.addEventListener('click', (e) => {
     const saveBtn = e.target.closest('[data-save]');
     if (saveBtn) {
@@ -311,14 +365,16 @@ export function initWindowManagement() {
       if (saveBtn.closest('#workspace-toggle')) e.stopPropagation();
       const body = $('#' + saveBtn.dataset.save);
       const ext = saveBtn.dataset.md ? '.md' : '.txt';
-      downloadText(paneSaveName(body, saveBtn.dataset.name) + ext, extractPaneText(body, { lineNumbers: e.shiftKey }));
+      const fname = paneSaveName(body, saveBtn.dataset.name) + ext;
+      const text = extractPaneText(body, { lineNumbers: wantLineNumbers(e) });
+      withProvenance(text, saveSubject(saveBtn.dataset.save)).then((t) => downloadText(fname, t));
       flashPaneAction(saveBtn);
       return;
     }
     const copyBtn = e.target.closest('[data-copy]');
     if (copyBtn) {
       if (copyBtn.closest('#workspace-toggle')) e.stopPropagation();
-      copyToClipboard(extractPaneText($('#' + copyBtn.dataset.copy), { lineNumbers: e.shiftKey })).then(() => flashPaneAction(copyBtn));
+      copyToClipboard(extractPaneText($('#' + copyBtn.dataset.copy), { lineNumbers: wantLineNumbers(e) })).then(() => flashPaneAction(copyBtn));
       return;
     }
     const findBtn = e.target.closest('[data-find]');
@@ -332,11 +388,12 @@ export function initWindowManagement() {
   // #177: pop-out header Save/Copy act on whatever pane is currently popped.
   $('#generic-fs-save')?.addEventListener('click', (e) => {
     const name = ($('#generic-fs-title')?.textContent || 'pane').trim().replace(/[^\w.-]+/g, '_') || 'pane';
-    downloadText(name + '.txt', extractPaneText($('#generic-fs-body'), { lineNumbers: e.shiftKey }));
+    const text = extractPaneText($('#generic-fs-body'), { lineNumbers: wantLineNumbers(e) });
+    withProvenance(text).then((t) => downloadText(name + '.txt', t));
     flashPaneAction($('#generic-fs-save'));
   });
   $('#generic-fs-copy')?.addEventListener('click', (e) => {
-    copyToClipboard(extractPaneText($('#generic-fs-body'), { lineNumbers: e.shiftKey })).then(() => flashPaneAction($('#generic-fs-copy')));
+    copyToClipboard(extractPaneText($('#generic-fs-body'), { lineNumbers: wantLineNumbers(e) })).then(() => flashPaneAction($('#generic-fs-copy')));
   });
 
   // #177: find-in-pane wiring.

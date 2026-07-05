@@ -148,6 +148,7 @@ export function parseArgs() {
     verbose: false,
     full_path: false,
     bare: false,
+    provenance: false,
     filter: null,
     no_tests: false,
     emit_harness: null,
@@ -224,6 +225,7 @@ export function parseArgs() {
     show_dupes: false,
     full_path: false,
     bare: false,
+    provenance: false,
     dedup: 'exact',
 
     // Phase 8a: Claim search (LLM-based term extraction)
@@ -451,6 +453,7 @@ export function parseArgs() {
     ['multisect_search',     'value',          ['--multisect-search', '--multisect']],
     ['vocab_in',             'value',          ['--in']],
     ['bare',                 'flag',           ['--bare']],
+    ['provenance',           'flag',           ['--provenance']],
     ['show_dupes',           'flag',           ['--show-dupes']],
 
     // Phase 8a: claim search
@@ -967,6 +970,12 @@ DISPLAY / FILTERING (query-time, does not affect index build):
   --context <n>              Context lines around matches (default: 3)
   -v, --verbose              Show extra detail
   --full-path                Show full file paths in output
+  --provenance               Print a provenance header at the top of stdout:
+                             CE version + generation time, tool source URL,
+                             index, and the invoking command (secrets masked).
+                             For output you redirect to a file and share —
+                             default OFF so piped output stays clean. AI
+                             engine/model flags are echoed when given.
   --filter <text>            Substring filter for most listings — functions, files,
                              classes, the AI/ML detector cells, and --prompt-catalog.
                              --prompt-catalog also accepts a /regex/ form, e.g.

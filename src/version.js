@@ -12,3 +12,20 @@
  * uncommitted edits, which is exactly when the staleness problem bites.
  */
 export const SERVER_BUILD = 43;
+
+// #215: the PRODUCT version, read from package.json — distinct from
+// SERVER_BUILD above (a dev restart canary; see #264 on the two being
+// conflated in the GUI). Used by the provenance header. Falls back
+// gracefully when package.json isn't on disk next to src/ (e.g. a compiled
+// standalone exe — acceptable for Phase 1; revisit if the exe build should
+// embed it).
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+export const CE_VERSION = (() => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf8'));
+    return pkg.version ? `v${pkg.version}` : 'v?';
+  } catch { return 'v? (version unavailable in this build)'; }
+})();

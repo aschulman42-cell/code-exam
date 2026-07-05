@@ -110,6 +110,7 @@ export const api = {
   analyzeLlm:      (p) => api.post('analyze-llm', p),
   claimExtractionPrompt: (p) => api.post('claim-extraction-prompt', p),
   llmStatus:       ()  => api.get('llm-status'),
+  provenance:      (p) => api.get('provenance', p),
   browseDir:       (p) => api.get('browse-dir', p),
   indexes:         ()  => api.get('indexes'),
   scanIndexes:     (p) => api.get('scan-indexes', p),

@@ -38,7 +38,8 @@ import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiF
 import { skippedExtensionCensus } from './core/extension-census.js';
 import { loadUsedByCatalog, makeUsedByFor } from './commands/exports.js';
 import { detectInfrastructure } from './core/stack-detectors.js';
-import { SERVER_BUILD } from './version.js';
+import { SERVER_BUILD, CE_VERSION } from './version.js';
+import { buildProvenanceHeader, sanitizedCommandLine } from './core/provenance.js';
 import { parseMultisectTerms, prepareMultisectViews, filterLowSelectivity } from './commands/multisect.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
 import { collectPrompts } from './commands/prompts.js';
@@ -98,7 +99,7 @@ function safeMax(raw, defaultVal, ceiling = 10000) {
 
 function parseServerArgs() {
   const args = process.argv.slice(2);
-  const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0, catalogPath: null, airGapped: false, allowConnected: false, contextSize: null, reproducible: false, openaiKey: null, openaiModel: null, defaultEngine: null };
+  const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0, catalogPath: null, airGapped: false, allowConnected: false, contextSize: null, reproducible: false, openaiKey: null, openaiModel: null, defaultEngine: null, provenance: false };
 
   // A value-taking flag must be followed by a non-flag token; otherwise warn
   // and do NOT consume the next token. Without this, `--llm --air-gapped`
@@ -174,6 +175,10 @@ function parseServerArgs() {
       result.airGapped = true;
     } else if (a === '--allow-connected') {
       result.allowConnected = true;
+    } else if (a === '--provenance') {
+      // #215 Phase 2: GUI saves get the provenance header (served via
+      // /api/provenance; the 💾 handlers prepend it to downloads).
+      result.provenance = true;
     } else if (!a.startsWith('-')) {
       result.indexPaths.push(a);
     }
@@ -2175,6 +2180,37 @@ routes['/api/version'] = (req, res) => {
   // actually warranted — it is only correct when the server runs inside
   // WSL. _isWSL is computed once at startup (see above). #43.
   jsonResponse(res, { build: SERVER_BUILD, platform: process.platform, isWSL: _isWSL });
+};
+
+// #215 Phase 2: provenance banner for GUI saves. Built server-side (one
+// builder for every surface — src/core/provenance.js, which also documents
+// the litigation print-out roadmap this seeds). Returns {enabled:false}
+// unless the server was started with --provenance, so the client's save
+// path stays a no-op by default.
+routes['/api/provenance'] = (req, res) => {
+  if (!serverArgs.provenance) return jsonResponse(res, { enabled: false });
+  const q = parseQuery(req.url);
+  const indexName = q.index || mgr.activeIndex;
+  const index = mgr.get(indexName);
+  const engine = serverArgs.defaultEngine || (serverArgs.modelPath ? 'local' : null);
+  // Read the parsed args directly, not serverLLM.defaultClaudeModel — the
+  // latter is null until the gui-launcher-forward-claude-model wiring fix
+  // lands (ServerLLM ctor drops claudeModel), and this header must not
+  // silently omit a model the user explicitly configured.
+  const model = engine === 'openai' ? (serverArgs.openaiModel || serverLLM.defaultOpenAIModel || null)
+    : engine === 'local' ? (serverArgs.modelPath || null)
+    : (serverArgs.claudeModel || serverLLM.defaultClaudeModel || null);
+  jsonResponse(res, {
+    enabled: true,
+    header: buildProvenanceHeader({
+      version: CE_VERSION,
+      indexPath: indexName,
+      fileCount: index && index.files ? index.files.size : undefined,
+      command: sanitizedCommandLine(),
+      engine, model,
+      subject: q.subject || undefined,   // client passes the per-pane subject line
+    }),
+  });
 };
 
 
