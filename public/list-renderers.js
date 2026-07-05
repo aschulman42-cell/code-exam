@@ -2070,6 +2070,7 @@ function _aiOverviewWarnText() {
   const e = _wsEngine();
   if (e === 'local') return `Air-gapped: runs the loaded local model (${_wsLocalModelName()}) over CodeExam’s tools — nothing leaves this machine. Follows the Workspace LLM Engine selection.`;
   if (e === 'openai') return 'Not air-gapped: calls the OpenAI API (needs OPENAI_API_KEY) across CodeExam’s MCP tools — usually a few minutes. Don’t use on confidential code that must stay offline; switch the Workspace LLM Engine to a local model for that.';
+  if (e === 'gemini') return 'Not air-gapped: calls the Gemini API (needs GEMINI_API_KEY) across CodeExam’s MCP tools — usually a few minutes. Don’t use on confidential code that must stay offline; switch the Workspace LLM Engine to a local model for that.';
   return 'Not air-gapped: calls the Anthropic API (needs ANTHROPIC_API_KEY) across CodeExam’s MCP tools — usually a few minutes. Don’t use on confidential code that must stay offline; switch the Workspace LLM Engine to a local model for that.';
 }
 
@@ -2113,7 +2114,8 @@ async function runAiOverview(btn, result, ov, renderProse) {
     // Ground-truth provenance from the server: which engine + model actually
     // produced this prose. Supersedes the pre-run warning, which we retire.
     const engLabel = data.engine === 'local' ? 'Local GGUF'
-      : data.engine === 'openai' ? 'ChatGPT API' : 'Claude API';
+      : data.engine === 'openai' ? 'ChatGPT API'
+      : data.engine === 'gemini' ? 'Gemini API' : 'Claude API';
     _aiOverviewBy = data.model ? `${engLabel} · ${data.model}` : engLabel;
     const sec = btn.parentElement;
     if (sec) {

@@ -46,6 +46,7 @@ export function assertLocalOnly(feature) {
 export function scrubApiKey() {
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENAI_API_KEY;
+  delete process.env.GEMINI_API_KEY;   // #246: every cloud provider CE supports must be scrubbed here
 }
 
 /** True only for loopback endpoints — localhost, 127.*, or ::1 — judged on the
@@ -103,7 +104,7 @@ export async function airGappedStartupCheck() {
 
 /** The runtime CYA disclaimer printed to stderr on every air-gapped run. */
 export const AIR_GAPPED_DISCLAIMER =
-  '[air-gapped] CodeExam will make no cloud AI call this run; cloud API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY) are ignored. ' +
+  '[air-gapped] CodeExam will make no cloud AI call this run; cloud API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY) are ignored. ' +
   'This does NOT isolate your environment: saving to a network drive or a cloud-synced folder ' +
   '(OneDrive/Dropbox), or a machine that later reconnects, can still move data — that is your ' +
   'responsibility. See AIR_GAPPED.md.';

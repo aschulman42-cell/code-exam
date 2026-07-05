@@ -4092,7 +4092,10 @@ async function runChatToolLoopOpenAI({ messages, index, indexName, fileCount, mo
   }
 
   if (!answer) answer = allBlocks.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-  console.log(`  [chat] openai final answer ${answer.length} chars (${allBlocks.filter(b => b.type === 'tool_use').length} tool calls)`);
+  // #246: this loop serves any openai-compat provider (OpenAI or Gemini), so
+  // log the actual model, not a hardcoded "openai" (which read as if a gemini
+  // chat had gone to OpenAI).
+  console.log(`  [chat] ${model} final answer ${answer.length} chars (${allBlocks.filter(b => b.type === 'tool_use').length} tool calls)`);
   return { content: allBlocks, answer };
 }
 
@@ -4543,18 +4546,25 @@ server.listen(serverArgs.port, serverArgs.host, () => {
     console.log(`  Local model: ${serverArgs.modelPath}`);
   }
   if (serverLLM.defaultApiKey) {
-    console.log(`  Claude API:  key configured (${serverLLM.defaultApiKey.slice(0, 10)}...)${isAirGapped() ? '  — BLOCKED by --air-gapped' : ''}`);
+    console.log(`  Claude API:  key configured (...${serverLLM.defaultApiKey.slice(-4)})${isAirGapped() ? '  — BLOCKED by --air-gapped' : ''}`);
   } else if (isAirGapped()) {
     console.log(`  Claude API:  BLOCKED by --air-gapped (cloud key not loaded this run)`);
   } else {
     console.log(`  Claude API:  no key (set ANTHROPIC_API_KEY or --api-key)`);
   }
   if (serverLLM.defaultOpenAIKey) {
-    console.log(`  OpenAI API:  key configured (${serverLLM.defaultOpenAIKey.slice(0, 10)}...)${isAirGapped() ? '  — BLOCKED by --air-gapped' : ''}`);
+    console.log(`  OpenAI API:  key configured (...${serverLLM.defaultOpenAIKey.slice(-4)})${isAirGapped() ? '  — BLOCKED by --air-gapped' : ''}`);
   } else if (isAirGapped()) {
     console.log(`  OpenAI API:  BLOCKED by --air-gapped (cloud key not loaded this run)`);
   } else {
     console.log(`  OpenAI API:  no key (set OPENAI_API_KEY or --openai-key)`);
+  }
+  if (serverLLM.defaultGeminiKey) {   // #246: every cloud provider on the startup key ledger, so air-gapped-or-not is verifiable
+    console.log(`  Gemini API:  key configured (...${serverLLM.defaultGeminiKey.slice(-4)})${isAirGapped() ? '  — BLOCKED by --air-gapped' : ''}`);
+  } else if (isAirGapped()) {
+    console.log(`  Gemini API:  BLOCKED by --air-gapped (cloud key not loaded this run)`);
+  } else {
+    console.log(`  Gemini API:  no key (set GEMINI_API_KEY or --gemini-key)`);
   }
   if (serverArgs.temperature > 0) {
     console.log(`  Temperature: ${serverArgs.temperature}`);
