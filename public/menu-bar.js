@@ -64,6 +64,10 @@ export function initMenuBar() {
   // that tour immediately (bypassing the once-only ce_tour_seen guard, since the
   // user asked for it). Otherwise, on a fresh-download GUI (bundled demo loaded),
   // auto-pop the first-run tour once. Both best-effort.
+  // #267: the first-run Tour is shelved for launch — hide its Help-menu button
+  // and don't auto-open it (below). tours.js stays intact; re-enable there.
+  document.querySelector('[data-action="tour"]')?.remove();
+
   const _tourParam = new URLSearchParams(location.search).get('tour');
   if (_tourParam && TOURS[_tourParam]) sessionTourName = _tourParam;  // Help → Tour replays the launched tour
   if (_tourParam) {
@@ -73,7 +77,7 @@ export function initMenuBar() {
     try { localStorage.setItem('ce_tour_seen', '1'); } catch { /* best-effort */ }
     startInteractiveTour(_tourParam);
   }
-  else maybeAutoOpenTour();
+  // #267: first-run auto-Tour shelved for launch — no auto-open (was: else maybeAutoOpenTour()).
 }
 
 // ============================================================================

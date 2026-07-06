@@ -778,7 +778,6 @@ if (index.files.size === 0 && !args.build_index) {
     console.log(`\nWelcome. A small demo index is bundled, so you can try CodeExam right now.\n`);
     console.log('Start here:');
     console.log(`  ${_exeBase} --gui          open the browser UI on the demo  (best for a first look)`);
-    console.log(`  ${_exeBase} --tour         a guided spotlight walkthrough of the demo in the browser UI`);
     console.log(`  ${_exeBase} --overview     a high-level orientation of the demo, here in the terminal`);
     console.log(`\nExamine your own code:`);
     console.log(`  ${_exeBase} --build-index <dir> --index-path .my_code   index a source tree, then  ${_exeBase} --index-path .my_code --overview`);
