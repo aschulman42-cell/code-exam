@@ -1921,19 +1921,22 @@ export function renderOverviewList(container, ov, opts = {}) {
   // a short right-aligned count; `subpath` a secondary file path rendered in the
   // app's ellipsis `.filepath` style (so long paths truncate cleanly, not jam
   // a numeric metric slot).
-  const clickRow = (label, { metric, subpath, filepath, ctxName, line } = {}) => {
+  const clickRow = (label, { metric, subpath, filepath, ctxName, line, search } = {}) => {
     const kids = [h('span', { className: 'name clickable', text: label })];
     if (subpath) kids.push(h('span', { className: 'filepath', text: subpath }));
     if (metric) kids.push(h('span', { className: 'metric muted', text: metric }));
-    const item = h('div', { className: 'list-item', title: filepath || label }, kids);
+    const item = h('div', { className: 'list-item', title: filepath || (search ? `search: ${search}` : label) }, kids);
     if (filepath) {
       item.addEventListener('click', (e) => { e.stopPropagation(); onFileClick(filepath, line || undefined); });
       item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, { name: ctxName, display_name: ctxName || label, filepath }); });
+    } else if (search && window.doSearchFromUI) {
+      // #268: a concept with no code example is still useful — click to search the term.
+      item.addEventListener('click', (e) => { e.stopPropagation(); window.doSearchFromUI(search); });
     }
     return item;
   };
 
-  if (ov.name) container.appendChild(h('div', { text: ov.name, style: 'text-align:center;font-weight:700;font-size:14px;padding:6px 8px 2px' }));
+  if (ov.name) container.appendChild(h('div', { text: (String(ov.name).startsWith('FIRST_RUN_INDEX') ? 'Demo — mixed sample corpus (AI app + ML + TLS)' : ov.name), style: 'text-align:center;font-weight:700;font-size:14px;padding:6px 8px 2px' }));
   const langs = (ov.languages || []).slice(0, 8).map(l => `${l.ext} ${l.pct}%`).join(', ');
   // Function count is a deep signal; show "…" until the deep half arrives.
   const fnPart = ov.size.functions == null ? '… functions' : `${ov.size.functions} functions`;
@@ -1957,7 +1960,7 @@ export function renderOverviewList(container, ov, opts = {}) {
       // Clickable when we know which file the example identifier lives in; jumps
       // to its definition (functions) or first mention (consts/schemas) and the
       // context menu targets the example identifier, not the bare concept.
-      container.appendChild(clickRow(label, { filepath: c.exampleFile || null, ctxName: c.example || c.concept, line: c.exampleLine }));
+      container.appendChild(clickRow(label, { filepath: c.exampleFile || null, ctxName: c.example || c.concept, line: c.exampleLine, search: c.exampleFile ? null : c.concept }));
     }
   }
 

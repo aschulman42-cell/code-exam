@@ -1901,7 +1901,7 @@ async function init() {
     const data = await api.indexes();
     if (data.indexes && data.indexes.length > 0) {
       const active = data.indexes.find(i => i.active) || data.indexes[0];
-      const _dispName = active.name && active.name.startsWith('FIRST_RUN_INDEX') ? 'Demo — Hunch + samples' : active.name;
+      const _dispName = active.name && active.name.startsWith('FIRST_RUN_INDEX') ? 'Demo — mixed sample corpus (AI app + ML + TLS)' : active.name;
       $('#index-info').textContent = `${_dispName} (${active.files.toLocaleString()} files)`;
       // #181: GUI launched with a command-line index → pop the Overview window.
       showOverviewOverlay();
