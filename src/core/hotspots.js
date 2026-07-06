@@ -100,6 +100,10 @@ export function getEntryPoints(idx, n = 25, maxCalls = 0, showProgress = true) {
   for (const f of allFuncs) {
     if (f.lines < 3) continue;
     if (_noiseFiles(idx).has(f.filepath)) continue;  // #187: skip vendored/minified
+    // Type definitions (structs, classes) have no callers by nature, so without
+    // this they flood the entry-point list (e.g. C structs addrinfo/buffer_node/tm).
+    // Entry points are callable roots — functions and methods, not type defs.
+    if (f.type === 'class') continue;
     let bare = f.name.includes('::') ? f.name.split('::').pop() : f.name;
     if (bare.includes('@')) bare = bare.split('@')[0];
 
