@@ -102,7 +102,6 @@ function useDemoIndexIfNeeded(args) {
     + "index (Hunch + sample harnesses), NOT your code. Pass --index-path <dir>, or build "
     + "one with --build-index.";
   process.stderr.write(notice + '\n\n');
-  console.log(notice + '\n');
   return true;
 }
 
@@ -266,7 +265,7 @@ if (args.gui || _wantsTour) {
   printBanner();
   console.log(`\nStarting the CodeExam GUI → ${_guiUrl}  (opening your browser)…`);
   if (_tourName) console.log(`  Will start the "${_tourName}" guided tour once the page loads.`);
-  console.log(`  Load or build an index in the GUI (File menu / Indexes accordion). Use --port to change the port.\n`);
+  console.log(`  Load or build an index in the GUI (Index menu / Indexes accordion). Use --port to change the port.\n`);
   setTimeout(() => {
     try {
       // A missing binary surfaces as an async 'error' event on the child,
