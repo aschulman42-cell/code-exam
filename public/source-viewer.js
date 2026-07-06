@@ -198,6 +198,15 @@ export function linkifySourceCalls(container, contextFilepath) {
   const isCss = /^\.(css|scss|sass|less)$/.test(ext);
   if (isCss) return;  // CSS has no function calls to linkify
 
+  // #268: prose/doc files — an `identifier(` here is prose ("memory
+  // management (utility)"), not a call site. The linkifier links
+  // optimistically (no known-function check), so on a .md it lights up random
+  // words that happen to match inferred names while the real code refs (in
+  // backticks) stay dark. Skip linkification entirely for these. (Linking the
+  // backtick'd refs properly needs index resolution — a follow-up, not here.)
+  const isProse = /^\.(md|markdown|mdown|mkd|rst|adoc|asciidoc|txt|text)$/.test(ext);
+  if (isProse) return;
+
   // For HTML: track whether we're inside a <script> block
   let inScript = !isHtml;  // non-HTML files: always "in script"
 
