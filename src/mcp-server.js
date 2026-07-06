@@ -410,6 +410,15 @@ function clipLine(s, n = 200) {
   return s.length > n ? s.slice(0, n) + ` ...[+${s.length - n} chars]` : s;
 }
 
+// Cap-aware header for capped tool results (#272). When a tool returns fewer
+// rows than exist, say so on the FIRST line, imperatively, so a model does not
+// read a capped slice as the complete set (the "absence of evidence" trap).
+// `atCap` = the probe itself hit its ceiling, so the total is a lower bound (N+).
+function _capNote(shown, total, atCap, label, hint) {
+  if (shown >= total && !atCap) return `${total} ${label}:`;
+  return `Showing ${shown} of ${total}${atCap ? '+' : ''} ${label} - PARTIAL result; do not infer absence. ${hint}`;
+}
+
 function handleTool(name, args) {
   switch (name) {
 
@@ -419,9 +428,12 @@ function handleTool(name, args) {
     case 'search': {
       const query = args.query;
       const max = args.max || 25;
-      const results = index.searchLiteral(query, { maxResults: max, contextLines: 0 });
-      if (results.length === 0) return `No results for "${query}"`;
-      return results.map(r =>
+      const probe = Math.max(max * 5, 200);  // look past `max` to report the true total (#272)
+      const all = index.searchLiteral(query, { maxResults: probe, contextLines: 0 });
+      if (all.length === 0) return `No results for "${query}"`;
+      const shown = all.slice(0, max);
+      const header = _capNote(shown.length, all.length, all.length >= probe, 'matches', `Raise "max" or refine the query to see the rest.`);
+      return header + '\n' + shown.map(r =>
         `${r.filePath}:${r.lineNumber}  ${clipLine(r.lineText)}` +
         (r.functionName ? `  (in ${clipLine(r.functionName, 80)})` : '')
       ).join('\n');
@@ -429,9 +441,12 @@ function handleTool(name, args) {
 
     case 'regex_search': {
       const max = args.max || 25;
-      const results = index.searchLiteral(args.pattern, { useRegex: true, maxResults: max, contextLines: 0 });
-      if (results.length === 0) return `No results for /${args.pattern}/`;
-      return results.map(r =>
+      const probe = Math.max(max * 5, 200);
+      const all = index.searchLiteral(args.pattern, { useRegex: true, maxResults: probe, contextLines: 0 });
+      if (all.length === 0) return `No results for /${args.pattern}/`;
+      const shown = all.slice(0, max);
+      const header = _capNote(shown.length, all.length, all.length >= probe, 'matches', `Raise "max" or refine the pattern to see the rest.`);
+      return header + '\n' + shown.map(r =>
         `${r.filePath}:${r.lineNumber}  ${clipLine(r.lineText)}` +
         (r.functionName ? `  (in ${clipLine(r.functionName, 80)})` : '')
       ).join('\n');
@@ -448,13 +463,15 @@ function handleTool(name, args) {
       if (!results || !results.function_matches || results.function_matches.length === 0) {
         return `No functions match terms: ${args.terms}`;
       }
-      const lines = [`Found ${results.function_matches.length} function matches:`];
+      const fnCount = results.function_matches.length;
+      const lines = [`Found ${fnCount} function matches` + (fnCount > max ? ` (showing top ${max}):` : ':')];
       for (const f of results.function_matches.slice(0, max)) {
         lines.push(`  ${clipLine(f.function, 80)}  ${f.filepath}  (${f.terms_matched}/${positiveCount} terms, ${f.lines}L)`);
       }
       if (results.file_matches && results.file_matches.length > 0) {
-        lines.push(`\nTop file matches:`);
-        for (const f of results.file_matches.slice(0, 10)) {
+        const fm = results.file_matches;
+        lines.push(`\nTop file matches (${Math.min(10, fm.length)} of ${fm.length}):`);
+        for (const f of fm.slice(0, 10)) {
           lines.push(`  ${f.filepath}  (${f.terms_matched}/${positiveCount} terms)`);
         }
       }
@@ -545,10 +562,12 @@ function handleTool(name, args) {
       const fn = args.function_name ?? args.target;
       if (!fn) return 'callers requires "function_name" (alias: "target").';
       const max = args.max || 50;
-      const callers = index.findCallers(fn, max);
-      if (callers.length === 0) return `No callers found for: ${fn}`;
-      const lines = [`${callers.length} callers of ${fn}:`];
-      for (const c of callers) {
+      const probe = Math.max(max * 5, 200);  // count past `max` so "N callers" isn't a capped total (#272)
+      const all = index.findCallers(fn, probe);
+      if (all.length === 0) return `No callers found for: ${fn}`;
+      const shown = all.slice(0, max);
+      const lines = [_capNote(shown.length, all.length, all.length >= probe, `callers of ${fn}`, `Raise "max" to see the rest.`)];
+      for (const c of shown) {
         lines.push(`  ${c.filepath}:${c.line_number}  ${clipLine(c.line_text.trim())}` +
           (c.caller_function ? `  (in ${clipLine(c.caller_function, 80)})` : ''));
       }
