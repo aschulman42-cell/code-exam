@@ -3,735 +3,119 @@
 CodeExam, as its name implies, is a tool for **examining code** — primarily
 source code, but with a growing emphasis on **quasi-source**: recovering
 indexable structure from artifacts that weren't shipped as source (minified
-bundles, executables, embedded scripts). It runs as both a **GUI** and a
-**CLI** (plus an interactive REPL and an MCP server), all over one shared
-index.
+bundles, executables, embedded scripts). Build an index over a codebase, then
+browse, search, and cross-reference (callers, callees, call trees,
+file/folder coupling) at scale — across **C, C++, Java, JavaScript,
+TypeScript, Python, C#, Go, Rust, PHP, and Ruby** (tree-sitter), with
+regex-level support for a dozen more. If you've used a code-comprehension
+tool like SciTools Understand, the browse-and-cross-reference surface will
+feel familiar.
 
-At its core, CodeExam is language-broad: build an index over a codebase,
-then browse, full-text/regex/inverted-index search, and cross-reference
-(callers, callees, call trees, file/folder coupling) at scale — across **C,
-C++, Java, JavaScript, TypeScript, Python, C#, Go, Rust, PHP, and Ruby**
-(tree-sitter), with regex-level support for a dozen more. If you've used a
-code-comprehension tool like SciTools Understand, the browse-and-cross-
-reference surface will feel familiar.
+Three surfaces share one engine and one on-disk index format — a **CLI**
+(plus an interactive REPL), a **GUI** (served on localhost only), and an
+**MCP server** for AI clients. Build the index once; query from any of them.
 
-What CodeExam emphasizes beyond that baseline:
+## Five key features
 
-- **Quasi-source recovery** — index minified/bundled JS, binaries (strings +
-  demangled C++ symbols), and JavaScript extracted from native install
-  executables, then search and cross-reference them with the same machinery
-  as real source.
-- **Deobfuscation and fingerprinting** — infer readable names for obfuscated
-  code (on by default; toggle off with `--no-rename`), and — work in progress —
-  match a bundled function back to its source-library equivalent via
-  transform-resilient "funcstrings" and portable fingerprint files.
-- **Multisect** — find the smallest scope (function / class / file) that
-  contains substantially all of N terms, and parse prose (a patent claim, a
-  spec, a bug report) directly into such a query.
-- **Catalogs** — extract a codebase's CLI commands, LLM prompts, and
-  telemetry breadcrumbs, each linked back to its handler.
-- **Optional LLM assistance**, including an **air-gapped** local-GGUF mode for
-  code that must not be exposed in any way outside a protected computer.
+1. **AI-assisted examination of confidential code, air-gapped.** Local LLMs
+   (GGUF) plus CodeExam's MCP tools, running on your own GPU — for code that
+   must not leave a protected machine. Most users won't run air-gapped, and
+   AI-assisted code examination may already be familiar (e.g. GitHub
+   Copilot) — but "local first," though entirely optional and only one part
+   of CodeExam, is a key underlying basis for it: we see local models and
+   more powerful GPU-based machines becoming steadily more important.
+   → [LOCAL_LLM.md](LOCAL_LLM.md), [AIR_GAPPED.md](AIR_GAPPED.md)
 
-A growing focus is **examining AI-related software**, and much of that is now in
-place. CodeExam ships a dedicated **AI/ML and LLM-app detectors** suite (see
-Feature highlights below) that surfaces inferred pipelines, the models a codebase
-defines and uses, LLM calls, tools, agents/chains, embeddings, and more —
-alongside LLM prompt extraction, stress-tested on large AI codebases such as
-Claude Code's minified `cli.js` (≈14 MB, bundled with `claude.exe`) and Codex's
-Rust source. It indexes the major ML framework and model trees (PyTorch, Hugging
-Face Transformers, scikit-learn; model repos such as DeepSeek, Qwen, Llama) with
-the same general machinery. This remains an area of active development.
+2. **Uncovering what a codebase is about.** CodeExam surfaces a codebase's
+   "vocabulary" and key concepts, its "breadcrumbs" (telemetry markers in
+   code), and code-surfacing metrics — and presents initial questions to ask
+   and good first places to look, via the Overview and (optional) AI
+   Overview features. → [UNCOVER_KEY_CODE.md](UNCOVER_KEY_CODE.md)
 
-CodeExam is ~47,000 lines of JavaScript (engine + CLI + GUI) running under
-Node.js, developed in close collaboration with Claude Code: nearly all of the
-code was written by Claude Code, in several important places building on the
-main author's earlier tooling (e.g. "Opstrings" and function digests, the
-"NiceDbg" debugger, and an `ndx`/`find` inverted-index search tool).
+3. **Quasi-source.** A surprising amount of indexable structure can be
+   recovered from artifacts never shipped as source — minified/bundled JS,
+   binaries (strings + demangled C++ symbols), JavaScript embedded inside
+   native executables — then searched and cross-referenced with the same
+   machinery as real source. → [QUASI_SOURCE.md](QUASI_SOURCE.md)
 
-## Four ways to use it
+4. **Detecting AI/ML and infrastructure in target code.** A detector suite
+   surfaces inferred AI/ML pipelines, the models a codebase defines and
+   uses, LLM calls, tools, agents/chains, embeddings, prompts, and the
+   operational stack (containers, K8s, IaC, CI/CD). Three distinct things:
+   (a) AI was used to *build* CodeExam; (b) users can *optionally* use AI
+   during an examination; (c) CodeExam *detects* AI/ML in target code —
+   which, interestingly, requires no AI at run time: AI skill and knowledge
+   are baked into mechanical detectors.
+   → [DETECTING_AI_ML.md](DETECTING_AI_ML.md)
 
-- **CLI** — `node src/index.js <command>` for one-shot queries and scripting.
-  Run `node src/index.js --help` for the full command list.
-- **Interactive REPL** — `node src/index.js --interactive`, then issue slash
-  commands (`/fast`, `/extract`, `/file-map`, `/help`, …). The same REPL is
-  also reachable from the GUI's Console pane; a few commands (`/file-map`
-  etc.) are currently REPL-only.
-- **GUI** — `node src/server.js --port 3000` opens a multi-pane interface
-  served from **localhost only** (no remote access, no outbound network
-  calls). Called "GUI" rather than "browser UI" because nothing about it is
-  web-facing — it just happens to render in a local browser. Left pane:
-  function/file/class accordions and other catalogs. Middle-top: output.
-  Middle-bottom: source viewer with linkified call sites. A **Workspace**
-  area collects what you're actively examining. Mermaid call trees and
-  file-coupling diagrams render inline. The GUI is gradually moving toward a
-  newer design with less of a fixed three-pane layout (the goal being that many
-  features operate as semi-independent mini-apps — so that, for example,
-  multiple instances of a feature can run side-by-side for comparison, and
-  long-running operations proceed on their own threads).
-- **MCP server** — `node src/mcp-server.js` exposes the indexed codebase as
-  Model Context Protocol tools, so Claude Code or Claude Desktop (and
-  presumably other MCP clients such as Codex, though that's untested) can
-  search, extract, and analyze it directly.
-
-All four share the same `CodeSearchIndex` engine and the same on-disk index
-format. Build the index once; query from any of them.
-
-A **standalone `codeexam.exe`** (see below) is not a fifth mode — it's the same
-CLI and GUI packaged so they run without a Node install.
+5. **Structural (non-textual) code search.** Ways of finding and identifying
+   code that don't depend on what the code *says*: structural
+   duplicate detection and diff, transform-resilient function fingerprints
+   ("funcstrings"), synonym expansion in Multisect search, and catalogs that
+   link commands to their handlers by position in dispatch tables rather
+   than by name. → [STRUCTURAL_SEARCH.md](STRUCTURAL_SEARCH.md)
 
 ## Quick start
 
-CodeExam needs **[Node.js 18+](https://nodejs.org)** and a one-time dependency
-install — run this from the project root (where `package.json` lives):
+CodeExam needs **[Node.js 18+](https://nodejs.org)** and a one-time
+`npm install` from the project root:
 
 ```bash
 npm install
-```
 
-The bare command-line tools (indexing, search, `--overview`) run without this.
-The **GUI**, **MCP server**, precise **tree-sitter** parsing, and **local-LLM**
-features need the npm packages — without them the GUI exits with a "run
-`npm install`" hint, and tree-sitter falls back to a regex parser.
-
-```bash
-# Build an index over a codebase (handles directories, zip/tar archives,
+# Build an index over a codebase (directories, zip/tar archives,
 # binary files, minified JS, and @filelist files)
 node src/index.js --build-index /path/to/codebase
 
-# Launch the GUI (localhost only)
+# Launch the GUI (binds 127.0.0.1 — localhost only)
 node src/server.js --index-path .code_search_index --port 3000
 # then open http://localhost:3000
 ```
 
-> **Network exposure.** The GUI binds **127.0.0.1** by default, and `ce --gui`
-> rejects `--host` outright. Serving it on a network requires running
-> `node src/server.js --host <addr>` directly, which starts an **unauthenticated**
-> server — anyone who can reach it reads your indexed source and local files. Do
-> that only on a trusted, firewalled network; to reach it remotely, prefer an SSH
-> tunnel to a loopback-bound server (see `docs/cloud-gpu-chat-testing.md`).
-
 **First time?** A fresh download bundles a small demo index, so a bare `ce`
-shows a short welcome and `ce --gui` opens the browser UI on the demo. The GUI's
-**Help → Tour** — and [`TOUR.md`](TOUR.md) — walk you through what you're seeing.
+shows a short welcome and `ce --gui` opens the GUI on the demo. The GUI's
+**Help → Tour** — and [TOUR.md](TOUR.md) — walk you through what you're
+seeing. For the REPL, the MCP server, requirements, and network-exposure
+cautions, see [GETTING_STARTED.md](GETTING_STARTED.md).
 
 ![Prompt catalog recovered from the minified cli.js inside claude.exe](prompts_from_cli_js_from_claude_exe.jpg)
 
 *Prompt catalog — LLM prompts recovered from the minified `cli.js` bundled inside `claude.exe`.*
 
-![CodeExam file-map view](CodeExam_file_map_042526.jpg)
-
-*File-map view (April 2026 — slightly out of date, but representative).*
-
-Indexes scale to multi-gigabyte source trees (tested on Chromium — ~195K
-files, ~5 GB index, loaded with `NODE_OPTIONS=--max-old-space-size=8192`).
-
-## Feature highlights
-
-### Browse and search
-- Function/file/class accordions; full-text, regex, and inverted-index
-  (`--fast`) search.
-- **Multisect**: find the smallest scope — function, class, or file —
-  containing substantially all of N search terms. Each term can be
-  hard-required, negated (`!term` / `NOT term`), or **soft** (`?term` —
-  optional: it does not gate the result set but still boosts ranking). Prose
-  — a patent claim, a design spec, a bug report — can be parsed directly into
-  a multisect expression (`--claim-search`).
-- **Cross-reference**: callers, callees, transitive call trees, file and
-  folder coupling maps. Mermaid diagrams for call trees and coupling maps;
-  individual caller/callee lists are tabular.
-- **Function / class / file digests** — concise per-target summary (identity,
-  callers, callees, distinctive strings, structural shape, inheritance chain +
-  known subclasses for classes, imports/exports for files) usable standalone
-  or as input to LLM prompts. Class digests walk the ancestor chain and
-  surface known subclasses with method-override counts. (Reliable
-  class-hierarchy tracking in static examination — especially for C++ — is
-  still being hardened; see #65 and #60.)
-
-### Metrics and code-surfacing
-
-Where to start looking in an unfamiliar codebase. These are useful today but
-under active refinement — some (notably hotspots and gaps) are still being
-tuned toward their intended sharpness.
-
-- **Hotspots / class hotspots / most-called** — complexity- and
-  centrality-ranked functions and classes.
-- **Domain-function ranking** and **entry points** — the functions most
-  characteristic of, or at the edges of, the codebase.
-- **Dead-code gaps** — references that don't resolve to indexed source,
-  declared dependencies, or the standard library.
-- **Vocabulary / nomenclature discovery** — the project-specific terms a
-  codebase centers on, surfaced by cross-document TF-IDF (with a
-  per-function fallback for single-file / bundled corpora). A shipped
-  cross-corpus catalog (`CE_cross_corpus_vocab_catalog.json`, auto-loaded from
-  the repo root) sharpens this by *demoting* terms that recur across many
-  codebases (`function`, `handler`, `data`) so genuinely distinctive terms
-  rise — remove the file and results simply revert to the baseline.
-
-### Catalogs of "what does this code do" / "where should I start reading"
-
-- **Command catalog** — detected CLI options, slash-commands, and (where
-  recognizable) menu items and dialog actions in the target codebase, linked
-  to handler functions or methods (so a `/skills` entry in a chat tool
-  resolves to its actual handler in the source). Heuristic — some shapes
-  (e.g., chained Commander.js declarations) are still under-detected.
-- **Breadcrumbs** — telemetry markers (logging, analytics, audit calls) with
-  their associated functions, useful for tracing what an obfuscated binary
-  actually reports back.
-- **AI/ML and LLM-app code** — extensive catalogs of the AI/ML and LLM-app
-  constructs in a codebase (models, LLM calls, tools, chains, prompts, and
-  more) — see *AI/ML and LLM-app detectors* below.
-- **Vocabulary** — TF-IDF-ranked domain-specific terms and nomenclature,
-  surfacing what a codebase is "about" (`--vocabulary` / `--vocab`).
-- **Metrics** — code-surfacing rankings (hotspots, complexity, most-called,
-  domain-specific functions) for finding where to start reading.
-
-### Deobfuscation, renames, and fingerprints
-- Detects esbuild / minified JS and prettifies via `js-beautify`.
-- Optional `webcrack` for bundle disassembly (≤500 KB files).
-- Auto-infers readable names from obfuscated code (toggle off with
-  `--no-rename`):
-  - `_KW_` keyword inference from string literals
-  - `_NAME_` recovery from `__name(fn, "originalName")` esbuild helpers
-  - `_IMPORT_` resolution from import bindings
-  - `_CMD_` recovery for command/route/skill handler functions
-- **Funcstrings** — a distinctive-string + call signature per function.
-  Resilient to esbuild/webpack transforms. The goal is to match a bundled
-  `cli.js` function back to its source-library equivalent; this works in
-  controlled cases (see the `franken.fp.json` example below) but reliably
-  identifying generic library code — e.g. C-runtime functions like `fopen` /
-  `printf` in a stripped binary — is still in progress. Two access shapes: full
-  funcstring (`--show-funcstring`) for human inspection, and funcstring
-  hashes (`--funcstr-hashes`) for cross-index intersection.
-- **Portable fingerprint files** (`*.fp.json`) — fingerprint a curated
-  reference library once, then match the resulting `.fp.json` against any
-  working index without redistributing the library's source. Generate with
-  `--build-fp-renames`; the working example shipped today is
-  `franken.fp.json`. Matches surface as `_FP_`-prefixed names.
-- Multiple types of duplication detection: exact (SHA1), near-duplicate, and
-  **structural-dupe** (AST-shape hashing for non-bundled code). Dupes are
-  preserved, not collapsed.
-
-The reason CodeExam spends so much machinery on duplicate detection is not the
-obvious one (avoiding re-analysis): it's the inverse use. The same signatures
-that find duplicates are what let you identify *unknown* code by matching it
-against known reference code, and trace function lineages — three near-dupes
-evolved from a common ancestor — across versions or forks.
-
-The richness here is that there are *complementary* signature types, and
-deliberately so, because each survives a different kind of transformation:
-
-- **Structural / near-dupe signatures** (AST-shape and near-duplicate hashing)
-  are *naming-independent* — they still match after a rename pass or
-  minification has mangled every identifier, because they key on the *shape* of
-  the code, not its names.
-- **Funcstrings** are a *naming-dependent, extrinsic* signature — distinctive
-  string literals plus the external API calls a function makes. They key on what
-  the code *says and calls* rather than its shape, and survive the inverse
-  transformation: restructured control flow whose strings and call targets are
-  unchanged.
-- **LLM analysis** (`--analyze`) is the higher-cost adjudicator for the hard
-  cases neither structural nor extrinsic signatures resolve on their own,
-  reasoning about the code in context.
-
-No single signature is sufficient on its own; used together — structural,
-extrinsic, and (for the residual hard cases) LLM-assisted — they identify
-unknown code far more reliably than any one of them.
-
-### AI/ML and LLM-app detectors
-
-A group of heuristic detectors that surface the AI/ML and LLM-app constructs in
-a codebase — available both as a left-pane **AI/ML** section in the GUI and as
-matching CLI flags (`--pipelines`, `--models-used`, `--llm-calls`, …; each has a
-`--list-<name>` alias). They span classic ML (PyTorch / HF Transformers /
-scikit-learn) and LLM-application code (SDK calls, tools, agent/chain
-frameworks). Detection is pattern-based — it favors recall and is honest about
-its misses, and distinct names are kept rather than over-collapsed.
-
-Three views lead:
-
-- **AI/ML Pipelines (inferred)** — the connected-flow overview. CodeExam infers
-  end-to-end pipelines (RAG, training, inference, agent, LLM-app) from the
-  *co-occurrence* of the component cells below, so you see how the pieces wire
-  together instead of a flat list. The best lead-in to an unfamiliar AI codebase.
-- **Models Used** — the named models actually loaded or called across the whole
-  codebase, deduped and labeled api-vs-local (an API id like `gpt-4o`, a `.gguf`
-  path, a Hugging Face repo id). Distinct from **Models (defined)** below, which
-  lists model *classes* (`nn.Module` / Keras / scikit-learn subclasses).
-- **Prompts** — the prompt catalog (relocated here from *Catalogs*): detected
-  LLM prompts, with composite expansion — ternary branches, `${var}` templates,
-  and `[…].join(…)` assemblies merged into one searchable entry per logical
-  prompt. Detects inline strings, `getSystemPrompt` / `systemPrompt:`,
-  `role:"system"` messages, and `.md` skill files.
-
-The component detectors the Pipelines view synthesizes from — each also a
-standalone list (GUI accordion + CLI flag):
-
-- **LLM Calls** — SDK calls / endpoints (`messages.create`, `ChatOpenAI`, `LlamaChatSession`).
-- **Tools** — tool / function-calling defs and dispatch (`@tool`, `input_schema`, MCP).
-- **Chains / Agents** — orchestration via LangChain / LangGraph / DSPy / CrewAI.
-- **Embeddings / Vectors** — embedding and vector-search sites (FAISS / Chroma, similarity search).
-- **Structured Output** — schema-constrained output (`with_structured_output`, `response_format`, parsers).
-- **Inference** — local generation / prediction (`generate`, `no_grad`, `.predict`).
-- **Training** — training sites (PyTorch loops, HF `Trainer`, `.fit`).
-- **Datasets** — dataset definitions and loaders (`Dataset` / `IterableDataset`, `tf.data`).
-- **Artifacts** — model load/save sites (`from_pretrained`, GGUF, safetensors) and quantization configs (BitsAndBytes / GPTQ / AWQ, 4-/8-bit).
-- **Models (defined)** — model classes by inheritance (`nn.Module` / Keras / scikit-learn).
-- **Kernels** — GPU kernels (CUDA `__global__`, Triton `@triton.jit`, numba).
-- **Multimodal / Vision** — vision encoders (CLIP/ViT), CNN architectures (ResNet/conv), object detection/segmentation (YOLO/SSD/DETR/U-Net), generative (diffusion/VAE).
-- **Post-training / Fine-tuning** — fine-tuning & alignment mechanisms (LoRA/PEFT/adapters, SFT/DPO/PPO/GRPO, distillation), distinct from pretraining.
-- **Reasoning / CoT** — chain-of-thought and reflection *prompt language* (`step by step`, `chain-of-thought`, reflection/scratchpad). A heuristic signal over prompt text, not a structural-reasoning detector.
-
-### Infrastructure / DevOps detection
-
-Beyond the AI/ML cells, an **Infrastructure** accordion surfaces the non-AI/ML
-operational stack — Containers, Kubernetes, IaC, Cloud, and CI/CD — detected
-mechanically from file shapes (Dockerfiles, K8s manifests, Terraform, CI
-configs) and cloud-SDK usage (#168).
-
-### Quasi-Source: recovering structure from non-source artifacts
-
-The thesis tying several features together: a surprising amount of useful
-structure can be recovered from things that weren't shipped as source, then
-indexed, searched, and cross-referenced with the same machinery as real
-source. The minified-JS deobfuscation and fingerprinting above are part of
-this spirit; the two surfaces below extend it to compiled and packaged
-artifacts. (Tracked as an umbrella in issue #76.)
-
-**Binary-code analysis**
-
-- Indexes binary files (executables, libraries) inside source trees by
-  extracting strings AND demangled C++ function signatures (Itanium and MSVC
-  name mangling).
-- Granularity today: one pseudo-function per binary file, containing the
-  file's extracted strings and demangled symbols. Search and the inverted
-  index work on these uniformly with source content; per-function
-  call/caller analysis does not apply to binary content.
-- Most useful for *large* binary corpora — Windows 11 system DLLs, Microsoft
-  Office plugin trees, vendor SDKs — where the per-file string-plus-symbol
-  fingerprint is enough to navigate at scale.
-
-**Binary-bundled JavaScript extraction**
-
-- `--extract-js-from-binary <path>` recovers embedded JavaScript from native
-  install binaries and writes it to a directory CodeExam can index normally.
-  Format-aware dispatch: currently supports Bun standalone executables (used
-  by Claude Code's `claude.exe`), including PE-signed Windows builds where the
-  Bun trailer sits before the Authenticode certificate. Other formats (pkg,
-  nexe, Node SEA, Tauri asset-table) are tracked as future work.
-
-### LLM-assisted (optional)
-- `--analyze <function>` — Claude (or a local GGUF model) explains a function
-  in context.
-- **Multisect Analyze** — runs a multisect search, then has the LLM produce a
-  structured per-term verdict grid: each search term is rated `PRESENT` /
-  `NAME-ONLY` / `IFFY` / `ABSENT` with supporting evidence and a confidence
-  level, so you can see at a glance how each term maps onto the matched
-  function.
-- `--claim-search <prose>` — extracts search terms from descriptive text (a
-  patent claim, a spec, a requirement), multi-sects to find matching code,
-  optionally LLM-summarizes each match.
-- **Input masking** — strip comments, mask string literals, mask identifier
-  names before sending a function to an LLM. The primary point is to force
-  the model to reason about *logic* rather than leaning on comments or naming
-  heuristics — both of which can mislead, especially in obfuscated bundles
-  where the names were inferred. (Masking also suppresses some incidental data
-  leakage, but it's not a hard security boundary — strings may still leak
-  depending on configuration.)
-- `--build-prompt <function>` — generates a digest+source prompt suitable for
-  hand-pasting into any LLM (no API needed). Use this to feed CodeExam
-  findings to a chat tool while keeping source local.
-- Offline operation via a local GGUF model under `node-llama-cpp`. Suitable
-  for code review under Court Protective Order where outbound network requests
-  are prohibited. Model compatibility tracks the `llama.cpp` bundled inside
-  `node-llama-cpp`: older architectures load (e.g. Qwen 3), while the newest
-  (Gemma 4, Qwen 3.5) currently fail with a generic load error — see issue
-  #75.
-
-A candid caveat on the local path: a local GGUF model is not as capable as a
-frontier API model like Claude. CodeExam compensates by feeding local models
-simpler prompts with narrower expectations, and the resulting output is often
-not as good as the Claude-API path. Closing that gap is a major ongoing focus —
-better hardware (a capable GPU) and/or loading larger local models should both
-help.
-
-### Reproducibility of local-model chat
-
-Local-model answers **vary run to run by default**: CodeExam leaves
-node-llama-cpp's sampling enabled, so the same question over the same index
-can produce a differently-worded — and differently-investigated — answer each
-time. That default is deliberate: early exploration benefits from variety,
-and comparing variant answers to the same question is itself informative in
-examination work, where small differences between related documents are the
-raw material of analysis.
-
-For examinations that must be reproducible, start CodeExam with
-`--reproducible`: the local chat loop (and the local Overview by AI) then
-pins sampling (temperature 0, fixed seed), so the same question over the same
-index with the same model file and configuration produces the same answer.
-
-The flag is named for exactly what it claims — an empirical, environment-
-scoped property, not a formal guarantee about the computation. It holds per
-machine / model file / configuration; bit-identical output across different
-machines, GPU drivers, or compute backends is **not** promised. To
-demonstrate reproducibility for the record, run the query twice in the
-actual examination environment, save both outputs, and confirm they match
-(hash them if a hashing tool is available — `certutil -hashfile` on Windows,
-`sha256sum` on Linux; a plain diff or side-by-side comparison serves the same
-purpose) — the property is then verified evidence, not a vendor promise. Record the model file (with
-quantization), context size, CodeExam version, and the `--reproducible`
-posture as part of the examination record. (The cloud/Claude chat engine is
-separately pinned at temperature 0 by default.)
-
-### Index management
-- Pure-Node streaming JSON parser handles 5 GB+ indexes.
-- Build from directories, glob patterns, archives (zip/tar/gz), `@filelist`
-  files, or a **`.har` (browser DevTools) capture** — indexing a website's
-  JavaScript straight from a saved network log (#161).
-- Query several indexes in a single run with `--multi-index @indexlist`.
-- Multi-language parser via tree-sitter WASM grammars + regex fallback:
-  - Tree-sitter: **C, C++, Java, JavaScript, TypeScript, Python, C#, Go,
-    Rust, PHP, Ruby**
-  - Regex-only: **Swift, Kotlin, Scala, Lua, Objective-C, CoffeeScript,
-    Perl, VBScript, AWK**
-- Non-code text is indexed as searchable text (not AST-parsed): **YAML**
-  (`.yaml`/`.yml`), Markdown, plain text. YAML coverage is what the
-  Infrastructure detectors content-sniff.
-
-**Multi-index and cross-index catalogs.** Beyond querying several indexes in
-one run (`--multi-index @indexlist`), CodeExam is growing *cross-index*
-analysis. Build a reusable **export catalog** from one or more libraries with
-`--exports --emit-catalog <file>` (a v2 catalog also carries who-uses data),
-then resolve another codebase against it:
-
-- `--imports <catalog.json>` — attribute this index's imports to whichever
-  catalogued library provides each name (discovery join, #162).
-- `--exports --used-by <catalog>` — annotate each declared export with its
-  de-facto consumers — the **"Used by"** column in the GUI Exports pane —
-  surfacing public surface that nobody actually imports.
-
-**No default catalog ships.** Exports extraction is **Python-only today**
-(JS/TS is planned, #154), so a bundled Python-only catalog would be too partial
-to represent the feature — you build your own from the libraries you care about
-and pass the filename explicitly (there is no default name). The build is
-*appendable*: re-emitting merges by library identity (`--catalog-replace`
-overwrites; `--multi-index` preserves the who-uses / v2 data), so one catalog
-can grow across many libraries. For the GUI, start the server with
-`--exports-catalog <file>` to light up the **"Used by"** column. Whenever a
-catalog is loaded, CodeExam notes which one on stderr, so the provenance of the
-join is visible.
-
-**Why a plain inverted index rather than a vector database or SQL?** Readers
-coming from recent tooling often expect a vector store (ChromaDB, FAISS) or a
-relational database, and assume either would be preferable to "plain text in
-JSON." The choice is deliberate. Exact and regex code search wants *lexical*
-precision, not nearest-neighbor approximation, so embeddings buy little for the
-core browse-and-cross-reference workload. Keeping the index as inverted-index
-structures serialized to JSON makes it transparent, diffable, and trivially
-portable across machines — there is no database server to stand up and no
-opaque binary store. Semantic / embedding search — vector similarity, and
-lighter-weight options such as small specialized models for retrieval — is
-something we're *exploring* as a layer *on top* of the lexical index rather than
-a replacement for it (backlog: RAG-style retrieval and embedding/small-model
-term extraction, TODO #201 / #202); it is not part of the core today.
-
-## Architecture
-
-```
-CLI            Interactive       GUI server      MCP server
-(index.js)    (interactive.js)  (server.js)     (mcp-server.js)
-       \           |                |               /
-        \          |                |              /
-         CodeSearchIndex  ←  the engine
-         (src/core/)
-              ├── CodeSearchIndex.js     (index build, query API)
-              ├── TreeSitterParser.js    (multi-language AST parsing)
-              ├── rename.js              (_KW_, _CMD_, _NAME_, _IMPORT_ inference)
-              ├── calls.js               (caller/callee graph)
-              ├── multisect.js           (smallest-scope-containing-all-terms)
-              ├── vocabulary.js          (domain-vocabulary discovery)
-              ├── ai-ml-detectors.js     (AI/ML + LLM-app detector suite)
-              ├── imports.js             (per-language import-statement extractor)
-              ├── exports.js             (declared-exports catalog)
-              ├── import-join.js         (cross-index import↔export resolution)
-              ├── stack-detectors.js     (Infrastructure / operational-stack)
-              ├── breadcrumbs-commands.js  (telemetry + command catalog)
-              ├── hotspots.js            (complexity metrics)
-              ├── canonical-funcs.js     (canonical-form normalization)
-              ├── distance-helpers.js    (string + structural distance)
-              ├── structural-fingerprint.js  (AST-shape hashing)
-              ├── funcstr-corpus.js      (funcstring corpus / cross-index intersection)
-              ├── bundle-seam-detection.js   (esbuild module boundaries)
-              ├── filter-match.js        (--filter matching)
-              └── CSI-helpers.js         (shared utilities)
-
-src/commands/  (per-feature command modules invoked by the CLI / REPL /
-                MCP / GUI dispatchers)
-  ├── search.js, browse.js, callers.js, graph.js
-  ├── metrics.js, dedup.js, multisect.js
-  ├── digest.js, prompts.js, claim.js, analyze.js
-  ├── imports.js, imports-from.js, exports.js  (--imports / --imports-from cross-index joins + --exports catalog/used-by)
-  ├── census.js, infrastructure.js  (import census, Infrastructure accordion)
-  ├── harness.js  (emitted activation-capture harness)
-  ├── fingerprint.js, build_fp_renames.js
-  ├── extract_js_from_binary.js, inspect_binary.js
-  └── interactive.js  (REPL, used standalone and from the GUI Console)
-
-public/  (GUI, modular ES extracts from the former monolithic app.js)
-  ├── app.js              (top-level wiring)
-  ├── state.js, api.js, dom-utils.js
-  ├── click-handlers.js, context-menu.js
-  ├── chrome — dialogs.js, overlays.js, console.js, layout.js
-  ├── mermaid.js, source-viewer.js
-  ├── prompts-and-catalog.js, menu-bar.js
-  ├── middle-pane.js, list-renderers.js
-```
-
-### On-disk index layout
-
-A built index is a directory of plain-JSON files — no database server, no
-binary store (see *Why a plain inverted index* above). The first three are
-always present; a standard `--build-index` normally also writes the next
-four, while `vocabulary.json` appears only after `--vocabulary` has run — so
-most indexes hold 7–8 JSON files, though a lighter build can omit some (e.g.
-an index built without the dedup/funcstring pass has no `func_hashes.json`):
-
-- `literal_index.json` — raw per-file line/content store *(required)*.
-- `inverted_index.json` — token → locations map powering search *(required)*.
-- `function_index.json` — per-file function / class / symbol structure *(required)*.
-- `string_table.json` — deduplicated table of distinctive long strings (≥8 chars), shared by funcstrings and search.
-- `func_hashes.json` — cached per-function hashes for exact / near / structural dedup and funcstring intersection.
-- `rename_map.json` — inferred readable names (`_KW_`, `_NAME_`, `_IMPORT_`, `_CMD_`, `_FP_`).
-- `import_map.json` — extracted import/export data feeding the import census and cross-index joins.
-- `vocabulary.json` — cached TF-IDF vocabulary (written once `--vocabulary` has run).
-
-Export catalogs (`--emit-catalog`) and portable fingerprint files
-(`*.fp.json`) are separate, reusable artifacts — not part of the index
-directory.
-
-## Requirements
-
-- Node.js 18+ (ES modules, `node:test`).
-- `npm install` to fetch runtime dependencies (Anthropic SDK, Express, MCP
-  SDK, web-tree-sitter, js-beautify, webcrack, node-llama-cpp, Mermaid
-  renderers — see `package.json`).
-- Tree-sitter grammars vendored separately in `grammars/`.
-- For local LLM inference: a GGUF model file. Compatibility is uneven and
-  tracks the `llama.cpp` bundled in `node-llama-cpp` — older architectures
-  load (e.g. Qwen 3), the newest (Gemma 4, Qwen 3.5) currently fail (#75). If
-  a recent model won't load, `npm update node-llama-cpp` to pick up a newer
-  bundled `llama.cpp` is the cheapest first thing to try.
-
-## Standalone executable (Windows)
-
-A single-file `codeexam.exe` can be built so users without Node, npm, or Bun
-installed can run CodeExam directly. v0 is Windows-only (#78); macOS and Linux
-builds are deferred.
-
-Build:
-
-```bash
-npm install                  # if you haven't already
-npm run build:exe            # requires Bun on the developer machine
-                             #   winget install Oven-sh.Bun
-```
-
-This invokes `bun build --compile --target=bun-windows-x64` via
-`scripts/build-exe.js` and writes `dist/codeexam.exe` (~100 MB — the size is
-dominated by the bundled Bun runtime, not by CodeExam itself) plus two sibling
-directories that must travel with the exe: `dist/grammars/` (tree-sitter
-WASMs, for `--use-tree-sitter` parsing) and `dist/public/` (GUI assets, for
-`--gui` mode). Ship `dist/` as a single zip.
-
-Run:
-
-```
-codeexam.exe --build-index <source-dir>     # CLI: behaves as `node src/index.js`
-codeexam.exe --gui                          # GUI: starts server + opens browser
-codeexam.exe --gui --port 9000              # override default port (8080)
-```
-
-With no `--index-path`, `--gui` looks for a `.code_search_index` directory in
-the current folder. If it isn't there, the GUI still comes up — just empty —
-and you can point it at an index with **Load Index** from the menu, or build one
-first with `--build-index`. (Shipping a small ready-to-browse sample index
-alongside the exe is on the list, so a first-run GUI has something to show.)
-
-**Windows SmartScreen** warns "Windows protected your PC" on first run of an
-unsigned exe. Click *More info → Run anyway*. v0 ships unsigned; Authenticode
-code signing for public distribution is a future follow-up.
-
-**Lite build (no local-LLM):** if `bun --compile` can't bundle the
-`node-llama-cpp` native module on your platform, build with
-`npm run build:exe -- --no-llm`. The resulting exe runs everything except
-semantic-search / local-GGUF features.
-
-## Testing
-
-```bash
-npm test          # node --test "test/test_*.js"
-```
-
-~400 tests across the test suite, covering the indexing engine, search,
-multisect, cross-reference, fingerprinting, dedup, and the LLM-assisted
-command layer. The suite runs green on Windows and Unix-likes. GUI tests are
-not yet automated — GUI test automation built on [XMLUI](https://www.xmlui.org/)
-is under evaluation (see #73's feasibility study).
-
-## Operating without a network
-
-The GUI binds to localhost, the MCP server uses stdio, and outbound network
-requests are opt-in and gated. Combined with the optional local-GGUF path,
-CodeExam can run a full examination workflow without any network access —
-appropriate for litigation, security review, or any context where source must
-stay local. The one honest trade-off is capability: the local-GGUF path is less
-capable than the Claude-API path (see the LLM-assisted notes above), so the
-non-LLM machinery does most of the work in a fully air-gapped run and LLM output
-quality is generally below what the API would produce.
-
-For an **enforced** no-cloud run — `--air-gapped` hard-blocks every cloud AI
-call, scrubs the API key, and warns on a reachable network — plus what it does
-and does **not** guarantee (it can't police where you save), see
-**[AIR_GAPPED.md](AIR_GAPPED.md)**.
-
-**Local-model MCP chat (experimental).** The MCP tool surface has been validated
-driving a *local* GGUF model through an MCP-aware host (LM Studio): Qwen3-4B and
-Qwen2.5-Coder-7B both discovered, loaded, and chained the tools (`stats`,
-`vocabulary`, `digest`, `show_file`, …) to answer free-form questions about an
-unseen codebase. Honest caveats from that testing: a small model needs
-**forceful system-prompt grounding** ("the source IS available via these tools;
-never guess") or it may refuse a tool and hallucinate instead; tool-calling
-reliability and exploration quality scale with model size; retrieved content can
-itself contain prompts that nudge a small model (treat tool output as data); and
-on a 16 GB / no-GPU machine a 7B is impractically slow — prefer a ~4B there. A
-built-in, air-gapped chat mode is planned.
-
-## Symbols & notation
-
-CodeExam's lists and digests use a few compact markers, consistently across
-the GUI accordions and the CLI:
-
-- **`~` (leading tilde, muted text)** — a **heuristic-tier** finding, as
-  opposed to a mechanical or structural one. Used throughout the AI/ML cells
-  (Artifacts, Kernels, Training, Inference, Multimodal, Post-training,
-  Reasoning, …) to keep the mechanical-vs-heuristic distinction visible
-  rather than presenting every hit with equal confidence.
-- **`[lib?]`** — a **library-vs-consumer** flag on an LLM-call site: the
-  detector suspects it is firing on an SDK's *own* source rather than on code
-  that *uses* the SDK (an over-fire to verify).
-- **`×N`** (and `N×`) — an **occurrence / instance count**: how many raw
-  sites collapsed into a deduped row (e.g. `act_quant_kernel ×4`), how many
-  identical pipelines or duplicate bodies were grouped, or how many times a
-  string occurs within one function (`×3 here` in a digest).
-- **Accordion badge counts** — where a cell has both, the badge shows
-  *instances* (the pre-dedup site count) rather than the smaller deduped row
-  count, so a "more than meets the eye" cell is visible at a glance.
-- **`?`** — an unknown / unlabeled family or grouping key (a fallback used
-  when the detector couldn't assign one).
-
-**Test / example handling.** Sites in test, example, benchmark, or demo code
-can inflate counts and dilute the "real" usage signal. By default CodeExam
-**shows** them: in the AI/ML cells, a row whose every site is test/example
-code is **dimmed** (and its tooltip notes `[test/example code]`) rather than
-hidden. You can opt to drop them entirely:
-
-- **View → Exclude Tests** in the GUI, or `--no-tests` on the CLI — remove
-  AI/ML rows whose every site is test/example code (tests, examples,
-  benchmarks, demos dirs; `test_*` files). A "*N test/example rows hidden*"
-  note then reports what was dropped.
-- `--exclude-tests` — exclude test files from caller / metrics results.
-
-(There is no inline `[test]` text badge: the visible signal for a *kept* test
-row is dimming plus the tooltip note. Likewise, unresolved identifiers — e.g.
-a model passed as a variable rather than a string literal — are shown with
-the identifier plus an "unresolved" note in the tooltip, not a special
-glyph.)
-
-## Known limitations
-
-- **File-path lookup on Windows / mixed separators** (#67) — paths CodeExam
-  *displays* (e.g. `ace\examples\test.cpp`) don't always round-trip as
-  *input* to path-taking commands (`--digest`, `--show-file`, `--extract`,
-  `--callers`, …). Workaround: use a bare filename, which suffix-matches
-  (`--digest test.cpp`). Under investigation.
-- **Local-LLM model coverage and quality** (#75) — newest GGUF architectures
-  (Gemma 4, Qwen 3.5) fail to load; older ones work. Separately, local-model
-  output quality lags the Claude-API path. See Requirements.
-- **Command-catalog false positives** (#66) — `--command-catalog` and the
-  command section of `--digest` can surface regex fragments or example
-  strings as if they were commands. Being tightened.
-- **GUI test automation** — not yet in place; evaluating an
-  [XMLUI](https://www.xmlui.org/)-driven approach (#73).
-- **Symbol lookup ambiguity across same-named classes/functions** (#85) — in
-  large or mixed-language codebases, multiple classes/functions can share a bare
-  name (across files, versions, even languages). `--digest` and right-click →
-  Digest may merge them or mislabel the result (e.g. a Python class's digest
-  titled with a same-named C++ declaration from a vendored header). The digest
-  *body* is usually still correct; the *title/target* may be wrong. Better
-  disambiguation — file/line-qualified targeting and conflation warnings — is
-  planned.
-- **AI/ML detection is heuristic** (#98, #92, #122, #135, #136) — the detectors
-  favor recall: counts are *presence signals*, not exact site counts. Expect
-  false positives (library types like `Eigen::Dense` flagged as models, prose
-  or doc-search strings flagged as prompts, `messages.create` collisions) and
-  some misses, especially in vendored/test-heavy trees. Treat the AI/ML
-  accordions as leads to verify in source, not a precise inventory. Precision
-  and recall are being tightened cell by cell.
-- **C++ class recognition is incomplete** (#65) — the C++ parser doesn't
-  reliably catch class *declarations*; many classes surface only as inferred
-  from `::`-qualified usage, so class lists and class digests can be partial or
-  mislabeled on C++-heavy trees. Language-aware C++ digest handling (#60, #68)
-  is planned.
-- **GUI lists can silently cap results** (#137) — left-pane accordions and
-  some drilldowns cap the number of rows returned (e.g. a few hundred) without
-  always disclosing it, so a large result set may look complete when it isn't.
-  Use `--filter` to narrow, or the CLI for full output. Explicit "N of M shown"
-  disclosure everywhere is planned.
-- **Indexing very large or pathological files** (#88) — without per-file size
-  caps / parse timeouts, `--build-index` can hang (tree-sitter) or run out of
-  memory on extreme inputs; guards are planned. (The `codeexam.exe` Bun build
-  also has a known `--build-index` EEXIST bug, #91 — use the Node path
-  meanwhile.)
-- **Mermaid pipeline diagrams render only connected flows** — the AI/ML
-  Pipelines view diagrams multi-stage **connected** flows; isolated
-  detections and very long pipelines may not diagram cleanly.
-- **Import/Export analysis is Python-only** (#165) — and the static catalog
-  path misses dynamically-exported names (star-exports, lazy registries) that
-  the live cross-index path resolves.
-- **Explainability detection is Python-only and import-anchored** (#163) —
-  XAI used without a recognizable import (custom probing/patching), and
-  non-Python XAI, are not detected.
-- **Emitted PY harnesses are scaffolds** — emitted activation-capture
-  harnesses are validated for structure, not guaranteed-runnable;
-  `--synthetic-loader` is opt-in and banners that the load is mechanical.
-- **Caller↔callee resolution under dynamic dispatch** (#85, #148) — dynamic
-  class/method dispatch is hard to resolve statically, so call-graph links
-  (`--callers`, `--call-tree`, digest caller/callee lists) can be incomplete
-  or mis-linked.
-- **GUI feature constraints** (#38, #125) — the current GUI does not allow
-  multiple instances of the same pane type (beyond a limited side-by-side
-  compare), has no in-pane search yet, and supports save/copy only from the
-  Analysis and Mermaid panes. A newer XMLUI-based GUI design is planned (the
-  result-cap (#137) and test-automation (#73) items above are related).
-- **No general LLM chat about the codebase yet** (#36, #160) — today the LLM
-  paths analyze a *single function or file* (`--analyze`, `--build-prompt`),
-  including the air-gapped local-GGUF mode; a wider "chat with the whole
-  codebase" is a goal, not yet a feature. For Claude it is largely a matter of
-  adding MCP tools; the harder, gating part is making a local GGUF drive
-  CodeExam's MCP tools effectively for fully air-gapped use. So if you're
-  wondering *"why can't I just chat with an AI about the codebase?"* — you can
-  chat about a function today; codebase-wide chat awaits broader MCP tooling
-  and capable local models.
+## Documentation
+
+| Doc | What's in it |
+|---|---|
+| [GETTING_STARTED.md](GETTING_STARTED.md) | Install, requirements, and the ways to run CodeExam (CLI, REPL, GUI, MCP) |
+| [CODEEXAM_GUI.md](CODEEXAM_GUI.md) | GUI layout — panes, accordions, Workspace — plus symbols & notation |
+| [CODEEXAM_CLI.md](CODEEXAM_CLI.md) | CLI overview (see also [docs/cli.md](docs/cli.md), the per-flag reference) |
+| [CODEEXAM_MCP.md](CODEEXAM_MCP.md) | The MCP tool surface as an LLM client sees it |
+| [CODEEXAM_KEY_FEATURES.md](CODEEXAM_KEY_FEATURES.md) | Browse and search, metrics, catalogs |
+| [UNCOVER_KEY_CODE.md](UNCOVER_KEY_CODE.md) | Vocabulary, breadcrumbs, Overview / AI Overview |
+| [QUASI_SOURCE.md](QUASI_SOURCE.md) | Binary analysis and bundled-JS extraction |
+| [DETECTING_AI_ML.md](DETECTING_AI_ML.md) | The AI/ML, LLM-app, and infrastructure detector suite |
+| [STRUCTURAL_SEARCH.md](STRUCTURAL_SEARCH.md) | Non-textual search: fingerprints, structural dupes, deobfuscation |
+| [AI_ASSISTED_CODE_EXAM.md](AI_ASSISTED_CODE_EXAM.md) | Optional LLM assistance (`--analyze`, claim search, input masking) |
+| [LOCAL_LLM.md](LOCAL_LLM.md) | Local GGUF models; reproducibility of local-model answers |
+| [AIR_GAPPED.md](AIR_GAPPED.md) | Enforced no-cloud operation |
+| [CODEEXAM_INDEXES.md](CODEEXAM_INDEXES.md) | Building and managing indexes; the on-disk format |
+| [CODEEXAM_ARCHITECTURE.md](CODEEXAM_ARCHITECTURE.md) | Engine and module layout |
+| [CODEEXAM_TESTING.md](CODEEXAM_TESTING.md) | The test suite |
+| [CODEEXAM_KNOWN_LIMITATIONS.md](CODEEXAM_KNOWN_LIMITATIONS.md) | Honest list of current gaps |
+| [CODEEXAM_CODECLAIM_PATENT_ANALYSIS.md](CODEEXAM_CODECLAIM_PATENT_ANALYSIS.md) | CodeExam's relation to patent analysis |
+| [TOUR.md](TOUR.md) | Guided tour of the GUI |
 
 ## Related: CodeClaim
 
 A patent-focused build, tailored for IP-litigation workflows, is developed
-under the name **CodeClaim**. CodeClaim shares the CodeExam engine and adds more
-extensive claim-specific extraction — including the use of dependent claims and
-the patent specification, and user-supplied claim-construction alternatives —
-together with term-mapping and reporting such as claim charts.
+under the name **CodeClaim**; it shares the CodeExam engine, and CodeExam
+itself already carries some initial claim-analysis machinery. See
+[CODEEXAM_CODECLAIM_PATENT_ANALYSIS.md](CODEEXAM_CODECLAIM_PATENT_ANALYSIS.md).
 
 ---
 
-*CodeExam and CodeClaim are developed by Andrew Schulman. For more
-information, see [softwarelitigationconsulting.com](https://www.softwarelitigationconsulting.com/).*
+*CodeExam is ~47,000 lines of JavaScript running under Node.js, nearly all
+written by Claude Code in close collaboration with the main author, in
+several places building on his earlier tooling. CodeExam and CodeClaim are
+developed by Andrew Schulman — see
+[softwarelitigationconsulting.com](https://www.softwarelitigationconsulting.com/).*

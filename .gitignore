@@ -76,6 +76,26 @@ Thumbs.db
 !/SECURITY.md
 !/AIR_GAPPED.md
 !/TOUR.md
+# Blessed docs split out of README.md (#274); names/location may move to docs/
+!/GETTING_STARTED.md
+!/CODEEXAM_GUI.md
+!/CODEEXAM_CLI.md
+!/CODEEXAM_MCP.md
+!/LOCAL_LLM.md
+!/UNCOVER_KEY_CODE.md
+!/QUASI_SOURCE.md
+!/DETECTING_AI_ML.md
+!/STRUCTURAL_SEARCH.md
+!/CODEEXAM_KEY_FEATURES.md
+!/AI_ASSISTED_CODE_EXAM.md
+!/CODEEXAM_INDEXES.md
+!/CODEEXAM_ARCHITECTURE.md
+!/CODEEXAM_TESTING.md
+!/CODEEXAM_KNOWN_LIMITATIONS.md
+!/CODEEXAM_CODECLAIM_PATENT_ANALYSIS.md
+# Screenshots referenced from README.md / CODEEXAM_GUI.md (may move to imgs/)
+!/prompts_from_cli_js_from_claude_exe.jpg
+!/CodeExam_file_map_042526.jpg
 
 # Stray scratch extensions anywhere (also sweeps src/service.xxx).
 # gitignore matching is case-sensitive here, so include upper-case outliers.
