@@ -157,9 +157,37 @@ export function buildOverviewDeep(index) {
     // corpus-distinctive roots and drops generics (function/index/build).
     // Reuse the vocab we just fetched (no second pass).
     concepts = extractConcepts(index, { entries: vocab, maxConcepts: 12 });
-    // Resolve a line for each example identifier so GUI concept rows jump to the
-    // definition (function examples); const/schema examples fall back to top.
-    for (const c of concepts) { if (c.example && c.exampleFile) c.exampleLine = lineOf(c.example, c.exampleFile); }
+    // #275: concept examples must jump to the DEFINITION. The vocab's
+    // exampleFile is the token's mention-concentration top file — often an
+    // import/dispatch hub (e.g. server.js), where the hinted lineOf() lookup
+    // finds no definition and degrades to the file's first mention: an import
+    // line. So resolve the example unhinted first (prefer real implementations
+    // over .d.ts stubs, same rule as the GUI auto-disambiguation; the vocab
+    // file breaks ties; else largest body). Non-function examples
+    // (consts/schemas) keep the vocab-file first-mention fallback (#181).
+    for (const c of concepts) {
+      if (!c.example) continue;
+      let def = null;
+      if (index.findFunctionMatches) {
+        try {
+          const matches = index.findFunctionMatches(c.example) || [];
+          const real = matches.filter(m => !String(m.filepath || '').endsWith('.d.ts'));
+          const pool = real.length ? real : matches;
+          def = pool.find(m => m.filepath === c.exampleFile) || null;
+          if (!def) {
+            for (const m of pool) {
+              if (!def || ((m.end || 0) - (m.start || 0)) > ((def.end || 0) - (def.start || 0))) def = m;
+            }
+          }
+        } catch { /* fall through to mention scan */ }
+      }
+      if (def && def.filepath && def.start) {
+        c.exampleFile = def.filepath;
+        c.exampleLine = def.start;
+      } else if (c.exampleFile) {
+        c.exampleLine = lineOf(c.example, c.exampleFile);
+      }
+    }
 
     // Key files: rank by BREADTH (distinct top terms that concentrate here),
     // tie-broken by summed score × concentration. Breadth surfaces files central
