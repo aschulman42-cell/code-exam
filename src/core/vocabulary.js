@@ -699,23 +699,52 @@ export function extractConcepts(idx, { topN = 200, maxConcepts = 15, catalog, en
       const df = (catalog && catalog.subtokens && catalog.subtokens[part]) || 0;
       if (N && df >= 0.6 * N) continue;
       subScore.set(part, (subScore.get(part) || 0) + (e.score || 0) * _subtokenCrossCorpusWeight(part, catalog));
-      // Pick a representative identifier: a token LARGER than the bare concept
-      // (`parseWorklistEntry`, not `worklist`), highest parent score wins. Carry
-      // the token's top file too, so GUI concept rows are clickable (open the
-      // file / right-click for callers/callees) like key files & entry points.
+      // Collect representative-identifier candidates: tokens LARGER than the
+      // bare concept (`parseWorklistEntry`, not `worklist`), best-score-first,
+      // capped small. Carry each token's top file too, so GUI concept rows
+      // are clickable (open the file / right-click for callers/callees).
+      // The final pick happens lazily below (#275 Part 3).
       if (tokenLc !== part) {
-        const cur = subExample.get(part);
-        if (!cur || (e.score || 0) > cur.score) {
-          const tf = (e.top_files && e.top_files[0]) ? String(e.top_files[0].path).split('|||')[0] : null;
-          subExample.set(part, { token: e.token, score: e.score || 0, file: tf });
-        }
+        const tf = (e.top_files && e.top_files[0]) ? String(e.top_files[0].path).split('|||')[0] : null;
+        const cands = subExample.get(part) || [];
+        cands.push({ token: e.token, score: e.score || 0, file: tf });
+        cands.sort((a, b) => b.score - a.score);
+        if (cands.length > 5) cands.length = 5;
+        subExample.set(part, cands);
       }
     }
   }
+  // #275 Part 3: prefer an example that resolves in the function index — an
+  // extractable function beats a higher-scoring CLI flag or schema key
+  // (`cmp_string_call_dupes` is an argparse key, not a function), because
+  // concept rows jump to and extract their example. Resolution is checked
+  // lazily: only the top few candidates of the <= maxConcepts winning parts
+  // pay a findFunctionMatches scan, memoized per token. Falls back to the
+  // pre-#275 highest-scoring pick when no candidate resolves.
+  const fnResolveCache = new Map();
+  const resolvesToFunction = (token) => {
+    if (!idx || typeof idx.findFunctionMatches !== 'function') return false;
+    let v = fnResolveCache.get(token);
+    if (v === undefined) {
+      try { v = idx.findFunctionMatches(token).length > 0; } catch { v = false; }
+      fnResolveCache.set(token, v);
+    }
+    return v;
+  };
   return [...subScore.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, maxConcepts)
-    .map(([p]) => ({ concept: p, example: subExample.get(p)?.token || null, exampleFile: subExample.get(p)?.file || null }));
+    .map(([p]) => {
+      const cands = subExample.get(p) || [];
+      const fnPick = cands.find(c => resolvesToFunction(c.token)) || null;
+      const pick = fnPick || cands[0] || null;
+      return {
+        concept: p,
+        example: pick ? pick.token : null,
+        exampleFile: pick ? pick.file : null,
+        exampleIsFunction: !!fnPick,
+      };
+    });
 }
 
 /** Render an extractConcepts() item as `concept (example)` (or bare if no example). */
