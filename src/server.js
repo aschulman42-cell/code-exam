@@ -1248,15 +1248,70 @@ routes['/api/file-functions'] = (req, res) => {
 // --- Extract function source ---
 
 // Build a Set of display-name strings for all functions in the index.
-// Used by /api/extract-linkified to decide which identifiers in a function's
-// body correspond to known functions (i.e. linkable call sites).
-function _buildKnownNameSet(index) {
-  const known = new Set();
-  for (const fn of index.listFunctions()) {
-    known.add(index.getDisplayName(fn.name));
+// Used by /api/extract-linkified and /api/function-names to decide which
+// identifiers correspond to known functions (i.e. linkable call sites).
+// Cached per index instance — the set only changes when an index is
+// (re)loaded, which replaces the instance and lets the WeakMap entry drop.
+// #275: names of the JS intrinsic prototype/static members (Array.prototype
+// .map, Map.prototype.get, console.log, …), enumerated from the runtime
+// rather than hand-listed, plus a few cross-language container generics
+// (Python list/dict methods). A corpus function or method sharing one of
+// these names would turn every `.map(` / `.get(` / `.log(` in the source
+// pane blue, so intrinsic-named entries are excluded from the linkify gate
+// set entirely — the function itself stays reachable via the function
+// lists, digests, and search.
+const _INTRINSIC_NAMES = (() => {
+  const s = new Set();
+  for (const proto of [Array.prototype, String.prototype, Object.prototype,
+                       Function.prototype, Number.prototype, RegExp.prototype,
+                       Date.prototype, Promise.prototype, Map.prototype,
+                       Set.prototype, WeakMap.prototype, WeakSet.prototype]) {
+    for (const n of Object.getOwnPropertyNames(proto)) s.add(n);
   }
+  for (const obj of [Math, JSON, console, Object, Array, Reflect]) {
+    for (const n of Object.getOwnPropertyNames(obj)) s.add(n);
+  }
+  for (const n of ['append', 'extend', 'insert', 'items', 'setdefault', 'update', 'copy']) s.add(n);
+  return s;
+})();
+
+const _knownNameSetCache = new WeakMap();
+function _buildKnownNameSet(index) {
+  let known = _knownNameSetCache.get(index);
+  if (known) return known;
+  known = new Set();
+  for (const fn of index.listFunctions()) {
+    const display = index.getDisplayName(fn.name);
+    if (!_INTRINSIC_NAMES.has(display)) known.add(display);
+    // #275: methods are indexed under qualified names
+    // (CodeSearchIndex::buildFunctionIndexTreeSitter) but appear BARE at
+    // their definition and call sites in source text — add the bare last
+    // segment too (minus any @-disambiguator), or the gate never matches
+    // them. Bare-name clicks resolve via findFunctionMatches' existing
+    // endsWith('::name') path, with same-file auto-disambiguation.
+    const bare = String(display).split('::').pop().split('@')[0];
+    if (bare && bare !== display && !_INTRINSIC_NAMES.has(bare)) known.add(bare);
+  }
+  _knownNameSetCache.set(index, known);
   return known;
 }
+
+// --- Known function names (#275) ---
+//
+// The loaded index's full display-name set, fetched once per index by the
+// GUI source viewer to gate linkification on names that actually resolve
+// (and to link non-call references like import bindings). Above the cap we
+// return capped:true with no names — the client then falls back to the
+// legacy shape-only linkification rather than shipping a multi-MB payload.
+routes['/api/function-names'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const CAP = 50000;
+  const known = _buildKnownNameSet(index);
+  if (known.size > CAP) return jsonResponse(res, { total: known.size, capped: true, names: [] });
+  jsonResponse(res, { total: known.size, capped: false, names: [...known] });
+};
 
 routes['/api/extract'] = (req, res) => {
   const q = parseQuery(req.url);
@@ -2802,10 +2857,10 @@ routes['/api/exports'] = (req, res) => {
   const TIER_GLYPH = { declared: 'A', promoted: 'B', heuristic: 'C' };
 
   // Merge per (package, name).
-  const merged = new Map();   // `${pkg} ${name}` -> row
+  const merged = new Map();   // `${pkg}\0${name}` -> row
   for (const r of records) {
     if (match && !match(r.name, r.dottedPath || '', r.package)) continue;
-    const key = `${r.package} ${r.name}`;
+    const key = `${r.package}\0${r.name}`;
     const prev = merged.get(key);
     if (!prev) {
       merged.set(key, { name: r.name, package: r.package, tiers: new Set([r.tier]),

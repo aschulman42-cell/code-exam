@@ -1,9 +1,11 @@
 /**
  * source-viewer.js — Function and file source rendering for the
  * middle-bottom pane, plus the `linkifySourceCalls` post-pass that
- * turns identifier( patterns into clickable function-call links.
- * Handles long-line breaking for minified bundles and search-term
- * highlighting via state.highlightTerms.
+ * turns function references into clickable links — gated on the index's
+ * known function names when available (#275), falling back to optimistic
+ * identifier( call-shape matching otherwise. Handles long-line breaking
+ * for minified bundles and search-term highlighting via
+ * state.highlightTerms.
  *
  * Cross-cutting callbacks (`showContextMenu`,
  * `onFunctionClickSourceOnly`) are injected via `initSourceViewer({...})`
@@ -19,6 +21,7 @@
  */
 
 import { state } from './state.js';
+import { api } from './api.js';
 import {
   $, displayNameHtml, escHtml, highlightLine, INFERRED_SUFFIX_RE,
 } from './dom-utils.js';
@@ -36,6 +39,43 @@ let _onFunctionClickSourceOnly = () => {};
 export function initSourceViewer(deps = {}) {
   if (typeof deps.showContextMenu === 'function') _showContextMenu = deps.showContextMenu;
   if (typeof deps.onFunctionClickSourceOnly === 'function') _onFunctionClickSourceOnly = deps.onFunctionClickSourceOnly;
+  // #275: an in-place index load/switch (dialogs.js dispatches this event; no
+  // page reload happens) invalidates the known-function-name set.
+  if (typeof window !== 'undefined') {
+    window.addEventListener('ce:index-loaded', () => { _knownNamesPromise = null; _knownNamesResolved = null; });
+  }
+}
+
+
+// ============================================================================
+// Known function names (#275) — fetched once per index, gates linkification
+// ============================================================================
+
+let _knownNamesPromise = null;   // in-flight/settled fetch; null until first use
+let _knownNamesResolved = null;  // resolved Set, or null → legacy shape-only mode
+let _linkifySeq = 0;             // stale-render guard for the async linkify pass
+
+function knownFunctionNames() {
+  if (!_knownNamesPromise) {
+    _knownNamesPromise = api.functionNames()
+      .then(d => {
+        _knownNamesResolved = (d && !d.capped && Array.isArray(d.names)) ? new Set(d.names) : null;
+        return _knownNamesResolved;
+      })
+      .catch(() => (_knownNamesResolved = null));
+  }
+  return _knownNamesPromise;
+}
+
+// Post-render linkify: wait for the name set (instant once cached), then run.
+// The seq guard drops the pass if a newer render has replaced the pane's
+// contents meanwhile (prevents double-wrapping spans on rapid navigation).
+function linkifyWhenReady(container, filepath) {
+  const seq = ++_linkifySeq;
+  knownFunctionNames().then(known => {
+    if (seq !== _linkifySeq) return;
+    linkifySourceCalls(container, filepath, known);
+  });
 }
 
 
@@ -68,7 +108,7 @@ export function renderSource(data) {
   // different function while scrolled mid-pane leaves the new source at the
   // old scroll offset — often hiding the function's definition line.
   container.scrollTop = 0;
-  linkifySourceCalls(container, data.filepath);
+  linkifyWhenReady(container, data.filepath);
   navUpdateButtons('middle-bottom');
 }
 
@@ -126,7 +166,7 @@ export function renderFileSource(data, targetLine) {
     }
   }
   container.innerHTML = html + '</div>';
-  linkifySourceCalls(container, data.filepath);
+  linkifyWhenReady(container, data.filepath);
   navUpdateButtons('middle-bottom');
 
   // Scroll to target line
@@ -185,13 +225,72 @@ function isInsideComment(text, pos) {
 }
 
 /**
- * Post-process rendered source to make function calls clickable.
- * Walks DOM text nodes in .line-content elements, finds identifier( patterns,
- * wraps them in clickable spans. Skips identifiers inside strings/comments.
+ * #275: decide which identifier occurrences in one text-node's text become
+ * links. Pure (no DOM) so node tests can pin the selection behavior
+ * (test/test_linkify_selection.js).
+ *
+ * knownNames Set → "knowledge mode": link ANY identifier — call site or bare
+ *   reference (import bindings, callbacks-as-values, export lists) — whose
+ *   text is in the set. Generic built-ins (`.map(`, `.push(`, `console.log(`)
+ *   stop linking unless the corpus genuinely defines them.
+ * knownNames null → legacy "shape mode": link `identifier(` call sites
+ *   optimistically (pre-#275 behavior; also the fallback when the name set
+ *   is unavailable or capped on very large corpora).
+ *
+ * Both modes skip keywords, 1-char names, ALL_CAPS macros, identifiers
+ * inside string literals or comments, and mid-word boundary artifacts from
+ * highlight-split text nodes.
+ *
+ * @param text          the text-node content being scanned
+ * @param fullLineText  the whole rendered line (context for string/comment
+ *                      and cross-node call-paren checks)
+ * @param charOffset    text's character offset within fullLineText
+ * @param knownNames    Set of display names, or null
+ * @returns [{ name, start }] — start is an index into `text`
  */
-export function linkifySourceCalls(container, contextFilepath) {
-  const callPattern = /\b([a-zA-Z_]\w*)\s*\(/g;
+export function findLinkableIdentifiers(text, fullLineText, charOffset, knownNames = null) {
+  const out = [];
+  // Very long (typically minified, unbroken) display lines: bare-reference
+  // broadening would multiply per-hit string/comment scans, so require call
+  // shape there even in knowledge mode.
+  const requireCall = !knownNames || fullLineText.length > 5000;
+  const idPattern = /\b([a-zA-Z_]\w*)\b/g;
+  let m;
+  while ((m = idPattern.exec(text)) !== null) {
+    const name = m[1];
+    const absPos = charOffset + m.index;
+    // Skip if preceding character in the full line is a word char (text-node
+    // boundaries from highlighting can cause false \b matches)
+    if (absPos > 0 && /\w/.test(fullLineText[absPos - 1])) continue;
+    if (SOURCE_SKIP_KEYWORDS.has(name)) continue;
+    if (name.length < 2) continue;
+    if (/^[A-Z][A-Z0-9_]+$/.test(name) && name.length > 2) continue;
+    // Knowledge gate first (cheap Set lookup) so unknown names never pay the
+    // string/comment scans below.
+    if (knownNames && !knownNames.has(name)) continue;
+    if (requireCall) {
+      // `(` after optional whitespace — checked against the FULL line so a
+      // call paren split into a sibling text node still counts.
+      if (!/^\s*\(/.test(fullLineText.slice(absPos + name.length))) continue;
+    }
+    if (isInsideString(fullLineText, absPos)) continue;
+    if (isInsideComment(fullLineText, absPos)) continue;
+    out.push({ name, start: m.index });
+  }
+  return out;
+}
 
+/**
+ * Post-process rendered source to make function references clickable.
+ * Walks DOM text nodes in .line-content elements; per-node selection is
+ * findLinkableIdentifiers() above (knowledge mode when the #275 known-name
+ * set is available, legacy identifier( shape mode otherwise).
+ *
+ * `knownNames` defaults to the module's resolved set at call time, so
+ * external callers (middle-pane.js pop-out restore) pick up gating
+ * automatically once the set has loaded.
+ */
+export function linkifySourceCalls(container, contextFilepath, knownNames = _knownNamesResolved) {
   // Detect file type to avoid false highlighting in HTML/CSS
   const ext = contextFilepath ? contextFilepath.replace(/.*\./, '.').toLowerCase() : '';
   const isHtml = /^\.(html?|xhtml|xml|svg|jsp|asp|php|erb|ejs|hbs|vue)$/.test(ext);
@@ -230,32 +329,16 @@ export function linkifySourceCalls(container, contextFilepath) {
     let charOffset = 0;
     for (const textNode of textNodes) {
       const text = textNode.textContent;
-      callPattern.lastIndex = 0;
+      const hits = findLinkableIdentifiers(text, fullLineText, charOffset, knownNames);
+      charOffset += text.length;
+      if (hits.length === 0) continue;
+
       const fragments = [];
       let lastIdx = 0;
-      let match;
-
-      while ((match = callPattern.exec(text)) !== null) {
-        const name = match[1];
-        const matchStart = match.index;
-        const absPos = charOffset + matchStart; // position in full line
-
-        // Skip if preceding character in full line is a word char
-        // (text node boundary from highlighting can cause false \b matches)
-        if (absPos > 0 && /\w/.test(fullLineText[absPos - 1])) continue;
-
-        // Skip keywords, too-short names, ALL_CAPS macros
-        if (SOURCE_SKIP_KEYWORDS.has(name)) continue;
-        if (name.length < 2) continue;
-        if (/^[A-Z][A-Z0-9_]+$/.test(name) && name.length > 2) continue;
-
-        // Skip if inside string literal or comment
-        if (isInsideString(fullLineText, absPos)) continue;
-        if (isInsideComment(fullLineText, absPos)) continue;
-
+      for (const { name, start } of hits) {
         // Add text before this match
-        if (matchStart > lastIdx) {
-          fragments.push(document.createTextNode(text.slice(lastIdx, matchStart)));
+        if (start > lastIdx) {
+          fragments.push(document.createTextNode(text.slice(lastIdx, start)));
         }
 
         // Create clickable span for the function name. If the name carries
@@ -287,14 +370,8 @@ export function linkifySourceCalls(container, contextFilepath) {
         });
         fragments.push(span);
 
-        // Add the "(" back as plain text
-        lastIdx = matchStart + match[0].length;
-        fragments.push(document.createTextNode(match[0].slice(name.length)));
+        lastIdx = start + name.length;
       }
-
-      charOffset += text.length;
-
-      if (fragments.length === 0) continue; // No matches in this text node
 
       // Add remaining text
       if (lastIdx < text.length) {
@@ -310,26 +387,31 @@ export function linkifySourceCalls(container, contextFilepath) {
     }
   }
 
-  // Post-pass: highlighted search terms (<mark> elements) aren't caught by
-  // the text-node walk above because the identifier lives inside the <mark>
-  // and its `(` lives in the sibling text node — the `name\s*\(` regex can't
-  // match across two separate text nodes. Wire clicks onto <mark> elements
-  // whose text is an identifier AND whose following sibling chain starts
-  // with `(`, so highlighted function names behave like linkified ones.
+  // Post-pass: highlighted search terms (<mark> elements) whose identifier
+  // the main walk didn't already link. Historically needed because the
+  // identifier lives inside the <mark> and its `(` in a sibling text node;
+  // the full-line paren check above now covers most of that, so this is
+  // belt-and-braces for remaining split shapes. Same #275 gate: with a
+  // known-name set, membership decides; without one, require the call paren.
   for (const mark of container.querySelectorAll('mark')) {
+    if (mark.querySelector('.src-fn-link')) continue; // main pass already linked inside
     const name = mark.textContent;
     if (!name || !/^[a-zA-Z_]\w*$/.test(name)) continue;
     if (name.length < 2) continue;
     if (SOURCE_SKIP_KEYWORDS.has(name)) continue;
-    // Check next sibling text starts with `(` (skipping whitespace).
-    // Traverse forward collecting text until we see a non-space char.
-    let node = mark.nextSibling;
-    let tail = '';
-    while (node && tail.length < 5) {
-      tail += node.textContent || '';
-      node = node.nextSibling;
+    if (knownNames) {
+      if (!knownNames.has(name)) continue;
+    } else {
+      // Check next sibling text starts with `(` (skipping whitespace).
+      // Traverse forward collecting text until we see a non-space char.
+      let node = mark.nextSibling;
+      let tail = '';
+      while (node && tail.length < 5) {
+        tail += node.textContent || '';
+        node = node.nextSibling;
+      }
+      if (!/^\s*\(/.test(tail)) continue;
     }
-    if (!/^\s*\(/.test(tail)) continue;
     mark.classList.add('src-fn-link');
     mark.style.cursor = 'pointer';
     mark.addEventListener('click', (e) => {

@@ -55,6 +55,7 @@ export const api = {
   fileFunctions:   (p) => api.get('file-functions', p),
   extract:         (p) => api.get('extract', p),
   showFile:        (p) => api.get('show-file', p),
+  functionNames:   (p) => api.get('function-names', p),
   hotspots:        (p) => api.get('hotspots', p),
   hotFolders:      (p) => api.get('hot-folders', p),
   entryPoints:     (p) => api.get('entry-points', p),
