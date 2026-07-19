@@ -123,6 +123,7 @@ export function parseArgs() {
     cost: false,          // --overview-by-ai: explicit "show cost" (default; affirmation only)
     no_cost: false,       // --overview-by-ai: suppress the cost/usage line (default: shown)
     max_budget_usd: null, // --overview-by-ai (claude engine): hard spend cap; also CE_OVERVIEW_MAX_BUDGET env
+    context_size: null,   // --overview-by-ai (local engine): preferred GGUF context (#276); same name as server.js's flag
     list_indexes: null,
 
     // Callers / Callees
@@ -369,6 +370,7 @@ export function parseArgs() {
     ['index_extensions',     'flag',           ['--index-extensions']],
     ['overview',             'flag',           ['--overview']],
     ['overview_by_ai',       'flag',           ['--overview-by-ai', '--overview-by-AI']],
+    ['context_size',         'int',            ['--context-size']],
     ['cpu',                  'flag',           ['--cpu']],
     ['grounding',            'value',          ['--grounding']],
     ['cost',                 'flag',           ['--cost']],

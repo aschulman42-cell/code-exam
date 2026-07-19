@@ -27,6 +27,86 @@ const TOOL_NAMES = AI_OVERVIEW_TOOLS.split(',').map(t => t.replace(/^mcp__code-e
 
 const MAX_TOOL_OUTPUT = 4000; // chars — cap each tool result so the loop doesn't blow the context window
 
+// ---------------------------------------------------------------------------
+// #276 hardening-parity helpers. Shared by this CLI path and server.js's
+// runAiOverviewLocalShared; the chat loop keeps its own earlier copies — a
+// later cleanup can dedupe all three (see the note in ai-overview.js).
+// ---------------------------------------------------------------------------
+
+// Special-token neutralization (port of the server chat-loop guard, #250):
+// tool results can contain text that lexes as chat-template control tokens
+// (ChatML <|...|>, Gemma turn tags, Mistral [INST], DeepSeek fullwidth bars).
+// Break every form with visibly-distinct lookalike delimiters.
+const SPECIAL_TOKEN_RE = new RegExp([
+  '</?think>',
+  '</?tool_(?:call|response)>',
+  '<\\|[^|<>]{1,32}\\|>',
+  '<\\uff5c[^\\uff5c<>]{1,40}\\uff5c>',
+  '<(?:start|end)_of_turn>',
+  '\\[/?INST\\]', '\\[TOOL_CALLS\\]',
+  '</?s>',
+].join('|'), 'gi');
+
+export function neutralizeSpecialTokens(s, where = 'tool result', log = null) {
+  const str = String(s || '');
+  const hits = str.match(SPECIAL_TOKEN_RE);
+  if (!hits) return str;
+  if (log) log(`neutralized ${hits.length} special token(s) in ${where}: ${[...new Set(hits)].slice(0, 5).join(' ')}`);
+  return str.replace(SPECIAL_TOKEN_RE, (m) => m
+    .replace(/</g, '‹').replace(/>/g, '›')
+    .replace(/\[/g, '⟦').replace(/\]/g, '⟧')
+    .replace(/[|｜]/g, '¦'));
+}
+
+// node-llama-cpp's Gemma wrapper silently drops system turns, and the family
+// under-uses tools without explicit insistence — deliver the instructions
+// under the same strict framing header the chat loop's fold uses. Other
+// families get the prompt unchanged.
+export function strictInstructionsFor(wrapperName, promptText) {
+  if (wrapperName !== 'Gemma') return promptText;
+  return `Instructions (follow these strictly):\n${promptText}`;
+}
+
+// #276 fabrication guard: a "grounded" overview produced with ZERO tool calls
+// cannot be grounded in the index — some families (Gemma 3 observed) invent a
+// plausible generic codebase instead of refusing. Make that unmissable.
+export function ungroundedWarning(toolCalls, grounding) {
+  if (toolCalls > 0) return null;
+  if (grounding && grounding !== 'grounded') return null;
+  return '⚠ UNGROUNDED OUTPUT: the model made no tool calls, so nothing below '
+    + 'is based on the loaded index. Treat this as generic prose, not an '
+    + 'overview of this codebase. (Known behavior for some model families; '
+    + 'try Qwen3.5-class, or re-run — see code-exam #276.)';
+}
+
+// Tool budget with a synthesize-now stop (port of the server overview/chat
+// budget): an over-eager investigator gets cut off and told to write from
+// what it has, instead of accumulating results until the context overflows —
+// which for this in-process path ends in a native crash, not a clean error.
+export function makeToolBudget({ maxCalls = 24, maxChars = 60000 } = {}) {
+  const b = { calls: 0, chars: 0, stopped: false };
+  b.gate = () => {
+    b.calls++;
+    if (b.stopped || b.calls > maxCalls || b.chars > maxChars) {
+      b.stopped = true;
+      return 'TOOL BUDGET EXHAUSTED — do not call any more tools. Write your complete overview now from the results you already have.';
+    }
+    return null;
+  };
+  b.charge = (len) => { b.chars += Number(len) || 0; };
+  return b;
+}
+
+// Context-scaled output/tool budgets (port of server _localBudgets).
+export function localBudgets(contextSize, explicitMaxTokens) {
+  const OVERHEAD = 1200;         // system prompt + tool defs + question, approx tokens
+  const MIN_TOOL_TOKENS = 400;
+  let maxTokens = explicitMaxTokens || Math.min(6144, Math.max(2400, Math.floor(contextSize / 6)));
+  maxTokens = Math.max(256, Math.min(maxTokens, contextSize - OVERHEAD - MIN_TOOL_TOKENS));
+  const toolBudgetChars = Math.max(500, Math.floor((contextSize - maxTokens - OVERHEAD) * 2.5));
+  return { maxTokens, toolBudgetChars };
+}
+
 /**
  * Generate the orientation overview with a local GGUF model.
  * @param {object} o
@@ -104,9 +184,13 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     model = loaded.m;
     const context = loaded.ctx;
 
-    // Expose the CE tools as chat functions backed by handleTool.
+    // Expose the CE tools as chat functions backed by handleTool. #276: gate
+    // every call through the tool budget and neutralize special tokens in
+    // results — investigator-class models (Qwen3.5) otherwise accumulate
+    // results until the context overflows, which crashes natively here.
+    const { maxTokens: cappedMaxTokens, toolBudgetChars } = localBudgets(contextSize, maxTokens);
+    const budget = makeToolBudget({ maxCalls: 24, maxChars: toolBudgetChars });
     const byName = new Map(TOOLS.map(t => [t.name, t]));
-    let toolCalls = 0;
     const functions = {};
     for (const name of TOOL_NAMES) {
       const def = byName.get(name);
@@ -115,15 +199,28 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
         description: String(def.description || '').slice(0, 280),
         params: (def.inputSchema && def.inputSchema.properties) ? def.inputSchema : { type: 'object', properties: {} },
         handler: (args) => {
-          toolCalls++;
+          const stop = budget.gate();
+          if (stop) {
+            if (budget.calls === 25 || budget.chars > toolBudgetChars) status(`budget-stop after ${budget.calls - 1} calls (${budget.chars} result chars)`);
+            return stop;
+          }
           status(`tool ${name}(${JSON.stringify(args || {}).slice(0, 120)})`);
-          try { return String(handleTool(name, args || {})).slice(0, MAX_TOOL_OUTPUT); }
-          catch (e) { return `Error calling ${name}: ${e.message}`; }
+          let out;
+          try { out = String(handleTool(name, args || {})); }
+          catch (e) { out = `Error calling ${name}: ${e.message}`; }
+          const capped = neutralizeSpecialTokens(out.slice(0, MAX_TOOL_OUTPUT), `${name} result`, status);
+          budget.charge(capped.length);
+          return capped;
         },
       });
     }
 
     const session = new LlamaChatSession({ contextSequence: context.getSequence() });
+    // #276: local engines get the forceful-grounding clause, and Gemma gets
+    // the strict-framing header (its wrapper drops system turns; the family
+    // fabricates tool results without explicit insistence).
+    const wrapperName = session.chatWrapper && session.chatWrapper.wrapperName;
+    const promptText = strictInstructionsFor(wrapperName, aiOverviewPrompt(grounding, { localEngine: true }));
 
     let timer;
     const timeout = new Promise((_, rej) => {
@@ -136,15 +233,19 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
       // onStream surfaces the live model output (incl. <think> blocks and tool
       // reasoning) for testing; the final stdout prose still strips <think>.
       raw = await Promise.race([
-        session.prompt(aiOverviewPrompt(grounding), { functions, maxTokens, onTextChunk: onStream ? (c) => onStream(c) : undefined }),
+        session.prompt(promptText, { functions, maxTokens: cappedMaxTokens, onTextChunk: onStream ? (c) => onStream(c) : undefined }),
         timeout,
       ]);
     } finally {
       clearTimeout(timer);
     }
 
+    const toolCalls = budget.calls; // attempts (incl. budget-stopped), same as the server path
     // Strip any chain-of-thought block (Qwen3 etc. emit <think>…</think>).
-    const prose = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    let prose = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    // #276 fabrication guard: 0 tool calls in grounded mode = not an overview.
+    const warn = ungroundedWarning(toolCalls, grounding);
+    if (warn && prose) prose = `${warn}\n\n${prose}`;
     // Output token count from the model's own tokenizer (air-gapped: no $ to
     // report, just tokens). Best-effort — null if the tokenizer isn't reachable.
     let outTokens = null;

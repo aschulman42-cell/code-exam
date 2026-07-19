@@ -81,10 +81,17 @@ export const AI_OVERVIEW_GROUNDING_CLAUSES = {
   attributed: `GROUNDING — ATTRIBUTED: Combine codebase evidence with general knowledge, but make provenance explicit — distinguish claims grounded in THIS code (cite the file/function/tool) from claims that come from your general knowledge or inference. Flag every non-trivial external claim as such.`,
 };
 
-// AI_OVERVIEW_PROMPT + the selected grounding clause (default grounded).
-export function aiOverviewPrompt(grounding) {
+// #276: local GGUF engines need explicit insistence that the tools are live —
+// without it, smaller/laconic families (Gemma 3 observed) skip the tools and
+// confidently invent a generic codebase. Cloud engines don't get this clause
+// (they don't need it, and it wastes their context).
+export const LOCAL_ENGINE_GROUNDING = `LOCAL-ENGINE GROUNDING (follow strictly): The source code IS available RIGHT NOW through the tools above — you have live access. NEVER answer from general knowledge and NEVER invent file names, counts, or model ids: every concrete claim MUST come from a tool result in THIS conversation. If you cannot call tools, output exactly "TOOLS UNAVAILABLE — cannot produce a grounded overview." and stop.`;
+
+// AI_OVERVIEW_PROMPT + the selected grounding clause (default grounded);
+// { localEngine: true } appends the local-engine insistence clause.
+export function aiOverviewPrompt(grounding, { localEngine = false } = {}) {
   const clause = AI_OVERVIEW_GROUNDING_CLAUSES[grounding] || AI_OVERVIEW_GROUNDING_CLAUSES.grounded;
-  return `${AI_OVERVIEW_PROMPT}\n\n${clause}`;
+  return `${AI_OVERVIEW_PROMPT}\n\n${clause}${localEngine ? `\n\n${LOCAL_ENGINE_GROUNDING}` : ''}`;
 }
 
 /**

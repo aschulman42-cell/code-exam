@@ -32,6 +32,7 @@ import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { runAiOverview, AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './core/ai-overview.js';
+import { strictInstructionsFor, ungroundedWarning } from './core/ai-overview-local.js';
 import { setAirGapped, scrubApiKey, airGappedStartupCheck, isAirGapped, isLocalApiUrl, AIR_GAPPED_DISCLAIMER } from './core/air-gapped.js';
 import { estimateCost } from './core/pricing.js';
 import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiFinishReason } from './core/openai-util.js';
@@ -2532,10 +2533,18 @@ async function runAiOverviewLocalShared({ index, grounding }) {
   const session = new LlamaChatSession({ contextSequence: sequence });
   try {
     const sampling = serverLLM.reproducible ? { temperature: 0, seed: 1 } : {};
-    const raw = await session.prompt(aiOverviewPrompt(grounding), { functions, maxTokens, ...sampling });
-    const prose = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*$/i, '').trim();
+    // #276: local engines get the forceful-grounding clause, and Gemma the
+    // strict-framing header (its wrapper drops system turns; observed
+    // fabricating a whole codebase here with 0 tool calls otherwise).
+    const wrapperName = session.chatWrapper && session.chatWrapper.wrapperName;
+    const promptText = strictInstructionsFor(wrapperName, aiOverviewPrompt(grounding, { localEngine: true }));
+    const raw = await session.prompt(promptText, { functions, maxTokens, ...sampling });
+    let prose = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*$/i, '').trim();
     if (!prose) throw new Error('local AI overview: the model returned no prose — try a stronger model or larger --context-size.');
-    console.log(`  [ai-overview] local done: ${prose.length} chars, ${toolCalls} tool calls`);
+    // #276 fabrication guard: 0 tool calls in grounded mode = not an overview.
+    const ungroundedNote = ungroundedWarning(toolCalls, grounding);
+    if (ungroundedNote) prose = `${ungroundedNote}\n\n${prose}`;
+    console.log(`  [ai-overview] local done: ${prose.length} chars, ${toolCalls} tool calls${ungroundedNote ? ' (UNGROUNDED — 0 tool calls)' : ''}`);
     return { prose, toolCalls, contextSize: lm.contextSize };
   } finally {
     try { session.dispose(); } catch (e) { console.warn(`  [ai-overview] session dispose failed: ${e.message}`); }
