@@ -63,7 +63,7 @@ export function _isNoiseDoc(fp, content) {
  * (the original `CodeSearchIndex.PROGRAMMING_STOPWORDS` access pattern was
  * itself a same-class read).
  */
-const PROGRAMMING_STOPWORDS = new Set([
+export const PROGRAMMING_STOPWORDS = new Set([
   // C standard library
   'printf', 'fprintf', 'sprintf', 'snprintf', 'scanf', 'sscanf',
   'malloc', 'calloc', 'realloc', 'free',
@@ -123,6 +123,8 @@ const PROGRAMMING_STOPWORDS = new Set([
   'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
   'addEventListener', 'removeEventListener',
   'createElement', 'getElementById', 'querySelector', 'querySelectorAll',
+  'appendChild', 'removeChild', 'insertBefore', 'replaceChild', 'cloneNode',
+  'setAttribute', 'getAttribute', 'prepend', 'closest',
   'forEach', 'filter', 'reduce', 'some', 'every', 'includes',
   'push', 'shift', 'unshift', 'slice', 'splice', 'concat',
   'length', 'indexOf', 'lastIndexOf',
@@ -146,6 +148,7 @@ const PROGRAMMING_STOPWORDS = new Set([
   // band-aid; #180 (cross-corpus IDF down-weighting) is the principled fix and
   // can peel any of these back if a corpus uses one as genuine terminology.
   // JS runtime internals
+  'var', 'let', 'const', 'import', 'from', 'as', 'pass', 'del',
   'function', 'defineProperty', 'defineProperties', 'hasOwnProperty',
   'getOwnPropertyDescriptor', 'getPrototypeOf', 'setPrototypeOf', '__esModule',
   'Symbol', 'Reflect', 'Proxy',
@@ -181,6 +184,37 @@ const PROGRAMMING_STOPWORDS = new Set([
   // Very short identifiers (covered by minLength=3 filter mostly)
   'fn', 'cb', 'el', 'ev', 'ex', 'id', 'it', 'ok', 'op',
 ]);
+
+// Runtime-enumerated JS built-ins (prototype methods + statics) — the complete
+// set a hand-curated list can't keep pace with. Relocated from server.js's #275
+// linkify gate so Most Called filtering (#276 U1) and linkify share one source.
+export const INTRINSIC_NAMES = (() => {
+  const s = new Set();
+  const protos = [Array.prototype, String.prototype, Object.prototype,
+                  Function.prototype, Number.prototype, RegExp.prototype,
+                  Date.prototype, Promise.prototype, Map.prototype,
+                  Set.prototype, WeakMap.prototype, WeakSet.prototype];
+  if (typeof Buffer !== 'undefined') protos.push(Buffer.prototype); // readUInt32LE, …
+  for (const proto of protos) for (const n of Object.getOwnPropertyNames(proto)) s.add(n);
+  // Globals + well-known statics: parseInt, isNaN, RegExp, Error, Buffer, Symbol, …
+  for (const n of Object.getOwnPropertyNames(globalThis)) s.add(n);
+  for (const obj of [Math, JSON, console, Object, Array, Reflect, Date, Number, String, Boolean, Symbol]) {
+    for (const n of Object.getOwnPropertyNames(obj)) s.add(n);
+  }
+  // Keywords/operators that leak as pseudo-calls, Python container methods, and
+  // common DOM/EventEmitter/Node methods not on the enumerated JS prototypes.
+  for (const n of ['async', 'await', 'return', 'new', 'typeof', 'instanceof', 'void', 'delete', 'yield', 'throw',
+                   'append', 'extend', 'insert', 'items', 'setdefault', 'update', 'copy',
+                   'stopPropagation', 'preventDefault', 'on', 'off', 'once', 'emit',
+                   'existsSync', 'readFileSync', 'writeFileSync', 'basename', 'dirname']) s.add(n);
+  return s;
+})();
+
+// True for a language intrinsic / built-in / common-noise identifier — drops them
+// from Most Called (#276 U1) and the linkify gate (#275).
+export function isIntrinsicName(name) {
+  return INTRINSIC_NAMES.has(name) || PROGRAMMING_STOPWORDS.has(name);
+}
 
 /** Path to vocabulary cache file. */
 export function _vocabularyPath(idx) {

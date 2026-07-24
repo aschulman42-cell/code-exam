@@ -5,6 +5,7 @@
 
 import { displayName, parseFuncSpec, quotePathIfNeeded } from '../utils.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
+import { isIntrinsicName } from '../core/vocabulary.js';
 
 
 // ========================================================================
@@ -252,10 +253,11 @@ export function doMostCalled(index, args) {
     // Min name length
     if (funcName.length < minNameLength) continue;
 
-    // Filter ALL_CAPS (macros)
+    // Filter ALL_CAPS macros and language intrinsics/built-ins (#276 U1)
     if (!includeMacros) {
       const bare = funcName.includes('::') ? funcName.split('::').pop() : funcName;
       if (bare.length >= 2 && /^[A-Z][A-Z0-9_]+$/.test(bare)) continue;
+      if (isIntrinsicName(bare)) continue;
     }
 
     // Defined only
@@ -286,7 +288,7 @@ export function doMostCalled(index, args) {
   // Build filter description
   if (args.filter) filtersApplied.push(`matching '${args.filter}'`);
   if (minNameLength > 1) filtersApplied.push(`name length >= ${minNameLength}`);
-  if (!includeMacros) filtersApplied.push('excluding ALL_CAPS macros');
+  if (!includeMacros) filtersApplied.push('excluding ALL_CAPS macros & built-ins');
   if (definedOnly) filtersApplied.push('defined in index only');
   if (args.exclude_tests) filtersApplied.push('excluding tests');
   if (args.include_path) filtersApplied.push(`include paths: ${args.include_path.join(', ')}`);

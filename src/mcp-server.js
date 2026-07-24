@@ -20,7 +20,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { buildOverview, formatOverview } from './core/overview.js';
-import { extractConcepts, conceptLabel } from './core/vocabulary.js';
+import { extractConcepts, conceptLabel, isIntrinsicName } from './core/vocabulary.js';
 import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
@@ -597,6 +597,7 @@ function handleTool(name, args) {
         if (item.name.length < 2) return false;
         const bare = item.name.includes('::') ? item.name.split('::').pop() : item.name;
         if (bare.length >= 2 && /^[A-Z][A-Z0-9_]+$/.test(bare)) return false;
+        if (isIntrinsicName(bare)) return false; // #276 U1: drop built-ins
         if (args.defined_only && item.definitions.length === 0) return false;
         if (args.filter && !item.name.toLowerCase().includes(args.filter.toLowerCase())) return false;
         return true;

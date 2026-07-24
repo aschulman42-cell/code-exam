@@ -26,7 +26,7 @@ import { groupSites, groupPipelines, reTestExamplePath, KERNELS_DRILLDOWN, MULTI
 import { makeFilterMatcher } from './core/filter-match.js';
 import { extractExports } from './core/exports.js';
 import { extractImports } from './core/imports.js';
-import { extractConcepts } from './core/vocabulary.js';
+import { extractConcepts, INTRINSIC_NAMES, isIntrinsicName } from './core/vocabulary.js';
 import { buildOverviewFast, buildOverviewDeep } from './core/overview.js';
 import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
@@ -1261,20 +1261,9 @@ routes['/api/file-functions'] = (req, res) => {
 // pane blue, so intrinsic-named entries are excluded from the linkify gate
 // set entirely — the function itself stays reachable via the function
 // lists, digests, and search.
-const _INTRINSIC_NAMES = (() => {
-  const s = new Set();
-  for (const proto of [Array.prototype, String.prototype, Object.prototype,
-                       Function.prototype, Number.prototype, RegExp.prototype,
-                       Date.prototype, Promise.prototype, Map.prototype,
-                       Set.prototype, WeakMap.prototype, WeakSet.prototype]) {
-    for (const n of Object.getOwnPropertyNames(proto)) s.add(n);
-  }
-  for (const obj of [Math, JSON, console, Object, Array, Reflect]) {
-    for (const n of Object.getOwnPropertyNames(obj)) s.add(n);
-  }
-  for (const n of ['append', 'extend', 'insert', 'items', 'setdefault', 'update', 'copy']) s.add(n);
-  return s;
-})();
+// The intrinsic-name set was relocated to core/vocabulary.js (exported as
+// INTRINSIC_NAMES, #276 U1) and imported above, so the linkify gate and Most
+// Called filtering share one definition.
 
 const _knownNameSetCache = new WeakMap();
 function _buildKnownNameSet(index) {
@@ -1283,7 +1272,7 @@ function _buildKnownNameSet(index) {
   known = new Set();
   for (const fn of index.listFunctions()) {
     const display = index.getDisplayName(fn.name);
-    if (!_INTRINSIC_NAMES.has(display)) known.add(display);
+    if (!INTRINSIC_NAMES.has(display)) known.add(display);
     // #275: methods are indexed under qualified names
     // (CodeSearchIndex::buildFunctionIndexTreeSitter) but appear BARE at
     // their definition and call sites in source text — add the bare last
@@ -1291,7 +1280,7 @@ function _buildKnownNameSet(index) {
     // them. Bare-name clicks resolve via findFunctionMatches' existing
     // endsWith('::name') path, with same-file auto-disambiguation.
     const bare = String(display).split('::').pop().split('@')[0];
-    if (bare && bare !== display && !_INTRINSIC_NAMES.has(bare)) known.add(bare);
+    if (bare && bare !== display && !INTRINSIC_NAMES.has(bare)) known.add(bare);
   }
   _knownNameSetCache.set(index, known);
   return known;
@@ -1627,6 +1616,7 @@ routes['/api/most-called'] = (req, res) => {
     if (item.name.length < 2) continue;
     const bare = item.name.includes('::') ? item.name.split('::').pop() : item.name;
     if (bare.length >= 2 && /^[A-Z][A-Z0-9_]+$/.test(bare)) continue;
+    if (isIntrinsicName(bare)) continue; // #276 U1: drop built-ins
     if (definedOnly && item.definitions.length === 0) continue;
     if (matchMostCalled && !matchMostCalled(item.name, index.getDisplayName(item.name))) continue;
     filtered.push(item);
