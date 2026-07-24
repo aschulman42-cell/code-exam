@@ -14,7 +14,7 @@
 //   --claim-model   : Local GGUF model via node-llama-cpp (TODO: Phase 8a+)
 // ============================================================================
 
-import { parseMultisectTerms, displayMultisectResults, printSelectivityReport } from './multisect.js';
+import { parseMultisectTerms, displayMultisectResults, printSelectivityReport, filterLowSelectivity } from './multisect.js';
 import fs from 'fs';
 import https from 'https';
 import http from 'http';
@@ -986,7 +986,16 @@ function _runClaimTier(index, tierName, termsStr, minTermsOverride, opts) {
     return { hasResults: false, nFunc: 0, nFile: 0, nFolder: 0 };
   }
 
-  const positiveTerms = terms.filter(t => !t.negated);
+  // #277: drop over-broad positive terms before searching, at parity with the
+  // GUI claim-search (server.js:3612-3636). Without this, broad LLM term
+  // alternations flood the ranking and small high-coverage helpers outrank the
+  // real implementation. TIGHT 0.5 / BROAD 0.7 mirror the GUI defaults; the
+  // helper is a no-op if the index lacks computeTermFileCounts, and it emits a
+  // `[selectivity-<tier>]` stderr line naming any dropped terms.
+  const selThreshold = tierName === 'TIGHT' ? 0.5 : 0.7;
+  const searchTerms = filterLowSelectivity(index, terms, { threshold: selThreshold, label: tierName }).kept;
+
+  const positiveTerms = searchTerms.filter(t => !t.negated);
   if (positiveTerms.length < 2) {
     console.log(`  Too few positive terms for ${tierName} search.`);
     return { hasResults: false, nFunc: 0, nFile: 0, nFolder: 0 };
@@ -1006,7 +1015,7 @@ function _runClaimTier(index, tierName, termsStr, minTermsOverride, opts) {
 
   console.log(`  Searching (min_terms=${minTerms}/${positiveTerms.length})...`);
 
-  const results = index.multisectSearch(terms, {
+  const results = index.multisectSearch(searchTerms, {
     minTerms,
     includePath: opts.includePath,
     excludePath: opts.excludePath,
