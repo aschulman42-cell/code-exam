@@ -66,7 +66,9 @@ npm install
 # Build an index over a codebase (directories, zip/tar archives,
 # binary files, minified JS, and @filelist files)
 node src/index.js --build-index /path/to/codebase
+```
 
+```bash
 # Launch the GUI (binds 127.0.0.1 — localhost only)
 node src/server.js --index-path .code_search_index --port 3000
 # then open http://localhost:3000

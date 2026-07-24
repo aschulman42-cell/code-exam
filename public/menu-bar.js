@@ -12,7 +12,7 @@
 
 import { state } from './state.js';
 import { api } from './api.js';
-import { $, $$, HIGHLIGHT_COLORS } from './dom-utils.js';
+import { $, $$, HIGHLIGHT_COLORS, copyToClipboard } from './dom-utils.js';
 import { showSearchDialog } from './dialogs.js';
 import {
   showMiddleTopLoading, showMiddleTopError,
@@ -98,10 +98,37 @@ async function openReadme() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     body.innerHTML = renderMarkdown(String(data.content || ''));
+    addCodeCopyButtons(body);
     body.scrollTop = 0;
   } catch (err) {
     body.innerHTML = `<div class="error-msg" style="padding:12px">Could not load README: ${err.message}</div>`;
   }
+}
+
+// #276 A2: give each rendered code block its own "📋 Copy" button so the
+// quick-start build and serve commands (now two separate fences) copy
+// independently. Mirrors the multisect copy-button pattern in app.js —
+// copyToClipboard + a transient "Copied!" label. Scoped to the README dialog
+// (called from openReadme); chat markdown rendering is untouched.
+function addCodeCopyButtons(container) {
+  container.querySelectorAll('pre').forEach((pre) => {
+    if (pre.querySelector('.copy-code-btn')) return;   // idempotent
+    const code = pre.querySelector('code');
+    if (!code) return;
+    pre.style.position = 'relative';
+    const btn = document.createElement('button');
+    btn.className = 'copy-code-btn';
+    btn.textContent = '📋 Copy';
+    btn.title = 'Copy this command block';
+    btn.style.cssText = 'position:absolute;top:6px;right:6px;font-size:11px;padding:2px 6px;cursor:pointer';
+    btn.addEventListener('click', () => {
+      copyToClipboard(code.textContent).then(
+        () => { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = orig; }, 1500); },
+        () => { btn.textContent = 'Failed'; },
+      );
+    });
+    pre.appendChild(btn);
+  });
 }
 
 // Auto-pop the interactive tour once on a fresh-download GUI — when the bundled
@@ -129,11 +156,24 @@ export function renderMarkdown(md) {
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const inline = (s) => esc(s)
     .replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`)
+    // Images: http(s) render inline; relative targets aren't served in the
+    // README dialog / chat, so fall back to the alt text (no broken <img>).
+    .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy" style="max-width:100%">')
+    .replace(/!\[([^\]]*)\]\([^)\s]+\)/g, '$1')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*\w])\*([^*\n]+?)\*(?![*\w])/g, '$1<em>$2</em>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    // Links: http(s) become anchors; relative targets aren't navigable here, so
+    // keep just the link text.
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/\[([^\]]+)\]\([^)\s]+\)/g, '$1');
   const lines = md.split('\n');
-  const special = /^(#{1,6}\s|```|>\s?|\s*[-*]\s+|\s*\d+\.\s+|\s*(?:-{3,}|\*{3,}|_{3,})\s*$)/;
+  const special = /^(#{1,6}\s|```|>\s?|\s*[-*]\s+|\s*\d+\.\s+|\s*\|.*\|\s*$|\s*(?:-{3,}|\*{3,}|_{3,})\s*$)/;
+  // GFM table helpers (#276 A2 iterate): a delimiter row is only "|", "-", ":"
+  // and whitespace with at least one dash and one pipe; splitRow trims the
+  // optional leading/trailing pipes and returns per-cell text.
+  const isTableSep = (s) => /^[\s|:-]+$/.test(s) && s.includes('-') && s.includes('|');
+  const splitRow = (r) => { let t = r.trim(); if (t.startsWith('|')) t = t.slice(1); if (t.endsWith('|')) t = t.slice(0, -1); return t.split('|').map((c) => c.trim()); };
+  const cellStyle = 'border:1px solid rgba(128,128,128,0.35);padding:4px 8px;text-align:left;vertical-align:top';
   let html = '', i = 0, listTag = '';
   const closeList = () => { if (listTag) { html += `</${listTag}>`; listTag = ''; } };
   while (i < lines.length) {
@@ -144,6 +184,27 @@ export function renderMarkdown(md) {
       while (i < lines.length && !/^```/.test(lines[i])) { code += lines[i] + '\n'; i++; }
       i++;
       html += `<pre><code>${esc(code.replace(/\n$/, ''))}</code></pre>`;
+      continue;
+    }
+    // GFM table: a "| ... |" header row immediately followed by a "|---|---|"
+    // delimiter row. Without this the README's Documentation table (and any
+    // table in a chat answer) collapses into a run-on paragraph.
+    if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      closeList();
+      const headers = splitRow(line);
+      i += 2;
+      let t = '<table style="border-collapse:collapse;width:100%;margin:8px 0;font-size:0.95em"><thead><tr>';
+      for (const hcell of headers) t += `<th style="${cellStyle}">${inline(hcell)}</th>`;
+      t += '</tr></thead><tbody>';
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) {
+        const cells = splitRow(lines[i]);
+        t += '<tr>';
+        for (let c = 0; c < headers.length; c++) t += `<td style="${cellStyle}">${inline(cells[c] || '')}</td>`;
+        t += '</tr>';
+        i++;
+      }
+      t += '</tbody></table>';
+      html += t;
       continue;
     }
     const hm = line.match(/^(#{1,6})\s+(.*)$/);
