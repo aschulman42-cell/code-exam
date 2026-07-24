@@ -50,7 +50,7 @@ import {
   renderPromptList, renderStringDetail, renderBreadcrumbs,
   renderBundleSeams, renderCommandCatalog, renderStructDiffList,
 } from './prompts-and-catalog.js';
-import { initMenuBar } from './menu-bar.js';
+import { initMenuBar, renderMarkdown } from './menu-bar.js';
 import {
   initMiddlePane,
   showMiddleTopLoading, showMiddleTopError,
@@ -1634,7 +1634,14 @@ function appendChatBubble(role, text, toolCalls) {
       }));
     }
   }
-  bubble.appendChild(h('div', { className: 'chat-text', style: 'white-space:pre-wrap;word-break:break-word', text }));
+  if (role === 'assistant') {
+    // #276 A4: render the assistant's answer as markdown. renderMarkdown escapes
+    // HTML before emitting markup, so setting innerHTML here is injection-safe.
+    // User messages stay raw pre-wrap (they're the user's own literal text).
+    bubble.appendChild(h('div', { className: 'chat-text', style: 'word-break:break-word', html: renderMarkdown(text) }));
+  } else {
+    bubble.appendChild(h('div', { className: 'chat-text', style: 'white-space:pre-wrap;word-break:break-word', text }));
+  }
   wrap.appendChild(bubble);
   wrap.scrollTop = wrap.scrollHeight;
   return bubble;
@@ -1738,7 +1745,10 @@ async function runChatStream(pending) {
           wrap.scrollTop = wrap.scrollHeight;
         } else if (event === 'done') {
           const answer = (data.answer && data.answer.trim()) || '(no text response)';
-          textDiv.textContent = answer;
+          // #276 A4: render the final streamed answer as markdown (render-on-final;
+          // drop the pre-wrap used for the live "…working…" text so blocks lay out).
+          textDiv.style.whiteSpace = 'normal';
+          textDiv.innerHTML = renderMarkdown(answer);
           chatMessages.push({ role: 'assistant', content: answer });
           answered = true;
           wrap.scrollTop = wrap.scrollHeight;

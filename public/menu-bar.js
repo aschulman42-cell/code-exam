@@ -125,7 +125,7 @@ async function maybeAutoOpenTour() {
 // Compact Markdown -> HTML. Escapes HTML first (no injection, no raw markup),
 // then handles fenced code, headings, inline code/bold/italic/links, ordered &
 // unordered lists, blockquotes, horizontal rules, and paragraphs.
-function renderMarkdown(md) {
+export function renderMarkdown(md) {
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const inline = (s) => esc(s)
     .replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`)
