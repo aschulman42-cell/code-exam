@@ -1196,19 +1196,32 @@ export async function doClaimSearch(index, args) {
     try {
       const { getLlama, LlamaChatSession } = await import('node-llama-cpp');
       process.stderr.write(`Loading local model: ${localModelPath}...\n`);
-      const llama = await getLlama();
-      const model = await llama.loadModel({ modelPath: localModelPath });
-
-      // Find workable context size
-      let context = null;
-      for (const trySize of [8192, 4096, 2048]) {
-        try { context = await model.createContext({ contextSize: trySize }); break; }
-        catch (_) { /* try smaller */ }
+      // #277: GPU-first with a CPU fallback (parity with ai-overview-local.js's
+      // tryLoad). A GGUF too large for the GPU's VRAM+context otherwise hard-errors
+      // "Cannot allocate context"; retry on CPU (full system RAM) before giving up.
+      // --cpu forces CPU up front.
+      const tryLoad = async (cpuOnly) => {
+        const llama = await getLlama(cpuOnly ? { gpu: false } : undefined);
+        const m = await llama.loadModel({ modelPath: localModelPath });
+        let ctx = null;
+        for (const trySize of [8192, 4096, 2048]) {
+          try { ctx = await m.createContext({ contextSize: trySize }); break; }
+          catch (_) { /* try smaller */ }
+        }
+        if (!ctx) { try { await m.dispose(); } catch (_) { /* */ } return null; }
+        return { model: m, context: ctx };
+      };
+      const forceCpu = !!args.cpu;
+      let loaded = forceCpu ? null : await tryLoad(false);
+      if (!loaded) {
+        process.stderr.write(forceCpu ? '  Using CPU (--cpu)…\n' : '  GPU could not fit model+context; retrying on CPU…\n');
+        loaded = await tryLoad(true);
       }
-      if (!context) {
-        console.log('Error: Cannot allocate context for local model.');
+      if (!loaded) {
+        console.log('Error: Cannot allocate context for local model (tried GPU and CPU).');
         return;
       }
+      const { model, context } = loaded;
       process.stderr.write(`OK: Local model loaded (context: ${context.contextSize} tokens).\n`);
 
       // Combine system prompt + claim text (shorter prompt for local models)
