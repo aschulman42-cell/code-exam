@@ -291,13 +291,13 @@ export function formatOverview(ov, { surface = 'cli' } = {}) {
   // is still in the structured object for any consumer that wants the raw slice.
   if (ov.concepts && ov.concepts.length) {
     L.push('');
-    L.push('**Key concepts (with examples):**');
+    L.push('**Potentially important concepts (with examples):**');
     for (const c of ov.concepts) L.push(`  - ${conceptLabel(c)}`);
   }
 
   if (ov.keyFiles.length) {
     L.push('');
-    L.push('**Key files (by vocabulary density):**');
+    L.push('**Potentially important files (by vocabulary density):**');
     for (const kf of ov.keyFiles) L.push(`  - ${strip(kf.file)}  (${kf.terms} top terms)`);
   }
 

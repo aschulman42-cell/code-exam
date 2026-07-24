@@ -1867,7 +1867,7 @@ export function renderVocabList(container, vocab, concepts) {
     // Each concept is { concept, example } (#181 polish) — show concept (example),
     // or bare for a standalone-token concept with no larger identifier.
     const label = (c) => (c && typeof c === 'object') ? (c.example ? `${c.concept} (${c.example})` : c.concept) : c;
-    container.appendChild(h('div', { className: 'list-placeholder', text: `Key concepts: ${concepts.map(label).join(', ')}`, style: 'font-size:10px;padding:4px 8px;color:var(--accent-blue);white-space:normal' }));
+    container.appendChild(h('div', { className: 'list-placeholder', text: `Potentially important concepts: ${concepts.map(label).join(', ')}`, style: 'font-size:10px;padding:4px 8px;color:var(--accent-blue);white-space:normal' }));
   }
   for (const v of vocab) {
     const item = h('div', { className: 'list-item', title: `Score: ${v.score}\nDoc freq: ${v.doc_freq}\nTotal freq: ${v.total_freq}` }, [
@@ -1954,7 +1954,7 @@ export function renderOverviewList(container, ov, opts = {}) {
   }
 
   if (ov.concepts && ov.concepts.length) {
-    container.appendChild(head('Key concepts (with examples):'));
+    container.appendChild(head('Potentially important concepts (with examples):'));
     for (const c of ov.concepts) {
       const label = c.example ? `${c.concept} (${c.example})` : c.concept;
       // Clickable when we know which file the example identifier lives in; jumps
@@ -1965,7 +1965,7 @@ export function renderOverviewList(container, ov, opts = {}) {
   }
 
   if (ov.keyFiles && ov.keyFiles.length) {
-    container.appendChild(head('Key files (by vocabulary density):'));
+    container.appendChild(head('Potentially important files (by vocabulary density):'));
     const stripKf = sectionPeel(ov.keyFiles.map(k => k.file));
     for (const kf of ov.keyFiles) container.appendChild(clickRow(stripKf(kf.file), { metric: `${kf.terms} terms`, filepath: kf.file, ctxName: kf.file })); // file-only ctx
   }
@@ -1984,7 +1984,7 @@ export function renderOverviewList(container, ov, opts = {}) {
   if (ov.partial) {
     if (opts.deepGated && opts.onLoadDeep) {
       container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal',
-        text: 'Key concepts, key files & entry points aren’t computed yet — on a large index this can take a minute or two and briefly makes the server busy.' }));
+        text: 'Potentially important concepts, key files & entry points aren’t computed yet — on a large index this can take a minute or two and briefly makes the server busy.' }));
       const b = h('button', { className: 'btn-secondary', text: 'Finish generating overview', style: 'margin:4px 10px' });
       b.addEventListener('click', () => opts.onLoadDeep());
       container.appendChild(b);
@@ -1993,7 +1993,7 @@ export function renderOverviewList(container, ov, opts = {}) {
         text: 'Deep signals failed to load (the server may be busy on a large index). Re-open the Overview to retry.' }));
     } else {
       container.appendChild(h('div', { className: 'list-placeholder', style: 'white-space:normal;color:var(--text-muted)',
-        text: '⏳ Computing key concepts, key files & entry points… (also available later in the left-pane Overview accordion)' }));
+        text: '⏳ Computing potentially important concepts, key files & entry points… (also available later in the left-pane Overview accordion)' }));
     }
   }
 

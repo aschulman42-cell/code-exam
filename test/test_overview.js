@@ -158,10 +158,10 @@ test('#181 formatOverview: renders the sections', () => {
   assert.match(out, /# Overview — \/some\/collection/);
   assert.match(out, /\*\*Size:\*\* 10 files, 3 functions/);
   assert.match(out, /Looks like a collection/);      // isCollection banner
-  assert.match(out, /\*\*Key concepts \(with examples\):\*\*/); // section header (#181 rename)
+  assert.match(out, /\*\*Potentially important concepts \(with examples\):\*\*/); // section header (#181 rename; #276 hedge)
   assert.match(out, /- worklist \(parseWorklistEntry\)/); // one per line, concept + example
   assert.doesNotMatch(out, /Top identifiers/);            // dropped (#181 polish)
-  assert.match(out, /Key files \(by vocabulary density\)/);
+  assert.match(out, /Potentially important files \(by vocabulary density\)/);
   assert.match(out, /Entry points:/);
   assert.match(out, /\*\*Next:\*\*/);                 // next-hop guidance
 });

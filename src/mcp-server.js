@@ -651,7 +651,7 @@ function handleTool(name, args) {
       const lines = [`Top ${vocab.length} domain vocabulary tokens` +
         (withSites ? ':' : ' (terms only; pass with_sites:true for example paths):')];
       const concepts = extractConcepts(index);
-      if (concepts.length) lines.push(`Key concepts (with examples): ${concepts.map(conceptLabel).join(', ')}`, '');
+      if (concepts.length) lines.push(`Potentially important concepts (with examples): ${concepts.map(conceptLabel).join(', ')}`, '');
       for (const v of vocab) {
         let line = `  ${v.score.toFixed(0)}\t${v.token}\t(${v.doc_freq} files, ${v.total_count} hits)`;
         if (withSites && v.top_files && v.top_files.length) {
