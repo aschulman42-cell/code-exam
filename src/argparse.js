@@ -462,6 +462,9 @@ export function parseArgs() {
     // Phase 8a: claim search
     ['claim_search',         'value',          ['--claim-search']],
     ['claim_file',           'value',          ['--claim-file']],
+    // #281: pseudo-claim generation (v1: explicit anchors)
+    ['pseudo_claims',        'value',          ['--pseudo-claims']],
+    ['pseudo_out',           'value',          ['--pseudo-out']],
     ['use_claude',           'flag',           [], ['--use-claude']],
     ['llm',                  'value',          ['--llm']],
     ['openai_key',           'value',          ['--openai-key']],
@@ -1206,6 +1209,25 @@ CLAIM SEARCH (LLM-based patent claim analysis):
                               (default: vocabulary only influences BROAD terms)
   --no-vocabulary            Disable codebase vocabulary in term extraction prompts
                               (alias: --no-vocab) For A/B testing vocabulary guidance.
+
+PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
+  --pseudo-claims <anchors>  Draft illustrative "pseudo patent claims" from
+                             evidence packs of explicit anchor functions. One
+                             anchor GROUP = one pseudo-claim. Anchors are
+                             "file@func;file@func" (a single claim) or
+                             @anchors.lst (one file@func per line; a "# Label"
+                             line starts a new claim, so one file yields many
+                             claims). Each anchor must resolve to a real function
+                             in the index; unresolved/ambiguous anchors are
+                             dropped with a message. v1 is EXPLICIT-ANCHOR ONLY —
+                             CE does not auto-discover anchors (deferred, gated
+                             on #280). Output carries a non-removable PSEUDO /
+                             non-admission caveat: it is NOT legal advice and NOT
+                             an admission that any code practices any claim.
+                             (Scaffold: emits the caveat + evidence pack; LLM
+                             drafting lands next.)
+  --pseudo-out <file>        Write the pseudo-claims artifact to <file> (UTF-8)
+                             instead of stdout.
 
 LLM ANALYSIS:
   --analyze <function>       Analyze a function with LLM ("what does this do?")

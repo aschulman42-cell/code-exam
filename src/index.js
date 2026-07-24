@@ -61,6 +61,7 @@ import { doSaveFingerprints } from './commands/fingerprint.js';
 import { doInteractive } from './commands/interactive.js';
 import { doMultisect } from './commands/multisect.js';
 import { doClaimSearch } from './commands/claim.js';
+import { doPseudoClaims } from './commands/pseudo-claims.js';
 import {
   doAnalyze, doClaimAnalyze, doMultisectAnalyze, doFileAnalyze,
 } from './commands/analyze.js';
@@ -117,7 +118,7 @@ const _QUERY_COMMAND_KEYS = [
   'call_tree', 'class_tree', 'call_inventory', 'file_map', 'file_tree',
   'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
   'list_classes', 'data_structs', 'client_server', 'referenced_resources', 'list_models', 'list_artifacts', 'list_kernels', 'list_multimodal', 'list_post_training', 'list_reasoning', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'list_pipelines', 'list_explainability', 'class_hotspots', 'discover_vocabulary', 'multisect_search',
-  'claim_search', 'claim_file',
+  'claim_search', 'claim_file', 'pseudo_claims',
   'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
   'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
   'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'funcstr_corpus', 'build_fp_renames',
@@ -1038,6 +1039,12 @@ if (args.multisect_search)                  doMultisect(index, args);
 // Claim search is async (API call) — use top-level await
 if (args.claim_search || args.claim_file) {
   await doClaimSearch(index, args);
+}
+
+// #281 pseudo-claims (v1: explicit anchors). Scaffold is deterministic, but keep
+// it in the async block so the generate item can await an LLM draft.
+if (args.pseudo_claims) {
+  await doPseudoClaims(index, args);
 }
 
 // Phase 8b: Analysis commands (async — LLM calls)
