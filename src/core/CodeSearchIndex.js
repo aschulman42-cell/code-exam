@@ -3378,6 +3378,11 @@ export class CodeSearchIndex {
       this.indexSource = `file list: ${codePathStr}`;
     } else if (codePathStr.includes('*') || codePathStr.includes('?')) {
       this.indexSource = `glob: ${codePathStr}`;
+    } else if (files.length === 1 && isSupportedArchive(files[0])) {
+      // #276 B1: a single-archive build — name the archive itself, not its parent
+      // directory (basePath = dirname(archive), which mislabeled --stats Source
+      // as e.g. C:\Users\undoc\jontest instead of bram-main-070626.zip).
+      this.indexSource = `archive: ${files[0]}`;
     } else {
       this.indexSource = basePath;
     }
