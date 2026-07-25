@@ -646,6 +646,36 @@ export class TreeSitterParser {
         } else if (type === 'interface_declaration' || type === 'type_alias_declaration') {
           // TypeScript: interfaces and type aliases — skip but continue walking
           walk(child, classStack);
+        } else if (type === 'assignment_expression') {
+          // #283: member-assignment function definitions — window.X = function /
+          // arrow / IIFE, obj.prototype.Y = function, this.X = function. The
+          // `variable_declarator` case above only catches `const X = function`;
+          // member-assignments (Bram's whole `window.__bram*` namespace) were
+          // invisible. Index under the FINAL property name so it round-trips
+          // like a `const X = function` (--extract X, callers, grounding).
+          const left = child.childForFieldName('left');
+          const right = child.childForFieldName('right');
+          let handled = false;
+          if (left && right && left.type === 'member_expression') {
+            const propNode = left.childForFieldName('property');
+            const propName = propNode ? propNode.text : null;
+            // Unwrap an IIFE: window.X = (function(){})()  /  (() => {})()
+            let fnNode = right;
+            if (right.type === 'call_expression') {
+              const callee = right.childForFieldName('function');
+              const inner = callee && callee.type === 'parenthesized_expression' ? callee.namedChild(0) : null;
+              if (inner) fnNode = inner;
+            }
+            const ft = fnNode.type;
+            if (propName && (ft === 'arrow_function' || ft === 'function' || ft === 'function_expression' || ft === 'generator_function')) {
+              const prefix = classStack.length > 0 ? classStack.join('::') + '::' : '';
+              this._addFunction(result, prefix + propName, startLine, endLine, 'function');
+              const body = fnNode.childForFieldName('body');
+              if (body) walk(body, []);
+              handled = true;
+            }
+          }
+          if (!handled) walk(child, classStack);
         } else {
           walk(child, classStack);
         }

@@ -2732,6 +2732,16 @@ export class CodeSearchIndex {
       [/^\s*(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?function\b/, 'function', 1],
       // Class method shorthand
       [/^\s*(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?(\w+)\s*\([^)]*\)\s*\{\s*$/, 'function', 1],
+      // #283: member-assignment function definitions the `NAME = …` patterns
+      // above miss — window.X / globalThis.X / self.X / exports.X /
+      // module.exports.X / this.X (with optional deeper nesting), and
+      // <chain>.prototype.Y. RHS may be a function, an arrow, or an IIFE
+      // wrapper (window.X = (function(){})()  /  window.X = (() => {})()).
+      // Name captured = the final property (so `--extract X` round-trips like a
+      // `var X = function`). The `\(?` optional IIFE paren backtracks so a plain
+      // `= () =>` still matches.
+      [/^\s*(?:(?:module\.)?exports|window|globalThis|self|this)(?:\.[\w$]+)*\.(\w+)\s*=\s*\(?\s*(?:async\s+)?(?:function\b|(?:\([^)]*\)|[\w$]+)\s*=>)/, 'function', 1],
+      [/^\s*[\w$]+(?:\.[\w$]+)*\.prototype\.(\w+)\s*=\s*\(?\s*(?:async\s+)?(?:function\b|(?:\([^)]*\)|[\w$]+)\s*=>)/, 'function', 1],
       [/^\s*(?:export\s+)?(?:default\s+)?class\s+(\w+)/, 'class', 1],
     ];
 
