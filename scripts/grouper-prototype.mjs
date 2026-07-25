@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 import { findCallees } from '../src/core/calls.js';
-import { isIntrinsicName, extractConcepts } from '../src/core/vocabulary.js';
+import { isIntrinsicName, extractConcepts, _isNoiseDoc } from '../src/core/vocabulary.js';
 
 // --- tunables (printed with the results so a run is self-documenting) --------
 const MIN_LINES = 4;                 // skip one-liner getters/wrappers
@@ -59,6 +59,32 @@ const indexPath = arg('--index-path');
 const gtPath = arg('--ground-truth');
 const MAX_FUNCS = Number(arg('--max-funcs', '')) || Infinity; // cap candidates on huge indexes for a tractable eyeball
 const emitPath = arg('--emit-anchors'); // #284: write [file]-mode clusters as a draft anchors.lst, then exit
+// Mechanical noise pre-filter for --emit-anchors (#284): drop whole noise files
+// (test / vendor / minified / build / lockfile via the shared _isNoiseDoc, plus
+// dist/ compiled output and OLD/dead files) from the candidate set BEFORE the
+// --max-funcs cap, so junk doesn't eat the budget or the reviewer's firehose.
+// JUNK REMOVAL ONLY — the surviving groups are still per-file. Emit-mode only.
+//
+// CAVEAT for a future worthiness/claim stage (noted per Andrew, 2026-07-25):
+// this is a BLUNT cut, and some categories dropped here can be legitimately
+// patentable subject matter — TESTING frameworks/methods especially are the
+// subject of many patents. Anything filtered at this stage is invisible to the
+// later worthiness scorer FOREVER, and there is no cheap false-positive check
+// here (a file dropped for containing "test" is simply never seen). If that
+// matters, revisit as a RECOVERABLE filter — tag-and-demote so the worthiness
+// stage can still reach it — rather than a hard drop.
+const isNoiseFile = (file) => {
+  if (_isNoiseDoc(file, null)) return true;                   // vendor/build/lockfile/test-DIR/.op/.nupkg (path-based)
+  const n = String(file).replace(/\\/g, '/');
+  const base = n.slice(n.lastIndexOf('/') + 1);
+  // _isNoiseDoc's test detection is DIRECTORY-based (test/ trees); add the
+  // filename-suffix conventions it misses — Google-style foo_test.cc /
+  // foo_unittest.cc next to foo.cc (chromium), UnitTests.cs, jest/pytest/rspec.
+  // Boundary-guarded so class files like TestActivity.java are NOT swept.
+  if (/(?:^|[._-])(?:(?:unit)?tests?|specs?)(?:[._-]|$)/i.test(base)) return true;
+  return /\/dist\//i.test(n) || /_old\d*[._-]|\.old$|_bak[._-]|~$/i.test(n); // dist output + dead/backup files
+};
+let emitNoiseFiles = 0, emitNoiseFns = 0;
 if (!indexPath) { console.error('need --index-path (--ground-truth optional: omit for an unscored cluster dump to eyeball)'); process.exit(1); }
 
 // --- load index --------------------------------------------------------------
@@ -75,6 +101,7 @@ if (!emitPath && (!index.fileLines || index.fileLines.size === 0)) {
 const funcs = [];               // {id, file, name, bare, start, end, lines}
 const byId = new Map();
 for (const [file, fns] of Object.entries(index.functionIndex || {})) {
+  if (emitPath && isNoiseFile(file)) { emitNoiseFiles++; emitNoiseFns += Object.keys(fns).length; continue; }
   for (const [full, info] of Object.entries(fns)) {
     if ((info.type || 'function') === 'class') continue;
     const bare = (info.base_name || full.split('::').pop() || '').split('@')[0];
@@ -365,7 +392,7 @@ if (emitPath) {
   const clusters = clusterByFile(false)                       // [file] mode is the clean default
     .filter((c) => c.size >= MIN_COMM)
     .sort((a, b) => b.size - a.size);
-  const out = [`# grouper --emit-anchors  index=${path.basename(indexPath)}  mode=[file]  ${clusters.length} groups (>= ${MIN_COMM} fns) — UNRANKED draft; hand-select the claim-worthy`];
+  const out = [`# grouper --emit-anchors  index=${path.basename(indexPath)}  mode=[file]  ${clusters.length} groups (>= ${MIN_COMM} fns), ${emitNoiseFiles} noise files (${emitNoiseFns} fns) pre-filtered — UNRANKED draft; hand-select the claim-worthy`];
   for (const c of clusters) {
     const members = [...c].map((id) => byId.get(id)).filter(Boolean);
     const fc = new Map();
@@ -380,7 +407,7 @@ if (emitPath) {
     for (const f of members) { const spec = f.name.includes('@') ? f.bare : f.name; out.push(`${f.file}@${spec}`); }
   }
   fs.writeFileSync(emitPath, out.join('\n') + '\n');
-  console.error(`# wrote ${clusters.length} draft anchor group(s) to ${emitPath}  (${path.basename(indexPath)}, [file] mode, unranked)`);
+  console.error(`# wrote ${clusters.length} draft anchor group(s) to ${emitPath}  (${path.basename(indexPath)}, [file] mode, unranked; pre-filtered ${emitNoiseFiles} noise files / ${emitNoiseFns} fns)`);
   process.exit(0);
 }
 
