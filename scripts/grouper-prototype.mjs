@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 import { findCallees } from '../src/core/calls.js';
-import { isIntrinsicName } from '../src/core/vocabulary.js';
+import { isIntrinsicName, extractConcepts } from '../src/core/vocabulary.js';
 
 // --- tunables (printed with the results so a run is self-documenting) --------
 const MIN_LINES = 4;                 // skip one-liner getters/wrappers
@@ -58,12 +58,16 @@ function arg(name, def = null) { const i = process.argv.indexOf(name); return i 
 const indexPath = arg('--index-path');
 const gtPath = arg('--ground-truth');
 const MAX_FUNCS = Number(arg('--max-funcs', '')) || Infinity; // cap candidates on huge indexes for a tractable eyeball
+const emitPath = arg('--emit-anchors'); // #284: write [file]-mode clusters as a draft anchors.lst, then exit
 if (!indexPath) { console.error('need --index-path (--ground-truth optional: omit for an unscored cluster dump to eyeball)'); process.exit(1); }
 
 // --- load index --------------------------------------------------------------
 const index = new CodeSearchIndex({ indexPath });
 index._ensureFunctionIndex();
-if (!index.fileLines || index.fileLines.size === 0) {
+if (!emitPath && (!index.fileLines || index.fileLines.size === 0)) {
+  // --emit-anchors ([file] mode) needs only the function index, not file
+  // content (no vocab/source edges), so skip the potentially-huge literal-index
+  // load for it (spinellis: 437MB).
   if (typeof index._loadLiteralIndex === 'function') index._loadLiteralIndex();
 }
 
@@ -347,6 +351,37 @@ function evaluate(clusters, groups) {
     rows.push({ label: g.label, resolved: g.ids.size, together: bestOv, clusterSize: best ? best.size : 0, recall, precision });
   }
   return { rows, avgRecall: n ? sumR / n : 0, avgPrecision: n ? sumP / n : 0 };
+}
+
+// --- --emit-anchors: write [file]-mode clusters as a draft anchors.lst -------
+// The connector to --pseudo-claims (#284): turn [file]-mode clusters (the
+// co-location workhorse — richer edge sets over-merge, per the corpus study)
+// into the exact `# Label` + file@func format collectAnchorGroups parses. NO
+// worthiness ranking here — the point of the curated-dozen loop is to see the
+// unranked firehose and hand-select. Each group is concept-labeled via the
+// shared extractConcepts so it reads as a subject, not "group N".
+if (emitPath) {
+  const shortFile = (fp) => { const s = String(fp).replace(/\\/g, '/'); const t = s.includes('!') ? s.slice(s.indexOf('!') + 1) : s; return t.length > 64 ? '…' + t.slice(-63) : t; };
+  const clusters = clusterByFile(false)                       // [file] mode is the clean default
+    .filter((c) => c.size >= MIN_COMM)
+    .sort((a, b) => b.size - a.size);
+  const out = [`# grouper --emit-anchors  index=${path.basename(indexPath)}  mode=[file]  ${clusters.length} groups (>= ${MIN_COMM} fns) — UNRANKED draft; hand-select the claim-worthy`];
+  for (const c of clusters) {
+    const members = [...c].map((id) => byId.get(id)).filter(Boolean);
+    const fc = new Map();
+    for (const f of members) fc.set(f.file, (fc.get(f.file) || 0) + 1);
+    const domFile = [...fc.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    let concept = '';
+    try {
+      const entries = members.map((f) => ({ token: f.bare, score: 1, top_files: [{ path: f.file }] }));
+      concept = extractConcepts(index, { entries, maxConcepts: 2 }).filter((x) => x && x.concept).map((x) => x.concept).join('/');
+    } catch { /* fall back to the file name */ }
+    out.push('', `# ${concept ? concept + ' — ' : ''}${shortFile(domFile)}  (${members.length} fns)`);
+    for (const f of members) { const spec = f.name.includes('@') ? f.bare : f.name; out.push(`${f.file}@${spec}`); }
+  }
+  fs.writeFileSync(emitPath, out.join('\n') + '\n');
+  console.error(`# wrote ${clusters.length} draft anchor group(s) to ${emitPath}  (${path.basename(indexPath)}, [file] mode, unranked)`);
+  process.exit(0);
 }
 
 // --- run ---------------------------------------------------------------------
