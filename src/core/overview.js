@@ -239,6 +239,123 @@ export function buildOverviewDeep(index) {
   };
 }
 
+// --- #285 Part A: OBSERVE-ONLY collection cross-cut coupling density ----------
+// The `isCollection` flag (buildOverviewFast) is a folder-SIZE heuristic that
+// mis-fires — ffmpeg (a tightly-coupled monorepo) gets flagged; a dump of many
+// SMALL independent projects (each <10% of files) gets missed. The real signal
+// is COUPLING: how much the top-level folders reference each other. This logs
+// that density ALONGSIDE the size verdict WITHOUT changing the flag (log-first;
+// graduate only after the density-vs-size disagreement is soaked against the
+// #285 validation matrix — ffmpeg HIGH → should un-flag; spinellis LOW → must
+// stay flagged; langchain HIGH → one project).
+//
+// Cheap by contract: parses import/include specifiers from each file's first
+// _CROSSCUT_HEAD_LINES lines (no whole-file scan, no call graph), and only when
+// file content (the literal index) is ALREADY loaded — it never triggers a load
+// itself, so it adds zero cost to the overview hot path. The deliberate soak
+// harness loads content explicitly. Multi-language so it covers the validated
+// corpora — C/C++ `#include "..."`, Python `from x import` / `import x`, JS/TS
+// quoted `import`/`require`.
+const _CROSSCUT_HEAD_LINES = 50;
+const _CROSSCUT_THRESHOLD = 0.15; // provisional: cross-folder ref fraction below this reads as a collection (tune during soak)
+export function collectionCrosscutSignal(index, sizeVerdict) {
+  const sv = sizeVerdict ? 'collection' : 'one-project';
+  const trace = (obj) => { try { console.error(`[collection-crosscut] ${Object.entries(obj).map(([k, v]) => `${k}=${v}`).join(' ')}`); } catch { /* ignore */ } };
+  try {
+    if (!index.fileLines || index.fileLines.size === 0) {
+      trace({ skipped: 'no-file-content', size: sv });
+      return { observeOnly: true, skipped: 'no-file-content', sizeVerdict: sv };
+    }
+    const files = [...index.files.keys()];
+    if (files.length < 2) return null;
+    const root = _commonRoot(files);
+    const strip = (fp) => (root && String(fp).startsWith(root)) ? String(fp).slice(root.length) : String(fp);
+    const folderOf = (fp) => _topSeg(strip(fp));
+    const folders = new Set(files.map(folderOf));
+
+    // Folders that are "substantial" (≥10% of files) — the size heuristic's own
+    // precondition. Cross-cut density is only a meaningful DISAMBIGUATOR when
+    // there are peer folders to cross: a single-dominant-folder project (x265's
+    // source/ = 83%, node-llama-cpp's dist/ = 88%) trivially has ~0 cross edges,
+    // so the density verdict is only ever consulted to OVERRIDE a size-positive
+    // (see `wouldUnflag`), never to raise a collection on a size-negative.
+    const folderFileCounts = new Map();
+    for (const fp of files) { const f = folderOf(fp); if (f !== '(root)') folderFileCounts.set(f, (folderFileCounts.get(f) || 0) + 1); }
+    const substantialFolders = [...folderFileCounts.values()].filter((c) => c / files.length >= 0.10).length;
+
+    // basename(no-ext) -> folders, to resolve bare specifiers (`#include "x.h"`).
+    const baseToFolders = new Map();
+    for (const fp of files) {
+      const b = path.basename(String(fp).replace(/\\/g, '/')).replace(/\.[^.]+$/, '');
+      if (b) (baseToFolders.get(b) || baseToFolders.set(b, new Set()).get(b)).add(folderOf(fp));
+    }
+    const resolveFolder = (spec, src) => {
+      if (!spec) return null;
+      let s = String(spec).trim();
+      if (!s) return null;
+      if (s.startsWith('.') && !s.includes('/')) return src;   // Python relative import → same project
+      s = s.replace(/^\.+\//, '').replace(/^\.+/, '');          // strip JS ./ ../ and Python leading dots
+      const seg = s.split(/[/.]/).filter(Boolean)[0];
+      if (seg && folders.has(seg)) return seg;                  // path-/package-qualified naming a known folder
+      const base = path.basename(s.replace(/\\/g, '/')).replace(/\.[^.]+$/, '');
+      const cand = baseToFolders.get(base);
+      if (cand && cand.size) return cand.has(src) ? src : [...cand][0];
+      return null;
+    };
+    // C #include "..." | Python `from X import` | Python `import X` | JS/TS quoted import/require.
+    const impRe = /#\s*include\s+"([^"]+)"|(?:^|\n)\s*from\s+([.\w]+)\s+import\b|(?:^|\n)\s*import\s+([.\w]+)|(?:from\s+|require\(\s*|import\s+)['"]([^'"]+)['"]/g;
+
+    let within = 0, cross = 0;
+    const crossByTarget = new Map();
+    const afferentSrcs = new Map(); // target -> Set(source folders); max fan-in = the shared kernel
+    for (const fp of files) {
+      const lines = index.fileLines.get(fp); if (!lines || !lines.length) continue;
+      const src = folderOf(fp);
+      const head = lines.slice(0, _CROSSCUT_HEAD_LINES).join('\n');
+      for (const mm of head.matchAll(impRe)) {
+        const tgt = resolveFolder(mm[1] || mm[2] || mm[3] || mm[4], src);
+        if (!tgt || !folders.has(tgt)) continue;
+        if (tgt === src) { within++; continue; }
+        cross++;
+        crossByTarget.set(tgt, (crossByTarget.get(tgt) || 0) + 1);
+        (afferentSrcs.get(tgt) || afferentSrcs.set(tgt, new Set()).get(tgt)).add(src);
+      }
+    }
+    const total = within + cross;
+    if (total === 0) { trace({ files: files.length, folders: folders.size, imports: 0, size: sv }); return { observeOnly: true, skipped: 'no-local-imports', sizeVerdict: sv }; }
+
+    // Shared-kernel exclusion — the folder imported by the MOST other folders is
+    // the universal sink. `crosscutFraction` KEEPS it (primary verdict);
+    // `peripheralFraction` DROPS edges into it, exposing whether the non-kernel
+    // folders couple to each other (ffmpeg: yes, cohesive; langchain: no, a
+    // hub-and-spoke that is arguably shardable). Caveat for the soak: this can't
+    // yet tell a UTILITY kernel (libavutil — safe to exclude) from an API-HUB
+    // kernel (langchain_core — excluding it hides the real coupling); that
+    // typing is Part B's sink detection.
+    let kernel = null, kernelFanIn = 0;
+    for (const [f, s] of afferentSrcs) if (s.size > kernelFanIn) { kernelFanIn = s.size; kernel = f; }
+    const crossPeripheral = cross - (kernel ? (crossByTarget.get(kernel) || 0) : 0);
+    const totalPeripheral = within + crossPeripheral;
+    const r2 = (x) => Math.round(x * 1000) / 1000;
+    const frac = r2(cross / total);
+    const peripheralFrac = totalPeripheral > 0 ? r2(crossPeripheral / totalPeripheral) : 0;
+    const densityVerdict = frac >= _CROSSCUT_THRESHOLD ? 'one-project' : 'collection';
+    // The PROPOSED graduated action: density only ever un-flags a size-positive
+    // whose folders turn out to be coupled (ffmpeg). Never flips a size-negative
+    // (guards the single-dominant-folder degenerate case above).
+    const wouldUnflag = sv === 'collection' && frac >= _CROSSCUT_THRESHOLD;
+    const signal = {
+      observeOnly: true,
+      crosscutFraction: frac, peripheralFraction: peripheralFrac,
+      within, cross, total, folders: folders.size, substantialFolders,
+      kernelFolder: kernel, kernelFanIn, threshold: _CROSSCUT_THRESHOLD,
+      sizeVerdict: sv, densityVerdict, agree: sv === densityVerdict, wouldUnflag,
+    };
+    trace({ files: files.length, folders: folders.size, substantial: substantialFolders, within, cross, frac, peripheralFrac, kernel: kernel || '-', fanin: kernelFanIn, size: sv, density: densityVerdict, wouldUnflag });
+    return signal;
+  } catch (e) { trace({ error: (e && e.message) || 'unknown', size: sv }); return { observeOnly: true, skipped: 'error', sizeVerdict: sv }; }
+}
+
 /**
  * Full orientation summary (fast + deep merged). Used by the CLI `--overview`
  * and the MCP `overview` tool, which are one-shot and can afford the deep cost;
@@ -257,6 +374,7 @@ export function buildOverview(index) {
     keyFiles: deep.keyFiles,
     entryPoints: deep.entryPoints,
     absence: [...deep.absence, ...fast.absence],
+    collectionSignal: collectionCrosscutSignal(index, fast.isCollection), // #285 Part A observe-only
     partial: false,
   };
 }
