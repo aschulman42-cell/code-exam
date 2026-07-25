@@ -465,6 +465,7 @@ export function parseArgs() {
     // #281: pseudo-claim generation (v1: explicit anchors)
     ['pseudo_claims',        'value',          ['--pseudo-claims']],
     ['pseudo_out',           'value',          ['--pseudo-out']],
+    ['dry_run',              'flag',           ['--dry-run']],
     ['use_claude',           'flag',           [], ['--use-claude']],
     ['llm',                  'value',          ['--llm']],
     ['openai_key',           'value',          ['--openai-key']],
@@ -1224,10 +1225,20 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              on #280). Output carries a non-removable PSEUDO /
                              non-admission caveat: it is NOT legal advice and NOT
                              an admission that any code practices any claim.
-                             (Scaffold: emits the caveat + evidence pack; LLM
-                             drafting lands next.)
+                             Drafts one claim per group via --llm
+                             claude|openai|gemini (keys from ANTHROPIC_API_KEY /
+                             OPENAI_API_KEY / GEMINI_API_KEY, same as the analyze
+                             commands) or a local GGUF (--model <gguf>, --cpu
+                             forces CPU); air-gap honored. Each cited anchor is
+                             grounded (must resolve to a real function) or
+                             dropped. With no model (or --dry-run) it stops after
+                             the evidence pack. (CE_OPENAI_API_URL still points
+                             the openai-compat wire at a localhost gateway.)
   --pseudo-out <file>        Write the pseudo-claims artifact to <file> (UTF-8)
                              instead of stdout.
+  --dry-run                  With --pseudo-claims: emit the caveat + evidence
+                             packs only, skipping the model draft even when one
+                             is configured.
 
 LLM ANALYSIS:
   --analyze <function>       Analyze a function with LLM ("what does this do?")
