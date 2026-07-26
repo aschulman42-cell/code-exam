@@ -20,7 +20,8 @@ export const GROUPER_DEFAULTS = {
   minComm: 3,           // a real group has >= this many functions
   concepts: 24,         // distinctive concepts seeded (extractConcepts)
   classes: 12,          // top-N substantial classes admitted by the class seed
-  overbroadPct: 0.20,   // a token owning > this fraction of candidates is a namespace, not a mechanism
+  overbroadPct: 0.20,   // over-broad by COUNT: a token owning > this fraction of candidates...
+  overbroadFileFrac: 0.25, // ...is a namespace ONLY if it also cross-cuts > this fraction of the corpus files
   fileMax: 20,          // residual FILE seed only considers files this small
   fileSeed: false,      // FILE seed is opt-in (firehoses on C++ — see the note below)
   maxFuncs: Infinity,   // cap candidates on huge indexes (0/Infinity = no cap)
@@ -106,9 +107,22 @@ function conceptSeededGroups(index, funcs, o) {
 // then a residual FILE seed (a small file whose leftover functions are its
 // majority) picks up the file-cohesive mechanism (scattered names, low-frequency
 // tokens) token+class can't see.
+
+// An over-broad token is a namespace/prefix (reject) only when it BOTH owns more
+// than `cap` candidates AND cross-cuts more than `spreadCap` files. A token that
+// owns a big fraction but concentrates in one/few files is a real mechanism
+// (deflate -> deflate.c), so it is KEPT — which is what lets a small corpus, where
+// every mechanism token exceeds the percentage cap, still produce groups (#284).
+export function isOverBroadNamespace(size, cap, fileCount, spreadCap) {
+  return size > cap && fileCount > spreadCap;
+}
+
 function multiSeedGroups(index, funcs, o) {
   const idxName = String(o.indexName || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
   const cap = Math.max(o.minComm, Math.floor((funcs.length || 1) * o.overbroadPct));
+  const totalFiles = new Set(funcs.map((f) => f.file)).size || 1;
+  const spreadCap = Math.max(3, Math.ceil(totalFiles * o.overbroadFileFrac)); // a namespace cross-cuts many files
+  const fileOf = new Map(funcs.map((f) => [f.id, f.file]));
   const assigned = new Map(); // funcId -> label
 
   // 1) TOKEN seeds — reject corpus-name and over-broad namespace concepts.
@@ -124,7 +138,11 @@ function multiSeedGroups(index, funcs, o) {
     for (const t of tokens) if (nameLc.includes(t) && rank.get(t) < bestRank) { bestRank = rank.get(t); best = t; }
     if (best) (tokGroups.get(best) || tokGroups.set(best, new Set()).get(best)).add(f.id);
   }
-  for (const [t, ids] of tokGroups) { if (ids.size > cap) continue; for (const id of ids) assigned.set(id, tlabel.get(t)); } // skip over-broad -> funcs fall through
+  for (const [t, ids] of tokGroups) {
+    const fileCount = new Set([...ids].map((id) => fileOf.get(id))).size;
+    if (isOverBroadNamespace(ids.size, cap, fileCount, spreadCap)) continue; // namespace/prefix -> funcs fall through
+    for (const id of ids) assigned.set(id, tlabel.get(t));
+  }
 
   // 2) CLASS seeds for the unassigned — methods of an indexed class only, so a
   // bare namespace (blink::) is NOT swept up as a class. Key by the LEAF class

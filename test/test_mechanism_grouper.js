@@ -9,7 +9,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { groupMechanisms } from '../src/core/mechanism-grouper.js';
+import { groupMechanisms, isOverBroadNamespace } from '../src/core/mechanism-grouper.js';
 
 describe('mechanism-grouper class-seed fixes', () => {
   const mk = (base, s) => ({ type: 'method', base_name: base, start: s, end: s + 9 }); // 10 lines >= minLines
@@ -53,5 +53,22 @@ describe('mechanism-grouper class-seed fixes', () => {
     const files = result.groups.flatMap((g) => g.members.map((m) => m.file));
     assert.ok(!files.some((f) => f.includes('widget_test')), 'widget_test.cpp leaked into a group');
     assert.ok(result.noiseFns >= 3, `expected the test file counted as noise; noiseFns=${result.noiseFns}`);
+  });
+});
+
+// Over-broad namespace rejection (#284 small-corpus fix): an over-cap token is a
+// namespace to reject ONLY if it ALSO cross-cuts many files. A concentrated
+// mechanism token is kept even when it owns a big fraction of a SMALL corpus —
+// which is what stops the grouper returning 0 groups on a small repo. (End-to-end
+// validated on a real 3-file zlib corpus: 0 -> 1 group. Not committed as an e2e
+// test — a tiny synthetic corpus doesn't surface concepts, and vendoring real
+// source is the bloat we removed — so the decision helper is the regression guard.)
+describe('over-broad namespace rejection', () => {
+  it('keeps a concentrated over-cap token, rejects a spread-out one', () => {
+    assert.equal(isOverBroadNamespace(23, 14, 1, 3), false);    // deflate-like: >cap but 1 file -> keep (the fixed misfire)
+    assert.equal(isOverBroadNamespace(6, 3, 1, 3), false);      // small-corpus dominant token, concentrated -> keep
+    assert.equal(isOverBroadNamespace(185, 160, 30, 26), true); // namespace: >cap AND many files -> reject
+    assert.equal(isOverBroadNamespace(10, 14, 20, 3), false);   // under cap -> keep regardless of spread
+    assert.equal(isOverBroadNamespace(50, 20, 3, 3), false);    // over cap but fileCount == spreadCap (not >) -> keep
   });
 });
