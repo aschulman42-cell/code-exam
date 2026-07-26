@@ -81,7 +81,7 @@ const isNoiseFile = (file) => {
   // filename-suffix conventions it misses — Google-style foo_test.cc /
   // foo_unittest.cc next to foo.cc (chromium), UnitTests.cs, jest/pytest/rspec.
   // Boundary-guarded so class files like TestActivity.java are NOT swept.
-  if (/(?:^|[._-])(?:(?:unit)?tests?|specs?)(?:[._-]|$)/i.test(base)) return true;
+  if (/(?:^|[._-])(?:(?:unit|browser|api)?tests?|specs?)(?:[._-]|$)/i.test(base)) return true;
   return /\/dist\//i.test(n) || /_old\d*[._-]|\.old$|_bak[._-]|~$/i.test(n); // dist output + dead/backup files
 };
 let emitNoiseFiles = 0, emitNoiseFns = 0;
@@ -447,11 +447,26 @@ function multiSeedGroups() {
   // (Lock, Event, MD5, SEI*) don't firehose — the big classes are the mechanisms.
   const classNames = new Set();
   for (const fns of Object.values(index.functionIndex || {})) for (const [full, info] of Object.entries(fns)) if (info && info.type === 'class') classNames.add((info.base_name || full.split('::').pop() || full).split('@')[0]);
-  const classMethods = new Map();
+  // Gather (leaf, parent) per method. Key by the LEAF class name so namespace-
+  // inconsistent index records merge (blink::Foo + bare Foo -> one Foo; the index
+  // records some methods qualified, some not). EXCEPT when a leaf is ambiguous —
+  // it appears under >=2 distinct non-empty parents (Builder: AlertDialog::Builder,
+  // Uri::Builder, KeyStore::Builder) — then key by parent::leaf so genuinely
+  // different nested classes stay separate instead of merging into one bogus group.
+  const leafParents = new Map(); const recs = [];
   for (const f of funcs) {
     if (assigned.has(f.id)) continue;
-    const ix = f.name.lastIndexOf('::');
-    if (ix > 0) { const cls = f.name.slice(0, ix).split('::').pop(); if (cls && classNames.has(cls)) (classMethods.get(cls) || classMethods.set(cls, []).get(cls)).push(f.id); }
+    const ix = f.name.lastIndexOf('::'); if (ix <= 0) continue;
+    const segs = f.name.slice(0, ix).split('::');
+    const leaf = segs[segs.length - 1], parent = segs.length >= 2 ? segs[segs.length - 2] : '';
+    if (!leaf || !classNames.has(leaf) || /(?:Test|Tests|TestCase|Fixture)$/.test(leaf)) continue; // non-class or gtest/junit harness
+    recs.push({ id: f.id, leaf, parent });
+    if (parent) (leafParents.get(leaf) || leafParents.set(leaf, new Set()).get(leaf)).add(parent);
+  }
+  const classMethods = new Map();
+  for (const r of recs) {
+    const key = ((leafParents.get(r.leaf)?.size || 0) >= 2 && r.parent) ? `${r.parent}::${r.leaf}` : r.leaf;
+    (classMethods.get(key) || classMethods.set(key, []).get(key)).push(r.id);
   }
   const nClasses = Number(arg('--classes', '')) || 12;
   for (const [cls, ids] of [...classMethods.entries()].filter(([, m]) => m.length >= MIN_COMM).sort((a, b) => b[1].length - a[1].length).slice(0, nClasses)) for (const id of ids) assigned.set(id, `[class] ${cls}`);
