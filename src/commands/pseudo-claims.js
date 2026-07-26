@@ -30,6 +30,7 @@ import { parseFuncSpec, claudeSupportsTemperature } from '../utils.js';
 import { assertLocalOnly, isLocalApiUrl, isAirGapped } from '../core/air-gapped.js';
 import { resolveProvider } from '../core/providers.js';
 import { openaiCompletionBudget, openaiSupportsTemperature, openaiText } from '../core/openai-util.js';
+import { groupMechanisms, formatAnchors, scoreGrouping, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
 
 // --- Canonical caveat blocks -------------------------------------------------
 // Ported verbatim from pseudo_claim_selftest/CAVEAT.md so the shipped command
@@ -380,12 +381,62 @@ function makeDrafter(model, temperature) {
 }
 
 /**
+ * `--pseudo-claims --candidates <path>` (#284 B1): emit an UNRANKED mechanism
+ * candidate anchors.lst via the deterministic grouper (mechanism-grouper.js),
+ * instead of drafting. `--group-by concept` selects the token-only baseline;
+ * `--file-seed` enables the opt-in residual file seed. `--ground-truth <gt.lst>`
+ * scores the candidates' recall/precision against a hand-authored anchor set (a
+ * dev path) instead of writing candidates. This is the front half of the pipeline
+ * whose ranked one-command form is the future `--pseudo-claims --auto` (B2).
+ */
+export function doEmitCandidates(index, args) {
+  const indexName = String(args.index_path || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '?';
+  let result;
+  try {
+    result = groupMechanisms(index, {
+      indexName,
+      mode: args.group_by === 'concept' ? 'concept' : 'multi',
+      fileSeed: !!args.file_seed,
+    });
+  } catch (e) {
+    console.error(`--pseudo-claims --candidates: grouping failed: ${e.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // --ground-truth: score instead of emit (dev path).
+  if (args.ground_truth) {
+    let gtText;
+    try { gtText = fs.readFileSync(args.ground_truth, 'utf8'); }
+    catch (e) { console.error(`--ground-truth: cannot read '${args.ground_truth}': ${e.message}`); process.exitCode = 1; return; }
+    const s = scoreGrouping(index, result, gtText);
+    console.log(`# mechanism-grouper score  index=${indexName}  group-by=${result.mode}  candidates=${result.groups.length} groups`);
+    console.log(`# ground-truth: ${s.gtGroups} groups, ${s.scored} scored  avgRecall=${s.avgRecall.toFixed(2)} avgPrecision=${s.avgPrecision.toFixed(2)}`);
+    for (const r of s.rows) {
+      if (r.note) { console.log(`   ${r.label}: ${r.note}`); continue; }
+      console.log(`   ${r.recall.toFixed(2)}R ${r.precision.toFixed(2)}P  ${r.together}/${r.resolved} together, in a cluster of ${r.clusterSize}  — ${r.label.slice(0, 58)}`);
+    }
+    return;
+  }
+
+  const text = formatAnchors(result, { indexName, minComm: GROUPER_DEFAULTS.minComm });
+  const outPath = (args.candidates && args.candidates !== '-' && args.candidates !== '.') ? args.candidates : null;
+  if (outPath) {
+    fs.writeFileSync(outPath, text, 'utf8');
+    console.error(`# wrote ${result.groups.length} candidate group(s) to ${outPath}  (${indexName}, group-by=${result.mode}, unranked; pre-filtered ${result.noiseFiles} noise files / ${result.noiseFns} fns)`);
+  } else {
+    process.stdout.write(text);
+  }
+}
+
+/**
  * Handle `--pseudo-claims <anchors>`. Partitions anchors into groups (one
  * pseudo-claim each), resolves + extracts each, assembles a bounded evidence
  * pack per group, then either prints the packs (--dry-run / no model) or drafts
  * one grounded pseudo-claim per pack. Sets process.exitCode on error.
  */
 export async function doPseudoClaims(index, args) {
+  if (args.candidates || args.ground_truth) { doEmitCandidates(index, args); return; }
   const spec = args.pseudo_claims;
 
   let groups;

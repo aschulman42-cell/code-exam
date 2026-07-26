@@ -1,0 +1,242 @@
+// mechanism-grouper.js — #284 B1 candidate-emitter.
+//
+// Deterministic (no LLM) clustering of an index's functions into candidate
+// mechanism groups, emitted as a `# Label` + `file@func` anchors.lst that
+// `--pseudo-claims` consumes. This is the mechanical baseline the later #284
+// seams lift; it does NOT rank worthiness (that is the bounded-LLM seam), detect
+// collections (#285), or resolve anchor grammar (#286) — the emitted set is
+// UNRANKED; a human hand-selects the claim-worthy.
+//
+// Validated across a dozen corpora (see pcrun_save_072526/_MAP.md). Ported from
+// scripts/grouper-prototype.mjs; the graph-decomposition experiment in that
+// prototype (label propagation / Louvain) FAILED and was intentionally left
+// behind — only the multi-seed path graduates here.
+
+import { isIntrinsicName, extractConcepts, _isNoiseDoc } from './vocabulary.js';
+
+export const GROUPER_DEFAULTS = {
+  mode: 'multi',        // 'multi' (token+class+optional file) | 'concept' (token-only baseline)
+  minLines: 4,          // skip one-liner getters/wrappers
+  minComm: 3,           // a real group has >= this many functions
+  concepts: 24,         // distinctive concepts seeded (extractConcepts)
+  classes: 12,          // top-N substantial classes admitted by the class seed
+  overbroadPct: 0.20,   // a token owning > this fraction of candidates is a namespace, not a mechanism
+  fileMax: 20,          // residual FILE seed only considers files this small
+  fileSeed: false,      // FILE seed is opt-in (firehoses on C++ — see the note below)
+  maxFuncs: Infinity,   // cap candidates on huge indexes (0/Infinity = no cap)
+};
+
+// Mechanical noise pre-filter: drop whole noise files (test / vendor / minified /
+// build / lockfile via the shared _isNoiseDoc, plus dist/ output, dead/backup
+// files, and Google-style foo_unittest.cc / foo_browsertest.cc suffixes) from the
+// candidate set. JUNK REMOVAL ONLY. CAVEAT: this is a BLUNT cut — some dropped
+// categories (testing frameworks especially) can be patentable; anything filtered
+// here is invisible to a later worthiness stage forever. Revisit as tag-and-demote
+// if that matters.
+export function isNoiseFile(file) {
+  if (_isNoiseDoc(file, null)) return true;
+  const n = String(file).replace(/\\/g, '/');
+  const base = n.slice(n.lastIndexOf('/') + 1);
+  if (/(?:^|[._-])(?:(?:unit|browser|api)?tests?|specs?)(?:[._-]|$)/i.test(base)) return true;
+  return /\/dist\//i.test(n) || /_old\d*[._-]|\.old$|_bak[._-]|~$/i.test(n);
+}
+
+// Enumerate candidate functions from the index's functionIndex: skip noise files,
+// class-declaration entries, intrinsics, and sub-MIN_LINES one-liners. Returns
+// the candidate list + a byId map + the noise-file/function counts.
+export function enumerateFuncs(index, opts = {}) {
+  const o = { ...GROUPER_DEFAULTS, ...opts };
+  index._ensureFunctionIndex?.();
+  const funcs = [];
+  const byId = new Map();
+  let noiseFiles = 0, noiseFns = 0;
+  for (const [file, fns] of Object.entries(index.functionIndex || {})) {
+    if (isNoiseFile(file)) { noiseFiles++; noiseFns += Object.keys(fns).length; continue; }
+    for (const [full, info] of Object.entries(fns)) {
+      if ((info.type || 'function') === 'class') continue;
+      const bare = (info.base_name || full.split('::').pop() || '').split('@')[0];
+      if (!bare || isIntrinsicName(bare)) continue;
+      const lines = (info.end || 0) - (info.start || 0) + 1;
+      if (lines < o.minLines) continue;
+      const id = `${file}@${full}`;
+      const f = { id, file, name: full, bare, start: info.start, end: info.end, lines };
+      funcs.push(f); byId.set(id, f);
+    }
+  }
+  // Optional cap for huge indexes; keep ground-truth files fully in the set when
+  // scoring so recall isn't capped by truncation.
+  if (Number.isFinite(o.maxFuncs) && o.maxFuncs > 0 && funcs.length > o.maxFuncs) {
+    let keep;
+    if (opts.gtFiles && opts.gtFiles.size) {
+      const inGt = funcs.filter((f) => opts.gtFiles.has(f.file));
+      const rest = funcs.filter((f) => !opts.gtFiles.has(f.file)).slice(0, Math.max(0, o.maxFuncs - inGt.length));
+      keep = [...inGt, ...rest];
+    } else keep = funcs.slice(0, o.maxFuncs);
+    funcs.length = 0; funcs.push(...keep);
+    byId.clear(); for (const f of funcs) byId.set(f.id, f);
+  }
+  return { funcs, byId, noiseFiles, noiseFns };
+}
+
+// TOKEN-only baseline (`--group-by concept`): seed from CE's cross-corpus-
+// distinctive concepts, gather each concept's members by name-token match, one
+// function per highest-ranked matching concept.
+function conceptSeededGroups(index, funcs, o) {
+  let concepts = [];
+  try { concepts = extractConcepts(index, { maxConcepts: o.concepts }) || []; } catch { concepts = []; }
+  const rank = new Map(), label = new Map();
+  concepts.forEach((c, i) => {
+    const t = String(c.concept || '').toLowerCase();
+    if (t.length >= 3 && !rank.has(t)) { rank.set(t, i); label.set(t, c.example ? `${c.concept} (${c.example})` : c.concept); }
+  });
+  const tokens = [...rank.keys()];
+  const groups = new Map();
+  for (const f of funcs) {
+    const nameLc = f.bare.toLowerCase();
+    let bestTok = null, bestRank = Infinity;
+    for (const t of tokens) if (nameLc.includes(t) && rank.get(t) < bestRank) { bestRank = rank.get(t); bestTok = t; }
+    if (bestTok) (groups.get(bestTok) || groups.set(bestTok, new Set()).get(bestTok)).add(f.id);
+  }
+  return [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([tok, ids]) => ({ label: label.get(tok) || tok, ids }));
+}
+
+// Multi-seed grouping (default): a "seed" is any distinctive COHESION UNIT. TOKEN
+// seed (name-token, cross-file) first, rejecting corpus-name and over-broad
+// namespace concepts; then CLASS seed (methods of a substantial indexed class);
+// then a residual FILE seed (a small file whose leftover functions are its
+// majority) picks up the file-cohesive mechanism (scattered names, low-frequency
+// tokens) token+class can't see.
+function multiSeedGroups(index, funcs, o) {
+  const idxName = String(o.indexName || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const cap = Math.max(o.minComm, Math.floor((funcs.length || 1) * o.overbroadPct));
+  const assigned = new Map(); // funcId -> label
+
+  // 1) TOKEN seeds — reject corpus-name and over-broad namespace concepts.
+  let concepts = [];
+  try { concepts = extractConcepts(index, { maxConcepts: o.concepts }) || []; } catch { /* */ }
+  const rank = new Map(), tlabel = new Map();
+  concepts.forEach((c, i) => { const t = String(c.concept || '').toLowerCase(); if (t.length >= 3 && !rank.has(t) && !(idxName && idxName.includes(t))) { rank.set(t, i); tlabel.set(t, c.example ? `${c.concept} (${c.example})` : c.concept); } });
+  const tokens = [...rank.keys()];
+  const tokGroups = new Map();
+  for (const f of funcs) {
+    const nameLc = f.bare.toLowerCase();
+    let best = null, bestRank = Infinity;
+    for (const t of tokens) if (nameLc.includes(t) && rank.get(t) < bestRank) { bestRank = rank.get(t); best = t; }
+    if (best) (tokGroups.get(best) || tokGroups.set(best, new Set()).get(best)).add(f.id);
+  }
+  for (const [t, ids] of tokGroups) { if (ids.size > cap) continue; for (const id of ids) assigned.set(id, tlabel.get(t)); } // skip over-broad -> funcs fall through
+
+  // 2) CLASS seeds for the unassigned — methods of an indexed class only, so a
+  // bare namespace (blink::) is NOT swept up as a class. Key by the LEAF class
+  // name so namespace-inconsistent index records merge (blink::Foo + bare Foo ->
+  // one Foo), EXCEPT when a leaf is ambiguous (>=2 distinct non-empty parents:
+  // AlertDialog::Builder, Uri::Builder) -> key by parent::leaf. Drop gtest/junit
+  // harness classes. Gate to the top-N substantial classes (by method count) so a
+  // codec's ~50 utility/data classes (Lock, Event, MD5, SEI*) don't firehose.
+  const classNames = new Set();
+  for (const fns of Object.values(index.functionIndex || {})) for (const [full, info] of Object.entries(fns)) if (info && info.type === 'class') classNames.add((info.base_name || full.split('::').pop() || full).split('@')[0]);
+  const leafParents = new Map(); const recs = [];
+  for (const f of funcs) {
+    if (assigned.has(f.id)) continue;
+    const ix = f.name.lastIndexOf('::'); if (ix <= 0) continue;
+    const segs = f.name.slice(0, ix).split('::');
+    const leaf = segs[segs.length - 1], parent = segs.length >= 2 ? segs[segs.length - 2] : '';
+    if (!leaf || !classNames.has(leaf) || /(?:Test|Tests|TestCase|Fixture)$/.test(leaf)) continue;
+    recs.push({ id: f.id, leaf, parent });
+    if (parent) (leafParents.get(leaf) || leafParents.set(leaf, new Set()).get(leaf)).add(parent);
+  }
+  const classMethods = new Map();
+  for (const r of recs) {
+    const key = ((leafParents.get(r.leaf)?.size || 0) >= 2 && r.parent) ? `${r.parent}::${r.leaf}` : r.leaf;
+    (classMethods.get(key) || classMethods.set(key, []).get(key)).push(r.id);
+  }
+  for (const [cls, ids] of [...classMethods.entries()].filter(([, m]) => m.length >= o.minComm).sort((a, b) => b[1].length - a[1].length).slice(0, o.classes)) for (const id of ids) assigned.set(id, `[class] ${cls}`);
+
+  // 3) FILE seed (OPT-IN) — a SMALL file whose leftover (unassigned) functions are
+  // its MAJORITY is one cohesive mechanism (scattered names token+class miss).
+  // OFF by default: residual file-cohesion can't tell a distinctive mechanism from
+  // an ordinary module or a codec kernel file, so it firehoses on C++ (~50
+  // file-groups). The clean signal is import/export fan-out — the deferred
+  // import/resource seed — not raw co-location.
+  if (o.fileSeed) {
+    const byFileU = new Map();
+    for (const f of funcs) { const e = byFileU.get(f.file) || byFileU.set(f.file, { total: 0, un: [] }).get(f.file); e.total++; if (!assigned.has(f.id)) e.un.push(f.id); }
+    const base = (fp) => { const s = String(fp).replace(/\\/g, '/'); return s.slice(s.lastIndexOf('/') + 1); };
+    for (const [file, e] of byFileU) if (e.un.length >= o.minComm && e.total <= o.fileMax && e.un.length * 2 >= e.total) for (const id of e.un) assigned.set(id, `[file] ${base(file)}`);
+  }
+
+  const groups = new Map();
+  for (const [id, lbl] of assigned) (groups.get(lbl) || groups.set(lbl, new Set()).get(lbl)).add(id);
+  return [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([lbl, ids]) => ({ label: lbl, ids }));
+}
+
+// Group an index's functions into candidate mechanism groups. Returns
+// { groups: [{label, ids:Set, members:[func]}], funcs, byId, noiseFiles, noiseFns, mode }.
+export function groupMechanisms(index, opts = {}) {
+  const o = { ...GROUPER_DEFAULTS, ...opts };
+  const { funcs, byId, noiseFiles, noiseFns } = enumerateFuncs(index, o);
+  const raw = o.mode === 'concept' ? conceptSeededGroups(index, funcs, o) : multiSeedGroups(index, funcs, o);
+  const groups = raw
+    .map((g) => ({ label: g.label, ids: g.ids, members: [...g.ids].map((id) => byId.get(id)).filter(Boolean) }))
+    .sort((a, b) => b.ids.size - a.ids.size);
+  return { groups, funcs, byId, noiseFiles, noiseFns, mode: o.mode };
+}
+
+// Render grouping output as a draft anchors.lst (the grammar --pseudo-claims parses).
+export function formatAnchors(result, meta = {}) {
+  const { groups, noiseFiles, noiseFns } = result;
+  const minComm = meta.minComm ?? GROUPER_DEFAULTS.minComm;
+  const out = [`# mechanism-grouper  index=${meta.indexName || '?'}  group-by=${result.mode}  ${groups.length} groups (>= ${minComm} fns), ${noiseFiles} noise files (${noiseFns} fns) pre-filtered — UNRANKED draft; hand-select the claim-worthy`];
+  for (const g of groups) {
+    out.push('', `# ${g.label}  (${g.members.length} fns)`);
+    for (const f of g.members) { const spec = f.name.includes('@') ? f.bare : f.name; out.push(`${f.file}@${spec}`); }
+  }
+  return out.join('\n') + '\n';
+}
+
+// --- ground-truth scoring (dev / test path) ---------------------------------
+// GT-scoring split (legal gate): the ground-truth text is CALLER-SUPPLIED. The
+// committed test scores only against Class-B PUBLIC fixtures in
+// scripts/fixtures/grouper/. The Class-A claim-derived ground truth
+// (ce_anchors.lst, bram_anchors.lst) is gitignored (root `/*.lst`) and stays
+// local — never reference it from shipped code or committed tests.
+// Resolve a ground-truth anchors.lst (`# Label` + `file@func`) against the index.
+export function loadGroundTruth(index, text) {
+  index._ensureFunctionIndex?.();
+  const groups = []; let cur = null;
+  for (const raw of String(text).split(/\r?\n/)) {
+    const line = raw.trim(); if (!line) continue;
+    if (line.startsWith('#')) { cur = { label: line.replace(/^#+/, '').trim(), ids: new Set(), specs: [], unresolved: [] }; groups.push(cur); continue; }
+    if (!cur) { cur = { label: '(implicit)', ids: new Set(), specs: [], unresolved: [] }; groups.push(cur); }
+    cur.specs.push(line);
+    let fileHint = null, funcName = line;
+    if (line.includes('@')) { const at = line.lastIndexOf('@'); const before = line.slice(0, at), after = line.slice(at + 1); if (!/^\d+$/.test(after)) { fileHint = before; funcName = after; } }
+    const ms = index.findFunctionMatches(funcName, fileHint);
+    if (ms && ms.length === 1) cur.ids.add(`${ms[0].filepath}@${ms[0].name}`);
+    else cur.unresolved.push(line + (ms && ms.length > 1 ? ' (ambig)' : ' (miss)'));
+  }
+  return groups.filter((g) => g.ids.size + g.unresolved.length > 0);
+}
+
+// For each ground-truth group, find the best-matching candidate cluster and
+// compute recall (fraction of the mechanism kept together) + precision (purity).
+export function evaluate(clusters, gtGroups) {
+  const rows = []; let sumR = 0, sumP = 0, n = 0;
+  for (const g of gtGroups) {
+    if (g.ids.size === 0) { rows.push({ label: g.label, note: 'no anchors resolved' }); continue; }
+    let best = null, bestOv = -1;
+    for (const c of clusters) { let ov = 0; for (const id of g.ids) if (c.has(id)) ov++; if (ov > bestOv) { bestOv = ov; best = c; } }
+    const recall = bestOv / g.ids.size;
+    const precision = best ? bestOv / best.size : 0;
+    sumR += recall; sumP += precision; n++;
+    rows.push({ label: g.label, resolved: g.ids.size, together: bestOv, clusterSize: best ? best.size : 0, recall, precision });
+  }
+  return { rows, avgRecall: n ? sumR / n : 0, avgPrecision: n ? sumP / n : 0, scored: n };
+}
+
+// Score a grouping result against a ground-truth anchors.lst string.
+export function scoreGrouping(index, result, gtText) {
+  const gt = loadGroundTruth(index, gtText);
+  const ev = evaluate(result.groups.map((g) => g.ids), gt);
+  return { ...ev, gtGroups: gt.length };
+}

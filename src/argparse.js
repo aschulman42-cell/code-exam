@@ -294,6 +294,10 @@ export function parseArgs() {
     show_tokens: false,
     build_fp_renames: null,
     dry_run: false,
+    candidates: null,
+    ground_truth: null,
+    group_by: null,
+    file_seed: false,
     fp_classes: false,
     save_fingerprints: null,
     load_fingerprints: null,  // populated as array by 'list' parser
@@ -463,8 +467,14 @@ export function parseArgs() {
     ['claim_search',         'value',          ['--claim-search']],
     ['claim_file',           'value',          ['--claim-file']],
     // #281: pseudo-claim generation (v1: explicit anchors)
-    ['pseudo_claims',        'value',          ['--pseudo-claims']],
+    ['pseudo_claims',        'optional_value', ['--pseudo-claims']],
     ['pseudo_out',           'value',          ['--pseudo-out']],
+    // #284 B1: --pseudo-claims --candidates <path> emits an UNRANKED mechanism
+    // candidate anchors.lst (mechanism-grouper) instead of drafting.
+    ['candidates',           'value',          ['--candidates']],
+    ['ground_truth',         'value',          ['--ground-truth']],
+    ['group_by',             'value',          ['--group-by']],
+    ['file_seed',            'flag',           ['--file-seed']],
     ['dry_run',              'flag',           ['--dry-run']],
     ['use_claude',           'flag',           [], ['--use-claude']],
     ['llm',                  'value',          ['--llm']],
