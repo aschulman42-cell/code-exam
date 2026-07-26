@@ -382,6 +382,11 @@ export async function doPseudoClaims(index, args) {
     return;
   }
   const dryRun = !!args.dry_run || !model;
+  // Evidence pack in the OUTPUT artifact: absent by default (keeps --pseudo-claims
+  // lean); shown on --dry-run (the pack IS that mode's deliverable) or with
+  // --include-evidence-pack. The model ALWAYS receives the pack as INPUT
+  // (buildPack -> drafter, below) — this flag only controls the artifact.
+  const showPack = dryRun || !!args.include_evidence_pack;
   const temperature = args.temperature ?? 0.2;
   const modelDesc = !model ? '' : model.kind === 'gguf' ? `local GGUF ${model.modelPath}` : `${model.label} (${model.model})`;
 
@@ -425,7 +430,7 @@ export async function doPseudoClaims(index, args) {
   if (dryRun) {
     out.push(`_Deterministic scaffold (dry run): below is the exact, size-capped evidence pack a model would be handed — one per pseudo-claim (${withAnchors.length}). To draft, pass \`--model <gguf>\` or set \`CE_OPENAI_API_URL\` (drop \`--dry-run\`)._`);
   } else {
-    out.push(`_Drafted from ${withAnchors.length} evidence pack(s) via ${modelDesc}. Each claim's cited anchors are **grounded** — verified to resolve to a real function in the index; ungrounded citations are dropped. The evidence pack the draft was grounded in follows each claim._`);
+    out.push(`_Drafted from ${withAnchors.length} evidence pack(s) via ${modelDesc}. Each claim's cited anchors are **grounded** — verified to resolve to a real function in the index; ungrounded citations are dropped.${showPack ? ' The evidence pack the draft was grounded in follows each claim.' : ' Pass --include-evidence-pack to append each claim\'s evidence pack.'}_`);
   }
   out.push('');
 
@@ -456,28 +461,29 @@ export async function doPseudoClaims(index, args) {
         }
         out.push('');
       }
-      out.push('### Evidence pack (the code this draft was grounded in)');
+      if (showPack) out.push('### Evidence pack (the code this draft was grounded in)');
     } else {
       out.push(`### Anchors (${s.resolved.length})`);
       out.push('');
       for (const a of s.resolved) {
         out.push(`- \`${a.filepath}@${a.name}\` — L${a.start}-${a.end} (${a.end - a.start + 1} lines)`);
       }
-      out.push('');
-      out.push('### Evidence pack');
+      if (showPack) out.push('', '### Evidence pack');
     }
 
-    out.push('');
-    if (s.truncatedAnchors.length) {
-      out.push(`_Truncated to the ${PACK_PER_ANCHOR_CHARS}-char per-anchor cap: ${s.truncatedAnchors.map((x) => `\`${x}\``).join(', ')}._`);
+    if (showPack) {
+      out.push('');
+      if (s.truncatedAnchors.length) {
+        out.push(`_Truncated to the ${PACK_PER_ANCHOR_CHARS}-char per-anchor cap: ${s.truncatedAnchors.map((x) => `\`${x}\``).join(', ')}._`);
+        out.push('');
+      }
+      if (s.droppedForBudget) {
+        out.push(`_${s.droppedForBudget} anchor(s) omitted after the ${PACK_TOTAL_CHARS}-char per-claim pack budget was reached._`);
+        out.push('');
+      }
+      out.push(s.pack);
       out.push('');
     }
-    if (s.droppedForBudget) {
-      out.push(`_${s.droppedForBudget} anchor(s) omitted after the ${PACK_TOTAL_CHARS}-char per-claim pack budget was reached._`);
-      out.push('');
-    }
-    out.push(s.pack);
-    out.push('');
   });
   out.push(PSEUDO_CLAIM_CAVEAT_C);
 

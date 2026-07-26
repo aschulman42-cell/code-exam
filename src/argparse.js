@@ -299,6 +299,7 @@ export function parseArgs() {
     group_by: null,
     file_seed: false,
     rank: false,
+    include_evidence_pack: false,
     fp_classes: false,
     save_fingerprints: null,
     load_fingerprints: null,  // populated as array by 'list' parser
@@ -477,6 +478,7 @@ export function parseArgs() {
     ['group_by',             'value',          ['--group-by']],
     ['file_seed',            'flag',           ['--file-seed']],
     ['rank',                 'flag',           ['--rank']],
+    ['include_evidence_pack', 'flag',          ['--include-evidence-pack']],
     ['dry_run',              'flag',           ['--dry-run']],
     ['use_claude',           'flag',           [], ['--use-claude']],
     ['llm',                  'value',          ['--llm']],
@@ -1232,9 +1234,10 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              line starts a new claim, so one file yields many
                              claims). Each anchor must resolve to a real function
                              in the index; unresolved/ambiguous anchors are
-                             dropped with a message. v1 is EXPLICIT-ANCHOR ONLY —
-                             CE does not auto-discover anchors (deferred, gated
-                             on #280). Output carries a non-removable PSEUDO /
+                             dropped with a message. Anchors may be supplied
+                             explicitly OR auto-discovered with --candidates
+                             (below); worthiness ranking (--auto) is still
+                             deferred. Output carries a non-removable PSEUDO /
                              non-admission caveat: it is NOT legal advice and NOT
                              an admission that any code practices any claim.
                              Drafts one claim per group via --llm
@@ -1251,6 +1254,24 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
   --dry-run                  With --pseudo-claims: emit the caveat + evidence
                              packs only, skipping the model draft even when one
                              is configured.
+  --candidates <file>        With --pseudo-claims: AUTO-DISCOVER unranked candidate
+                             mechanism groups (deterministic, no LLM) → <file>;
+                             hand-prune, then --pseudo-claims @<file> --dry-run.
+  --group-by <mode>          With --candidates: 'multi' (default: name-token +
+                             class seeds) | 'concept' (token-only baseline).
+  --file-seed                With --candidates: add residual per-file groups
+                             (opt-in; noisy on large C/C++ trees).
+  --rank                     With --candidates: score each candidate's exploration
+                             PRIORITY via --llm/--model, emit sorted + tagged
+                             (observe-only; a surface heuristic to order where to
+                             look first, NOT a novelty/worth judgment).
+  --ground-truth <file>      With --candidates: score candidate recall/precision
+                             vs a hand-authored anchors.lst (dev/eval) instead of
+                             writing candidates.
+  --include-evidence-pack    With --pseudo-claims: append each claim's evidence
+                             pack to the drafted output (absent by default;
+                             --dry-run always shows it). The model receives the
+                             pack as input regardless.
 
 LLM ANALYSIS:
   --analyze <function>       Analyze a function with LLM ("what does this do?")
