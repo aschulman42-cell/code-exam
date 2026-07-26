@@ -298,6 +298,7 @@ export function parseArgs() {
     ground_truth: null,
     group_by: null,
     file_seed: false,
+    rank: false,
     fp_classes: false,
     save_fingerprints: null,
     load_fingerprints: null,  // populated as array by 'list' parser
@@ -475,6 +476,7 @@ export function parseArgs() {
     ['ground_truth',         'value',          ['--ground-truth']],
     ['group_by',             'value',          ['--group-by']],
     ['file_seed',            'flag',           ['--file-seed']],
+    ['rank',                 'flag',           ['--rank']],
     ['dry_run',              'flag',           ['--dry-run']],
     ['use_claude',           'flag',           [], ['--use-claude']],
     ['llm',                  'value',          ['--llm']],
