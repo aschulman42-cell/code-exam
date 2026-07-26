@@ -380,34 +380,66 @@ function evaluate(clusters, groups) {
   return { rows, avgRecall: n ? sumR / n : 0, avgPrecision: n ? sumP / n : 0 };
 }
 
-// --- --emit-anchors: write [file]-mode clusters as a draft anchors.lst -------
-// The connector to --pseudo-claims (#284): turn [file]-mode clusters (the
-// co-location workhorse — richer edge sets over-merge, per the corpus study)
-// into the exact `# Label` + file@func format collectAnchorGroups parses. NO
-// worthiness ranking here — the point of the curated-dozen loop is to see the
-// unranked firehose and hand-select. Each group is concept-labeled via the
-// shared extractConcepts so it reads as a subject, not "group N".
+// --- --emit-anchors: write concept-seeded groups as a draft anchors.lst -------
+// The connector to --pseudo-claims (#284). group-by=concept (default, the method
+// validated by the by-hand dozen run, pcrun_save_072526): TOP-DOWN from CE's
+// cross-corpus-distinctive concepts — seed via extractConcepts (the ranker
+// overview uses), gather each concept's members by name-token match, one function
+// per highest-ranked concept. group-by=file is the interim per-file baseline for
+// comparison. NO worthiness ranking, collection partition (#285), or anchor-
+// grammar disambiguation (#286) here — this is the mechanical baseline those
+// follow-ups lift; hand-select the claim-worthy from the output.
+function conceptSeededGroups() {
+  const nConcepts = Number(arg('--concepts', '')) || 24;
+  let concepts = [];
+  try { concepts = extractConcepts(index, { maxConcepts: nConcepts }) || []; } catch { concepts = []; }
+  const rank = new Map();   // concept token (lc) -> rank (0 = most distinctive)
+  const label = new Map();  // token -> display label
+  concepts.forEach((c, i) => {
+    const t = String(c.concept || '').toLowerCase();
+    if (t.length >= 3 && !rank.has(t)) { rank.set(t, i); label.set(t, c.example ? `${c.concept} (${c.example})` : c.concept); }
+  });
+  const tokens = [...rank.keys()];
+  const groups = new Map();  // token -> Set(ids)
+  for (const f of funcs) {
+    const nameLc = f.bare.toLowerCase();
+    let bestTok = null, bestRank = Infinity;
+    for (const t of tokens) { if (nameLc.includes(t) && rank.get(t) < bestRank) { bestRank = rank.get(t); bestTok = t; } }
+    if (bestTok) (groups.get(bestTok) || groups.set(bestTok, new Set()).get(bestTok)).add(f.id);
+  }
+  return [...groups.entries()]
+    .filter(([, ids]) => ids.size >= MIN_COMM)
+    .map(([tok, ids]) => ({ label: label.get(tok) || tok, ids }));
+}
 if (emitPath) {
   const shortFile = (fp) => { const s = String(fp).replace(/\\/g, '/'); const t = s.includes('!') ? s.slice(s.indexOf('!') + 1) : s; return t.length > 64 ? '…' + t.slice(-63) : t; };
-  const clusters = clusterByFile(false)                       // [file] mode is the clean default
-    .filter((c) => c.size >= MIN_COMM)
-    .sort((a, b) => b.size - a.size);
-  const out = [`# grouper --emit-anchors  index=${path.basename(indexPath)}  mode=[file]  ${clusters.length} groups (>= ${MIN_COMM} fns), ${emitNoiseFiles} noise files (${emitNoiseFns} fns) pre-filtered — UNRANKED draft; hand-select the claim-worthy`];
-  for (const c of clusters) {
-    const members = [...c].map((id) => byId.get(id)).filter(Boolean);
-    const fc = new Map();
-    for (const f of members) fc.set(f.file, (fc.get(f.file) || 0) + 1);
-    const domFile = [...fc.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    let concept = '';
-    try {
-      const entries = members.map((f) => ({ token: f.bare, score: 1, top_files: [{ path: f.file }] }));
-      concept = extractConcepts(index, { entries, maxConcepts: 2 }).filter((x) => x && x.concept).map((x) => x.concept).join('/');
-    } catch { /* fall back to the file name */ }
-    out.push('', `# ${concept ? concept + ' — ' : ''}${shortFile(domFile)}  (${members.length} fns)`);
+  const groupBy = arg('--group-by', 'concept');            // 'concept' (validated) | 'file' (interim baseline for comparison)
+  let groups;
+  if (groupBy === 'file') {
+    groups = clusterByFile(false).filter((c) => c.size >= MIN_COMM).map((c) => {
+      const members = [...c].map((id) => byId.get(id)).filter(Boolean);
+      const fc = new Map();
+      for (const f of members) fc.set(f.file, (fc.get(f.file) || 0) + 1);
+      const domFile = [...fc.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      let concept = '';
+      try {
+        const entries = members.map((f) => ({ token: f.bare, score: 1, top_files: [{ path: f.file }] }));
+        concept = extractConcepts(index, { entries, maxConcepts: 2 }).filter((x) => x && x.concept).map((x) => x.concept).join('/');
+      } catch { /* fall back to the file name */ }
+      return { label: `${concept ? concept + ' — ' : ''}${shortFile(domFile)}`, ids: c };
+    });
+  } else {
+    groups = conceptSeededGroups();
+  }
+  groups.sort((a, b) => b.ids.size - a.ids.size);
+  const out = [`# grouper --emit-anchors  index=${path.basename(indexPath)}  group-by=${groupBy}  ${groups.length} groups (>= ${MIN_COMM} fns), ${emitNoiseFiles} noise files (${emitNoiseFns} fns) pre-filtered — UNRANKED draft; hand-select the claim-worthy`];
+  for (const g of groups) {
+    const members = [...g.ids].map((id) => byId.get(id)).filter(Boolean);
+    out.push('', `# ${g.label}  (${members.length} fns)`);
     for (const f of members) { const spec = f.name.includes('@') ? f.bare : f.name; out.push(`${f.file}@${spec}`); }
   }
   fs.writeFileSync(emitPath, out.join('\n') + '\n');
-  console.error(`# wrote ${clusters.length} draft anchor group(s) to ${emitPath}  (${path.basename(indexPath)}, [file] mode, unranked; pre-filtered ${emitNoiseFiles} noise files / ${emitNoiseFns} fns)`);
+  console.error(`# wrote ${groups.length} draft anchor group(s) to ${emitPath}  (${path.basename(indexPath)}, group-by=${groupBy}, unranked; pre-filtered ${emitNoiseFiles} noise files / ${emitNoiseFns} fns)`);
   process.exit(0);
 }
 
