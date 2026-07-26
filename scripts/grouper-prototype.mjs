@@ -411,9 +411,78 @@ function conceptSeededGroups() {
     .filter(([, ids]) => ids.size >= MIN_COMM)
     .map(([tok, ids]) => ({ label: label.get(tok) || tok, ids }));
 }
+
+// Multi-seed grouping (#284): a "seed" is any distinctive COHESION UNIT. TOKEN
+// seed (name-token, cross-file) first, rejecting corpus-name and over-broad
+// namespace concepts; then CLASS seed (methods of a substantial indexed class);
+// then a residual FILE seed (a small file whose leftover functions are its
+// majority) picks up the file-cohesive mechanism (air-gapped.js — scattered
+// names, low-frequency tokens) that token+class can't see.
+function multiSeedGroups() {
+  const nConcepts = Number(arg('--concepts', '')) || 24;
+  const overBroad = Number(arg('--overbroad-pct', '')) || 0.20;
+  const idxName = String(indexPath).toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const cap = Math.max(MIN_COMM, Math.floor((funcs.length || 1) * overBroad));
+  const assigned = new Map(); // funcId -> label
+
+  // 1) TOKEN seeds — reject corpus-name and over-broad namespace concepts.
+  let concepts = [];
+  try { concepts = extractConcepts(index, { maxConcepts: nConcepts }) || []; } catch { /* */ }
+  const rank = new Map(), tlabel = new Map();
+  concepts.forEach((c, i) => { const t = String(c.concept || '').toLowerCase(); if (t.length >= 3 && !rank.has(t) && !idxName.includes(t)) { rank.set(t, i); tlabel.set(t, c.example ? `${c.concept} (${c.example})` : c.concept); } });
+  const tokens = [...rank.keys()];
+  const tokGroups = new Map();
+  for (const f of funcs) {
+    const nameLc = f.bare.toLowerCase();
+    let best = null, bestRank = Infinity;
+    for (const t of tokens) if (nameLc.includes(t) && rank.get(t) < bestRank) { bestRank = rank.get(t); best = t; }
+    if (best) (tokGroups.get(best) || tokGroups.set(best, new Set()).get(best)).add(f.id);
+  }
+  for (const [t, ids] of tokGroups) { if (ids.size > cap) continue; for (const id of ids) assigned.set(id, tlabel.get(t)); } // skip over-broad → funcs fall through
+
+  // 2) CLASS seeds for the unassigned — methods of an indexed class only (the
+  // qualifier's class segment is a known type:'class'), so a bare namespace like
+  // blink:: is NOT swept up as if it were a class. Gate to the top-N substantial
+  // classes (by unassigned-method count) so a codec's ~50 utility/data classes
+  // (Lock, Event, MD5, SEI*) don't firehose — the big classes are the mechanisms.
+  const classNames = new Set();
+  for (const fns of Object.values(index.functionIndex || {})) for (const [full, info] of Object.entries(fns)) if (info && info.type === 'class') classNames.add((info.base_name || full.split('::').pop() || full).split('@')[0]);
+  const classMethods = new Map();
+  for (const f of funcs) {
+    if (assigned.has(f.id)) continue;
+    const ix = f.name.lastIndexOf('::');
+    if (ix > 0) { const cls = f.name.slice(0, ix).split('::').pop(); if (cls && classNames.has(cls)) (classMethods.get(cls) || classMethods.set(cls, []).get(cls)).push(f.id); }
+  }
+  const nClasses = Number(arg('--classes', '')) || 12;
+  for (const [cls, ids] of [...classMethods.entries()].filter(([, m]) => m.length >= MIN_COMM).sort((a, b) => b[1].length - a[1].length).slice(0, nClasses)) for (const id of ids) assigned.set(id, `[class] ${cls}`);
+
+  // 3) FILE seed (OPT-IN, --file-seed) — the residual catch: a SMALL file whose
+  // leftover (unassigned) functions are its MAJORITY is one cohesive mechanism
+  // (air-gapped.js: scattered names, low-frequency tokens, so token+class miss
+  // it). Bounded to small files (<= fileMax) so a monolith (bram lib.rs, CE
+  // CodeSearchIndex.js) is NOT emitted as one group — its token seeds already
+  // decompose it. OFF by default because residual file-cohesion CANNOT tell a
+  // distinctive mechanism (air-gapped.js) from an ordinary module (browse.js) or
+  // a codec kernel file (dct-sse3.cpp) — it firehoses on C++ (~50 file-groups).
+  // The clean signal for the file-cohesive case is import/export fan-out
+  // (air-gapped's exports used across 5 files) — the deferred import/resource
+  // seed — not raw co-location. Kept behind the flag as that seed's motivation.
+  if (process.argv.includes('--file-seed')) {
+    const fileMax = Number(arg('--file-max', '')) || 20;
+    const byFileU = new Map(); // file -> { total, un: [ids] }
+    for (const f of funcs) { const e = byFileU.get(f.file) || byFileU.set(f.file, { total: 0, un: [] }).get(f.file); e.total++; if (!assigned.has(f.id)) e.un.push(f.id); }
+    const base = (fp) => { const s = String(fp).replace(/\\/g, '/'); return s.slice(s.lastIndexOf('/') + 1); };
+    for (const [file, e] of byFileU) if (e.un.length >= MIN_COMM && e.total <= fileMax && e.un.length * 2 >= e.total) for (const id of e.un) assigned.set(id, `[file] ${base(file)}`);
+  }
+
+  const groups = new Map();
+  for (const [id, lbl] of assigned) (groups.get(lbl) || groups.set(lbl, new Set()).get(lbl)).add(id);
+  return [...groups.entries()].filter(([, ids]) => ids.size >= MIN_COMM).map(([lbl, ids]) => ({ label: lbl, ids }));
+}
+
 if (emitPath) {
   const shortFile = (fp) => { const s = String(fp).replace(/\\/g, '/'); const t = s.includes('!') ? s.slice(s.indexOf('!') + 1) : s; return t.length > 64 ? '…' + t.slice(-63) : t; };
-  const groupBy = arg('--group-by', 'concept');            // 'concept' (validated) | 'file' (interim baseline for comparison)
+  const groupBy = arg('--group-by', 'multi');              // 'multi' (token+file+class) | 'concept' (token-only baseline) | 'file'
   let groups;
   if (groupBy === 'file') {
     groups = clusterByFile(false).filter((c) => c.size >= MIN_COMM).map((c) => {
@@ -428,8 +497,10 @@ if (emitPath) {
       } catch { /* fall back to the file name */ }
       return { label: `${concept ? concept + ' — ' : ''}${shortFile(domFile)}`, ids: c };
     });
-  } else {
+  } else if (groupBy === 'concept') {
     groups = conceptSeededGroups();
+  } else {
+    groups = multiSeedGroups();
   }
   groups.sort((a, b) => b.ids.size - a.ids.size);
   const out = [`# grouper --emit-anchors  index=${path.basename(indexPath)}  group-by=${groupBy}  ${groups.length} groups (>= ${MIN_COMM} fns), ${emitNoiseFiles} noise files (${emitNoiseFns} fns) pre-filtered — UNRANKED draft; hand-select the claim-worthy`];
