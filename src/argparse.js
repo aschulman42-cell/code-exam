@@ -300,6 +300,7 @@ export function parseArgs() {
     file_seed: false,
     rank: false,
     include_evidence_pack: false,
+    pseudo_claims_chart: false,
     fp_classes: false,
     save_fingerprints: null,
     load_fingerprints: null,  // populated as array by 'list' parser
@@ -479,6 +480,7 @@ export function parseArgs() {
     ['file_seed',            'flag',           ['--file-seed']],
     ['rank',                 'flag',           ['--rank']],
     ['include_evidence_pack', 'flag',          ['--include-evidence-pack']],
+    ['pseudo_claims_chart',  'flag',           ['--pseudo-claims-chart']],
     ['dry_run',              'flag',           ['--dry-run']],
     ['use_claude',           'flag',           [], ['--use-claude']],
     ['llm',                  'value',          ['--llm']],
@@ -1272,6 +1274,10 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              pack to the drafted output (absent by default;
                              --dry-run always shows it). The model receives the
                              pack as input regardless.
+  --pseudo-claims-chart      With --pseudo-claims: render each claim as a CLAIM
+                             CHART — one row per claim element/step, with the
+                             grounded cite(s) for that element — instead of a
+                             flat anchor list.
 
 LLM ANALYSIS:
   --analyze <function>       Analyze a function with LLM ("what does this do?")

@@ -76,7 +76,9 @@ export const PSEUDO_CLAIM_GENERATE_SYS =
   'You draft ONE hypothetical, illustrative PSEUDO patent claim for a software ' +
   'mechanism, as a drafting exercise only (not legal advice, not an admission). ' +
   'You are given source code. Output EXACTLY this format and nothing else:\n' +
-  'CLAIM: <one self-contained paragraph, method or apparatus style>\n' +
+  'CLAIM: <one self-contained paragraph in standard method/apparatus form: a ' +
+  'preamble ending in a colon, then each element/step as a SEMICOLON-delimited ' +
+  'clause — e.g. "A method for X, comprising: <step>; <step>; and <step>.">\n' +
   'ANCHORS:\n' +
   '- <file>@<functionName> — <the claim element it implements>\n' +
   '(one line per distinct element). Cite ONLY files and functions that appear in ' +
@@ -220,6 +222,53 @@ export function groundAnchors(index, anchors) {
     grounded.push({ file: m.filepath, func: m.name, start: m.start, end: m.end, element: a.element, ambiguous: matches.length > 1 });
   }
   return { grounded, dropped };
+}
+
+// Reusable CLAIM-CHART formatter (#284 --pseudo-claims-chart): render the claim
+// AS WRITTEN — a preamble row plus one row per element/step of the claim prose
+// (elements are semicolon-delimited; the drafter is instructed to write that
+// way, so it works model-independently — Claude's coarse anchors or Gemini's
+// fine ones alike). Each grounded anchor's cite is attached to the element whose
+// text it most overlaps; elements with no confident cite are left blank
+// (cite→element alignment is deliberately approximate for now). Kept
+// standalone/exported so claim-search / claim-analyze can reuse the same
+// element→evidence view rather than reinventing it.
+export function formatClaimChart(prose, grounded) {
+  const esc = (s) => String(s).replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
+  const cite = (a) => `\`${a.file}@${a.func}\`${a.start ? ` (L${a.start}-${a.end})` : ''}`;
+  const kw = (s) => new Set(String(s).toLowerCase().match(/[a-z][a-z0-9_]{3,}/g) || []);
+  // Parse claim prose: preamble = text through the first ':'; elements = the
+  // remainder split on ';' (standard method-claim form).
+  const text = String(prose || '').trim();
+  const ci = text.indexOf(':');
+  const preamble = ci >= 0 ? text.slice(0, ci + 1).trim() : '';
+  const body = ci >= 0 ? text.slice(ci + 1) : text;
+  const elements = body.split(';').map((e) => e.trim().replace(/[.\s]+$/, '')).filter(Boolean);
+  // Best-effort: attach each grounded cite to the element it most overlaps.
+  const elemKw = elements.map(kw);
+  const elemCites = elements.map(() => []);
+  const unmatched = [];
+  for (const a of grounded || []) {
+    const aw = kw(a.element || '');
+    let best = -1, score = 0;
+    for (let i = 0; i < elemKw.length; i += 1) {
+      let s = 0; for (const w of aw) if (elemKw[i].has(w)) s += 1;
+      if (s > score) { score = s; best = i; }
+    }
+    const c = cite(a);
+    if (best >= 0 && score >= 1) { if (!elemCites[best].includes(c)) elemCites[best].push(c); }
+    else unmatched.push(c);
+  }
+  const lines = ['| # | Claim element / step | Cited code |', '|---|---|---|'];
+  let n = 0;
+  if (preamble) { n += 1; lines.push(`| ${n} | ${esc(preamble)} | _Preamble_ |`); }
+  for (let i = 0; i < elements.length; i += 1) {
+    n += 1;
+    lines.push(`| ${n} | ${esc(elements[i])} | ${elemCites[i].join('<br>')} |`);
+  }
+  if (!preamble && !elements.length) lines.push('| — | _(no claim text to chart)_ | — |');
+  if (unmatched.length) lines.push('', `_Grounded cite(s) not matched to a specific element: ${unmatched.join(', ')}._`);
+  return lines;
 }
 
 /**
@@ -387,6 +436,7 @@ export async function doPseudoClaims(index, args) {
   // --include-evidence-pack. The model ALWAYS receives the pack as INPUT
   // (buildPack -> drafter, below) — this flag only controls the artifact.
   const showPack = dryRun || !!args.include_evidence_pack;
+  const chartMode = !dryRun && !!args.pseudo_claims_chart;
   const temperature = args.temperature ?? 0.2;
   const modelDesc = !model ? '' : model.kind === 'gguf' ? `local GGUF ${model.modelPath}` : `${model.label} (${model.model})`;
 
@@ -449,12 +499,18 @@ export async function doPseudoClaims(index, args) {
       } else {
         out.push(d.prose || '_(model produced no claim text)_');
         out.push('');
-        out.push(`### Cited anchors (${d.grounded.length} grounded${d.dropped.length ? `, ${d.dropped.length} ungrounded dropped` : ''})`);
-        out.push('');
-        for (const a of d.grounded) {
-          out.push(`- \`${a.file}@${a.func}\` — L${a.start}-${a.end}${a.element ? ` — ${a.element}` : ''}`);
+        if (chartMode) {
+          out.push(`### Claim chart (${d.grounded.length} grounded cite${d.grounded.length === 1 ? '' : 's'}${d.dropped.length ? `, ${d.dropped.length} ungrounded dropped` : ''})`);
+          out.push('');
+          for (const ln of formatClaimChart(d.prose, d.grounded)) out.push(ln);
+        } else {
+          out.push(`### Cited anchors (${d.grounded.length} grounded${d.dropped.length ? `, ${d.dropped.length} ungrounded dropped` : ''})`);
+          out.push('');
+          for (const a of d.grounded) {
+            out.push(`- \`${a.file}@${a.func}\` — L${a.start}-${a.end}${a.element ? ` — ${a.element}` : ''}`);
+          }
+          if (!d.grounded.length) out.push('- _(no cited anchor resolved to a real function)_');
         }
-        if (!d.grounded.length) out.push('- _(no cited anchor resolved to a real function)_');
         if (d.dropped.length) {
           out.push('');
           out.push(`_Dropped (cited but not found in index): ${d.dropped.map((a) => `\`${a.file}@${a.func || '?'}\``).join(', ')}._`);
