@@ -159,6 +159,50 @@ function resolveGroup(index, group) {
   return { resolved, problems };
 }
 
+// Path A (pseudo-claims-purpose-harvest): mechanically harvest a group's PURPOSE
+// from its comments, index-native, via the same digest builder `--comments-only`
+// uses. Class group -> the class's comments; token group -> the namesake-token
+// file's comments (else the group's key function). Written into the candidate
+// `.lst` header at `--candidates` emit time so it is visible/prunable and travels
+// with the group into drafting (where the label becomes the MECHANISM: hint).
+const HARVEST_CAP = 700;
+function harvestPurpose(index, label, members) {
+  const commentsOf = (target) => {
+    try {
+      const d = index.buildDigest(target, { maxCallers: 0, maxCallees: 0, maxStrings: 0 });
+      if (d && d.comments && d.comments.length) return [...d.comments].sort((a, b) => a.line - b.line);
+    } catch (_) { /* target didn't resolve */ }
+    return [];
+  };
+  const join = (cs) => cs.map((c) => c.text).join(' ').replace(/\s+/g, ' ').trim();
+  // A file's LEADING comment block = its purpose header (catches // banners too).
+  // Empty when nothing sits near the top (big multi-purpose files) -> caller falls back.
+  const fileHeader = (file) => {
+    const cs = commentsOf(file);
+    if (!cs.length || cs[0].line > 8) return '';
+    return join(cs.filter((c) => c.line <= 30));
+  };
+  const files = [...new Set((members || []).map((m) => m.file).filter(Boolean))];
+  const primaryFile = (tok) => {
+    if (tok) { const hit = files.find((f) => f.replace(/^.*\//, '').toLowerCase().includes(tok.toLowerCase())); if (hit) return hit; }
+    return files.slice().sort((a, b) => members.filter((m) => m.file === b).length - members.filter((m) => m.file === a).length)[0] || null;
+  };
+  let purpose = '';
+  const classM = (label || '').match(/^\[class\]\s+(\S+)/);
+  if (classM) {
+    const f = primaryFile(null);                        // the class's file -> its header
+    purpose = (f && fileHeader(f)) || join(commentsOf(classM[1])); // else class-scope comments
+  } else {
+    const tokenM = (label || '').match(/^(\S+)\s*\(([^)]+)\)/);    // "token (namesakeFn) …"
+    const token = tokenM ? tokenM[1] : '';
+    const namesake = tokenM ? tokenM[2] : '';
+    const f = primaryFile(token);                       // namesake-token file -> its header
+    purpose = (f && fileHeader(f)) || (namesake ? join(commentsOf(namesake)) : '');
+  }
+  if (!purpose && members && members.length) purpose = join(commentsOf(members[0].bare || members[0].name));
+  return purpose ? purpose.slice(0, HARVEST_CAP) : '';
+}
+
 // Assemble a bounded evidence pack from a group's resolved anchors.
 function buildPack(resolved) {
   const packParts = [];
@@ -350,7 +394,8 @@ export async function doEmitCandidates(index, args) {
     for (const g of sorted) {
       const v = vByLabel.get(g.label);
       const tag = v ? `  [P${v.priority} ${v.signal}/${v.fold}${v.note ? ' — ' + v.note : ''}]` : '  [unscored]';
-      lines.push('', `# ${g.label}  (${g.members.length} fns)${tag}`);
+      const purpose = harvestPurpose(index, g.label, g.members);
+      lines.push('', `# ${g.label}  (${g.members.length} fns)${tag}${purpose ? '  — ' + purpose : ''}`);
       for (const f of g.members) { const spec = f.name.includes('@') ? f.bare : f.name; lines.push(`${f.file}@${spec}`); }
     }
     const rankedText = lines.join('\n') + '\n';
@@ -363,7 +408,7 @@ export async function doEmitCandidates(index, args) {
     return;
   }
 
-  const text = formatAnchors(result, { indexName, minComm: GROUPER_DEFAULTS.minComm });
+  const text = formatAnchors(result, { indexName, minComm: GROUPER_DEFAULTS.minComm, purposeFor: (label, members) => harvestPurpose(index, label, members) });
   if (outPath) {
     fs.writeFileSync(outPath, text, 'utf8');
     console.error(`# wrote ${result.groups.length} candidate group(s) to ${outPath}  (${indexName}, group-by=${result.mode}, unranked; pre-filtered ${result.noiseFiles} noise files / ${result.noiseFns} fns)`);

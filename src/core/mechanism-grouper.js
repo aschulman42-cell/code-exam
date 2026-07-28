@@ -206,7 +206,8 @@ export function formatAnchors(result, meta = {}) {
   const minComm = meta.minComm ?? GROUPER_DEFAULTS.minComm;
   const out = [`# mechanism-grouper  index=${meta.indexName || '?'}  group-by=${result.mode}  ${groups.length} groups (>= ${minComm} fns), ${noiseFiles} noise files (${noiseFns} fns) pre-filtered — UNRANKED draft; hand-select the claim-worthy`];
   for (const g of groups) {
-    out.push('', `# ${g.label}  (${g.members.length} fns)`);
+    const purpose = meta.purposeFor ? meta.purposeFor(g.label, g.members) : '';
+    out.push('', `# ${g.label}  (${g.members.length} fns)${purpose ? '  — ' + purpose : ''}`);
     for (const f of g.members) { const spec = f.name.includes('@') ? f.bare : f.name; out.push(`${f.file}@${spec}`); }
   }
   return out.join('\n') + '\n';
