@@ -75,7 +75,11 @@ export const PSEUDO_CLAIM_CAVEAT_C =
 export const PSEUDO_CLAIM_GENERATE_SYS =
   'You draft ONE hypothetical, illustrative PSEUDO patent claim for a software ' +
   'mechanism, as a drafting exercise only (not legal advice, not an admission). ' +
-  'You are given source code. Output EXACTLY this format and nothing else:\n' +
+  'You are given source code, and may be given a MECHANISM line naming the ' +
+  'intended subject and purpose. If a MECHANISM line is present, draft the claim ' +
+  'for THAT mechanism — treat it as the intended subject and purpose; do not ' +
+  'substitute a different purpose inferred from the code. Output EXACTLY this ' +
+  'format and nothing else:\n' +
   'CLAIM: <one self-contained paragraph in standard method/apparatus form: a ' +
   'preamble ending in a colon, then each element/step as a SEMICOLON-delimited ' +
   'clause — e.g. "A method for X, comprising: <step>; <step>; and <step>.">\n' +
@@ -461,7 +465,8 @@ export async function doPseudoClaims(index, args) {
     for (let i = 0; i < withAnchors.length; i++) {
       const s = withAnchors[i];
       try {
-        const raw = await drafter(PSEUDO_CLAIM_GENERATE_SYS, `CODE:\n${s.pack}`, 900);
+        const intent = s.label ? `MECHANISM: ${s.label}\n\n` : '';
+        const raw = await drafter(PSEUDO_CLAIM_GENERATE_SYS, `${intent}CODE:\n${s.pack}`, 900);
         const { prose, anchors } = parseGeneratedClaim(raw);
         const { grounded, dropped } = groundAnchors(index, anchors);
         drafts.push({ prose, grounded, dropped });
