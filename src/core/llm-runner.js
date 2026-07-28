@@ -124,7 +124,7 @@ export async function draftCloud(model, sys, user, maxTokens, temperature) {
 // hard-errors on context allocation, so retry on CPU before giving up; --cpu
 // forces CPU up front. node-llama-cpp is imported lazily so the command loads
 // without it when only the endpoint path (or dry-run) is used.
-function makeGgufDrafter(modelPath, forceCpu) {
+function makeGgufDrafter(modelPath, forceCpu, temperature) {
   let session = null;
   return async (sys, user, maxTokens) => {
     if (!session) {
@@ -151,7 +151,7 @@ function makeGgufDrafter(modelPath, forceCpu) {
       if (!ctx) throw new Error('could not allocate a context for the local model (tried GPU and CPU) — try --cpu');
       session = new LlamaChatSession({ contextSequence: ctx.getSequence() });
     }
-    return session.prompt(`${sys}\n\n${user}`, { temperature: 0.2, maxTokens });
+    return session.prompt(`${sys}\n\n${user}`, { temperature: temperature ?? 0, maxTokens });
   };
 }
 
@@ -160,7 +160,7 @@ function makeGgufDrafter(modelPath, forceCpu) {
 // remote endpoint under --air-gapped, or a missing cloud key, throws before any
 // group is drafted).
 export function makeDrafter(model, temperature) {
-  if (model.kind === 'gguf') return makeGgufDrafter(model.modelPath, model.forceCpu);
+  if (model.kind === 'gguf') return makeGgufDrafter(model.modelPath, model.forceCpu, temperature);
   if (!isLocalApiUrl(model.apiUrl)) assertLocalOnly(`pseudo-claims (cloud ${model.label})`);
   if (!model.key && !isLocalApiUrl(model.apiUrl)) {
     const p = model.provider;

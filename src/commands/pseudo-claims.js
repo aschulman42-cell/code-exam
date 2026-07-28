@@ -437,7 +437,7 @@ export async function doPseudoClaims(index, args) {
   // (buildPack -> drafter, below) — this flag only controls the artifact.
   const showPack = dryRun || !!args.include_evidence_pack;
   const chartMode = !dryRun && !!args.pseudo_claims_chart;
-  const temperature = args.temperature ?? 0.2;
+  const temperature = args.temperature ?? 0;
   const modelDesc = !model ? '' : model.kind === 'gguf' ? `local GGUF ${model.modelPath}` : `${model.label} (${model.model})`;
 
   // If drafting, build the drafter up front (the air-gap gate + key check may
