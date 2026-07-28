@@ -150,6 +150,10 @@ function makeGgufDrafter(modelPath, forceCpu, temperature) {
       }
       if (!ctx) throw new Error('could not allocate a context for the local model (tried GPU and CPU) — try --cpu');
       session = new LlamaChatSession({ contextSequence: ctx.getSequence() });
+    } else {
+      // Isolate each claim: drop the prior claim's accumulated history so it
+      // can't bleed into this draft, and so long claim sets don't overflow.
+      await session.resetChatHistory();
     }
     return session.prompt(`${sys}\n\n${user}`, { temperature: temperature ?? 0, maxTokens });
   };
