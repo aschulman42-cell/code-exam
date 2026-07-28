@@ -188,6 +188,52 @@ function multiSeedGroups(index, funcs, o) {
   return [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([lbl, ids]) => ({ label: lbl, ids }));
 }
 
+// Emit-faithful anchor spec for a member: exactly the `file@<spec>` tail
+// formatAnchors (and the --rank emit) prints — the bare name for an
+// @-disambiguated index key (`reComment@227` -> `reComment`), else the full
+// qualified name (`Class::method`). Single source of truth so the member filter
+// pre-resolves the SAME line that will be emitted.
+export function anchorSpec(f) {
+  return f.name.includes('@') ? f.bare : f.name;
+}
+
+// A member is claim-worthy only if its emitted anchor resolves to EXACTLY ONE
+// indexed function. Parses the emitted `file@spec` line the same way the
+// --pseudo-claims resolver (loadGroundTruth) does, then checks
+// findFunctionMatches. This drops the anonymous / regex-literal / duplicate
+// anchors the regex fallback parser mis-detects as functions (`reComment` x11 —
+// a `const reComment = /.../ ` literal keyed per line; `walk` x8 — anonymous
+// nested closures) at their source, so they never reach the candidate .lst and
+// never raise "ambiguous — N functions match" at draft time.
+function memberResolvesUniquely(index, f) {
+  // Fail open: without a resolver we can't verify, so keep the member rather than
+  // drop it (a real index always exposes findFunctionMatches — cf. loadGroundTruth;
+  // resolver-less stubs pass through unfiltered).
+  if (typeof index.findFunctionMatches !== 'function') return true;
+  const line = `${f.file}@${anchorSpec(f)}`;
+  const at = line.lastIndexOf('@');
+  const after = line.slice(at + 1);
+  let fileHint = null, funcName = line;
+  if (!/^\d+$/.test(after)) { fileHint = line.slice(0, at); funcName = after; }
+  const ms = index.findFunctionMatches(funcName, fileHint);
+  return !!(ms && ms.length === 1);
+}
+
+// Filter a group's materialized members: dedupe members that emit the same
+// `file@spec` anchor (the x11/x8 collapse), then drop any that don't resolve
+// uniquely. Order preserved.
+function filterMembers(index, members) {
+  const seen = new Set();
+  const kept = [];
+  for (const f of members) {
+    const line = `${f.file}@${anchorSpec(f)}`;
+    if (seen.has(line)) continue;
+    seen.add(line);
+    if (memberResolvesUniquely(index, f)) kept.push(f);
+  }
+  return kept;
+}
+
 // Group an index's functions into candidate mechanism groups. Returns
 // { groups: [{label, ids:Set, members:[func]}], funcs, byId, noiseFiles, noiseFns, mode }.
 export function groupMechanisms(index, opts = {}) {
@@ -195,7 +241,13 @@ export function groupMechanisms(index, opts = {}) {
   const { funcs, byId, noiseFiles, noiseFns } = enumerateFuncs(index, o);
   const raw = o.mode === 'concept' ? conceptSeededGroups(index, funcs, o) : multiSeedGroups(index, funcs, o);
   const groups = raw
-    .map((g) => ({ label: g.label, ids: g.ids, members: [...g.ids].map((id) => byId.get(id)).filter(Boolean) }))
+    .map((g) => {
+      // Filter junk members, then rebuild ids from the survivors so emit,
+      // members, and ids (the scoring path) stay consistent.
+      const members = filterMembers(index, [...g.ids].map((id) => byId.get(id)).filter(Boolean));
+      return { label: g.label, ids: new Set(members.map((m) => m.id)), members };
+    })
+    .filter((g) => g.members.length > 0) // a group whose anchors were all junk is dropped
     .sort((a, b) => b.ids.size - a.ids.size);
   return { groups, funcs, byId, noiseFiles, noiseFns, mode: o.mode };
 }
@@ -208,7 +260,7 @@ export function formatAnchors(result, meta = {}) {
   for (const g of groups) {
     const purpose = meta.purposeFor ? meta.purposeFor(g.label, g.members) : '';
     out.push('', `# ${g.label}  (${g.members.length} fns)${purpose ? '  — ' + purpose : ''}`);
-    for (const f of g.members) { const spec = f.name.includes('@') ? f.bare : f.name; out.push(`${f.file}@${spec}`); }
+    for (const f of g.members) out.push(`${f.file}@${anchorSpec(f)}`);
   }
   return out.join('\n') + '\n';
 }
