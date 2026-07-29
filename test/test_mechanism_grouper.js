@@ -158,6 +158,72 @@ describe('literal seed clustering', () => {
   });
 });
 
+// BODY-MATCH rescue (issue-289-body-match-token-seed): cutoff tokens whose
+// NAME-match failed retry membership by body containment. Uses the
+// conceptsList test-injectable (the extractConcepts `entries`/`catalog`
+// precedent) so the stub controls the cutoff.
+describe('body-match token rescue', () => {
+  const fn = (base, s, e) => ({ type: 'function', base_name: base, start: s, end: e });
+  // 'gapped' name-matches only 2 candidates (sub-minComm orphans); bodies
+  // mention it in 2 more functions across files (a string + a call site).
+  // 'deflate' name-matches 3 candidates (a real group — never rescued, so
+  // its body mention inside checkStuff must NOT recruit checkStuff).
+  const mkIndex = () => ({
+    _ensureFunctionIndex() {},
+    functionIndex: {
+      'src/gate.js': { setAirGapped: fn('setAirGapped', 1, 5), assertLocal: fn('assertLocal', 10, 16) },
+      'src/check.js': { airGappedStartupCheck: fn('airGappedStartupCheck', 1, 8), checkStuff: fn('checkStuff', 20, 26) },
+      'src/zip.js': { deflateInit: fn('deflateInit', 1, 6), deflateRun: fn('deflateRun', 10, 15), deflateEnd: fn('deflateEnd', 20, 25) },
+    },
+    fileLines: new Map([
+      ['src/gate.js', [
+        'function setAirGapped(v) {', ' state = v;', ' return state;', ' // gate', '}',
+        '', '', '', '',
+        'function assertLocal(url) {', " throw new Error('air-gapped mode: no egress');", ' // guard', ' return;', ' //', ' //', '}',
+      ]],
+      ['src/check.js', [
+        'function airGappedStartupCheck() {', ' probe();', ' //', ' //', ' //', ' //', ' //', '}',
+        '', '', '', '', '', '', '', '', '', '', '',
+        'function checkStuff() {', ' if (isAirGapped()) skip();', ' deflate(buf);', ' //', ' //', ' //', '}',
+      ]],
+      ['src/zip.js', [
+        'function deflateInit() {', ' a();', ' b();', ' c();', ' d();', '}',
+        '', '', '',
+        'function deflateRun() {', ' a();', ' b();', ' c();', ' d();', '}',
+        '', '', '', '',
+        'function deflateEnd() {', ' a();', ' b();', ' c();', ' d();', '}',
+      ]],
+    ]),
+  });
+  const CONCEPTS = [{ concept: 'gapped', example: 'setAirGapped' }, { concept: 'deflate', example: 'deflateInit' }];
+
+  it('rescues a sub-minComm token via body containment, reclaiming its name orphans', () => {
+    const result = groupMechanisms(mkIndex(), { indexName: 's', mode: 'multi', bodyMatchSeed: true, conceptsList: CONCEPTS });
+    const body = result.groups.find((g) => g.label.startsWith('[body] gapped'));
+    assert.ok(body, `no [body] gapped group; labels=${result.groups.map((g) => g.label).join(' | ')}`);
+    const bares = body.members.map((m) => m.bare).sort();
+    // 2 name-orphans reclaimed + assertLocal (string) + checkStuff (call site)
+    assert.deepEqual(bares, ['airGappedStartupCheck', 'assertLocal', 'checkStuff', 'setAirGapped']);
+  });
+  it('never rescues a token that formed a real name group', () => {
+    const result = groupMechanisms(mkIndex(), { indexName: 's', mode: 'multi', bodyMatchSeed: true, conceptsList: CONCEPTS });
+    const deflate = result.groups.find((g) => g.label === 'deflate (deflateInit)');
+    assert.ok(deflate, 'deflate name group must survive');
+    assert.equal(deflate.members.length, 3); // checkStuff's body mention of deflate must NOT recruit it there
+  });
+  it('rejects a rescue exceeding maxBodySpread outright', () => {
+    const result = groupMechanisms(mkIndex(), { indexName: 's', mode: 'multi', bodyMatchSeed: true, conceptsList: CONCEPTS, maxBodySpread: 3 });
+    assert.ok(!result.groups.some((g) => g.label.startsWith('[body]')), 'a 4-hit rescue must be rejected at cap 3');
+  });
+  it('stays inert when the flag is off, and fails open without fileLines', () => {
+    const off = groupMechanisms(mkIndex(), { indexName: 's', mode: 'multi', conceptsList: CONCEPTS });
+    assert.ok(!off.groups.some((g) => g.label.startsWith('[body]')));
+    const bare = mkIndex(); delete bare.fileLines;
+    const on = groupMechanisms(bare, { indexName: 's', mode: 'multi', bodyMatchSeed: true, conceptsList: CONCEPTS });
+    assert.ok(!on.groups.some((g) => g.label.startsWith('[body]')));
+  });
+});
+
 // parseAnchorHeader: the inverse of the formatAnchors / --rank emit grammar.
 // The MECHANISM hint keeps label + purpose; the `(N fns)` count, `[P…]` tag
 // (with its ranker note), and bare trailing tier tags are the annotations

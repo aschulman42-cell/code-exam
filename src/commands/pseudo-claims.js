@@ -345,6 +345,7 @@ export async function doEmitCandidates(index, args) {
       useDocs: !!args.use_docs,
       catalogSeed: !!args.catalog_seed,
       literalSeed: !!args.literal_seed,
+      bodyMatchSeed: !!args.body_match_seed,
     });
   } catch (e) {
     console.error(`--pseudo-claims --candidates: grouping failed: ${e.message}`);

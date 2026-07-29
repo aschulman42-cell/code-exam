@@ -301,6 +301,7 @@ export function parseArgs() {
     use_docs: false,      // --candidates: include TEXT_EXTENSIONS docs in the gather vocabulary (#284 signal-rich gather)
     catalog_seed: false,  // --candidates: seed groups from command-catalog handler joins (#284 signal-rich gather)
     literal_seed: false,  // --candidates: seed groups from rare shared string literals (#289)
+    body_match_seed: false, // --candidates: body-containment rescue for name-match-failed cutoff tokens (#289)
     rank: false,
     include_evidence_pack: false,
     pseudo_claims_chart: false,
@@ -484,6 +485,7 @@ export function parseArgs() {
     ['use_docs',             'flag',           ['--use-docs']],
     ['catalog_seed',         'flag',           ['--catalog-seed']],
     ['literal_seed',         'flag',           ['--literal-seed']],
+    ['body_match_seed',      'flag',           ['--body-match-seed']],
     ['rank',                 'flag',           ['--rank']],
     ['include_evidence_pack', 'flag',          ['--include-evidence-pack']],
     ['pseudo_claims_chart',  'flag',           ['--pseudo-claims-chart']],
@@ -1279,6 +1281,9 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              string literals (cross-file features joined by
                              their error strings/banners; language-agnostic;
                              opt-in).
+  --body-match-seed          With --candidates: rescue concept tokens whose
+                             name-match failed by matching function BODIES
+                             (identifiers, call sites, strings; opt-in).
   --rank                     With --candidates: score each candidate's exploration
                              PRIORITY via --llm/--model, emit sorted + tagged
                              (observe-only; a surface heuristic to order where to

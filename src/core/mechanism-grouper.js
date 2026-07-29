@@ -31,8 +31,27 @@ export const GROUPER_DEFAULTS = {
   literalSeed: false,   // --literal-seed (#289): rare-shared-literal seed on the residue
   minLitLen: 8,         // literal seed: minimum literal length considered
   maxLitSpread: 10,     // literal seed: a literal in more containing functions than this is too common to seed
+  bodyMatchSeed: false, // --body-match-seed (#289): body-containment rescue for name-match-failed cutoff tokens
+  maxBodySpread: 16,    // body-match seed: a token body-matching more candidate functions than this is too common
   maxFuncs: Infinity,   // cap candidates on huge indexes (0/Infinity = no cap)
 };
+
+// Per-file sorted candidate ranges + line -> containing-candidate lookup,
+// shared by the literal and body-match seeds (line-range bucketing avoids
+// name-format drift between the string table / raw lines and functionIndex keys).
+function buildFuncRanges(funcs) {
+  const ranges = new Map();
+  for (const f of funcs) (ranges.get(f.file) || ranges.set(f.file, []).get(f.file)).push(f);
+  for (const arr of ranges.values()) arr.sort((a, b) => a.start - b.start);
+  return ranges;
+}
+function containingFunc(ranges, file, line) {
+  const arr = ranges.get(file);
+  if (!arr) return null;
+  let lo = 0, hi = arr.length - 1, best = null;
+  while (lo <= hi) { const mid = (lo + hi) >> 1; if (arr[mid].start <= line) { best = arr[mid]; lo = mid + 1; } else hi = mid - 1; }
+  return best && line <= best.end ? best : null;
+}
 
 // Concepts for the token seeds. Default: the cached code-only vocabulary via
 // extractConcepts. With `useDocs` (#284 signal-rich gather), build a
@@ -43,6 +62,7 @@ export const GROUPER_DEFAULTS = {
 // class/catalog/file seeds still run (stub indexes in tests take this path).
 function gatherConcepts(index, o) {
   try {
+    if (Array.isArray(o.conceptsList)) return o.conceptsList; // injectable for tests (extractConcepts precedent)
     if (o.useDocs) {
       const vocab = buildDocInclusiveVocabulary(index, false);
       const entries = [...vocab.entries()].map(([token, data]) => ({ token, ...data }))
@@ -162,9 +182,17 @@ function multiSeedGroups(index, funcs, o) {
     for (const t of tokens) if (nameLc.includes(t) && rank.get(t) < bestRank) { bestRank = rank.get(t); best = t; }
     if (best) (tokGroups.get(best) || tokGroups.set(best, new Set()).get(best)).add(f.id);
   }
+  // Rescue bookkeeping (--body-match-seed): which cutoff tokens were rejected
+  // as namespaces (never rescued) and which name-matched members each kept
+  // token claimed. A token whose name members stay below minComm produces a
+  // group the FINAL filter silently drops — its members are assigned-but-
+  // orphaned, and the body-match rescue reclaims them.
+  const overBroad = new Set();
+  const tokenNameMembers = new Map(); // token -> Set(funcId)
   for (const [t, ids] of tokGroups) {
     const fileCount = new Set([...ids].map((id) => fileOf.get(id))).size;
-    if (isOverBroadNamespace(ids.size, cap, fileCount, spreadCap)) continue; // namespace/prefix -> funcs fall through
+    if (isOverBroadNamespace(ids.size, cap, fileCount, spreadCap)) { overBroad.add(t); continue; } // namespace/prefix -> funcs fall through
+    tokenNameMembers.set(t, ids);
     for (const id of ids) assigned.set(id, tlabel.get(t));
   }
 
@@ -249,18 +277,7 @@ function multiSeedGroups(index, funcs, o) {
   if (o.literalSeed) {
     let table = [];
     try { table = index.ensureStringTable?.(o.minLitLen, false) || []; } catch { /* */ }
-    // Per-file sorted ranges for line -> candidate-function bucketing (the
-    // table's own `func` field is name-shaped; line ranges avoid format drift).
-    const ranges = new Map();
-    for (const f of funcs) (ranges.get(f.file) || ranges.set(f.file, []).get(f.file)).push(f);
-    for (const arr of ranges.values()) arr.sort((a, b) => a.start - b.start);
-    const containing = (file, line) => {
-      const arr = ranges.get(file);
-      if (!arr) return null;
-      let lo = 0, hi = arr.length - 1, best = null;
-      while (lo <= hi) { const mid = (lo + hi) >> 1; if (arr[mid].start <= line) { best = arr[mid]; lo = mid + 1; } else hi = mid - 1; }
-      return best && line <= best.end ? best : null;
-    };
+    const ranges = buildFuncRanges(funcs);
     const hasWord = /[A-Za-z]{4,}/;
     const seedLits = [];
     for (const e of table) {
@@ -269,7 +286,7 @@ function multiSeedGroups(index, funcs, o) {
       if (!Array.isArray(e.locations) || e.locations.length < 2) continue;
       if (e.count > o.maxLitSpread * 3) continue; // locations are capped (20); a huge count is common regardless
       const members = new Set();
-      for (const loc of e.locations) { const f = containing(loc.filepath, loc.line); if (f) members.add(f.id); }
+      for (const loc of e.locations) { const f = containingFunc(ranges, loc.filepath, loc.line); if (f) members.add(f.id); }
       if (members.size < 2 || members.size > o.maxLitSpread) continue;
       const un = [...members].filter((id) => !assigned.has(id));
       if (un.length >= 2) seedLits.push({ val, ids: un, spread: members.size });
@@ -298,7 +315,51 @@ function multiSeedGroups(index, funcs, o) {
     }
   }
 
-  // 5) FILE seed (OPT-IN) — a SMALL file whose leftover (unassigned) functions are
+  // 5) BODY-MATCH rescue (OPT-IN --body-match-seed, issue-289-body-match-token-seed)
+  // — for cutoff concept tokens the NAME-match failed (< minComm name members;
+  // includes zero), retry membership by BODY containment: identifiers, call
+  // sites, and string contents all count, which is the air-gap feature shape
+  // (a cutoff-worthy token spread across bodies in several files while too few
+  // function NAMES carry it — the gap both prior seeds missed, each for a
+  // different reason; see ffd333b). RESCUE-ONLY: tokens that formed a real
+  // name group never enter (so `rect` body-noise — 'direct', 'correction' —
+  // can't), and over-broad namespace rejections stay rejected. Membership =
+  // unassigned residue PLUS the token's own assigned-but-orphaned sub-minComm
+  // name members (headed for the final filter's silent drop otherwise).
+  // Firehose control: a token body-matching more than maxBodySpread candidate
+  // functions in TOTAL is rejected outright. Fail-open: no fileLines, no rescue.
+  if (o.bodyMatchSeed) {
+    const rescueTokens = tokens.filter((t) => !overBroad.has(t) && (tokenNameMembers.get(t)?.size ?? 0) < o.minComm);
+    const fl = index.fileLines;
+    if (rescueTokens.length && fl && typeof fl.entries === 'function') {
+      const ranges = buildFuncRanges(funcs);
+      const hits = new Map(); // token -> Set(funcId), ALL candidate hits (assigned or not)
+      for (const [file, lines] of fl) {
+        const arr = ranges.get(file);
+        if (!arr || !Array.isArray(lines)) continue;
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (!line) continue;
+          const lc = line.toLowerCase();
+          for (const t of rescueTokens) {
+            if (!lc.includes(t)) continue;
+            const f = containingFunc(ranges, file, i + 1);
+            if (f) (hits.get(t) || hits.set(t, new Set()).get(t)).add(f.id);
+          }
+        }
+      }
+      for (const t of rescueTokens) {
+        const all = hits.get(t);
+        if (!all || all.size > o.maxBodySpread) continue; // too common in bodies -> reject, don't truncate
+        const own = tokenNameMembers.get(t) || new Set();
+        const members = [...all].filter((id) => !assigned.has(id) || own.has(id));
+        if (members.length < o.minComm) continue;
+        for (const id of members) assigned.set(id, `[body] ${tlabel.get(t) || t}`);
+      }
+    }
+  }
+
+  // 6) FILE seed (OPT-IN) — a SMALL file whose leftover (unassigned) functions are
   // its MAJORITY is one cohesive mechanism (scattered names token+class miss).
   // OFF by default: residual file-cohesion can't tell a distinctive mechanism from
   // an ordinary module or a codec kernel file, so it firehoses on C++ (~50
