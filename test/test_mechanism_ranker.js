@@ -4,7 +4,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseVerdict, rankPriors, rankCandidates } from '../src/core/mechanism-ranker.js';
+import { parseVerdict, rankPriors, rankCandidates, parseBatchVerdicts } from '../src/core/mechanism-ranker.js';
 
 describe('mechanism-ranker parseVerdict', () => {
   it('parses a bare JSON verdict', () => {
@@ -50,6 +50,35 @@ describe('mechanism-ranker rankPriors', () => {
   });
 });
 
+describe('mechanism-ranker parseBatchVerdicts', () => {
+  const groups = [{ label: 'a' }, { label: 'b' }, { label: 'c' }];
+  it('maps an array back onto groups by the 1-based "i" field', () => {
+    const arr = JSON.stringify([
+      { i: 2, priority: 0, signal: 'library-wrapper', fold: 'keep', note: 'wrapper' },
+      { i: 1, priority: 3, signal: 'codebase-specific', fold: 'keep', note: 'kernel' },
+      { i: 3, priority: 1, signal: 'standard-pattern', fold: 'keep', note: 'routine' },
+    ]);
+    const out = parseBatchVerdicts(arr, groups);
+    assert.equal(out[0].verdict.priority, 3); // group 1 (i:1)
+    assert.equal(out[1].verdict.priority, 0); // group 2 (i:2)
+    assert.equal(out[2].verdict.priority, 1); // group 3 (i:3)
+  });
+  it('falls back to positional order when "i" is absent', () => {
+    const arr = JSON.stringify([
+      { priority: 3, signal: 'codebase-specific' },
+      { priority: 1, signal: 'standard-pattern' },
+      { priority: 0, signal: 'generated' },
+    ]);
+    const out = parseBatchVerdicts(arr, groups);
+    assert.deepEqual(out.map((o) => o.verdict.priority), [3, 1, 0]);
+  });
+  it('returns null when not an array, or too few usable verdicts', () => {
+    assert.equal(parseBatchVerdicts('{"priority":2}', groups), null); // object, not array
+    assert.equal(parseBatchVerdicts('nope', groups), null);
+    assert.equal(parseBatchVerdicts(JSON.stringify([{ priority: 3 }]), groups), null); // 1 of 3 < half
+  });
+});
+
 describe('mechanism-ranker rankCandidates (mock drafter)', () => {
   const groups = [
     { label: 'tls (x)', members: [{ file: 'c/tls.c', bare: 'tls_send', name: 'tls_send', lines: 30 }] },
@@ -57,20 +86,37 @@ describe('mechanism-ranker rankCandidates (mock drafter)', () => {
   ];
   const fakeIndex = { getFunctionSource: () => 'int x() { return 1; }' };
 
-  it('scores every candidate and retries once on a malformed first response', async () => {
+  it('scores all candidates in ONE comparative pass', async () => {
     let calls = 0;
     const drafter = async () => {
       calls++;
-      if (calls === 1) return 'no idea'; // first attempt of group 1 is junk -> forces a retry
+      return JSON.stringify([
+        { i: 1, priority: 3, signal: 'codebase-specific', fold: 'keep', note: 'tls state machine' },
+        { i: 2, priority: 0, signal: 'library-wrapper', fold: 'keep', note: 'thin wrapper' },
+      ]);
+    };
+    const scored = await rankCandidates(groups, fakeIndex, drafter, {});
+    assert.equal(calls, 1); // ONE batch call for both candidates
+    assert.equal(scored.length, 2);
+    assert.equal(scored[0].verdict.priority, 3);
+    assert.equal(scored[1].verdict.priority, 0);
+  });
+
+  it('retries the batch once, then falls back to per-candidate when it will not parse', async () => {
+    let calls = 0;
+    const drafter = async () => {
+      calls++;
+      // batch attempts 1 & 2 return a non-array -> both fail parseBatchVerdicts;
+      // then per-candidate (one call per group) succeeds.
       return '{"priority":2,"signal":"library-wrapper","fold":"keep","note":"ok"}';
     };
     const scored = await rankCandidates(groups, fakeIndex, drafter, {});
     assert.equal(scored.length, 2);
-    assert.ok(scored.every((s) => s.verdict && s.verdict.priority === 2), 'all verdicts scored');
-    assert.equal(calls, 3); // group1: junk + good = 2 calls; group2: good = 1 call
+    assert.ok(scored.every((s) => s.verdict && s.verdict.priority === 2), 'all scored via fallback');
+    assert.equal(calls, 4); // 2 batch attempts + 1 per-candidate call each
   });
 
-  it('records a null verdict + error when the drafter throws', async () => {
+  it('records a null verdict + error when the drafter throws (batch and fallback)', async () => {
     const drafter = async () => { throw new Error('boom'); };
     const scored = await rankCandidates([groups[0]], fakeIndex, drafter, {});
     assert.equal(scored[0].verdict, null);
