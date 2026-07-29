@@ -344,6 +344,7 @@ export async function doEmitCandidates(index, args) {
       fileSeed: !!args.file_seed,
       useDocs: !!args.use_docs,
       catalogSeed: !!args.catalog_seed,
+      literalSeed: !!args.literal_seed,
     });
   } catch (e) {
     console.error(`--pseudo-claims --candidates: grouping failed: ${e.message}`);

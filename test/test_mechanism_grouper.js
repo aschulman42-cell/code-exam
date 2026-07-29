@@ -95,12 +95,66 @@ describe('signal-rich gather knobs fail open on stub indexes', () => {
   it('defaults carry the new knobs, off', () => {
     assert.equal(GROUPER_DEFAULTS.useDocs, false);
     assert.equal(GROUPER_DEFAULTS.catalogSeed, false);
+    assert.equal(GROUPER_DEFAULTS.literalSeed, false);
   });
   it('produces identical groups with the flags on (paths fail open)', () => {
     const base = groupMechanisms(stub, { indexName: 's', mode: 'multi' });
-    const flagged = groupMechanisms(stub, { indexName: 's', mode: 'multi', useDocs: true, catalogSeed: true });
+    const flagged = groupMechanisms(stub, { indexName: 's', mode: 'multi', useDocs: true, catalogSeed: true, literalSeed: true });
     assert.deepEqual(flagged.groups.map((g) => g.label), base.groups.map((g) => g.label));
     assert.equal(flagged.groups.length, 1); // the Builder class group survives either way
+  });
+});
+
+// LITERAL seed (issue-289-literal-seed): rare shared literals cluster the
+// unassigned residue — membership by CONTAINING the literal (line-range
+// bucketing), union across shared literals, rarity/word/spread bounds.
+describe('literal seed clustering', () => {
+  const fn = (base, s, e) => ({ type: 'function', base_name: base, start: s, end: e });
+  // Three cross-file functions joined by two rare literals (a->b, a->c) plus
+  // one function sharing only an over-spread literal. No vocabulary and no
+  // classes on this stub, so token/class seeds produce nothing.
+  const mkIndex = (table) => ({
+    _ensureFunctionIndex() {},
+    functionIndex: {
+      'src/gate.js': { assertLocalOnly: fn('assertLocalOnly', 10, 20), unrelated: fn('unrelated', 30, 40) },
+      'src/check.js': { startupCheck: fn('startupCheck', 5, 15) },
+      'src/prov.js': { buildHeader: fn('buildHeader', 8, 18) },
+    },
+    ensureStringTable() { return table; },
+  });
+  const TABLE = [
+    { value: 'air-gapped mode: no egress permitted', count: 2, locations: [
+      { filepath: 'src/gate.js', line: 12 }, { filepath: 'src/check.js', line: 7 }] },
+    { value: 'air-gapped provenance banner', count: 2, locations: [
+      { filepath: 'src/gate.js', line: 15 }, { filepath: 'src/prov.js', line: 10 }] },
+    // Over-spread: 11 containing functions would exceed maxLitSpread=10 — but
+    // easier to exercise via count guard: huge count is skipped outright.
+    { value: 'a common shared message everywhere', count: 99, locations: [
+      { filepath: 'src/gate.js', line: 33 }, { filepath: 'src/check.js', line: 9 }] },
+    // Too short / no word — never seeds.
+    { value: '%s: %d\n', count: 5, locations: [
+      { filepath: 'src/gate.js', line: 34 }, { filepath: 'src/check.js', line: 10 }] },
+  ];
+
+  it('unions functions sharing rare literals into one [lit] group', () => {
+    const result = groupMechanisms(mkIndex(TABLE), { indexName: 's', mode: 'multi', literalSeed: true });
+    const lit = result.groups.find((g) => g.label.startsWith('[lit]'));
+    assert.ok(lit, `no [lit] group; labels=${result.groups.map((g) => g.label).join(' | ')}`);
+    assert.equal(lit.members.length, 3); // assertLocalOnly + startupCheck + buildHeader
+    assert.ok(!lit.members.some((m) => m.bare === 'unrelated'), 'over-spread/format literals must not recruit');
+  });
+  it('labels the group with a quoted, rarest shared literal', () => {
+    const result = groupMechanisms(mkIndex(TABLE), { indexName: 's', mode: 'multi', literalSeed: true });
+    const lit = result.groups.find((g) => g.label.startsWith('[lit]'));
+    assert.match(lit.label, /^\[lit\] "air-gapped/);
+  });
+  it('stays inert when the flag is off', () => {
+    const result = groupMechanisms(mkIndex(TABLE), { indexName: 's', mode: 'multi' });
+    assert.ok(!result.groups.some((g) => g.label.startsWith('[lit]')));
+  });
+  it('does not form a group below minComm (single shared literal, 2 fns)', () => {
+    const result = groupMechanisms(mkIndex([TABLE[0]]), { indexName: 's', mode: 'multi', literalSeed: true });
+    assert.ok(!result.groups.some((g) => g.label.startsWith('[lit]')), 'a 2-member component must not pass minComm=3');
   });
 });
 

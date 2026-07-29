@@ -28,6 +28,9 @@ export const GROUPER_DEFAULTS = {
   fileSeed: false,      // FILE seed is opt-in (firehoses on C++ — see the note below)
   useDocs: false,       // --use-docs (#284 signal-rich gather): doc-inclusive gather vocabulary
   catalogSeed: false,   // --catalog-seed (#284 signal-rich gather): command-catalog handler seed
+  literalSeed: false,   // --literal-seed (#289): rare-shared-literal seed on the residue
+  minLitLen: 8,         // literal seed: minimum literal length considered
+  maxLitSpread: 10,     // literal seed: a literal in more containing functions than this is too common to seed
   maxFuncs: Infinity,   // cap candidates on huge indexes (0/Infinity = no cap)
 };
 
@@ -230,7 +233,72 @@ function multiSeedGroups(index, funcs, o) {
     }
   }
 
-  // 4) FILE seed (OPT-IN) — a SMALL file whose leftover (unassigned) functions are
+  // 4) LITERAL seed (OPT-IN --literal-seed, issue-289-literal-seed) — functions
+  // sharing a RARE string literal cluster into a group on the unassigned
+  // residue. What connects a cross-file feature when names and catalogs don't
+  // is its literals (error messages, banners, keys) — language-agnostic, and
+  // membership comes from CONTAINING the literal, not from the function name
+  // matching a token, so the token seed's member-math blockers don't apply.
+  // The minimal one-hop slice of #185 seed-search: no identifier flow (a
+  // literal counts where it is WRITTEN — `var xyz = "s"` used thrice is ONE
+  // occurrence), no call edges, no frontier. Rarity bounds: a seed literal
+  // lives in 2..maxLitSpread candidate functions, is >= minLitLen chars, and
+  // has at least one real word. Assigned functions do NOT conduct: clusters
+  // union only unassigned members, so prior seeds' groups stay untouched.
+  // Fail-open: an index without ensureStringTable contributes nothing.
+  if (o.literalSeed) {
+    let table = [];
+    try { table = index.ensureStringTable?.(o.minLitLen, false) || []; } catch { /* */ }
+    // Per-file sorted ranges for line -> candidate-function bucketing (the
+    // table's own `func` field is name-shaped; line ranges avoid format drift).
+    const ranges = new Map();
+    for (const f of funcs) (ranges.get(f.file) || ranges.set(f.file, []).get(f.file)).push(f);
+    for (const arr of ranges.values()) arr.sort((a, b) => a.start - b.start);
+    const containing = (file, line) => {
+      const arr = ranges.get(file);
+      if (!arr) return null;
+      let lo = 0, hi = arr.length - 1, best = null;
+      while (lo <= hi) { const mid = (lo + hi) >> 1; if (arr[mid].start <= line) { best = arr[mid]; lo = mid + 1; } else hi = mid - 1; }
+      return best && line <= best.end ? best : null;
+    };
+    const hasWord = /[A-Za-z]{4,}/;
+    const seedLits = [];
+    for (const e of table) {
+      const val = String((e && e.value) ?? '');
+      if (val.length < o.minLitLen || !hasWord.test(val)) continue;
+      if (!Array.isArray(e.locations) || e.locations.length < 2) continue;
+      if (e.count > o.maxLitSpread * 3) continue; // locations are capped (20); a huge count is common regardless
+      const members = new Set();
+      for (const loc of e.locations) { const f = containing(loc.filepath, loc.line); if (f) members.add(f.id); }
+      if (members.size < 2 || members.size > o.maxLitSpread) continue;
+      const un = [...members].filter((id) => !assigned.has(id));
+      if (un.length >= 2) seedLits.push({ val, ids: un, spread: members.size });
+    }
+    // Union-find over unassigned members; a component >= minComm becomes a group.
+    const parent = new Map();
+    const find = (x) => { let r = x; while (parent.get(r) !== r) r = parent.get(r); let c = x; while (parent.get(c) !== c) { const n = parent.get(c); parent.set(c, r); c = n; } return r; };
+    for (const s of seedLits) for (const id of s.ids) if (!parent.has(id)) parent.set(id, id);
+    for (const s of seedLits) { const root = find(s.ids[0]); for (const id of s.ids.slice(1)) parent.set(find(id), root); }
+    const comps = new Map(); // root -> { ids:Set, lits:[] }
+    for (const id of parent.keys()) { const r = find(id); (comps.get(r) || comps.set(r, { ids: new Set(), lits: [] }).get(r)).ids.add(id); }
+    for (const s of seedLits) comps.get(find(s.ids[0])).lits.push(s);
+    for (const c of comps.values()) {
+      if (c.ids.size < o.minComm) continue;
+      // SNOWBALL guard: transitive closure can chain template-literal
+      // copy-paste into a residue-swallowing blob (first CE run: one 247-fn
+      // component). A component far larger than any single literal's allowed
+      // spread is incoherent-by-construction — REJECT it outright (dropping,
+      // not truncating: there is no principled member subset to keep).
+      if (c.ids.size > o.maxLitSpread * 3) continue;
+      // Label by the most distinctive shared literal: rarest spread, then longest.
+      const best = c.lits.sort((a, b) => a.spread - b.spread || b.val.length - a.val.length)[0];
+      const short = best.val.replace(/\s+/g, ' ').trim().slice(0, 40);
+      const lbl = `[lit] "${short}${best.val.length > 40 ? '…' : ''}"`;
+      for (const id of c.ids) assigned.set(id, lbl);
+    }
+  }
+
+  // 5) FILE seed (OPT-IN) — a SMALL file whose leftover (unassigned) functions are
   // its MAJORITY is one cohesive mechanism (scattered names token+class miss).
   // OFF by default: residual file-cohesion can't tell a distinctive mechanism from
   // an ordinary module or a codec kernel file, so it firehoses on C++ (~50

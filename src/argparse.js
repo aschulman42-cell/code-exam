@@ -300,6 +300,7 @@ export function parseArgs() {
     file_seed: false,
     use_docs: false,      // --candidates: include TEXT_EXTENSIONS docs in the gather vocabulary (#284 signal-rich gather)
     catalog_seed: false,  // --candidates: seed groups from command-catalog handler joins (#284 signal-rich gather)
+    literal_seed: false,  // --candidates: seed groups from rare shared string literals (#289)
     rank: false,
     include_evidence_pack: false,
     pseudo_claims_chart: false,
@@ -482,6 +483,7 @@ export function parseArgs() {
     ['file_seed',            'flag',           ['--file-seed']],
     ['use_docs',             'flag',           ['--use-docs']],
     ['catalog_seed',         'flag',           ['--catalog-seed']],
+    ['literal_seed',         'flag',           ['--literal-seed']],
     ['rank',                 'flag',           ['--rank']],
     ['include_evidence_pack', 'flag',          ['--include-evidence-pack']],
     ['pseudo_claims_chart',  'flag',           ['--pseudo-claims-chart']],
@@ -1273,6 +1275,10 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              stays default; measured to dilute as well as promote).
   --catalog-seed             With --candidates: seed groups from command-catalog
                              handler joins (option → handler + callees; opt-in).
+  --literal-seed             With --candidates: seed groups from rare SHARED
+                             string literals (cross-file features joined by
+                             their error strings/banners; language-agnostic;
+                             opt-in).
   --rank                     With --candidates: score each candidate's exploration
                              PRIORITY via --llm/--model, emit sorted + tagged
                              (observe-only; a surface heuristic to order where to
