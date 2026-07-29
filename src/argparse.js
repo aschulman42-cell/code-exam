@@ -298,6 +298,8 @@ export function parseArgs() {
     ground_truth: null,
     group_by: null,
     file_seed: false,
+    use_docs: false,      // --candidates: include TEXT_EXTENSIONS docs in the gather vocabulary (#284 signal-rich gather)
+    catalog_seed: false,  // --candidates: seed groups from command-catalog handler joins (#284 signal-rich gather)
     rank: false,
     include_evidence_pack: false,
     pseudo_claims_chart: false,
@@ -478,6 +480,8 @@ export function parseArgs() {
     ['ground_truth',         'value',          ['--ground-truth']],
     ['group_by',             'value',          ['--group-by']],
     ['file_seed',            'flag',           ['--file-seed']],
+    ['use_docs',             'flag',           ['--use-docs']],
+    ['catalog_seed',         'flag',           ['--catalog-seed']],
     ['rank',                 'flag',           ['--rank']],
     ['include_evidence_pack', 'flag',          ['--include-evidence-pack']],
     ['pseudo_claims_chart',  'flag',           ['--pseudo-claims-chart']],
@@ -1263,6 +1267,12 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              class seeds) | 'concept' (token-only baseline).
   --file-seed                With --candidates: add residual per-file groups
                              (opt-in; noisy on large C/C++ trees).
+  --use-docs                 With --candidates: EXPERIMENTAL — include doc files
+                             (.md/.txt/...) in the gather vocabulary so doc-borne
+                             feature terms can seed groups (opt-in; code-only
+                             stays default; measured to dilute as well as promote).
+  --catalog-seed             With --candidates: seed groups from command-catalog
+                             handler joins (option → handler + callees; opt-in).
   --rank                     With --candidates: score each candidate's exploration
                              PRIORITY via --llm/--model, emit sorted + tagged
                              (observe-only; a surface heuristic to order where to

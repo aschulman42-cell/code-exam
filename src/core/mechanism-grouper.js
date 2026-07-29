@@ -12,7 +12,9 @@
 // prototype (label propagation / Louvain) FAILED and was intentionally left
 // behind — only the multi-seed path graduates here.
 
-import { isIntrinsicName, extractConcepts, _isNoiseDoc } from './vocabulary.js';
+import { isIntrinsicName, extractConcepts, buildDocInclusiveVocabulary, _isNoiseDoc } from './vocabulary.js';
+import { extractCommandCatalog } from './breadcrumbs-commands.js';
+import { findCallees } from './calls.js';
 
 export const GROUPER_DEFAULTS = {
   mode: 'multi',        // 'multi' (token+class+optional file) | 'concept' (token-only baseline)
@@ -24,8 +26,29 @@ export const GROUPER_DEFAULTS = {
   overbroadFileFrac: 0.25, // ...is a namespace ONLY if it also cross-cuts > this fraction of the corpus files
   fileMax: 20,          // residual FILE seed only considers files this small
   fileSeed: false,      // FILE seed is opt-in (firehoses on C++ — see the note below)
+  useDocs: false,       // --use-docs (#284 signal-rich gather): doc-inclusive gather vocabulary
+  catalogSeed: false,   // --catalog-seed (#284 signal-rich gather): command-catalog handler seed
   maxFuncs: Infinity,   // cap candidates on huge indexes (0/Infinity = no cap)
 };
+
+// Concepts for the token seeds. Default: the cached code-only vocabulary via
+// extractConcepts. With `useDocs` (#284 signal-rich gather), build a
+// doc-INCLUSIVE vocabulary (uncached, cache untouched — see
+// buildDocInclusiveVocabulary) and inject its top entries, so doc-borne
+// feature terms compete for the same top-N concept cutoff as code tokens —
+// included, not promoted. Fail-open: any error yields no token seeds and the
+// class/catalog/file seeds still run (stub indexes in tests take this path).
+function gatherConcepts(index, o) {
+  try {
+    if (o.useDocs) {
+      const vocab = buildDocInclusiveVocabulary(index, false);
+      const entries = [...vocab.entries()].map(([token, data]) => ({ token, ...data }))
+        .sort((a, b) => b.score - a.score).slice(0, 200); // mirror extractConcepts' topN default
+      return extractConcepts(index, { maxConcepts: o.concepts, entries }) || [];
+    }
+    return extractConcepts(index, { maxConcepts: o.concepts }) || [];
+  } catch { return []; }
+}
 
 // Mechanical noise pre-filter: drop whole noise files (test / vendor / minified /
 // build / lockfile via the shared _isNoiseDoc, plus dist/ output, dead/backup
@@ -83,8 +106,7 @@ export function enumerateFuncs(index, opts = {}) {
 // distinctive concepts, gather each concept's members by name-token match, one
 // function per highest-ranked matching concept.
 function conceptSeededGroups(index, funcs, o) {
-  let concepts = [];
-  try { concepts = extractConcepts(index, { maxConcepts: o.concepts }) || []; } catch { concepts = []; }
+  const concepts = gatherConcepts(index, o);
   const rank = new Map(), label = new Map();
   concepts.forEach((c, i) => {
     const t = String(c.concept || '').toLowerCase();
@@ -126,8 +148,7 @@ function multiSeedGroups(index, funcs, o) {
   const assigned = new Map(); // funcId -> label
 
   // 1) TOKEN seeds — reject corpus-name and over-broad namespace concepts.
-  let concepts = [];
-  try { concepts = extractConcepts(index, { maxConcepts: o.concepts }) || []; } catch { /* */ }
+  const concepts = gatherConcepts(index, o);
   const rank = new Map(), tlabel = new Map();
   concepts.forEach((c, i) => { const t = String(c.concept || '').toLowerCase(); if (t.length >= 3 && !rank.has(t) && !(idxName && idxName.includes(t))) { rank.set(t, i); tlabel.set(t, c.example ? `${c.concept} (${c.example})` : c.concept); } });
   const tokens = [...rank.keys()];
@@ -170,7 +191,46 @@ function multiSeedGroups(index, funcs, o) {
   }
   for (const [cls, ids] of [...classMethods.entries()].filter(([, m]) => m.length >= o.minComm).sort((a, b) => b[1].length - a[1].length).slice(0, o.classes)) for (const id of ids) assigned.set(id, `[class] ${cls}`);
 
-  // 3) FILE seed (OPT-IN) — a SMALL file whose leftover (unassigned) functions are
+  // 3) CATALOG seed (OPT-IN --catalog-seed, #284 signal-rich gather) — each
+  // command-catalog CLI option with a resolved handler join seeds
+  // `[cmd] <flag>` = the handler function + its direct callees, on the
+  // UNASSIGNED residue only (after token/class, so the coverage gain is
+  // isolated and attributable; a function already claimed stays put).
+  // Cross-file by construction — the seed shape token/class can't express
+  // (a feature implemented across several files, e.g. an air-gap mode).
+  // Junk controls: options with no handler join are skipped; handlers that
+  // don't resolve to exactly one indexed function are skipped (catalog joins
+  // are heuristic — the harness measures their fidelity, we don't assume it);
+  // ambiguous callees are skipped; the group still needs minComm members.
+  // Fail-open like the token seed: a stub index without fileLines just
+  // contributes no catalog groups.
+  if (o.catalogSeed) {
+    let cliOptions = [];
+    try { cliOptions = (extractCommandCatalog(index, false) || {}).cliOptions || []; } catch { /* */ }
+    for (const opt of cliOptions) {
+      const hname = opt.handler && opt.handler.handlerFunc;
+      if (!hname) continue;
+      let hm = [];
+      try { hm = index.findFunctionMatches(hname) || []; } catch { /* */ }
+      if (hm.length !== 1) continue;
+      const h = hm[0];
+      const memberIds = new Set();
+      const tryAdd = (fid) => { if (fid && fileOf.has(fid) && !assigned.has(fid)) memberIds.add(fid); };
+      tryAdd(`${h.filepath}@${h.name}`);
+      let callees = [];
+      try { callees = findCallees(index, h.name, h.filepath) || []; } catch { /* */ }
+      for (const c of callees) {
+        const def = c.resolved_def;
+        if (!def || c.ambiguous) continue;
+        tryAdd(`${def.filepath}@${def.name || c.name}`);
+      }
+      if (memberIds.size < o.minComm) continue;
+      const flag = (opt.flags || []).find((f) => f.startsWith('--')) || `--${opt.name}`;
+      for (const fid of memberIds) assigned.set(fid, `[cmd] ${flag}`);
+    }
+  }
+
+  // 4) FILE seed (OPT-IN) — a SMALL file whose leftover (unassigned) functions are
   // its MAJORITY is one cohesive mechanism (scattered names token+class miss).
   // OFF by default: residual file-cohesion can't tell a distinctive mechanism from
   // an ordinary module or a codec kernel file, so it firehoses on C++ (~50

@@ -450,6 +450,32 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
   return vocabulary;
 }
 
+// #284 --use-docs (grouper-signal-rich-gather): doc-INCLUSIVE vocabulary for
+// the gather stage. Same build as ensureVocabulary's file mode, but
+// TEXT_EXTENSIONS docs (README, docs/*.md, .txt, ...) are treated as documents
+// instead of skipped, so doc-borne feature terms can reach the grouper's token
+// seeds. `.xml` stays excluded (generated-markup noise — the original #172
+// motivation for the skip), as do noise docs. DELIBERATELY UNCACHED and does
+// not touch `idx._vocabulary`: the on-disk vocabulary.json cache and every
+// other consumer keep the code-only view; the caller holds the returned Map
+// for the duration of one gather run. Not promote-above-code — docs enter the
+// same TF-IDF scoring as code files, they just stop being invisible.
+export function buildDocInclusiveVocabulary(idx, showProgress = false) {
+  const fileEntries = [...idx.files.entries()];
+  if (!fileEntries.length) return new Map();
+  if (showProgress) console.error(`Building doc-inclusive vocabulary for ${fileEntries.length} files (--use-docs)...`);
+  return _buildVocabularyFromDocs(idx, fileEntries, fileEntries.length, showProgress, {
+    skipDoc: (fp, content) => {
+      const ext = path.extname(fp).toLowerCase();
+      return ext === '.xml' || _isNoiseDoc(fp, content);
+    },
+    tokenCountOf: (fp) => {
+      const fl = idx.fileLines.get(fp);
+      return fl ? fl.length : 100;
+    },
+  });
+}
+
 /**
  * Build per-function "documents" for vocabulary discovery: each indexed
  * function body is one document. Used as the fallback corpus when the

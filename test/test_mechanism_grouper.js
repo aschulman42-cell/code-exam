@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader } from '../src/core/mechanism-grouper.js';
+import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, GROUPER_DEFAULTS } from '../src/core/mechanism-grouper.js';
 import { collectAnchorGroups } from '../src/commands/pseudo-claims.js';
 
 describe('mechanism-grouper class-seed fixes', () => {
@@ -74,6 +74,33 @@ describe('over-broad namespace rejection', () => {
     assert.equal(isOverBroadNamespace(185, 160, 30, 26), true); // namespace: >cap AND many files -> reject
     assert.equal(isOverBroadNamespace(10, 14, 20, 3), false);   // under cap -> keep regardless of spread
     assert.equal(isOverBroadNamespace(50, 20, 3, 3), false);    // over cap but fileCount == spreadCap (not >) -> keep
+  });
+});
+
+// #284 signal-rich gather knobs (--use-docs / --catalog-seed): both are
+// OPT-IN, default off, and FAIL OPEN — on a stub index with no files/fileLines
+// the doc-vocabulary and command-catalog paths throw internally, are caught,
+// and the class seed still produces the same groups as with the flags off.
+// (Live-corpus behavior is validated by the measurement runs against the
+// scoring harness, not by fixtures — same discipline as the recall dev path.)
+describe('signal-rich gather knobs fail open on stub indexes', () => {
+  const mk = (base, s) => ({ type: 'method', base_name: base, start: s, end: s + 9 });
+  const cls = (base) => ({ type: 'class', base_name: base, start: 1, end: 2 });
+  const stub = {
+    _ensureFunctionIndex() {},
+    functionIndex: {
+      'src/uri.cpp': { 'Uri::Builder': cls('Builder'), 'Uri::Builder::appendPath': mk('appendPath', 10), 'Uri::Builder::appendQuery': mk('appendQuery', 20), 'Uri::Builder::build': mk('build', 30) },
+    },
+  };
+  it('defaults carry the new knobs, off', () => {
+    assert.equal(GROUPER_DEFAULTS.useDocs, false);
+    assert.equal(GROUPER_DEFAULTS.catalogSeed, false);
+  });
+  it('produces identical groups with the flags on (paths fail open)', () => {
+    const base = groupMechanisms(stub, { indexName: 's', mode: 'multi' });
+    const flagged = groupMechanisms(stub, { indexName: 's', mode: 'multi', useDocs: true, catalogSeed: true });
+    assert.deepEqual(flagged.groups.map((g) => g.label), base.groups.map((g) => g.label));
+    assert.equal(flagged.groups.length, 1); // the Builder class group survives either way
   });
 });
 
