@@ -265,6 +265,39 @@ export function formatAnchors(result, meta = {}) {
   return out.join('\n') + '\n';
 }
 
+// Parse one anchors-.lst `#` header line back into { label, priority, purpose }
+// — the inverse of the emit grammar above (formatAnchors here, the --rank emit
+// in pseudo-claims.js):
+//   `# label  (N fns)  [P2 signal/fold — note]  — purpose`   (ranked)
+//   `# label  (N fns)  — purpose`                            (unranked)
+//   `# label [P3]`                                           (hand-tier-tagged)
+//   `# label`                                                (plain, passes through whole)
+// The label may itself contain parens (`catalog (exportCatalogJson)`), so the
+// split point is the FIRST `(N fns)`-shaped marker; the `[P…]` tag closes at
+// the first `]` (ranker notes are bounded, whitespace-collapsed, and `]`-free
+// in practice). Consumers: collectAnchorGroups (pseudo-claims.js) builds the
+// drafter's MECHANISM hint from label + purpose so triage annotations —
+// member counts, priority tags, ranker notes — never leak into the one line
+// the drafter is told to honor as the mechanism's identity. The scoring
+// harness keeps a private copy of this grammar (src/core/ranker-eval.js;
+// dedup deferred until that item commits) — change the emit and BOTH parsers
+// must track it.
+export function parseAnchorHeader(line) {
+  const h = String(line).replace(/^#+/, '').trim();
+  const m = h.match(/^(.*?)\s*\(\d+\s*fns?\)\s*(.*)$/);
+  let label = m ? m[1].trim() : h;
+  let rest = m ? m[2] : '';
+  let priority = null;
+  const tag = rest.match(/^\[P([0-3])\b[^\]]*\]\s*(.*)$/);
+  if (tag) { priority = Number(tag[1]); rest = tag[2]; }
+  else { const un = rest.match(/^\[unscored\]\s*(.*)$/); if (un) rest = un[1]; }
+  const purpose = rest.replace(/^[—–-]+\s*/, '').trim();
+  // Bare trailing tier tag on a hand-tagged header (`# Label [P3]`).
+  const bare = label.match(/\s*\[P([0-3])\]\s*$/);
+  if (bare) { if (priority == null) priority = Number(bare[1]); label = label.slice(0, bare.index).trim(); }
+  return { label, priority, purpose };
+}
+
 // --- ground-truth scoring (dev / test path) ---------------------------------
 // GT-scoring split (legal gate): the ground-truth text is CALLER-SUPPLIED. The
 // committed test scores only against Class-B PUBLIC fixtures in

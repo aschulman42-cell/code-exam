@@ -29,7 +29,7 @@ import fs from 'node:fs';
 import { parseFuncSpec } from '../utils.js';
 import { resolveModel, makeDrafter } from '../core/llm-runner.js';
 import { rankCandidates } from '../core/mechanism-ranker.js';
-import { groupMechanisms, formatAnchors, scoreGrouping, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
+import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
 
 // --- Canonical caveat blocks -------------------------------------------------
 // Ported verbatim from pseudo_claim_selftest/CAVEAT.md so the shipped command
@@ -106,10 +106,16 @@ function fenceFor(body) {
 //   - "@anchors.lst"    -> one-or-more groups; a "# Label" line starts a new
 //                          group and names it; anchors before any header form an
 //                          implicit first group; blank lines ignored.
-function collectAnchorGroups(spec) {
+// Headers are parsed via parseAnchorHeader (the grouper emit's inverse), so a
+// group carries a CLEAN {label, purpose} — the `(N fns)` count, `[P…]` priority
+// tag, and ranker note are stripped rather than riding into the MECHANISM hint
+// and the output heading. The hint itself is KEPT (label + purpose); only the
+// triage annotations are removed. Priority is parsed but deliberately unused
+// here (a later --auto phase may fold P0s). Exported for tests.
+export function collectAnchorGroups(spec) {
   if (!spec || !spec.startsWith('@')) {
     const specs = String(spec || '').split(';').map((s) => s.trim()).filter(Boolean);
-    return specs.length ? [{ label: null, specs }] : [];
+    return specs.length ? [{ label: null, purpose: '', specs }] : [];
   }
   const listPath = spec.slice(1);
   const text = fs.readFileSync(listPath, 'utf8'); // caller catches ENOENT
@@ -119,12 +125,12 @@ function collectAnchorGroups(spec) {
     const line = raw.trim();
     if (!line) continue;
     if (line.startsWith('#')) {
-      const label = line.replace(/^#+/, '').trim();
-      cur = { label: label || null, specs: [] };
+      const { label, purpose } = parseAnchorHeader(line);
+      cur = { label: label || null, purpose: purpose || '', specs: [] };
       groups.push(cur);
       continue;
     }
-    if (!cur) { cur = { label: null, specs: [] }; groups.push(cur); }
+    if (!cur) { cur = { label: null, purpose: '', specs: [] }; groups.push(cur); }
     cur.specs.push(line);
   }
   return groups.filter((g) => g.specs.length);
@@ -450,7 +456,7 @@ export async function doPseudoClaims(index, args) {
   groups.forEach((g, gi) => {
     const { resolved, problems } = resolveGroup(index, g);
     const { pack, truncatedAnchors, droppedForBudget } = buildPack(resolved);
-    sections.push({ label: g.label, groupNum: gi + 1, resolved, problems, pack, truncatedAnchors, droppedForBudget });
+    sections.push({ label: g.label, purpose: g.purpose || '', groupNum: gi + 1, resolved, problems, pack, truncatedAnchors, droppedForBudget });
     totalResolved += resolved.length;
     totalProblems += problems.length;
   });
@@ -510,7 +516,10 @@ export async function doPseudoClaims(index, args) {
     for (let i = 0; i < withAnchors.length; i++) {
       const s = withAnchors[i];
       try {
-        const intent = s.label ? `MECHANISM: ${s.label}\n\n` : '';
+        // Label + purpose as ONE line (separating them weakened both — the
+        // ranker-purpose-signal lesson); triage annotations already stripped.
+        const mech = s.label ? `${s.label}${s.purpose ? ' — ' + s.purpose : ''}` : '';
+        const intent = mech ? `MECHANISM: ${mech}\n\n` : '';
         const raw = await drafter(PSEUDO_CLAIM_GENERATE_SYS, `${intent}CODE:\n${s.pack}`, 900);
         const { prose, anchors } = parseGeneratedClaim(raw);
         const { grounded, dropped } = groundAnchors(index, anchors);

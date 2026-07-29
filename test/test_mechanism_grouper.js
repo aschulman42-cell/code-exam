@@ -7,9 +7,13 @@
 // (`--pseudo-claims --ground-truth <gt.lst>` on a local index) — no large vendored
 // corpus is committed for it.
 
-import { describe, it } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { groupMechanisms, isOverBroadNamespace } from '../src/core/mechanism-grouper.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader } from '../src/core/mechanism-grouper.js';
+import { collectAnchorGroups } from '../src/commands/pseudo-claims.js';
 
 describe('mechanism-grouper class-seed fixes', () => {
   const mk = (base, s) => ({ type: 'method', base_name: base, start: s, end: s + 9 }); // 10 lines >= minLines
@@ -70,5 +74,65 @@ describe('over-broad namespace rejection', () => {
     assert.equal(isOverBroadNamespace(185, 160, 30, 26), true); // namespace: >cap AND many files -> reject
     assert.equal(isOverBroadNamespace(10, 14, 20, 3), false);   // under cap -> keep regardless of spread
     assert.equal(isOverBroadNamespace(50, 20, 3, 3), false);    // over cap but fileCount == spreadCap (not >) -> keep
+  });
+});
+
+// parseAnchorHeader: the inverse of the formatAnchors / --rank emit grammar.
+// The MECHANISM hint keeps label + purpose; the `(N fns)` count, `[P…]` tag
+// (with its ranker note), and bare trailing tier tags are the annotations
+// stripped so triage metadata never reaches the drafter as mechanism identity.
+describe('parseAnchorHeader', () => {
+  it('parses a ranked header — em-dash inside the note, purpose after', () => {
+    const h = parseAnchorHeader('# [class] CodeSearchIndex  (79 fns)  [P3 codebase-specific/keep — Core index building — and graphs.]  — * Core data structure for Code Exam');
+    assert.deepEqual(h, { label: '[class] CodeSearchIndex', priority: 3, purpose: '* Core data structure for Code Exam' });
+  });
+  it('keeps parens that belong to the label (token namesake)', () => {
+    const h = parseAnchorHeader('# catalog (exportCatalogJson)  (12 fns)  [P1 standard-pattern/split — six catalogs]  — exporters and reporting');
+    assert.equal(h.label, 'catalog (exportCatalogJson)');
+    assert.equal(h.priority, 1);
+  });
+  it('parses an unranked header (no tag) with purpose', () => {
+    const h = parseAnchorHeader('# dupes (structDupes)  (5 fns)  — struct-dupes detection');
+    assert.deepEqual(h, { label: 'dupes (structDupes)', priority: null, purpose: 'struct-dupes detection' });
+  });
+  it('strips a bare trailing tier tag from a hand-tagged header', () => {
+    const h = parseAnchorHeader('# Claim 1 — multisect search [P3]');
+    assert.deepEqual(h, { label: 'Claim 1 — multisect search', priority: 3, purpose: '' });
+  });
+  it('treats [unscored] as no priority and keeps the purpose', () => {
+    const h = parseAnchorHeader('# census (censusImports)  (4 fns)  [unscored]  — import census');
+    assert.deepEqual(h, { label: 'census (censusImports)', priority: null, purpose: 'import census' });
+  });
+  it('passes a plain header through whole', () => {
+    const h = parseAnchorHeader('# Claim 2 — census');
+    assert.deepEqual(h, { label: 'Claim 2 — census', priority: null, purpose: '' });
+  });
+});
+
+// collectAnchorGroups consumes parseAnchorHeader: groups carry the CLEAN label
+// + purpose (annotation-free), banner lines with no anchors are dropped.
+describe('collectAnchorGroups header hygiene', () => {
+  const tmp = path.join(os.tmpdir(), `ce_test_anchors_${process.pid}.lst`);
+  fs.writeFileSync(tmp, [
+    '# mechanism-ranker  index=.X  group-by=multi  2 groups — RANKED by m (observe-only)',
+    '',
+    '# [class] CodeSearchIndex  (79 fns)  [P3 codebase-specific/keep — Core — index.]  — * Core data structure',
+    'a.js@f',
+    '# Claim 1 — multisect [P3]',
+    'b.js@g',
+  ].join('\n'), 'utf8');
+  after(() => { try { fs.unlinkSync(tmp); } catch { /* */ } });
+
+  it('yields clean labels/purposes and drops the banner', () => {
+    const groups = collectAnchorGroups(`@${tmp}`);
+    assert.equal(groups.length, 2);
+    assert.equal(groups[0].label, '[class] CodeSearchIndex');
+    assert.equal(groups[0].purpose, '* Core data structure');
+    assert.deepEqual(groups[0].specs, ['a.js@f']);
+    assert.equal(groups[1].label, 'Claim 1 — multisect');
+    assert.equal(groups[1].purpose, '');
+  });
+  it('inline specs form one label-less group', () => {
+    assert.deepEqual(collectAnchorGroups('a.js@f;b.js@g'), [{ label: null, purpose: '', specs: ['a.js@f', 'b.js@g'] }]);
   });
 });
