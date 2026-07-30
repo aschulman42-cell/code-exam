@@ -12,8 +12,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, GROUPER_DEFAULTS } from '../src/core/mechanism-grouper.js';
-import { collectAnchorGroups, parseMinRank, filterGroupsByMinRank, packDisclosure } from '../src/commands/pseudo-claims.js';
+import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, splitDocSections, docAnchorsForGroup, formatAnchors, GROUPER_DEFAULTS } from '../src/core/mechanism-grouper.js';
+import { collectAnchorGroups, parseMinRank, filterGroupsByMinRank, packDisclosure, parseLineAnchor, groundAnchors, formatClaimChart } from '../src/commands/pseudo-claims.js';
 
 describe('mechanism-grouper class-seed fixes', () => {
   const mk = (base, s) => ({ type: 'method', base_name: base, start: s, end: s + 9 }); // 10 lines >= minLines
@@ -257,6 +257,109 @@ describe('test-attributed candidate filter (#291 A)', () => {
     const bare = { _ensureFunctionIndex() {}, functionIndex: stub.functionIndex };
     const { funcs } = enumerateFuncs(bare, {});
     assert.equal(funcs.length, 3);
+  });
+});
+
+// issue-289-doc-anchor-enrichment: heading-bounded doc sections attach to
+// groups as path@L anchors, concept-gated and score-thresholded.
+describe('doc-anchor enrichment (issue-289)', () => {
+  const DOC = [
+    '# Detecting AI/ML',                       // L1
+    '',
+    'CE detects AI/ML constructs mechanically.',
+    'The AI/ML detectors include listModels and listKernels.',
+    'AI/ML hits roll up into the Hunch score.',
+    '',
+    '## Unrelated appendix',                   // L7
+    'Nothing about the topic here.',
+    'Filler line.',
+    'More filler.',
+  ];
+  const idx = {
+    fileLines: new Map([
+      ['DETECTING_AI_ML.md', DOC],
+      ['README.md', ['# Readme', 'General text.', 'More general text.', 'Even more.']],
+      ['src/code.js', ['function x() {}']],
+    ]),
+  };
+  const members = [{ bare: 'listModels' }, { bare: 'listKernels' }];
+
+  it('splits heading-bounded sections with the tiny-section skip', () => {
+    const secs = splitDocSections(DOC);
+    assert.deepEqual(secs.map((s) => [s.start, s.end]), [[1, 10], [7, 10]]);
+  });
+  it('attaches the matching doc section to a class-shaped concept ("AI/ML" via normalization)', () => {
+    const anchors = docAnchorsForGroup(idx, '[class] _AIMLMethods', members);
+    assert.equal(anchors.length, 1, `anchors=${anchors.join(' | ')}`);
+    assert.match(anchors[0], /^DETECTING_AI_ML\.md@L1-10$/);
+  });
+  it('never double-attaches a parent section and its overlapping child', () => {
+    const anchors = docAnchorsForGroup(idx, '[class] _AIMLMethods', members, { docMinScore: 3 });
+    // With a low threshold both DETECTING sections (L1-10 parent, L7-10 child
+    // would not qualify — but any same-file second pick must not overlap the
+    // first. At most one anchor per overlapping range.
+    const perFile = {};
+    for (const a of anchors) { const f = a.split('@')[0]; perFile[f] = (perFile[f] || 0) + 1; }
+    for (const [f, n] of Object.entries(perFile)) assert.ok(n <= 1 || f !== 'DETECTING_AI_ML.md', `overlapping picks in ${f}`);
+  });
+  it('attaches nothing without a concept hit (member names alone cannot attach)', () => {
+    const anchors = docAnchorsForGroup(idx, '[class] Unrelated', members);
+    assert.deepEqual(anchors, []);
+  });
+  it('fails open without fileLines', () => {
+    assert.deepEqual(docAnchorsForGroup({}, '[class] _AIMLMethods', members), []);
+  });
+  it('emits doc anchors FIRST in formatAnchors when docAnchorsFor is supplied', () => {
+    const result = { groups: [{ label: '[class] _AIMLMethods', ids: new Set(), members: [{ file: 'src/a.js', name: 'listModels', bare: 'listModels' }] }], noiseFiles: 0, noiseFns: 0, mode: 'multi' };
+    const text = formatAnchors(result, { indexName: 't', docAnchorsFor: () => ['DETECTING_AI_ML.md@L1-10'] });
+    const lines = text.split('\n').filter(Boolean);
+    const hdr = lines.findIndex((l) => l.startsWith('# [class] _AIMLMethods'));
+    assert.equal(lines[hdr + 1], 'DETECTING_AI_ML.md@L1-10');
+    assert.equal(lines[hdr + 2], 'src/a.js@listModels');
+  });
+});
+
+// issue-286-doc-line-anchors: `path@L<start>[-<end>]` anchors on any indexed
+// file — the docs-as-evidence channel. Grammar, grounding contract, and chart
+// rendering; end-to-end resolution is verified live via a dry run.
+describe('doc line anchors (issue-286)', () => {
+  const docIndex = {
+    fileLines: new Map([
+      ['bram-main/docs/apis.md', ['# APIs', '', 'worklist routes:', '- resolve', '- mutate', '- commit', 'notes', 'more notes', 'end']],
+      ['other/apis.md', ['dupe']],
+    ]),
+  };
+
+  it('parses both range and single-line forms, rejecting garbage', () => {
+    assert.deepEqual(parseLineAnchor('docs/apis.md@L3-6'), { file: 'docs/apis.md', start: 3, end: 6 });
+    assert.deepEqual(parseLineAnchor('docs/apis.md@L7'), { file: 'docs/apis.md', start: 7, end: 7 });
+    assert.equal(parseLineAnchor('a.js@func'), null);
+    assert.equal(parseLineAnchor('a.md@L0'), null);
+    assert.equal(parseLineAnchor('a.md@L9-3'), null);
+  });
+  it('grounds an in-bounds doc cite via exact or unique-suffix path', () => {
+    const { grounded, dropped } = groundAnchors(docIndex, [{ file: 'bram-main/docs/apis.md', func: 'L3-6', line: 0, element: 'worklist routes' }]);
+    assert.equal(dropped.length, 0);
+    assert.deepEqual(grounded[0], { file: 'bram-main/docs/apis.md', func: '', start: 3, end: 6, element: 'worklist routes', kind: 'lines' });
+  });
+  it('drops out-of-bounds ranges and unindexed or ambiguous doc paths', () => {
+    const { grounded, dropped } = groundAnchors(docIndex, [
+      { file: 'bram-main/docs/apis.md', func: 'L50-60', line: 0, element: 'x' },
+      { file: 'missing.md', func: 'L1-2', line: 0, element: 'y' },
+      { file: 'apis.md', func: 'L1-2', line: 0, element: 'z' }, // suffix matches two files
+    ]);
+    assert.equal(grounded.length, 0);
+    assert.equal(dropped.length, 3);
+    assert.match(dropped[0].reason, /out of bounds/);
+    assert.match(dropped[1].reason, /not in index/);
+    assert.match(dropped[2].reason, /ambiguous/);
+  });
+  it('renders doc cites as path@L range with a (doc) marker in the chart', () => {
+    const lines = formatClaimChart('A method, comprising: storing worklist routes in a manifest.', [
+      { file: 'bram-main/docs/apis.md', func: '', start: 3, end: 6, element: 'worklist routes manifest', kind: 'lines' },
+    ]);
+    const body = lines.join('\n');
+    assert.match(body, /`bram-main\/docs\/apis\.md@L3-6` \(doc\)/);
   });
 });
 

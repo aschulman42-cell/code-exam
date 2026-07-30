@@ -29,7 +29,7 @@ import fs from 'node:fs';
 import { parseFuncSpec } from '../utils.js';
 import { resolveModel, makeDrafter } from '../core/llm-runner.js';
 import { rankCandidates } from '../core/mechanism-ranker.js';
-import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
+import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
 
 // --- Canonical caveat blocks -------------------------------------------------
 // Ported verbatim from pseudo_claim_selftest/CAVEAT.md so the shipped command
@@ -85,8 +85,10 @@ export const PSEUDO_CLAIM_GENERATE_SYS =
   'clause — e.g. "A method for X, comprising: <step>; <step>; and <step>.">\n' +
   'ANCHORS:\n' +
   '- <file>@<functionName> — <the claim element it implements>\n' +
-  '(one line per distinct element). Cite ONLY files and functions that appear in ' +
-  'the provided code. NEVER invent a path or a name.';
+  '(one line per distinct element). For a DOCUMENTATION excerpt shown in the ' +
+  'provided material, cite it as <file>@L<start>-<end> using the line range ' +
+  'from its header. Cite ONLY files, functions, and line ranges that appear ' +
+  'in the provided material. NEVER invent a path, a name, or a line range.';
 
 // Evidence-pack size bounds (per group, shared so the pack the user eyeballs in
 // dry-run is exactly what the model receives).
@@ -152,12 +154,66 @@ export function packDisclosure(s) {
   return `_Evidence pack: ${bits.join('; ')}._`;
 }
 
+// issue-286-doc-line-anchors: `path@L<start>[-<end>]` is a LINE-RANGE anchor,
+// valid on ANY indexed file — which is what lets DOCUMENTATION be cited as
+// evidence (patent practice cites manuals and printed publications alongside
+// code; CE's --use-docs experiment (de47d0b) established the term-vote channel
+// is the wrong way to use docs while this evidence channel was unbuilt).
+// Parsed HERE, not in the shared parseFuncSpec — the draft pipeline is the
+// only consumer; #286's cross-command @line normalization stays open.
+// Exported for tests.
+export function parseLineAnchor(spec) {
+  const m = String(spec || '').trim().match(/^(.+)@L(\d+)(?:-(\d+))?$/);
+  if (!m) return null;
+  const start = Number(m[2]);
+  const end = m[3] ? Number(m[3]) : start;
+  if (start < 1 || end < start) return null;
+  return { file: m[1].trim(), start, end };
+}
+
+// Resolve a (possibly suffix-abbreviated) path against the index's fileLines:
+// exact key first, else a UNIQUE suffix match (slash-normalized). Returns the
+// indexed key, null on miss, or { ambiguous: true } — a doc cite must resolve
+// to exactly one indexed file, same anti-fabrication posture as functions.
+function resolveIndexedFile(index, p) {
+  const fl = index.fileLines;
+  if (!fl || typeof fl.get !== 'function') return null;
+  if (fl.has(p)) return p;
+  const norm = String(p).replace(/\\/g, '/');
+  let hit = null, count = 0;
+  for (const key of fl.keys()) {
+    const k = String(key).replace(/\\/g, '/');
+    if (k === norm || k.endsWith('/' + norm)) { hit = key; count++; if (count > 1) return { ambiguous: true }; }
+  }
+  return count === 1 ? hit : null;
+}
+
 // Resolve one group's anchor specs to real functions (the existence check the
-// file-level prototype lacked — it cited fragments like strRe.exec(body)).
+// file-level prototype lacked — it cited fragments like strRe.exec(body)) —
+// or, for `path@L<start>-<end>` specs, to line-range excerpts of any indexed
+// file (issue-286-doc-line-anchors).
 function resolveGroup(index, group) {
   const resolved = [];
   const problems = [];
   for (const a of group.specs) {
+    const la = parseLineAnchor(a);
+    if (la) {
+      const hit = resolveIndexedFile(index, la.file);
+      if (!hit || hit.ambiguous) {
+        problems.push({ spec: a, reason: hit && hit.ambiguous ? 'line-anchor path is ambiguous in the index — use a longer suffix' : 'line-anchor file is not in the index' });
+        continue;
+      }
+      const lines = index.fileLines.get(hit) || [];
+      if (la.start > lines.length) {
+        problems.push({ spec: a, reason: `line range starts past end of file (${lines.length} lines)` });
+        continue;
+      }
+      const end = Math.min(la.end, lines.length);
+      const source = lines.slice(la.start - 1, end).join('\n');
+      if (!source.trim()) { problems.push({ spec: a, reason: 'line range is empty' }); continue; }
+      resolved.push({ spec: a, filepath: hit, name: `L${la.start}-${end}`, start: la.start, end, source, kind: 'lines' });
+      continue;
+    }
     const { fileHint, funcName } = parseFuncSpec(a);
     const matches = index.findFunctionMatches(funcName, fileHint);
     if (!matches || matches.length === 0) {
@@ -262,7 +318,9 @@ function buildPack(resolved) {
       body = body.slice(0, PACK_PER_ANCHOR_CHARS) + '\n// … [truncated for evidence-pack budget]';
       truncatedAnchors.push(r.spec);
     }
-    const header = `${r.filepath}@${r.name}  (L${r.start}-${r.end})`;
+    const header = r.kind === 'lines'
+      ? `${r.filepath}@L${r.start}-${r.end}  (documentation excerpt)`
+      : `${r.filepath}@${r.name}  (L${r.start}-${r.end})`;
     const fence = fenceFor(body);
     packParts.push(`// ${header}\n${fence}\n${body}\n${fence}`);
     used += body.length;
@@ -306,6 +364,27 @@ export function groundAnchors(index, anchors) {
   const grounded = [];
   const dropped = [];
   for (const a of anchors || []) {
+    // issue-286: a documentation line-range cite (`file@L<start>-<end>`)
+    // grounds iff the file resolves to exactly one indexed file and the range
+    // starts in bounds — the model cannot invent a doc path or a line range
+    // (same anti-fabrication contract as function cites).
+    const lm = a.func && a.func.match(/^L(\d+)(?:-(\d+))?$/);
+    if (lm) {
+      const start = Number(lm[1]);
+      const end = lm[2] ? Number(lm[2]) : start;
+      const hit = resolveIndexedFile(index, a.file);
+      if (!hit || hit.ambiguous) {
+        dropped.push({ ...a, reason: hit && hit.ambiguous ? 'cited doc path ambiguous in index' : 'cited doc file not in index' });
+        continue;
+      }
+      const lines = index.fileLines.get(hit) || [];
+      if (start < 1 || start > lines.length || end < start) {
+        dropped.push({ ...a, reason: 'cited doc line range out of bounds' });
+        continue;
+      }
+      grounded.push({ file: hit, func: '', start, end: Math.min(end, lines.length), element: a.element, kind: 'lines' });
+      continue;
+    }
     if (!a.func) { dropped.push({ ...a, reason: 'no function name to verify' }); continue; }
     const matches = index.findFunctionMatches(a.func, a.file || null);
     if (!matches || matches.length === 0) {
@@ -329,7 +408,9 @@ export function groundAnchors(index, anchors) {
 // element→evidence view rather than reinventing it.
 export function formatClaimChart(prose, grounded) {
   const esc = (s) => String(s).replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
-  const cite = (a) => `\`${a.file}@${a.func}\`${a.start ? ` (L${a.start}-${a.end})` : ''}`;
+  const cite = (a) => a.kind === 'lines'
+    ? `\`${a.file}@L${a.start}-${a.end}\` (doc)`
+    : `\`${a.file}@${a.func}\`${a.start ? ` (L${a.start}-${a.end})` : ''}`;
   const kw = (s) => new Set(String(s).toLowerCase().match(/[a-z][a-z0-9_]{3,}/g) || []);
   // Parse claim prose: preamble = text through the first ':'; elements = the
   // remainder split on ';' (standard method-claim form).
@@ -446,6 +527,8 @@ export async function doEmitCandidates(index, args) {
       const tag = v ? `  [P${v.priority} ${v.signal}/${v.fold}${v.note ? ' — ' + v.note : ''}]` : '  [unscored]';
       const purpose = harvestPurpose(index, g.label, g.members);
       lines.push('', `# ${g.label}  (${g.members.length} fns)${tag}${purpose ? '  — ' + purpose : ''}`);
+      // issue-289-doc-anchor-enrichment: doc anchors first (budget-first placement).
+      if (args.doc_anchors) for (const d of docAnchorsForGroup(index, g.label, g.members)) lines.push(d);
       for (const f of g.members) { const spec = f.name.includes('@') ? f.bare : f.name; lines.push(`${f.file}@${spec}`); }
     }
     const rankedText = lines.join('\n') + '\n';
@@ -458,7 +541,12 @@ export async function doEmitCandidates(index, args) {
     return;
   }
 
-  const text = formatAnchors(result, { indexName, minComm: GROUPER_DEFAULTS.minComm, purposeFor: (label, members) => harvestPurpose(index, label, members) });
+  const text = formatAnchors(result, {
+    indexName,
+    minComm: GROUPER_DEFAULTS.minComm,
+    purposeFor: (label, members) => harvestPurpose(index, label, members),
+    ...(args.doc_anchors ? { docAnchorsFor: (label, members) => docAnchorsForGroup(index, label, members) } : {}),
+  });
   if (outPath) {
     fs.writeFileSync(outPath, text, 'utf8');
     console.error(`# wrote ${result.groups.length} candidate group(s) to ${outPath}  (${indexName}, group-by=${result.mode}, unranked; pre-filtered ${result.noiseFiles} noise files / ${result.noiseFns} fns)`);
@@ -636,7 +724,9 @@ export async function doPseudoClaims(index, args) {
           out.push(`### Cited anchors (${d.grounded.length} grounded${d.dropped.length ? `, ${d.dropped.length} ungrounded dropped` : ''})`);
           out.push('');
           for (const a of d.grounded) {
-            out.push(`- \`${a.file}@${a.func}\` — L${a.start}-${a.end}${a.element ? ` — ${a.element}` : ''}`);
+            out.push(a.kind === 'lines'
+              ? `- \`${a.file}@L${a.start}-${a.end}\` — documentation excerpt${a.element ? ` — ${a.element}` : ''}`
+              : `- \`${a.file}@${a.func}\` — L${a.start}-${a.end}${a.element ? ` — ${a.element}` : ''}`);
           }
           if (!d.grounded.length) out.push('- _(no cited anchor resolved to a real function)_');
         }
@@ -655,7 +745,9 @@ export async function doPseudoClaims(index, args) {
       out.push(`### Anchors (${s.resolved.length})`);
       out.push('');
       for (const a of s.resolved) {
-        out.push(`- \`${a.filepath}@${a.name}\` — L${a.start}-${a.end} (${a.end - a.start + 1} lines)`);
+        out.push(a.kind === 'lines'
+          ? `- \`${a.filepath}@L${a.start}-${a.end}\` — documentation excerpt (${a.end - a.start + 1} lines)`
+          : `- \`${a.filepath}@${a.name}\` — L${a.start}-${a.end} (${a.end - a.start + 1} lines)`);
       }
       if (showPack) out.push('', '### Evidence pack');
     }

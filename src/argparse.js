@@ -303,6 +303,7 @@ export function parseArgs() {
     literal_seed: false,  // --candidates: seed groups from rare shared string literals (#289)
     body_match_seed: false, // --candidates: body-containment rescue for name-match-failed cutoff tokens (#289)
     min_rank: null,       // --pseudo-claims: draft-time floor over [P..] rank tags (default P2 when tags present)
+    doc_anchors: false,   // --candidates: attach best-matching doc sections as path@L anchors (#289 enrichment)
     rank: false,
     include_evidence_pack: false,
     pseudo_claims_chart: false,
@@ -488,6 +489,7 @@ export function parseArgs() {
     ['literal_seed',         'flag',           ['--literal-seed']],
     ['body_match_seed',      'flag',           ['--body-match-seed']],
     ['min_rank',             'value',          ['--min-rank']],
+    ['doc_anchors',          'flag',           ['--doc-anchors']],
     ['rank',                 'flag',           ['--rank']],
     ['include_evidence_pack', 'flag',          ['--include-evidence-pack']],
     ['pseudo_claims_chart',  'flag',           ['--pseudo-claims-chart']],
@@ -1291,6 +1293,10 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              carries [P..] tags; unranked lists draft all
                              groups, and untagged groups always draft. 0 =
                              draft everything.
+  --doc-anchors              With --candidates: attach each group's best-
+                             matching documentation sections as path@L<a>-<b>
+                             anchors (docs cited as evidence in packs and
+                             charts; opt-in).
   --rank                     With --candidates: score each candidate's exploration
                              PRIORITY via --llm/--model, emit sorted + tagged
                              (observe-only; a surface heuristic to order where to

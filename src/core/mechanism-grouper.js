@@ -15,6 +15,7 @@
 import { isIntrinsicName, extractConcepts, buildDocInclusiveVocabulary, _isNoiseDoc } from './vocabulary.js';
 import { extractCommandCatalog } from './breadcrumbs-commands.js';
 import { findCallees } from './calls.js';
+import { TEXT_EXTENSIONS, splitCompoundToken } from '../utils.js';
 
 export const GROUPER_DEFAULTS = {
   mode: 'multi',        // 'multi' (token+class+optional file) | 'concept' (token-only baseline)
@@ -460,6 +461,120 @@ export function groupMechanisms(index, opts = {}) {
   return { groups, funcs, byId, noiseFiles, noiseFns, mode: o.mode };
 }
 
+// --- doc-anchor enrichment (issue-289-doc-anchor-enrichment) -----------------
+// Attach the best-matching DOC sections to each emitted group as
+// `path@L<start>-<end>` anchors (the issue-286 grammar), so documentation
+// rides into the evidence pack and the claim chart as citable disclosure.
+// ENRICHMENT ONLY: decorates groups the grouper found; it cannot conjure a
+// missing group (that is the deferred doc-mention seed, #289/#185).
+
+// Split a doc file's lines into heading-bounded sections
+// [{start, end, heading}] (1-based, inclusive): a `#`..`###` heading up to the
+// next same-or-higher heading, capped at `cap` lines; sections under 3 lines
+// are skipped. Exported for tests.
+export function splitDocSections(lines, cap = 120) {
+  const heads = [];
+  for (let i = 0; i < (lines || []).length; i++) {
+    const m = /^(#{1,3})\s/.exec(lines[i] || '');
+    if (m) heads.push({ line: i + 1, level: m[1].length, text: String(lines[i]).trim() });
+  }
+  const sections = [];
+  for (let h = 0; h < heads.length; h++) {
+    let end = lines.length;
+    for (let j = h + 1; j < heads.length; j++) {
+      if (heads[j].level <= heads[h].level) { end = heads[j].line - 1; break; }
+    }
+    end = Math.min(end, heads[h].line + cap - 1);
+    if (end - heads[h].line + 1 >= 3) sections.push({ start: heads[h].line, end, heading: heads[h].text });
+  }
+  return sections;
+}
+
+// A group's topic tokens for doc matching: the CONCEPT token (from the label —
+// weighted, and also matched against a punctuation-stripped view of each line
+// so `aiml` finds "AI/ML") plus the namesake example and the first few member
+// bare names (plain substring, weight 1).
+function groupTopicTokens(label, members) {
+  const raw = String(label || '');
+  const lc = raw.toLowerCase();
+  const tokens = [];
+  const mClass = raw.match(/^\[class\]\s+_*(\w+)/);
+  const mCmd = lc.match(/^\[cmd\]\s+--?([\w-]+)/);
+  const mBody = lc.match(/^\[body\]\s+([a-z0-9_-]+)/);
+  const mLit = lc.match(/^\[lit\]\s+"(.{4,40}?)"/);
+  const mTok = lc.match(/^([a-z0-9_-]+)\s*\(/);
+  const conceptRaw = mClass ? mClass[1] : mCmd ? mCmd[1] : mBody ? mBody[1] : mLit ? mLit[1] : mTok ? mTok[1] : raw.split(/\s+/)[0];
+  const conceptLc = String(conceptRaw || '').toLowerCase();
+  if (conceptLc.length >= 3) tokens.push({ t: conceptLc, w: 3, concept: true });
+  // Sub-parts of a compound concept count as concept evidence at lower weight
+  // (with the normalized-line check) so a class-shaped concept like
+  // AIMLMethods can meet a doc that spells it "AI/ML".
+  try {
+    for (const part of (splitCompoundToken(conceptRaw || '') || []).slice(0, 3)) {
+      const p = String(part).toLowerCase();
+      if (p.length >= 4 && p !== conceptLc) tokens.push({ t: p, w: 2, concept: true });
+    }
+  } catch { /* sub-parts are optional */ }
+  const ex = lc.match(/\(([^)]+)\)\s*$/);
+  if (ex && ex[1] && ex[1].length >= 4 && !mCmd) tokens.push({ t: ex[1], w: 1, concept: false });
+  for (const m of (members || []).slice(0, 8)) {
+    const b = String(m.bare || '').toLowerCase();
+    if (b.length >= 4) tokens.push({ t: b, w: 1, concept: false });
+  }
+  return tokens;
+}
+
+// Attach the best-matching doc sections for a group, as emitted anchor lines.
+// Scoring: weighted per-line substring hits over the section (+ its filename);
+// a section qualifies only when the CONCEPT token itself matched (member-name
+// hits alone can't attach a doc) and the weighted score clears `docMinScore`.
+// Top `docMaxAnchors` sections win, distinct files preferred. Fail-open: no
+// fileLines, no docs, or nothing qualifying -> []. Exported for tests and for
+// the --rank emit path.
+export function docAnchorsForGroup(index, label, members, o = {}) {
+  const minScore = o.docMinScore ?? 6;
+  const maxAnchors = o.docMaxAnchors ?? 2;
+  const fl = index && index.fileLines;
+  if (!fl || typeof fl.entries !== 'function') return [];
+  const tokens = groupTopicTokens(label, members);
+  if (!tokens.some((t) => t.concept)) return [];
+  const candidates = [];
+  for (const [file, lines] of fl) {
+    const dot = String(file).lastIndexOf('.');
+    const ext = dot >= 0 ? String(file).slice(dot).toLowerCase() : '';
+    if (!TEXT_EXTENSIONS.has(ext) || _isNoiseDoc(file, null)) continue;
+    if (!Array.isArray(lines)) continue;
+    const fname = String(file).toLowerCase();
+    const fnameNorm = fname.replace(/[^a-z0-9]/g, '');
+    for (const sec of splitDocSections(lines, o.docSectionCap ?? 120)) {
+      let score = 0, conceptHit = false;
+      for (const { t, w, concept } of tokens) {
+        if (fname.includes(t) || (concept && fnameNorm.includes(t))) { score += w; if (concept) conceptHit = true; }
+      }
+      for (let i = sec.start - 1; i < sec.end; i++) {
+        const line = String(lines[i] || '').toLowerCase();
+        for (const { t, w, concept } of tokens) {
+          if (line.includes(t) || (concept && line.replace(/[^a-z0-9]/g, '').includes(t))) {
+            score += w;
+            if (concept) conceptHit = true;
+          }
+        }
+      }
+      if (conceptHit && score >= minScore) candidates.push({ file, start: sec.start, end: sec.end, score });
+    }
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  const picked = [];
+  const usedFiles = new Set();
+  // Distinct files first; a same-file second pick must not OVERLAP an already
+  // picked range (a level-1 section and its level-2 child score near-identically
+  // and would pack the same prose twice — observed on STRUCTURAL_SEARCH.md).
+  const overlaps = (a, b) => a.file === b.file && a.start <= b.end && b.start <= a.end;
+  for (const c of candidates) { if (picked.length >= maxAnchors) break; if (usedFiles.has(c.file)) continue; usedFiles.add(c.file); picked.push(c); }
+  for (const c of candidates) { if (picked.length >= maxAnchors) break; if (picked.includes(c) || picked.some((p) => overlaps(p, c))) continue; picked.push(c); }
+  return picked.map((c) => `${c.file}@L${c.start}-${c.end}`);
+}
+
 // Render grouping output as a draft anchors.lst (the grammar --pseudo-claims parses).
 export function formatAnchors(result, meta = {}) {
   const { groups, noiseFiles, noiseFns } = result;
@@ -468,6 +583,9 @@ export function formatAnchors(result, meta = {}) {
   for (const g of groups) {
     const purpose = meta.purposeFor ? meta.purposeFor(g.label, g.members) : '';
     out.push('', `# ${g.label}  (${g.members.length} fns)${purpose ? '  — ' + purpose : ''}`);
+    // issue-289-doc-anchor-enrichment: doc anchors emit FIRST — the evidence
+    // pack fills in member order, so top placement survives the budget.
+    if (meta.docAnchorsFor) for (const d of meta.docAnchorsFor(g.label, g.members)) out.push(d);
     for (const f of g.members) out.push(`${f.file}@${anchorSpec(f)}`);
   }
   return out.join('\n') + '\n';
