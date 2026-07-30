@@ -302,6 +302,7 @@ export function parseArgs() {
     catalog_seed: false,  // --candidates: seed groups from command-catalog handler joins (#284 signal-rich gather)
     literal_seed: false,  // --candidates: seed groups from rare shared string literals (#289)
     body_match_seed: false, // --candidates: body-containment rescue for name-match-failed cutoff tokens (#289)
+    min_rank: null,       // --pseudo-claims: draft-time floor over [P..] rank tags (default P2 when tags present)
     rank: false,
     include_evidence_pack: false,
     pseudo_claims_chart: false,
@@ -486,6 +487,7 @@ export function parseArgs() {
     ['catalog_seed',         'flag',           ['--catalog-seed']],
     ['literal_seed',         'flag',           ['--literal-seed']],
     ['body_match_seed',      'flag',           ['--body-match-seed']],
+    ['min_rank',             'value',          ['--min-rank']],
     ['rank',                 'flag',           ['--rank']],
     ['include_evidence_pack', 'flag',          ['--include-evidence-pack']],
     ['pseudo_claims_chart',  'flag',           ['--pseudo-claims-chart']],
@@ -1284,6 +1286,11 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
   --body-match-seed          With --candidates: rescue concept tokens whose
                              name-match failed by matching function BODIES
                              (identifiers, call sites, strings; opt-in).
+  --min-rank <0-3|P0-P3>     With --pseudo-claims @ranked.lst: draft only groups
+                             at or above this floor. Default P2 when the list
+                             carries [P..] tags; unranked lists draft all
+                             groups, and untagged groups always draft. 0 =
+                             draft everything.
   --rank                     With --candidates: score each candidate's exploration
                              PRIORITY via --llm/--model, emit sorted + tagged
                              (observe-only; a surface heuristic to order where to

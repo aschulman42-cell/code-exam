@@ -107,15 +107,16 @@ function fenceFor(body) {
 //                          group and names it; anchors before any header form an
 //                          implicit first group; blank lines ignored.
 // Headers are parsed via parseAnchorHeader (the grouper emit's inverse), so a
-// group carries a CLEAN {label, purpose} — the `(N fns)` count, `[P…]` priority
-// tag, and ranker note are stripped rather than riding into the MECHANISM hint
-// and the output heading. The hint itself is KEPT (label + purpose); only the
-// triage annotations are removed. Priority is parsed but deliberately unused
-// here (a later --auto phase may fold P0s). Exported for tests.
+// group carries a CLEAN {label, priority, purpose} — the `(N fns)` count,
+// `[P…]` priority tag, and ranker note are stripped rather than riding into
+// the MECHANISM hint and the output heading. The hint itself is KEPT (label +
+// purpose); only the triage annotations are removed. Priority never reaches
+// the drafter — its one consumer is the --min-rank draft filter. Exported for
+// tests.
 export function collectAnchorGroups(spec) {
   if (!spec || !spec.startsWith('@')) {
     const specs = String(spec || '').split(';').map((s) => s.trim()).filter(Boolean);
-    return specs.length ? [{ label: null, purpose: '', specs }] : [];
+    return specs.length ? [{ label: null, priority: null, purpose: '', specs }] : [];
   }
   const listPath = spec.slice(1);
   const text = fs.readFileSync(listPath, 'utf8'); // caller catches ENOENT
@@ -125,12 +126,12 @@ export function collectAnchorGroups(spec) {
     const line = raw.trim();
     if (!line) continue;
     if (line.startsWith('#')) {
-      const { label, purpose } = parseAnchorHeader(line);
-      cur = { label: label || null, purpose: purpose || '', specs: [] };
+      const { label, priority, purpose } = parseAnchorHeader(line);
+      cur = { label: label || null, priority: priority ?? null, purpose: purpose || '', specs: [] };
       groups.push(cur);
       continue;
     }
-    if (!cur) { cur = { label: null, purpose: '', specs: [] }; groups.push(cur); }
+    if (!cur) { cur = { label: null, priority: null, purpose: '', specs: [] }; groups.push(cur); }
     cur.specs.push(line);
   }
   return groups.filter((g) => g.specs.length);
@@ -207,6 +208,30 @@ function harvestPurpose(index, label, members) {
   }
   if (!purpose && members && members.length) purpose = join(commentsOf(members[0].bare || members[0].name));
   return purpose ? purpose.slice(0, HARVEST_CAP) : '';
+}
+
+// --min-rank (pseudo-claims-min-rank): user-controlled draft-time floor over
+// the [P..] tags parseAnchorHeader surfaces. Selection happens at CONSUMPTION
+// so the ranked .lst stays a complete, auditable artifact. Default is P2 —
+// but only when the list actually carries rank tags (an unranked list drafts
+// everything; no silent surprise). Untagged/[unscored] groups always draft
+// (can't judge -> don't silently drop). The ranker's tags remain observe-only
+// annotations under their caveat block; the filter is the USER'S explicit
+// instruction (or an overridable default), which keeps CE out of worthiness
+// opinions. Exported for tests.
+export function parseMinRank(v) {
+  if (v == null || v === '') return null;
+  const m = String(v).trim().match(/^[pP]?([0-3])$/);
+  return m ? Number(m[1]) : NaN;
+}
+
+export function filterGroupsByMinRank(groups, minRankValue) {
+  const floor = parseMinRank(minRankValue);
+  const tagged = groups.some((g) => g.priority != null);
+  const effective = floor != null ? floor : (tagged ? 2 : null);
+  if (effective == null || effective === 0) return { groups, floor: effective, dropped: 0, tagged };
+  const kept = groups.filter((g) => g.priority == null || g.priority >= effective);
+  return { groups: kept, floor: effective, dropped: groups.length - kept.length, tagged };
 }
 
 // Assemble a bounded evidence pack from a group's resolved anchors.
@@ -451,6 +476,26 @@ export async function doPseudoClaims(index, args) {
     return;
   }
 
+  if (Number.isNaN(parseMinRank(args.min_rank))) {
+    console.error(`--min-rank: expected 0-3 or P0-P3 (got '${args.min_rank}').`);
+    process.exitCode = 1;
+    return;
+  }
+  const totalGroups = groups.length;
+  const mr = filterGroupsByMinRank(groups, args.min_rank);
+  groups = mr.groups;
+  if (mr.dropped) {
+    console.error(`# --min-rank P${mr.floor}: drafting ${groups.length} of ${totalGroups} candidate group(s); ${mr.dropped} below the floor skipped.`);
+    console.error('Tip: --min-rank 0 drafts every group; --min-rank 3 only the top tier.');
+  }
+  if (groups.length === 0) {
+    console.error(`--pseudo-claims: no groups at or above --min-rank P${mr.floor}; nothing to draft (Tip: lower --min-rank).`);
+    process.exitCode = 1;
+    return;
+  }
+  // Selection disclosure for the artifact intro — a chart should say what it excluded.
+  const selNote = mr.dropped ? ` ${groups.length} of ${totalGroups} candidate group(s) drafted (--min-rank P${mr.floor}).` : '';
+
   const multi = groups.length > 1;
 
   // Resolve + pack each group.
@@ -541,9 +586,9 @@ export async function doPseudoClaims(index, args) {
   out.push(PSEUDO_CLAIM_CAVEAT_A);
   out.push('');
   if (dryRun) {
-    out.push(`_Deterministic scaffold (dry run): below is the exact, size-capped evidence pack a model would be handed — one per pseudo-claim (${withAnchors.length}). To draft, pass \`--model <gguf>\` or set \`CE_OPENAI_API_URL\` (drop \`--dry-run\`)._`);
+    out.push(`_Deterministic scaffold (dry run): below is the exact, size-capped evidence pack a model would be handed — one per pseudo-claim (${withAnchors.length}).${selNote} To draft, pass \`--model <gguf>\` or set \`CE_OPENAI_API_URL\` (drop \`--dry-run\`)._`);
   } else {
-    out.push(`_Drafted from ${withAnchors.length} evidence pack(s) via ${modelDesc}. Each claim's cited anchors are **grounded** — verified to resolve to a real function in the index; ungrounded citations are dropped.${showPack ? ' The evidence pack the draft was grounded in follows each claim.' : ' Pass --include-evidence-pack to append each claim\'s evidence pack.'}_`);
+    out.push(`_Drafted from ${withAnchors.length} evidence pack(s) via ${modelDesc}.${selNote} Each claim's cited anchors are **grounded** — verified to resolve to a real function in the index; ungrounded citations are dropped.${showPack ? ' The evidence pack the draft was grounded in follows each claim.' : ' Pass --include-evidence-pack to append each claim\'s evidence pack.'}_`);
   }
   out.push('');
 

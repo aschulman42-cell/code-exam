@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, GROUPER_DEFAULTS } from '../src/core/mechanism-grouper.js';
-import { collectAnchorGroups } from '../src/commands/pseudo-claims.js';
+import { collectAnchorGroups, parseMinRank, filterGroupsByMinRank } from '../src/commands/pseudo-claims.js';
 
 describe('mechanism-grouper class-seed fixes', () => {
   const mk = (base, s) => ({ type: 'method', base_name: base, start: s, end: s + 9 }); // 10 lines >= minLines
@@ -280,6 +280,51 @@ describe('collectAnchorGroups header hygiene', () => {
     assert.equal(groups[1].purpose, '');
   });
   it('inline specs form one label-less group', () => {
-    assert.deepEqual(collectAnchorGroups('a.js@f;b.js@g'), [{ label: null, purpose: '', specs: ['a.js@f', 'b.js@g'] }]);
+    assert.deepEqual(collectAnchorGroups('a.js@f;b.js@g'), [{ label: null, priority: null, purpose: '', specs: ['a.js@f', 'b.js@g'] }]);
+  });
+  it('carries the parsed priority for the --min-rank consumer', () => {
+    const tmp2 = path.join(os.tmpdir(), `ce_test_rank_${process.pid}.lst`);
+    fs.writeFileSync(tmp2, '# top (x)  (3 fns)  [P3 codebase-specific/keep — kernel]  — core\na.js@f\n# low (y)  (3 fns)  [P0 standard-pattern/merge — ui]  — chrome\nb.js@g\n', 'utf8');
+    try {
+      const groups = collectAnchorGroups(`@${tmp2}`);
+      assert.deepEqual(groups.map((g) => g.priority), [3, 0]);
+    } finally { try { fs.unlinkSync(tmp2); } catch { /* */ } }
+  });
+});
+
+// --min-rank (pseudo-claims-min-rank): draft-time floor over parsed [P..]
+// tags. Default P2 only when tags are present; untagged groups always draft.
+describe('min-rank draft filter', () => {
+  const g = (priority) => ({ priority });
+  const ranked = [g(3), g(2), g(1), g(0), g(null)];
+  const unranked = [g(null), g(null), g(null)];
+
+  it('parses both spellings and rejects garbage', () => {
+    assert.equal(parseMinRank('P2'), 2);
+    assert.equal(parseMinRank('p0'), 0);
+    assert.equal(parseMinRank('3'), 3);
+    assert.equal(parseMinRank(null), null);
+    assert.ok(Number.isNaN(parseMinRank('4')));
+    assert.ok(Number.isNaN(parseMinRank('high')));
+  });
+  it('defaults to P2 on a tagged list, keeping untagged groups', () => {
+    const r = filterGroupsByMinRank(ranked, null);
+    assert.equal(r.floor, 2);
+    assert.deepEqual(r.groups.map((x) => x.priority), [3, 2, null]);
+    assert.equal(r.dropped, 2);
+  });
+  it('does not filter an unranked list by default', () => {
+    const r = filterGroupsByMinRank(unranked, null);
+    assert.equal(r.dropped, 0);
+    assert.equal(r.groups.length, 3);
+  });
+  it('honors an explicit floor, untagged still drafting', () => {
+    const r = filterGroupsByMinRank(ranked, 'P3');
+    assert.deepEqual(r.groups.map((x) => x.priority), [3, null]);
+  });
+  it('explicit 0 drafts everything', () => {
+    const r = filterGroupsByMinRank(ranked, '0');
+    assert.equal(r.groups.length, 5);
+    assert.equal(r.dropped, 0);
   });
 });
