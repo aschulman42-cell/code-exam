@@ -305,6 +305,33 @@ export function filterGroupsByMinRank(groups, minRankValue) {
   return { groups: kept, floor: effective, dropped: groups.length - kept.length, tagged };
 }
 
+// chart-toc-rank-display: the claim's own PREAMBLE clause (text up to the
+// first ':') is its best human-readable name — grouper labels like
+// `[file] json-stream.js` say where a claim came from, not what it is about.
+// Exported for tests.
+export function claimPreambleSnippet(prose, max = 90) {
+  const text = String(prose || '').trim();
+  if (!text) return '';
+  const ci = text.indexOf(':');
+  let pre = (ci > 0 ? text.slice(0, ci) : text).replace(/\s+/g, ' ').trim();
+  if (pre.length > max) pre = pre.slice(0, max - 1).trimEnd() + '…';
+  return pre;
+}
+
+// chart-toc-rank-display: table-of-contents lines for a multi-claim chart —
+// rank + grouper label + preamble snippet. Tool-emitted AFTER drafting, so
+// (like the heading rank suffix) nothing here ever reaches the model and the
+// MECHANISM hint stays clean. Exported for tests.
+export function formatChartToc(rows) {
+  const out = ['## Contents', ''];
+  for (const r of rows) {
+    const rank = r.priority != null ? `[P${r.priority}] ` : '';
+    out.push(`${r.n}. ${rank}${r.label || '(unlabeled)'}${r.preamble ? ` — "${r.preamble}"` : ''}`);
+  }
+  out.push('');
+  return out;
+}
+
 // Assemble a bounded evidence pack from a group's resolved anchors.
 function buildPack(resolved) {
   const packParts = [];
@@ -608,7 +635,7 @@ export async function doPseudoClaims(index, args) {
   groups.forEach((g, gi) => {
     const { resolved, problems } = resolveGroup(index, g);
     const { pack, truncatedAnchors, droppedForBudget } = buildPack(resolved);
-    sections.push({ label: g.label, purpose: g.purpose || '', fold: g.fold || null, groupNum: gi + 1, resolved, problems, pack, truncatedAnchors, droppedForBudget });
+    sections.push({ label: g.label, purpose: g.purpose || '', fold: g.fold || null, priority: g.priority ?? null, groupNum: gi + 1, resolved, problems, pack, truncatedAnchors, droppedForBudget });
     totalResolved += resolved.length;
     totalProblems += problems.length;
   });
@@ -695,9 +722,22 @@ export async function doPseudoClaims(index, args) {
   }
   out.push('');
 
+  // chart-toc-rank-display: a multi-claim chart opens with a rank-and-name
+  // contents table (drafted preambles as names; labels alone in dry-run).
+  if (withAnchors.length >= 2) {
+    const rows = withAnchors.map((s, i) => ({
+      n: i + 1,
+      label: s.label,
+      priority: s.priority,
+      preamble: !dryRun && drafts[i] && drafts[i].prose ? claimPreambleSnippet(drafts[i].prose) : '',
+    }));
+    for (const ln of formatChartToc(rows)) out.push(ln);
+  }
+
   withAnchors.forEach((s, i) => {
     const label = s.label ? ` — ${s.label}` : '';
-    out.push(`## Pseudo-claim ${i + 1}${label}`);
+    const rankSuffix = s.priority != null ? `  (P${s.priority})` : '';
+    out.push(`## Pseudo-claim ${i + 1}${label}${rankSuffix}`);
     out.push('');
     // #291 Part C: a split-flagged group is over-broad by the ranker's own
     // verdict — disclose that this claim may cover only a slice of it.

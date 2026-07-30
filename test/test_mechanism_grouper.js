@@ -13,7 +13,26 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, splitDocSections, docAnchorsForGroup, formatAnchors, GROUPER_DEFAULTS } from '../src/core/mechanism-grouper.js';
-import { collectAnchorGroups, parseMinRank, filterGroupsByMinRank, packDisclosure, parseLineAnchor, groundAnchors, formatClaimChart } from '../src/commands/pseudo-claims.js';
+import { collectAnchorGroups, parseMinRank, filterGroupsByMinRank, packDisclosure, parseLineAnchor, groundAnchors, formatClaimChart, claimPreambleSnippet, formatChartToc } from '../src/commands/pseudo-claims.js';
+
+// chart-toc-rank-display: preamble snippets as claim names + the contents table.
+describe('chart TOC and rank display', () => {
+  it('extracts the preamble clause up to the first colon, collapsed and truncated', () => {
+    assert.equal(claimPreambleSnippet('A method for streaming parsing,\n  comprising: steps.'), 'A method for streaming parsing, comprising');
+    assert.equal(claimPreambleSnippet(''), '');
+    const long = claimPreambleSnippet('A method ' + 'very '.repeat(40) + 'long: x.');
+    assert.ok(long.length <= 90 && long.endsWith('…'));
+  });
+  it('formats TOC rows with rank, label, and quoted preamble; label-only rows degrade cleanly', () => {
+    const lines = formatChartToc([
+      { n: 1, label: '[cmd] --candidates', priority: 3, preamble: 'A method for drafting pseudo-claims, comprising' },
+      { n: 2, label: '[file] air-gapped.js', priority: null, preamble: '' },
+    ]);
+    assert.equal(lines[0], '## Contents');
+    assert.equal(lines[2], '1. [P3] [cmd] --candidates — "A method for drafting pseudo-claims, comprising"');
+    assert.equal(lines[3], '2. [file] air-gapped.js');
+  });
+});
 
 describe('mechanism-grouper class-seed fixes', () => {
   const mk = (base, s) => ({ type: 'method', base_name: base, start: s, end: s + 9 }); // 10 lines >= minLines
