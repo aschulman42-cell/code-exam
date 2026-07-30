@@ -88,23 +88,42 @@ export function isNoiseFile(file) {
   return /\/dist\//i.test(n) || /_old\d*[._-]|\.old$|_bak[._-]|~$/i.test(n);
 }
 
+// #291 Part A: a candidate whose declaration is preceded by a test attribute
+// (Rust `#[test]` / `#[tokio::test]` / a `#[cfg(test)]` opener in the small
+// attribute stack directly above it) is an inline TEST function — the
+// file-level noise filter can't see test modules living inside lib.rs, which
+// is how 46 scope-leaked test fns (#287 family) became a candidate "class"
+// and then a drafted claim on writing tests (the Bram field test, #291).
+// Window = the declaration line plus 3 lines above; heuristic and
+// Rust-focused by design (JS it()/describe() anonymity is out of scope).
+function isTestAttributedFunction(lines, startLine) {
+  for (let i = Math.max(0, startLine - 4); i < Math.min(lines.length, startLine); i++) {
+    const t = String(lines[i] || '').trim();
+    if (/^#\[(?:\w+(?:::\w+)*::)?test(?:\]|\()/.test(t) || /^#\[cfg\(test\)\]/.test(t)) return true;
+  }
+  return false;
+}
+
 // Enumerate candidate functions from the index's functionIndex: skip noise files,
-// class-declaration entries, intrinsics, and sub-MIN_LINES one-liners. Returns
-// the candidate list + a byId map + the noise-file/function counts.
+// class-declaration entries, intrinsics, sub-MIN_LINES one-liners, and
+// test-attributed inline test functions (#291 Part A). Returns the candidate
+// list + a byId map + the noise-file/function counts (+ testFns dropped).
 export function enumerateFuncs(index, opts = {}) {
   const o = { ...GROUPER_DEFAULTS, ...opts };
   index._ensureFunctionIndex?.();
   const funcs = [];
   const byId = new Map();
-  let noiseFiles = 0, noiseFns = 0;
+  let noiseFiles = 0, noiseFns = 0, testFns = 0;
   for (const [file, fns] of Object.entries(index.functionIndex || {})) {
     if (isNoiseFile(file)) { noiseFiles++; noiseFns += Object.keys(fns).length; continue; }
+    const fileLines = (index.fileLines && typeof index.fileLines.get === 'function') ? index.fileLines.get(file) : null;
     for (const [full, info] of Object.entries(fns)) {
       if ((info.type || 'function') === 'class') continue;
       const bare = (info.base_name || full.split('::').pop() || '').split('@')[0];
       if (!bare || isIntrinsicName(bare)) continue;
       const lines = (info.end || 0) - (info.start || 0) + 1;
       if (lines < o.minLines) continue;
+      if (Array.isArray(fileLines) && isTestAttributedFunction(fileLines, info.start || 0)) { testFns++; continue; }
       const id = `${file}@${full}`;
       const f = { id, file, name: full, bare, start: info.start, end: info.end, lines };
       funcs.push(f); byId.set(id, f);
@@ -122,7 +141,7 @@ export function enumerateFuncs(index, opts = {}) {
     funcs.length = 0; funcs.push(...keep);
     byId.clear(); for (const f of funcs) byId.set(f.id, f);
   }
-  return { funcs, byId, noiseFiles, noiseFns };
+  return { funcs, byId, noiseFiles, noiseFns, testFns };
 }
 
 // TOKEN-only baseline (`--group-by concept`): seed from CE's cross-corpus-
@@ -476,15 +495,21 @@ export function parseAnchorHeader(line) {
   const m = h.match(/^(.*?)\s*\(\d+\s*fns?\)\s*(.*)$/);
   let label = m ? m[1].trim() : h;
   let rest = m ? m[2] : '';
-  let priority = null;
-  const tag = rest.match(/^\[P([0-3])\b[^\]]*\]\s*(.*)$/);
-  if (tag) { priority = Number(tag[1]); rest = tag[2]; }
-  else { const un = rest.match(/^\[unscored\]\s*(.*)$/); if (un) rest = un[1]; }
+  let priority = null, fold = null;
+  const tag = rest.match(/^(\[P([0-3])\b[^\]]*\])\s*(.*)$/);
+  if (tag) {
+    priority = Number(tag[2]);
+    // #291 Part C: carry the ranker's fold verdict (keep|merge|split) so the
+    // drafter can DISCLOSE a split-flagged over-broad group on its claim.
+    const fm = tag[1].match(/\/(keep|merge|split)\b/);
+    fold = fm ? fm[1] : null;
+    rest = tag[3];
+  } else { const un = rest.match(/^\[unscored\]\s*(.*)$/); if (un) rest = un[1]; }
   const purpose = rest.replace(/^[—–-]+\s*/, '').trim();
   // Bare trailing tier tag on a hand-tagged header (`# Label [P3]`).
   const bare = label.match(/\s*\[P([0-3])\]\s*$/);
   if (bare) { if (priority == null) priority = Number(bare[1]); label = label.slice(0, bare.index).trim(); }
-  return { label, priority, purpose };
+  return { label, priority, fold, purpose };
 }
 
 // --- ground-truth scoring (dev / test path) ---------------------------------

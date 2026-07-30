@@ -116,7 +116,7 @@ function fenceFor(body) {
 export function collectAnchorGroups(spec) {
   if (!spec || !spec.startsWith('@')) {
     const specs = String(spec || '').split(';').map((s) => s.trim()).filter(Boolean);
-    return specs.length ? [{ label: null, priority: null, purpose: '', specs }] : [];
+    return specs.length ? [{ label: null, priority: null, fold: null, purpose: '', specs }] : [];
   }
   const listPath = spec.slice(1);
   const text = fs.readFileSync(listPath, 'utf8'); // caller catches ENOENT
@@ -126,15 +126,30 @@ export function collectAnchorGroups(spec) {
     const line = raw.trim();
     if (!line) continue;
     if (line.startsWith('#')) {
-      const { label, priority, purpose } = parseAnchorHeader(line);
-      cur = { label: label || null, priority: priority ?? null, purpose: purpose || '', specs: [] };
+      const { label, priority, fold, purpose } = parseAnchorHeader(line);
+      cur = { label: label || null, priority: priority ?? null, fold: fold ?? null, purpose: purpose || '', specs: [] };
       groups.push(cur);
       continue;
     }
-    if (!cur) { cur = { label: null, priority: null, purpose: '', specs: [] }; groups.push(cur); }
+    if (!cur) { cur = { label: null, priority: null, fold: null, purpose: '', specs: [] }; groups.push(cur); }
     cur.specs.push(line);
   }
   return groups.filter((g) => g.specs.length);
+}
+
+// #291 Part B: pack-budget omissions must be visible in the LEAN artifact too
+// (the --min-rank disclosure principle applied to evidence packs) — a claim
+// drafted from 8 of a group's 121 anchors silently presenting itself as the
+// whole group is how Bram pseudo-claim 1 happened. Exported for tests.
+export function packDisclosure(s) {
+  const dropped = s.droppedForBudget || 0;
+  const truncated = (s.truncatedAnchors || []).length;
+  if (!dropped && !truncated) return '';
+  const total = (s.resolved || []).length;
+  const bits = [`packed ${total - dropped} of ${total} resolved anchor(s)`];
+  if (dropped) bits.push(`${dropped} omitted for the pack budget`);
+  if (truncated) bits.push(`${truncated} truncated`);
+  return `_Evidence pack: ${bits.join('; ')}._`;
 }
 
 // Resolve one group's anchor specs to real functions (the existence check the
@@ -505,7 +520,7 @@ export async function doPseudoClaims(index, args) {
   groups.forEach((g, gi) => {
     const { resolved, problems } = resolveGroup(index, g);
     const { pack, truncatedAnchors, droppedForBudget } = buildPack(resolved);
-    sections.push({ label: g.label, purpose: g.purpose || '', groupNum: gi + 1, resolved, problems, pack, truncatedAnchors, droppedForBudget });
+    sections.push({ label: g.label, purpose: g.purpose || '', fold: g.fold || null, groupNum: gi + 1, resolved, problems, pack, truncatedAnchors, droppedForBudget });
     totalResolved += resolved.length;
     totalProblems += problems.length;
   });
@@ -596,6 +611,12 @@ export async function doPseudoClaims(index, args) {
     const label = s.label ? ` — ${s.label}` : '';
     out.push(`## Pseudo-claim ${i + 1}${label}`);
     out.push('');
+    // #291 Part C: a split-flagged group is over-broad by the ranker's own
+    // verdict — disclose that this claim may cover only a slice of it.
+    if (s.fold === 'split') {
+      out.push('_The ranker marked this group `split` (over-broad); this claim may cover only a slice of it._');
+      out.push('');
+    }
 
     if (!dryRun) {
       const d = drafts[i];
@@ -624,6 +645,10 @@ export async function doPseudoClaims(index, args) {
           out.push(`_Dropped (cited but not found in index): ${d.dropped.map((a) => `\`${a.file}@${a.func || '?'}\``).join(', ')}._`);
         }
         out.push('');
+      }
+      if (!showPack) {
+        const disc = packDisclosure(s);
+        if (disc) { out.push(disc); out.push(''); }
       }
       if (showPack) out.push('### Evidence pack (the code this draft was grounded in)');
     } else {

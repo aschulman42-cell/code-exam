@@ -4,7 +4,17 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseVerdict, rankPriors, rankCandidates, parseBatchVerdicts } from '../src/core/mechanism-ranker.js';
+import { parseVerdict, rankPriors, rankCandidates, parseBatchVerdicts, buildBatchPrompt } from '../src/core/mechanism-ranker.js';
+
+// #291 Part D: the comparative rubric demotes test clusters by rule — the
+// Bram field test showed the ranker's NOTE detecting "Mixed test cluster"
+// while its SCORE said P2, sailing through --min-rank.
+describe('mechanism-ranker batch rubric (#291 D)', () => {
+  it('carries the test-cluster demotion rule', () => {
+    const { user } = buildBatchPrompt([{ label: 'x', members: [] }], { getFunctionSource: () => '' });
+    assert.match(user, /TEST functions[\s\S]*go to 0 or 1 by rule/);
+  });
+});
 
 describe('mechanism-ranker parseVerdict', () => {
   it('parses a bare JSON verdict', () => {

@@ -12,8 +12,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, GROUPER_DEFAULTS } from '../src/core/mechanism-grouper.js';
-import { collectAnchorGroups, parseMinRank, filterGroupsByMinRank } from '../src/commands/pseudo-claims.js';
+import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, GROUPER_DEFAULTS } from '../src/core/mechanism-grouper.js';
+import { collectAnchorGroups, parseMinRank, filterGroupsByMinRank, packDisclosure } from '../src/commands/pseudo-claims.js';
 
 describe('mechanism-grouper class-seed fixes', () => {
   const mk = (base, s) => ({ type: 'method', base_name: base, start: s, end: s + 9 }); // 10 lines >= minLines
@@ -224,6 +224,55 @@ describe('body-match token rescue', () => {
   });
 });
 
+// #291 Part A: inline test functions (Rust #[test] family) are dropped at
+// candidate enumeration — the file-level noise filter can't see test modules
+// inside lib.rs, which is how a scope-leaked test "class" became a drafted
+// claim on writing tests in the Bram field test.
+describe('test-attributed candidate filter (#291 A)', () => {
+  const stub = {
+    _ensureFunctionIndex() {},
+    functionIndex: {
+      'src/lib.rs': {
+        real_mechanism: { type: 'function', base_name: 'real_mechanism', start: 1, end: 8 },
+        'IfEmpty::leaked_test_fn': { type: 'method', base_name: 'leaked_test_fn', start: 12, end: 20 },
+        'IfEmpty::tokio_test_fn': { type: 'method', base_name: 'tokio_test_fn', start: 24, end: 30 },
+      },
+    },
+    fileLines: new Map([['src/lib.rs', [
+      'fn real_mechanism() {', ' a();', ' b();', ' c();', ' d();', ' e();', ' f();', '}',
+      '', '',
+      '#[test]',
+      'fn leaked_test_fn() {', ' assert!(x);', ' //', ' //', ' //', ' //', ' //', ' //', '}',
+      '', '',
+      '#[tokio::test]',
+      'fn tokio_test_fn() {', ' assert!(y);', ' //', ' //', ' //', ' //', '}',
+    ]]]),
+  };
+  it('drops #[test]/#[tokio::test] functions and counts them', () => {
+    const { funcs, testFns } = enumerateFuncs(stub, {});
+    assert.deepEqual(funcs.map((f) => f.bare), ['real_mechanism']);
+    assert.equal(testFns, 2);
+  });
+  it('fails open without fileLines', () => {
+    const bare = { _ensureFunctionIndex() {}, functionIndex: stub.functionIndex };
+    const { funcs } = enumerateFuncs(bare, {});
+    assert.equal(funcs.length, 3);
+  });
+});
+
+// #291 Part B: pack-budget omissions disclose in the lean artifact.
+describe('packDisclosure (#291 B)', () => {
+  it('is empty when nothing was dropped or truncated', () => {
+    assert.equal(packDisclosure({ resolved: [1, 2], truncatedAnchors: [], droppedForBudget: 0 }), '');
+  });
+  it('reports omitted and truncated counts against the resolved total', () => {
+    const d = packDisclosure({ resolved: new Array(121), truncatedAnchors: ['a', 'b'], droppedForBudget: 113 });
+    assert.match(d, /packed 8 of 121 resolved anchor/);
+    assert.match(d, /113 omitted for the pack budget/);
+    assert.match(d, /2 truncated/);
+  });
+});
+
 // parseAnchorHeader: the inverse of the formatAnchors / --rank emit grammar.
 // The MECHANISM hint keeps label + purpose; the `(N fns)` count, `[P…]` tag
 // (with its ranker note), and bare trailing tier tags are the annotations
@@ -231,28 +280,29 @@ describe('body-match token rescue', () => {
 describe('parseAnchorHeader', () => {
   it('parses a ranked header — em-dash inside the note, purpose after', () => {
     const h = parseAnchorHeader('# [class] CodeSearchIndex  (79 fns)  [P3 codebase-specific/keep — Core index building — and graphs.]  — * Core data structure for Code Exam');
-    assert.deepEqual(h, { label: '[class] CodeSearchIndex', priority: 3, purpose: '* Core data structure for Code Exam' });
+    assert.deepEqual(h, { label: '[class] CodeSearchIndex', priority: 3, fold: 'keep', purpose: '* Core data structure for Code Exam' });
   });
-  it('keeps parens that belong to the label (token namesake)', () => {
+  it('keeps parens that belong to the label (token namesake), carrying fold', () => {
     const h = parseAnchorHeader('# catalog (exportCatalogJson)  (12 fns)  [P1 standard-pattern/split — six catalogs]  — exporters and reporting');
     assert.equal(h.label, 'catalog (exportCatalogJson)');
     assert.equal(h.priority, 1);
+    assert.equal(h.fold, 'split'); // #291 Part C
   });
   it('parses an unranked header (no tag) with purpose', () => {
     const h = parseAnchorHeader('# dupes (structDupes)  (5 fns)  — struct-dupes detection');
-    assert.deepEqual(h, { label: 'dupes (structDupes)', priority: null, purpose: 'struct-dupes detection' });
+    assert.deepEqual(h, { label: 'dupes (structDupes)', priority: null, fold: null, purpose: 'struct-dupes detection' });
   });
   it('strips a bare trailing tier tag from a hand-tagged header', () => {
     const h = parseAnchorHeader('# Claim 1 — multisect search [P3]');
-    assert.deepEqual(h, { label: 'Claim 1 — multisect search', priority: 3, purpose: '' });
+    assert.deepEqual(h, { label: 'Claim 1 — multisect search', priority: 3, fold: null, purpose: '' });
   });
   it('treats [unscored] as no priority and keeps the purpose', () => {
     const h = parseAnchorHeader('# census (censusImports)  (4 fns)  [unscored]  — import census');
-    assert.deepEqual(h, { label: 'census (censusImports)', priority: null, purpose: 'import census' });
+    assert.deepEqual(h, { label: 'census (censusImports)', priority: null, fold: null, purpose: 'import census' });
   });
   it('passes a plain header through whole', () => {
     const h = parseAnchorHeader('# Claim 2 — census');
-    assert.deepEqual(h, { label: 'Claim 2 — census', priority: null, purpose: '' });
+    assert.deepEqual(h, { label: 'Claim 2 — census', priority: null, fold: null, purpose: '' });
   });
 });
 
@@ -280,7 +330,7 @@ describe('collectAnchorGroups header hygiene', () => {
     assert.equal(groups[1].purpose, '');
   });
   it('inline specs form one label-less group', () => {
-    assert.deepEqual(collectAnchorGroups('a.js@f;b.js@g'), [{ label: null, priority: null, purpose: '', specs: ['a.js@f', 'b.js@g'] }]);
+    assert.deepEqual(collectAnchorGroups('a.js@f;b.js@g'), [{ label: null, priority: null, fold: null, purpose: '', specs: ['a.js@f', 'b.js@g'] }]);
   });
   it('carries the parsed priority for the --min-rank consumer', () => {
     const tmp2 = path.join(os.tmpdir(), `ce_test_rank_${process.pid}.lst`);

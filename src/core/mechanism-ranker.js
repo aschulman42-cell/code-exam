@@ -85,7 +85,7 @@ export function buildBatchPrompt(groups, index, opts = {}) {
     '- 1 = routine application / control logic (this is the DEFAULT).',
     '- 0 = pure UI or list rendering, a thin API/library wrapper, a getter/setter, or straightforward I/O / serialization — lowest for a first pass (NOT a claim it is unimportant).',
     '',
-    'Rules: the default is 1. Elevate to 3 ONLY with a specific reason. Send UI renderers, display helpers, and thin wrappers to 0 by rule. At MOST about one third of the candidates may be priority 3.',
+    'Rules: the default is 1. Elevate to 3 ONLY with a specific reason. Send UI renderers, display helpers, and thin wrappers to 0 by rule. Clusters that are predominantly TEST functions (test attributes, assertion-heavy bodies, names like *_test or tests::) go to 0 or 1 by rule — a test cluster is never a mechanism to explore first. At MOST about one third of the candidates may be priority 3.',
     '',
     `Return a JSON array, one object per candidate IN THE SAME ORDER, each: {"i": <candidate number>, "priority": 0-3, "signal": one of ${JSON.stringify(PRIORITY_SIGNALS)}, "fold": "keep"|"merge"|"split", "note": "<=15 words; OBSERVATIONAL — what it RESEMBLES, not a verdict"}.`,
   ].join('\n');
