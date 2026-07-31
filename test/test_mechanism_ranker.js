@@ -7,6 +7,50 @@ import assert from 'node:assert/strict';
 import { parseVerdict, rankPriors, rankCandidates, parseBatchVerdicts, buildBatchPrompt } from '../src/core/mechanism-ranker.js';
 import { ggufContextLadder } from '../src/core/llm-runner.js';
 
+// ranker-chunked-playoff: batches of <= chunkSize with a playoff for the P3
+// tier. The mock drafter answers each batch prompt by parsing the candidate
+// count and giving the FIRST candidate P3, the rest P1 — so every batch
+// yields one finalist, and the playoff (a smaller batch) then demotes all
+// but its first.
+describe('chunked comparative ranking with playoff', () => {
+  const groups = Array.from({ length: 45 }, (_, i) => ({ label: `g${i}`, members: [] }));
+  const mkDrafter = (calls) => async (sys, user) => {
+    calls.push(user);
+    const n = Number((user.match(/Rank these (\d+) candidates/) || [])[1] || 0);
+    const arr = Array.from({ length: n }, (_, i) => ({ i: i + 1, priority: i === 0 ? 3 : 1, signal: 'codebase-specific', fold: 'keep', note: 'x' }));
+    return JSON.stringify(arr);
+  };
+
+  it('chunks a big list, runs a playoff, and only playoff winners keep P3', async () => {
+    const calls = [];
+    const out = await rankCandidates(groups, {}, mkDrafter(calls), { chunkSize: 20 });
+    assert.equal(calls.length, 4); // 3 batches (20+20+5) + 1 playoff of the 3 batch-P3s
+    assert.equal(out.length, 45);
+    const p3s = out.filter((r) => r.verdict && r.verdict.priority === 3).map((r) => r.label);
+    assert.deepEqual(p3s, ['g0']); // playoff kept its first finalist, demoted the others
+    assert.equal(out[20].verdict.priority, 1); // g20 was a batch-P3, demoted by the playoff
+    assert.equal(out[1].verdict.priority, 1);  // non-finalists keep batch scores
+  });
+  it('passes small lists through as a single comparative call', async () => {
+    const calls = [];
+    const out = await rankCandidates(groups.slice(0, 12), {}, mkDrafter(calls), { chunkSize: 20 });
+    assert.equal(calls.length, 1);
+    assert.equal(out.filter((r) => r.verdict && r.verdict.priority === 3).length, 1);
+  });
+  it('skips the playoff when at most one finalist exists', async () => {
+    const calls = [];
+    const onlyOneP3 = async (sys, user) => {
+      calls.push(user);
+      const n = Number((user.match(/Rank these (\d+) candidates/) || [])[1] || 0);
+      const first = calls.length === 1; // only batch 1 yields a P3
+      return JSON.stringify(Array.from({ length: n }, (_, i) => ({ i: i + 1, priority: first && i === 0 ? 3 : 1, signal: 'standard-pattern', fold: 'keep', note: 'x' })));
+    };
+    const out = await rankCandidates(groups.slice(0, 40), {}, onlyOneP3, { chunkSize: 20 });
+    assert.equal(calls.length, 2); // two batches, no playoff
+    assert.equal(out.filter((r) => r.verdict && r.verdict.priority === 3).length, 1);
+  });
+});
+
 // gguf-context-ladder: largest-first ladder, explicit --context-size at the head.
 describe('gguf context ladder', () => {
   it('defaults to 16k-first with the legacy sizes behind it', () => {

@@ -169,13 +169,8 @@ export function parseVerdict(text) {
   return normalizeVerdict(obj);
 }
 
-// Score candidate groups with a bounded LLM verdict. PRIMARY: one comparative
-// pass (buildBatchPrompt) so priorities are forced to spread; retry once, then
-// fall back to per-candidate scoring if the batch won't parse or the drafter
-// errors on it. Returns [{label, priors, verdict|null, error?}] aligned to
-// `groups`. Observe-only: the caller annotates; it does NOT drop/fold groups.
-export async function rankCandidates(groups, index, drafter, opts = {}) {
-  if (!groups || !groups.length) return [];
+// One comparative pass over <= chunkSize groups (+ per-candidate fallback).
+async function rankCandidatesSinglePass(groups, index, drafter, opts = {}) {
   if (opts.comparative !== false) {
     const { sys, user } = buildBatchPrompt(groups, index, opts);
     const maxTokens = opts.batchMaxTokens ?? Math.min(2000, 120 + groups.length * 60);
@@ -189,6 +184,56 @@ export async function rankCandidates(groups, index, drafter, opts = {}) {
     }
   }
   return rankCandidatesPerCandidate(groups, index, drafter, opts);
+}
+
+// ranker-chunked-playoff: the comparative pass collapses at 12B beyond ~25
+// candidates per prompt (measured 2026-07-31 on identical group sets: x265
+// 24 -> real gradient; Bram 39 -> P2x39 flat; CE 98 -> P3=4/P2=94), while
+// ~20-24 sits inside the regime where the forced spread demonstrably works
+// (7fc678a validated at 23). So: rank in BATCHES of <= chunkSize, then a
+// PLAYOFF — each batch's P3 winners re-ranked together so the top tier is
+// globally contested. Finalists take their playoff scores (a batch-P3 can be
+// demoted); non-finalists keep their batch scores (<= P2 by construction).
+// An oversized playoff chunks recursively. Verdict contract and fallbacks
+// unchanged; transparent to callers.
+async function rankCandidatesChunked(groups, index, drafter, opts, chunkSize) {
+  const results = new Array(groups.length).fill(null);
+  const nBatches = Math.ceil(groups.length / chunkSize);
+  for (let start = 0; start < groups.length; start += chunkSize) {
+    const batch = groups.slice(start, start + chunkSize);
+    process.stderr.write(`#   ranker batch ${Math.floor(start / chunkSize) + 1}/${nBatches} (${batch.length} candidates)…\n`);
+    const r = await rankCandidatesSinglePass(batch, index, drafter, opts);
+    r.forEach((v, j) => { results[start + j] = v; });
+  }
+  const finalistIdx = [];
+  results.forEach((r, i) => { if (r && r.verdict && r.verdict.priority === 3) finalistIdx.push(i); });
+  if (finalistIdx.length > 1) {
+    process.stderr.write(`#   ranker playoff: ${finalistIdx.length} batch-P3 finalist(s)…\n`);
+    const finalists = finalistIdx.map((i) => groups[i]);
+    const fr = finalists.length > chunkSize
+      ? await rankCandidatesChunked(finalists, index, drafter, opts, chunkSize)
+      : await rankCandidatesSinglePass(finalists, index, drafter, opts);
+    fr.forEach((v, j) => {
+      if (v && v.verdict) results[finalistIdx[j]] = { ...results[finalistIdx[j]], verdict: { ...v.verdict } };
+    });
+  }
+  return results;
+}
+
+// Score candidate groups with a bounded LLM verdict. PRIMARY: one comparative
+// pass (buildBatchPrompt) so priorities are forced to spread — CHUNKED with a
+// playoff when the list exceeds chunkSize (see rankCandidatesChunked); retry
+// once, then fall back to per-candidate scoring if a batch won't parse or the
+// drafter errors on it. Returns [{label, priors, verdict|null, error?}]
+// aligned to `groups`. Observe-only: the caller annotates; it does NOT
+// drop/fold groups.
+export async function rankCandidates(groups, index, drafter, opts = {}) {
+  if (!groups || !groups.length) return [];
+  const chunkSize = opts.chunkSize ?? 20;
+  if (opts.comparative !== false && groups.length > chunkSize) {
+    return rankCandidatesChunked(groups, index, drafter, opts, chunkSize);
+  }
+  return rankCandidatesSinglePass(groups, index, drafter, opts);
 }
 
 // Per-candidate scoring — the fallback for a failed comparative pass, and the
