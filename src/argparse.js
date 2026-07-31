@@ -249,6 +249,9 @@ export function parseArgs() {
     // Phase 8b: LLM analysis
     analyze: null,
     claim_analyze: null,
+    claims_loop: null,
+    loop_k: null,
+    sponge_t: null,
     multisect_analyze: null,
     file_analyze: null,
     analyze_model: null,
@@ -514,6 +517,9 @@ export function parseArgs() {
     // Phase 8b: LLM analysis
     ['analyze',              'value',          ['--analyze']],
     ['claim_analyze',        'value',          ['--claim-analyze']],
+    ['claims_loop',          'value',          ['--claims-loop']],
+    ['loop_k',               'value',          ['--loop-k']],
+    ['sponge_t',             'value',          ['--sponge-t']],
     ['multisect_analyze',    'value',          ['--multisect-analyze']],
     ['file_analyze',         'value',          ['--file-analyze']],
     ['analyze_model',        'value',          [], ['--analyze-model']],
@@ -1325,6 +1331,22 @@ LLM ANALYSIS:
                              --with feeds the general analyze pipeline.
   --claim-analyze <claim>    End-to-end patent claim analysis: extract terms, search,
                               analyze top matches. Takes @file.txt or inline text.
+                              Direct-target mode: pass a FUNCTION (or FILE@FUNCTION)
+                              plus --claim-text to element-map the claim against
+                              that function, skipping retrieval.
+  --claims-loop <chart.md>   #290 harness: fill empty chart cells + measure
+                              draft<->retrieve agreement. Needs --candidates
+                              <cand.lst> (the list the chart was drafted from)
+                              and a model. Writes <chart>_looped.md. Anchored
+                              element mapping fills cells (loop: provenance);
+                              retrieval runs second with vocabulary-sponge
+                              suppression; ABSENT-heavy + retrieval-silent
+                              claims land in a "Needs redraft" section.
+  --loop-k <n>               --claims-loop: group functions analyzed per claim,
+                              namesake first (default 3).
+  --sponge-t <n>             --claims-loop: a function hitting more than N claims'
+                              searches is suppressed as a vocabulary sponge
+                              (default 2).
   --multisect-analyze <terms> Search for functions matching terms, analyze top hits.
                               Same term syntax as --multisect-search.
   --file-analyze <filepath>  Analyze an entire source file with LLM

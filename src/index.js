@@ -119,7 +119,7 @@ const _QUERY_COMMAND_KEYS = [
   'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
   'list_classes', 'data_structs', 'client_server', 'referenced_resources', 'list_models', 'list_artifacts', 'list_kernels', 'list_multimodal', 'list_post_training', 'list_reasoning', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'list_pipelines', 'list_explainability', 'class_hotspots', 'discover_vocabulary', 'multisect_search',
   'claim_search', 'claim_file', 'pseudo_claims', 'candidates', 'ground_truth', 'rank',
-  'analyze', 'claim_analyze', 'multisect_analyze', 'file_analyze',
+  'analyze', 'claim_analyze', 'claims_loop', 'multisect_analyze', 'file_analyze',
   'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
   'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'funcstr_corpus', 'build_fp_renames',
   'save_fingerprints',
@@ -1043,7 +1043,10 @@ if (args.claim_search || args.claim_file) {
 
 // #281 pseudo-claims (v1: explicit anchors). Scaffold is deterministic, but keep
 // it in the async block so the generate item can await an LLM draft.
-if (args.pseudo_claims || args.candidates || args.ground_truth || args.rank) {
+// #290: NOT when --claims-loop is driving — there --candidates names the
+// loop's INPUT .lst; without this guard the gather emitter would overwrite
+// that file with a fresh unranked gather before the loop reads it.
+if (!args.claims_loop && (args.pseudo_claims || args.candidates || args.ground_truth || args.rank)) {
   await doPseudoClaims(index, args);
 }
 
@@ -1053,6 +1056,10 @@ if (args.analyze) {
 }
 if (args.claim_analyze) {
   await doClaimAnalyze(index, args);
+}
+if (args.claims_loop) {
+  const { doClaimsLoop } = await import('./commands/claims-loop.js');
+  await doClaimsLoop(index, args);
 }
 if (args.multisect_analyze) {
   await doMultisectAnalyze(index, args);

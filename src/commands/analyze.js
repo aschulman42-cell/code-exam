@@ -1582,6 +1582,27 @@ export async function doClaimAnalyze(index, args) {
   const claimText = _resolveClaimText(args, args.claim_analyze);
   if (!claimText) return;
 
+  // #290: direct-target mode. "--claim-analyze FUNCNAME --claim-text @f" was
+  // advertised in the usage text but FUNCNAME was silently ignored (the arg
+  // is only ever a claim-text SOURCE above). A short, non-prose argument now
+  // targets that function directly — element-map the claim against it,
+  // skipping term extraction and retrieval. This is also the building block
+  // the --claims-loop harness exercises per group anchor.
+  const caArg = args.claim_analyze;
+  const isDirectTarget = caArg && !caArg.startsWith('@')
+    && !(caArg.includes(' ') && caArg.length > 30) && caArg !== claimText;
+  if (isDirectTarget) {
+    const match = resolveFunction(index, caArg);
+    if (!match) return; // resolveFunction printed the reason — no silent retrieval fallback
+    console.log(`Direct-target claim analysis: ${match.filepath}@${match.name}`);
+    console.log();
+    await _doClaimSingleAnalyze(
+      { filepath: match.filepath, funcName: match.name, source: match.source, start: match.start, end: match.end, lines: match.end - match.start + 1 },
+      claimText, args, args.mask_all || false, args.show_prompt || false, args.line_numbers || false,
+    );
+    return;
+  }
+
   const showPrompt = args.show_prompt || false;
   const maskAll = args.mask_all || false;
   const lineNumbers = args.line_numbers || false;
