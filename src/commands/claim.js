@@ -23,6 +23,7 @@ import { estimateCost } from '../core/pricing.js';
 import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiText } from '../core/openai-util.js';
 import { claudeSupportsTemperature } from '../utils.js';
 import { resolveProvider } from '../core/providers.js';
+import { makeDrafter } from '../core/llm-runner.js';
 
 // ============================================================================
 // LLM Prompt for technical-prose -> search term extraction
@@ -1097,8 +1098,9 @@ export async function doClaimSearch(index, args) {
   }
 
   const apiKey = args.api_key || null;
-  // Term extraction: --claim-model > --analyze-model > Claude API
-  const localModelPath = args.claim_model || args.analyze_model || null;
+  // Term extraction: --model > --claim-model > --analyze-model > Claude API
+  // (#293: --model now routes here — same precedence as llm-runner's resolveModel)
+  const localModelPath = args.model || args.claim_model || args.analyze_model || null;
   const temperature = args.temperature ?? 0.0;
   const showPrompt = args.show_prompt || false;
   const verbose = args.verbose || false;
@@ -1192,56 +1194,29 @@ export async function doClaimSearch(index, args) {
   // -- Call LLM --
   let result;
   if (localModelPath) {
-    // Local model for term extraction via node-llama-cpp
+    // Local model for term extraction — via llm-runner's shared GGUF drafter
+    // (#293): 16k-first context ladder with --context-size at its head, #277
+    // GPU->CPU fallback, one session reused with history reset, and NO explicit
+    // dispose calls (Gemma's dispose path aborts the process on teardown —
+    // upstream node-llama-cpp #623 — while the drafter's load-once/exit-clean
+    // pattern has hundreds of zero-failure pod drafts on the same stack).
     try {
-      const { getLlama, LlamaChatSession } = await import('node-llama-cpp');
-      process.stderr.write(`Loading local model: ${localModelPath}...\n`);
-      // #277: GPU-first with a CPU fallback (parity with ai-overview-local.js's
-      // tryLoad). A GGUF too large for the GPU's VRAM+context otherwise hard-errors
-      // "Cannot allocate context"; retry on CPU (full system RAM) before giving up.
-      // --cpu forces CPU up front.
-      const tryLoad = async (cpuOnly) => {
-        const llama = await getLlama(cpuOnly ? { gpu: false } : undefined);
-        const m = await llama.loadModel({ modelPath: localModelPath });
-        let ctx = null;
-        for (const trySize of [8192, 4096, 2048]) {
-          try { ctx = await m.createContext({ contextSize: trySize }); break; }
-          catch (_) { /* try smaller */ }
-        }
-        if (!ctx) { try { await m.dispose(); } catch (_) { /* */ } return null; }
-        return { model: m, context: ctx };
-      };
-      const forceCpu = !!args.cpu;
-      let loaded = forceCpu ? null : await tryLoad(false);
-      if (!loaded) {
-        process.stderr.write(forceCpu ? '  Using CPU (--cpu)…\n' : '  GPU could not fit model+context; retrying on CPU…\n');
-        loaded = await tryLoad(true);
-      }
-      if (!loaded) {
-        console.log('Error: Cannot allocate context for local model (tried GPU and CPU).');
-        return;
-      }
-      const { model, context } = loaded;
-      process.stderr.write(`OK: Local model loaded (context: ${context.contextSize} tokens).\n`);
+      const draft = makeDrafter({
+        kind: 'gguf', modelPath: localModelPath, forceCpu: !!args.cpu,
+        contextSize: args.context_size || null,
+      }, temperature);
 
       // Combine system prompt + claim text (shorter prompt for local models)
       const basePrompt = vocabConcordance
         ? buildLocalExtractionPromptWithVocab(vocabConcordance, vocabTight)
         : _CLAIM_EXTRACTION_PROMPT_LOCAL;
-      const combinedPrompt = basePrompt + '\n\n' +
-        'Extract search terms from this patent claim:\n\n' +
-        claimText.trim();
 
-      const sequence = context.getSequence();
-      const session = new LlamaChatSession({ contextSequence: sequence });
       process.stderr.write('  Sending to local model for term extraction...\n');
-      const rawResponse = await session.prompt(combinedPrompt, {
-        maxTokens: 2048,
-        temperature,
-      });
-      session.dispose();
-      sequence.dispose();
-      context.dispose();
+      const rawResponse = await draft(
+        basePrompt,
+        'Extract search terms from this patent claim:\n\n' + claimText.trim(),
+        2048,
+      );
 
       process.stderr.write('  LLM response:\n');
       for (const line of rawResponse.split('\n')) {
@@ -1249,7 +1224,7 @@ export async function doClaimSearch(index, args) {
       }
       result = _parseResponse(rawResponse.trim());
     } catch (e) {
-      if (e.code === 'ERR_MODULE_NOT_FOUND' || /Cannot find/.test(e.message)) {
+      if (e.code === 'ERR_MODULE_NOT_FOUND' || /Cannot find|needs node-llama-cpp/.test(e.message)) {
         console.log('Error: node-llama-cpp not installed. Run: npm install node-llama-cpp');
       } else {
         console.log(`Error loading local model: ${e.message}`);

@@ -38,6 +38,7 @@ import { resolveProvider, PROVIDERS } from '../core/providers.js';
 import { estimateCost } from '../core/pricing.js';
 import { assertLocalOnly, isLocalApiUrl, isAirGapped } from '../core/air-gapped.js';
 import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiText, openaiFinishReason } from '../core/openai-util.js';
+import { makeDrafter } from '../core/llm-runner.js';
 
 
 // ============================================================================
@@ -75,13 +76,15 @@ class AnalysisLLM {
     this.apiKey = opts.apiKey || null;
     this._compatKey = null;       // resolved key for the openai-compat provider
     this.modelPath = opts.modelPath || null;
+    this.forceCpu = !!opts.forceCpu;              // #293: --cpu for the local GGUF path
+    this.contextSize = opts.contextSize || null;  // #293: --context-size ladder head
     this.claudeModel = opts.claudeModel || null;  // Claude API model id override
     this.openaiModel = opts.openaiModel || null;  // OpenAI model id override
     this.geminiModel = opts.geminiModel || null;  // Gemini model id override
     this.temperature = opts.temperature ?? 0.0;
     this.verbose = opts.verbose || false;
 
-    this._llm = null;           // local llama model instance
+    this._llm = null;           // local GGUF drafter (llm-runner makeDrafter closure)
     this._requestCount = 0;
     this._totalInputTokens = 0;
     this._totalOutputTokens = 0;
@@ -255,60 +258,30 @@ class AnalysisLLM {
       return;
     }
 
-    try {
-      const llamaMod = await import('node-llama-cpp');
-      // node-llama-cpp v3 API
-      const { getLlama, LlamaChatSession } = llamaMod;
-      process.stderr.write(`Loading local LLM from ${this.modelPath}...\n`);
-
-      const llama = await getLlama();
-      const model = await llama.loadModel({ modelPath: this.modelPath });
-
-      // Try context sizes from large to small - keep the first that works
-      let context = null;
-      let contextSize = 0;
-      for (const trySize of [8192, 4096, 2048]) {
-        try {
-          context = await model.createContext({ contextSize: trySize });
-          contextSize = trySize;
-          break;
-        } catch (_) { /* too large, try smaller */ }
-      }
-      if (!context) {
-        process.stderr.write('ERROR: Cannot allocate even 2048-token context - not enough memory.\n');
-        return;
-      }
-
-      this._llm = { llama, model, context, LlamaChatSession, contextSize };
-      this._localReady = true;
-      process.stderr.write(`OK: Local LLM loaded (context: ${contextSize} tokens).\n`);
-    } catch (e) {
-      process.stderr.write(`ERROR: Failed to load local LLM: ${e.message}\n`);
-      if (e.code === 'ERR_MODULE_NOT_FOUND' || /Cannot find/.test(e.message)) {
-        process.stderr.write('  Install with: npm install node-llama-cpp\n');
-      }
-    }
+    // #293: delegate to llm-runner's shared GGUF drafter — 16k-first context
+    // ladder (--context-size at its head, reported at load), #277 GPU->CPU
+    // fallback, and ONE session reused across term extraction and analysis
+    // with history reset between calls. The old per-call getSequence() +
+    // sequence.dispose() pair leaked sequences on Gemma (dispose is a no-op —
+    // upstream node-llama-cpp #623), so the second call died "No sequences
+    // left"; the drafter never disposes, matching the pattern server.js
+    // adopted for the GUI (#248). Model load is lazy (first generate), so an
+    // existing-but-unloadable file surfaces there, not here.
+    this._llm = makeDrafter({
+      kind: 'gguf', modelPath: this.modelPath, forceCpu: this.forceCpu,
+      contextSize: this.contextSize,
+    }, this.temperature);
+    this._localReady = true;
   }
 
   async _callLocal(prompt, maxTokens = 500) {
     await this.ensureLocalModel();
     if (!this._llm) return '(Local LLM not loaded)';
 
-    let sequence;
     try {
-      const { LlamaChatSession, context } = this._llm;
-      // Fresh sequence per call - reuses persistent context but clears KV cache
-      sequence = context.getSequence();
-      const session = new LlamaChatSession({ contextSequence: sequence });
-      const response = await session.prompt(prompt, {
-        maxTokens,
-        temperature: this.temperature,
-      });
-      session.dispose();
-      sequence.dispose();
+      const response = await this._llm(prompt, '', maxTokens);
       return response.trim();
     } catch (e) {
-      if (sequence) { try { sequence.dispose(); } catch (_) {} }
       return `(Local LLM error: ${String(e.message || e).slice(0, 200)})`;
     }
   }
@@ -368,12 +341,15 @@ function getAnalysisLLM(opts = {}) {
     const apiKey = opts.apiKey || opts.api_key || null;
     const openaiKey = opts.openaiKey || opts.openai_key || null;
     const geminiKey = opts.geminiKey || opts.gemini_key || null;
-    const modelPath = opts.modelPath || opts.analyze_model || null;
+    // #293: --model routes here too — same precedence as llm-runner's resolveModel.
+    const modelPath = opts.modelPath || opts.model || opts.analyze_model || null;
     const claudeModel = opts.claudeModel || opts.claude_model || null;
     const openaiModel = opts.openaiModel || opts.openai_model || null;
     const geminiModel = opts.geminiModel || opts.gemini_model || null;
     const temperature = opts.temperature ?? 0.0;
     const verbose = opts.verbose || false;
+    const forceCpu = !!opts.cpu;
+    const contextSize = opts.context_size || null;
 
     if (provider) {
       console.log();
@@ -392,6 +368,7 @@ function getAnalysisLLM(opts = {}) {
 
     _llmInstance = new AnalysisLLM({
       provider, apiKey, openaiKey, geminiKey, modelPath, claudeModel, openaiModel, geminiModel, temperature, verbose,
+      forceCpu, contextSize,
     });
   }
   return _llmInstance;
@@ -1619,10 +1596,12 @@ export async function doClaimAnalyze(index, args) {
   console.log();
 
   // Show LLM configuration
-  const analyzeModel = args.analyze_model || null;
-  const claimModel = args.claim_model || null;
+  // #293: --model routes to both slots — same precedence as llm-runner's
+  // resolveModel (model > claim_model > analyze_model).
+  const analyzeModel = args.model || args.analyze_model || null;
+  const claimModel = args.model || args.claim_model || null;
 
-  // Term extraction: --claim-model > --analyze-model > cloud API.
+  // Term extraction: --model > --claim-model > --analyze-model > cloud API.
   // (If user only specifies --analyze-model, use it for both tasks.)
   // A cloud engine does term extraction on that provider, so it does not fall
   // back to a local --analyze-model for terms.
@@ -1691,7 +1670,10 @@ export async function doClaimAnalyze(index, args) {
     if (_shared && _shared.modelPath === localModelPath) {
       termLlm = _shared;
     } else {
-      termLlm = new AnalysisLLM({ modelPath: localModelPath, temperature });
+      termLlm = new AnalysisLLM({
+        modelPath: localModelPath, temperature,
+        forceCpu: !!args.cpu, contextSize: args.context_size || null,
+      });
     }
     await termLlm.ensureLocalModel();
     if (!termLlm._llm) {
