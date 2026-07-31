@@ -25,7 +25,7 @@ import { openaiCompletionBudget, openaiSupportsTemperature, openaiText } from '.
 // unrecognized --llm value (never silently coerced to a provider).
 export function resolveModel(args) {
   const modelPath = args.model || args.claim_model || args.analyze_model || null;
-  if (modelPath) return { kind: 'gguf', modelPath, forceCpu: !!args.cpu };
+  if (modelPath) return { kind: 'gguf', modelPath, forceCpu: !!args.cpu, contextSize: args.context_size || null };
 
   if (args.llm) {
     const { provider, error } = resolveProvider(args.llm, { allowDefault: false });
@@ -119,12 +119,26 @@ export async function draftCloud(model, sys, user, maxTokens, temperature) {
   return openaiText(await res.json());
 }
 
+// gguf-context-ladder: context sizes to attempt, largest first. 8192 was the
+// old ceiling, and the biggest evidence packs (24KB ≈ 6-7k tokens + system +
+// ~900 output) overflowed it — 10 of ~240 Gemma pod drafts failed with
+// node-llama-cpp's "too long prompt for context shift". A 24 GB card fits a
+// 12B Q4 at 16k with room; a smaller GPU simply fails the first allocation
+// and falls down the ladder exactly as before. An explicit --context-size
+// goes to the head of the ladder. Exported for tests.
+export function ggufContextLadder(explicit = null) {
+  const base = [16384, 8192, 4096, 2048];
+  const e = Number(explicit);
+  if (Number.isFinite(e) && e > 0) return [e, ...base.filter((s) => s !== e)];
+  return base;
+}
+
 // In-process GGUF drafter (node-llama-cpp), loaded once and reused across
 // groups. Mirrors claim.js's GPU->CPU fallback (#277): a GGUF too big for VRAM
 // hard-errors on context allocation, so retry on CPU before giving up; --cpu
 // forces CPU up front. node-llama-cpp is imported lazily so the command loads
 // without it when only the endpoint path (or dry-run) is used.
-function makeGgufDrafter(modelPath, forceCpu, temperature) {
+function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null) {
   let session = null;
   return async (sys, user, maxTokens) => {
     if (!session) {
@@ -135,12 +149,15 @@ function makeGgufDrafter(modelPath, forceCpu, temperature) {
       const tryLoad = async (cpuOnly) => {
         const llama = await getLlama(cpuOnly ? { gpu: false } : undefined);
         const m = await llama.loadModel({ modelPath });
-        let ctx = null;
-        for (const sz of [8192, 4096, 2048]) {
-          try { ctx = await m.createContext({ contextSize: sz }); break; } catch (_) { /* shrink */ }
+        for (const sz of ggufContextLadder(contextSize)) {
+          try {
+            const ctx = await m.createContext({ contextSize: sz });
+            process.stderr.write(`  context ${sz}${cpuOnly ? ' (CPU)' : ''}\n`);
+            return ctx;
+          } catch (_) { /* shrink */ }
         }
-        if (!ctx) { try { await m.dispose(); } catch (_) { /* */ } return null; }
-        return ctx;
+        try { await m.dispose(); } catch (_) { /* */ }
+        return null;
       };
       process.stderr.write(`Loading local model: ${modelPath}…\n`);
       let ctx = forceCpu ? null : await tryLoad(false);
@@ -164,7 +181,7 @@ function makeGgufDrafter(modelPath, forceCpu, temperature) {
 // remote endpoint under --air-gapped, or a missing cloud key, throws before any
 // group is drafted).
 export function makeDrafter(model, temperature) {
-  if (model.kind === 'gguf') return makeGgufDrafter(model.modelPath, model.forceCpu, temperature);
+  if (model.kind === 'gguf') return makeGgufDrafter(model.modelPath, model.forceCpu, temperature, model.contextSize);
   if (!isLocalApiUrl(model.apiUrl)) assertLocalOnly(`pseudo-claims (cloud ${model.label})`);
   if (!model.key && !isLocalApiUrl(model.apiUrl)) {
     const p = model.provider;

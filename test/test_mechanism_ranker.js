@@ -5,6 +5,22 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseVerdict, rankPriors, rankCandidates, parseBatchVerdicts, buildBatchPrompt } from '../src/core/mechanism-ranker.js';
+import { ggufContextLadder } from '../src/core/llm-runner.js';
+
+// gguf-context-ladder: largest-first ladder, explicit --context-size at the head.
+describe('gguf context ladder', () => {
+  it('defaults to 16k-first with the legacy sizes behind it', () => {
+    assert.deepEqual(ggufContextLadder(), [16384, 8192, 4096, 2048]);
+  });
+  it('puts an explicit context size first without duplicating it', () => {
+    assert.deepEqual(ggufContextLadder(24576), [24576, 16384, 8192, 4096, 2048]);
+    assert.deepEqual(ggufContextLadder(8192), [8192, 16384, 4096, 2048]);
+  });
+  it('ignores invalid explicit values', () => {
+    assert.deepEqual(ggufContextLadder('x'), [16384, 8192, 4096, 2048]);
+    assert.deepEqual(ggufContextLadder(0), [16384, 8192, 4096, 2048]);
+  });
+});
 
 // #291 Part D: the comparative rubric demotes test clusters by rule — the
 // Bram field test showed the ranker's NOTE detecting "Mixed test cluster"
