@@ -15,6 +15,7 @@ import {
   lexicalStems, stemMatches, lexicalGate,
 } from '../src/commands/claims-loop.js';
 import { buildClaimAnalyzePrompt } from '../src/commands/analyze.js';
+import { projectCloudCost, claimsCostGate, CLAIMS_COST_GUARD_USD } from '../src/core/llm-runner.js';
 
 const CHART = `# PSEUDO-CLAIMS — illustrative drafting exercise
 
@@ -182,6 +183,38 @@ describe('claims-loop convergence flag', () => {
     assert.equal(needsRedraft({ PRESENT: 0, PARTIAL: 0, ABSENT: 3, ASSUMED: 1 }, 0), true);
     assert.equal(needsRedraft({ PRESENT: 0, PARTIAL: 0, ABSENT: 3, ASSUMED: 1 }, 1), false); // retrieval found the group
     assert.equal(needsRedraft({ PRESENT: 2, PARTIAL: 0, ABSENT: 3, ASSUMED: 0 }, 0), false); // some PRESENT
+  });
+});
+
+// pseudo-claims-cost-guard: projection math and gate behavior (no LLM, no
+// network — the gate is pure arithmetic over call descriptors).
+describe('claims cost guard', () => {
+  const sonnet = { kind: 'cloud', model: 'claude-sonnet-4-6', label: 'Claude API' };
+
+  it('projects chars->tokens->USD at the model rate', () => {
+    // 4M chars in = 1M tokens @ $3; 100k tokens out @ $15 -> $3 + $1.50
+    const { usd, inTok, outTok } = projectCloudCost(sonnet, [{ inChars: 4_000_000, outTokens: 100_000 }]);
+    assert.equal(inTok, 1_000_000);
+    assert.equal(outTok, 100_000);
+    assert.ok(Math.abs(usd - 4.5) < 0.01, `usd=${usd}`);
+  });
+  it('gates an over-threshold cloud run, --force overrides', () => {
+    const big = [{ inChars: 40_000_000, outTokens: 0 }]; // ~$30 at sonnet rates
+    assert.equal(claimsCostGate(sonnet, big, 'test', {}), false);
+    assert.equal(claimsCostGate(sonnet, big, 'test', { force: true }), true);
+  });
+  it('passes small runs and never gates local models', () => {
+    assert.equal(claimsCostGate(sonnet, [{ inChars: 4000, outTokens: 100 }], 'test', {}), true);
+    assert.equal(claimsCostGate({ kind: 'gguf', modelPath: 'x.gguf' }, [{ inChars: 1e9, outTokens: 1e6 }], 'test', {}), true);
+    assert.equal(claimsCostGate(null, [{ inChars: 1e9 }], 'test', {}), true);
+  });
+  it('honors the CE_CLAIMS_COST_GUARD env override', () => {
+    const calls = [{ inChars: 4_000_000, outTokens: 0 }]; // ~$3 > default $2
+    assert.equal(claimsCostGate(sonnet, calls, 'test', {}), false);
+    process.env.CE_CLAIMS_COST_GUARD = '10';
+    try { assert.equal(claimsCostGate(sonnet, calls, 'test', {}), true); }
+    finally { delete process.env.CE_CLAIMS_COST_GUARD; }
+    assert.ok(CLAIMS_COST_GUARD_USD === 2.0);
   });
 });
 

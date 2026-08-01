@@ -1352,6 +1352,12 @@ LLM ANALYSIS:
   --loop-save-analyses       --claims-loop: save every raw per-anchor analysis
                               to <chart>_looped_analyses/ so fills can be
                               audited against the model's justification.
+  Cost guard (cloud models)  --rank, --pseudo-claims drafting, and --claims-loop
+                              print a projected cost up front and STOP if it
+                              exceeds $2. --force proceeds anyway; the
+                              CE_CLAIMS_COST_GUARD env var (USD) sets the
+                              threshold. An actual-cost line prints at the end.
+                              Local GGUF runs are free and never gated.
   --multisect-analyze <terms> Search for functions matching terms, analyze top hits.
                               Same term syntax as --multisect-search.
   --file-analyze <filepath>  Analyze an entire source file with LLM

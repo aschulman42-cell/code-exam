@@ -27,8 +27,8 @@
 
 import fs from 'node:fs';
 import { parseFuncSpec } from '../utils.js';
-import { resolveModel, makeDrafter } from '../core/llm-runner.js';
-import { rankCandidates } from '../core/mechanism-ranker.js';
+import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage } from '../core/llm-runner.js';
+import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
 import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
 
 // --- Canonical caveat blocks -------------------------------------------------
@@ -533,9 +533,25 @@ export async function doEmitCandidates(index, args) {
     let drafter;
     try { drafter = makeDrafter(model, 0.2); }
     catch (e) { console.error(`--rank: ${e.message}`); process.exitCode = 1; return; }
+    // pseudo-claims-cost-guard: project the comparative-ranking spend from the
+    // ACTUAL batch prompts (cheap string builds), +30% for the playoff rounds
+    // (the ffmpeg 244-group run's two playoff rounds added ~30%). Gate before
+    // the first API call; --force / CE_CLAIMS_COST_GUARD override.
+    {
+      const calls = [];
+      for (let i = 0; i < result.groups.length; i += 20) {
+        const batch = result.groups.slice(i, i + 20);
+        const { sys, user } = buildBatchPrompt(batch, index, {});
+        calls.push({ inChars: (sys.length + user.length) * 1.3, outTokens: Math.min(2000, 120 + batch.length * 60) * 1.3 });
+      }
+      if (!claimsCostGate(model, calls, `rank ${result.groups.length} candidates, ${Math.ceil(result.groups.length / 20)} batches + playoff`, args)) return;
+    }
+    resetCloudUsage();
     const mlabel = model.label || model.model || 'model';
     console.error(`# mechanism-ranker: scoring ${result.groups.length} candidates via ${mlabel}…`);
     const scored = await rankCandidates(result.groups, index, drafter, {});
+    const rankCost = actualCostLine(model);
+    if (rankCost) console.error(rankCost);
     const vByLabel = new Map(scored.map((s) => [s.label, s.verdict]));
     const sorted = [...result.groups].sort((a, b) => ((vByLabel.get(b.label)?.priority ?? -1) - (vByLabel.get(a.label)?.priority ?? -1)));
     const ranked = scored.filter((s) => s.verdict).length;
@@ -685,6 +701,15 @@ export async function doPseudoClaims(index, args) {
       process.exitCode = 1;
       return;
     }
+    // pseudo-claims-cost-guard: packs are already built (s.pack), so the
+    // drafting projection is exact — pack + system prompt in, 900 out per
+    // claim. Gate before the first API call.
+    const calls = withAnchors.map((s) => ({
+      inChars: PSEUDO_CLAIM_GENERATE_SYS.length + 200 + (s.pack ? s.pack.length : 0),
+      outTokens: 900,
+    }));
+    if (!claimsCostGate(model, calls, `${withAnchors.length} drafts`, args)) return;
+    resetCloudUsage();
     process.stderr.write(`Drafting ${withAnchors.length} pseudo-claim(s) via ${modelDesc}…\n`);
   }
 
@@ -709,6 +734,8 @@ export async function doPseudoClaims(index, args) {
         process.stderr.write(`  claim ${i + 1}/${withAnchors.length}: draft failed — ${e.message}\n`);
       }
     }
+    const draftCost = actualCostLine(model);
+    if (draftCost) process.stderr.write(draftCost + '\n');
   }
 
   // Build the artifact: Block A once, then one section per non-empty group.

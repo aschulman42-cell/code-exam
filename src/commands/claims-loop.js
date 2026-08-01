@@ -27,7 +27,7 @@
 // ============================================================================
 
 import fs from 'node:fs';
-import { resolveModel, makeDrafter } from '../core/llm-runner.js';
+import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage } from '../core/llm-runner.js';
 import { buildClaimAnalyzePrompt } from './analyze.js';
 import {
   CLAIM_EXTRACTION_PROMPT_LOCAL, buildLocalExtractionPromptWithVocab,
@@ -290,6 +290,27 @@ export async function doClaimsLoop(index, args, opts = {}) {
     saveDir = chartPath.replace(/\.md$/i, '') + '_looped_analyses';
     fs.mkdirSync(saveDir, { recursive: true });
   }
+  // pseudo-claims-cost-guard: pre-walk the anchors (string ops only — no LLM)
+  // so the projection reflects the actual function sources to be analyzed.
+  // Out-token estimates are EXPECTED output, not maxTokens ceilings (term
+  // extraction emits ~2 short lines, nowhere near its 2048 cap).
+  {
+    const calls = [];
+    for (const c of claims) {
+      const members = groups.get(c.label) || [];
+      const look = (m) => {
+        const i2 = m.indexOf('@');
+        try { return index.getFunctionSource(m.slice(0, i2), m.slice(i2 + 1)); } catch { return null; }
+      };
+      for (const anchor of pickAnchors(c.label, members, loopK, c.claimText, look)) {
+        const src = look(anchor);
+        if (src) calls.push({ inChars: src.length + c.claimText.length + 1600, outTokens: 800 });
+      }
+      calls.push({ inChars: c.claimText.length + 3000, outTokens: 150 }); // term extraction
+    }
+    if (!claimsCostGate(model, calls, `claims-loop ${claims.length} claims × K=${loopK}`, args)) return;
+  }
+  resetCloudUsage();
   process.stderr.write(`# claims-loop: ${claims.length} claims, K=${loopK}, model=${model.modelPath || model.label}\n`);
 
   // Pass 1: per-claim anchored analysis + retrieval hit collection.
@@ -422,6 +443,8 @@ export async function doClaimsLoop(index, args, opts = {}) {
 
   const outPath = chartPath.replace(/\.md$/i, '') + '_looped.md';
   fs.writeFileSync(outPath, sections.join('') + summary.join('\n'));
+  const loopCost = actualCostLine(model);
+  if (loopCost) console.log(loopCost);
   console.log(`# claims-loop: wrote ${outPath}`);
   console.log(`#   filled from anchored analysis; agreement ${agree}/${perClaim.length}; sponges: ${[...sponges].join(', ') || 'none'}; needs-redraft: ${flagged.length}`);
   return { outPath, perClaim, sponges, agree, flagged };

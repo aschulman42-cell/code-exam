@@ -12,7 +12,8 @@ import fs from 'node:fs';
 import { claudeSupportsTemperature } from '../utils.js';
 import { assertLocalOnly, isLocalApiUrl, isAirGapped } from './air-gapped.js';
 import { resolveProvider } from './providers.js';
-import { openaiCompletionBudget, openaiSupportsTemperature, openaiText } from './openai-util.js';
+import { openaiCompletionBudget, openaiSupportsTemperature, openaiText, openaiUsage } from './openai-util.js';
+import { estimateCost } from './pricing.js';
 
 // Resolve which model to draft with, using CE's shared provider registry so the
 // surface matches analyze/claim/overview:
@@ -101,6 +102,7 @@ export async function draftCloud(model, sys, user, maxTokens, temperature) {
     });
     if (!res.ok) throw new Error(`${model.label} HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const body = await res.json();
+    _recordUsage(body.usage);
     return (body.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
   }
   const headers = { 'Content-Type': 'application/json' };
@@ -116,7 +118,70 @@ export async function draftCloud(model, sys, user, maxTokens, temperature) {
     }),
   });
   if (!res.ok) throw new Error(`${model.label} HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  return openaiText(await res.json());
+  const body = await res.json();
+  _recordUsage(openaiUsage(body));
+  return openaiText(body);
+}
+
+// --- pseudo-claims-cost-guard: projection + consent gate + actuals ----------
+//
+// The pseudo-claims family (rank / chart drafting / claims-loop) is CE's most
+// expensive cloud surface and had no dollar guard — the ffmpeg P2 chart ran
+// 115 Claude drafts (~$4-6) unwarned. Before the first API call each stage
+// projects its cost from what is already known deterministically and gates on
+// a threshold: --force sends anyway, CE_CLAIMS_COST_GUARD (USD) overrides.
+// Default $2 — deliberately above analyze's $0.50 (a chart run is
+// legitimately multi-dollar; the guard is against SURPRISE scale). Local GGUF
+// runs are free and never gated. draftCloud accumulates real usage so each
+// stage can print an actual-cost line for calibrating the projections.
+
+export const CLAIMS_COST_GUARD_USD = 2.0;
+const CHARS_PER_TOKEN = 4; // the convention estimateCost pricing assumes
+
+let _cloudUsage = { input_tokens: 0, output_tokens: 0, calls: 0 };
+function _recordUsage(u) {
+  if (!u) return;
+  _cloudUsage.input_tokens += u.input_tokens || 0;
+  _cloudUsage.output_tokens += u.output_tokens || 0;
+  _cloudUsage.calls += 1;
+}
+export function resetCloudUsage() { _cloudUsage = { input_tokens: 0, output_tokens: 0, calls: 0 }; }
+export function getCloudUsage() { return { ..._cloudUsage }; }
+
+// calls: [{ inChars, outTokens }] — outTokens should be the EXPECTED output
+// (not the maxTokens ceiling) so projections stay within ~2x of actuals.
+export function projectCloudCost(model, calls) {
+  let inTok = 0, outTok = 0;
+  for (const c of calls || []) {
+    inTok += Math.ceil((c.inChars || 0) / CHARS_PER_TOKEN);
+    outTok += c.outTokens || 0;
+  }
+  const { usd } = estimateCost(model?.model, { input_tokens: inTok, output_tokens: outTok });
+  return { usd, inTok, outTok };
+}
+
+// Print the projection; return false when the run should NOT proceed.
+// Cloud models only — a null/gguf model always passes silently.
+export function claimsCostGate(model, calls, label, args = {}) {
+  if (!model || model.kind !== 'cloud') return true;
+  const { usd, inTok, outTok } = projectCloudCost(model, calls);
+  const kk = (n) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+  process.stderr.write(`# projected cost: ~$${usd.toFixed(2)} (${label}, ~${kk(inTok)} tok in / ${kk(outTok)} out, ${model.model})\n`);
+  const env = parseFloat(process.env.CE_CLAIMS_COST_GUARD);
+  const guard = Number.isFinite(env) ? env : CLAIMS_COST_GUARD_USD;
+  if (usd <= guard || args.force) return true;
+  console.error(`# projected ~$${usd.toFixed(2)} exceeds the $${guard.toFixed(2)} cost guard — not sending.`);
+  console.error('#   --force to proceed anyway, or set CE_CLAIMS_COST_GUARD (USD) to raise the threshold.');
+  return false;
+}
+
+// One-line actuals from the accumulated usage (null when nothing was spent or
+// the model is not cloud). Callers resetCloudUsage() at stage start.
+export function actualCostLine(model) {
+  if (!model || model.kind !== 'cloud' || !_cloudUsage.calls) return null;
+  const { usd } = estimateCost(model.model, _cloudUsage);
+  const kk = (n) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+  return `# actual cost: ~$${usd.toFixed(2)} (${_cloudUsage.calls} calls, ${kk(_cloudUsage.input_tokens)} tok in / ${kk(_cloudUsage.output_tokens)} out)`;
 }
 
 // gguf-context-ladder: context sizes to attempt, largest first. 8192 was the
