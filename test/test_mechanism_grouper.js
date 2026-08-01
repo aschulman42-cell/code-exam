@@ -12,8 +12,53 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, splitDocSections, docAnchorsForGroup, formatAnchors, GROUPER_DEFAULTS } from '../src/core/mechanism-grouper.js';
+import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, splitDocSections, docAnchorsForGroup, formatAnchors, dominantFile, echoPairs, GROUPER_DEFAULTS } from '../src/core/mechanism-grouper.js';
 import { collectAnchorGroups, parseMinRank, filterGroupsByMinRank, packDisclosure, parseLineAnchor, groundAnchors, formatClaimChart, claimPreambleSnippet, formatChartToc } from '../src/commands/pseudo-claims.js';
+
+// grouper-echo-flag-fold Phase 1: dominant-file detection + echo pairing +
+// TOC annotation. Observe-only — nothing here drops or folds a group.
+describe('echo flag (dominant file + pairs)', () => {
+  const g = (label, files) => ({ label, members: files.map((f) => ({ file: f, name: 'x' })) });
+
+  it('finds the dominant file at the 0.6 boundary inclusive', () => {
+    assert.equal(dominantFile(g('a', ['a.js', 'a.js', 'a.js', 'b.js', 'c.js'])), 'a.js'); // 3/5 = 0.6
+    assert.equal(dominantFile(g('a', ['a.js', 'a.js', 'b.js', 'c.js', 'd.js'])), null);   // 2/5 spread
+    assert.equal(dominantFile({ label: 'e', members: [] }), null);
+  });
+  it('accepts chart-side anchors (filepath) and never counts doc anchors', () => {
+    const chartGroup = { label: 'c', members: [
+      { filepath: 'x.js', name: 'f1' }, { filepath: 'x.js', name: 'f2' },
+      { filepath: 'README.md', kind: 'lines', start: 1, end: 10 },
+    ] };
+    assert.equal(dominantFile(chartGroup), 'x.js'); // 2/2 code members; doc excluded
+  });
+  it('pairs same-dominant-file groups, smaller flagged toward larger', () => {
+    const host = g('big (main)', ['j.js', 'j.js', 'j.js', 'j.js']);
+    const echo = g('[file] j.js', ['j.js', 'j.js']);
+    const spread = g('catalog', ['a.js', 'b.js', 'c.js', 'd.js', 'e.js']);
+    const pairs = echoPairs([echo, host, spread]);
+    assert.equal(pairs.length, 1);
+    assert.equal(pairs[0].host.label, 'big (main)');
+    assert.equal(pairs[0].echo.label, '[file] j.js');
+    assert.equal(pairs[0].file, 'j.js');
+  });
+  it('a 3+ cluster yields one pair per non-host; hosts never re-echo', () => {
+    const a = g('a', ['f.c', 'f.c', 'f.c']);
+    const b = g('b', ['f.c', 'f.c']);
+    const c = g('c', ['f.c']);
+    const pairs = echoPairs([c, b, a]);
+    assert.equal(pairs.length, 2);
+    assert.ok(pairs.every((p) => p.host.label === 'a'));
+  });
+  it('renders the TOC echo suffix on flagged rows only', () => {
+    const toc = formatChartToc([
+      { n: 1, label: 'big (main)', priority: 3, preamble: 'A method' },
+      { n: 2, label: '[file] j.js', priority: 2, preamble: 'A method', echoOf: { hostN: 1, hostLabel: 'big (main)' } },
+    ]).join('\n');
+    assert.match(toc, /2\. \[P2\] \[file\] j\.js — "A method" — likely echo of #1 big \(main\)/);
+    assert.doesNotMatch(toc, /1\. \[P3\] big \(main\).*likely echo/);
+  });
+});
 
 // chart-toc-rank-display: preamble snippets as claim names + the contents table.
 describe('chart TOC and rank display', () => {

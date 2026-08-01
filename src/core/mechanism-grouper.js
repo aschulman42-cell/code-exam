@@ -630,6 +630,58 @@ export function parseAnchorHeader(line) {
   return { label, priority, fold, purpose };
 }
 
+// --- echo detection (grouper-echo-flag-fold Phase 1 — observe-only) ----------
+//
+// Multi-seed sweeps produce SEMANTIC echoes: one mechanism claimed twice from
+// disjoint residue slices (CE: json-stream as `[class] FileScanner` AND
+// `[file] json-stream.js`). Member overlap between echoes is ZERO by
+// construction — the grouper emits a PARTITION — so the detectable signal is
+// FILE-LOCALITY: both groups' members dominantly in the same file (the
+// grouper-subsumption-suppression postmortem established this; containment
+// was the wrong theory). Conservative by construction: a spread-out group
+// has no dominant file and can never pair, which excludes the known
+// false-positive shape (two real mechanisms co-located in one file, e.g.
+// exports.js's declared-exports builder vs the catalog group's members —
+// catalog is spread, so no flag). Phase 2 (--fold-echoes) stays design-on-
+// record in the worklist draft, gated on a >=90% true-echo soak.
+
+// The file holding >= threshold of a group's code members, else null.
+// Accepts grouper members ({file}) and chart-side resolved anchors
+// ({filepath, kind}); doc anchors (kind 'lines') never count.
+export function dominantFile(group, threshold = 0.6) {
+  const members = (group?.members || []).filter((m) => m && (m.filepath || m.file) && m.kind !== 'lines');
+  if (!members.length) return null;
+  const counts = new Map();
+  for (const m of members) {
+    const f = m.filepath || m.file;
+    counts.set(f, (counts.get(f) || 0) + 1);
+  }
+  let best = null, n = 0;
+  for (const [f, c] of counts) if (c > n) { n = c; best = f; }
+  return n / members.length >= threshold ? best : null;
+}
+
+// Echo pairs across a group list: [{host, echo, file}] where host is the
+// LARGER group of a same-dominant-file pair (ties keep list order). A 3+
+// cluster yields one pair per non-host group; hosts never re-echo, so a
+// future fold is bounded and non-transitive by construction.
+export function echoPairs(groups) {
+  const byFile = new Map();
+  for (const g of groups || []) {
+    const f = dominantFile(g);
+    if (!f) continue;
+    if (!byFile.has(f)) byFile.set(f, []);
+    byFile.get(f).push(g);
+  }
+  const out = [];
+  for (const [file, gs] of byFile) {
+    if (gs.length < 2) continue;
+    const sorted = [...gs].sort((a, b) => ((b.members || []).length) - ((a.members || []).length));
+    for (let i = 1; i < sorted.length; i++) out.push({ host: sorted[0], echo: sorted[i], file });
+  }
+  return out;
+}
+
 // --- ground-truth scoring (dev / test path) ---------------------------------
 // GT-scoring split (legal gate): the ground-truth text is CALLER-SUPPLIED. The
 // committed test scores only against Class-B PUBLIC fixtures in

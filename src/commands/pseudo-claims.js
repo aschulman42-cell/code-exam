@@ -29,7 +29,7 @@ import fs from 'node:fs';
 import { parseFuncSpec } from '../utils.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage } from '../core/llm-runner.js';
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
-import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
+import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, echoPairs, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
 
 // --- Canonical caveat blocks -------------------------------------------------
 // Ported verbatim from pseudo_claim_selftest/CAVEAT.md so the shipped command
@@ -326,7 +326,10 @@ export function formatChartToc(rows) {
   const out = ['## Contents', ''];
   for (const r of rows) {
     const rank = r.priority != null ? `[P${r.priority}] ` : '';
-    out.push(`${r.n}. ${rank}${r.label || '(unlabeled)'}${r.preamble ? ` — "${r.preamble}"` : ''}`);
+    // grouper-echo-flag-fold: the smaller group of an echo pair flags toward
+    // its larger host so TOC scanning surfaces probable duplicates.
+    const echo = r.echoOf ? ` — likely echo of #${r.echoOf.hostN} ${r.echoOf.hostLabel}` : '';
+    out.push(`${r.n}. ${rank}${r.label || '(unlabeled)'}${r.preamble ? ` — "${r.preamble}"` : ''}${echo}`);
   }
   out.push('');
   return out;
@@ -581,6 +584,7 @@ export async function doEmitCandidates(index, args) {
     } else {
       process.stdout.write(rankedText);
     }
+    reportEchoes(sorted);
     return;
   }
 
@@ -595,6 +599,15 @@ export async function doEmitCandidates(index, args) {
     console.error(`# wrote ${result.groups.length} candidate group(s) to ${outPath}  (${indexName}, group-by=${result.mode}, unranked; pre-filtered ${result.noiseFiles} noise files / ${result.noiseFns} fns)`);
   } else {
     process.stdout.write(text);
+  }
+  reportEchoes(result.groups);
+}
+
+// grouper-echo-flag-fold Phase 1: one stderr line per detected echo pair at
+// emit time, so .lst-stage curation sees them before any drafting spend.
+function reportEchoes(groups) {
+  for (const p of echoPairs(groups)) {
+    console.error(`# echo: ${p.host.label} ~ ${p.echo.label} (${String(p.file).split('!').pop()})`);
   }
 }
 
@@ -749,6 +762,18 @@ export async function doPseudoClaims(index, args) {
   }
   out.push('');
 
+  // grouper-echo-flag-fold Phase 1: detect echo pairs across the chart's
+  // groups by shared dominant file (resolved anchors carry filepath; doc
+  // anchors never count). echoByIdx: section index -> {hostN, hostLabel, file}
+  // for the SMALLER group of each pair — flags point at the larger.
+  const echoByIdx = new Map();
+  {
+    const wrapped = withAnchors.map((s, i) => ({ __i: i, label: s.label, members: s.resolved }));
+    for (const p of echoPairs(wrapped)) {
+      echoByIdx.set(p.echo.__i, { hostN: p.host.__i + 1, hostLabel: p.host.label, file: String(p.file).split('!').pop() });
+    }
+  }
+
   // chart-toc-rank-display: a multi-claim chart opens with a rank-and-name
   // contents table (drafted preambles as names; labels alone in dry-run).
   if (withAnchors.length >= 2) {
@@ -757,6 +782,7 @@ export async function doPseudoClaims(index, args) {
       label: s.label,
       priority: s.priority,
       preamble: !dryRun && drafts[i] && drafts[i].prose ? claimPreambleSnippet(drafts[i].prose) : '',
+      echoOf: echoByIdx.get(i) || null,
     }));
     for (const ln of formatChartToc(rows)) out.push(ln);
   }
@@ -770,6 +796,11 @@ export async function doPseudoClaims(index, args) {
     // verdict — disclose that this claim may cover only a slice of it.
     if (s.fold === 'split') {
       out.push('_The ranker marked this group `split` (over-broad); this claim may cover only a slice of it._');
+      out.push('');
+    }
+    const echo = echoByIdx.get(i);
+    if (echo) {
+      out.push(`_Likely echo: this group shares its dominant file (\`${echo.file}\`) with Pseudo-claim ${echo.hostN} — probably the same mechanism claimed from a different seed._`);
       out.push('');
     }
 
