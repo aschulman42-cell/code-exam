@@ -879,7 +879,9 @@ TASK: For each element/limitation in the patent claim, categorize how this
 function relates to it using EXACTLY one of these labels:
 
   PRESENT  - The code in this function plainly implements the element.
-             Cite the specific lines.
+             You MUST quote the specific line(s) that perform the
+             element's action, verbatim. If you cannot quote such a line
+             from THIS function, the label is not PRESENT.
   ASSUMED  - The function calls another function whose NAME suggests it
              implements the element, but the actual implementation is not
              visible in this code. State what you are assuming and why.
@@ -896,10 +898,15 @@ CRITICAL INSTRUCTIONS:
 3. Configuration that would be used BY an implementation is PARTIAL,
    not PRESENT (e.g., setting min_tls_version is not the same as
    enforcing a minimum protocol version during handshake).
-4. Note any operations in the code that go BEYOND what the claim describes.
-5. Be specific: cite line numbers and operations.
-6. Keep your response concise - under 350 words.
-7. End with a COVERAGE summary, e.g.:
+4. ADJACENT ROLE IS NOT IMPLEMENTATION: code that reads, hashes,
+   displays, records, or consumes the RESULTS of a mechanism does not
+   implement that mechanism (a function hashing a menu's fields does not
+   IDENTIFY menus; a function reading ledger entries does not CREATE
+   them). Label such code PARTIAL or ABSENT for that element.
+5. Note any operations in the code that go BEYOND what the claim describes.
+6. Be specific: cite line numbers and operations.
+7. Keep your response concise - under 350 words.
+8. End with a COVERAGE summary, e.g.:
    "Claim coverage: 2 PRESENT, 1 ASSUMED, 1 PARTIAL, 1 ABSENT out of 5 elements."
 
 Analyze the function against the patent claim:`;

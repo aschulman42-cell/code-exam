@@ -252,6 +252,7 @@ export function parseArgs() {
     claims_loop: null,
     loop_k: null,
     sponge_t: null,
+    loop_save_analyses: false,
     multisect_analyze: null,
     file_analyze: null,
     analyze_model: null,
@@ -520,6 +521,7 @@ export function parseArgs() {
     ['claims_loop',          'value',          ['--claims-loop']],
     ['loop_k',               'value',          ['--loop-k']],
     ['sponge_t',             'value',          ['--sponge-t']],
+    ['loop_save_analyses',   'flag',           ['--loop-save-analyses']],
     ['multisect_analyze',    'value',          ['--multisect-analyze']],
     ['file_analyze',         'value',          ['--file-analyze']],
     ['analyze_model',        'value',          [], ['--analyze-model']],
@@ -1347,6 +1349,9 @@ LLM ANALYSIS:
   --sponge-t <n>             --claims-loop: a function hitting more than N claims'
                               searches is suppressed as a vocabulary sponge
                               (default 2).
+  --loop-save-analyses       --claims-loop: save every raw per-anchor analysis
+                              to <chart>_looped_analyses/ so fills can be
+                              audited against the model's justification.
   --multisect-analyze <terms> Search for functions matching terms, analyze top hits.
                               Same term syntax as --multisect-search.
   --file-analyze <filepath>  Analyze an entire source file with LLM

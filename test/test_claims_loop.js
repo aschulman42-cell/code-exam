@@ -12,7 +12,9 @@ import path from 'node:path';
 import {
   parseChartClaims, parseCandidateGroups, pickAnchors, parseAnalysisLabels,
   detectSponges, hitInGroup, fillChartSection, needsRedraft, doClaimsLoop,
+  lexicalStems, stemMatches, lexicalGate,
 } from '../src/commands/claims-loop.js';
+import { buildClaimAnalyzePrompt } from '../src/commands/analyze.js';
 
 const CHART = `# PSEUDO-CLAIMS — illustrative drafting exercise
 
@@ -90,6 +92,13 @@ describe('claims-loop label parsing', () => {
       '1. **"receiving"** ... **PRESENT**\n2. **"routing"** ... **ABSENT**\n\nClaim coverage: 2 PRESENT, 1 ASSUMED, 0 PARTIAL, 1 ABSENT out of 4 elements.');
     assert.deepEqual(counts, { PRESENT: 2, PARTIAL: 0, ABSENT: 1, ASSUMED: 1 });
   });
+  it('splits bold-wrapped numbered elements ("**1. …**") into separate blocks', () => {
+    const { elements } = parseAnalysisLabels(
+      '**1. Scanning source files:**\nDoes scan things. **PRESENT**\n\n**2. Inferring pipelines from co-occurrence:**\nGroups cells and classifies. **PRESENT**\n');
+    assert.equal(elements.length, 2);
+    assert.match(elements[1].text, /Inferring pipelines/);
+    assert.equal(elements[1].label, 'PRESENT');
+  });
   it('falls back to inline bold labels and captures element text', () => {
     const { counts, elements } = parseAnalysisLabels(
       '1. **"receiving a widget request"** — the code receives it. **PRESENT** (Lines 2-4)\n\n2. **"routing the widget"** — not visible here. Label: ABSENT\n');
@@ -135,6 +144,39 @@ describe('claims-loop writeback', () => {
   });
 });
 
+// #290 precision tuning: stems, the fill gate, member pre-rank, rubric.
+describe('claims-loop lexical gate + pre-rank (precision tuning)', () => {
+  it('stems match identifier-dense code as substrings', () => {
+    const stems = lexicalStems('tracing the submission attempt');
+    assert.ok(stemMatches(stems, 'window.__bramIframeTrace("message-agent-submit")') >= 2); // trac + submi
+  });
+  it('gates PRESENT/PARTIAL with no vocabulary overlap down to ASSUMED', () => {
+    assert.equal(lexicalGate('PRESENT', 'retrieving a file from the bundle', 'function decideSpinner(ids) { return ids[0]; }'), 'ASSUMED');
+    assert.equal(lexicalGate('PARTIAL', 'retrieving a file from the bundle', 'function decideSpinner() {}'), 'ASSUMED');
+    assert.equal(lexicalGate('PRESENT', 'routing the widget', 'function routeWidget(w) {}'), 'PRESENT');
+    assert.equal(lexicalGate('ABSENT', 'anything at all zzz', 'function q() {}'), 'ABSENT'); // gate only touches fills
+  });
+  it('adapts the bar to short elements', () => {
+    // one usable stem -> one match suffices
+    assert.equal(lexicalGate('PRESENT', 'frobnicating it', 'function frobnicate(x) {}'), 'PRESENT');
+  });
+  it('pre-ranks members by claim-text overlap so the right function surfaces', () => {
+    const members = ['a.js@listModels', 'a.js@listArtifacts', 'a.js@listPipelines'];
+    const anchors = pickAnchors('[class] _AIMLMethods', members, 1,
+      'inferring end-to-end AI/ML pipelines based on co-occurrence of component cells');
+    assert.deepEqual(anchors, ['a.js@listPipelines']);
+  });
+  it('keeps .lst order when no claim text is given (back-compat)', () => {
+    const members = ['a.js@listModels', 'a.js@listPipelines'];
+    assert.deepEqual(pickAnchors('[class] X', members, 1), ['a.js@listModels']);
+  });
+  it('rubric demands a verbatim quote for PRESENT and bars adjacent roles', () => {
+    const p = buildClaimAnalyzePrompt('function f() {}', 'f', 'a.js', 'A method.', false);
+    assert.match(p, /MUST quote the specific line/);
+    assert.match(p, /ADJACENT ROLE IS NOT IMPLEMENTATION/);
+  });
+});
+
 describe('claims-loop convergence flag', () => {
   it('flags ABSENT-heavy + retrieval-silent, and only that', () => {
     assert.equal(needsRedraft({ PRESENT: 0, PARTIAL: 0, ABSENT: 3, ASSUMED: 1 }, 0), true);
@@ -152,7 +194,9 @@ describe('doClaimsLoop end-to-end (mock drafter + stub index)', () => {
     fs.writeFileSync(lstPath, LST);
 
     const index = {
-      getFunctionSource: (fp, fn) => (fp.startsWith('src/') ? `function ${fn}() { return 1; }` : null),
+      // Body carries widget/request vocabulary so claim 1's fill passes the
+      // lexical gate; claim 2's ("frobnicating") fill gets gated on Beta::frob.
+      getFunctionSource: (fp, fn) => (fp.startsWith('src/') ? `function ${fn}(widgetRequest) { return routeWidget(widgetRequest); }` : null),
       formatVocabularyForPrompt: () => '',
       multisectSearch: () => ({ function_matches: [{ function: 'printUsage', filepath: 'src/u.js', terms_matched: 3 }] }),
     };
@@ -164,14 +208,18 @@ describe('doClaimsLoop end-to-end (mock drafter + stub index)', () => {
     const draftShim = async (a, b, mt) => draft(String(a) + String(b), mt);
 
     const res = await doClaimsLoop(index,
-      { claims_loop: chartPath, candidates: lstPath, model: 'fake.gguf', temperature: 0 },
+      { claims_loop: chartPath, candidates: lstPath, model: 'fake.gguf', temperature: 0, loop_save_analyses: true },
       { draft: draftShim });
     assert.ok(res && fs.existsSync(res.outPath));
     const out = fs.readFileSync(res.outPath, 'utf8');
     assert.match(out, /_\(loop: PRESENT\)_/);
     assert.match(out, /## Claims-loop summary/);
+    assert.match(out, /Lexical gate downgraded \d+ PRESENT\/PARTIAL/);
     assert.match(out, /`printUsage`/); // sponge (hit in >2 of the 2 claims? T=2 needs >2) —
     // printUsage hits both claims = 2 ids, not >2, so it SURVIVES and shows as cross-group.
     assert.match(out, /cross-group candidate\(s\): `printUsage`/);
+    // --loop-save-analyses wrote the raw per-anchor outputs
+    const saveDir = res.outPath.replace(/_looped\.md$/, '_looped_analyses');
+    assert.ok(fs.existsSync(saveDir) && fs.readdirSync(saveDir).length >= 1);
   });
 });

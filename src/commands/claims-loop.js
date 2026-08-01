@@ -75,12 +75,55 @@ export function parseCandidateGroups(lstText) {
 const isDocAnchor = (m) => /@L\d+(-\d+)?$/.test(m);
 const memberName = (m) => m.slice(m.indexOf('@') + 1);
 const bareName = (n) => n.replace(/^.*::/, '');
+const kw = (s) => new Set(String(s).toLowerCase().match(/[a-z][a-z0-9_]{3,}/g) || []);
+
+// --- lexical stems (#290 precision tuning) ----------------------------------
+// Suffix-stripped stems of claim/element keywords, matched as SUBSTRINGS
+// against identifier-dense code — element "tracing" must match a body's
+// __bramIframeTrace. Stems shorter than 4 chars are dropped as too noisy.
+
+export function lexicalStems(text) {
+  const out = new Set();
+  for (const w of kw(text)) {
+    // "ssion" before "sion": submission -> "submi" (matches submit/submitted);
+    // plain "sion" would leave "submis", which matches neither.
+    const s = w.replace(/(?:ssion|sion|tion|ing|ment|ed|es|s)$/, '');
+    if (s.length >= 4) out.add(s);
+  }
+  return out;
+}
+
+export function stemMatches(stems, haystack) {
+  const h = String(haystack).toLowerCase();
+  let n = 0;
+  for (const s of stems) if (h.includes(s)) n += 1;
+  return n;
+}
+
+// Lexical gate on fills: a PRESENT/PARTIAL whose element text shares no
+// vocabulary with the analyzed function (name+body) is a drift-stretch —
+// the audited claim-4 PARTIALs ("bundle path" vs a spinner decider) had
+// zero overlap. Downgrade to ASSUMED (fills accept only PRESENT/PARTIAL,
+// so gated results reach the footnote at most, never a cell). The bar
+// adapts to short elements: min(LEXICAL_GATE_MIN, usable stems).
+export const LEXICAL_GATE_MIN = 2;
+export function lexicalGate(label, elemText, fnPlusSrc, min = LEXICAL_GATE_MIN) {
+  if (label !== 'PRESENT' && label !== 'PARTIAL') return label;
+  const stems = lexicalStems(elemText);
+  const needed = Math.min(min, stems.size);
+  if (needed === 0) return label; // nothing to judge with
+  return stemMatches(stems, fnPlusSrc) >= needed ? label : 'ASSUMED';
+}
 
 // Anchors to analyze for a group: the NAMESAKE function first (the name in
 // the label's trailing parens — the soak's first-member heuristic picked the
 // namesake only 4/62 times, so this ordering is the cheap accuracy lever),
-// then remaining code members up to k total.
-export function pickAnchors(label, members, k) {
+// then remaining code members ranked by lexical overlap with the claim text
+// (#290 precision tuning: "inferring pipelines" reaches listPipelines even
+// when it is member #14 — blind .lst order never did). Name matches weigh
+// double; body overlap counts when the caller supplies srcLookup. Ties keep
+// .lst order (stable sort), and no claimText degrades to plain .lst order.
+export function pickAnchors(label, members, k, claimText = '', srcLookup = null) {
   const code = (members || []).filter((m) => m.includes('@') && !isDocAnchor(m));
   const nm = label.match(/\(([^)]+)\)\s*$/);
   const ordered = [];
@@ -90,9 +133,21 @@ export function pickAnchors(label, members, k) {
       || code.find((m) => memberName(m).includes(want));
     if (hit) ordered.push(hit);
   }
-  for (const m of code) {
-    if (ordered.length >= k) break;
-    if (!ordered.includes(m)) ordered.push(m);
+  const rest = code.filter((m) => !ordered.includes(m));
+  const stems = claimText ? lexicalStems(claimText) : null;
+  if (stems && stems.size) {
+    const scored = rest.map((m) => {
+      let s = 2 * stemMatches(stems, memberName(m));
+      if (srcLookup) {
+        const src = srcLookup(m);
+        if (src) s += stemMatches(stems, String(src).slice(0, 4000));
+      }
+      return [s, m];
+    });
+    scored.sort((a, b) => b[0] - a[0]);
+    for (const [, m] of scored) { if (ordered.length >= k) break; ordered.push(m); }
+  } else {
+    for (const m of rest) { if (ordered.length >= k) break; ordered.push(m); }
   }
   return ordered.slice(0, k);
 }
@@ -117,9 +172,13 @@ export function parseAnalysisLabels(text) {
     }
   }
 
-  // Element blocks: numbered items or "Claim Element N" headings.
+  // Element blocks: numbered items or "Claim Element N" headings. The digit
+  // may be bold-wrapped ("**1. Scanning…**" — observed from both Claude and
+  // 12B): without the leading \*{0,2} the whole analysis collapsed into ONE
+  // block, one fill per anchor, matched by the wrong element text (the CE
+  // claim-2 row-3 miss in the tuning gate).
   const elements = [];
-  const blocks = text.split(/^(?=\s*(?:\d+\.\s|\*{0,2}(?:Claim )?Element\s+\d))/mi).slice(0, 24);
+  const blocks = text.split(/^(?=\s*(?:\*{0,2}\d+\.\s|\*{0,2}(?:Claim )?Element\s+\d))/mi).slice(0, 24);
   for (const b of blocks) {
     const lm = [...b.matchAll(/(?:Label:?\**\s*\**|\*\*)(PRESENT|PARTIAL|ABSENT|ASSUMED)\b/gi)];
     if (!lm.length) continue;
@@ -155,8 +214,6 @@ export function hitInGroup(hit, members) {
 }
 
 // --- chart writeback --------------------------------------------------------
-
-const kw = (s) => new Set(String(s).toLowerCase().match(/[a-z][a-z0-9_]{3,}/g) || []);
 
 // Fill empty cite cells in one claim's section. fills = [{ text, label,
 // target }] (PRESENT/PARTIAL only). Matching mirrors formatClaimChart's
@@ -225,6 +282,14 @@ export async function doClaimsLoop(index, args, opts = {}) {
   const groups = parseCandidateGroups(lstText);
   const loopK = Number(args.loop_k) || LOOP_DEFAULTS.loopK;
   if (!claims.length) { console.log('No pseudo-claims found in the chart.'); return; }
+  // #290 precision tuning: --loop-save-analyses keeps every raw per-anchor
+  // analysis on disk so any fill can be audited against the model's own
+  // justification (the first audit had to re-derive them by hand).
+  let saveDir = null;
+  if (args.loop_save_analyses) {
+    saveDir = chartPath.replace(/\.md$/i, '') + '_looped_analyses';
+    fs.mkdirSync(saveDir, { recursive: true });
+  }
   process.stderr.write(`# claims-loop: ${claims.length} claims, K=${loopK}, model=${model.modelPath || model.label}\n`);
 
   // Pass 1: per-claim anchored analysis + retrieval hit collection.
@@ -236,7 +301,11 @@ export async function doClaimsLoop(index, args, opts = {}) {
     if (!members) process.stderr.write(`#   [c${c.n}] group not found in .lst: "${c.label}"\n`);
 
     // Stage 1 — anchored element mapping.
-    for (const anchor of pickAnchors(c.label, members || [], loopK)) {
+    const srcLookup = (m) => {
+      const i2 = m.indexOf('@');
+      try { return index.getFunctionSource(m.slice(0, i2), m.slice(i2 + 1)); } catch { return null; }
+    };
+    for (const anchor of pickAnchors(c.label, members || [], loopK, c.claimText, srcLookup)) {
       const at = anchor.indexOf('@');
       const fp = anchor.slice(0, at), fn = anchor.slice(at + 1);
       let src = null;
@@ -245,10 +314,27 @@ export async function doClaimsLoop(index, args, opts = {}) {
       let out;
       try { out = await draft(buildClaimAnalyzePrompt(src, fn, fp, c.claimText, false), '', 800); }
       catch (e) { process.stderr.write(`#   [c${c.n}] draft error on ${fn}: ${e.message}\n`); continue; }
+      if (saveDir) {
+        const safe = bareName(fn).replace(/[^A-Za-z0-9_]/g, '_');
+        fs.writeFileSync(`${saveDir}/c${c.n}_${safe}.txt`, `# ${anchor}\n# claim c${c.n}: ${c.label}\n\n${out || ''}\n`);
+      }
       const parsed = parseAnalysisLabels(out || '');
-      rec.anchors.push({ anchor, counts: parsed.counts });
-      for (const k of Object.keys(rec.counts)) rec.counts[k] += parsed.counts[k];
-      for (const e of parsed.elements) {
+      // Apply the lexical gate per element, then derive counts from the GATED
+      // labels when element blocks exist (the gate must be visible to the
+      // needs-redraft threshold — a drift claim whose PRESENTs are all gated
+      // away should flag). Coverage-line counts are the fallback when the
+      // model emitted no parseable element blocks.
+      const gated = parsed.elements.map((e) => {
+        const label = lexicalGate(e.label, e.text, fn + '\n' + src);
+        if (label !== e.label) rec.gatedCount = (rec.gatedCount || 0) + 1;
+        return { ...e, label };
+      });
+      const counts = { PRESENT: 0, PARTIAL: 0, ABSENT: 0, ASSUMED: 0 };
+      if (gated.length) for (const e of gated) counts[e.label]++;
+      else for (const k of Object.keys(counts)) counts[k] = parsed.counts[k];
+      rec.anchors.push({ anchor, counts });
+      for (const k of Object.keys(rec.counts)) rec.counts[k] += counts[k];
+      for (const e of gated) {
         const key = [...kw(e.text)].sort().join(' ');
         const prev = rec.best.get(key);
         if (!prev || LABEL_RANK[e.label] > LABEL_RANK[prev.label]) {
@@ -282,7 +368,7 @@ export async function doClaimsLoop(index, args, opts = {}) {
     hitsPerClaim.set(c.n, rec.hits);
     perClaim.push(rec);
     const t = rec.counts;
-    process.stderr.write(`#   [c${c.n}] ${c.label.slice(0, 40)}  anchors=${rec.anchors.length} P=${t.PRESENT}/Pa=${t.PARTIAL}/Ab=${t.ABSENT}/As=${t.ASSUMED} hits=${rec.hits.length}\n`);
+    process.stderr.write(`#   [c${c.n}] ${c.label.slice(0, 40)}  anchors=${rec.anchors.length} P=${t.PRESENT}/Pa=${t.PARTIAL}/Ab=${t.ABSENT}/As=${t.ASSUMED} gated=${rec.gatedCount || 0} hits=${rec.hits.length}\n`);
   }
 
   // Pass 2: sponge suppression, agreement, writeback.
@@ -322,9 +408,10 @@ export async function doClaimsLoop(index, args, opts = {}) {
     '',
     `_Cells marked \`(loop: PRESENT|PARTIAL)\` were filled by the claims-loop: an LLM judged the element against the claim's own group functions (anchored element mapping). That is a **semantic judgment**, not the mechanical index grounding of the drafter's cites — verify independently._`,
     '',
-    `- Claims processed: ${perClaim.length} (anchors per claim: up to ${loopK}, namesake first)`,
+    `- Claims processed: ${perClaim.length} (anchors per claim: up to ${loopK}, namesake first, lexical member pre-rank)`,
     `- Agreement (retrieval, sponge-filtered, hit-in-own-group): ${agree}/${perClaim.length}`,
     `- Vocabulary sponges suppressed (topped >${spongeT} claims): ${[...sponges].map((s) => `\`${s}\``).join(', ') || '(none)'}`,
+    `- Lexical gate downgraded ${perClaim.reduce((n, r) => n + (r.gatedCount || 0), 0)} PRESENT/PARTIAL result(s) to ASSUMED (no element↔function vocabulary overlap)`,
     '',
   ];
   if (flagged.length) {
