@@ -3111,7 +3111,7 @@ export class CodeSearchIndex {
       return;
     }
 
-    const { TreeSitterParser } = await import('./TreeSitterParser.js');
+    const { TreeSitterParser, looksBinaryContent, looksMpegTs, TS_SLOW_FILE_MS } = await import('./TreeSitterParser.js');
     const tsParser = new TreeSitterParser();
     const initOk = await tsParser.init();
     if (!initOk) {
@@ -3134,8 +3134,25 @@ export class CodeSearchIndex {
     let tsCount = 0;
     let regexCount = 0;
     let tsFailedCount = 0;
+    let binarySkipped = 0;
+    let processed = 0;
+    const slowFiles = [];
 
     for (const [filepath, lines] of this.fileLines) {
+      processed++;
+      if (showProgress && processed % 250 === 0) {
+        eprogress(`  functions: ${processed}/${this.fileLines.size} files...`);
+      }
+      // #299: binary content (NULs / U+FFFD / control-char density — e.g.
+      // MPEG-TS media fixtures with a .ts extension) never reaches either
+      // parser. The file stays in the index as content; it just has no
+      // parseable functions.
+      if (looksBinaryContent(lines) || (filepath.toLowerCase().endsWith('.ts') && looksMpegTs(lines))) {
+        this.functionIndex[filepath] = {};
+        binarySkipped++;
+        continue;
+      }
+      const tFile = Date.now();
       let tsFuncs;
       try {
         tsFuncs = await tsParser.parseFunctions(filepath, lines);
@@ -3196,6 +3213,10 @@ export class CodeSearchIndex {
         this.functionIndex[filepath] = fileFuncs;
         totalFunctions += Object.keys(fileFuncs).length;
       }
+      // #299 log-first: any file whose parse burned real time gets NAMED at
+      // pass end — the 2-hour ExoPlayer build was a silent black box.
+      const msFile = Date.now() - tFile;
+      if (msFile > TS_SLOW_FILE_MS) slowFiles.push([filepath, msFile]);
     }
 
     // Save
@@ -3214,6 +3235,15 @@ export class CodeSearchIndex {
                   `${Object.keys(this.functionIndex).length} files`);
       console.log(`  tree-sitter: ${tsCount} files, regex fallback: ${regexCount} files` +
                   (tsFailedCount > 0 ? `, tree-sitter failures: ${tsFailedCount}` : ''));
+      if (binarySkipped > 0) {
+        console.log(`  Skipped ${binarySkipped} binary file(s) by content sniff (#299 — e.g. media fixtures with code-like extensions)`);
+      }
+      if (slowFiles.length > 0) {
+        console.log(`  Slow parses (>${TS_SLOW_FILE_MS}ms):`);
+        for (const [f, ms] of slowFiles.sort((a, b) => b[1] - a[1]).slice(0, 8)) {
+          console.log(`    ${(ms / 1000).toFixed(1)}s  ${f}`);
+        }
+      }
     }
   }
 

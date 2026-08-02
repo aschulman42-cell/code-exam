@@ -38,6 +38,40 @@ function _resolveGrammarsDir() {
 }
 const GRAMMARS_DIR = _resolveGrammarsDir();
 
+// --- binary content sniff (#299 / #88) ---------------------------------------
+// Binary files reaching a language grammar is the 2-hour-build failure mode:
+// ExoPlayer's MPEG transport-stream test fixtures (.ts!) were stringified and
+// fed to the TypeScript grammar, whose ERROR-forest ground the extractor walk
+// for minutes PER FILE. Extension filtering can never be sufficient (the .ts
+// collision), so sniff the CONTENT: stringified binary carries NULs, U+FFFD
+// replacement chars (invalid-UTF-8 decodes), and a high control-char ratio.
+
+export const TS_PARSE_MAX_CHARS = 2_000_000; // beyond this, regex-only (#88 size cap)
+export const TS_PARSE_TIMEOUT_MICROS = 5_000_000; // 5s per parse, then regex (#88)
+export const TS_SLOW_FILE_MS = 2000; // report threshold for the pass's slow-file list
+
+export function looksBinaryContent(sourceLines, probeChars = 4096) {
+  const probe = (Array.isArray(sourceLines) ? sourceLines.slice(0, 50).join('\n') : String(sourceLines || '')).slice(0, probeChars);
+  if (!probe) return false;
+  if (probe.includes('\u0000') || probe.includes('\uFFFD')) return true;
+  let bad = 0;
+  for (let i = 0; i < probe.length; i++) {
+    const c = probe.charCodeAt(i);
+    if ((c < 32 && c !== 9 && c !== 10 && c !== 13) || (c >= 0x80 && c <= 0x9f)) bad++;
+  }
+  return bad / probe.length > 0.05;
+}
+
+// MPEG-TS is deterministically fingerprintable: a 0x47 sync byte every 188
+// bytes. After text decoding the offsets survive only when no newline byte
+// landed in the first 377 — check best-effort on the first "line"; the
+// generic sniff above catches the rest.
+export function looksMpegTs(sourceLines) {
+  const first = Array.isArray(sourceLines) ? (sourceLines[0] || '') : String(sourceLines || '');
+  if (first.length < 377) return false;
+  return first.charCodeAt(0) === 0x47 && first.charCodeAt(188) === 0x47 && first.charCodeAt(376) === 0x47;
+}
+
 // Map from language name (as used in EXT_TO_LANG) to grammar .wasm filename
 const GRAMMAR_FILES = {
   c:          'tree-sitter-c.wasm',
@@ -153,6 +187,11 @@ export class TreeSitterParser {
     const langName = EXT_TO_TS_LANG[ext];
     if (!langName) return null;
 
+    // #299: binary content must never reach a language grammar (the ExoPlayer
+    // MPEG-TS-as-TypeScript 2-hour build). Callers also pre-check via the
+    // exported helpers to skip regex too; this guard is the belt.
+    if (looksBinaryContent(sourceLines) || (langName === 'typescript' && looksMpegTs(sourceLines))) return null;
+
     const lang = await this.getLanguage(langName);
     if (!lang) return null;
 
@@ -162,7 +201,12 @@ export class TreeSitterParser {
       parser.setLanguage(lang);
 
       const sourceCode = sourceLines.join('\n');
+      // #88 guards: very large files go regex-only; a parse exceeding the
+      // timeout returns a null tree (web-tree-sitter) — same fallback.
+      if (sourceCode.length > TS_PARSE_MAX_CHARS) return null;
+      if (typeof parser.setTimeoutMicros === 'function') parser.setTimeoutMicros(TS_PARSE_TIMEOUT_MICROS);
       tree = parser.parse(sourceCode);
+      if (!tree) return null;
 
       let result;
       switch (langName) {
