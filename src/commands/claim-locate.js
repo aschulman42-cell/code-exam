@@ -23,6 +23,13 @@ import {
   buildSymbolTable, verifySymbol, isFound, nearbySymbols, navigateFrom,
   parseProposedSymbols,
 } from '../core/symbol-verify.js';
+// The scavenger hunt reuses the local tool-loop's hard-won guards rather than
+// reinventing them: budget-with-synthesize-now-stop, special-token
+// neutralization, Gemma's strict framing, and the zero-tool-call fabrication
+// warning. See the HUNT section below.
+import {
+  makeToolBudget, neutralizeSpecialTokens, strictInstructionsFor,
+} from '../core/ai-overview-local.js';
 
 export const LOCATE_DEFAULTS = {
   maxProposals: 24, navLimit: 8, refine: true,
@@ -239,6 +246,242 @@ ELEMENT 2: NONE
 ${blocks.join('\n\n')}`;
 }
 
+// ===========================================================================
+// SCAVENGER HUNT (--hunt) — the model drives its own search of the symbol table
+// ===========================================================================
+//
+// The discovery path above is ONE fixed search: the model predicts words, CE
+// greps once, the model picks from what that grep returned. Measured on the
+// '101 claim, that made success depend on a lucky word — Claude reached the
+// crux because its word list happened to contain `adaptive`, matching a class
+// name outright; Gemini's list was sound but its best word was rare enough to
+// rank below a longer name matching three weak ones. The model could not say
+// "none of these look right, try something else" or "show me what else is in
+// that class." That conversation is what this adds.
+//
+// TRANSPORT. The loop is a TEXT protocol over the same `draft(sys, user,
+// maxTokens)` seam every provider already implements, NOT node-llama-cpp's
+// `defineChatSessionFunction`. The worklist draft proposed the latter, but it
+// is local-GGUF-only, and the pre-registered gate requires all three cloud
+// providers to run the hunt — so that plan could not satisfy its own gate
+// without three more provider-specific tool-use implementations. One text
+// protocol covers cloud and local identically and is testable against a mock
+// drafter with no live model.
+//
+// What IS reused from the local tool loop (ai-overview-local.js) is everything
+// that was learned the hard way: a tool budget with an explicit
+// synthesize-now stop rather than a silent halt, special-token neutralization
+// on every tool result, Gemma's strict-instruction framing, and the
+// zero-tool-call fabrication guard. That last one is the point of the whole
+// exercise here: a hallucinated hunt is worse than no hunt, because its output
+// looks like evidence.
+
+export const HUNT_DEFAULTS = {
+  maxRounds: 8,        // model turns before we force a decision
+  maxCalls: 24,        // total tool invocations (matches the local overview loop)
+  maxLogChars: 24000,  // transcript cap; the smallest context we target is 16k
+  searchLimit: 12,     // symbols returned per SEARCH
+  membersLimit: 30,
+  navLimit: 12,
+  extractLines: 80,    // a function, not a file
+  extractChars: 2500,
+};
+
+export function buildHuntPrompt() {
+  return `You locate the code that implements a patent claim, inside a codebase you \
+have never seen. You are NOT told which codebase it is and you do not need to know.
+
+You cannot read the code directly. You can only ask for information about it, \
+one step at a time, using the commands below. Use them to hunt for the \
+functions that actually perform what each claim element describes.
+
+COMMANDS — one per line, as many per reply as you want:
+  SEARCH: word word word
+      Symbols whose NAME contains any of those words.
+  MEMBERS: SomeClass
+      The other symbols defined in that class.
+  CALLEES: SomeClass::someMethod
+      What that function calls.
+  CALLERS: SomeClass::someMethod
+      What calls that function.
+  EXTRACT: SomeClass::someMethod
+      That function's source, so you can check what it really does.
+
+Patent language and source code do not share vocabulary. Search for words a \
+programmer would put in an identifier, not words taken from the claim.
+
+A strategy that works: SEARCH broad words first. When a result looks close, \
+MEMBERS to see what lives beside it, CALLEES to follow the work it delegates, \
+and EXTRACT to confirm. A name is a hint, not proof — EXTRACT before you commit \
+to it. If a search returns nothing useful, try different words rather than \
+settling for the closest miss.
+
+When you can name the implementing symbols — or have established that this \
+codebase does not contain them — reply with exactly:
+
+DONE
+ELEMENT 1: ExactName; Other::exactName
+ELEMENT 2: NONE
+
+Rules:
+- Copy symbol names EXACTLY as the results spell them.
+- Prefer the specific function that performs the action over a container class.
+- At most 3 symbols per element.
+- NONE is a real answer. Never name a symbol you have not seen in a result.
+- Reply with commands only, or with the final DONE block. No commentary.`;
+}
+
+// Parse a hunt turn into actions, and the terminal selections when DONE.
+export function parseHuntActions(text) {
+  const lines = String(text || '').split(/\r?\n/);
+  const actions = [];
+  let done = false;
+  let doneAt = -1;
+  for (let i = 0; i < lines.length; i++) {
+    // Strip bold BEFORE bullets: `**MEMBERS: X**` otherwise loses only its
+    // first asterisk to the bullet rule and never matches the command regex.
+    const raw = lines[i].trim()
+      .replace(/\*\*/g, '').replace(/^[-*•>]\s*/, '').replace(/^`+|`+$/g, '').trim();
+    if (/^DONE\b/i.test(raw)) { done = true; doneAt = i; break; }
+    const m = raw.match(/^(SEARCH|MEMBERS|CALLEES|CALLERS|EXTRACT)\s*[:=]\s*(.+)$/i);
+    if (!m) continue;
+    const arg = m[2].trim().replace(/^`+|`+$/g, '').replace(/\(\s*\)$/, '');
+    if (arg) actions.push({ tool: m[1].toUpperCase(), arg });
+  }
+  // Tolerate "DONE" trailing on the same line as the first ELEMENT.
+  const tail = done ? lines.slice(doneAt).join('\n').replace(/^\s*DONE\b/i, '') : '';
+  return { actions, done, selections: done ? parseProposedSymbols(tail) : [] };
+}
+
+// The read-only tools. Every result is ground truth from the index — the model
+// never sees anything CE did not read out of the loaded codebase.
+export function makeHuntTools(index, symbols, opts = {}) {
+  const D = HUNT_DEFAULTS;
+  const includeTests = !!opts.includeTests;
+  const blind = !!opts.blind;
+  const where = (s) => (blind ? '' : `   [${s.filepath.split('!').pop()}]`);
+  const resolve = (arg) => {
+    const v = verifySymbol(symbols, arg);
+    return isFound(v) ? v : null;
+  };
+
+  return (tool, arg) => {
+    switch (tool) {
+      case 'SEARCH': {
+        const words = String(arg).toLowerCase().split(/[^a-z0-9]+/)
+          .filter((w) => w.length >= 3 && w.length <= 24);
+        if (!words.length) return 'SEARCH needs one or more words of 3+ letters.';
+        const hits = searchSymbolsByWords(symbols, words, { limit: D.searchLimit, includeTests });
+        if (!hits.length) return `No symbol name contains any of: ${words.join(', ')}`;
+        return hits.map((h) => `${h.sym.name}${where(h.sym)}`).join('\n');
+      }
+      case 'MEMBERS': {
+        const cls = String(arg).replace(/::$/, '').replace(/^.*::/, '').toLowerCase();
+        if (!cls) return 'MEMBERS needs a class name.';
+        const rows = symbols.filter((s) => {
+          if (!includeTests && isTestSymbol(s)) return false;
+          const n = s.name.toLowerCase();
+          return n.includes(`${cls}::`) || n === cls;
+        });
+        if (!rows.length) return `No class named ${arg} in this codebase.`;
+        const shown = rows.slice(0, D.membersLimit).map((s) => `${s.name}${where(s)}`);
+        if (rows.length > shown.length) shown.push(`… ${rows.length - shown.length} more`);
+        return shown.join('\n');
+      }
+      case 'CALLERS':
+      case 'CALLEES': {
+        const v = resolve(arg);
+        if (!v) return `No symbol named ${arg} in this codebase.`;
+        const nav = navigateFrom(index, v.matches[0], { limit: D.navLimit });
+        const rows = tool === 'CALLERS' ? nav.callers : nav.callees;
+        if (!rows.length) return `${v.matches[0].name}: no ${tool.toLowerCase()} recorded in the index.`;
+        return rows.join('\n');
+      }
+      case 'EXTRACT': {
+        const v = resolve(arg);
+        if (!v) return `No symbol named ${arg} in this codebase.`;
+        const m = v.matches[0];
+        let src = null;
+        // getFunctionSource narrates failures on console; keep the hunt log clean.
+        const _log = console.log; console.log = () => {};
+        try { src = index.getFunctionSource?.(m.filepath, m.name); }
+        catch { src = null; }
+        finally { console.log = _log; }
+        if (!src) return `${m.name}: source not retrievable from the index.`;
+        const lines = String(src).split(/\r?\n/);
+        const clipped = lines.slice(0, D.extractLines).join('\n').slice(0, D.extractChars);
+        const note = lines.length > D.extractLines ? `\n… (${lines.length - D.extractLines} more lines)` : '';
+        return `${m.name}${where(m)}  (L${m.start}-${m.end})\n${clipped}${note}`;
+      }
+      default:
+        return `Unknown command ${tool}.`;
+    }
+  };
+}
+
+// Run the hunt. Returns { selections, toolCalls, rounds, log, stopped }.
+// `draft` is the shared (sys, user, maxTokens) seam, so this is provider-neutral
+// and unit-testable against a scripted mock.
+export async function runSymbolHunt(draft, { claimText, elements, index, symbols, opts = {}, onStatus } = {}) {
+  const D = HUNT_DEFAULTS;
+  const maxRounds = opts.maxRounds ?? D.maxRounds;
+  const budget = makeToolBudget({ maxCalls: opts.maxCalls ?? D.maxCalls, maxChars: opts.maxLogChars ?? D.maxLogChars });
+  const run = makeHuntTools(index, symbols, opts);
+  const status = (s) => { if (onStatus) onStatus(s); };
+
+  // Gemma's chat wrapper drops system turns, and the family under-uses tools
+  // without explicit insistence — the same reason the local overview loop
+  // applies this framing. The drafter seam hides the wrapper name, so the
+  // caller tells us when the target is a local Gemma build.
+  const sys = opts.strictFraming
+    ? strictInstructionsFor('Gemma', buildHuntPrompt())
+    : buildHuntPrompt();
+  const header = `PATENT CLAIM:\n${claimText}\n\nCLAIM ELEMENTS:\n`
+    + elements.map((e, i) => `${i + 1}. ${e}`).join('\n');
+  const log = [];
+  let selections = [];
+  let rounds = 0;
+  let stopped = null;
+
+  for (let turn = 0; turn < maxRounds; turn++) {
+    rounds++;
+    const transcript = log.length ? `\n\n--- YOUR HUNT SO FAR ---\n${log.join('\n\n')}` : '';
+    const closing = budget.stopped
+      ? '\n\nTOOL BUDGET EXHAUSTED — issue no more commands. Reply with the DONE block now, using only what you have already seen.'
+      : (turn === maxRounds - 1
+        ? '\n\nThis is your LAST turn. Reply with the DONE block now.'
+        : '\n\nIssue your next commands, or reply DONE with your selections.');
+    let raw;
+    try { raw = await draft(sys, header + transcript + closing, 900); }
+    catch (e) { stopped = `hunt turn failed: ${e.message}`; break; }
+
+    const { actions, done, selections: sel } = parseHuntActions(raw || '');
+    if (done) { selections = sel; stopped = 'done'; break; }
+    if (!actions.length) {
+      // No commands and no DONE: the model is talking instead of hunting. One
+      // nudge, then give up rather than burn the budget on prose.
+      if (log.length && log[log.length - 1].startsWith('(no commands')) { stopped = 'no-commands'; break; }
+      log.push('(no commands recognized in your reply — reply with commands only, or the DONE block)');
+      continue;
+    }
+    for (const a of actions) {
+      const stop = budget.gate();
+      if (stop) { budget.stopped = true; break; }
+      status(`${a.tool}: ${a.arg}`.slice(0, 100));
+      let out;
+      try { out = String(run(a.tool, a.arg)); }
+      catch (e) { out = `Error running ${a.tool}: ${e.message}`; }
+      out = neutralizeSpecialTokens(out, `${a.tool} result`);
+      budget.charge(out.length);
+      log.push(`> ${a.tool}: ${a.arg}\n${out}`);
+    }
+  }
+  if (!stopped) stopped = 'max-rounds';
+  // budget.calls counts attempts including the one that tripped the stop.
+  const toolCalls = Math.max(0, budget.stopped ? budget.calls - 1 : budget.calls);
+  return { selections, toolCalls, rounds, log, stopped };
+}
+
 export function buildProposePrompt(profile) {
   return `You locate the code that implements a patent claim, in a specific codebase.
 
@@ -340,6 +583,24 @@ export function formatLocateReport(rows, opts = {}) {
     out.push('        proposed safe container classes rather than the specific code');
     out.push('        performing each element — treat coverage here as weak.');
   }
+  // FABRICATION GUARD (ported from the local overview loop's #276 lesson). A
+  // hunt that made zero tool calls searched nothing: its selections came from
+  // the model's memory of some codebase, not from this index. Verification
+  // still ran, so nonexistent names were caught — but a guess that happens to
+  // exist would otherwise read as a discovered result. Say so unmissably.
+  if (opts.hunt) {
+    const h = opts.hunt;
+    if (h.toolCalls === 0) {
+      out.push('');
+      out.push('  ⚠ UNGROUNDED: the model issued NO searches, so nothing above was');
+      out.push('    discovered from this index — any name it produced came from its own');
+      out.push('    priors and merely survived verification. Treat as a failed hunt.');
+    } else if (h.stopped !== 'done') {
+      out.push('');
+      out.push(`  NOTE: the hunt ended on '${h.stopped}' rather than the model's own DONE —`);
+      out.push('    selections were forced, not concluded. Consider --hunt-rounds/--hunt-calls.');
+    }
+  }
   out.push('  Symbol names come from the model\'s domain knowledge; existence,');
   out.push('  location, and call relationships come from the index.');
   if (opts.targetsLine && found.length) {
@@ -375,16 +636,44 @@ export async function doClaimLocate(index, args, opts = {}) {
   const elements = splitClaimElements(claimText);
   const blind = !!args.blind;
 
+  const hunting = !!args.hunt && args.no_hunt !== true;
+  const modeLabel = args.propose_from_priors
+    ? 'propose-from-priors (model names symbols from its own knowledge)'
+    : hunting
+      ? `scavenger hunt (model searches the symbol table itself)${blind ? ' — BLIND' : ''}`
+      : `symbol-table discovery${blind ? ' — BLIND (no paths or codebase identity shown to the model)' : ''}`;
   console.log(`Claim: ${claimText.length} chars, ${elements.length} element(s)`);
   console.log(`Index: ${symbols.length} symbols`);
-  console.log(`Mode: ${args.propose_from_priors ? 'propose-from-priors (model names symbols from its own knowledge)'
-    : `symbol-table discovery${blind ? ' — BLIND (no paths or codebase identity shown to the model)' : ''}`}`);
+  console.log(`Mode: ${modeLabel}`);
   console.log();
 
   let proposals = [];
   let discovery = null;
+  let hunt = null;
 
-  if (args.propose_from_priors) {
+  if (hunting) {
+    // The model drives its own search. Budget is bounded and reported, so a run
+    // that hit the ceiling is distinguishable from one that finished thinking.
+    const maxRounds = Number(args.hunt_rounds) > 0 ? Number(args.hunt_rounds) : HUNT_DEFAULTS.maxRounds;
+    const maxCalls = Number(args.hunt_calls) > 0 ? Number(args.hunt_calls) : HUNT_DEFAULTS.maxCalls;
+    // Cost gate: worst case is every round issuing a full turn.
+    if (!claimsCostGate(model, Array.from({ length: maxRounds },
+      () => ({ inChars: 4000 + HUNT_DEFAULTS.maxLogChars / 2, outTokens: 900 })),
+    `claim-locate hunt (up to ${maxRounds} rounds)`, args)) return;
+    resetCloudUsage();
+    hunt = await runSymbolHunt(draft, {
+      claimText, elements, index, symbols,
+      opts: {
+        maxRounds, maxCalls, blind, includeTests: !!args.include_tests,
+        strictFraming: model.kind === 'gguf' && /gemma/i.test(model.modelPath || ''),
+      },
+      onStatus: (s) => process.stderr.write(`  ${s}\n`),
+    });
+    console.log(`Hunt: ${hunt.toolCalls} tool call(s) over ${hunt.rounds} round(s); ended: ${hunt.stopped}`);
+    if (args.verbose) for (const entry of hunt.log) console.log(`\n${entry}`);
+    proposals = hunt.selections.slice(0, LOCATE_DEFAULTS.maxProposals);
+    console.log();
+  } else if (args.propose_from_priors) {
     // LEGACY PATH — only sound for codebases the model has memorized. On
     // confidential code there is nothing to recall, which is the real use
     // case, so this is opt-in and labeled.
@@ -444,7 +733,19 @@ export async function doClaimLocate(index, args, opts = {}) {
   }
 
   if (!proposals.length) {
-    console.error('No symbol selections were parseable.'); process.exitCode = 1;
+    // A hunt that searched and then answered NONE for every element is a
+    // RESULT, not a parse failure: the model looked and reported the codebase
+    // does not contain implementers. Only call it an error if nothing was
+    // searched, or if we are not hunting at all.
+    if (hunt && hunt.toolCalls > 0 && hunt.stopped === 'done') {
+      console.log(`After ${hunt.toolCalls} search(es), the model named no implementing symbol for any element.`);
+      console.log('That is a substantive answer — this index may not contain the claimed mechanism.');
+      return { rows: [], symbols: symbols.length, hunt };
+    }
+    console.error(hunt
+      ? `No symbol selections were parseable (hunt ended: ${hunt.stopped}, ${hunt.toolCalls} tool call(s)).`
+      : 'No symbol selections were parseable.');
+    process.exitCode = 1;
     return;
   }
   process.stderr.write(`  ${proposals.length} selection(s); verifying against the index...\n`);
@@ -521,8 +822,8 @@ export async function doClaimLocate(index, args, opts = {}) {
     }
   }
 
-  for (const ln of formatLocateReport(rows, { targetsLine: true })) console.log(ln);
+  for (const ln of formatLocateReport(rows, { targetsLine: true, hunt })) console.log(ln);
   const cost = actualCostLine(model);
   if (cost) console.log(cost);
-  return { rows, symbols: symbols.length };
+  return { rows, symbols: symbols.length, hunt };
 }

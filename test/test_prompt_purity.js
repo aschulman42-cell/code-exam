@@ -23,6 +23,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildDiscoverPrompt, buildSelectPrompt, buildProposePrompt, buildRefinePrompt,
+  buildHuntPrompt,
 } from '../src/commands/claim-locate.js';
 import { buildClaimAnalyzePrompt, buildAnalyzePrompt } from '../src/commands/analyze.js';
 
@@ -51,6 +52,7 @@ const NEUTRAL = {
 
 const PROMPTS = {
   'claim-locate discover (step 1)': () => buildDiscoverPrompt(),
+  'claim-locate hunt': () => buildHuntPrompt(),
   'claim-locate select (step 3)': () => buildSelectPrompt(NEUTRAL.perElement, { blind: true }),
   'claim-locate propose (legacy)': () => buildProposePrompt(NEUTRAL.profile),
   'claim-locate refine': () => buildRefinePrompt(NEUTRAL.notFound, NEUTRAL.table),
@@ -75,6 +77,19 @@ describe('prompt purity — no domain knowledge in shipped templates', () => {
     // answerable without knowing which codebase is under examination, or the
     // command cannot work on confidential code with no training presence.
     assert.match(buildDiscoverPrompt(), /NOT told which codebase/i);
+  });
+
+  it('the hunt prompt states the model is not told the codebase', () => {
+    // Same load-bearing property as step 1, and more so: the hunt's whole
+    // premise is that the model finds the code by searching rather than by
+    // recognizing a repository it was trained on.
+    assert.match(buildHuntPrompt(), /NOT told which codebase/i);
+  });
+
+  it('the hunt prompt never invites the model to answer from memory', () => {
+    // A hunt that can be satisfied from priors is not a hunt. The prompt must
+    // bind every named symbol to something a tool actually returned.
+    assert.match(buildHuntPrompt(), /Never name a symbol you have not seen in a result/i);
   });
 
   it('any worked example in step 1 comes from an unrelated domain', () => {

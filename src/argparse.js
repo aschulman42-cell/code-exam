@@ -255,6 +255,10 @@ export function parseArgs() {
     blind: false,
     include_tests: false,
     propose_from_priors: false,
+    hunt: false,
+    no_hunt: false,
+    hunt_rounds: null,
+    hunt_calls: null,
     claims_loop: null,
     loop_k: null,
     sponge_t: null,
@@ -531,6 +535,10 @@ export function parseArgs() {
     ['blind',                'flag',           ['--blind']],
     ['include_tests',        'flag',           ['--include-tests']],
     ['propose_from_priors',  'flag',           ['--propose-from-priors']],
+    ['hunt',                 'flag',           ['--hunt']],
+    ['no_hunt',              'flag',           ['--no-hunt']],
+    ['hunt_rounds',          'int',            ['--hunt-rounds']],
+    ['hunt_calls',           'int',            ['--hunt-calls']],
     ['claims_loop',          'value',          ['--claims-loop']],
     ['loop_k',               'value',          ['--loop-k']],
     ['sponge_t',             'value',          ['--sponge-t']],
@@ -1362,6 +1370,16 @@ LLM ANALYSIS:
                               from its own knowledge instead of searching the
                               index. Only sound for codebases the model has seen;
                               useless on confidential code.
+  --hunt                     --claim-locate: let the model drive its own search of
+                              the symbol table (SEARCH / MEMBERS / CALLERS /
+                              CALLEES / EXTRACT) over several rounds, instead of
+                              the single fixed word search. Opt-in while its
+                              measurement gate is open; the report states the tool
+                              call count and warns if the model searched nothing.
+  --no-hunt                  --claim-locate: force the single-search path off even
+                              if --hunt is present.
+  --hunt-rounds <n>          --claim-locate: max model turns in the hunt (default 8).
+  --hunt-calls <n>           --claim-locate: max tool calls in the hunt (default 24).
   --include-tests            --claim-locate: allow test/mock symbols as candidates
                               (excluded by default; a test exercising an element
                               is not the code implementing it).

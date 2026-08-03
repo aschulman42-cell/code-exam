@@ -16,6 +16,7 @@ import {
   splitClaimElements, buildProposePrompt, buildIndexProfile, formatLocateReport,
   doClaimLocate, buildDiscoverPrompt, parseElementWords, searchSymbolsByWords,
   buildSelectPrompt, isTestSymbol,
+  buildHuntPrompt, parseHuntActions, makeHuntTools, runSymbolHunt, HUNT_DEFAULTS,
 } from '../src/commands/claim-locate.js';
 
 const TABLE = [
@@ -97,7 +98,11 @@ describe('nearbySymbols (refine input)', () => {
 describe('proposal parsing', () => {
   it('parses ELEMENT lines with multiple symbols', () => {
     const p = parseProposedSymbols('ELEMENT 1: AdaptiveTrackSelection; DefaultLoadControl.shouldStartPlayback\nELEMENT 2: NONE');
-    assert.equal(p.length, 3); // NONE parses as a bare token, filtered by verification
+    // NONE is an abstention the prompts explicitly invite, so it must not
+    // become a proposal. It previously did — shaped like an identifier, it was
+    // verified, failed, and surfaced as a NOT-FOUND row, i.e. the model's
+    // correct "no implementer here" was reported as a bad guess.
+    assert.equal(p.length, 2);
     assert.equal(p[0].candidate, 'AdaptiveTrackSelection');
     assert.equal(p[0].element, 1);
     assert.equal(p[1].candidate, 'DefaultLoadControl.shouldStartPlayback');
@@ -327,5 +332,243 @@ describe('doClaimLocate end-to-end (mock drafter, stub index)', () => {
       { claim_locate: 'A system, comprising: a thing; another thing.', model: 'f.gguf', no_refine: true, no_navigate: true, propose_from_priors: true },
       { draft: async () => 'ELEMENT 1: A::seed' });
     assert.equal(res.rows.filter((r) => r.viaNavigation).length, 0);
+  });
+});
+
+// ===========================================================================
+// SCAVENGER HUNT
+//
+// Fixtures here are deliberately NEUTRAL (Ledger/Journal/Router), not drawn
+// from any corpus CE has been measured against. The hunt's QUALITY is decided
+// by the pre-registered live gate, never in this file; what is asserted here is
+// only the mechanism — that commands parse, that tools read the index and not
+// the model's imagination, that the budget actually stops the loop, and that a
+// hunt which searched nothing is reported as ungrounded.
+// ===========================================================================
+
+const HUNT_INDEX = {
+  functionIndex: {
+    'src/Ledger.java': {
+      'Ledger::recordEntry': { start: 10, end: 40 },
+      'Ledger::computeBalance': { start: 42, end: 70 },
+      'Ledger::flushJournal': { start: 72, end: 95 },
+    },
+    'src/Router.java': {
+      'Router::dispatch': { start: 5, end: 30 },
+    },
+    'src/LedgerTest.java': {
+      'LedgerTest::recordEntry_writesJournal': { start: 1, end: 9 },
+    },
+  },
+  _ensureFunctionIndex() {},
+  findCallers: () => [{ caller_function: 'Router::dispatch' }],
+  findCallees: () => [{ callee_function: 'flushJournal' }],
+  getFunctionSource: (fp, name) => (name.includes('computeBalance')
+    ? 'int computeBalance() {\n  return debits - credits;\n}' : null),
+};
+const HUNT_SYMBOLS = buildSymbolTable(HUNT_INDEX);
+
+describe('hunt: command parsing', () => {
+  it('parses one command per line and tolerates decoration', () => {
+    const { actions, done } = parseHuntActions(
+      '- SEARCH: balance compute\n**MEMBERS: Ledger**\n> `EXTRACT: Ledger::computeBalance`');
+    assert.equal(done, false);
+    assert.deepEqual(actions.map((a) => a.tool), ['SEARCH', 'MEMBERS', 'EXTRACT']);
+    assert.equal(actions[0].arg, 'balance compute');
+    assert.equal(actions[2].arg, 'Ledger::computeBalance');
+  });
+
+  it('ignores prose that is not a command', () => {
+    const { actions } = parseHuntActions('Let me think about this claim.\nI will look for a ledger.');
+    assert.equal(actions.length, 0);
+  });
+
+  it('detects DONE and parses the selections after it', () => {
+    const { done, selections, actions } = parseHuntActions(
+      'DONE\nELEMENT 1: Ledger::computeBalance\nELEMENT 2: NONE');
+    assert.equal(done, true);
+    assert.equal(actions.length, 0);
+    assert.deepEqual(selections.map((s) => s.candidate), ['Ledger::computeBalance']);
+  });
+
+  it('stops collecting commands once DONE appears', () => {
+    const { actions, done } = parseHuntActions('SEARCH: one\nDONE\nSEARCH: two\nELEMENT 1: Router::dispatch');
+    assert.equal(done, true);
+    assert.deepEqual(actions.map((a) => a.arg), ['one']);
+  });
+});
+
+describe('hunt: tools read the index', () => {
+  const run = makeHuntTools(HUNT_INDEX, HUNT_SYMBOLS, {});
+
+  it('SEARCH returns real symbol names', () => {
+    const out = run('SEARCH', 'balance');
+    assert.match(out, /Ledger::computeBalance/);
+  });
+
+  it('SEARCH excludes test symbols by default', () => {
+    assert.doesNotMatch(run('SEARCH', 'record entry'), /LedgerTest/);
+  });
+
+  it('SEARCH reports an honest miss instead of guessing', () => {
+    assert.match(run('SEARCH', 'nonexistentword'), /^No symbol name contains/);
+  });
+
+  it('MEMBERS lists the rest of a class', () => {
+    const out = run('MEMBERS', 'Ledger');
+    assert.match(out, /Ledger::recordEntry/);
+    assert.match(out, /Ledger::flushJournal/);
+    assert.doesNotMatch(out, /Router::dispatch/);
+  });
+
+  it('CALLERS and CALLEES navigate from a resolved symbol', () => {
+    assert.match(run('CALLERS', 'Ledger::computeBalance'), /Router::dispatch/);
+    assert.match(run('CALLEES', 'Ledger::computeBalance'), /flushJournal/);
+  });
+
+  it('EXTRACT returns source for a real symbol', () => {
+    const out = run('EXTRACT', 'Ledger::computeBalance');
+    assert.match(out, /debits - credits/);
+    assert.match(out, /L42-70/);
+  });
+
+  it('every tool refuses a symbol that does not exist', () => {
+    for (const t of ['CALLERS', 'CALLEES', 'EXTRACT']) {
+      assert.match(run(t, 'Imaginary::method'), /No symbol named/, `${t} should refuse`);
+    }
+  });
+
+  it('blind mode withholds file paths', () => {
+    const blind = makeHuntTools(HUNT_INDEX, HUNT_SYMBOLS, { blind: true });
+    assert.doesNotMatch(blind('SEARCH', 'balance'), /src\//);
+    assert.doesNotMatch(blind('MEMBERS', 'Ledger'), /src\//);
+    assert.match(run('SEARCH', 'balance'), /src\//, 'non-blind still shows paths');
+  });
+});
+
+describe('hunt: the loop', () => {
+  const CLAIM = { claimText: 'A method, comprising: totalling the entries.', elements: ['totalling the entries'], index: HUNT_INDEX, symbols: HUNT_SYMBOLS };
+
+  // A scripted drafter: one reply per turn, so the loop's control flow is
+  // exercised without a live model.
+  const scripted = (replies) => {
+    let i = 0;
+    const seen = [];
+    const fn = async (sys, user) => { seen.push(user); return replies[Math.min(i++, replies.length - 1)]; };
+    fn.seen = seen;
+    return fn;
+  };
+
+  it('runs commands, feeds results back, and finishes on DONE', async () => {
+    const draft = scripted([
+      'SEARCH: balance',
+      'EXTRACT: Ledger::computeBalance',
+      'DONE\nELEMENT 1: Ledger::computeBalance',
+    ]);
+    const r = await runSymbolHunt(draft, CLAIM);
+    assert.equal(r.stopped, 'done');
+    assert.equal(r.toolCalls, 2);
+    assert.equal(r.rounds, 3);
+    assert.deepEqual(r.selections.map((s) => s.candidate), ['Ledger::computeBalance']);
+    // Turn 2 must actually contain turn 1's result — otherwise the model is
+    // hunting blind and the loop is theatre.
+    assert.match(draft.seen[1], /Ledger::computeBalance/);
+    assert.match(draft.seen[2], /debits - credits/);
+  });
+
+  it('stops at the tool-call budget and tells the model to conclude', async () => {
+    const draft = scripted(['SEARCH: balance\nSEARCH: entry\nSEARCH: journal', 'DONE\nELEMENT 1: Ledger::flushJournal']);
+    const r = await runSymbolHunt(draft, { ...CLAIM, opts: { maxCalls: 2 } });
+    assert.equal(r.toolCalls, 2, 'third call refused');
+    assert.match(draft.seen[1], /TOOL BUDGET EXHAUSTED/);
+  });
+
+  it('stops at the round ceiling even if the model never says DONE', async () => {
+    const draft = scripted(['SEARCH: balance']);
+    const r = await runSymbolHunt(draft, { ...CLAIM, opts: { maxRounds: 3 } });
+    assert.equal(r.stopped, 'max-rounds');
+    assert.equal(r.rounds, 3);
+    assert.equal(r.selections.length, 0);
+    assert.match(draft.seen[2], /LAST turn/);
+  });
+
+  it('records zero tool calls when the model answers without searching', async () => {
+    const draft = scripted(['DONE\nELEMENT 1: Ledger::computeBalance']);
+    const r = await runSymbolHunt(draft, CLAIM);
+    assert.equal(r.toolCalls, 0, 'the fabrication signal');
+    assert.equal(r.stopped, 'done');
+  });
+
+  it('nudges once when the model writes prose, then gives up', async () => {
+    const draft = scripted(['I think this is about accounting.']);
+    const r = await runSymbolHunt(draft, { ...CLAIM, opts: { maxRounds: 6 } });
+    assert.equal(r.stopped, 'no-commands');
+    assert.ok(r.rounds <= 3, `gave up quickly, took ${r.rounds}`);
+  });
+
+  it('survives a drafter that throws', async () => {
+    const r = await runSymbolHunt(async () => { throw new Error('provider down'); }, CLAIM);
+    assert.match(r.stopped, /provider down/);
+    assert.equal(r.selections.length, 0);
+  });
+});
+
+describe('hunt: end-to-end through doClaimLocate', () => {
+  it('verifies hunt selections and reports the tool-call count', async () => {
+    const replies = ['SEARCH: balance', 'DONE\nELEMENT 1: Ledger::computeBalance'];
+    let i = 0;
+    const res = await doClaimLocate(HUNT_INDEX,
+      { claim_locate: 'A method, comprising: totalling the entries; routing them.', model: 'f.gguf', hunt: true, no_refine: true, no_navigate: true },
+      { draft: async () => replies[Math.min(i++, replies.length - 1)] });
+    assert.equal(res.hunt.toolCalls, 1);
+    const row = res.rows.find((r) => r.candidate === 'Ledger::computeBalance');
+    assert.ok(row && row.verified, 'selection verified against the index');
+  });
+
+  it('flags an ungrounded hunt in the report', () => {
+    const rows = [{
+      candidate: 'Ledger::computeBalance', element: 1, verified: true, status: 'exact', ambiguous: 0,
+      match: { name: 'Ledger::computeBalance', filepath: 'src/Ledger.java', start: 42, end: 70 }, nav: null,
+    }];
+    const text = formatLocateReport(rows, { hunt: { toolCalls: 0, stopped: 'done' } }).join('\n');
+    assert.match(text, /UNGROUNDED/);
+    assert.match(text, /Treat as a failed hunt/);
+  });
+
+  it('notes when the hunt was cut off rather than concluded', () => {
+    const rows = [{
+      candidate: 'Ledger::computeBalance', element: 1, verified: true, status: 'exact', ambiguous: 0,
+      match: { name: 'Ledger::computeBalance', filepath: 'src/Ledger.java', start: 42, end: 70 }, nav: null,
+    }];
+    const text = formatLocateReport(rows, { hunt: { toolCalls: 9, stopped: 'max-rounds' } }).join('\n');
+    assert.match(text, /ended on 'max-rounds'/);
+    assert.doesNotMatch(text, /UNGROUNDED/);
+  });
+
+  it('a clean hunt gets neither warning', () => {
+    const rows = [{
+      candidate: 'Ledger::computeBalance', element: 1, verified: true, status: 'exact', ambiguous: 0,
+      match: { name: 'Ledger::computeBalance', filepath: 'src/Ledger.java', start: 42, end: 70 }, nav: null,
+    }];
+    const text = formatLocateReport(rows, { hunt: { toolCalls: 6, stopped: 'done' } }).join('\n');
+    assert.doesNotMatch(text, /UNGROUNDED|ended on/);
+  });
+});
+
+describe('NONE is an answer, not a symbol', () => {
+  it('parseProposedSymbols drops abstentions', () => {
+    const out = parseProposedSymbols('ELEMENT 1: Ledger::computeBalance\nELEMENT 2: NONE\nELEMENT 3: n/a');
+    assert.deepEqual(out.map((r) => r.candidate), ['Ledger::computeBalance']);
+  });
+
+  it('an all-NONE hunt reports a substantive answer, not an error', async () => {
+    const replies = ['SEARCH: balance', 'DONE\nELEMENT 1: NONE'];
+    let i = 0;
+    const prevExit = process.exitCode;
+    const res = await doClaimLocate(HUNT_INDEX,
+      { claim_locate: 'A method, comprising: doing something absent.', model: 'f.gguf', hunt: true },
+      { draft: async () => replies[Math.min(i++, replies.length - 1)] });
+    assert.equal(res.rows.length, 0);
+    assert.equal(process.exitCode, prevExit, 'not treated as a failure');
   });
 });

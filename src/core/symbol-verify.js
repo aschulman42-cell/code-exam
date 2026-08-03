@@ -186,6 +186,13 @@ export function parseProposedSymbols(text) {
       const cand = part.trim().replace(/^`|`$/g, '').replace(/\(\s*\)$/, '');
       if (!cand || cand.length > 120) continue;
       if (!/^[A-Za-z_][\w:.]*$/.test(cand)) continue;
+      // Every prompt that asks for symbols also offers NONE as a real answer
+      // ("an element with no plausible implementer is meaningful evidence").
+      // NONE is shaped exactly like an identifier, so it was being verified as
+      // one and reported as a NOT-FOUND proposal — turning the model's correct
+      // abstention into a fabricated-looking miss, and inflating the not-found
+      // count that the specificity note reads.
+      if (/^(?:none|n\/a|unknown|nothing)$/i.test(cand)) continue;
       out.push({ element, candidate: cand });
     }
   }
