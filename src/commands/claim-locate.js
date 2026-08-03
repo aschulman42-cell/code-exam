@@ -419,6 +419,69 @@ export function makeHuntTools(index, symbols, opts = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// TRANSCRIPT-MEMBERSHIP GATE
+//
+// The hunt prompt says "Never name a symbol you have not seen in a result."
+// Nothing enforced it, and blind Gemini run 1 proposed `PlaybackBuffer::append`
+// and `PlaybackBuffer::getSample` — no such class exists, and neither name
+// appears anywhere in that run's transcript. verifySymbol's substring tier then
+// resolved them to `AdPlaybackState::withLivePostrollPlaceholderAppended` (125
+// ambiguous) and `SpeedChangingAudioProcessor::getSampleCountAfterProcessorApplied`
+// (117 ambiguous), and both were reported as function-scale LOCATED SYMBOLS
+// with line ranges and emitted into --targets.
+//
+// CE produced the transcript, so membership in it is ground truth — no reliance
+// on the model's honesty. Rejections are REPORTED, never silently dropped:
+// "the model named code that appears in no search result" is a finding about
+// that model on that corpus, and is precisely the signal a local-GGUF run needs
+// to surface.
+// ---------------------------------------------------------------------------
+
+// Symbol names that actually appeared in tool RESULTS. Command echo lines are
+// excluded — the argument of `EXTRACT: Invented::name` is model input, not
+// evidence. Prose responses ("No symbol named X in this codebase.") and source
+// lines from EXTRACT fail the identifier shape and contribute nothing.
+export function transcriptSymbols(log) {
+  const full = new Set();
+  const bare = new Set();
+  for (const entry of log || []) {
+    for (const rawLine of String(entry).split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('>')) continue;
+      const head = line.split(/\s{2,}/)[0].trim();
+      if (!/^[A-Za-z_][\w:.$]*$/.test(head)) continue;
+      full.add(head);
+      bare.add(head.replace(/^.*::/, ''));
+    }
+  }
+  return { full, bare };
+}
+
+// Was this selection observable from what the hunt actually saw?
+// Verbatim passes. A qualified name whose CLASS and MEMBER were each seen
+// passes as legitimate composition — run 2's `RtspMessageChannel::Sender::send`
+// was built from a class seen in a search result and a member seen in an
+// extract header, and verified exact. A guard that rejects that is too strict.
+export function selectionSeen(name, seen) {
+  const n = String(name || '').trim();
+  if (!n) return false;
+  if (seen.full.has(n) || seen.bare.has(n)) return true;
+  if (!n.includes('::')) return false;
+  const cls = n.slice(0, n.lastIndexOf('::'));
+  const member = n.slice(n.lastIndexOf('::') + 2);
+  const clsSeen = seen.full.has(cls) || seen.bare.has(cls.replace(/^.*::/, ''));
+  return clsSeen && seen.bare.has(member);
+}
+
+export function partitionSelections(selections, log) {
+  const seen = transcriptSymbols(log);
+  const kept = [];
+  const unseen = [];
+  for (const s of selections || []) (selectionSeen(s.candidate, seen) ? kept : unseen).push(s);
+  return { kept, unseen };
+}
+
 // Run the hunt. Returns { selections, toolCalls, rounds, log, stopped }.
 // `draft` is the shared (sys, user, maxTokens) seam, so this is provider-neutral
 // and unit-testable against a scripted mock.
@@ -583,6 +646,16 @@ export function formatLocateReport(rows, opts = {}) {
     out.push('        proposed safe container classes rather than the specific code');
     out.push('        performing each element — treat coverage here as weak.');
   }
+  // Selections the hunt never saw. Reported as a model-reliability finding for
+  // this corpus, not hidden — and kept out of the verified rows and --targets.
+  if (opts.unseen && opts.unseen.length) {
+    out.push(`  REJECTED — named by the model but absent from every search result (${opts.unseen.length}):`);
+    for (const u of opts.unseen) out.push(`    ${u.candidate}${u.element != null ? `  [element ${u.element}]` : ''}`);
+    out.push('    These were not verified. A name the hunt never saw is a guess, and');
+    out.push('    substring matching can resolve a guess to an unrelated real symbol.');
+    out.push('');
+  }
+
   // FABRICATION GUARD (ported from the local overview loop's #276 lesson). A
   // hunt that made zero tool calls searched nothing: its selections came from
   // the model's memory of some codebase, not from this index. Verification
@@ -650,6 +723,7 @@ export async function doClaimLocate(index, args, opts = {}) {
   let proposals = [];
   let discovery = null;
   let hunt = null;
+  let huntUnseen = [];
 
   if (hunting) {
     // The model drives its own search. Budget is bounded and reported, so a run
@@ -671,7 +745,14 @@ export async function doClaimLocate(index, args, opts = {}) {
     });
     console.log(`Hunt: ${hunt.toolCalls} tool call(s) over ${hunt.rounds} round(s); ended: ${hunt.stopped}`);
     if (args.verbose) for (const entry of hunt.log) console.log(`\n${entry}`);
-    proposals = hunt.selections.slice(0, LOCATE_DEFAULTS.maxProposals);
+    // Reject selections the hunt never actually saw, before verification can
+    // dress an invented name as a located symbol.
+    const part = partitionSelections(hunt.selections, hunt.log);
+    huntUnseen = part.unseen;
+    if (part.unseen.length) {
+      console.log(`  ${part.unseen.length} selection(s) named no symbol from any search result — rejected.`);
+    }
+    proposals = part.kept.slice(0, LOCATE_DEFAULTS.maxProposals);
     console.log();
   } else if (args.propose_from_priors) {
     // LEGACY PATH — only sound for codebases the model has memorized. On
@@ -738,6 +819,7 @@ export async function doClaimLocate(index, args, opts = {}) {
     // does not contain implementers. Only call it an error if nothing was
     // searched, or if we are not hunting at all.
     if (hunt && hunt.toolCalls > 0 && hunt.stopped === 'done') {
+      for (const u of huntUnseen) console.log(`  REJECTED (never seen in a search result): ${u.candidate}`);
       console.log(`After ${hunt.toolCalls} search(es), the model named no implementing symbol for any element.`);
       console.log('That is a substantive answer — this index may not contain the claimed mechanism.');
       return { rows: [], symbols: symbols.length, hunt };
@@ -822,7 +904,7 @@ export async function doClaimLocate(index, args, opts = {}) {
     }
   }
 
-  for (const ln of formatLocateReport(rows, { targetsLine: true, hunt })) console.log(ln);
+  for (const ln of formatLocateReport(rows, { targetsLine: true, hunt, unseen: huntUnseen })) console.log(ln);
   const cost = actualCostLine(model);
   if (cost) console.log(cost);
   return { rows, symbols: symbols.length, hunt };

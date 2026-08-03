@@ -17,6 +17,7 @@ import {
   doClaimLocate, buildDiscoverPrompt, parseElementWords, searchSymbolsByWords,
   buildSelectPrompt, isTestSymbol,
   buildHuntPrompt, parseHuntActions, makeHuntTools, runSymbolHunt, HUNT_DEFAULTS,
+  transcriptSymbols, selectionSeen, partitionSelections,
 } from '../src/commands/claim-locate.js';
 
 const TABLE = [
@@ -570,5 +571,102 @@ describe('NONE is an answer, not a symbol', () => {
       { draft: async () => replies[Math.min(i++, replies.length - 1)] });
     assert.equal(res.rows.length, 0);
     assert.equal(process.exitCode, prevExit, 'not treated as a failure');
+  });
+});
+
+// ===========================================================================
+// TRANSCRIPT-MEMBERSHIP GATE
+//
+// Two-sided by construction. The fixtures below are the REAL shapes from the
+// two blind Gemini runs on the '101 claim: run 1's inventions must be rejected,
+// and run 2's composed name must survive. A guard that only does the first is
+// too strict and breaks legitimate inference from observed parts.
+// ===========================================================================
+
+describe('transcript membership', () => {
+  // Result shapes exactly as the tools emit them: bare names (blind), names
+  // with a trailing [path], and an EXTRACT header with a line range.
+  const LOG = [
+    '> SEARCH: message channel\nRtspMessageChannel\nRtspMessageChannel::Sender\nRtspMessageChannel::Receiver',
+    '> EXTRACT: Sender::send\nSender::send  (L231-245)\n  private void send(List<String> message) {\n    return;\n  }',
+    '> MEMBERS: Ledger\nLedger::computeBalance   [src/Ledger.java]\nLedger::flushJournal   [src/Ledger.java]',
+  ];
+
+  it('collects symbols from results but never from the command echo', () => {
+    const seen = transcriptSymbols(LOG);
+    assert.ok(seen.full.has('RtspMessageChannel::Sender'));
+    assert.ok(seen.full.has('Ledger::computeBalance'), 'strips the trailing [path]');
+    assert.ok(seen.bare.has('send'), 'bare name from an EXTRACT header');
+    // `MEMBERS: Ledger` and `SEARCH: message channel` are model INPUT; if the
+    // echo counted, a model could authorize its own invention by asking for it.
+    assert.ok(!seen.full.has('MEMBERS'));
+    assert.ok(!seen.full.has('SEARCH'));
+  });
+
+  it('does not harvest identifiers out of extracted source', () => {
+    const seen = transcriptSymbols(LOG);
+    for (const t of ['private', 'return', 'List']) {
+      assert.ok(!seen.full.has(t), `source token '${t}' must not become evidence`);
+    }
+  });
+
+  it('accepts a name seen verbatim', () => {
+    assert.equal(selectionSeen('RtspMessageChannel::Receiver', transcriptSymbols(LOG)), true);
+  });
+
+  it('accepts composition from an observed class and an observed member', () => {
+    // Run 2's real selection: class from a search result, member from an
+    // extract header. It verified exact against the index.
+    assert.equal(selectionSeen('RtspMessageChannel::Sender::send', transcriptSymbols(LOG)), true);
+  });
+
+  it('rejects an invented class even when the member word was seen', () => {
+    // Run 1's real failure: `append`/`getSample` are ordinary words, but no
+    // PlaybackBuffer was ever shown. This is the case substring matching
+    // laundered into a 125-way-ambiguous "verified" citation.
+    const seen = transcriptSymbols(LOG);
+    assert.equal(selectionSeen('PlaybackBuffer::send', seen), false);
+    assert.equal(selectionSeen('PlaybackBuffer::append', seen), false);
+  });
+
+  it('rejects a wholly invented bare name', () => {
+    assert.equal(selectionSeen('totallyMadeUpThing', transcriptSymbols(LOG)), false);
+  });
+
+  it('partitions selections and keeps element attribution', () => {
+    const { kept, unseen } = partitionSelections([
+      { element: 1, candidate: 'RtspMessageChannel::Sender::send' },
+      { element: 2, candidate: 'PlaybackBuffer::append' },
+      { element: 3, candidate: 'Ledger::computeBalance' },
+    ], LOG);
+    assert.deepEqual(kept.map((k) => k.candidate), ['RtspMessageChannel::Sender::send', 'Ledger::computeBalance']);
+    assert.deepEqual(unseen.map((u) => u.candidate), ['PlaybackBuffer::append']);
+    assert.equal(unseen[0].element, 2);
+  });
+});
+
+describe('rejected selections reach the report and not --targets', () => {
+  it('an unseen selection is never verified and never charted', async () => {
+    // The model searches once, then names something the search never returned.
+    const replies = ['SEARCH: balance', 'DONE\nELEMENT 1: Ledger::computeBalance; Imaginary::fabricated'];
+    let i = 0;
+    const res = await doClaimLocate(HUNT_INDEX,
+      { claim_locate: 'A method, comprising: totalling the entries; routing them.', model: 'f.gguf', hunt: true, no_refine: true, no_navigate: true },
+      { draft: async () => replies[Math.min(i++, replies.length - 1)] });
+    assert.ok(!res.rows.some((r) => r.candidate === 'Imaginary::fabricated'),
+      'an unseen name must not become a verified row');
+    assert.ok(res.rows.some((r) => r.candidate === 'Ledger::computeBalance'),
+      'the seen selection still verifies');
+  });
+
+  it('the report names what it rejected and why', () => {
+    const text = formatLocateReport([], {
+      hunt: { toolCalls: 4, stopped: 'done' },
+      unseen: [{ candidate: 'PlaybackBuffer::append', element: 3 }],
+    }).join('\n');
+    assert.match(text, /REJECTED/);
+    assert.match(text, /PlaybackBuffer::append/);
+    assert.match(text, /element 3/);
+    assert.match(text, /substring matching can resolve a guess/);
   });
 });
