@@ -893,11 +893,11 @@ CRITICAL INSTRUCTIONS:
 1. For each claim element, first describe what the code actually does in
    plain language, THEN assign the label. Do not skip the description.
 2. A suggestive function or variable NAME is not the same as implementation.
-   If you can only see a call like validateCertChain(session) but not
-   the validation logic, that is ASSUMED, not PRESENT.
+   If you can only see a call like validateRecord(entry) but not the
+   validation logic, that is ASSUMED, not PRESENT.
 3. Configuration that would be used BY an implementation is PARTIAL,
-   not PRESENT (e.g., setting min_tls_version is not the same as
-   enforcing a minimum protocol version during handshake).
+   not PRESENT (e.g., storing a maxRetryCount setting is not the same as
+   performing the retries).
 4. ADJACENT ROLE IS NOT IMPLEMENTATION: code that reads, hashes,
    displays, records, or consumes the RESULTS of a mechanism does not
    implement that mechanism (a function hashing a menu's fields does not

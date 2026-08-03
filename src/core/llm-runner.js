@@ -119,7 +119,10 @@ export async function draftCloud(model, sys, user, maxTokens, temperature) {
   });
   if (!res.ok) throw new Error(`${model.label} HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const body = await res.json();
-  _recordUsage(openaiUsage(body));
+  // openaiUsage takes the USAGE object, not the whole body — passing `body`
+  // silently returned zeros, so OpenAI/Gemini runs reported "0 tok, $0.00"
+  // while Claude's anthropic-wire accounting worked.
+  _recordUsage(openaiUsage(body.usage));
   return openaiText(body);
 }
 

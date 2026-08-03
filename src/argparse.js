@@ -249,10 +249,17 @@ export function parseArgs() {
     // Phase 8b: LLM analysis
     analyze: null,
     claim_analyze: null,
+    claim_locate: null,
+    no_refine: false,
+    no_navigate: false,
+    blind: false,
+    include_tests: false,
+    propose_from_priors: false,
     claims_loop: null,
     loop_k: null,
     sponge_t: null,
     loop_save_analyses: false,
+    loop_redraft: false,
     multisect_analyze: null,
     file_analyze: null,
     analyze_model: null,
@@ -518,10 +525,17 @@ export function parseArgs() {
     // Phase 8b: LLM analysis
     ['analyze',              'value',          ['--analyze']],
     ['claim_analyze',        'value',          ['--claim-analyze']],
+    ['claim_locate',         'value',          ['--claim-locate']],
+    ['no_refine',            'flag',           ['--no-refine']],
+    ['no_navigate',          'flag',           ['--no-navigate']],
+    ['blind',                'flag',           ['--blind']],
+    ['include_tests',        'flag',           ['--include-tests']],
+    ['propose_from_priors',  'flag',           ['--propose-from-priors']],
     ['claims_loop',          'value',          ['--claims-loop']],
     ['loop_k',               'value',          ['--loop-k']],
     ['sponge_t',             'value',          ['--sponge-t']],
     ['loop_save_analyses',   'flag',           ['--loop-save-analyses']],
+    ['loop_redraft',         'flag',           ['--loop-redraft']],
     ['multisect_analyze',    'value',          ['--multisect-analyze']],
     ['file_analyze',         'value',          ['--file-analyze']],
     ['analyze_model',        'value',          [], ['--analyze-model']],
@@ -1331,6 +1345,26 @@ LLM ANALYSIS:
                              @file.txt). Distinct code path from --with;
                              --claim-text feeds the claim-analyze pipeline,
                              --with feeds the general analyze pipeline.
+  --claim-locate <claim>     Locate the code implementing a claim by asking the
+                              model to NAME the classes/methods it expects, then
+                              VERIFYING each name against the index and
+                              NAVIGATING one hop of callers/callees. Every
+                              proposal is reported verified (with file@symbol and
+                              line range) or NOT FOUND. Symbol names come from the
+                              model's domain knowledge; existence and location
+                              come from the index. Takes @file.txt or inline text.
+  --no-refine                --claim-locate: skip the one refine round that feeds
+                              real nearby symbol names back for NOT FOUND guesses.
+  --blind                    --claim-locate: hide file paths and codebase identity
+                              from the model, so a run demonstrates DISCOVERY
+                              rather than recall of a codebase it memorized.
+  --propose-from-priors      --claim-locate: legacy path — the model names symbols
+                              from its own knowledge instead of searching the
+                              index. Only sound for codebases the model has seen;
+                              useless on confidential code.
+  --include-tests            --claim-locate: allow test/mock symbols as candidates
+                              (excluded by default; a test exercising an element
+                              is not the code implementing it).
   --claim-analyze <claim>    End-to-end patent claim analysis: extract terms, search,
                               analyze top matches. Takes @file.txt or inline text.
                               Direct-target mode: pass a FUNCTION (or FILE@FUNCTION)
@@ -1352,6 +1386,15 @@ LLM ANALYSIS:
   --loop-save-analyses       --claims-loop: save every raw per-anchor analysis
                               to <chart>_looped_analyses/ so fills can be
                               audited against the model's justification.
+  --loop-redraft             --claims-loop: feed the analysis back to the
+                              drafter (#290 convergence). Claims with an
+                              ABSENT element (or the needs-redraft flag) get
+                              ONE redraft cycle — PRESENT/PARTIAL element
+                              language preserved verbatim, ABSENT elements
+                              rewritten to describe the anchored code — then
+                              re-analyzed; the redraft is kept only if
+                              element coverage improves. Original prose is
+                              preserved in the output for audit.
   Cost guard (cloud models)  --rank, --pseudo-claims drafting, and --claims-loop
                               print a projected cost up front and STOP if it
                               exceeds $2. --force proceeds anyway; the
