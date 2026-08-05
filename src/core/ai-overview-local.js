@@ -97,6 +97,41 @@ export function makeToolBudget({ maxCalls = 24, maxChars = 60000 } = {}) {
   return b;
 }
 
+// ---------------------------------------------------------------------------
+// Empty-final-turn rescue. A model can complete its tool phase and then end the
+// turn without writing anything — every call succeeded, the budget is barely
+// touched, and `session.prompt` resolves to "". CE returns empty prose and exit
+// code 0, so a script reading the exit code sees success. These three pieces
+// make the recovery decision testable without a live model.
+// ---------------------------------------------------------------------------
+
+// Deliberately far below the context-scaled ceiling: an overview is hundreds of
+// tokens (observed rescues ~520), and a shorter generation is a shorter
+// synchronous native block — the suspected mechanism behind an observed ~640s
+// event-loop stall on this path.
+export const SYNTHESIZE_RETRY_MAX_TOKENS = 1024;
+
+// Mirrors makeToolBudget's stop string. CE already had the right primitive; it
+// only ever fired when the budget was EXHAUSTED, and this failure happens at
+// ~45% of budget.
+export const SYNTHESIZE_NOW_PROMPT =
+  'Do not call any more tools. Write your complete overview now from the results you already have.';
+
+// Retry only when the model produced nothing AND actually investigated. Zero
+// tool calls is a different failure — that is the ungrounded case, and
+// re-prompting a model that never looked at the index would just invite
+// fabrication.
+export function needsSynthesizeRetry(raw, toolCalls) {
+  return !String(raw || '').trim() && toolCalls > 0;
+}
+
+export function rescuedNote(toolCalls) {
+  return `ⓘ RECOVERED OUTPUT: the model made ${toolCalls} tool call(s) and then ended `
+    + 'its turn without writing anything. The overview below came from a second, '
+    + 'synthesize-only pass over results it had already gathered. Treat this as a '
+    + 'model limitation on the agentic path, not a clean run.';
+}
+
 // Context-scaled output/tool budgets (port of server _localBudgets).
 export function localBudgets(contextSize, explicitMaxTokens) {
   const OVERHEAD = 1200;         // system prompt + tool defs + question, approx tokens
@@ -237,6 +272,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     });
 
     let raw;
+    let rescued = false;
     try {
       // onStream surfaces the live model output (incl. <think> blocks and tool
       // reasoning) for testing; the final stdout prose still strips <think>.
@@ -244,6 +280,35 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
         session.prompt(promptText, { functions, maxTokens: cappedMaxTokens, onTextChunk: onStream ? (c) => onStream(c) : undefined }),
         timeout,
       ]);
+      // Some local models end the turn after the tool phase without writing an
+      // answer: `raw` comes back "" though every tool call succeeded and the
+      // budget is nowhere near spent (Gemma 3 12B Q4_K_M, 107-file index: 12
+      // calls, 21480/48200 chars used, raw.length 0, reproducible 6/6 — while
+      // the same model on a 75-file index answers after 10). Claude and Gemini
+      // both write prose from that same index in 7 calls, so it is a model-side
+      // end-of-turn quirk, not a prompt or index fault. The session still holds
+      // every tool result, so re-prompt once with tools withheld, reusing the
+      // budget stop's own synthesize-now wording.
+      //
+      // INSIDE the raced block deliberately: clearTimeout fires in the finally
+      // below, so a retry placed after it would run with NO timeout at all —
+      // and this path has been observed blocking the event loop for ~640s.
+      // Capped well under cappedMaxTokens because an overview needs hundreds of
+      // tokens (observed rescues: ~520) and a shorter generation is a shorter
+      // synchronous block, which is the suspected stall mechanism.
+      if (needsSynthesizeRetry(raw, budget.calls)) {
+        status(`empty final turn after ${budget.calls} tool calls — re-prompting to synthesize`);
+        try {
+          raw = await Promise.race([
+            session.prompt(SYNTHESIZE_NOW_PROMPT, {
+              maxTokens: Math.min(cappedMaxTokens, SYNTHESIZE_RETRY_MAX_TOKENS),
+              onTextChunk: onStream ? (c) => onStream(c) : undefined,
+            }),
+            timeout,
+          ]);
+          rescued = !!String(raw || '').trim();
+        } catch (e) { status(`synthesize retry failed: ${e.message}`); }
+      }
     } finally {
       clearTimeout(timer);
     }
@@ -254,11 +319,16 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     // #276 fabrication guard: 0 tool calls in grounded mode = not an overview.
     const warn = ungroundedWarning(toolCalls, grounding);
     if (warn && prose) prose = `${warn}\n\n${prose}`;
+    // Say so when the prose came from the rescue pass. Without this a rescued
+    // overview is indistinguishable from a healthy one, and the model defect
+    // becomes invisible the moment the workaround lands — the workaround would
+    // then quietly mask the very thing that justifies replacing the model.
+    if (rescued && prose) prose = `${rescuedNote(toolCalls)}\n\n${prose}`;
     // Output token count from the model's own tokenizer (air-gapped: no $ to
     // report, just tokens). Best-effort — null if the tokenizer isn't reachable.
     let outTokens = null;
     try { if (prose && typeof model.tokenize === 'function') outTokens = model.tokenize(prose).length; } catch { /* */ }
-    return { prose, toolCalls, contextSize, outTokens };
+    return { prose, toolCalls, contextSize, outTokens, rescued };
   } finally {
     console.log = _log; console.warn = _warn; console.error = _err;
     // Do NOT dispose the model here (upstream node-llama-cpp #623). Gemma's

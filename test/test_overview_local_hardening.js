@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import {
   makeToolBudget, neutralizeSpecialTokens, strictInstructionsFor, ungroundedWarning, localBudgets,
+  needsSynthesizeRetry, rescuedNote, SYNTHESIZE_RETRY_MAX_TOKENS, SYNTHESIZE_NOW_PROMPT,
 } from '../src/core/ai-overview-local.js';
 import { aiOverviewPrompt, LOCAL_ENGINE_GROUNDING } from '../src/core/ai-overview.js';
 
@@ -83,4 +84,44 @@ test('#276 prompt: local engines get the grounding clause, cloud does not', () =
   assert.ok(local.includes(LOCAL_ENGINE_GROUNDING));
   assert.ok(!cloud.includes('LOCAL-ENGINE GROUNDING'));
   assert.ok(local.includes('GROUNDING — STRICT')); // grounding clause still present
+});
+
+test('empty-final-turn rescue: fires only on empty output AFTER real investigation', () => {
+  // The failure being rescued: every tool call succeeded, budget barely touched,
+  // and session.prompt still resolved to "" — CE then returned empty prose with
+  // exit code 0, which reads as success to any script checking the exit code.
+  assert.equal(needsSynthesizeRetry('', 12), true);
+  assert.equal(needsSynthesizeRetry(['   ', '  '].join('\n'), 12), true, 'whitespace-only counts as empty');
+  // Inert whenever the model answered — this must never touch a healthy run.
+  assert.equal(needsSynthesizeRetry('a real overview', 12), false);
+  // Zero tool calls is the UNGROUNDED case, not this one. Re-prompting a model
+  // that never looked at the index would invite fabrication rather than rescue.
+  assert.equal(needsSynthesizeRetry('', 0), false);
+  assert.equal(needsSynthesizeRetry(null, 0), false);
+});
+
+test('empty-final-turn rescue: the retry is bounded well below the context ceiling', () => {
+  // Observed rescues produce ~520 tokens; the cap exists because a shorter
+  // generation is a shorter synchronous native block, and this path has been
+  // seen blocking the event loop for ~640s.
+  assert.ok(SYNTHESIZE_RETRY_MAX_TOKENS <= 2048, 'cap stays small');
+  assert.ok(SYNTHESIZE_RETRY_MAX_TOKENS >= 512, 'but large enough for an overview');
+  // The effective value is min(cappedMaxTokens, cap), so a large context can
+  // never widen it.
+  const big = localBudgets(32768, undefined).maxTokens;
+  assert.ok(Math.min(big, SYNTHESIZE_RETRY_MAX_TOKENS) === SYNTHESIZE_RETRY_MAX_TOKENS,
+    'the cap binds at large contexts');
+});
+
+test('empty-final-turn rescue: reuses the budget stop wording, and labels the output', () => {
+  // CE already had the right primitive — it only fired at budget exhaustion.
+  const stop = makeToolBudget({ maxCalls: 0 }).gate();
+  assert.ok(stop.includes('from the results you already have'));
+  assert.ok(SYNTHESIZE_NOW_PROMPT.includes('from the results you already have'));
+  // A rescued overview must not be indistinguishable from a healthy one, or the
+  // model defect goes invisible the moment the workaround lands.
+  const note = rescuedNote(12);
+  assert.ok(note.includes('12 tool call'));
+  assert.match(note, /RECOVERED OUTPUT/);
+  assert.match(note, /not a clean run/);
 });
