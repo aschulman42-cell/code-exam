@@ -270,6 +270,7 @@ export function parseArgs() {
     analyze_context: null,
     mask_all: false,
     line_numbers: false,
+    no_line_numbers: false,
     force: false,         // --analyze/--file-analyze: bypass the projected-cost guard
     claim_text: null,
     with_digest: false,
@@ -550,6 +551,7 @@ export function parseArgs() {
     ['analyze_context',      'value',          ['--with', '--context-text']],
     ['mask_all',             'flag',           ['--mask-all']],
     ['line_numbers',         'flag',           ['--line-numbers']],
+    ['no_line_numbers',      'flag',           ['--no-line-numbers']],
     ['force',                'flag',           ['--force']],
     ['claim_text',           'value',          ['--claim-text']],
     ['with_digest',          'flag',           ['--with-digest']],
@@ -1423,7 +1425,15 @@ LLM ANALYSIS:
                               Same term syntax as --multisect-search.
   --file-analyze <filepath>  Analyze an entire source file with LLM
   --mask-all                 Strip comments and mask string contents before sending to LLM
-  --line-numbers             Include source line numbers in LLM prompt
+  --line-numbers             Include source line numbers in LLM prompt. Now the
+                              DEFAULT for --claim-analyze, --multisect-analyze and
+                              --analyze --with, whose prompts ask the model to cite
+                              line numbers as evidence; supplying none made it
+                              invent them. Still opt-in for plain --analyze and
+                              --file-analyze, whose prompts don't ask.
+  --no-line-numbers          Suppress source line numbers even on the paths where
+                              they now default on (saves prompt tokens; the model
+                              will then cite quotes, or fabricate line numbers).
   --force                    With --analyze / --file-analyze (Claude): bypass the
                              projected-cost guard. By default an analysis whose
                              estimated cost exceeds ~$0.50 is blocked with the

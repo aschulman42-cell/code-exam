@@ -1355,6 +1355,30 @@ function _printExtractTip(filepath, funcName) {
 }
 
 
+// Line numbers default ON for the prompt paths that ASK for them.
+//
+// buildClaimAnalyzePrompt (:907), buildMultisectAnalyzePrompt (:947) and
+// buildContextAnalyzePrompt (:1075) all instruct the model to cite line numbers
+// as evidence — unconditionally. But `--line-numbers` defaulted to false, so
+// the source it was citing arrived unnumbered and the model invented plausible
+// anchors. Observed on a live multisect run: two distinct if/else-if arms were
+// both cited as "lines 48-51", and a function was cited at "38-43" where it
+// appears elsewhere. The reasoning was sound; it fabricated only the anchor CE
+// asked for and withheld.
+//
+// A fabricated line cite is worse than none in a claim chart — it looks
+// verifiable. `startLine` is already threaded at every call site, so the numbers
+// emitted are file-absolute and check directly against `--extract …@fn`.
+//
+// Deliberately NOT applied to plain --analyze or --file-analyze:
+// buildAnalyzePrompt and buildFileAnalyzePrompt never ask for line numbers, so
+// numbering there would be pure token cost on a context-tight local model.
+// `--no-line-numbers` opts out; `--line-numbers` remains accepted (now a no-op
+// on these paths) so existing invocations keep working.
+export function wantsLineNumbers(args) {
+  return args?.no_line_numbers !== true;
+}
+
 /**
  * Prepare source for LLM: optionally mask and add line numbers.
  *
@@ -1450,7 +1474,7 @@ export async function doAnalyze(index, args) {
   const linesCount = end - start + 1;
   const maskAll = args.mask_all || false;
   const showPrompt = args.show_prompt || false;
-  const lineNumbers = args.line_numbers || false;
+  let lineNumbers = args.line_numbers || false;
 
   // Resolve --with context text (supports @file.txt syntax)
   let contextText = null;
@@ -1464,6 +1488,10 @@ export async function doAnalyze(index, args) {
       contextText = raw.trim();
     }
   }
+
+  // Only the --with (context) prompt asks the model to cite line numbers;
+  // buildAnalyzePrompt does not. Number the source exactly when it will be used.
+  if (contextText) lineNumbers = wantsLineNumbers(args);
 
   const sourceForLLM = _prepareSource(source, filepath, {
     maskAll, lineNumbers, startLine: start, funcName,
@@ -1605,14 +1633,14 @@ export async function doClaimAnalyze(index, args) {
     console.log();
     await _doClaimSingleAnalyze(
       { filepath: match.filepath, funcName: match.name, source: match.source, start: match.start, end: match.end, lines: match.end - match.start + 1 },
-      claimText, args, args.mask_all || false, args.show_prompt || false, args.line_numbers || false,
+      claimText, args, args.mask_all || false, args.show_prompt || false, wantsLineNumbers(args),
     );
     return;
   }
 
   const showPrompt = args.show_prompt || false;
   const maskAll = args.mask_all || false;
-  const lineNumbers = args.line_numbers || false;
+  const lineNumbers = wantsLineNumbers(args);
   const cloudProvider = selectedCloudProvider(args);  // #246: registry entry or null
 
   // Echo claim text
@@ -2151,7 +2179,7 @@ export async function doMultisectAnalyze(index, args) {
 
   const maskAll = args.mask_all || false;
   const showPrompt = args.show_prompt || false;
-  const lineNumbers = args.line_numbers || false;
+  const lineNumbers = wantsLineNumbers(args);
 
   // Analyze each separately (combined mode deferred - structure supports it)
   for (let i = 0; i < extracted.length; i++) {
