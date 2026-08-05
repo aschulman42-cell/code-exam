@@ -669,6 +669,52 @@ function _parseResponse(rawText) {
  *   - Each alternation (split by |) must be <= 30 chars and <= 2 words
  *   - Terms where ALL alternations fail are dropped
  *   - Max 20 terms total
+ *
+ * MULTI-WORD LIMITATIONS ARE NOT "DEGENERATE". A three-word patent limitation
+ * is the claim, not garbage from a small model, and the counter reports the two
+ * separately so the next occurrence is self-diagnosing. Observed on US
+ * 8,752,101 claim 1: TIGHT went 11 terms -> 7, and the four removed were
+ * `reproduction start time`, `available reproduction time`,
+ * `content transmitting unit`, `content reproducing unit` — the first two being
+ * the limitations that distinguish the claim.
+ *
+ * ---------------------------------------------------------------------------
+ * OPEN DISAGREEMENT — recorded here for later negotiation with the ASUS session
+ * ---------------------------------------------------------------------------
+ * The ASUS session (RESULTS_FROM_ASUS_080526.md §4a) reported this and drew a
+ * stronger conclusion: that with `min_terms=5/7`, "TIGHT returning 0 survivors
+ * was structurally guaranteed before any model was involved" by the drop.
+ *
+ * This session disputes the causal half, on three checks:
+ *
+ *   1. `minTerms` is `floor(positiveTerms.length * 0.80)` for TIGHT (see
+ *      _runClaimTier below). Dropping 11 -> 7 moved the bar from 8 DOWN to 5.
+ *      The drop made TIGHT easier to satisfy, not harder.
+ *   2. The surviving terms scored ~0 index hits each (`code rate`,
+ *      `content data`, `transmission device`, `reception device`,
+ *      `storage device`); the only one with hits was `change`, at 727 files.
+ *      TIGHT returned nothing because its terms do not occur in the code.
+ *   3. The dropped terms would have scored 0 as well — they are patent-ese.
+ *      Keeping them changes the denominator, not the outcome.
+ *
+ * So the loss is real and worth surfacing, but it is not what caused the '101
+ * miss. The actual gap is patent-ese -> code vocabulary, which no sanitizer
+ * change can close (see the #301 discussion; measured separately, the bridge
+ * terms rank 686 / 4,236 / 6,867 against a topN=200 concordance cut, so they
+ * are absent whether or not the claim filter runs).
+ *
+ * Consequently this change is OBSERVABILITY ONLY. Deliberately NOT done:
+ *   - Raising MAX_ALT_WORDS to 3. The kept terms would score 0 and consume
+ *     term slots plus min_terms denominator. Plausibly worse; needs measurement.
+ *   - Decomposing a multi-word term into constituent words
+ *     (`available reproduction time` -> available, reproduction, time). This is
+ *     the interesting option — it preserves information instead of discarding
+ *     it — but it risks flooding the list with low-value words. Revisit once
+ *     the setAside counter shows how often this fires in practice.
+ *
+ * If the ASUS session can show a case where keeping the multi-word terms
+ * changes the RESULT (not just the counts), that settles it the other way and
+ * the behavior change should follow.
  */
 export function sanitizeLlmTerms(termsStr, label = '', metaOut = null) {
   if (!termsStr) return termsStr;
@@ -684,6 +730,9 @@ export function sanitizeLlmTerms(termsStr, label = '', metaOut = null) {
   let nDropped = 0;
   let nTrimmed = 0;
   let nCapped = 0;
+  // Separated from nDropped: a multi-word claim limitation is not degenerate
+  // output. Kept verbatim so the log can show WHAT was lost, not just a count.
+  const setAside = [];
 
   for (const rawPart of parts) {
     const part = rawPart.trim();
@@ -717,8 +766,12 @@ export function sanitizeLlmTerms(termsStr, label = '', metaOut = null) {
       cleaned.push(isNot ? `NOT ${rebuilt}` : rebuilt);
     } else {
       // Plain term
-      if (inner.length > MAX_ALT_CHARS || inner.split(/\s+/).length > MAX_ALT_WORDS) {
-        nDropped++;
+      const tooLong = inner.length > MAX_ALT_CHARS;
+      const tooManyWords = inner.split(/\s+/).length > MAX_ALT_WORDS;
+      if (tooLong || tooManyWords) {
+        // A within-length multi-word phrase is a claim limitation, not garbage.
+        if (tooManyWords && !tooLong) setAside.push(inner);
+        else nDropped++;
         continue;
       }
       cleaned.push(part);
@@ -732,11 +785,17 @@ export function sanitizeLlmTerms(termsStr, label = '', metaOut = null) {
     }
   }
 
-  if (nDropped > 0 || nTrimmed > 0 || nCapped > 0) {
+  if (nDropped > 0 || nTrimmed > 0 || nCapped > 0 || setAside.length > 0) {
     process.stderr.write(
       `  [sanitize-${label}] Dropped ${nDropped} degenerate, ` +
+      `set aside ${setAside.length} multi-word, ` +
       `trimmed ${nTrimmed}, capped ${nCapped} (max ${MAX_TERMS}), kept ${cleaned.length}\n`
     );
+    // Name them. A count alone is what let four claim limitations vanish
+    // unexamined; the terms themselves are what make the loss reviewable.
+    if (setAside.length) {
+      process.stderr.write(`  [sanitize-${label}] set aside: ${setAside.join(' | ')}\n`);
+    }
   }
 
   if (metaOut) {

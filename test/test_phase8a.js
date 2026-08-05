@@ -37,6 +37,36 @@ describe('sanitizeLlmTerms', () => {
     assert.equal(result, 'facade;server');
   });
 
+  it('reports a multi-word limitation as SET ASIDE, not degenerate', () => {
+    // A three-word patent limitation is the claim, not garbage from a small
+    // model. Calling it "degenerate" is what let four of them vanish unexamined
+    // on US 8,752,101 claim 1. Behavior is unchanged — only the reporting.
+    const lines = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (s) => { lines.push(String(s)); return true; };
+    const result = sanitizeLlmTerms('code rate;available reproduction time;change', 'TIGHT');
+    process.stderr.write = orig;
+
+    const log = lines.join('');
+    assert.match(log, /Dropped 0 degenerate/, 'a limitation must not inflate the degenerate count');
+    assert.match(log, /set aside 1 multi-word/);
+    assert.match(log, /set aside: available reproduction time/,
+      'the term itself must be named — a bare count is what hid this');
+    assert.equal(result, 'code rate;change', 'which terms survive is unchanged');
+  });
+
+  it('still counts genuine gibberish as degenerate, separately', () => {
+    const lines = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (s) => { lines.push(String(s)); return true; };
+    sanitizeLlmTerms(`alpha;${'x'.repeat(40)};three word phrase;beta`, 'BROAD');
+    process.stderr.write = orig;
+
+    const log = lines.join('');
+    assert.match(log, /Dropped 1 degenerate/, 'over-long junk stays degenerate');
+    assert.match(log, /set aside 1 multi-word/, 'and is not conflated with the limitation');
+  });
+
   it('trims bad alternations from regex terms', () => {
     hushStderr();
     const input = '/good|a very long multi word phrase that should be dropped/;server';
