@@ -541,8 +541,8 @@ if (args.overview_by_ai) {
     let prose, costSuffix = '';
     if (localGguf) {
       const { runAiOverviewLocal } = await import('./core/ai-overview-local.js');
-      let outTokens;
-      ({ prose, outTokens } = await runAiOverviewLocal({
+      let outTokens, achievedContext;
+      ({ prose, outTokens, contextSize: achievedContext } = await runAiOverviewLocal({
         indexPath: args.index_path,
         modelPath: localGguf,
         timeoutMs,
@@ -556,6 +556,15 @@ if (args.overview_by_ai) {
       }));
       // Air-gapped: no $ — just the output token count.
       if (showCost && outTokens) costSuffix = ` (${kTok(outTokens)} tokens out · local, no API cost)`;
+      // runAiOverviewLocal walks a context ladder (--context-size at its head,
+      // then 16384 → 8192 → 4096 → 2048) and swallows every allocation failure.
+      // The achieved size drives the MCP tool budget (8192 → 11480 chars,
+      // 24576 → 48200), so a run that quietly landed lower can spend its whole
+      // budget investigating and have nothing left to write the overview with.
+      // The GUI has always reported this; the CLI discarded it, which made that
+      // failure undiagnosable from the command line. stderr only — stdout stays
+      // pure prose for --multi-index capture.
+      if (achievedContext) costSuffix += ` [context: ${achievedContext}]`;
     } else {
       const { runAiOverview } = await import('./core/ai-overview.js');
       // Cloud key resolution: --api-key applies to the SELECTED provider, then

@@ -63,6 +63,20 @@ test('#276 localBudgets mirrors server scaling', () => {
   assert.ok(small.maxTokens >= 256 && small.toolBudgetChars >= 500);
 });
 
+test('localBudgets: an explicit maxTokens DEFEATS context scaling', () => {
+  // The trap this documents: `explicitMaxTokens || <scaled>` cannot tell a
+  // caller's deliberate 2400 from a default parameter that merely looks like
+  // one. runAiOverviewLocal used to declare `maxTokens = 2400`, so the sole
+  // caller (index.js, which never passes it) silently pinned output at 2400 at
+  // every context size — --context-size raised the tool budget while the answer
+  // allowance never moved. The test above only ever passes `null`, so it
+  // exercised the scaling path and could not notice.
+  assert.equal(localBudgets(24576, undefined).maxTokens, 4096, 'scales with context when unset');
+  assert.equal(localBudgets(24576, 2400).maxTokens, 2400, 'an explicit value wins, by design');
+  assert.ok(localBudgets(24576, undefined).maxTokens > localBudgets(16384, undefined).maxTokens,
+    'a larger context must buy a larger answer');
+});
+
 test('#276 prompt: local engines get the grounding clause, cloud does not', () => {
   const local = aiOverviewPrompt('grounded', { localEngine: true });
   const cloud = aiOverviewPrompt('grounded');

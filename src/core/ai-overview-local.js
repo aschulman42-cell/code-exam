@@ -121,7 +121,15 @@ export function localBudgets(contextSize, explicitMaxTokens) {
  * @param {(s:string)=>void} [o.onStatus] progress sink (model load, tool calls)
  * @returns {Promise<{prose:string, toolCalls:number, contextSize:number, outTokens:(number|null)}>}
  */
-export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 16384, maxTokens = 2400, timeoutMs = 1200000, gpu = 'auto', grounding, onStatus, onStream } = {}) {
+// NOTE: `maxTokens` deliberately has NO default. localBudgets() scales the
+// output allowance with context (`explicitMaxTokens || min(6144, max(2400,
+// ctx/6))`), and `||` cannot distinguish a caller's deliberate 2400 from a
+// default parameter that merely looks like one. A `= 2400` default here filled
+// in for the sole caller (index.js, which never passes it), arrived as
+// `explicitMaxTokens`, and pinned output at 2400 tokens at EVERY context size —
+// so --context-size raised the tool budget while the answer allowance never
+// moved. Leave it undefined so the scaling actually runs.
+export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 16384, maxTokens, timeoutMs = 1200000, gpu = 'auto', grounding, onStatus, onStream } = {}) {
   if (!indexPath) throw new Error('runAiOverviewLocal: indexPath is required.');
   if (!modelPath) throw new Error('runAiOverviewLocal: a GGUF modelPath is required (pass --model).');
   const status = (s) => { if (onStatus) onStatus(s); };
@@ -253,6 +261,19 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     return { prose, toolCalls, contextSize, outTokens };
   } finally {
     console.log = _log; console.warn = _warn; console.error = _err;
-    try { if (model) await model.dispose(); } catch { /* */ }
+    // Do NOT dispose the model here (upstream node-llama-cpp #623). Gemma's
+    // dispose path aborts during native teardown, and because this `finally`
+    // runs BEFORE the return value reaches the caller, the abort killed
+    // index.js before it could write the prose — a complete overview on stderr
+    // with empty stdout. It surfaced on Windows/Blackwell as
+    // `CUDA error: invalid resource handle` in ggml_backend_cuda_synchronize
+    // and was misdiagnosed as a CUDA-runtime ABI mismatch; the same crash was
+    // recorded on Linux/RTX-4090 as a teardown segfault (#276, 07-18 pod
+    // batch), so it is neither CUDA- nor platform-specific.
+    //
+    // This is the standing convention everywhere else in CE — claim.js:1200,
+    // analyze.js:267, server.js:1105-1109 all refuse to dispose for the same
+    // reason; this path was simply missed. The only caller exits immediately
+    // after writing, so native memory is reclaimed at process exit anyway.
   }
 }
