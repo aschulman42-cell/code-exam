@@ -894,6 +894,7 @@ export function dropStopListedTerms(termsStr, label = '') {
   }
 
   const deduped = [];
+  const seenPlain = new Set();
   let nDeduped = 0;
   for (const part of kept) {
     const isNot = part.toUpperCase().startsWith('NOT ');
@@ -901,6 +902,21 @@ export function dropStopListedTerms(termsStr, label = '') {
     if (!isNot && !isRegex && altMembers.has(part.toLowerCase())) {
       nDeduped++;
       continue;
+    }
+    // Also collapse a plain term repeated in the list. The pass above only
+    // catches a bare term covered by a surviving REGEX alternate, because
+    // altMembers is built solely from /a|b|c/ members — two identical plain
+    // terms were never compared to each other, so `deduped 0` was structural.
+    // Live consequence on the '101 claim: `commands` appeared three times in
+    // the BROAD list (positions 5, 13, 14), triple-counting toward both
+    // min_terms and the IDF score, and every top-ranked class hit was carried
+    // by exactly those three slots — the ranking was driven by the duplicate.
+    // NOT and regex terms keep their existing handling: `NOT foo` beside `foo`
+    // is a contradiction worth surfacing, not silently merging.
+    if (!isNot && !isRegex) {
+      const key = part.toLowerCase();
+      if (seenPlain.has(key)) { nDeduped++; continue; }
+      seenPlain.add(key);
     }
     deduped.push(part);
   }

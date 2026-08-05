@@ -171,6 +171,35 @@ describe('dropStopListedTerms', () => {
     assert.equal(result, '/cryptograph|crypto|cipher/');
   });
 
+  it('dedupes a repeated PLAIN term, keeping first occurrence and order', () => {
+    // The live failure: `commands` appeared three times in the BROAD list for
+    // the '101 claim while the sanitizer reported `deduped 0`. The pass above
+    // only compares bare terms against surviving REGEX alternates, so two
+    // identical plain terms were never compared to each other. The duplicate
+    // triple-counted toward min_terms and the IDF score, and every top-ranked
+    // class hit was carried by exactly those three term slots.
+    hushStderr();
+    const result = dropStopListedTerms('commands;player;commands;render;commands', 'BROAD');
+    restoreStderr();
+    assert.equal(result, 'commands;player;render');
+  });
+
+  it('dedupes plain terms case-insensitively', () => {
+    hushStderr();
+    const result = dropStopListedTerms('Commands;commands;COMMANDS', 'BROAD');
+    restoreStderr();
+    assert.equal(result, 'Commands', 'first spelling wins');
+  });
+
+  it('does NOT merge a NOT term with its plain twin', () => {
+    // `foo` and `NOT foo` together are a contradiction worth surfacing to the
+    // caller, not silently collapsing into one.
+    hushStderr();
+    const result = dropStopListedTerms('foo;NOT foo', 'BROAD');
+    restoreStderr();
+    assert.equal(result, 'foo;NOT foo');
+  });
+
   it('passes NOT terms through untouched', () => {
     hushStderr();
     const result = dropStopListedTerms('facade;NOT session;NOT /client|server/', 'TIGHT');
