@@ -855,6 +855,25 @@ export function getVocabularyForPrompt(idx, opts = {}) {
 
   const topEntries = getTopVocabulary(idx, topN, null, pathFilter);
 
+  // #193 graded cross-corpus weighting, ported from extractConcepts (:761).
+  // This path never received it: it applied the stopword list alone, so a
+  // morpheme recurring across boilerplate compounds (`check` accumulating from
+  // checkNotNull + checkArgument + checkState + …) outscored a rare domain noun
+  // with one strong parent, and the emitted concordance was ~all boilerplate.
+  //
+  // DELIBERATELY NOT PORTED: extractConcepts also hard-drops sub-tokens with
+  // `df >= 0.6 * N` (present in 60%+ of catalogued corpora). That is correct
+  // THERE — it surfaces ~15 concepts for a human skimming an unfamiliar
+  // codebase, where near-universal terms are noise. It is wrong HERE, where
+  // common domain nouns are the entire payload. Measured against the 28-corpus
+  // catalog, the hard-drop kills `stream` (89% of corpora), `chunk` (89%),
+  // `selection` (79%), `buffer` (79%), `track` (75%), `audio` (64%), `seek`
+  // (61%) — including two of the three terms in the query that mechanically
+  // locates the target function on the '101 claim. Adding it drops domain-term
+  // coverage from 5/9 to 1/9. Same helper, inverted objective; do not
+  // "complete" this port.
+  const catalog = _loadCrossCorpusCatalog();
+
   // --- Tier 1: Split compound tokens into sub-tokens ---
   // Track each sub-token's aggregate score and which parents it came from
   const subTokenMap = new Map();  // subtoken -> { score, parentCount, exampleParents }
@@ -874,7 +893,11 @@ export function getVocabularyForPrompt(idx, opts = {}) {
         });
       }
       const st = subTokenMap.get(part);
-      st.score += entry.score;
+      // Summation is retained deliberately. Replacing it with
+      // `max(parent) * log1p(parentCount)` was proposed and measured WORSE than
+      // the graded weight alone at every topN from 200 to 15,000 — it
+      // over-rewards a single high-scoring parent and loses `selection`.
+      st.score += entry.score * _subtokenCrossCorpusWeight(part.toLowerCase(), catalog);
       st.parentCount++;
       if (st.exampleParents.length < 3) {
         st.exampleParents.push(entry.token);

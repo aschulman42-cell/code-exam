@@ -161,3 +161,45 @@ test('#193 extractConcepts: cross-corpus IDF drops universal parts, keeps distin
   assert.equal(concepts.find(c => c.concept === 'multisect').example, 'buildMultisectIndex');
   assert.equal(concepts.find(c => c.concept === 'worklist').example, 'worklistPrompt');
 });
+
+// ===========================================================================
+// Concordance weighting (#193 port, negotiated across two sessions —
+// CONVERSATION_4.md). getVocabularyForPrompt emits sub-tokens split out of the
+// top-N compounds; it applied the stopword list ALONE, so a morpheme recurring
+// across boilerplate compounds outscored a rare domain noun and the emitted
+// bridge vocabulary was almost pure boilerplate.
+// ===========================================================================
+
+import { getVocabularyForPrompt } from '../src/core/vocabulary.js';
+
+// Minimal fake index: getTopVocabulary reads idx._vocabulary (token -> {score}).
+function fakeIdx(tokens) {
+  const v = new Map(Object.entries(tokens).map(([t, score]) => [t, { score, top_files: [] }]));
+  return { _vocabulary: v, _ensureVocabulary() {}, vocabulary: v };
+}
+
+test('concordance: cross-corpus weighting demotes universal morphemes', () => {
+  // `check` is in ~96% of catalogued corpora, `bitrate` in 0%. Given parents of
+  // equal score, the rare domain noun must now outrank the universal morpheme.
+  const cat = JSON.parse(fs.readFileSync('CE_cross_corpus_vocab_catalog.json', 'utf-8'));
+  const w = (t) => _subtokenCrossCorpusWeight(t, cat);
+  assert.ok(w('bitrate') > w('check'),
+    'a corpus-rare domain noun must weigh more than a near-universal morpheme');
+});
+
+test('concordance: a high-df domain term is NOT hard-dropped', () => {
+  // THE REGRESSION GUARD. extractConcepts hard-drops sub-tokens present in
+  // >=60% of catalogued corpora — correct there, lethal here: it removes
+  // `track` (75%), `selection` (79%), `stream` (89%), `buffer` (79%), which are
+  // the bridge vocabulary this concordance exists to supply. Measured, adding
+  // that drop took domain-term coverage from 5/9 to 1/9.
+  const idx = fakeIdx({
+    AdaptiveTrackSelection: 1000,
+    DecoderInputBuffer: 900,
+    checkNotNull: 800,
+  });
+  const { subTokens } = getVocabularyForPrompt(idx, { topN: 100, maxSubTokens: 50, maxFuncNames: 0 });
+  const emitted = new Set(subTokens.map((s) => String(s.token).toLowerCase()));
+  assert.ok(emitted.has('track'), '`track` (df 75%) must survive — no hard-drop here');
+  assert.ok(emitted.has('buffer'), '`buffer` (df 79%) must survive');
+});

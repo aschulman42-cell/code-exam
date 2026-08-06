@@ -1693,7 +1693,14 @@ export async function doClaimAnalyze(index, args) {
     try {
       const format = localModelPath ? 'compact' : 'rich';
       vocabConcordance = index.formatVocabularyForPrompt(format, {
-        topN: localModelPath ? 200 : 300,
+        // topN selects which compounds get SPLIT; maxSubTokens caps what is
+        // EMITTED. They are independent, so a large topN costs build time only
+        // (3ms -> 20ms at 15000), never prompt budget. 15000 is not a tuned
+        // number: vocabulary.js caps the cached vocabulary at slice(0, 15000),
+        // so this means 'the whole vocabulary' -- do not pre-truncate, let the
+        // cross-corpus weight select. At topN 200 the pool was nearly all
+        // boilerplate and the weight had nothing better to promote.
+        topN: 15000,
         maxSubTokens: localModelPath ? 80 : 150,
         maxFuncNames: localModelPath ? 0 : 40,
         claimKeywords,
