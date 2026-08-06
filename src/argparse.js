@@ -249,6 +249,10 @@ export function parseArgs() {
     // Phase 8b: LLM analysis
     analyze: null,
     claim_analyze: null,
+    claim_chart: null,
+    targets: null,
+    no_callees: false,
+    scope_note: null,
     claim_locate: null,
     no_refine: false,
     no_navigate: false,
@@ -530,6 +534,10 @@ export function parseArgs() {
     // Phase 8b: LLM analysis
     ['analyze',              'value',          ['--analyze']],
     ['claim_analyze',        'value',          ['--claim-analyze']],
+    ['claim_chart',          'value',          ['--claim-chart']],
+    ['targets',              'value',          ['--targets']],
+    ['no_callees',           'flag',           ['--no-callees']],
+    ['scope_note',           'value',          ['--scope-note']],
     ['claim_locate',         'value',          ['--claim-locate']],
     ['no_refine',            'flag',           ['--no-refine']],
     ['no_navigate',          'flag',           ['--no-navigate']],
@@ -1355,6 +1363,23 @@ LLM ANALYSIS:
                              @file.txt). Distinct code path from --with;
                              --claim-text feeds the claim-analyze pipeline,
                              --with feeds the general analyze pipeline.
+  --claim-chart <claim>      Build ONE claim chart: a row per claim element,
+                              merged across --targets, with the best finding and
+                              its citation per element. CE owns the table, the
+                              caveats and the coverage summary, so charts from
+                              different engines are directly comparable. Depth-1
+                              callee BODIES are included by default so the crux
+                              element is not judged on an inference. Takes
+                              @file.txt or inline text.
+  --targets <list>           --claim-chart: "file@fn;file@fn" or @targets.txt.
+  --no-callees               --claim-chart: omit depth-1 callee bodies (smaller
+                              prompt; the analysis may then infer what a callee
+                              does rather than read it).
+  --scope-note <text>        --claim-chart: a structural fact stated ONCE above
+                              the chart (e.g. that the index is one component of
+                              a larger claimed system) instead of the model
+                              re-deriving it on every element. Does not change
+                              any verdict.
   --claim-locate <claim>     Locate the code implementing a claim by asking the
                               model to NAME the classes/methods it expects, then
                               VERIFYING each name against the index and

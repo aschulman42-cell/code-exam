@@ -119,7 +119,7 @@ const _QUERY_COMMAND_KEYS = [
   'hotspots', 'hot_folders', 'entry_points', 'gaps', 'domain_fns',
   'list_classes', 'data_structs', 'client_server', 'referenced_resources', 'list_models', 'list_artifacts', 'list_kernels', 'list_multimodal', 'list_post_training', 'list_reasoning', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'list_pipelines', 'list_explainability', 'class_hotspots', 'discover_vocabulary', 'multisect_search',
   'claim_search', 'claim_file', 'pseudo_claims', 'candidates', 'ground_truth', 'rank',
-  'analyze', 'claim_analyze', 'claim_locate', 'claims_loop', 'multisect_analyze', 'file_analyze',
+  'analyze', 'claim_analyze', 'claim_chart', 'claim_locate', 'claims_loop', 'multisect_analyze', 'file_analyze',
   'dupefiles', 'func_dupes', 'near_dupes', 'struct_dupes', 'show_funcstring', 'struct_diff', 'struct_diff_all',
   'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'funcstr_corpus', 'build_fp_renames',
   'save_fingerprints',
@@ -1066,6 +1066,11 @@ if (args.analyze) {
 if (args.claim_analyze) {
   await doClaimAnalyze(index, args);
 }
+if (args.claim_chart) {
+  const { doClaimChart } = await import('./commands/claim-chart.js');
+  await doClaimChart(index, args);
+}
+
 if (args.claim_locate) {
   const { doClaimLocate } = await import('./commands/claim-locate.js');
   await doClaimLocate(index, args);
