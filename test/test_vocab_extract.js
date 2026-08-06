@@ -454,8 +454,16 @@ describe('claim-filtered getVocabularyForPrompt', () => {
       claimKeywords: claimKw,
     });
 
-    assert.equal(result.subTokens.length, 0, 'should have no matching sub-tokens');
-    assert.equal(result.functionNames.length, 0, 'should have no matching functions');
+    // CONTRACT CHANGED (#301 claim-filter guards). The filter used to emit ONLY
+    // claim-relevant terms, so an unrelated claim produced nothing. That was the
+    // defect: on a real corpus it also dropped `track`/`buffer`/`stream`, which
+    // share no stem with patent-ese and are exactly the bridge terms wanted.
+    // A reserved share of the budget is now filled by vocabulary score alone, so
+    // the concordance always describes the codebase. `relevanceMatched === 0`
+    // carries the old "no overlap" signal without withholding the vocabulary.
+    assert.equal(result.stats.relevanceMatched, 0, 'no sub-token should match this claim');
+    assert.ok(result.subTokens.length > 0, 'but the codebase vocabulary still ships');
+    assert.equal(result.functionNames.length, 0, 'function names remain claim-gated');
   });
 
   it('relevant sub-tokens have relevance scores', () => {
@@ -465,9 +473,16 @@ describe('claim-filtered getVocabularyForPrompt', () => {
       claimKeywords: claimKw,
     });
 
-    for (const st of result.subTokens) {
-      assert.ok(st.relevance > 0, `${st.token} should have positive relevance`);
+    // Terms from the reserved (score-ranked) share carry relevance 0 by design —
+    // that is what lets zero-relevance domain terms reach the model. Assert
+    // instead that the claim-relevant ones sort FIRST.
+    const rel = result.subTokens.map((st) => st.relevance || 0);
+    const firstZero = rel.indexOf(0);
+    if (firstZero !== -1) {
+      assert.ok(rel.slice(firstZero).every((r) => r === 0),
+        'claim-relevant sub-tokens must precede score-only ones');
     }
+    assert.ok(result.stats.relevanceMatched > 0, 'this claim does overlap the vocabulary');
   });
 
   it('formatVocabularyForPrompt returns empty for no-match claim', () => {
@@ -476,7 +491,10 @@ describe('claim-filtered getVocabularyForPrompt', () => {
       topN: 100,
       claimKeywords: claimKw,
     });
-    assert.equal(text, '', 'should be empty for unrelated claim');
+    // Was: empty. Now the codebase vocabulary ships regardless — see the
+    // contract note above. Emptiness is no longer how "no overlap" is reported.
+    assert.ok(text.length > 0, 'concordance still describes the codebase');
+    assert.ok(!/blockchain|cryptocurrency/i.test(text), 'but contains nothing from the claim');
   });
 
   it('formatVocabularyForPrompt includes filter note', () => {

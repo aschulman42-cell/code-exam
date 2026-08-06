@@ -170,7 +170,7 @@ test('#193 extractConcepts: cross-corpus IDF drops universal parts, keeps distin
 // bridge vocabulary was almost pure boilerplate.
 // ===========================================================================
 
-import { getVocabularyForPrompt } from '../src/core/vocabulary.js';
+import { getVocabularyForPrompt, MAX_TOKENS_PER_CLAIM_KEYWORD } from '../src/core/vocabulary.js';
 
 // Minimal fake index: getTopVocabulary reads idx._vocabulary (token -> {score}).
 function fakeIdx(tokens) {
@@ -202,4 +202,71 @@ test('concordance: a high-df domain term is NOT hard-dropped', () => {
   const emitted = new Set(subTokens.map((s) => String(s.token).toLowerCase()));
   assert.ok(emitted.has('track'), '`track` (df 75%) must survive — no hard-drop here');
   assert.ok(emitted.has('buffer'), '`buffer` (df 79%) must survive');
+});
+
+// ===========================================================================
+// #301 claim-filter guards. The filter scored a CODE token by its lexical
+// similarity to the CLAIM's words — selecting for the one property the bridge
+// exists to cross. Measured on US 8,752,101 vs ExoPlayer: `code` bought 26 of
+// 80 slots in morphological debris while `track`/`buffer`/`stream` scored 0.0
+// and were dropped, and `track` is load-bearing.
+// ===========================================================================
+
+test('claim filter: one keyword cannot buy more than the cap', () => {
+  // `code` earned 26 slots via av1codec/vp9codec/aomediacodec/utf8encoded/…
+  const idx = fakeIdx({
+    Av1CodecConfig: 900, Vp9CodecWrapper: 880, AoMediaCodecTool: 860,
+    Utf8EncodedReader: 840, HashCodeBuilder: 820, DecodesFrames: 800,
+    AdaptiveTrackSelection: 500, DecoderInputBuffer: 480, SampleStreamReader: 460,
+  });
+  // Measure the CAP'S OWN SCOPE: the relevance half. The reserved half is
+  // relevance-blind by design, so `codec`/`decoder` legitimately arrive there
+  // on vocabulary score — counting those against the cap measures the wrong
+  // thing. The additions a claim keyword BUYS are exactly the terms present
+  // when filtering and absent when not.
+  const opts = { topN: 100, maxSubTokens: 40, maxFuncNames: 0 };
+  const unfiltered = new Set(getVocabularyForPrompt(idx, opts)
+    .subTokens.map((s) => String(s.token).toLowerCase()));
+  const filtered = getVocabularyForPrompt(idx, { ...opts, claimKeywords: new Set(['code']) })
+    .subTokens.map((s) => String(s.token).toLowerCase());
+  const bought = filtered.filter((t) => !unfiltered.has(t));
+  assert.ok(bought.length <= MAX_TOKENS_PER_CLAIM_KEYWORD,
+    `one keyword bought ${bought.length} slots (cap ${MAX_TOKENS_PER_CLAIM_KEYWORD}): ${bought.join(',')}`);
+});
+
+test('claim filter: domain terms with ZERO claim relevance still ship', () => {
+  // THE REGRESSION GUARD. `track`/`buffer`/`stream` share no stem with
+  // patent-ese, so relevance-ranking can never reach them — no threshold makes
+  // `track` resemble `transmission`. The reserved share is what restores them.
+  const idx = fakeIdx({
+    AdaptiveTrackSelection: 1000, DecoderInputBuffer: 950, SampleStreamReader: 900,
+    TransmissionDeviceConfig: 800, ReceptionDeviceHandler: 780,
+  });
+  const { subTokens } = getVocabularyForPrompt(idx, {
+    topN: 100, maxSubTokens: 40, maxFuncNames: 0,
+    claimKeywords: new Set(['transmission', 'reception', 'device']),
+  });
+  const emitted = new Set(subTokens.map((s) => String(s.token).toLowerCase()));
+  for (const t of ['track', 'buffer', 'stream']) {
+    assert.ok(emitted.has(t), `${t} has 0 claim relevance and must still ship`);
+  }
+});
+
+test('claim filter: a claim word that IS a good code term is NOT banned', () => {
+  // A third guard ("never echo a claim keyword") was tried and REMOVED: on the
+  // TLS demo corpus, where claim and code vocabulary genuinely overlap, it
+  // deleted cipher/certificate/handshake/hostname/chain/suite and took domain
+  // coverage 7/9 -> 2/9. Whether a claim word is also a code term is a property
+  // of the corpus, not the claim.
+  const idx = fakeIdx({
+    CipherSuiteNegotiator: 1000, CertificateChainVerifier: 950, HandshakeProtocol: 900,
+  });
+  const { subTokens } = getVocabularyForPrompt(idx, {
+    topN: 100, maxSubTokens: 40, maxFuncNames: 0,
+    claimKeywords: new Set(['cipher', 'certificate', 'handshake']),
+  });
+  const emitted = new Set(subTokens.map((s) => String(s.token).toLowerCase()));
+  for (const t of ['cipher', 'certificate', 'handshake']) {
+    assert.ok(emitted.has(t), `${t} is both a claim word and a real code term — must ship`);
+  }
 });

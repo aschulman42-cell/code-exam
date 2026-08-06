@@ -844,6 +844,12 @@ export function conceptLabel(c) {
  *             functionNames: Array<{name, file, score, relevance}>,
  *             stats: {totalVocab, processedEntries, uniqueSubTokens, claimFiltered} }}
  */
+// #301 claim-filter guards. Named rather than inline so the acceptance test can
+// assert against them and a future tuner can find them.
+export const MAX_TOKENS_PER_CLAIM_KEYWORD = 3;   // one claim word bought 26 of 80 slots
+export const RESERVED_DOMAIN_FRACTION = 0.75;     // share of slots filled by vocab score alone
+export const MIN_RELEVANCE_TOKEN_LEN = 4;        // 0.6 stem tier fires on 3-char fragments
+
 export function getVocabularyForPrompt(idx, opts = {}) {
   const {
     topN = 300,
@@ -912,24 +918,89 @@ export function getVocabularyForPrompt(idx, opts = {}) {
   const claimFiltered = !!(claimKeywords && claimKeywords.size > 0);
 
   if (claimFiltered) {
-    const kwArray = [...claimKeywords];  // for iteration
+    // #301: the relevance filter scores a CODE token by its lexical similarity
+    // to the CLAIM's words — but this concordance exists precisely because, as
+    // the extraction prompt itself states, "technical prose and the source code
+    // that implements it rarely share vocabulary". So the filter was selecting
+    // for the one property the bridge exists to cross.
+    //
+    // Measured on US 8,752,101 vs the ExoPlayer index: `code` bought 26 of 80
+    // slots in morphological debris (av1codec, vp9codec, aomediacodec,
+    // utf8encoded, hashcode, decodes); 19 more slots were the claim's own words
+    // handed back (start, available, change, rate, storage, remaining); and
+    // `track`, `buffer`, `stream`, `seek`, `player`, `timeline`, `renderer` all
+    // scored 0.0 and were dropped, because none of them resembles patent-ese.
+    // `track` is load-bearing — `track;bitrate;buffer` puts
+    // AdaptiveTrackSelection at index 3 — and the model was never offered it.
+    // Filtered domain coverage was 2/9 against 5/9 unfiltered.
+    //
+    // Two guards, neither a tuning of the relevance function: no threshold can
+    // make `track` resemble `transmission`.
+    //
+    // A THIRD GUARD WAS TRIED AND REMOVED: "never emit a token that IS a claim
+    // keyword", on the theory that the model already has the claim. It measured
+    // WORSE. On the TLS demo corpus — where claim and code vocabulary genuinely
+    // do overlap — it deleted `cipher`, `certificate`, `handshake`, `hostname`,
+    // `chain`, `suite`, taking domain coverage from 7/9 to 2/9. Claim words are
+    // sometimes the best code terms available; whether they are is a property
+    // of the corpus, not of the claim. Bounded by the cap and the reserved
+    // share below, echoes cannot dominate, and where they are good they are
+    // kept. Measured with the guard removed: ExoPlayer 2/9 -> 5/9, demo
+    // 7/9 -> 8/9. Do not reinstate it without re-running both corpora.
+    const kwArray = [...claimKeywords];
 
     const scored = [...subTokenMap.entries()].map(([token, data]) => {
       const relevance = _computeTokenRelevance(token, kwArray);
-      return { token, ...data, relevance };
+      // Which claim keyword earned this token its slot — used to cap debris.
+      let owner = null;
+      if (relevance > 0) {
+        let best = -1;
+        for (const kw of kwArray) {
+          const r = _computeTokenRelevance(token, [kw]);
+          if (r > best) { best = r; owner = String(kw).toLowerCase(); }
+        }
+      }
+      return { token, ...data, relevance, owner };
     });
 
-    // Keep only tokens with some relevance to the claim
-    const relevant = scored.filter(st => st.relevance > 0);
+    // GUARD 1 (length): drop sub-4-char relevance matches. the 0.6 shared-stem tier fires on
+    // fragments (`tri`, `res`, `pre`, `but`, `for`, `com`, `min` all earned
+    // slots on the '101 claim), which are noise as search terms. Length is not
+    // a relevance tuning — short tokens that earn their place on VOCABULARY
+    // SCORE still arrive through the reserved half below, which is how genuine
+    // short domain terms (`nal`, `rtp`, `egl`, `gop`, `hls`, `pcm`) survive.
+    const relevant = scored.filter((st) => st.relevance > 0
+      && st.token.length >= MIN_RELEVANCE_TOKEN_LEN);
 
-    // Sort by relevance first, then by vocab score as tiebreaker
     relevant.sort((a, b) => {
       const rDiff = b.relevance - a.relevance;
       if (Math.abs(rDiff) > 0.01) return rDiff;
       return b.score - a.score;
     });
 
-    subTokensSorted = relevant.slice(0, maxSubTokens);
+    // GUARD 2 (cap): limit how many slots any single claim keyword can buy, so one word
+    // cannot fill the concordance with its own morphological variants.
+    const perKeyword = new Map();
+    const capped = [];
+    for (const st of relevant) {
+      const n = perKeyword.get(st.owner) || 0;
+      if (n >= MAX_TOKENS_PER_CLAIM_KEYWORD) continue;
+      perKeyword.set(st.owner, n + 1);
+      capped.push(st);
+    }
+
+    // GUARD 3 (reserve): hold part of the budget for the highest-scoring domain terms
+    // REGARDLESS of claim relevance. This is what restores track/buffer/stream:
+    // they score 0.0 by construction, so relevance-ranking can never reach them.
+    const reserved = Math.floor(maxSubTokens * RESERVED_DOMAIN_FRACTION);
+    const chosen = capped.slice(0, maxSubTokens - reserved);
+    const taken = new Set(chosen.map((st) => st.token));
+    const byScore = [...subTokenMap.entries()]
+      .map(([token, data]) => ({ token, ...data, relevance: 0, owner: null }))
+      .filter((st) => !taken.has(st.token))
+      .sort((a, b) => b.score - a.score);
+
+    subTokensSorted = [...chosen, ...byScore.slice(0, maxSubTokens - chosen.length)];
   } else {
     // No claim keywords - return all sub-tokens by vocab score (original behavior)
     subTokensSorted = [...subTokenMap.entries()]
@@ -995,6 +1066,14 @@ export function getVocabularyForPrompt(idx, opts = {}) {
       processedEntries: topEntries.length,
       uniqueSubTokens: subTokenMap.size,
       claimFiltered,
+      // How many emitted terms were earned by claim relevance vs by vocabulary
+      // score alone. Before the #301 guards, a claim with no lexical overlap
+      // produced an EMPTY concordance, and callers used that emptiness to warn
+      // "no claim-relevant terms found in index". The reserved share means the
+      // concordance is never empty now — which is the intended fix, but it also
+      // silently retired that signal. This count preserves it: relevanceMatched
+      // === 0 is the same diagnostic, without withholding the vocabulary.
+      relevanceMatched: subTokensSorted.filter((st) => (st.relevance || 0) > 0).length,
     },
   };
 }
