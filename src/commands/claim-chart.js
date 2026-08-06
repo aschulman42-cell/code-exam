@@ -38,6 +38,16 @@ import { parseAnalysisLabels, lexicalGate } from './claims-loop.js';
 // both must change together.
 const LABEL_RANK = { ABSENT: 0, ASSUMED: 1, PARTIAL: 2, PRESENT: 3 };
 
+// package.json version, best-effort. A chart that cannot say which build made
+// it cannot be reproduced.
+export function readCeVersion() {
+  try {
+    const here = new URL('../../package.json', import.meta.url);
+    const j = JSON.parse(fs.readFileSync(here, 'utf8'));
+    return j.version ? `v${j.version}` : null;
+  } catch { return null; }
+}
+
 export const CHART_DEFAULTS = {
   calleeDepth: 1,          // depth-1 bodies only; depth 2 blew the local context
   maxCalleeBytes: 6000,    // total appended callee source per target
@@ -58,11 +68,29 @@ export function buildChartTable(claimText) {
 // Parse `--targets "file.java@Class::fn;other.java@fn"` or `@targets.txt`.
 export function parseTargets(spec) {
   let raw = String(spec || '');
+  let source = 'the --targets argument';
   if (raw.startsWith('@')) {
-    try { raw = fs.readFileSync(raw.slice(1), 'utf8'); }
+    const path = raw.slice(1);
+    try { raw = fs.readFileSync(path, 'utf8'); }
     catch (e) { throw new Error(`cannot read targets file: ${e.message}`); }
+    source = `\`${path}\``;
   }
-  return raw.split(/[;\n]/).map((t) => t.trim()).filter(Boolean);
+  // Leading `#` lines are PROVENANCE, carried verbatim into the header. This is
+  // what makes a targets file self-documenting — the operator (or a future
+  // --claim-locate that stamps its own command line into the file it suggests)
+  // records how the list was produced, and the chart can then answer for it.
+  const provenance = [];
+  const targets = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t) continue;
+    if (t.startsWith('#')) { provenance.push(t.replace(/^#+\s*/, '')); continue; }
+    for (const part of t.split(';')) {
+      const p = part.trim();
+      if (p) targets.push(p);
+    }
+  }
+  return { targets, provenance, source };
 }
 
 // Depth-1 callee BODIES for the analysed function.
@@ -169,6 +197,14 @@ export function parseChartVerdicts(text, elements) {
 // citation that produced it. Same rule as claims-loop's anchoredPass.
 export function mergeBestPerElement(perTarget) {
   const best = new Map();
+  // Tally every label each element received, not just the winner. The merge
+  // already visits all of them and was discarding the field: a cell reading
+  // "ASSUMED, RtspMessageChannel" could be 1 of 34 targets with 33 dissenting,
+  // or 30 agreeing, and the chart rendered those identically. The rule stays
+  // strongest-wins — one function implementing an element IS infringement of
+  // that element, so requiring agreement would suppress true findings — but the
+  // reader has to be able to see how lonely a finding is.
+  const tally = new Map();
   for (const { target, elements } of perTarget) {
     for (const e of elements) {
       // Key on the element NUMBER when the VERDICT contract supplied one —
@@ -178,12 +214,17 @@ export function mergeBestPerElement(perTarget) {
         ? `#${e.element}`
         : String(e.text || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
       if (!key) continue;
+      const t = tally.get(key) || { PRESENT: 0, PARTIAL: 0, ASSUMED: 0, ABSENT: 0, total: 0 };
+      if (t[e.label] != null) t[e.label] += 1;
+      t.total += 1;
+      tally.set(key, t);
       const prev = best.get(key);
       if (!prev || (LABEL_RANK[e.label] ?? 0) > (LABEL_RANK[prev.label] ?? 0)) {
         best.set(key, { element: e.element, text: e.text, label: e.label, target, note: e.note || '' });
       }
     }
   }
+  for (const [key, v] of best) v.agreement = tally.get(key) || null;
   return [...best.values()];
 }
 
@@ -204,7 +245,20 @@ export function fillChartRows(table, fills) {
     if (!f) continue;
     const cite = f.target ? `\`${f.target}\`` : '—';
     const note = f.note ? ` ${String(f.note).replace(/\|/g, '\\|').slice(0, 160)}` : '';
-    lines[i] = `| ${m[1]} | ${m[2]} | **${f.label}**${note} | ${cite} |`;
+    // How lonely is this finding? "(1 of 34; 33 ABSENT)" tells the reader that
+    // a lone PRESENT was promoted over 33 dissents — which deserves scrutiny —
+    // while "(30 of 34)" does not.
+    const a = f.agreement;
+    let agree = '';
+    if (a && a.total > 1) {
+      const mine = a[f.label] || 0;
+      const others = Object.entries(a)
+        .filter(([k, n]) => k !== 'total' && k !== f.label && n > 0)
+        .map(([k, n]) => `${n} ${k}`)
+        .join(', ');
+      agree = ` _(${mine} of ${a.total}${others ? `; ${others}` : ''})_`;
+    }
+    lines[i] = `| ${m[1]} | ${m[2]} | **${f.label}**${agree}${note} | ${cite} |`;
   }
   let out = lines.join('\n');
   if (unplaced.length) {
@@ -222,13 +276,49 @@ export function coverageLine(fills, nElements) {
     + `${c.ABSENT} ABSENT · ${Math.max(0, nElements - cited)} element(s) with no finding.`;
 }
 
-export function formatChart({ claimText, table, fills, targets, engineLabel, elements, scopeNote }) {
+// Provenance the artifact must carry to be defensible. Everything here is
+// machine-derived except targetProvenance, which CANNOT be — CE has no way to
+// know how a targets file was produced. When it is unknown the header says so
+// rather than leaving a silent gap: an honest blank is defensible, an invisible
+// one is not. "Where did these targets come from, and why these and not others?"
+// is the first question an opposing expert asks.
+export function buildProvenanceHeader({
+  claimText, claimSource, indexPath, indexFiles, indexSymbols, engineLabel,
+  argv, targets, targetSource, targetProvenance, ceVersion, generatedAt,
+}) {
+  const firstLine = String(claimText || '').split('\n').map((s) => s.trim()).find(Boolean) || '';
+  const rows = [];
+  rows.push(`- **Claim:** ${firstLine.slice(0, 120)}${firstLine.length > 120 ? '…' : ''}`);
+  rows.push(`- **Claim source:** ${claimSource || 'inline text (not from a file)'}`);
+  rows.push(`- **Index:** \`${indexPath}\`${indexFiles != null ? ` — ${indexFiles} files` : ''}${indexSymbols != null ? `, ${indexSymbols} symbols` : ''}`);
+  rows.push(`- **Engine:** ${engineLabel}`);
+  rows.push(`- **Targets:** ${targets} analysed, from ${targetSource || 'the --targets argument'}`);
+  if (targetProvenance && targetProvenance.length) {
+    rows.push('- **Target provenance:**');
+    for (const l of targetProvenance) rows.push(`  - ${l}`);
+  } else {
+    rows.push('- **Target provenance:** _not recorded_ — the targets file carried no'
+      + ' `#` provenance comments and no `--targets-note` was given, so how these'
+      + ' targets were selected (and why these and not others) is not established'
+      + ' by this document.');
+  }
+  rows.push(argv && argv.trim()
+    ? `- **Command:** \`${argv}\``
+    : '- **Command:** _not captured_');
+  rows.push(`- **Generated:** ${generatedAt}`);
+  if (ceVersion) rows.push(`- **CodeExam:** ${ceVersion}`);
+  return rows.join('\n');
+}
+
+export function formatChart({
+  claimText, table, fills, targets, engineLabel, elements, scopeNote, provenance,
+}) {
   const filled = fillChartRows(table, fills);
   const out = [];
   out.push('# Claim chart');
   out.push('');
-  out.push(`_Generated by CodeExam. Engine: ${engineLabel}. ${targets.length} analysed target(s)._`);
-  out.push('');
+  if (provenance) { out.push(provenance); out.push(''); }
+  else { out.push(`_Generated by CodeExam. Engine: ${engineLabel}. ${targets.length} analysed target(s)._`); out.push(''); }
   out.push('## Claim');
   out.push('');
   out.push('```');
@@ -271,10 +361,11 @@ export async function doClaimChart(index, args, opts = {}) {
     console.error('--claim-chart needs --targets "file@fn;file@fn" or --targets @targets.txt');
     process.exitCode = 1; return;
   }
-  let targets;
-  try { targets = parseTargets(args.targets); }
+  let targets, targetProvenance, targetSource;
+  try { ({ targets, provenance: targetProvenance, source: targetSource } = parseTargets(args.targets)); }
   catch (e) { console.error(e.message); process.exitCode = 1; return; }
   if (!targets.length) { console.error('No targets parsed.'); process.exitCode = 1; return; }
+  if (args.targets_note) targetProvenance = [...targetProvenance, String(args.targets_note)];
 
   const model = resolveModel(args);
   if (!model) { console.error('--claim-chart needs a model: --llm <provider> or --model <gguf>.'); process.exitCode = 1; return; }
@@ -343,8 +434,21 @@ export async function doClaimChart(index, args, opts = {}) {
 
   const fills = mergeBestPerElement(perTarget);
   const scopeNote = args.scope_note ? String(args.scope_note) : null;
+  const provenance = buildProvenanceHeader({
+    claimText,
+    claimSource: (typeof spec === 'string' && spec.startsWith('@')) ? `\`${spec.slice(1)}\`` : null,
+    indexPath: args.index_path || '(unknown)',
+    indexFiles: index.files ? (index.files.size ?? index.files.length ?? null) : null,
+    indexSymbols: symbols.length,
+    engineLabel,
+    argv: process.argv.slice(1).join(' '),
+    targets: perTarget.length,
+    targetSource, targetProvenance,
+    ceVersion: readCeVersion(),
+    generatedAt: new Date().toISOString(),
+  });
   console.log(formatChart({
-    claimText, table, fills, elements, engineLabel, scopeNote,
+    claimText, table, fills, elements, engineLabel, scopeNote, provenance,
     targets: perTarget.map((p) => p.target),
   }));
   const cost = actualCostLine(model);

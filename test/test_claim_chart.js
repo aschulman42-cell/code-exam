@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import {
   buildChartTable, parseTargets, collectCalleeBodies, mergeBestPerElement,
   coverageLine, formatChart, doClaimChart, CHART_DEFAULTS,
-  parseChartVerdicts, fillChartRows, buildChartAnalysisPrompt,
+  parseChartVerdicts, fillChartRows, buildChartAnalysisPrompt, buildProvenanceHeader,
 } from '../src/commands/claim-chart.js';
 
 const CLAIM = [
@@ -58,10 +58,17 @@ describe('chart structure comes from the claim, not the model', () => {
 
 describe('targets', () => {
   it('parses a semicolon list and trims', () => {
-    assert.deepEqual(parseTargets('a.java@Foo::bar ; b.java@baz'), ['a.java@Foo::bar', 'b.java@baz']);
+    assert.deepEqual(parseTargets('a.java@Foo::bar ; b.java@baz').targets, ['a.java@Foo::bar', 'b.java@baz']);
   });
   it('parses newline-separated too (targets file shape)', () => {
-    assert.deepEqual(parseTargets('a@b\nc@d\n\n'), ['a@b', 'c@d']);
+    assert.deepEqual(parseTargets('a@b\nc@d\n\n').targets, ['a@b', 'c@d']);
+  });
+  it('carries leading # lines as PROVENANCE, not as targets', () => {
+    // This is what makes a targets file self-documenting: the operator records
+    // how the list was produced, and the chart can then answer for it.
+    const r = parseTargets(['# produced by --claim-locate --hunt --blind', '# run 2 of 2', 'a@b', 'c@d'].join('\n'));
+    assert.deepEqual(r.targets, ['a@b', 'c@d']);
+    assert.deepEqual(r.provenance, ['produced by --claim-locate --hunt --blind', 'run 2 of 2']);
   });
   it('reports a missing targets file rather than silently continuing', () => {
     assert.throws(() => parseTargets('@definitely_not_here_12345.txt'), /cannot read targets file/);
@@ -292,5 +299,72 @@ describe('citations must be file-absolute (the smoke-run defect)', () => {
     assert.match(p, /OWN file line numbers/);
     assert.match(p, /Do not count lines/);
     assert.match(p, /do not renumber from 1/i);
+  });
+});
+
+describe('provenance header', () => {
+  const base = {
+    claimText: '1. A distribution system, comprising a thing.',
+    claimSource: '`claim.txt`', indexPath: '.Idx', indexFiles: 3578, indexSymbols: 65370,
+    engineLabel: 'claude', argv: 'src/index.js --claim-chart @claim.txt',
+    targets: 34, targetSource: '`t.txt`', ceVersion: 'v0.5.0',
+    generatedAt: '2026-08-06T00:00:00.000Z',
+  };
+
+  it('records what is needed to reproduce the run', () => {
+    const h = buildProvenanceHeader({ ...base, targetProvenance: ['produced by X'] });
+    for (const want of ['A distribution system', '`claim.txt`', '.Idx', '3578 files',
+      '65370 symbols', 'claude', '34 analysed', '`t.txt`', 'produced by X',
+      '--claim-chart @claim.txt', '2026-08-06T', 'v0.5.0']) {
+      assert.ok(h.includes(want), `header must record ${want}`);
+    }
+  });
+
+  it('says so explicitly when target provenance is unknown', () => {
+    // An honest blank is defensible; an invisible one is not. "Why these
+    // targets and not others" is the first question asked of a claim chart.
+    const h = buildProvenanceHeader({ ...base, targetProvenance: [] });
+    assert.match(h, /not recorded/);
+    assert.match(h, /why these and not others/);
+  });
+
+  it('does not fabricate a command line it did not capture', () => {
+    const h = buildProvenanceHeader({ ...base, argv: '', targetProvenance: [] });
+    assert.match(h, /not captured/);
+  });
+});
+
+describe('agreement counts', () => {
+  const many = (labels) => labels.map((label, i) => ({
+    target: `T${i}.java@f${i}`,
+    elements: [{ element: 1, text: 'an element', label, note: '' }],
+  }));
+
+  it('tallies every target verdict, not just the winner', () => {
+    const merged = mergeBestPerElement(many(['ABSENT', 'PRESENT', 'ABSENT']));
+    assert.equal(merged[0].label, 'PRESENT', 'strongest still wins');
+    assert.equal(merged[0].agreement.PRESENT, 1);
+    assert.equal(merged[0].agreement.ABSENT, 2);
+    assert.equal(merged[0].agreement.total, 3);
+  });
+
+  it('renders how lonely a finding is', () => {
+    // A lone PRESENT promoted over 33 dissents deserves scrutiny; 30-of-34 does
+    // not. The chart rendered those two situations identically before this.
+    const { table } = buildChartTable(CLAIM);
+    const out = fillChartRows(table, [{
+      element: 1, label: 'PRESENT', target: 'A.java@f', note: 'x',
+      agreement: { PRESENT: 1, PARTIAL: 0, ASSUMED: 0, ABSENT: 33, total: 34 },
+    }]);
+    assert.ok(out.includes('(1 of 34; 33 ABSENT)'), 'agreement is rendered');
+  });
+
+  it('omits the count when there was only one target', () => {
+    const { table } = buildChartTable(CLAIM);
+    const out = fillChartRows(table, [{
+      element: 1, label: 'PRESENT', target: 'A.java@f',
+      agreement: { PRESENT: 1, PARTIAL: 0, ASSUMED: 0, ABSENT: 0, total: 1 },
+    }]);
+    assert.ok(!out.includes('of 1'), 'no agreement note for a single target');
   });
 });
