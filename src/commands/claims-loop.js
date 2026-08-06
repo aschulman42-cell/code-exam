@@ -257,6 +257,70 @@ export function needsRedraft(counts, inGroupSurvivors) {
   return absHeavy && inGroupSurvivors === 0;
 }
 
+// --- redraft (issue-290-loop-redraft: the "back" half of draft<->retrieve) ---
+
+// A claim redrafts when >=1 element's best label is ABSENT, or the
+// needs-redraft flag fired. ASSUMED does not trigger — "implementation
+// plausibly elsewhere" is not a language defect.
+export function redraftTriggered(bestLabels, flagged) {
+  return !!flagged || (bestLabels || []).includes('ABSENT');
+}
+
+// Coverage comparison for accept-best: primary = elements at PRESENT/PARTIAL,
+// tie-break = summed label rank. The redraft is kept only if STRICTLY better.
+export function coverageScore(labels) {
+  let geq = 0, sum = 0;
+  for (const l of labels || []) {
+    sum += LABEL_RANK[l] ?? 0;
+    if (l === 'PRESENT' || l === 'PARTIAL') geq += 1;
+  }
+  return { geq, sum };
+}
+export function betterCoverage(a, b) {
+  return a.geq > b.geq || (a.geq === b.geq && a.sum > b.sum);
+}
+
+// The redraft prompt. Discipline lives here: grounded language is preserved
+// verbatim, ABSENT elements are rewritten to describe the code, and dropping
+// beats inventing.
+export function buildRedraftPrompt(claimText, verdicts, sources) {
+  const sys = [
+    'You revise a draft patent-style claim so it accurately describes the provided code.',
+    'Rules:',
+    '- PRESERVE verbatim every element listed as PRESENT or PARTIAL — that language is grounded in the code.',
+    '- REWRITE each element listed as ABSENT so it describes what the code actually does.',
+    '- If no code supports an element, DROP the element rather than inventing code that is not there.',
+    '- Keep the preamble\'s mechanism intent and the "A method/apparatus for ... comprising:" shape,',
+    '  elements separated by semicolons.',
+    'Reply with exactly "CLAIM:" followed by the revised claim text. No other output.',
+  ].join('\n');
+  const v = (verdicts || []).map((x) => `- [${x.label}] ${x.text}`).join('\n');
+  const user = `ORIGINAL CLAIM:\n${claimText}\n\nELEMENT VERDICTS (from analysis against the code below):\n${v}\n\nCODE:\n${sources}`;
+  return { sys, user };
+}
+
+export function parseRedraft(text) {
+  const m = String(text || '').match(/CLAIM:\s*([\s\S]*)/i);
+  if (!m) return null;
+  const prose = m[1].trim().replace(/\s+/g, ' ');
+  return prose.length > 40 ? prose : null;
+}
+
+// An empty claim-chart table for redrafted prose (preamble to the first ':',
+// elements on ';') — fillChartSection then populates the cells.
+export function emptyChartTable(prose) {
+  const text = String(prose || '').trim();
+  const ci = text.indexOf(':');
+  const preamble = ci >= 0 ? text.slice(0, ci + 1).trim() : '';
+  const body = ci >= 0 ? text.slice(ci + 1) : text;
+  const elements = body.split(';').map((e) => e.trim().replace(/[.\s]+$/, '')).filter(Boolean);
+  const lines = ['| # | Claim element / step | Cited code |', '|---|---|---|'];
+  let n = 0;
+  if (preamble) { n += 1; lines.push(`| ${n} | ${preamble.replace(/\|/g, '\\|')} | _Preamble_ |`); }
+  for (const e of elements) { n += 1; lines.push(`| ${n} | ${e.replace(/\|/g, '\\|')} |  |`); }
+  return lines.join('\n');
+}
+
 // --- the command ------------------------------------------------------------
 
 export async function doClaimsLoop(index, args, opts = {}) {
@@ -313,31 +377,27 @@ export async function doClaimsLoop(index, args, opts = {}) {
   resetCloudUsage();
   process.stderr.write(`# claims-loop: ${claims.length} claims, K=${loopK}, model=${model.modelPath || model.label}\n`);
 
-  // Pass 1: per-claim anchored analysis + retrieval hit collection.
-  const perClaim = [];
-  const hitsPerClaim = new Map();
-  for (const c of claims) {
-    const members = groups.get(c.label) || null;
-    const rec = { ...c, members, anchors: [], counts: { PRESENT: 0, PARTIAL: 0, ABSENT: 0, ASSUMED: 0 }, best: new Map(), hits: [] };
-    if (!members) process.stderr.write(`#   [c${c.n}] group not found in .lst: "${c.label}"\n`);
+  const srcLookup = (m) => {
+    const i2 = m.indexOf('@');
+    try { return index.getFunctionSource(m.slice(0, i2), m.slice(i2 + 1)); } catch { return null; }
+  };
 
-    // Stage 1 — anchored element mapping.
-    const srcLookup = (m) => {
-      const i2 = m.indexOf('@');
-      try { return index.getFunctionSource(m.slice(0, i2), m.slice(i2 + 1)); } catch { return null; }
-    };
-    for (const anchor of pickAnchors(c.label, members || [], loopK, c.claimText, srcLookup)) {
+  // One anchored element-mapping pass over a claim text: analyze each anchor,
+  // gate labels lexically, keep best-per-element. Shared by pass 1 and the
+  // redraft phase's re-analysis (issue-290-loop-redraft).
+  const anchoredPass = async (claimTag, claimText, anchorSpecs, savePrefix) => {
+    const res = { counts: { PRESENT: 0, PARTIAL: 0, ABSENT: 0, ASSUMED: 0 }, best: new Map(), perAnchor: [], gatedCount: 0 };
+    for (const anchor of anchorSpecs) {
       const at = anchor.indexOf('@');
       const fp = anchor.slice(0, at), fn = anchor.slice(at + 1);
-      let src = null;
-      try { src = index.getFunctionSource(fp, fn); } catch { /* fall through */ }
+      const src = srcLookup(anchor);
       if (!src) continue;
       let out;
-      try { out = await draft(buildClaimAnalyzePrompt(src, fn, fp, c.claimText, false), '', 800); }
-      catch (e) { process.stderr.write(`#   [c${c.n}] draft error on ${fn}: ${e.message}\n`); continue; }
+      try { out = await draft(buildClaimAnalyzePrompt(src, fn, fp, claimText, false), '', 800); }
+      catch (e) { process.stderr.write(`#   [${claimTag}] draft error on ${fn}: ${e.message}\n`); continue; }
       if (saveDir) {
         const safe = bareName(fn).replace(/[^A-Za-z0-9_]/g, '_');
-        fs.writeFileSync(`${saveDir}/c${c.n}_${safe}.txt`, `# ${anchor}\n# claim c${c.n}: ${c.label}\n\n${out || ''}\n`);
+        fs.writeFileSync(`${saveDir}/${savePrefix}_${safe}.txt`, `# ${anchor}\n# claim ${claimTag}\n\n${out || ''}\n`);
       }
       const parsed = parseAnalysisLabels(out || '');
       // Apply the lexical gate per element, then derive counts from the GATED
@@ -347,55 +407,133 @@ export async function doClaimsLoop(index, args, opts = {}) {
       // model emitted no parseable element blocks.
       const gated = parsed.elements.map((e) => {
         const label = lexicalGate(e.label, e.text, fn + '\n' + src);
-        if (label !== e.label) rec.gatedCount = (rec.gatedCount || 0) + 1;
+        if (label !== e.label) res.gatedCount += 1;
         return { ...e, label };
       });
       const counts = { PRESENT: 0, PARTIAL: 0, ABSENT: 0, ASSUMED: 0 };
       if (gated.length) for (const e of gated) counts[e.label]++;
       else for (const k of Object.keys(counts)) counts[k] = parsed.counts[k];
-      rec.anchors.push({ anchor, counts });
-      for (const k of Object.keys(rec.counts)) rec.counts[k] += counts[k];
+      res.perAnchor.push({ anchor, counts });
+      for (const k of Object.keys(res.counts)) res.counts[k] += counts[k];
       for (const e of gated) {
         const key = [...kw(e.text)].sort().join(' ');
-        const prev = rec.best.get(key);
+        const prev = res.best.get(key);
         if (!prev || LABEL_RANK[e.label] > LABEL_RANK[prev.label]) {
-          rec.best.set(key, { text: e.text, label: e.label, target: `${fp.split('!').pop()}@${bareName(fn)}` });
+          res.best.set(key, { text: e.text, label: e.label, target: `${fp.split('!').pop()}@${bareName(fn)}` });
         }
       }
     }
+    return res;
+  };
+
+  // Retrieval for a claim text: local term extraction + multisect. Shared by
+  // pass 1 and the redraft phase's convergence re-measurement.
+  const retrievalPass = async (claimText) => {
+    let vocab = '';
+    try {
+      vocab = index.formatVocabularyForPrompt?.('compact', {
+        topN: 200, maxSubTokens: 80, maxFuncNames: 0, claimKeywords: extractClaimKeywords(claimText),
+      }) || '';
+    } catch { /* vocabulary optional */ }
+    const sys = vocab ? buildLocalExtractionPromptWithVocab(vocab, false) : CLAIM_EXTRACTION_PROMPT_LOCAL;
+    const raw = await draft(sys, 'Extract search terms from this patent claim:\n\n' + claimText, 2048);
+    let tight = parseTermResponse(raw || '').tight || '';
+    tight = sanitizeLlmTerms(dropStopListedTerms(tight, 'TIGHT'), 'TIGHT');
+    const terms = tight ? parseMultisectTerms(tight) : null;
+    if (!terms) return [];
+    const pos = terms.filter((t) => !t.negated).length;
+    const res = index.multisectSearch(terms, { minTerms: Math.max(2, Math.floor(pos * LOOP_DEFAULTS.minTermsFrac)) });
+    return (res?.function_matches || []).filter((f) => f.function !== '(global)')
+      .map((f) => ({ name: f.function, filepath: f.filepath, k: f.terms_matched }));
+  };
+
+  // Pass 1: per-claim anchored analysis + retrieval hit collection.
+  const perClaim = [];
+  const hitsPerClaim = new Map();
+  for (const c of claims) {
+    const members = groups.get(c.label) || null;
+    const rec = { ...c, members, anchors: [], counts: { PRESENT: 0, PARTIAL: 0, ABSENT: 0, ASSUMED: 0 }, best: new Map(), hits: [] };
+    if (!members) process.stderr.write(`#   [c${c.n}] group not found in .lst: "${c.label}"\n`);
+
+    // Stage 1 — anchored element mapping.
+    rec.anchorSpecs = pickAnchors(c.label, members || [], loopK, c.claimText, srcLookup);
+    const a = await anchoredPass(`c${c.n}: ${c.label}`, c.claimText, rec.anchorSpecs, `c${c.n}`);
+    rec.anchors = a.perAnchor;
+    rec.counts = a.counts;
+    rec.best = a.best;
+    rec.gatedCount = a.gatedCount;
 
     // Stage 2 — retrieval (local term extraction + multisect).
-    try {
-      let vocab = '';
-      try {
-        vocab = index.formatVocabularyForPrompt?.('compact', {
-          topN: 200, maxSubTokens: 80, maxFuncNames: 0, claimKeywords: extractClaimKeywords(c.claimText),
-        }) || '';
-      } catch { /* vocabulary optional */ }
-      const sys = vocab ? buildLocalExtractionPromptWithVocab(vocab, false) : CLAIM_EXTRACTION_PROMPT_LOCAL;
-      const raw = await draft(sys, 'Extract search terms from this patent claim:\n\n' + c.claimText, 2048);
-      let tight = parseTermResponse(raw || '').tight || '';
-      tight = sanitizeLlmTerms(dropStopListedTerms(tight, 'TIGHT'), 'TIGHT');
-      const terms = tight ? parseMultisectTerms(tight) : null;
-      if (terms) {
-        const pos = terms.filter((t) => !t.negated).length;
-        const res = index.multisectSearch(terms, { minTerms: Math.max(2, Math.floor(pos * LOOP_DEFAULTS.minTermsFrac)) });
-        rec.hits = (res?.function_matches || []).filter((f) => f.function !== '(global)')
-          .map((f) => ({ name: f.function, filepath: f.filepath, k: f.terms_matched }));
-      }
-    } catch (e) {
-      process.stderr.write(`#   [c${c.n}] retrieval error: ${e.message}\n`);
-    }
+    try { rec.hits = await retrievalPass(c.claimText); }
+    catch (e) { process.stderr.write(`#   [c${c.n}] retrieval error: ${e.message}\n`); }
     hitsPerClaim.set(c.n, rec.hits);
     perClaim.push(rec);
     const t = rec.counts;
     process.stderr.write(`#   [c${c.n}] ${c.label.slice(0, 40)}  anchors=${rec.anchors.length} P=${t.PRESENT}/Pa=${t.PARTIAL}/Ab=${t.ABSENT}/As=${t.ASSUMED} gated=${rec.gatedCount || 0} hits=${rec.hits.length}\n`);
   }
 
-  // Pass 2: sponge suppression, agreement, writeback.
+  // Pass 2a: sponge suppression, agreement, convergence flags.
   const spongeT = Number(args.sponge_t) || LOOP_DEFAULTS.spongeT;
   const sponges = detectSponges(hitsPerClaim, spongeT);
-  let agree = 0, flagged = [];
+  let agree = 0;
+  const flagged = [];
+  for (const rec of perClaim) {
+    rec.survivors = rec.hits.filter((h) => !sponges.has(h.name));
+    rec.inGroup = rec.survivors.filter((h) => hitInGroup(h, rec.members)).length;
+    if (rec.inGroup > 0) agree += 1;
+    rec.crossGroup = rec.survivors.filter((h) => !hitInGroup(h, rec.members)).slice(0, 3);
+    rec.flagged = needsRedraft(rec.counts, rec.inGroup);
+    if (rec.flagged) flagged.push(rec);
+  }
+
+  // Pass 2b: redraft (issue-290-loop-redraft) — ONE cycle, accept-best.
+  // Feed the anchored verdicts back to the drafter for triggered claims,
+  // re-analyze the new language against the same anchors, keep the redraft
+  // only if element coverage strictly improves. Second cost gate here: the
+  // triggered count is now known deterministically.
+  const redrafts = { accepted: [], rejected: [], gateSkipped: false };
+  if (args.loop_redraft) {
+    const triggered = perClaim.filter((r) => r.members && r.anchorSpecs?.length
+      && redraftTriggered([...r.best.values()].map((b) => b.label), r.flagged));
+    if (triggered.length) {
+      const calls = [];
+      for (const r of triggered) {
+        const srcChars = r.anchorSpecs.reduce((n, a2) => n + (srcLookup(a2)?.length || 0), 0);
+        calls.push({ inChars: srcChars + r.claimText.length + 1200, outTokens: 400 }); // redraft
+        for (const a2 of r.anchorSpecs) calls.push({ inChars: (srcLookup(a2)?.length || 0) + r.claimText.length + 1600, outTokens: 800 }); // re-analysis
+        calls.push({ inChars: r.claimText.length + 3000, outTokens: 150 }); // convergence retrieval
+      }
+      if (!claimsCostGate(model, calls, `redraft ${triggered.length} claims`, args)) {
+        redrafts.gateSkipped = true;
+        process.stderr.write(`#   redraft phase skipped by cost gate (${triggered.length} triggered)\n`);
+      } else {
+        for (const r of triggered) {
+          const sources = r.anchorSpecs.map((a2) => srcLookup(a2) || '').filter(Boolean).join('\n\n').slice(0, 48000);
+          const { sys, user } = buildRedraftPrompt(r.claimText, [...r.best.values()], sources);
+          let prose = null;
+          try { prose = parseRedraft(await draft(sys, user, 700)); }
+          catch (e) { process.stderr.write(`#   [c${r.n}] redraft error: ${e.message}\n`); }
+          if (!prose) { redrafts.rejected.push({ rec: r, reason: 'no parseable redraft' }); continue; }
+          const re = await anchoredPass(`c${r.n} redraft: ${r.label}`, prose, r.anchorSpecs, `c${r.n}_r2`);
+          const oldScore = coverageScore([...r.best.values()].map((b) => b.label));
+          const newScore = coverageScore([...re.best.values()].map((b) => b.label));
+          if (betterCoverage(newScore, oldScore)) {
+            let newHits = [];
+            try { newHits = await retrievalPass(prose); } catch { /* convergence metric optional */ }
+            const newInGroup = newHits.filter((h) => !sponges.has(h.name) && hitInGroup(h, r.members)).length;
+            r.redraft = { prose, best: re.best, counts: re.counts, inGroup: newInGroup };
+            redrafts.accepted.push(r);
+          } else {
+            redrafts.rejected.push({ rec: r, reason: 'coverage did not improve' });
+          }
+          const t2 = r.redraft ? r.redraft.counts : null;
+          process.stderr.write(`#   [c${r.n}] redraft ${r.redraft ? `ACCEPTED P=${t2.PRESENT}/Pa=${t2.PARTIAL}/Ab=${t2.ABSENT}/As=${t2.ASSUMED}` : 'rejected'}\n`);
+        }
+      }
+    }
+  }
+
+  // Pass 2c: writeback.
   const sections = [];
   let cursor = 0;
   for (let i = 0; i < perClaim.length; i++) {
@@ -404,21 +542,34 @@ export async function doClaimsLoop(index, args, opts = {}) {
     const secEnd = i + 1 < perClaim.length ? perClaim[i + 1].headStart : chartText.length;
     if (secStart > cursor) sections.push(chartText.slice(cursor, secStart));
     cursor = secEnd;
-    let section = chartText.slice(secStart, secEnd);
+    const original = chartText.slice(secStart, secEnd);
+    let section;
 
-    const survivors = rec.hits.filter((h) => !sponges.has(h.name));
-    const inGroup = survivors.filter((h) => hitInGroup(h, rec.members)).length;
-    if (inGroup > 0) agree += 1;
-    const crossGroup = survivors.filter((h) => !hitInGroup(h, rec.members)).slice(0, 3);
+    if (rec.redraft) {
+      // Accepted redraft: new language + fresh chart, original preserved for
+      // audit. The heading line is reused verbatim from the original section.
+      const heading = original.split('\n')[0];
+      const rewritten = [...rec.redraft.best.values()].filter((f) => f.label === 'PRESENT' || f.label === 'PARTIAL');
+      const table = fillChartSection(emptyChartTable(rec.redraft.prose), rewritten);
+      section = [
+        heading, '',
+        `_Redrafted by the claims-loop (#290 draft↔retrieve convergence): ABSENT elements rewritten to match the anchored code; grounded language preserved. Original claim below for audit._`, '',
+        rec.redraft.prose, '',
+        '### Claim chart (loop-redrafted)', '',
+        table, '',
+        `> Original claim (pre-redraft): ${rec.claimText.replace(/\n/g, ' ')}`, '', '',
+      ].join('\n');
+    } else {
+      let s2 = original;
+      const fills = [...rec.best.values()].filter((f) => f.label === 'PRESENT' || f.label === 'PARTIAL');
+      s2 = fillChartSection(s2, fills);
+      section = s2;
+    }
 
-    const fills = [...rec.best.values()].filter((f) => f.label === 'PRESENT' || f.label === 'PARTIAL');
-    section = fillChartSection(section, fills);
     const noteBits = [];
-    if (crossGroup.length) noteBits.push(`cross-group candidate(s): ${crossGroup.map((h) => `\`${h.name}\``).join(', ')}`);
-    if (rec.hits.length && !survivors.length) noteBits.push('all retrieval hits were vocabulary sponges');
+    if (rec.crossGroup.length) noteBits.push(`cross-group candidate(s): ${rec.crossGroup.map((h) => `\`${h.name}\``).join(', ')}`);
+    if (rec.hits.length && !rec.survivors.length) noteBits.push('all retrieval hits were vocabulary sponges');
     if (noteBits.length) section = section.trimEnd() + `\n\n_Loop retrieval (sponge-filtered): ${noteBits.join('; ')}._\n\n`;
-
-    if (needsRedraft(rec.counts, inGroup)) flagged.push(rec);
     sections.push(section);
   }
   sections.push(chartText.slice(cursor));
@@ -435,9 +586,28 @@ export async function doClaimsLoop(index, args, opts = {}) {
     `- Lexical gate downgraded ${perClaim.reduce((n, r) => n + (r.gatedCount || 0), 0)} PRESENT/PARTIAL result(s) to ASSUMED (no element↔function vocabulary overlap)`,
     '',
   ];
-  if (flagged.length) {
+  if (args.loop_redraft) {
+    if (redrafts.accepted.length) {
+      const conv = redrafts.accepted.filter((r) => r.redraft.inGroup > 0).length;
+      const convWas = redrafts.accepted.filter((r) => r.inGroup > 0).length;
+      summary.push('### Redrafted (coverage improved; original preserved in-section)', '');
+      for (const r of redrafts.accepted) {
+        const t = r.redraft.counts;
+        summary.push(`- Pseudo-claim ${r.n} — ${r.label} (now P=${t.PRESENT}/Pa=${t.PARTIAL}/Ab=${t.ABSENT}/As=${t.ASSUMED})`);
+      }
+      summary.push('', `- Convergence: ${conv}/${redrafts.accepted.length} accepted redrafts retrieve their own group (originals: ${convWas}/${redrafts.accepted.length})`, '');
+    }
+    if (redrafts.rejected.length) {
+      summary.push('### Redraft rejected (kept original)', '');
+      for (const x of redrafts.rejected) summary.push(`- Pseudo-claim ${x.rec.n} — ${x.rec.label} (${x.reason})`);
+      summary.push('');
+    }
+    if (redrafts.gateSkipped) summary.push('_Redraft phase skipped by the cost gate — re-run with --force or a higher CE_CLAIMS_COST_GUARD._', '');
+  }
+  const stillFlagged = flagged.filter((r) => !r.redraft);
+  if (stillFlagged.length) {
     summary.push('### Needs redraft (ABSENT-heavy vs own anchors, retrieval-silent)', '');
-    for (const r of flagged) summary.push(`- Pseudo-claim ${r.n} — ${r.label}`);
+    for (const r of stillFlagged) summary.push(`- Pseudo-claim ${r.n} — ${r.label}`);
     summary.push('');
   }
 
@@ -446,6 +616,6 @@ export async function doClaimsLoop(index, args, opts = {}) {
   const loopCost = actualCostLine(model);
   if (loopCost) console.log(loopCost);
   console.log(`# claims-loop: wrote ${outPath}`);
-  console.log(`#   filled from anchored analysis; agreement ${agree}/${perClaim.length}; sponges: ${[...sponges].join(', ') || 'none'}; needs-redraft: ${flagged.length}`);
-  return { outPath, perClaim, sponges, agree, flagged };
+  console.log(`#   filled from anchored analysis; agreement ${agree}/${perClaim.length}; sponges: ${[...sponges].join(', ') || 'none'}; needs-redraft: ${flagged.length}${args.loop_redraft ? `; redrafted: ${redrafts.accepted.length} (rejected ${redrafts.rejected.length})` : ''}`);
+  return { outPath, perClaim, sponges, agree, flagged, redrafts };
 }
