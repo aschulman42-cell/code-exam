@@ -679,13 +679,18 @@ function _parseResponse(rawText) {
  * the limitations that distinguish the claim.
  *
  * ---------------------------------------------------------------------------
- * OPEN DISAGREEMENT — recorded here for later negotiation with the ASUS session
+ * SETTLED — was an open disagreement with the ASUS session; now resolved
  * ---------------------------------------------------------------------------
  * The ASUS session (RESULTS_FROM_ASUS_080526.md §4a) reported this and drew a
  * stronger conclusion: that with `min_terms=5/7`, "TIGHT returning 0 survivors
  * was structurally guaranteed before any model was involved" by the drop.
  *
- * This session disputes the causal half, on three checks:
+ * This session disputed the causal half, on three checks, and the ASUS session
+ * WITHDREW the claim after verifying them (CONVERSATION_5.md): "`claim.js:1011`
+ * is `Math.max(Math.floor(positiveTerms.length * 0.80), 2)`. 11 -> 8, 7 -> 5.
+ * The drop LOWERED the bar. My 'structurally guaranteed' was wrong on causation
+ * and I withdraw it." §4a stands as information loss plus a misleading label —
+ * not as the cause of the miss. The three checks:
  *
  *   1. `minTerms` is `floor(positiveTerms.length * 0.80)` for TIGHT (see
  *      _runClaimTier below). Dropping 11 -> 7 moved the bar from 8 DOWN to 5.
@@ -699,9 +704,19 @@ function _parseResponse(rawText) {
  *
  * So the loss is real and worth surfacing, but it is not what caused the '101
  * miss. The actual gap is patent-ese -> code vocabulary, which no sanitizer
- * change can close (see the #301 discussion; measured separately, the bridge
- * terms rank 686 / 4,236 / 6,867 against a topN=200 concordance cut, so they
- * are absent whether or not the claim filter runs).
+ * change can close — see #301 and the concordance work in aa2bdc9.
+ *
+ * CORRECTION (superseding an earlier version of this comment): that earlier
+ * text claimed the bridge terms were "absent whether or not the claim filter
+ * runs". That was WRONG and is retracted. It came from a membership regex
+ * mangled by shell escaping, which matched a literal backslash and therefore
+ * reported every term absent; `track`, `selection`, `stream` and `seek` were in
+ * the unfiltered concordance all along. The measured position, post-aa2bdc9:
+ * the concordance now supplies real code vocabulary (`bitrate`, `codec`,
+ * `track`, `buffer`, `stream`), and it is the CLAIM FILTER that removes those
+ * on the filtered path — 2/9 domain terms filtered vs 5/9 unfiltered, with 19
+ * of 80 slots spent echoing the claim's own words back. That is #301's
+ * remaining half. Numbers and derivation in CONVERSATION_5.md.
  *
  * Consequently this change is OBSERVABILITY ONLY. Deliberately NOT done:
  *   - Raising MAX_ALT_WORDS to 3. The kept terms would score 0 and consume
@@ -712,9 +727,10 @@ function _parseResponse(rawText) {
  *     it — but it risks flooding the list with low-value words. Revisit once
  *     the setAside counter shows how often this fires in practice.
  *
- * If the ASUS session can show a case where keeping the multi-word terms
- * changes the RESULT (not just the counts), that settles it the other way and
- * the behavior change should follow.
+ * The behavior change remains open on its own merits: if anyone can show a case
+ * where keeping the multi-word terms changes the RESULT (not just the counts),
+ * raising MAX_ALT_WORDS or decomposing becomes justified. No such case has been
+ * measured.
  */
 export function sanitizeLlmTerms(termsStr, label = '', metaOut = null) {
   if (!termsStr) return termsStr;

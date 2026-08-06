@@ -431,8 +431,17 @@ export async function doClaimsLoop(index, args, opts = {}) {
   const retrievalPass = async (claimText) => {
     let vocab = '';
     try {
+      // topN selects which compounds get SPLIT; maxSubTokens caps what is
+      // EMITTED. They are independent, so a large topN costs build time only
+      // (~3ms -> ~20-58ms at 15000), never prompt budget. 15000 is not a tuned
+      // number: vocabulary.js caps the cached vocabulary at slice(0, 15000), so
+      // it means 'the whole vocabulary' -- do not pre-truncate, let the
+      // cross-corpus weight select. Matches claim.js, analyze.js and both
+      // server.js routes; this site was missed in aa2bdc9 because it uses
+      // optional chaining (`formatVocabularyForPrompt?.(`) and the audit grep
+      // searched for identifier-plus-paren.
       vocab = index.formatVocabularyForPrompt?.('compact', {
-        topN: 200, maxSubTokens: 80, maxFuncNames: 0, claimKeywords: extractClaimKeywords(claimText),
+        topN: 15000, maxSubTokens: 80, maxFuncNames: 0, claimKeywords: extractClaimKeywords(claimText),
       }) || '';
     } catch { /* vocabulary optional */ }
     const sys = vocab ? buildLocalExtractionPromptWithVocab(vocab, false) : CLAIM_EXTRACTION_PROMPT_LOCAL;
