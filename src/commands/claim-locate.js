@@ -697,7 +697,71 @@ export function formatLocateReport(rows, opts = {}) {
 
 /** `File.java@symbol` specs for verified rows — the targets a chart consumes. */
 export function targetSpecs(found) {
-  return found.map((r) => `${r.match.filepath.split('!').pop().split('/').pop()}@${r.match.name}`);
+  return dedupeTargets(found.map(
+    (r) => `${r.match.filepath.split('!').pop().split('/').pop()}@${r.match.name}`)).targets;
+}
+
+// Identity key for a target spec. `File.java@Class::method` and
+// `File.java@method` name the SAME function, and both forms appear — models mix
+// conventions within one list, and two engines disagree on which they emit. A
+// string compare would leave both, so the chart would analyse one function
+// twice, pay twice, and count it twice in the per-element agreement tally that
+// exists to show how lonely a finding is.
+export function normalizeTargetSpec(spec) {
+  const s = String(spec || '').trim();
+  const at = s.lastIndexOf('@');
+  const file = (at >= 0 ? s.slice(0, at) : '').split(/[\\/]/).pop().toLowerCase();
+  const sym = (at >= 0 ? s.slice(at + 1) : s).trim();
+  return `${file}@${sym.replace(/^.*::/, '').toLowerCase()}`;
+}
+
+// Collapse duplicates, then drop any CLASS target whose own methods are also
+// targeted. On the live run Claude's list held `AdaptiveTrackSelection.java@
+// AdaptiveTrackSelection` — 815 lines, and ambiguous (--extract resolves two
+// symbols for that name) — alongside four of its methods. The class body
+// already contains them, so the same source went to the model five times and
+// four verdicts rested on evidence the fifth subsumed.
+//
+// Methods win over the class: the methods are the specific evidence, and a
+// citation to an 815-line class is not a citation a reader can check.
+export function dedupeTargets(specs) {
+  const seen = new Map();
+  let duplicates = 0;
+  for (const spec of specs || []) {
+    const key = normalizeTargetSpec(spec);
+    if (seen.has(key)) { duplicates++; continue; }
+    seen.set(key, spec);
+  }
+  // A spec is class-shaped for this purpose when another spec in the same file
+  // qualifies its members with that class name (`File@Cls` vs `File@Cls::m`).
+  //
+  // EVERY qualifier segment counts, not just the outermost. Nested classes are
+  // common in Java and the live gemini run produced two cases the
+  // outermost-only version missed: `AdTagLoader.java@ContentPlaybackAdapter`
+  // beside `AdTagLoader::ContentPlaybackAdapter::getContentProgress`, and
+  // `NetworkTypeObserver.java@Receiver` beside
+  // `NetworkTypeObserver::Receiver::onReceive`. Splitting on the first `::`
+  // registered only `AdTagLoader` / `NetworkTypeObserver`, so the nested class
+  // survived alongside its own method — the exact redundancy this rule exists
+  // to remove.
+  const owners = new Set();
+  for (const spec of seen.values()) {
+    const at = spec.lastIndexOf('@');
+    const sym = at >= 0 ? spec.slice(at + 1) : spec;
+    const file = (at >= 0 ? spec.slice(0, at) : '').split(/[\\/]/).pop().toLowerCase();
+    const parts = sym.split('::');
+    // All but the last segment: the last is the member, the rest are containers.
+    for (const p of parts.slice(0, -1)) owners.add(`${file}@${p.toLowerCase()}`);
+  }
+  const kept = [];
+  const containers = [];
+  for (const spec of seen.values()) {
+    const at = spec.lastIndexOf('@');
+    const sym = at >= 0 ? spec.slice(at + 1) : spec;
+    if (!sym.includes('::') && owners.has(normalizeTargetSpec(spec))) { containers.push(spec); continue; }
+    kept.push(spec);
+  }
+  return { targets: kept, duplicates, containers };
 }
 
 // Checksum over the NORMALIZED target list (one per line), so it survives
@@ -928,6 +992,7 @@ export async function doClaimLocate(index, args, opts = {}) {
     // a callee of the 50-line updateSelectedTrack); a class's callees are its
     // members, which say nothing about the claim.
     let promoted = 0;
+    let navTestsSkipped = 0;
     const navSeeds = rows.filter((r) => r.verified && r.nav
       && r.match.start != null && (r.match.end - r.match.start) <= LOCATE_DEFAULTS.maxSeedSpan);
     for (const seed of navSeeds) {
@@ -941,6 +1006,15 @@ export async function doClaimLocate(index, args, opts = {}) {
         const v = local.length ? { status: 'exact', matches: local, ambiguous: local.length > 1 ? local.length : 0 }
           : verifySymbol(symbols, name);
         if (!isFound(v)) continue;
+        // Same test predicate SEARCH and MEMBERS apply. Not because test code
+        // is noise — a claim reading on instrumentation, coverage, fault
+        // injection or a harness lands squarely in test utilities — but because
+        // --include-tests must mean the SAME thing on every path. Before this,
+        // an operator who excluded test code still got it (FakeClock arrived as
+        // a callee of updateSelectedTrack on the live '101 run), and an
+        // operator who wanted it had no way to know navigation was the only
+        // reason any appeared.
+        if (!args.include_tests && isTestSymbol(v.matches[0])) { navTestsSkipped++; continue; }
         seen.add(name);
         promoted++;
         rows.push({
@@ -950,6 +1024,12 @@ export async function doClaimLocate(index, args, opts = {}) {
           viaNavigation: seed.match.name,
         });
       }
+    }
+    // Never lose a symbol silently. An operator examining a test suite as the
+    // accused artifact needs to know --include-tests is what they want.
+    if (navTestsSkipped) {
+      console.log(`  ${navTestsSkipped} navigated symbol(s) skipped as test code `
+        + '(--include-tests to keep them).');
     }
   }
 

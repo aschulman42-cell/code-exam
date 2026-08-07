@@ -29,7 +29,7 @@
 import fs from 'node:fs';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage } from '../core/llm-runner.js';
 import { buildClaimAnalyzePrompt, addLineNumbers } from './analyze.js';
-import { splitClaimElements, targetsChecksum } from './claim-locate.js';
+import { splitClaimElements, targetsChecksum, dedupeTargets } from './claim-locate.js';
 import { readCeVersion } from '../utils.js';
 import { buildSymbolTable, verifySymbol, isFound, navigateFrom } from '../core/symbol-verify.js';
 import { parseAnalysisLabels, lexicalGate } from './claims-loop.js';
@@ -96,9 +96,16 @@ export function parseTargets(spec) {
   // does not forbid it. But without this the provenance block would keep
   // vouching for a run that produced a DIFFERENT list than the one below it,
   // which just relocates the honesty problem the block exists to solve.
+  //
+  // Checksummed BEFORE dedup, deliberately: a duplicate hand-added to a
+  // CE-produced file is an edit, and deduping first would hide it.
   const integrity = claimed == null ? null
     : (targetsChecksum(targets) === claimed ? 'unmodified' : 'modified');
-  return { targets, provenance, source, integrity };
+  // Defence in depth — a hand-written targets file gets the same protection as
+  // a CE-emitted one. A duplicate here would inflate the per-element agreement
+  // count, which is the one number in the chart a reader cannot sanity-check.
+  const { targets: unique, duplicates, containers } = dedupeTargets(targets);
+  return { targets: unique, provenance, source, integrity, duplicates, containers };
 }
 
 // Depth-1 callee BODIES for the analysed function.
@@ -293,6 +300,7 @@ export function coverageLine(fills, nElements) {
 export function buildProvenanceHeader({
   claimText, claimSource, indexPath, indexFiles, indexSymbols, engineLabel,
   argv, targets, targetSource, targetProvenance, targetIntegrity, ceVersion, generatedAt,
+  targetDuplicates, targetContainers, targetUnresolved, targetAmbiguous,
 }) {
   const firstLine = String(claimText || '').split('\n').map((s) => s.trim()).find(Boolean) || '';
   const rows = [];
@@ -308,6 +316,29 @@ export function buildProvenanceHeader({
         + ' original list was made, not this one'
       : '';
   rows.push(`- **Targets:** ${targets} analysed, from ${targetSource || 'the --targets argument'}${integrity}`);
+  // The chart must never under-report its own inputs. A target the model never
+  // saw — dropped as a duplicate, subsumed by a class, or unresolvable in this
+  // index — changes what the verdicts and the agreement counts mean, and a
+  // reader who cannot see the drop reads ABSENT as "CE looked and found
+  // nothing" when it may mean "CE could not look". (#305 Part A.)
+  const drops = [];
+  if (targetDuplicates) drops.push(`${targetDuplicates} duplicate(s) collapsed`);
+  if (targetContainers && targetContainers.length) {
+    drops.push(`${targetContainers.length} class target(s) dropped in favour of their own`
+      + ` methods, which were also targeted (${targetContainers.join(', ')})`);
+  }
+  if (targetUnresolved && targetUnresolved.length) {
+    drops.push(`**${targetUnresolved.length} target(s) could not be resolved in this index`
+      + ` and were NOT analysed**: ${targetUnresolved.join(', ')}`);
+  }
+  if (targetAmbiguous && targetAmbiguous.length) {
+    // The chart picks the first match. Silently, until now — so a citation
+    // could point at a different symbol than the one the target names, with
+    // nothing in the artifact to reveal it.
+    drops.push(`${targetAmbiguous.length} ambiguous target(s) — first match used:`
+      + ` ${targetAmbiguous.join(', ')}`);
+  }
+  for (const d of drops) rows.push(`  - ${d}`);
   if (targetProvenance && targetProvenance.length) {
     rows.push('- **Target provenance:**');
     for (const l of targetProvenance) rows.push(`  - ${l}`);
@@ -376,8 +407,9 @@ export async function doClaimChart(index, args, opts = {}) {
     console.error('--claim-chart needs --targets "file@fn;file@fn" or --targets @targets.txt');
     process.exitCode = 1; return;
   }
-  let targets, targetProvenance, targetSource, targetIntegrity;
-  try { ({ targets, provenance: targetProvenance, source: targetSource, integrity: targetIntegrity } = parseTargets(args.targets)); }
+  let targets, targetProvenance, targetSource, targetIntegrity, targetDuplicates, targetContainers;
+  try { ({ targets, provenance: targetProvenance, source: targetSource, integrity: targetIntegrity,
+    duplicates: targetDuplicates, containers: targetContainers } = parseTargets(args.targets)); }
   catch (e) { console.error(e.message); process.exitCode = 1; return; }
   if (!targets.length) { console.error('No targets parsed.'); process.exitCode = 1; return; }
   if (args.targets_note) targetProvenance = [...targetProvenance, String(args.targets_note)];
@@ -401,6 +433,8 @@ export async function doClaimChart(index, args, opts = {}) {
   resetCloudUsage();
 
   const perTarget = [];
+  const unresolved = [];
+  const ambiguous = [];
   for (const t of targets) {
     // `file.java@Class::method` (what --claim-locate emits) or a bare qualified
     // `Class::method` — verifySymbol resolves either, and requiring the file
@@ -459,6 +493,8 @@ export async function doClaimChart(index, args, opts = {}) {
     argv: process.argv.slice(1).join(' '),
     targets: perTarget.length,
     targetSource, targetProvenance, targetIntegrity,
+    targetDuplicates, targetContainers,
+    targetUnresolved: unresolved, targetAmbiguous: ambiguous,
     ceVersion: readCeVersion(),
     generatedAt: new Date().toISOString(),
   });

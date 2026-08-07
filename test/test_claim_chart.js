@@ -432,3 +432,60 @@ describe('target-list integrity', () => {
     assert.match(h, /unmodified since generation/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The chart must never under-report its own inputs. A target the model never
+// saw changes what the verdicts and the agreement counts mean. (#305 Part A.)
+// ---------------------------------------------------------------------------
+describe('dropped-target reporting', () => {
+  const base = {
+    claimText: '1. A thing.', indexPath: '.I', engineLabel: 'x', argv: 'y',
+    targets: 2, targetSource: '`t.txt`', targetProvenance: ['produced by X'],
+    generatedAt: 'T', ceVersion: 'v0',
+  };
+
+  it('names targets that could not be resolved, in the chart itself', () => {
+    // Before this the warning went to stderr only, so an element whose evidence
+    // was dropped by mechanism rendered ABSENT — indistinguishable from an
+    // element the codebase genuinely does not satisfy.
+    const h = buildProvenanceHeader({ ...base,
+      targetUnresolved: ['`Foo.java@nope` (no such symbol)'] });
+    assert.match(h, /could not be resolved/);
+    assert.match(h, /NOT analysed/);
+    assert.match(h, /Foo\.java@nope/);
+  });
+
+  it('reports collapsed duplicates', () => {
+    const h = buildProvenanceHeader({ ...base, targetDuplicates: 2 });
+    assert.match(h, /2 duplicate\(s\) collapsed/);
+  });
+
+  it('names a dropped class target and why', () => {
+    const h = buildProvenanceHeader({ ...base,
+      targetContainers: ['A.java@A'] });
+    assert.match(h, /class target\(s\) dropped in favour of their own methods/);
+    assert.match(h, /A\.java@A/);
+  });
+
+  it('surfaces ambiguous targets, since the chart silently picks one', () => {
+    const h = buildProvenanceHeader({ ...base,
+      targetAmbiguous: ['`A.java@run` (2 symbols match; used a/A.java)'] });
+    assert.match(h, /ambiguous target\(s\) — first match used/);
+  });
+
+  it('says nothing when nothing was dropped', () => {
+    const h = buildProvenanceHeader({ ...base,
+      targetDuplicates: 0, targetContainers: [], targetUnresolved: [], targetAmbiguous: [] });
+    assert.ok(!/collapsed|dropped|could not be resolved|ambiguous/.test(h),
+      'a clean run gets no noise');
+  });
+
+  it('dedups on the consumption side too, for hand-written files', () => {
+    const fs2 = require('node:fs');
+    const p = `${process.env.TEMP || '/tmp'}/ce_t_dupes.txt`;
+    fs2.writeFileSync(p, ['A.java@Cls::m', 'A.java@m', 'B.java@n'].join('\n'), 'utf8');
+    const r = parseTargets(`@${p}`);
+    assert.equal(r.targets.length, 2, 'cross-form duplicate collapsed');
+    assert.equal(r.duplicates, 1);
+  });
+});

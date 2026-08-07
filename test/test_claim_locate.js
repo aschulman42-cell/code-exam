@@ -19,6 +19,7 @@ import {
   buildHuntPrompt, parseHuntActions, makeHuntTools, runSymbolHunt, HUNT_DEFAULTS,
   transcriptSymbols, selectionSeen, partitionSelections,
   buildTargetsProvenance, targetsChecksum, targetSpecs,
+  normalizeTargetSpec, dedupeTargets,
 } from '../src/commands/claim-locate.js';
 
 const TABLE = [
@@ -764,5 +765,93 @@ describe('targets provenance', () => {
     assert.deepEqual(
       targetSpecs([{ match: { filepath: 'jar!/a/b/Foo.java', name: 'Foo::bar' } }]),
       ['Foo.java@Foo::bar']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Target-list hygiene. Every case below is from the first live --targets-out
+// runs against .AndroidX_Media_ExoPlayer3.
+// ---------------------------------------------------------------------------
+describe('target dedup', () => {
+  it('treats qualified and unqualified specs as the same function', () => {
+    // Models mix conventions within one list, and two engines disagree on
+    // which they emit. A string compare would leave both, so the chart would
+    // analyse one function twice and count it twice in the agreement tally.
+    assert.equal(
+      normalizeTargetSpec('AdaptiveTrackSelection.java@determineIdealSelectedIndex'),
+      normalizeTargetSpec('AdaptiveTrackSelection.java@AdaptiveTrackSelection::determineIdealSelectedIndex'));
+  });
+
+  it('does not merge same-named symbols from different files', () => {
+    assert.notEqual(normalizeTargetSpec('A.java@run'), normalizeTargetSpec('B.java@run'));
+  });
+
+  it('collapses the duplicates the live gemini run emitted', () => {
+    const r = dedupeTargets([
+      'AdaptiveTrackSelection.java@AdaptiveTrackSelection::determineIdealSelectedIndex',
+      'NetworkTypeObserver.java@NetworkTypeObserver::Receiver::onReceive',
+      'AdaptiveTrackSelection.java@AdaptiveTrackSelection::determineIdealSelectedIndex',
+      'NetworkTypeObserver.java@NetworkTypeObserver::Receiver::onReceive',
+    ]);
+    assert.equal(r.targets.length, 2);
+    assert.equal(r.duplicates, 2);
+  });
+
+  it('keeps first-seen order and the original spec text', () => {
+    const r = dedupeTargets(['B.java@z', 'A.java@Cls::m', 'B.java@z']);
+    assert.deepEqual(r.targets, ['B.java@z', 'A.java@Cls::m']);
+  });
+
+  it('drops a class target when its own methods are also targeted', () => {
+    // The live Claude run charted the 815-line AdaptiveTrackSelection class
+    // alongside four of its methods: the same source five times, and four
+    // verdicts resting on evidence the fifth subsumed.
+    const r = dedupeTargets([
+      'AdaptiveTrackSelection.java@AdaptiveTrackSelection',
+      'AdaptiveTrackSelection.java@AdaptiveTrackSelection::getAllocatedBandwidth',
+      'AdaptiveTrackSelection.java@AdaptiveTrackSelection::canSelectFormat',
+    ]);
+    assert.deepEqual(r.containers, ['AdaptiveTrackSelection.java@AdaptiveTrackSelection']);
+    assert.equal(r.targets.length, 2);
+  });
+
+  it('drops a NESTED class whose own method is also targeted', () => {
+    // The live gemini run produced exactly this shape three times. An
+    // outermost-only split registered `AdTagLoader` as the owner and left the
+    // nested class standing beside its own method.
+    const r = dedupeTargets([
+      'AdTagLoader.java@ContentPlaybackAdapter',
+      'AdTagLoader.java@AdTagLoader::ContentPlaybackAdapter::getContentProgress',
+      'NetworkTypeObserver.java@Receiver',
+      'NetworkTypeObserver.java@NetworkTypeObserver::Receiver::onReceive',
+    ]);
+    assert.deepEqual(r.containers.sort(),
+      ['AdTagLoader.java@ContentPlaybackAdapter', 'NetworkTypeObserver.java@Receiver']);
+    assert.equal(r.targets.length, 2);
+  });
+
+  it('KEEPS a class target when none of its methods are targeted', () => {
+    // A class as the sole citation for an element is coarse but legitimate;
+    // dropping it would leave the element with no evidence at all.
+    const r = dedupeTargets(['Foo.java@Foo', 'Bar.java@Bar::baz']);
+    assert.equal(r.containers.length, 0);
+    assert.equal(r.targets.length, 2);
+  });
+
+  it('does not drop a class because a DIFFERENT file has that class name', () => {
+    const r = dedupeTargets(['A.java@Widget', 'B.java@Widget::draw']);
+    assert.equal(r.containers.length, 0, 'file scoping is respected');
+  });
+});
+
+describe('navigation honours --include-tests', () => {
+  const TESTY = { name: 'elapsedRealtime', filepath: 'x!/libraries/test_utils/src/main/java/androidx/media3/test/utils/FakeClock.java' };
+
+  it('recognises the live FakeClock path as test code', () => {
+    assert.equal(isTestSymbol(TESTY), true);
+  });
+
+  it('does not treat a name merely containing "test" as test code', () => {
+    assert.equal(isTestSymbol({ name: 'latestBitrate', filepath: 'src/main/Foo.java' }), false);
   });
 });
