@@ -19,7 +19,7 @@ import {
   buildHuntPrompt, parseHuntActions, makeHuntTools, runSymbolHunt, HUNT_DEFAULTS,
   transcriptSymbols, selectionSeen, partitionSelections,
   buildTargetsProvenance, targetsChecksum, targetSpecs,
-  normalizeTargetSpec, dedupeTargets,
+  normalizeTargetSpec, dedupeTargets, classifyNavCallee,
 } from '../src/commands/claim-locate.js';
 
 const TABLE = [
@@ -841,6 +841,34 @@ describe('target dedup', () => {
   it('does not drop a class because a DIFFERENT file has that class name', () => {
     const r = dedupeTargets(['A.java@Widget', 'B.java@Widget::draw']);
     assert.equal(r.containers.length, 0, 'file scoping is respected');
+  });
+});
+
+describe('navigation does not assert unresolved call edges', () => {
+  // Live defect, 2026-08-07, present in BOTH engines' target lists.
+  // `CachedContentIndex::store` calls `.size()` on a map; the index reports
+  // `size [unresolved] (27 definitions)`. Promotion took matches[0] and emitted
+  // "reached by navigation from store" pointing at `FlagSet.java@size` — a call
+  // relationship the index knows it cannot resolve, stated as fact in the
+  // deliverable.
+  it('refuses to promote a callee with several candidate definitions', () => {
+    assert.equal(classifyNavCallee({ status: 'exact', matches: [{ name: 'FlagSet::size' }], ambiguous: 27 }),
+      'ambiguous');
+    assert.equal(classifyNavCallee({ status: 'exact', matches: [{ name: 'ListenerSet::clear' }], ambiguous: 59 }),
+      'ambiguous');
+  });
+
+  it('still promotes an unambiguous callee — the case navigation exists for', () => {
+    // updateSelectedTrack -> determineIdealSelectedIndex is precisely the
+    // cross-file edge this mechanism is worth having, and it resolves to one.
+    assert.equal(classifyNavCallee({
+      status: 'exact', matches: [{ name: 'AdaptiveTrackSelection::determineIdealSelectedIndex' }], ambiguous: 0,
+    }), 'promote');
+  });
+
+  it('treats an unfound callee as nothing to say, not as a skip worth reporting', () => {
+    assert.equal(classifyNavCallee({ status: 'not-found', matches: [] }), 'not-found');
+    assert.equal(classifyNavCallee(null), 'not-found');
   });
 });
 

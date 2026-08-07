@@ -696,6 +696,22 @@ export function formatLocateReport(rows, opts = {}) {
 }
 
 /** `File.java@symbol` specs for verified rows — the targets a chart consumes. */
+// What to do with a navigated callee once the index has been asked about it.
+// Split out from the promotion loop so the rule is testable and so the three
+// outcomes are named rather than implied by control flow.
+//
+//   not-found  — the index has no such symbol; nothing to say.
+//   ambiguous  — several definitions share the name and the index cannot tell
+//                which one the caller reaches. Promoting matches[0] would put
+//                an ASSERTED edge ("reached by navigation from X") into the
+//                targets file and the chart's citations on a coin flip: `clear`
+//                has 59 definitions in the ExoPlayer index.
+//   promote    — exactly one definition, so the edge is established.
+export function classifyNavCallee(v) {
+  if (!v || !isFound(v)) return 'not-found';
+  return v.ambiguous > 1 ? 'ambiguous' : 'promote';
+}
+
 export function targetSpecs(found) {
   return dedupeTargets(found.map(
     (r) => `${r.match.filepath.split('!').pop().split('/').pop()}@${r.match.name}`)).targets;
@@ -993,6 +1009,16 @@ export async function doClaimLocate(index, args, opts = {}) {
     // members, which say nothing about the claim.
     let promoted = 0;
     let navTestsSkipped = 0;
+    // A promoted callee carries an ASSERTED call edge ("reached by navigation
+    // from X") into the targets file and thence into the chart's citations. The
+    // index frequently cannot resolve that edge: `--callees` on
+    // CachedContentIndex::store reports `size [unresolved] (27 definitions)`,
+    // `clear [unresolved] (59)`. Taking matches[0] of 59 is right about 2% of
+    // the time, and CE then states the relationship as fact — a false
+    // provenance claim inside the deliverable, which is worse than noise.
+    // Observed live on 2026-08-07 in BOTH engines' target lists.
+    let navAmbiguousSkipped = 0;
+    const navAmbiguousNames = [];
     const navSeeds = rows.filter((r) => r.verified && r.nav
       && r.match.start != null && (r.match.end - r.match.start) <= LOCATE_DEFAULTS.maxSeedSpan);
     for (const seed of navSeeds) {
@@ -1005,7 +1031,17 @@ export async function doClaimLocate(index, args, opts = {}) {
         const local = symbols.filter((s) => s.filepath === seed.match.filepath && s.bare === name.replace(/^.*::/, ''));
         const v = local.length ? { status: 'exact', matches: local, ambiguous: local.length > 1 ? local.length : 0 }
           : verifySymbol(symbols, name);
-        if (!isFound(v)) continue;
+        // Deliberately NOT applied to model-PROPOSED symbols: those carry the
+        // model's own qualifier and are reported with an AMBIGUOUS warning for
+        // the operator to adjudicate. This gate is narrow to navigation, where
+        // nothing chose the symbol at all.
+        const verdict = classifyNavCallee(v);
+        if (verdict === 'not-found') continue;
+        if (verdict === 'ambiguous') {
+          navAmbiguousSkipped++;
+          if (navAmbiguousNames.length < 8) navAmbiguousNames.push(`${name} (${v.ambiguous})`);
+          continue;
+        }
         // Same test predicate SEARCH and MEMBERS apply. Not because test code
         // is noise — a claim reading on instrumentation, coverage, fault
         // injection or a harness lands squarely in test utilities — but because
@@ -1030,6 +1066,16 @@ export async function doClaimLocate(index, args, opts = {}) {
     if (navTestsSkipped) {
       console.log(`  ${navTestsSkipped} navigated symbol(s) skipped as test code `
         + '(--include-tests to keep them).');
+    }
+    // Never lose a symbol silently — same rule as the test-code skip. The count
+    // is also the diagnostic: a large number here means the seed's callees are
+    // mostly common names (`get`, `size`, `build`), which is itself a signal
+    // that the seed is not a useful navigation origin.
+    if (navAmbiguousSkipped) {
+      console.log(`  ${navAmbiguousSkipped} navigated symbol(s) skipped as ambiguous — the`
+        + ' index cannot resolve which definition the caller reaches, so promoting one'
+        + ' would assert a call edge that is not established'
+        + `: ${navAmbiguousNames.join(', ')}${navAmbiguousSkipped > navAmbiguousNames.length ? ', …' : ''}`);
     }
   }
 
