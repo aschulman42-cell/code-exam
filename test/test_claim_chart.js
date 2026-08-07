@@ -184,9 +184,13 @@ describe('end to end, mocked model', () => {
   };
 
   it('produces a chart with the merged finding in the row', async () => {
+    // Must use the real `VERDICT n:` shape parseChartVerdicts expects. This
+    // mock previously used a prose form that parsed to ZERO verdicts, and the
+    // test still passed because a no-verdict target was pushed to perTarget
+    // anyway — the exact defect drop accounting exists to expose.
     const analysis = [
-      '1. A distribution system: ABSENT — no transmission side in this index.',
-      '4. determining the code rate: PRESENT — rate() computes it.',
+      'VERDICT 1: ABSENT — no transmission side in this index.',
+      'VERDICT 4: PRESENT — rate() computes it.',
     ].join('\n');
     const out = [];
     const origLog = console.log; console.log = (s) => out.push(String(s));
@@ -453,6 +457,44 @@ describe('dropped-target reporting', () => {
     assert.match(h, /could not be resolved/);
     assert.match(h, /NOT analysed/);
     assert.match(h, /Foo\.java@nope/);
+  });
+
+  it('reconciles supplied vs analysed when targets produced no verdict', () => {
+    // The live failure: header said "37 analysed" while every agreement count
+    // read "of 30", with nothing on the page explaining the other 7.
+    const h = buildProvenanceHeader({ ...base, targets: 30, targetsSupplied: 37 });
+    assert.match(h, /37 supplied · 30 analysed · 7 produced no verdict/);
+  });
+
+  it('stays quiet when every supplied target was analysed', () => {
+    const h = buildProvenanceHeader({ ...base, targets: 37, targetsSupplied: 37 });
+    assert.match(h, /37 analysed/);
+    assert.ok(!/supplied/.test(h), 'a clean run reads as it always did');
+  });
+
+  it('names targets that parsed only some elements', () => {
+    const h = buildProvenanceHeader({ ...base, targetsPartial: ['`A.java@one` (2/6)'] });
+    assert.match(h, /verdicts for only some/);
+    assert.match(h, /A\.java@one/);
+  });
+
+  it('lists each dropped target with its reason, and only when there are any', () => {
+    const withDrops = formatChart({
+      claimText: '1. A thing.', table: '| # |\n|---|', fills: [], elements: ['a'],
+      engineLabel: 'x', targets: ['A.java@kept'],
+      dropped: [{ target: 'DefaultLoadControl.java@shouldStartPlayback',
+        reason: 'no verdicts parsed from the engine response' }],
+    });
+    assert.match(withDrops, /Targets that produced no finding \(1 of 2\)/);
+    assert.match(withDrops, /shouldStartPlayback/);
+    assert.match(withDrops, /no verdicts parsed/);
+    assert.match(withDrops, /excluded from every agreement count/);
+
+    const clean = formatChart({
+      claimText: '1. A thing.', table: '| # |\n|---|', fills: [], elements: ['a'],
+      engineLabel: 'x', targets: ['A.java@kept'], dropped: [],
+    });
+    assert.ok(!/produced no finding/.test(clean), 'a clean run emits no drop section');
   });
 
   it('reports collapsed duplicates', () => {

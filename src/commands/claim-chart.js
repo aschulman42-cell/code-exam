@@ -27,7 +27,7 @@
 // ============================================================================
 
 import fs from 'node:fs';
-import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage } from '../core/llm-runner.js';
+import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine } from '../core/llm-runner.js';
 import { buildClaimAnalyzePrompt, addLineNumbers } from './analyze.js';
 import { splitClaimElements, targetsChecksum, dedupeTargets } from './claim-locate.js';
 import { readCeVersion } from '../utils.js';
@@ -301,6 +301,7 @@ export function buildProvenanceHeader({
   claimText, claimSource, indexPath, indexFiles, indexSymbols, engineLabel,
   argv, targets, targetSource, targetProvenance, targetIntegrity, ceVersion, generatedAt,
   targetDuplicates, targetContainers, targetUnresolved, targetAmbiguous,
+  targetsSupplied, targetsPartial,
 }) {
   const firstLine = String(claimText || '').split('\n').map((s) => s.trim()).find(Boolean) || '';
   const rows = [];
@@ -315,7 +316,19 @@ export function buildProvenanceHeader({
         + ' recorded command produced, so the provenance describes how the'
         + ' original list was made, not this one'
       : '';
-  rows.push(`- **Targets:** ${targets} analysed, from ${targetSource || 'the --targets argument'}${integrity}`);
+  // Supplied vs analysed must reconcile ON THE PAGE. A chart that says "37
+  // analysed" while every agreement count reads "of 30" contradicts itself, and
+  // the reader cannot tell that the missing 7 were dropped rather than judged.
+  // Worse, the drop is not random: on the 2026-08-07 Gemma run the drop rate was
+  // 8% at 0-4 inlined callee bodies and 45% at 5-6, so the targets most likely
+  // to vanish are the ones doing the most work — `shouldStartPlayback`, the only
+  // citation the Claude baseline had for element 6, dropped, and the chart then
+  // printed `ABSENT (30 of 30)`. A unanimity over a filtered set, unmarked.
+  const noVerdict = targetsSupplied != null ? Math.max(0, targetsSupplied - targets) : 0;
+  const countLine = noVerdict > 0
+    ? `${targetsSupplied} supplied · ${targets} analysed · ${noVerdict} produced no verdict`
+    : `${targets} analysed`;
+  rows.push(`- **Targets:** ${countLine}, from ${targetSource || 'the --targets argument'}${integrity}`);
   // The chart must never under-report its own inputs. A target the model never
   // saw — dropped as a duplicate, subsumed by a class, or unresolvable in this
   // index — changes what the verdicts and the agreement counts mean, and a
@@ -338,6 +351,13 @@ export function buildProvenanceHeader({
     drops.push(`${targetAmbiguous.length} ambiguous target(s) — first match used:`
       + ` ${targetAmbiguous.join(', ')}`);
   }
+  if (targetsPartial && targetsPartial.length) {
+    // Analysed, but not for every element. Counted in `analysed` because it did
+    // contribute verdicts; named here because its absence from some elements'
+    // denominators is otherwise invisible.
+    drops.push(`${targetsPartial.length} target(s) produced verdicts for only some`
+      + ` elements: ${targetsPartial.join(', ')}`);
+  }
   for (const d of drops) rows.push(`  - ${d}`);
   if (targetProvenance && targetProvenance.length) {
     rows.push('- **Target provenance:**');
@@ -358,6 +378,7 @@ export function buildProvenanceHeader({
 
 export function formatChart({
   claimText, table, fills, targets, engineLabel, elements, scopeNote, provenance,
+  dropped,
 }) {
   const filled = fillChartRows(table, fills);
   const out = [];
@@ -382,6 +403,22 @@ export function formatChart({
   out.push('');
   for (const t of targets) out.push(`- \`${t}\``);
   out.push('');
+  // Emitted ONLY when something dropped, so a clean run stays clean. A target
+  // the operator supplied and CE never judged is not a detail: the operator
+  // chose it, and every per-element denominator above excludes it.
+  if (dropped && dropped.length) {
+    out.push(`## Targets that produced no finding (${dropped.length} of `
+      + `${targets.length + dropped.length})`);
+    out.push('');
+    out.push('These were supplied as targets but yielded no verdict, so they are'
+      + ' excluded from every agreement count above. This is a report of what was'
+      + ' *not* examined — not a finding about the code.');
+    out.push('');
+    out.push('| target | reason |');
+    out.push('|---|---|');
+    for (const d of dropped) out.push(`| \`${d.target}\` | ${d.reason} |`);
+    out.push('');
+  }
   out.push('---');
   out.push('');
   out.push('_This chart is machine-generated from a source index and is illustrative only.');
@@ -423,9 +460,11 @@ export async function doClaimChart(index, args, opts = {}) {
 
   const symbols = buildSymbolTable(index);
   const { table, elements } = buildChartTable(claimText);
-  const engineLabel = model.kind === 'gguf'
-    ? `local ${String(model.modelPath).split(/[\\/]/).pop()}`
-    : (model.label || model.provider?.label || 'cloud');
+  // Same descriptor the targets file records, so the chart's `**Engine:**` line
+  // and the target provenance `Engine:` line cannot disagree about what ran —
+  // and so the cloud-vs-local distinction the air-gap argument turns on is
+  // stated on the artifact rather than around it.
+  const engineLabel = describeEngine(model);
 
   process.stderr.write(`[claim-chart] ${elements.length} element(s), ${targets.length} target(s), engine ${engineLabel}\n`);
 
@@ -435,6 +474,11 @@ export async function doClaimChart(index, args, opts = {}) {
   const perTarget = [];
   const unresolved = [];
   const ambiguous = [];
+  // Every reason a supplied target can fail to reach the chart. CE already
+  // wrote all four to stderr; none of them reached the artifact, so a reader
+  // saw only the survivors and had no way to know there had been others.
+  const dropped = [];
+  const partial = [];
   for (const t of targets) {
     // `file.java@Class::method` (what --claim-locate emits) or a bare qualified
     // `Class::method` — verifySymbol resolves either, and requiring the file
@@ -442,15 +486,25 @@ export async function doClaimChart(index, args, opts = {}) {
     const at = t.indexOf('@');
     const fnSpec = at >= 0 ? t.slice(at + 1) : t;
     const v = verifySymbol(symbols, fnSpec);
-    if (!isFound(v)) { process.stderr.write(`  NOT FOUND in index: ${t}\n`); continue; }
+    if (!isFound(v)) {
+      process.stderr.write(`  NOT FOUND in index: ${t}\n`);
+      unresolved.push(`\`${t}\` (no such symbol)`);
+      dropped.push({ target: t, reason: 'not found in this index' });
+      continue;
+    }
     const m = v.matches[0];
     if (v.ambiguous > 1) {
       process.stderr.write(`  AMBIGUOUS: ${v.ambiguous} symbols match ${fnSpec} — using ${m.filepath.split('!').pop()}; qualify the target to choose\n`);
+      ambiguous.push(`\`${t}\` (${v.ambiguous} matches)`);
     }
     let src = null;
     const _log = console.log; console.log = () => {};
     try { src = index.getFunctionSource?.(m.filepath, m.name); } catch { src = null; } finally { console.log = _log; }
-    if (!src) { process.stderr.write(`  source not retrievable: ${t}\n`); continue; }
+    if (!src) {
+      process.stderr.write(`  source not retrievable: ${t}\n`);
+      dropped.push({ target: t, reason: 'source not retrievable from the index' });
+      continue;
+    }
 
     const { text: calleeText, included } = args.no_callees === true
       ? { text: '', included: [] }
@@ -466,9 +520,14 @@ export async function doClaimChart(index, args, opts = {}) {
     const promptSrc = calleeText
       ? `${numbered}\n\n// ===== depth-1 callees, included so the analysis need not infer what they do =====\n${calleeText}`
       : numbered;
+    const label = `${m.filepath.split('!').pop().split('/').pop()}@${m.name}`;
     let out;
     try { out = await draft(buildChartAnalysisPrompt(promptSrc, m.name, m.filepath, claimText, elements), '', 1100); }
-    catch (e) { process.stderr.write(`  analysis failed for ${m.name}: ${e.message}\n`); continue; }
+    catch (e) {
+      process.stderr.write(`  analysis failed for ${m.name}: ${e.message}\n`);
+      dropped.push({ target: label, reason: `analysis failed — ${e.message}` });
+      continue;
+    }
 
     const verdicts = parseChartVerdicts(out || '', elements);
     // The same lexical gate the loop applies: a PRESENT whose element
@@ -476,7 +535,15 @@ export async function doClaimChart(index, args, opts = {}) {
     // confident label cannot outrun its evidence.
     const gated = verdicts.map((e) => ({ ...e, label: lexicalGate(e.label, e.text, `${m.name}\n${promptSrc}`) }));
     process.stderr.write(`    ${gated.length}/${elements.length} element verdict(s) parsed\n`);
-    perTarget.push({ target: `${m.filepath.split('!').pop().split('/').pop()}@${m.name}`, elements: gated });
+    // Zero verdicts is a DROP, not an analysis. Pushing it to perTarget listed
+    // it under "Analysed targets" while contributing nothing to any element —
+    // which is how a 37-target chart came to report "of 30" with no explanation.
+    if (!gated.length) {
+      dropped.push({ target: label, reason: 'no verdicts parsed from the engine response' });
+      continue;
+    }
+    if (gated.length < elements.length) partial.push(`\`${label}\` (${gated.length}/${elements.length})`);
+    perTarget.push({ target: label, elements: gated });
   }
 
   if (!perTarget.length) { console.error('No target produced a parseable analysis.'); process.exitCode = 1; return; }
@@ -495,12 +562,14 @@ export async function doClaimChart(index, args, opts = {}) {
     targetSource, targetProvenance, targetIntegrity,
     targetDuplicates, targetContainers,
     targetUnresolved: unresolved, targetAmbiguous: ambiguous,
+    targetsSupplied: targets.length, targetsPartial: partial,
     ceVersion: readCeVersion(),
     generatedAt: new Date().toISOString(),
   });
   console.log(formatChart({
     claimText, table, fills, elements, engineLabel, scopeNote, provenance,
     targets: perTarget.map((p) => p.target),
+    dropped,
   }));
   const cost = actualCostLine(model);
   if (cost) process.stderr.write(cost + '\n');
