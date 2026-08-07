@@ -45,6 +45,26 @@ export function resolveModel(args) {
   return null;
 }
 
+// One-line engine identity for a resolved descriptor, for artifacts that must
+// say what actually ran. `provider.label` alone ("Claude API") is not enough:
+// two runs a year apart against different Claude generations are then
+// indistinguishable in the artifact, so the exact model id — which is already
+// resolved, and already used to price the run — is named too.
+//
+// The cloud/local parenthetical is the air-gap claim stated ON the artifact
+// rather than asserted around it, which is the whole point of the local path.
+export function describeEngine(model) {
+  if (!model) return 'none';
+  if (model.kind === 'gguf') {
+    const base = String(model.modelPath || '').split(/[\\/]/).pop() || 'unknown.gguf';
+    return `local GGUF — ${base} (local LLM, no network egress)`;
+  }
+  if (model.kind !== 'cloud') return String(model.kind || 'unknown');
+  const label = model.provider?.label || model.label || 'cloud endpoint';
+  const id = model.model ? ` — ${model.model}` : '';
+  return `${label}${id} (cloud LLM)`;
+}
+
 // Build a cloud descriptor for a resolved provider — key + model + endpoint
 // resolution mirrors analyze.js (provider flag > --api-key > provider key env >
 // provider key file; CE_OPENAI_API_URL / CLAIM_SEARCH_API_URL override the base).

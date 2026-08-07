@@ -4,6 +4,18 @@
  */
 
 import path from 'path';
+import fs from 'node:fs';
+
+// CE's own version, for artifacts that must record which build produced them.
+// Lives here rather than in a command because more than one command stamps it:
+// --claim-locate into the targets file it emits, --claim-chart into the chart's
+// provenance header, and the two must agree.
+export function readCeVersion() {
+  try {
+    const j = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    return j.version ? `v${j.version}` : null;
+  } catch { return null; }
+}
 
 // ========================================================================
 // SearchResult data class

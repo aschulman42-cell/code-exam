@@ -18,7 +18,9 @@
 // ============================================================================
 
 import fs from 'node:fs';
-import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage } from '../core/llm-runner.js';
+import crypto from 'node:crypto';
+import { readCeVersion } from '../utils.js';
+import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine } from '../core/llm-runner.js';
 import {
   buildSymbolTable, verifySymbol, isFound, nearbySymbols, navigateFrom,
   parseProposedSymbols,
@@ -677,11 +679,68 @@ export function formatLocateReport(rows, opts = {}) {
   out.push('  Symbol names come from the model\'s domain knowledge; existence,');
   out.push('  location, and call relationships come from the index.');
   if (opts.targetsLine && found.length) {
+    const targets = targetSpecs(found);
     out.push('');
     out.push('  Use as claim-chart targets:');
-    out.push(`    --targets "${found.map((r) => `${r.match.filepath.split('!').pop().split('/').pop()}@${r.match.name}`).join(';')}"`);
+    out.push(`    --targets "${targets.join(';')}"`);
+    // The provenance-carrying form. Indented for the report; --claim-chart
+    // trims each line, so this block can be copy-pasted into a file as-is.
+    if (opts.provenance && opts.provenance.length) {
+      out.push('');
+      out.push('  Or as a targets FILE, provenance included (--targets-out writes this):');
+      for (const l of opts.provenance) out.push(`    # ${l}`);
+      for (const t of targets) out.push(`    ${t}`);
+    }
   }
   return out;
+}
+
+/** `File.java@symbol` specs for verified rows — the targets a chart consumes. */
+export function targetSpecs(found) {
+  return found.map((r) => `${r.match.filepath.split('!').pop().split('/').pop()}@${r.match.name}`);
+}
+
+// Checksum over the NORMALIZED target list (one per line), so it survives
+// reformatting — `;`-joined on one line and one-per-line hash identically,
+// because both sides compute it over the parsed array.
+export function targetsChecksum(targets) {
+  const norm = (targets || []).map((t) => String(t).trim()).filter(Boolean).join('\n');
+  return crypto.createHash('sha256').update(norm, 'utf8').digest('hex').slice(0, 16);
+}
+
+// The `#` provenance block stamped into the targets file this command emits.
+//
+// This exists because the first '101 chart's provenance block was TYPED BY
+// HAND: --claim-locate recorded nothing about how it was invoked, so "was this
+// actually run with --llm gemini?" could not be answered from the artifact —
+// only from a filename and someone's recollection. In a deliverable whose
+// premise is "this is exactly what CE produced", the block a reader leans on
+// hardest to check that premise must not be the one block a human wrote.
+//
+// Mode flags print from the PARSED ARGS, not from a re-render of argv, so a
+// truncated or reconstructed command line cannot misreport the mode that ran.
+export function buildTargetsProvenance({
+  ceVersion, engine, blind, hunt, mode, indexPath, indexFiles, indexSymbols,
+  claimSource, claimChars, elements, argv, generatedAt, targets,
+}) {
+  const flags = [hunt ? '--hunt' : null, blind ? '--blind' : null].filter(Boolean).join(' ');
+  const lines = [];
+  lines.push(`Produced by CodeExam${ceVersion ? ` ${ceVersion}` : ''} --claim-locate${flags ? ` ${flags}` : ''}`);
+  lines.push(`Mode: ${mode}`);
+  lines.push(`Engine: ${engine}`);
+  lines.push(`Index: ${indexPath || 'unknown'}${indexFiles != null ? ` (${indexFiles} files` : ''}${
+    indexSymbols != null ? `${indexFiles != null ? ', ' : ' ('}${indexSymbols} symbols)` : (indexFiles != null ? ')' : '')}`);
+  lines.push(`Claim: ${claimSource || 'inline text'}${claimChars != null ? ` (${claimChars} chars` : ''}${
+    elements != null ? `, ${elements} element${elements === 1 ? '' : 's'})` : (claimChars != null ? ')' : '')}`);
+  if (hunt) {
+    lines.push(`Hunt: ${hunt.toolCalls} tool call(s) over ${hunt.rounds} round(s), `
+      + `caps ${hunt.maxCalls}/${hunt.maxRounds}; ended: ${hunt.stopped}`);
+  }
+  if (argv) lines.push(`Command: ${argv}`);
+  lines.push(`Generated: ${generatedAt}`);
+  lines.push('Uncurated: this is the command\'s own output, unedited.');
+  lines.push(`Targets-checksum: ${targetsChecksum(targets)}`);
+  return lines;
 }
 
 export async function doClaimLocate(index, args, opts = {}) {
@@ -743,6 +802,10 @@ export async function doClaimLocate(index, args, opts = {}) {
       },
       onStatus: (s) => process.stderr.write(`  ${s}\n`),
     });
+    // Carry the caps on the result so the provenance block can report what the
+    // ceiling WAS, not just how close the run got to it — a run that finished
+    // under a raised cap and one that hit a default cap are different runs.
+    hunt.maxRounds = maxRounds; hunt.maxCalls = maxCalls;
     console.log(`Hunt: ${hunt.toolCalls} tool call(s) over ${hunt.rounds} round(s); ended: ${hunt.stopped}`);
     if (args.verbose) for (const entry of hunt.log) console.log(`\n${entry}`);
     // Reject selections the hunt never actually saw, before verification can
@@ -904,7 +967,41 @@ export async function doClaimLocate(index, args, opts = {}) {
     }
   }
 
-  for (const ln of formatLocateReport(rows, { targetsLine: true, hunt, unseen: huntUnseen })) console.log(ln);
+  const found = rows.filter((r) => r.verified);
+  const provenance = found.length ? buildTargetsProvenance({
+    ceVersion: readCeVersion(),
+    engine: describeEngine(model),
+    blind, hunt, mode: modeLabel,
+    indexPath: args.index_path || '(unknown)',
+    indexFiles: index.files ? (index.files.size ?? index.files.length ?? null) : null,
+    indexSymbols: symbols.length,
+    claimSource: typeof spec === 'string' && spec.startsWith('@') ? spec.slice(1) : null,
+    claimChars: claimText.length,
+    elements: elements.length,
+    argv: process.argv.slice(1).join(' '),
+    generatedAt: new Date().toISOString(),
+    targets: targetSpecs(found),
+  }) : [];
+
+  for (const ln of formatLocateReport(rows, {
+    targetsLine: true, hunt, unseen: huntUnseen, provenance,
+  })) console.log(ln);
+
+  // --targets-out closes the loop mechanically: the chart reads this file and
+  // reports the provenance verbatim, with no hand-copying step in between —
+  // and hand-copying is exactly where the risk of an edited-but-still-vouched
+  // target list enters.
+  if (args.targets_out && found.length) {
+    const body = [...provenance.map((l) => `# ${l}`), ...targetSpecs(found), ''].join('\n');
+    try {
+      fs.writeFileSync(args.targets_out, body, 'utf8');
+      console.log(`\nTargets written to ${args.targets_out} (${found.length} target(s), provenance included).`);
+    } catch (e) {
+      console.error(`--targets-out: cannot write ${args.targets_out}: ${e.message}`);
+      process.exitCode = 1;
+    }
+  }
+
   const cost = actualCostLine(model);
   if (cost) console.log(cost);
   return { rows, symbols: symbols.length, hunt };

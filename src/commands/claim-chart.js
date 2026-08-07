@@ -29,7 +29,8 @@
 import fs from 'node:fs';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage } from '../core/llm-runner.js';
 import { buildClaimAnalyzePrompt, addLineNumbers } from './analyze.js';
-import { splitClaimElements } from './claim-locate.js';
+import { splitClaimElements, targetsChecksum } from './claim-locate.js';
+import { readCeVersion } from '../utils.js';
 import { buildSymbolTable, verifySymbol, isFound, navigateFrom } from '../core/symbol-verify.js';
 import { parseAnalysisLabels, lexicalGate } from './claims-loop.js';
 
@@ -40,13 +41,7 @@ const LABEL_RANK = { ABSENT: 0, ASSUMED: 1, PARTIAL: 2, PRESENT: 3 };
 
 // package.json version, best-effort. A chart that cannot say which build made
 // it cannot be reproduced.
-export function readCeVersion() {
-  try {
-    const here = new URL('../../package.json', import.meta.url);
-    const j = JSON.parse(fs.readFileSync(here, 'utf8'));
-    return j.version ? `v${j.version}` : null;
-  } catch { return null; }
-}
+export { readCeVersion };
 
 export const CHART_DEFAULTS = {
   calleeDepth: 1,          // depth-1 bodies only; depth 2 blew the local context
@@ -81,16 +76,29 @@ export function parseTargets(spec) {
   // records how the list was produced, and the chart can then answer for it.
   const provenance = [];
   const targets = [];
+  let claimed = null;
   for (const line of raw.split(/\r?\n/)) {
     const t = line.trim();
     if (!t) continue;
-    if (t.startsWith('#')) { provenance.push(t.replace(/^#+\s*/, '')); continue; }
+    if (t.startsWith('#')) {
+      const body = t.replace(/^#+\s*/, '');
+      const m = /^Targets-checksum:\s*([0-9a-f]+)$/i.exec(body);
+      if (m) { claimed = m[1].toLowerCase(); continue; }
+      provenance.push(body);
+      continue;
+    }
     for (const part of t.split(';')) {
       const p = part.trim();
       if (p) targets.push(p);
     }
   }
-  return { targets, provenance, source };
+  // Curating a target list is a legitimate operator action — CE reports it, it
+  // does not forbid it. But without this the provenance block would keep
+  // vouching for a run that produced a DIFFERENT list than the one below it,
+  // which just relocates the honesty problem the block exists to solve.
+  const integrity = claimed == null ? null
+    : (targetsChecksum(targets) === claimed ? 'unmodified' : 'modified');
+  return { targets, provenance, source, integrity };
 }
 
 // Depth-1 callee BODIES for the analysed function.
@@ -284,7 +292,7 @@ export function coverageLine(fills, nElements) {
 // is the first question an opposing expert asks.
 export function buildProvenanceHeader({
   claimText, claimSource, indexPath, indexFiles, indexSymbols, engineLabel,
-  argv, targets, targetSource, targetProvenance, ceVersion, generatedAt,
+  argv, targets, targetSource, targetProvenance, targetIntegrity, ceVersion, generatedAt,
 }) {
   const firstLine = String(claimText || '').split('\n').map((s) => s.trim()).find(Boolean) || '';
   const rows = [];
@@ -292,7 +300,14 @@ export function buildProvenanceHeader({
   rows.push(`- **Claim source:** ${claimSource || 'inline text (not from a file)'}`);
   rows.push(`- **Index:** \`${indexPath}\`${indexFiles != null ? ` — ${indexFiles} files` : ''}${indexSymbols != null ? `, ${indexSymbols} symbols` : ''}`);
   rows.push(`- **Engine:** ${engineLabel}`);
-  rows.push(`- **Targets:** ${targets} analysed, from ${targetSource || 'the --targets argument'}`);
+  const integrity = targetIntegrity === 'unmodified'
+    ? ' — _unmodified since generation_'
+    : targetIntegrity === 'modified'
+      ? ' — ⚠ **MODIFIED after generation**: the list below is not the one the'
+        + ' recorded command produced, so the provenance describes how the'
+        + ' original list was made, not this one'
+      : '';
+  rows.push(`- **Targets:** ${targets} analysed, from ${targetSource || 'the --targets argument'}${integrity}`);
   if (targetProvenance && targetProvenance.length) {
     rows.push('- **Target provenance:**');
     for (const l of targetProvenance) rows.push(`  - ${l}`);
@@ -361,8 +376,8 @@ export async function doClaimChart(index, args, opts = {}) {
     console.error('--claim-chart needs --targets "file@fn;file@fn" or --targets @targets.txt');
     process.exitCode = 1; return;
   }
-  let targets, targetProvenance, targetSource;
-  try { ({ targets, provenance: targetProvenance, source: targetSource } = parseTargets(args.targets)); }
+  let targets, targetProvenance, targetSource, targetIntegrity;
+  try { ({ targets, provenance: targetProvenance, source: targetSource, integrity: targetIntegrity } = parseTargets(args.targets)); }
   catch (e) { console.error(e.message); process.exitCode = 1; return; }
   if (!targets.length) { console.error('No targets parsed.'); process.exitCode = 1; return; }
   if (args.targets_note) targetProvenance = [...targetProvenance, String(args.targets_note)];
@@ -443,7 +458,7 @@ export async function doClaimChart(index, args, opts = {}) {
     engineLabel,
     argv: process.argv.slice(1).join(' '),
     targets: perTarget.length,
-    targetSource, targetProvenance,
+    targetSource, targetProvenance, targetIntegrity,
     ceVersion: readCeVersion(),
     generatedAt: new Date().toISOString(),
   });

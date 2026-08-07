@@ -254,6 +254,7 @@ export function parseArgs() {
     no_callees: false,
     scope_note: null,
     targets_note: null,
+    targets_out: null,
     claim_locate: null,
     no_refine: false,
     no_navigate: false,
@@ -540,6 +541,7 @@ export function parseArgs() {
     ['no_callees',           'flag',           ['--no-callees']],
     ['scope_note',           'value',          ['--scope-note']],
     ['targets_note',         'value',          ['--targets-note']],
+    ['targets_out',          'value',          ['--targets-out']],
     ['claim_locate',         'value',          ['--claim-locate']],
     ['no_refine',            'flag',           ['--no-refine']],
     ['no_navigate',          'flag',           ['--no-navigate']],
@@ -1407,6 +1409,9 @@ LLM ANALYSIS:
                               call count and warns if the model searched nothing.
   --no-hunt                  --claim-locate: force the single-search path off even
                               if --hunt is present.
+  --targets-out <file>       --claim-locate: write the located targets to <file>, with a
+                             '#' provenance block (engine, model, index, claim, hunt
+                             caps, command, checksum) that --claim-chart reports.
   --hunt-rounds <n>          --claim-locate: max model turns in the hunt (default 8).
   --hunt-calls <n>           --claim-locate: max tool calls in the hunt (default 24).
   --include-tests            --claim-locate: allow test/mock symbols as candidates

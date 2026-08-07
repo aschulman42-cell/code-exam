@@ -18,6 +18,7 @@ import {
   buildSelectPrompt, isTestSymbol,
   buildHuntPrompt, parseHuntActions, makeHuntTools, runSymbolHunt, HUNT_DEFAULTS,
   transcriptSymbols, selectionSeen, partitionSelections,
+  buildTargetsProvenance, targetsChecksum, targetSpecs,
 } from '../src/commands/claim-locate.js';
 
 const TABLE = [
@@ -668,5 +669,100 @@ describe('rejected selections reach the report and not --targets', () => {
     assert.match(text, /PlaybackBuffer::append/);
     assert.match(text, /element 3/);
     assert.match(text, /substring matching can resolve a guess/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Targets-file provenance. This exists because the first '101 chart's
+// provenance block was typed by hand: the command recorded nothing about how
+// it was invoked, so "was this run with --llm gemini?" could not be answered
+// from the artifact. These tests pin the parts that must be MACHINE-recorded.
+// ---------------------------------------------------------------------------
+describe('targets provenance', () => {
+  const base = {
+    ceVersion: 'v0.5.0',
+    engine: 'Gemini API — gemini-2.5-flash (cloud LLM)',
+    mode: 'scavenger hunt (model searches the symbol table itself) — BLIND',
+    indexPath: '.Idx', indexFiles: 3578, indexSymbols: 65370,
+    claimSource: 'claim.txt', claimChars: 1369, elements: 6,
+    argv: 'src/index.js --claim-locate @claim.txt --hunt --blind --llm gemini',
+    generatedAt: '2026-08-06T12:00:00.000Z',
+    targets: ['A.java@f', 'B.java@g'],
+  };
+
+  it('records the engine AND the exact model, not just the provider', () => {
+    // "Claude API" alone makes two runs a year apart indistinguishable.
+    const p = buildTargetsProvenance({ ...base, blind: true,
+      hunt: { toolCalls: 32, rounds: 10, maxCalls: 40, maxRounds: 12, stopped: 'done' } });
+    assert.ok(p.some((l) => l.includes('gemini-2.5-flash')), 'model id is recorded');
+    assert.ok(p.some((l) => /^Command:/.test(l)), 'command line is recorded');
+  });
+
+  it('reports hunt caps, not just how close the run got to them', () => {
+    // A run that finished under a raised cap and one that hit a default cap
+    // are different runs; "32 calls" alone cannot tell them apart.
+    const p = buildTargetsProvenance({ ...base, blind: true,
+      hunt: { toolCalls: 32, rounds: 10, maxCalls: 40, maxRounds: 12, stopped: 'done' } });
+    assert.ok(p.some((l) => l.includes('caps 40/12')), 'caps recorded');
+  });
+
+  it('prints mode flags from parsed args, not from a re-rendered argv', () => {
+    // A truncated or reconstructed command line must not be able to misreport
+    // the mode that actually ran, so --blind/--hunt come from the booleans.
+    const p = buildTargetsProvenance({ ...base, blind: false, hunt: null,
+      argv: 'src/index.js --claim-locate @c.txt --hunt --blind' });
+    assert.ok(!/--claim-locate --hunt --blind/.test(p[0]),
+      'header line must not claim modes the args did not set');
+    assert.ok(!p.some((l) => /^Hunt:/.test(l)), 'no hunt line for a non-hunt run');
+  });
+
+  it('checksums the target list so a later edit is detectable', () => {
+    const p = buildTargetsProvenance({ ...base, blind: true, hunt: null });
+    const line = p.find((l) => /^Targets-checksum:/.test(l));
+    assert.ok(line, 'checksum is emitted');
+    assert.equal(line.split(/\s+/)[1], targetsChecksum(base.targets));
+    assert.notEqual(targetsChecksum(base.targets), targetsChecksum(['A.java@f', 'B.java@CHANGED']));
+  });
+
+  it('checksums the normalized list, so reformatting is not an edit', () => {
+    // `;`-joined on one line and one-per-line are the same list.
+    assert.equal(targetsChecksum(['A.java@f', 'B.java@g']),
+      targetsChecksum([' A.java@f ', 'B.java@g', '']));
+  });
+
+  it('--targets-out writes a file the chart can consume unedited', async () => {
+    // The end-to-end point of this item: no hand-copying step between the
+    // command that produced the targets and the chart that vouches for them.
+    const fs = (await import('node:fs')).default;
+    const path = `${process.env.TEMP || '/tmp'}/ce_targets_out.txt`;
+    try { fs.unlinkSync(path); } catch { /* fresh */ }
+    const fnIndex = {};
+    for (const s2 of TABLE) {
+      fnIndex[s2.filepath] = fnIndex[s2.filepath] || {};
+      fnIndex[s2.filepath][s2.name] = { start: s2.start, end: s2.end };
+    }
+    const index = { functionIndex: fnIndex, _ensureFunctionIndex() {},
+      findCallers: () => [], findCallees: () => [] };
+    const draft = async () => 'ELEMENT 1: updateSelectedTrack';
+    const log = console.log; console.log = () => {};
+    try {
+      await doClaimLocate(index, {
+        claim_locate: 'A system, comprising: picking a rate.',
+        model: 'fake.gguf', temperature: 0, propose_from_priors: true,
+        no_refine: true, targets_out: path,
+      }, { draft });
+    } finally { console.log = log; }
+    const body = fs.readFileSync(path, 'utf8');
+    assert.match(body, /^# Produced by CodeExam/m, 'provenance block written');
+    assert.match(body, /^# Targets-checksum: [0-9a-f]+$/m, 'checksum written');
+    assert.match(body, /^AdaptiveTrackSelection\.java@AdaptiveTrackSelection::updateSelectedTrack$/m,
+      'targets written one per line');
+    assert.match(body, /local GGUF — fake\.gguf/, 'engine names the actual model');
+  });
+
+  it('derives target specs as basename@symbol', () => {
+    assert.deepEqual(
+      targetSpecs([{ match: { filepath: 'jar!/a/b/Foo.java', name: 'Foo::bar' } }]),
+      ['Foo.java@Foo::bar']);
   });
 });

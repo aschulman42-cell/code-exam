@@ -16,6 +16,9 @@ import {
   coverageLine, formatChart, doClaimChart, CHART_DEFAULTS,
   parseChartVerdicts, fillChartRows, buildChartAnalysisPrompt, buildProvenanceHeader,
 } from '../src/commands/claim-chart.js';
+import { targetsChecksum } from '../src/commands/claim-locate.js';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
 
 const CLAIM = [
   '1. A distribution system, including a transmission device and a reception device,',
@@ -366,5 +369,66 @@ describe('agreement counts', () => {
       agreement: { PRESENT: 1, PARTIAL: 0, ASSUMED: 0, ABSENT: 0, total: 1 },
     }]);
     assert.ok(!out.includes('of 1'), 'no agreement note for a single target');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Target-list integrity. Curating targets is a legitimate operator action, so
+// CE reports an edit rather than forbidding it — but a provenance block that
+// keeps vouching for a run which produced a DIFFERENT list than the one under
+// it just relocates the problem the block exists to solve.
+// ---------------------------------------------------------------------------
+describe('target-list integrity', () => {
+  const fs = require('node:fs');
+  const tmp = (name, body) => {
+    const p = `${process.env.TEMP || '/tmp'}/${name}`;
+    fs.writeFileSync(p, body, 'utf8');
+    return `@${p}`;
+  };
+  const BLOCK = [
+    '# Produced by CodeExam v0.5.0 --claim-locate --hunt --blind',
+    '# Engine: Gemini API — gemini-2.5-flash (cloud LLM)',
+    '# Targets-checksum: ',
+  ];
+
+  it('reports an unmodified list as unmodified', () => {
+    const sum = targetsChecksum(['A.java@f', 'B.java@g']);
+    const spec = tmp('ce_t_ok.txt',
+      [...BLOCK.slice(0, 2), `# Targets-checksum: ${sum}`, 'A.java@f', 'B.java@g'].join('\n'));
+    const r = parseTargets(spec);
+    assert.equal(r.integrity, 'unmodified');
+    assert.equal(r.provenance.length, 2, 'the checksum line is not prose');
+  });
+
+  it('reports an edited list as modified', () => {
+    const sum = targetsChecksum(['A.java@f', 'B.java@g']);
+    const spec = tmp('ce_t_bad.txt',
+      [...BLOCK.slice(0, 2), `# Targets-checksum: ${sum}`, 'A.java@f', 'B.java@CHANGED'].join('\n'));
+    assert.equal(parseTargets(spec).integrity, 'modified');
+  });
+
+  it('stays silent when no checksum was recorded', () => {
+    // Legacy and hand-written targets files must not be accused of anything.
+    const spec = tmp('ce_t_none.txt', ['# hand written', 'A.java@f'].join('\n'));
+    assert.equal(parseTargets(spec).integrity, null);
+  });
+
+  it('surfaces a modified list in the header, unmissably', () => {
+    const h = buildProvenanceHeader({
+      claimText: '1. A thing.', indexPath: '.I', engineLabel: 'x', argv: 'y',
+      targets: 2, targetSource: '`t.txt`', targetProvenance: ['produced by X'],
+      targetIntegrity: 'modified', generatedAt: 'T', ceVersion: 'v0',
+    });
+    assert.match(h, /MODIFIED after generation/);
+    assert.match(h, /not the one the recorded command produced/);
+  });
+
+  it('says so when the list is intact', () => {
+    const h = buildProvenanceHeader({
+      claimText: '1. A thing.', indexPath: '.I', engineLabel: 'x', argv: 'y',
+      targets: 2, targetSource: '`t.txt`', targetProvenance: ['produced by X'],
+      targetIntegrity: 'unmodified', generatedAt: 'T', ceVersion: 'v0',
+    });
+    assert.match(h, /unmodified since generation/);
   });
 });
