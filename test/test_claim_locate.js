@@ -181,12 +181,68 @@ describe('discovery path (default)', () => {
     const res = await doClaimLocate(index,
       { claim_locate: 'A system, comprising: choosing a rate; sending it.', model: 'f.gguf', no_refine: true },
       { draft });
-    assert.equal(calls.length, 2, 'two calls: words then selection');
+    // Selection POOLS all elements into one call: 1 vocabulary + 1 selection.
+    // Splitting it per element was measured on 2026-08-08 and LOST on recall
+    // (shouldStartPlayback 5/5 pooled vs 3/6 per-element, same build, n=5/6);
+    // it survives behind --per-element-select, covered below.
+    assert.equal(calls.length, 2, 'one words call, then one pooled selection call');
     assert.doesNotMatch(calls[0], /Rate\.java/, 'step 1 shows the model nothing about the codebase');
     assert.match(calls[1], /RateChooser::chooseBitrate/, 'step 2 offers real symbols');
     assert.doesNotMatch(calls[1], /RateChooserTest/, 'test symbols not offered');
+    // Both elements in ONE prompt. Best current explanation for why pooling
+    // wins: it supplies cross-element CONTEXT, not just competition — a claim is
+    // one system. Count real candidate blocks, not the prompt's own
+    // "ELEMENT 1: ExactName" output examples.
+    assert.equal((calls[1].match(/Candidates found in the codebase:/g) || []).length, 2,
+      'both elements offered in one prompt');
     const v = res.rows.filter((r) => r.verified).map((r) => r.match.name);
     assert.deepEqual(v, ['RateChooser::chooseBitrate']);
+  });
+
+  it('--per-element-select splits selection into one call per element', async () => {
+    const fnIndex = {
+      'src/main/Rate.java': { 'RateChooser::chooseBitrate': { start: 10, end: 40 } },
+    };
+    const index = { functionIndex: fnIndex, _ensureFunctionIndex() {}, findCallers: () => [], findCallees: () => [] };
+    const calls = [];
+    const draft = async (sys) => {
+      calls.push(sys);
+      if (/WORDS that would appear/.test(sys)) return 'ELEMENT 1: bitrate; choose\nELEMENT 2: bitrate';
+      return 'ELEMENT 1: RateChooser::chooseBitrate';
+    };
+    await doClaimLocate(index,
+      { claim_locate: 'A system, comprising: choosing a rate; sending it.', model: 'f.gguf',
+        no_refine: true, per_element_select: true },
+      { draft });
+    assert.equal(calls.length, 3, 'words + one selection call per element');
+    for (const c of calls.slice(1)) {
+      assert.equal((c.match(/Candidates found in the codebase:/g) || []).length, 1,
+        'one element per selection call');
+    }
+  });
+
+  it('per-element: attributes each selection to the element ASKED about, not the one named', async () => {
+    // Asked about one element in isolation, models routinely answer "ELEMENT 1:"
+    // whatever the real number is. Trusting that would mis-attribute every
+    // selection after the first. Only reachable under --per-element-select.
+    const fnIndex = {
+      'src/main/Rate.java': { 'RateChooser::chooseBitrate': { start: 10, end: 40 } },
+      'src/main/Send.java': { 'Sender::sendBitrate': { start: 10, end: 40 } },
+    };
+    const index = { functionIndex: fnIndex, _ensureFunctionIndex() {}, findCallers: () => [], findCallees: () => [] };
+    let n = 0;
+    const draft = async (sys) => {
+      if (/WORDS that would appear/.test(sys)) return 'ELEMENT 1: bitrate\nELEMENT 2: bitrate';
+      // Both answers claim to be ELEMENT 1.
+      return `ELEMENT 1: ${++n === 1 ? 'RateChooser::chooseBitrate' : 'Sender::sendBitrate'}`;
+    };
+    const res = await doClaimLocate(index,
+      { claim_locate: 'A system, comprising: choosing a rate; sending it.', model: 'f.gguf',
+        no_refine: true, per_element_select: true },
+      { draft });
+    const byName = Object.fromEntries(res.rows.filter((r) => r.verified).map((r) => [r.match.name, r.element]));
+    assert.equal(byName['RateChooser::chooseBitrate'], 1);
+    assert.equal(byName['Sender::sendBitrate'], 2, 'second answer belongs to element 2 despite saying ELEMENT 1');
   });
 });
 

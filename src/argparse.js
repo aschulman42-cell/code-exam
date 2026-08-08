@@ -263,6 +263,7 @@ export function parseArgs() {
     propose_from_priors: false,
     hunt: false,
     no_hunt: false,
+    per_element_select: false,
     hunt_rounds: null,
     hunt_calls: null,
     claims_loop: null,
@@ -550,6 +551,7 @@ export function parseArgs() {
     ['propose_from_priors',  'flag',           ['--propose-from-priors']],
     ['hunt',                 'flag',           ['--hunt']],
     ['no_hunt',              'flag',           ['--no-hunt']],
+    ['per_element_select',   'flag',           ['--per-element-select']],
     ['hunt_rounds',          'int',            ['--hunt-rounds']],
     ['hunt_calls',           'int',            ['--hunt-calls']],
     ['claims_loop',          'value',          ['--claims-loop']],
@@ -1409,6 +1411,13 @@ LLM ANALYSIS:
                               call count and warns if the model searched nothing.
   --no-hunt                  --claim-locate: force the single-search path off even
                               if --hunt is present.
+  --per-element-select       --claim-locate: choose implementers with one model call
+                             PER ELEMENT instead of one pooled call for all of them.
+                             Measured trade: fewer, denser targets (on-crux 25% ->
+                             53%) but worse recall on the crux symbol
+                             (shouldStartPlayback 5/5 -> 3/6), so pooled is the
+                             default. Kept for measurement, and for local runs where
+                             a shorter target list is worth more than recall.
   --targets-out <file>       --claim-locate: write the located targets to <file>, with a
                              '#' provenance block (engine, model, index, claim, hunt
                              caps, command, checksum) that --claim-chart reports.

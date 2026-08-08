@@ -802,11 +802,20 @@ export function targetsChecksum(targets) {
 export function buildTargetsProvenance({
   ceVersion, engine, blind, hunt, mode, indexPath, indexFiles, indexSymbols,
   claimSource, claimChars, elements, argv, generatedAt, targets,
+  perElementSelect, selectionCalls,
 }) {
-  const flags = [hunt ? '--hunt' : null, blind ? '--blind' : null].filter(Boolean).join(' ');
+  const flags = [hunt ? '--hunt' : null, blind ? '--blind' : null,
+    perElementSelect ? '--per-element-select' : null].filter(Boolean).join(' ');
   const lines = [];
   lines.push(`Produced by CodeExam${ceVersion ? ` ${ceVersion}` : ''} --claim-locate${flags ? ` ${flags}` : ''}`);
   lines.push(`Mode: ${mode}`);
+  // Two runs of the same command line produce different target lists depending
+  // on this, so the file has to say which it was.
+  if (!hunt && selectionCalls != null) {
+    lines.push(perElementSelect
+      ? `Selection: per-element — ${selectionCalls} model call(s), one per element`
+      : 'Selection: pooled — one model call chose across all elements at once');
+  }
   lines.push(`Engine: ${engine}`);
   lines.push(`Index: ${indexPath || 'unknown'}${indexFiles != null ? ` (${indexFiles} files` : ''}${
     indexSymbols != null ? `${indexFiles != null ? ', ' : ' ('}${indexSymbols} symbols)` : (indexFiles != null ? ')' : '')}`);
@@ -849,6 +858,8 @@ export async function doClaimLocate(index, args, opts = {}) {
   const blind = !!args.blind;
 
   const hunting = !!args.hunt && args.no_hunt !== true;
+  const perElementSelect = args.per_element_select === true;
+  let selectionCalls = null;   // set by the discovery path; null on hunt/priors
   const modeLabel = args.propose_from_priors
     ? 'propose-from-priors (model names symbols from its own knowledge)'
     : hunting
@@ -918,8 +929,33 @@ export async function doClaimLocate(index, args, opts = {}) {
     // from memory of a specific repository.
     const sys1 = buildDiscoverPrompt();
     const user1 = `CLAIM ELEMENTS:\n` + elements.map((e, i) => `${i + 1}. ${e}`).join('\n');
-    if (!claimsCostGate(model, [{ inChars: sys1.length + user1.length, outTokens: 400 },
-      { inChars: 6000, outTokens: 300 }], 'claim-locate discovery (2 calls)', args)) return;
+    // Selection POOLS all elements into one call by default. Splitting it per
+    // element was tried and measured on 2026-08-08 ('101 claim, --llm claude,
+    // n=5/6, same build both arms) and LOST:
+    //
+    //   metric                    pooled     per-element
+    //   shouldStartPlayback        5/5          3/6
+    //   determineIdealSelectedIndex 5/5         6/6
+    //   on-crux density            25%          53%
+    //   targets/run                22.6         14.3
+    //
+    // The hypothesis was that 150 candidate lines under one 700-token answer
+    // budget made the model miss candidates that were on the page. Pooled does
+    // not miss `shouldStartPlayback`; isolating elements loses it. Best current
+    // explanation: pooling supplies CONTEXT, not just competition — a claim is
+    // one system, and seeing the storage and rate-determination elements helps
+    // the model recognise the buffering-control function as the reproduction-
+    // start implementer. Isolation removes information along with the noise.
+    // For a legal deliverable recall beats concentration, so pooled is the
+    // default; --per-element-select keeps the other arm measurable, and its
+    // density gain may yet win on the local path where fewer, denser targets
+    // means fewer chart analyses.
+    const nSel = perElementSelect ? elements.length : 1;
+    const selCost = Array.from({ length: nSel }, () => (perElementSelect
+      ? { inChars: 2000, outTokens: 120 }
+      : { inChars: 6000, outTokens: 300 }));
+    if (!claimsCostGate(model, [{ inChars: sys1.length + user1.length, outTokens: 400 }, ...selCost],
+      `claim-locate discovery (${1 + nSel} calls)`, args)) return;
     resetCloudUsage();
 
     process.stderr.write('Step 1: predicting code vocabulary from the claim (no codebase shown)...\n');
@@ -948,11 +984,35 @@ export async function doClaimLocate(index, args, opts = {}) {
     }
 
     // Step 3: the model chooses among symbols that DEMONSTRABLY EXIST.
-    process.stderr.write('Step 3: selecting implementers from real candidates...\n');
-    let rawSel;
-    try { rawSel = await draft(buildSelectPrompt(withHits, { blind }), `PATENT CLAIM:\n${claimText}`, 700); }
-    catch (e) { console.error(`--claim-locate: selection step failed: ${e.message}`); process.exitCode = 1; return; }
-    proposals = parseProposedSymbols(rawSel || '').slice(0, LOCATE_DEFAULTS.maxProposals);
+    process.stderr.write(`Step 3: selecting implementers from real candidates`
+      + `${perElementSelect ? `, one call per element (${withHits.length})` : ''}...\n`);
+    selectionCalls = perElementSelect ? withHits.length : 1;
+    if (!perElementSelect) {
+      let rawSel;
+      try { rawSel = await draft(buildSelectPrompt(withHits, { blind }), `PATENT CLAIM:\n${claimText}`, 700); }
+      catch (e) { console.error(`--claim-locate: selection step failed: ${e.message}`); process.exitCode = 1; return; }
+      proposals = parseProposedSymbols(rawSel || '').slice(0, LOCATE_DEFAULTS.maxProposals);
+    } else {
+      let failed = 0;
+      for (const pe of withHits) {
+        let rawSel;
+        try { rawSel = await draft(buildSelectPrompt([pe], { blind }), `PATENT CLAIM:\n${claimText}`, 300); }
+        catch (e) {
+          // One element failing must not lose the other five. Report and go on.
+          process.stderr.write(`  element ${pe.element}: selection failed: ${e.message}\n`);
+          failed++;
+          continue;
+        }
+        // The element number is OURS, not the model's. Asked about one element
+        // in isolation, a model commonly answers "ELEMENT 1:" whatever the real
+        // number is; taking its word would mis-attribute every selection after
+        // the first.
+        const picked = parseProposedSymbols(rawSel || '').map((p) => ({ ...p, element: pe.element }));
+        proposals.push(...picked);
+      }
+      if (failed) process.stderr.write(`  ${failed} of ${withHits.length} element selection(s) failed.\n`);
+      proposals = proposals.slice(0, LOCATE_DEFAULTS.maxProposals);
+    }
     console.log();
   }
 
@@ -1098,6 +1158,7 @@ export async function doClaimLocate(index, args, opts = {}) {
     ceVersion: readCeVersion(),
     engine: describeEngine(model),
     blind, hunt, mode: modeLabel,
+    perElementSelect, selectionCalls,
     indexPath: args.index_path || '(unknown)',
     indexFiles: index.files ? (index.files.size ?? index.files.length ?? null) : null,
     indexSymbols: symbols.length,
