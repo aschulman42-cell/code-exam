@@ -419,6 +419,48 @@ function _capNote(shown, total, atCap, label, hint) {
   return `Showing ${shown} of ${total}${atCap ? '+' : ''} ${label} - PARTIAL result; do not infer absence. ${hint}`;
 }
 
+// #306 fix-list item 3 (F47, F48). The header above is invisible to a model that
+// has read to the bottom of a truncated list and is now deciding what to do —
+// which is the moment the cap matters. Audited across the tool surface, exactly
+// ONE of 24 tools marked its cap where the reader actually is.
+//
+// This is the same lesson as the rest of this batch, turned on CE's own output:
+// information placed where the model is not acting does not change behaviour.
+// The numbers are already computed; only their position is new.
+// #306 fix-list item 1 (F56). `No results for "X"` and nothing else. Models
+// treat `search` as SEMANTIC when it is LITERAL, and CE never corrected them —
+// one measured run spent a 24-CALL LOOP reformulating the same multi-word
+// phrase, which the first reply could have ended. The correction has to arrive
+// at the failure, not in the tool description: widening the description was
+// measured (C3/F41) and made things worse.
+function _noSearchHits(what, isRegex = false) {
+  return `No results for ${what}.\n`
+    + `This is a ${isRegex ? 'REGULAR-EXPRESSION' : 'LITERAL TEXT'} search over source, not a semantic one — `
+    + `multi-word phrases and natural-language descriptions rarely match anything. `
+    + `Try a single identifier or a distinctive substring; use multisect_search to `
+    + `intersect several terms; or list_files / list_functions to see what exists.`;
+}
+
+// #306 fix-list item 2 (F57). The old message ("try a file hint: file@name")
+// assumes the NAME is right and only the path is missing. Measured behaviour is
+// the opposite: models pick a targeted tool and INVENT the target, so the advice
+// points away from the recovery that would work. Name both paths and let the
+// caller pick.
+function _targetNotFound(kind, target) {
+  return `${kind} not found: '${target}'.\n`
+    + `If you know the symbol exists but not where: qualify it as file@name.\n`
+    + `If you are guessing at a CONCEPT rather than a name you have seen: this tool `
+    + `needs an exact identifier — use search('<term>'), multisect_search, or `
+    + `list_files / list_functions to find the real name first.`;
+}
+
+function _capFooter(shown, total, atCap, widenHint) {
+  if (shown >= total && !atCap) return '';
+  const more = Math.max(0, total - shown);
+  return `\n... ${more}${atCap ? '+' : ''} more not shown (total ${total}${atCap ? '+' : ''}).`
+    + (widenHint ? ` ${widenHint}` : '');
+}
+
 function handleTool(name, args) {
   switch (name) {
 
@@ -430,26 +472,28 @@ function handleTool(name, args) {
       const max = args.max || 25;
       const probe = Math.max(max * 5, 200);  // look past `max` to report the true total (#272)
       const all = index.searchLiteral(query, { maxResults: probe, contextLines: 0 });
-      if (all.length === 0) return `No results for "${query}"`;
+      if (all.length === 0) return _noSearchHits(`"${query}"`);
       const shown = all.slice(0, max);
       const header = _capNote(shown.length, all.length, all.length >= probe, 'matches', `Raise "max" or refine the query to see the rest.`);
       return header + '\n' + shown.map(r =>
         `${r.filePath}:${r.lineNumber}  ${clipLine(r.lineText)}` +
         (r.functionName ? `  (in ${clipLine(r.functionName, 80)})` : '')
-      ).join('\n');
+      ).join('\n')
+        + _capFooter(shown.length, all.length, all.length >= probe, 'Raise "max" or refine the query.');
     }
 
     case 'regex_search': {
       const max = args.max || 25;
       const probe = Math.max(max * 5, 200);
       const all = index.searchLiteral(args.pattern, { useRegex: true, maxResults: probe, contextLines: 0 });
-      if (all.length === 0) return `No results for /${args.pattern}/`;
+      if (all.length === 0) return _noSearchHits(`/${args.pattern}/`, true);
       const shown = all.slice(0, max);
       const header = _capNote(shown.length, all.length, all.length >= probe, 'matches', `Raise "max" or refine the pattern to see the rest.`);
       return header + '\n' + shown.map(r =>
         `${r.filePath}:${r.lineNumber}  ${clipLine(r.lineText)}` +
         (r.functionName ? `  (in ${clipLine(r.functionName, 80)})` : '')
-      ).join('\n');
+      ).join('\n')
+        + _capFooter(shown.length, all.length, all.length >= probe, 'Raise "max" or refine the pattern.');
     }
 
     case 'multisect_search': {
@@ -511,13 +555,26 @@ function handleTool(name, args) {
             hits.map(h => `  ${h.filePath}:${h.lineNumber}`).join('\n') +
             `\nUse show_file there to read it.)`;
         }
-        return `Function not found: ${spec}`;
+        return _targetNotFound('Function', spec);
       }
       if (matches.length > 5) {
         return `Ambiguous: ${matches.length} matches for "${funcName}". Use file@funcname to disambiguate:\n` +
           matches.slice(0, 10).map(m => `  ${m.filepath}@${m.name} (${m.start}-${m.end})`).join('\n');
       }
       const results = [];
+      // #306 fix-list item 11 (F54). >5 matches already errors as Ambiguous
+      // above; 2-5 fell through here and returned up to THREE bodies with no
+      // count — so a 4-match target silently dropped one, and a 2-match target
+      // never said it was a choice at all. `rollup` exists twice in CE's own
+      // source and was found by accident, which is the tell. Same principle as
+      // the claim-locate navigation fix in 4ae4a06: when CE picks among
+      // several, say so.
+      if (matches.length > 1) {
+        results.push(`${matches.length} matches for "${funcName}"`
+          + (matches.length > 3 ? ' — showing the first 3' : '')
+          + '. Use file@funcname to select one:\n'
+          + matches.map(m => `  ${m.filepath}@${m.name} (${m.end - m.start + 1}L)`).join('\n'));
+      }
       for (const m of matches.slice(0, 3)) {
         const lines = index.fileLines.get(m.filepath);
         if (!lines) continue;
@@ -571,7 +628,8 @@ function handleTool(name, args) {
         lines.push(`  ${c.filepath}:${c.line_number}  ${clipLine(c.line_text.trim())}` +
           (c.caller_function ? `  (in ${clipLine(c.caller_function, 80)})` : ''));
       }
-      return lines.join('\n');
+      return lines.join('\n')
+        + _capFooter(shown.length, all.length, all.length >= probe, 'Raise "max" to see the rest.');
     }
 
     case 'callees': {
@@ -946,7 +1004,7 @@ function handleTool(name, args) {
         maxStrings: Math.max(15, args.max_results || 15),
       };
       const digest = index.buildDigest(target, opts);
-      if (!digest) return `Target not found: '${target}' (try a file hint: file@name, e.g. src/foo.js@bar)`;
+      if (!digest) return _targetNotFound('Target', target);
       const fopts = { verbose: !!args.verbose };
       switch (digest.target_type) {
         case 'class': return formatClassDigest(digest, fopts);

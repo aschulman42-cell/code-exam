@@ -197,3 +197,72 @@ def accumulate_scores(records):
     assert.ok(/sum_values|accumulate_scores/.test(out), 'group should name a clone instance: ' + out);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #306 batch 3 — feedback AT THE POINT OF FAILURE. asus-CC's central lesson:
+// information placed where the model is NOT acting does not change behaviour.
+// Widening tool descriptions was measured and made things worse (F41); an
+// imperative preamble regressed 4 of 10 cells (F34); a post-hoc nudge moved
+// zero (batch-2 §4). These four change what a tool returns at the moment it
+// fails, which is where the model is definitely reading.
+// ---------------------------------------------------------------------------
+
+describe('#306 feedback at the point of failure', () => {
+  // The struct_dupes block above calls setIndex(sdIndex) and never restores it,
+  // so anything declared after it silently runs against the wrong fixture —
+  // which is how the first cut of these tests "passed" a zero-result assertion
+  // on a term the real fixture contains. Re-point at the main index rather than
+  // depend on declaration order.
+  before(() => { setIndex(new CodeSearchIndex({ indexPath: IDX })); });
+
+  it('search zero-result names the LITERAL/semantic distinction and the escape hatches', () => {
+    // F56: a measured run spent a 24-CALL LOOP reformulating one multi-word
+    // phrase, because "No results" said nothing about why.
+    const out = handleTool('search', { query: 'the part that handles authentication' });
+    assert.match(out, /No results/);
+    assert.match(out, /LITERAL TEXT search/);
+    assert.match(out, /multi-word phrases/i);
+    assert.match(out, /multisect_search/);
+    assert.match(out, /list_files|list_functions/);
+  });
+
+  it('regex_search says REGULAR-EXPRESSION, not literal', () => {
+    const out = handleTool('regex_search', { pattern: 'zzz_no_such_pattern_zzz' });
+    assert.match(out, /REGULAR-EXPRESSION search/);
+  });
+
+  it('a successful search is NOT changed by any of this', () => {
+    // These are failure-branch strings. A passing call must be untouched, or the
+    // sweep measuring them cannot attribute anything.
+    const out = handleTool('search', { query: 'import' });
+    assert.doesNotMatch(out, /No results/, 'fixture must actually contain this');
+    assert.doesNotMatch(out, /LITERAL TEXT search/);
+    assert.doesNotMatch(out, /not shown \(total/);
+  });
+
+  it('digest/extract not-found offers search, not just a file hint', () => {
+    // F57: models pick a targeted tool and INVENT the target. The old message
+    // ("try a file hint") assumed the name was right and only the path missing,
+    // which points away from the recovery that works.
+    for (const [tool, args] of [
+      ['digest', { target: 'handlesTheLoginFlow' }],
+      ['extract', { function_name: 'handlesTheLoginFlow' }],
+    ]) {
+      const out = handleTool(tool, args);
+      assert.match(out, /not found/i, `${tool} still reports not-found`);
+      assert.match(out, /search\(/, `${tool} points at search`);
+      assert.match(out, /CONCEPT rather than a name/, `${tool} names the guessing case`);
+      assert.match(out, /file@name/, `${tool} keeps the qualify-it path too`);
+    }
+  });
+
+  it('a truncated list carries the remaining count at the BOTTOM, not only the top', () => {
+    // F47/F48: 1 of 24 tools marked its cap where the model is reading. A model
+    // that has read to the end of a list never sees the header.
+    const out = handleTool('search', { query: 'e', max: 2 });
+    assert.match(out, /Showing 2 of/, 'header still there');
+    assert.match(out, /more not shown \(total/, 'and now a footer');
+    assert.ok(out.lastIndexOf('not shown') > out.indexOf('Showing 2 of'),
+      'the footer is after the results, which is the whole point');
+  });
+});
