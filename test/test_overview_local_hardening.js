@@ -12,7 +12,7 @@ import {
 } from '../src/core/ai-overview-local.js';
 import { aiOverviewPrompt, LOCAL_ENGINE_GROUNDING } from '../src/core/ai-overview.js';
 import fs from 'node:fs';
-import { ggufContextOptions, PINNED_TODAY_DATE, DATE_INJECTING_WRAPPERS, pinnedWrapperSettings } from '../src/core/llm-runner.js';
+import { ggufContextOptions, PINNED_TODAY_DATE, DATE_INJECTING_WRAPPERS } from '../src/core/llm-runner.js';
 
 // --flash-attention (#306 fix-list 17, F23). Frees 0.5 GB (Gemma-3-12B) to
 // 2.3 GB (gpt-oss-20b) of VRAM at ctx 16384 — the difference between a 20B
@@ -245,12 +245,6 @@ test('#306 floor: the note labels the run either way, and warns against reading 
 // ---------------------------------------------------------------------------
 
 
-test('#306 todayDate: the constant is the date the GGUF template hardcodes, not an arbitrary one', () => {
-  // Llama 3.1's own jinja template hardcodes date_string = "26 Jul 2024". Using
-  // it means CE pins to what the model's packager intended, rather than
-  // inventing a date.
-  assert.equal(PINNED_TODAY_DATE.toISOString().slice(0, 10), '2024-07-26');
-});
 
 
 
@@ -279,24 +273,41 @@ test('#306 todayDate: CE pins every wrapper that injects a date, per the install
     'DATE_INJECTING_WRAPPERS must match the installed library');
 });
 
-test('#306 todayDate: the settings reach the wrapper CONSTRUCTOR, which is where the option lives', async () => {
-  // The check the first version of this fix lacked. `todayDate` is not a
-  // LlamaChatSession option — passing it there is silently dropped — so
-  // asserting on the options object CE builds proves nothing. Construct the
-  // real wrappers with CE's settings and read back what they stored.
+
+// D2: the constant must name the same CALENDAR DAY in every timezone. A UTC
+// instant does not — `new Date('2024-07-26T00:00:00Z')` renders "25 Jul 2024"
+// everywhere west of UTC, so two machines in different zones would send
+// different prompts. Asserting the LOCAL components is timezone-independent by
+// construction: a local-noon date has these components wherever it is built.
+test('#306 todayDate: the pinned constant is the same calendar day in any timezone', () => {
+  assert.equal(PINNED_TODAY_DATE.getFullYear(), 2024);
+  assert.equal(PINNED_TODAY_DATE.getMonth(), 6, 'July (0-indexed)');
+  assert.equal(PINNED_TODAY_DATE.getDate(), 26, 'the date Llama 3.1\'s own template hardcodes');
+  // Noon, not midnight: ~12h of margin either side keeps every real UTC offset
+  // (-12..+14) on the same calendar day.
+  assert.equal(PINNED_TODAY_DATE.getHours(), 12, 'midday margin is what makes it zone-proof');
+  // Guard against a regression to the UTC-instant form, which is what shipped
+  // and was wrong.
+  assert.notEqual(PINNED_TODAY_DATE.toISOString(), '2024-07-26T00:00:00.000Z');
+});
+
+// D1: version 2 of this fix passed the date through customWrapperSettings, which
+// made Harmony fall through to JinjaTemplate — swapping the wrapper and leaving
+// the clock live. Version 3 resolves unperturbed and assigns the field. These
+// two tests pin the properties that make that safe.
+test('#306 todayDate: assignment after construction takes effect (read at render, not captured)', async () => {
   let mod;
   try { mod = await import('node-llama-cpp'); } catch { return; }
-  const settings = pinnedWrapperSettings();
-  for (const [key, Cls] of [
+  for (const [name, Cls] of [
     ['llama3.1', mod.Llama3_1ChatWrapper],
     ['llama3.2-lightweight', mod.Llama3_2LightweightChatWrapper],
     ['harmony', mod.HarmonyChatWrapper],
   ]) {
-    const w = new Cls(settings[key]);
-    assert.ok(w.todayDate instanceof Date, `${key}: stored a Date, not a clock function`);
-    assert.equal(w.todayDate.getTime(), PINNED_TODAY_DATE.getTime(), `${key}: pinned to CE's constant`);
+    const w = new Cls({});
+    assert.equal(typeof w.todayDate, 'function', `${name}: library default really is a clock`);
+    w.todayDate = PINNED_TODAY_DATE;                       // what chatSessionOptions does
+    assert.ok(w.todayDate instanceof Date, `${name}: field is writable`);
+    assert.equal(w.todayDate.getTime(), PINNED_TODAY_DATE.getTime(), `${name}: holds CE's constant`);
   }
-  // And the control: a wrapper built WITHOUT our settings keeps the live clock.
-  const live = new mod.Llama3_1ChatWrapper({});
-  assert.equal(typeof live.todayDate, 'function', 'library default really is a clock');
 });
+

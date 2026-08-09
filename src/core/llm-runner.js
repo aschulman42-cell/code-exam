@@ -255,7 +255,22 @@ export function ggufContextLadder(explicit = null) {
 // pair is an unmeasured bet. The constant is the date the GGUF's own template
 // hardcodes, so it is what the model's packager intended when the library is not
 // overriding them.
-export const PINNED_TODAY_DATE = new Date('2024-07-26T00:00:00Z');
+// LOCAL noon, not a UTC instant. The wrappers format this date in LOCAL time,
+// so `new Date('2024-07-26T00:00:00Z')` — the first version of this constant —
+// renders "25 Jul 2024" in every timezone west of UTC and "26 Jul" only in UTC
+// itself. Stable per machine, but two machines in different timezones then send
+// different prompts, reintroducing exactly the cross-machine incomparability
+// this fix exists to remove. Measured across UTC / Los_Angeles / Tokyo / London
+// / New_York (asus-CC D2).
+//
+// Noon gives ~12h of margin either side, so every real UTC offset (-12..+14)
+// lands on the same calendar day. The library agrees with this reading: its own
+// test constant is `new Date("2024-07-26T00:00:00")` — no `Z`.
+//
+// The value is the date Llama 3.1's own jinja template hardcodes, so CE pins to
+// what the model's packager intended rather than inventing one. Month is
+// 0-indexed: 6 = July.
+export const PINNED_TODAY_DATE = new Date(2024, 6, 26, 12);
 
 // The wrappers that default `todayDate` to a live clock in node-llama-cpp
 // 3.18.1. Verified by grepping the installed dist rather than assumed:
@@ -268,23 +283,50 @@ export const PINNED_TODAY_DATE = new Date('2024-07-26T00:00:00Z');
 // the check is `grep -l todayDate node_modules/node-llama-cpp/dist/chatWrappers/`.
 export const DATE_INJECTING_WRAPPERS = ['llama3.1', 'llama3.2-lightweight', 'harmony'];
 
-export function pinnedWrapperSettings(todayDate = PINNED_TODAY_DATE) {
-  return Object.fromEntries(DATE_INJECTING_WRAPPERS.map((w) => [w, { todayDate }]));
-}
 
 // Options for every `new LlamaChatSession` CE creates. One helper so the six
 // call sites cannot drift apart.
 //
 // `todayDate` is a WRAPPER CONSTRUCTOR option, not a session option — passing it
-// to LlamaChatSession is silently dropped (that was the first version of this
-// fix, and it did nothing). So CE resolves the wrapper itself with the date
-// pinned, using the library's own `resolveChatWrapper` on the sequence's model,
-// and hands the constructed wrapper to the session. Auto-detection is preserved:
-// this is the same resolver the session would have called, with one setting
-// added.
+// to LlamaChatSession is silently dropped. That was version 1 of this fix and it
+// did nothing.
 //
-// `customWrapperSettings` applies only to whichever wrapper actually resolves,
-// so naming all three is harmless for Gemma/Mistral/Qwen.
+// Version 2 passed it via `customWrapperSettings` to `resolveChatWrapper`, and
+// that was WORSE on gpt-oss. The resolver merges customWrapperSettings into each
+// candidate wrapper BEFORE testing whether it can supersede the model's jinja
+// template (`resolveChatWrapper.js:154`), so any `todayDate` we supply changes
+// what the test renderings produce and therefore which wrapper is chosen.
+//
+// Llama 3.1 survives it: its GGUF template hardcodes `date_string = "26 Jul
+// 2024"`, and the wrapper ships a test config pinned to exactly that date, so a
+// match is still found. Harmony has no config whose rendered date can match what
+// its template produces, so every candidate fails and resolution falls through
+// to JinjaTemplate. On gpt-oss that swapped the wrapper AND left the clock live,
+// while bypassing Harmony's own modelIdentity / cuttingKnowledgeDate /
+// reasoningEffort defaults — strictly worse than the drift it was meant to fix,
+// on the one model the roster's 12 GB download was for.
+//
+// Found by asus-CC (D1) before it was ever measured. Their bisect is the
+// load-bearing fact and it is empirical: `{harmony: {todayDate: <anything>}}`,
+// including `null`, drops Harmony to JinjaTemplate, while `{harmony: {}}` and no
+// settings both keep it. Their stated cause — "Harmony's configs never mention
+// todayDate" — is not quite right (its last five configs set it to null), which
+// is why the reasoning above is phrased around the RENDERED date rather than the
+// presence of the key. The remedy is unaffected either way: do not perturb the
+// resolver at all.
+//
+// VERSION 3, this one: resolve UNPERTURBED, then set the field on the resolved
+// instance. All three dated wrappers read `this.todayDate` at RENDER time
+// (Llama3_1 :195/:211, Harmony :403, Llama3_2Lightweight :177/:193), never
+// capturing it at construction, so assignment takes effect — and unlike
+// reconstructing via `new probe.constructor({todayDate})` it preserves every
+// other setting the resolver applied. That matters: Llama3_1 has a test config
+// whose applyConfig is `{cuttingKnowledgeDate: ...}`, which a reconstruct would
+// silently drop.
+//
+// When the resolved wrapper injects no date (Gemma, Mistral, Qwen) CE passes NO
+// wrapper at all and lets the session resolve as it always did — minimum
+// deviation, and provably byte-identical for those families.
 //
 // Async because node-llama-cpp is imported dynamically everywhere else in CE —
 // it must stay an optional dependency. Every call site is already in an async
@@ -294,14 +336,16 @@ export async function chatSessionOptions(contextSequence, { liveTodayDate = fals
   let chatWrapper = null;
   try {
     const { resolveChatWrapper } = await import('node-llama-cpp');
-    chatWrapper = resolveChatWrapper(contextSequence.model, {
-      customWrapperSettings: pinnedWrapperSettings(),
-    });
-    // Name the wrapper so a capture is self-describing and any divergence from
-    // the library's own choice is visible immediately rather than silent. The
-    // measured table is Gemma->Gemma, Mistral->Mistral, Qwen->Qwen,
-    // Llama-3.1->llama3.1, gpt-oss->harmony.
-    if (onStatus && chatWrapper) onStatus(`chat wrapper: ${chatWrapper.wrapperName} (Today Date pinned)`);
+    const probe = resolveChatWrapper(contextSequence.model);
+    if (probe && probe.todayDate != null) {
+      probe.todayDate = PINNED_TODAY_DATE;
+      chatWrapper = probe;
+      if (onStatus) onStatus(`chat wrapper: ${probe.wrapperName} (Today Date pinned)`);
+    } else if (probe && onStatus) {
+      // Do not claim a pin that never happened — the previous wording said
+      // "Today Date pinned" on Gemma, which injects no date at all.
+      onStatus(`chat wrapper: ${probe.wrapperName} (no date injected)`);
+    }
   } catch (e) {
     // Failing to PIN must never fail the RUN. Falling back to the library's own
     // resolution means the date drifts again on the three affected wrappers —
