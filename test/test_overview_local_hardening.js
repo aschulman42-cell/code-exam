@@ -9,6 +9,7 @@ import {
   makeToolBudget, neutralizeSpecialTokens, strictInstructionsFor, ungroundedWarning, localBudgets,
   needsSynthesizeRetry, rescuedNote, SYNTHESIZE_RETRY_MAX_TOKENS, SYNTHESIZE_NOW_PROMPT,
   toolFloorFrom, needsToolFloorNudge, toolFloorNote, TOOL_FLOOR_MAX_NUDGES,
+  countScorableTokens, preferPreNudgeAnswer,
 } from '../src/core/ai-overview-local.js';
 import { aiOverviewPrompt, LOCAL_ENGINE_GROUNDING } from '../src/core/ai-overview.js';
 import fs from 'node:fs';
@@ -311,3 +312,51 @@ test('#306 todayDate: assignment after construction takes effect (read at render
   }
 });
 
+
+// ---------------------------------------------------------------------------
+// Damage cap (asus-CC batch-2 floor measurement). 16 nudges across 8 cells
+// produced ZERO additional distinct tool calls and destroyed two cells outright.
+// Never return an answer worse than the one the nudge replaced.
+// ---------------------------------------------------------------------------
+
+test('#306 damage cap: keeps the original when the re-prompt names fewer things', () => {
+  // Gemma-K_M's real failure shape: 3.6x longer, almost nothing named. ABSOLUTE
+  // count rather than density is what catches this — density alone would not,
+  // and a density threshold would be a magic number to argue about.
+  const rich = 'The `AdaptiveTrackSelection` class in AdaptiveTrackSelection.java calls '
+    + 'determineIdealSelectedIndex and updateSelectedTrack via DefaultLoadControl.';
+  const padded = 'This codebase appears to be a large and well organised project. '.repeat(40);
+  assert.ok(countScorableTokens(rich) > countScorableTokens(padded));
+  assert.equal(preferPreNudgeAnswer(rich, padded), true, 'longer but emptier must be rejected');
+});
+
+test('#306 damage cap: catches a model knocked out of the function-calling channel', () => {
+  // Qwen's real failure: the best-scoring cell in the roster returned 399 bytes
+  // of call syntax as literal prose, which node-llama-cpp never intercepted.
+  const before = 'The `CodeSearchIndex` class in CodeSearchIndex.js builds the function index.';
+  const leaked = '<tool_call>\n{"name": "command_catalog", "arguments": {}}\n</tool_call>';
+  assert.equal(preferPreNudgeAnswer(before, leaked), true);
+  assert.equal(preferPreNudgeAnswer(before, '{"name": "overview", "arguments": {}}'), true);
+});
+
+test('#306 damage cap: keeps the NEW answer when the re-prompt genuinely improved it', () => {
+  // The cap must not fire on success, or it would silently defeat the mechanism
+  // in exactly the cases where it worked.
+  const thin = 'This project is a code analysis tool.';
+  const better = 'The `CodeSearchIndex` class in CodeSearchIndex.js builds a function index; '
+    + 'mcp-server.js exposes handleTool and ai-overview-local.js drives the loop.';
+  assert.equal(preferPreNudgeAnswer(thin, better), false);
+});
+
+test('#306 damage cap: an empty re-prompt falls back; an empty original does not', () => {
+  assert.equal(preferPreNudgeAnswer('some `real` content here', ''), true);
+  assert.equal(preferPreNudgeAnswer('', 'anything'), false, 'nothing better to fall back to');
+});
+
+test('#306 damage cap: the note says the original was kept, so the failure is not hidden', () => {
+  const n = toolFloorNote(1, 3, 2, false, true);
+  assert.match(n, /FLOOR NOT MET/);
+  assert.match(n, /named FEWER concrete things[\s\S]*original was kept/);
+  assert.match(n, /nudging made this run worse, and that is the result/);
+  assert.doesNotMatch(toolFloorNote(3, 3, 1, true, false), /original was kept/);
+});

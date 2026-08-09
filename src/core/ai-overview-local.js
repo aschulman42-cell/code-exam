@@ -181,6 +181,30 @@ export function toolFloorFrom(env) {
 // floor would turn a model limitation into a hang.
 export const TOOL_FLOOR_MAX_NUDGES = 2;
 
+// MEASURED NOT TO WORK — do not enable this expecting it to help. 16 nudges
+// across 8 cells produced ZERO additional distinct tool calls on any model or
+// index, and specificity fell in 7 of 8. Two cells were destroyed outright.
+//
+// The design comment above says "a floor is arithmetic". The GATE is arithmetic;
+// the ENFORCEMENT is prose, and F34 already established that a prompt edit is a
+// per-model coefficient. That gap is the whole result, and it was mine to see.
+//
+// The premise is contradicted from both directions at once. Telling models to
+// investigate does not work — and a model that needed no telling was available
+// the whole time: gpt-oss-20b makes 10 calls / 8 DISTINCT tools on .ExoPlayer3
+// unprompted, on the index where five other models manage 0-1 and where F19
+// concluded the index itself was suppressing investigation. It is not the index.
+// Investigation depth is a property of the MODEL, and CE cannot prompt its way
+// to it.
+//
+// So the useful CE-side lever is selection plus substitution, not enforcement:
+// report depth honestly (the label below does that well and is why this
+// experiment was readable), and where a model will not look, have CE look for it
+// — the prefetch route, the one mechanism measured to work on every model
+// including those that never call anything.
+//
+// Kept gated and off until that replacement lands, with the damage cap below as
+// the guard. asus-CC's batch-2 report, §4 and §5.
 export const TOOL_FLOOR_PROMPT =
   'You have not investigated enough to write an overview yet. Call more of the '
   + 'available tools — different ones, not the same tool again — and only then '
@@ -201,19 +225,73 @@ export function needsToolFloorNudge({ raw, distinctTools, floor, nudges, rescued
   return distinctTools < floor;
 }
 
+// ---------------------------------------------------------------------------
+// DAMAGE CAP (asus-CC, batch-2 floor measurement). Never return an answer worse
+// than the one the nudge replaced.
+//
+// Measured: 16 nudges across 8 cells produced ZERO additional distinct tool
+// calls, specificity fell in 7 of 8, and two cells were destroyed — Qwen's
+// best-in-roster run (groundedness 1.000, specificity 18.5) came back as 399
+// bytes of leaked `<tool_call>` markup, and Gemma-K_M returned 7,742 bytes at
+// 0.3 entities/kchar. Both would have been better served by the pre-nudge prose.
+//
+// CE cannot compute asus-CC's specificity score — that lives in the eval
+// harness and its rules are frozen at v1, so duplicating it here would create a
+// second definition that drifts. What CE can do is compare the SAME cheap
+// measure across the two candidate answers from ONE run. A within-run comparison
+// does not need to agree with anyone's absolute scale to answer "did this get
+// worse".
+// ---------------------------------------------------------------------------
+
+// Concrete things the prose names: backticked spans, dotted / :: / _ qualified
+// identifiers, CamelCase words, and anything with a file extension. Deliberately
+// conservative — it is a floor on "names something checkable", not a claim to
+// measure groundedness.
+const SCORABLE_RE = new RegExp([
+  '`[^`\\n]+`',
+  '\\b[A-Za-z_][A-Za-z0-9_]*(?:(?:::|\\.|_)[A-Za-z0-9_]+)+\\b',
+  '\\b[a-z0-9]+[A-Z][A-Za-z0-9]*\\b',
+  '\\b[A-Za-z][A-Za-z0-9_-]*\\.[a-z]{1,5}\\b',
+].join('|'), 'g');
+
+export function countScorableTokens(text) {
+  return (String(text || '').match(SCORABLE_RE) || []).length;
+}
+
+// A nudge can knock a model out of the structured function-calling channel, so
+// it emits call syntax as literal prose that node-llama-cpp never intercepts.
+// That is not a weak answer, it is a broken protocol, and it is unambiguous.
+const LEAKED_CALL_RE = /<\s*(?:tool_call|function_call|\|?tool\|?)\s*>|^\s*\{\s*"name"\s*:\s*"[a-z_]+"\s*,\s*"arguments"\s*:/im;
+
+// ABSOLUTE count, not density. Density would miss Gemma-K_M's failure, which
+// tripled its length while naming fewer things; absolute count catches both that
+// and Qwen's collapse, and needs no threshold constant to argue about.
+export function preferPreNudgeAnswer(pre, post) {
+  const before = String(pre || '').trim();
+  const after = String(post || '').trim();
+  if (!before) return false;               // nothing better to fall back to
+  if (!after) return true;
+  if (LEAKED_CALL_RE.test(after)) return true;
+  return countScorableTokens(after) < countScorableTokens(before);
+}
+
 // The floor guarantees QUANTITY, not quality — it cannot make a call
 // informative, and F43's template regurgitation and F55's unearned refusals are
 // both compatible with a satisfied floor. So say when it fired, the way
 // rescuedNote() does: otherwise a floor-padded run is indistinguishable from a
 // genuinely thorough one, and the intervention hides the behaviour that
 // justifies it.
-export function toolFloorNote(distinctTools, floor, nudges, satisfied) {
+export function toolFloorNote(distinctTools, floor, nudges, satisfied, reverted = false) {
   return `ⓘ TOOL-CALL FLOOR ${satisfied ? 'APPLIED' : 'NOT MET'}: the model wrote its `
     + `overview after using ${distinctTools} distinct tool(s); the floor asked for `
     + `${floor}. CE re-prompted it ${nudges} time(s) to investigate further`
-    + `${satisfied ? '' : ', and it still did not reach the floor'}. Extra calls do not `
-    + 'guarantee extra evidence — read this with the groundedness and specificity '
-    + 'scores, not instead of them.';
+    + `${satisfied ? '' : ', and it still did not reach the floor'}.`
+    + (reverted
+      ? ' The re-prompted answer named FEWER concrete things than the original, so the'
+        + ' original was kept — the nudging made this run worse, and that is the result.'
+      : '')
+    + ' Extra calls do not guarantee extra evidence — read this with the groundedness '
+    + 'and specificity scores, not instead of them.';
 }
 
 // Context-scaled output/tool budgets (port of server _localBudgets).
@@ -268,6 +346,8 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
   let prefetched = false;
   const distinctTools = new Set();
   let floorNudges = 0;
+  let preNudgeRaw = '';
+  let floorReverted = false;
   const toolFloor = toolFloorFrom(process.env);
   try {
     // Load the index in-process and point handleTool at it (no MCP subprocess).
@@ -465,6 +545,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
       // observed blocking the event loop for ~640s.
       while (needsToolFloorNudge({ raw, distinctTools: distinctTools.size, floor: toolFloor,
         nudges: floorNudges, rescued })) {
+        if (!floorNudges) preNudgeRaw = raw;   // damage cap: the answer to fall back to
         floorNudges++;
         status(`tool-call floor: ${distinctTools.size} distinct tool(s) < ${toolFloor}`
           + ` — re-prompting to investigate further (nudge ${floorNudges}/${TOOL_FLOOR_MAX_NUDGES})`);
@@ -477,6 +558,15 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
             timeout,
           ]);
         } catch (e) { status(`tool-floor nudge failed: ${e.message}`); break; }
+      }
+      // Damage cap. Measured: nudging destroyed two of eight cells outright.
+      // Never hand back an answer that names fewer concrete things than the one
+      // it replaced.
+      if (floorNudges && preferPreNudgeAnswer(preNudgeRaw, raw)) {
+        floorReverted = true;
+        status(`tool-call floor: re-prompted answer was worse (${countScorableTokens(raw)} vs `
+          + `${countScorableTokens(preNudgeRaw)} scorable tokens) — keeping the original`);
+        raw = preNudgeRaw;
       }
     } finally {
       clearTimeout(timer);
