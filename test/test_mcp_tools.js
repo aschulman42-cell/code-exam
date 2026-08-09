@@ -266,3 +266,28 @@ describe('#306 feedback at the point of failure', () => {
       'the footer is after the results, which is the whole point');
   });
 });
+
+describe('#306 cap footer reaches the highest-volume truncations', () => {
+  before(() => { setIndex(new CodeSearchIndex({ indexPath: IDX })); });
+
+  // F47's original failure was here: a model answered "which file has the MOST
+  // functions" from the first entry of a 100-of-1644 list_functions result. The
+  // total was in the header the whole time; the model was reading the body.
+  it('list_functions carries the remaining count at the bottom', () => {
+    const out = handleTool('list_functions', { max: 1 });
+    assert.match(out, /functions.*showing 1/, 'header unchanged');
+    assert.match(out, /more not shown \(total/, 'and now a footer');
+    assert.ok(out.lastIndexOf('not shown') > out.indexOf('showing 1'));
+  });
+
+  it('list_files carries it too', () => {
+    const out = handleTool('list_files', { max: 1 });
+    assert.match(out, /files.*showing 1/);
+    assert.match(out, /more not shown \(total/);
+  });
+
+  it('neither adds a footer when nothing was truncated', () => {
+    assert.doesNotMatch(handleTool('list_functions', { max: 10000 }), /not shown/);
+    assert.doesNotMatch(handleTool('list_files', { max: 10000 }), /not shown/);
+  });
+});

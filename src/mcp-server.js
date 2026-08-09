@@ -742,7 +742,12 @@ function handleTool(name, args) {
       for (const fn of filtered.slice(0, max)) {
         lines.push(`  ${fn.name}\t${fn.filepath}\t${fn.lines}L`);
       }
-      return lines.join('\n');
+      // Highest-volume truncation in the tool set, and the site of F47's
+      // original failure: a model answered "which file has the MOST functions"
+      // from the first entry of a 100-of-1644 result. The total was in the
+      // header the whole time; the model was reading the body.
+      return lines.join('\n')
+        + _capFooter(Math.min(max, filtered.length), filtered.length, false, 'Raise "max" or use a filter.');
     }
 
     case 'list_files': {
@@ -759,8 +764,9 @@ function handleTool(name, args) {
       const unselective = (args.filter && all.length && files.length >= all.length * 0.9)
         ? `\n(note: filter "${args.filter}" matched ${files.length}/${all.length} files — not selective; omit the filter to see the whole structure.)`
         : '';
-      return `${files.length} files${args.filter ? ` matching "${args.filter}"` : ''} (showing ${Math.min(max, files.length)}):${unselective}\n` +
-        files.slice(0, max).join('\n');
+      return `${files.length} files${args.filter ? ` matching "${args.filter}"` : ''} (showing ${Math.min(max, files.length)}):${unselective}\n`
+        + files.slice(0, max).join('\n')
+        + _capFooter(Math.min(max, files.length), files.length, false, 'Raise "max" or use a filter.');
     }
 
     case 'stats': {

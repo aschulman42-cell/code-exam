@@ -254,14 +254,30 @@ const SCORABLE_RE = new RegExp([
   '\\b[A-Za-z][A-Za-z0-9_-]*\\.[a-z]{1,5}\\b',
 ].join('|'), 'g');
 
+// Lines the model did not write — CE's own echoed tool traffic. Stripped BEFORE
+// counting, because tool output is dense in identifier-shaped strings (env var
+// names, CamelCase, dotted paths) and a run that collapses into echoing results
+// therefore scores HIGHER than the healthy answer it replaced. Measured: 26 ->
+// 104 on Gemma-K_M's degenerate cell, so the proxy was rewarding precisely the
+// degeneration it exists to catch (asus-CC, damage-cap verification).
+const ECHOED_LINE_RE = /^\s*\|\|\s*(?:call|result)\s*:/;
+
+function stripLeaked(text) {
+  return String(text || '').split('\n').filter((l) => !ECHOED_LINE_RE.test(l)).join('\n');
+}
+
 export function countScorableTokens(text) {
-  return (String(text || '').match(SCORABLE_RE) || []).length;
+  return (stripLeaked(text).match(SCORABLE_RE) || []).length;
 }
 
 // A nudge can knock a model out of the structured function-calling channel, so
 // it emits call syntax as literal prose that node-llama-cpp never intercepts.
 // That is not a weak answer, it is a broken protocol, and it is unambiguous.
-const LEAKED_CALL_RE = /<\s*(?:tool_call|function_call|\|?tool\|?)\s*>|^\s*\{\s*"name"\s*:\s*"[a-z_]+"\s*,\s*"arguments"\s*:/im;
+//
+// `||call:` / `||result:` is CE's OWN echo format and was the omission that let
+// Gemma-K_M through: the detector covered the vendor formats and not the one CE
+// itself produces, which is the one that family leaks in.
+const LEAKED_CALL_RE = /<\s*(?:tool_call|function_call|\|?tool\|?)\s*>|^\s*\|\|\s*(?:call|result)\s*:|^\s*\{\s*"name"\s*:\s*"[a-z_]+"\s*,\s*"arguments"\s*:/im;
 
 // ABSOLUTE count, not density. Density would miss Gemma-K_M's failure, which
 // tripled its length while naming fewer things; absolute count catches both that

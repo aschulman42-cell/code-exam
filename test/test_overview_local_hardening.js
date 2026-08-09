@@ -360,3 +360,44 @@ test('#306 damage cap: the note says the original was kept, so the failure is no
   assert.match(n, /nudging made this run worse, and that is the result/);
   assert.doesNotMatch(toolFloorNote(3, 3, 1, true, false), /original was kept/);
 });
+
+// The damage cap's own defect, found by measurement not review (asus-CC).
+// Gemma-K_M degenerated into echoing raw tool output in CE's `||call:` /
+// `||result:` format. Two mechanisms missed it in OPPOSITE directions: the leak
+// detector covered the vendor formats but not CE's own, and the token count was
+// INFLATED 4x by the dump — because tool output is dense in identifier-shaped
+// strings. The proxy rewarded the degeneration it exists to catch.
+test('#306 damage cap: CE\'s own echo format counts as leaked', () => {
+  const before = 'The `CodeSearchIndex` class in CodeSearchIndex.js builds the function index.';
+  const echoed = '||call: referenced_resources()\n||result: "Referenced resources:\n\n- Environment variables: …';
+  assert.equal(preferPreNudgeAnswer(before, echoed), true,
+    'the format Gemma actually leaks in must trigger the revert');
+});
+
+test('#306 damage cap: echoed tool output cannot inflate the score', () => {
+  // The measured inversion: 2171 B of real prose scored 26, and 7742 B of
+  // mostly-echo scored 104. Stripping what the model did not write removes the
+  // inflation — asus-CC measured post-strip 0 against a pre of 26.
+  const prose = 'The `AdaptiveTrackSelection` class calls determineIdealSelectedIndex.';
+  const dump = '||call: referenced_resources()\n'
+    + '||result: AWS_SECRET_KEY, GOOGLE_APPLICATION_CREDENTIALS, media3.exoplayer.Foo, Bar.baz\n'
+    + '||result: node_modules/pkg/index.js, src/core/CodeSearchIndex.js, someCamelCase\n';
+  assert.equal(countScorableTokens(dump), 0, 'echoed lines contribute nothing');
+  assert.ok(countScorableTokens(prose) > 0, 'real prose still counts');
+  // The two mechanisms are belt and braces, and here BOTH would fire: the leak
+  // detector wins first. That is the intended precedence — echoed tool traffic
+  // is a broken protocol regardless of how good the prose around it looks.
+  assert.equal(preferPreNudgeAnswer(prose, prose + '\n' + dump), true,
+    'a dump appended to good prose still reverts — the protocol broke');
+  // And the strip is what stops a PARTIAL dump inflating the count past the
+  // detector's reach: same text, counted without the echoed lines.
+  assert.equal(countScorableTokens(prose + '\n' + dump), countScorableTokens(prose),
+    'the dump adds nothing to the score it could have inflated');
+});
+
+test('#306 damage cap: the strip is inert on healthy output', () => {
+  const clean = 'The `CodeSearchIndex` class in CodeSearchIndex.js builds a function index; '
+    + 'mcp-server.js exposes handleTool.';
+  // No echoed lines, so counting must be exactly as before the strip existed.
+  assert.equal(countScorableTokens(clean), (clean.match(/`[^`\n]+`|\b[A-Za-z_][A-Za-z0-9_]*(?:(?:::|\.|_)[A-Za-z0-9_]+)+\b|\b[a-z0-9]+[A-Z][A-Za-z0-9]*\b|\b[A-Za-z][A-Za-z0-9_-]*\.[a-z]{1,5}\b/g) || []).length);
+});
