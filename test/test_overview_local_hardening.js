@@ -11,7 +11,8 @@ import {
   toolFloorFrom, needsToolFloorNudge, toolFloorNote, TOOL_FLOOR_MAX_NUDGES,
 } from '../src/core/ai-overview-local.js';
 import { aiOverviewPrompt, LOCAL_ENGINE_GROUNDING } from '../src/core/ai-overview.js';
-import { ggufContextOptions, chatSessionOptions, PINNED_TODAY_DATE } from '../src/core/llm-runner.js';
+import fs from 'node:fs';
+import { ggufContextOptions, PINNED_TODAY_DATE, DATE_INJECTING_WRAPPERS, pinnedWrapperSettings } from '../src/core/llm-runner.js';
 
 // --flash-attention (#306 fix-list 17, F23). Frees 0.5 GB (Gemma-3-12B) to
 // 2.3 GB (gpt-oss-20b) of VRAM at ctx 16384 — the difference between a 20B
@@ -243,17 +244,6 @@ test('#306 floor: the note labels the run either way, and warns against reading 
 // is a function of the calendar. A code index has no "today".
 // ---------------------------------------------------------------------------
 
-test('#306 todayDate: pinned by default, so the same command is stable across days', () => {
-  const seq = { fake: 'sequence' };
-  const a = chatSessionOptions(seq);
-  const b = chatSessionOptions(seq);
-  assert.equal(a.contextSequence, seq);
-  assert.ok(a.todayDate instanceof Date);
-  // The property that matters: two sessions built at different wall-clock times
-  // carry the same date. Equality of the pinned value IS the guarantee.
-  assert.equal(a.todayDate.getTime(), b.todayDate.getTime());
-  assert.equal(a.todayDate.getTime(), PINNED_TODAY_DATE.getTime());
-});
 
 test('#306 todayDate: the constant is the date the GGUF template hardcodes, not an arbitrary one', () => {
   // Llama 3.1's own jinja template hardcodes date_string = "26 Jul 2024". Using
@@ -262,15 +252,51 @@ test('#306 todayDate: the constant is the date the GGUF template hardcodes, not 
   assert.equal(PINNED_TODAY_DATE.toISOString().slice(0, 10), '2024-07-26');
 });
 
-test('#306 todayDate: --live-today-date restores the library default by omitting the key', () => {
-  const live = chatSessionOptions({ fake: 1 }, { liveTodayDate: true });
-  assert.ok(!('todayDate' in live), 'key absent so node-llama-cpp applies its own clock');
+
+
+// The upstream-drift guard. DATE_INJECTING_WRAPPERS is a hand-maintained list,
+// and a Llama-only version of this fix shipped and did nothing for Harmony —
+// which is what gpt-oss-20b resolves to. This test reads the installed dist and
+// fails if the set of wrappers defaulting `todayDate` to a clock ever differs
+// from the list CE pins, so the next one cannot be missed silently.
+test('#306 todayDate: CE pins every wrapper that injects a date, per the installed library', () => {
+  const dir = 'node_modules/node-llama-cpp/dist/chatWrappers';
+  if (!fs.existsSync(dir)) return; // library optional; nothing to check
+  const NAME_BY_FILE = {
+    'Llama3_1ChatWrapper.js': 'llama3.1',
+    'Llama3_2LightweightChatWrapper.js': 'llama3.2-lightweight',
+    'HarmonyChatWrapper.js': 'harmony',
+  };
+  const injecting = fs.readdirSync(dir)
+    .filter((f) => f.endsWith('ChatWrapper.js'))
+    .filter((f) => /todayDate\s*=\s*\(\)\s*=>\s*new Date\(\)/.test(fs.readFileSync(`${dir}/${f}`, 'utf8')));
+  const unknown = injecting.filter((f) => !NAME_BY_FILE[f]);
+  assert.deepEqual(unknown, [],
+    `node-llama-cpp gained a date-injecting wrapper CE does not pin: ${unknown.join(', ')}`);
+  assert.deepEqual(
+    injecting.map((f) => NAME_BY_FILE[f]).sort(),
+    [...DATE_INJECTING_WRAPPERS].sort(),
+    'DATE_INJECTING_WRAPPERS must match the installed library');
 });
 
-test('#306 todayDate: extra session options pass through untouched', () => {
-  // server.js:4367 passes a systemPrompt; the helper must not swallow it.
-  const o = chatSessionOptions({ fake: 1 }, { systemPrompt: 'SYS' });
-  assert.equal(o.systemPrompt, 'SYS');
-  assert.ok(o.todayDate instanceof Date);
-  assert.ok(!('liveTodayDate' in o), 'our own control must not leak into the library options');
+test('#306 todayDate: the settings reach the wrapper CONSTRUCTOR, which is where the option lives', async () => {
+  // The check the first version of this fix lacked. `todayDate` is not a
+  // LlamaChatSession option — passing it there is silently dropped — so
+  // asserting on the options object CE builds proves nothing. Construct the
+  // real wrappers with CE's settings and read back what they stored.
+  let mod;
+  try { mod = await import('node-llama-cpp'); } catch { return; }
+  const settings = pinnedWrapperSettings();
+  for (const [key, Cls] of [
+    ['llama3.1', mod.Llama3_1ChatWrapper],
+    ['llama3.2-lightweight', mod.Llama3_2LightweightChatWrapper],
+    ['harmony', mod.HarmonyChatWrapper],
+  ]) {
+    const w = new Cls(settings[key]);
+    assert.ok(w.todayDate instanceof Date, `${key}: stored a Date, not a clock function`);
+    assert.equal(w.todayDate.getTime(), PINNED_TODAY_DATE.getTime(), `${key}: pinned to CE's constant`);
+  }
+  // And the control: a wrapper built WITHOUT our settings keeps the live clock.
+  const live = new mod.Llama3_1ChatWrapper({});
+  assert.equal(typeof live.todayDate, 'function', 'library default really is a clock');
 });

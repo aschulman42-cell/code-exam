@@ -640,7 +640,7 @@ class ServerLLM {
       try {
         const { LlamaChatSession } = this._localModel;
         const sequence = await this.acquireSharedSequence();
-        session = new LlamaChatSession(chatSessionOptions(sequence));
+        session = new LlamaChatSession(await chatSessionOptions(sequence));
         console.log(`  [LLM] Sending to local model (${combinedPrompt.length} chars)...`);
         const response = await session.prompt(combinedPrompt, { maxTokens, temperature });
         console.log(`  [LLM] Local model response: ${response.length} chars`);
@@ -2522,7 +2522,7 @@ async function runAiOverviewLocalShared({ index, grounding }) {
   }
   // Same cached-sequence reuse as runChatToolLoopLocal — never dispose.
   const sequence = await serverLLM.acquireSharedSequence();
-  const session = new LlamaChatSession(chatSessionOptions(sequence));
+  const session = new LlamaChatSession(await chatSessionOptions(sequence));
   try {
     const sampling = serverLLM.reproducible ? { temperature: 0, seed: 1 } : {};
     // #276: local engines get the forceful-grounding clause, and Gemma the
@@ -4366,7 +4366,7 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
   const sequence = await acquireSequence();
   let session;
   try {
-    session = new LlamaChatSession(chatSessionOptions(sequence, { systemPrompt: system }));
+    session = new LlamaChatSession(await chatSessionOptions(sequence, { systemPrompt: system }));
     // node-llama-cpp's Gemma wrapper silently drops systemPrompt (verified on
     // 3.19.0 with the official QAT GGUF: system-turn instructions have no
     // effect; the same text in a user turn works). For Gemma only, fold the

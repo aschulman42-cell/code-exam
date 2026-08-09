@@ -356,7 +356,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
       });
     }
 
-    const session = new LlamaChatSession(chatSessionOptions(context.getSequence(), { liveTodayDate }));
+    const session = new LlamaChatSession(await chatSessionOptions(context.getSequence(), { liveTodayDate, onStatus: status }));
     // #276: local engines get the forceful-grounding clause, and Gemma gets
     // the strict-framing header (its wrapper drops system turns; the family
     // fabricates tool results without explicit insistence).

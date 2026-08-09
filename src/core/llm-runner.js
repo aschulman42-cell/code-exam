@@ -257,12 +257,60 @@ export function ggufContextLadder(explicit = null) {
 // overriding them.
 export const PINNED_TODAY_DATE = new Date('2024-07-26T00:00:00Z');
 
+// The wrappers that default `todayDate` to a live clock in node-llama-cpp
+// 3.18.1. Verified by grepping the installed dist rather than assumed:
+// `todayDate` appears in exactly these three.
+//
+// HARMONY IS THE ONE THAT NEARLY GOT MISSED. gpt-oss-20b resolves to it, and a
+// Llama-only fix would have left the model this program is spending a 12 GB
+// download to test drifting day to day. Caught by asus-CC before batch 2 was
+// tested. Any wrapper added upstream with the same default needs adding here —
+// the check is `grep -l todayDate node_modules/node-llama-cpp/dist/chatWrappers/`.
+export const DATE_INJECTING_WRAPPERS = ['llama3.1', 'llama3.2-lightweight', 'harmony'];
+
+export function pinnedWrapperSettings(todayDate = PINNED_TODAY_DATE) {
+  return Object.fromEntries(DATE_INJECTING_WRAPPERS.map((w) => [w, { todayDate }]));
+}
+
 // Options for every `new LlamaChatSession` CE creates. One helper so the six
-// call sites cannot drift apart, and so the pinning is assertable without a GPU.
-// Inert for wrappers that inject no date (Gemma, Mistral, Qwen) — they simply
-// ignore the option.
-export function chatSessionOptions(contextSequence, { liveTodayDate = false, ...rest } = {}) {
-  return { contextSequence, ...(liveTodayDate ? {} : { todayDate: PINNED_TODAY_DATE }), ...rest };
+// call sites cannot drift apart.
+//
+// `todayDate` is a WRAPPER CONSTRUCTOR option, not a session option — passing it
+// to LlamaChatSession is silently dropped (that was the first version of this
+// fix, and it did nothing). So CE resolves the wrapper itself with the date
+// pinned, using the library's own `resolveChatWrapper` on the sequence's model,
+// and hands the constructed wrapper to the session. Auto-detection is preserved:
+// this is the same resolver the session would have called, with one setting
+// added.
+//
+// `customWrapperSettings` applies only to whichever wrapper actually resolves,
+// so naming all three is harmless for Gemma/Mistral/Qwen.
+//
+// Async because node-llama-cpp is imported dynamically everywhere else in CE —
+// it must stay an optional dependency. Every call site is already in an async
+// context.
+export async function chatSessionOptions(contextSequence, { liveTodayDate = false, onStatus, ...rest } = {}) {
+  if (liveTodayDate) return { contextSequence, ...rest };
+  let chatWrapper = null;
+  try {
+    const { resolveChatWrapper } = await import('node-llama-cpp');
+    chatWrapper = resolveChatWrapper(contextSequence.model, {
+      customWrapperSettings: pinnedWrapperSettings(),
+    });
+    // Name the wrapper so a capture is self-describing and any divergence from
+    // the library's own choice is visible immediately rather than silent. The
+    // measured table is Gemma->Gemma, Mistral->Mistral, Qwen->Qwen,
+    // Llama-3.1->llama3.1, gpt-oss->harmony.
+    if (onStatus && chatWrapper) onStatus(`chat wrapper: ${chatWrapper.wrapperName} (Today Date pinned)`);
+  } catch (e) {
+    // Failing to PIN must never fail the RUN. Falling back to the library's own
+    // resolution means the date drifts again on the three affected wrappers —
+    // worse than pinned, no worse than before this existed — so it is reported
+    // rather than swallowed.
+    if (onStatus) onStatus(`could not pin Today Date (${e.message}); using library default wrapper`);
+    chatWrapper = null;
+  }
+  return { contextSequence, ...(chatWrapper ? { chatWrapper } : {}), ...rest };
 }
 
 // Options for node-llama-cpp's createContext. Split out and exported so the
@@ -302,7 +350,7 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
         ctx = await tryLoad(true);
       }
       if (!ctx) throw new Error('could not allocate a context for the local model (tried GPU and CPU) — try --cpu');
-      session = new LlamaChatSession(chatSessionOptions(ctx.getSequence(), { liveTodayDate }));
+      session = new LlamaChatSession(await chatSessionOptions(ctx.getSequence(), { liveTodayDate }));
     } else {
       // Isolate each claim: drop the prior claim's accumulated history so it
       // can't bleed into this draft, and so long claim sets don't overflow.
