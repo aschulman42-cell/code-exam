@@ -20,6 +20,7 @@
 import { CodeSearchIndex } from './CodeSearchIndex.js';
 import { handleTool, TOOLS, setIndex } from '../mcp-server.js';
 import { AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './ai-overview.js';
+import { ggufContextOptions } from './llm-runner.js';
 
 // The CE tool names the overview may call (same allow-list as the claude
 // engine), with the mcp__code-exam__ prefix stripped to the handleTool case.
@@ -70,8 +71,20 @@ export function strictInstructionsFor(wrapperName, promptText) {
 // #276 fabrication guard: a "grounded" overview produced with ZERO tool calls
 // cannot be grounded in the index — some families (Gemma 3 observed) invent a
 // plausible generic codebase instead of refusing. Make that unmissable.
-export function ungroundedWarning(toolCalls, grounding) {
+//
+// `prefetched` narrows it (#306 fix-list 4, F40). The zero-calls inference is
+// valid ONLY while the model is the sole source of index data. Once CE injects
+// a real `overview` result the premise is false, and runs scoring groundedness
+// 1.000 were being labelled UNGROUNDED. That is not cosmetic: it made
+// `zero-tools` mean different things in different arms, so the class could not
+// be summed across them.
+//
+// The guard NARROWS rather than vanishing — a prefetched run can still
+// fabricate beyond the supplied overview, and this is still the check that
+// catches it when the model adds nothing of its own.
+export function ungroundedWarning(toolCalls, grounding, prefetched = false) {
   if (toolCalls > 0) return null;
+  if (prefetched) return null;
   if (grounding && grounding !== 'grounded') return null;
   return '⚠ UNGROUNDED OUTPUT: the model made no tool calls, so nothing below '
     + 'is based on the loaded index. Treat this as generic prose, not an '
@@ -164,7 +177,7 @@ export function localBudgets(contextSize, explicitMaxTokens) {
 // `explicitMaxTokens`, and pinned output at 2400 tokens at EVERY context size —
 // so --context-size raised the tool budget while the answer allowance never
 // moved. Leave it undefined so the scaling actually runs.
-export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 16384, maxTokens, timeoutMs = 1200000, gpu = 'auto', grounding, onStatus, onStream } = {}) {
+export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 16384, maxTokens, timeoutMs = 1200000, gpu = 'auto', grounding, flashAttention = false, onStatus, onStream } = {}) {
   if (!indexPath) throw new Error('runAiOverviewLocal: indexPath is required.');
   if (!modelPath) throw new Error('runAiOverviewLocal: a GGUF modelPath is required (pass --model).');
   const status = (s) => { if (onStatus) onStatus(s); };
@@ -179,6 +192,9 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
   console.log = toErr; console.warn = toErr; console.error = toErr;
 
   let model;
+  // Threaded to ungroundedWarning() rather than inferred from the prompt text —
+  // inferring it would couple the guard to prompt wording.
+  let prefetched = false;
   try {
     // Load the index in-process and point handleTool at it (no MCP subprocess).
     const index = new CodeSearchIndex({ indexPath });
@@ -192,7 +208,10 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
       throw new Error(`node-llama-cpp not available: ${e.message}`);
     }
 
-    status(`loading model ${modelPath.split(/[\\/]/).pop()} …`);
+    // Named in the status line so a captured run is self-describing: whether
+    // flash attention was on changes VRAM headroom and may change numerics, and
+    // a capture that does not say so cannot be compared against one that does.
+    status(`loading model ${modelPath.split(/[\\/]/).pop()}${flashAttention ? ' (flash attention)' : ''} …`);
     const sizes = [contextSize, 8192, 4096, 2048];
 
     // Load the model and create a context, optionally forcing CPU. Returns
@@ -203,7 +222,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
       const m = await llama.loadModel({ modelPath });
       let ctx;
       for (const sz of sizes) {
-        try { ctx = await m.createContext({ contextSize: sz }); contextSize = sz; break; } catch { /* shrink */ }
+        try { ctx = await m.createContext(ggufContextOptions(sz, flashAttention)); contextSize = sz; break; } catch { /* shrink */ }
       }
       if (!ctx) { try { await m.dispose(); } catch { /* */ } return null; }
       return { m, ctx };
@@ -263,7 +282,58 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     // the strict-framing header (its wrapper drops system turns; the family
     // fabricates tool results without explicit insistence).
     const wrapperName = session.chatWrapper && session.chatWrapper.wrapperName;
-    const promptText = strictInstructionsFor(wrapperName, aiOverviewPrompt(grounding, { localEngine: true }));
+    let promptText = strictInstructionsFor(wrapperName, aiOverviewPrompt(grounding, { localEngine: true }));
+
+    // PREFETCH, env-gated by CE_PREFETCH_OVERVIEW=1. Default behaviour is
+    // byte-identical when unset. LOCAL PATH ONLY — the cloud engine is
+    // untouched. Ported from asus-CC's measured experiment, matching their diff
+    // so F37-F39's ten cells reproduce on this code rather than needing to be
+    // re-derived on the GPU box.
+    //
+    // Rationale: CE's prompt mandates `overview` as step 1 of every run, so that
+    // call is UNCONDITIONAL — not a decision the model needs to make. But asking
+    // is unreliable: Mistral-Nemo makes 0 tool calls in every prompt
+    // configuration tried (baseline, strict header, imperative preamble, 1 tool
+    // or 16) while calling tools correctly outside CE. An imperative preamble
+    // moved 2 of 10 cells and regressed 4.
+    //
+    // So CE calls it itself and hands over the result: the first tool call
+    // becomes unconditional and model-independent, and skipping stops being an
+    // option. Measured best of three arms — 2 clean runs, groundedness +0.169
+    // with 1 cell regressing, and it eliminates the #276 empty-turn defect that
+    // Gemma-K_M hit in 10/10 investigating runs.
+    //
+    // Deliberately NOT counted as a model tool call, and logged with a status
+    // string the harvester's `[overview-by-ai] tool ` regex does not match.
+    // `toolCalls` therefore keeps meaning "calls the MODEL chose to make" —
+    // which is exactly the number that must be watched here, because the known
+    // failure mode is that handing over a result SUPPRESSES further
+    // investigation (3 of 5 cells went to zero model calls on .ExoPlayer3).
+    // Counting it would fix the grounding guard for free and destroy the only
+    // instrument that detects that.
+    //
+    // Scope note: right for `overview` because it is unconditional. It would be
+    // wrong for conditional tools (`digest <file>`), where pre-fetching spends
+    // context on results a given run may not need.
+    //
+    // Still gated, not default: asus-CC's own recommendation is "needs 2
+    // companion changes". This is companion 1 (the grounding guard above);
+    // companion 2 is the call floor, unbuilt. Shipping this on by default before
+    // the floor exists would trade a starting problem for a continuing one.
+    if (process.env.CE_PREFETCH_OVERVIEW === '1') {
+      let pre = '';
+      try { pre = String(handleTool('overview', {})).slice(0, MAX_TOOL_OUTPUT); }
+      catch (e) { pre = ''; status(`prefetch overview failed: ${e.message}`); }
+      if (pre) {
+        prefetched = true;
+        budget.charge(pre.length);   // honest accounting against the tool budget
+        status(`prefetch: CE called overview itself (${pre.length} chars) — not a model tool call`);
+        promptText = `The \`overview\` tool has ALREADY been called for the loaded index. Its result follows.\n\n`
+          + `<overview_result>\n${pre}\n</overview_result>\n\n`
+          + `Use the result above as your starting point. Call the other tools to investigate further before writing.\n\n---\n\n`
+          + promptText;
+      }
+    }
 
     let timer;
     const timeout = new Promise((_, rej) => {
@@ -317,7 +387,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     // Strip any chain-of-thought block (Qwen3 etc. emit <think>…</think>).
     let prose = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
     // #276 fabrication guard: 0 tool calls in grounded mode = not an overview.
-    const warn = ungroundedWarning(toolCalls, grounding);
+    const warn = ungroundedWarning(toolCalls, grounding, prefetched);
     if (warn && prose) prose = `${warn}\n\n${prose}`;
     // Say so when the prose came from the rescue pass. Without this a rescued
     // overview is indistinguishable from a healthy one, and the model defect

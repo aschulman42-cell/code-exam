@@ -26,7 +26,10 @@ import { estimateCost } from './pricing.js';
 // unrecognized --llm value (never silently coerced to a provider).
 export function resolveModel(args) {
   const modelPath = args.model || args.claim_model || args.analyze_model || null;
-  if (modelPath) return { kind: 'gguf', modelPath, forceCpu: !!args.cpu, contextSize: args.context_size || null };
+  if (modelPath) {
+    return { kind: 'gguf', modelPath, forceCpu: !!args.cpu, contextSize: args.context_size || null,
+      flashAttention: !!args.flash_attention };
+  }
 
   if (args.llm) {
     const { provider, error } = resolveProvider(args.llm, { allowDefault: false });
@@ -226,7 +229,16 @@ export function ggufContextLadder(explicit = null) {
 // hard-errors on context allocation, so retry on CPU before giving up; --cpu
 // forces CPU up front. node-llama-cpp is imported lazily so the command loads
 // without it when only the endpoint path (or dry-run) is used.
-function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null) {
+// Options for node-llama-cpp's createContext. Split out and exported so the
+// byte-identical-default guarantee is testable without a GPU: when flash
+// attention is off the key is ABSENT, not false, so a default run hands the
+// library exactly the object it received before the flag existed. That is what
+// keeps a byte-compare re-pin of existing measurement runs cheap.
+export function ggufContextOptions(contextSize, flashAttention = false) {
+  return { contextSize, ...(flashAttention ? { flashAttention: true } : {}) };
+}
+
+function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, flashAttention = false) {
   let session = null;
   return async (sys, user, maxTokens) => {
     if (!session) {
@@ -239,8 +251,8 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null) {
         const m = await llama.loadModel({ modelPath });
         for (const sz of ggufContextLadder(contextSize)) {
           try {
-            const ctx = await m.createContext({ contextSize: sz });
-            process.stderr.write(`  context ${sz}${cpuOnly ? ' (CPU)' : ''}\n`);
+            const ctx = await m.createContext(ggufContextOptions(sz, flashAttention));
+            process.stderr.write(`  context ${sz}${cpuOnly ? ' (CPU)' : ''}${flashAttention ? ' (flash attention)' : ''}\n`);
             return ctx;
           } catch (_) { /* shrink */ }
         }
@@ -269,7 +281,9 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null) {
 // remote endpoint under --air-gapped, or a missing cloud key, throws before any
 // group is drafted).
 export function makeDrafter(model, temperature) {
-  if (model.kind === 'gguf') return makeGgufDrafter(model.modelPath, model.forceCpu, temperature, model.contextSize);
+  if (model.kind === 'gguf') {
+    return makeGgufDrafter(model.modelPath, model.forceCpu, temperature, model.contextSize, model.flashAttention);
+  }
   if (!isLocalApiUrl(model.apiUrl)) assertLocalOnly(`pseudo-claims (cloud ${model.label})`);
   if (!model.key && !isLocalApiUrl(model.apiUrl)) {
     const p = model.provider;

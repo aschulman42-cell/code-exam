@@ -124,6 +124,7 @@ export function parseArgs() {
     no_cost: false,       // --overview-by-ai: suppress the cost/usage line (default: shown)
     max_budget_usd: null, // --overview-by-ai (claude engine): hard spend cap; also CE_OVERVIEW_MAX_BUDGET env
     context_size: null,   // --overview-by-ai (local engine): preferred GGUF context (#276); same name as server.js's flag
+    flash_attention: false, // local GGUF: createContext({flashAttention}); OFF by default (experimental in node-llama-cpp 3.18.1)
     list_indexes: null,
 
     // Callers / Callees
@@ -407,6 +408,7 @@ export function parseArgs() {
     ['overview',             'flag',           ['--overview']],
     ['overview_by_ai',       'flag',           ['--overview-by-ai', '--overview-by-AI']],
     ['context_size',         'int',            ['--context-size']],
+    ['flash_attention',      'flag',           ['--flash-attention']],
     ['cpu',                  'flag',           ['--cpu']],
     ['grounding',            'value',          ['--grounding']],
     ['cost',                 'flag',           ['--cost']],
@@ -1150,6 +1152,15 @@ MODE:
                              (first rung of the 8192/4096/2048 ladder; falls
                              back on OOM, so safe to over-ask). Agentic chat
                              wants 16384+ when VRAM allows.
+  --flash-attention          Local GGUF only: enable flash attention on the
+                             model context. Frees VRAM for the KV cache —
+                             measured 0.5 GB (Gemma-3-12B) to 2.3 GB
+                             (gpt-oss-20b) at ctx 16384, which is the
+                             difference between a 20B model fitting on a 16 GB
+                             card and not fitting at all. OFF by default:
+                             node-llama-cpp 3.18.1 flags it experimental and it
+                             may change numerics, so it is opt-in and belongs
+                             in any run you intend to compare.
   --reproducible             GUI server: pin local-model sampling (temperature
                              0, fixed seed) so the same question over the same
                              index/model/config repeats the same answer on this

@@ -548,6 +548,7 @@ if (args.overview_by_ai) {
         timeoutMs,
         grounding, // grounded (default) | augmented | attributed (#196)
         contextSize: args.context_size || undefined, // #276: --context-size (default 16384; investigator-class models want 24576)
+        flashAttention: !!args.flash_attention, // --flash-attention: frees 0.5-2.3 GB for the KV cache; off by default (experimental upstream)
         gpu: args.cpu ? false : 'auto', // --cpu forces CPU; else GPU with CPU fallback on OOM
         // model-load / CPU-fallback notes always show; per-tool chatter is verbose-only.
         onStatus: (s) => { if (args.verbose || !s.startsWith('tool ')) process.stderr.write(`[overview-by-ai] ${s}\n`); },

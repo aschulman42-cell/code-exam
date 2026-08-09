@@ -10,6 +10,52 @@ import {
   needsSynthesizeRetry, rescuedNote, SYNTHESIZE_RETRY_MAX_TOKENS, SYNTHESIZE_NOW_PROMPT,
 } from '../src/core/ai-overview-local.js';
 import { aiOverviewPrompt, LOCAL_ENGINE_GROUNDING } from '../src/core/ai-overview.js';
+import { ggufContextOptions } from '../src/core/llm-runner.js';
+
+// --flash-attention (#306 fix-list 17, F23). Frees 0.5 GB (Gemma-3-12B) to
+// 2.3 GB (gpt-oss-20b) of VRAM at ctx 16384 — the difference between a 20B
+// model fitting on a 16 GB card and node-llama-cpp's estimator rating it 0%
+// compatible. Off by default: experimental in 3.18.1 and may change numerics.
+test('#306 flash attention: OFF omits the key entirely, rather than passing false', () => {
+  const off = ggufContextOptions(16384);
+  assert.deepEqual(off, { contextSize: 16384 });
+  // The load-bearing assertion. `{flashAttention: false}` would probably behave
+  // the same, but "probably" is not good enough: a default run must hand
+  // node-llama-cpp the exact object it received before this flag existed, or a
+  // byte-compare re-pin of the existing measurement runs stops being cheap.
+  assert.ok(!('flashAttention' in off), 'key must be absent, not false');
+  assert.deepEqual(ggufContextOptions(8192, false), { contextSize: 8192 });
+});
+
+// Prefetch companion guard (#306 fix-list 4, F40). With CE injecting a real
+// `overview` result, `toolCalls === 0` stops meaning "fabricated" — runs scoring
+// groundedness 1.000 were being labelled UNGROUNDED, which made the zero-tools
+// class un-summable across arms.
+test('#306 grounding guard: prefetched runs with zero model calls are not called ungrounded', () => {
+  assert.equal(ungroundedWarning(0, 'grounded', true), null);
+});
+
+test('#306 grounding guard: without prefetch, zero calls still fires', () => {
+  // The guard must NARROW, not vanish. This is the case it exists for.
+  assert.match(ungroundedWarning(0, 'grounded', false), /UNGROUNDED OUTPUT/);
+  assert.match(ungroundedWarning(0, 'grounded'), /UNGROUNDED OUTPUT/, 'default arg keeps old behaviour');
+});
+
+test('#306 grounding guard: prefetch does not suppress the warning when the model DID call tools', () => {
+  // Belt and braces — toolCalls > 0 already returns null, but the ordering of
+  // the two checks must not make a nonzero-call run depend on the prefetch flag.
+  assert.equal(ungroundedWarning(3, 'grounded', true), null);
+  assert.equal(ungroundedWarning(3, 'grounded', false), null);
+});
+
+test('#306 flash attention: ON adds the key without disturbing contextSize', () => {
+  assert.deepEqual(ggufContextOptions(16384, true), { contextSize: 16384, flashAttention: true });
+  // Must compose with every rung of the context ladder, since the ladder shrinks
+  // on OOM and flash attention is precisely what changes where OOM happens.
+  for (const sz of [16384, 8192, 4096, 2048]) {
+    assert.deepEqual(ggufContextOptions(sz, true), { contextSize: sz, flashAttention: true });
+  }
+});
 
 test('#276 budget: stops after maxCalls with a synthesize-now message, stays stopped', () => {
   const b = makeToolBudget({ maxCalls: 3, maxChars: 1e9 });
