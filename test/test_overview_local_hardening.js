@@ -13,7 +13,7 @@ import {
 } from '../src/core/ai-overview-local.js';
 import { aiOverviewPrompt, LOCAL_ENGINE_GROUNDING } from '../src/core/ai-overview.js';
 import fs from 'node:fs';
-import { ggufContextOptions, PINNED_TODAY_DATE, DATE_INJECTING_WRAPPERS } from '../src/core/llm-runner.js';
+import { ggufContextOptions, PINNED_TODAY_DATE, DATE_INJECTING_WRAPPERS, ggufDescriptor } from '../src/core/llm-runner.js';
 
 // --flash-attention (#306 fix-list 17, F23). Frees 0.5 GB (Gemma-3-12B) to
 // 2.3 GB (gpt-oss-20b) of VRAM at ctx 16384 — the difference between a 20B
@@ -400,4 +400,31 @@ test('#306 damage cap: the strip is inert on healthy output', () => {
     + 'mcp-server.js exposes handleTool.';
   // No echoed lines, so counting must be exactly as before the strip existed.
   assert.equal(countScorableTokens(clean), (clean.match(/`[^`\n]+`|\b[A-Za-z_][A-Za-z0-9_]*(?:(?:::|\.|_)[A-Za-z0-9_]+)+\b|\b[a-z0-9]+[A-Z][A-Za-z0-9]*\b|\b[A-Za-z][A-Za-z0-9_-]*\.[a-z]{1,5}\b/g) || []).length);
+});
+
+// #306 F67 — the flag was rejected on the GUI path, silently dropped at two
+// hand-built descriptor sites, and accepted where it did nothing. The structural
+// cause was a struct that a factory built everywhere else being hand-rolled in
+// two places, so it lost every field added after those places were written.
+test('#306 ggufDescriptor: one factory, so a new field cannot be missed at a call site', () => {
+  const d = ggufDescriptor({ modelPath: 'm.gguf', flashAttention: true });
+  assert.equal(d.kind, 'gguf');
+  assert.equal(d.modelPath, 'm.gguf');
+  assert.equal(d.flashAttention, true);
+  // Every field the drafter reads must be present even when the caller omits
+  // it — that absence is exactly what the hand-built sites produced.
+  for (const k of ['forceCpu', 'contextSize', 'flashAttention', 'liveTodayDate']) {
+    assert.ok(k in d, `${k} must always be present, not undefined-by-omission`);
+  }
+});
+
+test('#306 ggufDescriptor: booleans normalise, so an undefined arg is off not undefined', () => {
+  const bare = ggufDescriptor({ modelPath: 'm.gguf' });
+  assert.equal(bare.flashAttention, false);
+  assert.equal(bare.liveTodayDate, false);
+  assert.equal(bare.forceCpu, false);
+  assert.equal(bare.contextSize, null);
+  // `undefined` reaching makeGgufDrafter was the actual bug shape at the
+  // hand-built sites: falsy, so it "worked", and silently off.
+  assert.notEqual(bare.flashAttention, undefined);
 });

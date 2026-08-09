@@ -23,7 +23,7 @@ import { estimateCost } from '../core/pricing.js';
 import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiText } from '../core/openai-util.js';
 import { claudeSupportsTemperature } from '../utils.js';
 import { resolveProvider } from '../core/providers.js';
-import { makeDrafter } from '../core/llm-runner.js';
+import { makeDrafter, ggufDescriptor } from '../core/llm-runner.js';
 
 // ============================================================================
 // LLM Prompt for technical-prose -> search term extraction
@@ -1299,10 +1299,13 @@ export async function doClaimSearch(index, args) {
     // upstream node-llama-cpp #623 — while the drafter's load-once/exit-clean
     // pattern has hundreds of zero-failure pod drafts on the same stack).
     try {
-      const draft = makeDrafter({
-        kind: 'gguf', modelPath: localModelPath, forceCpu: !!args.cpu,
-        contextSize: args.context_size || null,
-      }, temperature);
+      // ggufDescriptor, not a literal: this site hand-rolled the descriptor and
+      // therefore dropped `flashAttention` silently (#306 F67). One factory means
+      // the next field added cannot be missed here either.
+      const draft = makeDrafter(ggufDescriptor({
+        modelPath: localModelPath, forceCpu: args.cpu, contextSize: args.context_size,
+        flashAttention: args.flash_attention, liveTodayDate: args.live_today_date,
+      }), temperature);
 
       // Combine system prompt + claim text (shorter prompt for local models)
       const basePrompt = vocabConcordance

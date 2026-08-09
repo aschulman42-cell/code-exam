@@ -38,7 +38,7 @@ import { resolveProvider, PROVIDERS } from '../core/providers.js';
 import { estimateCost } from '../core/pricing.js';
 import { assertLocalOnly, isLocalApiUrl, isAirGapped } from '../core/air-gapped.js';
 import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiText, openaiFinishReason } from '../core/openai-util.js';
-import { makeDrafter } from '../core/llm-runner.js';
+import { makeDrafter, ggufDescriptor } from '../core/llm-runner.js';
 
 
 // ============================================================================
@@ -78,6 +78,8 @@ class AnalysisLLM {
     this.modelPath = opts.modelPath || null;
     this.forceCpu = !!opts.forceCpu;              // #293: --cpu for the local GGUF path
     this.contextSize = opts.contextSize || null;  // #293: --context-size ladder head
+    this.flashAttention = !!opts.flashAttention;  // #306 F67: was dropped here entirely
+    this.liveTodayDate = !!opts.liveTodayDate;    // #306 F58: default pinned, so this was safe by luck
     this.claudeModel = opts.claudeModel || null;  // Claude API model id override
     this.openaiModel = opts.openaiModel || null;  // OpenAI model id override
     this.geminiModel = opts.geminiModel || null;  // Gemini model id override
@@ -267,10 +269,14 @@ class AnalysisLLM {
     // left"; the drafter never disposes, matching the pattern server.js
     // adopted for the GUI (#248). Model load is lazy (first generate), so an
     // existing-but-unloadable file surfaces there, not here.
-    this._llm = makeDrafter({
-      kind: 'gguf', modelPath: this.modelPath, forceCpu: this.forceCpu,
-      contextSize: this.contextSize,
-    }, this.temperature);
+    // ggufDescriptor rather than an object literal: this site silently dropped
+    // `flashAttention` because it hand-rolled the descriptor, and --analyze on a
+    // large file with a 20B model is exactly the case that flag exists for
+    // (#306 F67). The factory means the next field cannot be missed here.
+    this._llm = makeDrafter(ggufDescriptor({
+      modelPath: this.modelPath, forceCpu: this.forceCpu, contextSize: this.contextSize,
+      flashAttention: this.flashAttention, liveTodayDate: this.liveTodayDate,
+    }), this.temperature);
     this._localReady = true;
   }
 
@@ -350,6 +356,9 @@ function getAnalysisLLM(opts = {}) {
     const verbose = opts.verbose || false;
     const forceCpu = !!opts.cpu;
     const contextSize = opts.context_size || null;
+    // #306 F67: these two reach the GGUF context/wrapper and were not threaded.
+    const flashAttention = !!(opts.flashAttention || opts.flash_attention);
+    const liveTodayDate = !!(opts.liveTodayDate || opts.live_today_date);
 
     if (provider) {
       console.log();
@@ -368,7 +377,7 @@ function getAnalysisLLM(opts = {}) {
 
     _llmInstance = new AnalysisLLM({
       provider, apiKey, openaiKey, geminiKey, modelPath, claudeModel, openaiModel, geminiModel, temperature, verbose,
-      forceCpu, contextSize,
+      forceCpu, contextSize, flashAttention, liveTodayDate,
     });
   }
   return _llmInstance;
@@ -1736,6 +1745,7 @@ export async function doClaimAnalyze(index, args) {
       termLlm = new AnalysisLLM({
         modelPath: localModelPath, temperature,
         forceCpu: !!args.cpu, contextSize: args.context_size || null,
+        flashAttention: !!args.flash_attention, liveTodayDate: !!args.live_today_date,
       });
     }
     await termLlm.ensureLocalModel();

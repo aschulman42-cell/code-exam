@@ -24,11 +24,38 @@ import { estimateCost } from './pricing.js';
 //      gateway), with no --llm.
 // Returns null when nothing is configured (pack-only), or { kind:'error' } for an
 // unrecognized --llm value (never silently coerced to a provider).
+// ONE place a local-model descriptor is built. Two call sites used to hand-roll
+// this object (`analyze.js`, `claim.js`) and therefore silently dropped every
+// field added after they were written — `flashAttention` was simply the first
+// such field, so `--analyze` on a 20B model got the flag dropped with no error
+// and no warning (asus-CC, F67).
+//
+// The general shape, worth keeping in view: a struct a factory builds everywhere
+// else, hand-built in two places, loses each new field at exactly those two
+// sites. A factory removes the recurrence rather than fixing one instance of it.
+//
+// NOT `resolveModel(args)` at those sites, which was the other candidate:
+// resolveModel also handles `--llm`, cloud descriptors and the air-gap gate, and
+// both callers have already decided they are local by the time they call. This
+// removes the recurrence without changing resolution semantics.
+export function ggufDescriptor({ modelPath, forceCpu = false, contextSize = null,
+  flashAttention = false, liveTodayDate = false } = {}) {
+  return {
+    kind: 'gguf', modelPath,
+    forceCpu: !!forceCpu,
+    contextSize: contextSize || null,
+    flashAttention: !!flashAttention,
+    liveTodayDate: !!liveTodayDate,
+  };
+}
+
 export function resolveModel(args) {
   const modelPath = args.model || args.claim_model || args.analyze_model || null;
   if (modelPath) {
-    return { kind: 'gguf', modelPath, forceCpu: !!args.cpu, contextSize: args.context_size || null,
-      flashAttention: !!args.flash_attention, liveTodayDate: !!args.live_today_date };
+    return ggufDescriptor({
+      modelPath, forceCpu: args.cpu, contextSize: args.context_size,
+      flashAttention: args.flash_attention, liveTodayDate: args.live_today_date,
+    });
   }
 
   if (args.llm) {

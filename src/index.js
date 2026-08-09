@@ -168,7 +168,7 @@ if (args.gui || _wantsTour) {
   // in here: --gui legitimately accepts server-only flags (e.g. --context-size)
   // that the CLI parser rejects.
   {
-    const _GUI_BOOL = new Set(['--gui', '--tour', '--air-gapped', '--allow-connected', '--reproducible', '--provenance']);
+    const _GUI_BOOL = new Set(['--gui', '--tour', '--air-gapped', '--allow-connected', '--reproducible', '--provenance', '--flash-attention']);
     const _GUI_VALUE = new Set(['--port', '--index-path', '--index', '--load-index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--claude-model', '--temperature', '--context-size', '--openai-key', '--openai-model', '--llm']);
     const _unknown = [];
     for (let i = 0; i < _rawArgvForGui.length; i++) {

@@ -25,7 +25,7 @@ import { resolveIndexDir } from './archive.js';
 import { groupSites, groupPipelines, reTestExamplePath, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { makeFilterMatcher } from './core/filter-match.js';
 // F58: pin `Today Date:` so the GUI's local sessions do not inherit a live clock.
-import { chatSessionOptions } from './core/llm-runner.js';
+import { chatSessionOptions, ggufContextOptions } from './core/llm-runner.js';
 import { extractExports } from './core/exports.js';
 import { extractImports } from './core/imports.js';
 import { extractConcepts, INTRINSIC_NAMES, isIntrinsicName } from './core/vocabulary.js';
@@ -103,7 +103,7 @@ function safeMax(raw, defaultVal, ceiling = 10000) {
 
 function parseServerArgs() {
   const args = process.argv.slice(2);
-  const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0, catalogPath: null, airGapped: false, allowConnected: false, contextSize: null, reproducible: false, openaiKey: null, openaiModel: null, geminiKey: null, geminiModel: null, defaultEngine: null, provenance: false };
+  const result = { indexPaths: [], port: 3000, host: '127.0.0.1', modelPath: null, apiKey: null, temperature: 0.0, catalogPath: null, airGapped: false, allowConnected: false, contextSize: null, flashAttention: false, reproducible: false, openaiKey: null, openaiModel: null, geminiKey: null, geminiModel: null, defaultEngine: null, provenance: false };
 
   // A value-taking flag must be followed by a non-flag token; otherwise warn
   // and do NOT consume the next token. Without this, `--llm --air-gapped`
@@ -171,6 +171,11 @@ function parseServerArgs() {
     } else if (a === '--context-size' || a === '--context_size') {
       // #239 convention: accept either flag spelling.
       if ((v = takeValue(a)) !== null) result.contextSize = parseInt(v) || null;
+    } else if (a === '--flash-attention' || a === '--flash_attention') {
+      // #306 F67: --context-size was accepted here all along while its sibling,
+      // which governs whether the requested size FITS, was not — so a GUI run
+      // asking for 16384 silently landed at 8192 on a model needing the flag.
+      result.flashAttention = true;
     } else if (a === '--reproducible') {
       // local-chat-determinism: reproducible local-LLM runs (temperature 0 +
       // fixed seed). Default OFF — run-to-run variation is the chosen default.
@@ -355,7 +360,9 @@ class ServerLLM {
   constructor(opts = {}) {
     this.defaultModelPath = opts.modelPath || null;
     this.defaultClaudeModel = opts.claudeModel || null;  // --claude-model server default
-    this.preferredContextSize = opts.contextSize || null; // --context-size: first rung of the context ladder
+    this.preferredContextSize = opts.contextSize || null;
+    // --context-size: first rung of the context ladder
+    this.flashAttention = !!opts.flashAttention;  // #306 F67: never threaded to the GUI path
     // --reproducible: pinned local-LLM sampling. Honest scope: same
     // question + same index + same model file + same CE build/config on the
     // same machine => same answer. Cross-machine or cross-driver bit-identity
@@ -583,7 +590,12 @@ class ServerLLM {
       let context = null;
       let contextSize = 0;
       for (const trySize of ladder) {
-        try { context = await model.createContext({ contextSize: trySize }); contextSize = trySize; break; }
+        // #306 F67: the THIRD createContext site. Batch 1 threaded the flag to
+        // the other two and the commit message claimed "both", so the GUI path
+        // silently fell to 8192 on a model that needs flash attention to fit
+        // 16384 — a comparability defect as well as a capability one, since the
+        // same model then runs at a different context on GUI vs CLI.
+        try { context = await model.createContext(ggufContextOptions(trySize, this.flashAttention)); contextSize = trySize; break; }
         catch (_) { /* try smaller */ }
       }
       if (!context) {
@@ -745,6 +757,7 @@ const serverLLM = new ServerLLM({
   apiKey: serverArgs.apiKey,
   claudeModel: serverArgs.claudeModel,   // --claude-model: was parsed but dropped here, so chat/analyze always fell back to the hardcoded default
   contextSize: serverArgs.contextSize,
+  flashAttention: serverArgs.flashAttention,
   reproducible: serverArgs.reproducible,
   openaiKey: serverArgs.openaiKey,
   openaiModel: serverArgs.openaiModel,
