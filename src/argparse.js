@@ -125,6 +125,7 @@ export function parseArgs() {
     max_budget_usd: null, // --overview-by-ai (claude engine): hard spend cap; also CE_OVERVIEW_MAX_BUDGET env
     context_size: null,   // --overview-by-ai (local engine): preferred GGUF context (#276); same name as server.js's flag
     flash_attention: false, // local GGUF: createContext({flashAttention}); OFF by default (experimental in node-llama-cpp 3.18.1)
+    live_today_date: false, // local GGUF: let node-llama-cpp inject the live date; OFF by default (F58 — a code index has no 'today')
     list_indexes: null,
 
     // Callers / Callees
@@ -409,6 +410,7 @@ export function parseArgs() {
     ['overview_by_ai',       'flag',           ['--overview-by-ai', '--overview-by-AI']],
     ['context_size',         'int',            ['--context-size']],
     ['flash_attention',      'flag',           ['--flash-attention']],
+    ['live_today_date',      'flag',           ['--live-today-date']],
     ['cpu',                  'flag',           ['--cpu']],
     ['grounding',            'value',          ['--grounding']],
     ['cost',                 'flag',           ['--cost']],
@@ -1161,6 +1163,16 @@ MODE:
                              node-llama-cpp 3.18.1 flags it experimental and it
                              may change numerics, so it is opt-in and belongs
                              in any run you intend to compare.
+  --live-today-date          Local GGUF only: let node-llama-cpp inject the live
+                             date into the system prompt. OFF by default, which
+                             pins it. node-llama-cpp's Llama 3.1/3.2 wrappers
+                             default that field to a clock, so the same command
+                             on the same index produced different output on
+                             different days. A code index has no "today", and
+                             --reproducible does NOT cover this — that pins
+                             sampling, this is prompt text. Other families
+                             (Gemma, Mistral, Qwen) inject nothing and are
+                             unaffected either way.
   --reproducible             GUI server: pin local-model sampling (temperature
                              0, fixed seed) so the same question over the same
                              index/model/config repeats the same answer on this

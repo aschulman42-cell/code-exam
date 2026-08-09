@@ -8,9 +8,10 @@ import assert from 'node:assert';
 import {
   makeToolBudget, neutralizeSpecialTokens, strictInstructionsFor, ungroundedWarning, localBudgets,
   needsSynthesizeRetry, rescuedNote, SYNTHESIZE_RETRY_MAX_TOKENS, SYNTHESIZE_NOW_PROMPT,
+  toolFloorFrom, needsToolFloorNudge, toolFloorNote, TOOL_FLOOR_MAX_NUDGES,
 } from '../src/core/ai-overview-local.js';
 import { aiOverviewPrompt, LOCAL_ENGINE_GROUNDING } from '../src/core/ai-overview.js';
-import { ggufContextOptions } from '../src/core/llm-runner.js';
+import { ggufContextOptions, chatSessionOptions, PINNED_TODAY_DATE } from '../src/core/llm-runner.js';
 
 // --flash-attention (#306 fix-list 17, F23). Frees 0.5 GB (Gemma-3-12B) to
 // 2.3 GB (gpt-oss-20b) of VRAM at ctx 16384 — the difference between a 20B
@@ -170,4 +171,106 @@ test('empty-final-turn rescue: reuses the budget stop wording, and labels the ou
   assert.ok(note.includes('12 tool call'));
   assert.match(note, /RECOVERED OUTPUT/);
   assert.match(note, /not a clean run/);
+});
+
+// ---------------------------------------------------------------------------
+// Tool-call floor (#306 fix-list 7, F37/F39). makeToolBudget caps
+// investigation; this is the same primitive inverted. Prefetch makes the FIRST
+// call unconditional but does not make the second happen — on .ExoPlayer3 it
+// drove 3 of 5 cells to zero model-initiated calls (F39).
+// ---------------------------------------------------------------------------
+
+test('#306 floor: unset env means no floor, so default behaviour is untouched', () => {
+  assert.equal(toolFloorFrom({}), 0);
+  assert.equal(toolFloorFrom({ CE_TOOL_CALL_FLOOR: '' }), 0);
+  assert.equal(toolFloorFrom(undefined), 0);
+  // Junk must disable, never throw and never become NaN — an unparseable value
+  // silently enabling a floor would be worse than ignoring it.
+  assert.equal(toolFloorFrom({ CE_TOOL_CALL_FLOOR: 'yes' }), 0);
+  assert.equal(toolFloorFrom({ CE_TOOL_CALL_FLOOR: '-3' }), 0);
+  assert.equal(toolFloorFrom({ CE_TOOL_CALL_FLOOR: '0' }), 0);
+  assert.equal(toolFloorFrom({ CE_TOOL_CALL_FLOOR: '3' }), 3);
+  assert.equal(toolFloorFrom({ CE_TOOL_CALL_FLOOR: '2.9' }), 2);
+});
+
+test('#306 floor: nudges a model that wrote prose after too few DISTINCT tools', () => {
+  assert.equal(needsToolFloorNudge({ raw: 'an overview', distinctTools: 1, floor: 3, nudges: 0, rescued: false }), true);
+  assert.equal(needsToolFloorNudge({ raw: 'an overview', distinctTools: 3, floor: 3, nudges: 0, rescued: false }), false);
+});
+
+test('#306 floor: never fires without the env gate', () => {
+  assert.equal(needsToolFloorNudge({ raw: 'x', distinctTools: 0, floor: 0, nudges: 0, rescued: false }), false);
+});
+
+test('#306 floor: empty output belongs to the rescue, not the floor', () => {
+  // The two are disjoint by construction — needsSynthesizeRetry fires on empty,
+  // this fires on non-empty — so they can never contend for one response.
+  assert.equal(needsToolFloorNudge({ raw: '', distinctTools: 0, floor: 3, nudges: 0, rescued: false }), false);
+  assert.equal(needsToolFloorNudge({ raw: '   ', distinctTools: 0, floor: 3, nudges: 0, rescued: false }), false);
+});
+
+test('#306 floor: a RESCUED run is never nudged back into investigation', () => {
+  // The load-bearing exclusion. A rescue already means the model struggled to
+  // write anything; sending it back for more tool calls is the worst case in
+  // this mechanism's own reasoning.
+  assert.equal(needsToolFloorNudge({ raw: 'recovered prose', distinctTools: 1, floor: 3, nudges: 0, rescued: true }), false);
+});
+
+test('#306 floor: nudges are bounded, so a stubborn model cannot hang the run', () => {
+  const under = { raw: 'x', distinctTools: 1, floor: 3, rescued: false };
+  assert.equal(needsToolFloorNudge({ ...under, nudges: TOOL_FLOOR_MAX_NUDGES - 1 }), true);
+  assert.equal(needsToolFloorNudge({ ...under, nudges: TOOL_FLOOR_MAX_NUDGES }), false);
+  assert.equal(needsToolFloorNudge({ ...under, nudges: TOOL_FLOOR_MAX_NUDGES + 5 }), false);
+});
+
+test('#306 floor: the note labels the run either way, and warns against reading it as quality', () => {
+  const met = toolFloorNote(3, 3, 1, true);
+  assert.match(met, /FLOOR APPLIED/);
+  assert.match(met, /3 distinct tool\(s\)/);
+  // A floor guarantees quantity only; F43 and F55 are both compatible with a
+  // satisfied floor, so the artifact must say so.
+  assert.match(met, /do not\s+guarantee extra evidence/);
+
+  const unmet = toolFloorNote(1, 3, 2, false);
+  assert.match(unmet, /FLOOR NOT MET/);
+  assert.match(unmet, /still did not reach the floor/);
+});
+
+// ---------------------------------------------------------------------------
+// `Today Date:` pinning (#306, F58). node-llama-cpp resolves a Llama-3.1 GGUF
+// to its OWN wrapper rather than the file's template, and that wrapper defaults
+// todayDate to a live clock — so the system prompt, and therefore the output,
+// is a function of the calendar. A code index has no "today".
+// ---------------------------------------------------------------------------
+
+test('#306 todayDate: pinned by default, so the same command is stable across days', () => {
+  const seq = { fake: 'sequence' };
+  const a = chatSessionOptions(seq);
+  const b = chatSessionOptions(seq);
+  assert.equal(a.contextSequence, seq);
+  assert.ok(a.todayDate instanceof Date);
+  // The property that matters: two sessions built at different wall-clock times
+  // carry the same date. Equality of the pinned value IS the guarantee.
+  assert.equal(a.todayDate.getTime(), b.todayDate.getTime());
+  assert.equal(a.todayDate.getTime(), PINNED_TODAY_DATE.getTime());
+});
+
+test('#306 todayDate: the constant is the date the GGUF template hardcodes, not an arbitrary one', () => {
+  // Llama 3.1's own jinja template hardcodes date_string = "26 Jul 2024". Using
+  // it means CE pins to what the model's packager intended, rather than
+  // inventing a date.
+  assert.equal(PINNED_TODAY_DATE.toISOString().slice(0, 10), '2024-07-26');
+});
+
+test('#306 todayDate: --live-today-date restores the library default by omitting the key', () => {
+  const live = chatSessionOptions({ fake: 1 }, { liveTodayDate: true });
+  assert.ok(!('todayDate' in live), 'key absent so node-llama-cpp applies its own clock');
+});
+
+test('#306 todayDate: extra session options pass through untouched', () => {
+  // server.js:4367 passes a systemPrompt; the helper must not swallow it.
+  const o = chatSessionOptions({ fake: 1 }, { systemPrompt: 'SYS' });
+  assert.equal(o.systemPrompt, 'SYS');
+  assert.ok(o.todayDate instanceof Date);
+  assert.ok(!('liveTodayDate' in o), 'our own control must not leak into the library options');
 });

@@ -20,7 +20,7 @@
 import { CodeSearchIndex } from './CodeSearchIndex.js';
 import { handleTool, TOOLS, setIndex } from '../mcp-server.js';
 import { AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './ai-overview.js';
-import { ggufContextOptions } from './llm-runner.js';
+import { ggufContextOptions, chatSessionOptions } from './llm-runner.js';
 
 // The CE tool names the overview may call (same allow-list as the claude
 // engine), with the mcp__code-exam__ prefix stripped to the handleTool case.
@@ -145,6 +145,77 @@ export function rescuedNote(toolCalls) {
     + 'model limitation on the agentic path, not a clean run.';
 }
 
+// ---------------------------------------------------------------------------
+// TOOL-CALL FLOOR (#306 fix-list item 7, from F37/F39). Env-gated by
+// CE_TOOL_CALL_FLOOR=<n>; unset means no floor and byte-identical behaviour.
+//
+// makeToolBudget CAPS investigation. This is the same primitive inverted: a
+// model that writes its overview after looking in too few places is sent back.
+// Prefetch (29aa2b0) makes the FIRST call unconditional; it does not make the
+// second one happen, and on a large index it suppresses it — on .ExoPlayer3,
+// prefetch drove 3 of 5 cells to ZERO model-initiated calls and halved
+// Gemma-QAT's specificity (F39). The payload does not overflow the window (no
+// budget-stop has ever fired); it reads as SUFFICIENT and the model stops.
+// Behavioural saturation, not context exhaustion.
+//
+// Why JS and not a prompt: one instruction measured across 5 models x 2 indexes
+// improved 2 cells and REGRESSED 4 (F34). A prompt edit is a per-model
+// coefficient. A floor is arithmetic.
+// ---------------------------------------------------------------------------
+
+// DISTINCT tools, not raw calls. F55/F56 record the dangerous signature: a
+// refusal with toolCalls >= 5 and distinctTools == 1, which *looks* earned and
+// is worse than an obvious failure. A raw-count floor is satisfied by calling
+// `search` five times with the same bad term — precisely the 24-call loop F56
+// documents. Distinct tools makes the floor mean "looked in more than one
+// place", which is the property actually wanted.
+export function toolFloorFrom(env) {
+  const raw = env && env.CE_TOOL_CALL_FLOOR;
+  if (raw == null || raw === '') return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+// Two nudges maximum. A model that will not investigate must not be re-prompted
+// forever — after the bound, the run is accepted and LABELLED. An unbounded
+// floor would turn a model limitation into a hang.
+export const TOOL_FLOOR_MAX_NUDGES = 2;
+
+export const TOOL_FLOOR_PROMPT =
+  'You have not investigated enough to write an overview yet. Call more of the '
+  + 'available tools — different ones, not the same tool again — and only then '
+  + 'write your complete overview.';
+
+// Fires only when the model WROTE something while under the floor.
+//
+// `rescued` is the load-bearing exclusion, and it is not an ordering rule:
+// needsSynthesizeRetry fires on EMPTY output and this fires on NON-empty, so the
+// two can never match the same response. But a rescued run has already shown the
+// model struggling to produce anything at all, and sending it back for more
+// investigation is the worst case in this mechanism's own reasoning.
+export function needsToolFloorNudge({ raw, distinctTools, floor, nudges, rescued }) {
+  if (!floor) return false;
+  if (rescued) return false;
+  if (nudges >= TOOL_FLOOR_MAX_NUDGES) return false;
+  if (!String(raw || '').trim()) return false;   // empty is the rescue's case
+  return distinctTools < floor;
+}
+
+// The floor guarantees QUANTITY, not quality — it cannot make a call
+// informative, and F43's template regurgitation and F55's unearned refusals are
+// both compatible with a satisfied floor. So say when it fired, the way
+// rescuedNote() does: otherwise a floor-padded run is indistinguishable from a
+// genuinely thorough one, and the intervention hides the behaviour that
+// justifies it.
+export function toolFloorNote(distinctTools, floor, nudges, satisfied) {
+  return `ⓘ TOOL-CALL FLOOR ${satisfied ? 'APPLIED' : 'NOT MET'}: the model wrote its `
+    + `overview after using ${distinctTools} distinct tool(s); the floor asked for `
+    + `${floor}. CE re-prompted it ${nudges} time(s) to investigate further`
+    + `${satisfied ? '' : ', and it still did not reach the floor'}. Extra calls do not `
+    + 'guarantee extra evidence — read this with the groundedness and specificity '
+    + 'scores, not instead of them.';
+}
+
 // Context-scaled output/tool budgets (port of server _localBudgets).
 export function localBudgets(contextSize, explicitMaxTokens) {
   const OVERHEAD = 1200;         // system prompt + tool defs + question, approx tokens
@@ -177,7 +248,7 @@ export function localBudgets(contextSize, explicitMaxTokens) {
 // `explicitMaxTokens`, and pinned output at 2400 tokens at EVERY context size —
 // so --context-size raised the tool budget while the answer allowance never
 // moved. Leave it undefined so the scaling actually runs.
-export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 16384, maxTokens, timeoutMs = 1200000, gpu = 'auto', grounding, flashAttention = false, onStatus, onStream } = {}) {
+export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 16384, maxTokens, timeoutMs = 1200000, gpu = 'auto', grounding, flashAttention = false, liveTodayDate = false, onStatus, onStream } = {}) {
   if (!indexPath) throw new Error('runAiOverviewLocal: indexPath is required.');
   if (!modelPath) throw new Error('runAiOverviewLocal: a GGUF modelPath is required (pass --model).');
   const status = (s) => { if (onStatus) onStatus(s); };
@@ -195,6 +266,9 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
   // Threaded to ungroundedWarning() rather than inferred from the prompt text —
   // inferring it would couple the guard to prompt wording.
   let prefetched = false;
+  const distinctTools = new Set();
+  let floorNudges = 0;
+  const toolFloor = toolFloorFrom(process.env);
   try {
     // Load the index in-process and point handleTool at it (no MCP subprocess).
     const index = new CodeSearchIndex({ indexPath });
@@ -267,6 +341,11 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
             return stop;
           }
           status(`tool ${name}(${JSON.stringify(args || {}).slice(0, 120)})`);
+          // Counted HERE, past the budget gate, so the floor's denominator is
+          // the same population the harvester's `[overview-by-ai] tool ` lines
+          // report. Counting before the gate would let budget-stopped attempts
+          // satisfy a floor.
+          distinctTools.add(name);
           let out;
           try { out = String(handleTool(name, args || {})); }
           catch (e) { out = `Error calling ${name}: ${e.message}`; }
@@ -277,7 +356,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
       });
     }
 
-    const session = new LlamaChatSession({ contextSequence: context.getSequence() });
+    const session = new LlamaChatSession(chatSessionOptions(context.getSequence(), { liveTodayDate }));
     // #276: local engines get the forceful-grounding clause, and Gemma gets
     // the strict-framing header (its wrapper drops system turns; the family
     // fabricates tool results without explicit insistence).
@@ -379,6 +458,26 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
           rescued = !!String(raw || '').trim();
         } catch (e) { status(`synthesize retry failed: ${e.message}`); }
       }
+
+      // TOOL-CALL FLOOR. INSIDE the raced block for the same reason the rescue
+      // above is: clearTimeout fires in the `finally` below, so a re-prompt
+      // placed after it would run with NO timeout, and this path has been
+      // observed blocking the event loop for ~640s.
+      while (needsToolFloorNudge({ raw, distinctTools: distinctTools.size, floor: toolFloor,
+        nudges: floorNudges, rescued })) {
+        floorNudges++;
+        status(`tool-call floor: ${distinctTools.size} distinct tool(s) < ${toolFloor}`
+          + ` — re-prompting to investigate further (nudge ${floorNudges}/${TOOL_FLOOR_MAX_NUDGES})`);
+        try {
+          raw = await Promise.race([
+            session.prompt(TOOL_FLOOR_PROMPT, {
+              maxTokens: cappedMaxTokens,
+              onTextChunk: onStream ? (c) => onStream(c) : undefined,
+            }),
+            timeout,
+          ]);
+        } catch (e) { status(`tool-floor nudge failed: ${e.message}`); break; }
+      }
     } finally {
       clearTimeout(timer);
     }
@@ -394,6 +493,12 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     // becomes invisible the moment the workaround lands — the workaround would
     // then quietly mask the very thing that justifies replacing the model.
     if (rescued && prose) prose = `${rescuedNote(toolCalls)}\n\n${prose}`;
+    // Label a floor-influenced run, whether or not the nudging worked. A run
+    // that was pushed into extra calls must not read as one that investigated
+    // on its own — that is how an intervention hides the behaviour justifying it.
+    if (floorNudges && prose) {
+      prose = `${toolFloorNote(distinctTools.size, toolFloor, floorNudges, distinctTools.size >= toolFloor)}\n\n${prose}`;
+    }
     // Output token count from the model's own tokenizer (air-gapped: no $ to
     // report, just tokens). Best-effort — null if the tokenizer isn't reachable.
     let outTokens = null;

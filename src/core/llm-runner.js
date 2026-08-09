@@ -28,7 +28,7 @@ export function resolveModel(args) {
   const modelPath = args.model || args.claim_model || args.analyze_model || null;
   if (modelPath) {
     return { kind: 'gguf', modelPath, forceCpu: !!args.cpu, contextSize: args.context_size || null,
-      flashAttention: !!args.flash_attention };
+      flashAttention: !!args.flash_attention, liveTodayDate: !!args.live_today_date };
   }
 
   if (args.llm) {
@@ -229,6 +229,42 @@ export function ggufContextLadder(explicit = null) {
 // hard-errors on context allocation, so retry on CPU before giving up; --cpu
 // forces CPU up front. node-llama-cpp is imported lazily so the command loads
 // without it when only the endpoint path (or dry-run) is used.
+// A code index has no "today", but node-llama-cpp tells the model there is one.
+// It resolves a Llama-3.1 GGUF to its OWN wrapper rather than the file's jinja
+// template, and that wrapper defaults `todayDate` to a live clock
+// (`Llama3_1ChatWrapper.js:30`), rendering into the system prompt at `:215`:
+//
+//   ["Cutting Knowledge Date: December 2023","Today Date: 7 Aug 2026"]
+//   ["Cutting Knowledge Date: December 2023","Today Date: 9 Aug 2026"]
+//
+// So the prompt is a function of the calendar and the same command produces
+// different output on different days. Measured by asus-CC (F58) after two Llama
+// cells failed to reproduce; two other explanations were refuted first — the
+// model is byte-stable 3/3, and the preserved prior tree produces today's bytes
+// today. Llama-3.2 has the same default
+// (`Llama3_2LightweightChatWrapper.js:191,197`); Gemma, Mistral and Qwen inject
+// nothing.
+//
+// `--reproducible` does NOT cover this: that pins temperature and seed, which is
+// a sampling axis. This is an input-text axis.
+//
+// PINNED rather than removed. Passing null deletes the `Today Date:` line
+// entirely, which is semantically cleaner — but it changes the prompt SHAPE away
+// from what the family was instruction-tuned on, and `Cutting Knowledge Date:` /
+// `Today Date:` are a pair the template emits together. Dropping half of that
+// pair is an unmeasured bet. The constant is the date the GGUF's own template
+// hardcodes, so it is what the model's packager intended when the library is not
+// overriding them.
+export const PINNED_TODAY_DATE = new Date('2024-07-26T00:00:00Z');
+
+// Options for every `new LlamaChatSession` CE creates. One helper so the six
+// call sites cannot drift apart, and so the pinning is assertable without a GPU.
+// Inert for wrappers that inject no date (Gemma, Mistral, Qwen) — they simply
+// ignore the option.
+export function chatSessionOptions(contextSequence, { liveTodayDate = false, ...rest } = {}) {
+  return { contextSequence, ...(liveTodayDate ? {} : { todayDate: PINNED_TODAY_DATE }), ...rest };
+}
+
 // Options for node-llama-cpp's createContext. Split out and exported so the
 // byte-identical-default guarantee is testable without a GPU: when flash
 // attention is off the key is ABSENT, not false, so a default run hands the
@@ -238,7 +274,7 @@ export function ggufContextOptions(contextSize, flashAttention = false) {
   return { contextSize, ...(flashAttention ? { flashAttention: true } : {}) };
 }
 
-function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, flashAttention = false) {
+function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, flashAttention = false, liveTodayDate = false) {
   let session = null;
   return async (sys, user, maxTokens) => {
     if (!session) {
@@ -266,7 +302,7 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
         ctx = await tryLoad(true);
       }
       if (!ctx) throw new Error('could not allocate a context for the local model (tried GPU and CPU) — try --cpu');
-      session = new LlamaChatSession({ contextSequence: ctx.getSequence() });
+      session = new LlamaChatSession(chatSessionOptions(ctx.getSequence(), { liveTodayDate }));
     } else {
       // Isolate each claim: drop the prior claim's accumulated history so it
       // can't bleed into this draft, and so long claim sets don't overflow.
@@ -282,7 +318,8 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
 // group is drafted).
 export function makeDrafter(model, temperature) {
   if (model.kind === 'gguf') {
-    return makeGgufDrafter(model.modelPath, model.forceCpu, temperature, model.contextSize, model.flashAttention);
+    return makeGgufDrafter(model.modelPath, model.forceCpu, temperature, model.contextSize, model.flashAttention,
+      model.liveTodayDate);
   }
   if (!isLocalApiUrl(model.apiUrl)) assertLocalOnly(`pseudo-claims (cloud ${model.label})`);
   if (!model.key && !isLocalApiUrl(model.apiUrl)) {
