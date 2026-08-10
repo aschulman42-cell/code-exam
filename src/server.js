@@ -35,6 +35,7 @@ import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { runAiOverview, AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './core/ai-overview.js';
 import { strictInstructionsFor, ungroundedWarning } from './core/ai-overview-local.js';
+import { answerDisclosure } from './core/answer-disclosure.js';
 import { setAirGapped, scrubApiKey, airGappedStartupCheck, isAirGapped, isLocalApiUrl, AIR_GAPPED_DISCLAIMER } from './core/air-gapped.js';
 import { estimateCost } from './core/pricing.js';
 import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiFinishReason } from './core/openai-util.js';
@@ -4432,6 +4433,17 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
     else if (stopReason === 'maxTokens') {
       prose += `\n\n…*[response reached CodeExam's length cap (${maxTokens} tokens) — ask for the remaining part specifically]*`;
       console.log(`  [chat] response hit the ${maxTokens}-token cap`);
+    }
+    // #306 item 5 (F55/F56): a declining answer records what the investigation
+    // behind it was. Appended AFTER generation and never fed back — an honest
+    // refusal is correct output for an evidence tool, so this must not nudge the
+    // model away from refusing. Names come from the recorded blocks, the same
+    // population the log line below counts.
+    const _answeredWith = blocks.filter(b => b.type === 'tool_use').map(b => b.name);
+    const _disclosure = answerDisclosure(prose, _answeredWith);
+    if (_disclosure) {
+      prose += _disclosure;
+      console.log(`  [chat] declining answer — ${_answeredWith.length} calls, ${new Set(_answeredWith).size} distinct`);
     }
     blocks.push({ type: 'text', text: prose });
     console.log(`  [chat] local final answer ${prose.length} chars (${blocks.filter(b => b.type === 'tool_use').length} tool calls)`);
