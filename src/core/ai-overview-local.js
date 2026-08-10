@@ -21,6 +21,7 @@ import { CodeSearchIndex } from './CodeSearchIndex.js';
 import { handleTool, TOOLS, setIndex } from '../mcp-server.js';
 import { AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './ai-overview.js';
 import { ggufContextOptions, chatSessionOptions } from './llm-runner.js';
+import { aimlVerificationNote, unsupportedModelNames } from './answer-disclosure.js';
 
 // The CE tool names the overview may call (same allow-list as the claude
 // engine), with the mcp__code-exam__ prefix stripped to the handleTool case.
@@ -395,6 +396,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
   let preNudgeRaw = '';
   let floorReverted = false;
   let floorSubstituted = [];   // tool names CE ran on the model's behalf
+  let modelsUsedResult = '';   // #306 F70: the tool output the prose is checked against
   const toolFloor = toolFloorFrom(process.env);
   try {
     // Load the index in-process and point handleTool at it (no MCP subprocess).
@@ -477,6 +479,11 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
           try { out = String(handleTool(name, args || {})); }
           catch (e) { out = `Error calling ${name}: ${e.message}`; }
           const capped = neutralizeSpecialTokens(out.slice(0, MAX_TOOL_OUTPUT), `${name} result`, status);
+          // #306 F70: keep the models_used result so CE can check its own prose
+          // against it afterwards. Captured here rather than re-called later —
+          // a second call could return something the model never saw, which
+          // would make the comparison describe a different run.
+          if (name === 'models_used') modelsUsedResult = capped;
           budget.charge(capped.length);
           return capped;
         },
@@ -655,6 +662,18 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     // becomes invisible the moment the workaround lands — the workaround would
     // then quietly mask the very thing that justifies replacing the model.
     if (rescued && prose) prose = `${rescuedNote(toolCalls)}\n\n${prose}`;
+    // #306 F70: check the AI/ML sentence against the tool result CE already has.
+    // Appended, never rewritten — silently editing the model's prose would make
+    // CE's output no longer what the model produced, which is the one thing the
+    // standing constraint forbids. Says nothing when models_used was not called
+    // or when every name is supported.
+    if (prose) {
+      const aimlNote = aimlVerificationNote(prose, modelsUsedResult);
+      if (aimlNote) {
+        prose += aimlNote;
+        status(`AI/ML sentence names ${unsupportedModelNames(prose, modelsUsedResult).length} term(s) absent from models_used — footnoted`);
+      }
+    }
     // Label a floor-influenced run, whether or not the substitution helped. A run
     // CE supplied results to must not read as one that investigated on its own —
     // that is how an intervention hides the behaviour justifying it.

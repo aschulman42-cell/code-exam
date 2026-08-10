@@ -89,3 +89,110 @@ export function answerDisclosure(prose, toolNames = []) {
   return `\n\n…*[CodeExam: the answer above declines to conclude, ${basis}. `
     + `A refusal can be the correct answer — this records what the investigation was, not a judgement of it.]*`;
 }
+
+// ---------------------------------------------------------------------------
+// AI/ML SENTENCE VERIFICATION (#306 F70, after asus-CC's reversal).
+//
+// The measured failure is NOT a bad tool. Run against nine corpora, `models_used`
+// was right every time and the prose was wrong in six:
+//
+//   .as_ml_code   prose named an API KEY FRAGMENT; tool returned 22 real models
+//   .CrewAI       prose "Anthropic, Bedrock"; tool returned gpt-4o-mini, ada-002
+//   .TreeOfThought  tool returned "No model ids found - do not infer absence"
+//                   and the prose still wrote "including GPT-4"
+//
+// That last one is the reason this exists. `ae04e4b` fixed the tool and the model
+// wrote over it IN THE SAME RUN — a tool-level disclosure defeated at the prose
+// layer. Cap footers, populations, the PARTIAL clause and models_used all improve
+// what the model is TOLD; none of them constrains what it WRITES.
+//
+// The pressure is structural: ai-overview.js mandates ONE AI/ML sentence, and 29
+// of 29 non-degenerate overviews asserted one. A slot that cannot be empty gets
+// filled with whatever is nearest — in .as_ml_code, a credential sitting in a
+// `search` result.
+//
+// Rewording the mandate is NOT the fix, by our own evidence: F34 (a prompt edit
+// is a per-model coefficient), sixteen floor nudges moving zero cells, and
+// 4fab531 removing the prose section outright.
+//
+// So CE checks its own output against ground truth IT ALREADY HOLDS. No model
+// judgment, no threshold, no second inference — a diff between two things in
+// hand. ungroundedWarning is the register: observe a mechanism, and be allowed to
+// say nothing.
+//
+// IT REPORTS, IT DOES NOT CLASSIFY. Deciding "is Anthropic a model" is exactly
+// the judgment call that would make this a proxy. The note states which names the
+// sentence used and which of them the tool did not return, and lets the reader
+// judge. That keeps it true even when a name is a vendor or a framework rather
+// than a fabrication.
+
+// Sentences that could carry the mandated claim. Scoped to model-mentioning
+// sentences so ordinary prose (file names, function names) is not scanned.
+function modelSentences(prose) {
+  return String(prose || '')
+    .split(/(?<=[.!?])\s+|\n+/)
+    .filter((s) => /\bmodels?\b/i.test(s));
+}
+
+// Candidate names, deliberately inclusive: the confabulated set spans backticked
+// tokens, ALLCAPS (XLA), CamelCase (TensorFlow), hyphen+digit (GPT-4), snake_case
+// (oai_text_embedding) and plain capitalised vendors (Anthropic, Cohere). A
+// narrow "model-shaped" rule missed five of nine, so breadth is the point and the
+// note's wording carries the hedge.
+const _STOP = new Set(['AI', 'ML', 'AI/ML', 'API', 'CE', 'CodeExam', 'The', 'This', 'It', 'A', 'An',
+  'No', 'None', 'I', 'GPU', 'CPU', 'LLM', 'LLMs', 'SDK', 'CLI', 'README']);
+
+export function namesInModelSentences(prose) {
+  const out = new Set();
+  for (const s of modelSentences(prose)) {
+    for (const m of s.matchAll(/`([^`]{2,60})`|"([^"]{2,60})"/g)) out.add((m[1] || m[2]).trim());
+    // Bare tokens; drop the sentence's first word so a leading "The" is not a name.
+    const bare = s.replace(/`[^`]*`|"[^"]*"/g, ' ').trim().split(/\s+/).slice(1);
+    for (const raw of bare) {
+      // `.` stays inside the allowed set because model ids carry it
+      // (`model.ckpt`), which means a SENTENCE-final period survives the first
+      // strip. Left in, `resnet50.` fails to match a tool output containing
+      // `resnet50` and the faithful case footnotes itself — caught in the first
+      // smoke test, and the reason for the second strip.
+      const t = raw.replace(/^[^A-Za-z0-9_.\-/]+|[^A-Za-z0-9_.\-/]+$/g, '').replace(/\.+$/, '');
+      if (t.length < 3 || _STOP.has(t)) continue;
+      // `[a-z][A-Z]` earns its place: the credential fragment that motivated this
+      // whole item (`uqDZ…SPdJ`) has no digit, no separator and a lowercase first
+      // character, so the other three rules all miss it. Internal capitals catch
+      // both opaque high-entropy tokens and ordinary camelCase names, and no
+      // English word has them.
+      const shaped = /[0-9]/.test(t) || /[_\-./]/.test(t) || /^[A-Z]/.test(t) || /[a-z][A-Z]/.test(t);
+      if (shaped && /[A-Za-z]/.test(t)) out.add(t);
+    }
+  }
+  return [...out];
+}
+
+/**
+ * Names the AI/ML sentence used that the tool output does not contain.
+ * Substring match against the raw tool text, so "Qwen 7B" matching a listed
+ * "Qwen-7B-Chat" row counts as supported — the test is "did the tool mention
+ * this", not "is this an exact id".
+ */
+export function unsupportedModelNames(prose, modelsUsedOutput) {
+  const hay = String(modelsUsedOutput || '').toLowerCase();
+  if (!hay) return [];
+  return namesInModelSentences(prose).filter((n) => !hay.includes(n.toLowerCase()));
+}
+
+/**
+ * The footnote, or '' when the sentence is fully supported — or when CE has no
+ * tool output to check against, which is the "allowed to say nothing" case.
+ */
+export function aimlVerificationNote(prose, modelsUsedOutput) {
+  if (!String(modelsUsedOutput || '').trim()) return '';
+  const unsupported = unsupportedModelNames(prose, modelsUsedOutput);
+  if (!unsupported.length) return '';
+  const listed = unsupported.slice(0, 8).map((n) => `"${n}"`).join(', ');
+  const more = unsupported.length > 8 ? ` (+${unsupported.length - 8} more)` : '';
+  return `\n\nⓘ AI/ML SENTENCE UNVERIFIED: the prose above names ${listed}${more}, which `
+    + `CodeExam's own \`models_used\` result for this index does NOT contain. That result is `
+    + `reproduced below. This is a mechanical comparison, not a judgement — a name may be a `
+    + `vendor or framework rather than a model — but nothing here was read out of the index.`
+    + `\n\n<models_used>\n${String(modelsUsedOutput).trim().slice(0, 1200)}\n</models_used>`;
+}
