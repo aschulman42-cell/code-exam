@@ -203,12 +203,37 @@ export const TOOL_FLOOR_MAX_NUDGES = 2;
 // — the prefetch route, the one mechanism measured to work on every model
 // including those that never call anything.
 //
-// Kept gated and off until that replacement lands, with the damage cap below as
-// the guard. asus-CC's batch-2 report, §4 and §5.
-export const TOOL_FLOOR_PROMPT =
-  'You have not investigated enough to write an overview yet. Call more of the '
-  + 'available tools — different ones, not the same tool again — and only then '
-  + 'write your complete overview.';
+// asus-CC's batch-2 report, §4 and §5. The replacement is below; the nudge
+// prompt itself is deleted rather than kept behind a flag, because a measured-
+// dead prompt left in the tree is one someone re-enables expecting it to help.
+
+// THE REPLACEMENT: substitution, not enforcement.
+//
+// Only argument-free, UNCONDITIONAL tools. That restriction is the prefetch's
+// scope note applied here: pre-fetching `overview` is right because every run
+// needs it, and pre-fetching `digest <file>` would be wrong because CE would
+// have to invent the argument and would spend context on a result this run may
+// not need. Ordered by orientation value, so a floor of 2 supplies the two most
+// useful rather than an arbitrary pair.
+export const FLOOR_SUBSTITUTION_TOOLS = ['overview', 'stats', 'vocabulary', 'entry_points', 'most_called', 'hotspots'];
+
+// Which tools CE should run on the model's behalf: the highest-value ones it did
+// NOT already call, enough to cover the shortfall. Pure so the selection can be
+// tested without a model.
+export function selectSubstitutionTools(calledTools, floor, catalog = FLOOR_SUBSTITUTION_TOOLS) {
+  const called = new Set(calledTools instanceof Set ? [...calledTools] : (calledTools || []));
+  const need = Math.max(0, (Number(floor) || 0) - called.size);
+  if (!need) return [];
+  return catalog.filter((t) => !called.has(t)).slice(0, need);
+}
+
+// ONE revision request, never a loop. Two reasons, both measured: the nudge
+// already showed repetition adds nothing, and F39 showed that supplying a result
+// can TERMINATE investigation rather than seed it — so each extra round is more
+// supplied context working in the wrong direction.
+export const SUBSTITUTION_REVISION_PROMPT =
+  'The tool results above were run for you. Revise your overview to use them. '
+  + 'Write the complete overview; do not describe what you are doing.';
 
 // Fires only when the model WROTE something while under the floor.
 //
@@ -297,14 +322,19 @@ export function preferPreNudgeAnswer(pre, post) {
 // rescuedNote() does: otherwise a floor-padded run is indistinguishable from a
 // genuinely thorough one, and the intervention hides the behaviour that
 // justifies it.
-export function toolFloorNote(distinctTools, floor, nudges, satisfied, reverted = false) {
-  return `ⓘ TOOL-CALL FLOOR ${satisfied ? 'APPLIED' : 'NOT MET'}: the model wrote its `
+export function toolFloorNote(distinctTools, floor, substituted = [], reverted = false) {
+  const subs = (substituted || []).filter(Boolean);
+  return `ⓘ TOOL-CALL FLOOR ${subs.length ? 'SUBSTITUTED' : 'NOT MET'}: the model wrote its `
     + `overview after using ${distinctTools} distinct tool(s); the floor asked for `
-    + `${floor}. CE re-prompted it ${nudges} time(s) to investigate further`
-    + `${satisfied ? '' : ', and it still did not reach the floor'}.`
+    + `${floor}. `
+    + (subs.length
+      ? `CE ran ${subs.join(', ')} ITSELF and asked once for a revision. Those are CE calls, `
+        + `not model calls, and they are deliberately NOT counted in the ${distinctTools} above — `
+        + `folding them in would let the mechanism satisfy its own gate.`
+      : `CE had no unused argument-free tool left to run, so the run stands as written.`)
     + (reverted
-      ? ' The re-prompted answer named FEWER concrete things than the original, so the'
-        + ' original was kept — the nudging made this run worse, and that is the result.'
+      ? ' The revised answer named FEWER concrete things than the original, so the'
+        + ' original was kept — the substitution made this run worse, and that is the result.'
       : '')
     + ' Extra calls do not guarantee extra evidence — read this with the groundedness '
     + 'and specificity scores, not instead of them.';
@@ -364,6 +394,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
   let floorNudges = 0;
   let preNudgeRaw = '';
   let floorReverted = false;
+  let floorSubstituted = [];   // tool names CE ran on the model's behalf
   const toolFloor = toolFloorFrom(process.env);
   try {
     // Load the index in-process and point handleTool at it (no MCP subprocess).
@@ -559,21 +590,46 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
       // above is: clearTimeout fires in the `finally` below, so a re-prompt
       // placed after it would run with NO timeout, and this path has been
       // observed blocking the event loop for ~640s.
-      while (needsToolFloorNudge({ raw, distinctTools: distinctTools.size, floor: toolFloor,
+      // `if`, not `while`: ONE pass. The nudge looped because prose might land on
+      // a later try; supplying results cannot benefit from repetition, and F39
+      // says each extra round of supplied context suppresses further.
+      if (needsToolFloorNudge({ raw, distinctTools: distinctTools.size, floor: toolFloor,
         nudges: floorNudges, rescued })) {
-        if (!floorNudges) preNudgeRaw = raw;   // damage cap: the answer to fall back to
-        floorNudges++;
-        status(`tool-call floor: ${distinctTools.size} distinct tool(s) < ${toolFloor}`
-          + ` — re-prompting to investigate further (nudge ${floorNudges}/${TOOL_FLOOR_MAX_NUDGES})`);
-        try {
-          raw = await Promise.race([
-            session.prompt(TOOL_FLOOR_PROMPT, {
-              maxTokens: cappedMaxTokens,
-              onTextChunk: onStream ? (c) => onStream(c) : undefined,
-            }),
-            timeout,
-          ]);
-        } catch (e) { status(`tool-floor nudge failed: ${e.message}`); break; }
+        const wanted = selectSubstitutionTools(distinctTools, toolFloor);
+        const supplied = [];
+        for (const name of wanted) {
+          let out = '';
+          try { out = String(handleTool(name, {})).slice(0, MAX_TOOL_OUTPUT); }
+          catch (e) { status(`floor substitution: ${name} failed — ${e.message}`); continue; }
+          if (!out) continue;
+          budget.charge(out.length);   // honest accounting, as the prefetch does
+          supplied.push({ name, out });
+        }
+        if (!supplied.length) {
+          status(`floor substitution: no unused argument-free tool left to run`
+            + ` (${distinctTools.size} distinct < ${toolFloor}) — accepting the run as written`);
+        } else {
+          preNudgeRaw = raw;           // damage cap: the answer to fall back to
+          floorNudges++;
+          floorSubstituted = supplied.map((s) => s.name);
+          // Status wording deliberately avoids the harvester's `[overview-by-ai] tool `
+          // regex, exactly as the prefetch's does — these must never be harvested as
+          // model tool calls, or the counter stops meaning "calls the MODEL chose".
+          status(`floor substitution: CE ran ${floorSubstituted.join(', ')} itself`
+            + ` (model called ${distinctTools.size} distinct < ${toolFloor}) — NOT model tool calls`);
+          const packed = supplied
+            .map((s) => `<${s.name}_result>\n${s.out}\n</${s.name}_result>`)
+            .join('\n\n');
+          try {
+            raw = await Promise.race([
+              session.prompt(`${packed}\n\n${SUBSTITUTION_REVISION_PROMPT}`, {
+                maxTokens: cappedMaxTokens,
+                onTextChunk: onStream ? (c) => onStream(c) : undefined,
+              }),
+              timeout,
+            ]);
+          } catch (e) { status(`floor substitution revision failed: ${e.message}`); }
+        }
       }
       // Damage cap. Measured: nudging destroyed two of eight cells outright.
       // Never hand back an answer that names fewer concrete things than the one
@@ -599,11 +655,11 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     // becomes invisible the moment the workaround lands — the workaround would
     // then quietly mask the very thing that justifies replacing the model.
     if (rescued && prose) prose = `${rescuedNote(toolCalls)}\n\n${prose}`;
-    // Label a floor-influenced run, whether or not the nudging worked. A run
-    // that was pushed into extra calls must not read as one that investigated
-    // on its own — that is how an intervention hides the behaviour justifying it.
+    // Label a floor-influenced run, whether or not the substitution helped. A run
+    // CE supplied results to must not read as one that investigated on its own —
+    // that is how an intervention hides the behaviour justifying it.
     if (floorNudges && prose) {
-      prose = `${toolFloorNote(distinctTools.size, toolFloor, floorNudges, distinctTools.size >= toolFloor)}\n\n${prose}`;
+      prose = `${toolFloorNote(distinctTools.size, toolFloor, floorSubstituted, floorReverted)}\n\n${prose}`;
     }
     // Output token count from the model's own tokenizer (air-gapped: no $ to
     // report, just tokens). Best-effort — null if the tokenizer isn't reachable.

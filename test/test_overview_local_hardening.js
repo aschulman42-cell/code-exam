@@ -9,6 +9,7 @@ import {
   makeToolBudget, neutralizeSpecialTokens, strictInstructionsFor, ungroundedWarning, localBudgets,
   needsSynthesizeRetry, rescuedNote, SYNTHESIZE_RETRY_MAX_TOKENS, SYNTHESIZE_NOW_PROMPT,
   toolFloorFrom, needsToolFloorNudge, toolFloorNote, TOOL_FLOOR_MAX_NUDGES,
+  selectSubstitutionTools, FLOOR_SUBSTITUTION_TOOLS, SUBSTITUTION_REVISION_PROMPT,
   countScorableTokens, preferPreNudgeAnswer,
 } from '../src/core/ai-overview-local.js';
 import { aiOverviewPrompt, LOCAL_ENGINE_GROUNDING } from '../src/core/ai-overview.js';
@@ -226,16 +227,21 @@ test('#306 floor: nudges are bounded, so a stubborn model cannot hang the run', 
 });
 
 test('#306 floor: the note labels the run either way, and warns against reading it as quality', () => {
-  const met = toolFloorNote(3, 3, 1, true);
-  assert.match(met, /FLOOR APPLIED/);
-  assert.match(met, /3 distinct tool\(s\)/);
+  const subbed = toolFloorNote(1, 3, ['overview', 'stats']);
+  assert.match(subbed, /FLOOR SUBSTITUTED/);
+  assert.match(subbed, /1 distinct tool\(s\)/);
+  assert.match(subbed, /CE ran overview, stats ITSELF/);
+  // The load-bearing sentence. F39: supplying results can TERMINATE
+  // investigation, and the model-call counter is the only instrument that
+  // detects it — so the note must say the CE calls are excluded from it.
+  assert.match(subbed, /NOT counted in the 1 above/);
   // A floor guarantees quantity only; F43 and F55 are both compatible with a
   // satisfied floor, so the artifact must say so.
-  assert.match(met, /do not\s+guarantee extra evidence/);
+  assert.match(subbed, /do not\s+guarantee extra evidence/);
 
-  const unmet = toolFloorNote(1, 3, 2, false);
-  assert.match(unmet, /FLOOR NOT MET/);
-  assert.match(unmet, /still did not reach the floor/);
+  const none = toolFloorNote(1, 3, []);
+  assert.match(none, /FLOOR NOT MET/);
+  assert.match(none, /no unused argument-free tool left/);
 });
 
 // ---------------------------------------------------------------------------
@@ -354,11 +360,58 @@ test('#306 damage cap: an empty re-prompt falls back; an empty original does not
 });
 
 test('#306 damage cap: the note says the original was kept, so the failure is not hidden', () => {
-  const n = toolFloorNote(1, 3, 2, false, true);
-  assert.match(n, /FLOOR NOT MET/);
+  const n = toolFloorNote(1, 3, ['overview'], true);
+  assert.match(n, /FLOOR SUBSTITUTED/);
   assert.match(n, /named FEWER concrete things[\s\S]*original was kept/);
-  assert.match(n, /nudging made this run worse, and that is the result/);
-  assert.doesNotMatch(toolFloorNote(3, 3, 1, true, false), /original was kept/);
+  assert.match(n, /substitution made this run worse, and that is the result/);
+  assert.doesNotMatch(toolFloorNote(1, 3, ['overview'], false), /original was kept/);
+});
+
+// ---------------------------------------------------------------------------
+// #306 item 7 — SUBSTITUTION replaces the nudge. The nudge was measured dead:
+// 16 nudges across 8 cells produced ZERO additional distinct tool calls, and
+// destroyed two cells outright. The replacement is the prefetch route, which
+// F37 validated on 10/10 cells including models that never call anything.
+// ---------------------------------------------------------------------------
+
+test('#306 substitution: picks the highest-value tools the model did NOT call', () => {
+  // Model called nothing; floor 3 → the top three of the catalog.
+  assert.deepEqual(selectSubstitutionTools(new Set(), 3), ['overview', 'stats', 'vocabulary']);
+  // Model already called `overview` → it is skipped, not re-run.
+  assert.deepEqual(selectSubstitutionTools(new Set(['overview']), 3), ['stats', 'vocabulary']);
+  // Shortfall drives the count, not the floor: 2 called, floor 3 → one tool.
+  assert.deepEqual(selectSubstitutionTools(new Set(['overview', 'stats']), 3), ['vocabulary']);
+});
+
+test('#306 substitution: a model at or above the floor is left completely alone', () => {
+  assert.deepEqual(selectSubstitutionTools(new Set(['overview', 'stats', 'vocabulary']), 3), []);
+  assert.deepEqual(selectSubstitutionTools(new Set(['a', 'b', 'c', 'd']), 3), []);
+  assert.deepEqual(selectSubstitutionTools(new Set(), 0), [], 'floor unset = inert');
+});
+
+test('#306 substitution: the catalog is argument-free tools only', () => {
+  // The prefetch scope note applied here: `digest <file>` would require CE to
+  // invent an argument and would spend context on a result this run may not
+  // need. Anything conditional in this list is a bug.
+  for (const t of FLOOR_SUBSTITUTION_TOOLS) {
+    assert.doesNotMatch(t, /digest|extract|callers|callees|show_file|search/,
+      `${t} needs an argument — CE cannot choose one on the model's behalf`);
+  }
+});
+
+test('#306 substitution: exhausting the catalog degrades to "no tools left", not a crash', () => {
+  const all = new Set(FLOOR_SUBSTITUTION_TOOLS);
+  assert.deepEqual(selectSubstitutionTools(all, FLOOR_SUBSTITUTION_TOOLS.length + 5), []);
+  assert.match(toolFloorNote(6, 99, []), /no unused argument-free tool left/);
+});
+
+test('#306 substitution: one pass only — the gate stops firing after it runs', () => {
+  // `nudges` is incremented once by the substitution pass; TOOL_FLOOR_MAX_NUDGES
+  // then closes the gate. This is what makes `if` safe where the nudge used
+  // `while`: F39 says each extra round of supplied context suppresses further.
+  const under = { raw: 'an overview', distinctTools: 1, floor: 3, rescued: false };
+  assert.equal(needsToolFloorNudge({ ...under, nudges: 0 }), true, 'fires once');
+  assert.equal(needsToolFloorNudge({ ...under, nudges: TOOL_FLOOR_MAX_NUDGES }), false, 'and not again');
 });
 
 // The damage cap's own defect, found by measurement not review (asus-CC).
