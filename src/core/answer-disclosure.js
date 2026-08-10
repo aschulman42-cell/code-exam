@@ -128,10 +128,33 @@ export function answerDisclosure(prose, toolNames = []) {
 
 // Sentences that could carry the mandated claim. Scoped to model-mentioning
 // sentences so ordinary prose (file names, function names) is not scanned.
+//
+// THE `\s+` AFTER THE TERMINATOR IS LOAD-BEARING — do not "simplify" this to a
+// bare /[.!?]/ split. Model ids carry dots, and asus-CC's own extractor split
+// `.image_vision` INSIDE one:
+//
+//   Three local models are used: `vqgan_imagenet_f16_1024.   <- truncated here
+//
+// then reported the surviving fragment as unsupported — a false footnote on the
+// most faithful overview in the set. Requiring whitespace after the terminator
+// means `…_1024.ckpt` is not a boundary. Pinned by a test naming that fixture.
 function modelSentences(prose) {
   return String(prose || '')
     .split(/(?<=[.!?])\s+|\n+/)
     .filter((s) => /\bmodels?\b/i.test(s));
+}
+
+// A hyphen-joined token counts as a name only if every part is a digit run or a
+// letter run of 2+ — so `GPT-4`, `text-embedding-ada-002`, `deepseek-vl2` and
+// `Qwen-72B-Chat` survive while ordinary adjectives like `cloud-based` do not.
+// `GPT-4` is what makes this fiddly: a rule that rejected letters-then-digits
+// would drop the .TreeOfThought case, which is the one that matters most.
+function hyphenShapeOk(t) {
+  if (!t.includes('-')) return true;
+  const parts = t.split('-').filter(Boolean);
+  if (parts.length < 2) return true;
+  // At least one part must be digit-bearing; otherwise it reads as English.
+  return parts.some((p) => /\d/.test(p));
 }
 
 // Candidate names, deliberately inclusive: the confabulated set spans backticked
@@ -154,8 +177,11 @@ export function namesInModelSentences(prose) {
       // strip. Left in, `resnet50.` fails to match a tool output containing
       // `resnet50` and the faithful case footnotes itself — caught in the first
       // smoke test, and the reason for the second strip.
-      const t = raw.replace(/^[^A-Za-z0-9_.\-/]+|[^A-Za-z0-9_.\-/]+$/g, '').replace(/\.+$/, '');
+      const t = raw.replace(/^[^A-Za-z0-9_.\-/]+|[^A-Za-z0-9_.\-/]+$/g, '')
+        .replace(/\.+$/, '')
+        .replace(/['’]s$/, '');   // possessive: "OpenAI's models" names OpenAI
       if (t.length < 3 || _STOP.has(t)) continue;
+      if (!hyphenShapeOk(t)) continue;
       // `[a-z][A-Z]` earns its place: the credential fragment that motivated this
       // whole item (`uqDZ…SPdJ`) has no digit, no separator and a lowercase first
       // character, so the other three rules all miss it. Internal capitals catch

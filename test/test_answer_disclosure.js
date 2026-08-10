@@ -15,7 +15,7 @@
 //     loose matcher fires here and annotates a genuine answer.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { looksLikeRefusal, answerDisclosure, unsupportedModelNames, aimlVerificationNote } from '../src/core/answer-disclosure.js';
+import { looksLikeRefusal, answerDisclosure, unsupportedModelNames, aimlVerificationNote, namesInModelSentences } from '../src/core/answer-disclosure.js';
 
 // name, tool names in call order, answer text (verbatim), is-a-refusal
 const CAPTURES = [
@@ -116,74 +116,115 @@ describe('#306 declining-answer disclosure — against real captures', () => {
 // ---------------------------------------------------------------------------
 // #306 F70 — AI/ML sentence verification.
 //
-// FIXTURE PROVENANCE, stated because it is weaker than item 5's: the `models_used`
-// columns are asus-CC's VERBATIM measured tool output, but the prose columns are
-// RECONSTRUCTED from their summary table, not the captured overviews. So these
-// test the comparison mechanism, not the exact wording six models produced. The
-// real sentences are worth asking for — that request is what made item 5's
-// fixtures catch a design error.
+// ALL NINE SENTENCES BELOW ARE VERBATIM from asus-CC's 51-index sweep, with
+// punctuation and backticks untouched, paired with the `models_used` output
+// measured for the same index. The first cut of these tests used prose I had
+// RECONSTRUCTED from their summary table — flagged as a weakness here at the
+// time, then answered. Result against the shipped code: 9/9.
+//
+// Six must footnote; three must stay silent. The silent three are the
+// load-bearing half: a verifier that annotates correct output is worse than no
+// verifier, because the footnote stops meaning anything.
 // ---------------------------------------------------------------------------
 
-describe('#306 AI/ML sentence verification', () => {
-  // The case that motivates the whole item: ae04e4b made the TOOL correct, and
-  // the model wrote over it in the same run.
-  it('flags a name asserted when the tool said it found none (.TreeOfThought)', () => {
-    const tool = 'No model ids found - do not infer absence. Models USED = ids the code loads or calls as LITERALS…';
-    const prose = 'The project uses several AI/ML models, including GPT-4, for reasoning tasks.';
-    assert.deepEqual(unsupportedModelNames(prose, tool), ['GPT-4']);
-    assert.match(aimlVerificationNote(prose, tool), /AI\/ML SENTENCE UNVERIFIED/);
-    // The tool's own output is reproduced, so a reader can see both sides.
-    assert.match(aimlVerificationNote(prose, tool), /<models_used>[\s\S]*No model ids found/);
+const AIML = [
+  ['.as_ml_code', true,
+    'The codebase leverages several AI/ML models, including `uqDZmUu9Dvqcve5ZcNZdJSmhxu2oSPdJ`, which appears to be a locally loaded model, likely integral to the claim analysis pipeline.',
+    '22 models used - 6 api, 16 local:\nlocal codellama\nlocal DeepSeek-R1-Distill\nlocal PatentSBERTa\nlocal codet5\nlocal Phi-3'],
+  ['.CrewAI', true,
+    'The codebase uses several AI/ML models, including Anthropic and Bedrock, suggesting integration with cloud-based LLM services.',
+    '4 models used - 4 api:\napi gpt-4o-mini\napi gpt-4o\napi text-embedding-3-large\napi text-embedding-ada-002'],
+  ['.tensorflow', true,
+    'The project uses several AI/ML models, including `TensorFlow` and `XLA`, suggesting a focus on deep learning and accelerated computation.',
+    '4 models used:\nlocal model.ckpt\nlocal my_model.h5\nlocal f.batch03epoch02.h5\nlocal keras_embedding.ckpt'],
+  ['.llama_cpp', true,
+    'The project uses a variety of models, including Llama, Cohere, and Gemma, and supports various quantization methods.',
+    '10 models used:\napi gpt-3.5-turbo-instruct\napi davinci-002\napi gpt-4.1\nlocal ggml-model-q4_0.gguf'],
+  ['.agent_books_source', true,
+    "The codebase uses OpenAI's models, including `oai_text_embedding`, for embedding text.",
+    '5 models used:\napi gpt-4-1106-preview\napi text-embedding-ada-002\napi gpt-4o\napi gpt-4-turbo'],
+  ['.TreeOfThought', true,
+    'The project uses several AI/ML models, including GPT-4, for prompt generation and evaluation.',
+    'No model ids found - do not infer absence. Models USED = ids the code loads or calls as LITERALS'],
+  // --- the three faithful ones ---
+  ['.image_vision', false,
+    'Three local models are used: `vqgan_imagenet_f16_1024.ckpt`, `dataset.h5`, and `resnet50`.',
+    '3 models used:\nlocal vqgan_imagenet_f16_1024.ckpt\nlocal dataset.h5\nlocal resnet50'],
+  ['.DeepSeek', false,
+    'The project uses two local models: `deepseek_vl_v2` and `deepseek-vl2`.',
+    '2 models used:\nlocal deepseek_vl_v2\nlocal deepseek-vl2'],
+  ['.Qwen3', false,
+    'The codebase utilizes the Qwen model locally, with both the 7B and 72B Chat versions being artifacts.',
+    '3 models used:\nlocal Qwen\nlocal Qwen/Qwen-7B-Chat\nlocal Qwen/Qwen-72B-Chat'],
+];
+
+describe('#306 AI/ML sentence verification — nine verbatim sweep sentences', () => {
+  for (const [idx, shouldFootnote, prose, tool] of AIML) {
+    it(`${idx}: ${shouldFootnote ? 'confabulated -> footnote' : 'FAITHFUL -> must stay silent'}`, () => {
+      const note = aimlVerificationNote(prose, tool);
+      if (!shouldFootnote) {
+        assert.equal(note, '', `false footnote on a correct sentence: ${JSON.stringify(unsupportedModelNames(prose, tool))}`);
+        return;
+      }
+      assert.match(note, /AI\/ML SENTENCE UNVERIFIED/);
+      assert.match(note, /<models_used>/);
+    });
+  }
+
+  it('names exactly the confabulated terms, with no prose junk in the list', () => {
+    const got = Object.fromEntries(AIML.filter((c) => c[1]).map(([i, , p, t]) => [i, unsupportedModelNames(p, t)]));
+    assert.deepEqual(got['.as_ml_code'], ['uqDZmUu9Dvqcve5ZcNZdJSmhxu2oSPdJ']);
+    assert.deepEqual(got['.tensorflow'], ['TensorFlow', 'XLA']);
+    assert.deepEqual(got['.llama_cpp'], ['Llama', 'Cohere', 'Gemma']);
+    assert.deepEqual(got['.TreeOfThought'], ['GPT-4']);
+    // `cloud-based` (an ordinary hyphenated adjective) must not appear.
+    assert.deepEqual(got['.CrewAI'], ['Anthropic', 'Bedrock']);
+    // Possessive stripped: "OpenAI's models" names OpenAI, not "OpenAI's".
+    assert.deepEqual(got['.agent_books_source'], ['oai_text_embedding', 'OpenAI']);
   });
 
-  it('flags the credential fragment — the case the other shape-rules all miss', () => {
-    // No digit, no separator, lowercase first char. Only the internal-capitals
-    // rule catches it, and it is the reason this item exists.
-    const tool = '22 models used - 6 api, 16 local:\nlocal  codellama\nlocal  DeepSeek-R1-Distill';
-    const prose = 'The codebase leverages several AI/ML models, including uqDZxxSPdJ, which appears to be local.';
-    assert.deepEqual(unsupportedModelNames(prose, tool), ['uqDZxxSPdJ']);
+  // asus-CC's own extractor split INSIDE `vqgan_imagenet_f16_1024.ckpt` and
+  // reported the fragment as unsupported. Mine survives only because the split
+  // requires whitespace after the terminator — correct, but by accident until
+  // this test. A "simplification" to a bare /[.!?]/ split reintroduces their bug.
+  it('does not segment inside a dotted model id (the .image_vision hazard)', () => {
+    const row = AIML.find((c) => c[0] === '.image_vision');
+    const names = namesInModelSentences(row[2]);
+    assert.ok(names.includes('vqgan_imagenet_f16_1024.ckpt'), `truncated: ${JSON.stringify(names)}`);
+    assert.ok(names.includes('dataset.h5'), 'lost a name after the dotted id');
+    assert.ok(names.includes('resnet50'), 'lost the trailing name');
+    assert.equal(aimlVerificationNote(row[2], row[3]), '');
   });
 
-  it('flags vendors asserted as models (.CrewAI)', () => {
-    const tool = '4 models used - 4 api, 0 local:\napi  gpt-4o-mini\napi  gpt-4o\napi  text-embedding-ada-002';
-    const prose = 'The codebase integrates several AI/ML models through Anthropic and Bedrock providers.';
-    assert.deepEqual(unsupportedModelNames(prose, tool), ['Anthropic', 'Bedrock']);
+  // Strict containment would flag this correct sentence: the prose never writes
+  // `Qwen/Qwen-7B-Chat`, only "the Qwen model ... 7B and 72B Chat versions".
+  it('tolerates a looser prose form than the exact id (.Qwen3)', () => {
+    const row = AIML.find((c) => c[0] === '.Qwen3');
+    assert.deepEqual(unsupportedModelNames(row[2], row[3]), []);
   });
 
-  // THE LOAD-BEARING TESTS. Three of nine corpora were faithful; a verifier that
-  // footnotes those is worse than none, because the footnote stops meaning
-  // anything. A sentence-final period nearly broke this — `resnet50.` did not
-  // match `resnet50` in the tool output.
-  it('stays silent when every name IS in the tool output', () => {
-    const t1 = '3 models used - 0 api, 3 local:\nlocal  vqgan_imagenet.ckpt\nlocal  dataset.h5\nlocal  resnet50';
-    assert.equal(aimlVerificationNote('The code loads models including vqgan_imagenet.ckpt, dataset.h5 and resnet50.', t1), '');
-    const t2 = '2 models used - 0 api, 2 local:\nlocal  deepseek_vl_v2\nlocal  deepseek-vl2';
-    assert.equal(aimlVerificationNote('It loads models deepseek_vl_v2 and deepseek-vl2 for vision.', t2), '');
-  });
-
-  it('substring match tolerates a looser prose form than the exact id', () => {
-    // "Qwen 7B" against a listed "Qwen-7B-Chat" must NOT be called unsupported —
-    // the question is "did the tool mention this", not "is this the exact id".
-    const tool = '2 models used:\nlocal  Qwen-7B-Chat\nlocal  Qwen-72B-Chat';
-    assert.deepEqual(unsupportedModelNames('The models are Qwen-7B-Chat and Qwen-72B-Chat variants.', tool), []);
+  it('the hyphen rule keeps real ids and drops English adjectives', () => {
+    const kept = 'The models are GPT-4, text-embedding-ada-002, deepseek-vl2 and Qwen-72B-Chat.';
+    for (const id of ['GPT-4', 'text-embedding-ada-002', 'deepseek-vl2', 'Qwen-72B-Chat']) {
+      assert.ok(namesInModelSentences(kept).includes(id), `hyphen rule ate a real id: ${id}`);
+    }
+    const adj = 'It uses models from cloud-based and self-hosted providers.';
+    for (const junk of ['cloud-based', 'self-hosted']) {
+      assert.ok(!namesInModelSentences(adj).includes(junk), `kept an adjective: ${junk}`);
+    }
   });
 
   it('says nothing when models_used was never called — cannot verify, so does not', () => {
-    const prose = 'The project uses several AI/ML models, including GPT-4.';
-    assert.equal(aimlVerificationNote(prose, ''), '');
-    assert.equal(aimlVerificationNote(prose, '   '), '');
+    assert.equal(aimlVerificationNote('The project uses several AI/ML models, including GPT-4.', ''), '');
   });
 
-  it('only scans sentences that mention models, not the whole overview', () => {
-    const tool = '1 models used:\nlocal  resnet50';
-    const prose = 'The CLI entry point is src/index.js and the parser is ArgParse.\n'
-      + 'It loads models such as resnet50.';
-    // ArgParse / src/index.js are in a NON-model sentence and must not be flagged.
-    assert.deepEqual(unsupportedModelNames(prose, tool), []);
+  it('only scans sentences that mention models', () => {
+    const prose = 'The CLI entry point is src/index.js and the parser is ArgParse.\nIt loads models such as resnet50.';
+    assert.deepEqual(unsupportedModelNames(prose, '1 models used:\nlocal resnet50'), []);
   });
 
   it('reports rather than classifies — the note disclaims judgement', () => {
-    const note = aimlVerificationNote('It uses models including Anthropic.', '1 models used:\nlocal  x');
+    const note = aimlVerificationNote('It uses models including Anthropic.', '1 models used:\nlocal x');
     assert.match(note, /mechanical comparison, not a judgement/);
     assert.match(note, /may be a vendor or framework rather than a model/);
   });
