@@ -1621,6 +1621,65 @@ export async function doAnalyze(index, args) {
  *   4. Pick best 1-2 function matches
  *   5. Analyze each match against the original claim text (LLM call)
  */
+// #307 helpers for the claim-analyze retrieval path. Exported for test.
+
+/**
+ * How many positive terms actually match at least one file. A term that matches
+ * nothing cannot contribute to an intersection, so it must not count toward the
+ * quorum — see the comment at the minTerms computation for the measurement.
+ * Fails OPEN: if the index cannot answer, every term is treated as live, so a
+ * missing capability can only restore the old behaviour, never tighten it.
+ */
+// Default 6, overridable with --top-n. See the comment at the slice for why 6.
+export function claimAnalyzeTopN(args) {
+  const raw = args && (args.top_n ?? args.topN);
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 6;
+}
+
+export function livePositiveTerms(index, positiveTerms) {
+  const terms = positiveTerms || [];
+  if (!terms.length) return 0;
+  if (typeof index?.multisectTermFileCount !== 'function'
+    && typeof index?.searchLiteral !== 'function'
+    && typeof index?.regexSearch !== 'function') return terms.length;
+  let live = 0;
+  for (const t of terms) {
+    const raw = typeof t === 'string' ? t : (t.term ?? t.pattern ?? '');
+    if (!raw) { live++; continue; }
+    let hits = 0;
+    try {
+      if (typeof index.multisectTermFileCount === 'function') {
+        hits = index.multisectTermFileCount(t) || 0;
+      } else if (t && t.isRegex && typeof index.regexSearch === 'function') {
+        hits = (index.regexSearch(raw, { max: 1 }) || []).length;
+      } else if (typeof index.searchLiteral === 'function') {
+        hits = (index.searchLiteral(raw, { max: 1 }) || []).length;
+      } else {
+        hits = 1;    // no usable probe — treat as live
+      }
+    } catch { hits = 1; }   // fail open
+    if (hits > 0) live++;
+  }
+  return live || terms.length;   // never return 0: a 0 quorum matches everything
+}
+
+/**
+ * Union two multisect results, keeping A's ordering ahead of B's and tagging each
+ * function match with the search that found it. A appears first on ties because
+ * TIGHT is the narrower, higher-confidence read.
+ */
+export function mergeSearchResults(tight, broad) {
+  if (!tight) return broad;
+  if (!broad) return tight;
+  const key = (m) => `${m.filepath || m.file || ''}@${m.function || m.name || ''}`;
+  const seen = new Set();
+  const out = [];
+  for (const m of (tight.function_matches || [])) { seen.add(key(m)); out.push({ ...m, _via: 'tight' }); }
+  for (const m of (broad.function_matches || [])) { if (!seen.has(key(m))) { seen.add(key(m)); out.push({ ...m, _via: 'broad' }); } }
+  return { ...tight, function_matches: out, _broad_merged: true };
+}
+
 export async function doClaimAnalyze(index, args) {
   // --- Step 1: Resolve claim text ---
   const claimText = _resolveClaimText(args, args.claim_analyze);
@@ -1820,14 +1879,31 @@ export async function doClaimAnalyze(index, args) {
     return;
   }
 
-  // Min terms: user override or 80% threshold
+  // Min terms: user override, else 80% of the terms that can actually MATCH.
+  //
+  // #307: the quorum was computed over ALL positive terms, including ones that
+  // match zero files. Measured on Gemma's extraction for US 8,752,101 against
+  // .AndroidX_Media_ExoPlayer3: 9 terms, quorum floor(9 × 0.80) = 7, and FOUR of
+  // the nine (`content data`, `code rate`, `plurality`, `storage device`) hit no
+  // file at all. Five live terms against a quorum of seven — the search could not
+  // succeed before it started. Sweep on the same terms: 7→0, 5→0, 4→0, 3→2.
+  //
+  // A dead term cannot contribute to an intersection, so counting it in the
+  // quorum is arithmetic, not strictness. CE already printed "Some terms had zero
+  // hits" and then did nothing with it; now the number acts on it.
+  const liveTerms = livePositiveTerms(index, positiveTerms);
+  const deadCount = positiveTerms.length - liveTerms;
   let minTerms;
   const userMin = args.min_terms;
   if (userMin && userMin !== '0') {
     minTerms = parseInt(userMin, 10);
-    if (isNaN(minTerms)) minTerms = Math.max(Math.floor(positiveTerms.length * 0.80), 2);
+    if (isNaN(minTerms)) minTerms = Math.max(Math.floor(liveTerms * 0.80), 2);
   } else {
-    minTerms = Math.max(Math.floor(positiveTerms.length * 0.80), 2);
+    minTerms = Math.max(Math.floor(liveTerms * 0.80), 2);
+  }
+  if (deadCount) {
+    console.log(`  ${deadCount} of ${positiveTerms.length} term(s) match no file; `
+      + `quorum computed over the ${liveTerms} live term(s).`);
   }
 
   console.log(`[Step 2/4] Multisect search (min_terms=${minTerms}/${positiveTerms.length})...`);
@@ -1838,20 +1914,40 @@ export async function doClaimAnalyze(index, args) {
     excludePath: args.exclude_path || null,
   });
 
-  // TIGHT found nothing? Try BROAD
-  if ((!results || !(results.function_matches || []).length) && broadStr) {
-    console.log('  TIGHT search found no function matches. Trying BROAD...');
+  // BROAD: MERGED, not a fallback.
+  //
+  // #307: this used to run only when TIGHT returned ZERO function matches. On
+  // Andrew's Claude run for US 8,752,101, TIGHT found plenty — so BROAD never
+  // executed, and the target (`AdaptiveTrackSelection`) sat at BROAD function
+  // ranks 2-3, never a candidate at any threshold. An all-or-nothing fallback
+  // makes the two searches alternatives when they are complements: TIGHT is
+  // literal source language, BROAD is implementation-aware, and a claim element
+  // can be present under either vocabulary.
+  //
+  // Merged with provenance so a chart can say which search surfaced a cite, and
+  // TIGHT keeps precedence on ties — it is the narrower, higher-confidence read.
+  const tightFuncCount = (results && (results.function_matches || []).length) || 0;
+  if (broadStr) {
     const broadTerms = parseMultisectTerms(broadStr);
     if (broadTerms) {
       const broadPositive = broadTerms.filter(t => !t.negated);
-      const broadMin = Math.max(Math.floor(broadPositive.length * 0.60), 3);
-      results = index.multisectSearch(broadTerms, {
+      const broadLive = livePositiveTerms(index, broadPositive);
+      const broadMin = Math.max(Math.floor(broadLive * 0.60), 3);
+      const broadResults = index.multisectSearch(broadTerms, {
         minTerms: broadMin,
         includePath: args.include_path || null,
         excludePath: args.exclude_path || null,
       });
-      terms = broadTerms;
-      positiveTerms = broadPositive;
+      if (!tightFuncCount) {
+        // Nothing from TIGHT — BROAD becomes the result outright, as before.
+        console.log('  TIGHT search found no function matches. Using BROAD...');
+        if (broadResults) { results = broadResults; terms = broadTerms; positiveTerms = broadPositive; }
+      } else if (broadResults && (broadResults.function_matches || []).length) {
+        results = mergeSearchResults(results, broadResults);
+        const added = (results.function_matches || []).length - tightFuncCount;
+        console.log(`  BROAD search merged: +${added} function match(es) TIGHT did not reach`
+          + ` (${tightFuncCount} tight, min_terms=${broadMin}/${broadLive}).`);
+      }
     }
   }
 
@@ -1899,7 +1995,14 @@ export async function doClaimAnalyze(index, args) {
   }
 
   // Top 2 function matches
-  const topMatches = funcMatches.slice(0, 2);
+  // #307: was a hardcoded 2, and it was the binding constraint once scope is
+  // right. Measured on US 8,752,101 x .AndroidX_Media_ExoPlayer3, scoped: ranks
+  // 1-4 are AdaptiveTrackSelectionTest methods, 5 is evaluateQueueSize and 6 is
+  // AdaptiveTrackSelection::updateSelectedTrack -- the acceptance symbol. The
+  // first symbol OUTSIDE that class is rank 12, so 6 is a clean cut, not a taste
+  // call. At 2, a [10/13] vs [9/13] term-count difference -- inside the noise of
+  // the heuristic -- decided the whole chart.
+  const topMatches = funcMatches.slice(0, claimAnalyzeTopN(args));
   const nPos = positiveTerms.length;
 
   console.log(`\n  Found ${funcMatches.length} function match(es), analyzing top ${topMatches.length}:`);
@@ -2163,7 +2266,14 @@ export async function doMultisectAnalyze(index, args) {
   }
 
   // Top 2 matches
-  const topMatches = funcMatches.slice(0, 2);
+  // #307: was a hardcoded 2, and it was the binding constraint once scope is
+  // right. Measured on US 8,752,101 x .AndroidX_Media_ExoPlayer3, scoped: ranks
+  // 1-4 are AdaptiveTrackSelectionTest methods, 5 is evaluateQueueSize and 6 is
+  // AdaptiveTrackSelection::updateSelectedTrack -- the acceptance symbol. The
+  // first symbol OUTSIDE that class is rank 12, so 6 is a clean cut, not a taste
+  // call. At 2, a [10/13] vs [9/13] term-count difference -- inside the noise of
+  // the heuristic -- decided the whole chart.
+  const topMatches = funcMatches.slice(0, claimAnalyzeTopN(args));
 
   console.log(`\n  Found ${funcMatches.length} function match(es), analyzing top ${topMatches.length}:`);
   for (let i = 0; i < topMatches.length; i++) {
