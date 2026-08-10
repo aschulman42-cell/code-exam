@@ -291,3 +291,78 @@ describe('#306 cap footer reaches the highest-volume truncations', () => {
     assert.doesNotMatch(handleTool('list_files', { max: 10000 }), /not shown/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #306 fix-list item 3, recs 2-4 (F47, F48). Rec 1 (tail markers) shipped in
+// 2223dc7/f98af83; these are the three that were left. The through-line: a
+// "Top N" without its population is uninterpretable, and 16 of 24 tools expose
+// a limit param that a caller cannot know to raise without knowing it hit one.
+// ---------------------------------------------------------------------------
+
+describe('#306 ranked tools state their population', () => {
+  // Re-point rather than depend on declaration order — see the note above the
+  // 'feedback at the point of failure' block.
+  before(() => { setIndex(new CodeSearchIndex({ indexPath: IDX })); });
+
+  const RANKED = [
+    ['most_called', /^Top 1 of \d+ most called functions /],
+    ['hotspots', /^Top 1 of \d+ hotspots /],
+    ['vocabulary', /^Top 1 of \d+ domain vocabulary tokens/],
+  ];
+
+  for (const [tool, headRe] of RANKED) {
+    it(`${tool} names the population and the wrong inference when truncated`, () => {
+      const head = handleTool(tool, { n: 1 }).split('\n')[0];
+      // Guard against a vacuous pass: if the fixture cannot truncate, the
+      // assertions below would hold for the wrong reason.
+      const total = Number((head.match(/of (\d+)/) || [])[1]);
+      assert.ok(total > 1, `fixture too small to exercise ${tool} truncation (total=${total})`);
+      assert.match(head, headRe, 'states shown-of-population');
+      assert.match(head, /PARTIAL result; do not infer absence\./, 'carries the disclosure clause');
+    });
+
+    it(`${tool} says nothing extra when the whole population fits`, () => {
+      const head = handleTool(tool, { n: 10000 }).split('\n')[0];
+      assert.doesNotMatch(head, /PARTIAL/, 'no disclosure when nothing was withheld');
+      assert.doesNotMatch(head, / of \d+ /, 'no population clause when it equals the sample');
+    });
+  }
+
+  // Rec 2 is "same sentence as search", not "a sentence like search's". A
+  // paraphrase would drift; _PARTIAL_CLAUSE is one definition and this is what
+  // pins it to one.
+  it('uses the identical disclosure sentence that search uses', () => {
+    const CLAUSE = '- PARTIAL result; do not infer absence.';
+    assert.ok(handleTool('search', { query: 'def', max: 1 }).includes(CLAUSE));
+    for (const [tool] of RANKED) {
+      assert.ok(handleTool(tool, { n: 1 }).includes(CLAUSE), `${tool} drifted from search's wording`);
+    }
+  });
+
+  // Rec 4 (F47): the class-count question went to list_functions and never to
+  // list_classes, because stats is where a model looks for counts.
+  it('stats reports a class count beside files and functions', () => {
+    const out = handleTool('stats', {});
+    assert.match(out, /^Classes: \d+$/m);
+    assert.ok(out.indexOf('Classes:') > out.indexOf('Functions:'), 'sits with the other counts');
+  });
+});
+
+// Surfaced by rec 3 rather than sought: computing the population meant fetching
+// the full ranked list, which exposed that the filter had been running against
+// the ALREADY-CAPPED head. On .CE_080426 this reported "No hotspots found" for a
+// filter matching 17 real hotspots — a FALSE ABSENCE emitted by the very tool
+// whose absence-disclosure this item is about.
+describe('#306 hotspots filters the population, not the capped head', () => {
+  before(() => { setIndex(new CodeSearchIndex({ indexPath: IDX })); });
+
+  it('finds a match ranked below the cap', () => {
+    const rows = handleTool('hotspots', { n: 10000 }).split('\n').slice(1).filter(Boolean);
+    assert.ok(rows.length > 1, 'fixture needs >1 hotspot to place one below a cap of 1');
+    // Name from the LAST row — guaranteed outside a top-1 window.
+    const lastName = rows[rows.length - 1].trim().split(/\s+/)[1];
+    const out = handleTool('hotspots', { n: 1, filter: lastName });
+    assert.doesNotMatch(out, /No hotspots found/, 'the old path filtered within the top n and reported absence');
+    assert.ok(out.includes(lastName));
+  });
+});

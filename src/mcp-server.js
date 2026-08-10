@@ -414,9 +414,30 @@ function clipLine(s, n = 200) {
 // rows than exist, say so on the FIRST line, imperatively, so a model does not
 // read a capped slice as the complete set (the "absence of evidence" trap).
 // `atCap` = the probe itself hit its ceiling, so the total is a lower bound (N+).
+// F48 calls `search`'s disclosure the best in the tool set because it does three
+// things at once: states the cap, gives a floor for the population, and names the
+// SPECIFIC wrong inference. Defined once, here, so the ranked tools below carry
+// the identical sentence rather than a paraphrase of it.
+const _PARTIAL_CLAUSE = '- PARTIAL result; do not infer absence.';
+
 function _capNote(shown, total, atCap, label, hint) {
   if (shown >= total && !atCap) return `${total} ${label}:`;
-  return `Showing ${shown} of ${total}${atCap ? '+' : ''} ${label} - PARTIAL result; do not infer absence. ${hint}`;
+  return `Showing ${shown} of ${total}${atCap ? '+' : ''} ${label} ${_PARTIAL_CLAUSE} ${hint}`;
+}
+
+// #306 fix-list item 3, recs 2+3 (F47, F48). "Top 25" reads identically whether
+// 26 or 2,600 exist, so a ranked head is uninterpretable without its population.
+// F48 finding 4 is the crux: 16 of 24 tools expose a limit param, and a limit
+// param without a total is unusable — RAISING a cap requires knowing you hit one.
+//
+// The ranked tools need the "do not infer absence" clause MORE than `search`
+// does, not less: a literal match list lets a reader reason about what else might
+// match, but a ranked list's ordering is non-obvious, so the sample says nothing
+// about the population. F47's live failure was exactly this — a model answered
+// "which file has the MOST functions" from the first row of a truncated list.
+function _rankedHeader(shown, total, label, hint) {
+  if (shown >= total) return `Top ${shown} ${label}:`;
+  return `Top ${shown} of ${total} ${label} ${_PARTIAL_CLAUSE} ${hint}`;
 }
 
 // #306 fix-list item 3 (F47, F48). The header above is invisible to a model that
@@ -661,7 +682,10 @@ function handleTool(name, args) {
         return true;
       });
       if (filtered.length === 0) return 'No results';
-      const lines = [`Top ${Math.min(n, filtered.length)} most called functions:`];
+      // `filtered` IS the population here — the full call list, filtered, then
+      // sliced. The total was already in hand and was being discarded.
+      const lines = [_rankedHeader(Math.min(n, filtered.length), filtered.length,
+        'most called functions', 'Raise "n" to see more.')];
       for (const item of filtered.slice(0, n)) {
         const defNote = item.definitions.length > 0
           ? `  ${item.definitions.length} def` + (item.definitions.length > 1 ? 's' : '')
@@ -673,14 +697,23 @@ function handleTool(name, args) {
 
     case 'hotspots': {
       const n = args.n || 25;
-      const hotspots = index.getHotspots(n, false);
-      let results = hotspots;
+      // getHotspots scores the FULL function set and slices only at the end, so
+      // asking for everything costs exactly what asking for n cost — and hands
+      // back the population the header needs.
+      //
+      // It also corrects a second defect that asking for the total exposed: the
+      // filter used to run against the ALREADY-CAPPED top-n, so
+      // hotspots(filter:"x") could report nothing while many matching hotspots
+      // sat just below the cut. Filter first, cap second.
+      const scored = index.getHotspots(Number.MAX_SAFE_INTEGER, false);
+      let results = scored;
       if (args.filter) {
         const f = args.filter.toLowerCase();
-        results = hotspots.filter(h => h.name.toLowerCase().includes(f) || h.filepath.toLowerCase().includes(f));
+        results = scored.filter(h => h.name.toLowerCase().includes(f) || h.filepath.toLowerCase().includes(f));
       }
       if (results.length === 0) return 'No hotspots found';
-      const lines = [`Top ${Math.min(n, results.length)} hotspots (score = calls x sqrt(lines)):`];
+      const lines = [_rankedHeader(Math.min(n, results.length), results.length,
+        'hotspots (score = calls x sqrt(lines))', 'Raise "n" to see more.')];
       for (const h of results.slice(0, n)) {
         lines.push(`  ${h.score.toFixed(1)}\t${h.name}  ${h.filepath}  (${h.lines}L, ${h.calls} calls)`);
       }
@@ -705,10 +738,14 @@ function handleTool(name, args) {
       // model's context (and stalled prefill). Opt in with with_sites; use
       // `search <term>` to locate a term's sites.
       const withSites = !!args.with_sites;
-      const vocab = index.getTopVocabulary(n, args.filter || null, null);
+      // Same shape as hotspots: getTopVocabulary sorts the whole vocabulary and
+      // slices last, so the population is free.
+      const allVocab = index.getTopVocabulary(Number.MAX_SAFE_INTEGER, args.filter || null, null);
+      const vocab = allVocab ? allVocab.slice(0, n) : allVocab;
       if (!vocab || vocab.length === 0) return 'No vocabulary available (run --discover-vocabulary first or rebuild index)';
-      const lines = [`Top ${vocab.length} domain vocabulary tokens` +
-        (withSites ? ':' : ' (terms only; pass with_sites:true for example paths):')];
+      const lines = [_rankedHeader(vocab.length, allVocab.length,
+        'domain vocabulary tokens' + (withSites ? '' : ' (terms only; pass with_sites:true for example paths)'),
+        'Raise "n" to see more.')];
       const concepts = extractConcepts(index);
       if (concepts.length) lines.push(`Potentially important concepts (with examples): ${concepts.map(conceptLabel).join(', ')}`, '');
       for (const v of vocab) {
@@ -775,10 +812,19 @@ function handleTool(name, args) {
         ? Object.values(index.functionIndex).reduce((s, f) => s + Object.keys(f).length, 0) : 0;
       const fileCount = index.files.size;
       const totalLines = [...index.fileLines.values()].reduce((s, l) => s + l.length, 0);
+      // #306 fix-list item 3 rec 4 (F47). `stats` is where a model looks for
+      // counts; classes were not there, so F47's class-count question went to
+      // list_functions and never to list_classes. A tool that answers "how big is
+      // this" while silently omitting one of the two things being counted sends
+      // the reader to the wrong place. Guarded: an index whose parse method does
+      // not model classes should report 0, not fail the whole stats call.
+      let classCount = 0;
+      try { classCount = index.listClasses().length; } catch { /* no class support */ }
       return [
         `Index: ${serverArgs.indexPath}`,
         `Files: ${fileCount}`,
         `Functions: ${funcCount}`,
+        `Classes: ${classCount}`,
         `Total lines: ${totalLines}`,
         `Source: ${index.indexSource || 'unknown'}`,
         `Parse method: ${index.parseMethod || 'regex'}`,
