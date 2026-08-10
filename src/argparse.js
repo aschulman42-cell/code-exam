@@ -247,6 +247,7 @@ export function parseArgs() {
     temperature: 0.0,
     show_prompt: false,
     vocab_tight: false,
+    no_claim_filter: false,
     no_vocabulary: false,
 
     // Phase 8b: LLM analysis
@@ -538,6 +539,7 @@ export function parseArgs() {
     ['temperature',          'float',          ['--temperature']],
     ['show_prompt',          'flag',           ['--show-prompt']],
     ['vocab_tight',          'flag',           ['--vocab-tight']],
+    ['no_claim_filter',      'flag',           ['--no-claim-filter']],
     ['no_vocabulary',        'flag',           ['--no-vocabulary', '--no-vocab']],
 
     // Phase 8b: LLM analysis

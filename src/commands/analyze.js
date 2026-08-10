@@ -30,7 +30,7 @@ import {
   extractClaimTerms, sanitizeLlmTerms, sanitizeBroadTerms, dropStopListedTerms,
   CLAIM_EXTRACTION_PROMPT, CLAIM_EXTRACTION_PROMPT_LOCAL, parseTermResponse,
   buildExtractionPromptWithVocab, buildLocalExtractionPromptWithVocab,
-  extractClaimKeywords,
+  extractClaimKeywords, vocabConcordanceOptions,
 } from './claim.js';
 import { parseMultisectTerms, displayMultisectResults, printSelectivityReport } from './multisect.js';
 import { displayName, claudeSupportsTemperature } from '../utils.js';
@@ -1754,27 +1754,24 @@ export async function doClaimAnalyze(index, args) {
   const vocabTight = args.vocab_tight || false;
   const noVocabulary = args.no_vocabulary || false;
 
-  // Fetch vocabulary concordance from index (claim-filtered)
+  // Fetch vocabulary concordance from index.
+  //
+  // #301: SECOND of three sites that build this — claim.js:1330 is the
+  // --claim-search path, this is --claim-analyze, and claims-loop.js:443 is the
+  // third. The first cut of the bridge patched only claim.js, so
+  // `--concept-bridge` on --claim-analyze silently did nothing and the run still
+  // printed `claim-filtered`. Fourth instance today of one shape: the flag was
+  // accepted at one site and dropped at the one that mattered.
   let vocabConcordance = '';
   if (!noVocabulary) {
     const claimKeywords = extractClaimKeywords(claimText);
     try {
       const format = localModelPath ? 'compact' : 'rich';
-      vocabConcordance = index.formatVocabularyForPrompt(format, {
-        // topN selects which compounds get SPLIT; maxSubTokens caps what is
-        // EMITTED. They are independent, so a large topN costs build time only
-        // (3ms -> 20ms at 15000), never prompt budget. 15000 is not a tuned
-        // number: vocabulary.js caps the cached vocabulary at slice(0, 15000),
-        // so this means 'the whole vocabulary' -- do not pre-truncate, let the
-        // cross-corpus weight select. At topN 200 the pool was nearly all
-        // boilerplate and the weight had nothing better to promote.
-        topN: 15000,
-        maxSubTokens: localModelPath ? 80 : 150,
-        maxFuncNames: localModelPath ? 0 : 40,
-        claimKeywords,
-      });
+      const _vc = vocabConcordanceOptions({ args, localModelPath, claimKeywords });
+      vocabConcordance = index.formatVocabularyForPrompt(format, _vc.options);
       if (vocabConcordance) {
-        process.stderr.write(`  Vocabulary concordance: ${vocabConcordance.length} chars (${format} format, claim-filtered)\n`);
+        process.stderr.write(`  Vocabulary concordance: ${vocabConcordance.length} chars (${format} format, `
+          + `${_vc.unfiltered ? 'UNFILTERED - #301' : 'claim-filtered'})\n`);
       } else {
         process.stderr.write(`  Vocabulary: no claim-relevant terms found in index\n`);
       }

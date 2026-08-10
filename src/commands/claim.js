@@ -312,7 +312,8 @@ export async function extractClaimTerms(claimText, opts = {}) {
     process.stderr.write(`  +${'-'.repeat(w)}+\n`);
   }
 
-  // Build request payload
+  // Build request payload.
+  //
   const systemPrompt = opts.vocabConcordance
     ? buildExtractionPromptWithVocab(opts.vocabConcordance, opts.vocabTight || false)
     : _CLAIM_EXTRACTION_PROMPT;
@@ -571,6 +572,76 @@ export function extractClaimKeywords(claimText) {
  * @param {boolean} [vocabTight=false] - Also use vocabulary for TIGHT terms
  * @returns {string} Full system prompt with vocabulary section
  */
+// #301 concept bridge, pass 1. Supplies EVIDENCE rather than instruction.
+//
+// That distinction is the batch-2/3 lesson applied here: F34 established a
+// prompt edit is a per-model coefficient that does not compose, sixteen floor
+// nudges moved zero cells, and 4fab531 removed a whole prose section. What has
+// worked every time is CE doing the work and handing over the result — the
+// prefetch (F37, 10/10 cells) and the floor substitution. So this asks the model
+// to do one narrow thing with real data in hand: name THIS codebase's words for
+// the claim's concepts.
+//
+// #301 records the manual version working: reading `--vocabulary 150`, mapping
+// "code rate" -> bitrate/TrackSelection and "available reproduction time" ->
+// buffered, then a 7-term multisect that put HlsChunkSource.java at file-rank 2
+// and ExoTrackSelection.java at 9 — versus ABSENT on the shipped path.
+//
+// DELIBERATELY NOT A SCHEMA. Gemma-QAT is 47/47 on structured output and
+// Qwen3-14B and gpt-oss-20b are 0/47, so requiring a parseable structure here
+// would silently restrict CE to one model family. The output is a HINT into an
+// existing extractor, not something the pipeline depends on, so it is parsed
+// tolerantly and an unparseable answer costs one call and nothing else.
+// #301. ONE definition of how the vocabulary concordance is requested, because
+// there are THREE sites that request it — claim.js (--claim-search),
+// analyze.js (--claim-analyze) and claims-loop.js (the local loop) — and every
+// change to this shape so far has been applied to a subset of them:
+//
+//   aa2bdc9  missed claims-loop.js (optional chaining hid it from the audit grep)
+//   #301 v1  missed analyze.js, so --no-claim-filter silently did nothing on the
+//            command Andrew was actually running
+//
+// A shared helper cannot be applied to a subset. `grep vocabConcordanceOptions`
+// finds every consumer; claims-loop.js is deliberately NOT one of them (local
+// path, unmeasured — see the note there).
+//
+// WHY UNFILTERED IS AN OPTION AT ALL, measured 2026-08-10 on US 8,752,101 x
+// .AndroidX_Media_ExoPlayer3: the target function's parameters are
+// `bufferedDurationUs` / `availableDurationUs`, and inside it /Duration/ appears
+// on 9 lines while /remaining/ appears on none. The claim says "remaining time"
+// and "available reproduction time", so `duration` is not a claim keyword — and
+// the filter removed it, for 196 characters of budget:
+//
+//   FILTERED   8354 chars -> `duration` ABSENT
+//   UNFILTERED 8550 chars -> `duration` PRESENT
+//
+// Patent vocabulary and code vocabulary share almost no words. That is the whole
+// problem the concordance exists to solve, and filtering it BY CLAIM KEYWORDS
+// removes the bridge exactly where it is needed (#301: 15,000 tokens reduced to
+// 18, survivors that are lexical accidents — `main`, because re-MAIN-ing
+// contains it).
+//
+// Off by default: this is a retrieval-shape change and the measured comparison
+// (below, in the commit) is n=1 per arm.
+export function vocabConcordanceOptions({ args, localModelPath, claimKeywords }) {
+  const unfiltered = !!(args && args.no_claim_filter);
+  return {
+    unfiltered,
+    options: {
+      // topN selects which compounds get SPLIT; maxSubTokens caps what is
+      // EMITTED. Independent, so a large topN costs build time only (3ms -> 20ms
+      // at 15000), never prompt budget. 15000 is not a tuned number:
+      // vocabulary.js caps the cached vocabulary at slice(0, 15000), so this
+      // means 'the whole vocabulary'. At topN 200 the pool was nearly all
+      // boilerplate and the cross-corpus weight had nothing better to promote.
+      topN: 15000,
+      maxSubTokens: localModelPath ? 80 : 150,
+      maxFuncNames: localModelPath ? 0 : 40,
+      claimKeywords: unfiltered ? undefined : claimKeywords,
+    },
+  };
+}
+
 export function buildExtractionPromptWithVocab(vocabConcordance, vocabTight = false) {
   if (!vocabConcordance) return _CLAIM_EXTRACTION_PROMPT;
 
@@ -1218,23 +1289,41 @@ export async function doClaimSearch(index, args) {
       process.stderr.write(`  Claim keywords (${claimKeywords.size}): ${[...claimKeywords].slice(0, 15).join(', ')}${claimKeywords.size > 15 ? '...' : ''}\n`);
     }
 
+    // #301: the claim filter severs the bridge it exists to build.
+    //
+    // MEASURED on US 8,752,101 x .AndroidX_Media_ExoPlayer3, 2026-08-10. The
+    // target function's own parameters are `bufferedDurationUs` and
+    // `availableDurationUs`; inside it, /Duration/ appears on 9 lines and
+    // /remaining/ on none. The claim says "remaining time" and "available
+    // reproduction time", so `duration` is not a claim keyword — and the filter
+    // removes it:
+    //
+    //   FILTERED   (shipped)  8354 chars -> `duration` ABSENT
+    //   UNFILTERED            8550 chars -> `duration` PRESENT
+    //
+    // 196 characters of budget. Never shown the word, the model guessed
+    // `bufferDuration` (one missing "ed") and `available.*time`; both missed,
+    // the function scored 6/13 against a quorum of 7, and the implementation was
+    // excluded by ONE TERM. Lowering the quorum does not rescue it (rank 50 at
+    // every level) and neither does path scoping.
+    //
+    // Patent vocabulary and code vocabulary share almost no words. That is the
+    // entire problem the concordance exists to solve, and filtering it by claim
+    // keywords removes the bridge precisely where it is needed: #301 measures
+    // 15,000 tokens reduced to 18, survivors that are lexical accidents (`main`,
+    // because re-MAIN-ing contains it).
+    //
+    // Kept behind a flag rather than flipped, because CONVERSATION_5.md:78
+    // records that some misses (`adaptive`) are vocabulary-prominence, not the
+    // filter — so this cannot be assumed to fix everything, and the cheap arm
+    // has to be measured against the expensive one.
     try {
       const format = localModelPath ? 'compact' : 'rich';
-      vocabConcordance = index.formatVocabularyForPrompt(format, {
-        // topN selects which compounds get SPLIT; maxSubTokens caps what is
-        // EMITTED. They are independent, so a large topN costs build time only
-        // (3ms -> 20ms at 15000), never prompt budget. 15000 is not a tuned
-        // number: vocabulary.js caps the cached vocabulary at slice(0, 15000),
-        // so this means 'the whole vocabulary' -- do not pre-truncate, let the
-        // cross-corpus weight select. At topN 200 the pool was nearly all
-        // boilerplate and the weight had nothing better to promote.
-        topN: 15000,
-        maxSubTokens: localModelPath ? 80 : 150,
-        maxFuncNames: localModelPath ? 0 : 40,
-        claimKeywords,
-      });
+      const _vc = vocabConcordanceOptions({ args, localModelPath, claimKeywords });
+      vocabConcordance = index.formatVocabularyForPrompt(format, _vc.options);
       if (vocabConcordance) {
-        process.stderr.write(`  Vocabulary concordance: ${vocabConcordance.length} chars (${format} format, claim-filtered)\n`);
+        process.stderr.write(`  Vocabulary concordance: ${vocabConcordance.length} chars (${format} format, `
+          + `${_vc.unfiltered ? 'UNFILTERED - #301' : 'claim-filtered'})\n`);
       } else {
         process.stderr.write(`  Vocabulary: no claim-relevant terms found in index\n`);
       }
