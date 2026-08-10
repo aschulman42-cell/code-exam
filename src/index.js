@@ -161,6 +161,16 @@ const args = parseArgs();
 const _rawArgvForGui = process.argv.slice(2);
 const _wantsTour = !!args.tour;
 if (args.gui || _wantsTour) {
+  // Boolean flags the GUI both ACCEPTS (the validation block below) and FORWARDS
+  // to server.js (the argv munge further down). Declared here, in the scope both
+  // need, because acceptance without forwarding is a SILENT failure: the flag is
+  // taken, dropped, and the run looks like it worked. That is exactly what
+  // shipped in 1b57947 — `--flash-attention` went into the accept set and not the
+  // forward loop, so `--gui` took it and still allocated at 8192 (asus-CC, F67
+  // test B). One list makes forwarding the default; `--gui` and `--tour` are the
+  // explicit non-forwarded exceptions, added to the accept set only.
+  const _GUI_BOOL_FORWARD = ['--air-gapped', '--allow-connected', '--reproducible', '--provenance', '--flash-attention'];
+
   // #247: validate every --flag against the set this GUI launch path understands
   // and fail closed on an unknown one. Previously unrecognized flags were silently
   // dropped, so a typo like `--air-gaped` launched a CONNECTED GUI with the
@@ -168,7 +178,7 @@ if (args.gui || _wantsTour) {
   // in here: --gui legitimately accepts server-only flags (e.g. --context-size)
   // that the CLI parser rejects.
   {
-    const _GUI_BOOL = new Set(['--gui', '--tour', '--air-gapped', '--allow-connected', '--reproducible', '--provenance', '--flash-attention']);
+    const _GUI_BOOL = new Set(['--gui', '--tour', ..._GUI_BOOL_FORWARD]);
     const _GUI_VALUE = new Set(['--port', '--index-path', '--index', '--load-index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--claude-model', '--temperature', '--context-size', '--openai-key', '--openai-model', '--llm']);
     const _unknown = [];
     for (let i = 0; i < _rawArgvForGui.length; i++) {
@@ -253,7 +263,7 @@ if (args.gui || _wantsTour) {
   }
   // #223: forward the boolean flags to the GUI server.
   // #239: accept either spelling (`--air_gapped` == `--air-gapped`).
-  for (const _f of ['--air-gapped', '--allow-connected', '--reproducible', '--provenance']) {
+  for (const _f of _GUI_BOOL_FORWARD) {
     if (_rawArgvForGui.some(t => t.replace(/_/g, '-') === _f)) _serverArgv.push(_f);
   }
   process.argv = [process.argv[0], process.argv[1], ..._serverArgv];

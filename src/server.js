@@ -607,7 +607,12 @@ class ServerLLM {
       }
 
       this._localModel = { llama, model, context, LlamaChatSession, defineChatSessionFunction, contextSize, modelPath: mp };
-      console.log(`  [LLM] OK: Local model loaded (context: ${contextSize} tokens)`);
+      // Say whether flash attention was on, the way the two CLI paths already do.
+      // F67 test B could only be scored by inferring it from the achieved context,
+      // which cannot distinguish "flag dropped" from "flag applied and 16384 still
+      // did not fit" — two different bugs with the same symptom.
+      console.log(`  [LLM] OK: Local model loaded (context: ${contextSize} tokens`
+        + `${this.flashAttention ? ', flash attention' : ''})`);
       return { ok: true };
     } catch (e) {
       if (e.code === 'ERR_MODULE_NOT_FOUND' || /Cannot find/.test(e.message)) {
