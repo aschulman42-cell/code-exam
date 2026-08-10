@@ -26,6 +26,7 @@ import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { modelsUsedNegative } from './commands/metrics.js';
+import { maskCredentials } from './core/credential-mask.js';
 import { displayName, parseFuncSpec } from './utils.js';
 import { doCallTree } from './commands/graph.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
@@ -483,7 +484,7 @@ function _capFooter(shown, total, atCap, widenHint) {
     + (widenHint ? ` ${widenHint}` : '');
 }
 
-function handleTool(name, args) {
+function handleToolRaw(name, args) {
   switch (name) {
 
     case 'overview':
@@ -1159,9 +1160,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+// #306 F70: every tool result passes the credential mask on its way out. ONE
+// seam, deliberately — the leak reached prose through `search`, but `digest`,
+// `show_file` and `extract` all return raw source too, and masking per-handler
+// would be a list someone forgets to extend. Wrapping the export covers the MCP
+// server, the local overview loop and the Chat loop, which all call this.
+//
+// Values only: identifiers, file paths and line numbers survive, so
+// "there is a hardcoded credential at claude_pto.py:97" stays a finding.
+function handleTool(name, args) {
+  return maskCredentials(handleToolRaw(name, args));
+}
+
 // Test seam: handleTool/TOOLS are importable so the tool layer can be exercised
-// without spawning the stdio server.
-export { handleTool, TOOLS };
+// without spawning the stdio server. `_handleToolUnmasked` is exported for tests
+// that need to prove the mask is what changed the output, not the handler.
+export { handleTool, handleToolRaw as _handleToolUnmasked, TOOLS };
 
 async function main() {
   // Redirect console output to stderr so stdout stays clean for MCP protocol.
