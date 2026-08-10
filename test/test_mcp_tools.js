@@ -9,6 +9,7 @@ import path from 'path';
 import os from 'os';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 import { handleTool, TOOLS, setIndex } from '../src/mcp-server.js';
+import { modelsUsedNegative } from '../src/commands/metrics.js';
 
 const SRC = path.join(os.tmpdir(), 'ce_mcp_tools_src');
 const IDX = path.join(os.tmpdir(), 'ce_mcp_tools_idx');
@@ -364,5 +365,53 @@ describe('#306 hotspots filters the population, not the capped head', () => {
     const out = handleTool('hotspots', { n: 1, filter: lastName });
     assert.doesNotMatch(out, /No hotspots found/, 'the old path filtered within the top n and reported absence');
     assert.ok(out.includes(lastName));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #306 F50. The measured failure: gpt-oss-20b's overview of CE stated that CE
+// "does not load any local models," citing models_used. It was not a
+// hallucination — CE said "No models used found (1 unresolved <var> refs)" and
+// the model reported it. The loading site WAS found; only its id was
+// unresolvable, because the path is built at run time.
+// ---------------------------------------------------------------------------
+
+describe('#306 models_used does not report absence it did not measure', () => {
+  before(() => { setIndex(new CodeSearchIndex({ indexPath: IDX })); });
+
+  it('leads with the finding, not with absence, when refs were unresolved', () => {
+    const msg = modelsUsedNegative(1);
+    // The crux: the old message opened with "No models used found", which is the
+    // sentence the model repeated. Anything starting with a negation reinstates it.
+    assert.doesNotMatch(msg, /^No\b/, 'must not open by asserting absence');
+    assert.match(msg, /^1 model reference found/, 'opens with what WAS found');
+    assert.match(msg, /does NOT mean the code loads no models/, 'names the specific wrong inference');
+    assert.match(msg, /computed at run time/);
+  });
+
+  it('pluralises rather than emitting "1 references"', () => {
+    assert.match(modelsUsedNegative(2), /^2 model references found/);
+  });
+
+  it('a genuine zero is still a clean negative, and still says what was searched', () => {
+    const msg = modelsUsedNegative(0);
+    assert.match(msg, /do not infer absence/, 'same clause the ranked tools and search use');
+    assert.match(msg, /LITERALS/, 'states that only literal ids are detected');
+    assert.match(msg, /builds model paths at run time/, 'names the case it cannot see');
+    assert.doesNotMatch(msg, /model reference.? found/, 'must not claim a finding it does not have');
+  });
+
+  // Two surfaces read this: the MCP tool (a model) and the CLI (a human
+  // examiner). They drifted before because each owned its own string.
+  it('the MCP tool returns the shared builder verbatim', () => {
+    const real = new CodeSearchIndex({ indexPath: IDX });
+    try {
+      setIndex({ listModelsUsed: () => Object.assign([], { unresolved: 3 }) });
+      assert.equal(handleTool('models_used', {}), modelsUsedNegative(3));
+      setIndex({ listModelsUsed: () => Object.assign([], { unresolved: 0 }) });
+      assert.equal(handleTool('models_used', {}), modelsUsedNegative(0));
+    } finally {
+      setIndex(real); // never leave the fixture pointed at a stub
+    }
   });
 });

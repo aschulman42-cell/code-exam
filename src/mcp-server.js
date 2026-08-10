@@ -25,6 +25,7 @@ import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { parseMultisectTerms } from './commands/multisect.js';
+import { modelsUsedNegative } from './commands/metrics.js';
 import { displayName, parseFuncSpec } from './utils.js';
 import { doCallTree } from './commands/graph.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
@@ -1104,10 +1105,9 @@ function handleTool(name, args) {
 
     case 'models_used': {
       const models = index.listModelsUsed(args.filter);
-      if (!models.length) {
-        return `No models used found${models.unresolved ? ` (${models.unresolved} unresolved <var> refs)` : ''}. `
-          + `(Models USED = ids the code loads/calls; distinct from models DEFINED via class inheritance.)`;
-      }
+      // One definition, shared with the CLI — see modelsUsedNegative for why the
+      // old wording produced a false claim about CE that a model then repeated.
+      if (!models.length) return modelsUsedNegative(models.unresolved || 0);
       const api = models.filter(m => m.access === 'api').length;
       const local = models.filter(m => m.access === 'local').length;
       const mixed = models.filter(m => m.access === 'mixed').length;

@@ -500,13 +500,41 @@ export function doListEmbeddings(index, args) {
   noTestsTip(items, args);
 }
 
+// #306 F50. `models_used` answered "No models used found" about a codebase that
+// loads GGUFs throughout, and gpt-oss-20b relayed it as "CE does not load any
+// local models". That is a false claim about CE, produced by CE, believed by a
+// reader who was behaving correctly.
+//
+// The information was never missing. listModelsUsed FOUND the loading site and
+// could not resolve its id, because the path is built from a runtime variable —
+// so it recorded `<var>` and counted it (the #106 contract: "disclosed, never
+// silently dropped"). The count was true; the headline contradicted it.
+//
+// So when unresolved > 0, the absence belongs in the qualifier and the finding
+// belongs in the lead. Same correction as the ranked tools' "Top N of M" one
+// layer up: every fact was already present and their ORDER was the defect.
+//
+// Shared by the MCP tool and the CLI so the two surfaces cannot drift — a human
+// examiner reading this is at least as consequential as a model reading it.
+export function modelsUsedNegative(unresolved = 0) {
+  const scope = 'Models USED = ids the code loads or calls as LITERALS (LLM calls, artifacts, '
+    + 'embeddings, inference); distinct from models DEFINED via class inheritance (--models).';
+  const recover = 'To see what is actually loaded, search/regex_search the loader terms '
+    + '(e.g. "gguf", "from_pretrained", "model_id").';
+  if (unresolved > 0) {
+    const s = unresolved > 1 ? 's' : '';
+    return `${unresolved} model reference${s} found, but no id resolved — each is a runtime-determined `
+      + `<var> rather than a literal. This does NOT mean the code loads no models; it means the id is `
+      + `computed at run time. ${scope} ${recover}`;
+  }
+  return `No model ids found - do not infer absence. ${scope} Code that builds model paths at run time `
+    + `shows nothing here even when it loads models. ${recover}`;
+}
+
 export function doListModelsUsed(index, args) {
   const models = dropTests(index.listModelsUsed(args.filter), args);
   if (!models.length) {
-    console.log('No models used found (no resolved model id from LLM calls, artifacts, '
-      + 'embeddings, or inference). Models USED (named models the code loads/calls) is '
-      + 'distinct from models DEFINED (--models, class inheritance).'
-      + (models.unresolved ? ` (${models.unresolved} model refs were unresolved <var>.)` : ''));
+    console.log(modelsUsedNegative(models.unresolved || 0));
     return;
   }
   const api = models.filter(m => m.access === 'api').length;
