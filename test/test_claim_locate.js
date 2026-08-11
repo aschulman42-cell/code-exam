@@ -13,7 +13,9 @@ import {
   parseProposedSymbols,
 } from '../src/core/symbol-verify.js';
 import {
-  splitClaimElements, buildProposePrompt, buildIndexProfile, formatLocateReport,
+  splitClaimElements, subdivideElement, parseElementsFile, retrievePerElement,
+  SPLIT_DEFAULTS,
+  buildProposePrompt, buildIndexProfile, formatLocateReport,
   doClaimLocate, buildDiscoverPrompt, parseElementWords, searchSymbolsByWords,
   buildSelectPrompt, isTestSymbol,
   buildHuntPrompt, parseHuntActions, makeHuntTools, runSymbolHunt, HUNT_DEFAULTS,
@@ -937,5 +939,166 @@ describe('navigation honours --include-tests', () => {
 
   it('does not treat a name merely containing "test" as test code', () => {
     assert.equal(isTestSymbol({ name: 'latestBitrate', filepath: 'src/main/Foo.java' }), false);
+  });
+});
+
+// ===========================================================================
+// claim-chart-limitation-granularity — finer element splitting.
+//
+// WHY: CE charted '101 claim 1 at 6 rows; RMS's ChatGPT chart used 12, which is
+// the granularity practitioners work at. One verdict spanning four
+// separately-arguable limitations says nothing about which part is met.
+//
+// These assert PROPERTIES (no connective fragments, markers respected, nothing
+// dropped), never a row count for a specific real claim — encoding an expected
+// answer here is the contamination this file exists to avoid.
+// ===========================================================================
+describe('finer claim splitting', () => {
+  const CLAIM_101 = [
+    '1. A distribution system, including a transmission device and a reception device,',
+    'the transmission device being equipped with a content transmitting unit for transmitting content data, which is one content coded with any one code rate of a plurality of code rates, and',
+    'the distribution system, comprising a code rate determining unit for determining the code rate based on a remaining time before reproduction start time set as the time at which reproduction starts, wherein:',
+    'the content reproducing unit is configured to start reproduction at the set reproduction start time.',
+  ].join('\n');
+
+  it('subdivides past the coarse line split', () => {
+    const coarse = splitClaimElements(CLAIM_101, { fine: false });
+    const fine = splitClaimElements(CLAIM_101);
+    assert.ok(fine.length > coarse.length, `expected finer than ${coarse.length}, got ${fine.length}`);
+  });
+
+  it('never emits a connective as a row', () => {
+    for (const e of splitClaimElements(CLAIM_101)) {
+      assert.ok(e.length >= SPLIT_DEFAULTS.minElementChars,
+        `fragment under the floor became a row: ${JSON.stringify(e)}`);
+      assert.doesNotMatch(e, /^(?:and|wherein|whereby|which is)[\s:.]*$/i);
+    }
+  });
+
+  // The point of finer rows is finer VERDICTS, so no claim text may vanish.
+  it('loses no claim words — a dropped limitation is a defective chart', () => {
+    const words = (s) => String(s).toLowerCase().match(/[a-z]+/g) || [];
+    const after = new Set(splitClaimElements(CLAIM_101).flatMap(words));
+    for (const w of new Set(words(CLAIM_101))) {
+      if (w === 'and') continue;             // trailing connectives are trimmed
+      assert.ok(after.has(w), `word lost from the chart: ${w}`);
+    }
+  });
+
+  // Sub-element markers are the claim declaring its OWN structure.
+  it('groups wrapped continuation lines under their (a)/(i) marker', () => {
+    const wrapped = [
+      '1. A method comprising:',
+      '',
+      '  (a) initializing a cryptographic context by creating a security',
+      '      protocol object configured with a minimum protocol version;',
+      '',
+      '  (b) negotiating cipher parameters between a client device and',
+      '      a server device to agree a suite;',
+    ].join('\n');
+    const e = splitClaimElements(wrapped);
+    // The bug this fixes: line-based splitting cut these mid-sentence, so a row
+    // read "protocol object configured with a minimum protocol version".
+    assert.ok(e.some((x) => /\(a\)/.test(x) && /minimum protocol version/.test(x)),
+      '(a) must carry its continuation line');
+    assert.ok(e.some((x) => /\(b\)/.test(x) && /agree a suite/.test(x)),
+      '(b) must carry its continuation line');
+    assert.ok(!e.some((x) => /^protocol object/.test(x)), 'no mid-sentence fragment');
+  });
+
+  it('honours the cap by returning the COARSE split, never a truncated one', () => {
+    const many = Array.from({ length: 30 },
+      (_, i) => `the unit number ${i} is configured to do a thing, and also to do another thing`).join('\n');
+    const capped = splitClaimElements(many, { maxElements: 5 });
+    assert.deepEqual(capped, splitClaimElements(many, { fine: false }),
+      'overflow must not drop limitations');
+  });
+
+  it('leaves a short element alone rather than destroying it', () => {
+    assert.deepEqual(subdivideElement('doing a thing'), ['doing a thing']);
+    assert.deepEqual(subdivideElement(''), []);
+  });
+});
+
+describe('--elements file', () => {
+  it('takes lines verbatim and separates # comments', () => {
+    const { elements, comments } = parseElementsFile(
+      '# split by RMS 2026-08-11\n\nfirst limitation\nsecond limitation\n# trailing note\n');
+    assert.deepEqual(elements, ['first limitation', 'second limitation']);
+    assert.deepEqual(comments, ['split by RMS 2026-08-11', 'trailing note']);
+  });
+
+  it('returns nothing for a comments-only file, so the caller can refuse it', () => {
+    assert.deepEqual(parseElementsFile('# only a comment\n').elements, []);
+    assert.deepEqual(parseElementsFile('').elements, []);
+  });
+});
+
+// PER-ELEMENT RETRIEVAL. The measured failure it answers (claim-selftest.mjs):
+// a whole-claim search scores each function against the WHOLE claim's terms
+// under a quorum, so 4 of 5 ground-truth anchors were never candidates. Here
+// each element carries its own vocabulary and there is NO quorum.
+describe('retrievePerElement', () => {
+  const SYMS = [
+    { name: 'BufferMgr::storeChunk', filepath: 'a!src/BufferMgr.java' },
+    { name: 'RateChooser::chooseBitrate', filepath: 'a!src/RateChooser.java' },
+    { name: 'Unrelated::paint', filepath: 'a!src/Ui.java' },
+  ];
+
+  it('searches each element with ITS OWN words, not the pooled claim', async () => {
+    const draft = async () => '1: store, chunk\n2: bitrate';
+    const { perElement, error } = await retrievePerElement({
+      draft, elements: ['storing data', 'choosing a rate'], symbols: SYMS,
+    });
+    assert.equal(error, null);
+    assert.equal(perElement.length, 2);
+    assert.deepEqual(perElement[0].words, ['store', 'chunk']);
+    assert.equal(perElement[0].hits[0].sym.name, 'BufferMgr::storeChunk');
+    assert.equal(perElement[1].hits[0].sym.name, 'RateChooser::chooseBitrate');
+  });
+
+  // The property the whole design turns on: a symbol matching ONE element's
+  // vocabulary is retrievable even though it holds almost none of the claim.
+  it('retrieves on a single element word — there is no quorum to clear', async () => {
+    const { perElement } = await retrievePerElement({
+      draft: async () => '1: bitrate', elements: ['a rate'], symbols: SYMS,
+    });
+    assert.equal(perElement[0].hits.length, 1);
+  });
+
+  it('reports an element with no candidates instead of dropping it', async () => {
+    const { perElement } = await retrievePerElement({
+      draft: async () => '1: store\n2: nothingmatchesthisatall', elements: ['a', 'b'], symbols: SYMS,
+    });
+    assert.equal(perElement.length, 2);
+    assert.equal(perElement[1].hits.length, 0, 'the empty element must survive');
+  });
+
+  it('returns an error rather than throwing when the model fails', async () => {
+    const boom = await retrievePerElement({
+      draft: async () => { throw new Error('no key'); }, elements: ['a'], symbols: SYMS,
+    });
+    assert.match(boom.error, /vocabulary step failed/);
+    assert.deepEqual(boom.perElement, []);
+  });
+
+  it('keeps the raw reply for --verbose when nothing parses', async () => {
+    const junk = await retrievePerElement({
+      draft: async () => 'I cannot help with that', elements: ['a'], symbols: SYMS,
+    });
+    assert.match(junk.error, /no parseable code-word predictions/);
+    assert.equal(junk.raw, 'I cannot help with that');
+  });
+
+  // Step 1 must stay blind: the air-gap argument rests on the model being
+  // unable to answer from memory of a specific repository.
+  it('shows the model the claim only — no paths, no codebase identity', async () => {
+    let seen = null;
+    await retrievePerElement({
+      draft: async (sys, user) => { seen = `${sys}\n${user}`; return '1: store'; },
+      elements: ['storing data'], symbols: SYMS,
+    });
+    assert.doesNotMatch(seen, /BufferMgr|RateChooser|src\//);
+    assert.match(seen, /storing data/);
   });
 });

@@ -15,6 +15,7 @@ import {
   buildChartTable, parseTargets, collectCalleeBodies, mergeBestPerElement,
   coverageLine, formatChart, doClaimChart, CHART_DEFAULTS,
   parseChartVerdicts, fillChartRows, buildChartAnalysisPrompt, buildProvenanceHeader,
+  perElementTargets,
 } from '../src/commands/claim-chart.js';
 import { targetsChecksum } from '../src/commands/claim-locate.js';
 import { createRequire } from 'node:module';
@@ -529,5 +530,125 @@ describe('dropped-target reporting', () => {
     const r = parseTargets(`@${p}`);
     assert.equal(r.targets.length, 2, 'cross-form duplicate collapsed');
     assert.equal(r.duplicates, 1);
+  });
+});
+
+// ===========================================================================
+// claim-chart-limitation-granularity — supplied elements + per-element evidence
+// ===========================================================================
+
+// A supplied list is the escape hatch from heuristic splitting: no regex
+// reaches a practitioner's construction of a claim, and letting the MODEL pick
+// rows would make two engines' charts undiffable.
+describe('--elements supplies the row skeleton', () => {
+  it('uses the supplied list verbatim — N lines in, N rows out, in order', () => {
+    const supplied = ['first limitation here', 'second limitation here', 'third one'];
+    const { table, elements } = buildChartTable(CLAIM, { elements: supplied });
+    assert.deepEqual(elements, supplied);
+    const rows = table.split('\n').filter((l) => /^\| \d+ \|/.test(l));
+    assert.equal(rows.length, 3);
+    assert.match(rows[0], /^\| 1 \| first limitation here \|/);
+    assert.match(rows[2], /^\| 3 \| third one \|/);
+  });
+
+  it('falls back to CE splitting when no list is supplied or it is empty', () => {
+    const fromClaim = buildChartTable(CLAIM).elements;
+    assert.deepEqual(buildChartTable(CLAIM, {}).elements, fromClaim);
+    assert.deepEqual(buildChartTable(CLAIM, { elements: [] }).elements, fromClaim);
+  });
+
+  it('records the skeleton source, so two charts can be compared honestly', () => {
+    const hdr = buildProvenanceHeader({
+      claimText: CLAIM, indexPath: '.X', engineLabel: 'claude', targets: 1,
+      elementsSource: '`rms_elements.txt` — 12 supplied verbatim, not split by CE',
+      elementComments: ['split by RMS 2026-08-11'],
+    });
+    assert.match(hdr, /\*\*Elements:\*\* `rms_elements\.txt`/);
+    assert.match(hdr, /split by RMS 2026-08-11/);
+  });
+
+  it('omits the Elements row entirely when nothing was recorded', () => {
+    const hdr = buildProvenanceHeader({
+      claimText: CLAIM, indexPath: '.X', engineLabel: 'claude', targets: 1,
+    });
+    assert.ok(!hdr.includes('**Elements:**'));
+  });
+});
+
+// Every target is a model call, so 10 elements x 25 candidates cannot become a
+// target list. Round-robin is what keeps the budget from being eaten by the
+// first few elements.
+describe('perElementTargets', () => {
+  const sym = (n, f) => ({ sym: { name: n, filepath: `idx!src/${f}` } });
+  const PER = [
+    { element: 1, hits: [sym('A::one', 'A.java'), sym('A::two', 'A.java'), sym('A::three', 'A.java')] },
+    { element: 2, hits: [sym('B::one', 'B.java'), sym('B::two', 'B.java')] },
+    { element: 3, hits: [] },
+  ];
+
+  it('gives every element its best candidate before any element gets a second', () => {
+    const t = perElementTargets(PER, { targetsPerElement: 3, maxRetrievedTargets: 10 });
+    assert.deepEqual(t.slice(0, 2), ['A.java@A::one', 'B.java@B::one'],
+      'rank-1 of each element comes first');
+    assert.deepEqual(t.slice(2, 4), ['A.java@A::two', 'B.java@B::two']);
+  });
+
+  it('a starved element cannot be crowded out by a rich one', () => {
+    const t = perElementTargets(PER, { targetsPerElement: 3, maxRetrievedTargets: 2 });
+    assert.ok(t.includes('B.java@B::one'),
+      'element 2 must be represented even at a budget of 2');
+  });
+
+  it('honours the per-element cap and the total cap', () => {
+    assert.equal(perElementTargets(PER, { targetsPerElement: 1, maxRetrievedTargets: 10 }).length, 2);
+    assert.equal(perElementTargets(PER, { targetsPerElement: 3, maxRetrievedTargets: 3 }).length, 3);
+  });
+
+  it('emits basename@symbol specs and never duplicates one', () => {
+    const dup = [{ element: 1, hits: [sym('A::one', 'A.java')] }, { element: 2, hits: [sym('A::one', 'A.java')] }];
+    assert.deepEqual(perElementTargets(dup), ['A.java@A::one']);
+  });
+
+  it('survives an index that produced nothing at all', () => {
+    assert.deepEqual(perElementTargets([{ element: 1, hits: [] }]), []);
+    assert.deepEqual(perElementTargets([]), []);
+  });
+});
+
+// THE DISTINCTION THIS EXISTS FOR: "CE examined this element and found nothing"
+// and "CE had nothing to examine" render identically without it, and only the
+// first is defensible in front of a client.
+describe('per-element retrieval provenance on the artifact', () => {
+  const base = () => {
+    const { table, elements } = buildChartTable(CLAIM);
+    return { claimText: CLAIM, table, elements, targets: ['A.java@one'], engineLabel: 'claude', fills: [] };
+  };
+  const RET = [
+    { element: 1, words: ['store', 'chunk'], hits: [{}, {}] },
+    { element: 2, words: ['bitrate'], hits: [] },
+  ];
+
+  it('reports each element\'s predicted words and candidate count', () => {
+    const out = formatChart({ ...base(), retrieval: RET });
+    assert.match(out, /## Retrieval by element/);
+    assert.match(out, /\| 1 \| store, chunk \| 2 \|/);
+    assert.match(out, /\| 2 \| bitrate \| 0 \|/);
+  });
+
+  it('flags elements that were never examined', () => {
+    const out = formatChart({ ...base(), retrieval: RET });
+    assert.match(out, /1 of 2 element\(s\) produced no candidate: 2/);
+    assert.match(out, /not a finding about the code/);
+  });
+
+  it('says nothing when targets were supplied — that path is unchanged', () => {
+    const out = formatChart({ ...base() });
+    assert.ok(!out.includes('## Retrieval by element'));
+  });
+
+  it('adds no warning when every element was covered', () => {
+    const out = formatChart({ ...base(), retrieval: [{ element: 1, words: ['a'], hits: [{}] }] });
+    assert.match(out, /## Retrieval by element/);
+    assert.ok(!out.includes('produced no candidate'));
   });
 });

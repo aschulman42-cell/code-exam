@@ -29,7 +29,7 @@
 import fs from 'node:fs';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine } from '../core/llm-runner.js';
 import { buildClaimAnalyzePrompt, addLineNumbers } from './analyze.js';
-import { splitClaimElements, targetsChecksum, dedupeTargets } from './claim-locate.js';
+import { splitClaimElements, targetsChecksum, dedupeTargets, parseElementsFile, retrievePerElement } from './claim-locate.js';
 import { readCeVersion } from '../utils.js';
 import { buildSymbolTable, verifySymbol, isFound, navigateFrom } from '../core/symbol-verify.js';
 import { parseAnalysisLabels, lexicalGate } from './claims-loop.js';
@@ -47,12 +47,46 @@ export const CHART_DEFAULTS = {
   calleeDepth: 1,          // depth-1 bodies only; depth 2 blew the local context
   maxCalleeBytes: 6000,    // total appended callee source per target
   maxCallees: 6,
+  // Per-element retrieval bounds. Every target is a model call, and 10 elements
+  // x 25 candidates is 250 analyses — so the candidates are a pool to select
+  // from, not a target list.
+  targetsPerElement: 3,
+  maxRetrievedTargets: 12,
 };
+
+// Turn per-element candidates into a bounded target list, ROUND-ROBIN by rank:
+// every element contributes its best candidate before any element contributes a
+// second. Taking the first N in element order would spend the whole budget on
+// elements 1-3 and leave the rest with no evidence at all — and an element with
+// no evidence is precisely what this path exists to make visible.
+export function perElementTargets(perElement, opts = {}) {
+  const perEl = opts.targetsPerElement ?? CHART_DEFAULTS.targetsPerElement;
+  const total = opts.maxRetrievedTargets ?? CHART_DEFAULTS.maxRetrievedTargets;
+  const spec = (sym) => `${String(sym.filepath || '').split('!').pop().split('/').pop()}@${sym.name}`;
+  const out = [];
+  const seen = new Set();
+  for (let rank = 0; rank < perEl && out.length < total; rank++) {
+    for (const p of perElement) {
+      if (out.length >= total) break;
+      const h = (p.hits || [])[rank];
+      if (!h || !h.sym) continue;
+      const s = spec(h.sym);
+      if (seen.has(s)) continue;
+      seen.add(s);
+      out.push(s);
+    }
+  }
+  return out;
+}
 
 // Rows come from the CLAIM, not from the model — one row per element, in claim
 // order, so every engine's chart lines up row-for-row.
-export function buildChartTable(claimText) {
-  const elements = splitClaimElements(claimText);
+export function buildChartTable(claimText, opts = {}) {
+  // A supplied list (--elements @file) wins over the heuristic split: no regex
+  // reaches a practitioner's construction of a claim.
+  const elements = (opts.elements && opts.elements.length)
+    ? opts.elements
+    : splitClaimElements(claimText);
   const lines = ['| # | Claim element | CE finding | Cited code |', '|---|---|---|---|'];
   elements.forEach((e, i) => {
     lines.push(`| ${i + 1} | ${String(e).replace(/\|/g, '\\|')} |  |  |`);
@@ -301,12 +335,17 @@ export function buildProvenanceHeader({
   claimText, claimSource, indexPath, indexFiles, indexSymbols, engineLabel,
   argv, targets, targetSource, targetProvenance, targetIntegrity, ceVersion, generatedAt,
   targetDuplicates, targetContainers, targetUnresolved, targetAmbiguous,
-  targetsSupplied, targetsPartial,
+  targetsSupplied, targetsPartial, elementsSource, elementComments,
 }) {
   const firstLine = String(claimText || '').split('\n').map((s) => s.trim()).find(Boolean) || '';
   const rows = [];
   rows.push(`- **Claim:** ${firstLine.slice(0, 120)}${firstLine.length > 120 ? '…' : ''}`);
   rows.push(`- **Claim source:** ${claimSource || 'inline text (not from a file)'}`);
+  // Where the ROW SKELETON came from. Two engines' charts are only juxtaposable
+  // if they charted the same elements, so the skeleton's origin belongs on the
+  // artifact rather than in the operator's memory.
+  if (elementsSource) rows.push(`- **Elements:** ${elementsSource}`);
+  for (const c of (elementComments || [])) rows.push(`  - ${c}`);
   rows.push(`- **Index:** \`${indexPath}\`${indexFiles != null ? ` — ${indexFiles} files` : ''}${indexSymbols != null ? `, ${indexSymbols} symbols` : ''}`);
   rows.push(`- **Engine:** ${engineLabel}`);
   const integrity = targetIntegrity === 'unmodified'
@@ -378,7 +417,7 @@ export function buildProvenanceHeader({
 
 export function formatChart({
   claimText, table, fills, targets, engineLabel, elements, scopeNote, provenance,
-  dropped,
+  dropped, retrieval,
 }) {
   const filled = fillChartRows(table, fills);
   const out = [];
@@ -403,6 +442,30 @@ export function formatChart({
   out.push('');
   for (const t of targets) out.push(`- \`${t}\``);
   out.push('');
+  // PER-ELEMENT RETRIEVAL PROVENANCE. Without it an ABSENT row is ambiguous:
+  // "CE examined this element and found nothing" and "CE had nothing to examine"
+  // render identically, and only the first is defensible in front of a client.
+  if (retrieval && retrieval.length) {
+    const blind = retrieval.filter((p) => !(p.hits || []).length);
+    out.push('## Retrieval by element');
+    out.push('');
+    out.push('Each element was searched with its OWN predicted vocabulary, ranked by term'
+      + ' rarity, with no quorum. An element with 0 candidates was never examined — that'
+      + ' row reports what CE could not look at, not a finding about the code.');
+    out.push('');
+    out.push('| element | predicted words | candidates |');
+    out.push('|---|---|---|');
+    for (const p of retrieval) {
+      out.push(`| ${p.element} | ${(p.words || []).join(', ').replace(/\|/g, '\\|')} `
+        + `| ${(p.hits || []).length} |`);
+    }
+    out.push('');
+    if (blind.length) {
+      out.push(`⚠ ${blind.length} of ${retrieval.length} element(s) produced no candidate: `
+        + `${blind.map((p) => p.element).join(', ')}. Those rows were not examined.`);
+      out.push('');
+    }
+  }
   // Emitted ONLY when something dropped, so a clean run stays clean. A target
   // the operator supplied and CE never judged is not a detail: the operator
   // chose it, and every per-element denominator above excludes it.
@@ -440,16 +503,22 @@ export async function doClaimChart(index, args, opts = {}) {
   }
   claimText = String(claimText).trim();
 
-  if (!args.targets) {
-    console.error('--claim-chart needs --targets "file@fn;file@fn" or --targets @targets.txt');
-    process.exitCode = 1; return;
+  // --elements @file.txt supplies the row skeleton verbatim. Read before the
+  // model exists so a bad path fails immediately rather than after a paid call.
+  let suppliedElements = null; let elementComments = []; let elementsSource = null;
+  if (args.elements) {
+    const espec = String(args.elements);
+    const epath = espec.startsWith('@') ? espec.slice(1) : espec;
+    let eraw;
+    try { eraw = fs.readFileSync(epath, 'utf8'); }
+    catch (e) { console.error(`Cannot read elements file: ${e.message}`); process.exitCode = 1; return; }
+    ({ elements: suppliedElements, comments: elementComments } = parseElementsFile(eraw));
+    if (!suppliedElements.length) {
+      console.error(`--elements: ${epath} has no element lines (only comments or blanks).`);
+      process.exitCode = 1; return;
+    }
+    elementsSource = `\`${epath}\` — ${suppliedElements.length} supplied verbatim, not split by CE`;
   }
-  let targets, targetProvenance, targetSource, targetIntegrity, targetDuplicates, targetContainers;
-  try { ({ targets, provenance: targetProvenance, source: targetSource, integrity: targetIntegrity,
-    duplicates: targetDuplicates, containers: targetContainers } = parseTargets(args.targets)); }
-  catch (e) { console.error(e.message); process.exitCode = 1; return; }
-  if (!targets.length) { console.error('No targets parsed.'); process.exitCode = 1; return; }
-  if (args.targets_note) targetProvenance = [...targetProvenance, String(args.targets_note)];
 
   const model = resolveModel(args);
   if (!model) { console.error('--claim-chart needs a model: --llm <provider> or --model <gguf>.'); process.exitCode = 1; return; }
@@ -459,12 +528,60 @@ export async function doClaimChart(index, args, opts = {}) {
   catch (e) { console.error(`--claim-chart: ${e.message}`); process.exitCode = 1; return; }
 
   const symbols = buildSymbolTable(index);
-  const { table, elements } = buildChartTable(claimText);
+  const { table, elements } = buildChartTable(claimText, { elements: suppliedElements });
+  if (!elementsSource) elementsSource = `${elements.length} from CE's split of the claim text`;
   // Same descriptor the targets file records, so the chart's `**Engine:**` line
   // and the target provenance `Engine:` line cannot disagree about what ran —
   // and so the cloud-vs-local distinction the air-gap argument turns on is
   // stated on the artifact rather than around it.
   const engineLabel = describeEngine(model);
+
+  // TARGETS. Explicit --targets keeps the previous behaviour exactly. Without
+  // them the chart retrieves its own evidence PER ELEMENT, reusing
+  // --claim-locate's discovery rather than adding a fourth implementation of
+  // "find code for this text". Per-element retrieval has no quorum, so an
+  // element whose implementer holds few of the claim's whole-claim terms is
+  // still reachable — which whole-claim search structurally cannot do.
+  let targets, targetProvenance = [], targetSource = null, targetIntegrity = null;
+  let targetDuplicates = null, targetContainers = null;
+  let retrieval = null;
+  if (args.targets) {
+    try { ({ targets, provenance: targetProvenance, source: targetSource, integrity: targetIntegrity,
+      duplicates: targetDuplicates, containers: targetContainers } = parseTargets(args.targets)); }
+    catch (e) { console.error(e.message); process.exitCode = 1; return; }
+    if (!targets.length) { console.error('No targets parsed.'); process.exitCode = 1; return; }
+  } else {
+    if (!claimsCostGate(model, [{ inChars: claimText.length + 2000, outTokens: 600 }],
+      'claim-chart per-element retrieval (1 call)', args)) return;
+    process.stderr.write('[claim-chart] no --targets: retrieving per element'
+      + ' (the model is shown the CLAIM ONLY — no paths, no codebase identity)...\n');
+    const disc = await retrievePerElement({
+      draft, elements, symbols,
+      opts: {
+        includeTests: !!args.include_tests,
+        onElement: ({ element, words, hits }) => process.stderr.write(
+          `  element ${element}: words [${words.join(', ')}] -> ${hits.length} candidate(s)\n`),
+      },
+    });
+    if (disc.error) { console.error(`--claim-chart: ${disc.error}`); process.exitCode = 1; return; }
+    retrieval = disc.perElement;
+    targets = perElementTargets(retrieval, args);
+    if (!targets.length) {
+      console.error('Per-element retrieval found no candidate symbols in this index.'
+        + ' Supply --targets to chart explicit ones.');
+      process.exitCode = 1; return;
+    }
+    targetSource = 'per-element retrieval (no --targets supplied)';
+    const covered = retrieval.filter((p) => (p.hits || []).length).length;
+    targetProvenance = [
+      `Retrieval: one model call predicted code vocabulary per element from the claim alone;`
+      + ` CE then searched its own symbol table per element (rarity-ranked, no quorum).`,
+      `Coverage: ${covered} of ${elements.length} element(s) produced at least one candidate.`,
+      `Selection: round-robin by rank, at most ${args.targetsPerElement ?? CHART_DEFAULTS.targetsPerElement}`
+      + ` per element, ${targets.length} target(s) total.`,
+    ];
+  }
+  if (args.targets_note) targetProvenance = [...targetProvenance, String(args.targets_note)];
 
   process.stderr.write(`[claim-chart] ${elements.length} element(s), ${targets.length} target(s), engine ${engineLabel}\n`);
 
@@ -565,11 +682,12 @@ export async function doClaimChart(index, args, opts = {}) {
     targetsSupplied: targets.length, targetsPartial: partial,
     ceVersion: readCeVersion(),
     generatedAt: new Date().toISOString(),
+    elementsSource, elementComments,
   });
   console.log(formatChart({
     claimText, table, fills, elements, engineLabel, scopeNote, provenance,
     targets: perTarget.map((p) => p.target),
-    dropped,
+    dropped, retrieval,
   }));
   const cost = actualCostLine(model);
   if (cost) process.stderr.write(cost + '\n');

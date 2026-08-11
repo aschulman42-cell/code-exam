@@ -41,19 +41,148 @@ export const LOCATE_DEFAULTS = {
   candidatesPerElement: 25,  // real symbols shown per element in the select step
 };
 
-// Split a claim into elements the way the charting code does: preamble to the
-// first ':', then semicolon-separated limitations.
-export function splitClaimElements(claimText) {
+export const SPLIT_DEFAULTS = {
+  // A fragment shorter than this is a connective ("and", "wherein:"), not a
+  // limitation, so it merges back into its neighbour instead of becoming a row.
+  //
+  // 35 measured, not guessed. Sweeping the floor over the two real claims on
+  // disk ('101 claim 1, samples/tls_demo/sample_patent_claim.txt):
+  //
+  //   floor    25    30    35    40    50
+  //   '101     12    10    10    10    10
+  //   TLS      12    11    11    11    11
+  //
+  // At 25 the split strands connectives — `which is a time available` (25) and
+  // `wherein verifying comprises:` (28) become rows. 30 through 50 are one
+  // plateau, so the value is chosen from the INTERIOR of a stable region rather
+  // than its edge: at exactly 30, `for determining the code rate.` (30 chars,
+  // a bare purpose clause with no conditions) squeaks in as its own row, which
+  // is a split no practitioner would make. The real '101 counterpart carries
+  // 255 chars of conditions and splits at any floor in the range.
+  minElementChars: 35,
+  // Ceiling on rows. On overflow the COARSE split is returned rather than a
+  // truncated fine one: dropping limitations from a legal deliverable is worse
+  // than charting them coarsely.
+  maxElements: 40,
+};
+
+// Sub-element markers — "(a)", "(b)", "(i)", "(ii)". A claim using them is
+// declaring its own structure, so they outrank every heuristic below.
+const SUBELEMENT_RE = /^\s*\(\s*(?:[a-z]|[ivx]+|\d+)\s*\)\s*/i;
+
+// Stage-B boundaries: constructions that introduce a separately-arguable
+// limitation. Each splits BEFORE the match, so the connective travels with the
+// fragment it introduces. Order matters — the regex alternation is
+// first-match-wins, not longest-match — so the more specific "and also" and
+// "which is" precede the bare ", and".
+const BOUNDARY_RE = new RegExp([
+  String.raw`\bwherein\b`,
+  String.raw`\bwhereby\b`,
+  String.raw`,?\s+and\s+also\s+`,
+  String.raw`,\s*which\s+is\b`,
+  String.raw`,\s*and\s+(?=\w)`,
+  String.raw`\bfor\s+\w+ing\b`,
+].join('|'), 'gi');
+
+// Cut one coarse element at every boundary, then merge back any fragment under
+// the floor. Returns [text] unchanged when nothing survives the floor, so a
+// short element is never destroyed by a boundary inside it.
+export function subdivideElement(text, opts = {}) {
+  const floor = opts.minElementChars ?? SPLIT_DEFAULTS.minElementChars;
+  const t = String(text || '').trim();
+  if (!t) return [];
+  const cuts = [];
+  BOUNDARY_RE.lastIndex = 0;
+  let m;
+  while ((m = BOUNDARY_RE.exec(t)) !== null) {
+    if (m.index > 0) cuts.push(m.index);
+    if (BOUNDARY_RE.lastIndex === m.index) BOUNDARY_RE.lastIndex++;   // zero-width guard
+  }
+  if (!cuts.length) return [t];
+  const parts = [];
+  let prev = 0;
+  for (const c of [...cuts, t.length]) {
+    const seg = t.slice(prev, c).trim().replace(/^[,;\s]+/, '').trim();
+    if (seg) parts.push(seg);
+    prev = c;
+  }
+  // Merge sub-floor fragments into a neighbour rather than emitting them.
+  const merged = [];
+  for (const p of parts) {
+    if (merged.length && (p.length < floor || merged[merged.length - 1].length < floor)) {
+      merged[merged.length - 1] = `${merged[merged.length - 1]} ${p}`;
+    } else merged.push(p);
+  }
+  return merged.length ? merged : [t];
+}
+
+// Split a claim into elements.
+//
+// STAGE A picks the coarse structure the claim itself declares:
+//   1. lettered/roman sub-elements "(a)"/"(i)" when present — these also
+//      re-join wrapped continuation lines, which the line path could not: the
+//      TLS demo claim is typeset with hanging indents, and splitting it by
+//      physical line cut limitations mid-sentence.
+//   2. otherwise LINE structure — patent claims are conventionally typeset one
+//      limitation per line. The '101 claim is 6 lines, 1 semicolon, and its
+//      first ':' is a trailing "wherein:", so colon-then-semicolon yielded 2
+//      elements for a 6-element claim.
+//   3. otherwise preamble-colon then semicolons.
+//
+// STAGE B subdivides each coarse element on claim constructions (`wherein`,
+// `, and`, `which is`, `for <gerund>-ing`), floored and capped. Practitioners
+// chart '101 claim 1 at ~12 limitations where stage A alone yields 6; no regex
+// reaches practitioner judgement, which is what `--elements @file` is for.
+export function splitClaimElements(claimText, opts = {}) {
+  const fine = opts.fine !== false;
+  const cap = opts.maxElements ?? SPLIT_DEFAULTS.maxElements;
   const t = String(claimText || '').trim().replace(/^\s*\d+\s*\.\s*/, '');
-  // Patent claims are conventionally typeset one limitation per line, and the
-  // '101 claim is: 6 lines, 1 semicolon, and its first ':' is the "wherein:"
-  // near the END — so the original colon-then-semicolon split produced 2
-  // elements for a 6-element claim. Prefer LINE structure when present.
-  const lines = t.split(/\r?\n/).map((l) => l.trim().replace(/[;,]?\s*(?:and)?\s*$/, '')).filter((l) => l.length > 15);
-  if (lines.length >= 2) return lines;
-  const ci = t.indexOf(':');
-  const body = ci >= 0 ? t.slice(ci + 1) : t;
-  return body.split(';').map((e) => e.trim().replace(/[.\s]+$/, '')).filter(Boolean);
+  const rawLines = t.split(/\r?\n/);
+
+  let coarse;
+  if (rawLines.some((l) => SUBELEMENT_RE.test(l))) {
+    // Marker-structured: a new element starts at each marker; everything else
+    // is a continuation of the current one.
+    const groups = [];
+    for (const raw of rawLines) {
+      const l = raw.trim();
+      if (!l) continue;
+      if (SUBELEMENT_RE.test(l) || !groups.length) groups.push(l);
+      else groups[groups.length - 1] += ` ${l}`;
+    }
+    coarse = groups.map((g) => g.replace(/[;,]?\s*(?:and)?\s*$/, '').trim()).filter((g) => g.length > 15);
+  } else {
+    const lines = rawLines.map((l) => l.trim().replace(/[;,]?\s*(?:and)?\s*$/, '')).filter((l) => l.length > 15);
+    if (lines.length >= 2) coarse = lines;
+    else {
+      const ci = t.indexOf(':');
+      const body = ci >= 0 ? t.slice(ci + 1) : t;
+      coarse = body.split(';').map((e) => e.trim().replace(/[.\s]+$/, '')).filter(Boolean);
+    }
+  }
+  if (!fine) return coarse;
+  const finer = coarse.flatMap((e) => subdivideElement(e, opts));
+  // Overflow returns the coarse split whole — see SPLIT_DEFAULTS.maxElements.
+  return finer.length > cap ? coarse : finer;
+}
+
+// `--elements @file.txt`: the element list as a reusable INPUT. Heuristic
+// splitting cannot match a practitioner's construction of a claim, and the
+// chart must not let a MODEL choose rows — engine comparability requires all
+// engines produce the identical skeleton. A file gives both: practitioner
+// granularity, and a skeleton fixed across engines because it came from disk.
+// One limitation per line; '#' lines are comments and are returned separately
+// so the provenance header can carry them.
+export function parseElementsFile(text) {
+  const elements = [];
+  const comments = [];
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const l = raw.trim();
+    if (!l) continue;
+    if (l.startsWith('#')) { comments.push(l.replace(/^#\s?/, '')); continue; }
+    elements.push(l);
+  }
+  return { elements, comments };
 }
 
 // A light profile of the codebase — enough for the model to orient (what kind
@@ -146,6 +275,45 @@ export function parseElementWords(text) {
     if (words.length) out.push({ element: Number(m[1]), words: [...new Set(words)] });
   }
   return out;
+}
+
+// PER-ELEMENT RETRIEVAL — steps 1-2 of --claim-locate's discovery path, lifted
+// out so --claim-chart uses the SAME retrieval instead of a fourth
+// implementation of "find code for this text". The three that already exist
+// have each diverged once.
+//
+// Why this shape matters, measured by scripts/claim-selftest.mjs: a whole-claim
+// search scores a function against the WHOLE claim's terms and needs a quorum,
+// so four of five ground-truth anchors were never candidates (2, 3, 5 and 5 of
+// 11 terms against a quorum of 6). A 10-line function cannot hold six terms of
+// a claim describing a system. Here each element carries its own predicted
+// vocabulary, `searchSymbolsByWords` ranks by rarity, and there is NO QUORUM —
+// it takes the top N per element — so nothing is excluded before ranking.
+//
+// Step 1 shows the model the CLAIM ONLY: no codebase name, no paths, no
+// profile. Nothing it returns can be answered from memory of a repository,
+// which is the property the whole air-gapped argument rests on.
+// Step 2 involves no model at all — CE greps its own symbol table.
+export async function retrievePerElement({ draft, elements, symbols, opts = {} }) {
+  const sys = buildDiscoverPrompt();
+  const user = `CLAIM ELEMENTS:\n` + elements.map((e, i) => `${i + 1}. ${e}`).join('\n');
+  let raw;
+  try { raw = await draft(sys, user, 600); }
+  catch (e) { return { perElement: [], raw: null, error: `vocabulary step failed: ${e.message}` }; }
+  const wordSets = parseElementWords(raw || '');
+  if (!wordSets.length) {
+    return { perElement: [], raw, error: 'The model produced no parseable code-word predictions.' };
+  }
+  const perElement = [];
+  for (const { element, words } of wordSets) {
+    const hits = searchSymbolsByWords(symbols, words, {
+      limit: opts.candidatesPerElement ?? LOCATE_DEFAULTS.candidatesPerElement,
+      includeTests: !!opts.includeTests,
+    });
+    perElement.push({ element, text: (elements[element - 1] || '').slice(0, 160), words, hits });
+    opts.onElement?.({ element, words, hits });
+  }
+  return { perElement, raw, error: null, prompt: { sys, user } };
 }
 
 // Grep the symbol table for model-supplied words. Ranked by how many DISTINCT
@@ -959,23 +1127,23 @@ export async function doClaimLocate(index, args, opts = {}) {
     resetCloudUsage();
 
     process.stderr.write('Step 1: predicting code vocabulary from the claim (no codebase shown)...\n');
-    let rawWords;
-    try { rawWords = await draft(sys1, user1, 600); }
-    catch (e) { console.error(`--claim-locate: vocabulary step failed: ${e.message}`); process.exitCode = 1; return; }
-    const wordSets = parseElementWords(rawWords || '');
-    if (!wordSets.length) {
-      console.error('The model produced no parseable code-word predictions.'); process.exitCode = 1;
-      if (args.verbose) console.log(rawWords);
+    // Steps 1-2 now live in retrievePerElement so --claim-chart runs the same
+    // retrieval; the onElement callback keeps this command's output identical.
+    const disc = await retrievePerElement({
+      draft, elements, symbols,
+      opts: {
+        includeTests: !!args.include_tests,
+        onElement: ({ element, words, hits }) =>
+          console.log(`  element ${element}: words [${words.join(', ')}] -> ${hits.length} candidate(s)`),
+      },
+    });
+    if (disc.error) {
+      console.error(/^vocabulary/.test(disc.error) ? `--claim-locate: ${disc.error}` : disc.error);
+      process.exitCode = 1;
+      if (args.verbose && disc.raw) console.log(disc.raw);
       return;
     }
-
-    // Step 2: CE greps its own symbol table — ground truth, no model involved.
-    const perElement = [];
-    for (const { element, words } of wordSets) {
-      const hits = searchSymbolsByWords(symbols, words, { limit: LOCATE_DEFAULTS.candidatesPerElement, includeTests: !!args.include_tests });
-      perElement.push({ element, text: (elements[element - 1] || '').slice(0, 160), words, hits });
-      console.log(`  element ${element}: words [${words.join(', ')}] -> ${hits.length} candidate(s)`);
-    }
+    const perElement = disc.perElement;
     discovery = perElement;
     const withHits = perElement.filter((p) => p.hits.length);
     if (!withHits.length) {

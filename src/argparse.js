@@ -256,6 +256,7 @@ export function parseArgs() {
     claim_analyze: null,
     claim_chart: null,
     targets: null,
+    elements: null,
     no_callees: false,
     scope_note: null,
     targets_note: null,
@@ -549,6 +550,7 @@ export function parseArgs() {
     ['claim_analyze',        'value',          ['--claim-analyze']],
     ['claim_chart',          'value',          ['--claim-chart']],
     ['targets',              'value',          ['--targets']],
+    ['elements',             'value',          ['--elements']],
     ['no_callees',           'flag',           ['--no-callees']],
     ['scope_note',           'value',          ['--scope-note']],
     ['targets_note',         'value',          ['--targets-note']],
@@ -1407,6 +1409,18 @@ LLM ANALYSIS:
                               element is not judged on an inference. Takes
                               @file.txt or inline text.
   --targets <list>           --claim-chart: "file@fn;file@fn" or @targets.txt.
+                             Omit it to let CE retrieve evidence PER ELEMENT
+                             instead (see --elements); supplying it keeps the
+                             chart's behaviour exactly as before.
+  --elements @file.txt       --claim-chart: take the claim's element list from a
+                             file, one limitation per line ('#' lines are
+                             comments carried into the provenance header),
+                             instead of splitting the claim heuristically. No
+                             regex reaches a practitioner's construction of a
+                             claim, and letting a MODEL choose rows would make
+                             two engines' charts undiffable — a file gives
+                             practitioner granularity AND a skeleton identical
+                             across every engine.
   --no-callees               --claim-chart: omit depth-1 callee bodies (smaller
                               prompt; the analysis may then infer what a callee
                               does rather than read it).
