@@ -7,7 +7,8 @@
 // pointed at the wrong subsystem.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { livePositiveTerms, mergeSearchResults, claimAnalyzeTopN, claimNeighbourhoodN } from '../src/commands/analyze.js';
+import { livePositiveTerms, mergeSearchResults, claimAnalyzeTopN, claimNeighbourhoodN, termProbeSource } from '../src/commands/analyze.js';
+import { parseMultisectTerms } from '../src/commands/multisect.js';
 
 // Gemma's own TIGHT extraction for claim 1. Four of these nine match zero files
 // in the index, which is what made the search unwinnable.
@@ -143,5 +144,77 @@ describe('#307 neighbourhood size', () => {
       const n = claimNeighbourhoodN({ neighbourhood: v });
       assert.ok(n === 10 || n === 1, `junk produced ${n}`);
     }
+  });
+});
+
+// #307 — the probe reads the shape production actually passes.
+//
+// THE BUG THIS EXISTS FOR: between c169ca7 and this change, livePositiveTerms
+// read `t.term ?? t.pattern`. A parsed multisect term is
+// { display, regex, negated, hard } — neither field exists — so every term took
+// the empty branch and counted LIVE without being probed. The live-term quorum
+// was INERT IN PRODUCTION for all terms, not just regexes.
+//
+// It looked verified because the check ran on an array of STRINGS, reproducing
+// 5-of-9 against the real index, while the call site supplies OBJECTS. So these
+// tests build their input with parseMultisectTerms — the same parser production
+// uses — rather than with literals chosen by the author.
+describe('#307 term probe reads the production term shape', () => {
+  it('reads a parsed literal term, which the old code could not', () => {
+    const [t] = parseMultisectTerms('storage');
+    assert.deepEqual(termProbeSource(t), { text: 'storage', isRegex: false });
+  });
+
+  it('unwraps a parsed regex term and flags it as one', () => {
+    const [t] = parseMultisectTerms('/bitrate|bit.rate/');
+    assert.deepEqual(termProbeSource(t), { text: 'bitrate|bit.rate', isRegex: true });
+  });
+
+  it('still accepts a bare string, so the older callers keep working', () => {
+    assert.deepEqual(termProbeSource('storage device'), { text: 'storage device', isRegex: false });
+  });
+
+  it('returns null for unreadable input rather than a blank probe', () => {
+    for (const v of [null, undefined, {}, { display: '   ' }]) assert.equal(termProbeSource(v), null);
+  });
+
+  // The regression proper: parsed terms must be PROBED, not waved through.
+  it('probes parsed terms instead of counting them all live', () => {
+    const parsed = parseMultisectTerms('alpha;bravo;charlie');
+    const pos = parsed.filter((t) => !t.negated);
+    // Index answers: only 'alpha' exists.
+    const idx2 = { searchLiteral: (text) => (text === 'alpha' ? [{}] : []) };
+    assert.equal(livePositiveTerms(idx2, pos), 1,
+      'parsed terms were counted live without probing — the c169ca7 defect');
+  });
+
+  it('passes maxResults, not max — the option name is silently ignored otherwise', () => {
+    let seen = null;
+    const idx2 = { searchLiteral: (_t, opts) => { seen = opts; return [{}]; } };
+    livePositiveTerms(idx2, parseMultisectTerms('alpha').filter((t) => !t.negated));
+    assert.equal(seen.maxResults, 1, 'a liveness question needs exactly one hit');
+    assert.equal(seen.max, undefined, 'the wrong name must not linger alongside it');
+  });
+
+  it('probes a regex term as a regex', () => {
+    let seen = null;
+    const idx2 = { searchLiteral: (t, opts) => { seen = { t, opts }; return [{}]; } };
+    livePositiveTerms(idx2, parseMultisectTerms('/bitrate|coderate/').filter((x) => !x.negated));
+    assert.equal(seen.opts.useRegex, true);
+    assert.equal(seen.t, 'bitrate|coderate', 'the slashes must be stripped before probing');
+  });
+
+  // NOT invalid patterns: parseMultisectTerms rejects `/[unclosed/` and returns
+  // null for the whole set, so a bad regex never reaches the probe. What this
+  // guards is an index that throws for its own reasons.
+  it('an index that throws fails open rather than counting terms dead', () => {
+    const idx2 = { searchLiteral: () => { throw new Error('index exploded'); } };
+    const pos = parseMultisectTerms('/bitrate|coderate/;alpha').filter((t) => !t.negated);
+    assert.equal(livePositiveTerms(idx2, pos), pos.length, 'a throw must not tighten the quorum');
+  });
+
+  it('the parser, not the probe, is what rejects an unparseable regex', () => {
+    assert.equal(parseMultisectTerms('/[unclosed/;alpha'), null,
+      'if this ever returns terms instead, the probe needs its own guard');
   });
 });

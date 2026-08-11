@@ -1652,28 +1652,60 @@ export function claimAnalyzeTopN(args) {
   return Number.isFinite(n) && n > 0 ? n : 6;
 }
 
+/**
+ * The parsed-term shape, which is what every production caller passes:
+ *
+ *   { display: '/bitrate|bit.rate/', regex: RegExp, negated: false, hard: true }
+ *
+ * NO `term`, NO `pattern`, NO `isRegex`. The first cut of this function read
+ * `t.term ?? t.pattern`, got undefined for every parsed term, and took the
+ * empty-string branch that counts a term live without probing — so between
+ * c169ca7 and this change the live-term quorum was INERT IN PRODUCTION for all
+ * terms, not merely for regexes as asus-CC and I both believed.
+ *
+ * It looked verified because the check ran against an array of STRINGS I chose,
+ * reproducing 5-of-9 on the real index, while the call site supplies objects.
+ * Testing a helper with input other than what its caller passes is the whole
+ * failure; `termProbeSource` exists so the shape is named in one place and the
+ * tests can use the same parser production uses.
+ */
+export function termProbeSource(t) {
+  if (typeof t === 'string') return { text: t, isRegex: false };
+  if (!t) return null;
+  const disp = String(t.display ?? t.term ?? t.pattern ?? '').trim();
+  if (!disp) return null;
+  const m = disp.match(/^\/(.*)\/$/);      // multisect's own regex form
+  if (m) return { text: m[1], isRegex: true };
+  return { text: disp, isRegex: false };
+}
+
 export function livePositiveTerms(index, positiveTerms) {
   const terms = positiveTerms || [];
   if (!terms.length) return 0;
   if (typeof index?.multisectTermFileCount !== 'function'
-    && typeof index?.searchLiteral !== 'function'
-    && typeof index?.regexSearch !== 'function') return terms.length;
+    && typeof index?.searchLiteral !== 'function') return terms.length;
   let live = 0;
   for (const t of terms) {
-    const raw = typeof t === 'string' ? t : (t.term ?? t.pattern ?? '');
-    if (!raw) { live++; continue; }
+    const src = termProbeSource(t);
+    if (!src) { live++; continue; }        // unreadable -> fail open
     let hits = 0;
     try {
       if (typeof index.multisectTermFileCount === 'function') {
         hits = index.multisectTermFileCount(t) || 0;
-      } else if (t && t.isRegex && typeof index.regexSearch === 'function') {
-        hits = (index.regexSearch(raw, { max: 1 }) || []).length;
-      } else if (typeof index.searchLiteral === 'function') {
-        hits = (index.searchLiteral(raw, { max: 1 }) || []).length;
       } else {
-        hits = 1;    // no usable probe — treat as live
+        // #307: `maxResults`, not `max` — the option name matters. asus-CC's
+        // rarity probe reported "100 files" for 18 of 20 terms because `max` is
+        // silently ignored and the default is 100; the same wrong name was here.
+        // A liveness question needs exactly one hit.
+        //
+        // useRegex is the entry point CodeSearchIndex already exposes
+        // (mcp-server.js:511) — a regex term probed literally finds nothing,
+        // which is not the same as the term being dead.
+        hits = (index.searchLiteral(src.text, { maxResults: 1, useRegex: src.isRegex }) || []).length;
       }
-    } catch { hits = 1; }   // fail open
+    } catch { hits = 1; }   // fail open: an index error is not a dead term
+                            // (an UNPARSEABLE regex never arrives — parseMultisectTerms
+                            //  rejects the whole set and returns null)
     if (hits > 0) live++;
   }
   return live || terms.length;   // never return 0: a 0 quorum matches everything
