@@ -7,7 +7,7 @@
 // pointed at the wrong subsystem.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { livePositiveTerms, mergeSearchResults, claimAnalyzeTopN } from '../src/commands/analyze.js';
+import { livePositiveTerms, mergeSearchResults, claimAnalyzeTopN, claimNeighbourhoodN } from '../src/commands/analyze.js';
 
 // Gemma's own TIGHT extraction for claim 1. Four of these nine match zero files
 // in the index, which is what made the search unwinnable.
@@ -102,5 +102,46 @@ describe('#307 top-N', () => {
 
   it('ignores junk rather than collapsing to 0 — a 0 slice analyzes nothing', () => {
     for (const v of ['0', '-1', 'abc', '']) assert.equal(claimAnalyzeTopN({ top_n: v }), 6);
+  });
+});
+
+// #307 SCOPE LADDER. multisect computes four rungs — function, class, file,
+// folder — and claim-analyze read only the bottom one. Andrew's own multisect
+// pseudo-claim describes the ladder; it was implemented in the search and
+// discarded at the consumer.
+//
+// MEASURED, US 8,752,101 x .AndroidX_Media_ExoPlayer3, Claude's BROAD terms:
+//   BEFORE  38 functions, AdaptiveTrackSelection::updateSelectedTrack ABSENT
+//   AFTER    7 functions (min=6),  target at RANK 4 — inside the analyzed top-6
+//
+// CE self-test (Andrew's multisect pseudo-claim vs .CE_080426, GT = ce_anchors
+// claim 1's five anchors):
+//   BEFORE  multisectSearch=20, four anchors absent
+//   AFTER   multisectSearch=12, matchIdfScore=14, computeIdfScores=16
+// — a real move, and still short of the analyzed set. Recorded as a partial.
+describe('#307 neighbourhood size', () => {
+  it('defaults to 10 — the measured point, where the target sat at file rank 9', () => {
+    assert.equal(claimNeighbourhoodN({}), 10);
+    assert.equal(claimNeighbourhoodN(undefined), 10);
+    assert.equal(claimNeighbourhoodN({ neighbourhood: '' }), 10);
+  });
+
+  it('honours --neighbourhood, both spellings', () => {
+    assert.equal(claimNeighbourhoodN({ neighbourhood: '25' }), 25);
+    assert.equal(claimNeighbourhoodN({ neighborhood: 4 }), 4);
+  });
+
+  // 0 must be a real value, not "falsy so use the default" — it is the escape
+  // hatch back to pre-ladder behaviour if the narrowing hurts a given corpus.
+  it('0 disables the ladder and is not treated as unset', () => {
+    assert.equal(claimNeighbourhoodN({ neighbourhood: '0' }), 0);
+    assert.equal(claimNeighbourhoodN({ neighbourhood: 0 }), 0);
+  });
+
+  it('ignores junk rather than narrowing to something arbitrary', () => {
+    for (const v of ['-3', 'abc', '1.5.2']) {
+      const n = claimNeighbourhoodN({ neighbourhood: v });
+      assert.ok(n === 10 || n === 1, `junk produced ${n}`);
+    }
   });
 });

@@ -1630,6 +1630,21 @@ export async function doAnalyze(index, args) {
  * Fails OPEN: if the index cannot answer, every term is treated as live, so a
  * missing capability can only restore the old behaviour, never tighten it.
  */
+// #307 scope ladder: how many top-ranked FILES form the neighbourhood that
+// function selection is re-run inside. Default 10 — the measured point, where
+// the '101 target sits at file rank 9. 0 disables the ladder entirely.
+//
+// One measured point is not a tuned parameter: Gemma's terms put the same file
+// at rank 101, so a corpus (or a model) whose right file ranks low is not
+// rescued by 10, and widening trades precision for reach. `--neighbourhood 0`
+// restores pre-ladder behaviour exactly.
+export function claimNeighbourhoodN(args) {
+  const raw = args && (args.neighbourhood ?? args.neighborhood);
+  if (raw === undefined || raw === null || raw === '') return 10;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 10;
+}
+
 // Default 6, overridable with --top-n. See the comment at the slice for why 6.
 export function claimAnalyzeTopN(args) {
   const raw = args && (args.top_n ?? args.topN);
@@ -1959,11 +1974,67 @@ export async function doClaimAnalyze(index, args) {
   // Filter out (global) scope entries - they aren't extractable functions.
   // Also filter 0-line entries which can't be sent to LLM.
   const allFuncMatches = (results.function_matches || []);
-  const funcMatches = allFuncMatches.filter(
+  let funcMatches = allFuncMatches.filter(
     fm => fm.function !== '(global)' && fm.lines > 0
   );
   const fileMatches = results.file_matches || [];
   const folderMatches = results.folder_matches || [];
+
+  // #307 SCOPE LADDER. multisect computes four rungs — function, class, file,
+  // folder — and this consumer read only the bottom one. Andrew's own
+  // pseudo-claim for multisect describes the ladder ("a widening scope of
+  // locations … ranked by criteria such as smaller location first"); it is
+  // implemented in the search and was discarded here.
+  //
+  // MEASURED, US 8,752,101 x .AndroidX_Media_ExoPlayer3, Claude's BROAD terms:
+  //
+  //   AdaptiveTrackSelection.java                  file rank 9 of 103
+  //   AdaptiveTrackSelection::updateSelectedTrack  function rank ABSENT (6/13 vs quorum 7)
+  //
+  // The file scores well because the claim's terms are SPREAD ACROSS IT; no
+  // single function concentrates enough to clear a global quorum. So the
+  // file-level signal knows something the function ranking throws away.
+  //
+  // Restricting function ranking to the top-N files put the target at rank 4 —
+  // the first retrieval of Andrew's acceptance symbol on any provider.
+  //
+  // FOLDERS DO NOT WORK as the neighbourhood: `folder_matches` scores every
+  // ancestor prefix, so `libraries` (2,248 files) and the repo root both score
+  // 13/13, and `trackselection` lands at rank 113 of 345. Files are the workable
+  // rung. Suppression is NOT a factor — `filteredFiles` lives in
+  // commands/multisect.js (display); core/multisect.js returns the complete set.
+  // RE-SEARCHES the neighbourhood; does NOT filter the existing results. That
+  // distinction is the whole mechanism: at the global quorum the target is
+  // ABSENT from function_matches, so filtering could never surface it. The
+  // neighbourhood is re-searched at a LOWER quorum, which is only safe because
+  // the field has been narrowed first — at min=6 unrestricted, the '101 set goes
+  // from 38 to 107 function matches and the target sits at rank 50.
+  const ladderN = claimNeighbourhoodN(args);
+  if (ladderN > 0 && fileMatches.length > 1) {
+    const hood = fileMatches.slice(0, ladderN).map((f) => f.filepath);
+    // Live-term arithmetic (c169ca7) applied at stage 2: the quorum drops by one
+    // rung inside the neighbourhood. The target matches 6 of 13 against a global
+    // quorum of 7 — the same one-term margin seen everywhere in this
+    // investigation — so without this the ladder finds nothing new.
+    const hoodMin = Math.max(2, Math.floor(livePositiveTerms(index, positiveTerms) * 0.60) - 1);
+    let hoodResults = null;
+    try {
+      hoodResults = index.multisectSearch(terms, {
+        minTerms: hoodMin, includePath: hood, excludePath: args.exclude_path || null,
+      });
+    } catch (e) { console.log(`  [#307 ladder] neighbourhood search failed: ${e.message}`); }
+    const hoodFuncs = ((hoodResults && hoodResults.function_matches) || [])
+      .filter((fm) => fm.function !== '(global)' && fm.lines > 0);
+    // Fall back rather than narrow to nothing: a corpus whose files do not
+    // concentrate terms must be no worse off than before this existed.
+    if (hoodFuncs.length) {
+      console.log(`  [#307 ladder] top ${ladderN} file(s) by term coverage, re-ranked at min_terms=${hoodMin}: `
+        + `${funcMatches.length} -> ${hoodFuncs.length} function(s)`);
+      funcMatches = hoodFuncs;
+    } else if (funcMatches.length) {
+      console.log(`  [#307 ladder] neighbourhood yielded no functions - keeping the unrestricted set`);
+    }
+  }
 
   // Show search result summary
   console.log(`[Step 3/4] Selecting best matches...`);
