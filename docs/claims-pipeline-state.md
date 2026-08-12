@@ -50,7 +50,9 @@ the two longest, 87 and 103 lines).
 element whose search **hits 25 has not discriminated** — ranking among 25
 undifferentiated candidates is arbitrary, and which 3 reach the chart is luck.
 One high-frequency word saturates it alone: `session` matches 22 of 154 symbols
-(14%) in `.demo`. **Cap-hit is a per-row reliability predictor** (§6).
+(14%) in `.demo`. **Cap-hit is a per-row reliability predictor, confirmed on four
+engines with no exceptions** (§6): the engines whose element-10 search hit the cap
+are exactly the engines that lost element (e).
 
 **Too-popular-to-be-informative, twice.** `--claims-loop` already demotes
 **sponges** — a function topping more than `spongeT` (default 2) distinct claims'
@@ -68,8 +70,8 @@ tuned in-tree precedent for the "prune high-frequency terms" idea in §3/(c).
 | **(0)** | **end-to-end harness for the per-element pipeline** | **missing — added** | `claim-selftest.mjs` scores whole-claim retrieval only. Four retrieval intuitions were wrong when measured this week (concept bridge, stemmer, IDF, stub verification). (a)–(d) are all retrieval changes; without a harness the guess-and-measure cycle repeats by hand. **§4 (HOF) is the general form of this** — same need, arbitrary corpus instead of one hand-built answer key. |
 | (a) | search by element, not whole claim | **partly done** | `claim-locate` always did; `claim-chart` since `e17e40d`. `--claim-analyze`/`--claim-search`/`--claims-loop` still whole-claim. **"In addition to", not "instead of"** — §2 blind spots are complementary. |
 | (b) | finer splitting than `;` | **partly done** | `e17e40d`: '101 6→10 rows; TLS demo 22 shattered fragments → 11 clean. `--elements @file.txt` is the escape hatch. **Andrew's own writing on limitation-splitting is the input to mine for deterministic rules** — highest-leverage remaining input, and gates everything downstream. |
-| (c) | multiple runs, majority vote | **design corrected; blocked on §7** | **Union for TARGETS, majority for VERDICTS.** Element (e)'s implementers were individually 3/5, 2/5, 1/5 — a majority rule on targets discards two correct implementers. Union what you look at; vote on what you conclude. **May be cloud-only** — if local is stable at temperature 0, the local path never needs it. |
-| (d) | local model generates (c) | **not started** | Different builds already behave differently: QAT Q4_0 fails the `parseElementWords` format contract (0/7 parsed) where Q4_K_M passes (11/11). Andrew's "different models for different pipeline stages" is plausible — vocabulary step is one ~600-token call, analysis is large — but unmeasured. |
+| (c) | multiple runs, majority vote | **design corrected; now CLOUD-ONLY** | **Union for TARGETS, majority for VERDICTS.** Element (e)'s implementers were individually 3/5, 2/5, 1/5 — a majority rule on targets discards two correct implementers. Union what you look at; vote on what you conclude. **Cloud-only, settled 08-12**: two local models are bit-stable across runs, so the local path never needs multi-run. |
+| (d) | local model generates (c) | **not started** | Different builds already behave differently: QAT Q4_0 fails the `parseElementWords` format contract (0/7 parsed) where Q4_K_M passes (11/11). Andrew's "different models for different pipeline stages" is plausible — vocabulary step is one ~600-token call, analysis is large — but unmeasured. **The vocabulary step works on 1 of 3 local builds** (§6), so *model admission* is a gate, not a nicety. |
 | (e) | review existing code + output | **this document** | |
 | (f) | fold `--claim-chart` into `--claim-analyze` | **not started** | Blocked on (a): merging them while they use different retrieval would freeze the wrong one. |
 | (g) | single end-to-end pipeline; retire test-only commands | **not started** | Do before (h). |
@@ -116,7 +118,7 @@ HOF-a.
 |---|---|
 | `--targets file@fn` discards the file prefix → charts a *different* function | #309 Part A — workaround: qualify with the **class** after the `@` |
 | credential mask defeated by `vocabulary` (context-keyed mask vs context-destroying tool) | #309 Part B — security |
-| `--reproducible` accepted by CLI, consumed only by the GUI server | #309 Part C |
+| `--reproducible` **rejected** by the CLI (`Unknown option`, exit 2) — GUI-server only | #309 Part C — *not* an instance of the accepted-but-inert class; corrected 08-12 |
 | `\|\|result:` prefix + literal `\n` in local overviews (node-llama-cpp `jsonDumps` on every tool result) | #306 — post-processor proposed, not built |
 | `--claims-loop` `minTermsFrac 0.75` counts dead terms | #306 |
 
@@ -136,14 +138,16 @@ HOF-a.
 | `--claim-locate` variance | `.demo` | claude/per-element | 5 | 08-12 | **2/5 lost (e)**; diff 6.6 (worst 11); core 72%; GT-stable 84% |
 | `--claim-locate` variance | `.demo` | chatgpt/per-element | 5 | 08-12 | 0/5 lost; diff 8.2 (worst 12); core 58%; GT-stable 76% |
 | `--claim-locate` variance | `.demo` | gemini/per-element | 4 | 08-12 | **2/4 lost (e)**; diff 4.2 (worst 7); core 81% (run 4 dropped: network) |
-| cap-hit predicts loss | `.demo` | 3 cloud engines | 14 runs | 08-12 | element 10 at cap 25 → lost (e); 9–14 → never lost. `session` = 22/154 symbols |
+| cap-hit predicts loss | `.demo` | **4 engines** | 19 runs | 08-12 | at cap → lost (e); below cap → never lost. **No exceptions.** chatgpt 9-14 / gemini 25 / claude 25 / gemma 11. `session` = 22/154 symbols |
 | per-element discovery | `.demo_code_only` | gemma QAT | 1 | 08-11 | located `sendMessage`, `streamData`, `verify_certificate_chain`, +34 |
 | quantization / format | `.demo_code_only` | gemma QAT vs Q4_K_M | 1 | 08-12 | QAT **0/7** parsed, exit 1; Q4_K_M **11/11** |
 | per-element chart | '101 × ExoPlayer3 | gemma QAT | 1 | 08-11 | 0 PRESENT · 1 ASSUMED · 9 ABSENT; acceptance symbol absent |
 | hand-targeted chart | '101 × ExoPlayer3 | gemma QAT | 1 | 08-11 | 1 PRESENT · 1 PARTIAL · 1 ASSUMED · 3 ABSENT |
 | overview sweep before/after | 51 corpora | gemma QAT | 1 | 08-11 | AI/ML footnote 0%→**21%**; no-prose 33%→34%; `\|\|result:` 48%→47%; literal `\n` 100%; credential leak 1→1 |
-| `--claim-locate` variance | `.demo` | **gemma Q4_K_M** | — | pending | asus-CC |
-| variance, 2nd local model | `.demo` | **pending** | — | pending | is the wobble cloud-only? |
+| `--claim-locate` variance | `.demo` | gemma Q4_K_M/per-element | 5 | 08-12 | **0/5 lost; 0.0 pairwise diff; core 100%** — byte-identical |
+| `--claim-locate` variance | `.demo` | qwen3-14B Q4_K_M | 5 | 08-12 | 4 of 4 byte-identical to run 1 — **determinism is greedy decoding, not one model** |
+| element-10 words | `.demo` | gemma Q4_K_M | 5 | 08-12 | `[data, encrypt, channel]` → 11 candidates, identical ×5. Picked `channel` (7%) not `session` (14%); 3 words, fewest of any engine |
+| vocabulary step, local builds | `.demo` | 3 builds | 1 | 08-12 | gemma Q4_K_M **works** 11/11; gemma qat-Q4_0 **0/7** (words good, no numbering, F75); qwen3-14B **empty reply**. Qwen prompt-fit untuned — not a capability verdict |
 
 **Corpus caveat.** `.demo` / `.demo_code_only` is contrived — Claude wrote the code
 and the claim around each other. It flatters the tool three ways: vocabulary
@@ -154,8 +158,9 @@ at all. **No `.demo` result transfers to '101 without re-measurement.**
 
 | question | what would answer it |
 |---|---|
-| Is local decoding stable at temperature 0? | Gemma Q4_K_M ×5, `.demo`. Greedy uses no RNG, so variance would mean GPU float non-associativity — which no flag fixes. **Decides whether (c) is cloud-only.** |
 | Does per-element retrieval survive a corpus where claim and code share no vocabulary? | '101 × ExoPlayer3 per-element with a translating engine — or **HOF-b (§4), which manufactures the gap on any index**. **The only question that decides the customer case.** |
 | Is Claude better than Gemma at per-element, or only asked a better question? | Claude on `--claim-locate` for '101 — never run. Cloud-vs-local comparisons so far compared *methods*, not models. |
 | Right threshold for pruning high-frequency query words? | `session` 14% floods; `channel` 7% is the word that finds `sendMessage`. One corpus cannot set it. |
 | Do the '101 and CE-self-test findings hold at n>1? | Every row above marked `n=1`. |
+| Is the Qwen empty reply capability or prompt-fit? | `buildDiscoverPrompt` was iterated against Gemma. One re-prompt experiment before concluding anything about Qwen. |
+| Should a model-admission gate run the vocabulary step? | 1 of 3 local builds passes it, and the M7 gate does not catch any of the three failures. One model call on `.demo`, require ≥1 parsed element. |
