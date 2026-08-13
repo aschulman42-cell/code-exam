@@ -79,6 +79,13 @@ One high-frequency word saturates it alone: `session` matches 22 of 154 symbols
 engines with no exceptions** (§6): the engines whose element-10 search hit the cap
 are exactly the engines that lost element (e).
 
+**But the cap is ABSOLUTE and discrimination is RELATIVE — it does not scale.**
+25 of 154 symbols is 16% of `.demo`; 25 of 65,370 is **0.04%** of ExoPlayer3. On
+the '101 run every one of 10 elements hit the cap **and the retrieval still found
+the crux** (§6). So on a large index cap-hit is not a reliability signal, it is
+just the ceiling. Any warning built on it must use a **relative** measure — share
+of the index matched, or whether the rank scores actually separate.
+
 **Too-popular-to-be-informative, twice.** `--claims-loop` already demotes
 **sponges** — a function topping more than `spongeT` (default 2) distinct claims'
 searches, e.g. `printUsage`, `x265_param`, whose help text and parsers match
@@ -205,6 +212,8 @@ HOF-a.
 | per-element chart | '101 × ExoPlayer3 | gemma QAT | 1 | 08-11 | 0 PRESENT · 1 ASSUMED · 9 ABSENT; acceptance symbol absent |
 | hand-targeted chart | '101 × ExoPlayer3 | gemma QAT | 1 | 08-11 | 1 PRESENT · 1 PARTIAL · 1 ASSUMED · 3 ABSENT |
 | overview sweep before/after | 51 corpora | gemma QAT | 1 | 08-11 | AI/ML footnote 0%→**21%**; no-prose 33%→34%; `\|\|result:` 48%→47%; literal `\n` 100%; credential leak 1→1 |
+| **`--claim-locate` on the real patent** | **'101 × ExoPlayer3** | **claude/pooled** | 1 | **08-13** | **10 elements, 28 symbols located, no hand-supplied targets. Found `AdaptiveTrackSelection::determineIdealSelectedIndex` (the rate-determination crux), `getSwitchOrder`, `getSortedTrackBitrates`. `updateSelectedTrack` not located directly — recorded as the crux's caller. All 10 elements at cap** |
+| Claude's '101 element words | '101 × ExoPlayer3 | claude | 1 | 08-13 | **translated, did not echo**: `bitrate, codec, buffered, playback, decode, adapt, deadline`. Gemma on the same claim produced `rate, time, reproduce, available` |
 | `--claim-locate` variance | `.demo` | gemma Q4_K_M/per-element | 5 | 08-12 | **0/5 lost; 0.0 pairwise diff; core 100%** — byte-identical |
 | `--claim-locate` variance | `.demo` | qwen3-14B Q4_K_M | 5 | 08-12 | 4 of 4 byte-identical to run 1 — **determinism is greedy decoding, not one model** |
 | element-10 words | `.demo` | gemma Q4_K_M | 5 | 08-12 | `[data, encrypt, channel]` → 11 candidates, identical ×5. Picked `channel` (7%) not `session` (14%); 3 words, fewest of any engine |
@@ -219,8 +228,8 @@ at all. **No `.demo` result transfers to '101 without re-measurement.**
 
 | question | what would answer it |
 |---|---|
-| Does per-element retrieval survive a corpus where claim and code share no vocabulary? | '101 × ExoPlayer3 per-element with a translating engine — or **HOF-b (§4), which manufactures the gap on any index**. **The only question that decides the customer case.** |
-| Is Claude better than Gemma at per-element, or only asked a better question? | **Correction:** it HAS been run — `8752101_LOCATE.txt`, `8752101_LOCATE_blind.txt`. Both are **stale**: they record `2 element(s)` (pre-`e17e40d` splitter) and show the #309-A qualifier bug resolving `AdaptiveTrackSelection::updateSelectedTrack` → `DownloadHelper::…`. **Re-run on current code — Andrew TODO, needs the API key.** |
+| Does per-element retrieval survive a corpus where claim and code share no vocabulary? | **Cloud: YES, answered 08-13** — Claude translated on '101 and located the crux (§6). **Local: still open** — Gemma echoed the patent's words on the same claim. HOF-b (§4) is how to test this at scale. |
+| Is Claude better than Gemma at per-element, or only asked a better question? | **Partly answered 08-13: it is the MODEL here.** Same command, same claim, same index — Claude translated, Gemma echoed. Earlier runs: it HAS been run before — `8752101_LOCATE.txt`, `8752101_LOCATE_blind.txt`. Both are **stale**: they record `2 element(s)` (pre-`e17e40d` splitter) and show the #309-A qualifier bug resolving `AdaptiveTrackSelection::updateSelectedTrack` → `DownloadHelper::…`. **Re-run on current code — Andrew TODO, needs the API key.** |
 | Right threshold for pruning high-frequency query words? | `session` 14% floods; `channel` 7% finds `sendMessage`. And `worklist` in a Bram index is high-frequency *and* essential. **Frequency alone is the wrong key** — prefer "matches many distinct elements", as `spongeT` already does. |
 | Do the '101 and CE-self-test findings hold at n>1? | Every row above marked `n=1`. |
 | Is the Qwen empty reply capability or prompt-fit? | `buildDiscoverPrompt` was iterated against Gemma. One re-prompt experiment before concluding anything about Qwen. |
@@ -234,7 +243,7 @@ Chosen for Andrew's stated test: **visible incremental improvement, checkable wi
 | # | item | why first | visible how |
 |---|---|---|---|
 | 1 | **`--claim-analyze` uses per-element retrieval** (roadmap (a), the unfinished half) | The bottom line is charts that find the known answers. `--claim-analyze` is the command Andrew tests with and the one that reports `(e) ABSENT` on `.demo` today | Re-run `--claim-analyze` on `.demo`: element (e) should stop being ABSENT, and `SecureChannel`/`tls_send_encrypted` should appear. Gemma arm: same command, `--model` |
-| 2 | **Cap-hit row warning** | Deterministic, no threshold, no tuning; CE already computes the number in `searchSymbolsByWords`'s `freq` map. Turns an invisible coin-flip into a disclosed one — same register as `⚠ UNGROUNDED` | The `Retrieval by element` table marks saturated rows. On `.demo`, Claude/Gemini rows flag, ChatGPT/Gemma rows do not |
+| 2 | **Per-row retrieval-confidence warning** (was "cap-hit warning" — revised 08-13) | Still deterministic and threshold-free, but **must not key on cap-hit alone**: on '101 every element hit the cap and retrieval still found the crux, so a raw cap warning would flag every row of every large-index chart. Needs a relative measure — share of index matched, or whether rank scores separate | `.demo` rows flag for Claude/Gemini and not ChatGPT/Gemma, **and** '101 rows do not all flag |
 | 3 | **#309 Part A — honour the `--targets` file hint** | Charts silently cite the wrong function; the workaround (class-qualify after `@`) is undocumented and easy to miss | `--targets AdaptiveTrackSelection.java@updateSelectedTrack` resolves to the adaptive-bitrate one, no ambiguity warning |
 
 **Deliberately not first:** #309 Part B (credential mask vs `vocabulary`) is the
