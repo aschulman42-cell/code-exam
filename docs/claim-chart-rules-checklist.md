@@ -35,8 +35,8 @@ Markers are this document's editorial judgement, not the author's.
 | "Why claim charts?" (LinkedIn) | OK |
 | "Claim charts: a brief introduction" (LinkedIn) | OK |
 | "Claim charts: preface to forthcoming book" (LinkedIn) | OK |
-| 6-part intro to software patent litigation (own site → DisputeSoft) | OK; Parts 2 and 6 mined here, Parts 3–5 not yet |
-| **"Common problems in claim charts for patent litigation"** | **BROKEN** — the link points at `linkedin.com/post/edit/…`, an authoring URL that shows a login wall to everyone else. The public slug `linkedin.com/pulse/common-claim-chart-problems-patent-litigation-andrew-schulman` returns **404**. **Not mined.** |
+| 6-part intro to software patent litigation (own site → DisputeSoft) | OK — **all six parts mined** |
+| **"Common problems in claim charts"** — mined via the GreyB mirror, *15 Claim Chart Mistakes* | OK. The link on the book page was an authoring URL and 404'd publicly; **Andrew fixed it 2026-08-16**. |
 | Parts V–VIII of the book | described in the roadmap, **no links yet** |
 
 ---
@@ -48,7 +48,15 @@ Markers are this document's editorial judgement, not the author's.
 - [ ] **[D]** Parse **limitation-by-limitation**, never holistically. *"The most noticeable feature of claim charts is the breaking or splitting or parsing of each claim into smaller components…rather than 'holistically.'"* ✓ CE
 - [ ] **[D]** **One limitation per row.** *"Each limitation is placed in a separate row in the chart."* ✓ CE
 - [ ] **[D]** A claim is **always a single sentence**; parse within that assumption. ✓ CE
-- [ ] **[H]** Granularity is adversarial: *"the patent owner asserting infringement will prefer fewer apparent limitations, and the accused infringer will prefer more; positions are reversed for invalidity."* → argues for a **granularity knob**, not a fixed splitter. ✗ CE has no such control beyond `--elements`.
+- [ ] **[H]** ✗ Granularity is adversarial: *"the patent owner asserting infringement will prefer fewer apparent limitations, and the accused infringer will prefer more; positions are reversed for invalidity."*
+
+  **Andrew (2026-08-16): `--granularity` is wanted**; the open question is its values.
+
+  - **Named tiers** (`coarse` / `default` / `fine`) — readable, and the names carry the posture: coarse is the patent owner's chart, fine the accused infringer's.
+  - **A target row count** (`--granularity 12`) — precise, but a claim does not always have 12 defensible rows; the splitter would merge or invent to hit a number.
+  - **Expose the existing floor** (`--min-element-chars`) — honest about the mechanism, but a coefficient is not a posture and nobody should reason in characters.
+
+  **Leaning to named tiers**, since the underlying knobs are several — the character floor, which boundary words fire, whether sub-limitations get rows — and a tier moves them coherently where one number cannot. **Not decided.**
 
 ## A2. Primary dividers
 
@@ -64,7 +72,7 @@ Markers are this document's editorial judgement, not the author's.
 
 - [ ] **[D]** **The preamble gets its own row**, always. (Andrew, #310: *"Preamble must always be shown as first row."*)
       **✗ MEASURED: CE discards it on 98.7% of real independent claims** (5,297 of 5,369). The single-line path does `t.slice(ci + 1)`, throwing away everything before the first colon. Both CE test claims are hand-wrapped and take other paths, so this was invisible until a real corpus was used.
-      **✗ Worse: the same '101 claim splits into 10 elements multi-line and 2 one-line** — the preamble *and* most limitations are lost. Formatting decides the chart.
+      **✗ The consequence, stated plainly.** Take US 8,752,101 claim 1. As the file on disk, wrapped across six lines, CE gives **10 rows, preamble first**. Join that identical text to a single line — a paste from a PDF, an email, a database field — and CE gives **2 rows with no preamble**. Same words, same command, different chart: whitespace decides how many limitations exist, and nothing in the output says which happened.
 - [ ] **[H]** The preamble is **generally not a limitation** — *"unless it 'breathes life and meaning into the claim.'"*
 - [ ] **[H]** It **is** limiting when it supplies essential structure, or *"was relied upon at the PTO to distinguish prior art."*
 - [ ] **[H]** *"If a claim already recites an entire complete structure, without need of supplementation from the preamble, then the preamble is likely not a limitation."*
@@ -74,7 +82,11 @@ Markers are this document's editorial judgement, not the author's.
 
 ## A4. Method claims and steps
 
-- [ ] **[D]** **Gerunds mark steps**: *"the presence of -ing words (gerunds) that often set forth the beginning of each step."* ✓ CE (`\bfor\s+\w+ing\b`)
+- [ ] **[D]** **Gerunds mark steps**: *"the presence of -ing words (gerunds) that often set forth the beginning of each step."* ✓ CE — **for the `for <gerund>` form ONLY** (`\bfor\s+\w+ing\b`; caught by asus-CC reading the regex against the stated rule). A method claim in the ordinary style — bare gerund steps separated by commas — has no gerund boundary.
+
+  **Measured:** the `for` form appears in **39.1%** of claims, so it does real work. The bare-gerund shape (no semicolon, no `(a)`, 2+ comma-gerunds) occurs in **38** claims (0.71%), of which **4 fail to split at all** — about 1 in 1,350. **The preamble fix does not subsume it:** all four go from one row to *two*, still under-split for a multi-step method claim.
+
+  **Recorded as a known narrow, not proposed as a fix** — a bare `\b\w+ing\b` boundary would fire on *comprising*, *including*, *having* and every mid-limitation *determining…based on*. Over-splitting 5,382 claims to rescue 4 is the wrong trade.
 - [ ] **[D]** **Built-in designators** `(a)`, `(b)` *"can simply be used as-is."* ✓ CE (2.7% of real claims carry them)
 - [ ] **[H]** Step **order matters only** *"if sequence is implied."*
 - [ ] **[M]** For a method claim, ask **who carries out the method** — it may not be the defendant.
@@ -97,6 +109,7 @@ Markers are this document's editorial judgement, not the author's.
 
 - [ ] **[D]** **`whereby` is generally non-limiting.** ✗ **CE splits on it** — manufacturing a row that should not exist. Measured at **30 of 5,382 claims (0.56%)**: rare, never zero.
 - [ ] **[D]** *"'said', 'the', 'a', and 'an'… almost always will indicate **subparts** rather than entire limitations."* ✓ CE does not split on these.
+- [ ] **[M]** ✗ **But do not merely ignore them (Andrew, 2026-08-16).** Not being a boundary is not the same as being noise: these words are **super-useful markers of the parts that will need locating**. *"said secured element"* names a thing the chart must find in the code and keep consistent with its earlier appearance. Two jobs, and CE does only the first: **do not split here** (done), and **harvest what follows as a retrieval target** (not done). The noun phrase after `said`/`the` is a better search seed than most of the claim's vocabulary, because the claim has already committed to it being a discrete part.
 - [ ] **[D]** Do not split on commas *"when they merely serve grammatical functions within a unitary concept."*
 
 ## A8. Choices and alternatives
@@ -116,18 +129,29 @@ Markers are this document's editorial judgement, not the author's.
 ## A10. Negative limitations
 
 - [ ] **[D]** Signalled by **`without`, `in the absence of`, `substantially free of`** (also `free from`, `devoid of`, `excluding`). **276 claims (5.1%).** ✗ CE does not detect them.
-- [ ] **[M]** **PRESENT/ABSENT semantics invert.** A model shown a negative limitation plus code containing the forbidden feature's vocabulary has every reason to answer PRESENT. **The correct answer is the opposite** — a confident false PRESENT in a legal deliverable.
+- [ ] **[M]** ✗ **The verdict runs backwards, and the model has every incentive to get it wrong.** Worked through on *"transmitting the data **without** opening a network port"*:
+
+  - The chart asks: *does this code meet the limitation?*
+  - The limitation is met when the code **does NOT** open a network port.
+  - But the row's own words are *network*, *port*, *open*, *transmit* — so retrieval goes and finds **socket code**, and hands the model a function that plainly opens ports.
+  - The model sees every word of the limitation reflected in the code and answers **PRESENT**.
+  - **Correct answer: ABSENT.** The code does the forbidden thing.
+
+  The failure is not carelessness: retrieval hands the model the strongest possible evidence for exactly the wrong verdict. **A confident false PRESENT in a legal deliverable** — the one direction of error a client cannot afford.
+- [ ] **[D]** ✓ **The retrieval half is already expressible (Andrew, 2026-08-16).** Multisect takes a **NOT operator** — `!term` / `NOT term` for hard exclusion, `?!term` for soft — so *"scope must not contain this"* is a search CE can already run. **Be exact about the split:** CE *can express* a negative limitation in the search; it *cannot yet mark* the row as negative so the verdict inverts. Retrieval solved, labelling not.
 - [ ] **[H]** Prove a negative *"not by attempting to prove a negative in some global sense"* but by showing absence *"within the confines of the other limitations."*
 - [ ] **[H]** Claim construction may permit **de minimis presence** even under a `without` limitation.
 
 ## A11. Means-plus-function (35 USC 112(f))
 
-- [ ] **[H]** *"search the **entire claim** (not merely the limitation)"* to decide whether it recites function without sufficient structure. **43 claims (0.8%).**
-- [ ] **[H]** `means for…` is a *"sure signal"* but **not the only** indicator.
+- [ ] **[H]** **This is a per-LIMITATION status, first of all (Andrew, 2026-08-16).** A single limitation is or is not governed by §112(f); the claim as a whole is not. Everything below hangs off that, and the earlier ordering obscured it.
+- [ ] **[H]** Having asked whether *this limitation* is functional, you then *"search the **entire claim** (not merely the limitation)"* for whether sufficient structure is recited anywhere to rebut it. **43 claims (0.8%)** carry the marker.
+- [ ] **[H]** `means for…` is a *"sure signal"* but **not the only** indicator. **Method claims take the parallel form `step for…`** (Andrew, 2026-08-16) — the statute covers *"a means **or step** for performing a specified function"*, and a detector looking only for `means for` would miss every method-claim instance.
 - [ ] **[H]** The limitation is satisfied only by structure **disclosed in the specification** — *"not to the raw language of claim."*
 - [ ] **[D]** In the chart, expand the LHC into bullets naming the **disclosed means**.
 - [ ] **[H]** Requires *"clear linking"* of structure to function, or the claim is indefinite.
 - [ ] ⚠ **Out of scope for a splitter**: it requires the specification, which CE does not have. Do not smuggle it into parsing.
+- [ ] **[D]** **But the row should say so — with a caveat Andrew raised against his own suggestion (2026-08-16).** Detecting `means for` / `step for` is trivial, and a row flagging *"this limitation cannot be resolved without the specification"* is honest where silence is not. **The objection, which is real:** under the *own lexicographer* rule **any** claim term may have been defined in the spec, so needing it is the general condition rather than a §112(f) peculiarity — flagging only means-plus-function rows could imply the others are safe. **Left unresolved:** flag §112(f) rows specifically because there the dependence is total rather than possible, or state the caveat **once for the whole chart** and flag nothing per row. Andrew's call; not recorded as decided.
 
 ## A12. Claim construction changes the parse
 
@@ -142,7 +166,9 @@ Markers are this document's editorial judgement, not the author's.
 - [ ] **[D]** Chart **every asserted claim and every limitation within it** — the *"each × 3"* rule.
 - [ ] **[H]** Dependent claims may be valid even when the independent claim is not — parse each separately for invalidity.
 - [ ] **[M]** **Claim differentiation**: *"Different claims are presumed to have different scope"* — a dependent claim shows the independent must be broader.
-- [ ] **[M]** *"Small differences between claims… must mean something."* If the RHC is identical for two limitations, one is probably superfluous — **a self-check CE could run mechanically.**
+- [ ] **[M]** *"Small differences between claims… must mean something."* Two claims differing only by *X resting on Y* vs *X supported by Y* are presumed to differ in meaning.
+
+  **Correction (Andrew, 2026-08-16):** an earlier version turned this into a mechanical check — *identical RHC material for two limitations means one is superfluous*. **That is wrong.** Several limitations can be implemented by a **single function, even the same line range**; conversely one limitation may be implemented **across several code references**. Citation identity is not evidence of redundancy, and the self-check built on it is withdrawn.
 - [ ] **[M]** **Presumption of consistency**: a term appearing several times *"picks up attributes from each of its occurrences"*, across the claim, the patent, and related patents.
 
 ## A14. Granularity — the standing tension
@@ -152,6 +178,18 @@ Markers are this document's editorial judgement, not the author's.
 - [ ] **[M]** Splitting on raw semicolons alone *"can often result in an unwieldy claim-chart row that ends up glomming together multiple claim attributes that are better handled separately."*
 - [ ] **[D]** Alternative to splitting: **RHC subheadings** for the parts (B10).
 - [ ] ⚠ **No rule set reaches this.** CE's escape hatch is `--elements @file` (practitioner-supplied rows). Keep it.
+
+- [ ] **[M]** **Named mistake #6: over-reliance on semicolons.** Splitting on them alone *"can often result in an unwieldy claim-chart row that ends up glomming together multiple claim attributes"*, and it **misses explicit sub-limitations**. ✓ CE is partly guarded — it subdivides each semicolon chunk further — but the author's own remedy is the next rule, which CE lacks.
+- [ ] **[D]** ✗ The remedy is **not** more splitting — it is **right-column subheadings** for sub-parts *"that don't rise to the level of separate limitations"* (B9). This is the escape from the over-split / under-split bind, and CE has no subheading mechanism.
+
+## A16. Interrelation — the machinery exists and the chart never calls it
+
+- [ ] **[M]** ✗ **Presence is not enough.** *"All the things — limitations in the patent claim, and matching elements or steps in an accused product — must not only be present (in literally identical or equivalent form), but **must interrelate in the same way**."* The chart path scores each limitation independently and never asks whether the cited functions relate to each other as the claim requires.
+- [ ] **[M]** ✗ **All limitations must live in a single instrumentality** — they *"cannot be cobbled together from unrelated features."* The Frankenchart problem *inside* one codebase: twelve functions cited from twelve corners of a repository do not establish one system.
+- [ ] **[D]** **Correction (Andrew, 2026-08-16): CE is not empty-handed here.** `core/mechanism-grouper.js` does exactly this — deterministic, no-LLM clustering of an index's functions into related *mechanism groups*, validated across a dozen corpora. **It is imported by `--pseudo-claims` and by nothing else.** So this is not *"build a relatedness notion"*; it is **the signature defect of this codebase** — a mechanism that exists, passes its tests, and is never reached on the path that needs it. Same shape as per-element retrieval living in `--claim-locate` while `--claim-analyze` went without.
+- [ ] **[M]** *"The choice of which parts of a product are juxtaposed with each claim limitation is **constrained by how the limitation fits into the claim as a whole**."* The checklist approach is necessary but *"must be combined with examining claim as a whole."*
+- [ ] **[M]** **Evidence aggregates.** *"All evidence of identity derives its power from the aggregation of individually uninteresting matches or non-matches."*
+- [ ] **[H]** **Non-infringement is an OR function**: *"D need only show the absence of a single limitation."* A chart is only as strong as its weakest row — an argument for honest ABSENTs, not hidden ones.
 
 ## A15. Designation and numbering
 
@@ -187,6 +225,9 @@ Markers are this document's editorial judgement, not the author's.
 - [ ] **[D]** **Facts alone are insufficient.** *"It is not helpful to place the information in the chart, without doing something with it."*
 - [ ] **[M]** *"Using"* information means *"parsing it to highlight the presence of limitations and subparts."*
 
+- [ ] **[D]** ✗ **Named mistake #1, and it is grep-able.** A conclusory chart is *"often absent the word 'because'"* connecting facts to limitations — the author states this **twice, in two separate works**: *"Absence of the word 'because' is often a tip-off that such an explanation is missing."* **Word-presence is a mechanical self-check CE could run on its own output** — the cheapest quality gate here.
+- [ ] **[M]** ✗ **Equivalence (Andrew, 2026-08-16 — omitted from the first draft).** The *"because"* formulation matters most **when equivalence is asserted**, because there the connection is the whole argument: the code plainly is not the claimed thing, and the row must say why that does not matter. **The consequence is structural:** equivalence is **how an ABSENT becomes something else**. A limitation with no literal match is not necessarily dead — if the differing feature performs **substantially the same function, in substantially the same way, to substantially the same result**, the honest verdict is a *possible equivalent*, not a bare ABSENT. **CE has four verdicts and none is that**: `PRESENT` / `PARTIAL` / `ASSUMED` / `ABSENT` are all literal-infringement labels. A fifth — earned only by a stated function/way/result argument, never by default — is missing. Andrew notes this may be beyond CE's near-term scope; the gap in the *vocabulary* is worth recording even if it stays unfilled.
+
 ## B3. Pinpointing and specificity
 
 - [ ] **[D]** Identify ***specifically where*** each limitation is found — *"the factual equivalent of a legal 'pinpoint' citation."*
@@ -202,6 +243,8 @@ Markers are this document's editorial judgement, not the author's.
 - [ ] **[D]** Still, *"material shown in the RHC of a given row should correspond **only** to the limitation in the LHC of that same row."*
 - [ ] **[D]** **Do not paste the same large reference into every row.**
 
+- [ ] **[H]** **But *demanding* super-pinpointing is itself named mistake #16.** Requests for it — like one-chart-per-product mandates — can be *"busywork designed to impose litigation costs"*, conflating a substantive dispute with a notice requirement. **An aspiration for the author of a chart; not a stick for its reader.**
+
 ## B4. Naming and nomenclature
 
 - [ ] **[D]** Use the **product's** nomenclature in the RHC, *"not mimicking the mere language of the claim."*
@@ -210,6 +253,8 @@ Markers are this document's editorial judgement, not the author's.
 - [ ] **[M]** Ask: *"If someone were infringing, what terminology would they be using?"* ✓ CE's `buildDiscoverPrompt` asks exactly this.
 - [ ] **[D]** For prior art, **explicitly assert** that *"what is called X in the prior-art reference is the same as what is called Y in the newer patent claim."*
 - [ ] **[D]** Identify each product *"by name or model number"*, with version, platform and variant.
+
+- [ ] **[D]** ✓ **The author's own search method is CE's multisect.** Brainstorm candidate terms per limitation and combine them with booleans — his examples are `(localhost OR loopback) AND web` and `legacy AND gui`. Anticipate that **the same functionality is named differently** across product, code, documentation and prior art.
 
 ## B5. Evidence types and hierarchy
 
@@ -232,7 +277,7 @@ Markers are this document's editorial judgement, not the author's.
 - [ ] **[M]** **Directional errors**: *"Don't use a DoSend() function to meet a limitation which reads a message."* Charts *"often confuse client/send/write with server/receive/read."* ⚠ Mechanically checkable — a real candidate for CE.
 - [ ] **[M]** **Same name, different thing**: *"often necessary to 'drill down' below the name."*
 - [ ] **[M]** **Comments** are *"extremely useful in short-circuiting"* analysis but may be *"outdated, incorrect, or referring to a somewhat different"* thing.
-- [ ] **[H]** Source code is **generally not prior art** — it is *evidence of* what a public product did. Comments especially, since they are compiled away.
+- [ ] **[H]** **Corrected (Andrew, 2026-08-16).** The flat claim that *"source code is generally not prior art"* was wrong. It is **false for open source**, and for any source **publicly accessible at the relevant time** — that source *is* prior art directly. The rule holds only for **closed proprietary source** obtained in discovery, which serves as *evidence of* what a public product did. The comments point was **overstated** even there: a caution about weight, not a disqualification.
 
 ## B7. Claim construction in the chart
 
@@ -255,6 +300,9 @@ Markers are this document's editorial judgement, not the author's.
 - [ ] **[D]** DoE requires *"an explanation of each function, way, and result that is equivalent and why any differences are not substantial."* A **boilerplate DoE reservation is rejected.**
 - [ ] **[D]** **All limitations must be present**, together, forming *"a single method or apparatus."*
 
+- [ ] **[M]** **Equivalence is tested per limitation**, never on the product as a whole: *"it is not a matter of seeing whether the accused product as a whole is somehow the same."*
+- [ ] **[H]** **Prosecution-history estoppel** caps equivalence: a patent owner cannot use the doctrine to reach what it **explicitly disclaimed during prosecution** to obtain the grant. *"P can't twist its claim one way to get the patent granted… and then twist it a different way to capture infringement."*
+
 ## B9. Subheadings and organisation
 
 - [ ] **[D]** Use **RHC subheadings** to break down complicated limitations; *"nearly essential"* when charting multiple references or related products.
@@ -271,7 +319,7 @@ Markers are this document's editorial judgement, not the author's.
 - [ ] **[D]** Obviousness must **identify the combinations** and explain motivation — *"A mere list of prior-art references, without identifying any combinations among them, can't disclose an obviousness theory."*
 - [ ] **[D]** For prior-art patents, compare against *"the **entire disclosure**… including the specification and drawings"*, not its claims.
 
-## B11. What to avoid — named defects
+## B11. Named claim-chart defects
 
 - [ ] **[D]** **Boilerplate**: charts *"must be meaningful—as opposed to boilerplate—and non-evasive."*
 - [ ] **[D]** **`See, e.g.`** and *"including but not limited to"* — *"suggest incomplete theories rather than cementing case position."*
@@ -281,7 +329,11 @@ Markers are this document's editorial judgement, not the author's.
 - [ ] **[D]** **Data dumps** without pincites.
 - [ ] **[D]** **Undifferentiated masses of sub-limitations** in one row (*Sutton v. Nokia*).
 - [ ] **[M]** **Whack-A-Mole**: postponing concrete positions with *"see for example"*.
-- [ ] **[H]** Do not treat claims as *"templates for hindsight rooting through prior art."*
+- [ ] **[H]** **Do not treat the claim as a shopping list to go hunting prior art with.** The phrase is *"templates for hindsight rooting through prior art"*, and the context is **obviousness**: knowing the claim, one can always find each limitation *somewhere* across enough references. That is hindsight — and it is why obviousness needs a **motivation to combine** established at the priority date, not merely a showing that the pieces existed.
+
+- [ ] **[M]** ✓ **The "inventor fallacy" or "Prego" chart** (mistake #10) — a **naked inference that the product "must be doing" something** from an observed result. *(The name is Andrew's, after the pasta-sauce advertisements whose slogan was "It's in there!" — asserted of every ingredient, demonstrated of none. He doubts the joke lands on its own, so it is spelled out.)* It *"fails to specifically identify where each limitation is found"* and *"cannot [be] remedie[d] merely by circling datasheet portions."* **The most CE-relevant mistake on the list**, and CE already has the guard: the `ASSUMED` verdict exists precisely for *"calls another function whose NAME suggests it implements the element"*, and the prompt insists a suggestive name *"is not the same as implementation."* The rule now has a name worth keeping.
+- [ ] **[M]** **Unreasonable *implied* construction** (mistake #12) — juxtaposition itself can imply a reading nobody stated, e.g. reading *"hard copy"* onto a web page. **A chart can never not construe**; the only question is whether the construction it implies is defensible.
+- [ ] **[H]** **Expert / party chart mismatch** (mistake #14) — expert report scope **should not exceed party contentions**. Courts strike expert opinion outside them, and an expert cannot backfill missing theories, products or references.
 
 ## B12. Chart types
 
@@ -372,7 +424,8 @@ they are:
    limitation which reads a message"*; charts *"often confuse client/send/write
    with server/receive/read."* CE has call graphs and could test this.
 5. **Identical-RHC self-check** — if two limitations get the same cited code,
-   *"one of the two claims is superfluous"*, or the chart is wrong.
+   — **WITHDRAWN** (Andrew, 2026-08-16): several limitations can legitimately share
+   one function, even the same lines, and one limitation can span several references.
 6. **Cross-row incorporation by reference** — *"See limitation [1d] above."*
 7. **Cite-without-quoting mode** — for protective orders that forbid verbatim
    source.
