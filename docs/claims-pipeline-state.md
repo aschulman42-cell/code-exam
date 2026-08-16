@@ -174,6 +174,34 @@ Both give *real* claims at scale. Neither gives a code-reference answer key, so
 they test smell-test plausibility rather than recall — complementary to HOF, not a
 substitute.
 
+**In hand since 2026-08-15:** `randpat_2020_claims_sorted.txt` and
+`randpat_2020_indep_claims.out.txt` — **5,382 de-duplicated independent claims**
+across two formats (`<len> <patent> <claim#>. <text>` and
+`<patent> <claim#>. <text>`).
+
+*Provenance caveats, Andrew's own (do not quote rates from this corpus without
+them):* ~6 years old, output of his `getpat.awk`, and **possibly text-filtered at
+the time** — Greek letters, equations, and references to external portions of
+patents may have been altered. Probably light on **AI/ML and business methods**,
+and may be patents generally rather than software/network — a keyword smell test
+puts 90.7% carrying software/network vocabulary, which is an upper bound, not a
+classifier. A fresh list would be better; the PTO has made building one much
+harder than when that program was written.
+
+**What it is good for regardless: every claim-TEXT question** — splitter
+behaviour, preamble handling, boundary words, element-count distributions. Those
+need no code, no index and no answer key, so the caveats above barely bite. It is
+**not** a retrieval benchmark: there is no associated code.
+
+**First result from it, and it is a defect:** CE **discards the preamble on 98.7%
+of these claims** (5,297 of 5,369; retained in element 1: zero). Cause is
+`splitClaimElements`' single-line path, which drops everything before the first
+colon — and real corpora deliver claims as one line, while both CE test claims
+are hand-wrapped and take other paths. Confirmed independently of the corpus:
+'101 joined to a single line splits into **2 elements with no preamble** where
+the shipped multi-line file gives **10 with the preamble first**. Worklist:
+`claim-splitter-preamble-restore`.
+
 **The loop is currently one pass that emits a redraft signal, not an automated
 loop to convergence.** Andrew's original intent — iterate until pseudo-claims and
 their code references converge — is the unbuilt half, and is what would drive
