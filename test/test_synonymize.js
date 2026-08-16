@@ -288,3 +288,61 @@ describe('HOF-b: terminal punctuation is restored, not preserved', () => {
     }
   });
 });
+
+describe('HOF-b: the model\'s own punctuation does not override the source', () => {
+  // MEASURED (Gemini, 2026-08-16, after the marker fix). The model ended several
+  // limitations with '.' where the source had ';'. The first version of the
+  // restore loop skipped any rewrite already ending in punctuation, read those
+  // periods as "already punctuated", and restored only 2 of 6 semicolons -- so
+  // the claim still collapsed on rewrap, 11 elements to 6. Deferring to the
+  // model's punctuation was the same mistake as deferring to its markers, one
+  // layer on: A CLAIM IS ONE SENTENCE, so a period anywhere but the end is wrong.
+  const oneLine = (s) => s.replace(/\s*\n\s*/g, ' ');
+
+  // Apply the production rule to a set of rewrites. Mirrors doSynonymize.
+  function applyTerminators(rewrites, terms) {
+    return rewrites.map((cur, i) => {
+      const t = terms[i];
+      if (!t || cur.endsWith(t)) return cur;
+      const own = cur.match(/([;,:.])\s*$/);
+      if (own) {
+        if (i === rewrites.length - 1 && own[1] === '.') return cur;
+        return cur.replace(/[;,:.]\s*$/, '') + t;
+      }
+      return cur + t;
+    });
+  }
+
+  it('replaces a mid-claim period with the source terminator', () => {
+    const terms = terminatorsFor(DEMO_CLAIM, DEMO_ELEMENTS);
+    const periodEnding = DEMO_ELEMENTS.map((e) => e.replace(/[;,:.]\s*$/, '') + '.');
+    const fixed = applyTerminators(periodEnding, terms);
+    const srcSemis = (DEMO_CLAIM.match(/;/g) || []).length;
+    assert.equal((periodEnding.join('\n').match(/;/g) || []).length, 0, 'baseline: model gave none');
+    assert.equal((fixed.join('\n').match(/;/g) || []).length, srcSemis,
+      'every source semicolon must be recovered despite the model supplying periods');
+  });
+
+  it('and that restores rewrap survivability, which the old rule did not', () => {
+    const terms = terminatorsFor(DEMO_CLAIM, DEMO_ELEMENTS);
+    const periodEnding = DEMO_ELEMENTS.map((e) => e.replace(/[;,:.]\s*$/, '') + '.');
+    const fixed = applyTerminators(periodEnding, terms);
+    const target = splitClaimElements(oneLine(DEMO_CLAIM)).length;
+    assert.equal(splitClaimElements(oneLine(fixed.join('\n'))).length, target);
+    assert.ok(splitClaimElements(oneLine(periodEnding.join('\n'))).length < target,
+      'the unfixed version must be measurably worse, or this proves nothing');
+  });
+
+  it('leaves the FINAL period alone — it is the sentence ending', () => {
+    const terms = terminatorsFor(DEMO_CLAIM, DEMO_ELEMENTS);
+    const periodEnding = DEMO_ELEMENTS.map((e) => e.replace(/[;,:.]\s*$/, '') + '.');
+    const fixed = applyTerminators(periodEnding, terms);
+    assert.match(fixed[fixed.length - 1], /\.$/, 'a claim ends in a period');
+  });
+
+  it('does not touch a rewrite that already matches the source', () => {
+    const terms = terminatorsFor(DEMO_CLAIM, DEMO_ELEMENTS);
+    const already = DEMO_ELEMENTS.map((e, i) => (terms[i] ? e.replace(/[;,:.]\s*$/, '') + terms[i] : e));
+    assert.deepEqual(applyTerminators(already, terms), already);
+  });
+});

@@ -7,7 +7,9 @@
 // pointed at the wrong subsystem.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { livePositiveTerms, mergeSearchResults, claimAnalyzeTopN, claimNeighbourhoodN, termProbeSource } from '../src/commands/analyze.js';
+import { livePositiveTerms, mergeSearchResults, claimAnalyzeTopN, claimNeighbourhoodN, termProbeSource, readClaimFile } from '../src/commands/analyze.js';
+import { splitClaimElements } from '../src/commands/claim-locate.js';
+import fs from 'node:fs';
 import { parseMultisectTerms } from '../src/commands/multisect.js';
 
 // Gemma's own TIGHT extraction for claim 1. Four of these nine match zero files
@@ -481,5 +483,63 @@ describe('per-element arm: the vocabulary call rides the TERM-EXTRACTION engine'
   it('mirrors claim-analyze default of Claude when no engine is named', () => {
     const m = perElementModel({}, null);
     assert.ok(m === null || m.kind === 'cloud');
+  });
+});
+
+// Provenance blocks reaching the model as claim text. Found by Andrew running a
+// synonymized claim, 2026-08-16, and it corrupted the run before it was caught.
+describe('claim files: # provenance is not claim text', () => {
+  const SYN = 'sample_patent_claim_synon_chatgpt.txt';   // real file, has a 9-line # header
+  const PLAIN = 'sample_patent_claim.txt';               // real file, no comments
+
+  it('drops # lines and reports how many', () => {
+    const seen = [];
+    readClaimFile(SYN, { onComments: (n, f) => seen.push([n, f]) });
+    assert.equal(seen.length, 1, 'must report exactly once');
+    assert.equal(seen[0][0], 9);
+    assert.equal(seen[0][1], SYN);
+  });
+
+  it('restores the correct element count — the measured corruption', () => {
+    // Read raw, this file split to TWELVE: row 1 was the provenance block and
+    // row 2 a TRUNCATED first limitation ("for creating a protected exchange
+    // link...", with "A method" sheared off), so every row was offset against
+    // the chart being compared to.
+    const text = readClaimFile(SYN);
+    assert.equal(splitClaimElements(text).length, 11);
+    assert.match(splitClaimElements(text)[0], /^A method for creating/,
+      'the first limitation must be whole, not truncated');
+  });
+
+  it('keeps the experiment out of the prompt, which is the point', () => {
+    // HOF-b withholds from the model that this is a restatement of another
+    // document. The header announced exactly that, plus the engine and the
+    // displacement figure.
+    const text = readClaimFile(SYN);
+    for (const leak of [/Synonymized claim/, /ChatGPT API/, /content-word survival/,
+                        /content words survive/, /Source:\s+sample_patent_claim/]) {
+      assert.ok(!leak.test(text), `provenance leaked into claim text: ${leak}`);
+    }
+  });
+
+  it('leaves a comment-free file byte-identical', () => {
+    // The regression this could easily introduce: rejoining normalises CRLF to
+    // LF, altering every claim file on a Windows checkout for no reason.
+    const raw = fs.readFileSync(PLAIN, 'utf-8');
+    assert.equal(readClaimFile(PLAIN), raw.trim());
+  });
+
+  it('does not report anything when there is nothing to report', () => {
+    let called = false;
+    readClaimFile(PLAIN, { onComments: () => { called = true; } });
+    assert.equal(called, false, 'silence must mean "no comments", not "not checked"');
+  });
+
+  it('only strips # at line START, so a mid-line # stays claim text', () => {
+    const tmp = 'test_tmp_hash_claim.txt';
+    fs.writeFileSync(tmp, 'A method comprising: assigning a #tag to each record;\n', 'utf-8');
+    try {
+      assert.match(readClaimFile(tmp), /#tag/, 'a # inside a limitation is content');
+    } finally { fs.unlinkSync(tmp); }
   });
 });

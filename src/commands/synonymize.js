@@ -307,20 +307,40 @@ export async function doSynonymize(args, opts = {}) {
 
   // Restore the terminal punctuation the splitter removed, so the output claim
   // survives being rewrapped the way the original does. See terminatorsFor.
+  // A CLAIM IS ONE SENTENCE, so a period anywhere but the end is wrong, and a
+  // rewrite that supplies one must not be deferred to.
+  //
+  // MEASURED (Gemini, 2026-08-16, after the marker fix): the model ended several
+  // limitations with '.' where the source had ';'. The first version of this
+  // loop skipped any rewrite already ending in punctuation, read those periods
+  // as "already punctuated", and restored only 2 of 6 semicolons -- so the claim
+  // still collapsed on rewrap, 11 elements to 6. Deferring to the model's
+  // punctuation was the same mistake as deferring to its markers, one layer on.
   const terms = terminatorsFor(claimText, elements);
-  let restored = 0;
+  let restored = 0, replaced = 0;
   for (let i = 0; i < rows.length; i++) {
     const t = terms[i];
     if (!t) continue;
-    // Do not double a mark the rewrite already ends with.
-    if (/[;,:.]$/.test(rows[i].rewritten)) continue;
-    rows[i].rewritten += t;
-    restored++;
+    const cur = rows[i].rewritten;
+    if (cur.endsWith(t)) continue;                 // already exactly right
+    const ownMark = cur.match(/([;,:.])\s*$/);
+    if (ownMark) {
+      // The source is authoritative about structure. Swap the model's mark for
+      // the one the claim actually used -- except a FINAL period, which is the
+      // sentence ending and correct.
+      const isFinal = i === rows.length - 1;
+      if (isFinal && ownMark[1] === '.') continue;
+      rows[i].rewritten = cur.replace(/[;,:.]\s*$/, '') + t;
+      replaced++;
+    } else {
+      rows[i].rewritten = cur + t;
+      restored++;
+    }
   }
   const placeable = terms.filter(Boolean).length;
-  process.stderr.write(`[synonymize] terminal punctuation restored on ${restored} of `
-    + `${elements.length} element(s)${placeable < elements.length
-      ? ` (${elements.length - placeable} could not be located in the source)` : ''}\n`);
+  process.stderr.write(`[synonymize] terminal punctuation: ${restored} added, ${replaced} corrected`
+    + ` (of ${elements.length} element(s))${placeable < elements.length
+      ? `; ${elements.length - placeable} could not be located in the source` : ''}\n`);
 
   // SPLIT-INVARIANCE IS THE GUARANTEE THIS COMMAND EXISTS TO PROVIDE, so it is
   // CHECKED rather than assumed. Feed the output back through the same splitter

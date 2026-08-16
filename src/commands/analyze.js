@@ -1430,12 +1430,65 @@ function _prepareSource(source, filepath, opts = {}) {
  * @param {string} [claimArg] - The --claim-analyze argument value
  * @returns {string|null}
  */
+/**
+ * Read a claim file, dropping `#` comment lines.
+ *
+ * WHY. Files written by `--synonymize-out` carry a `#` provenance block, the
+ * same convention `--targets-out` uses. Read raw, that block became CLAIM TEXT,
+ * and it did two things (measured on a real run, 2026-08-16):
+ *
+ *  1. The skeleton went wrong. The file split to TWELVE elements, not eleven:
+ *     row 1 was the provenance block, and row 2 was a TRUNCATED first limitation
+ *     -- "for creating a protected exchange link...", with "A method" sheared
+ *     off, because the splitter merged the header's last line into it. Every row
+ *     was then offset against the chart it was being compared to.
+ *
+ *  2. The header leaked the experiment into the prompt. The model was shown
+ *     "Synonymized claim -- HOF-b. Wording changed, requirement preserved",
+ *     which engine produced it, and how much vocabulary was displaced. That is
+ *     precisely the knowledge HOF-b exists to WITHHOLD: a model told it is
+ *     reading a deliberate restatement of another document may reason back
+ *     toward the original.
+ *
+ * The convention already existed one command over -- `parseElementsFile` strips
+ * `#` for `--claim-chart --elements` -- and simply was not reached here. Same
+ * shape as the rest of this batch.
+ *
+ * Exported because THREE other commands read claim files by their own
+ * readFileSync and have the identical defect: `--claim-chart` (claim-chart.js),
+ * `--claim-locate` (claim-locate.js) and `--claim-search` (claim.js). They are
+ * deliberately NOT changed here -- out of the approved scope -- and this helper
+ * exists so that fixing them is an import rather than three more copies.
+ */
+export function readClaimFile(fpath, { onComments } = {}) {
+  const raw = readFileSync(fpath, 'utf-8');
+  const lines = raw.split(/\r?\n/);
+  const kept = lines.filter((l) => !/^\s*#/.test(l));
+  const dropped = lines.length - kept.length;
+  // A file with no comments is returned UNTOUCHED. Rejoining would silently
+  // normalise CRLF to LF, which is a change to every claim file on a Windows
+  // checkout for no reason -- and "this fix alters files it has no business
+  // altering" is exactly the regression worth not shipping.
+  if (!dropped) return raw.trim();
+  // Never silent: discarding input without saying so is how the next version of
+  // this bug hides.
+  onComments?.(dropped, fpath);
+  return kept.join('\n').trim();
+}
+
+function _readClaimFileReporting(fpath) {
+  return readClaimFile(fpath, {
+    onComments: (n, f) => process.stderr.write(
+      `  Claim file ${f}: ignored ${n} '#' comment line(s) (provenance, not claim text).\n`),
+  });
+}
+
 function _resolveClaimText(args, claimArg) {
   // Source 1: the --claim-analyze argument itself
   if (claimArg) {
     if (claimArg.startsWith('@')) {
       const fpath = claimArg.slice(1);
-      try { return readFileSync(fpath, 'utf-8').trim(); }
+      try { return _readClaimFileReporting(fpath); }
       catch { console.log(`Claim file not found: ${fpath}`); return null; }
     }
     // If it looks like substantial text, use it directly
@@ -1449,7 +1502,7 @@ function _resolveClaimText(args, claimArg) {
   if (claimText) {
     if (claimText.startsWith('@')) {
       const fpath = claimText.slice(1);
-      try { return readFileSync(fpath, 'utf-8').trim(); }
+      try { return _readClaimFileReporting(fpath); }
       catch { console.log(`Claim file not found: ${fpath}`); return null; }
     }
     return claimText.trim();
@@ -1458,7 +1511,7 @@ function _resolveClaimText(args, claimArg) {
   // Source 3: --claim-file (backward compatibility)
   const claimFile = args.claim_file || null;
   if (claimFile) {
-    try { return readFileSync(claimFile, 'utf-8').trim(); }
+    try { return _readClaimFileReporting(claimFile); }
     catch { console.log(`Claim file not found: ${claimFile}`); return null; }
   }
 
