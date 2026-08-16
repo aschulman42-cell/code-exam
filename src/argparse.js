@@ -269,6 +269,8 @@ export function parseArgs() {
     propose_from_priors: false,
     hunt: false,
     no_hunt: false,
+    synonymize: null,        // HOF-b: rewrite a claim's wording away from code vocabulary
+    synonymize_out: null,
     per_element_select: false,
     no_per_element: false,   // --claim-analyze: skip the per-element search arm
     per_element_n: null,     // --claim-analyze: per-element budget (default 1/element)
@@ -565,6 +567,8 @@ export function parseArgs() {
     ['propose_from_priors',  'flag',           ['--propose-from-priors']],
     ['hunt',                 'flag',           ['--hunt']],
     ['no_hunt',              'flag',           ['--no-hunt']],
+    ['synonymize',           'value',          ['--synonymize']],
+    ['synonymize_out',       'value',          ['--synonymize-out']],
     ['per_element_select',   'flag',           ['--per-element-select']],
     ['no_per_element',       'flag',           ['--no-per-element']],
     ['per_element_n',        'int',            ['--per-element-n']],
@@ -1465,6 +1469,19 @@ LLM ANALYSIS:
                              (shouldStartPlayback 5/5 -> 3/6), so pooled is the
                              default. Kept for measurement, and for local runs where
                              a shorter target list is worth more than recall.
+  --synonymize <claim>       HOF-b. Rewrite a claim's WORDING away from the vocabulary
+                             a programmer would use, preserving the requirement and the
+                             element split, so a corpus whose answers are already known
+                             becomes a real test of retrieval. Takes inline text or
+                             @file; one model call per limitation. Needs NO index and
+                             cannot read one -- withholding the code is the mechanism.
+                             Reports how much of the original vocabulary survived, and
+                             warns when a rewrite changed too little to test anything.
+                             NOT the reverse tool: it moves wording AWAY from code, not
+                             toward it.
+  --synonymize-out <file>    --synonymize: write the result to <file> with a '#'
+                             provenance block (engine, source, overlap). One limitation
+                             per line, so it feeds back in via --elements.
   --no-per-element           --claim-analyze: skip the per-element search arm and
                              use whole-claim retrieval alone (pre-arm behaviour).
   --per-element-n <n>        --claim-analyze: how many per-element candidates to add

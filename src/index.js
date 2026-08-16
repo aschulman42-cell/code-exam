@@ -379,6 +379,18 @@ if (args._explicit.has('list_indexes')) {
   process.exit(0);
 }
 
+// HOF-b. Dispatched HERE, before any index is constructed, and that placement is
+// the point rather than an optimisation: --synonymize must rewrite a claim
+// without ever seeing the code it will later be searched against. Withholding
+// the code is the mechanism by which the vocabulary gap is manufactured, so the
+// command is made structurally incapable of reaching an index instead of merely
+// being trusted not to.
+if (args.synonymize) {
+  const { doSynonymize } = await import('./commands/synonymize.js');
+  await doSynonymize(args);
+  process.exit(process.exitCode || 0);
+}
+
 if (args.extract_js_from_binary) {
   doExtractJsFromBinary(args);
   process.exit(0);
