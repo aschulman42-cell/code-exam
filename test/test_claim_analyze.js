@@ -218,3 +218,268 @@ describe('#307 term probe reads the production term shape', () => {
       'if this ever returns terms instead, the probe needs its own guard');
   });
 });
+
+// ===========================================================================
+// PER-ELEMENT ARM — the third search beside TIGHT and BROAD.
+//
+// MEASURED failure this exists to fix (.demo x sample_patent_claim.txt,
+// 2026-08-11): both cloud engines returned element (e) ABSENT on a corpus that
+// implements it, because `SecureChannel::sendMessage` matches 2 of 12 TIGHT
+// terms against a quorum of 6. Adding the one term it lacks takes it to 3 — the
+// exclusion is arithmetic, not vocabulary, so no term-set fix reaches it.
+//
+// TEST SHAPE, deliberately. Inputs are built by running the REAL
+// buildSymbolTable + searchSymbolsByWords, not by hand-shaping objects. The
+// #307 live-term quorum shipped INERT for months because its test passed an
+// array of strings while production passed parsed-term objects, and the helper
+// took an entirely different branch. A per-element hit is
+// `{sym: {filepath, name, bare, start, end, tokens}, matched, score}`; writing
+// that literal by hand is the same bet that lost last time.
+// ===========================================================================
+import {
+  matchKey, perElementMatches, perElementBudget, perElementModel, PER_ELEMENT_MAX,
+} from '../src/commands/analyze.js';
+import { buildSymbolTable } from '../src/core/symbol-verify.js';
+import { searchSymbolsByWords } from '../src/commands/claim-locate.js';
+
+// A .demo-shaped index: the two long orchestrators whole-claim search selects,
+// and the single-limitation implementers it structurally cannot reach.
+const DEMO_INDEX = {
+  functionIndex: {
+    'demo/handshake.c': {
+      'establishConnection': { start: 10, end: 96 },   // 87 lines — what TIGHT picks
+      'perform_handshake': { start: 100, end: 202 },   // 103 lines
+      'verify_certificate_chain': { start: 210, end: 240 },
+    },
+    'demo/channel.c': {
+      'SecureChannel::sendMessage': { start: 5, end: 40 },
+      'tls_send_encrypted': { start: 44, end: 70 },
+      'sendSecureData': { start: 74, end: 110 },
+    },
+    'demo/cipher.c': {
+      'selectCipherSuites': { start: 3, end: 30 },
+      'validateHostname': { start: 34, end: 60 },
+    },
+  },
+};
+
+const DEMO_SYMBOLS = buildSymbolTable(DEMO_INDEX);
+
+// Build a per-element block the way retrievePerElement does: model-predicted
+// words in, CE's own symbol-table search out.
+const element = (n, words) => ({
+  element: n,
+  text: `element ${n}`,
+  words,
+  hits: searchSymbolsByWords(DEMO_SYMBOLS, words, { limit: 25 }),
+});
+
+describe('per-element arm: match identity is shared with the whole-claim merge', () => {
+  it('keys a per-element hit exactly as the TIGHT/BROAD merge keys its own', () => {
+    // The drift this guards is silent in both directions: a key shaped
+    // differently would either analyze one function twice at double cost, or
+    // suppress a per-element hit that duplicates nothing.
+    const tightShaped = { filepath: 'demo/channel.c', function: 'sendSecureData', lines: 37 };
+    const [perEl] = perElementMatches([element(1, ['send', 'secure'])], { max: 1 });
+    assert.equal(matchKey(perEl), matchKey({ filepath: perEl.filepath, function: perEl.function }));
+    assert.equal(
+      matchKey({ filepath: 'demo/channel.c', function: 'sendSecureData' }),
+      matchKey(tightShaped),
+      'the two arms must agree on what "the same function" means');
+  });
+
+  it('tolerates the file/name field aliases the merge already accepts', () => {
+    assert.equal(matchKey({ file: 'a.c', name: 'f' }), matchKey({ filepath: 'a.c', function: 'f' }));
+    assert.equal(matchKey({}), '@');
+  });
+});
+
+describe('per-element arm: round-robin spends the budget on DISTINCT elements', () => {
+  const perElement = [
+    element(1, ['handshake', 'connection']),
+    element(2, ['certificate', 'verify']),
+    element(3, ['cipher', 'select']),
+    element(4, ['hostname', 'validate']),
+    element(5, ['send', 'secure']),      // the measured ABSENT element
+  ];
+
+  it('covers every element before taking any element twice', () => {
+    const out = perElementMatches(perElement, { max: 5 });
+    assert.deepEqual(out.map((m) => m._element), [1, 2, 3, 4, 5],
+      'breadth-first is the mechanism: an uncovered element is an ABSENT verdict');
+    assert.equal(new Set(out.map((m) => m._element)).size, 5);
+  });
+
+  it('reaches element 5 even when the budget is smaller than the element count', () => {
+    // The failure being fixed is per-element, so a short budget must still
+    // spread. Depth-first on element 1 would reproduce the bug exactly.
+    const out = perElementMatches(perElement, { max: 3 });
+    assert.equal(out.length, 3);
+    assert.equal(new Set(out.map((m) => m._element)).size, 3, 'three elements, not three hits for one');
+  });
+
+  // Neighbouring limitations predict overlapping vocabulary. Indexing every
+  // element at the same rank let the first element take the shared top symbol
+  // and deduped the second out of its own slot, leaving it uncovered while its
+  // second-choice candidate sat unused — the exact failure the arm exists to
+  // prevent, reintroduced by the selection rule.
+  it('gives an element its best UNTAKEN candidate when two elements overlap', () => {
+    const overlapping = [
+      element(1, ['send', 'channel']),
+      element(2, ['send', 'channel']),   // identical prediction
+      element(3, ['send', 'channel']),
+    ];
+    const out = perElementMatches(overlapping, { max: 3 });
+    assert.deepEqual(out.map((m) => m._element), [1, 2, 3],
+      'every element must be covered even when their candidate lists collide');
+    assert.equal(new Set(out.map((m) => m.function)).size, 3, 'and by distinct functions');
+  });
+
+  it('goes to rank 1 only after rank 0 of every element, and only if asked', () => {
+    const one = perElementMatches(perElement, { max: 20, ranksPerElement: 1 });
+    assert.ok(one.length <= perElement.length, 'default is one candidate per element');
+    const two = perElementMatches(perElement, { max: 20, ranksPerElement: 2 });
+    assert.ok(two.length > one.length, 'a second rank adds candidates');
+    assert.deepEqual(two.slice(0, one.length).map((m) => m._element), one.map((m) => m._element),
+      'the rank-0 sweep must come first and be unchanged');
+  });
+});
+
+describe('per-element arm: the measured .demo failure', () => {
+  // THE ACCEPTANCE TEST, expressed at unit level. The live form is a real
+  // --claim-analyze run on .demo where element (e) stops being ABSENT.
+  const WHOLE_CLAIM_TOP = [
+    { filepath: 'demo/handshake.c', function: 'establishConnection', lines: 87, _via: 'tight' },
+    { filepath: 'demo/handshake.c', function: 'perform_handshake', lines: 103, _via: 'tight' },
+  ];
+
+  it('schedules a transmission implementer the whole-claim quorum cannot reach', () => {
+    const out = perElementMatches([element(5, ['send', 'secure', 'message'])], {
+      max: 3, skip: WHOLE_CLAIM_TOP.map(matchKey),
+    });
+    const names = out.map((m) => m.function);
+    assert.ok(
+      names.some((n) => /sendSecureData|sendMessage|tls_send_encrypted/.test(n)),
+      `expected a transmission implementer, got: ${names.join(', ') || '(none)'}`);
+  });
+
+  it('does not re-analyze a function the whole-claim search already selected', () => {
+    const out = perElementMatches([element(1, ['establish', 'connection', 'handshake'])], {
+      max: 5, skip: WHOLE_CLAIM_TOP.map(matchKey),
+    });
+    assert.equal(out.filter((m) => m.function === 'establishConnection').length, 0,
+      'the whole-claim arm ranked it on term evidence and keeps it');
+    assert.equal(out.filter((m) => m.function === 'perform_handshake').length, 0);
+  });
+
+  it('carries provenance so the artifact can say which search found the cite', () => {
+    const [m] = perElementMatches([element(5, ['send', 'secure'])], { max: 1 });
+    assert.equal(m._via, 'per-element');
+    assert.equal(m._element, 5);
+    assert.ok(Array.isArray(m._element_words) && m._element_words.length);
+  });
+
+  it('reports NO term count rather than a fabricated one', () => {
+    // Per-element retrieval has no quorum and counts no terms. A number here
+    // would sit beside real [n/N] counts in the same list and read as one.
+    const [m] = perElementMatches([element(5, ['send', 'secure'])], { max: 1 });
+    assert.equal(m.terms_matched, null);
+  });
+
+  it('emits the line count the analyze pipeline filters and prints on', () => {
+    const [m] = perElementMatches([element(5, ['send', 'secure'])], { max: 1 });
+    assert.ok(m.lines > 0, 'a 0 would be filtered out as non-extractable');
+  });
+});
+
+describe('per-element arm: degenerate inputs must not throw', () => {
+  it('survives empty, missing and malformed blocks', () => {
+    assert.deepEqual(perElementMatches([], { max: 5 }), []);
+    assert.deepEqual(perElementMatches(null, { max: 5 }), []);
+    assert.deepEqual(perElementMatches(undefined), []);
+    assert.deepEqual(perElementMatches([{ element: 1 }], { max: 5 }), [], 'no hits key');
+    assert.deepEqual(perElementMatches([{ element: 1, hits: [null, {}] }], { max: 5 }), [],
+      'a hit with no sym is skipped, not dereferenced');
+  });
+
+  it('honours a zero budget as OFF, not as unlimited', () => {
+    assert.deepEqual(perElementMatches([element(1, ['handshake'])], { max: 0 }), []);
+  });
+});
+
+describe('per-element arm: budget', () => {
+  it('defaults to one per element so coverage is counted in elements', () => {
+    assert.equal(perElementBudget({}, 5), 5);
+    assert.equal(perElementBudget({}, 1), 1);
+  });
+
+  it('caps a long claim rather than silently scheduling 40 analysis calls', () => {
+    assert.equal(perElementBudget({}, 40), PER_ELEMENT_MAX);
+    assert.equal(PER_ELEMENT_MAX, 12, 'same budget as claim-chart maxRetrievedTargets');
+  });
+
+  // MEASURED against the real .demo index (2026-08-13): CE splits
+  // sample_patent_claim.txt into ELEVEN elements and the transmitting
+  // limitation (e) is the TENTH. Round-robin reaches element 10 on the tenth
+  // slot, so a tidier default of 6 — matching top-N — would cover elements 1-9
+  // and miss exactly the one whose ABSENT verdict prompted this work.
+  it('covers the .demo transmitting element, which is the 10th of 11', () => {
+    const DEMO_ELEMENTS = 11, TRANSMITTING = 10;
+    const budget = perElementBudget({}, DEMO_ELEMENTS);
+    assert.ok(budget >= TRANSMITTING,
+      `budget ${budget} would not reach element ${TRANSMITTING} — element (e) stays ABSENT`);
+
+    // A fixture sized to the question: 12 distinct symbols the same word set
+    // reaches, so an uncovered element means the SELECTION missed it rather
+    // than the corpus running out. Built through the real buildSymbolTable +
+    // searchSymbolsByWords, like every other input in this file.
+    const wide = buildSymbolTable({
+      functionIndex: {
+        'demo/net.c': Object.fromEntries(
+          Array.from({ length: 12 }, (_, i) => [`send_channel_${i}`, { start: i * 10, end: i * 10 + 5 }])),
+      },
+    });
+    const blocks = Array.from({ length: DEMO_ELEMENTS }, (_, i) => ({
+      element: i + 1, text: `element ${i + 1}`, words: ['send', 'channel'],
+      hits: searchSymbolsByWords(wide, ['send', 'channel'], { limit: 25 }),
+    }));
+    const covered = perElementMatches(blocks, { max: budget }).map((m) => m._element);
+    assert.ok(covered.includes(TRANSMITTING), `element ${TRANSMITTING} uncovered: [${covered}]`);
+  });
+
+  it('honours --per-element-n, including 0 as an off switch', () => {
+    assert.equal(perElementBudget({ per_element_n: '3' }, 11), 3);
+    assert.equal(perElementBudget({ per_element_n: 0 }, 11), 0);
+    assert.equal(perElementBudget({ per_element_n: '0' }, 11), 0);
+    assert.equal(perElementBudget({ per_element_n: '20' }, 11), 20, 'an explicit ask is not capped');
+  });
+
+  it('falls back to the default on junk rather than to 0', () => {
+    // 0 would disable the arm silently, which is the failure mode being fixed.
+    for (const v of ['abc', '', null, undefined, '-1']) {
+      assert.equal(perElementBudget({ per_element_n: v }, 4), 4, `junk: ${JSON.stringify(v)}`);
+    }
+  });
+});
+
+describe('per-element arm: the vocabulary call rides the TERM-EXTRACTION engine', () => {
+  it('uses the local model when term extraction is local', () => {
+    const m = perElementModel({ llm: 'claude', cpu: false }, '/models/gemma-3-12b-it-Q4_K_M.gguf');
+    assert.equal(m.kind, 'gguf');
+    assert.equal(m.modelPath, '/models/gemma-3-12b-it-Q4_K_M.gguf');
+  });
+
+  it('does NOT let --analyze-model capture the step from the cloud term engine', () => {
+    // `--llm claude --analyze-model x.gguf` extracts terms on Claude and
+    // analyzes locally. resolveModel's own precedence prefers the GGUF and
+    // would move this step to the other engine without saying so — which is
+    // exactly the class of silent bypass this whole batch is about.
+    const m = perElementModel({ llm: 'claude', analyze_model: '/models/x.gguf' }, null);
+    assert.equal(m.kind, 'cloud', 'term extraction was cloud, so this call is cloud');
+  });
+
+  it('mirrors claim-analyze default of Claude when no engine is named', () => {
+    const m = perElementModel({}, null);
+    assert.ok(m === null || m.kind === 'cloud');
+  });
+});

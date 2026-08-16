@@ -270,6 +270,8 @@ export function parseArgs() {
     hunt: false,
     no_hunt: false,
     per_element_select: false,
+    no_per_element: false,   // --claim-analyze: skip the per-element search arm
+    per_element_n: null,     // --claim-analyze: per-element budget (default 1/element)
     hunt_rounds: null,
     hunt_calls: null,
     claims_loop: null,
@@ -564,6 +566,8 @@ export function parseArgs() {
     ['hunt',                 'flag',           ['--hunt']],
     ['no_hunt',              'flag',           ['--no-hunt']],
     ['per_element_select',   'flag',           ['--per-element-select']],
+    ['no_per_element',       'flag',           ['--no-per-element']],
+    ['per_element_n',        'int',            ['--per-element-n']],
     ['hunt_rounds',          'int',            ['--hunt-rounds']],
     ['hunt_calls',           'int',            ['--hunt-calls']],
     ['claims_loop',          'value',          ['--claims-loop']],
@@ -1461,6 +1465,14 @@ LLM ANALYSIS:
                              (shouldStartPlayback 5/5 -> 3/6), so pooled is the
                              default. Kept for measurement, and for local runs where
                              a shorter target list is worth more than recall.
+  --no-per-element           --claim-analyze: skip the per-element search arm and
+                             use whole-claim retrieval alone (pre-arm behaviour).
+  --per-element-n <n>        --claim-analyze: how many per-element candidates to add
+                             beyond the whole-claim top-N. Default one per claim
+                             element, capped at 12. Selection is round-robin by rank,
+                             so the budget is spent on DISTINCT elements first — an
+                             element with no implementer analyzed is an element
+                             reported ABSENT. 0 disables the arm.
   --targets-out <file>       --claim-locate: write the located targets to <file>, with a
                              '#' provenance block (engine, model, index, claim, hunt
                              caps, command, checksum) that --claim-chart reports.

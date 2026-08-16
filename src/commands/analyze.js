@@ -38,7 +38,9 @@ import { resolveProvider, PROVIDERS } from '../core/providers.js';
 import { estimateCost } from '../core/pricing.js';
 import { assertLocalOnly, isLocalApiUrl, isAirGapped } from '../core/air-gapped.js';
 import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiText, openaiFinishReason } from '../core/openai-util.js';
-import { makeDrafter, ggufDescriptor } from '../core/llm-runner.js';
+import { makeDrafter, ggufDescriptor, resolveModel, claimsCostGate } from '../core/llm-runner.js';
+import { buildSymbolTable } from '../core/symbol-verify.js';
+import { splitClaimElements, retrievePerElement } from './claim-locate.js';
 
 
 // ============================================================================
@@ -1719,12 +1721,193 @@ export function livePositiveTerms(index, positiveTerms) {
 export function mergeSearchResults(tight, broad) {
   if (!tight) return broad;
   if (!broad) return tight;
-  const key = (m) => `${m.filepath || m.file || ''}@${m.function || m.name || ''}`;
   const seen = new Set();
   const out = [];
-  for (const m of (tight.function_matches || [])) { seen.add(key(m)); out.push({ ...m, _via: 'tight' }); }
-  for (const m of (broad.function_matches || [])) { if (!seen.has(key(m))) { seen.add(key(m)); out.push({ ...m, _via: 'broad' }); } }
+  for (const m of (tight.function_matches || [])) { seen.add(matchKey(m)); out.push({ ...m, _via: 'tight' }); }
+  for (const m of (broad.function_matches || [])) { if (!seen.has(matchKey(m))) { seen.add(matchKey(m)); out.push({ ...m, _via: 'broad' }); } }
   return { ...tight, function_matches: out, _broad_merged: true };
+}
+
+// ---------------------------------------------------------------------------
+// PER-ELEMENT ARM — the third search, beside TIGHT and BROAD.
+//
+// WHY. Whole-claim retrieval applies a QUORUM over the claim's whole vocabulary,
+// so a function implementing ONE limitation holds roughly 1/N of the terms and
+// cannot clear it. MEASURED on .demo x sample_patent_claim.txt (2026-08-11):
+// `SecureChannel::sendMessage` matches 2 of 12 TIGHT terms against a quorum of 6.
+// Adding the one term it is missing takes it to 3. NO TERM-SET FIX REACHES IT —
+// the exclusion is arithmetic, not vocabulary. Both cloud engines therefore
+// returned element (e) ABSENT on a corpus that plainly implements it, and an
+// ABSENT that is true of the function analyzed and false of the codebase is the
+// worst thing a client deliverable can contain.
+//
+// Per-element retrieval searches SYMBOL NAMES with NO QUORUM, top-N per element,
+// which is precisely the blind spot whole-claim search cannot cover.
+//
+// OVERLAP WITH --claim-chart, ACKNOWLEDGED (Andrew, 2026-08-16). `--claim-chart`
+// already does per-element retrieval (e17e40d) AND pulls depth-1 callee bodies,
+// which `--claim-analyze` does not. So the two commands now overlap
+// substantially, and --claim-chart is the stronger of the two: it synthesises
+// one verdict per limitation across all targets (mergeBestPerElement), where
+// --claim-analyze emits N independent per-function analyses and leaves the union
+// to the reader.
+//
+// This arm is still worth having -- it removes a confident-but-wrong ABSENT from
+// a command people run -- but the claim-command family wants consolidating, and
+// this file should be read as a candidate for absorption rather than as a second
+// path to maintain indefinitely.
+//
+// MERGED, NOT SUBSTITUTED. The two have opposite blind spots: body-text search
+// finds a limitation implemented in `doWork()`, which name search cannot; name
+// search finds a well-named single-purpose function, which the quorum excludes.
+// Replacing one with the other trades one blind spot for another — the same
+// mistake #307 fixed for BROAD, where an all-or-nothing fallback made two
+// complements into alternatives.
+// ---------------------------------------------------------------------------
+
+/**
+ * The identity of a function match, shared by all three arms. Extracted from
+ * mergeSearchResults rather than written twice: two definitions of "same
+ * function" drift, and the failure mode is silent — one function analyzed twice
+ * at double cost, or a per-element hit suppressed because its key was shaped
+ * differently from the whole-claim key it duplicates.
+ */
+export function matchKey(m) {
+  return `${m.filepath || m.file || ''}@${m.function || m.name || ''}`;
+}
+
+// Ceiling on per-element additions regardless of element count. A 40-element
+// claim (splitClaimElements' own maxElements) must not silently schedule 40
+// analysis calls; claim-chart's maxRetrievedTargets is 12, and this is the same
+// budget for the same reason.
+//
+// KNOWN LIMIT, stated rather than hidden: on a claim that splits past 12,
+// elements after the twelfth get no candidate and can still be reported ABSENT
+// for want of retrieval. The cap trades that tail for cost. `--per-element-n`
+// raises it deliberately; nothing raises it silently.
+export const PER_ELEMENT_MAX = 12;
+
+/**
+ * How many per-element candidates to schedule. Default is ONE PER ELEMENT
+ * (capped), because the defect being fixed is per-element: an element with no
+ * implementer in the analyzed set is reported ABSENT, so coverage is counted in
+ * elements, not in functions.
+ *
+ * ONE PER ELEMENT IS A REQUIREMENT, NOT A GENEROUS DEFAULT. Measured against the
+ * real .demo index: CE splits sample_patent_claim.txt into ELEVEN elements and
+ * the transmitting limitation (e) is the TENTH. Round-robin reaches element 10
+ * only on the tenth slot, so any budget below 10 covers elements 1-9 and misses
+ * exactly the one whose ABSENT verdict prompted this work. A default of 6 —
+ * matching top-N, which would have looked tidy — fails the acceptance test.
+ *
+ * `--per-element-n 0` disables the arm exactly as `--no-per-element` does; both
+ * exist because one is a switch and the other is a budget.
+ */
+export function perElementBudget(args, nElements) {
+  const raw = args && (args.per_element_n ?? args.perElementN);
+  const n = parseInt(raw, 10);
+  if (Number.isFinite(n) && n >= 0) return n;
+  return Math.min(Math.max(0, nElements | 0), PER_ELEMENT_MAX);
+}
+
+function symbolLineCount(sym) {
+  const a = Number(sym && sym.start), b = Number(sym && sym.end);
+  return (Number.isFinite(a) && Number.isFinite(b) && b >= a) ? (b - a + 1) : 0;
+}
+
+/**
+ * Convert --claim-locate's per-element hits into the function-match shape this
+ * pipeline already consumes.
+ *
+ * Selection is ROUND-ROBIN BY RANK — rank 0 of every element before rank 1 of
+ * any. That ordering IS the mechanism, not a preference: a budget spent
+ * depth-first on the strongest element reproduces exactly the failure this arm
+ * exists to fix, because the elements that go uncovered are the ones reported
+ * ABSENT. Breadth-first spends the first N slots on N DISTINCT elements.
+ *
+ * `skip` carries the whole-claim matches already scheduled, so a function both
+ * arms found is analyzed ONCE and attributed to the whole-claim arm — which
+ * ranked it on term evidence, where this arm ranked it on its name.
+ */
+export function perElementMatches(perElement, opts = {}) {
+  const passes = Math.max(1, opts.ranksPerElement ?? 1);
+  const total = Math.max(0, opts.max ?? PER_ELEMENT_MAX);
+  const list = perElement || [];
+  const seen = new Set(opts.skip || []);
+  const out = [];
+  // Per-element cursor, NOT a shared rank index. Neighbouring limitations
+  // predict overlapping vocabulary — .demo's elements 10 and 11 are both about
+  // transmitting over an encrypted channel — so their candidate lists start
+  // with the same symbol. Indexing every element at the same rank meant the
+  // first element took it and the second was deduped out of its own slot,
+  // leaving it uncovered while its second-choice candidate sat unused. Each
+  // element instead advances to its best candidate NOT ALREADY TAKEN, which
+  // keeps the sweep breadth-first while making coverage robust to overlap.
+  const cursor = new Map();
+  for (let pass = 0; pass < passes && out.length < total; pass++) {
+    for (let ei = 0; ei < list.length; ei++) {
+      if (out.length >= total) break;
+      const p = list[ei];
+      const hits = p.hits || [];
+      let i = cursor.get(ei) ?? 0;
+      let chosen = null;
+      while (i < hits.length) {
+        const h = hits[i];
+        i++;
+        if (!h || !h.sym) continue;
+        const m = {
+          filepath: h.sym.filepath,
+          function: h.sym.name,
+          lines: symbolLineCount(h.sym),
+          // NO terms_matched. Per-element retrieval has no quorum and counts no
+          // terms; inventing a number here would put a fabricated [n/N] beside
+          // a real one in the same list. The display branches on `_via` instead.
+          terms_matched: null,
+          _via: 'per-element',
+          _element: p.element,
+          _element_words: h.matched || [],
+        };
+        const k = matchKey(m);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        chosen = m;
+        break;
+      }
+      cursor.set(ei, i);
+      if (chosen) out.push(chosen);
+    }
+  }
+  return out;
+}
+
+/**
+ * The engine for the per-element vocabulary call.
+ *
+ * It follows claim-analyze's TERM-EXTRACTION choice, NOT resolveModel's own
+ * precedence. `--llm claude --analyze-model x.gguf` extracts terms on Claude and
+ * analyzes locally; resolveModel prefers the GGUF and would silently move this
+ * step to the other engine. Predicting code vocabulary from claim text is a
+ * term-extraction task, so it rides the term-extraction engine — and the
+ * air-gap claim depends on that being stated rather than assumed.
+ *
+ * Returns null when nothing is resolvable, and the caller then skips the arm:
+ * failing to resolve an engine must degrade to today's behaviour, never abort a
+ * run whose whole-claim half is still valid.
+ */
+export function perElementModel(args, termModelPath) {
+  if (termModelPath) {
+    return ggufDescriptor({
+      modelPath: termModelPath, forceCpu: args.cpu, contextSize: args.context_size,
+      flashAttention: args.flash_attention, liveTodayDate: args.live_today_date,
+    });
+  }
+  // `llm || 'claude'` mirrors doClaimAnalyze's own default for term extraction
+  // (`provider: cloudProvider ? cloudProvider.id : 'claude'`), so a bare
+  // --claim-analyze uses one engine for both steps rather than two.
+  const m = resolveModel({
+    ...args, model: null, claim_model: null, analyze_model: null, llm: args.llm || 'claude',
+  });
+  return (m && m.kind !== 'error') ? m : null;
 }
 
 export async function doClaimAnalyze(index, args) {
@@ -1832,6 +2015,10 @@ export async function doClaimAnalyze(index, args) {
   }
 
   let result;
+  // Hoisted out of the branch below: the per-element arm reuses this already
+  // loaded model rather than loading a second copy of the same GGUF (12 GB on
+  // the measured card, and a second load can simply fail to allocate).
+  let termLlm = null;
   if (localModelPath) {
     // Local model for term extraction.
     // Reuse the analysis LLM singleton ONLY when it is the SAME local model
@@ -1840,7 +2027,6 @@ export async function doClaimAnalyze(index, args) {
     // this claim text off-machine — local term extraction must never route
     // through it. Falling back to a fresh local AnalysisLLM keeps local intent
     // local (worst case the model loads twice, which is correctness-safe).
-    let termLlm;
     const _shared = (localModelPath === analyzeModel) ? getAnalysisLLM(args) : null;
     if (_shared && _shared.modelPath === localModelPath) {
       termLlm = _shared;
@@ -2075,8 +2261,32 @@ export async function doClaimAnalyze(index, args) {
     console.log(`  (filtered ${allFuncMatches.length - funcMatches.length} non-extractable entries)`)
   }
 
-  if (funcMatches.length === 0) {
-    // File-level fallback
+  // Top 2 function matches
+  // #307: was a hardcoded 2, and it was the binding constraint once scope is
+  // right. Measured on US 8,752,101 x .AndroidX_Media_ExoPlayer3, scoped: ranks
+  // 1-4 are AdaptiveTrackSelectionTest methods, 5 is evaluateQueueSize and 6 is
+  // AdaptiveTrackSelection::updateSelectedTrack -- the acceptance symbol. The
+  // first symbol OUTSIDE that class is rank 12, so 6 is a clean cut, not a taste
+  // call. At 2, a [10/13] vs [9/13] term-count difference -- inside the noise of
+  // the heuristic -- decided the whole chart.
+  const topMatches = funcMatches.slice(0, claimAnalyzeTopN(args));
+  const nPos = positiveTerms.length;
+
+  // --- Per-element arm: appended to the whole-claim selection, never replacing
+  // it. See the block comment above perElementMatches for the measurement.
+  //
+  // RUNS BEFORE the no-matches bail-out below, deliberately. Keying that bail
+  // on the whole-claim result alone would skip this arm on the one path where
+  // it helps most — a claim whose vocabulary reaches no function at all — and
+  // CE would report "no matches found" while the retrieval that would have
+  // found them sat unreached. That is the exact shape of every defect in this
+  // batch, and it is not going to be introduced by the fix for it.
+  const perElementAdded = await _addPerElementMatches({
+    index, args, claimText, topMatches, termLlm, termModelPath,
+  });
+
+  if (topMatches.length === 0) {
+    // File-level fallback: BOTH arms came back empty.
     if (fileMatches.length > 0) {
       const topFile = fileMatches[0];
       const maxLines = cloudProvider ? _FILE_MAX_LINES_CLOUD : _FILE_MAX_LINES_LOCAL;
@@ -2094,21 +2304,17 @@ export async function doClaimAnalyze(index, args) {
     return;
   }
 
-  // Top 2 function matches
-  // #307: was a hardcoded 2, and it was the binding constraint once scope is
-  // right. Measured on US 8,752,101 x .AndroidX_Media_ExoPlayer3, scoped: ranks
-  // 1-4 are AdaptiveTrackSelectionTest methods, 5 is evaluateQueueSize and 6 is
-  // AdaptiveTrackSelection::updateSelectedTrack -- the acceptance symbol. The
-  // first symbol OUTSIDE that class is rank 12, so 6 is a clean cut, not a taste
-  // call. At 2, a [10/13] vs [9/13] term-count difference -- inside the noise of
-  // the heuristic -- decided the whole chart.
-  const topMatches = funcMatches.slice(0, claimAnalyzeTopN(args));
-  const nPos = positiveTerms.length;
-
-  console.log(`\n  Found ${funcMatches.length} function match(es), analyzing top ${topMatches.length}:`);
+  console.log(`\n  Found ${funcMatches.length} function match(es), analyzing top ${topMatches.length - perElementAdded.length}`
+    + `${perElementAdded.length ? ` + ${perElementAdded.length} per-element` : ''}:`);
   for (let i = 0; i < topMatches.length; i++) {
     const fm = topMatches[i];
-    console.log(`  [${i + 1}] [${fm.terms_matched}/${nPos} terms] ${fm.filepath}@${fm.function} (${fm.lines} lines)`);
+    // Per-element hits carry no term count — see perElementMatches. Labelling
+    // them with the element they were retrieved FOR is the useful provenance
+    // anyway: it says which limitation this function is here to answer.
+    const tag = fm._via === 'per-element'
+      ? `[element ${fm._element}]`
+      : `[${fm.terms_matched}/${nPos} terms]`;
+    console.log(`  [${i + 1}] ${tag} ${fm.filepath}@${fm.function} (${fm.lines || '?'} lines)`);
   }
 
   // --- Step 5: Extract and analyze each match ---
@@ -2124,7 +2330,13 @@ export async function doClaimAnalyze(index, args) {
         start: funcInfo.start,
         end: funcInfo.end,
         termsMatched: fm.terms_matched,
-        lines: fm.lines,
+        // A per-element hit takes its line count from the symbol table, which
+        // can be absent; fall back to the resolved range rather than printing
+        // "(0 lines)" for a function that plainly has some.
+        lines: fm.lines > 0 ? fm.lines : (Math.max(0, (funcInfo.end - funcInfo.start) + 1) || null),
+        via: fm._via || 'tight',
+        element: fm._element ?? null,
+        elementWords: fm._element_words || null,
       });
     }
   }
@@ -2144,6 +2356,102 @@ export async function doClaimAnalyze(index, args) {
 
 
 /**
+ * Run the per-element arm and APPEND its additions to `topMatches` IN PLACE,
+ * returning what was added (empty array when the arm did not run).
+ *
+ * Every failure path here is deliberately non-fatal. The whole-claim half of the
+ * run is already valid by the time this is called, so a missing engine, a
+ * missing key, an unparseable vocabulary response or a cost-guard refusal must
+ * degrade to exactly today's output — never abort a run that would otherwise
+ * have produced results.
+ *
+ * Outcomes go to STDOUT (like the BROAD merge line) so a redirected run records
+ * whether this arm contributed; per-element progress goes to stderr.
+ */
+async function _addPerElementMatches({ index, args, claimText, topMatches, termLlm, termModelPath }) {
+  if (args.no_per_element) {
+    console.log('  Per-element arm: disabled (--no-per-element).');
+    return [];
+  }
+  const elements = splitClaimElements(claimText);
+  if (!elements.length) return [];
+
+  const budget = perElementBudget(args, elements.length);
+  if (budget <= 0) {
+    console.log('  Per-element arm: disabled (--per-element-n 0).');
+    return [];
+  }
+
+  const model = perElementModel(args, termModelPath);
+  if (!model) {
+    console.log('  Per-element arm: no engine resolvable for the vocabulary call — skipped.');
+    return [];
+  }
+  // ONE extra model call: the vocabulary step, ~600 output tokens on a
+  // claim-sized prompt. Gated before spending, and a refusal skips the arm
+  // rather than the run.
+  if (!claimsCostGate(model, [{ inChars: claimText.length + 2000, outTokens: 600 }],
+    'claim-analyze per-element retrieval (1 call)', args)) {
+    console.log('  Per-element arm: skipped by the cost guard; whole-claim results stand.');
+    return [];
+  }
+
+  let draft;
+  try {
+    draft = (termLlm && termLlm._llm)
+      // Reuse the already-loaded local model. makeGgufDrafter prompts with
+      // exactly `${sys}\n\n${user}`, so this is prompt-identical to
+      // --claim-chart's local path: the two commands must not diverge on the
+      // step whose output the whole air-gapped argument rests on.
+      ? ((sys, user, maxTokens) => termLlm.generate(`${sys}\n\n${user}`, maxTokens))
+      : makeDrafter(model, args.temperature ?? 0);
+  } catch (e) {
+    console.log(`  Per-element arm: ${e.message} — skipped.`);
+    return [];
+  }
+
+  const symbols = buildSymbolTable(index);
+  if (!symbols.length) {
+    console.log('  Per-element arm: index exposes no symbol table — skipped.');
+    return [];
+  }
+
+  process.stderr.write(`  Per-element retrieval: ${elements.length} element(s), budget ${budget}`
+    + ' (the model is shown the CLAIM ONLY — no paths, no codebase identity)...\n');
+  let disc;
+  try {
+    disc = await retrievePerElement({
+      draft, elements, symbols,
+      opts: {
+        includeTests: !!args.include_tests,
+        onElement: ({ element, words, hits }) => process.stderr.write(
+          `    element ${element}: words [${words.join(', ')}] -> ${hits.length} candidate(s)\n`),
+      },
+    });
+  } catch (e) {
+    console.log(`  Per-element arm: retrieval failed (${e.message}) — skipped.`);
+    return [];
+  }
+  const perElement = (disc && disc.perElement) || [];
+  if (!perElement.length) {
+    console.log(`  Per-element arm: ${(disc && disc.error) || 'no candidates'} — skipped.`);
+    return [];
+  }
+
+  const added = perElementMatches(perElement, { max: budget, skip: topMatches.map(matchKey) });
+  if (!added.length) {
+    console.log('  Per-element arm: every candidate was already selected by the whole-claim search.');
+    return [];
+  }
+  const covered = new Set(added.map((m) => m._element)).size;
+  console.log(`  Per-element arm merged: +${added.length} function(s) the whole-claim search did not reach`
+    + ` (covering ${covered} of ${elements.length} element(s), no quorum, symbol-name search).`);
+  topMatches.push(...added);
+  return added;
+}
+
+
+/**
  * Analyze one function against a patent claim.
  */
 async function _doClaimSingleAnalyze(ext, claimText, args, maskAll, showPrompt, lineNumbers) {
@@ -2159,6 +2467,13 @@ async function _doClaimSingleAnalyze(ext, claimText, args, maskAll, showPrompt, 
   console.log('='.repeat(70));
   console.log(`CLAIM-ANALYZE: ${filepath}@${funcName}`);
   console.log(`  Lines ${start}-${end} (${lines} lines)`);
+  // Provenance ON the artifact, not around it: which search put this function in
+  // front of the model. A per-element cite answers ONE limitation and was chosen
+  // by symbol name with no quorum, which a reader checking the chart should know.
+  if (ext.via === 'per-element') {
+    console.log(`  Retrieved by: per-element search for element ${ext.element}`
+      + `${ext.elementWords && ext.elementWords.length ? ` [${ext.elementWords.join(', ')}]` : ''}`);
+  }
   console.log(`  Claim: ${claimText.slice(0, 80)}${claimText.length > 80 ? '...' : ''}`);
   if (maskAll) console.log('  Masked: comments, strings, identifiers');
   console.log('='.repeat(70));
