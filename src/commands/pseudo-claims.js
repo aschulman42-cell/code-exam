@@ -26,7 +26,8 @@
 //      anchor map, and the evidence pack it was grounded in.
 
 import fs from 'node:fs';
-import { parseFuncSpec } from '../utils.js';
+import { parseFuncSpec, readCeVersion } from '../utils.js';
+import { splitClaimElements } from './claim-locate.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage } from '../core/llm-runner.js';
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
 import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, echoPairs, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
@@ -436,6 +437,84 @@ export function groundAnchors(index, anchors) {
 // (cite→element alignment is deliberately approximate for now). Kept
 // standalone/exported so claim-search / claim-analyze can reuse the same
 // element→evidence view rather than reinventing it.
+// A CLAIM IS ONE SENTENCE, so it survives being written as one line, and one
+// line per claim is the format every downstream stage already reads. Whitespace
+// is collapsed because the drafter hard-wraps prose and the wrapping carries no
+// meaning -- the element boundaries live in the punctuation, not the newlines.
+export function claimToLine(prose) {
+  return String(prose || '').replace(/\s+/g, ' ').trim();
+}
+
+// The answer key. Written as a SIDECAR rather than inline so the claims file
+// stays feedable to --synonymize unchanged, and as JSON rather than re-parsed
+// out of the Markdown later so there is exactly one source of truth for what
+// was cited.
+//
+// Only GROUNDED anchors travel: each was resolved against the index and the
+// ungrounded ones dropped (see verifyAnchors). `dropped` is carried too, with
+// its reason, because a key that silently omits what the drafter cited but CE
+// could not find would overstate how complete it is.
+export function buildAnchorSidecar(groups, drafts, meta = {}) {
+  const claims = [];
+  drafts.forEach((d, i) => {
+    if (!d || d.error || !d.prose) return;
+    claims.push({
+      n: claims.length + 1,
+      groupN: i + 1,
+      label: groups[i] ? groups[i].label || '' : '',
+      claim: claimToLine(d.prose),
+      // Recorded so a scorer can refuse to compare a rewritten claim whose
+      // element count no longer matches its key, instead of pairing element 4
+      // against element 5 and reporting a plausible wrong number.
+      elements: splitClaimElements(claimToLine(d.prose)),
+      grounded: (d.grounded || []).map((a) => ({
+        file: a.file, func: a.func || '', start: a.start, end: a.end,
+        kind: a.kind || 'func', element: a.element || '',
+        ...(a.ambiguous ? { ambiguous: true } : {}),
+      })),
+      dropped: (d.dropped || []).map((a) => ({
+        file: a.file, func: a.func || '', reason: a.reason || '',
+      })),
+    });
+  });
+  return {
+    format: 'ce-pseudo-claim-anchors',
+    version: 1,
+    note: 'GROUNDED means the citation resolved to a real symbol in the index. This key records'
+      + ' what the DRAFTING MODEL cited, verified to resolve — not what a practitioner would cite.',
+    ce: meta.ceVersion || '', generated: meta.generatedAt || '', command: meta.argv || '',
+    claims,
+  };
+}
+
+export function writeClaimsOnly(fpath, groups, drafts, meta = {}) {
+  const sidecar = buildAnchorSidecar(groups, drafts, meta);
+  const skipped = drafts.filter((d) => !d || d.error || !d.prose).length;
+  const header = [
+    '# Pseudo-claims — illustrative drafting exercise, NOT legal analysis.',
+    '# NOT patent claims. Generated for retrieval testing; do not file, quote, or rely on.',
+    // Read back by --synonymize, so this file needs no flag to be understood.
+    '# Format:     one claim per line',
+    `# Claims:     ${sidecar.claims.length}${skipped ? ` (${skipped} skipped — draft failed)` : ''}`,
+    `# Anchors:    ${sidecar.claims.reduce((n, c) => n + c.grounded.length, 0)} grounded, in ${fpath}.anchors.json`,
+    `# CE:         ${meta.ceVersion || ''}`,
+    `# Generated:  ${meta.generatedAt || ''}`,
+    `# Command:    ${meta.argv || ''}`,
+  ].join('\n');
+  const body = sidecar.claims.map((c) => c.claim).join('\n');
+  const sidecarPath = `${fpath}.anchors.json`;
+  try {
+    fs.writeFileSync(fpath, `${header}\n${body}\n`, 'utf8');
+    fs.writeFileSync(sidecarPath, `${JSON.stringify(sidecar, null, 2)}\n`, 'utf8');
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  return {
+    ok: true, claims: sidecar.claims.length, skipped, sidecar: sidecarPath,
+    anchors: sidecar.claims.reduce((n, c) => n + c.grounded.length, 0),
+  };
+}
+
 export function formatClaimChart(prose, grounded) {
   const esc = (s) => String(s).replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
   const cite = (a) => a.kind === 'lines'
@@ -867,6 +946,35 @@ export async function doPseudoClaims(index, args) {
   out.push(PSEUDO_CLAIM_CAVEAT_C);
 
   const text = out.join('\n') + '\n';
+
+  // --claims-only: the MACHINE-READABLE SIBLING of the artifact above.
+  //
+  // The artifact is written for a human reader — a legal caveat block, a
+  // contents list, anchor tables, evidence-pack notes. Feeding it to the next
+  // stage does not work and fails expensively: `--synonymize @<artifact>` split
+  // it into 171 "elements" and began rewriting the disclaimer one model call at
+  // a time. The fix belongs HERE, in the producer, not in a consumer taught to
+  // reverse-engineer a report whose layout is free to change.
+  if (args.claims_only) {
+    if (dryRun) {
+      console.error('--claims-only: nothing to write — --dry-run resolves anchors but drafts no claims.');
+      process.exitCode = 1;
+      return;
+    }
+    const written = writeClaimsOnly(args.claims_only, withAnchors, drafts, {
+      argv: process.argv.slice(1).join(' '),
+      ceVersion: readCeVersion(),
+      generatedAt: new Date().toISOString(),
+    });
+    if (!written.ok) {
+      console.error(`--claims-only: ${written.error}`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`Wrote ${written.claims} claim(s) to ${args.claims_only}`
+      + ` and ${written.anchors} grounded anchor(s) to ${written.sidecar}.`
+      + (written.skipped ? ` ${written.skipped} claim(s) skipped (draft failed).` : ''));
+  }
 
   // Emit to stdout or --pseudo-out <file>.
   if (args.pseudo_out) {

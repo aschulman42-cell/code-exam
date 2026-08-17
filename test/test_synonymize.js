@@ -11,7 +11,12 @@ import fs from 'node:fs';
 import {
   buildSynonymizePrompt, buildSynonymizeProvenance, cleanRewrite, contentWords,
   synonymizeElements, vocabularyOverlap, SYNONYMIZE_DEFAULTS, terminatorsFor,
+  stripClaimComments, detectClaims, looksLikeWholeClaim, claimArgProblem,
+  CLAIMS_PER_LINE_MARKER, doSynonymize, artifactProblem,
 } from '../src/commands/synonymize.js';
+// The PRODUCTION module must not import this (analyze.js reaches the index);
+// the test imports both so the duplicated comment-strip cannot drift.
+import { readClaimFile } from '../src/commands/analyze.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 
 const DEMO_CLAIM = fs.readFileSync('sample_patent_claim.txt', 'utf8');
@@ -414,5 +419,361 @@ describe('HOF-b: the stray-comma repair, wired at the one site holding the pair'
   it('a rewrite with no comma at all is untouched', async () => {
     const rows = await synonymizeElements({ draft: rewriter, elements: DEMO_ELEMENTS });
     assert.equal(rows.filter((r) => r.repaired).length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HOF: reading a CORPUS, not just a claim.
+//
+// Every failure tested below was hit on a real run (Andrew, iOS 8.1 headers):
+// `--synonymize ios81_pseudo.txt` -- no '@' -- synonymized the FILENAME, and
+// `--synonymize @ios81_pseudo.txt` split the human artifact into 171 "elements"
+// and began rewriting the legal disclaimer one model call at a time.
+
+describe('HOF-b: the bare argument that cost a run', () => {
+  it('rejects a path-shaped argument and names the fix', () => {
+    const problem = claimArgProblem('ios81_pseudo.txt');
+    assert.ok(problem, 'a filename is not claim text');
+    assert.match(problem, /@ios81_pseudo\.txt/, 'the error must name the @ form, not just complain');
+  });
+
+  it('rejects a path with separators too', () => {
+    assert.match(claimArgProblem('out/claims.txt'), /@out\/claims\.txt/);
+    assert.match(claimArgProblem('C:\\work\\claims.txt'), /Did you mean/);
+  });
+
+  it('accepts @file and real inline claim text — the regression this could cause', () => {
+    assert.equal(claimArgProblem('@sample_patent_claim.txt'), null);
+    assert.equal(claimArgProblem(DEMO_CLAIM.slice(0, 200)), null,
+      'inline claim text must still work; the guard is not allowed to break it');
+  });
+
+  it('a short bare word is rejected with the OTHER message', () => {
+    // Same rule as --claim-analyze (analyze.js:1495): inline text needs a space
+    // and more than 30 chars. A short word is neither a path nor a claim.
+    const problem = claimArgProblem('claim');
+    assert.ok(problem && !/Did you mean/.test(problem), 'no @ suggestion for something path-unlike');
+  });
+});
+
+describe('HOF-b: one claim, or one claim per line', () => {
+  const CLAIM_A = 'A method for protecting a lattice linkage, comprising: establishing a dialogue '
+    + 'with a remote node; and conveying a payload over the established dialogue.';
+  const CLAIM_B = 'A system for indexing a repository, comprising: a parser configured to read '
+    + 'source files; and a store configured to persist the parsed symbols.';
+
+  it('the format marker is authoritative — no heuristic involved', () => {
+    const raw = `# Format:     one claim per line\n${CLAIM_A}\n${CLAIM_B}\n`;
+    const { claims, mode } = detectClaims(raw);
+    assert.equal(mode, 'marker');
+    assert.deepEqual(claims, [CLAIM_A, CLAIM_B]);
+  });
+
+  it('detects a corpus structurally when every line is a whole claim', () => {
+    const { claims, mode } = detectClaims(`${CLAIM_A}\n${CLAIM_B}\n`);
+    assert.equal(mode, 'structural');
+    assert.equal(claims.length, 2);
+  });
+
+  it('a HARD-WRAPPED single claim stays ONE claim — the expensive misread', () => {
+    // sample_patent_claim.txt is 28 physical lines for 11 elements. Reading it
+    // as 28 claims is the failure that produced 171 model calls; requiring
+    // EVERY line to be a whole claim is what prevents it.
+    const { claims, mode } = detectClaims(DEMO_CLAIM);
+    assert.equal(mode, 'single');
+    assert.equal(claims.length, 1);
+  });
+
+  it('and a real multi-claim ARTIFACT is not mistaken for a corpus either', () => {
+    // The pseudo-claims artifact has prose, headings and tables around its
+    // claims. Those lines are not whole claims, so the strict rule collapses it
+    // to single-claim reading — wrong, but LOUDLY wrong (one call, not 171),
+    // and --claims-only is the supported path.
+    const artifact = `# PSEUDO-CLAIMS — illustrative drafting exercise\n\n`
+      + `The material below consists of pseudo patent claims.\n\n`
+      + `## Pseudo-claim 1\n\n${CLAIM_A}\n\n### Cited anchors (3 grounded)\n`
+      + `- \`Foo.h@bar\` — L11-34\n`;
+    const { claims } = detectClaims(artifact);
+    assert.equal(claims.length, 1, 'no silent 171-way split');
+  });
+
+  it('--claims-per-line forces the corpus reading for a hand-made file', () => {
+    const { claims, mode } = detectClaims(`${CLAIM_A}\n${CLAIM_B}\n`, { force: 'multi' });
+    assert.equal(mode, 'forced-multi');
+    assert.equal(claims.length, 2);
+  });
+
+  it('--single-claim forces the other way', () => {
+    const { claims, mode } = detectClaims(`${CLAIM_A}\n${CLAIM_B}\n`, { force: 'single' });
+    assert.equal(mode, 'forced-single');
+    assert.equal(claims.length, 1);
+  });
+
+  it('looksLikeWholeClaim keys off STRUCTURE, not length', () => {
+    assert.ok(looksLikeWholeClaim(CLAIM_A));
+    assert.ok(!looksLikeWholeClaim('wherein the second module is configured to '
+      + 'perform the described operation upon receipt of the signal'),
+      'a long continuation line is not a claim: no preamble transition + colon');
+    assert.ok(!looksLikeWholeClaim('A method, comprising: x'), 'too short to be a claim');
+  });
+});
+
+describe('HOF-b: `#` comments, and the copy that must not drift', () => {
+  it('strips comment lines exactly as readClaimFile does', () => {
+    // DUPLICATED ON PURPOSE — synonymize.js cannot import analyze.js, which
+    // reaches the index. The equivalence is checked rather than trusted, so the
+    // two copies cannot drift apart silently. The test may import both.
+    const cases = [
+      '# header\nA method, comprising: doing a thing; and doing another.',
+      'no comments at all here\nsecond line',
+      '# only\n# comments\n',
+      '  # indented comment\nkept',
+      'A method\r\nwith CRLF\r\nand no comments',
+    ];
+    const tmp = 'test/.tmp-claim-comments.txt';
+    for (const c of cases) {
+      fs.writeFileSync(tmp, c, 'utf8');
+      assert.equal(stripClaimComments(c), readClaimFile(tmp),
+        `stripClaimComments diverged from readClaimFile on: ${JSON.stringify(c)}`);
+    }
+    fs.unlinkSync(tmp);
+  });
+
+  it('preserves CRLF when there is nothing to strip', () => {
+    // Rejoining unconditionally normalises CRLF to LF, and the claim files on
+    // this project are Windows-authored.
+    const crlf = 'A method\r\nwith CRLF';
+    assert.ok(stripClaimComments(crlf).includes('\r\n'));
+  });
+
+  it('reports how many lines it dropped', () => {
+    let dropped = 0;
+    stripClaimComments('# a\n# b\nclaim text', { onComments: (n) => { dropped = n; } });
+    assert.equal(dropped, 2);
+  });
+});
+
+describe('HOF-b: a corpus run reports PER CLAIM', () => {
+  const mk = (n, reSplit, elements = 3) => ({ n, elements, reSplit, failed: 0 });
+
+  it('names WHICH claim broke, not just that one did', () => {
+    // An aggregate "171 became 172" does not say where to look, and can hold
+    // while one claim gained a row and another lost one.
+    const prov = buildSynonymizeProvenance({
+      engineLabel: 'x', claimSource: 'c.txt', elements: 9, failed: 0, meanOverlap: 12,
+      reSplit: 3, argv: 'ce', ceVersion: '1', generatedAt: 'now',
+      perClaim: [mk(1, 3), mk(2, 4), mk(3, 3)],
+    });
+    assert.match(prov, /Re-split:\s+2 of 3 preserved/);
+    assert.match(prov, /claim 2 \(3 → 4\)/, 'the broken claim must be named');
+  });
+
+  it('says so plainly when every claim held', () => {
+    const prov = buildSynonymizeProvenance({
+      engineLabel: 'x', claimSource: 'c.txt', elements: 9, failed: 0, meanOverlap: 12,
+      reSplit: 3, argv: 'ce', ceVersion: '1', generatedAt: 'now',
+      perClaim: [mk(1, 3), mk(2, 3), mk(3, 3)],
+    });
+    assert.match(prov, /Re-split:\s+all 3 preserved/);
+  });
+
+  it('carries the format marker, so the OUTPUT round-trips as input', () => {
+    const prov = buildSynonymizeProvenance({
+      engineLabel: 'x', claimSource: 'c.txt', elements: 6, failed: 0, meanOverlap: 12,
+      reSplit: 3, argv: 'ce', ceVersion: '1', generatedAt: 'now',
+      perClaim: [mk(1, 3), mk(2, 3)],
+    });
+    assert.ok(CLAIMS_PER_LINE_MARKER.test(prov),
+      'a corpus written out must be readable back in without a flag');
+    assert.equal(detectClaims(`${prov}\nclaim one text\nclaim two text\n`).mode, 'marker');
+  });
+
+  it('the SINGLE-claim provenance is untouched — no marker, no claim count', () => {
+    const prov = buildSynonymizeProvenance({
+      engineLabel: 'x', claimSource: 'c.txt', elements: 11, failed: 0, meanOverlap: 12,
+      reSplit: 11, argv: 'ce', ceVersion: '1', generatedAt: 'now',
+    });
+    assert.ok(!CLAIMS_PER_LINE_MARKER.test(prov));
+    assert.ok(!/# Claims:/.test(prov));
+    assert.match(prov, /# Synonymized claim — HOF-b/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// END TO END. The unit tests above cover the pieces; this exercises the command
+// the way Andrew ran it, because every defect in this item was a piece that
+// worked in isolation and was bypassed or misfed on the real path.
+
+describe('HOF-b: --synonymize over a corpus, end to end', () => {
+  const CLAIM_A = 'A method for protecting a lattice linkage, comprising: establishing a dialogue '
+    + 'with a remote node; conveying a payload over the established dialogue; and closing the '
+    + 'dialogue after the payload has been conveyed.';
+  const CLAIM_B = 'A system for indexing a repository, comprising: a parser configured to read '
+    + 'source files; and a store configured to persist the parsed symbols for later retrieval.';
+  const CORPUS = `# Format:     one claim per line\n# Claims:     2\n${CLAIM_A}\n${CLAIM_B}\n`;
+
+  const TMP = 'test/.tmp-corpus.txt';
+  const OUT = 'test/.tmp-corpus-out.txt';
+  const cleanup = () => { for (const f of [TMP, OUT]) if (fs.existsSync(f)) fs.unlinkSync(f); };
+
+  // A drafter that TAGS each rewrite with the element it saw, so misordering or
+  // cross-claim bleed is visible in the output rather than inferred.
+  const makeTagged = () => {
+    const seen = [];
+    const draft = (sys, user) => {
+      const body = user.replace(/^LIMITATION:\n/, '').trim();
+      seen.push(body);
+      return Promise.resolve(body.replace(/[A-Za-z]+/g, (w) => REGISTER.get(w.toLowerCase()) || w));
+    };
+    return { draft, seen };
+  };
+
+  const runArgs = (extra = {}) => ({
+    synonymize: `@${TMP}`, synonymize_out: OUT,
+    llm: null, model: null, temperature: 0, ...extra,
+  });
+
+  it('rewrites every claim, ONE PER LINE, in order', async (t) => {
+    process.env.CE_OPENAI_API_URL = 'http://127.0.0.1:1/v1';
+    t.after(() => { delete process.env.CE_OPENAI_API_URL; cleanup(); });
+    fs.writeFileSync(TMP, CORPUS, 'utf8');
+    const { draft, seen } = makeTagged();
+    const res = await doSynonymize(runArgs(), { draft });
+
+    assert.ok(res, 'the command must not bail');
+    assert.equal(res.claims.length, 2);
+    assert.equal(res.isCorpus, true);
+    assert.equal(res.mode, 'marker');
+
+    const body = fs.readFileSync(OUT, 'utf8').split('\n').filter((l) => l && !l.startsWith('#'));
+    assert.equal(body.length, 2, 'one claim per line out, matching one claim per line in');
+
+    // ORDER IS THE GUARANTEE SCORING DEPENDS ON: claim i is compared against
+    // key i, so a run that reorders or drops silently poisons every later row.
+    assert.match(body[0], /lattice/, 'claim 1 stays first');
+    assert.match(body[1], /repository/, 'claim 2 stays second');
+
+    // And no claim's elements leaked into another's.
+    assert.ok(!/repository/.test(body[0]) && !/lattice/.test(body[1]));
+    assert.equal(seen.length, res.rows.length, 'one model call per element, no more');
+  });
+
+  it('makes ONE call per element — not one per line of the artifact', async (t) => {
+    process.env.CE_OPENAI_API_URL = 'http://127.0.0.1:1/v1';
+    t.after(() => { delete process.env.CE_OPENAI_API_URL; cleanup(); });
+    fs.writeFileSync(TMP, CORPUS, 'utf8');
+    const { draft, seen } = makeTagged();
+    const res = await doSynonymize(runArgs(), { draft });
+    const expected = res.claims.reduce((n, c) => n + c.elements, 0);
+    assert.equal(seen.length, expected, `${expected} elements, ${seen.length} calls`);
+    // The disclaimer-rewriting run made 171 calls for 13 claims. Two claims of
+    // three and two elements is five, and nothing about the file's other lines
+    // may add to it.
+    assert.ok(seen.length < 10, `a two-claim corpus must not cost ${seen.length} calls`);
+  });
+
+  it('each claim re-splits to its OWN element count', async (t) => {
+    process.env.CE_OPENAI_API_URL = 'http://127.0.0.1:1/v1';
+    t.after(() => { delete process.env.CE_OPENAI_API_URL; cleanup(); });
+    fs.writeFileSync(TMP, CORPUS, 'utf8');
+    const { draft } = makeTagged();
+    const res = await doSynonymize(runArgs(), { draft });
+    for (const c of res.claims) {
+      assert.equal(c.reSplit, c.elements, `claim ${c.n} skeleton must hold on its own terms`);
+    }
+  });
+
+  it('the output ROUND-TRIPS: read it back and get the same claim count', async (t) => {
+    process.env.CE_OPENAI_API_URL = 'http://127.0.0.1:1/v1';
+    t.after(() => { delete process.env.CE_OPENAI_API_URL; cleanup(); });
+    fs.writeFileSync(TMP, CORPUS, 'utf8');
+    const { draft } = makeTagged();
+    await doSynonymize(runArgs(), { draft });
+    const back = detectClaims(fs.readFileSync(OUT, 'utf8'));
+    assert.equal(back.mode, 'marker', 'no flag needed to read our own output');
+    assert.equal(back.claims.length, 2);
+  });
+
+  it('a SINGLE claim still writes one ELEMENT per line — unchanged behaviour', async (t) => {
+    process.env.CE_OPENAI_API_URL = 'http://127.0.0.1:1/v1';
+    t.after(() => { delete process.env.CE_OPENAI_API_URL; cleanup(); });
+    fs.writeFileSync(TMP, DEMO_CLAIM, 'utf8');
+    const { draft } = makeTagged();
+    const res = await doSynonymize(runArgs(), { draft });
+    assert.equal(res.isCorpus, false);
+    const out = fs.readFileSync(OUT, 'utf8');
+    const body = out.split('\n').filter((l) => l && !l.startsWith('#'));
+    assert.equal(body.length, DEMO_ELEMENTS.length,
+      'the single-claim format is one element per line, so it feeds back in via --elements');
+    assert.ok(!CLAIMS_PER_LINE_MARKER.test(out), 'and carries no corpus marker');
+  });
+
+  it('refuses --elements against a corpus rather than applying one construction to all', async (t) => {
+    process.env.CE_OPENAI_API_URL = 'http://127.0.0.1:1/v1';
+    const code = process.exitCode;
+    t.after(() => { delete process.env.CE_OPENAI_API_URL; cleanup(); process.exitCode = code; });
+    fs.writeFileSync(TMP, CORPUS, 'utf8');
+    const { draft, seen } = makeTagged();
+    const res = await doSynonymize(runArgs({ elements: '@some-elements.txt' }), { draft });
+    assert.equal(res, undefined, 'the command must bail');
+    assert.equal(seen.length, 0, 'and must not spend a single call first');
+  });
+
+  it('rejects the missing-@ argument before reading or spending anything', async (t) => {
+    const code = process.exitCode;
+    t.after(() => { process.exitCode = code; });
+    const { draft, seen } = makeTagged();
+    const res = await doSynonymize({ synonymize: 'ios81_pseudo.txt' }, { draft });
+    assert.equal(res, undefined);
+    assert.equal(seen.length, 0, 'the guard fires before the model is even resolved');
+  });
+});
+
+describe('HOF-b: the human artifact, pointed at the wrong command', () => {
+  // Refusing to mis-split the artifact into a corpus is not the same as
+  // refusing to read it: single-claim fallback still splits it into 144
+  // elements and still bills 144 calls. MEASURED on the real file.
+  const ARTIFACT = fs.existsSync('ios81_pseudo.txt')
+    ? fs.readFileSync('ios81_pseudo.txt', 'utf8') : null;
+
+  it('recognises the artifact by its OWN structure, not its filename', () => {
+    const synthetic = `# PSEUDO-CLAIMS — illustrative drafting exercise, NOT legal analysis\n\n`
+      + `The material below consists of pseudo patent claims.\n\n`
+      + `## Pseudo-claim 1 — address book\n\nA method, comprising: a; and b.\n\n`
+      + `## Pseudo-claim 2 — media\n\nA system, comprising: c; and d.\n`;
+    const problem = artifactProblem(synthetic);
+    assert.ok(problem, 'the artifact must be refused');
+    assert.match(problem, /--claims-only/, 'and the error must name the supported path');
+    assert.match(problem, /2 `## Pseudo-claim` heading/);
+  });
+
+  it('refuses the REAL ios81_pseudo.txt', { skip: !ARTIFACT }, () => {
+    assert.ok(artifactProblem(ARTIFACT), 'the file that produced the 171-call run');
+  });
+
+  it('and a plain claim file is NOT refused — the regression that matters', () => {
+    assert.equal(artifactProblem(DEMO_CLAIM), null);
+    assert.equal(artifactProblem('# header\nA method, comprising: a; and b.'), null,
+      'a `#` provenance header is not an artifact heading');
+  });
+
+  it('a claims-only file is not refused either', () => {
+    const claimsOnly = `# Pseudo-claims — illustrative drafting exercise, NOT legal analysis.\n`
+      + `# Format:     one claim per line\n`
+      + `A method for x, comprising: doing a thing; and doing another thing here.\n`
+      + `A system for y, comprising: a part configured to act; and a store to persist.\n`;
+    assert.equal(artifactProblem(claimsOnly), null,
+      'the machine format must pass; it is the whole point of the fix');
+  });
+
+  it('--single-claim overrides, for someone who means it', async (t) => {
+    const code = process.exitCode;
+    t.after(() => { process.exitCode = code; });
+    // The guard is skipped, so the run proceeds far enough to fail on the
+    // MISSING MODEL rather than on the artifact check.
+    const res = await doSynonymize(
+      { synonymize: 'A method, comprising: a; and b. ## Pseudo-claim 1\n## Pseudo-claim 2', single_claim: true },
+      { draft: () => Promise.resolve('x') });
+    assert.equal(res, undefined, 'no model configured, so it still bails — but not on the artifact guard');
   });
 });

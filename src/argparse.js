@@ -271,6 +271,9 @@ export function parseArgs() {
     no_hunt: false,
     synonymize: null,        // HOF-b: rewrite a claim's wording away from code vocabulary
     synonymize_out: null,
+    claims_per_line: false,  // force the corpus reading; --single-claim forces the other
+    single_claim: false,
+    claims_only: null,       // --pseudo-claims: machine-readable claims + anchors sidecar
     per_element_select: false,
     no_per_element: false,   // --claim-analyze: skip the per-element search arm
     per_element_n: null,     // --claim-analyze: per-element budget (default 1/element)
@@ -530,6 +533,10 @@ export function parseArgs() {
     ['rank',                 'flag',           ['--rank']],
     ['include_evidence_pack', 'flag',          ['--include-evidence-pack']],
     ['pseudo_claims_chart',  'flag',           ['--pseudo-claims-chart']],
+    // HOF: the machine-readable sibling of the human artifact. One claim per
+    // line plus an anchors sidecar, so the claims feed straight into
+    // --synonymize and the grounded anchors survive as a scoreable answer key.
+    ['claims_only',          'value',          ['--claims-only']],
     ['dry_run',              'flag',           ['--dry-run']],
     ['use_claude',           'flag',           [], ['--use-claude']],
     ['llm',                  'value',          ['--llm']],
@@ -569,6 +576,11 @@ export function parseArgs() {
     ['no_hunt',              'flag',           ['--no-hunt']],
     ['synonymize',           'value',          ['--synonymize']],
     ['synonymize_out',       'value',          ['--synonymize-out']],
+    // Force the one-claim-per-line reading on a file that carries no format
+    // marker (hand-made corpora). --single-claim forces the other way, for a
+    // one-line claim that would otherwise be auto-detected as a corpus of one.
+    ['claims_per_line',      'flag',           ['--claims-per-line']],
+    ['single_claim',         'flag',           ['--single-claim']],
     ['per_element_select',   'flag',           ['--per-element-select']],
     ['no_per_element',       'flag',           ['--no-per-element']],
     ['per_element_n',        'int',            ['--per-element-n']],
@@ -1397,6 +1409,14 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              CHART — one row per claim element/step, with the
                              grounded cite(s) for that element — instead of a
                              flat anchor list.
+  --claims-only <file>       With --pseudo-claims: ALSO write a machine-readable
+                             claims file — one claim per line, no caveat text,
+                             no anchor tables — plus '<file>.anchors.json'
+                             carrying each claim's GROUNDED anchors. The claims
+                             file feeds straight into --synonymize; the sidecar
+                             is the answer key a later recall comparison scores
+                             against. Not available with --dry-run (no claims
+                             have been drafted yet).
 
 LLM ANALYSIS:
   --analyze <function>       Analyze a function with LLM ("what does this do?")
@@ -1479,9 +1499,22 @@ LLM ANALYSIS:
                              warns when a rewrite changed too little to test anything.
                              NOT the reverse tool: it moves wording AWAY from code, not
                              toward it.
+                             A CORPUS of claims — one claim per line, as written by
+                             --pseudo-claims --claims-only — is rewritten claim by
+                             claim, IN ORDER, each with its own re-split verdict.
+                             Note the '@': a bare argument that does not look like
+                             claim text is rejected, not synonymized as a claim.
   --synonymize-out <file>    --synonymize: write the result to <file> with a '#'
                              provenance block (engine, source, overlap). One limitation
-                             per line, so it feeds back in via --elements.
+                             per line for a single claim, so it feeds back in via
+                             --elements; one CLAIM per line for a corpus, so it feeds
+                             back into --synonymize or a retrieval run unchanged.
+  --claims-per-line          --synonymize: read the input as a CORPUS, one claim per
+                             line, even when it carries no format marker. Use for a
+                             hand-made claims file.
+  --single-claim             --synonymize: read the input as ONE claim even if it
+                             looks like a corpus. Use for a claim that happens to
+                             occupy a single line.
   --no-per-element           --claim-analyze: skip the per-element search arm and
                              use whole-claim retrieval alone (pre-arm behaviour).
   --per-element-n <n>        --claim-analyze: how many per-element candidates to add

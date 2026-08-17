@@ -244,13 +244,165 @@ export function terminatorsFor(rawClaimText, elements) {
   });
 }
 
+// `#` COMMENT STRIPPING, DUPLICATED ON PURPOSE.
+//
+// The canonical implementation is `readClaimFile` in analyze.js, and every other
+// claim-reading command imports it. This one cannot: analyze.js reaches the
+// index, and the guarantee this module is built around is that it CANNOT. The
+// import would be the leak, however carefully the binding were used.
+//
+// So the six lines are repeated, and the equivalence is CHECKED rather than
+// asserted -- a test feeds the same inputs to both and requires identical
+// output, so the copies cannot drift apart silently. When `readClaimFile` moves
+// to `utils.js` (a known follow-up: it is a text helper with no business living
+// in an index-reading module, and three commands already share it), this
+// function is deleted and the import taken from there.
+//
+// A file with no comments is returned UNTOUCHED, which is not fussiness: the
+// round trip through split/join normalises CRLF to LF, and the claim files on
+// this project are Windows-authored.
+export function stripClaimComments(raw, { onComments } = {}) {
+  const lines = String(raw).split(/\r?\n/);
+  const kept = lines.filter((l) => !/^\s*#/.test(l));
+  const dropped = lines.length - kept.length;
+  if (!dropped) return String(raw).trim();
+  onComments?.(dropped);
+  return kept.join('\n').trim();
+}
+
+// A claim is one sentence, so it survives being written as one line. Used for
+// the pass-through of a claim that produced no elements to rewrite.
+export function claimLine(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+// Written by --pseudo-claims --claims-only. Read from the RAW text, before the
+// comment strip removes it -- a machine-readable format declaration is exactly
+// the kind of thing that should not depend on a heuristic.
+export const CLAIMS_PER_LINE_MARKER = /^#\s*Format:\s*one claim per line\b/im;
+
+// STRUCTURAL, NOT LEXICAL. A line is a whole claim if it carries a preamble
+// transition followed by the colon that opens the body -- the shape every claim
+// in this project's corpora has, and the shape splitClaimElements already keys
+// off. Deliberately NOT a length or word-count test: a long hard-wrapped line
+// from a single claim would pass that and a short claim would fail it.
+export function looksLikeWholeClaim(line) {
+  const s = String(line || '').trim();
+  if (s.length < 40) return false;
+  return /\b(?:comprising|consisting of|including|having|characterized (?:in|by))\b[^.;]*:/i.test(s);
+}
+
+// ONE CLAIM PER LINE, OR ONE CLAIM. Getting this wrong in either direction is
+// expensive, so the rule is conservative and the verdict is always announced.
+//
+// Auto-detection requires that EVERY non-empty line be a whole claim, and that
+// there be at least two of them. Requiring every line is what makes a
+// hard-wrapped single claim safe: its continuation lines ("wherein the second
+// module ...") carry no preamble transition, so one failing line collapses the
+// whole file back to single-claim reading. The cost of the strict rule is a
+// hand-made corpus that needs --claims-per-line; the cost of a loose one is a
+// claim silently torn into fragments and billed as separate claims.
+export function detectClaims(rawText, { force = null } = {}) {
+  const stripped = stripClaimComments(rawText);
+  const lines = stripped.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (force === 'single') return { claims: [stripped], mode: 'forced-single' };
+  if (force === 'multi') return { claims: lines, mode: 'forced-multi' };
+  if (CLAIMS_PER_LINE_MARKER.test(String(rawText))) return { claims: lines, mode: 'marker' };
+  if (lines.length >= 2 && lines.every(looksLikeWholeClaim)) {
+    return { claims: lines, mode: 'structural' };
+  }
+  return { claims: [stripped], mode: 'single' };
+}
+
+// THE ARGUMENT THAT COST A RUN. `--synonymize ios81_pseudo.txt` -- no '@' --
+// took the literal string "ios81_pseudo.txt" as the claim and dutifully
+// synonymized a filename. --claim-analyze has guarded this for as long as it has
+// accepted claim text; this command never did.
+//
+// Same rule as analyze.js:1495 (inline text must contain a space and exceed 30
+// chars), but the failure is LOUD instead of silent, and names the likely cause:
+// a wasted run that produces a plausible-looking artifact is worse than an error.
+export function claimArgProblem(spec) {
+  const s = String(spec || '');
+  if (s.startsWith('@')) return null;
+  if (s.includes(' ') && s.length > 30) return null;
+  const looksLikePath = /[\\/]/.test(s) || /\.[a-z0-9]{1,5}$/i.test(s);
+  return looksLikePath
+    ? `--synonymize: '${s}' looks like a file, not claim text. Did you mean '@${s}'?`
+    : `--synonymize: '${s}' is too short to be a claim. Use '@<file>' to read a claim `
+      + `from a file, or pass the claim text itself.`;
+}
+
+// THE HUMAN ARTIFACT, POINTED AT THE WRONG COMMAND.
+//
+// detectClaims refuses to mis-split `--pseudo-claims` output into a corpus,
+// which is right -- but the fallback is single-claim reading, and a single
+// "claim" spanning the whole artifact still splits into 144 elements and still
+// bills 144 model calls. Declining to read it the wrong way is not the same as
+// declining to read it.
+//
+// MEASURED on the real ios81_pseudo.txt: 171 elements raw, 144 after the `#`
+// strip. So the comment fix alone takes a third off a bill that should be zero.
+//
+// Detected from the artifact's own structure -- its caveat heading and its
+// per-claim `## Pseudo-claim N` headings -- not from the filename, which says
+// nothing. The message names --claims-only because the user's intent was never
+// in doubt; only the path was.
+export function artifactProblem(rawText) {
+  const s = String(rawText || '');
+  // A FILE THAT DECLARES A MACHINE FORMAT IS A MACHINE FILE, and the check stops
+  // there. Caught by its own test: --claims-only writes "# Pseudo-claims —
+  // illustrative drafting exercise..." as its first line, which is close enough
+  // to the artifact's caveat to trip the heuristic below. An explicit
+  // declaration must always beat a shape guess -- the same reason detectClaims
+  // reads the marker before it looks at structure.
+  if (CLAIMS_PER_LINE_MARKER.test(s)) return null;
+  const headings = (s.match(/^##\s+Pseudo-claim\s+\d+/gim) || []).length;
+  const caveat = /^#\s*PSEUDO-CLAIMS\b/im.test(s);
+  if (!caveat && headings < 2) return null;
+  return `--synonymize: this looks like a --pseudo-claims ARTIFACT`
+    + `${headings ? ` (${headings} \`## Pseudo-claim\` heading(s))` : ''}, not claim text.`
+    + ` It carries caveat prose, a contents list and anchor tables, all of which would be`
+    + ` rewritten as limitations at one model call each.\n`
+    + `  Re-run --pseudo-claims with --claims-only <file> to write the claims alone,`
+    + ` then synonymize that file.`;
+}
+
 // `#` provenance, matching --targets-out. HOF depends on knowing WHICH model did
 // the rewriting, since the premise of HOF-b is that it is a different model from
 // the one being tested.
-export function buildSynonymizeProvenance({ engineLabel, claimSource, elements, failed, meanOverlap, argv, ceVersion, generatedAt, reSplit, repairs = 0 }) {
+export function buildSynonymizeProvenance({ engineLabel, claimSource, elements, failed, meanOverlap, argv, ceVersion, generatedAt, reSplit, repairs = 0, perClaim = null }) {
   const skeleton = reSplit == null ? null
     : reSplit === elements ? `${reSplit} — preserved`
     : `${reSplit} — CHANGED, comparison unsafe`;
+  // CORPUS FORM. A run over 13 claims that reports one aggregate re-split number
+  // has thrown away the only thing worth knowing when it goes wrong: WHICH claim
+  // broke. The guard that caught Gemini's marker loss is useless at scale if it
+  // cannot name the row.
+  if (perClaim) {
+    const broke = perClaim.filter((c) => c.reSplit !== c.elements);
+    const claimFails = perClaim.filter((c) => c.failed).length;
+    return [
+      `# Synonymized claims — HOF-b. Wording changed, requirement preserved.`,
+      `# NOT patent claims. Generated for retrieval testing; do not file, quote, or rely on.`,
+      // Read back by detectClaims, so this file round-trips without a flag.
+      `# Format:     one claim per line`,
+      `# Engine:     ${engineLabel}`,
+      `# Source:     ${claimSource || '(inline)'}`,
+      `# Claims:     ${perClaim.length}${claimFails ? ` (${claimFails} with at least one failed element)` : ''}`,
+      `# Elements:   ${elements} total${failed ? ` (${failed} kept original — rewrite failed)` : ''}`,
+      `# Vocabulary: ${meanOverlap.toFixed(1)}% mean per-element content-word survival (lower = harder)`,
+      broke.length
+        ? `# Re-split:   ${perClaim.length - broke.length} of ${perClaim.length} preserved — CHANGED on `
+          + `${broke.map((c) => `claim ${c.n} (${c.elements} → ${c.reSplit})`).join(', ')}; `
+          + `comparison unsafe for those`
+        : `# Re-split:   all ${perClaim.length} preserved`,
+      ...(repairs ? [`# Repaired:   ${repairs} element(s) — stray ", and" introduced by the rewrite`] : []),
+      `# CE:         ${ceVersion}`,
+      `# Generated:  ${generatedAt}`,
+      `# Command:    ${argv}`,
+    ].join('\n');
+  }
   return [
     `# Synonymized claim — HOF-b. Wording changed, requirement preserved.`,
     `# NOT a patent claim. Generated for retrieval testing; do not file, quote, or rely on.`,
@@ -273,31 +425,90 @@ export function buildSynonymizeProvenance({ engineLabel, claimSource, elements, 
 
 export async function doSynonymize(args, opts = {}) {
   const spec = String(args.synonymize || '');
-  let claimText = spec, claimSource = null;
+
+  // Rejected BEFORE anything is read or any model is resolved: the whole point
+  // is to fail before spending, since the failure this guards produced a
+  // plausible-looking artifact after a full run.
+  const argProblem = claimArgProblem(spec);
+  if (argProblem) { console.error(argProblem); process.exitCode = 1; return; }
+
+  let rawText = spec, claimSource = null;
   if (spec.startsWith('@')) {
     claimSource = spec.slice(1);
-    try { claimText = fs.readFileSync(claimSource, 'utf8'); }
+    try { rawText = fs.readFileSync(claimSource, 'utf8'); }
     catch (e) { console.error(`Cannot read claim file: ${e.message}`); process.exitCode = 1; return; }
   }
-  if (!claimText.trim()) { console.error('--synonymize: no claim text.'); process.exitCode = 1; return; }
+  if (!rawText.trim()) { console.error('--synonymize: no claim text.'); process.exitCode = 1; return; }
+
+  // Also before spending. --single-claim is the deliberate override for someone
+  // who really does mean to rewrite an artifact wholesale.
+  const artifact = args.single_claim ? null : artifactProblem(rawText);
+  if (artifact) { console.error(artifact); process.exitCode = 1; return; }
+
+  if (args.claims_per_line && args.single_claim) {
+    console.error('--synonymize: --claims-per-line and --single-claim contradict each other.');
+    process.exitCode = 1; return;
+  }
+  const { claims: claimTexts, mode } = detectClaims(rawText, {
+    force: args.claims_per_line ? 'multi' : args.single_claim ? 'single' : null,
+  });
+  const isCorpus = claimTexts.length > 1 || mode === 'forced-multi' || mode === 'marker';
+  if (!claimTexts.length || !claimTexts.some((c) => c.trim())) {
+    console.error('--synonymize: no claim text.'); process.exitCode = 1; return;
+  }
+
+  // ANNOUNCED, ALWAYS. Reading a corpus as one claim, or one claim as a corpus,
+  // changes the number of model calls and the shape of the output; the user
+  // should never have to infer which reading happened from the bill.
+  if (isCorpus) {
+    process.stderr.write(`[synonymize] reading ${claimTexts.length} claim(s), one per line`
+      + ` (${mode === 'marker' ? 'format marker' : mode === 'forced-multi' ? '--claims-per-line' : 'structure'})\n`);
+  }
+
+  // --elements @file supplies ONE construction, so it cannot describe a corpus.
+  // Silently applying one claim's elements to thirteen would be a fabrication.
+  if (args.elements && isCorpus) {
+    console.error('--synonymize: --elements supplies the construction of ONE claim and cannot be'
+      + ` applied to ${claimTexts.length}. Synonymize that claim on its own, or drop --elements.`);
+    process.exitCode = 1; return;
+  }
 
   // --elements @file wins over the heuristic split, same contract as --claim-chart:
   // a practitioner's construction of the claim beats any regex.
-  let elements = null, elementsSource = null;
+  let suppliedElements = null, elementsSource = null;
   if (args.elements) {
     const espec = String(args.elements);
     const epath = espec.startsWith('@') ? espec.slice(1) : espec;
     let eraw;
     try { eraw = fs.readFileSync(epath, 'utf8'); }
     catch (e) { console.error(`Cannot read elements file: ${e.message}`); process.exitCode = 1; return; }
-    ({ elements } = parseElementsFile(eraw));
-    if (!elements.length) { console.error(`--elements: ${epath} has no element lines.`); process.exitCode = 1; return; }
-    elementsSource = `\`${epath}\` — ${elements.length} supplied verbatim`;
-  } else {
-    elements = splitClaimElements(claimText);
-    elementsSource = `${elements.length} from CE's split`;
+    ({ elements: suppliedElements } = parseElementsFile(eraw));
+    if (!suppliedElements.length) { console.error(`--elements: ${epath} has no element lines.`); process.exitCode = 1; return; }
+    elementsSource = `\`${epath}\` — ${suppliedElements.length} supplied verbatim`;
   }
-  if (!elements.length) { console.error('--synonymize: the claim produced no elements.'); process.exitCode = 1; return; }
+
+  // Split every claim UP FRONT, so the cost gate sees the true total. A gate
+  // that fires per claim asks thirteen times and tells the user nothing about
+  // what the whole run costs.
+  const perClaim = claimTexts.map((text, i) => {
+    const elements = suppliedElements || splitClaimElements(text);
+    return { n: i + 1, text, elements };
+  });
+  const emptyClaims = perClaim.filter((c) => !c.elements.length);
+  if (emptyClaims.length === perClaim.length) {
+    console.error('--synonymize: the claim produced no elements.'); process.exitCode = 1; return;
+  }
+  if (emptyClaims.length) {
+    // Named, not dropped silently: a claim that produced no elements is a
+    // finding about the input, and the output must stay positionally aligned
+    // with it (HOF scores claim i against key i).
+    process.stderr.write(`[synonymize] WARNING: ${emptyClaims.length} claim(s) produced no elements`
+      + ` and are passed through unchanged: ${emptyClaims.map((c) => c.n).join(', ')}\n`);
+  }
+  if (!suppliedElements) {
+    const total = perClaim.reduce((n, c) => n + c.elements.length, 0);
+    elementsSource = `${total} from CE's split`;
+  }
 
   const model = resolveModel(args);
   if (!model) { console.error('--synonymize needs a model: --llm <provider> or --model <gguf>.'); process.exitCode = 1; return; }
@@ -307,25 +518,39 @@ export async function doSynonymize(args, opts = {}) {
   catch (e) { console.error(`--synonymize: ${e.message}`); process.exitCode = 1; return; }
 
   const engineLabel = describeEngine(model);
-  process.stderr.write(`[synonymize] ${elements.length} element(s), engine ${engineLabel}\n`);
+  const totalElements = perClaim.reduce((n, c) => n + c.elements.length, 0);
+  process.stderr.write(`[synonymize] ${totalElements} element(s)`
+    + `${isCorpus ? ` across ${perClaim.length} claim(s)` : ''}, engine ${engineLabel}\n`);
   process.stderr.write('[synonymize] the model is shown the CLAIM ONLY — no index, no code, no paths\n');
 
-  // One call per element, gated before spending.
-  const calls = elements.map((e) => ({ inChars: String(e).length + 1500, outTokens: SYNONYMIZE_DEFAULTS.maxTokensPerElement }));
-  if (!claimsCostGate(model, calls, `synonymize (${elements.length} calls)`, args)) return;
+  // One call per element ACROSS ALL CLAIMS, gated once before spending. This is
+  // the number that would have said "171 calls" out loud on the run that
+  // synonymized a legal disclaimer element by element.
+  const calls = perClaim.flatMap((c) => c.elements.map((e) => ({
+    inChars: String(e).length + 1500, outTokens: SYNONYMIZE_DEFAULTS.maxTokensPerElement,
+  })));
+  if (!claimsCostGate(model, calls, `synonymize (${calls.length} calls`
+    + `${isCorpus ? `, ${perClaim.length} claims` : ''})`, args)) return;
   resetCloudUsage();
 
-  const rows = await synonymizeElements({
-    draft, elements, opts: args,
-    onElement: (r) => process.stderr.write(
-      r.error ? `  ${r.n}: FAILED (${r.error}) — keeping original\n`
-              : `  ${r.n}: ${r.overlap.pct.toFixed(0)}% of content words survive`
-                + `${r.overlap.survivors.length ? ` [${r.overlap.survivors.slice(0, 6).join(', ')}]` : ''}`
-                + `${r.repaired ? ' — stray ", and" repaired' : ''}\n`),
-  });
+  for (const c of perClaim) {
+    if (isCorpus) {
+      process.stderr.write(`[synonymize] claim ${c.n}/${perClaim.length}`
+        + ` — ${c.elements.length} element(s)\n`);
+    }
+    c.rows = await synonymizeElements({
+      draft, elements: c.elements, opts: args,
+      onElement: (r) => process.stderr.write(
+        r.error ? `  ${isCorpus ? `${c.n}.` : ''}${r.n}: FAILED (${r.error}) — keeping original\n`
+                : `  ${isCorpus ? `${c.n}.` : ''}${r.n}: ${r.overlap.pct.toFixed(0)}% of content words survive`
+                  + `${r.overlap.survivors.length ? ` [${r.overlap.survivors.slice(0, 6).join(', ')}]` : ''}`
+                  + `${r.repaired ? ' — stray ", and" repaired' : ''}\n`),
+    });
+  }
 
-  const failed = rows.filter((r) => r.error).length;
-  const scored = rows.filter((r) => !r.error);
+  const allRows = perClaim.flatMap((c) => c.rows);
+  const failed = allRows.filter((r) => r.error).length;
+  const scored = allRows.filter((r) => !r.error);
   const meanOverlap = scored.length
     ? scored.reduce((n, r) => n + r.overlap.pct, 0) / scored.length : 100;
 
@@ -340,69 +565,102 @@ export async function doSynonymize(args, opts = {}) {
   // as "already punctuated", and restored only 2 of 6 semicolons -- so the claim
   // still collapsed on rewrap, 11 elements to 6. Deferring to the model's
   // punctuation was the same mistake as deferring to its markers, one layer on.
-  const terms = terminatorsFor(claimText, elements);
-  let restored = 0, replaced = 0;
-  for (let i = 0; i < rows.length; i++) {
-    const t = terms[i];
-    if (!t) continue;
-    const cur = rows[i].rewritten;
-    if (cur.endsWith(t)) continue;                 // already exactly right
-    const ownMark = cur.match(/([;,:.])\s*$/);
-    if (ownMark) {
-      // The source is authoritative about structure. Swap the model's mark for
-      // the one the claim actually used -- except a FINAL period, which is the
-      // sentence ending and correct.
-      const isFinal = i === rows.length - 1;
-      if (isFinal && ownMark[1] === '.') continue;
-      rows[i].rewritten = cur.replace(/[;,:.]\s*$/, '') + t;
-      replaced++;
-    } else {
-      rows[i].rewritten = cur + t;
-      restored++;
+  let restored = 0, replaced = 0, unplaceable = 0;
+  for (const c of perClaim) {
+    const terms = terminatorsFor(c.text, c.elements);
+    for (let i = 0; i < c.rows.length; i++) {
+      const t = terms[i];
+      if (!t) continue;
+      const cur = c.rows[i].rewritten;
+      if (cur.endsWith(t)) continue;                 // already exactly right
+      const ownMark = cur.match(/([;,:.])\s*$/);
+      if (ownMark) {
+        // The source is authoritative about structure. Swap the model's mark for
+        // the one the claim actually used -- except a FINAL period, which is the
+        // sentence ending and correct.
+        const isFinal = i === c.rows.length - 1;
+        if (isFinal && ownMark[1] === '.') continue;
+        c.rows[i].rewritten = cur.replace(/[;,:.]\s*$/, '') + t;
+        replaced++;
+      } else {
+        c.rows[i].rewritten = cur + t;
+        restored++;
+      }
+    }
+    unplaceable += c.elements.length - terms.filter(Boolean).length;
+
+    // SPLIT-INVARIANCE IS THE GUARANTEE THIS COMMAND EXISTS TO PROVIDE, so it is
+    // CHECKED rather than assumed, PER CLAIM. Feed the output back through the
+    // same splitter and require the same element count. A rewrite that changes
+    // the row skeleton makes the before/after retrieval comparison
+    // uninterpretable -- vocabulary change and structure change become
+    // inseparable -- which is precisely the confound that motivated rewriting
+    // per limitation in the first place.
+    //
+    // PER CLAIM AND NOT PER RUN. An aggregate count over 13 claims can hold
+    // while one claim gained a row and another lost one; and even when it does
+    // report a change, "171 became 172" does not say where to look. The number
+    // that matters downstream is claim-scoped, because scoring pairs claim i
+    // with key i.
+    //
+    // Not fatal: the artifact is still worth having, and the caller may know
+    // why. But it must never be silent, because the failure is invisible
+    // downstream -- the file still has the right number of LINES.
+    c.reSplit = splitClaimElements(c.rows.map((r) => r.rewritten).join('\n')).length;
+    c.failed = c.rows.filter((r) => r.error).length;
+    if (c.reSplit !== c.elements.length) {
+      process.stderr.write(`[synonymize] WARNING: ${isCorpus ? `claim ${c.n} ` : 'the rewritten claim '}`
+        + `re-splits to ${c.reSplit} element(s), not ${c.elements.length}. The row skeleton did NOT`
+        + ` survive, so a before/after retrieval comparison against`
+        + `${isCorpus ? ' this claim' : ' it'} cannot separate vocabulary change from structure change.\n`);
     }
   }
+
   // Repairs are REPORTED, never silent: a synonymized claim used as ground truth
   // must not quietly differ from what the engine produced, and a high repair
   // count is itself a finding about the engine.
-  const repairs = rows.filter((r) => r.repaired).length;
+  const repairs = allRows.filter((r) => r.repaired).length;
   if (repairs) {
     process.stderr.write(`[synonymize] stray ", and" repaired on ${repairs} element(s)`
       + ` — the rewrite introduced a boundary the source did not have
 `);
   }
-  const placeable = terms.filter(Boolean).length;
   process.stderr.write(`[synonymize] terminal punctuation: ${restored} added, ${replaced} corrected`
-    + ` (of ${elements.length} element(s))${placeable < elements.length
-      ? `; ${elements.length - placeable} could not be located in the source` : ''}\n`);
+    + ` (of ${totalElements} element(s))${unplaceable
+      ? `; ${unplaceable} could not be located in the source` : ''}\n`);
 
-  // SPLIT-INVARIANCE IS THE GUARANTEE THIS COMMAND EXISTS TO PROVIDE, so it is
-  // CHECKED rather than assumed. Feed the output back through the same splitter
-  // and require the same element count. A rewrite that changes the row skeleton
-  // makes the before/after retrieval comparison uninterpretable -- vocabulary
-  // change and structure change become inseparable -- which is precisely the
-  // confound that motivated rewriting per limitation in the first place.
-  //
-  // Not fatal: the artifact is still worth having, and the caller may know why.
-  // But it must never be silent, because the failure is invisible downstream --
-  // the file still has the right number of LINES.
-  const rebuiltSplit = splitClaimElements(rows.map((r) => r.rewritten).join('\n'));
-  const skeletonHeld = rebuiltSplit.length === elements.length;
-  if (!skeletonHeld) {
-    process.stderr.write(`[synonymize] WARNING: the rewritten claim re-splits to `
-      + `${rebuiltSplit.length} element(s), not ${elements.length}. The row skeleton did NOT survive,`
-      + ` so a before/after retrieval comparison against this claim cannot separate`
-      + ` vocabulary change from structure change.\n`);
+  const broke = perClaim.filter((c) => c.reSplit !== c.elements.length);
+  if (isCorpus) {
+    process.stderr.write(`[synonymize] re-split: ${perClaim.length - broke.length} of ${perClaim.length}`
+      + ` claim(s) preserved${broke.length ? ` — CHANGED on claim ${broke.map((c) => c.n).join(', ')}` : ''}\n`);
   }
 
   const provenance = buildSynonymizeProvenance({
-    engineLabel, claimSource, elements: elements.length, failed, meanOverlap,
-    reSplit: rebuiltSplit.length, repairs,
+    engineLabel, claimSource, elements: totalElements, failed, meanOverlap,
+    reSplit: perClaim[0].reSplit, repairs,
+    perClaim: isCorpus
+      ? perClaim.map((c) => ({ n: c.n, elements: c.elements.length, reSplit: c.reSplit, failed: c.failed }))
+      : null,
     argv: process.argv.slice(1).join(' '),
     ceVersion: readCeVersion(), generatedAt: new Date().toISOString(),
   });
-  // One element per line, so the result feeds straight back in via --elements
-  // and the row skeleton is preserved across the comparison.
-  const body = rows.map((r) => r.rewritten).join('\n');
+  // SINGLE CLAIM: one element per line, so the result feeds straight back in via
+  // --elements and the row skeleton is preserved across the comparison.
+  //
+  // CORPUS: one CLAIM per line, matching the input format, so the file
+  // round-trips -- back into --synonymize, or on to retrieval, with position
+  // preserved and no re-parsing step in between. The elements are joined by the
+  // terminal punctuation just restored, which is the whole reason that
+  // restoration matters here: a claim written back as one line is re-split from
+  // its punctuation alone.
+  const body = isCorpus
+    // A claim that produced no elements is written back AS IT CAME IN, not as a
+    // blank line: position is the pairing, and a dropped line silently shifts
+    // every later claim against its key.
+    ? perClaim.map((c) => (c.rows.length
+        ? c.rows.map((r) => r.rewritten).join(' ').replace(/\s+/g, ' ').trim()
+        : claimLine(c.text))).join('\n')
+    : perClaim[0].rows.map((r) => r.rewritten).join('\n');
   const outText = `${provenance}\n${body}\n`;
 
   if (args.synonymize_out) {
@@ -419,9 +677,17 @@ export async function doSynonymize(args, opts = {}) {
   // say so, because the downstream comparison would look like a success.
   if (meanOverlap > 60) {
     process.stderr.write(`[synonymize] WARNING: ${meanOverlap.toFixed(0)}% of the original vocabulary survived.`
-      + ` This claim is not meaningfully harder; a retrieval comparison against it proves little.\n`);
+      + ` ${isCorpus ? 'These claims are' : 'This claim is'} not meaningfully harder;`
+      + ` a retrieval comparison against ${isCorpus ? 'them' : 'it'} proves little.\n`);
   }
   const cost = actualCostLine(model);
   if (cost) process.stderr.write(cost + '\n');
-  return { rows, meanOverlap, failed, elementsSource };
+  return {
+    rows: allRows, meanOverlap, failed, elementsSource,
+    claims: perClaim.map((c) => ({
+      n: c.n, elements: c.elements.length, reSplit: c.reSplit, failed: c.failed,
+      rewritten: c.rows.map((r) => r.rewritten),
+    })),
+    mode, isCorpus,
+  };
 }
