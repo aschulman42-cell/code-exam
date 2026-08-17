@@ -346,3 +346,73 @@ describe('HOF-b: the model\'s own punctuation does not override the source', () 
     assert.deepEqual(applyTerminators(already, terms), already);
   });
 });
+
+describe('HOF-b: the stray-comma repair, wired at the one site holding the pair', () => {
+  // THE THIRD STRUCTURAL FAILURE MODE, and the only one that cannot be fixed by
+  // strip-before-and-restore-after: the rewrite ADDS a boundary rather than
+  // dropping one. The comma is inside prose the model was asked to rewrite.
+  //
+  // MEASURED on sample_patent_claim_synon_gemini_NEW.txt, generated AFTER the
+  // marker and punctuation fixes: Gemini wrote element (a) with ", and
+  // incorporating" where the source reads "... version and loading ..." -- same
+  // word, no comma. BOUNDARY_RE cuts at /,\s*and\s+/, so the claim went from 11
+  // rows to 12 and the re-split guard flagged the comparison unsafe.
+
+  it('repairs the REAL recorded Gemini rewrite: 12 rows back to 11', async () => {
+    const gem = fs.readFileSync('sample_patent_claim_synon_gemini_NEW.txt', 'utf-8')
+      .split(/\r?\n/).filter((l) => l.trim() && !l.startsWith('#'));
+    let i = 0;
+    const replay = () => Promise.resolve(
+      gem[i++].replace(/^\s*\(\s*(?:[a-z]|[ivx]+|\d+)\s*\)\s*/i, ''));
+    const rows = await synonymizeElements({ draft: replay, elements: DEMO_ELEMENTS });
+    assert.deepEqual(rows.filter((r) => r.repaired).map((r) => r.n), [2],
+      'element 2 is where Gemini introduced the comma');
+    assert.equal(splitClaimElements(rows.map((r) => r.rewritten).join('\n')).length,
+      DEMO_ELEMENTS.length, 'the skeleton is restored');
+  });
+
+  it('leaves a GENUINE ", and" boundary alone — the regression that matters', async () => {
+    // `, and` is a real limitation boundary; Part III names it as "often a good
+    // place to divide". Repairing blind would MERGE limitations a claim
+    // deliberately separated, which is worse than the defect being fixed.
+    const original = ['initializing a first module configured to do one thing, and '
+      + 'loading a second module configured to do another thing here'];
+    const rewrite = () => Promise.resolve('establishing a primary component arranged to '
+      + 'perform one function, and provisioning a secondary component arranged to perform another');
+    const rows = await synonymizeElements({ draft: rewrite, elements: original });
+    assert.equal(rows[0].repaired, false, 'the source already split here');
+    assert.match(rows[0].rewritten, /,\s+and\s+provisioning/, 'the comma survives');
+  });
+
+  it('reports the repair per row and in the summary — never silent', async () => {
+    const gem = fs.readFileSync('sample_patent_claim_synon_gemini_NEW.txt', 'utf-8')
+      .split(/\r?\n/).filter((l) => l.trim() && !l.startsWith('#'));
+    let i = 0;
+    const replay = () => Promise.resolve(
+      gem[i++].replace(/^\s*\(\s*(?:[a-z]|[ivx]+|\d+)\s*\)\s*/i, ''));
+    const seen = [];
+    await synonymizeElements({ draft: replay, elements: DEMO_ELEMENTS, onElement: (r) => seen.push(r) });
+    assert.equal(seen.filter((r) => r.repaired).length, 1,
+      'the flag must reach the caller, which is what drives the stderr line');
+  });
+
+  it('provenance records repairs ONLY when there were any', () => {
+    // A line saying "0 repaired" on every run trains the reader to skip it, and
+    // this one has to be noticed when it appears.
+    const withRepairs = buildSynonymizeProvenance({
+      engineLabel: 'x', claimSource: 'c.txt', elements: 11, failed: 0, meanOverlap: 10,
+      reSplit: 11, repairs: 2, argv: 'ce', ceVersion: '1', generatedAt: 'now',
+    });
+    assert.match(withRepairs, /# Repaired:\s+2 element\(s\)/);
+    const none = buildSynonymizeProvenance({
+      engineLabel: 'x', claimSource: 'c.txt', elements: 11, failed: 0, meanOverlap: 10,
+      reSplit: 11, repairs: 0, argv: 'ce', ceVersion: '1', generatedAt: 'now',
+    });
+    assert.ok(!/# Repaired:/.test(none), 'silence when there is nothing to say');
+  });
+
+  it('a rewrite with no comma at all is untouched', async () => {
+    const rows = await synonymizeElements({ draft: rewriter, elements: DEMO_ELEMENTS });
+    assert.equal(rows.filter((r) => r.repaired).length, 0);
+  });
+});

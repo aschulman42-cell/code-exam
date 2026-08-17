@@ -37,7 +37,7 @@
 import fs from 'node:fs';
 import { readCeVersion } from '../utils.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine } from '../core/llm-runner.js';
-import { splitClaimElements, parseElementsFile } from './claim-locate.js';
+import { splitClaimElements, parseElementsFile, repairStrayAndComma } from './claim-locate.js';
 
 export const SYNONYMIZE_DEFAULTS = {
   // Output budget per element. Elements are one or two sentences; 400 leaves
@@ -170,11 +170,31 @@ export async function synonymizeElements({ draft, elements, opts = {}, onElement
     if (!error && rewritten.length < Math.min(20, original.length * 0.4)) {
       error = `rewrite too short (${rewritten.length} chars for a ${original.length}-char limitation)`;
     }
+    // THE THIRD STRUCTURAL FAILURE MODE, and the only one that cannot be fixed
+    // by strip-before-and-restore-after: the rewrite ADDS a boundary rather than
+    // dropping one.
+    //
+    // MEASURED on sample_patent_claim_synon_gemini_NEW.txt, generated AFTER the
+    // marker and punctuation fixes: Gemini wrote element (a) with ", and
+    // incorporating" where the source reads "... version and loading ..." --
+    // same word, no comma. BOUNDARY_RE cuts at /,\s*and\s+/, so the claim went
+    // from 11 rows to 12 and the re-split guard flagged the comparison unsafe.
+    //
+    // The repair needs THE PAIR, which is why it happens here and not in the
+    // splitter: from element text alone a stray ", and" is indistinguishable
+    // from a genuine one, and repairing blind would merge limitations a claim
+    // deliberately separated. `original` is in hand at exactly this point and
+    // nowhere else.
+    let repaired = false;
+    if (!error) {
+      const fixed = repairStrayAndComma(rewritten, original, opts);
+      if (fixed !== rewritten) { rewritten = fixed; repaired = true; }
+    }
     // Overlap is scored on the BODY, not the marker: "(a)" is not vocabulary,
     // and counting it would flatter every rewrite by a constant.
     const kept = error ? { kept: 0, total: 0, pct: 100, survivors: [] }
                        : vocabularyOverlap(bodyText, rewritten);
-    const row = { n: i + 1, original, rewritten: error ? original : rewritten, error, overlap: kept };
+    const row = { n: i + 1, original, rewritten: error ? original : rewritten, error, overlap: kept, repaired };
     out.push(row);
     onElement?.(row);
   }
@@ -227,7 +247,7 @@ export function terminatorsFor(rawClaimText, elements) {
 // `#` provenance, matching --targets-out. HOF depends on knowing WHICH model did
 // the rewriting, since the premise of HOF-b is that it is a different model from
 // the one being tested.
-export function buildSynonymizeProvenance({ engineLabel, claimSource, elements, failed, meanOverlap, argv, ceVersion, generatedAt, reSplit }) {
+export function buildSynonymizeProvenance({ engineLabel, claimSource, elements, failed, meanOverlap, argv, ceVersion, generatedAt, reSplit, repairs = 0 }) {
   const skeleton = reSplit == null ? null
     : reSplit === elements ? `${reSplit} — preserved`
     : `${reSplit} — CHANGED, comparison unsafe`;
@@ -242,6 +262,9 @@ export function buildSynonymizeProvenance({ engineLabel, claimSource, elements, 
     // as surviving if it survived ANYWHERE, which is the more forgiving reading.
     `# Vocabulary: ${meanOverlap.toFixed(1)}% mean per-element content-word survival (lower = harder)`,
     ...(skeleton ? [`# Re-split:   ${skeleton}`] : []),
+    // Only when non-zero: a line saying "0 repaired" on every run trains the
+    // reader to skip it, and this one has to be noticed when it appears.
+    ...(repairs ? [`# Repaired:   ${repairs} element(s) — stray ", and" introduced by the rewrite`] : []),
     `# CE:         ${ceVersion}`,
     `# Generated:  ${generatedAt}`,
     `# Command:    ${argv}`,
@@ -297,7 +320,8 @@ export async function doSynonymize(args, opts = {}) {
     onElement: (r) => process.stderr.write(
       r.error ? `  ${r.n}: FAILED (${r.error}) — keeping original\n`
               : `  ${r.n}: ${r.overlap.pct.toFixed(0)}% of content words survive`
-                + `${r.overlap.survivors.length ? ` [${r.overlap.survivors.slice(0, 6).join(', ')}]` : ''}\n`),
+                + `${r.overlap.survivors.length ? ` [${r.overlap.survivors.slice(0, 6).join(', ')}]` : ''}`
+                + `${r.repaired ? ' — stray ", and" repaired' : ''}\n`),
   });
 
   const failed = rows.filter((r) => r.error).length;
@@ -337,6 +361,15 @@ export async function doSynonymize(args, opts = {}) {
       restored++;
     }
   }
+  // Repairs are REPORTED, never silent: a synonymized claim used as ground truth
+  // must not quietly differ from what the engine produced, and a high repair
+  // count is itself a finding about the engine.
+  const repairs = rows.filter((r) => r.repaired).length;
+  if (repairs) {
+    process.stderr.write(`[synonymize] stray ", and" repaired on ${repairs} element(s)`
+      + ` — the rewrite introduced a boundary the source did not have
+`);
+  }
   const placeable = terms.filter(Boolean).length;
   process.stderr.write(`[synonymize] terminal punctuation: ${restored} added, ${replaced} corrected`
     + ` (of ${elements.length} element(s))${placeable < elements.length
@@ -363,7 +396,7 @@ export async function doSynonymize(args, opts = {}) {
 
   const provenance = buildSynonymizeProvenance({
     engineLabel, claimSource, elements: elements.length, failed, meanOverlap,
-    reSplit: rebuiltSplit.length,
+    reSplit: rebuiltSplit.length, repairs,
     argv: process.argv.slice(1).join(' '),
     ceVersion: readCeVersion(), generatedAt: new Date().toISOString(),
   });
