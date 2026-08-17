@@ -268,7 +268,7 @@ describe('HOF-b: terminal punctuation is restored, not preserved', () => {
     // terminators the claim collapses when pasted from a PDF or an email.
     const oneLine = (s) => s.replace(/\s*\n\s*/g, ' ');
     const t = terminatorsFor(DEMO_CLAIM, DEMO_ELEMENTS);
-    const stripped = DEMO_ELEMENTS.map((e) => e.replace(/[;,:.]\s*$/, ''));
+    const stripped = DEMO_ELEMENTS.map((e) => e.replace(/[;,]\s*$/, ''));
     const restored = stripped.map((e, i) => (/[;,:.]$/.test(e) ? e : e + (t[i] || '')));
 
     const origOneLine = splitClaimElements(oneLine(DEMO_CLAIM)).length;
@@ -307,7 +307,7 @@ describe('HOF-b: the model\'s own punctuation does not override the source', () 
       const own = cur.match(/([;,:.])\s*$/);
       if (own) {
         if (i === rewrites.length - 1 && own[1] === '.') return cur;
-        return cur.replace(/[;,:.]\s*$/, '') + t;
+        return cur.replace(/[;,]\s*$/, '') + t;
       }
       return cur + t;
     });
@@ -315,7 +315,7 @@ describe('HOF-b: the model\'s own punctuation does not override the source', () 
 
   it('replaces a mid-claim period with the source terminator', () => {
     const terms = terminatorsFor(DEMO_CLAIM, DEMO_ELEMENTS);
-    const periodEnding = DEMO_ELEMENTS.map((e) => e.replace(/[;,:.]\s*$/, '') + '.');
+    const periodEnding = DEMO_ELEMENTS.map((e) => e.replace(/[;,]\s*$/, '') + '.');
     const fixed = applyTerminators(periodEnding, terms);
     const srcSemis = (DEMO_CLAIM.match(/;/g) || []).length;
     assert.equal((periodEnding.join('\n').match(/;/g) || []).length, 0, 'baseline: model gave none');
@@ -325,7 +325,7 @@ describe('HOF-b: the model\'s own punctuation does not override the source', () 
 
   it('and that restores rewrap survivability, which the old rule did not', () => {
     const terms = terminatorsFor(DEMO_CLAIM, DEMO_ELEMENTS);
-    const periodEnding = DEMO_ELEMENTS.map((e) => e.replace(/[;,:.]\s*$/, '') + '.');
+    const periodEnding = DEMO_ELEMENTS.map((e) => e.replace(/[;,]\s*$/, '') + '.');
     const fixed = applyTerminators(periodEnding, terms);
     const target = splitClaimElements(oneLine(DEMO_CLAIM)).length;
     assert.equal(splitClaimElements(oneLine(fixed.join('\n'))).length, target);
@@ -335,14 +335,14 @@ describe('HOF-b: the model\'s own punctuation does not override the source', () 
 
   it('leaves the FINAL period alone — it is the sentence ending', () => {
     const terms = terminatorsFor(DEMO_CLAIM, DEMO_ELEMENTS);
-    const periodEnding = DEMO_ELEMENTS.map((e) => e.replace(/[;,:.]\s*$/, '') + '.');
+    const periodEnding = DEMO_ELEMENTS.map((e) => e.replace(/[;,]\s*$/, '') + '.');
     const fixed = applyTerminators(periodEnding, terms);
     assert.match(fixed[fixed.length - 1], /\.$/, 'a claim ends in a period');
   });
 
   it('does not touch a rewrite that already matches the source', () => {
     const terms = terminatorsFor(DEMO_CLAIM, DEMO_ELEMENTS);
-    const already = DEMO_ELEMENTS.map((e, i) => (terms[i] ? e.replace(/[;,:.]\s*$/, '') + terms[i] : e));
+    const already = DEMO_ELEMENTS.map((e, i) => (terms[i] ? e.replace(/[;,]\s*$/, '') + terms[i] : e));
     assert.deepEqual(applyTerminators(already, terms), already);
   });
 });

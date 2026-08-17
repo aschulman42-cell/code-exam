@@ -34,7 +34,7 @@ import { buildClaimAnalyzePrompt, addLineNumbers, readClaimFile } from './analyz
 // input without saying so is how the next version of this bug hides.
 const _noteComments = (n, f) => process.stderr.write(
   `  Claim file ${f}: ignored ${n} '#' comment line(s) (provenance, not claim text).\n`);
-import { splitClaimElements, targetsChecksum, dedupeTargets, parseElementsFile, retrievePerElement } from './claim-locate.js';
+import { splitClaimElements, targetsChecksum, dedupeTargets, parseElementsFile, retrievePerElement, isPreambleRow } from './claim-locate.js';
 import { readCeVersion } from '../utils.js';
 import { buildSymbolTable, verifySymbol, isFound, navigateFrom } from '../core/symbol-verify.js';
 import { parseAnalysisLabels, lexicalGate } from './claims-loop.js';
@@ -94,7 +94,21 @@ export function buildChartTable(claimText, opts = {}) {
     : splitClaimElements(claimText);
   const lines = ['| # | Claim element | CE finding | Cited code |', '|---|---|---|---|'];
   elements.forEach((e, i) => {
-    lines.push(`| ${i + 1} | ${String(e).replace(/\|/g, '\\|')} |  |  |`);
+    // Part B: mark the preamble row.
+    //
+    // Andrew (#310): "Preamble must always be shown as first row. Point is that
+    // failure to find matching code for a preamble would often not be fatal."
+    // Unlabelled, the two cases render identically and a reader cannot act on
+    // that distinction:
+    //
+    //   '101 chart  | 1 | A distribution system, including ... | ABSENT  |
+    //   TLS chart   | 1 | A method of establishing a secure ... | PRESENT |
+    //
+    // An examiner reading the first cold sees a claim whose very first row
+    // failed, when a preamble is "generally not a limitation" unless it
+    // "breathes life and meaning into the claim".
+    const tag = isPreambleRow(e, i) ? ' _[preamble]_' : '';
+    lines.push(`| ${i + 1} | ${String(e).replace(/\|/g, '\\|')}${tag} |  |  |`);
   });
   return { table: lines.join('\n'), elements };
 }
@@ -322,12 +336,32 @@ export function fillChartRows(table, fills) {
   return out;
 }
 
-export function coverageLine(fills, nElements) {
+export function coverageLine(fills, nElements, elements = null) {
+  // Part C: the preamble is counted SEPARATELY.
+  //
+  // Every row used to count identically, so a headline like "9 PRESENT of 11"
+  // silently mixed a preamble verdict into a count of LIMITATIONS -- and the
+  // preamble is generally not a limitation. asus-CC quoted exactly that number
+  // in the artifact and to Andrew before noticing. Same data, separated: the
+  // reader can see the limitations tally and the preamble's fate without one
+  // being folded into the other.
+  const preIdx = Array.isArray(elements)
+    ? elements.findIndex((e, i) => isPreambleRow(e, i))
+    : -1;
+  const isPre = (f, i) => (preIdx >= 0 && (f.element != null ? f.element - 1 : i) === preIdx);
+
   const c = { PRESENT: 0, PARTIAL: 0, ABSENT: 0, ASSUMED: 0 };
-  for (const f of fills) if (c[f.label] != null) c[f.label] += 1;
-  const cited = fills.length;
+  let preLabel = null, cited = 0;
+  fills.forEach((f, i) => {
+    if (isPre(f, i)) { preLabel = f.label; return; }
+    cited++;
+    if (c[f.label] != null) c[f.label] += 1;
+  });
+  const nLimitations = preIdx >= 0 ? Math.max(0, nElements - 1) : nElements;
+  const noFinding = Math.max(0, nLimitations - cited);
   return `**Coverage:** ${c.PRESENT} PRESENT · ${c.PARTIAL} PARTIAL · ${c.ASSUMED} ASSUMED · `
-    + `${c.ABSENT} ABSENT · ${Math.max(0, nElements - cited)} element(s) with no finding.`;
+    + `${c.ABSENT} ABSENT · ${noFinding} element(s) with no finding`
+    + `${preIdx >= 0 ? ` across ${nLimitations} limitation(s); preamble ${preLabel || 'no finding'}` : ''}.`;
 }
 
 // Provenance the artifact must carry to be defensible. Everything here is
@@ -441,7 +475,7 @@ export function formatChart({
   out.push('');
   out.push(filled);
   out.push('');
-  out.push(coverageLine(fills, elements.length));
+  out.push(coverageLine(fills, elements.length, elements));
   out.push('');
   out.push('## Analysed targets');
   out.push('');

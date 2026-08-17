@@ -86,9 +86,19 @@ const SUBELEMENT_RE = /^\s*\(\s*(?:[a-z]|[ivx]+|\d+)\s*\)\s*/i;
 // fragment it introduces. Order matters — the regex alternation is
 // first-match-wins, not longest-match — so the more specific "and also" and
 // "which is" precede the bare ", and".
+// `whereby` is NOT here, deliberately. Andrew (#310): it is "generally treated
+// as non-limiting", so splitting on it manufactures a row that should not exist.
+// Elsewhere he puts it more carefully -- whereby clauses "may or may not
+// constitute limitations depending on context" -- so the fix is to stop treating
+// it as an AUTOMATIC boundary, not to treat it as automatically ignorable; the
+// text still lands in whichever element contains it.
+//
+// MEASURED: 30 of 5,382 real independent claims contain `whereby` (0.56%),
+// against `wherein` at 67.7% as a control. About 1 claim in 180 was getting a
+// spurious row -- rare, never zero, and invisible unless someone read the claim
+// carefully.
 const BOUNDARY_RE = new RegExp([
   String.raw`\bwherein\b`,
-  String.raw`\bwhereby\b`,
   String.raw`,?\s+and\s+also\s+`,
   String.raw`,\s*which\s+is\b`,
   String.raw`,\s*and\s+(?=\w)`,
@@ -166,15 +176,123 @@ export function splitClaimElements(claimText, opts = {}) {
     const lines = rawLines.map((l) => l.trim().replace(/[;,]?\s*(?:and)?\s*$/, '')).filter((l) => l.length > 15);
     if (lines.length >= 2) coarse = lines;
     else {
+      // PREAMBLE-COLON path, and this is where the preamble used to be thrown
+      // away. `t.slice(ci + 1)` kept only the body, so everything before the
+      // first colon vanished.
+      //
+      // MEASURED against 5,382 real independent claims: the preamble was
+      // discarded on 5,297 of 5,369 -- 98.7% -- and retained in element 1 on
+      // ZERO. It was invisible because both CE test claims are hand-wrapped and
+      // take the marker or line path above; real corpora deliver claims as ONE
+      // LINE and land here.
+      //
+      // The consequence was worse than a missing row. US 8,752,101 claim 1 as
+      // the file on disk gives 10 elements with the preamble first; the SAME
+      // text joined to a single line -- a paste from a PDF, an email, a database
+      // field -- gave 2 with no preamble. Whitespace decided how many
+      // limitations existed, and nothing in the output said which happened.
+      //
+      // Andrew's ruling (#310): "Preamble must always be shown as first row."
+      // His own stated algorithm is "mechanically adding a newline after each
+      // semicolon AND AFTER THE COLON" -- CE performed only the semicolon half.
       const ci = t.indexOf(':');
+      const preamble = ci >= 0 ? t.slice(0, ci + 1).trim() : '';
       const body = ci >= 0 ? t.slice(ci + 1) : t;
       coarse = body.split(';').map((e) => e.trim().replace(/[.\s]+$/, '')).filter(Boolean);
+      // The preamble leads, and is NOT subdivided below: it is one row by
+      // definition, and stage B's boundaries (`wherein`, `, and`, `for -ing`)
+      // would happily cut "A method of establishing a secure connection ...
+      // comprising:" into fragments.
+      if (preamble.length > 15) coarse.unshift(preamble);
     }
   }
   if (!fine) return coarse;
+  // NOTE: `repairStrayAndComma` is deliberately NOT applied here. It needs the
+  // ORIGINAL element to know whether a `, and` boundary was introduced by a
+  // rewrite or belongs to the claim, and this function has no original. Applying
+  // it blind would merge limitations a claim deliberately separated. See its
+  // doc comment.
   const finer = coarse.flatMap((e) => subdivideElement(e, opts));
   // Overflow returns the coarse split whole — see SPLIT_DEFAULTS.maxElements.
   return finer.length > cap ? coarse : finer;
+}
+
+/**
+ * Repair an element that subdivides ONLY because of a stray ", and".
+ *
+ * Returns the element with the comma dropped when that is the sole cause of a
+ * subdivision, and unchanged otherwise. Exported so `--synonymize` and any other
+ * producer of rewritten claims can apply it, and so the condition is testable
+ * without going through the whole splitter.
+ *
+ * The condition is the point: repairing unconditionally would merge limitations
+ * a claim genuinely separated with ", and".
+ */
+/**
+ * Is this row the claim's preamble?
+ *
+ * POSITIONAL, with a fails-safe guard — and it is worth being exact about which
+ * half does the work. The rule is "row 1"; the article + transitional test is a
+ * sanity check, NOT a discriminator.
+ *
+ * MEASURED (2026-08-16): asus-CC proposed the guard as though it identified
+ * preambles. Run against every element of US 8,752,101 rather than just element
+ * 2, it also matches element 6 -- "the distribution system, comprising a code
+ * rate determining unit" -- which is a genuine limitation and arguably the heart
+ * of the claim. Across the corpus it matches more than one element in 15.5% of
+ * claims. So it cannot be used to FIND the preamble; it can only confirm that
+ * row 1 looks like one.
+ *
+ * Fails safe: if either test misses, the row is not labelled. A missing label is
+ * a cosmetic gap; a wrong one is a false statement about a claim.
+ */
+const PREAMBLE_OPEN = /^\s*(?:a|an|the)\b/i;
+const PREAMBLE_TRANS = /\b(?:comprising|consisting of|including|having|characterized (?:in|by))\b/i;
+
+export function isPreambleRow(text, index) {
+  if (index !== 0) return false;
+  const s = String(text || '');
+  return PREAMBLE_OPEN.test(s) && PREAMBLE_TRANS.test(s);
+}
+
+/**
+ * Repair a REWRITTEN element that subdivides only because the rewrite
+ * introduced a `, and` the ORIGINAL did not have.
+ *
+ * REQUIRES THE ORIGINAL, and that requirement is the whole design. The first
+ * version took only the element, on the theory that "subdivides on `, and`
+ * alone" was a narrow enough condition. It is not, and testing said so
+ * immediately:
+ *
+ *   "initializing a first module ..., and loading a second module ..."
+ *
+ * is indistinguishable from Gemini's stray comma BY TEXT ALONE — both subdivide
+ * on `, and` and nothing else. Repairing unconditionally would MERGE limitations
+ * a claim deliberately separated, which is a worse error than the one being
+ * fixed: `, and` is a genuine limitation boundary in real claims, and Part III
+ * names it as "often a good place to divide".
+ *
+ * So the signal cannot come from the element. It comes from the PAIR — a rewrite
+ * that subdivides where its source did not — and only a caller holding both can
+ * ask. `splitClaimElements` therefore does NOT call this: it sees one claim and
+ * has no original to compare against.
+ *
+ * MEASURED (2026-08-16), the case this exists for: Gemini rewrote element (a) as
+ * "..., and incorporating ..." where the source reads "... version and loading
+ * ..." — same word, no comma. The claim went 11 rows to 12, and the
+ * synonymizer's re-split guard flagged the comparison unsafe.
+ */
+export function repairStrayAndComma(rewritten, original, opts = {}) {
+  const s = String(rewritten || '');
+  if (original == null) return s;                           // no pair, no signal
+  if (!/,\s+and\s+\w/i.test(s)) return s;
+  if (subdivideElement(s, opts).length < 2) return s;       // did not subdivide anyway
+  // The source already split here, so the boundary is the claim's own.
+  if (subdivideElement(String(original), opts).length >= 2) return s;
+  const repaired = s.replace(/,(\s+and\s+)/gi, '$1');
+  // Only accept if it actually stops the subdivision. If the element also splits
+  // on `wherein` or another boundary, the comma was not the cause.
+  return subdivideElement(repaired, opts).length < 2 ? repaired : s;
 }
 
 // `--elements @file.txt`: the element list as a reusable INPUT. Heuristic

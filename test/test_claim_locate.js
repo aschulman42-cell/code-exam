@@ -12,8 +12,10 @@ import {
   symbolTokens, buildSymbolTable, verifySymbol, isFound, nearbySymbols,
   parseProposedSymbols,
 } from '../src/core/symbol-verify.js';
+import fs from 'node:fs';
 import {
   splitClaimElements, subdivideElement, parseElementsFile, retrievePerElement,
+  repairStrayAndComma, isPreambleRow,
   SPLIT_DEFAULTS,
   buildProposePrompt, buildIndexProfile, formatLocateReport,
   doClaimLocate, buildDiscoverPrompt, parseElementWords, searchSymbolsByWords,
@@ -249,9 +251,15 @@ describe('discovery path (default)', () => {
 });
 
 describe('claim element splitting + prompt shape', () => {
-  it('splits preamble from semicolon-separated limitations', () => {
+  it('splits preamble from semicolon-separated limitations, KEEPING the preamble', () => {
+    // UPDATED 2026-08-16. This test previously asserted
+    //   ['doing a thing', 'doing another thing']
+    // i.e. that the preamble was DISCARDED -- it had locked in the defect.
+    // Measured across 5,382 real independent claims, that path dropped the
+    // preamble on 98.7% of them, against Andrew's explicit ruling (#310) that
+    // "preamble must always be shown as first row".
     const e = splitClaimElements('A system, comprising: doing a thing; doing another thing.');
-    assert.deepEqual(e, ['doing a thing', 'doing another thing']);
+    assert.deepEqual(e, ['A system, comprising:', 'doing a thing', 'doing another thing']);
   });
   it('prefers LINE structure — the shape real claims are typeset in', () => {
     // The '101 claim has 6 lines but only 1 semicolon, and its first ':' is a
@@ -1100,5 +1108,136 @@ describe('retrievePerElement', () => {
     });
     assert.doesNotMatch(seen, /BufferMgr|RateChooser|src\//);
     assert.match(seen, /storing data/);
+  });
+});
+
+// Preamble restoration, whereby, and the stray-comma repair.
+describe('splitter: the preamble is a row (Part A)', () => {
+  const ONE = (s) => s.replace(/\s*\n\s*/g, ' ');
+  const P101 = fs.readFileSync('8752101_claim_1.txt', 'utf-8');
+  const TLS = fs.readFileSync('sample_patent_claim.txt', 'utf-8');
+
+  it('keeps the preamble on the SINGLE-LINE path — the 98.7% defect', () => {
+    // The colon path did `t.slice(ci + 1)`, discarding everything before the
+    // first colon. Measured over 5,382 real independent claims: the preamble was
+    // dropped on 5,297 of 5,369 and retained in element 1 on ZERO. Invisible
+    // because both test claims are hand-wrapped and take other paths; real
+    // corpora deliver claims as one line and land here.
+    const els = splitClaimElements(ONE(P101));
+    assert.match(els[0], /^A distribution system/,
+      'row 1 must be the preamble, not the first limitation');
+  });
+
+  it('a one-line claim with a colon yields the preamble first', () => {
+    const one = 'A widget system, comprising: a first thing that does something useful; '
+      + 'a second thing that does something else useful; and a third thing entirely.';
+    const els = splitClaimElements(one);
+    assert.match(els[0], /^A widget system, comprising:$/);
+    assert.ok(els.length >= 3, 'and the body still splits on semicolons');
+  });
+
+  it('does not disturb the paths that already worked', () => {
+    assert.equal(splitClaimElements(P101).length, 10);
+    assert.match(splitClaimElements(P101)[0], /^A distribution system/);
+    assert.equal(splitClaimElements(TLS).length, 11);
+    assert.match(splitClaimElements(TLS)[0], /^A method of establishing/);
+  });
+
+  it('a claim with no colon is unchanged — nothing to recover', () => {
+    const noColon = 'A method comprising doing one thing and then doing another thing entirely here';
+    assert.ok(splitClaimElements(noColon).length >= 1);
+  });
+});
+
+describe('splitter: whereby is not a boundary (Part D)', () => {
+  // Andrew (#310): whereby is "generally treated as non-limiting", so splitting
+  // on it manufactures a row that should not exist. Measured: 30 of 5,382 real
+  // claims (0.56%), against wherein at 67.7% as a control.
+  it('does not split on whereby', () => {
+    const s = 'transmitting the data to the receiver whereby the receiver displays it to a user';
+    assert.equal(subdivideElement(s).length, 1);
+  });
+
+  it('still splits on wherein — the control', () => {
+    const s = 'transmitting the data to the receiver wherein the receiver displays it to a user';
+    assert.ok(subdivideElement(s).length >= 2);
+  });
+
+  it('the whereby TEXT is not lost, only un-split', () => {
+    const s = 'transmitting the data to the receiver whereby the receiver displays it to a user';
+    assert.match(subdivideElement(s)[0], /whereby the receiver displays/);
+  });
+});
+
+describe('splitter: stray-comma repair needs the PAIR (Part E)', () => {
+  // The first version took only the element, on the theory that "subdivides on
+  // `, and` alone" was narrow enough. Testing killed that immediately: a genuine
+  // boundary is indistinguishable from a stray one BY TEXT ALONE, so repairing
+  // unconditionally would merge limitations a claim deliberately separated.
+  const GENUINE = 'initializing a first module configured to do one thing, and loading '
+    + 'a second module configured to do another thing entirely here';
+  const STRAY = '(a) Establishing an operational configuration for a secure domain, and '
+    + 'incorporating thereto one or more validation data units originating from a credential authority';
+  const SOURCE = '(a) initializing a cryptographic context by creating a security protocol '
+    + 'object configured with a minimum protocol version and loading one or more certificate authority credentials';
+
+  it('leaves a GENUINE boundary alone — the regression that matters', () => {
+    assert.equal(repairStrayAndComma(GENUINE, GENUINE), GENUINE);
+    assert.ok(subdivideElement(GENUINE).length >= 2, 'and it still splits there');
+  });
+
+  it('repairs a comma the rewrite introduced', () => {
+    assert.equal(subdivideElement(SOURCE).length, 1, 'source does not split');
+    assert.equal(subdivideElement(STRAY).length, 2, 'rewrite does');
+    const fixed = repairStrayAndComma(STRAY, SOURCE);
+    assert.notEqual(fixed, STRAY);
+    assert.equal(subdivideElement(fixed).length, 1);
+    assert.match(fixed, /domain and incorporating/, 'the WORD survives; only the comma goes');
+  });
+
+  it('is a no-op without an original — there is no signal', () => {
+    assert.equal(repairStrayAndComma(STRAY, null), STRAY);
+    assert.equal(repairStrayAndComma(STRAY, undefined), STRAY);
+  });
+
+  it('leaves an element that splits for OTHER reasons alone', () => {
+    const multi = 'doing a thing, and doing another wherein the doing comprises something else here';
+    assert.equal(repairStrayAndComma(multi, 'doing a thing and doing another'), multi,
+      'the comma was not the sole cause, so the repair must not claim it was');
+  });
+
+  it('splitClaimElements does NOT apply it — it has no original', () => {
+    const src = fs.readFileSync('src/commands/claim-locate.js', 'utf-8');
+    // Scan splitClaimElements ONLY — the slice must stop before
+    // repairStrayAndComma's own definition, or it matches its signature.
+    const body = src.slice(src.indexOf('export function splitClaimElements'),
+                           src.indexOf('export function isPreambleRow'));
+    assert.ok(!/repairStrayAndComma\s*\(/.test(body),
+      'applying it blind would merge limitations a claim deliberately separated');
+  });
+});
+
+describe('splitter: preamble identification is POSITIONAL (Part B)', () => {
+  const TLS = fs.readFileSync('sample_patent_claim.txt', 'utf-8');
+  const els = splitClaimElements(TLS);
+
+  it('labels row 1', () => {
+    assert.equal(isPreambleRow(els[0], 0), true);
+  });
+
+  it('never labels a later row, however preamble-shaped', () => {
+    // The guard alone is NOT a discriminator: on '101 it also matches element 6,
+    // "the distribution system, comprising a code rate determining unit", a
+    // genuine limitation. Across the corpus it matches more than one element in
+    // 15.5% of claims. Position is what does the work.
+    for (let i = 1; i < els.length; i++) {
+      assert.equal(isPreambleRow(els[i], i), false, `row ${i + 1} must not be labelled`);
+    }
+    assert.equal(isPreambleRow('the distribution system, comprising a code rate determining unit', 3), false);
+  });
+
+  it('fails safe when row 1 is not preamble-shaped', () => {
+    assert.equal(isPreambleRow('initializing a cryptographic context by creating an object', 0), false);
+    assert.equal(isPreambleRow('', 0), false);
   });
 });
