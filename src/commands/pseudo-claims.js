@@ -73,13 +73,42 @@ export const PSEUDO_CLAIM_CAVEAT_C =
 // is what parseGeneratedClaim() below relies on, and the "cite ONLY files and
 // functions that appear in the provided code" rule is reinforced by the
 // deterministic grounding pass (a model instruction alone is not trusted).
+//
+// LIMITATION COUNT, AND WHERE THE NUMBERS COME FROM.
+// The prompt said nothing about length, so claim length was set by GROUP SIZE:
+// the drafter writes roughly one limitation per anchor, and a 24-method class
+// became a 26-limitation claim.
+//
+// MEASURED against 5,395 real independent claims (randpat_2020_indep_claims.
+// out.txt), counted with CE's own splitClaimElements so the figures sit on the
+// same footing as CE's output:
+//
+//   median 9   interquartile 7-11   p90 14   p95 17   mean 9.4
+//   84.8% of real independent claims fall between 5 and 14 limitations
+//
+// Against that baseline, the sr_gh run's MEDIAN claim sat at the 90.7th
+// percentile and its longest (27) at the 99.4th; 10 of 23 were above p90. The
+// ios81 run, whose groups were token-keyed rather than whole-class, had a median
+// at the 47.5th percentile and nothing above p90 — so the defect tracks group
+// shape, and the cap is a floor under it rather than a cure for it.
+//
+// Re-measure rather than re-guess: the corpus and the splitter are both still
+// here. A cap that pushes claims BELOW the baseline is the opposite failure and
+// just as wrong.
 export const PSEUDO_CLAIM_GENERATE_SYS =
   'You draft ONE hypothetical, illustrative PSEUDO patent claim for a software ' +
   'mechanism, as a drafting exercise only (not legal advice, not an admission). ' +
   'You are given source code, and may be given a MECHANISM line naming the ' +
   'intended subject and purpose. If a MECHANISM line is present, draft the claim ' +
   'for THAT mechanism — treat it as the intended subject and purpose; do not ' +
-  'substitute a different purpose inferred from the code. Output EXACTLY this ' +
+  'substitute a different purpose inferred from the code. ' +
+  'A claim covers ONE inventive concept, not every function you were shown. ' +
+  'Real independent claims run about 7 to 11 limitations, typically 9; more ' +
+  'than 15 is rare. If the provided material is larger than one claim can ' +
+  'cover, SELECT the limitations that constitute the mechanism and leave the ' +
+  'rest uncited — do NOT enumerate every function in the material. Fewer, ' +
+  'well-chosen limitations make a better claim than an exhaustive list. ' +
+  'Output EXACTLY this ' +
   'format and nothing else:\n' +
   'CLAIM: <one self-contained paragraph in standard method/apparatus form: a ' +
   'preamble ending in a colon, then each element/step as a SEMICOLON-delimited ' +
