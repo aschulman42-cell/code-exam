@@ -20,6 +20,17 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { readCeVersion } from '../utils.js';
+// CIRCULAR, AND SAFE — but say so rather than leave it to be rediscovered.
+// analyze.js already imports splitClaimElements/retrievePerElement from this
+// file, so this edge closes a cycle. It works because `readClaimFile` is only
+// ever referenced INSIDE a function body, never at module-init time, so the
+// binding is resolved by the time anything calls it. Verified in BOTH load
+// orders, which is where a cycle normally bites.
+//
+// It is still the wrong home for a helper three commands share. `readClaimFile`
+// belongs in `utils.js` — which all of them already import — and moving it is a
+// small follow-up deliberately kept out of this item's scope.
+import { readClaimFile } from './analyze.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine } from '../core/llm-runner.js';
 import {
   buildSymbolTable, verifySymbol, isFound, nearbySymbols, navigateFrom,
@@ -1004,8 +1015,16 @@ export async function doClaimLocate(index, args, opts = {}) {
   const spec = args.claim_locate;
   let claimText = spec;
   if (typeof spec === 'string' && spec.startsWith('@')) {
-    try { claimText = fs.readFileSync(spec.slice(1), 'utf8'); }
-    catch (e) { console.error(`Cannot read claim file: ${e.message}`); process.exitCode = 1; return; }
+    // `#` lines are PROVENANCE, not limitations — see the note at the same read
+    // in claim-chart.js. Included here because --claim-locate writes the targets
+    // file --claim-chart consumes, so a polluted locate run poisons the chart
+    // downstream even when the chart itself reads a clean claim.
+    try {
+      claimText = readClaimFile(spec.slice(1), {
+        onComments: (n, f) => process.stderr.write(
+          `  Claim file ${f}: ignored ${n} '#' comment line(s) (provenance, not claim text).\n`),
+      });
+    } catch (e) { console.error(`Cannot read claim file: ${e.message}`); process.exitCode = 1; return; }
   }
   if (!claimText || !String(claimText).trim()) {
     console.error('--claim-locate needs claim text: --claim-locate @claim.txt'); process.exitCode = 1;

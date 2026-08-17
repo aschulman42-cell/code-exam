@@ -15,7 +15,16 @@
 // ============================================================================
 
 import { parseMultisectTerms, displayMultisectResults, printSelectivityReport, filterLowSelectivity } from './multisect.js';
+// See the cycle note in claim-locate.js: analyze.js imports from this file, so
+// this edge closes a cycle. Safe because readClaimFile is only referenced inside
+// function bodies. `utils.js` is its proper home; that move is a follow-up.
+import { readClaimFile } from './analyze.js';
 import fs from 'fs';
+
+// Never silent: discarding input without saying so is how the next version of
+// this bug hides.
+const _noteComments = (n, f) => process.stderr.write(
+  `  Claim file ${f}: ignored ${n} '#' comment line(s) (provenance, not claim text).\n`);
 import https from 'https';
 import http from 'http';
 import { assertLocalOnly, isLocalApiUrl } from '../core/air-gapped.js';
@@ -1230,7 +1239,9 @@ export async function doClaimSearch(index, args) {
 
   if (args.claim_file) {
     try {
-      claimText = fs.readFileSync(args.claim_file, 'utf-8');
+      // `#` lines are PROVENANCE, not claim text -- see the note at the same
+      // read in claim-chart.js.
+      claimText = readClaimFile(args.claim_file, { onComments: _noteComments });
       sourceLabel = args.claim_file;
     } catch (e) {
       console.log(`Error reading claim file: ${e.message}`);
@@ -1242,7 +1253,7 @@ export async function doClaimSearch(index, args) {
     if (text.startsWith('@')) {
       const filepath = text.slice(1).trim();
       try {
-        claimText = fs.readFileSync(filepath, 'utf-8');
+        claimText = readClaimFile(filepath, { onComments: _noteComments });
         sourceLabel = filepath;
       } catch (e) {
         console.log(`Error reading claim file: ${e.message}`);

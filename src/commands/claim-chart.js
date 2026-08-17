@@ -28,7 +28,12 @@
 
 import fs from 'node:fs';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine } from '../core/llm-runner.js';
-import { buildClaimAnalyzePrompt, addLineNumbers } from './analyze.js';
+import { buildClaimAnalyzePrompt, addLineNumbers, readClaimFile } from './analyze.js';
+
+// Shared reporter for dropped `#` provenance lines. Never silent: discarding
+// input without saying so is how the next version of this bug hides.
+const _noteComments = (n, f) => process.stderr.write(
+  `  Claim file ${f}: ignored ${n} '#' comment line(s) (provenance, not claim text).\n`);
 import { splitClaimElements, targetsChecksum, dedupeTargets, parseElementsFile, retrievePerElement } from './claim-locate.js';
 import { readCeVersion } from '../utils.js';
 import { buildSymbolTable, verifySymbol, isFound, navigateFrom } from '../core/symbol-verify.js';
@@ -495,7 +500,16 @@ export async function doClaimChart(index, args, opts = {}) {
   const spec = args.claim_chart;
   let claimText = spec;
   if (typeof spec === 'string' && spec.startsWith('@')) {
-    try { claimText = fs.readFileSync(spec.slice(1), 'utf8'); }
+    // `#` lines are PROVENANCE, not limitations. Same defect cbb8e98 fixed for
+    // --claim-analyze, and worse here: measured on a real --synonymize-out file,
+    // the header collapsed into row 1 TOGETHER WITH the preamble, so the element
+    // count stayed correct at 11 while row 1 of the delivered chart became
+    // provenance text and the preamble stopped being a row at all. A count check
+    // passes; the chart is wrong.
+    //
+    // --claim-chart already strips `#` from its ELEMENTS file (parseElementsFile)
+    // — the convention was in this command, on the adjacent argument.
+    try { claimText = readClaimFile(spec.slice(1), { onComments: _noteComments }); }
     catch (e) { console.error(`Cannot read claim file: ${e.message}`); process.exitCode = 1; return; }
   }
   if (!claimText || !String(claimText).trim()) {

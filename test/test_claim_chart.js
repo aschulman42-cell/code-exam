@@ -19,6 +19,9 @@ import {
 } from '../src/commands/claim-chart.js';
 import { targetsChecksum } from '../src/commands/claim-locate.js';
 import { createRequire } from 'node:module';
+import { readClaimFile } from '../src/commands/analyze.js';
+import { splitClaimElements } from '../src/commands/claim-locate.js';
+import fs from 'node:fs';
 const require = createRequire(import.meta.url);
 
 const CLAIM = [
@@ -650,5 +653,49 @@ describe('per-element retrieval provenance on the artifact', () => {
     const out = formatChart({ ...base(), retrieval: [{ element: 1, words: ['a'], hits: [{}] }] });
     assert.match(out, /## Retrieval by element/);
     assert.ok(!out.includes('produced no candidate'));
+  });
+});
+
+// `#` provenance reaching a CHART's left-hand column. Same defect cbb8e98 fixed
+// for --claim-analyze; worse here, because the obvious guard does not catch it.
+describe('claim-chart: # provenance is not a limitation', () => {
+  const SYN = 'sample_patent_claim_synon_gemini_2.txt';   // real --synonymize-out file
+
+  it('THE COUNT IS NOT THE TEST — the broken case also yields 11', () => {
+    // Measured 2026-08-16: read raw, the ten header lines and the real preamble
+    // collapse into ROW 1 TOGETHER, because the marker path merges unmarked
+    // lines into the preceding group and the preamble is unmarked. The element
+    // count stays correct while row 1 becomes provenance text and the preamble
+    // stops being a row at all. Asserting on the count would pass either way.
+    const raw = fs.readFileSync(SYN, 'utf-8');
+    const broken = splitClaimElements(raw);
+    assert.equal(broken.length, 11, 'the BROKEN reading also gives 11 — hence this test');
+    assert.match(broken[0], /^#\s*Synonymized claim/, 'and row 1 is the header');
+    assert.match(broken[0], /A method of effectuating/,
+      'with the real preamble buried inside it');
+  });
+
+  it('stripping comments puts the preamble back as row 1', () => {
+    const text = readClaimFile(SYN);
+    const els = splitClaimElements(text);
+    assert.equal(els.length, 11);
+    assert.match(els[0], /^A method of effectuating a protected informational/);
+    assert.ok(!/^#/.test(els[0]), 'row 1 must not be a comment');
+  });
+
+  it('no provenance reaches ANY row — it would print in the chart LHC', () => {
+    // A chart whose first limitation announces the claim is fabricated does not
+    // merely retrieve badly; it destroys the artifact.
+    const els = splitClaimElements(readClaimFile(SYN));
+    const all = els.join(' ');
+    for (const leak of [/Synonymized claim/, /Gemini API/, /content-word survival/,
+                        /NOT a patent claim/, /Re-split/, /--synonymize/]) {
+      assert.ok(!leak.test(all), `provenance leaked into a chart row: ${leak}`);
+    }
+  });
+
+  it('a comment-free claim file is byte-identical, on this path too', () => {
+    const raw = fs.readFileSync('sample_patent_claim.txt', 'utf-8');
+    assert.equal(readClaimFile('sample_patent_claim.txt'), raw.trim());
   });
 });
