@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, splitDocSections, docAnchorsForGroup, formatAnchors, dominantFile, echoPairs, GROUPER_DEFAULTS, subTokens, subTokenPartition, splitOversizedGroup } from '../src/core/mechanism-grouper.js';
+import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, splitDocSections, docAnchorsForGroup, formatAnchors, dominantFile, echoPairs, GROUPER_DEFAULTS, subTokens, subTokenPartition, splitOversizedGroup, detectVendoredSubtrees, copyrightHolder, isUnderVendored } from '../src/core/mechanism-grouper.js';
 import { collectAnchorGroups, parseMinRank, filterGroupsByMinRank, packDisclosure, parseLineAnchor, groundAnchors, formatClaimChart, claimPreambleSnippet, formatChartToc } from '../src/commands/pseudo-claims.js';
 
 // grouper-echo-flag-fold Phase 1: dominant-file detection + echo pairing +
@@ -686,5 +686,112 @@ describe('sub-token splitting of oversized groups', () => {
     const r = splitOversizedGroup(null, g, new Map(), { ...O, groupMax: 5 });
     const seen = new Set(r.groups.flatMap((x) => x.members.map((m) => m.id)));
     assert.equal(seen.size, 7, 'no member may vanish in a split');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// candidates-claim-worthiness: exclude third-party subtrees from CANDIDATE
+// DISCOVERY (not from the index).
+//
+// MEASURED on .sr_gh: 98 of 156 grounded anchors (63%) landed in a vendored
+// copy of ByteDance's verl RL framework, so 23 claims about a chain-of-thought
+// faithfulness repo were about PPO batching and FSDP sharding. After exclusion
+// the groups are FaithfulnessEvaluator / AgentTranscript / BaseAgent / Prompt.
+//
+// EVERY SIMPLER SIGNAL WAS REFUTED FIRST, which is why the rule is a
+// conjunction and the tests below pin each half:
+//   - path names miss `train/verl/` (not a conventional vendor directory)
+//   - "differs from the project's dominant holder" is BACKWARDS on .sr_gh
+//     (381/449 headered files ARE ByteDance)
+//   - copyright alone is absent on .CE_081726 (0 headers in 159 files)
+//   - a nested manifest alone over-triggers on the project's own sub-app
+
+describe('third-party subtree detection', () => {
+  const idx = (files) => ({ fileLines: new Map(Object.entries(files)) });
+  const CR = (who) => [`# Copyright 2024 ${who}`, '#', '# Licensed under Apache 2.0', 'code'];
+
+  it('flags a NESTED package root whose files have their own dominant holder', () => {
+    const v = detectVendoredSubtrees(idx({
+      'proj/src/main.py': ['def main(): pass'],
+      'proj/train/setup.py': CR('Bytedance Ltd'),
+      'proj/train/verl/a.py': CR('Bytedance Ltd'),
+      'proj/train/verl/b.py': CR('Bytedance Ltd'),
+      'proj/train/verl/c.py': CR('Bytedance Ltd'),
+    }));
+    assert.equal(v.length, 1);
+    assert.equal(v[0].root, 'proj/train');
+    assert.match(v[0].holder, /Bytedance/);
+  });
+
+  it('does NOT flag a nested manifest with no copyright headers', () => {
+    // Absence of the signal is not evidence of third-party origin. This is the
+    // project's own sub-app (.sr_gh's w2s_research/web_ui/frontend).
+    const v = detectVendoredSubtrees(idx({
+      'proj/web/package.json': ['{"name":"ui"}'],
+      'proj/web/a.js': ['export const a = 1;'],
+      'proj/web/b.js': ['export const b = 2;'],
+      'proj/web/c.js': ['export const c = 3;'],
+    }));
+    assert.deepEqual(v, []);
+  });
+
+  it('does NOT flag copyright headers without a nested manifest', () => {
+    const v = detectVendoredSubtrees(idx({
+      'proj/a.py': CR('Acme Inc'), 'proj/b.py': CR('Acme Inc'), 'proj/c.py': CR('Acme Inc'),
+    }));
+    assert.deepEqual(v, []);
+  });
+
+  it('does NOT flag a manifest at the index root — that IS the project', () => {
+    const v = detectVendoredSubtrees(idx({
+      'setup.py': CR('Acme Inc'), 'a.py': CR('Acme Inc'), 'b.py': CR('Acme Inc'), 'c.py': CR('Acme Inc'),
+    }));
+    assert.deepEqual(v, []);
+  });
+
+  it('does NOT flag a subtree with no dominant holder', () => {
+    const v = detectVendoredSubtrees(idx({
+      'proj/x/setup.py': CR('One Corp'), 'proj/x/a.py': CR('Two Corp'),
+      'proj/x/b.py': CR('Three Corp'), 'proj/x/c.py': CR('Four Corp'),
+    }));
+    assert.deepEqual(v, []);
+  });
+
+  it('computes the share over HEADERED files, not all files', () => {
+    // .sr_gh: 866 files under train/, only 449 headered. Dividing by 866 puts a
+    // genuine 85% detection at 44% and misses it entirely.
+    const files = { 'p/t/setup.py': CR('Vendor Co') };
+    for (let i = 0; i < 3; i += 1) files[`p/t/h${i}.py`] = CR('Vendor Co');
+    for (let i = 0; i < 40; i += 1) files[`p/t/plain${i}.py`] = ['x = 1'];
+    const v = detectVendoredSubtrees(idx(files));
+    assert.equal(v.length, 1, '4 headered of 44 files must still flag');
+    assert.equal(v[0].headered, 4);
+    assert.equal(v[0].files, 44);
+  });
+
+  it('copyrightHolder normalizes affiliate boilerplate to one holder', () => {
+    assert.match(copyrightHolder(['# Copyright 2024 Bytedance Ltd. and/or its affiliates']), /^Bytedance Ltd$/);
+    assert.match(copyrightHolder(['/* Copyright (c) 2019-2023 Acme, Inc. All rights reserved. */']), /Acme/);
+    assert.equal(copyrightHolder(['function f() {}']), null);
+    assert.equal(copyrightHolder(null), null);
+  });
+
+  it('only looks at the first 25 lines — a mid-file mention is not a header', () => {
+    const lines = new Array(40).fill('code');
+    lines[35] = '// Copyright 2024 Somebody Else';
+    assert.equal(copyrightHolder(lines), null);
+  });
+
+  it('isUnderVendored matches a subtree and tolerates backslash paths', () => {
+    const v = [{ root: 'proj/train' }];
+    assert.ok(isUnderVendored('proj/train/verl/a.py', v));
+    assert.ok(isUnderVendored(['proj', 'train', 'verl', 'b.py'].join(String.fromCharCode(92)), v));
+    assert.equal(isUnderVendored('proj/src/main.py', v), null);
+    assert.equal(isUnderVendored('proj/trainer/x.py', v), null, 'prefix must be a path boundary');
+  });
+
+  it('a malformed index does not throw — detection fails open', () => {
+    assert.deepEqual(detectVendoredSubtrees({}), []);
+    assert.deepEqual(detectVendoredSubtrees({ fileLines: null }), []);
   });
 });

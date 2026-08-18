@@ -605,6 +605,7 @@ export async function doEmitCandidates(index, args) {
       catalogSeed: !!args.catalog_seed,
       literalSeed: !!args.literal_seed,
       bodyMatchSeed: !!args.body_match_seed,
+      includeVendored: !!args.include_vendored,
       // 0 disables splitting and reproduces pre-split candidate files exactly,
       // so artifacts generated before this landed stay reproducible.
       ...(args.group_max != null ? { groupMax: args.group_max || Infinity } : {}),

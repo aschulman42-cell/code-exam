@@ -121,6 +121,99 @@ function isTestAttributedFunction(lines, startLine) {
   return false;
 }
 
+// --- third-party subtree detection (candidates-claim-worthiness) -------------
+// Candidate discovery answers a PROXY for the question it is asked: the user
+// wants "which parts of this codebase are claim-worthy", the grouper answers
+// "which parts have distinctive vocabulary". Those diverge worst on vendored
+// code. MEASURED on .sr_gh: 98 of 156 grounded anchors (63%) landed in
+// `faithful-cot-main/train/verl/`, a vendored copy of ByteDance's verl RL
+// framework -- so 23 claims about a chain-of-thought-faithfulness repo were
+// about PPO batching and FSDP sharding instead. For patent work that is not a
+// ranking imperfection but a WRONG ANSWER: not the client's invention, the most
+// likely thing to be prior art, and the most likely to be memorized by any
+// model used downstream.
+//
+// EVERY OBVIOUS SIGNAL WAS REFUTED BY MEASUREMENT BEFORE THIS WAS WRITTEN:
+//   - PATH NAMES (node_modules/, vendor/, third_party/) miss the actual case:
+//     `train/verl/` is not a conventional vendor directory name.
+//   - "HOLDER DIFFERS FROM THE PROJECT'S DOMINANT HOLDER" -- the mechanism this
+//     item was approved with -- is BACKWARDS here. 381 of 449 headered files in
+//     .sr_gh say Bytedance, so ByteDance IS the dominant holder; that rule would
+//     have excluded the research code and kept verl.
+//   - COPYRIGHT ALONE is absent where it is most needed: .CE_081726 carries 0
+//     copyright headers across 159 files.
+//   - A NESTED PACKAGE MANIFEST ALONE over-triggers: .sr_gh's
+//     `w2s_research/web_ui/frontend/package.json` is the project's own sub-app.
+//
+// WHAT WORKS is the conjunction: a NESTED package root that has its OWN
+// dominant copyright holder. On .sr_gh that flags exactly
+// `faithful-cot-main/train` (Bytedance, 381/449 headered) and leaves the
+// frontend alone; on .CE_081726 it flags nothing, which is correct.
+//
+// The share is over files that CARRY a header, not all files: 866 files sit
+// under `train/` but only 449 are headered, and the wrong denominator puts a
+// genuine 85% detection at 44% and misses it.
+const VENDOR_MANIFEST = /^(setup[.]py|pyproject[.]toml|package[.]json|Cargo[.]toml|go[.]mod|composer[.]json|Gemfile)$/i;
+const COPYRIGHT_RE = /copyright\s*(?:[(][cC][)]|[©])?\s*(?:\d{4}(?:\s*[-,]\s*\d{4})?)?\s*(?:by\s+)?([^\n\r*#/]{3,60})/i;
+
+// Copyright holder from a file's first 25 lines, or null. Trailing boilerplate
+// ("and/or its affiliates", "All rights reserved") is trimmed so the same
+// company does not split into several holders.
+export function copyrightHolder(lines) {
+  const m = COPYRIGHT_RE.exec((lines || []).slice(0, 25).join('\n'));
+  if (!m) return null;
+  // The capture class excludes '/', so "Bytedance Ltd. and/or its affiliates"
+  // arrives already truncated to "Bytedance Ltd. and" -- a dangling conjunction
+  // that reached the candidates-file header before a test caught it. Strip the
+  // boilerplate, THEN the orphaned conjunction, THEN trailing punctuation.
+  const h = m[1].trim().replace(/\s+/g, ' ')
+    .replace(/\s+(and[/]or its affiliates|All rights reserved).*$/i, '')
+    .replace(/[\s.,]+(and|&|et al)\.?$/i, '')
+    .replace(/[.,;:]+$/, '').trim();
+  return (!h || /^\d+$/.test(h)) ? null : h;
+}
+
+export function detectVendoredSubtrees(index, o = {}) {
+  const minHeadered = o.vendorMinHeadered == null ? 3 : o.vendorMinHeadered;
+  const share = o.vendorHolderShare == null ? 0.5 : o.vendorHolderShare;
+  const files = [];
+  try { for (const k of index.fileLines.keys()) files.push(k); } catch { return []; }
+  const norm = (s) => String(s).split(String.fromCharCode(92)).join('/');
+  const roots = new Set();
+  for (const f of files) {
+    const n = norm(f);
+    const slash = n.lastIndexOf('/');
+    if (slash < 0) continue;             // a manifest at the index root IS the project
+    if (VENDOR_MANIFEST.test(n.slice(slash + 1))) roots.add(n.slice(0, slash));
+  }
+  const out = [];
+  for (const root of roots) {
+    const under = files.filter((f) => norm(f).startsWith(root + '/'));
+    if (!under.length) continue;
+    const holders = new Map();
+    for (const f of under) {
+      const h = copyrightHolder(index.fileLines.get(f));
+      if (h) holders.set(h, (holders.get(h) || 0) + 1);
+    }
+    const headered = [...holders.values()].reduce((a, b) => a + b, 0);
+    // ABSENCE OF THE SIGNAL IS NOT EVIDENCE OF THIRD-PARTY ORIGIN. A subtree
+    // with no copyright headers is left alone, which is why .CE_081726 (0
+    // headers) excludes nothing.
+    if (headered < minHeadered) continue;
+    const top = [...holders.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (!top || top[1] / headered < share) continue;
+    out.push({ root, holder: top[0], holderFiles: top[1], headered, files: under.length });
+  }
+  return out.sort((a, b) => b.root.length - a.root.length);
+}
+
+export function isUnderVendored(file, vendored) {
+  if (!vendored || !vendored.length) return null;
+  const n = String(file).split(String.fromCharCode(92)).join('/');
+  for (const v of vendored) if (n.startsWith(v.root + '/')) return v;
+  return null;
+}
+
 // Enumerate candidate functions from the index's functionIndex: skip noise files,
 // class-declaration entries, intrinsics, sub-MIN_LINES one-liners, and
 // test-attributed inline test functions (#291 Part A). Returns the candidate
@@ -130,8 +223,14 @@ export function enumerateFuncs(index, opts = {}) {
   index._ensureFunctionIndex?.();
   const funcs = [];
   const byId = new Map();
-  let noiseFiles = 0, noiseFns = 0, testFns = 0;
+  let noiseFiles = 0, noiseFns = 0, testFns = 0, vendorFiles = 0, vendorFns = 0;
+  // Third-party subtrees are excluded from CANDIDATE DISCOVERY, not from the
+  // index -- search, digest and every other command still see them. Only the
+  // question "what might be claim-worthy here" is scoped to the project's own
+  // code, and `--include-vendored` puts them back.
+  const vendored = o.includeVendored ? [] : detectVendoredSubtrees(index, o);
   for (const [file, fns] of Object.entries(index.functionIndex || {})) {
+    if (isUnderVendored(file, vendored)) { vendorFiles++; vendorFns += Object.keys(fns).length; continue; }
     if (isNoiseFile(file)) { noiseFiles++; noiseFns += Object.keys(fns).length; continue; }
     const fileLines = (index.fileLines && typeof index.fileLines.get === 'function') ? index.fileLines.get(file) : null;
     for (const [full, info] of Object.entries(fns)) {
@@ -158,7 +257,7 @@ export function enumerateFuncs(index, opts = {}) {
     funcs.length = 0; funcs.push(...keep);
     byId.clear(); for (const f of funcs) byId.set(f.id, f);
   }
-  return { funcs, byId, noiseFiles, noiseFns, testFns };
+  return { funcs, byId, noiseFiles, noiseFns, testFns, vendored, vendorFiles, vendorFns };
 }
 
 // TOKEN-only baseline (`--group-by concept`): seed from CE's cross-corpus-
@@ -612,7 +711,7 @@ export function splitOversizedGroup(index, group, byId, o, depth = 1) {
 // { groups: [{label, ids:Set, members:[func]}], funcs, byId, noiseFiles, noiseFns, mode, splits }.
 export function groupMechanisms(index, opts = {}) {
   const o = { ...GROUPER_DEFAULTS, ...opts };
-  const { funcs, byId, noiseFiles, noiseFns } = enumerateFuncs(index, o);
+  const { funcs, byId, noiseFiles, noiseFns, vendored, vendorFiles, vendorFns } = enumerateFuncs(index, o);
   const raw = o.mode === 'concept' ? conceptSeededGroups(index, funcs, o) : multiSeedGroups(index, funcs, o);
   const built = raw
     .map((g) => {
@@ -630,7 +729,7 @@ export function groupMechanisms(index, opts = {}) {
     if (r.split) splits.push(r.split);
   }
   groups.sort((a, b) => b.ids.size - a.ids.size);
-  return { groups, funcs, byId, noiseFiles, noiseFns, mode: o.mode, splits };
+  return { groups, funcs, byId, noiseFiles, noiseFns, mode: o.mode, splits, vendored, vendorFiles, vendorFns };
 }
 
 // --- doc-anchor enrichment (issue-289-doc-anchor-enrichment) -----------------
@@ -752,6 +851,46 @@ export function formatAnchors(result, meta = {}) {
   const { groups, noiseFiles, noiseFns } = result;
   const minComm = meta.minComm ?? GROUPER_DEFAULTS.minComm;
   const out = [`# mechanism-grouper  index=${meta.indexName || '?'}  group-by=${result.mode}  ${groups.length} groups (>= ${minComm} fns), ${noiseFiles} noise files (${noiseFns} fns) pre-filtered — UNRANKED draft; hand-select the claim-worthy`];
+  // EXCLUSIONS ARE NAMED, never silent. A user whose own vendored-then-modified
+  // fork was quietly dropped would never learn why their code produced no
+  // claims -- and on .sr_gh this removes 866 of 1,490 files, which is not a
+  // detail to leave to inference.
+  for (const v of result.vendored || []) {
+    out.push(`# excluded (third-party): ${v.root}  ${v.files} files  `
+      + `[${v.holder}, ${v.holderFiles}/${v.headered} headered]  --include-vendored to keep`);
+  }
+  if ((result.vendored || []).length) {
+    out.push(`# ${result.vendorFns} function(s) in ${result.vendorFiles} file(s) excluded from candidate discovery `
+      + `(the index is untouched -- search/digest still see them)`);
+  }
+  // OBSERVE-ONLY COVERAGE (Part B). "Distinctive vocabulary" is a PROXY for
+  // claim-worthiness and this reports the skew rather than correcting it: a
+  // re-ranking heuristic would imply a judgment CE cannot make. MEASURED on
+  // CodeExam: 53 of 78 src files produced no cited anchor while analyze.js
+  // supplied 22% of them. Graduation to a per-file cap needs this number across
+  // >=3 corpora plus a human judging the unrepresented files claim-worthy.
+  if (result.funcs) {
+    const inGroups = new Set(groups.flatMap((g) => [...g.ids]));
+    const groupFiles = new Set(groups.flatMap((g) => g.members.map((m) => m.file)));
+    const allFiles = new Set(result.funcs.map((f) => f.file));
+    out.push(`# coverage: ${inGroups.size}/${result.funcs.length} candidate function(s) in a group `
+      + `(${Math.round(100 * inGroups.size / Math.max(result.funcs.length, 1))}%), `
+      + `${groupFiles.size}/${allFiles.size} file(s) represented `
+      + `(${Math.round(100 * groupFiles.size / Math.max(allFiles.size, 1))}%)`);
+    const byFile = new Map();
+    for (const g of groups) for (const m of g.members) byFile.set(m.file, (byFile.get(m.file) || 0) + 1);
+    const top = [...byFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+    const tot = [...byFile.values()].reduce((a, b) => a + b, 0) || 1;
+    if (top.length) {
+      out.push(`# coverage: top file(s) by share of grouped functions — `
+        + top.map(([f, n]) => `${f} ${Math.round(100 * n / tot)}%`).join(', '));
+    }
+    const unrep = [...allFiles].filter((f) => !groupFiles.has(f));
+    if (unrep.length) {
+      out.push(`# coverage: ${unrep.length} file(s) with candidate functions are in NO group`
+        + (unrep.length <= 6 ? ` — ${unrep.join(', ')}` : ''));
+    }
+  }
   // Splits are REPORTED, never silent: restructuring the candidate list without
   // saying so makes two runs incomparable with no visible cause.
   for (const s of result.splits || []) {

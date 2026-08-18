@@ -334,6 +334,7 @@ export function parseArgs() {
     ground_truth: null,
     group_by: null,
     group_max: null,     // --group-max: split candidate groups larger than this (0 = never)
+    include_vendored: false, // --include-vendored: keep detected third-party subtrees as candidates
     file_seed: false,
     use_docs: false,      // --candidates: include TEXT_EXTENSIONS docs in the gather vocabulary (#284 signal-rich gather)
     catalog_seed: false,  // --candidates: seed groups from command-catalog handler joins (#284 signal-rich gather)
@@ -525,6 +526,7 @@ export function parseArgs() {
     ['ground_truth',         'value',          ['--ground-truth']],
     ['group_by',             'value',          ['--group-by']],
     ['group_max',            'int',            ['--group-max']],
+    ['include_vendored',     'flag',           ['--include-vendored']],
     ['file_seed',            'flag',           ['--file-seed']],
     ['use_docs',             'flag',           ['--use-docs']],
     ['catalog_seed',         'flag',           ['--catalog-seed']],
@@ -1372,6 +1374,17 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              hand-prune, then --pseudo-claims @<file> --dry-run.
   --group-by <mode>          With --candidates: 'multi' (default: name-token +
                              class seeds) | 'concept' (token-only baseline).
+  --include-vendored         With --candidates: KEEP third-party subtrees that
+                             would otherwise be excluded from candidate
+                             discovery. A subtree is called third-party when it
+                             is a NESTED package root (setup.py / pyproject.toml
+                             / package.json / Cargo.toml / go.mod) AND its files
+                             carry a dominant copyright holder. Every exclusion
+                             is named in the candidates file header. Vendored
+                             code is the client's LEAST claim-worthy material —
+                             not their invention, most likely to be prior art —
+                             so it is out by default. The index is untouched;
+                             search/digest still see it.
   --group-max <n>            With --candidates: split any group larger than <n>
                              functions by re-grouping over its own members
                              (default 15; 0 disables). MEASURED: a group over 15
