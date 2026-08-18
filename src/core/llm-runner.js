@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import { claudeSupportsTemperature } from '../utils.js';
 import { assertLocalOnly, isLocalApiUrl, isAirGapped } from './air-gapped.js';
 import { resolveProvider } from './providers.js';
-import { openaiCompletionBudget, openaiSupportsTemperature, openaiText, openaiUsage } from './openai-util.js';
+import { openaiCompletionBudget, openaiSupportsTemperature, openaiText, openaiUsage, openaiFinishReason } from './openai-util.js';
 import { estimateCost } from './pricing.js';
 
 // Resolve which model to draft with, using CE's shared provider registry so the
@@ -138,6 +138,7 @@ function resolveCloudKey(provider, args) {
 // openai-util so a reasoning model (gpt-5*, o*, gemini-2.5) isn't starved of
 // output budget and doesn't 400 on an unsupported `temperature`.
 export async function draftCloud(model, sys, user, maxTokens, temperature) {
+  _truncation.last = false;   // this call's verdict, not the previous call's
   const prompt = `${sys}\n\n${user}`;
   if (model.wire === 'anthropic') {
     const useTemp = claudeSupportsTemperature(model.model);
@@ -153,6 +154,10 @@ export async function draftCloud(model, sys, user, maxTokens, temperature) {
     if (!res.ok) throw new Error(`${model.label} HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const body = await res.json();
     _recordUsage(body.usage);
+    // BOTH wires are checked. The anthropic branch ignored stop_reason exactly
+    // as the openai branch ignored finish_reason; Claude has not visibly
+    // truncated only because its drafts run shorter.
+    _recordTruncation(body.stop_reason === 'max_tokens');
     return (body.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
   }
   const headers = { 'Content-Type': 'application/json' };
@@ -173,6 +178,7 @@ export async function draftCloud(model, sys, user, maxTokens, temperature) {
   // silently returned zeros, so OpenAI/Gemini runs reported "0 tok, $0.00"
   // while Claude's anthropic-wire accounting worked.
   _recordUsage(openaiUsage(body.usage));
+  _recordTruncation(openaiFinishReason(body) === 'length');
   return openaiText(body);
 }
 
@@ -198,7 +204,45 @@ function _recordUsage(u) {
   _cloudUsage.output_tokens += u.output_tokens || 0;
   _cloudUsage.calls += 1;
 }
-export function resetCloudUsage() { _cloudUsage = { input_tokens: 0, output_tokens: 0, calls: 0 }; }
+export function resetCloudUsage() {
+  _cloudUsage = { input_tokens: 0, output_tokens: 0, calls: 0 };
+  _truncation = { last: false, count: 0 };
+}
+
+// TRUNCATION SIDE CHANNEL, mirroring _cloudUsage above.
+//
+// WHY A SIDE CHANNEL and not a richer return value: draft(sys, user, max) ->
+// Promise<string> has a dozen call sites across claim-locate, claim-chart,
+// analyze, claim.js, pseudo-claims and synonymize, plus every test stub that
+// passes opts.draft. Changing the contract would touch all of them for a signal
+// most callers ignore.
+//
+// MEASURED, and this is why it exists: the Gemini drafter-swap run cut 15 of 41
+// pseudo-claims off mid-sentence. Because the ANCHORS: block FOLLOWS the claim
+// prose, every one of those lost its citations -- 16 claims with zero anchors,
+// emitted as ordinary output and read as such for a day. openaiFinishReason
+// already existed and was already used at analyze.js:243 and server.js:539;
+// this draft path simply never asked.
+//
+// `last` is cleared at the START of every draftCloud call and written at the
+// end, so a caller reading it immediately after `await draft(...)` sees THAT
+// call's verdict. Drafting is sequential by construction (a shared GGUF session
+// is not concurrent-safe), so there is no interleaving to race with.
+let _truncation = { last: false, count: 0 };
+function _recordTruncation(hit) {
+  _truncation.last = !!hit;
+  if (hit) _truncation.count += 1;
+}
+/** Did the most recent draft call stop because it hit the output budget? */
+export function wasLastDraftTruncated() { return _truncation.last; }
+/** How many draft calls were truncated since the last resetCloudUsage(). */
+export function truncationCount() { return _truncation.count; }
+/** Human-readable summary, or null when nothing was truncated. */
+export function truncationLine() {
+  if (!_truncation.count) return null;
+  return `# WARNING: ${_truncation.count} draft(s) hit the output budget and were CUT OFF`
+    + ` - text is incomplete and any trailing structured block (ANCHORS:, etc.) is missing.`;
+}
 export function getCloudUsage() { return { ..._cloudUsage }; }
 
 // calls: [{ inChars, outTokens }] — outTokens should be the EXPECTED output
@@ -427,7 +471,21 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
       // can't bleed into this draft, and so long claim sets don't overflow.
       await session.resetChatHistory();
     }
-    return session.prompt(`${sys}\n\n${user}`, { temperature: temperature ?? 0, maxTokens });
+    // LOCAL PATH: node-llama-cpp's promptWithMeta reports WHY generation stopped,
+    // so the local drafter gets the same signal as the cloud wires rather than a
+    // heuristic. Falls back to plain prompt() on older versions -- and when it
+    // does, truncation goes UNDETECTED here, which is stated rather than papered
+    // over: a silent local truncation is exactly the Gemma failure mode this
+    // item exists to make visible.
+    _truncation.last = false;
+    if (typeof session.promptWithMeta === 'function') {
+      const r = await session.promptWithMeta(`${sys}\n\n${user}`, { temperature: temperature ?? 0, maxTokens });
+      _recordTruncation(r && (r.stopReason === 'maxTokens' || r.stopReason === 'contextSizeExceeded'));
+      return typeof r === 'string' ? r : (r && r.responseText) || '';
+    }
+    return session.prompt(`${sys}
+
+${user}`, { temperature: temperature ?? 0, maxTokens });
   };
 }
 

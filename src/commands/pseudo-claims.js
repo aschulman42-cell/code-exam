@@ -28,7 +28,7 @@
 import fs from 'node:fs';
 import { parseFuncSpec, readCeVersion } from '../utils.js';
 import { splitClaimElements } from './claim-locate.js';
-import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage } from '../core/llm-runner.js';
+import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, wasLastDraftTruncated, truncationCount, truncationLine } from '../core/llm-runner.js';
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
 import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, echoPairs, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
 
@@ -119,6 +119,43 @@ export const PSEUDO_CLAIM_GENERATE_SYS =
   'provided material, cite it as <file>@L<start>-<end> using the line range ' +
   'from its header. Cite ONLY files, functions, and line ranges that appear ' +
   'in the provided material. NEVER invent a path, a name, or a line range.';
+
+// OUTPUT BUDGET for one drafted claim + its ANCHORS block.
+//
+// Was a bare `900` at the call site, never measured against a real draft. The
+// Gemini drafter-swap run cut 15 of 41 claims off mid-sentence, and because
+// ANCHORS: follows the prose, all 15 lost their citations.
+//
+// MEASURED on the runs that COMPLETED (CodeExam, 41 claims each), claim prose
+// plus anchors block:
+//
+//   Claude    median ~734 tok   p90 ~936    max ~1,023
+//   ChatGPT   median ~1,084     p90 ~1,394  max ~1,745
+//
+// So the VISIBLE output is small, and that is the whole point of this number
+// being large. A first attempt set it to 4000 and changed nothing: the openai
+// wire floors /^gemini-/ and reasoning models to OPENAI_REASONING_FLOOR (4096),
+// so max(4000, 4096) === max(900, 4096) and gemini-2.5-flash kept truncating at
+// exactly the same rate. The constant has to EXCEED the floor to bind at all.
+//
+// And what consumes the budget is not the answer. 4096 is already 2.3x
+// ChatGPT's worst complete draft, yet Gemini truncated ~45% of the time --
+// gemini-2.5-flash spends most of the window on THINKING tokens that count
+// against max_completion_tokens and never appear in the response. That is the
+// mismatch OPENAI_REASONING_FLOOR exists for, at a floor too low for this
+// workload.
+//
+// 16000 leaves ~14k for hidden reasoning above ChatGPT's measured ceiling. A
+// ceiling costs nothing unless tokens are generated. It is NOT a guarantee: a
+// local GGUF whose context is smaller will stop at the context instead, and the
+// truncation detector reports that as contextSizeExceeded rather than hiding it.
+//
+// NOT changed here, deliberately: OPENAI_REASONING_FLOOR itself. Raising a
+// shared floor to fix one command would treat a global as a local -- the other
+// call paths (analyze, claim-locate, chart) sized their budgets separately. If
+// truncation persists at 16000, the next lever is capping Gemini's thinking
+// rather than buying more of it, and the detector will say so with a count.
+export const PSEUDO_CLAIM_MAX_OUTPUT_TOKENS = 16000;
 
 // Evidence-pack size bounds (per group, shared so the pack the user eyeballs in
 // dry-run is exactly what the model receives).
@@ -492,6 +529,9 @@ export function buildAnchorSidecar(groups, drafts, meta = {}) {
       groupN: i + 1,
       label: groups[i] ? groups[i].label || '' : '',
       claim: claimToLine(d.prose),
+      // Carried so a downstream consumer (HOF-c scoring, --claims-loop) cannot
+      // mistake a severed anchor list for "the drafter cited nothing".
+      ...(d.truncated ? { truncated: true } : {}),
       // Recorded so a scorer can refuse to compare a rewritten claim whose
       // element count no longer matches its key, instead of pairing element 4
       // against element 5 and reporting a plausible wrong number.
@@ -512,6 +552,7 @@ export function buildAnchorSidecar(groups, drafts, meta = {}) {
     note: 'GROUNDED means the citation resolved to a real symbol in the index. This key records'
       + ' what the DRAFTING MODEL cited, verified to resolve — not what a practitioner would cite.',
     ce: meta.ceVersion || '', generated: meta.generatedAt || '', command: meta.argv || '',
+    truncated: claims.filter((c) => c.truncated).length,
     claims,
   };
 }
@@ -526,6 +567,7 @@ export function writeClaimsOnly(fpath, groups, drafts, meta = {}) {
     '# Format:     one claim per line',
     `# Claims:     ${sidecar.claims.length}${skipped ? ` (${skipped} skipped — draft failed)` : ''}`,
     `# Anchors:    ${sidecar.claims.reduce((n, c) => n + c.grounded.length, 0)} grounded, in ${fpath}.anchors.json`,
+    ...(sidecar.truncated ? [`# TRUNCATED:  ${sidecar.truncated} claim(s) hit the output budget` + ` - incomplete text, missing anchors; see .anchors.json for which`] : []),
     `# CE:         ${meta.ceVersion || ''}`,
     `# Generated:  ${meta.generatedAt || ''}`,
     `# Command:    ${meta.argv || ''}`,
@@ -849,16 +891,24 @@ export async function doPseudoClaims(index, args) {
         // ranker-purpose-signal lesson); triage annotations already stripped.
         const mech = s.label ? `${s.label}${s.purpose ? ' — ' + s.purpose : ''}` : '';
         const intent = mech ? `MECHANISM: ${mech}\n\n` : '';
-        const raw = await drafter(PSEUDO_CLAIM_GENERATE_SYS, `${intent}CODE:\n${s.pack}`, 900);
+        const raw = await drafter(PSEUDO_CLAIM_GENERATE_SYS, `${intent}CODE:\n${s.pack}`, PSEUDO_CLAIM_MAX_OUTPUT_TOKENS);
+        // Read the flag IMMEDIATELY after the await -- it carries THIS call's
+        // verdict (draftCloud clears it on entry) and drafting is sequential.
+        const truncated = wasLastDraftTruncated();
         const { prose, anchors } = parseGeneratedClaim(raw);
         const { grounded, dropped } = groundAnchors(index, anchors);
-        drafts.push({ prose, grounded, dropped });
-        process.stderr.write(`  claim ${i + 1}/${withAnchors.length}: ${grounded.length} grounded anchor(s)${dropped.length ? `, ${dropped.length} ungrounded dropped` : ''}\n`);
+        drafts.push({ prose, grounded, dropped, truncated });
+        process.stderr.write(`  claim ${i + 1}/${withAnchors.length}: ${grounded.length} grounded anchor(s)${dropped.length ? `, ${dropped.length} ungrounded dropped` : ''}`
+          + `${truncated ? ' - TRUNCATED by the output budget; ANCHORS block incomplete' : ''}\n`);
       } catch (e) {
         drafts.push({ error: e.message });
         process.stderr.write(`  claim ${i + 1}/${withAnchors.length}: draft failed — ${e.message}\n`);
       }
     }
+    // Never silent: 16 anchor-less claims sat in a file for a day looking like
+    // ordinary output because nothing said the drafts had been cut off.
+    const tline = truncationLine();
+    if (tline) process.stderr.write(tline.replace(/^# /, '[pseudo-claims] ') + '\n');
     const draftCost = actualCostLine(model);
     if (draftCost) process.stderr.write(draftCost + '\n');
   }
@@ -925,6 +975,15 @@ export async function doPseudoClaims(index, args) {
         out.push('');
       } else {
         out.push(d.prose || '_(model produced no claim text)_');
+        // A truncated draft must not read as a finished claim. The mark goes in
+        // the ARTIFACT, not just stderr: stderr is gone by the time anyone reads
+        // the file, which is how 16 anchor-less claims passed for ordinary output.
+        if (d.truncated) {
+          out.push('');
+          out.push('_**TRUNCATED** - this draft hit the output budget and stops mid-text.'
+            + ' Its `ANCHORS:` block was never emitted, so the cited-anchor list below is'
+            + ' incomplete or empty. This is a CE budget limit, not a finding about the code._');
+        }
         out.push('');
         if (chartMode) {
           out.push(`### Claim chart (${d.grounded.length} grounded cite${d.grounded.length === 1 ? '' : 's'}${d.dropped.length ? `, ${d.dropped.length} ungrounded dropped` : ''})`);

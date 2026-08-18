@@ -19,6 +19,16 @@ import {
   buildAnchorSidecar, writeClaimsOnly, claimToLine,
 } from '../src/commands/pseudo-claims.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
+import { draftCloud, wasLastDraftTruncated, truncationCount, truncationLine, resetCloudUsage } from '../src/core/llm-runner.js';
+import { PSEUDO_CLAIM_MAX_OUTPUT_TOKENS } from '../src/commands/pseudo-claims.js';
+import { openaiCompletionBudget, OPENAI_REASONING_FLOOR } from '../src/core/openai-util.js';
+
+// Swap global fetch for one canned JSON body, restore unconditionally.
+async function withStubbedFetch(json, fn) {
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, json: async () => json, text: async () => '' });
+  try { return await fn(); } finally { globalThis.fetch = real; }
+}
 import { detectClaims } from '../src/commands/synonymize.js';
 
 const GROUPS = [
@@ -202,5 +212,111 @@ describe('--claims-only: claimToLine', () => {
   it('tolerates an empty or missing prose without throwing', () => {
     assert.equal(claimToLine(''), '');
     assert.equal(claimToLine(null), '');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// draft-truncation-detection: a cut-off draft must not read as a finished one.
+//
+// MEASURED on the Gemini drafter-swap run (same CodeExam_candidates_v4.txt as
+// the Claude and ChatGPT runs): 15 of 41 claims ended mid-sentence, and because
+// the ANCHORS: block FOLLOWS the claim prose, 16 claims arrived with zero
+// anchors. CE said nothing -- they sat in a file for a day looking like ordinary
+// output, and were first read as an 18% FABRICATION rate. The distinguishing
+// evidence was the mid-sentence prose; a half-written citation
+// ("MECHANISM: @ L1-L10", "src/core/Code @") looks exactly like an invented one.
+//
+// openaiFinishReason already existed and was already used at analyze.js:243 and
+// server.js:539. This draft path simply never asked.
+
+describe('draft truncation is detected and reported', () => {
+  const body = (over) => ({
+    id: 'x', usage: { input_tokens: 10, output_tokens: 20 },
+    ...over,
+  });
+
+  it('flags the OPENAI wire on finish_reason=length', async () => {
+    const res = await withStubbedFetch(body({
+      choices: [{ message: { content: 'partial text' }, finish_reason: 'length' }],
+    }), () => draftCloud({ wire: 'openai-compat', model: 'gpt-5.1', apiUrl: 'x', label: 'l' },
+      'sys', 'user', 100, 0));
+    assert.equal(res, 'partial text');
+    assert.equal(wasLastDraftTruncated(), true);
+  });
+
+  it('flags the ANTHROPIC wire on stop_reason=max_tokens', async () => {
+    // The anthropic branch was equally blind. Claude has not visibly truncated
+    // only because its drafts run shorter -- the same silence was waiting.
+    const res = await withStubbedFetch(body({
+      content: [{ type: 'text', text: 'partial text' }], stop_reason: 'max_tokens',
+    }), () => draftCloud({ wire: 'anthropic', model: 'claude-x', apiUrl: 'x', key: 'k', label: 'l' },
+      'sys', 'user', 100, 0));
+    assert.equal(res, 'partial text');
+    assert.equal(wasLastDraftTruncated(), true);
+  });
+
+  it('does NOT flag a complete draft on either wire', async () => {
+    // The check must not fire on the runs that are already complete -- Claude and
+    // ChatGPT both produced 41 whole claims with 0 dropped anchors.
+    await withStubbedFetch(body({
+      choices: [{ message: { content: 'whole' }, finish_reason: 'stop' }],
+    }), () => draftCloud({ wire: 'openai-compat', model: 'gpt-5.1', apiUrl: 'x', label: 'l' }, 's', 'u', 100, 0));
+    assert.equal(wasLastDraftTruncated(), false);
+    await withStubbedFetch(body({
+      content: [{ type: 'text', text: 'whole' }], stop_reason: 'end_turn',
+    }), () => draftCloud({ wire: 'anthropic', model: 'c', apiUrl: 'x', key: 'k', label: 'l' }, 's', 'u', 100, 0));
+    assert.equal(wasLastDraftTruncated(), false);
+  });
+
+  it("the flag is THIS call's verdict, not the previous call's", async () => {
+    // Callers read it immediately after `await draft(...)`. draftCloud clears on
+    // entry so a stale true cannot leak into the next claim.
+    await withStubbedFetch(body({
+      choices: [{ message: { content: 'cut' }, finish_reason: 'length' }],
+    }), () => draftCloud({ wire: 'openai-compat', model: 'm', apiUrl: 'x', label: 'l' }, 's', 'u', 100, 0));
+    assert.equal(wasLastDraftTruncated(), true);
+    await withStubbedFetch(body({
+      choices: [{ message: { content: 'whole' }, finish_reason: 'stop' }],
+    }), () => draftCloud({ wire: 'openai-compat', model: 'm', apiUrl: 'x', label: 'l' }, 's', 'u', 100, 0));
+    assert.equal(wasLastDraftTruncated(), false, 'a stale true would mark the wrong claim');
+  });
+
+  it('counts truncations across a run and resets with the usage counters', async () => {
+    resetCloudUsage();
+    assert.equal(truncationCount(), 0);
+    assert.equal(truncationLine(), null, 'silence when there is nothing to report');
+    for (let i = 0; i < 3; i += 1) {
+      await withStubbedFetch(body({
+        choices: [{ message: { content: 'cut' }, finish_reason: 'length' }],
+      }), () => draftCloud({ wire: 'openai-compat', model: 'm', apiUrl: 'x', label: 'l' }, 's', 'u', 100, 0));
+    }
+    assert.equal(truncationCount(), 3);
+    assert.match(truncationLine(), /3 draft\(s\) hit the output budget/);
+    resetCloudUsage();
+    assert.equal(truncationCount(), 0);
+  });
+
+  it('the output budget EXCEEDS the provider floor, or it does not bind at all', () => {
+    // The trap this fold fixes. A first attempt set the constant to 4000, which
+    // changed nothing: openaiCompletionBudget floors /^gemini-/ and reasoning
+    // models to OPENAI_REASONING_FLOOR (4096), so max(4000, 4096) is the same
+    // 4096 that max(900, 4096) already gave. Gemini truncated at exactly the
+    // same rate and the re-run re-measured a budget that had never moved.
+    assert.ok(PSEUDO_CLAIM_MAX_OUTPUT_TOKENS > OPENAI_REASONING_FLOOR,
+      `constant ${PSEUDO_CLAIM_MAX_OUTPUT_TOKENS} must exceed the ${OPENAI_REASONING_FLOOR} floor to have any effect`);
+    for (const m of ['gemini-2.5-flash', 'gpt-5.1', 'claude-sonnet-4-6']) {
+      assert.equal(openaiCompletionBudget(m, PSEUDO_CLAIM_MAX_OUTPUT_TOKENS),
+        PSEUDO_CLAIM_MAX_OUTPUT_TOKENS, `the floor still overrides the constant for ${m}`);
+    }
+  });
+
+  it('the output budget is a NAMED constant, not a literal at the call site', () => {
+    // It was a bare 900, never measured against a real draft, sitting where it
+    // could not be seen from the prompt it serves.
+    assert.ok(PSEUDO_CLAIM_MAX_OUTPUT_TOKENS >= 2000,
+      'must leave room for a claim plus its ANCHORS block');
+    const src = fs.readFileSync('src/commands/pseudo-claims.js', 'utf8');
+    assert.ok(!/drafter\(PSEUDO_CLAIM_GENERATE_SYS[^)]*, 900\)/.test(src),
+      'the bare 900 must be gone');
   });
 });
