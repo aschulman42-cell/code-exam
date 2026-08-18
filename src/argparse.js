@@ -333,6 +333,7 @@ export function parseArgs() {
     candidates: null,
     ground_truth: null,
     group_by: null,
+    group_max: null,     // --group-max: split candidate groups larger than this (0 = never)
     file_seed: false,
     use_docs: false,      // --candidates: include TEXT_EXTENSIONS docs in the gather vocabulary (#284 signal-rich gather)
     catalog_seed: false,  // --candidates: seed groups from command-catalog handler joins (#284 signal-rich gather)
@@ -523,6 +524,7 @@ export function parseArgs() {
     ['candidates',           'value',          ['--candidates']],
     ['ground_truth',         'value',          ['--ground-truth']],
     ['group_by',             'value',          ['--group-by']],
+    ['group_max',            'int',            ['--group-max']],
     ['file_seed',            'flag',           ['--file-seed']],
     ['use_docs',             'flag',           ['--use-docs']],
     ['catalog_seed',         'flag',           ['--catalog-seed']],
@@ -1370,6 +1372,14 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              hand-prune, then --pseudo-claims @<file> --dry-run.
   --group-by <mode>          With --candidates: 'multi' (default: name-token +
                              class seeds) | 'concept' (token-only baseline).
+  --group-max <n>            With --candidates: split any group larger than <n>
+                             functions by re-grouping over its own members
+                             (default 15; 0 disables). MEASURED: a group over 15
+                             functions gets only ~34% of its functions cited by
+                             the claim drafted from it, against ~85% for smaller
+                             groups. A group that will not divide is emitted
+                             intact and named in the file header. This is a
+                             COVERAGE control, not a claim-length control.
   --file-seed                With --candidates: add residual per-file groups
                              (opt-in; noisy on large C/C++ trees).
   --use-docs                 With --candidates: EXPERIMENTAL — include doc files

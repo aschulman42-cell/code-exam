@@ -35,6 +35,22 @@ export const GROUPER_DEFAULTS = {
   bodyMatchSeed: false, // --body-match-seed (#289): body-containment rescue for name-match-failed cutoff tokens
   maxBodySpread: 16,    // body-match seed: a token body-matching more candidate functions than this is too common
   maxFuncs: Infinity,   // cap candidates on huge indexes (0/Infinity = no cap)
+  // A group larger than this is re-grouped over its own members before it is
+  // emitted. MEASURED on the sr_gh run (23 groups, both drafting passes): a
+  // group over 15 functions gets 34% of its functions cited by the claim
+  // drafted from it; a group of 15 or fewer gets 85%. A 46-function group
+  // yields a claim citing ~8 of them -- the other 38 were packed, sent to the
+  // model and paid for, and produced nothing citable.
+  //
+  // NOT a claim-LENGTH control: correlation(group size, claim length) measured
+  // 0.12, so splitting does not and is not meant to shorten claims. Length is
+  // governed by the drafting prompt (see PSEUDO_CLAIM_GENERATE_SYS, 9d453489).
+  // 0 or Infinity disables splitting and reproduces pre-split behaviour.
+  groupMax: 15,
+  // A split whose largest part is at least this share of the parent has not
+  // divided anything -- it peeled off one small group and relabelled the rest.
+  splitMaxShare: 0.8,
+  splitMaxDepth: 2,     // recursion bound; anything still oversized is reported, not looped on
 };
 
 // Per-file sorted candidate ranges + line -> containing-candidate lookup,
@@ -443,22 +459,178 @@ function filterMembers(index, members) {
   return kept;
 }
 
+// Identifier sub-tokens of a member's own name: snake_case and camelCase both,
+// leading underscores stripped, 3+ chars. `_build_lr_scheduler` ->
+// [build, scheduler]; `forwardBackwardBatch` -> [forward, backward, batch].
+export function subTokens(name) {
+  return String(name || '')
+    .replace(/^_+/, '')
+    .split(/[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])/)
+    .map((t) => t.toLowerCase())
+    .filter((t) => t.length >= 3 && !SUBTOKEN_STOP.has(t));
+}
+// Generic enough to group functions that share nothing but a calling
+// convention. Deliberately short: the frequency bounds below do most of the
+// filtering, and an over-eager stop list would suppress real mechanisms
+// (`init`, `run`, `load` can all be the substance of a limitation).
+const SUBTOKEN_STOP = new Set(['get', 'set', 'the', 'for', 'and', 'not', 'self', 'this', 'str', 'obj']);
+
+// PARTITION an oversized group on the LOCAL vocabulary of its own member names.
+//
+// The first implementation re-ran `groupMechanisms` over the group's members
+// and split nothing: 15 of 15 oversized sr_gh groups came back `indivisible`,
+// and disabling the class seed did not help. The reason is near-tautological --
+// re-running a clustering algorithm over one of its own output clusters
+// reproduces that cluster, because the features that made those functions
+// group together are still their dominant shared features. `reward
+// (use_kl_in_reward)` re-grouped on the corpus vocabulary gives back `reward`.
+//
+// Local sub-tokens are a DIFFERENT feature space, and one the parent grouping
+// did not use. MEASURED on the groups that defeated recursion:
+//   [class] RayPPOTrainer (33) -> generations(4) batch(4) checkpoint(4) profiling(4)
+//   rollout (41)               -> weights(7) sync(6) actor(5) compute(5) async(4)
+//   [class] DataProto (24)     -> from(4) get(3)   -- too weak, correctly declines
+//
+// Chunking by declaration order was rejected and stays rejected: methods 1-11
+// of a class are not a mechanism, and a claim drafted from them reads as
+// incoherent to exactly the audience that matters. A group that will not divide
+// is emitted INTACT.
+export function subTokenPartition(group, o) {
+  const members = group.members;
+  const freq = new Map();
+  const memberToks = new Map();
+  for (const m of members) {
+    const ts = new Set(subTokens(m.bare || m.name || ''));
+    memberToks.set(m.id, ts);
+    for (const t of ts) freq.set(t, (freq.get(t) || 0) + 1);
+  }
+  // A token in nearly every member does not discriminate (it is what makes this
+  // one group); a token in fewer than minComm cannot carry a group of its own.
+  const ceiling = Math.max(o.minComm, Math.floor(members.length * 0.9));
+  const seeds = [...freq.entries()]
+    .filter(([, n]) => n >= o.minComm && n < ceiling)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (!seeds.length) return [];
+
+  // Assign each member to its highest-frequency qualifying seed, so sub-groups
+  // reach minComm rather than shattering into pairs. Ties break alphabetically
+  // for determinism -- two runs of --candidates must produce the same file.
+  const bySeed = new Map();
+  for (const m of members) {
+    const ts = memberToks.get(m.id);
+    const hit = seeds.find(([t]) => ts.has(t));
+    if (!hit) continue;
+    if (!bySeed.has(hit[0])) bySeed.set(hit[0], []);
+    bySeed.get(hit[0]).push(m);
+  }
+  const out = [...bySeed.entries()]
+    .filter(([, ms]) => ms.length >= o.minComm)
+    .map(([t, ms]) => ({ label: t, members: ms }))
+    .sort((a, b) => b.members.length - a.members.length);
+  if (!out.length) return [];
+
+  // ORPHANS GO TO A RESIDUAL SUB-GROUP, they are not discarded. The first cut
+  // rejected any split leaving >40% of members unassigned, on the reasoning
+  // that a split orphaning half its members defeats a coverage fix -- true only
+  // if the orphans are dropped. Keeping them costs nothing and turns four
+  // rejected splits into accepted ones (RayPPOTrainer 58%, ActorRolloutRefWorker
+  // 57%, RayWorkerGroup 56%, LiberoEnv 47% coverage on the sr_gh run).
+  //
+  // `/ other` is honestly named: it is the leftovers, not a mechanism, and a
+  // reader hand-pruning the candidates should be able to see that and delete it.
+  const claimed = new Set(out.flatMap((g) => g.members.map((m) => m.id)));
+  const rest = members.filter((m) => !claimed.has(m.id));
+  if (rest.length >= o.minComm) {
+    out.push({ label: 'other', members: rest });
+  } else if (rest.length) {
+    // TOO FEW ORPHANS TO FORM A GROUP, so they join the smallest sub-group
+    // rather than being dropped. Caught by a test asserting every member of a
+    // split parent survives somewhere: a straggler below minComm was silently
+    // discarded, which would have made the split REDUCE coverage for exactly
+    // the functions it failed to cluster -- the opposite of this feature's
+    // purpose, and invisible because the group counts still looked right.
+    out[out.length - 1].members.push(...rest);
+  }
+  return out;
+}
+
+// Returns { groups, split } -- `split` records what happened for the report,
+// because silently restructuring the candidate list would make two runs
+// incomparable with no visible cause.
+export function splitOversizedGroup(index, group, byId, o, depth = 1) {
+  const max = o.groupMax;
+  if (!max || !Number.isFinite(max) || group.members.length <= max) {
+    return { groups: [group], split: null };
+  }
+  if (depth > o.splitMaxDepth) {
+    return { groups: [group], split: { label: group.label, n: group.members.length, reason: 'depth-cap' } };
+  }
+  const rebuilt = subTokenPartition(group, o)
+    .map((g) => ({
+      label: `${group.label} / ${g.label}`,
+      ids: new Set(g.members.map((m) => m.id)),
+      members: g.members,
+    }))
+    .filter((g) => g.members.length > 0);
+
+  // Reject a split that did not actually divide. Coverage is no longer a
+  // rejection reason -- orphans ride in the residual sub-group, so it is always
+  // 100% -- but the ratio is still reported, since a split that is mostly
+  // residual is a weak one a hand-pruner may want to undo.
+  const covered = new Set(rebuilt.flatMap((g) => [...g.ids])).size;
+  const coverage = covered / group.members.length;
+  const biggest = rebuilt.reduce((n, g) => Math.max(n, g.members.length), 0);
+  const seeded = rebuilt.filter((g) => !g.label.endsWith(' / other'))
+    .reduce((n, g) => n + g.members.length, 0) / group.members.length;
+  let reason = null;
+  if (rebuilt.length < 2) reason = 'indivisible';
+  // A "split" whose largest part is nearly the whole parent has not divided
+  // anything -- it has peeled off one small group and relabelled the rest.
+  else if (biggest >= group.members.length * o.splitMaxShare) reason = 'no-reduction';
+  if (reason) {
+    return { groups: [group], split: { label: group.label, n: group.members.length, reason } };
+  }
+
+  // Recurse into any sub-group still oversized.
+  const out = [], nested = [];
+  for (const g of rebuilt) {
+    const r = splitOversizedGroup(index, g, byId, o, depth + 1);
+    out.push(...r.groups);
+    if (r.split) nested.push(r.split);
+  }
+  return {
+    groups: out,
+    split: {
+      label: group.label, n: group.members.length,
+      into: out.map((g) => ({ label: g.label, n: g.members.length })),
+      coverage, seeded, nested,
+    },
+  };
+}
+
 // Group an index's functions into candidate mechanism groups. Returns
-// { groups: [{label, ids:Set, members:[func]}], funcs, byId, noiseFiles, noiseFns, mode }.
+// { groups: [{label, ids:Set, members:[func]}], funcs, byId, noiseFiles, noiseFns, mode, splits }.
 export function groupMechanisms(index, opts = {}) {
   const o = { ...GROUPER_DEFAULTS, ...opts };
   const { funcs, byId, noiseFiles, noiseFns } = enumerateFuncs(index, o);
   const raw = o.mode === 'concept' ? conceptSeededGroups(index, funcs, o) : multiSeedGroups(index, funcs, o);
-  const groups = raw
+  const built = raw
     .map((g) => {
       // Filter junk members, then rebuild ids from the survivors so emit,
       // members, and ids (the scoring path) stay consistent.
       const members = filterMembers(index, [...g.ids].map((id) => byId.get(id)).filter(Boolean));
       return { label: g.label, ids: new Set(members.map((m) => m.id)), members };
     })
-    .filter((g) => g.members.length > 0) // a group whose anchors were all junk is dropped
-    .sort((a, b) => b.ids.size - a.ids.size);
-  return { groups, funcs, byId, noiseFiles, noiseFns, mode: o.mode };
+    .filter((g) => g.members.length > 0); // a group whose anchors were all junk is dropped
+
+  const groups = [], splits = [];
+  for (const g of built) {
+    const r = splitOversizedGroup(index, g, byId, o);
+    groups.push(...r.groups);
+    if (r.split) splits.push(r.split);
+  }
+  groups.sort((a, b) => b.ids.size - a.ids.size);
+  return { groups, funcs, byId, noiseFiles, noiseFns, mode: o.mode, splits };
 }
 
 // --- doc-anchor enrichment (issue-289-doc-anchor-enrichment) -----------------
@@ -580,6 +752,20 @@ export function formatAnchors(result, meta = {}) {
   const { groups, noiseFiles, noiseFns } = result;
   const minComm = meta.minComm ?? GROUPER_DEFAULTS.minComm;
   const out = [`# mechanism-grouper  index=${meta.indexName || '?'}  group-by=${result.mode}  ${groups.length} groups (>= ${minComm} fns), ${noiseFiles} noise files (${noiseFns} fns) pre-filtered — UNRANKED draft; hand-select the claim-worthy`];
+  // Splits are REPORTED, never silent: restructuring the candidate list without
+  // saying so makes two runs incomparable with no visible cause.
+  for (const s of result.splits || []) {
+    if (s.into) {
+      out.push(`# split: ${s.label} (${s.n} fns) → ${s.into.length} sub-group(s): `
+        + `${s.into.map((x) => `${x.label} (${x.n})`).join(', ')}`
+        + `  [${Math.round(s.coverage * 100)}% of members kept]`);
+      for (const n of s.nested || []) {
+        if (!n.into) out.push(`#   still oversized: ${n.label} (${n.n} fns) — ${n.reason}`);
+      }
+    } else {
+      out.push(`# NOT split: ${s.label} (${s.n} fns) — ${s.reason}; emitted intact`);
+    }
+  }
   for (const g of groups) {
     const purpose = meta.purposeFor ? meta.purposeFor(g.label, g.members) : '';
     out.push('', `# ${g.label}  (${g.members.length} fns)${purpose ? '  — ' + purpose : ''}`);

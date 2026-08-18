@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, splitDocSections, docAnchorsForGroup, formatAnchors, dominantFile, echoPairs, GROUPER_DEFAULTS } from '../src/core/mechanism-grouper.js';
+import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, splitDocSections, docAnchorsForGroup, formatAnchors, dominantFile, echoPairs, GROUPER_DEFAULTS, subTokens, subTokenPartition, splitOversizedGroup } from '../src/core/mechanism-grouper.js';
 import { collectAnchorGroups, parseMinRank, filterGroupsByMinRank, packDisclosure, parseLineAnchor, groundAnchors, formatClaimChart, claimPreambleSnippet, formatChartToc } from '../src/commands/pseudo-claims.js';
 
 // grouper-echo-flag-fold Phase 1: dominant-file detection + echo pairing +
@@ -543,5 +543,148 @@ describe('min-rank draft filter', () => {
     const r = filterGroupsByMinRank(ranked, '0');
     assert.equal(r.groups.length, 5);
     assert.equal(r.dropped, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// grouper-split-oversized: partition a too-large group on the LOCAL vocabulary
+// of its own member names.
+//
+// WHY NOT RECURSION. The first implementation re-ran groupMechanisms over the
+// group's members and split NOTHING: 15 of 15 oversized sr_gh groups came back
+// `indivisible`, and disabling the class seed did not help. Re-running a
+// clustering algorithm over one of its own output clusters reproduces that
+// cluster -- the features that made those functions group together are still
+// their dominant shared features. Local sub-tokens are a different feature
+// space, one the parent grouping did not use.
+//
+// MEASURED on .sr_gh: 23 groups -> 67, only 2 still oversized (both correctly
+// declined as `no-reduction`), and `--group-max 0` reproduces the pre-split
+// candidates file byte-for-byte.
+
+describe('sub-token splitting of oversized groups', () => {
+  const mk = (label, names) => ({
+    label,
+    ids: new Set(names.map((n, i) => `${label}#${i}`)),
+    members: names.map((n, i) => ({ id: `${label}#${i}`, bare: n, file: 'x.py', name: n })),
+  });
+  const O = { ...GROUPER_DEFAULTS, groupMax: 5 };
+
+  it('splits snake_case and camelCase, strips leading underscores', () => {
+    assert.deepEqual(subTokens('_build_lr_scheduler'), ['build', 'scheduler']);
+    assert.deepEqual(subTokens('forwardBackwardBatch'), ['forward', 'backward', 'batch']);
+    assert.deepEqual(subTokens('__init__'), ['init']);
+  });
+
+  it('drops tokens too short or too generic to carry a mechanism', () => {
+    // The stop list is deliberately short -- frequency bounds do most of the
+    // filtering, and an over-eager list would suppress real mechanisms.
+    assert.deepEqual(subTokens('get_x'), []);
+    assert.ok(subTokens('load_checkpoint').includes('checkpoint'));
+    assert.ok(subTokens('run_training').includes('run'), 'run can be the substance of a limitation');
+  });
+
+  it('partitions on shared sub-tokens', () => {
+    const g = mk('C', ['build_optimizer', 'build_scheduler', 'build_module',
+      'save_checkpoint', 'load_checkpoint', 'delete_checkpoint']);
+    const parts = subTokenPartition(g, { ...O, minComm: 3 });
+    const labels = parts.map((p) => p.label).sort();
+    assert.deepEqual(labels, ['build', 'checkpoint']);
+    assert.equal(parts.reduce((n, p) => n + p.members.length, 0), 6, 'every member placed');
+  });
+
+  it('a token in nearly every member does not discriminate, so it is not a seed', () => {
+    // It is what makes this ONE group; seeding on it would reproduce the parent.
+    const g = mk('C', ['do_thing_a', 'do_thing_b', 'do_thing_c', 'do_thing_d']);
+    assert.deepEqual(subTokenPartition(g, { ...O, minComm: 3 }), []);
+  });
+
+  it('ORPHANS go to a residual sub-group, they are not discarded', () => {
+    // The first cut rejected any split leaving >40% unassigned, which was only
+    // sound if orphans were dropped. Keeping them turned four rejected splits
+    // into accepted ones on the sr_gh run.
+    const g = mk('C', ['build_a', 'build_b', 'build_c', 'zeta', 'omega', 'kappa']);
+    const parts = subTokenPartition(g, { ...O, minComm: 3 });
+    const other = parts.find((p) => p.label === 'other');
+    assert.ok(other, 'leftovers must survive');
+    assert.equal(other.members.length, 3);
+  });
+
+  it('is DETERMINISTIC — two runs of --candidates must produce the same file', () => {
+    const g = mk('C', ['alpha_run', 'beta_run', 'gamma_run', 'alpha_load', 'beta_load', 'gamma_load']);
+    const a = subTokenPartition(g, { ...O, minComm: 3 }).map((p) => `${p.label}:${p.members.length}`);
+    const b = subTokenPartition(g, { ...O, minComm: 3 }).map((p) => `${p.label}:${p.members.length}`);
+    assert.deepEqual(a, b);
+  });
+
+  it('leaves a group at or under groupMax completely alone', () => {
+    const g = mk('C', ['build_a', 'build_b', 'build_c']);
+    const r = splitOversizedGroup(null, g, new Map(), { ...O, groupMax: 5 });
+    assert.equal(r.groups.length, 1);
+    assert.equal(r.split, null, 'no report line for a group that was never a candidate');
+  });
+
+  it('groupMax 0 disables splitting entirely — prior artifacts stay reproducible', () => {
+    const g = mk('C', ['build_a', 'build_b', 'build_c', 'save_x', 'save_y', 'save_z']);
+    for (const groupMax of [0, Infinity]) {
+      const r = splitOversizedGroup(null, g, new Map(), { ...O, groupMax });
+      assert.equal(r.groups.length, 1, `groupMax ${groupMax} must not split`);
+    }
+  });
+
+  it('DECLINES rather than chunking when the group will not divide', () => {
+    // Methods 1-11 of a class are not a mechanism. One oversized coherent group
+    // beats three incoherent ones, so the fallback is "emit intact", never
+    // "chunk by declaration order".
+    const g = mk('C', ['aaa_x', 'bbb_y', 'ccc_z', 'ddd_w', 'eee_v', 'fff_u']);
+    const r = splitOversizedGroup(null, g, new Map(), { ...O, groupMax: 5 });
+    assert.equal(r.groups.length, 1);
+    assert.equal(r.groups[0].members.length, 6, 'emitted intact, nothing dropped');
+    assert.equal(r.split.reason, 'indivisible');
+  });
+
+  it('declines a "split" whose largest part is nearly the whole parent', () => {
+    // Peeling off one small group and relabelling the rest is not a division.
+    const g = mk('C', ['build_a', 'build_b', 'build_c', 'build_d', 'build_e',
+      'build_f', 'build_g', 'zzz_1', 'zzz_2', 'zzz_3']);
+    const r = splitOversizedGroup(null, g, new Map(), { ...O, groupMax: 5, splitMaxShare: 0.8 });
+    if (r.groups.length === 1) assert.equal(r.split.reason, 'no-reduction');
+    else assert.ok(r.groups.every((x) => x.members.length < 10));
+  });
+
+  it('sub-group labels name their parent, so [class] inflation stays visible', () => {
+    const g = mk('[class] Trainer', ['build_a', 'build_b', 'build_c',
+      'save_x', 'save_y', 'save_z']);
+    const r = splitOversizedGroup(null, g, new Map(), { ...O, groupMax: 5 });
+    assert.ok(r.groups.length > 1, 'this fixture should split');
+    for (const s of r.groups) {
+      assert.ok(s.label.startsWith('[class] Trainer / '),
+        `sub-group lost its parent: ${s.label}`);
+    }
+  });
+
+  it('reports the split so two runs are comparable', () => {
+    const g = mk('C', ['build_a', 'build_b', 'build_c', 'save_x', 'save_y', 'save_z']);
+    const r = splitOversizedGroup(null, g, new Map(), { ...O, groupMax: 5 });
+    assert.ok(r.split && r.split.into, 'a split must be reported');
+    assert.equal(r.split.n, 6);
+    assert.ok(r.split.into.length >= 2);
+  });
+
+  it('recursion is bounded — nothing loops on an unsplittable remainder', () => {
+    const names = [];
+    for (let i = 0; i < 40; i += 1) names.push(`build_thing${i}`);
+    const g = mk('C', names);
+    const r = splitOversizedGroup(null, g, new Map(), { ...O, groupMax: 5, splitMaxDepth: 2 });
+    assert.ok(Array.isArray(r.groups) && r.groups.length >= 1);
+  });
+
+  it('every member of a split parent survives somewhere', () => {
+    // The item exists to raise coverage; a split that loses members would be
+    // working against its own purpose.
+    const g = mk('C', ['build_a', 'build_b', 'build_c', 'save_x', 'save_y', 'save_z', 'lone_wolf']);
+    const r = splitOversizedGroup(null, g, new Map(), { ...O, groupMax: 5 });
+    const seen = new Set(r.groups.flatMap((x) => x.members.map((m) => m.id)));
+    assert.equal(seen.size, 7, 'no member may vanish in a split');
   });
 });
