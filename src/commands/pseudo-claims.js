@@ -605,6 +605,9 @@ export async function doEmitCandidates(index, args) {
       catalogSeed: !!args.catalog_seed,
       literalSeed: !!args.literal_seed,
       bodyMatchSeed: !!args.body_match_seed,
+      // 0 disables splitting and reproduces pre-split candidate files exactly,
+      // so artifacts generated before this landed stay reproducible.
+      ...(args.group_max != null ? { groupMax: args.group_max || Infinity } : {}),
     });
   } catch (e) {
     console.error(`--pseudo-claims --candidates: grouping failed: ${e.message}`);
