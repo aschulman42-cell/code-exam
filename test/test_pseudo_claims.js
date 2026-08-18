@@ -16,7 +16,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  buildAnchorSidecar, writeClaimsOnly, claimToLine,
+  buildAnchorSidecar, writeClaimsOnly, claimToLine, parseGeneratedClaim, groundAnchors,
 } from '../src/commands/pseudo-claims.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 import { draftCloud, wasLastDraftTruncated, truncationCount, truncationLine, resetCloudUsage } from '../src/core/llm-runner.js';
@@ -318,5 +318,117 @@ describe('draft truncation is detected and reported', () => {
     const src = fs.readFileSync('src/commands/pseudo-claims.js', 'utf8');
     assert.ok(!/drafter\(PSEUDO_CLAIM_GENERATE_SYS[^)]*, 900\)/.test(src),
       'the bare 900 must be gone');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// issue-313: the anchor parser discarded the most precise form it could be given.
+//
+// `ref.split('@')` required exactly two parts, so a ref carrying BOTH a symbol
+// and a line range -- src/core/ai-ml-detectors.js@_AIMLMethods::classify@L2150-2174
+// -- fell through to a colon fallback that did not match, left func empty, and
+// was dropped as "no function name to verify".
+//
+// MEASURED on the Gemini run over .CE_081726: 63 dropped anchors, and ALL 63
+// re-parse to a function name under the new rule. I had predicted 54 (the ones
+// with a visible second @) and classified the other 9 as genuine index misses;
+// they were parse casualties too.
+
+describe('anchor refs: function name AND line range', () => {
+  const parse = (ref) => parseGeneratedClaim(`CLAIM: x\nANCHORS:\n- ${ref} — el`).anchors[0];
+
+  it('parses file@Class::method@Lstart-end into all three fields', () => {
+    const a = parse('src/core/ai-ml-detectors.js@_AIMLMethods::classify@L2150-2174');
+    assert.equal(a.file, 'src/core/ai-ml-detectors.js');
+    assert.equal(a.func, '_AIMLMethods::classify');
+    assert.equal(a.citedStart, 2150);
+    assert.equal(a.citedEnd, 2174);
+  });
+
+  it('accepts a single-line range', () => {
+    const a = parse('src/a.js@fn@L42');
+    assert.equal(a.func, 'fn');
+    assert.equal(a.citedStart, 42);
+    assert.equal(a.citedEnd, 42);
+  });
+
+  it('leaves the plain file@func form exactly as before', () => {
+    const a = parse('src/b.js@fn');
+    assert.equal(a.file, 'src/b.js');
+    assert.equal(a.func, 'fn');
+    assert.equal(a.citedStart, 0, 'no range cited, none invented');
+  });
+
+  it('leaves the DOC form file@Lstart-end alone — the regression that nearly shipped', () => {
+    // groundAnchors identifies a doc citation by matching /^L(\d+)/ against
+    // `func`. Stripping the @L suffix unconditionally emptied func and would
+    // have silently broken every documentation citation in every existing
+    // artifact. The suffix is only stripped when another '@' precedes it.
+    const a = parse('src/c.js@L1-20');
+    assert.equal(a.func, 'L1-20', 'the doc path keys off this');
+    assert.equal(a.citedStart, 0);
+  });
+
+  it('tolerates an @ inside the PATH by splitting on the last one', () => {
+    // Counting parts breaks here; issue-241-paste-safe-path-output round-trips
+    // @-in-path, so this is a real shape rather than a hypothetical.
+    const a = parse('weird@path@d.js@fn2@L5');
+    assert.equal(a.file, 'weird@path@d.js');
+    assert.equal(a.func, 'fn2');
+    assert.equal(a.citedStart, 5);
+  });
+
+  it('still strips a trailing () from a function name', () => {
+    assert.equal(parse('src/e.js@fn()').func, 'fn');
+  });
+
+  it('EVERY dropped anchor from the recorded Gemini run now parses', { skip: !fs.existsSync('CodeExam_claims_gemini_v2.txt.anchors.json') }, () => {
+    const d = JSON.parse(fs.readFileSync('CodeExam_claims_gemini_v2.txt.anchors.json', 'utf8'));
+    const dropped = d.claims.flatMap((c) => c.dropped);
+    assert.ok(dropped.length > 0, 'fixture must actually contain drops');
+    for (const a of dropped) {
+      const ref = a.func ? `${a.file}@${a.func}` : a.file;
+      assert.ok(parse(ref).func, `still unparseable: ${ref}`);
+    }
+  });
+});
+
+describe('cited ranges are a CHECK, not the answer', () => {
+  const idx = (start, end) => ({
+    findFunctionMatches: () => [{ filepath: 'src/a.js', name: 'fn', start, end }],
+  });
+
+  it('grounds on the INDEX bounds and carries the cited range alongside', () => {
+    const { grounded } = groundAnchors(idx(100, 200),
+      [{ file: 'src/a.js', func: 'fn', citedStart: 120, citedEnd: 150, element: 'e' }]);
+    assert.equal(grounded[0].start, 100, 'index is authoritative about where a symbol lives');
+    assert.equal(grounded[0].end, 200);
+    assert.equal(grounded[0].citedStart, 120);
+    assert.ok(!grounded[0].rangeMismatch, 'inside the function: no flag');
+  });
+
+  it('flags a range OUTSIDE the resolved function rather than dropping it', () => {
+    // "Right file, right symbol, wrong lines" -- the failure asus-CC found by
+    // eye on the Gemma arm (#306). The symbol is real and verified, so erasing
+    // the citation would lose information; the mismatch is the finding.
+    const { grounded, dropped } = groundAnchors(idx(100, 200),
+      [{ file: 'src/a.js', func: 'fn', citedStart: 900, citedEnd: 950, element: 'e' }]);
+    assert.equal(dropped.length, 0, 'a real symbol is not erased over a bad range');
+    assert.equal(grounded[0].rangeMismatch, true);
+    assert.equal(grounded[0].start, 100, 'still grounded on index bounds');
+  });
+
+  it('adds no range fields when the model cited none', () => {
+    const { grounded } = groundAnchors(idx(1, 9),
+      [{ file: 'src/a.js', func: 'fn', element: 'e' }]);
+    assert.ok(!('citedStart' in grounded[0]));
+    assert.ok(!('rangeMismatch' in grounded[0]));
+  });
+
+  it('an unparseable ref drops with a SPECIFIC reason, not the catch-all', () => {
+    // The catch-all is how 54 parser failures were read as 54 model failures.
+    const { dropped } = groundAnchors(idx(1, 9),
+      [{ file: 'a@b@c', func: '', element: 'e' }]);
+    assert.match(dropped[0].reason, /could not be parsed/);
   });
 });

@@ -443,11 +443,41 @@ export function parseGeneratedClaim(text) {
     const parts = m[1].trim().split(/\s[—–-]\s|\s--\s/);
     const ref = (parts[0] || '').trim().replace(/[`'"]/g, '');
     const element = (parts.slice(1).join(' ') || '').trim();
-    let file = ref, func = '', line = 0;
-    const at = ref.split('@');
-    if (at.length === 2) { file = at[0].trim(); func = at[1].trim().replace(/\(\)$/, ''); }
-    else { const col = ref.match(/^(.+):(\d+)/); if (col) { file = col[1].trim(); line = Number(col[2]); } }
-    if (file) anchors.push({ file, func, line, element });
+    let file = ref, func = '', line = 0, citedStart = 0, citedEnd = 0;
+    // PARSE FROM THE RIGHT, not by part count.
+    //
+    // The old rule was `ref.split('@').length === 2`, which discarded the form
+    // that carries BOTH a symbol and a line range:
+    //
+    //   src/core/ai-ml-detectors.js@_AIMLMethods::classify@L2150-2174
+    //
+    // Three parts failed the guard, the colon fallback did not match, func
+    // stayed '' and groundAnchors dropped the citation as "no function name to
+    // verify". MEASURED on the Gemini run over .CE_081726: 54 of 63 dropped
+    // anchors (86%) were this branch, not the model -- and the rejected form is
+    // STRICTLY MORE PRECISE than either form the prompt asks for.
+    //
+    // Counting parts also breaks on any path containing '@' (a real case --
+    // issue-241-paste-safe-path-output round-trips @-in-path). Stripping an
+    // @L<range> suffix and then splitting on the LAST '@' degrades gracefully
+    // for both.
+    // The @L<range> suffix is stripped ONLY when another '@' precedes it. The
+    // DOC form `file@L1-20` has just one, and groundAnchors identifies it by
+    // matching /^L(\d+)/ against `func` -- stripping there would empty func and
+    // silently break every documentation citation in every existing artifact.
+    // Caught by parsing all four forms before running the suite.
+    let core = ref;
+    const rangeM = core.indexOf('@') !== core.lastIndexOf('@')
+      ? core.match(/@L(\d+)(?:-(\d+))?$/) : null;
+    if (rangeM) {
+      citedStart = Number(rangeM[1]);
+      citedEnd = rangeM[2] ? Number(rangeM[2]) : citedStart;
+      core = core.slice(0, core.length - rangeM[0].length);
+    }
+    const cut = core.lastIndexOf('@');
+    if (cut > 0) { file = core.slice(0, cut).trim(); func = core.slice(cut + 1).trim().replace(/\(\)$/, ''); }
+    else { file = core.trim(); const col = ref.match(/^(.+):(\d+)/); if (col) { file = col[1].trim(); line = Number(col[2]); } }
+    if (file) anchors.push({ file, func, line, element, citedStart, citedEnd });
   }
   return { prose, anchors };
 }
@@ -482,14 +512,35 @@ export function groundAnchors(index, anchors) {
       grounded.push({ file: hit, func: '', start, end: Math.min(end, lines.length), element: a.element, kind: 'lines' });
       continue;
     }
-    if (!a.func) { dropped.push({ ...a, reason: 'no function name to verify' }); continue; }
+    // A specific reason, not the catch-all. The old 'no function name to verify'
+    // covered both "the model cited no symbol" and "the parser could not read
+    // the ref" -- which is how 54 PARSER failures were reported as 54 MODEL
+    // failures on the Gemini run.
+    if (!a.func) {
+      dropped.push({ ...a, reason: String(a.file || '').includes('@')
+        ? 'anchor ref could not be parsed (unexpected @ structure)'
+        : 'no function name to verify' });
+      continue;
+    }
     const matches = index.findFunctionMatches(a.func, a.file || null);
     if (!matches || matches.length === 0) {
       dropped.push({ ...a, reason: 'cited function not found in index' });
       continue;
     }
     const m = matches[0];
-    grounded.push({ file: m.filepath, func: m.name, start: m.start, end: m.end, element: a.element, ambiguous: matches.length > 1 });
+    // GROUND ON THE INDEX'S BOUNDS, never the model's -- unchanged, and the
+    // anti-fabrication contract. The cited range rides along as a CHECK: when it
+    // falls outside the resolved function, the symbol is real but the model
+    // misplaced it. That is the "right file, right symbol, wrong lines" failure
+    // asus-CC found by eye on the Gemma arm (#306); a parsed range makes it a
+    // field instead of an observation.
+    const rangeMismatch = !!(a.citedStart && (a.citedStart < m.start || a.citedStart > m.end));
+    grounded.push({
+      file: m.filepath, func: m.name, start: m.start, end: m.end,
+      element: a.element, ambiguous: matches.length > 1,
+      ...(a.citedStart ? { citedStart: a.citedStart, citedEnd: a.citedEnd || a.citedStart } : {}),
+      ...(rangeMismatch ? { rangeMismatch: true } : {}),
+    });
   }
   return { grounded, dropped };
 }
