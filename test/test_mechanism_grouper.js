@@ -156,9 +156,14 @@ describe('signal-rich gather knobs fail open on stub indexes', () => {
       'src/uri.cpp': { 'Uri::Builder': cls('Builder'), 'Uri::Builder::appendPath': mk('appendPath', 10), 'Uri::Builder::appendQuery': mk('appendQuery', 20), 'Uri::Builder::build': mk('build', 30) },
     },
   };
-  it('defaults carry the new knobs, off', () => {
+  it('the EXPERIMENTAL gather knobs stay off; the catalog seed is now ON', () => {
+    // catalogSeed flipped to default-ON (see the command-catalog suite below):
+    // it takes CE file coverage 43% -> 60% and is an exact no-op on a codebase
+    // with no command surface (.sr_gh, .dspy both produce 0 [cmd] groups).
+    // useDocs and literalSeed remain opt-in — both were measured to dilute as
+    // well as promote, and neither has a comparable no-op guarantee.
     assert.equal(GROUPER_DEFAULTS.useDocs, false);
-    assert.equal(GROUPER_DEFAULTS.catalogSeed, false);
+    assert.equal(GROUPER_DEFAULTS.catalogSeed, true);
     assert.equal(GROUPER_DEFAULTS.literalSeed, false);
   });
   it('produces identical groups with the flags on (paths fail open)', () => {
@@ -793,5 +798,51 @@ describe('third-party subtree detection', () => {
   it('a malformed index does not throw — detection fails open', () => {
     assert.deepEqual(detectVendoredSubtrees({}), []);
     assert.deepEqual(detectVendoredSubtrees({ fileLines: null }), []);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// catalog-seed-default-on: group by COMMAND, not by substring.
+//
+// asus-CC traced why CE's own pseudo-claims never see pseudo-claims.js (#314):
+// token seeding groups on a SUBSTRING of the bare function name, and `claim`
+// sweeps 35 functions into one blob -- including `_printDisclaimer`
+// ("dis-CLAIM-er"), `claimUp` (a different sense), and `claimsCostGate`. The
+// sub-token splitter cannot divide it, because the token that UNITES the group
+// is a feature noun while the tokens that would DISTINGUISH members are verbs
+// that cross-cut every feature.
+//
+// Their conclusion was that grouping by command is "a seed CE does not have".
+// CE has it -- it was opt-in and off.
+//
+// MEASURED, .CE_081726:  41 -> 62 groups, files 40/92 (43%) -> 55/92 (60%),
+// top-file share of grouped functions 28% -> 20%.
+// MEASURED, .sr_gh and .dspy: 0 [cmd] groups, byte-identical output.
+
+describe('command-catalog seed defaults', () => {
+  it('is ON by default, and CAPPED so a big command surface cannot flood', () => {
+    // The cap is what makes default-on safe without sampling every corpus: the
+    // seed previously iterated EVERY cli option, so a codebase with 200
+    // commands could emit 200 groups. Mirrors `classes`.
+    assert.equal(GROUPER_DEFAULTS.catalogSeed, true);
+    assert.ok(Number.isInteger(GROUPER_DEFAULTS.catalogMax) && GROUPER_DEFAULTS.catalogMax > 0,
+      'an uncapped seed is the over-proliferation risk that blocks defaulting it on');
+  });
+
+  it('fails open on a stub index — no catalog, no groups, no throw', () => {
+    // Same contract as the token seed. A stub index without fileLines must not
+    // break grouping; it just contributes nothing.
+    const idx = { functionIndex: {}, fileLines: new Map() };
+    const r = groupMechanisms(idx, { indexName: 'stub' });
+    assert.ok(Array.isArray(r.groups));
+  });
+
+  it('opting out reproduces the pre-default grouping exactly', () => {
+    // --no-catalog-seed must reproduce every candidates file generated before
+    // the default flipped, or prior artifacts stop being comparable.
+    const idx = { functionIndex: {}, fileLines: new Map() };
+    const on = groupMechanisms(idx, { indexName: 'stub' });
+    const off = groupMechanisms(idx, { indexName: 'stub', catalogSeed: false });
+    assert.deepEqual(on.groups.map((g) => g.label), off.groups.map((g) => g.label));
   });
 });

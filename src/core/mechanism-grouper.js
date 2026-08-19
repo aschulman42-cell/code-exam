@@ -28,7 +28,27 @@ export const GROUPER_DEFAULTS = {
   fileMax: 20,          // residual FILE seed only considers files this small
   fileSeed: false,      // FILE seed is opt-in (firehoses on C++ — see the note below)
   useDocs: false,       // --use-docs (#284 signal-rich gather): doc-inclusive gather vocabulary
-  catalogSeed: false,   // --catalog-seed (#284 signal-rich gather): command-catalog handler seed
+  // COMMAND-CATALOG seed, ON BY DEFAULT (--no-catalog-seed opts out).
+  //
+  // MEASURED on .CE_081726: 41 -> 62 groups, files represented 40/92 (43%) ->
+  // 55/92 (60%), and the top file's share of grouped functions FALLS 28% -> 20%.
+  // It produces the group that was missing entirely -- `[cmd] --candidates`
+  // holding pseudo-claims.js -- plus --claim-chart / --claim-locate /
+  // --claim-analyze as four separate mechanisms where token seeding fuses them
+  // into one 35-function `claim` blob (asus-CC, #314: all 35 members merely
+  // contain the SUBSTRING "claim", including _printDisclaimer).
+  //
+  // Safe to default because it is an EXACT NO-OP where there is no command
+  // surface: .sr_gh (Python RL research) and .dspy both produce 0 [cmd] groups
+  // and byte-identical output. "Group by command" is only meaningful for a
+  // codebase that has commands.
+  catalogSeed: true,
+  // Bound on [cmd] groups, mirroring `classes`. The seed previously iterated
+  // EVERY cli option, so a codebase with a very large command surface could
+  // emit one group per command -- the over-proliferation risk that otherwise
+  // blocks defaulting this on. Commands are taken biggest-mechanism-first, so
+  // the cap drops the thinnest ones.
+  catalogMax: 24,
   literalSeed: false,   // --literal-seed (#289): rare-shared-literal seed on the residue
   minLitLen: 8,         // literal seed: minimum literal length considered
   maxLitSpread: 10,     // literal seed: a literal in more containing functions than this is too common to seed
@@ -370,10 +390,21 @@ function multiSeedGroups(index, funcs, o) {
   // ambiguous callees are skipped; the group still needs minComm members.
   // Fail-open like the token seed: a stub index without fileLines just
   // contributes no catalog groups.
+  let catalogCapped = 0;
   if (o.catalogSeed) {
     let cliOptions = [];
     try { cliOptions = (extractCommandCatalog(index, false) || {}).cliOptions || []; } catch { /* */ }
-    for (const opt of cliOptions) {
+    // Biggest mechanism first, so a cap drops the thinnest commands rather than
+    // whichever happened to appear last in the catalog. Deterministic tiebreak
+    // on the flag: two runs of --candidates must produce the same file.
+    const ranked = cliOptions
+      .map((opt) => ({ opt, n: ((opt.handler && opt.handler.callees) || []).length }))
+      .sort((a, b) => b.n - a.n
+        || String((a.opt.flags || [])[0] || a.opt.name).localeCompare(String((b.opt.flags || [])[0] || b.opt.name)))
+      .map((x) => x.opt);
+    let made = 0;
+    for (const opt of ranked) {
+      if (o.catalogMax && made >= o.catalogMax) { catalogCapped += 1; continue; }
       const hname = opt.handler && opt.handler.handlerFunc;
       if (!hname) continue;
       let hm = [];
@@ -393,6 +424,7 @@ function multiSeedGroups(index, funcs, o) {
       if (memberIds.size < o.minComm) continue;
       const flag = (opt.flags || []).find((f) => f.startsWith('--')) || `--${opt.name}`;
       for (const fid of memberIds) assigned.set(fid, `[cmd] ${flag}`);
+      made += 1;
     }
   }
 

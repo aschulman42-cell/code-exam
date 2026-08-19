@@ -337,7 +337,8 @@ export function parseArgs() {
     include_vendored: false, // --include-vendored: keep detected third-party subtrees as candidates
     file_seed: false,
     use_docs: false,      // --candidates: include TEXT_EXTENSIONS docs in the gather vocabulary (#284 signal-rich gather)
-    catalog_seed: false,  // --candidates: seed groups from command-catalog handler joins (#284 signal-rich gather)
+    catalog_seed: false,
+    no_catalog_seed: false,  // --no-catalog-seed: opt OUT of the command-catalog seed (now default ON)  // --candidates: seed groups from command-catalog handler joins (#284 signal-rich gather)
     literal_seed: false,  // --candidates: seed groups from rare shared string literals (#289)
     body_match_seed: false, // --candidates: body-containment rescue for name-match-failed cutoff tokens (#289)
     min_rank: null,       // --pseudo-claims: draft-time floor over [P..] rank tags (default P2 when tags present)
@@ -530,6 +531,7 @@ export function parseArgs() {
     ['file_seed',            'flag',           ['--file-seed']],
     ['use_docs',             'flag',           ['--use-docs']],
     ['catalog_seed',         'flag',           ['--catalog-seed']],
+    ['no_catalog_seed',      'flag',           ['--no-catalog-seed']],
     ['literal_seed',         'flag',           ['--literal-seed']],
     ['body_match_seed',      'flag',           ['--body-match-seed']],
     ['min_rank',             'value',          ['--min-rank']],
@@ -1399,8 +1401,17 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              (.md/.txt/...) in the gather vocabulary so doc-borne
                              feature terms can seed groups (opt-in; code-only
                              stays default; measured to dilute as well as promote).
-  --catalog-seed             With --candidates: seed groups from command-catalog
-                             handler joins (option → handler + callees; opt-in).
+  --no-catalog-seed          With --candidates: opt OUT of the command-catalog
+                             seed, which is ON by default. That seed groups by
+                             COMMAND (option → handler + its callees), which is
+                             how a CLI codebase is actually organized — MEASURED
+                             on CE: files represented 43% → 60%, and the top
+                             file's share of grouped functions falls 28% → 20%.
+                             It is an exact no-op on a codebase with no command
+                             surface. Use this flag to reproduce pre-default
+                             candidate files.
+  --catalog-seed             Accepted and inert — the seed it used to enable is
+                             now the default. Kept so existing scripts run.
   --literal-seed             With --candidates: seed groups from rare SHARED
                              string literals (cross-file features joined by
                              their error strings/banners; language-agnostic;

@@ -695,7 +695,9 @@ export async function doEmitCandidates(index, args) {
       mode: args.group_by === 'concept' ? 'concept' : 'multi',
       fileSeed: !!args.file_seed,
       useDocs: !!args.use_docs,
-      catalogSeed: !!args.catalog_seed,
+      // Default ON; --no-catalog-seed opts out. --catalog-seed stays accepted
+      // and inert so scripts written against the opt-in flag keep working.
+      catalogSeed: !args.no_catalog_seed,
       literalSeed: !!args.literal_seed,
       bodyMatchSeed: !!args.body_match_seed,
       includeVendored: !!args.include_vendored,
