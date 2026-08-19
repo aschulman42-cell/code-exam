@@ -846,3 +846,42 @@ describe('command-catalog seed defaults', () => {
     assert.deepEqual(on.groups.map((g) => g.label), off.groups.map((g) => g.label));
   });
 });
+
+describe('the catalog cap reports what it skipped', () => {
+  it('threads the counters out of BOTH seed paths', () => {
+    // catalogCapped was a dead store: multiSeedGroups returned a bare array, so
+    // the count could not reach groupMechanisms or formatAnchors and nothing
+    // printed it. The cap was the one bound in the candidates header that was
+    // silent -- and the one most likely working unobserved, since it exists
+    // BECAUSE the large-command-surface corpora went unsampled.
+    const idx = { functionIndex: {}, fileLines: new Map() };
+    for (const mode of ['multi', 'concept']) {
+      const r = groupMechanisms(idx, { indexName: 'stub', mode });
+      assert.equal(typeof r.catalogMade, 'number', `${mode}: catalogMade missing`);
+      assert.equal(typeof r.catalogCapped, 'number', `${mode}: catalogCapped missing`);
+    }
+  });
+
+  it('says NOTHING when the cap did not fire', () => {
+    // A line reading "0 skipped" on every run trains the reader to skip it, and
+    // this one has to be noticed the first time it appears. Same rule as
+    // `# Repaired:` in the synonymize provenance.
+    const out = formatAnchors({ groups: [], noiseFiles: 0, noiseFns: 0, mode: 'multi',
+      catalogMade: 3, catalogCapped: 0 }, { indexName: 'x' });
+    assert.ok(!/catalog seed:/.test(out));
+  });
+
+  it('names the count when it DID fire, and says what the count is not', () => {
+    // The first wording said "197 command(s) DROPPED" at --catalog-max 5. CE has
+    // ~202 CLI options and only 21 ever form a group; the rest fail handler
+    // resolution or minComm regardless. The counter tallies options NOT
+    // EVALUATED, and claiming they were groups foregone overstated it ~10x.
+    const out = formatAnchors({ groups: [], noiseFiles: 0, noiseFns: 0, mode: 'multi',
+      catalogMade: 5, catalogCapped: 197 }, { indexName: 'x' });
+    assert.match(out, /5 command group\(s\) formed/);
+    assert.match(out, /197 further command\(s\) NOT EVALUATED/);
+    assert.match(out, /not the number of groups foregone/,
+      'the caveat is the point: without it the number reads ~10x its real weight');
+    assert.ok(!/DROPPED/.test(out), 'the overstated wording must not come back');
+  });
+});

@@ -298,7 +298,12 @@ function conceptSeededGroups(index, funcs, o) {
     for (const t of tokens) if (nameLc.includes(t) && rank.get(t) < bestRank) { bestRank = rank.get(t); bestTok = t; }
     if (bestTok) (groups.get(bestTok) || groups.set(bestTok, new Set()).get(bestTok)).add(f.id);
   }
-  return [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([tok, ids]) => ({ label: label.get(tok) || tok, ids }));
+  // Same shape as multiSeedGroups so the single call site stays one expression.
+  // The concept path runs no catalog seed, hence zeroes.
+  return {
+    groups: [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([tok, ids]) => ({ label: label.get(tok) || tok, ids })),
+    stats: { catalogMade: 0, catalogCapped: 0 },
+  };
 }
 
 // Multi-seed grouping (default): a "seed" is any distinctive COHESION UNIT. TOKEN
@@ -390,7 +395,7 @@ function multiSeedGroups(index, funcs, o) {
   // ambiguous callees are skipped; the group still needs minComm members.
   // Fail-open like the token seed: a stub index without fileLines just
   // contributes no catalog groups.
-  let catalogCapped = 0;
+  let catalogCapped = 0, catalogMade = 0;
   if (o.catalogSeed) {
     let cliOptions = [];
     try { cliOptions = (extractCommandCatalog(index, false) || {}).cliOptions || []; } catch { /* */ }
@@ -402,9 +407,9 @@ function multiSeedGroups(index, funcs, o) {
       .sort((a, b) => b.n - a.n
         || String((a.opt.flags || [])[0] || a.opt.name).localeCompare(String((b.opt.flags || [])[0] || b.opt.name)))
       .map((x) => x.opt);
-    let made = 0;
+    catalogMade = 0;
     for (const opt of ranked) {
-      if (o.catalogMax && made >= o.catalogMax) { catalogCapped += 1; continue; }
+      if (o.catalogMax && catalogMade >= o.catalogMax) { catalogCapped += 1; continue; }
       const hname = opt.handler && opt.handler.handlerFunc;
       if (!hname) continue;
       let hm = [];
@@ -424,7 +429,7 @@ function multiSeedGroups(index, funcs, o) {
       if (memberIds.size < o.minComm) continue;
       const flag = (opt.flags || []).find((f) => f.startsWith('--')) || `--${opt.name}`;
       for (const fid of memberIds) assigned.set(fid, `[cmd] ${flag}`);
-      made += 1;
+      catalogMade += 1;
     }
   }
 
@@ -541,7 +546,17 @@ function multiSeedGroups(index, funcs, o) {
 
   const groups = new Map();
   for (const [id, lbl] of assigned) (groups.get(lbl) || groups.set(lbl, new Set()).get(lbl)).add(id);
-  return [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([lbl, ids]) => ({ label: lbl, ids }));
+  // RETURN STATS ALONGSIDE THE GROUPS. `catalogCapped` was previously
+  // incremented and never read -- a dead store, because this returned a bare
+  // array and the count could not reach groupMechanisms or formatAnchors. The
+  // cap it records is the one bound in the candidates header that was silent,
+  // and it is the bound most likely to be doing real work unobserved: it exists
+  // BECAUSE the large-command-surface corpora (.langchain 98M, .CC_cli_js_3
+  // 84M) both blew a 10-minute grouping budget and went unsampled.
+  return {
+    groups: [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([lbl, ids]) => ({ label: lbl, ids })),
+    stats: { catalogMade, catalogCapped },
+  };
 }
 
 // Emit-faithful anchor spec for a member: exactly the `file@<spec>` tail
@@ -744,7 +759,8 @@ export function splitOversizedGroup(index, group, byId, o, depth = 1) {
 export function groupMechanisms(index, opts = {}) {
   const o = { ...GROUPER_DEFAULTS, ...opts };
   const { funcs, byId, noiseFiles, noiseFns, vendored, vendorFiles, vendorFns } = enumerateFuncs(index, o);
-  const raw = o.mode === 'concept' ? conceptSeededGroups(index, funcs, o) : multiSeedGroups(index, funcs, o);
+  const seeded = o.mode === 'concept' ? conceptSeededGroups(index, funcs, o) : multiSeedGroups(index, funcs, o);
+  const raw = seeded.groups;
   const built = raw
     .map((g) => {
       // Filter junk members, then rebuild ids from the survivors so emit,
@@ -761,7 +777,7 @@ export function groupMechanisms(index, opts = {}) {
     if (r.split) splits.push(r.split);
   }
   groups.sort((a, b) => b.ids.size - a.ids.size);
-  return { groups, funcs, byId, noiseFiles, noiseFns, mode: o.mode, splits, vendored, vendorFiles, vendorFns };
+  return { groups, funcs, byId, noiseFiles, noiseFns, mode: o.mode, splits, vendored, vendorFiles, vendorFns, ...seeded.stats };
 }
 
 // --- doc-anchor enrichment (issue-289-doc-anchor-enrichment) -----------------
@@ -894,6 +910,19 @@ export function formatAnchors(result, meta = {}) {
   if ((result.vendored || []).length) {
     out.push(`# ${result.vendorFns} function(s) in ${result.vendorFiles} file(s) excluded from candidate discovery `
       + `(the index is untouched -- search/digest still see them)`);
+  }
+  // THE CAP REPORTS WHAT IT DROPPED, and only when it dropped something.
+  // A line reading "0 dropped" on every run trains the reader to skip it, and
+  // this one has to be noticed the first time it appears -- same rule as
+  // `# Repaired:` in the synonymize provenance. It goes in the ARTIFACT, not
+  // stderr: the candidates file is what someone hand-prunes later, possibly on
+  // another machine, by which time stderr is gone.
+  if (result.catalogCapped) {
+    out.push(`# catalog seed: ${result.catalogMade} command group(s) formed; cap reached, `
+      + `${result.catalogCapped} further command(s) NOT EVALUATED`);
+    out.push('#   commands are tried biggest-mechanism-first; raise --catalog-max to evaluate more.');
+    out.push('#   NOT-EVALUATED is not the number of groups foregone: most CLI options never form a');
+    out.push('#   group anyway (no resolvable handler, or fewer than minComm unassigned members).');
   }
   // OBSERVE-ONLY COVERAGE (Part B). "Distinctive vocabulary" is a PROXY for
   // claim-worthiness and this reports the skew rather than correcting it: a

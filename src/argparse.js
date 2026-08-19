@@ -338,7 +338,8 @@ export function parseArgs() {
     file_seed: false,
     use_docs: false,      // --candidates: include TEXT_EXTENSIONS docs in the gather vocabulary (#284 signal-rich gather)
     catalog_seed: false,
-    no_catalog_seed: false,  // --no-catalog-seed: opt OUT of the command-catalog seed (now default ON)  // --candidates: seed groups from command-catalog handler joins (#284 signal-rich gather)
+    no_catalog_seed: false,  // --no-catalog-seed: opt OUT of the command-catalog seed (now default ON)
+    catalog_max: null,       // --catalog-max <n>: cap [cmd] groups (0 = uncapped)  // --candidates: seed groups from command-catalog handler joins (#284 signal-rich gather)
     literal_seed: false,  // --candidates: seed groups from rare shared string literals (#289)
     body_match_seed: false, // --candidates: body-containment rescue for name-match-failed cutoff tokens (#289)
     min_rank: null,       // --pseudo-claims: draft-time floor over [P..] rank tags (default P2 when tags present)
@@ -532,6 +533,7 @@ export function parseArgs() {
     ['use_docs',             'flag',           ['--use-docs']],
     ['catalog_seed',         'flag',           ['--catalog-seed']],
     ['no_catalog_seed',      'flag',           ['--no-catalog-seed']],
+    ['catalog_max',          'int',            ['--catalog-max']],
     ['literal_seed',         'flag',           ['--literal-seed']],
     ['body_match_seed',      'flag',           ['--body-match-seed']],
     ['min_rank',             'value',          ['--min-rank']],
@@ -1410,6 +1412,13 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              It is an exact no-op on a codebase with no command
                              surface. Use this flag to reproduce pre-default
                              candidate files.
+  --catalog-max <n>          With --candidates: cap how many [cmd] groups the
+                             command-catalog seed may form (default 24; 0 =
+                             uncapped). Commands are tried biggest-mechanism-
+                             first; when the cap is reached the candidates file
+                             header says how many further commands were NOT
+                             EVALUATED. A number you can see but not change is
+                             barely better than one you cannot see.
   --catalog-seed             Accepted and inert — the seed it used to enable is
                              now the default. Kept so existing scripts run.
   --literal-seed             With --candidates: seed groups from rare SHARED

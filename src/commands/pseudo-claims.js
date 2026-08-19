@@ -698,6 +698,7 @@ export async function doEmitCandidates(index, args) {
       // Default ON; --no-catalog-seed opts out. --catalog-seed stays accepted
       // and inert so scripts written against the opt-in flag keep working.
       catalogSeed: !args.no_catalog_seed,
+      ...(args.catalog_max != null ? { catalogMax: args.catalog_max || Infinity } : {}),
       literalSeed: !!args.literal_seed,
       bodyMatchSeed: !!args.body_match_seed,
       includeVendored: !!args.include_vendored,
