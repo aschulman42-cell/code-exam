@@ -278,3 +278,70 @@ Chosen for Andrew's stated test: **visible incremental improvement, checkable wi
 security item but invisible in claim output, so it shows Andrew nothing while
 testing; and query-word pruning stays parked until §7's threshold question is
 settled — `worklist`-in-Bram is the counterexample.
+
+## 9. HOF-c: what retrieval actually recovers (2026-08-19)
+
+`scripts/anchor-recall.mjs` scores CE's retrieval against the anchors a
+`--pseudo-claims` run already grounded. Paired runs: each claim searched twice,
+once with the original wording and once ChatGPT-synonymized, **with the original
+run as the mandatory control**.
+
+| corpus | key anchors | ORIGINAL reached | SYNONYMIZED reached |
+| --- | --- | --- | --- |
+| sr_gh | 135 | 135 (100%) | 134 (99%) |
+| CodeExam | 121 | 121 (100%) | 121 (100%) |
+
+**Paraphrase does not degrade whole-claim retrieval.** Two corpora, a proper
+control, synonymized within noise of the original on both — at 34.6% mean
+per-element vocabulary survival.
+
+### The single number is the wrong number
+
+Scored on CE's own granularity ladder — the four ranked lists `claim-search`
+already emits:
+
+| corpus | fn | class | file | folder |
+| --- | --- | --- | --- | --- |
+| sr_gh (orig) | **7** | 93 | 13 | 22 |
+| CodeExam (orig) | **10** | 38 | 48 | 25 |
+
+**Function-level recall is 5–8%.** "100% reached" is overwhelmingly *found the
+right class* or *found the right file*. Key anchors are METHODS
+(`FSDPEngine::_build_module`); retrieval finds `FSDPEngine`. For a lead that is
+useful; **for a claim chart it is not a citation**, because the limitation is
+implemented by the method. Never quote the total without the breakdown.
+
+### Anchors are not independent
+
+sr_gh: 135 anchors across **26 distinct classes** (5.2 per class). CodeExam: 121
+across **11** (11.0 per class). A `[class] X` candidate group makes its anchors
+correlated by construction — claim 10 is 14 anchors that are 14 methods of
+`LiberoEnv`, so one class-level hit scores 14. asus-CC measured the same shape on
+Gemma3: 196 grounded anchors resolving to 70 distinct functions, ~2.8x
+overstatement of evidential breadth.
+
+### Three parser bugs, three near-misses
+
+Every one returned a zero that would have read as a score:
+
+1. An invented four-tier scheme that never parsed the CLASS section — scored
+   sr_gh at **5%** while `FSDPEngine` sat at CLASS rank #1 with 12/12 terms.
+   Caught only because 5% on the *control* was implausible.
+2. `[]]` in the rewritten regex — an empty character class, matches nothing.
+3. Four section formats collapsed into one pattern, silently dropping every
+   FOLDER row. **The recorded 113/135 (84%) was itself understated by this**;
+   `fn`/`class`/`file` were correct, folder was 0 instead of 22.
+
+(2) and (3) were caught by the scorer's own parse-coverage assertion: a section
+whose header is present but whose entry list is empty is reported as a **parser
+failure**, not scored as zero. **A zero means "not found" OR "not parsed", and
+nothing but an explicit check distinguishes them.**
+
+### Bounds
+
+Whole-claim path only — `--claim-search` does not run the per-element arm, and on
+ios81 that arm was decisive both ways (claim 6: 3/8 search vs 4/8 analyze; claim
+7: 2/3 vs 0/3). CodeExam carries an authorship confound; **sr_gh is the clean
+datapoint.** And the key is what the drafting model cited, verified to resolve —
+machine-checkable ground truth about consistency under paraphrase, not evidence
+that the anchors are the *right* code for the limitation.
