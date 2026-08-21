@@ -15,7 +15,7 @@ import {
   buildChartTable, parseTargets, collectCalleeBodies, mergeBestPerElement,
   coverageLine, formatChart, doClaimChart, CHART_DEFAULTS,
   parseChartVerdicts, fillChartRows, buildChartAnalysisPrompt, buildProvenanceHeader,
-  perElementTargets,
+  perElementTargets, normalizeVerdictLine,
 } from '../src/commands/claim-chart.js';
 import { targetsChecksum } from '../src/commands/claim-locate.js';
 import { createRequire } from 'node:module';
@@ -261,6 +261,56 @@ describe('the VERDICT contract (chart-specific, not claim-analyze\'s)', () => {
     const v = parseChartVerdicts('1. thing\n**ABSENT**\n\n2. other\n**PRESENT**', ELS);
     assert.ok(v.length >= 1, 'fallback recovered labels');
     assert.equal(v[0].element, 1);
+  });
+});
+
+describe('presentation is normalized away before matching (#306 Edit 6)', () => {
+  const ELS = ['first element about transmitting', 'second about reproducing', 'third about rate'];
+
+  // The exact table asus-CC measured. The first two already parsed; the last
+  // three cost Devstral 73% of its analyses on the '101 chart — 16 of 22
+  // targets returned 0/10 while their raw text held ten correct VERDICT lines.
+  const FORMS = [
+    ['plain', 'VERDICT 3: ABSENT | no line'],
+    ['bold', '**VERDICT 3:** ABSENT | no line'],
+    ['bullet', '- VERDICT 3: ABSENT | no line'],
+    ['bullet + bold', '- **VERDICT 3:** ABSENT | no line'],
+    ['indented bullet + bold', '  - **VERDICT 3:** ABSENT | no line'],
+  ];
+
+  for (const [name, line] of FORMS) {
+    it(`parses the ${name} form identically`, () => {
+      const v = parseChartVerdicts(line, ELS);
+      assert.equal(v.length, 1, `${name} produced no verdict`);
+      assert.deepEqual([v[0].element, v[0].label], [3, 'ABSENT']);
+      assert.equal(v[0].note, 'no line');
+    });
+  }
+
+  it('normalizes only leading decoration — emphasis inside the note is content', () => {
+    // `__init__` and `**` in a citation are what the model is telling us about
+    // the code, not how it is dressing the line up.
+    const v = parseChartVerdicts('- **VERDICT 2:** PARTIAL | see `__init__` at L88', ELS);
+    assert.deepEqual([v[0].element, v[0].label], [2, 'PARTIAL']);
+    assert.match(v[0].note, /__init__/, 'note survived normalization intact');
+  });
+
+  it('leaves a single leading asterisk to the regex, not the bullet stripper', () => {
+    // "*VERDICT" is emphasis; "* VERDICT" is a list item. The space decides.
+    assert.equal(normalizeVerdictLine('*VERDICT 1: ABSENT'), '*VERDICT 1: ABSENT');
+    assert.equal(normalizeVerdictLine('* VERDICT 1: ABSENT'), 'VERDICT 1: ABSENT');
+  });
+
+  it('collapses whitespace runs without touching the contract', () => {
+    const v = parseChartVerdicts('VERDICT   1 :   PRESENT   |   spaced   out', ELS);
+    assert.deepEqual([v[0].element, v[0].label], [1, 'PRESENT']);
+    assert.equal(v[0].note, 'spaced out');
+  });
+
+  it('still returns nothing for a line that is genuinely not a verdict', () => {
+    // Normalization must not manufacture verdicts out of prose — the whole
+    // point is to distinguish "not parsed" from "not found", not to blur them.
+    assert.equal(parseChartVerdicts('- the function is absent from this file', ELS).length, 0);
   });
 });
 

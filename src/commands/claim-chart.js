@@ -233,14 +233,42 @@ cannot be verified, and an unverifiable citation is worse than none.
 ${rows}`;
 }
 
+// Strip presentation from a candidate VERDICT line before matching it.
+//
+// Every engine tested decorates this contract differently, though the prompt
+// says "in this exact form and nothing else on the line": Gemini doubled `@`,
+// Gemma parenthesised line ranges, Devstral emits markdown bullets. Devstral
+// lost 73% of its analyses to a leading "- " — 16 of 22 targets returned 0/10
+// while their raw text held ten correct, well-reasoned VERDICT lines (#306,
+// asus-CC "Edit 6"). Normalising retires the class; adding a character to the
+// regex per engine does not, and a fourth engine will invent a fourth form.
+//
+// Only leading decoration is removed. Emphasis inside the note is left alone —
+// `__init__` in a citation is content, not formatting.
+export function normalizeVerdictLine(line) {
+  let s = String(line || '').trim();
+  // Leading list markers and bold, possibly stacked ("- **", "* - "). The
+  // required space after a bullet char keeps "*VERDICT" (emphasis, not a
+  // bullet) intact for the regex's own `\**` tolerance to handle.
+  for (let i = 0; i < 4; i++) {
+    const t = s.replace(/^(?:[-*+•‣◦⁃]\s+|\*\*|__)/, '');
+    if (t === s) break;
+    s = t;
+  }
+  // Runs of whitespace, including the non-breaking and full-width spaces that
+  // turn up in model output, collapse to one. Spacing is never content here.
+  return s.replace(/[\s 　]+/g, ' ').trim();
+}
+
 // Parse the VERDICT contract above. Falls back to claims-loop's parser so a
 // model that ignores the contract but produces its usual labelled blocks still
 // yields something rather than an empty chart.
 export function parseChartVerdicts(text, elements) {
   const out = [];
   const seen = new Set();
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const m = line.match(/^\s*\**VERDICT\s*(\d+)\s*\**\s*[:\-]\s*\**\s*(PRESENT|PARTIAL|ASSUMED|ABSENT)\b\**\s*\|?\s*(.*)$/i);
+  for (const rawLine of String(text || '').split(/\r?\n/)) {
+    const line = normalizeVerdictLine(rawLine);
+    const m = line.match(/^\**VERDICT\s*(\d+)\s*\**\s*[:\-]\s*\**\s*(PRESENT|PARTIAL|ASSUMED|ABSENT)\b\**\s*\|?\s*(.*)$/i);
     if (!m) continue;
     const n = Number(m[1]);
     if (!(n >= 1 && n <= elements.length) || seen.has(n)) continue;
@@ -699,14 +727,24 @@ export async function doClaimChart(index, args, opts = {}) {
     // vocabulary does not appear in the analysed source is downgraded, so a
     // confident label cannot outrun its evidence.
     const gated = verdicts.map((e) => ({ ...e, label: lexicalGate(e.label, e.text, `${m.name}\n${promptSrc}`) }));
-    process.stderr.write(`    ${gated.length}/${elements.length} element verdict(s) parsed\n`);
     // Zero verdicts is a DROP, not an analysis. Pushing it to perTarget listed
     // it under "Analysed targets" while contributing nothing to any element —
     // which is how a 37-target chart came to report "of 30" with no explanation.
     if (!gated.length) {
-      dropped.push({ target: label, reason: 'no verdicts parsed from the engine response' });
+      // A zero here means "the model said nothing" OR "we could not read what
+      // it said", and those demand opposite responses from the reader. Reported
+      // identically, the second masquerades as the first: Devstral's 73% loss
+      // read as a model that produced no analysis. Count the non-empty lines it
+      // did return — that number is the whole difference.
+      const rawLines = String(out || '').split(/\r?\n/).filter((l) => l.trim()).length;
+      const why = rawLines
+        ? `PARSE-FAILED: ${rawLines} non-empty line(s) returned, none matched the VERDICT contract`
+        : 'engine returned an empty response';
+      process.stderr.write(`    0/${elements.length} element verdicts parsed  (${why})\n`);
+      dropped.push({ target: label, reason: why });
       continue;
     }
+    process.stderr.write(`    ${gated.length}/${elements.length} element verdict(s) parsed\n`);
     if (gated.length < elements.length) partial.push(`\`${label}\` (${gated.length}/${elements.length})`);
     perTarget.push({ target: label, elements: gated });
   }
