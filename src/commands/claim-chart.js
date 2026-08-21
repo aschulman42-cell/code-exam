@@ -55,9 +55,35 @@ export const CHART_DEFAULTS = {
   // Per-element retrieval bounds. Every target is a model call, and 10 elements
   // x 25 candidates is 250 analyses — so the candidates are a pool to select
   // from, not a target list.
+  //
+  // How deep to go per element. The total is DERIVED from this and the element
+  // count; it is not a second, independent number that can quietly override it.
   targetsPerElement: 3,
-  maxRetrievedTargets: 12,
+  // A COST ceiling, and nothing else. It exists to stop a 20-element claim
+  // becoming a 60-call run, not to define the depth — that is what the previous
+  // value of 12 did by accident, making the real depth 12/elements and putting
+  // `targetsPerElement: 3` out of reach on any claim over 4 limitations. Real
+  // independent claims run median 9 (5,395 measured), so the knob had never
+  // been active on a real claim.
+  //
+  // 30 lets depth 3 be reached on a 10-element claim. Raising it costs model
+  // calls in direct proportion — on a 24B local model, 12 -> ~27 targets is
+  // roughly 11 min -> 26 min per chart — so it is meant to be LOWERED for
+  // casual use, via --max-retrieved-targets, not treated as free.
+  maxRetrievedTargets: 30,
 };
+
+// The total is `targetsPerElement x elements`, bounded by the cost ceiling.
+// Deriving it is the whole point: an independent constant is what let the
+// documented knob be silently overridden for months.
+export function resolveTargetBudget(elementCount, opts = {}) {
+  const perEl = Math.max(1, Number(
+    opts.targetsPerElement ?? opts.targets_per_element ?? CHART_DEFAULTS.targetsPerElement));
+  const ceiling = Math.max(1, Number(
+    opts.maxRetrievedTargets ?? opts.max_retrieved_targets ?? CHART_DEFAULTS.maxRetrievedTargets));
+  const wanted = perEl * Math.max(1, Number(elementCount) || 1);
+  return { perEl, ceiling, total: Math.min(wanted, ceiling), wanted };
+}
 
 // Turn per-element candidates into a bounded target list, ROUND-ROBIN by rank:
 // every element contributes its best candidate before any element contributes a
@@ -65,23 +91,64 @@ export const CHART_DEFAULTS = {
 // elements 1-3 and leave the rest with no evidence at all — and an element with
 // no evidence is precisely what this path exists to make visible.
 export function perElementTargets(perElement, opts = {}) {
-  const perEl = opts.targetsPerElement ?? CHART_DEFAULTS.targetsPerElement;
-  const total = opts.maxRetrievedTargets ?? CHART_DEFAULTS.maxRetrievedTargets;
+  return perElementTargetsWithStats(perElement, opts).targets;
+}
+
+// Same selection, but it also reports what the budget DID — requested depth vs
+// achieved, and which bound stopped it. The defect this repairs went unnoticed
+// for months because nothing compared the two: the provenance line printed the
+// requested depth on every chart CE has ever produced, including the ones that
+// reached depth 1. A bound that fires has to say so in the artifact — the same
+// rule as the truncation detector (58a596d) and the catalog cap (221895c).
+export function perElementTargetsWithStats(perElement, opts = {}) {
+  const elements = Array.isArray(perElement) ? perElement : [];
+  const { perEl, ceiling, total, wanted } = resolveTargetBudget(elements.length, opts);
   const spec = (sym) => `${String(sym.filepath || '').split('!').pop().split('/').pop()}@${sym.name}`;
   const out = [];
   const seen = new Set();
-  for (let rank = 0; rank < perEl && out.length < total; rank++) {
-    for (const p of perElement) {
-      if (out.length >= total) break;
+  let ranksCompleted = 0;
+  let deepestRankUsed = -1;
+  let budgetLimited = false;
+  for (let rank = 0; rank < perEl; rank++) {
+    let cappedMidRank = false;
+    for (const p of elements) {
+      if (out.length >= total) { cappedMidRank = true; budgetLimited = true; break; }
       const h = (p.hits || [])[rank];
       if (!h || !h.sym) continue;
       const s = spec(h.sym);
       if (seen.has(s)) continue;
       seen.add(s);
       out.push(s);
+      deepestRankUsed = Math.max(deepestRankUsed, rank);
     }
+    // A rank counts as achieved when every element got its chance at it —
+    // including elements with no candidate that deep, and duplicates that were
+    // collapsed. Depth is about what CE offered to look at, not what survived.
+    if (cappedMidRank) break;
+    ranksCompleted = rank + 1;
   }
-  return out;
+  // Two different numbers, and reporting the wrong one is how this defect
+  // started. `ranksCompleted` is the depth CE OFFERED every element; on a thin
+  // index all three ranks "complete" while finding nothing, which would state
+  // "depth 3 achieved" over a single candidate. So the reported depth is the
+  // floor of the two: no deeper than CE offered, and no deeper than the index
+  // actually yielded.
+  const achievedDepth = Math.min(ranksCompleted, deepestRankUsed + 1);
+  // A short list has two very different causes and they must not be conflated:
+  // the budget stopped us, or the index simply had nothing deeper to offer.
+  // Reporting the second as BUDGET-LIMITED would send a user to raise a ceiling
+  // that was never the constraint.
+  const deepest = elements.reduce((m, p) => Math.max(m, (p.hits || []).length), 0);
+  return {
+    targets: out,
+    requestedDepth: perEl,
+    achievedDepth,
+    total,
+    ceiling,
+    wanted,
+    budgetLimited,
+    candidatesExhausted: !budgetLimited && deepest < perEl,
+  };
 }
 
 // Rows come from the CLAIM, not from the model — one row per element, in claim
@@ -641,7 +708,8 @@ export async function doClaimChart(index, args, opts = {}) {
     });
     if (disc.error) { console.error(`--claim-chart: ${disc.error}`); process.exitCode = 1; return; }
     retrieval = disc.perElement;
-    targets = perElementTargets(retrieval, args);
+    const budget = perElementTargetsWithStats(retrieval, args);
+    targets = budget.targets;
     if (!targets.length) {
       console.error('Per-element retrieval found no candidate symbols in this index.'
         + ' Supply --targets to chart explicit ones.');
@@ -653,8 +721,20 @@ export async function doClaimChart(index, args, opts = {}) {
       `Retrieval: one model call predicted code vocabulary per element from the claim alone;`
       + ` CE then searched its own symbol table per element (rarity-ranked, no quorum).`,
       `Coverage: ${covered} of ${elements.length} element(s) produced at least one candidate.`,
-      `Selection: round-robin by rank, at most ${args.targetsPerElement ?? CHART_DEFAULTS.targetsPerElement}`
-      + ` per element, ${targets.length} target(s) total.`,
+      // ACHIEVED depth, never the requested one. The old line read "at most 3
+      // per element" on every chart CE produced, including the ones that
+      // reached depth 1 — a litigation artifact stating a retrieval depth it
+      // did not perform.
+      `Selection: round-robin by rank, ${targets.length} target(s) over`
+      + ` ${elements.length} element(s) — depth ${budget.achievedDepth} achieved`
+      + (budget.budgetLimited
+        ? `. BUDGET-LIMITED: requested ${budget.requestedDepth},`
+          + ` ${budget.wanted} target(s) wanted, ceiling ${budget.ceiling}.`
+          + ` Raise --max-retrieved-targets to reach it.`
+        : budget.candidatesExhausted
+          ? ` of ${budget.requestedDepth} requested — the index offered no`
+            + ` candidates deeper than this, so the budget was not the constraint.`
+          : '.'),
     ];
   }
   if (args.targets_note) targetProvenance = [...targetProvenance, String(args.targets_note)];

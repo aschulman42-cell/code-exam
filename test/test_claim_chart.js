@@ -15,7 +15,7 @@ import {
   buildChartTable, parseTargets, collectCalleeBodies, mergeBestPerElement,
   coverageLine, formatChart, doClaimChart, CHART_DEFAULTS,
   parseChartVerdicts, fillChartRows, buildChartAnalysisPrompt, buildProvenanceHeader,
-  perElementTargets, normalizeVerdictLine,
+  perElementTargets, normalizeVerdictLine, perElementTargetsWithStats, resolveTargetBudget,
 } from '../src/commands/claim-chart.js';
 import { targetsChecksum } from '../src/commands/claim-locate.js';
 import { createRequire } from 'node:module';
@@ -665,6 +665,86 @@ describe('perElementTargets', () => {
   it('survives an index that produced nothing at all', () => {
     assert.deepEqual(perElementTargets([{ element: 1, hits: [] }]), []);
     assert.deepEqual(perElementTargets([]), []);
+  });
+});
+
+// THE KNOB HAD NEVER TAKEN EFFECT ON A REAL CLAIM. With an independent
+// maxRetrievedTargets of 12, achieved depth was 12/elements — 1.3 on a
+// median-length claim of 9 — so `targetsPerElement: 3` was unreachable above 4
+// limitations, while the provenance line advertised "at most 3" on every chart.
+// asus-CC found it on the '101 run: the crux sits at rank 3 of element 6.
+describe('the target budget is DERIVED, and reports what it achieved (#306 Edit 5)', () => {
+  const sym = (n, f) => ({ sym: { name: n, filepath: `idx!src/${f}` } });
+  // Nine elements, three deep — a median-length claim with evidence to spare.
+  const NINE = Array.from({ length: 9 }, (_, i) => ({
+    element: i + 1,
+    hits: [sym(`E${i}::a`, `E${i}.java`), sym(`E${i}::b`, `E${i}.java`), sym(`E${i}::c`, `E${i}.java`)],
+  }));
+
+  it('reaches depth 3 on a nine-element claim at defaults — the case that never worked', () => {
+    const r = perElementTargetsWithStats(NINE, {});
+    assert.equal(r.achievedDepth, 3, 'the documented depth is now the achieved depth');
+    assert.equal(r.targets.length, 27, '9 elements x depth 3');
+    assert.equal(r.budgetLimited, false);
+  });
+
+  it('derives the total from targetsPerElement x elements, not a constant', () => {
+    assert.equal(resolveTargetBudget(9, { targetsPerElement: 2 }).total, 18);
+    assert.equal(resolveTargetBudget(4, { targetsPerElement: 3 }).total, 12);
+  });
+
+  it('says BUDGET-LIMITED and names the depth it could not reach', () => {
+    const r = perElementTargetsWithStats(NINE, { maxRetrievedTargets: 12 });
+    assert.equal(r.budgetLimited, true);
+    assert.equal(r.requestedDepth, 3);
+    assert.equal(r.achievedDepth, 1, 'rank 0 completed; rank 1 hit the ceiling mid-way');
+    assert.equal(r.wanted, 27, 'reports what it wanted, so the user can size the raise');
+  });
+
+  it('distinguishes a thin index from a binding budget', () => {
+    // Both produce a short list. Only one is fixed by raising the ceiling, and
+    // telling a user to raise a ceiling that was never the constraint wastes
+    // an hour of model time to reproduce the same chart.
+    const thin = perElementTargetsWithStats(
+      [{ element: 1, hits: [sym('A::one', 'A.java')] }], { targetsPerElement: 3 });
+    assert.equal(thin.budgetLimited, false);
+    assert.equal(thin.candidatesExhausted, true);
+    // And the depth must not be VACUOUSLY 3. All three ranks "complete" over a
+    // one-candidate index without finding anything, which would put "depth 3
+    // achieved" on a chart built from a single target — a depth claim with no
+    // retrieval behind it, which is the defect this whole item is about.
+    assert.equal(thin.achievedDepth, 1, 'depth is bounded by what the index yielded');
+  });
+
+  it('--max-retrieved-targets 12 reproduces the OLD list exactly', () => {
+    // Every chart already sent to RMS must stay reproducible, including the
+    // '101 charts. This is the compatibility contract for the whole change.
+    const old = ['A.java@A::one', 'B.java@B::one', 'A.java@A::two', 'B.java@B::two',
+      'A.java@A::three'];
+    const PER = [
+      { element: 1, hits: [sym('A::one', 'A.java'), sym('A::two', 'A.java'), sym('A::three', 'A.java')] },
+      { element: 2, hits: [sym('B::one', 'B.java'), sym('B::two', 'B.java')] },
+      { element: 3, hits: [] },
+    ];
+    assert.deepEqual(perElementTargets(PER, { targetsPerElement: 3, maxRetrievedTargets: 12 }), old);
+  });
+
+  it('keeps round-robin order — no element loses its rank-0 slot to a raise', () => {
+    const r = perElementTargetsWithStats(NINE, {});
+    assert.deepEqual(r.targets.slice(0, 9), NINE.map((_, i) => `E${i}.java@E${i}::a`),
+      'every element contributes rank 0 before any element contributes rank 1');
+  });
+
+  it('accepts the snake_case STRING values argparse actually produces', () => {
+    // perElementTargets is called with `args` straight from argparse, which
+    // emits targets_per_element as a STRING. Two ways this silently reverts to
+    // the defect being repaired: camelCase-only lookup, or arithmetic on "2".
+    // Asserting with numbers here would pass while the CLI stayed inert.
+    const r = perElementTargetsWithStats(NINE, { targets_per_element: '2', max_retrieved_targets: '18' });
+    assert.equal(r.achievedDepth, 2);
+    assert.equal(r.targets.length, 18, '"2" x 9 must be 18, not "2" repeated or NaN');
+    assert.equal(r.budgetLimited, false);
+    assert.equal(resolveTargetBudget(9, { targets_per_element: '3' }).total, 27);
   });
 });
 

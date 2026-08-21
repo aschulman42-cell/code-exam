@@ -261,6 +261,8 @@ export function parseArgs() {
     scope_note: null,
     targets_note: null,
     targets_out: null,
+    targets_per_element: null,
+    max_retrieved_targets: null,
     claim_locate: null,
     no_refine: false,
     no_navigate: false,
@@ -574,6 +576,8 @@ export function parseArgs() {
     ['scope_note',           'value',          ['--scope-note']],
     ['targets_note',         'value',          ['--targets-note']],
     ['targets_out',          'value',          ['--targets-out']],
+    ['targets_per_element',  'value',          ['--targets-per-element']],
+    ['max_retrieved_targets', 'value',         ['--max-retrieved-targets']],
     ['claim_locate',         'value',          ['--claim-locate']],
     ['no_refine',            'flag',           ['--no-refine']],
     ['no_navigate',          'flag',           ['--no-navigate']],
@@ -1492,6 +1496,19 @@ LLM ANALYSIS:
                              two engines' charts undiffable — a file gives
                              practitioner granularity AND a skeleton identical
                              across every engine.
+  --targets-per-element <n>  --claim-chart, per-element retrieval only: how many
+                             ranked candidates to analyse per claim element
+                             (default 3). Charting is where cost trades against
+                             depth, so both halves of that trade are flags.
+  --max-retrieved-targets <n>
+                             --claim-chart: COST ceiling on the total target
+                             count (default 30). The total is normally derived
+                             as --targets-per-element x elements; this caps it,
+                             because every target is a model call — on a 24B
+                             local model ~27 targets is roughly half an hour.
+                             Lower it for casual use. When the ceiling binds,
+                             the chart's provenance says BUDGET-LIMITED and
+                             names the depth it could not reach.
   --no-callees               --claim-chart: omit depth-1 callee bodies (smaller
                               prompt; the analysis may then infer what a callee
                               does rather than read it).
