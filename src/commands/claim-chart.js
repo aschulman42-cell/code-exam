@@ -27,7 +27,7 @@
 // ============================================================================
 
 import fs from 'node:fs';
-import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine } from '../core/llm-runner.js';
+import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine, engineBuildLine } from '../core/llm-runner.js';
 import { buildClaimAnalyzePrompt, addLineNumbers, readClaimFile } from './analyze.js';
 
 // Shared reporter for dropped `#` provenance lines. Never silent: discarding
@@ -466,7 +466,7 @@ export function coverageLine(fills, nElements, elements = null) {
 // one is not. "Where did these targets come from, and why these and not others?"
 // is the first question an opposing expert asks.
 export function buildProvenanceHeader({
-  claimText, claimSource, indexPath, indexFiles, indexSymbols, engineLabel,
+  claimText, claimSource, indexPath, indexFiles, indexSymbols, engineLabel, engineBuild,
   argv, targets, targetSource, targetProvenance, targetIntegrity, ceVersion, generatedAt,
   targetDuplicates, targetContainers, targetUnresolved, targetAmbiguous,
   targetsSupplied, targetsPartial, elementsSource, elementComments,
@@ -482,6 +482,15 @@ export function buildProvenanceHeader({
   for (const c of (elementComments || [])) rows.push(`  - ${c}`);
   rows.push(`- **Index:** \`${indexPath}\`${indexFiles != null ? ` — ${indexFiles} files` : ''}${indexSymbols != null ? `, ${indexSymbols} symbols` : ''}`);
   rows.push(`- **Engine:** ${engineLabel}`);
+  // A SEPARATE line, deliberately. The Engine line carries the air-gap
+  // statement ("local LLM, no network egress") and gets quoted as such;
+  // appending build metadata would dilute a sentence doing legal work.
+  //
+  // Local runs only — a cloud chart has no client-side build to report, and
+  // inventing a field that is empty on every cloud chart is noise. The line is
+  // what makes "reproducible given the same model AND the same build" a claim
+  // the artifact can actually support.
+  if (engineBuild) rows.push(`- **Engine build:** ${engineBuild}`);
   const integrity = targetIntegrity === 'unmodified'
     ? ' — _unmodified since generation_'
     : targetIntegrity === 'modified'
@@ -840,6 +849,9 @@ export async function doClaimChart(index, args, opts = {}) {
     indexFiles: index.files ? (index.files.size ?? index.files.length ?? null) : null,
     indexSymbols: symbols.length,
     engineLabel,
+    // Read AFTER the analysis loop, so a GPU->CPU fallback mid-run is what
+    // gets recorded rather than what was requested.
+    engineBuild: engineBuildLine(),
     argv: process.argv.slice(1).join(' '),
     targets: perTarget.length,
     targetSource, targetProvenance, targetIntegrity,

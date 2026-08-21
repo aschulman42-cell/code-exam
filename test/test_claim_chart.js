@@ -18,6 +18,7 @@ import {
   perElementTargets, normalizeVerdictLine, perElementTargetsWithStats, resolveTargetBudget,
 } from '../src/commands/claim-chart.js';
 import { targetsChecksum } from '../src/commands/claim-locate.js';
+import { engineBuildLine, getEngineBuild, formatEngineBuild } from '../src/core/llm-runner.js';
 import { createRequire } from 'node:module';
 import { readClaimFile } from '../src/commands/analyze.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
@@ -673,6 +674,77 @@ describe('perElementTargets', () => {
 // median-length claim of 9 — so `targetsPerElement: 3` was unreachable above 4
 // limitations, while the provenance line advertised "at most 3" on every chart.
 // asus-CC found it on the '101 run: the crux sits at rank 3 of element 6.
+// asus-CC (#306): the header records engine and model but NOT the
+// node-llama-cpp version or the llama.cpp build, "and those decide the
+// numerics". Bit-determinism under greedy decoding is the local path's headline
+// asymmetry against cloud engines — and a reader who wanted to REPRODUCE a
+// local chart had no way to learn which engine build to install.
+describe('the chart records the inference-engine build (#306)', () => {
+  const base = () => ({
+    claimText: CLAIM, indexPath: '.idx', engineLabel: 'local GGUF — g.gguf (local LLM, no network egress)',
+    argv: 'ce --claim-chart x', targets: 3, targetSource: 'the --targets argument',
+  });
+
+  it('carries the build on its own line, below Engine', () => {
+    const h = buildProvenanceHeader({ ...base(), engineBuild: 'node-llama-cpp 3.18.1 · llama.cpp b8390 · prebuilt · cuda' });
+    assert.match(h, /\*\*Engine build:\*\* node-llama-cpp 3\.18\.1 · llama\.cpp b8390/);
+    // Separate from Engine on purpose: that line carries the air-gap statement
+    // and is quoted as such, so build metadata must not dilute it.
+    assert.ok(h.indexOf('**Engine:**') < h.indexOf('**Engine build:**'));
+    assert.match(h, /\*\*Engine:\*\* local GGUF — g\.gguf \(local LLM, no network egress\)/);
+  });
+
+  it('emits NO build line for a cloud run', () => {
+    // A field that is empty on every cloud chart is noise, not provenance.
+    const h = buildProvenanceHeader({ ...base(), engineLabel: 'Anthropic — claude-opus-5 (cloud LLM)', engineBuild: null });
+    assert.ok(!h.includes('Engine build:'));
+  });
+
+  it('renders an honest blank rather than omitting or inventing', () => {
+    // The silent omission IS the defect. A confident-looking guess would be
+    // worse than either, so unknown parts have to say the word "unknown".
+    const h = buildProvenanceHeader({ ...base(), engineBuild: 'node-llama-cpp 3.18.1 · llama.cpp build unknown · prebuilt · CPU' });
+    assert.match(h, /llama\.cpp build unknown/);
+  });
+});
+
+describe('engineBuildLine names what ran, and where', () => {
+  it('is null when no local model was loaded — cloud runs add nothing', () => {
+    // Nothing in this suite loads a GGUF, so the un-captured state is the one
+    // under test here, and it must be the quiet one.
+    assert.equal(engineBuildLine(), null);
+    assert.equal(getEngineBuild(), null);
+  });
+
+  it('renders the full build', () => {
+    // Field names live-probed against node-llama-cpp 3.18.1: getModuleVersion()
+    // -> "3.18.1", llama.llamaCppRelease -> {repo, release:"b8390"},
+    // llama.buildType -> "prebuilt", llama.gpu -> false | "cuda" | "metal".
+    assert.equal(
+      formatEngineBuild({ moduleVersion: '3.18.1', llamaCppRelease: 'b8390', buildType: 'prebuilt', gpu: 'cuda' }),
+      'node-llama-cpp 3.18.1 · llama.cpp b8390 · prebuilt · cuda');
+  });
+
+  it('says "unknown" for each part it could not learn, and still renders', () => {
+    // The header must never be taken down by its own provenance, and a missing
+    // part must be visible as missing rather than absent from the line.
+    assert.equal(formatEngineBuild({}),
+      'node-llama-cpp version unknown · llama.cpp build unknown · build type unknown · device unknown');
+    assert.match(formatEngineBuild({ moduleVersion: '3.18.1' }), /llama\.cpp build unknown/);
+  });
+
+  it('records CPU distinctly, because a silent GPU fallback changes the numerics', () => {
+    // llama.gpu is boolean false for CPU, which would render as "device
+    // unknown" under a plain falsy check. It is not unknown — it is known, and
+    // it is the case that matters: two concurrent CE processes race on VRAM
+    // probing and BOTH land on CPU (#316), with nothing in the artifact to show
+    // for it. Capture happens on every load attempt so the fallback is what
+    // gets recorded, not the intent.
+    assert.match(formatEngineBuild({ moduleVersion: '3.18.1', gpu: 'CPU' }), /· CPU$/);
+    assert.ok(!formatEngineBuild({ gpu: 'CPU' }).includes('device unknown'));
+  });
+});
+
 describe('the target budget is DERIVED, and reports what it achieved (#306 Edit 5)', () => {
   const sym = (n, f) => ({ sym: { name: n, filepath: `idx!src/${f}` } });
   // Nine elements, three deep — a median-length claim with evidence to spare.

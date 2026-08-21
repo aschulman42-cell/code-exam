@@ -245,6 +245,56 @@ export function truncationLine() {
 }
 export function getCloudUsage() { return { ..._cloudUsage }; }
 
+// THE INFERENCE-ENGINE BUILD, captured at model load.
+//
+// asus-CC (#306): the chart header records engine and model but not the
+// node-llama-cpp version or the llama.cpp build, "and those decide the
+// numerics". Two local runs months apart on different builds are
+// indistinguishable in the artifact, and `^3.18.1` lets the build move with no
+// CE commit — so the reproducibility claim is the one thing the artifact could
+// not support.
+//
+// Captured rather than probed: `getLlama()` loads the native binding and can
+// allocate GPU, so asking for provenance must not become a side effect of
+// reporting it. The values are read off the instance the run already built.
+let _engineBuild = null;
+function _recordEngineBuild(mod, llama) {
+  try {
+    const rel = llama?.llamaCppRelease;
+    _engineBuild = {
+      moduleVersion: (typeof mod?.getModuleVersion === 'function' ? mod.getModuleVersion() : null) || null,
+      llamaCppRelease: rel?.release || null,
+      buildType: llama?.buildType || null,
+      // WHERE it ran, not only what ran. CPU and CUDA do not produce identical
+      // numerics, and CE falls back to CPU silently when the GPU cannot be
+      // claimed — including the VRAM-probing race between two concurrent CE
+      // processes that asus-CC measured (#316), where a run lands on CPU with
+      // nothing in the artifact to show for it.
+      gpu: llama?.gpu === false ? 'CPU' : (llama?.gpu || null),
+    };
+  } catch (_) { /* provenance must never take the run down */ }
+}
+/** The captured build, or null if no local model was loaded this process. */
+export function getEngineBuild() { return _engineBuild ? { ..._engineBuild } : null; }
+/**
+ * Render a captured build. Pure, so every partial-knowledge combination is
+ * testable without loading a model — the stateful reader below is a one-liner
+ * over it. Unknown parts say the word "unknown": a silent omission is the
+ * defect being repaired, and a confident-looking guess would be worse than
+ * either.
+ */
+export function formatEngineBuild(b) {
+  if (!b) return null;
+  return [
+    `node-llama-cpp ${b.moduleVersion || 'version unknown'}`,
+    `llama.cpp ${b.llamaCppRelease || 'build unknown'}`,
+    b.buildType || 'build type unknown',
+    b.gpu || 'device unknown',
+  ].join(' · ');
+}
+/** One line naming the inference-engine build, or null for a cloud-only run. */
+export function engineBuildLine() { return formatEngineBuild(_engineBuild); }
+
 // calls: [{ inChars, outTokens }] — outTokens should be the EXPECTED output
 // (not the maxTokens ceiling) so projections stay within ~2x of actuals.
 export function projectCloudCost(model, calls) {
@@ -447,6 +497,9 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
       const { getLlama, LlamaChatSession } = mod;
       const tryLoad = async (cpuOnly) => {
         const llama = await getLlama(cpuOnly ? { gpu: false } : undefined);
+        // Recorded on EVERY attempt, so a chart built after a GPU->CPU fallback
+        // reports the device it actually ran on rather than the one it wanted.
+        _recordEngineBuild(mod, llama);
         const m = await llama.loadModel({ modelPath });
         for (const sz of ggufContextLadder(contextSize)) {
           try {
