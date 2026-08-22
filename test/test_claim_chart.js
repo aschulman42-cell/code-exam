@@ -23,6 +23,12 @@ import { createRequire } from 'node:module';
 import { readClaimFile } from '../src/commands/analyze.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+// Fixtures resolve from THIS FILE, never from the working directory. A bare
+// readFileSync('name.txt') resolves against cwd, which is what made these
+// files' absence invisible to anyone running npm test from the repo root
+// with them already sitting there (#314).
+const fixture = (n) => fileURLToPath(new URL(`./fixtures/${n}`, import.meta.url));
 const require = createRequire(import.meta.url);
 
 const CLAIM = [
@@ -861,7 +867,7 @@ describe('per-element retrieval provenance on the artifact', () => {
 // `#` provenance reaching a CHART's left-hand column. Same defect cbb8e98 fixed
 // for --claim-analyze; worse here, because the obvious guard does not catch it.
 describe('claim-chart: # provenance is not a limitation', () => {
-  const SYN = 'sample_patent_claim_synon_gemini_2.txt';   // real --synonymize-out file
+  const SYN = fixture('sample_patent_claim_synon_gemini_2.txt');   // real --synonymize-out file
 
   it('THE COUNT IS NOT THE TEST — the broken case also yields 11', () => {
     // Measured 2026-08-16: read raw, the ten header lines and the real preamble
@@ -897,7 +903,7 @@ describe('claim-chart: # provenance is not a limitation', () => {
   });
 
   it('a comment-free claim file is byte-identical, on this path too', () => {
-    const raw = fs.readFileSync('sample_patent_claim.txt', 'utf-8');
-    assert.equal(readClaimFile('sample_patent_claim.txt'), raw.trim());
+    const raw = fs.readFileSync(fixture('sample_patent_claim.txt'), 'utf-8');
+    assert.equal(readClaimFile(fixture('sample_patent_claim.txt')), raw.trim());
   });
 });

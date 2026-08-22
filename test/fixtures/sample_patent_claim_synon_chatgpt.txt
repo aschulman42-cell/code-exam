@@ -1,0 +1,21 @@
+# Synonymized claim — HOF-b. Wording changed, requirement preserved.
+# NOT a patent claim. Generated for retrieval testing; do not file, quote, or rely on.
+# Engine:     ChatGPT API — gpt-5.1 (cloud LLM)
+# Source:     sample_patent_claim.txt
+# Elements:   11
+# Vocabulary: 39.0% of original content words survive (lower = harder)
+# CE:         v0.5.0
+# Generated:  2026-08-16T18:25:31.327Z
+# Command:    C:\Users\undoc\jontest\src\index.js --synonymize @sample_patent_claim.txt --llm chatgpt
+A method for creating a protected exchange link via a digital data network, the method comprising:
+(a) initializing a cryptographic context by instantiating a secure communication entity provisioned with a lowest-permitted protocol revision and importing at least one certification authority trust credential
+(b) establishing mutually agreed encryption configuration settings between a client apparatus and a server apparatus,
+wherein said negotiating comprises determining, from among a plurality of available cryptographic option combinations, a particular cryptographic option combination in accordance with a threshold requirement for key size
+(c) conducting a mutual initialization procedure between the client apparatus and the server apparatus to derive session cryptographic keys
+(d) validating a hierarchical sequence of credentials furnished by the server device, wherein said validating comprises:
+(i) verifying that an identifier of the server device corresponds to a subject alternative designation or principal designation contained within a server credential
+(ii) verifying that the certificate of said server remains within its validity period
+(iii) verifying that key utilization extensions within the server credential authorize server-side authentication
+(e) conveying application-layer information through a cryptographically protected communication path utilizing the previously established session cryptographic keys,
+wherein the entirety of information conveyed between said client apparatus and said server apparatus is subject to cryptographic protection employing the mutually agreed cipher suite
+

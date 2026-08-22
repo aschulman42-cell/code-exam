@@ -1,0 +1,460 @@
+{
+ "_provenance": {
+  "source": "CodeExam_claims_gemini_v2.txt.anchors.json",
+  "engine": "Gemini API — gemini-2.5-flash (cloud LLM)",
+  "what": "--pseudo-claims anchor sidecar over CodeExam's own source",
+  "distilled": "only claims[].dropped is kept — the sole field test_pseudo_claims reads. Full run was 251 KB.",
+  "claims": 41,
+  "droppedAnchors": 63
+ },
+ "claims": [
+  {
+   "dropped": []
+  },
+  {
+   "dropped": [
+    {
+     "file": "src/core/ai-ml-detectors.js@_AIMLMethods::classify@L2150-2174",
+     "func": "",
+     "reason": "no function name to verify"
+    }
+   ]
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": [
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::_loadLiteralIndexStreaming@L2393-2446",
+     "func": "",
+     "reason": "no function name to verify"
+    }
+   ]
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": [
+    {
+     "file": "src/commands/analyze.js@SimpleMasker::maskFunctionSource@L531-532",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@SimpleMasker::maskFunctionSource@L543-611",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@SimpleMasker::maskFunctionSource@L612-773",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@SimpleMasker::maskFunctionSource@L535",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@SimpleMasker::maskFunctionSource@L593",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@SimpleMasker::maskFunctionSource@L604",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@SimpleMasker::maskFunctionSource@L610",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@SimpleMasker::maskFunctionSource@L543-557",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@SimpleMasker::maskFunctionSource@L592",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@SimpleMasker::maskFunctionSource@L603",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@SimpleMasker::maskFunctionSource@L609",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@SimpleMasker::maskFunctionSource@L772",
+     "func": "",
+     "reason": "no function name to verify"
+    }
+   ]
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": [
+    {
+     "file": "src/server.js@ServerLLM::callClaude@L419",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/server.js@ServerLLM::callClaude@L419",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/server.js@ServerLLM::callLocal@L644",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/server.js@ServerLLM::callLocal@L644",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/server.js@ServerLLM::callClaude@L450",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/server.js@ServerLLM::callLocal@L661",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/server.js@ServerLLM::callClaude@L476",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/server.js@ServerLLM::callLocal@L664",
+     "func": "",
+     "reason": "no function name to verify"
+    }
+   ]
+  },
+  {
+   "dropped": [
+    {
+     "file": "src/commands/analyze.js",
+     "func": "contextText",
+     "reason": "cited function not found in index"
+    },
+    {
+     "file": "src/commands/analyze.js",
+     "func": "llm.generate",
+     "reason": "cited function not found in index"
+    },
+    {
+     "file": "src/commands/analyze.js",
+     "func": "llm.generate",
+     "reason": "cited function not found in index"
+    }
+   ]
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": [
+    {
+     "file": "src/commands/analyze.js@buildClaimAnalyzePrompt@L892-894",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@buildClaimAnalyzePrompt@L913",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@buildClaimAnalyzePrompt@L904-907",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@buildClaimAnalyzePrompt@L908-910",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@buildClaimAnalyzePrompt@L911-912",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/commands/analyze.js@buildClaimAnalyzePrompt@L917-918",
+     "func": "",
+     "reason": "no function name to verify"
+    }
+   ]
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": [
+    {
+     "file": "public/app.js",
+     "func": "onKernelGroupClick (L748)",
+     "reason": "cited function not found in index"
+    },
+    {
+     "file": "public/app.js",
+     "func": "onPipelineGroupClick (L910)",
+     "reason": "cited function not found in index"
+    },
+    {
+     "file": "public/app.js",
+     "func": "onKernelGroupClick (L748-749)",
+     "reason": "cited function not found in index"
+    },
+    {
+     "file": "public/app.js",
+     "func": "onPipelineGroupClick (L910)",
+     "reason": "cited function not found in index"
+    },
+    {
+     "file": "public/app.js",
+     "func": "onKernelGroupClick (L750-756)",
+     "reason": "cited function not found in index"
+    },
+    {
+     "file": "public/app.js",
+     "func": "onPipelineGroupClick (L911-913)",
+     "reason": "cited function not found in index"
+    }
+   ]
+  },
+  {
+   "dropped": [
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::getClassHierarchy@L4917",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::getClassHierarchy@L4922-4946",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::getClassHierarchy@L4975-4993",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::getClassHierarchy@L4998-5079",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::getClassHierarchy@L5081-5088",
+     "func": "",
+     "reason": "no function name to verify"
+    }
+   ]
+  },
+  {
+   "dropped": [
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::extractFunctionByName@L4508-4526",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::getFunctionSource@L4297-4318",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::getFunctionSource@L4326",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::getFunctionSource@L4329-4351",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::getFunctionSource@L4354-4371",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::getFunctionSource@L4373-4395",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::getFunctionSource@L4397",
+     "func": "",
+     "reason": "no function name to verify"
+    }
+   ]
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": [
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::matchesAnyMethod@L1054",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::matchesFunc@L2018",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::matchesAnyMethod@L1055",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::matchesFunc@L2019",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::matchesAnyMethod@L1056",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::matchesFunc@L2020",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::matchesAnyMethod@L1056",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::matchesFunc@L2020",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::matchesAnyMethod@L1056",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::matchesFunc@L2020",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::matchesAnyMethod@L1056",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::matchesFunc@L2020",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::matchesAnyMethod@L1056",
+     "func": "",
+     "reason": "no function name to verify"
+    },
+    {
+     "file": "src/core/CodeSearchIndex.js@CodeSearchIndex::matchesFunc@L2020",
+     "func": "",
+     "reason": "no function name to verify"
+    }
+   ]
+  },
+  {
+   "dropped": []
+  },
+  {
+   "dropped": []
+  }
+ ]
+}

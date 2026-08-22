@@ -1,0 +1,6 @@
+1. A distribution system, including a transmission device and a reception device configured to be capable of communicating with each other,
+the transmission device being equipped with a content transmitting unit for transmitting content data, which is one content coded with any one code rate of a plurality of code rates different from each other, to the reception device, and
+the reception device being equipped with a content reproducing unit for, while receiving the content data transmitted by the transmission device, storing received data of the content data into a storage device and also reproducing the content based on the stored data,
+the distribution system, comprising a code rate determining unit for determining the code rate based on a remaining time before reproduction start time set as time at which the reception device starts reproduction of the content from a present moment and based on an available reproduction time, which is a time available for reproducing the content based on the content data stored in the storage device of the reception device, wherein:
+the content transmitting unit is configured to change the code rate of the content data to be transmitted to the reception device to the determined code rate; and
+the content reproducing unit is configured to start reproduction of the content at the set reproduction start time.

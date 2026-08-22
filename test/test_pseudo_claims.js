@@ -30,6 +30,9 @@ async function withStubbedFetch(json, fn) {
   try { return await fn(); } finally { globalThis.fetch = real; }
 }
 import { detectClaims } from '../src/commands/synonymize.js';
+import { fileURLToPath } from 'node:url';
+// Fixtures resolve from THIS FILE, never from the working directory (#314).
+const fixture = (n) => fileURLToPath(new URL(`./fixtures/${n}`, import.meta.url));
 
 const GROUPS = [
   { label: 'address book view controllers' },
@@ -382,8 +385,12 @@ describe('anchor refs: function name AND line range', () => {
     assert.equal(parse('src/e.js@fn()').func, 'fn');
   });
 
-  it('EVERY dropped anchor from the recorded Gemini run now parses', { skip: !fs.existsSync('CodeExam_claims_gemini_v2.txt.anchors.json') }, () => {
-    const d = JSON.parse(fs.readFileSync('CodeExam_claims_gemini_v2.txt.anchors.json', 'utf8'));
+  // The skip guard is gone deliberately. It existed because the recorded run
+  // sat untracked in the working directory, so a fresh clone skipped this test
+  // and reported green while testing less (#314) — the worse of the two
+  // failures. The fixture is committed now, so its absence is a real failure.
+  it('EVERY dropped anchor from the recorded Gemini run now parses', () => {
+    const d = JSON.parse(fs.readFileSync(fixture('gemini_v2_dropped_anchors.json'), 'utf8'));
     const dropped = d.claims.flatMap((c) => c.dropped);
     assert.ok(dropped.length > 0, 'fixture must actually contain drops');
     for (const a of dropped) {

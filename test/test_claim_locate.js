@@ -25,6 +25,12 @@ import {
   buildTargetsProvenance, targetsChecksum, targetSpecs,
   normalizeTargetSpec, dedupeTargets, classifyNavCallee,
 } from '../src/commands/claim-locate.js';
+import { fileURLToPath } from 'node:url';
+// Fixtures resolve from THIS FILE, never from the working directory. A bare
+// readFileSync('name.txt') resolves against cwd, which is what made these
+// files' absence invisible to anyone running npm test from the repo root
+// with them already sitting there (#314).
+const fixture = (n) => fileURLToPath(new URL(`./fixtures/${n}`, import.meta.url));
 
 const TABLE = [
   { filepath: 'a.zip!x/AdaptiveTrackSelection.java', name: 'AdaptiveTrackSelection::updateSelectedTrack', bare: 'updateSelectedTrack', start: 436, end: 485, tokens: symbolTokens('AdaptiveTrackSelection::updateSelectedTrack') },
@@ -1114,8 +1120,8 @@ describe('retrievePerElement', () => {
 // Preamble restoration, whereby, and the stray-comma repair.
 describe('splitter: the preamble is a row (Part A)', () => {
   const ONE = (s) => s.replace(/\s*\n\s*/g, ' ');
-  const P101 = fs.readFileSync('8752101_claim_1.txt', 'utf-8');
-  const TLS = fs.readFileSync('sample_patent_claim.txt', 'utf-8');
+  const P101 = fs.readFileSync(fixture('8752101_claim_1.txt'), 'utf-8');
+  const TLS = fs.readFileSync(fixture('sample_patent_claim.txt'), 'utf-8');
 
   it('keeps the preamble on the SINGLE-LINE path — the 98.7% defect', () => {
     // The colon path did `t.slice(ci + 1)`, discarding everything before the
@@ -1218,7 +1224,7 @@ describe('splitter: stray-comma repair needs the PAIR (Part E)', () => {
 });
 
 describe('splitter: preamble identification is POSITIONAL (Part B)', () => {
-  const TLS = fs.readFileSync('sample_patent_claim.txt', 'utf-8');
+  const TLS = fs.readFileSync(fixture('sample_patent_claim.txt'), 'utf-8');
   const els = splitClaimElements(TLS);
 
   it('labels row 1', () => {

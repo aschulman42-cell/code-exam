@@ -1,0 +1,22 @@
+# Synonymized claim — HOF-b. Wording changed, requirement preserved.
+# NOT a patent claim. Generated for retrieval testing; do not file, quote, or rely on.
+# Engine:     Gemini API — gemini-2.5-flash (cloud LLM)
+# Source:     sample_patent_claim.txt
+# Elements:   11
+# Vocabulary: 9.6% mean per-element content-word survival (lower = harder)
+# Re-split:   11 — preserved
+# CE:         v0.5.0
+# Generated:  2026-08-16T20:43:41.893Z
+# Command:    C:\Users\undoc\jontest\src\index.js --synonymize @sample_patent_claim.txt --llm gemini
+A method of effectuating a protected informational interchange linkage utilizing a distributed computational infrastructure, the method comprising:
+(a) Establishing a secure information handling state by generating a protective communication construct arranged to incorporate a lowest permissible communication regimen iteration and integrating one or more verification entitlements originating from authoritative certifiers.
+(b) Effecting a cooperative ascertainment of cryptographic specifications between a first computational apparatus and a second computational apparatus,
+wherein an agreement establishment process includes designating a cryptographic specification from a plurality of compatible cryptographic specifications, contingent on a requisite lower bound for cryptographic key dimension;
+(c) engaging in a predefined series of interactive data transmissions between the client device and the server device for the purpose of generating context-specific cryptographic determinants.
+(d) ascertaining the authenticity of a cryptographic attestation sequence originated from the server apparatus, wherein ascertaining comprises:
+(i)   Ascertaining that an addressable designation of the server apparatus is congruent with a supplemental identity indicator or a primary identity indicator contained within a cryptographic credential.
+(ii)  ascertaining that a cryptographic attestation presented by a remote processing unit is within its designated period of applicability;
+(iii) Validating that supplemental attributes delineating cryptographic key functionalities resident within the digital attestation of the server entity authorize substantiation of the server's identity.
+(e) Propagating operational content across a confidential communication medium, utilizing the pre-determined cryptographic keying material,
+wherein the entirety of the informational payload conveyed between said client device and said server device undergoes cryptographic transformation by employing the mutually established cryptographic parameter aggregate.
+

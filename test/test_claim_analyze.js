@@ -243,6 +243,12 @@ import {
 } from '../src/commands/analyze.js';
 import { buildSymbolTable } from '../src/core/symbol-verify.js';
 import { searchSymbolsByWords } from '../src/commands/claim-locate.js';
+import { fileURLToPath } from 'node:url';
+// Fixtures resolve from THIS FILE, never from the working directory. A bare
+// readFileSync('name.txt') resolves against cwd, which is what made these
+// files' absence invisible to anyone running npm test from the repo root
+// with them already sitting there (#314).
+const fixture = (n) => fileURLToPath(new URL(`./fixtures/${n}`, import.meta.url));
 
 // A .demo-shaped index: the two long orchestrators whole-claim search selects,
 // and the single-limitation implementers it structurally cannot reach.
@@ -489,8 +495,8 @@ describe('per-element arm: the vocabulary call rides the TERM-EXTRACTION engine'
 // Provenance blocks reaching the model as claim text. Found by Andrew running a
 // synonymized claim, 2026-08-16, and it corrupted the run before it was caught.
 describe('claim files: # provenance is not claim text', () => {
-  const SYN = 'sample_patent_claim_synon_chatgpt.txt';   // real file, has a 9-line # header
-  const PLAIN = 'sample_patent_claim.txt';               // real file, no comments
+  const SYN = fixture('sample_patent_claim_synon_chatgpt.txt');   // real file, has a 9-line # header
+  const PLAIN = fixture('sample_patent_claim.txt');               // real file, no comments
 
   it('drops # lines and reports how many', () => {
     const seen = [];

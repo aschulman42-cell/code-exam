@@ -18,8 +18,14 @@ import {
 // the test imports both so the duplicated comment-strip cannot drift.
 import { readClaimFile } from '../src/commands/analyze.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
+import { fileURLToPath } from 'node:url';
+// Fixtures resolve from THIS FILE, never from the working directory. A bare
+// readFileSync('name.txt') resolves against cwd, which is what made these
+// files' absence invisible to anyone running npm test from the repo root
+// with them already sitting there (#314).
+const fixture = (n) => fileURLToPath(new URL(`./fixtures/${n}`, import.meta.url));
 
-const DEMO_CLAIM = fs.readFileSync('sample_patent_claim.txt', 'utf8');
+const DEMO_CLAIM = fs.readFileSync(fixture('sample_patent_claim.txt'), 'utf8');
 const DEMO_ELEMENTS = splitClaimElements(DEMO_CLAIM);
 
 // A stub that genuinely re-registers rather than inflecting, which is what the
@@ -138,6 +144,8 @@ describe('HOF-b: output contract', () => {
   it('provenance records the engine, since HOF-b assumes a DIFFERENT model', () => {
     const p = buildSynonymizeProvenance({
       engineLabel: 'local GGUF — gemma-3-12b-it-Q4_K_M.gguf (local LLM, no network egress)',
+      // A provenance STRING under test, not a path to read — it must stay the
+      // short recorded name, or the assertion becomes machine-dependent.
       claimSource: 'sample_patent_claim.txt', elements: 11, failed: 0, meanOverlap: 12.5,
       argv: 'ce --synonymize @x.txt', ceVersion: '1.2.3', generatedAt: '2026-08-16T00:00:00Z',
     });
@@ -364,7 +372,7 @@ describe('HOF-b: the stray-comma repair, wired at the one site holding the pair'
   // rows to 12 and the re-split guard flagged the comparison unsafe.
 
   it('repairs the REAL recorded Gemini rewrite: 12 rows back to 11', async () => {
-    const gem = fs.readFileSync('sample_patent_claim_synon_gemini_NEW.txt', 'utf-8')
+    const gem = fs.readFileSync(fixture('sample_patent_claim_synon_gemini_NEW.txt'), 'utf-8')
       .split(/\r?\n/).filter((l) => l.trim() && !l.startsWith('#'));
     let i = 0;
     const replay = () => Promise.resolve(
@@ -390,7 +398,7 @@ describe('HOF-b: the stray-comma repair, wired at the one site holding the pair'
   });
 
   it('reports the repair per row and in the summary — never silent', async () => {
-    const gem = fs.readFileSync('sample_patent_claim_synon_gemini_NEW.txt', 'utf-8')
+    const gem = fs.readFileSync(fixture('sample_patent_claim_synon_gemini_NEW.txt'), 'utf-8')
       .split(/\r?\n/).filter((l) => l.trim() && !l.startsWith('#'));
     let i = 0;
     const replay = () => Promise.resolve(

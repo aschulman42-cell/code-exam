@@ -1,0 +1,22 @@
+# Synonymized claim — HOF-b. Wording changed, requirement preserved.
+# NOT a patent claim. Generated for retrieval testing; do not file, quote, or rely on.
+# Engine:     Gemini API — gemini-2.5-flash (cloud LLM)
+# Source:     sample_patent_claim.txt
+# Elements:   11
+# Vocabulary: 10.7% mean per-element content-word survival (lower = harder)
+# Re-split:   12 — CHANGED, comparison unsafe
+# CE:         v0.5.0
+# Generated:  2026-08-17T00:27:41.054Z
+# Command:    C:\Users\undoc\jontest\src\index.js --synonymize @sample_patent_claim.txt --llm gemini
+A procedure for initiating a protected data interchange pathway across an interconnected computational fabric, said procedure comprising:
+(a) Establishing an operational configuration for a secure information processing domain through the generation of a secure communication mechanism instance having parameters defining a threshold specification identifier for the communication regimen, and incorporating thereto one or more validation data units originating from a credentialing entity;
+(b) mutually ascertaining cryptographic configuration elements between a client apparatus and a server apparatus,
+wherein the negotiation entails identifying a cryptographic parameter set among a plurality of permissible cryptographic parameter sets, in dependence upon a specified threshold for a cryptographic key dimension;
+(c) effectuating a reciprocal negotiation procedure between the initiating apparatus and the remote computational entity to determine transient cryptographic parameters;
+(d) validating a sequence of digital credentials furnished by the remote computational entity, wherein said validating comprises:
+(i)   ascertaining that a network designation of the host apparatus corresponds to a principal subject identifier or an ancillary subject identifier documented within a server credential;
+(ii)  ascertaining that the cryptographic credential associated with the server continues within its period of designated validity;
+(iii) verifying that provisions indicating permissible cryptographic functions present within the server credential authorize the attestation of the server's identity;
+(e) conveying operational information via a confidential communication path, employing the pre-negotiated cryptographic parameters,
+wherein the entirety of information conveyed between the consumer apparatus and the host apparatus undergoes cryptographic transformation by means of the cryptosystem specification established through mutual accord.
+
