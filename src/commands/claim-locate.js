@@ -50,6 +50,13 @@ export const LOCATE_DEFAULTS = {
   maxNavRows: 24,     // total navigation-derived rows
   maxSeedSpan: 200,   // only FUNCTION-sized seeds navigate (lines)
   candidatesPerElement: 25,  // real symbols shown per element in the select step
+  // A BOUND on the content arm, not a target. Content search is more expensive
+  // than a symbol-table scan and its hits are a different kind of evidence, so
+  // it contributes a minority of each element's candidate list rather than
+  // flooding it. 8 against candidatesPerElement's 25 keeps the name arm
+  // dominant while leaving room for the case the arm exists for — a symbol
+  // whose NAME says nothing, which name search cannot reach at any depth.
+  contentPerElement: 8,
 };
 
 export const SPLIT_DEFAULTS = {
@@ -566,6 +573,41 @@ export function directionalMismatch(limitationText, symbolName) {
 // that silently zeroes a capable model is not a knob, it is a defect.
 export const VOCAB_MAX_OUTPUT_TOKENS = 3000;
 
+// THE CONTENT ARM. `searchSymbolsByWords` matches SYMBOL NAMES ONLY; multisect
+// searches CONTENT, and the chart's no-`--targets` path never looked there.
+//
+// MEASURED (asus-CC, #315 lever 2): Gemma's own already-predicted word
+// `estimator` reaches `AdaptiveTrackSelection@330` at rank 1 of 104 through
+// content search, and NOWHERE through name search. The model had already
+// produced a word that finds the right file, and CE looked in the one place
+// that word does not appear.
+//
+// AN ARM, NEVER A BLEND. asus-CC measured that merging word sets dilutes: the
+// claim's own stems put the crux at #2 alone and at #23 blended into Gemma's
+// words, because searchSymbolsByWords scores breadth and the rare decisive word
+// gets averaged away — the fifth zero-sum confirmation on this project. So this
+// runs as its own query producing its own ranked list, and the lists merge
+// AFTER scoring. Same shape, and the same stated reason, as the TIGHT/BROAD
+// merge in analyze.js: "an all-or-nothing fallback makes the two searches
+// alternatives when they are complements."
+//
+// SOFT terms with a quorum of 1: the winning signal in the measurement was a
+// SINGLE word, so requiring agreement across an element's words would discard
+// exactly the case this exists to catch.
+export function contentCandidatesForWords(index, words, opts = {}) {
+  if (!index || typeof index.multisectSearch !== 'function' || !words || !words.length) return [];
+  const limit = opts.limit ?? 10;
+  const terms = words.map((w) => ({ term: w, negated: false, hard: false }));
+  let res;
+  try { res = index.multisectSearch(terms, { minTerms: 1, showProgress: false }); }
+  catch { return []; }                       // retrieval must not take the run down
+  const fns = (res && res.function_matches) || [];
+  return fns.slice(0, limit).map((m) => ({
+    name: m.name || m.function || m.full_name || '',
+    filepath: m.filepath || m.file || '',
+  })).filter((s) => s.name);
+}
+
 export async function retrievePerElement({ draft, elements, symbols, opts = {} }) {
   const sys = buildDiscoverPrompt();
   const user = `CLAIM ELEMENTS:\n` + elements.map((e, i) => `${i + 1}. ${e}`).join('\n');
@@ -620,7 +662,35 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
         + ` OPPOSITE direction to the limitation (${directionOf(limText)}) — not filtered,`
         + ` verify before citing\n`);
     }
-    perElement.push({ element, text: limText.slice(0, 160), words, hits, mismatches, repaired });
+    // Merge the content arm AFTER scoring, de-duplicated by symbol. Each
+    // candidate records which arm found it: a symbol found only by content
+    // search is a different kind of evidence from one whose NAME matches, and a
+    // reader deciding whether to trust a citation should be able to see which.
+    //
+    // The name arm keeps precedence on ties — it is the narrower, higher
+    // confidence read, same rule as TIGHT over BROAD in analyze.js.
+    let contentAdded = 0;
+    if (opts.index) {
+      const key = (s) => `${String(s.filepath || '').split('!').pop()}@${s.name}`;
+      const seen = new Set(hits.map((h) => key(h.sym)));
+      for (const h of hits) h.arm = 'name';
+      for (const c of contentCandidatesForWords(opts.index, words,
+        { limit: opts.contentPerElement ?? LOCATE_DEFAULTS.contentPerElement })) {
+        if (seen.has(key(c))) {
+          const prior = hits.find((h) => key(h.sym) === key(c));
+          if (prior) prior.arm = 'both';       // corroborated by two searches
+          continue;
+        }
+        seen.add(key(c));
+        hits.push({ sym: c, matched: [], score: -Infinity, arm: 'content' });
+        contentAdded += 1;
+      }
+      if (contentAdded) {
+        process.stderr.write(`    +${contentAdded} candidate(s) from CONTENT search`
+          + ` (name search did not surface them)\n`);
+      }
+    }
+    perElement.push({ element, text: limText.slice(0, 160), words, hits, mismatches, repaired, contentAdded });
     opts.onElement?.({ element, words, hits, mismatches });
   }
   return { perElement, raw, error: null, prompt: { sys, user } };

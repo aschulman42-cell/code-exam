@@ -17,6 +17,7 @@ import {
   splitClaimElements, subdivideElement, parseElementsFile, retrievePerElement,
   classifyLimitation, limitationTag, directionOf, directionalMismatch,
   buildTargetsFileBody, attributeTargets, samplingLine, VOCAB_MAX_OUTPUT_TOKENS,
+  LOCATE_DEFAULTS,
   repairStrayAndComma, isPreambleRow,
   SPLIT_DEFAULTS,
   buildProposePrompt, buildIndexProfile, formatLocateReport,
@@ -1677,5 +1678,92 @@ describe('the vocabulary budget, and a step that was cut off says so', () => {
     assert.equal(r.error, null);
     assert.ok(!r.truncated, 'no truncation claim on a clean run');
     assert.equal(r.perElement.length, 2);
+  });
+});
+
+// NAME SEARCH MATCHES SYMBOL NAMES; CONTENT SEARCH MATCHES THE CODE.
+//
+// MEASURED (asus-CC, #315 lever 2): Gemma's own already-predicted `estimator`
+// reaches AdaptiveTrackSelection@330 at rank 1 of 104 through content search
+// and NOWHERE through name search. The model had produced a word that finds the
+// right file and CE looked in the one place it does not appear.
+describe('the content arm is an ARM, never a blend', () => {
+  const SYMS = [{ name: 'Tx::sendData', filepath: 'a.java' }];
+  const fakeIndex = (fns) => ({ multisectSearch: () => ({ function_matches: fns }) });
+
+  it('is OFF without an index — the compatibility contract', async () => {
+    // Omitting the index must leave this path byte-identical. A regression here
+    // is invisible until a chart is wrong.
+    const r = await retrievePerElement({
+      draft: async () => 'ELEMENT 1: send; data', elements: ['transmitting'], symbols: SYMS,
+    });
+    assert.ok(!r.perElement[0].contentAdded, 'nothing was added');
+    assert.equal(r.perElement[0].hits.length, 1, 'the candidate set is what it always was');
+    assert.equal(r.perElement[0].hits[0].sym.name, 'Tx::sendData');
+    assert.ok(!r.perElement[0].hits[0].arm, 'no arm labelling when the arm is off');
+  });
+
+  it('adds a symbol the NAME arm cannot reach at any depth', async () => {
+    // The whole point: a name that says nothing about the limitation.
+    const r = await retrievePerElement({
+      draft: async () => 'ELEMENT 1: send; data', elements: ['transmitting'], symbols: SYMS,
+      opts: { index: fakeIndex([{ name: 'AdaptiveTrackSelection::updateSelectedTrack', filepath: 'x!b.java' }]) },
+    });
+    const names = r.perElement[0].hits.map((h) => h.sym.name);
+    assert.ok(names.includes('AdaptiveTrackSelection::updateSelectedTrack'));
+    assert.equal(r.perElement[0].contentAdded, 1);
+  });
+
+  it('labels which arm found each candidate', async () => {
+    const r = await retrievePerElement({
+      draft: async () => 'ELEMENT 1: send; data', elements: ['transmitting'], symbols: SYMS,
+      opts: { index: fakeIndex([{ name: 'Other::fn', filepath: 'x!b.java' }]) },
+    });
+    const byName = Object.fromEntries(r.perElement[0].hits.map((h) => [h.sym.name, h.arm]));
+    assert.equal(byName['Tx::sendData'], 'name');
+    assert.equal(byName['Other::fn'], 'content');
+  });
+
+  it('a symbol found by BOTH appears ONCE, and records the corroboration', async () => {
+    // Two searches agreeing is stronger evidence than either alone, and a
+    // duplicate row would waste a candidate slot the model needs.
+    const r = await retrievePerElement({
+      draft: async () => 'ELEMENT 1: send; data', elements: ['transmitting'], symbols: SYMS,
+      opts: { index: fakeIndex([{ name: 'Tx::sendData', filepath: 'x!a.java' }]) },
+    });
+    assert.equal(r.perElement[0].hits.length, 1, 'de-duplicated by symbol');
+    assert.equal(r.perElement[0].hits[0].arm, 'both');
+    assert.equal(r.perElement[0].contentAdded, 0);
+  });
+
+  it('the NAME arm keeps precedence — content is appended, never interleaved', async () => {
+    // Same rule as TIGHT over BROAD in analyze.js: the narrower search is the
+    // higher-confidence read, so it is not displaced by the wider one.
+    const many = [{ name: 'Z::one', filepath: 'x!z.java' }, { name: 'Z::two', filepath: 'x!z.java' }];
+    const r = await retrievePerElement({
+      draft: async () => 'ELEMENT 1: send; data', elements: ['transmitting'], symbols: SYMS,
+      opts: { index: fakeIndex(many) },
+    });
+    assert.equal(r.perElement[0].hits[0].sym.name, 'Tx::sendData', 'name-arm hit stays first');
+  });
+
+  it('is BOUNDED, and the bound is a minority of the candidate list', async () => {
+    const flood = Array.from({ length: 40 }, (_, i) => ({ name: `F::f${i}`, filepath: 'x!f.java' }));
+    const r = await retrievePerElement({
+      draft: async () => 'ELEMENT 1: send; data', elements: ['transmitting'], symbols: SYMS,
+      opts: { index: fakeIndex(flood) },
+    });
+    assert.equal(r.perElement[0].contentAdded, LOCATE_DEFAULTS.contentPerElement);
+    assert.ok(LOCATE_DEFAULTS.contentPerElement < LOCATE_DEFAULTS.candidatesPerElement,
+      'the arm must not be able to dominate the name arm');
+  });
+
+  it('a failing content search cannot take the run down', async () => {
+    const r = await retrievePerElement({
+      draft: async () => 'ELEMENT 1: send; data', elements: ['transmitting'], symbols: SYMS,
+      opts: { index: { multisectSearch: () => { throw new Error('boom'); } } },
+    });
+    assert.equal(r.error, null);
+    assert.equal(r.perElement[0].hits.length, 1, 'the name arm survives');
   });
 });

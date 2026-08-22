@@ -684,11 +684,21 @@ export function formatChart({
       + ' rarity, with no quorum. An element with 0 candidates was never examined — that'
       + ' row reports what CE could not look at, not a finding about the code.');
     out.push('');
-    out.push('| element | predicted words | candidates |');
-    out.push('|---|---|---|');
+    // The ARM column, because a candidate found only by CONTENT search is a
+    // different kind of evidence from one whose NAME matches. A reader deciding
+    // whether to trust a citation should see which search surfaced it.
+    const anyContent = retrieval.some((p) => p.contentAdded);
+    out.push(`| element | predicted words | candidates |${anyContent ? ' via content |' : ''}`);
+    out.push(`|---|---|---|${anyContent ? '---|' : ''}`);
     for (const p of retrieval) {
       out.push(`| ${p.element} | ${(p.words || []).join(', ').replace(/\|/g, '\\|')} `
-        + `| ${(p.hits || []).length} |`);
+        + `| ${(p.hits || []).length} |${anyContent ? ` ${p.contentAdded || 0} |` : ''}`);
+    }
+    if (anyContent) {
+      out.push('');
+      out.push('_Name search matches SYMBOL NAMES; content search matches the code itself.'
+        + ' A candidate reached only by content search has a name that says nothing about'
+        + ' the limitation — which is the case name search cannot reach at any depth._');
     }
     out.push('');
     if (blind.length) {
@@ -807,8 +817,13 @@ export async function doClaimChart(index, args, opts = {}) {
       draft, elements, symbols,
       opts: {
         includeTests: !!args.include_tests,
-        onElement: ({ element, words, hits }) => process.stderr.write(
-          `  element ${element}: words [${words.join(', ')}] -> ${hits.length} candidate(s)\n`),
+        // The CONTENT arm needs the index; searchSymbolsByWords only needs the
+        // symbol table. Passing it is what turns the arm on, and omitting it
+        // leaves this path byte-identical to before (#315 lever 2).
+        index,
+        onElement: ({ element, words, hits, contentAdded }) => process.stderr.write(
+          `  element ${element}: words [${words.join(', ')}] -> ${hits.length} candidate(s)`
+          + `${contentAdded ? ` (${contentAdded} via content search)` : ''}\n`),
       },
     });
     if (disc.error) { console.error(`--claim-chart: ${disc.error}`); process.exitCode = 1; return; }
