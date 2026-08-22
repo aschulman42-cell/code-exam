@@ -1178,3 +1178,43 @@ describe('a file hint selects the symbol, it does not merely decorate it', () =>
     assert.deepEqual(filterMatchesByFile(M, undefined), M);
   });
 });
+
+// THE FIELD DESIGNED TO SAY "I DO NOT KNOW" COULD NOT FIRE.
+//
+// getModuleVersion is async in node-llama-cpp 3.18.1. Called synchronously it
+// returned a Promise — truthy, so it survived `|| null` and stringified into
+// the Daubert-facing line as `node-llama-cpp [object Promise]` (asus-CC, #315,
+// on a live chart).
+//
+// formatEngineBuild was split out as a pure function precisely so every
+// partial-knowledge case could be asserted without a model, and those
+// assertions passed. They covered ABSENT values. A Promise is not absent; it is
+// a truthy non-string. The tests checked for missing inputs and never for
+// wrong-typed ones.
+describe('a captured build field is a string or it is unknown (#315)', () => {
+  it('a Promise renders as unknown, not as [object Promise]', () => {
+    const s = formatEngineBuild({ moduleVersion: Promise.resolve('3.18.1'),
+      llamaCppRelease: 'b8390', buildType: 'prebuilt', gpu: 'cuda' });
+    assert.ok(!s.includes('[object Promise]'), 'the exact string that shipped');
+    assert.match(s, /node-llama-cpp version unknown/);
+    assert.match(s, /llama\.cpp b8390 · prebuilt · cuda/, 'the other three were always correct');
+  });
+
+  it('rejects every other truthy non-string the same way', () => {
+    // A thenable, an object, a number, an array. Each is truthy and each would
+    // have rendered its own garbage into a legal artifact.
+    for (const v of [{ then() {} }, { version: '3.18.1' }, 3.18, ['3.18.1'], true]) {
+      assert.match(formatEngineBuild({ moduleVersion: v }), /version unknown/,
+        `truthy non-string must not render: ${Object.prototype.toString.call(v)}`);
+    }
+  });
+
+  it('an empty or whitespace string is unknown too', () => {
+    assert.match(formatEngineBuild({ moduleVersion: '   ' }), /version unknown/);
+    assert.match(formatEngineBuild({ moduleVersion: '' }), /version unknown/);
+  });
+
+  it('a real string still renders, and is trimmed', () => {
+    assert.match(formatEngineBuild({ moduleVersion: ' 3.18.1 ' }), /node-llama-cpp 3\.18\.1 ·/);
+  });
+});

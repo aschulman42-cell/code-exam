@@ -258,19 +258,43 @@ export function getCloudUsage() { return { ..._cloudUsage }; }
 // allocate GPU, so asking for provenance must not become a side effect of
 // reporting it. The values are read off the instance the run already built.
 let _engineBuild = null;
-function _recordEngineBuild(mod, llama) {
+// A captured field is a STRING or it is unknown.
+//
+// `getModuleVersion` is async in node-llama-cpp 3.18.1, so calling it
+// synchronously returned a Promise — truthy, so it survived `|| null`, and it
+// stringified into the Daubert-facing provenance line as
+// `node-llama-cpp [object Promise]` (asus-CC, #315, on a live chart).
+//
+// The tests could not catch it, and that is the part worth keeping.
+// `formatEngineBuild` was split out as a pure function precisely so every
+// partial-knowledge combination could be asserted without a model, and those
+// assertions pass — they cover ABSENT values. A Promise is not absent, it is a
+// truthy non-string, so it sailed past `|| 'version unknown'`: the one field
+// designed to say "I do not know" was the one that could not fire.
+//
+// So the type is enforced at CAPTURE. The renderer's fallbacks are written for
+// absence, and absence is not the only way to be wrong.
+const _str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+async function _recordEngineBuild(mod, llama) {
   try {
     const rel = llama?.llamaCppRelease;
     _engineBuild = {
-      moduleVersion: (typeof mod?.getModuleVersion === 'function' ? mod.getModuleVersion() : null) || null,
-      llamaCppRelease: rel?.release || null,
-      buildType: llama?.buildType || null,
+      // Awaited, not read from package.json. asus-CC preferred the file to keep
+      // provenance from becoming a side effect of reporting it — but that
+      // property is about not PROBING at report time, and this runs inside
+      // tryLoad, which is already async. The capture still happens once, off
+      // the instance the run already built, and engineBuildLine() stays sync.
+      moduleVersion: _str(typeof mod?.getModuleVersion === 'function'
+        ? await mod.getModuleVersion() : null),
+      llamaCppRelease: _str(rel?.release),
+      buildType: _str(llama?.buildType),
       // WHERE it ran, not only what ran. CPU and CUDA do not produce identical
       // numerics, and CE falls back to CPU silently when the GPU cannot be
       // claimed — including the VRAM-probing race between two concurrent CE
       // processes that asus-CC measured (#316), where a run lands on CPU with
       // nothing in the artifact to show for it.
-      gpu: llama?.gpu === false ? 'CPU' : (llama?.gpu || null),
+      gpu: llama?.gpu === false ? 'CPU' : _str(llama?.gpu),
     };
   } catch (_) { /* provenance must never take the run down */ }
 }
@@ -285,11 +309,16 @@ export function getEngineBuild() { return _engineBuild ? { ..._engineBuild } : n
  */
 export function formatEngineBuild(b) {
   if (!b) return null;
+  // Guarded here TOO, not only at capture. The capture guard is where the fix
+  // belongs — a wrong type should never get this far — but this function is
+  // exported, pure, and renders into a legal artifact, so it is made total
+  // rather than trusting its caller. `|| 'version unknown'` was the whole
+  // defect: a Promise is truthy, so the fallback could not fire (#315).
   return [
-    `node-llama-cpp ${b.moduleVersion || 'version unknown'}`,
-    `llama.cpp ${b.llamaCppRelease || 'build unknown'}`,
-    b.buildType || 'build type unknown',
-    b.gpu || 'device unknown',
+    `node-llama-cpp ${_str(b.moduleVersion) || 'version unknown'}`,
+    `llama.cpp ${_str(b.llamaCppRelease) || 'build unknown'}`,
+    _str(b.buildType) || 'build type unknown',
+    _str(b.gpu) || 'device unknown',
   ].join(' · ');
 }
 /** One line naming the inference-engine build, or null for a cloud-only run. */
@@ -499,7 +528,7 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
         const llama = await getLlama(cpuOnly ? { gpu: false } : undefined);
         // Recorded on EVERY attempt, so a chart built after a GPU->CPU fallback
         // reports the device it actually ran on rather than the one it wanted.
-        _recordEngineBuild(mod, llama);
+        await _recordEngineBuild(mod, llama);
         const m = await llama.loadModel({ modelPath });
         for (const sz of ggufContextLadder(contextSize)) {
           try {
