@@ -185,6 +185,21 @@ export function buildChartTable(claimText, opts = {}) {
 }
 
 // Parse `--targets "file.java@Class::fn;other.java@fn"` or `@targets.txt`.
+// Match a supplied file hint against an index path by SUFFIX, not equality.
+// Users supply both `AdaptiveTrackSelection.java` and
+// `trackselection/AdaptiveTrackSelection.java` and both must work, and index
+// paths carry a `!`-prefixed archive segment that is not part of what anyone
+// types. Boundary-anchored so `Helper.java` cannot match `DownloadHelper.java`.
+export function filterMatchesByFile(matches, fileHint) {
+  const hint = String(fileHint || '').trim().replace(/\\/g, '/').replace(/^\.?\//, '');
+  if (!hint) return matches;
+  const lower = hint.toLowerCase();
+  return (matches || []).filter((m) => {
+    const p = String(m.filepath || '').split('!').pop().replace(/\\/g, '/').toLowerCase();
+    return p === lower || p.endsWith(`/${lower}`);
+  });
+}
+
 export function parseTargets(spec) {
   let raw = String(spec || '');
   let source = 'the --targets argument';
@@ -848,7 +863,37 @@ export async function doClaimChart(index, args, opts = {}) {
     // prefix would reject the form a user most naturally types.
     const at = t.indexOf('@');
     const fnSpec = at >= 0 ? t.slice(at + 1) : t;
-    const v = verifySymbol(symbols, fnSpec);
+    const fileHint = at >= 0 ? t.slice(0, at).trim() : '';
+    let v = verifySymbol(symbols, fnSpec);
+    // THE FILE HALF OF THE TARGET WAS PARSED OFF AND NEVER USED, so
+    // `AdaptiveTrackSelection.java@updateSelectedTrack` and
+    // `DownloadHelper.java@updateSelectedTrack` were identical inputs. Measured
+    // on `.AndroidX_Media_ExoPlayer3` (#309 Part A): asked for the first,
+    // analysed the second — a different class in `offline/`, with 0 callee
+    // bodies — and the delivered '101 chart cited the download-path
+    // implementation on every `updateSelectedTrack` row. Re-running with a
+    // longer path gave the same wrong symbol, because both attempts varied only
+    // the discarded half.
+    //
+    // On a document that names a function per row and invites verification,
+    // citing the wrong class is worse than ABSENT. ABSENT is honest.
+    //
+    // Filtered here rather than inside verifySymbol, which --claim-locate shares.
+    if (fileHint && isFound(v)) {
+      const hinted = filterMatchesByFile(v.matches, fileHint);
+      if (hinted.length) {
+        v = { ...v, matches: hinted, ambiguous: hinted.length };
+      } else {
+        // Silent fallback to a same-named symbol elsewhere IS the defect. A
+        // hint that matches nothing must fail loudly and name itself.
+        process.stderr.write(`  NOT FOUND in index: ${fnSpec} in a file matching '${fileHint}'`
+          + ` (${v.matches.length} symbol(s) with that name exist in other files)\n`);
+        unresolved.push(`\`${t}\` (no such symbol in a file matching \`${fileHint}\`)`);
+        dropped.push({ target: t,
+          reason: `not found in a file matching \`${fileHint}\` — ${v.matches.length} same-named symbol(s) exist elsewhere and were NOT substituted` });
+        continue;
+      }
+    }
     if (!isFound(v)) {
       process.stderr.write(`  NOT FOUND in index: ${t}\n`);
       unresolved.push(`\`${t}\` (no such symbol)`);
@@ -857,7 +902,11 @@ export async function doClaimChart(index, args, opts = {}) {
     }
     const m = v.matches[0];
     if (v.ambiguous > 1) {
-      process.stderr.write(`  AMBIGUOUS: ${v.ambiguous} symbols match ${fnSpec} — using ${m.filepath.split('!').pop()}; qualify the target to choose\n`);
+      // Only recommend qualification when qualification was not already given
+      // and used — otherwise the message sends a user to do the thing they did.
+      process.stderr.write(`  AMBIGUOUS: ${v.ambiguous} symbols match ${fnSpec}`
+        + `${fileHint ? ` in a file matching '${fileHint}'` : ''} — using ${m.filepath.split('!').pop()};`
+        + `${fileHint ? ' qualify further (Class::method) to choose' : ' qualify the target to choose'}\n`);
       ambiguous.push(`\`${t}\` (${v.ambiguous} matches)`);
     }
     let got = null;

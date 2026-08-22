@@ -16,6 +16,7 @@ import {
   coverageLine, formatChart, doClaimChart, CHART_DEFAULTS,
   parseChartVerdicts, fillChartRows, buildChartAnalysisPrompt, buildProvenanceHeader,
   perElementTargets, normalizeVerdictLine, perElementTargetsWithStats, resolveTargetBudget,
+  filterMatchesByFile,
 } from '../src/commands/claim-chart.js';
 import { targetsChecksum } from '../src/commands/claim-locate.js';
 import { engineBuildLine, getEngineBuild, formatEngineBuild } from '../src/core/llm-runner.js';
@@ -1117,5 +1118,63 @@ describe('a locate file restores the retrieval table to the chart', () => {
     fs.writeFileSync(TMP, bare.join('\n'));
     assert.equal(targetsChecksum(withAttrib), targetsChecksum(parseTargets(`@${TMP}`).targets),
       'adding attribution must not invalidate a checksum already issued');
+  });
+});
+
+// THE FILE HALF OF A TARGET WAS PARSED OFF AND NEVER USED (#309 Part A).
+// Measured on .AndroidX_Media_ExoPlayer3: asked for
+// AdaptiveTrackSelection.java@updateSelectedTrack, analysed
+// DownloadHelper::DownloadTrackSelection::updateSelectedTrack — a different
+// class in offline/, with 0 callee bodies. The delivered '101 chart cited the
+// download-path implementation on every updateSelectedTrack row.
+describe('a file hint selects the symbol, it does not merely decorate it', () => {
+  const M = [
+    { name: 'AdaptiveTrackSelection::updateSelectedTrack', filepath: 'x!src/trackselection/AdaptiveTrackSelection.java' },
+    { name: 'DownloadHelper::DownloadTrackSelection::updateSelectedTrack', filepath: 'x!src/offline/DownloadHelper.java' },
+  ];
+
+  it('picks the hinted file out of same-named symbols', () => {
+    const r = filterMatchesByFile(M, 'AdaptiveTrackSelection.java');
+    assert.equal(r.length, 1);
+    assert.match(r[0].filepath, /trackselection/);
+  });
+
+  it('the hint SELECTS — the other file still resolves to its own symbol', () => {
+    // If the hint merely reordered, both targets would land on the same match.
+    const r = filterMatchesByFile(M, 'DownloadHelper.java');
+    assert.equal(r.length, 1);
+    assert.match(r[0].filepath, /offline/);
+  });
+
+  it('matches on SUFFIX, so a longer path works too', () => {
+    // The measured failure had the user try both forms; both must work.
+    assert.equal(filterMatchesByFile(M, 'trackselection/AdaptiveTrackSelection.java').length, 1);
+    assert.equal(filterMatchesByFile(M, 'src/trackselection/AdaptiveTrackSelection.java').length, 1);
+    assert.equal(filterMatchesByFile(M, './AdaptiveTrackSelection.java').length, 1);
+  });
+
+  it('is boundary-anchored — Helper.java must not match DownloadHelper.java', () => {
+    // A bare endsWith would make the hint quietly wrong in the same direction
+    // as the bug it is fixing.
+    assert.equal(filterMatchesByFile(M, 'Helper.java').length, 0);
+    assert.equal(filterMatchesByFile(M, 'ackselection/AdaptiveTrackSelection.java').length, 0);
+  });
+
+  it('tolerates backslashes and the index archive segment', () => {
+    assert.equal(filterMatchesByFile(M, 'trackselection\\AdaptiveTrackSelection.java').length, 1);
+    assert.equal(filterMatchesByFile([{ name: 'f', filepath: 'a.zip!deep/b/C.java' }], 'b/C.java').length, 1);
+  });
+
+  it('a hint matching NOTHING returns nothing — no silent substitution', () => {
+    // Falling back to a same-named symbol elsewhere is the defect itself. The
+    // caller turns this into a loud NOT FOUND naming the hint.
+    assert.deepEqual(filterMatchesByFile(M, 'NoSuchFile.java'), []);
+  });
+
+  it('no hint leaves the match set untouched', () => {
+    // A bare Class::method target must behave exactly as before — requiring the
+    // prefix would reject the form users most naturally type.
+    assert.deepEqual(filterMatchesByFile(M, ''), M);
+    assert.deepEqual(filterMatchesByFile(M, undefined), M);
   });
 });
