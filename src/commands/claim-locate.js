@@ -31,7 +31,7 @@ import { readCeVersion } from '../utils.js';
 // belongs in `utils.js` — which all of them already import — and moving it is a
 // small follow-up deliberately kept out of this item's scope.
 import { readClaimFile } from './analyze.js';
-import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine } from '../core/llm-runner.js';
+import { wasLastDraftTruncated, resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine } from '../core/llm-runner.js';
 import {
   buildSymbolTable, verifySymbol, isFound, nearbySymbols, navigateFrom,
   parseProposedSymbols,
@@ -538,15 +538,58 @@ export function directionalMismatch(limitationText, symbolName) {
   return { limitation: lim, symbol: sym };
 }
 
+// OUTPUT BUDGET for the vocabulary step — the one model call that decides what
+// per-element retrieval searches for.
+//
+// Was a bare 600 at the call site, never measured against a real response. That
+// is ~55 tokens per element on an 11-element claim including the `ELEMENT n:`
+// scaffolding, and it does not fail gracefully: the step fails CLOSED, so every
+// downstream stage reports "no candidates" for a reason that has nothing to do
+// with the codebase.
+//
+// MEASURED (asus-CC, #306 "Edit 7", --claim-chart on .demo_code_only):
+//
+//   at  600   0 bytes, twice, byte-identical
+//             "The model produced no parseable code-word predictions."
+//   at 3000   11 of 11 elements, 26 targets, depth 3 achieved
+//
+// Qwen produced NOTHING at 600 and a complete chart at 3000. Not a degraded
+// result -- a zero-byte one, reproducibly.
+//
+// Raising it is close to free because maxTokens is a CEILING, not a target: a
+// model that finishes its word lists in 400 tokens is unaffected, and the four
+// engines that already worked at 600 keep emitting what they emitted.
+//
+// Not a flag. `--vocab-budget` defaulting to 600 would make the user
+// responsible for discovering that their model emitted zero bytes because of an
+// output ceiling -- the exact failure that cost two runs to diagnose. A ceiling
+// that silently zeroes a capable model is not a knob, it is a defect.
+export const VOCAB_MAX_OUTPUT_TOKENS = 3000;
+
 export async function retrievePerElement({ draft, elements, symbols, opts = {} }) {
   const sys = buildDiscoverPrompt();
   const user = `CLAIM ELEMENTS:\n` + elements.map((e, i) => `${i + 1}. ${e}`).join('\n');
   let raw;
-  try { raw = await draft(sys, user, 600); }
+  try { raw = await draft(sys, user, VOCAB_MAX_OUTPUT_TOKENS); }
   catch (e) { return { perElement: [], raw: null, error: `vocabulary step failed: ${e.message}` }; }
+  // The vocabulary step is the NARROWEST point in the pipeline: it fails closed,
+  // and everything downstream then reports "no candidates" for a reason that has
+  // nothing to do with the codebase. So a response that was CUT OFF has to say
+  // so — the detector has existed since 58a596d and this path never consulted
+  // it, which is why the failure presented as "the model produced nothing
+  // useful" rather than "the response hit its ceiling".
+  const truncated = wasLastDraftTruncated();
   const wordSets = parseElementWords(raw || '');
+  if (truncated) {
+    process.stderr.write(`  ⚠ vocabulary response hit the ${VOCAB_MAX_OUTPUT_TOKENS}-token output`
+      + ` budget and was CUT OFF — ${wordSets.length} of ${elements.length} element(s) parsed;`
+      + ` the rest have no predicted words and will retrieve nothing\n`);
+  }
   if (!wordSets.length) {
-    return { perElement: [], raw, error: 'The model produced no parseable code-word predictions.' };
+    return { perElement: [], raw, truncated,
+      error: truncated
+        ? `The vocabulary response was cut off at the ${VOCAB_MAX_OUTPUT_TOKENS}-token output budget before any element parsed.`
+        : 'The model produced no parseable code-word predictions.' };
   }
   const perElement = [];
   for (const { element, words } of wordSets) {

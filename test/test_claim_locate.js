@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import {
   splitClaimElements, subdivideElement, parseElementsFile, retrievePerElement,
   classifyLimitation, limitationTag, directionOf, directionalMismatch,
-  buildTargetsFileBody, attributeTargets, samplingLine,
+  buildTargetsFileBody, attributeTargets, samplingLine, VOCAB_MAX_OUTPUT_TOKENS,
   repairStrayAndComma, isPreambleRow,
   SPLIT_DEFAULTS,
   buildProposePrompt, buildIndexProfile, formatLocateReport,
@@ -1620,5 +1620,62 @@ describe('the discover prompt no longer asserts a falsehood', () => {
     // The translation instinct is right on most claims; only "never" was wrong.
     assert.match(P, /what programmers call/);
     assert.match(P, /NO patent boilerplate/);
+  });
+});
+
+// THE VOCABULARY STEP IS THE NARROWEST POINT IN THE PIPELINE.
+//
+// It fails CLOSED: everything downstream then reports "no candidates" for a
+// reason that has nothing to do with the codebase. MEASURED (asus-CC, #306
+// "Edit 7"): Qwen produced 0 bytes at 600, twice, byte-identical, and a
+// complete 11-element chart at 3000.
+describe('the vocabulary budget, and a step that was cut off says so', () => {
+  const ELS = ['transmitting content data', 'reproducing the content', 'determining the code rate'];
+  const SYMS = [{ name: 'Tx::sendData', filepath: 'a.java' }, { name: 'Player::reproduce', filepath: 'b.java' }];
+
+  it('the budget is a named constant, not a bare number at a call site', () => {
+    // It sat as `600` beside an `800` and an `1100` with no stated relationship
+    // between them, and was never measured against a real response.
+    assert.equal(VOCAB_MAX_OUTPUT_TOKENS, 3000);
+  });
+
+  it('passes the budget to the drafter', async () => {
+    let sawMax = null;
+    await retrievePerElement({
+      draft: async (_s, _u, maxTokens) => { sawMax = maxTokens; return 'ELEMENT 1: send; data'; },
+      elements: ELS, symbols: SYMS,
+    });
+    assert.equal(sawMax, VOCAB_MAX_OUTPUT_TOKENS, 'the constant must actually reach the call');
+  });
+
+  it('a CUT OFF response is reported as such, not as "produced nothing useful"', async () => {
+    // The detector has existed since 58a596d and this path never consulted it,
+    // which is exactly why the failure presented as a model quality problem.
+    const { draftCloud, wasLastDraftTruncated } = await import('../src/core/llm-runner.js');
+    const real = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({
+      // stop_reason max_tokens is what the detector keys on.
+      stop_reason: 'max_tokens', content: [{ text: '' }], usage: {},
+    }), text: async () => '' });
+    try {
+      await draftCloud({ wire: 'anthropic', apiUrl: 'x', key: 'k', model: 'm', label: 'L' }, 's', 'u', 10, 0);
+      assert.equal(wasLastDraftTruncated(), true, 'precondition: the detector fired');
+      const r = await retrievePerElement({
+        draft: async () => '', elements: ELS, symbols: SYMS,
+      });
+      assert.equal(r.truncated, true, 'the result carries the fact');
+      assert.match(r.error, /cut off at the 3000-token output budget/,
+        'and the error names the ceiling rather than blaming the model');
+    } finally { globalThis.fetch = real; }
+  });
+
+  it('a normal response reports nothing extra', async () => {
+    const r = await retrievePerElement({
+      draft: async () => 'ELEMENT 1: send; data\nELEMENT 2: reproduce; play',
+      elements: ELS, symbols: SYMS,
+    });
+    assert.equal(r.error, null);
+    assert.ok(!r.truncated, 'no truncation claim on a clean run');
+    assert.equal(r.perElement.length, 2);
   });
 });
