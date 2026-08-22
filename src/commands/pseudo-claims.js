@@ -431,6 +431,77 @@ function buildPack(resolved) {
 // { prose, anchors:[{file,func,line,element}] }. Ported from the prototype's
 // parseGeneratedClaim. Tolerant of leading bullets, em/en/double-dash element
 // separators, and a `()` suffix on function names.
+// ONE normalizer, not a branch per shape.
+//
+// `56df6c5` taught this parser Gemini's `@L2150-2174`. asus-CC hit Gemma3's
+// ` (L183-276)` within an hour of that commit, and a third form is already
+// visible. A per-shape branch is a queue, so the trailing line range is
+// stripped in ANY notation and the notation is RECORDED.
+//
+// MEASURED (asus-CC, #314, Gemma3 Q4_K_M over a CE self-index, 37 claims):
+// 7 of 10 dropped anchors are the parenthetical form, and BOTH zero-anchor
+// claims are 100% this defect. Corrected: grounded 196 -> 203, dropped 10 -> 3,
+// zero-anchor 2 -> 0. Zero invented identifiers across all 37 — every dropped
+// anchor pointed at real code.
+//
+// Not instructed away in the prompt: three engines produced three notations
+// unprompted, because a line range is more useful than the bare `<file>@<func>`
+// the prompt asks for. Forbidding it trades precision for parser convenience,
+// and the limitation-count cap already showed instructions bind unuvenly across
+// engines.
+//
+// THE DOC FORM IS THE TRAP. `file@L1-20` is a documentation citation, and
+// groundAnchors identifies it by matching /^L(\d+)/ against `func` — so
+// stripping the range there empties func and silently breaks every doc citation
+// in every existing artifact. This broke once already during `56df6c5`.
+// The rule that handles every notation uniformly: strip the range, and if NO
+// `@` remains, put it back as `func` in canonical `L<start>-<end>` form.
+export function normalizeAnchorRef(ref) {
+  const raw = String(ref || '').trim();
+  let core = raw, citedStart = 0, citedEnd = 0, shape = 'two-part';
+
+  // Every notation seen in the wild, plus the bare one. Ordered so the more
+  // decorated forms match before the barest.
+  const RANGES = [
+    [/@L(\d+)(?:\s*[-–—]\s*(\d+))?$/i, 'at-range'],
+    [/\s*\(L?(\d+)(?:\s*[-–—]\s*(\d+))?\)$/i, 'paren-range'],
+    [/\s*\[L?(\d+)(?:\s*[-–—]\s*(\d+))?\]$/i, 'bracket-range'],
+    [/\s+L(\d+)(?:\s*[-–—]\s*(\d+))?$/i, 'bare-range'],
+  ];
+  for (const [re, name] of RANGES) {
+    const m = core.match(re);
+    if (!m) continue;
+    citedStart = Number(m[1]);
+    citedEnd = m[2] ? Number(m[2]) : citedStart;
+    core = core.slice(0, core.length - m[0].length).trim();
+    shape = name;
+    break;
+  }
+
+  // No `@` left means the range WAS the function slot: a documentation cite.
+  // Restore it canonically so groundAnchors' /^L(\d+)/ still routes it,
+  // whichever notation the model used to write it.
+  if (citedStart && !core.includes('@')) {
+    return { file: core, func: `L${citedStart}${citedEnd !== citedStart ? `-${citedEnd}` : ''}`,
+      line: 0, citedStart: 0, citedEnd: 0, shape: 'doc-range' };
+  }
+
+  // Split on the LAST `@`, never by part count: counting breaks on any path
+  // containing `@`, which is a real case (issue-241 round-trips @-in-path).
+  const cut = core.lastIndexOf('@');
+  if (cut > 0) {
+    return { file: core.slice(0, cut).trim(), func: core.slice(cut + 1).trim().replace(/\(\)$/, ''),
+      line: 0, citedStart, citedEnd, shape };
+  }
+  // No `@` and no range: `file:123`, or a bare token. A bare token with no
+  // separator at all is the wrong-FIELD case asus-CC saw once in 37 claims —
+  // labelled so its frequency becomes measurable before anything is built for it.
+  const col = core.match(/^(.+):(\d+)/);
+  if (col) return { file: col[1].trim(), func: '', line: Number(col[2]), citedStart, citedEnd, shape: 'colon-line' };
+  return { file: core, func: '', line: 0, citedStart, citedEnd,
+    shape: core && !core.includes('/') && !core.includes('.') ? 'func-in-file-slot' : 'file-only' };
+}
+
 export function parseGeneratedClaim(text) {
   const t = String(text || '');
   const claimM = t.match(/CLAIM:\s*([\s\S]*?)(?:\n\s*ANCHORS:|$)/i);
@@ -443,41 +514,9 @@ export function parseGeneratedClaim(text) {
     const parts = m[1].trim().split(/\s[—–-]\s|\s--\s/);
     const ref = (parts[0] || '').trim().replace(/[`'"]/g, '');
     const element = (parts.slice(1).join(' ') || '').trim();
-    let file = ref, func = '', line = 0, citedStart = 0, citedEnd = 0;
-    // PARSE FROM THE RIGHT, not by part count.
-    //
-    // The old rule was `ref.split('@').length === 2`, which discarded the form
-    // that carries BOTH a symbol and a line range:
-    //
-    //   src/core/ai-ml-detectors.js@_AIMLMethods::classify@L2150-2174
-    //
-    // Three parts failed the guard, the colon fallback did not match, func
-    // stayed '' and groundAnchors dropped the citation as "no function name to
-    // verify". MEASURED on the Gemini run over .CE_081726: 54 of 63 dropped
-    // anchors (86%) were this branch, not the model -- and the rejected form is
-    // STRICTLY MORE PRECISE than either form the prompt asks for.
-    //
-    // Counting parts also breaks on any path containing '@' (a real case --
-    // issue-241-paste-safe-path-output round-trips @-in-path). Stripping an
-    // @L<range> suffix and then splitting on the LAST '@' degrades gracefully
-    // for both.
-    // The @L<range> suffix is stripped ONLY when another '@' precedes it. The
-    // DOC form `file@L1-20` has just one, and groundAnchors identifies it by
-    // matching /^L(\d+)/ against `func` -- stripping there would empty func and
-    // silently break every documentation citation in every existing artifact.
-    // Caught by parsing all four forms before running the suite.
-    let core = ref;
-    const rangeM = core.indexOf('@') !== core.lastIndexOf('@')
-      ? core.match(/@L(\d+)(?:-(\d+))?$/) : null;
-    if (rangeM) {
-      citedStart = Number(rangeM[1]);
-      citedEnd = rangeM[2] ? Number(rangeM[2]) : citedStart;
-      core = core.slice(0, core.length - rangeM[0].length);
-    }
-    const cut = core.lastIndexOf('@');
-    if (cut > 0) { file = core.slice(0, cut).trim(); func = core.slice(cut + 1).trim().replace(/\(\)$/, ''); }
-    else { file = core.trim(); const col = ref.match(/^(.+):(\d+)/); if (col) { file = col[1].trim(); line = Number(col[2]); } }
-    if (file) anchors.push({ file, func, line, element, citedStart, citedEnd });
+    const norm = normalizeAnchorRef(ref);
+    const { file, func, line, citedStart, citedEnd, shape } = norm;
+    if (file) anchors.push({ file, func, line, element, citedStart, citedEnd, shape });
   }
   return { prose, anchors };
 }
@@ -977,6 +1016,29 @@ export async function doPseudoClaims(index, args) {
     out.push(`_Drafted from ${withAnchors.length} evidence pack(s) via ${modelDesc}.${selNote} Each claim's cited anchors are **grounded** — verified to resolve to a real function in the index; ungrounded citations are dropped.${showPack ? ' The evidence pack the draft was grounded in follows each claim.' : ' Pass --include-evidence-pack to append each claim\'s evidence pack.'}_`);
   }
   out.push('');
+
+  // WHICH NOTATIONS THE ENGINE USED, as a count on the artifact.
+  //
+  // This is the part that stops the shape queue recurring: the next unknown
+  // form shows up as a number here rather than as a silent drop discovered a
+  // year later — or, as happened with `56df6c5`, by another agent an hour after
+  // the commit that fixed the previous one.
+  {
+    const shapes = new Map();
+    for (const d of drafts) {
+      for (const a of [...(d.grounded || []), ...(d.dropped || [])]) {
+        const k = a.shape || 'unknown';
+        shapes.set(k, (shapes.get(k) || 0) + 1);
+      }
+    }
+    if (shapes.size) {
+      const parts = [...shapes.entries()].sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => `${k} ${n}`).join(' · ');
+      out.push(`_Anchor notations seen: ${parts}. CE normalizes a trailing line range in any`
+        + ` notation; a shape it does not recognise is counted here rather than dropped silently._`);
+      out.push('');
+    }
+  }
 
   // grouper-echo-flag-fold Phase 1: detect echo pairs across the chart's
   // groups by shared dominant file (resolved anchors carry filepath; doc

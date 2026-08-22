@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   buildAnchorSidecar, writeClaimsOnly, claimToLine, parseGeneratedClaim, groundAnchors,
+  normalizeAnchorRef,
 } from '../src/commands/pseudo-claims.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 import { draftCloud, wasLastDraftTruncated, truncationCount, truncationLine, resetCloudUsage } from '../src/core/llm-runner.js';
@@ -437,5 +438,87 @@ describe('cited ranges are a CHECK, not the answer', () => {
     const { dropped } = groundAnchors(idx(1, 9),
       [{ file: 'a@b@c', func: '', element: 'e' }]);
     assert.match(dropped[0].reason, /could not be parsed/);
+  });
+});
+
+// ONE NORMALIZER, NOT A BRANCH PER SHAPE.
+//
+// 56df6c5 taught this parser Gemini's `@L2150-2174`. asus-CC hit Gemma3's
+// ` (L183-276)` within an hour of that commit (#314): 7 of 10 dropped anchors
+// were the parenthetical form, and BOTH zero-anchor claims were 100% this
+// defect. Corrected: grounded 196 -> 203, dropped 10 -> 3, zero-anchor 2 -> 0,
+// with zero invented identifiers across 37 claims.
+describe('anchor refs normalize across every notation engines emit', () => {
+  const n = (r) => normalizeAnchorRef(r);
+
+  it('the two-part baseline is unchanged', () => {
+    const r = n('src/a.js@Cls::meth');
+    assert.deepEqual([r.file, r.func, r.shape], ['src/a.js', 'Cls::meth', 'two-part']);
+    assert.equal(r.citedStart, 0);
+  });
+
+  it("Gemini's @L form — the one 56df6c5 fixed — still parses", () => {
+    const r = n('src/core/ai-ml-detectors.js@_AIMLMethods::classify@L2150-2174');
+    assert.equal(r.func, '_AIMLMethods::classify');
+    assert.deepEqual([r.citedStart, r.citedEnd], [2150, 2174]);
+  });
+
+  it("Gemma3's parenthetical form — the one that cost 7 of 10 drops", () => {
+    const r = n('src/core/TreeSitterParser.js@TreeSitterParser::parseFunctions (L183-276)');
+    assert.equal(r.func, 'TreeSitterParser::parseFunctions', 'parenthetical no longer attached');
+    assert.deepEqual([r.citedStart, r.citedEnd], [183, 276]);
+    assert.equal(r.shape, 'paren-range');
+  });
+
+  // The BARE form is not speculative: re-parsing 14 recorded runs (3,669 refs)
+  // found `bare-range: 7` in the Gemini v1 sidecar. It was being mis-parsed the
+  // whole time and nobody had a name for it. The bracket form remains unseen.
+  it('bracket and bare forms — bare is already in the wild', () => {
+    assert.equal(n('src/a.js@fn [L10-20]').func, 'fn');
+    assert.equal(n('src/a.js@fn L10-20').func, 'fn');
+    assert.equal(n('src/a.js@fn L10-20').citedEnd, 20);
+  });
+
+  // THE TRAP. groundAnchors identifies a documentation cite by matching
+  // /^L(\d+)/ against `func`, so stripping the range there empties func and
+  // silently breaks every doc citation in every existing artifact. This broke
+  // once already during 56df6c5, caught by hand before the suite ran.
+  it('a DOC cite keeps its range as func — the regression 56df6c5 nearly shipped', () => {
+    const r = n('docs/guide.md@L1-20');
+    assert.equal(r.file, 'docs/guide.md');
+    assert.equal(r.func, 'L1-20', 'groundAnchors routes on this, so it must survive');
+    assert.match(r.func, /^L(\d+)/, 'the exact predicate groundAnchors uses');
+    assert.equal(r.citedStart, 0, 'a doc cite carries its range in func, not as a check');
+  });
+
+  it('and a doc cite in the NEW notation routes the same way', () => {
+    // Falls out of the uniform rule rather than needing its own branch: strip
+    // the range, and if no `@` remains it WAS the function slot.
+    const r = n('docs/guide.md (L1-20)');
+    assert.equal(r.func, 'L1-20');
+    assert.equal(r.shape, 'doc-range');
+  });
+
+  it('splits on the LAST @, so a path containing @ survives', () => {
+    // Counting parts breaks here, which is a real case — issue-241 round-trips
+    // an @ in a path.
+    const r = n('src/@scope/pkg.js@Cls::meth@L5-9');
+    assert.equal(r.file, 'src/@scope/pkg.js');
+    assert.equal(r.func, 'Cls::meth');
+  });
+
+  it('labels the wrong-FIELD case rather than acting on it', () => {
+    // One occurrence in 37 claims. It gets a name so its frequency becomes
+    // measurable before anything is built for it.
+    assert.equal(n('qmapFile').shape, 'func-in-file-slot');
+    assert.equal(n('src/a.js').shape, 'file-only');
+    assert.equal(n('src/a.js:123').line, 123);
+  });
+
+  it('every shape is NAMED, so an unrecognised one is a count and not a silence', () => {
+    for (const r of ['a.js@f', 'a.js@f@L1-2', 'a.js@f (L1-2)', 'a.js@f [L1-2]',
+      'a.js@f L1-2', 'd.md@L1-2', 'a.js:1', 'qmap']) {
+      assert.ok(normalizeAnchorRef(r).shape, `${r} produced no shape label`);
+    }
   });
 });
