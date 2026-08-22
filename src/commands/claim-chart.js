@@ -254,9 +254,10 @@ export function collectCalleeBodies(index, symbols, seed, opts = {}) {
     const v = local.length ? { status: 'exact', matches: local } : verifySymbol(symbols, name);
     if (!isFound(v)) continue;
     const m = v.matches[0];
-    let src = null;
+    let got = null;
     const _log = console.log; console.log = () => {};
-    try { src = index.getFunctionSource?.(m.filepath, m.name); } catch { src = null; } finally { console.log = _log; }
+    try { got = index.getFunctionSourceWithRange?.(m.filepath, m.name); } catch { got = null; } finally { console.log = _log; }
+    const src = got?.source;
     if (!src) continue;
     const clipped = String(src).slice(0, Math.max(0, maxBytes - bytes));
     bytes += clipped.length;
@@ -264,7 +265,12 @@ export function collectCalleeBodies(index, symbols, seed, opts = {}) {
     // Number each callee with ITS OWN start line. A callee from another file
     // has its own numbering; sharing the target's offset would be worse than no
     // numbers, because it looks authoritative and is wrong.
-    const body = m.start != null ? addLineNumbers(clipped, m.start) : clipped;
+    //
+    // And number from the range the SOURCE covers, not from m.start: the text
+    // begins at the prepended doc comment, so m.start labels the comment as the
+    // signature and shifts every line below it (#306).
+    const numFrom = got?.start ?? m.start;
+    const body = numFrom != null ? addLineNumbers(clipped, numFrom) : clipped;
     out.push(`\n// ---- callee: ${m.name}  (${m.filepath.split('!').pop()}${m.start != null ? `, L${m.start}-${m.end}` : ''}) ----\n${body}`);
   }
   return { text: out.join('\n'), included };
@@ -779,9 +785,10 @@ export async function doClaimChart(index, args, opts = {}) {
       process.stderr.write(`  AMBIGUOUS: ${v.ambiguous} symbols match ${fnSpec} — using ${m.filepath.split('!').pop()}; qualify the target to choose\n`);
       ambiguous.push(`\`${t}\` (${v.ambiguous} matches)`);
     }
-    let src = null;
+    let got = null;
     const _log = console.log; console.log = () => {};
-    try { src = index.getFunctionSource?.(m.filepath, m.name); } catch { src = null; } finally { console.log = _log; }
+    try { got = index.getFunctionSourceWithRange?.(m.filepath, m.name); } catch { got = null; } finally { console.log = _log; }
+    const src = got?.source;
     if (!src) {
       process.stderr.write(`  source not retrievable: ${t}\n`);
       dropped.push({ target: t, reason: 'source not retrievable from the index' });
@@ -798,7 +805,15 @@ export async function doClaimChart(index, args, opts = {}) {
     // updateSelectedTrack (file L436-485) drew citations like "L27", which
     // resolves to file line 462 and sends a verifier to unrelated code. Every
     // chart citation must survive `ce --extract file@fn`.
-    const numbered = m.start != null ? addLineNumbers(String(src), m.start) : String(src);
+    //
+    // The base is the range the SOURCE covers, not m.start. This invariant was
+    // stated here and then broken by the base: getFunctionSource prepends the
+    // doc comment, so numbering from m.start labelled the comment's first line
+    // as the signature and shifted everything below it — median 6 lines, up to
+    // 25, differently per function (#306). Two models cited the shifted numbers
+    // faithfully and were blamed for it.
+    const numFrom = got?.start ?? m.start;
+    const numbered = numFrom != null ? addLineNumbers(String(src), numFrom) : String(src);
     const promptSrc = calleeText
       ? `${numbered}\n\n// ===== depth-1 callees, included so the analysis need not infer what they do =====\n${calleeText}`
       : numbered;

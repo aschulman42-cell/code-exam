@@ -4244,7 +4244,36 @@ export class CodeSearchIndex {
   /**
    * Extract complete source code for a function.
    */
+  // Source only. Kept unchanged for the ~22 callers that just want text.
   getFunctionSource(filepath, functionName) {
+    const r = this.getFunctionSourceWithRange(filepath, functionName);
+    return r ? r.source : null;
+  }
+
+  // Source PLUS the file range it actually covers.
+  //
+  // THE TEXT RETURNED DOES NOT START WHERE THE INDEX SAYS THE FUNCTION DOES.
+  // The tail of this method prepends the preceding doc comment, so the first
+  // line of `source` is `prepended` lines ABOVE `funcInfo.start`. That was
+  // invisible to callers, and a caller numbering the text from the symbol's
+  // recorded start therefore labelled every line too high by the length of the
+  // function's own doc comment.
+  //
+  // Measured on `.demo_code_only` (#306, reported by asus-CC as a model defect
+  // and correctly retracted): 64 of 154 symbols carry a prepended block, median
+  // shift 6 lines, max 25, varying per function so no constant corrects it. On
+  // `c/cert_verify.c@verify_certificate_chain` the Step-3 comment at true line
+  // 69 rendered as 84, and two different models faithfully cited what CE had
+  // printed.
+  //
+  // Nothing caught it because both checks were blind to it: a containment audit
+  // validates shifted refs against the shifted range and passes, and `--extract`
+  // prints source UNNUMBERED, so the chart's own "every citation must survive
+  // ce --extract" never looks at a line number.
+  //
+  // Hence this method. `start` is the true first line of `source`; callers that
+  // render line numbers must use it, never `funcInfo.start`.
+  getFunctionSourceWithRange(filepath, functionName) {
     this._ensureFunctionIndex();
 
     // Case-insensitive filepath matching
@@ -4378,7 +4407,18 @@ export class CodeSearchIndex {
       commentLines.shift();
     }
 
-    return [...commentLines, ...rawLines].join('\n');
+    const outLines = [...commentLines, ...rawLines];
+    // The range describes the TEXT, not the index record: `start` walks back by
+    // however many comment lines were prepended, and `end` is derived from the
+    // text's own length because `rawLines` was trimmed above. Self-consistent by
+    // construction, which is the property the caller needs.
+    const trueStart = start - commentLines.length;
+    return {
+      source: outLines.join('\n'),
+      start: trueStart,
+      end: trueStart + outLines.length - 1,
+      prepended: commentLines.length,
+    };
   }
 
 

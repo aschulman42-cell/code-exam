@@ -20,7 +20,7 @@ import {
 import { targetsChecksum } from '../src/commands/claim-locate.js';
 import { engineBuildLine, getEngineBuild, formatEngineBuild } from '../src/core/llm-runner.js';
 import { createRequire } from 'node:module';
-import { readClaimFile } from '../src/commands/analyze.js';
+import { readClaimFile, addLineNumbers } from '../src/commands/analyze.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -167,6 +167,10 @@ describe('callee bodies (#300 Tier 1)', () => {
     findCallers: () => [],
     findCallees: () => [{ callee_function: 'determineIdealSelectedIndex' }],
     getFunctionSource: (fp, n) => (n.includes('determineIdeal') ? 'int determineIdealSelectedIndex() { return 0; }' : null),
+    // The chart numbers from THIS, not from m.start (#306). A mock offering
+    // only getFunctionSource would exercise a path production no longer takes.
+    getFunctionSourceWithRange: (fp, n) => (n.includes('determineIdeal')
+      ? { source: 'int determineIdealSelectedIndex() { return 0; }', start: 1, end: 1, prepended: 0 } : null),
   };
 
   it('appends the callee BODY, not just its name', () => {
@@ -192,6 +196,7 @@ describe('end to end, mocked model', () => {
     _ensureFunctionIndex() {},
     findCallers: () => [], findCallees: () => [],
     getFunctionSource: () => 'void one() { rate(); }',
+    getFunctionSourceWithRange: () => ({ source: 'void one() { rate(); }', start: 1, end: 1, prepended: 0 }),
   };
 
   it('produces a chart with the merged finding in the row', async () => {
@@ -353,6 +358,10 @@ describe('citations must be file-absolute (the smoke-run defect)', () => {
     findCallers: () => [],
     findCallees: () => [{ callee_function: 'helper' }],
     getFunctionSource: (fp, n) => (n.includes('helper') ? 'int helper() {\n  return 1;\n}' : null),
+    // start 599 mirrors the callee's OWN recorded start — this suite exists to
+    // check a callee is numbered from its own range, not the target's.
+    getFunctionSourceWithRange: (fp, n) => (n.includes('helper')
+      ? { source: 'int helper() {\n  return 1;\n}', start: 599, end: 601, prepended: 0 } : null),
   };
 
   it('numbers a callee body from ITS OWN start, not the target\'s', () => {
@@ -685,6 +694,82 @@ describe('perElementTargets', () => {
 // numerics". Bit-determinism under greedy decoding is the local path's headline
 // asymmetry against cloud engines — and a reader who wanted to REPRODUCE a
 // local chart had no way to learn which engine build to install.
+// THE INVARIANT THE CODE ALREADY DEMANDED AND NOTHING CHECKED.
+//
+// claim-chart's own comment: "File-ABSOLUTE line numbers… Every chart citation
+// must survive `ce --extract file@fn`." It was broken by its own base.
+// getFunctionSource prepends the preceding doc comment; numbering from m.start
+// (the signature) labelled the comment's first line as the signature and shifted
+// every line below it — median 6, max 25, per-function (#306).
+//
+// The two audits that existed could not see it: a containment check validates
+// shifted refs against the shifted range and passes, and `--extract` prints
+// source UNNUMBERED. So the check has to be against the FILE ON DISK.
+describe('rendered line numbers agree with the file on disk (#306)', () => {
+  const INDEX = '.demo_code_only';
+  const have = fs.existsSync(INDEX);
+
+  it('a prepended doc comment does not shift the numbering', { skip: !have }, async () => {
+    const { CodeSearchIndex } = await import('../src/core/CodeSearchIndex.js');
+    const idx = new CodeSearchIndex({ indexPath: INDEX });
+    idx._ensureFunctionIndex();
+
+    let checked = 0, withComment = 0;
+    for (const [fp, fns] of Object.entries(idx.functionIndex)) {
+      const disk = fs.existsSync(fp) ? fp : ['samples/tls_demo/' + fp].find((p) => fs.existsSync(p));
+      if (!disk) continue;
+      const lines = fs.readFileSync(disk, 'utf8').split('\n');
+      for (const name of Object.keys(fns)) {
+        const _l = console.log; console.log = () => {};
+        const got = idx.getFunctionSourceWithRange(fp, name);
+        console.log = _l;
+        if (!got) continue;
+        if (got.prepended > 0) withComment++;
+        const rendered = addLineNumbers(got.source, got.start).split('\n');
+        // Every rendered label must name the file line whose text it carries.
+        for (let i = 0; i < rendered.length; i++) {
+          const m = rendered[i].match(/^\s*(\d+) \| (.*)$/);
+          if (!m) continue;
+          const label = Number(m[1]);
+          assert.equal(m[2], lines[label - 1],
+            `${fp}@${name}: rendered line ${label} does not match file line ${label}`);
+        }
+        checked++;
+      }
+    }
+    assert.ok(checked > 0, 'the fixture index must actually have been read');
+    // Without this the test could pass vacuously on an index of undocumented
+    // functions, where the shift is zero and there is nothing to get wrong.
+    assert.ok(withComment > 0, `no function had a prepended comment — nothing was proved (checked ${checked})`);
+  });
+
+  it('reports what it prepended, so the caller is not guessing', { skip: !have }, async () => {
+    const { CodeSearchIndex } = await import('../src/core/CodeSearchIndex.js');
+    const idx = new CodeSearchIndex({ indexPath: INDEX });
+    idx._ensureFunctionIndex();
+    const fp = Object.keys(idx.functionIndex).find((f) => f.endsWith('cert_verify.c'));
+    const _l = console.log; console.log = () => {};
+    const got = idx.getFunctionSourceWithRange(fp, 'verify_certificate_chain');
+    console.log = _l;
+    const rec = idx.functionIndex[fp].verify_certificate_chain;
+    assert.equal(got.start, rec.start - got.prepended, 'start walks back by exactly the prepended block');
+    assert.ok(got.prepended > 0, 'this function is documented; the block is real');
+    assert.equal(got.source.split('\n').length, got.end - got.start + 1, 'the range describes the text');
+  });
+
+  it('getFunctionSource still returns a bare string for its other callers', { skip: !have }, async () => {
+    const { CodeSearchIndex } = await import('../src/core/CodeSearchIndex.js');
+    const idx = new CodeSearchIndex({ indexPath: INDEX });
+    idx._ensureFunctionIndex();
+    const fp = Object.keys(idx.functionIndex).find((f) => f.endsWith('cert_verify.c'));
+    const _l = console.log; console.log = () => {};
+    const s = idx.getFunctionSource(fp, 'verify_certificate_chain');
+    console.log = _l;
+    assert.equal(typeof s, 'string', '~22 callers depend on this shape');
+    assert.equal(idx.getFunctionSource(fp, 'no_such_function_xyz'), null);
+  });
+});
+
 describe('the chart records the inference-engine build (#306)', () => {
   const base = () => ({
     claimText: CLAIM, indexPath: '.idx', engineLabel: 'local GGUF — g.gguf (local LLM, no network egress)',
