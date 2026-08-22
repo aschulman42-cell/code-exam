@@ -1135,6 +1135,84 @@ export function targetSpecs(found) {
     (r) => `${r.match.filepath.split('!').pop().split('/').pop()}@${r.match.name}`)).targets;
 }
 
+// WHICH LIMITATION EACH TARGET ANSWERS — the one thing per-element retrieval
+// knows that nothing else does, and the one thing `--targets-out` dropped.
+//
+// Stdout carried it during the run ("element 4: words [...] -> 8 candidate(s)")
+// and the file did not, so a chart fed a locate file could not render the
+// `Retrieval by element` table it renders when it retrieves for itself. Two
+// paths, same underlying work, artifacts of different evidentiary quality — and
+// that table is what distinguishes "CE examined this limitation and found
+// nothing" from "CE had nothing to examine".
+//
+// Attribution is per-RETRIEVAL, not per-selection, which is why it exists even
+// when selection was pooled: every element is searched with its own vocabulary
+// regardless of how the selection call was batched.
+export function attributeTargets(found, discovery) {
+  const specOf = (r) => `${r.match.filepath.split('!').pop().split('/').pop()}@${r.match.name}`;
+  const bySpec = new Map();
+  for (const r of found) if (r.match) bySpec.set(specOf(r), r);
+
+  const groups = [];
+  const claimed = new Set();
+  const sharedWith = new Map();
+  for (const p of (discovery || [])) {
+    const names = new Set((p.hits || []).map((h) => h.sym && `${String(h.sym.filepath || '').split('!').pop().split('/').pop()}@${h.sym.name}`).filter(Boolean));
+    const mine = [];
+    for (const [spec, r] of bySpec) {
+      // A row that names its own element (per-element selection) wins outright;
+      // otherwise the element whose retrieval surfaced the symbol claims it.
+      const owns = r.element != null ? r.element === p.element : names.has(spec);
+      if (!owns) continue;
+      if (claimed.has(spec)) { (sharedWith.get(spec) || sharedWith.set(spec, []).get(spec)).push(p.element); continue; }
+      claimed.add(spec);
+      mine.push(spec);
+    }
+    groups.push({ element: p.element, text: String(p.text || ''), words: p.words || [],
+      candidates: (p.hits || []).length, targets: mine });
+  }
+  // A target no element claims must still ship. Silently dropping one would
+  // make the file disagree with the run that produced it.
+  const orphans = [...bySpec.keys()].filter((s) => !claimed.has(s));
+  return { groups, orphans, shared: sharedWith };
+}
+
+// The `--targets-out` body. Marker comments are BACKWARD COMPATIBLE by
+// construction: parseTargets already treats every `#` line as provenance, so an
+// older reader ingests these as prose rather than choking, and the checksum is
+// computed over targets only.
+export function buildTargetsFileBody({ provenance = [], found, discovery, mode = 'discovery' }) {
+  const specs = targetSpecs(found);
+  const out = provenance.map((l) => `# ${l}`);
+  // Hunt mode has no per-element retrieval to attribute, so it keeps today's
+  // format exactly rather than emitting empty markers that would read as
+  // "examined, nothing found".
+  if (mode !== 'discovery' || !discovery || !discovery.length) {
+    out.push(`# Attribution: none — produced by ${mode} mode, which does not retrieve per element`);
+    return [...out, ...specs, ''].join('\n');
+  }
+  const { groups, orphans, shared } = attributeTargets(found, discovery);
+  out.push(`# Attribution: per-element retrieval, ${groups.length} element(s)`);
+  for (const g of groups) {
+    out.push('');
+    out.push(`# Element ${g.element}: ${g.text.replace(/\s+/g, ' ').slice(0, 160)}`);
+    out.push(`# Element-words: ${g.words.join(', ')}`);
+    out.push(`# Element-candidates: ${g.candidates}`);
+    for (const s of g.targets) {
+      const also = shared.get(s);
+      if (also && also.length) out.push(`# Element-shared: ${s} also retrieved for element(s) ${also.join(', ')}`);
+      out.push(s);
+    }
+  }
+  if (orphans.length) {
+    out.push('');
+    out.push(`# Element: unattributed — ${orphans.length} target(s) no element's retrieval claims`);
+    for (const s of orphans) out.push(s);
+  }
+  out.push('');
+  return out.join('\n');
+}
+
 // Identity key for a target spec. `File.java@Class::method` and
 // `File.java@method` name the SAME function, and both forms appear — models mix
 // conventions within one list, and two engines disagree on which they emit. A
@@ -1605,7 +1683,9 @@ export async function doClaimLocate(index, args, opts = {}) {
   // and hand-copying is exactly where the risk of an edited-but-still-vouched
   // target list enters.
   if (args.targets_out && found.length) {
-    const body = [...provenance.map((l) => `# ${l}`), ...targetSpecs(found), ''].join('\n');
+    const body = buildTargetsFileBody({
+      provenance, found, discovery, mode: hunt ? 'hunt' : 'discovery',
+    });
     try {
       fs.writeFileSync(args.targets_out, body, 'utf8');
       console.log(`\nTargets written to ${args.targets_out} (${found.length} target(s), provenance included).`);

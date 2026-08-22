@@ -201,6 +201,9 @@ export function parseTargets(spec) {
   const provenance = [];
   const targets = [];
   let claimed = null;
+  // Element attribution, in file order. Empty for a file that carries none.
+  const elementMap = [];
+  let curEl = null;
   for (const line of raw.split(/\r?\n/)) {
     const t = line.trim();
     if (!t) continue;
@@ -208,6 +211,24 @@ export function parseTargets(spec) {
       const body = t.replace(/^#+\s*/, '');
       const m = /^Targets-checksum:\s*([0-9a-f]+)$/i.exec(body);
       if (m) { claimed = m[1].toLowerCase(); continue; }
+      // Per-element attribution written by --targets-out. Recognised here so a
+      // chart fed a locate file renders the same `Retrieval by element` table
+      // it renders when it retrieved for itself — the table that distinguishes
+      // "examined and found nothing" from "had nothing to examine".
+      //
+      // Anything unrecognised keeps flowing to provenance exactly as before, so
+      // an older file, or a hand-written one, parses unchanged.
+      const el = /^Element\s+(\d+):\s*(.*)$/i.exec(body);
+      if (el) {
+        curEl = { element: Number(el[1]), text: el[2], words: [], candidates: 0 };
+        elementMap.push(curEl);
+        continue;
+      }
+      if (/^Element:\s*unattributed/i.test(body)) { curEl = null; provenance.push(body); continue; }
+      const w = /^Element-words:\s*(.*)$/i.exec(body);
+      if (w && curEl) { curEl.words = w[1].split(',').map((s) => s.trim()).filter(Boolean); continue; }
+      const c = /^Element-candidates:\s*(\d+)$/i.exec(body);
+      if (c && curEl) { curEl.candidates = Number(c[1]); continue; }
       provenance.push(body);
       continue;
     }
@@ -229,7 +250,15 @@ export function parseTargets(spec) {
   // a CE-emitted one. A duplicate here would inflate the per-element agreement
   // count, which is the one number in the chart a reader cannot sanity-check.
   const { targets: unique, duplicates, containers } = dedupeTargets(targets);
-  return { targets: unique, provenance, source, integrity, duplicates, containers };
+  // Shaped exactly like retrievePerElement's output, so the existing
+  // `Retrieval by element` renderer consumes it without knowing which path
+  // produced it. `hits` is a length-only stand-in: the file records how many
+  // candidates an element had, which is what that table reports.
+  const retrieval = elementMap.length
+    ? elementMap.map((e) => ({ element: e.element, text: e.text, words: e.words,
+      hits: new Array(e.candidates).fill(null) }))
+    : null;
+  return { targets: unique, provenance, source, integrity, duplicates, containers, retrieval };
 }
 
 // Depth-1 callee BODIES for the analysed function.
@@ -743,9 +772,17 @@ export async function doClaimChart(index, args, opts = {}) {
   let retrieval = null;
   if (args.targets) {
     try { ({ targets, provenance: targetProvenance, source: targetSource, integrity: targetIntegrity,
-      duplicates: targetDuplicates, containers: targetContainers } = parseTargets(args.targets)); }
+      duplicates: targetDuplicates, containers: targetContainers, retrieval } = parseTargets(args.targets)); }
     catch (e) { console.error(e.message); process.exitCode = 1; return; }
     if (!targets.length) { console.error('No targets parsed.'); process.exitCode = 1; return; }
+    // A locate file that carries attribution restores the `Retrieval by element`
+    // table to the locate->chart path. Without it the two paths produced
+    // artifacts of different evidentiary quality from the same work.
+    if (retrieval) {
+      targetProvenance = [...targetProvenance,
+        `Retrieval: attribution carried from the targets file — ${retrieval.length} element(s)`
+        + ` searched with their own predicted vocabulary during --claim-locate.`];
+    }
   } else {
     if (!claimsCostGate(model, [{ inChars: claimText.length + 2000, outTokens: 600 }],
       'claim-chart per-element retrieval (1 call)', args)) return;

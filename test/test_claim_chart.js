@@ -1040,3 +1040,82 @@ describe('verdict semantics reach the artifact, not just the prompt', () => {
     assert.ok(!/NEGATIVE —/.test(p) && !/CHOICE —/.test(p), 'untagged claims get no tags');
   });
 });
+
+// THE READ-BACK HALF. Metadata nothing consumes is documentation, not a fix:
+// the stated purpose is closing the locate->chart loop, so the chart has to
+// render the same `Retrieval by element` table it renders when it retrieved for
+// itself.
+describe('a locate file restores the retrieval table to the chart', () => {
+  const TMP = fileURLToPath(new URL('./.tmp-targets-attrib.txt', import.meta.url));
+  const FILE = [
+    '# Produced by CodeExam v0.5.0 --claim-locate --per-element-select',
+    '# Attribution: per-element retrieval, 2 element(s)',
+    '',
+    '# Element 4: selecting a cipher suite from a set of supported cipher suites',
+    '# Element-words: select, suite, supported',
+    '# Element-candidates: 8',
+    'CipherNegotiator.java@CipherNegotiator::selectCipherSuites',
+    'ConnectionConfig.java@ConnectionConfig::getMinKeyBits',
+    '',
+    '# Element 10: transmitting application data over an encrypted channel',
+    '# Element-words: transmit, send, encrypt',
+    '# Element-candidates: 25',
+    'tls.c@tls_send_encrypted',
+    '',
+  ].join('\n');
+
+  it('parses attribution into the shape the renderer already consumes', (t) => {
+    t.after(() => { if (fs.existsSync(TMP)) fs.unlinkSync(TMP); });
+    fs.writeFileSync(TMP, FILE);
+    const r = parseTargets(`@${TMP}`);
+    assert.equal(r.targets.length, 3);
+    assert.equal(r.retrieval.length, 2);
+    assert.deepEqual(r.retrieval[0].words, ['select', 'suite', 'supported']);
+    // `hits` is a length-only stand-in — the table reports the COUNT, and the
+    // file records the count rather than the candidates themselves.
+    assert.equal(r.retrieval[0].hits.length, 8);
+    assert.equal(r.retrieval[1].hits.length, 25);
+  });
+
+  it('renders the same table the self-retrieval path renders', (t) => {
+    t.after(() => { if (fs.existsSync(TMP)) fs.unlinkSync(TMP); });
+    fs.writeFileSync(TMP, FILE);
+    const { retrieval, targets } = parseTargets(`@${TMP}`);
+    // The table lives in formatChart, not the provenance header.
+    const { table, elements } = buildChartTable(CLAIM);
+    const h = formatChart({ claimText: CLAIM, table, elements, fills: [], targets,
+      engineLabel: 'x', retrieval });
+    assert.match(h, /## Retrieval by element/);
+    assert.match(h, /\| 4 \| select, suite, supported \| 8 \|/);
+    assert.match(h, /\| 10 \| transmit, send, encrypt \| 25 \|/);
+  });
+
+  it('the element markers do NOT leak into provenance prose', (t) => {
+    t.after(() => { if (fs.existsSync(TMP)) fs.unlinkSync(TMP); });
+    fs.writeFileSync(TMP, FILE);
+    const r = parseTargets(`@${TMP}`);
+    assert.ok(!r.provenance.some((l) => /^Element[ -]/i.test(l)),
+      'recognised markers are structure, not prose');
+    assert.ok(r.provenance.some((l) => /Produced by CodeExam/.test(l)), 'real provenance still carried');
+  });
+
+  it('an OLD file with no markers parses exactly as before', (t) => {
+    t.after(() => { if (fs.existsSync(TMP)) fs.unlinkSync(TMP); });
+    fs.writeFileSync(TMP, '# hand-written\na.java@one\nb.java@two\n');
+    const r = parseTargets(`@${TMP}`);
+    assert.deepEqual(r.targets, ['a.java@one', 'b.java@two']);
+    assert.equal(r.retrieval, null, 'no attribution means no table, not an empty one');
+    assert.deepEqual(r.provenance, ['hand-written']);
+  });
+
+  it('the checksum is over TARGETS — comments cannot move it', (t) => {
+    t.after(() => { if (fs.existsSync(TMP)) fs.unlinkSync(TMP); });
+    const bare = ['CipherNegotiator.java@CipherNegotiator::selectCipherSuites',
+      'ConnectionConfig.java@ConnectionConfig::getMinKeyBits', 'tls.c@tls_send_encrypted'];
+    fs.writeFileSync(TMP, FILE);
+    const withAttrib = parseTargets(`@${TMP}`).targets;
+    fs.writeFileSync(TMP, bare.join('\n'));
+    assert.equal(targetsChecksum(withAttrib), targetsChecksum(parseTargets(`@${TMP}`).targets),
+      'adding attribution must not invalidate a checksum already issued');
+  });
+});

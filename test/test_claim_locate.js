@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import {
   splitClaimElements, subdivideElement, parseElementsFile, retrievePerElement,
   classifyLimitation, limitationTag, directionOf, directionalMismatch,
+  buildTargetsFileBody, attributeTargets,
   repairStrayAndComma, isPreambleRow,
   SPLIT_DEFAULTS,
   buildProposePrompt, buildIndexProfile, formatLocateReport,
@@ -1412,5 +1413,70 @@ describe('directional check stays a minority signal', () => {
     assert.equal(warn, 38, 'firing rate over every element x symbol pair');
     assert.ok(warn / pairs < 0.05,
       `a warning on more than a few percent of pairs is noise, not signal (${warn}/${pairs})`);
+  });
+});
+
+// ATTRIBUTION IS THE ONE THING PER-ELEMENT RETRIEVAL KNOWS AND THE FILE DROPPED.
+// Stdout carried it during the run; --targets-out did not, so a chart fed a
+// locate file could not render the table that distinguishes "examined and found
+// nothing" from "had nothing to examine".
+describe('--targets-out carries which limitation each target answers', () => {
+  const mk = (n, f, el) => ({ match: { name: n, filepath: `idx!src/${f}` }, verified: true, element: el });
+  const hit = (n, f) => ({ sym: { name: n, filepath: `idx!src/${f}` } });
+  const FOUND = [mk('CipherNegotiator::selectCipherSuites', 'CipherNegotiator.java'),
+    mk('ConnectionConfig::getMinKeyBits', 'ConnectionConfig.java'),
+    mk('tls_send_encrypted', 'tls.c')];
+  const DISC = [
+    { element: 4, text: 'selecting a cipher suite from a set of supported cipher suites',
+      words: ['select', 'suite', 'supported'],
+      hits: [hit('CipherNegotiator::selectCipherSuites', 'CipherNegotiator.java'),
+        hit('ConnectionConfig::getMinKeyBits', 'ConnectionConfig.java')] },
+    { element: 10, text: 'transmitting application data over an encrypted channel',
+      words: ['transmit', 'send', 'encrypt'], hits: [hit('tls_send_encrypted', 'tls.c')] },
+  ];
+
+  it('groups targets under their element, with words and candidate count', () => {
+    const body = buildTargetsFileBody({ provenance: ['Produced by CodeExam'], found: FOUND, discovery: DISC });
+    assert.match(body, /# Element 4: selecting a cipher suite/);
+    assert.match(body, /# Element-words: select, suite, supported/);
+    assert.match(body, /# Element-candidates: 2/);
+    // The targets under a block are that element's, not a flat dump.
+    const block = body.slice(body.indexOf('# Element 4:'), body.indexOf('# Element 10:'));
+    assert.ok(block.includes('CipherNegotiator.java@CipherNegotiator::selectCipherSuites'));
+    assert.ok(!block.includes('tls.c@tls_send_encrypted'), 'element 10 target must not sit under element 4');
+  });
+
+  it('every target appears EXACTLY ONCE — the checksum is over targets', () => {
+    const body = buildTargetsFileBody({ provenance: [], found: FOUND, discovery: DISC });
+    const lines = body.split('\n').filter((l) => l.trim() && !l.startsWith('#'));
+    assert.equal(lines.length, 3);
+    assert.equal(new Set(lines).size, 3, 'a target duplicated across blocks would change the list');
+  });
+
+  it('attribution survives POOLED selection, because RETRIEVAL is per-element', () => {
+    // The distinction the item turns on: rows carry no element when selection
+    // was pooled, so attribution has to come from which element's retrieval
+    // surfaced the symbol.
+    const pooled = FOUND.map((r) => ({ ...r, element: undefined }));
+    const { groups } = attributeTargets(pooled, DISC);
+    assert.deepEqual(groups.map((g) => g.targets.length), [2, 1]);
+  });
+
+  it('a target NO element claims still ships, and says so', () => {
+    // Silently dropping one would make the file disagree with the run.
+    const extra = [...FOUND, mk('Orphan::method', 'Orphan.java')];
+    const body = buildTargetsFileBody({ provenance: [], found: extra, discovery: DISC });
+    assert.match(body, /# Element: unattributed — 1 target\(s\)/);
+    assert.ok(body.includes('Orphan.java@Orphan::method'));
+    assert.equal(body.split('\n').filter((l) => l.trim() && !l.startsWith('#')).length, 4);
+  });
+
+  it('HUNT mode keeps today format — no empty markers', () => {
+    // Empty element markers would read as "examined, nothing found", which is
+    // the exact distinction this item exists to preserve.
+    const body = buildTargetsFileBody({ provenance: ['p'], found: FOUND, discovery: DISC, mode: 'hunt' });
+    assert.ok(!body.includes('# Element '));
+    assert.match(body, /# Attribution: none — produced by hunt mode/);
+    assert.equal(body.split('\n').filter((l) => l.trim() && !l.startsWith('#')).length, 3);
   });
 });
