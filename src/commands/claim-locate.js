@@ -1293,12 +1293,26 @@ export function targetsChecksum(targets) {
 // premise is "this is exactly what CE produced", the block a reader leans on
 // hardest to check that premise must not be the one block a human wrote.
 //
+// What the list IS, in one line a reader can act on. Cloud engines sample and
+// expose no seed; the local path decodes greedily at temperature 0. Neither
+// statement promises repeatability — the first says it is one draw, the second
+// says which decode mode produced it.
+export function samplingLine(model, runs = 1) {
+  const r = `Runs: ${runs}${runs > 1 ? ' (targets unioned across runs)' : ''}.`;
+  if (!model) return `unknown engine. ${r}`;
+  if (model.kind === 'gguf') {
+    return `local GGUF, temperature 0 (greedy decoding, no RNG). ${r}`;
+  }
+  return `cloud engine, no seed control — this list is ONE SAMPLE and an`
+    + ` identical command may produce a different one. ${r}`;
+}
+
 // Mode flags print from the PARSED ARGS, not from a re-render of argv, so a
 // truncated or reconstructed command line cannot misreport the mode that ran.
 export function buildTargetsProvenance({
   ceVersion, engine, blind, hunt, mode, indexPath, indexFiles, indexSymbols,
   claimSource, claimChars, elements, argv, generatedAt, targets,
-  perElementSelect, selectionCalls,
+  perElementSelect, selectionCalls, sampling,
 }) {
   const flags = [hunt ? '--hunt' : null, blind ? '--blind' : null,
     perElementSelect ? '--per-element-select' : null].filter(Boolean).join(' ');
@@ -1313,6 +1327,23 @@ export function buildTargetsProvenance({
       : 'Selection: pooled — one model call chose across all elements at once');
   }
   lines.push(`Engine: ${engine}`);
+  // SAY WHAT THIS LIST IS. Measured 2026-08-12 on .demo x sample_patent_claim:
+  // identical --per-element-select invocations lost element group (e) in 3 of 7
+  // runs, mean pairwise difference 5.9 targets (worst 11), stable core 72%. A
+  // chart built from a losing run reports (e) ABSENT; from a winning run,
+  // PRESENT. The verdict on a limitation flips between identical commands.
+  //
+  // Nothing on the artifact disclosed it. The Targets-checksum guards against
+  // the list being EDITED, not against its GENERATION being unstable, so both
+  // runs pass their own integrity check while disagreeing with each other.
+  //
+  // The claim made here is exactly the claim measured: the local line states
+  // the DECODE MODE that was used, never that output is identical — greedy
+  // decoding uses no RNG, but floating-point non-associativity in GPU kernels
+  // is not something a flag fixes, and whether it bites has not been measured.
+  // (`--reproducible` is parsed by the GUI server and reaches no CLI command;
+  // a provenance line naming a seed would vouch for a pin that never happened.)
+  if (sampling) lines.push(`Sampling: ${sampling}`);
   lines.push(`Index: ${indexPath || 'unknown'}${indexFiles != null ? ` (${indexFiles} files` : ''}${
     indexSymbols != null ? `${indexFiles != null ? ', ' : ' ('}${indexSymbols} symbols)` : (indexFiles != null ? ')' : '')}`);
   lines.push(`Claim: ${claimSource || 'inline text'}${claimChars != null ? ` (${claimChars} chars` : ''}${
@@ -1663,6 +1694,10 @@ export async function doClaimLocate(index, args, opts = {}) {
     engine: describeEngine(model),
     blind, hunt, mode: modeLabel,
     perElementSelect, selectionCalls,
+    // Runs is 1 because --runs is NOT implemented. Deliberately no flag: an
+    // accepted-but-inert `--runs 3` would be the same defect this item found in
+    // `--reproducible`, which the GUI server parses and no CLI command reads.
+    sampling: samplingLine(model),
     indexPath: args.index_path || '(unknown)',
     indexFiles: index.files ? (index.files.size ?? index.files.length ?? null) : null,
     indexSymbols: symbols.length,

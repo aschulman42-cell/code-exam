@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import {
   splitClaimElements, subdivideElement, parseElementsFile, retrievePerElement,
   classifyLimitation, limitationTag, directionOf, directionalMismatch,
-  buildTargetsFileBody, attributeTargets,
+  buildTargetsFileBody, attributeTargets, samplingLine,
   repairStrayAndComma, isPreambleRow,
   SPLIT_DEFAULTS,
   buildProposePrompt, buildIndexProfile, formatLocateReport,
@@ -1478,5 +1478,57 @@ describe('--targets-out carries which limitation each target answers', () => {
     assert.ok(!body.includes('# Element '));
     assert.match(body, /# Attribution: none — produced by hunt mode/);
     assert.equal(body.split('\n').filter((l) => l.trim() && !l.startsWith('#')).length, 3);
+  });
+});
+
+// A LIST THAT CANNOT SAY WHETHER IT REPEATS. Measured 2026-08-12, .demo x
+// sample_patent_claim: identical --per-element-select invocations lost element
+// group (e) in 3 of 7 runs. A chart built from a losing run reports (e) ABSENT;
+// from a winning run, PRESENT. Both runs emit a clean header and a valid
+// Targets-checksum — which guards against the list being EDITED, not against
+// its GENERATION being unstable.
+describe('the targets file says what kind of sample it is', () => {
+  it('a cloud list says it is ONE SAMPLE', () => {
+    const s = samplingLine({ kind: 'cloud', provider: { label: 'Anthropic' } });
+    assert.match(s, /cloud engine, no seed control/);
+    assert.match(s, /ONE SAMPLE/);
+    assert.match(s, /Runs: 1\./);
+  });
+
+  it('a local list states the DECODE MODE, and does not promise identity', () => {
+    // The claim made must be exactly the claim measured. Greedy decoding uses
+    // no RNG, but floating-point non-associativity in GPU kernels is not
+    // something a flag fixes and whether it bites here is unmeasured.
+    const s = samplingLine({ kind: 'gguf', modelPath: '/m/gemma.gguf' });
+    assert.match(s, /temperature 0 \(greedy decoding, no RNG\)/);
+    assert.ok(!/identical|reproducib|deterministic/i.test(s),
+      'must not claim repeatability that has not been measured');
+  });
+
+  it('never names a seed — --reproducible reaches no CLI command', () => {
+    // An earlier draft of this proposed a `seed 42 (--reproducible)` line.
+    // `grep -rn "args.reproducible" src/commands/` returns nothing: the flag is
+    // parsed by the GUI server and forwarded to it, and ggufDescriptor takes no
+    // seed. The line would have vouched for a pin that never happened.
+    for (const m of [{ kind: 'gguf' }, { kind: 'cloud', provider: {} }, null]) {
+      const s = samplingLine(m);
+      // Saying "no seed control" is the honest cloud disclosure; what must
+      // never appear is a line asserting a seed WAS pinned.
+      assert.ok(!/seed\s+\d|seed[:=]|--reproducible/i.test(s),
+        `must not vouch for a seed that was never set: ${s}`);
+    }
+    assert.match(samplingLine({ kind: 'cloud', provider: {} }), /no seed control/,
+      'the cloud line still says the absence out loud');
+  });
+
+  it('reaches the provenance block a targets file carries', () => {
+    const lines = buildTargetsProvenance({
+      ceVersion: '0.5.0', engine: 'Anthropic — claude (cloud LLM)', mode: 'symbol-table discovery',
+      targets: ['a@b'], generatedAt: 'now', sampling: samplingLine({ kind: 'cloud', provider: {} }),
+    });
+    assert.ok(lines.some((l) => /^Sampling: cloud engine/.test(l)));
+    // And it is absent when nothing was passed, rather than rendering blank.
+    const none = buildTargetsProvenance({ mode: 'm', targets: ['a@b'], generatedAt: 'now' });
+    assert.ok(!none.some((l) => /^Sampling:/.test(l)));
   });
 });
