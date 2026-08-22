@@ -1532,3 +1532,93 @@ describe('the targets file says what kind of sample it is', () => {
     assert.ok(!none.some((l) => /^Sampling:/.test(l)));
   });
 });
+
+// A WORD THAT MATCHES NOTHING IS NOT A WEAK SIGNAL, IT IS NO SIGNAL.
+// Matching is substring and rarity is log(total/count), so count 0 scores
+// exactly 0 while occupying one of the model's 4-10 slots. Measured on
+// ExoPlayer3 (65,370 symbols): determining 0 / determine 11 with the '101 crux
+// at #1; storing 0 / store 87. F74 — gerunds are dead across the board.
+describe('dead words are repaired, live words are not touched', () => {
+  const SYMS = [
+    { name: 'AdaptiveTrackSelection::determineIdealSelectedIndex', filepath: 'a.java' },
+    { name: 'BufferStore::storeChunk', filepath: 'b.java' },
+    { name: 'Encoder::processingLoop', filepath: 'c.java' },
+  ];
+  const run = (words) => {
+    const repairs = [];
+    const hits = searchSymbolsByWords(SYMS, words, { limit: 10, onRepair: (r) => repairs.push(...r) });
+    return { repairs, names: hits.map((h) => h.sym.name) };
+  };
+
+  it('a zero-match gerund is repaired to its base form', () => {
+    const { repairs, names } = run(['determining']);
+    assert.deepEqual(repairs.map((r) => [r.from, r.to]), [['determining', 'determine']]);
+    assert.ok(names.some((n) => n.includes('determineIdealSelectedIndex')),
+      'the crux enters the candidate set at all, which it could not before');
+  });
+
+  it('A WORD THAT ALREADY MATCHES IS LEFT ALONE — the load-bearing restriction', () => {
+    // processing (188) -> process (1636) on the real index is a 9x rarity
+    // dilution. Repairing words that work trades signal for recall, which is
+    // the zero-sum trade this project has confirmed five times.
+    const { repairs } = run(['processing']);
+    assert.deepEqual(repairs, [], 'processingLoop matches, so nothing is repaired');
+  });
+
+  it('a word whose stem ALSO matches nothing is not reported as repaired', () => {
+    // Silence must mean "nothing to do", not "did something invisible".
+    const { repairs } = run(['zzznotaword', 'quuxing']);
+    assert.deepEqual(repairs, []);
+  });
+
+  it('reports what it substituted, with both counts', () => {
+    // The search ran a different query than the model proposed. That has to be
+    // visible, not silently better.
+    const { repairs } = run(['storing']);
+    assert.equal(repairs[0].from, 'storing');
+    assert.equal(repairs[0].to, 'store');
+    assert.ok(repairs[0].matches > 0, 'names the evidence for the substitution');
+  });
+
+  it('handles the inflections it claims to, and refuses short stems', () => {
+    assert.deepEqual(run(['storing']).repairs.map((r) => r.to), ['store']);
+    // A 3-char stem is noise under substring matching — `sing` -> `sin` would
+    // match `single`, `using`, `parsing`.
+    const { repairs } = run(['sing']);
+    assert.deepEqual(repairs, []);
+  });
+
+  it('a live word and a dead word in the same set are handled independently', () => {
+    const { repairs, names } = run(['processing', 'determining']);
+    assert.deepEqual(repairs.map((r) => r.from), ['determining']);
+    assert.ok(names.length >= 2, 'both words still contribute');
+  });
+});
+
+describe('the discover prompt no longer asserts a falsehood', () => {
+  const P = buildDiscoverPrompt();
+
+  it('drops "never share vocabulary"', () => {
+    // False on the '101 claim, and it forbade the one strategy that works:
+    // the claim says "code rate DETERMINING unit", the code says
+    // determineIdealSelectedIndex, and `determine` ranks it #1 of 65,370.
+    assert.ok(!/never share/i.test(P));
+    assert.match(P, /USUALLY differ/);
+  });
+
+  it('resolves the contradiction with its own example', () => {
+    // The example always kept `persist` and `transaction` from the claim while
+    // the prose forbade claim words. A model obeying the prose was correct.
+    assert.match(P, /come straight from the claim and are kept/);
+  });
+
+  it('states the base-form rule, since it is measured', () => {
+    assert.match(P, /BASE FORMS, not -ing forms/);
+  });
+
+  it('KEEPS the developer-vocabulary pressure', () => {
+    // The translation instinct is right on most claims; only "never" was wrong.
+    assert.match(P, /what programmers call/);
+    assert.match(P, /NO patent boilerplate/);
+  });
+});
