@@ -8,6 +8,13 @@
 # Windows batch files: CRLF is conventional.
 *.bat        text eol=crlf
 
+# Recorded test fixtures are replayed byte-for-byte — never EOL-normalize them.
+# test_synonymize replays the exact Gemini rewrite that introduced a stray
+# ", and" (the case 90d8f79 exists for), and test_claim_locate measures element
+# splitting against claim text. Without this the checkout depends on each
+# contributor's core.autocrlf: CRLF on a default Windows clone, LF on Linux CI.
+test/fixtures/** text eol=lf
+
 # Binary assets — never normalize or line-ending-mangle.
 *.wasm       binary
 *.gguf       binary
