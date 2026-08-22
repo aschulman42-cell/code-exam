@@ -475,6 +475,62 @@ export function parseElementWords(text) {
 // profile. Nothing it returns can be answered from memory of a repository,
 // which is the property the whole air-gapped argument rests on.
 // Step 2 involves no model at all — CE greps its own symbol table.
+// DIRECTION: a limitation about SENDING should not be answered by a function
+// named `receive`.
+//
+// Observed live 2026-08-16: element 10, "conveying application-layer information
+// through a cryptographically protected communication path" — transmitting — had
+// its vocabulary step predict `receive`, and retrieval faithfully returned
+// `receiveSecureData`. The corpus held `sendSecureData`, `sendMessage` and
+// `tls_send_encrypted`; none was retrieved for that element. Only the analysis
+// step stopped it becoming a citation, which means it reaches the chart whenever
+// analysis does not.
+//
+// Named in the rules independently of this observation
+// (docs/claim-chart-rules-checklist.md B6, from Part IV): charts "often confuse
+// client/send/write with server/receive/read". Recorded there as mechanically
+// checkable and not yet checked.
+//
+// Deliberately small and explicit, not an ontology.
+const DIRECTION_WORDS = {
+  limitation: {
+    outbound: ['transmit', 'transmitting', 'send', 'sending', 'convey', 'conveying',
+      'write', 'writing', 'publish', 'emit', 'upload', 'push'],
+    inbound: ['receive', 'receiving', 'read', 'reading', 'accept', 'accepting',
+      'consume', 'download', 'fetch', 'pull', 'obtain'],
+  },
+  symbol: {
+    outbound: ['send', 'transmit', 'write', 'publish', 'emit', 'upload', 'push', 'put', 'post'],
+    inbound: ['receive', 'recv', 'read', 'accept', 'consume', 'download', 'fetch', 'pull', 'get', 'listen'],
+  },
+};
+
+// One direction, or null. BOTH directions yields null, and so does neither:
+// silence has to mean "no signal", never "checked and fine".
+export function directionOf(text, kind = 'limitation') {
+  const t = String(text || '').toLowerCase();
+  const table = DIRECTION_WORDS[kind] || DIRECTION_WORDS.limitation;
+  const has = (words) => words.some((w) => new RegExp(`\\b${w}`, 'i').test(t));
+  const out = has(table.outbound);
+  const inb = has(table.inbound);
+  if (out === inb) return null;
+  return out ? 'outbound' : 'inbound';
+}
+
+// A mismatch, or null. WARNS ONLY — nothing is filtered and nothing is
+// re-ranked. A send/receive pair can legitimately be the right citation: a
+// duplex channel, a function that does both, a limitation about the link rather
+// than either end. Suppressing the candidate would be the worse error, and
+// broadening term sets to "fix" retrieval has come out zero-sum four times on
+// this project. The retrieved set is byte-identical with this change.
+export function directionalMismatch(limitationText, symbolName) {
+  const lim = directionOf(limitationText, 'limitation');
+  if (!lim) return null;
+  const sym = directionOf(symbolName, 'symbol');
+  if (!sym || sym === lim) return null;
+  return { limitation: lim, symbol: sym };
+}
+
 export async function retrievePerElement({ draft, elements, symbols, opts = {} }) {
   const sys = buildDiscoverPrompt();
   const user = `CLAIM ELEMENTS:\n` + elements.map((e, i) => `${i + 1}. ${e}`).join('\n');
@@ -491,8 +547,21 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
       limit: opts.candidatesPerElement ?? LOCATE_DEFAULTS.candidatesPerElement,
       includeTests: !!opts.includeTests,
     });
-    perElement.push({ element, text: (elements[element - 1] || '').slice(0, 160), words, hits });
-    opts.onElement?.({ element, words, hits });
+    // Attach the direction verdict to each hit rather than recomputing it in
+    // every consumer — the limitation text is here and nowhere downstream.
+    const limText = elements[element - 1] || '';
+    let mismatches = 0;
+    for (const h of hits) {
+      const mm = directionalMismatch(limText, h.sym?.name || '');
+      if (mm) { h.directionalMismatch = mm; mismatches += 1; }
+    }
+    if (mismatches) {
+      process.stderr.write(`    ⚠ element ${element}: ${mismatches} candidate(s) point the`
+        + ` OPPOSITE direction to the limitation (${directionOf(limText)}) — not filtered,`
+        + ` verify before citing\n`);
+    }
+    perElement.push({ element, text: limText.slice(0, 160), words, hits, mismatches });
+    opts.onElement?.({ element, words, hits, mismatches });
   }
   return { perElement, raw, error: null, prompt: { sys, user } };
 }

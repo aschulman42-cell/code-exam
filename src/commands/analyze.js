@@ -2526,6 +2526,15 @@ async function _doClaimSingleAnalyze(ext, claimText, args, maskAll, showPrompt, 
   if (ext.via === 'per-element') {
     console.log(`  Retrieved by: per-element search for element ${ext.element}`
       + `${ext.elementWords && ext.elementWords.length ? ` [${ext.elementWords.join(', ')}]` : ''}`);
+    // Beside the retrieval provenance, because that is where a reader is
+    // already asking "why is this function in front of me". A limitation about
+    // sending answered by a function named `receive` is B6 in the rules, and it
+    // reached this point once already (2026-08-16). Stated, never filtered.
+    if (ext.directionalMismatch) {
+      console.log(`  ⚠ DIRECTION: the limitation is ${ext.directionalMismatch.limitation}`
+        + ` and this symbol reads as ${ext.directionalMismatch.symbol}`
+        + ` — verify before citing; it may still be correct (duplex, or a function that does both)`);
+    }
   }
   console.log(`  Claim: ${claimText.slice(0, 80)}${claimText.length > 80 ? '...' : ''}`);
   if (maskAll) console.log('  Masked: comments, strings, identifiers');

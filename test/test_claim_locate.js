@@ -15,7 +15,7 @@ import {
 import fs from 'node:fs';
 import {
   splitClaimElements, subdivideElement, parseElementsFile, retrievePerElement,
-  classifyLimitation, limitationTag,
+  classifyLimitation, limitationTag, directionOf, directionalMismatch,
   repairStrayAndComma, isPreambleRow,
   SPLIT_DEFAULTS,
   buildProposePrompt, buildIndexProfile, formatLocateReport,
@@ -1331,5 +1331,86 @@ describe('detector reach over 5,397 real independent claims', () => {
     assert.equal(comprising, 5089, 'control: comprising, 94.3%');
     assert.ok(choice + negative < claims.length * 0.2,
       'annotations must stay a minority — a tag on every row carries no information');
+  });
+});
+
+// B6 FROM THE RULES, NOW CHECKED. "Don't use a DoSend() function to meet a
+// limitation which reads a message." Recorded as mechanically checkable and not
+// yet checked; it fired 2026-08-16 on element 10 of a real run.
+describe('directional mismatch is reported, never filtered', () => {
+  const CONVEY = 'conveying application-layer information through a cryptographically protected communication path';
+
+  it('the observed case warns, naming both sides', () => {
+    const mm = directionalMismatch(CONVEY, 'NetworkManager::receiveSecureData');
+    assert.deepEqual(mm, { limitation: 'outbound', symbol: 'inbound' });
+  });
+
+  it('the CORRECT candidate for the same element does not warn', () => {
+    // The corpus held these and none was retrieved for element 10. If they
+    // warned too, the signal would be worthless.
+    for (const s of ['NetworkManager::sendSecureData', 'tls_send_encrypted', 'SecureChannel::sendMessage']) {
+      assert.equal(directionalMismatch(CONVEY, s), null, s);
+    }
+  });
+
+  it('silence means NO SIGNAL, not "checked and fine"', () => {
+    // Both directions present -> no verdict. A duplex limitation is exactly the
+    // case where a warning would be wrong.
+    assert.equal(directionOf('receiving a request and transmitting a response'), null);
+    assert.equal(directionalMismatch('receiving a request and transmitting a response', 'sendData'), null);
+    // Neither direction present -> no verdict.
+    assert.equal(directionOf('determining a code rate based on a remaining time'), null);
+    assert.equal(directionalMismatch('determining a code rate', 'receiveData'), null);
+  });
+
+  it('an ambiguous SYMBOL is not convicted either', () => {
+    // `sendOrReceive` reads both ways; a warning there would be noise.
+    assert.equal(directionalMismatch(CONVEY, 'Channel::sendOrReceive'), null);
+  });
+
+  it('inbound limitations are checked in the same direction', () => {
+    assert.deepEqual(directionalMismatch('receiving a certificate chain from the server', 'transmitChain'),
+      { limitation: 'inbound', symbol: 'outbound' });
+    assert.equal(directionalMismatch('receiving a certificate chain from the server', 'readChain'), null);
+  });
+
+  it('THE SET IS UNCHANGED — this warns and must never filter or re-rank', () => {
+    // The property that makes it safe to ship before it is measured. n=1 on the
+    // false-positive rate, so the change must not be able to alter a result.
+    const syms = [
+      { name: 'NetworkManager::receiveSecureData', filepath: 'a.java' },
+      { name: 'NetworkManager::sendSecureData', filepath: 'a.java' },
+    ];
+    const before = searchSymbolsByWords(syms, ['secure', 'data'], { limit: 10 }).map((h) => h.sym.name);
+    const after = searchSymbolsByWords(syms, ['secure', 'data'], { limit: 10 }).map((h) => h.sym.name);
+    assert.deepEqual(after, before, 'retrieval is untouched by this item');
+    assert.ok(before.includes('NetworkManager::receiveSecureData'),
+      'the mismatched candidate is still RETURNED — warning only');
+  });
+});
+
+// THE FIRING RATE AS A NUMBER, because "n=1 on the false-positive rate" is the
+// draft's own caveat and an unmeasured warning becomes noise nobody reads.
+describe('directional check stays a minority signal', () => {
+  const IDX = '.demo_code_only';
+  const have = fs.existsSync(IDX) && fs.existsSync('test/fixtures/sample_patent_claim.txt');
+
+  it('gates on directional limitations only, and fires on ~2% of pairs', { skip: !have }, async () => {
+    const { CodeSearchIndex } = await import('../src/core/CodeSearchIndex.js');
+    const { buildSymbolTable } = await import('../src/core/symbol-verify.js');
+    const idx = new CodeSearchIndex({ indexPath: IDX });
+    idx._ensureFunctionIndex();
+    const syms = buildSymbolTable(idx);
+    const els = splitClaimElements(fs.readFileSync('test/fixtures/sample_patent_claim.txt', 'utf-8'));
+
+    const directional = els.filter((e) => directionOf(e)).length;
+    assert.equal(directional, 2, 'only 2 of 11 limitations are unambiguously directional');
+
+    let pairs = 0, warn = 0;
+    for (const e of els) for (const s of syms) { pairs += 1; if (directionalMismatch(e, s.name)) warn += 1; }
+    assert.equal(pairs, els.length * syms.length);
+    assert.equal(warn, 38, 'firing rate over every element x symbol pair');
+    assert.ok(warn / pairs < 0.05,
+      `a warning on more than a few percent of pairs is noise, not signal (${warn}/${pairs})`);
   });
 });
