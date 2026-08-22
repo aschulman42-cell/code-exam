@@ -34,7 +34,7 @@ import { buildClaimAnalyzePrompt, addLineNumbers, readClaimFile } from './analyz
 // input without saying so is how the next version of this bug hides.
 const _noteComments = (n, f) => process.stderr.write(
   `  Claim file ${f}: ignored ${n} '#' comment line(s) (provenance, not claim text).\n`);
-import { splitClaimElements, targetsChecksum, dedupeTargets, parseElementsFile, retrievePerElement, isPreambleRow } from './claim-locate.js';
+import { splitClaimElements, targetsChecksum, dedupeTargets, parseElementsFile, retrievePerElement, isPreambleRow, limitationTag, classifyLimitation } from './claim-locate.js';
 import { readCeVersion } from '../utils.js';
 import { buildSymbolTable, verifySymbol, isFound, navigateFrom } from '../core/symbol-verify.js';
 import { parseAnalysisLabels, lexicalGate } from './claims-loop.js';
@@ -159,7 +159,11 @@ export function buildChartTable(claimText, opts = {}) {
   const elements = (opts.elements && opts.elements.length)
     ? opts.elements
     : splitClaimElements(claimText);
-  const lines = ['| # | Claim element | CE finding | Cited code |', '|---|---|---|---|'];
+  // The header is where a reader forms their interpretation of the column, and
+  // "CE finding" invited the wrong one. The verdict answers whether the
+  // LIMITATION is met, not whether the recited feature appears — the same word
+  // on a negative limitation would otherwise read backwards.
+  const lines = ['| # | Claim element | CE finding — is the limitation met? | Cited code |', '|---|---|---|---|'];
   elements.forEach((e, i) => {
     // Part B: mark the preamble row.
     //
@@ -285,8 +289,20 @@ export function collectCalleeBodies(index, symbols, seed, opts = {}) {
 // chart appends its own explicit contract and parses that.
 export function buildChartAnalysisPrompt(src, fnName, filepath, claimText, elements) {
   const base = buildClaimAnalyzePrompt(src, fnName, filepath, claimText, false);
-  const rows = elements.map((e, i) => `ELEMENT ${i + 1}: ${String(e).slice(0, 150)}`).join('\n');
+  // The tag travels with the element, so the model judges the right question.
+  // Deterministic regex, not a model construing a claim — see classifyLimitation.
+  const rows = elements.map((e, i) => {
+    const tag = limitationTag(e);
+    return `ELEMENT ${i + 1}: ${String(e).slice(0, 150)}${tag ? `\n  ${tag}` : ''}`;
+  }).join('\n');
   return `${base}
+
+Each verdict answers ONE question: is this claim limitation MET by this code?
+It does not answer whether the recited feature appears. For most limitations
+those coincide. For a limitation requiring something to be ABSENT they are
+opposites: if the limitation calls for X to be absent and the code does X, the
+limitation is NOT met and the verdict is ABSENT — even though X is plainly
+there. Elements where this applies are tagged below.
 
 The claim has been split into the numbered elements below. AFTER your analysis,
 emit one line per element, in this exact form and nothing else on the line:
@@ -583,8 +599,30 @@ export function formatChart({
   if (scopeNote) { out.push('## Scope'); out.push(''); out.push(scopeNote); out.push(''); }
   out.push('## Chart');
   out.push('');
+  // WHAT THE LABELS MEAN, stated on the artifact rather than only in the prompt.
+  // A definition the model is told and the reader is not leaves the misreading
+  // exactly where it was.
+  out.push('_**PRESENT** / **PARTIAL** / **ASSUMED** / **ABSENT** describe whether the CLAIM');
+  out.push('LIMITATION is met by the cited code — not whether the recited feature appears in it.');
+  out.push('For most limitations those coincide; for a limitation requiring something to be');
+  out.push('absent they are opposites, and such rows are marked._');
+  out.push('');
   out.push(filled);
   out.push('');
+  // Negative rows get a gloss, because a legend is not enough where the word
+  // inverts: a reader seeing ABSENT on a row whose limitation requires X to be
+  // absent will read it as "X is absent", which would mean the limitation IS
+  // met. Same word, opposite conclusion, on the rows where that is worst.
+  const negRows = (elements || []).map((e, i) => ({ n: i + 1, e, c: classifyLimitation(e) }))
+    .filter((r) => r.c.kinds.includes('negative'));
+  if (negRows.length) {
+    out.push('**Negative limitations in this claim** — these rows are met when the recited');
+    out.push('feature is ABSENT from the code, so a verdict of ABSENT means the limitation is');
+    out.push('NOT met (the feature was found), and PRESENT means it is met (the feature was not):');
+    out.push('');
+    for (const r of negRows) out.push(`- Row ${r.n} — cue: \`${r.c.cues.negative}\``);
+    out.push('');
+  }
   out.push(coverageLine(fills, elements.length, elements));
   out.push('');
   out.push('## Analysed targets');

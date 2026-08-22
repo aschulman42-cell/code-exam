@@ -992,3 +992,51 @@ describe('claim-chart: # provenance is not a limitation', () => {
     assert.equal(readClaimFile(fixture('sample_patent_claim.txt')), raw.trim());
   });
 });
+
+// THE LABELS MEAN "IS THE LIMITATION MET", NOT "DOES THE FEATURE APPEAR".
+// Andrew's ruling, 2026-08-22: "if a claim limitation calls for X to be absent,
+// then if X is present, the claim limitation is NOT met."
+describe('verdict semantics reach the artifact, not just the prompt', () => {
+  const NEG = '1. A method comprising: transferring funds in the absence of information about any account of the second party.';
+
+  it('the prompt states what a verdict answers, and tags the row', () => {
+    const els = splitClaimElements(NEG);
+    const p = buildChartAnalysisPrompt('code', 'fn', 'f.c', NEG, els);
+    assert.match(p, /is this claim limitation MET by this code\?/i);
+    // The prompt is hard-wrapped, so assert on a fragment that cannot straddle
+    // a line break — matching across the wrap makes the test brittle against
+    // rewording that changes nothing.
+    assert.match(p, /limitation is NOT met and the verdict is ABSENT/);
+    assert.match(p, /NEGATIVE — met when the recited feature is ABSENT/);
+  });
+
+  it('the CHART carries the definition too — a reader-side legend, not only a prompt', () => {
+    // A definition the model is told and the reader is not leaves the
+    // misreading exactly where it was.
+    const { table, elements } = buildChartTable(NEG);
+    const out = formatChart({ claimText: NEG, table, elements, fills: [], targets: [], engineLabel: 'x' });
+    assert.match(out, /describe whether the CLAIM\nLIMITATION is met/);
+    assert.match(out, /not whether the recited feature appears/);
+  });
+
+  it('names the column as a question, since the header sets the reading', () => {
+    const { table } = buildChartTable(NEG);
+    assert.match(table, /CE finding — is the limitation met\?/);
+  });
+
+  it('glosses negative rows, because the word inverts exactly there', () => {
+    const { table, elements } = buildChartTable(NEG);
+    const out = formatChart({ claimText: NEG, table, elements, fills: [], targets: [], engineLabel: 'x' });
+    assert.match(out, /\*\*Negative limitations in this claim\*\*/);
+    assert.match(out, /ABSENT means the limitation is\nNOT met/);
+    assert.match(out, /cue: `in the absence of`/);
+  });
+
+  it('says NOTHING on a claim with no such construction — no tax on the other 81%', () => {
+    const { table, elements } = buildChartTable(CLAIM);
+    const out = formatChart({ claimText: CLAIM, table, elements, fills: [], targets: [], engineLabel: 'x' });
+    assert.ok(!out.includes('Negative limitations in this claim'));
+    const p = buildChartAnalysisPrompt('code', 'fn', 'f.c', CLAIM, elements);
+    assert.ok(!/NEGATIVE —/.test(p) && !/CHOICE —/.test(p), 'untagged claims get no tags');
+  });
+});

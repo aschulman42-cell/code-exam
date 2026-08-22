@@ -154,6 +154,58 @@ export function subdivideElement(text, opts = {}) {
 // `, and`, `which is`, `for <gerund>-ing`), floored and capped. Practitioners
 // chart '101 claim 1 at ~12 limitations where stage A alone yields 6; no regex
 // reaches practitioner judgement, which is what `--elements @file` is for.
+// WHAT A ROW MEANS ONCE IT IS CUT.
+//
+// The splitter above implements Andrew's Part III rules for CUTTING a claim
+// into rows. Those rules also say what a row MEANS, and that changes what a
+// verdict is worth. Two constructions matter enough to detect:
+//
+//   CHOICE   "at least one of A or B" is satisfied by finding EITHER. Charted
+//            as one row and judged without saying so, an ABSENT may be
+//            reporting "I did not find both" when the claim asks for either.
+//            Measured: 782 of 5,397 real independent claims (14.5%).
+//
+//   NEGATIVE "without X", "in the absence of X" is satisfied when X is NOT
+//            there. This is the dangerous one: the element's whole vocabulary
+//            is the forbidden feature, so a model shown code that does X sees
+//            every word present and answers PRESENT. Andrew's ruling: if the
+//            limitation calls for X to be absent and X is present, the
+//            limitation is NOT met. Measured: 228 of 5,397 (4.2%).
+//
+// Detection is regex and deterministic. It does not change the cut and it does
+// not ask a model to construe a claim — it annotates the row so the analysis
+// knows which question it is answering.
+//
+// `without` carries this on its own (223 of the 228). Checked against the
+// corpus rather than assumed: the phrases following it are "without active
+// intervention", "without using an X", "without user intervention", "without
+// joining the ...". Claim text, not specification boilerplate — no "without
+// limitation" or "without departing from" in the frequency table at all.
+export function classifyLimitation(text) {
+  const t = String(text || '');
+  const cues = {};
+  // `selected from the group consisting of` is a CHOICE, not closed claiming.
+  // The two share the word `consisting` and mean opposite things, which is
+  // exactly the confusion worth pinning in a test.
+  const choice = t.match(/\bat\s+least\s+one\s+of\b|\bselected\s+from\s+the\s+group\s+consisting\s+of\b/i);
+  if (choice) cues.choice = choice[0];
+  const negative = t.match(/\bwithout\b|\bin\s+the\s+absence\s+of\b|\bsubstantially\s+free\s+(?:of|from)\b|\bfree\s+(?:of|from)\b|\bdevoid\s+of\b/i);
+  if (negative) cues.negative = negative[0];
+  const kinds = Object.keys(cues);
+  return { kinds, cues };
+}
+
+// One short tag per element, or '' — the form the prompt and the chart row
+// both use, so the reader sees the same annotation the model was given.
+export function limitationTag(text) {
+  const { kinds } = classifyLimitation(text);
+  if (!kinds.length) return '';
+  const parts = [];
+  if (kinds.includes('choice')) parts.push('CHOICE — met if ANY ONE alternative is found');
+  if (kinds.includes('negative')) parts.push('NEGATIVE — met when the recited feature is ABSENT from the code');
+  return `[${parts.join('; ')}]`;
+}
+
 export function splitClaimElements(claimText, opts = {}) {
   const fine = opts.fine !== false;
   const cap = opts.maxElements ?? SPLIT_DEFAULTS.maxElements;

@@ -15,6 +15,7 @@ import {
 import fs from 'node:fs';
 import {
   splitClaimElements, subdivideElement, parseElementsFile, retrievePerElement,
+  classifyLimitation, limitationTag,
   repairStrayAndComma, isPreambleRow,
   SPLIT_DEFAULTS,
   buildProposePrompt, buildIndexProfile, formatLocateReport,
@@ -1245,5 +1246,90 @@ describe('splitter: preamble identification is POSITIONAL (Part B)', () => {
   it('fails safe when row 1 is not preamble-shaped', () => {
     assert.equal(isPreambleRow('initializing a cryptographic context by creating an object', 0), false);
     assert.equal(isPreambleRow('', 0), false);
+  });
+});
+
+// WHAT A ROW MEANS ONCE IT IS CUT (#310, Andrew's Part III).
+//
+// The splitter's rules say where to cut. These say what the cut row MEANS, and
+// that changes what a verdict is worth. Andrew's ruling, 2026-08-22: the verdict
+// answers "is this limitation MET", never "does this feature appear". On a
+// negative limitation those invert.
+describe('limitation construction is detected, not inferred', () => {
+  it('CHOICE: at least one of — met by ANY ONE alternative', () => {
+    const c = classifyLimitation('at least one of a single-ended encoding circuit or a differential encoding circuit');
+    assert.deepEqual(c.kinds, ['choice']);
+    assert.match(limitationTag('at least one of A or B'), /ANY ONE alternative/);
+  });
+
+  it('CHOICE: "group consisting of" is a choice, NOT closed claiming', () => {
+    // The two share the word `consisting` and mean opposite things. Closed
+    // claiming means extra elements DEFEAT infringement; a Markush group means
+    // any one member satisfies. Getting these backwards inverts the verdict.
+    assert.deepEqual(
+      classifyLimitation('a dopant selected from the group consisting of boron, phosphorus and arsenic').kinds,
+      ['choice']);
+  });
+
+  it('NEGATIVE: the verdict-inverting construction', () => {
+    for (const s of ['in the absence of information about any account',
+      'without user intervention', 'substantially free of chlorine', 'devoid of a binder']) {
+      assert.ok(classifyLimitation(s).kinds.includes('negative'), s);
+    }
+    assert.match(limitationTag('without user intervention'), /met when the recited feature is ABSENT/);
+  });
+
+  it('the CONTROLS must not trigger either annotation', () => {
+    // comprising is in 94.3% of real claims and wherein in 68.7%. A detector
+    // that fired on those would annotate almost every row and mean nothing.
+    for (const s of ['A method comprising: receiving a signal; and decoding it',
+      'wherein the controller is configured to select a mode',
+      'whereby the signal is decoded']) {
+      assert.deepEqual(classifyLimitation(s).kinds, [], s);
+    }
+  });
+
+  it('an element can be BOTH, and says so', () => {
+    const c = classifyLimitation('at least one of A or B, selected without user intervention');
+    assert.deepEqual(c.kinds.sort(), ['choice', 'negative']);
+    const tag = limitationTag('at least one of A or B, selected without user intervention');
+    assert.match(tag, /CHOICE/); assert.match(tag, /NEGATIVE/);
+  });
+
+  it('carries the cue that fired, so a reader can check the call', () => {
+    assert.equal(classifyLimitation('performed without a network').cues.negative, 'without');
+    assert.match(classifyLimitation('at least one of X or Y').cues.choice, /at least one of/i);
+  });
+});
+
+// A REACH NUMBER, not an impression. Re-measured here so a later tuning change
+// shows up as a delta rather than as a vibe.
+describe('detector reach over 5,397 real independent claims', () => {
+  const CORPUS = 'randpat_2020_indep_claims.out.txt';
+  const have = fs.existsSync(CORPUS);
+
+  it('annotates the measured share, and leaves the controls alone', { skip: !have }, () => {
+    const claims = fs.readFileSync(CORPUS, 'utf-8').split(/\r?\n/).filter((l) => l.trim());
+    let choice = 0, negative = 0, comprising = 0;
+    for (const c of claims) {
+      const k = classifyLimitation(c).kinds;
+      if (k.includes('choice')) choice++;
+      if (k.includes('negative')) negative++;
+      if (/\bcomprising\b/i.test(c)) comprising++;
+    }
+    assert.equal(claims.length, 5397, 'corpus size — a change here invalidates the rest');
+    // MEASURED with this detector, not carried over from the proposal. The
+    // draft claimed 725 CHOICE / 276 NEGATIVE over 5,382 claims; none of the
+    // three reproduced. Controls did (comprising 94.3% exactly), so the corpus
+    // is the same one — the proposal's target numbers were simply wrong, and
+    // implementing to them would have meant fitting the detector to a figure
+    // nobody could re-derive.
+    assert.equal(choice, 799, 'CHOICE reach (14.8%)');
+    assert.equal(negative, 236, 'NEGATIVE reach (4.4%)');
+    // The control is the point: comprising appears in nearly every claim, so a
+    // detector drifting toward it would be annotating everything.
+    assert.equal(comprising, 5089, 'control: comprising, 94.3%');
+    assert.ok(choice + negative < claims.length * 0.2,
+      'annotations must stay a minority — a tag on every row carries no information');
   });
 });
