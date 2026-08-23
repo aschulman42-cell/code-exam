@@ -635,19 +635,9 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
   }
   const perElement = [];
   for (const { element, words } of wordSets) {
-    // A repaired word means the search ran a DIFFERENT query than the model
-    // proposed, so it is reported rather than silently substituted.
-    const repaired = [];
     const hits = searchSymbolsByWords(symbols, words, {
       limit: opts.candidatesPerElement ?? LOCATE_DEFAULTS.candidatesPerElement,
       includeTests: !!opts.includeTests,
-      onRepair: (rs) => {
-        repaired.push(...rs);
-        for (const r of rs) {
-          process.stderr.write(`    repaired dead word: ${r.from} -> ${r.to}`
-            + ` (${r.from} matched 0 symbols, ${r.to} matches ${r.matches})\n`);
-        }
-      },
     });
     // Attach the direction verdict to each hit rather than recomputing it in
     // every consumer — the limitation text is here and nowhere downstream.
@@ -690,7 +680,7 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
           + ` (name search did not surface them)\n`);
       }
     }
-    perElement.push({ element, text: limText.slice(0, 160), words, hits, mismatches, repaired, contentAdded });
+    perElement.push({ element, text: limText.slice(0, 160), words, hits, mismatches, contentAdded });
     opts.onElement?.({ element, words, hits, mismatches });
   }
   return { perElement, raw, error: null, prompt: { sys, user } };
@@ -707,64 +697,10 @@ export function isTestSymbol(s) {
     || /(?:^|[\\/])(?:test|tests|androidTest)[\\/]/i.test(s.filepath || '');
 }
 
-// Candidate base forms for a word that matched NOTHING. English inflection
-// only, and deliberately crude: the point is to rescue a slot, not to stem
-// well. Order matters — first hit wins.
-function baseForms(w) {
-  const out = [];
-  if (/ing$/.test(w)) {
-    out.push(`${w.slice(0, -3)}e`);            // determining -> determine
-    out.push(w.slice(0, -3));                   // storing     -> stor
-    if (/(.)\1ing$/.test(w)) out.push(w.slice(0, -4)); // stopping -> stop
-  }
-  if (/ed$/.test(w)) { out.push(w.slice(0, -1)); out.push(w.slice(0, -2)); }
-  if (/ies$/.test(w)) out.push(`${w.slice(0, -3)}y`);
-  if (/es$/.test(w)) out.push(w.slice(0, -2));
-  if (/s$/.test(w) && !/ss$/.test(w)) out.push(w.slice(0, -1));
-  return out.filter((b) => b.length >= 4 && b !== w);
-}
-
 export function searchSymbolsByWords(symbols, words, opts = {}) {
   const limit = opts.limit ?? 25;
   if (!words || !words.length) return [];
   const lowered = symbols.map((s) => ({ s, low: s.name.toLowerCase() }));
-  const countOf = (w) => { let n = 0; for (const { low } of lowered) if (low.includes(w)) n++; return n; };
-
-  // REPAIR WORDS THAT MATCH NOTHING.
-  //
-  // Matching is substring and rarity is log(total/count), so a word with count
-  // 0 scores EXACTLY ZERO — it is not a weak signal, it is no signal, and it
-  // occupies one of the model's 4-10 slots. Measured on ExoPlayer3 (65,370
-  // symbols): `determining` 0 / `determine` 11 with the '101 crux at #1,
-  // `reproducing` 0 / `reproduce` 8, `storing` 0 / `store` 87. F74: gerunds are
-  // dead across the board.
-  //
-  // ONLY dead words. That restriction is load-bearing, not caution: `processing`
-  // (188) -> `process` (1636) is a 9x rarity dilution and `receiving` (27) ->
-  // `receive` (224) is 8x, so repairing a word that already works would trade
-  // signal for recall — the zero-sum trade this project has confirmed five
-  // times. A word that matches anything at all is left exactly alone.
-  //
-  // NOT the same as merging the claim's own stems into the word set, which was
-  // measured WORSE than either arm alone (crux #23 blended vs #2 stems-alone,
-  // #315) because the scorer rewards breadth. Nothing is added here; a word the
-  // model already chose is made to function.
-  //
-  // Non-regressive for SIGNAL, not for RANKING: no symbol loses score, but a
-  // repaired word lifts every symbol containing the stem, so a correct
-  // candidate the dead word never threatened can be displaced. Unthresholded on
-  // purpose — a rarity floor needs measurement, and guessing one would be
-  // another zero-sum guess.
-  const repairs = [];
-  const used = words.map((w) => {
-    if (countOf(w) > 0) return w;
-    for (const b of baseForms(w)) {
-      if (countOf(b) > 0) { repairs.push({ from: w, to: b, matches: countOf(b) }); return b; }
-    }
-    return w;                                   // stem matches nothing either
-  });
-  if (repairs.length && opts.onRepair) opts.onRepair(repairs);
-  words = used;
 
   const freq = new Map(words.map((w) => [w, 0]));
   for (const { low } of lowered) {
