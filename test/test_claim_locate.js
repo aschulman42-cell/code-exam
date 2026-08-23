@@ -1562,6 +1562,38 @@ describe('the discover prompt no longer asserts a falsehood', () => {
   });
 });
 
+// 3580dc5 corrected the DISCOVER prompt and left this one carrying the same
+// falsehood in a stronger form: it did not merely assert that patent and code
+// do not share vocabulary, it INSTRUCTED the model to avoid "words taken from
+// the claim" — a direct prohibition on the move that produced RUN 3, since
+// `determine` is a word taken from the claim.
+describe('the hunt prompt no longer asserts a falsehood either', () => {
+  const P = buildHuntPrompt();
+
+  it('drops the "do not share vocabulary" assertion', () => {
+    assert.ok(!/do not share vocabulary/i.test(P));
+    assert.ok(!/never share/i.test(P));
+    assert.match(P, /USUALLY differ/);
+  });
+
+  it('drops the PROHIBITION on claim words, which discover never had', () => {
+    // The worse half: an assertion a model can weigh, versus an instruction it
+    // is obliged to obey. Gemma obeyed the discover version and produced
+    // selector/estimator/scheduler/policy.
+    assert.ok(!/not words taken from the claim/i.test(P));
+    assert.match(P, /do NOT discard a claim word/);
+  });
+
+  it('carries the measured example, since that is the evidence', () => {
+    assert.match(P, /determineIdealSelectedIndex/);
+  });
+
+  it('KEEPS the developer-vocabulary pressure', () => {
+    // Same as discover: the translation instinct is right, the absolute was not.
+    assert.match(P, /words a programmer would put in an identifier/);
+  });
+});
+
 // THE VOCABULARY STEP IS THE NARROWEST POINT IN THE PIPELINE.
 //
 // It fails CLOSED: everything downstream then reports "no candidates" for a
@@ -1703,5 +1735,145 @@ describe('the content arm is an ARM, never a blend', () => {
     });
     assert.equal(r.error, null);
     assert.equal(r.perElement[0].hits.length, 1, 'the name arm survives');
+  });
+});
+
+// ===========================================================================
+// --runs N: UNION ACROSS RUNS
+//
+// Identical --per-element-select invocations lost one element group in 3 of 7
+// runs (scripts/claim-locate-stability.mjs), and the Targets-checksum cannot
+// catch it: it guards against the list being EDITED, not against its
+// GENERATION being unstable, so both runs pass their own integrity check while
+// disagreeing with each other. Union, never intersection -- an intersection
+// discards exactly the unstable targets that carry the marginal coverage.
+// ===========================================================================
+describe('--runs N unions the discovery cycle instead of sampling it once', () => {
+  const RUNS_INDEX = () => ({
+    functionIndex: {
+      'src/main/Rate.java': { 'RateChooser::chooseBitrate': { start: 10, end: 40 } },
+      'src/main/Send.java': { 'Sender::sendBitrate': { start: 10, end: 40 } },
+    },
+    _ensureFunctionIndex() {},
+    findCallers: () => [],
+    findCallees: () => [],
+  });
+  const CLAIM = 'A system, comprising: choosing a rate.';
+
+  // chooseBitrate is proposed by every run; sendBitrate by run 2 alone. That
+  // asymmetry is the whole point: run 1 alone would never cite it.
+  const unstableDrafter = () => {
+    let vocab = 0;
+    return async (sys) => {
+      if (/WORDS that would appear/.test(sys)) { vocab++; return 'ELEMENT 1: bitrate'; }
+      return vocab === 2
+        ? 'ELEMENT 1: RateChooser::chooseBitrate; Sender::sendBitrate'
+        : 'ELEMENT 1: RateChooser::chooseBitrate';
+    };
+  };
+
+  const quiet = async (fn) => {
+    const log = console.log; console.log = () => {};
+    try { return await fn(); } finally { console.log = log; }
+  };
+
+  it('runs the cycle N times and keeps a target only ONE run proposed', async () => {
+    const res = await quiet(() => doClaimLocate(RUNS_INDEX(),
+      { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, runs: 3 },
+      { draft: unstableDrafter() }));
+    const byName = Object.fromEntries(
+      res.rows.filter((r) => r.verified).map((r) => [r.match.name, r.runsFound]));
+    assert.equal(byName['RateChooser::chooseBitrate'], 3, 'found by every run');
+    assert.equal(byName['Sender::sendBitrate'], 1,
+      'found by ONE run and KEPT -- an intersection would have dropped it');
+  });
+
+  it('--runs 1 changes nothing: no frequency lines, no union suffix', async () => {
+    const fs = (await import('node:fs')).default;
+    const p = `${process.env.TEMP || '/tmp'}/ce_runs_one.txt`;
+    try { fs.unlinkSync(p); } catch { /* fresh */ }
+    await quiet(() => doClaimLocate(RUNS_INDEX(),
+      { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, runs: 1, targets_out: p },
+      { draft: unstableDrafter() }));
+    const body = fs.readFileSync(p, 'utf8');
+    assert.ok(!/# Runs-found:/.test(body), 'no per-target frequency at runs=1');
+    assert.match(body, /Runs: 1\./);
+    assert.ok(!/targets unioned across runs/.test(body), 'no union suffix at runs=1');
+    assert.match(body, /^Rate\.java@RateChooser::chooseBitrate$/m, 'spec line unchanged');
+  });
+
+  it('writes the frequency ABOVE the target, and the chart still parses clean specs', async () => {
+    // The trailing-comment form (`spec  # 3/3`) would be read as part of the
+    // symbol name: parseTargets treats only lines STARTING with # as
+    // provenance. That would corrupt every spec AND change the checksum.
+    const fs = (await import('node:fs')).default;
+    const { parseTargets } = await import('../src/commands/claim-chart.js');
+    const p = `${process.env.TEMP || '/tmp'}/ce_runs_three.txt`;
+    try { fs.unlinkSync(p); } catch { /* fresh */ }
+    await quiet(() => doClaimLocate(RUNS_INDEX(),
+      { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, runs: 3, targets_out: p },
+      { draft: unstableDrafter() }));
+    const body = fs.readFileSync(p, 'utf8');
+    assert.match(body, /^# Runs-found: 3\/3$/m);
+    assert.match(body, /^# Runs-found: 1\/3$/m);
+    assert.match(body, /targets unioned across runs/, 'sampling line says the list is a union');
+
+    const parsed = parseTargets(`@${p}`);
+    assert.ok(parsed.targets.includes('Rate.java@RateChooser::chooseBitrate'),
+      'spec survives the frequency line above it');
+    assert.ok(parsed.targets.includes('Send.java@Sender::sendBitrate'));
+    for (const t of parsed.targets) {
+      assert.ok(!/#/.test(t), `frequency leaked into the target spec: ${t}`);
+    }
+  });
+
+  it('REFUSES --runs > 1 on the paths that cannot honour it', async () => {
+    // An accepted-but-inert flag is the defect the parent item found in
+    // --reproducible, which the GUI server parses and no CLI command reads.
+    const err = console.error; const seen = [];
+    console.error = (m) => seen.push(String(m));
+    const prevExit = process.exitCode;
+    try {
+      await quiet(() => doClaimLocate(RUNS_INDEX(),
+        { claim_locate: CLAIM, model: 'f.gguf', propose_from_priors: true, runs: 2 },
+        { draft: async () => 'ELEMENT 1: RateChooser::chooseBitrate' }));
+      assert.ok(seen.some((m) => /--runs 2 applies to the discovery path only/.test(m)),
+        'propose-from-priors refuses rather than ignoring');
+      seen.length = 0;
+      await quiet(() => doClaimLocate(RUNS_INDEX(),
+        { claim_locate: CLAIM, model: 'f.gguf', hunt: true, runs: 2 },
+        { draft: async () => 'DONE\nELEMENT 1: NONE' }));
+      assert.ok(seen.some((m) => /--runs 2 applies to the discovery path only/.test(m)),
+        'hunt refuses rather than ignoring');
+    } finally { console.error = err; process.exitCode = prevExit; }
+  });
+
+  it('rejects a nonsense --runs rather than silently treating it as 1', async () => {
+    const err = console.error; const seen = [];
+    console.error = (m) => seen.push(String(m));
+    const prevExit = process.exitCode;
+    try {
+      await quiet(() => doClaimLocate(RUNS_INDEX(),
+        { claim_locate: CLAIM, model: 'f.gguf', runs: 0 },
+        { draft: unstableDrafter() }));
+      assert.ok(seen.some((m) => /--runs takes a whole number/.test(m)));
+    } finally { console.error = err; process.exitCode = prevExit; }
+  });
+
+  it('a LATER run failing shrinks the denominator instead of faking it', async () => {
+    // Silence must not mean "3 runs agreed" when only 2 ran.
+    let vocab = 0;
+    const draft = async (sys) => {
+      if (/WORDS that would appear/.test(sys)) {
+        vocab++;
+        if (vocab === 3) throw new Error('engine died');
+        return 'ELEMENT 1: bitrate';
+      }
+      return 'ELEMENT 1: RateChooser::chooseBitrate';
+    };
+    const res = await quiet(() => doClaimLocate(RUNS_INDEX(),
+      { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, runs: 3 }, { draft }));
+    const row = res.rows.find((r) => r.verified && r.match.name === 'RateChooser::chooseBitrate');
+    assert.equal(row.runsFound, 2, 'counted against the runs that actually completed');
   });
 });

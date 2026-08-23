@@ -848,8 +848,12 @@ COMMANDS — one per line, as many per reply as you want:
   EXTRACT: SomeClass::someMethod
       That function's source, so you can check what it really does.
 
-Patent language and source code do not share vocabulary. Search for words a \
-programmer would put in an identifier, not words taken from the claim.
+Patent language and source code USUALLY differ, and the common mistake is \
+assuming they match. So search for words a programmer would put in an \
+identifier. But do NOT discard a claim word that a programmer would plausibly \
+also use — a claim reading "a code rate DETERMINING unit" is implemented by a \
+function called determineIdealSelectedIndex, and "determine" is the word that \
+finds it. Translate the boilerplate, keep the concrete verbs and nouns.
 
 A strategy that works: SEARCH broad words first. When a result looks close, \
 MEMBERS to see what lives beside it, CALLEES to follow the work it delegates, \
@@ -1302,15 +1306,33 @@ export function attributeTargets(found, discovery) {
 // construction: parseTargets already treats every `#` line as provenance, so an
 // older reader ingests these as prose rather than choking, and the checksum is
 // computed over targets only.
-export function buildTargetsFileBody({ provenance = [], found, discovery, mode = 'discovery' }) {
+export function buildTargetsFileBody({ provenance = [], found, discovery, mode = 'discovery', runs = 1 }) {
   const specs = targetSpecs(found);
+  // spec -> how many runs proposed it, so the union can state its own firmness.
+  const freq = new Map();
+  for (const r of found || []) {
+    if (r.runsFound == null || !r.match) continue;
+    const k = `${r.match.filepath.split('!').pop().split('/').pop()}@${r.match.name}`;
+    freq.set(k, Math.max(freq.get(k) || 0, r.runsFound));
+  }
+  // The frequency goes on its OWN line ABOVE the target, never as a trailing
+  // `spec  # 3/3` comment. claim-chart's parseTargets treats only lines
+  // STARTING with `#` as provenance, so a trailing comment would be read as
+  // part of the symbol name and would change the Targets-checksum — the one
+  // thing the file exists to make verifiable. Same shape as `# Element-shared:`.
+  const emit = (out, s) => {
+    if (runs > 1 && freq.has(s)) out.push(`# Runs-found: ${freq.get(s)}/${runs}`);
+    out.push(s);
+  };
   const out = provenance.map((l) => `# ${l}`);
   // Hunt mode has no per-element retrieval to attribute, so it keeps today's
   // format exactly rather than emitting empty markers that would read as
   // "examined, nothing found".
   if (mode !== 'discovery' || !discovery || !discovery.length) {
     out.push(`# Attribution: none — produced by ${mode} mode, which does not retrieve per element`);
-    return [...out, ...specs, ''].join('\n');
+    for (const s of specs) emit(out, s);
+    out.push('');
+    return out.join('\n');
   }
   const { groups, orphans, shared } = attributeTargets(found, discovery);
   out.push(`# Attribution: per-element retrieval, ${groups.length} element(s)`);
@@ -1322,13 +1344,13 @@ export function buildTargetsFileBody({ provenance = [], found, discovery, mode =
     for (const s of g.targets) {
       const also = shared.get(s);
       if (also && also.length) out.push(`# Element-shared: ${s} also retrieved for element(s) ${also.join(', ')}`);
-      out.push(s);
+      emit(out, s);
     }
   }
   if (orphans.length) {
     out.push('');
     out.push(`# Element: unattributed — ${orphans.length} target(s) no element's retrieval claims`);
-    for (const s of orphans) out.push(s);
+    for (const s of orphans) emit(out, s);
   }
   out.push('');
   return out.join('\n');
@@ -1516,6 +1538,24 @@ export async function doClaimLocate(index, args, opts = {}) {
   const hunting = !!args.hunt && args.no_hunt !== true;
   const perElementSelect = args.per_element_select === true;
   let selectionCalls = null;   // set by the discovery path; null on hunt/priors
+
+  // --runs N repeats the discovery+selection cycle and UNIONS what it finds.
+  // Refused rather than ignored on the paths that cannot honour it: an
+  // accepted-but-inert flag is the exact defect the parent item found in
+  // --reproducible, which the GUI server parses and no CLI command reads.
+  const runs = args.runs == null ? 1 : Number(args.runs);
+  if (!Number.isInteger(runs) || runs < 1) {
+    console.error('--runs takes a whole number of runs, 1 or more.');
+    process.exitCode = 1; return;
+  }
+  if (runs > 1 && (hunting || args.propose_from_priors)) {
+    console.error(`--runs ${runs} applies to the discovery path only;`
+      + ` ${hunting ? '--hunt' : '--propose-from-priors'} runs a different cycle and cannot union across runs.`);
+    process.exitCode = 1; return;
+  }
+  // How many runs actually completed. Not the same as `runs` when a later run
+  // fails, and the frequency denominator has to be the honest one.
+  let runsCompleted = runs;
   const modeLabel = args.propose_from_priors
     ? 'propose-from-priors (model names symbols from its own knowledge)'
     : hunting
@@ -1610,66 +1650,135 @@ export async function doClaimLocate(index, args, opts = {}) {
     const selCost = Array.from({ length: nSel }, () => (perElementSelect
       ? { inChars: 2000, outTokens: 120 }
       : { inChars: 6000, outTokens: 300 }));
-    if (!claimsCostGate(model, [{ inChars: sys1.length + user1.length, outTokens: 400 }, ...selCost],
-      `claim-locate discovery (${1 + nSel} calls)`, args)) return;
+    // Cost is LINEAR in --runs and is stated BEFORE spending: 3 runs of an
+    // 11-element --per-element-select claim is 36 calls, not 12.
+    const oneRun = [{ inChars: sys1.length + user1.length, outTokens: 400 }, ...selCost];
+    const runCost = Array.from({ length: runs }, () => oneRun).flat();
+    if (!claimsCostGate(model, runCost,
+      `claim-locate discovery (${(1 + nSel) * runs} calls${runs > 1 ? ` across ${runs} runs` : ''})`, args)) return;
     resetCloudUsage();
 
-    process.stderr.write('Step 1: predicting code vocabulary from the claim (no codebase shown)...\n');
-    // Steps 1-2 now live in retrievePerElement so --claim-chart runs the same
-    // retrieval; the onElement callback keeps this command's output identical.
-    const disc = await retrievePerElement({
-      draft, elements, symbols,
-      opts: {
-        includeTests: !!args.include_tests,
-        onElement: ({ element, words, hits }) =>
-          console.log(`  element ${element}: words [${words.join(', ')}] -> ${hits.length} candidate(s)`),
-      },
-    });
-    if (disc.error) {
-      console.error(/^vocabulary/.test(disc.error) ? `--claim-locate: ${disc.error}` : disc.error);
-      process.exitCode = 1;
-      if (args.verbose && disc.raw) console.log(disc.raw);
-      return;
-    }
-    const perElement = disc.perElement;
-    discovery = perElement;
-    const withHits = perElement.filter((p) => p.hits.length);
-    if (!withHits.length) {
-      console.log('\nNo symbol in this index matches any predicted code word.');
-      return;
-    }
+    // UNION ACROSS RUNS, never intersection. Recall is what a single run loses:
+    // identical --per-element-select invocations dropped one element group in 3
+    // of 7 runs (scripts/claim-locate-stability.mjs). An intersection would
+    // discard exactly those unstable targets — the marginal coverage — and
+    // report a confidently wrong ABSENT. Frequency is recorded instead, so a
+    // reader can see which citations are firm without CE dropping any.
+    const byCandidate = new Map();   // candidate -> { element, candidate, runsFound }
+    const byElement = new Map();     // element   -> unioned retrieval record
+    let completed = 0;
 
-    // Step 3: the model chooses among symbols that DEMONSTRABLY EXIST.
-    process.stderr.write(`Step 3: selecting implementers from real candidates`
-      + `${perElementSelect ? `, one call per element (${withHits.length})` : ''}...\n`);
-    selectionCalls = perElementSelect ? withHits.length : 1;
-    if (!perElementSelect) {
-      let rawSel;
-      try { rawSel = await draft(buildSelectPrompt(withHits, { blind }), `PATENT CLAIM:\n${claimText}`, 700); }
-      catch (e) { console.error(`--claim-locate: selection step failed: ${e.message}`); process.exitCode = 1; return; }
-      proposals = parseProposedSymbols(rawSel || '').slice(0, LOCATE_DEFAULTS.maxProposals);
-    } else {
-      let failed = 0;
-      for (const pe of withHits) {
-        let rawSel;
-        try { rawSel = await draft(buildSelectPrompt([pe], { blind }), `PATENT CLAIM:\n${claimText}`, 300); }
-        catch (e) {
-          // One element failing must not lose the other five. Report and go on.
-          process.stderr.write(`  element ${pe.element}: selection failed: ${e.message}\n`);
-          failed++;
+    for (let run = 1; run <= runs; run++) {
+      if (runs > 1) process.stderr.write(`\nRun ${run} of ${runs}:\n`);
+      process.stderr.write('Step 1: predicting code vocabulary from the claim (no codebase shown)...\n');
+      // Steps 1-2 now live in retrievePerElement so --claim-chart runs the same
+      // retrieval; the onElement callback keeps this command's output identical.
+      const disc = await retrievePerElement({
+        draft, elements, symbols,
+        opts: {
+          includeTests: !!args.include_tests,
+          onElement: ({ element, words, hits }) =>
+            console.log(`  element ${element}: words [${words.join(', ')}] -> ${hits.length} candidate(s)`),
+        },
+      });
+      if (disc.error) {
+        // A failing FIRST run aborts exactly as before. A later run failing must
+        // not destroy the runs that succeeded — it is reported and the
+        // denominator shrinks to what actually ran.
+        if (run === 1) {
+          console.error(/^vocabulary/.test(disc.error) ? `--claim-locate: ${disc.error}` : disc.error);
+          process.exitCode = 1;
+          if (args.verbose && disc.raw) console.log(disc.raw);
+          return;
+        }
+        process.stderr.write(`  run ${run} of ${runs}: retrieval failed — ${disc.error}\n`);
+        continue;
+      }
+      const perElement = disc.perElement;
+      // Attribution has to cover every target the union carries, so the
+      // retrieval record is unioned too. Attributing against run 1 alone would
+      // report a target found only in run 3 as unattributed.
+      for (const pe of perElement) {
+        const prior = byElement.get(pe.element);
+        if (!prior) {
+          byElement.set(pe.element, { ...pe, words: [...pe.words], hits: [...pe.hits] });
           continue;
         }
-        // The element number is OURS, not the model's. Asked about one element
-        // in isolation, a model commonly answers "ELEMENT 1:" whatever the real
-        // number is; taking its word would mis-attribute every selection after
-        // the first.
-        const picked = parseProposedSymbols(rawSel || '').map((p) => ({ ...p, element: pe.element }));
-        proposals.push(...picked);
+        for (const w of pe.words) if (!prior.words.includes(w)) prior.words.push(w);
+        const seenHit = new Set(prior.hits.map((h) => `${h.sym?.filepath}@${h.sym?.name}`));
+        for (const h of pe.hits) {
+          const k = `${h.sym?.filepath}@${h.sym?.name}`;
+          if (!seenHit.has(k)) { seenHit.add(k); prior.hits.push(h); }
+        }
       }
-      if (failed) process.stderr.write(`  ${failed} of ${withHits.length} element selection(s) failed.\n`);
-      proposals = proposals.slice(0, LOCATE_DEFAULTS.maxProposals);
+      const withHits = perElement.filter((p) => p.hits.length);
+      if (!withHits.length) {
+        if (runs === 1) {
+          console.log('\nNo symbol in this index matches any predicted code word.');
+          return;
+        }
+        process.stderr.write(`  run ${run} of ${runs}: no symbol matched any predicted code word.\n`);
+        completed++;
+        continue;
+      }
+
+      // Step 3: the model chooses among symbols that DEMONSTRABLY EXIST.
+      process.stderr.write(`Step 3: selecting implementers from real candidates`
+        + `${perElementSelect ? `, one call per element (${withHits.length})` : ''}...\n`);
+      selectionCalls = perElementSelect ? withHits.length : 1;
+      let runProposals = [];
+      if (!perElementSelect) {
+        let rawSel;
+        try { rawSel = await draft(buildSelectPrompt(withHits, { blind }), `PATENT CLAIM:\n${claimText}`, 700); }
+        catch (e) {
+          if (run === 1) { console.error(`--claim-locate: selection step failed: ${e.message}`); process.exitCode = 1; return; }
+          process.stderr.write(`  run ${run} of ${runs}: selection failed — ${e.message}\n`);
+          continue;
+        }
+        runProposals = parseProposedSymbols(rawSel || '').slice(0, LOCATE_DEFAULTS.maxProposals);
+      } else {
+        let failed = 0;
+        for (const pe of withHits) {
+          let rawSel;
+          try { rawSel = await draft(buildSelectPrompt([pe], { blind }), `PATENT CLAIM:\n${claimText}`, 300); }
+          catch (e) {
+            // One element failing must not lose the other five. Report and go on.
+            process.stderr.write(`  element ${pe.element}: selection failed: ${e.message}\n`);
+            failed++;
+            continue;
+          }
+          // The element number is OURS, not the model's. Asked about one element
+          // in isolation, a model commonly answers "ELEMENT 1:" whatever the real
+          // number is; taking its word would mis-attribute every selection after
+          // the first.
+          const picked = parseProposedSymbols(rawSel || '').map((p) => ({ ...p, element: pe.element }));
+          runProposals.push(...picked);
+        }
+        if (failed) process.stderr.write(`  ${failed} of ${withHits.length} element selection(s) failed.\n`);
+        runProposals = runProposals.slice(0, LOCATE_DEFAULTS.maxProposals);
+      }
+      completed++;
+      for (const p of runProposals) {
+        const prior = byCandidate.get(p.candidate);
+        if (prior) { prior.runsFound++; continue; }
+        byCandidate.set(p.candidate, { ...p, runsFound: 1 });
+      }
+      console.log();
     }
-    console.log();
+
+    discovery = [...byElement.values()].sort((a, b) => a.element - b.element);
+    proposals = [...byCandidate.values()].slice(0, LOCATE_DEFAULTS.maxProposals);
+    runsCompleted = completed;
+    if (runs > 1) {
+      if (completed !== runs) {
+        process.stderr.write(`  ⚠ ${runs} run(s) requested, ${completed} completed —`
+          + ` frequencies are out of ${completed}, not ${runs}\n`);
+      }
+      const firm = proposals.filter((p) => p.runsFound === completed).length;
+      console.log(`Union across ${completed} run(s): ${proposals.length} distinct proposal(s),`
+        + ` ${firm} found by every run.`);
+      console.log();
+    }
   }
 
   if (!proposals.length) {
@@ -1704,6 +1813,9 @@ export async function doClaimLocate(index, args, opts = {}) {
         verified: ok, status: v.status, ambiguous: v.ambiguous || 0,
         match: ok ? v.matches[0] : null,
         nav: ok ? navigateFrom(index, v.matches[0], { limit: LOCATE_DEFAULTS.navLimit }) : null,
+        // How many runs proposed this candidate. Undefined on the hunt and
+        // propose paths, which refuse --runs and so have nothing to report.
+        runsFound: p.runsFound,
       });
     }
   };
@@ -1818,7 +1930,7 @@ export async function doClaimLocate(index, args, opts = {}) {
     // Runs is 1 because --runs is NOT implemented. Deliberately no flag: an
     // accepted-but-inert `--runs 3` would be the same defect this item found in
     // `--reproducible`, which the GUI server parses and no CLI command reads.
-    sampling: samplingLine(model),
+    sampling: samplingLine(model, runsCompleted),
     indexPath: args.index_path || '(unknown)',
     indexFiles: index.files ? (index.files.size ?? index.files.length ?? null) : null,
     indexSymbols: symbols.length,
@@ -1840,7 +1952,7 @@ export async function doClaimLocate(index, args, opts = {}) {
   // target list enters.
   if (args.targets_out && found.length) {
     const body = buildTargetsFileBody({
-      provenance, found, discovery, mode: hunt ? 'hunt' : 'discovery',
+      provenance, found, discovery, mode: hunt ? 'hunt' : 'discovery', runs: runsCompleted,
     });
     try {
       fs.writeFileSync(args.targets_out, body, 'utf8');

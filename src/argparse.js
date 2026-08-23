@@ -277,6 +277,7 @@ export function parseArgs() {
     single_claim: false,
     claims_only: null,       // --pseudo-claims: machine-readable claims + anchors sidecar
     per_element_select: false,
+    runs: null,              // --claim-locate: repeat discovery+selection N times, union targets
     no_per_element: false,   // --claim-analyze: skip the per-element search arm
     per_element_n: null,     // --claim-analyze: per-element budget (default 1/element)
     hunt_rounds: null,
@@ -594,6 +595,7 @@ export function parseArgs() {
     ['claims_per_line',      'flag',           ['--claims-per-line']],
     ['single_claim',         'flag',           ['--single-claim']],
     ['per_element_select',   'flag',           ['--per-element-select']],
+    ['runs',                 'int',            ['--runs']],
     ['no_per_element',       'flag',           ['--no-per-element']],
     ['per_element_n',        'int',            ['--per-element-n']],
     ['hunt_rounds',          'int',            ['--hunt-rounds']],
