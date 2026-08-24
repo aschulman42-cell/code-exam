@@ -742,12 +742,21 @@ function handleToolRaw(name, args) {
       const withSites = !!args.with_sites;
       // Same shape as hotspots: getTopVocabulary sorts the whole vocabulary and
       // slices last, so the population is free.
-      const allVocab = index.getTopVocabulary(Number.MAX_SAFE_INTEGER, args.filter || null, null);
+      // #309 Part B: random strings are withheld, and the count is REPORTED.
+      // A filter that drops silently is indistinguishable from a corpus that
+      // never had those tokens, which is how a bound stops being auditable.
+      let withheld = 0;
+      const allVocab = index.getTopVocabulary(Number.MAX_SAFE_INTEGER, args.filter || null, null,
+        { onFiltered: (k) => { withheld += k; } });
       const vocab = allVocab ? allVocab.slice(0, n) : allVocab;
       if (!vocab || vocab.length === 0) return 'No vocabulary available (run --discover-vocabulary first or rebuild index)';
       const lines = [_rankedHeader(vocab.length, allVocab.length,
         'domain vocabulary tokens' + (withSites ? '' : ' (terms only; pass with_sites:true for example paths)'),
         'Raise "n" to see more.')];
+      if (withheld) {
+        lines.push(`(${withheld} high-entropy token(s) withheld — random strings such as keys,`
+          + ` hashes and base64 blobs are not domain vocabulary)`);
+      }
       const concepts = extractConcepts(index);
       if (concepts.length) lines.push(`Potentially important concepts (with examples): ${concepts.map(conceptLabel).join(', ')}`, '');
       for (const v of vocab) {

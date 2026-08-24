@@ -7,6 +7,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { maskCredentials, hasCredential } from '../src/core/credential-mask.js';
+import {
+  looksLikeRandomToken, getTopVocabulary, extractConcepts, conceptLabel,
+} from '../src/core/vocabulary.js';
 
 describe('#306 credential mask — values go, everything else stays', () => {
   it('masks the .as_ml_code shape that caused the leak', () => {
@@ -85,5 +88,103 @@ describe('#306 credential mask — reaches the MCP dispatch, not just importers'
     const rawCalls = [...src.matchAll(/(?<!function\s)handleToolRaw\(/g)].length;
     // Exactly one: inside handleTool(). Any other is a path that skips the mask.
     assert.equal(rawCalls, 1, 'handleToolRaw is called somewhere other than the mask wrapper');
+  });
+});
+
+// ===========================================================================
+// #309 PART B — the leak the context-keyed mask cannot reach
+//
+// The mask above works on `API_KEY = "..."`. It cannot fire on `vocabulary`
+// output, because stripping tokens OUT of their lines is that tool's entire
+// job: the secret arrives with nothing beside it that looks like a credential.
+// So the test has to be a property of the token, and the thresholds below are
+// MEASURED across 925,665 tokens rather than chosen -- see the block comment
+// on looksLikeRandomToken.
+// ===========================================================================
+describe('#309 vocabulary withholds random tokens the mask cannot see', () => {
+  // The three that were actually sitting in .as_ml_code's vocabulary.
+  const SECRETS = [
+    'uqDZmUu9Dvqcve5ZcNZdJSmhxu2oSPdJ',
+    'Lihvcptf5A9GRIMMs7BP9wiq4KFPlmPh',
+    'yzRmwktiLf0DObYHvpxU6mRBKKcjguxV',
+  ];
+
+  it('catches every secret that was actually leaking', () => {
+    for (const s of SECRETS) {
+      assert.ok(looksLikeRandomToken(s), `should withhold ${s}`);
+    }
+  });
+
+  it('KEEPS the legitimate long tokens measured beside them', () => {
+    // This is the real gate. The security half is easy to get right and easy
+    // to over-apply; losing domain vocabulary is the expensive failure.
+    // Every one of these is a real token from a real index, including the
+    // high-entropy ones that entropy ALONE would have eaten.
+    const KEEP = [
+      'df_claim_train_1M_pre_duplicates_removed_663',   // 4.13 bits/char
+      'debug_combined_output_with_allcites_icl_pdpass',
+      'OpenSSL_add_all_algorithms',
+      'validateCertificateChain',
+      'InterpretableNeuralNet',
+      'CertificateValidator',
+      'gradient_accumulation_steps',
+      'get_most_specialized_neurons',
+      'determineIdealSelectedIndex',
+      'perElementTargetsWithStats',
+    ];
+    for (const k of KEEP) {
+      assert.ok(!looksLikeRandomToken(k), `must NOT withhold legitimate token ${k}`);
+    }
+  });
+
+  it('a separator alone protects a token, however long and mixed', () => {
+    // No base64/base62 payload carries one, and this is what keeps every
+    // snake_case and kebab-case identifier safe without consulting entropy.
+    assert.ok(!looksLikeRandomToken('uqDZmUu9Dvqcve5Zc_NZdJSmhxu2oSPdJ'));
+    assert.ok(!looksLikeRandomToken('uqDZmUu9Dvqcve5Zc-NZdJSmhxu2oSPdJ'));
+  });
+
+  it('short tokens are never examined, so ordinary code is untouched', () => {
+    assert.ok(!looksLikeRandomToken('AES256'));
+    assert.ok(!looksLikeRandomToken('sha1'));
+    assert.ok(!looksLikeRandomToken(''));
+    assert.ok(!looksLikeRandomToken(null));
+  });
+
+  it('withholding is REPORTED, not silent', () => {
+    // A filter that drops without saying so is indistinguishable from a corpus
+    // that never had the tokens -- the defect this project keeps paying for.
+    const vocab = new Map([
+      ['authenticate', { score: 90, doc_freq: 3, total_count: 9 }],
+      ['handshake', { score: 80, doc_freq: 2, total_count: 5 }],
+    ]);
+    for (const s of SECRETS) vocab.set(s, { score: 999, doc_freq: 1, total_count: 1 });
+    const idx = { _vocabulary: vocab, vocabulary: vocab, files: new Map() };
+
+    let reported = 0;
+    const out = getTopVocabulary(idx, 50, null, null, { onFiltered: (k) => { reported += k; } });
+    assert.equal(reported, SECRETS.length, 'the count of withheld tokens is handed to the caller');
+    const tokens = out.map((e) => e.token);
+    for (const s of SECRETS) assert.ok(!tokens.includes(s), 'and the token itself is gone');
+    // The point of the whole exercise: the domain terms survive, and the
+    // secret does not outrank them despite its far higher score.
+    assert.ok(tokens.includes('authenticate'));
+    assert.ok(tokens.includes('handshake'));
+  });
+
+  it('a secret cannot return as a CONCEPT EXAMPLE, which is the shape it leaked in', () => {
+    // The observed output was `uu9dvqcve5zc (uqDZmUu9Dvqcve5ZcNZdJSmhxu2oSPdJ)`:
+    // the concept a fragment of the secret, the example the secret entire.
+    // Injected entries bypass getTopVocabulary, so the guard is needed here too.
+    const entries = [
+      { token: 'parseHandshakeRecord', score: 50, doc_freq: 2, total_count: 4, top_files: [] },
+      { token: SECRETS[0], score: 999, doc_freq: 1, total_count: 1, top_files: [] },
+    ];
+    const concepts = extractConcepts({}, { entries, catalog: null, maxConcepts: 15 });
+    const rendered = concepts.map(conceptLabel).join(', ');
+    for (const s of SECRETS) {
+      assert.ok(!rendered.includes(s), `secret must not appear as a concept example: ${rendered}`);
+    }
+    assert.ok(!/uu9dvqcve5zc/i.test(rendered), 'nor as a fragment concept derived from it');
   });
 });

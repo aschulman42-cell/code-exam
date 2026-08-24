@@ -713,7 +713,80 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
  * @param {string|null} pathFilter - only scan files whose path contains this string
  * @returns {Array<{ token, doc_freq, total_count, score, top_files }>}
  */
-export function getTopVocabulary(idx, n = 50, filter = null, pathFilter = null) {
+/** Shannon entropy in bits per character. */
+function _shannonPerChar(s) {
+  const freq = new Map();
+  for (const c of s) freq.set(c, (freq.get(c) || 0) + 1);
+  let h = 0;
+  for (const n of freq.values()) { const p = n / s.length; h -= p * Math.log2(p); }
+  return h;
+}
+
+const _VOWELS = new Set(['a', 'e', 'i', 'o', 'u', 'A', 'E', 'I', 'O', 'U']);
+
+/**
+ * Is this token a RANDOM STRING rather than domain vocabulary?
+ *
+ * #309 Part B. A live 32-char credential reached model-visible overview output
+ * through `vocabulary`, and the credential mask could not stop it. The mask is
+ * CONTEXT-KEYED — `API_KEY = "..."` becomes `<redacted>` — and `vocabulary`'s
+ * entire job is to strip tokens OUT of their lines. The secret arrives with
+ * nothing beside it that looks like a credential, so the mask has nothing to
+ * fire on. The test therefore has to be a property of the token itself.
+ *
+ * Two independent justifications, either sufficient, which is what keeps this
+ * from being a threshold tuned to one corpus:
+ *   1. SECURITY — a random 32-char string is never domain vocabulary.
+ *   2. CORRECTNESS, regardless of sensitivity — `vocabulary` reports DOMAIN
+ *      TERMS, and a base64 certificate body is noise in that list whether or
+ *      not it is secret.
+ *
+ * THE THRESHOLDS ARE MEASURED. Across every index on this machine (925,665
+ * tokens) the separation is clean, and it is NOT entropy that carries it —
+ * high-entropy legitimate identifiers exist
+ * (`df_claim_train_1M_pre_duplicates_removed_663`, 4.13 bits/char). What
+ * separates them is uppercase density together with vowel density:
+ *
+ *   the three .as_ml_code secrets    vowels 13-19%    uppercase 38-41%
+ *   every legitimate long token      vowels 23-48%    uppercase  0-15%
+ *
+ * Random base62 tends toward ~16% vowels and ~42% uppercase. English-derived
+ * identifiers cannot reach that pair, and camelCase is not close
+ * (`validateCertificateChain` 8% uppercase, `InterpretableNeuralNet` 14%).
+ *
+ * MEASURED COST: 2,126 of 925,665 tokens (0.23%). `.demo_code_only` and
+ * `.AndroidX_Media_ExoPlayer3` lose ZERO. `.as_ml_code` loses exactly its
+ * three secrets. The 25 most word-like drops across all corpora are base64
+ * certificate bodies, PDF stream data and base62 alphabet constants — no
+ * legitimate domain term among them.
+ *
+ * Deliberately NOT the §7 query-word question, which asks which CLAIM terms
+ * are too common to discriminate. This asks whether a token is RANDOM.
+ */
+export function looksLikeRandomToken(token) {
+  const t = String(token || '');
+  // Length bounds what is examined; it decides nothing on its own, since real
+  // identifiers get this long too.
+  if (t.length < 24) return false;
+  // A separator means a human named it. No base64/base62 payload carries one,
+  // so this alone protects every snake_case and kebab-case identifier.
+  if (t.includes('_') || t.includes('-')) return false;
+  let vowels = 0, upper = 0;
+  for (const c of t) {
+    if (_VOWELS.has(c)) vowels++;
+    if (c >= 'A' && c <= 'Z') upper++;
+  }
+  if (vowels / t.length >= 0.22) return false;
+  if (upper / t.length < 0.25) return false;
+  return _shannonPerChar(t) >= 4.0;
+}
+
+/**
+ * @param {object} [opts] - `onFiltered(count)` reports how many random-looking
+ *   tokens were withheld. A bound that drops silently is the defect this
+ *   project keeps paying for, so the count is offered to every caller.
+ */
+export function getTopVocabulary(idx, n = 50, filter = null, pathFilter = null, opts = {}) {
   const vocab = pathFilter
     ? ensureVocabulary(idx, true, pathFilter)
     : ensureVocabulary(idx);
@@ -723,6 +796,14 @@ export function getTopVocabulary(idx, n = 50, filter = null, pathFilter = null) 
     const match = makeFilterMatcher(filter);
     entries = entries.filter(e => match(e.token));
   }
+
+  // Drop random strings BEFORE ranking, so a high-scoring secret can neither
+  // occupy a slot here nor become a concept example downstream — extractConcepts
+  // draws its examples from these entries.
+  const before = entries.length;
+  entries = entries.filter(e => !looksLikeRandomToken(e.token));
+  const withheld = before - entries.length;
+  if (withheld && typeof opts.onFiltered === 'function') opts.onFiltered(withheld);
 
   entries.sort((a, b) => b.score - a.score);
   return entries.slice(0, n);
@@ -745,7 +826,13 @@ export function getTopVocabulary(idx, n = 50, filter = null, pathFilter = null) 
 export function extractConcepts(idx, { topN = 200, maxConcepts = 15, catalog, entries } = {}) {
   if (catalog === undefined) catalog = _loadCrossCorpusCatalog(); // injectable for tests
   const N = (catalog && catalog.index_count) || 0;
-  const list = entries || getTopVocabulary(idx, topN); // entries injectable / reusable
+  // Filtered again here rather than relying on getTopVocabulary, because
+  // `entries` is injectable (mechanism-grouper builds its own), and a concept's
+  // `example` is a whole token reprinted verbatim — the exact shape the #309
+  // leak took: `uu9dvqcve5zc (uqDZmUu9Dvqcve5ZcNZdJSmhxu2oSPdJ)`, where the
+  // concept is a fragment of the secret and the example is the secret entire.
+  const list = (entries || getTopVocabulary(idx, topN))   // entries injectable / reusable
+    .filter((e) => !looksLikeRandomToken(e.token));
   const subScore = new Map();
   const subExample = new Map(); // part -> { token, score }: best COMPOUND identifier
   for (const e of list) {
