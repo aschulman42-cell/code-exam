@@ -441,7 +441,7 @@ finds it. Translate the boilerplate, keep the concrete verbs and nouns.
 
 Example of the transformation (illustrative only, unrelated domain):
   claim says "means for persisting the transaction record durably"
-  code words: commit, flush, journal, write, persist, transaction, log
+  ELEMENT 1: commit; flush; journal; write; persist; transaction; log
   (note: "persist" and "transaction" come straight from the claim and are kept;
    "means for" and "durably" are boilerplate and are dropped)
 

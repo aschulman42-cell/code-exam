@@ -2105,3 +2105,78 @@ describe('the content arm runs, and says so when it cannot', () => {
     assert.ok(seen[0].regex.test('makeCipherSuite'), 'and the regex actually matches');
   });
 });
+
+// ===========================================================================
+// A PROMPT'S OWN EXAMPLE MUST SATISFY THE PARSER THAT READS ITS OUTPUT
+//
+// The discover prompt shipped an example ending in a prefix-less comma list --
+//   code words: commit, flush, journal, write, persist, transaction, log
+// -- immediately above an OUTPUT section requiring `ELEMENT N: word; word`.
+// Gemma copied the shape it was SHOWN over the shape it was TOLD, returned one
+// flat list, and parseElementWords returned 0. CE's own demo claim died on
+// BOTH --claim-locate and --claim-chart while '101 kept parsing 10/10, so a
+// one-claim baseline reported "held, did not move" over a dead artifact
+// (asus-CC, #315).
+//
+// Second instance of the same defect. 3580dc5 fixed the version where the
+// example contradicted the prose on CONTENT; this is where it contradicted the
+// prose on FORMAT. The rule that generalises: whatever the example
+// demonstrates wins, so make the example correct rather than out-arguing it.
+//
+// These assertions pin no wording -- the prompts stay freely editable -- but
+// an example that drifts out of its own output contract fails the suite.
+// ===========================================================================
+describe('prompt examples parse as the output they demonstrate (#315)', () => {
+  it('every ELEMENT-shaped line in the discover prompt parses', () => {
+    const P = buildDiscoverPrompt();
+    const shaped = P.split('\n').filter((l) => /ELEMENT\s*\d+\s*:/i.test(l));
+    assert.ok(shaped.length >= 2, 'the prompt shows output-shaped lines at all');
+    // Load-bearing: the check above only inspects lines that ALREADY look like
+    // output, so an example that falls OUT of output shape entirely -- exactly
+    // the regression -- would be skipped rather than caught. Require the worked
+    // example block itself to demonstrate the contract.
+    const exStart = P.indexOf('Example of the');
+    assert.ok(exStart > 0, 'the prompt still carries a worked example');
+    const exBlock = P.slice(exStart, P.indexOf('Rules:', exStart));
+    assert.ok(parseElementWords(exBlock).length >= 1,
+      'the worked example block demonstrates the output contract, not some other shape');
+    for (const line of shaped) {
+      assert.equal(parseElementWords(line).length, 1,
+        `prompt line does not parse as the output it demonstrates: ${line.trim()}`);
+    }
+  });
+
+  it('the WORKED EXAMPLE specifically is in output form, not a flat list', () => {
+    // The regression itself. A comma list here parses to zero and takes the
+    // demo claim down, while '101 survives -- so this cannot be left to a
+    // model-dependent baseline to catch.
+    const P = buildDiscoverPrompt();
+    const example = P.split('\n').find((l) => /commit/.test(l) && /journal/.test(l));
+    assert.ok(example, 'the worked example is still present');
+    assert.equal(parseElementWords(example).length, 1,
+      'the worked example must parse through the parser that reads real answers');
+    assert.doesNotMatch(example, /code words:/,
+      'the prefix-less "code words:" form is what the model copied');
+  });
+
+  it('the select prompt example parses through parseProposedSymbols', () => {
+    const S = buildSelectPrompt(
+      [{ element: 1, text: 'a thing', words: ['alpha'],
+         hits: [{ sym: { name: 'A::b', filepath: 'x.c' }, matched: ['alpha'] }] }], {});
+    const example = S.split('\n').find((l) => /ELEMENT\s*1\s*:\s*ExactName/i.test(l));
+    assert.ok(example, 'the select prompt still shows an output example');
+    assert.ok(parseProposedSymbols(example).length > 0,
+      'the select example must parse as a proposal');
+  });
+
+  it('the hunt prompt DONE block parses through parseHuntActions', () => {
+    const H = buildHuntPrompt();
+    const start = H.indexOf('DONE');
+    assert.ok(start > 0, 'the hunt prompt still shows its DONE block');
+    const block = H.slice(start).split('\n').slice(0, 3).join('\n');
+    const parsed = parseHuntActions(block);
+    assert.equal(parsed.done, true, 'the demonstrated DONE block reads as done');
+    assert.ok(parsed.selections.length > 0,
+      'and its element lines parse as selections');
+  });
+});
