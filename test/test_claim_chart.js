@@ -21,7 +21,7 @@ import {
 import { targetsChecksum } from '../src/commands/claim-locate.js';
 import { engineBuildLine, getEngineBuild, formatEngineBuild } from '../src/core/llm-runner.js';
 import { createRequire } from 'node:module';
-import { readClaimFile, addLineNumbers } from '../src/commands/analyze.js';
+import { readClaimFile, addLineNumbers, SimpleMasker, detectLanguage } from '../src/commands/analyze.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -1216,5 +1216,93 @@ describe('a captured build field is a string or it is unknown (#315)', () => {
 
   it('a real string still renders, and is trimmed', () => {
     assert.match(formatEngineBuild({ moduleVersion: ' 3.18.1 ' }), /node-llama-cpp 3\.18\.1 ·/);
+  });
+});
+
+// ===========================================================================
+// COMMENT STRIPPING MUST NOT MOVE LINES
+//
+// 4b39295 repaired a FIXED shift: getFunctionSource prepends a doc comment, so
+// numbering from m.start labelled the comment as the signature. This is the
+// broader sibling at the same call sites, and it is worse: stripComments
+// replaced a matched comment with a single SPACE, so a multi-line block
+// comment collapsed and every line after it was numbered too low -- an error
+// that ACCUMULATES down the file. A fixed shift a reader might notice; a
+// drifting one stays plausible all the way down.
+// ===========================================================================
+describe('stripComments preserves line count, so numbering cannot drift (#306)', () => {
+  const masker = new SimpleMasker();
+  const countLines = (s) => s.split('\n').length;
+
+  it('a multi-line BLOCK comment leaves its lines behind (C family)', () => {
+    const src = [
+      'int main() {',
+      '  /* this comment',
+      '     spans three',
+      '     whole lines */',
+      '  int x = 1;',
+      '  // and a line comment',
+      '  return x;',
+      '}',
+    ].join('\n');
+    const out = masker.stripComments(src, 'c');
+    assert.equal(countLines(out), countLines(src),
+      'the stripped source must have exactly as many lines as the original');
+    // The line that mattered: `int x = 1;` is file line 5 and must stay line 5.
+    assert.match(out.split('\n')[4], /int x = 1;/);
+    assert.match(out.split('\n')[6], /return x;/);
+  });
+
+  it('removes the comment CONTENT — the masking guarantee is not weakened', () => {
+    const src = 'a();\n/* SECRET banana\n   more secret */\nb();';
+    const out = masker.stripComments(src, 'javascript');
+    assert.ok(!/banana/.test(out), 'comment text is gone');
+    assert.ok(!/secret/i.test(out), 'comment text is gone');
+    assert.equal(countLines(out), countLines(src), 'but its lines are not');
+  });
+
+  it('holds for each C-family language the branch claims to cover', () => {
+    const src = 'x;\n/* one\ntwo */\ny;';
+    for (const lang of ['c', 'cpp', 'java', 'javascript']) {
+      assert.equal(countLines(masker.stripComments(src, lang)), countLines(src), lang);
+    }
+  });
+
+  it('holds for python, whose # comments carry no newline', () => {
+    const src = 'def f():\n    # a comment\n    return 1\n';
+    const out = masker.stripComments(src, 'python');
+    assert.equal(countLines(out), countLines(src));
+    assert.ok(!/a comment/.test(out));
+    assert.match(out.split('\n')[2], /return 1/);
+  });
+
+  it('a string that merely LOOKS like a comment is untouched', () => {
+    // The regex captures quoted spans first for exactly this reason; blanking
+    // one would delete real code and move lines.
+    const src = 'const s = "/* not a comment */";\nnext();';
+    const out = masker.stripComments(src, 'javascript');
+    assert.match(out, /"\/\* not a comment \*\/"/);
+    assert.equal(countLines(out), countLines(src));
+  });
+
+  it('numbering survives stripping: rendered line N is file line N', () => {
+    // The end-to-end property, which is what the four server.js call sites do:
+    // strip, then number. Before the repair this drifted by the number of
+    // lines every block comment occupied.
+    const src = [
+      'line one',                 // 1
+      '/* two',                   // 2
+      '   three',                 // 3
+      '   four */',               // 4
+      'line five',                // 5
+      'line six',                 // 6
+    ].join('\n');
+    const rendered = addLineNumbers(masker.stripComments(src, 'c'), 1).split('\n');
+    const labelled = Object.fromEntries(rendered
+      .map((l) => l.match(/^\s*(\d+) \| (.*)$/)).filter(Boolean)
+      .map((m) => [Number(m[1]), m[2]]));
+    assert.match(labelled[1], /line one/);
+    assert.match(labelled[5], /line five/, 'line 5 must still be labelled 5');
+    assert.match(labelled[6], /line six/, 'and the drift must not accumulate');
   });
 });

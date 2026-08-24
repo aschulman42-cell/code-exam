@@ -3350,12 +3350,21 @@ routes['/api/build-prompt'] = (req, res) => {
         const matches = index.findFunctionMatches(funcName, fileHint);
         if (matches.length === 0) return errorResponse(res, `Function '${funcName}' not found`, 404);
         const m = matches[0];
-        let source = index.getFunctionSource(m.filepath, m.name);
+        // Number from the range the SOURCE covers, not from m.start.
+        // getFunctionSource prepends the preceding doc comment and says nothing
+        // about it, while m.start is the SIGNATURE line — so m.start labels the
+        // comment's first line as the signature and every citation is shifted.
+        // Measured on .demo_code_only: 64 of 154 symbols (42%) carry a
+        // prepended block, median 6 lines, max 25, varying per function so no
+        // constant corrects it. Same defect 4b39295 repaired on the CLI side.
+        const got = index.getFunctionSourceWithRange?.(m.filepath, m.name);
+        let source = got?.source ?? index.getFunctionSource(m.filepath, m.name);
         if (!source) return errorResponse(res, 'Source not available', 404);
+        const srcStart = got?.start ?? m.start;
         const lang = detectLanguage(m.filepath);
         if (mask) source = masker.maskFunctionSource(source, m.name, lang);
         else if (maskComments) source = masker.stripComments(source, lang);
-        if (lineNumbers) source = addLineNumbers(source, m.start);
+        if (lineNumbers) source = addLineNumbers(source, srcStart);
 
         // Determine masking state for prompt preamble
         const maskState = mask ? 'masked' : maskComments ? 'comments' : false;
@@ -3750,14 +3759,18 @@ routes['/api/analyze-llm'] = (req, res) => {
         if (matches.length === 0) return errorResponse(res, `Function '${funcName}' not found`, 404);
         const m = matches[0];
 
-        let source = index.getFunctionSource(m.filepath, m.name);
+        // Number from the range the SOURCE covers, not from m.start — see the
+        // sibling site above; getFunctionSource prepends the doc comment.
+        const got = index.getFunctionSourceWithRange?.(m.filepath, m.name);
+        let source = got?.source ?? index.getFunctionSource(m.filepath, m.name);
         if (!source) return errorResponse(res, 'Source not available', 404);
+        const srcStart = got?.start ?? m.start;
 
         const lang = detectLanguage(m.filepath);
         const masker = new SimpleMasker();
         if (mask) source = masker.maskFunctionSource(source, m.name, lang);
         else if (maskComments) source = masker.stripComments(source, lang);
-        if (lineNumbers) source = addLineNumbers(source, m.start);
+        if (lineNumbers) source = addLineNumbers(source, srcStart);
 
         if (mode === 'claim-analyze') {
           let claim = params.claim;

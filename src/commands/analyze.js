@@ -445,17 +445,37 @@ export class SimpleMasker {
   // Layer 1: Strip comments
   // -----------------------------------------------------------------
 
+  // A stripped comment leaves behind THE SAME NUMBER OF NEWLINES it occupied.
+  //
+  // Replacing a multi-line block comment with a single space collapses it, so
+  // every line after it is numbered too LOW — and the error ACCUMULATES down
+  // the file, which makes it worse than a fixed shift: the numbers stay
+  // plausible while drifting. Measured on a 7-line sample with one 3-line block
+  // comment: 7 lines in, 5 lines out.
+  //
+  // Fixed here rather than at the call sites because every caller either
+  // numbers the result or hands it to a model that will be asked to cite line
+  // numbers. A per-site guard would leave the next caller to rediscover this.
+  // The comment's CONTENT is still removed — only its line structure survives,
+  // so the masking guarantee is unchanged.
+  _blankComment(match, empty) {
+    const newlines = match.length - match.replace(/\n/g, '').length;
+    return newlines ? '\n'.repeat(newlines) : empty;
+  }
+
   stripComments(code, language) {
     if (language === 'c' || language === 'cpp' || language === 'java' || language === 'javascript') {
       return code.replace(
         /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
-        (match, quoted) => quoted || ' '
+        (match, quoted) => quoted || this._blankComment(match, ' ')
       );
     }
     if (language === 'python') {
+      // `#` comments carry no newline, so this branch was already line-safe;
+      // routed through the same helper so it stays that way.
       return code.replace(
         /("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|#[^\n]*/g,
-        (match, quoted) => quoted || ''
+        (match, quoted) => quoted || this._blankComment(match, '')
       );
     }
     return code;
