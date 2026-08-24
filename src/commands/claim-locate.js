@@ -1441,7 +1441,13 @@ export function targetsChecksum(targets) {
 // statement promises repeatability — the first says it is one draw, the second
 // says which decode mode produced it.
 export function samplingLine(model, runs = 1) {
-  const r = `Runs: ${runs}${runs > 1 ? ' (targets unioned across runs)' : ''}.`;
+  // "Votes", not "union". Union names the mechanism; voting names what the
+  // number MEANS to whoever reads the chart — a target 3 of 3 runs proposed is
+  // firmer evidence than one proposed once, and that is the sentence a reader
+  // can act on. (Andrew, 2026-08-23: the union framing was what made the
+  // feature hard to follow, and it hid the quorum question inside the cap.)
+  const r = `Runs: ${runs}`
+    + `${runs > 1 ? ` (each run votes; "Runs-found: N/${runs}" is a target's vote count)` : ''}.`;
   if (!model) return `unknown engine. ${r}`;
   if (model.kind === 'gguf') {
     return `local GGUF, temperature 0 (greedy decoding, no RNG). ${r}`;
@@ -1767,16 +1773,47 @@ export async function doClaimLocate(index, args, opts = {}) {
     }
 
     discovery = [...byElement.values()].sort((a, b) => a.element - b.element);
-    proposals = [...byCandidate.values()].slice(0, LOCATE_DEFAULTS.maxProposals);
     runsCompleted = completed;
+
+    // QUORUM. The cap below is 24 and a single pooled run already yields ~22.6
+    // targets on the '101 claim, so with more than one run the cap BINDS — it
+    // is the expected case, not an overflow. Something must therefore be cut,
+    // and run order is not a quality signal: cutting by insertion order
+    // discarded whatever runs 2 and 3 found first, which is exactly the
+    // marginal recall that running more than once exists to recover.
+    //
+    // Sorting by votes cuts the least-corroborated instead. That is defensible
+    // — a target every run proposed is better evidence than one proposed once —
+    // but it does mean that under a binding cap --runs CONFIRMS run 1 rather
+    // than extending it. The disclosure below is what keeps that visible.
+    //
+    // Array.prototype.sort is stable, so equal vote counts keep their insertion
+    // order. At --runs 1 every target has exactly one vote, so this is a no-op
+    // and the single-run path stays byte-identical.
+    const proposed = [...byCandidate.values()]
+      .sort((a, b) => (b.runsFound || 1) - (a.runsFound || 1));
+    proposals = proposed.slice(0, LOCATE_DEFAULTS.maxProposals);
+    const cut = proposed.length - proposals.length;
+
     if (runs > 1) {
       if (completed !== runs) {
         process.stderr.write(`  ⚠ ${runs} run(s) requested, ${completed} completed —`
-          + ` frequencies are out of ${completed}, not ${runs}\n`);
+          + ` vote counts are out of ${completed}, not ${runs}\n`);
       }
-      const firm = proposals.filter((p) => p.runsFound === completed).length;
-      console.log(`Union across ${completed} run(s): ${proposals.length} distinct proposal(s),`
-        + ` ${firm} found by every run.`);
+      const unanimous = proposals.filter((p) => p.runsFound === completed).length;
+      // A bound that does not say what it dropped reads as a finding when it is
+      // a ceiling: a bare "24 proposals" cannot be told apart from "41 proposed,
+      // 17 discarded". Same discipline as BUDGET-LIMITED and the content-arm
+      // counts.
+      console.log(`${completed} run(s): ${proposed.length} target(s) proposed,`
+        + ` ${proposals.length} kept`
+        + `${cut ? ` (${cut} CUT by the ${LOCATE_DEFAULTS.maxProposals}-target cap)` : ''},`
+        + ` ${unanimous} proposed by every run.`);
+      if (cut) {
+        process.stderr.write(`  ⚠ ${cut} target(s) cut by the ${LOCATE_DEFAULTS.maxProposals}-target`
+          + ` cap — the cut falls on the FEWEST votes first, so what was dropped is what`
+          + ` fewest runs agreed on\n`);
+      }
       console.log();
     }
   }

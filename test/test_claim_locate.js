@@ -1798,7 +1798,7 @@ describe('--runs N unions the discovery cycle instead of sampling it once', () =
     const body = fs.readFileSync(p, 'utf8');
     assert.ok(!/# Runs-found:/.test(body), 'no per-target frequency at runs=1');
     assert.match(body, /Runs: 1\./);
-    assert.ok(!/targets unioned across runs/.test(body), 'no union suffix at runs=1');
+    assert.ok(!/each run votes/.test(body), 'no vote-count suffix at runs=1');
     assert.match(body, /^Rate\.java@RateChooser::chooseBitrate$/m, 'spec line unchanged');
   });
 
@@ -1816,7 +1816,7 @@ describe('--runs N unions the discovery cycle instead of sampling it once', () =
     const body = fs.readFileSync(p, 'utf8');
     assert.match(body, /^# Runs-found: 3\/3$/m);
     assert.match(body, /^# Runs-found: 1\/3$/m);
-    assert.match(body, /targets unioned across runs/, 'sampling line says the list is a union');
+    assert.match(body, /each run votes/, 'sampling line explains what the vote count means');
 
     const parsed = parseTargets(`@${p}`);
     assert.ok(parsed.targets.includes('Rate.java@RateChooser::chooseBitrate'),
@@ -1875,5 +1875,120 @@ describe('--runs N unions the discovery cycle instead of sampling it once', () =
       { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, runs: 3 }, { draft }));
     const row = res.rows.find((r) => r.verified && r.match.name === 'RateChooser::chooseBitrate');
     assert.equal(row.runsFound, 2, 'counted against the runs that actually completed');
+  });
+});
+
+// ===========================================================================
+// THE PROPOSAL CAP UNDER VOTING
+//
+// maxProposals is 24 and a single pooled run already yields ~22.6 targets on
+// the '101 claim, so with more than one run the cap BINDS -- it is the
+// expected case, not an overflow. Two things follow: the cut must fall on the
+// least-corroborated targets rather than on whatever arrived last, and it must
+// SAY SO. A bare "24 proposals" cannot be told apart from "41 proposed, 17
+// discarded".
+// ===========================================================================
+describe('the proposal cap cuts by fewest votes, and says what it cut', () => {
+  const CLAIM = 'A system, comprising: choosing a rate.';
+  // 30 symbols, all matching the same predicted word, so the union overflows
+  // the 24-target cap and the cut is forced.
+  const MANY = () => {
+    const fnIndex = { 'src/main/Rate.java': {} };
+    for (let i = 0; i < 30; i++) {
+      fnIndex['src/main/Rate.java'][`Rate::bitrateFn${String(i).padStart(2, '0')}`] = { start: i * 10, end: i * 10 + 5 };
+    }
+    return { functionIndex: fnIndex, _ensureFunctionIndex() {}, findCallers: () => [], findCallees: () => [] };
+  };
+  const names = (n, from = 0) => Array.from({ length: n },
+    (_, i) => `Rate::bitrateFn${String(i + from).padStart(2, '0')}`).join('; ');
+
+  const quiet = async (fn) => {
+    const log = console.log; console.log = () => {};
+    try { return await fn(); } finally { console.log = log; }
+  };
+
+  // Run 1 proposes 00-19. Runs 2 and 3 propose 00-09 again plus 20-29.
+  // So 00-09 have 3 votes, 10-19 have 1, 20-29 have 2. Thirty candidates, cap
+  // 24, so six must go -- and the six that go must be one-vote ones.
+  const votingDrafter = () => {
+    let vocab = 0;
+    return async (sys) => {
+      if (/WORDS that would appear/.test(sys)) { vocab++; return 'ELEMENT 1: bitrate'; }
+      return vocab === 1 ? `ELEMENT 1: ${names(20, 0)}` : `ELEMENT 1: ${names(10, 0)}; ${names(10, 20)}`;
+    };
+  };
+
+  it('keeps the most-voted targets and drops the least-voted', async () => {
+    const res = await quiet(() => doClaimLocate(MANY(),
+      { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, no_navigate: true, runs: 3 },
+      { draft: votingDrafter() }));
+    const kept = new Map(res.rows.filter((r) => r.verified).map((r) => [r.match.name, r.runsFound]));
+    // Every 3-vote and 2-vote target survives; the cut lands entirely on 1-vote.
+    for (let i = 0; i < 10; i++) {
+      assert.equal(kept.get(`Rate::bitrateFn${String(i).padStart(2, '0')}`), 3,
+        'a target every run proposed must never be cut');
+    }
+    for (let i = 20; i < 30; i++) {
+      assert.equal(kept.get(`Rate::bitrateFn${String(i).padStart(2, '0')}`), 2,
+        'a 2-vote target outranks a 1-vote one');
+    }
+    const oneVote = [...kept.values()].filter((v) => v === 1).length;
+    assert.equal(oneVote, 4, '24 kept = 10 unanimous + 10 two-vote + 4 of the ten one-vote');
+  });
+
+  it('REPORTS the cut rather than presenting the ceiling as a finding', async () => {
+    const lines = [];
+    const log = console.log; console.log = (m) => lines.push(String(m ?? ''));
+    const err = process.stderr.write.bind(process.stderr);
+    const errs = [];
+    process.stderr.write = (m) => { errs.push(String(m)); return true; };
+    try {
+      await doClaimLocate(MANY(),
+        { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, no_navigate: true, runs: 3 },
+        { draft: votingDrafter() });
+    } finally { console.log = log; process.stderr.write = err; }
+    const summary = lines.find((l) => /target\(s\) proposed/.test(l));
+    assert.ok(summary, 'a summary line is printed');
+    assert.match(summary, /30 target\(s\) proposed/, 'says how many were proposed, not just how many survived');
+    assert.match(summary, /24 kept/);
+    assert.match(summary, /6 CUT by the 24-target cap/, 'names the cap as the cause');
+    assert.match(summary, /10 proposed by every run/);
+    assert.ok(errs.some((m) => /FEWEST votes first/.test(m)),
+      'says WHICH targets the cut fell on, not merely that there was one');
+  });
+
+  it('says nothing about a cap that did not bind', async () => {
+    // Silence must mean "nothing was dropped", never "something was dropped
+    // quietly" -- otherwise the disclosure trains the reader to ignore it.
+    const lines = [];
+    const log = console.log; console.log = (m) => lines.push(String(m ?? ''));
+    try {
+      await doClaimLocate(MANY(),
+        { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, no_navigate: true, runs: 2 },
+        { draft: async (sys) => (/WORDS that would appear/.test(sys)
+          ? 'ELEMENT 1: bitrate' : `ELEMENT 1: ${names(5, 0)}`) });
+    } finally { console.log = log; }
+    const summary = lines.find((l) => /target\(s\) proposed/.test(l));
+    assert.match(summary, /5 target\(s\) proposed, 5 kept,/);
+    assert.ok(!/CUT/.test(summary), 'no cut language when nothing was cut');
+  });
+
+  it('--runs 1 is byte-identical: equal votes keep their order, no new output', async () => {
+    // The compatibility contract. Sorting by votes must be a NO-OP when every
+    // target has exactly one vote, or the single-run path silently reorders.
+    const lines = [];
+    const log = console.log; console.log = (m) => lines.push(String(m ?? ''));
+    let res;
+    try {
+      res = await doClaimLocate(MANY(),
+        { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, no_navigate: true, runs: 1 },
+        { draft: async (sys) => (/WORDS that would appear/.test(sys)
+          ? 'ELEMENT 1: bitrate' : `ELEMENT 1: ${names(6, 0)}`) });
+    } finally { console.log = log; }
+    assert.ok(!lines.some((l) => /target\(s\) proposed/.test(l)), 'no summary line at runs=1');
+    assert.deepEqual(
+      res.rows.filter((r) => r.verified).map((r) => r.match.name),
+      Array.from({ length: 6 }, (_, i) => `Rate::bitrateFn${String(i).padStart(2, '0')}`),
+      'proposal order preserved exactly');
   });
 });
