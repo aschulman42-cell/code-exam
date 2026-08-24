@@ -1551,6 +1551,18 @@ LLM ANALYSIS:
                              (shouldStartPlayback 5/5 -> 3/6), so pooled is the
                              default. Kept for measurement, and for local runs where
                              a shorter target list is worth more than recall.
+  --runs <n>                 --claim-locate: repeat the discovery+selection cycle n
+                             times and keep every target ANY run proposed, tallied
+                             as "Runs-found: N/n" in --targets-out. Each run votes;
+                             a target n of n runs proposed is firmer evidence than
+                             one proposed once. Identical --per-element-select
+                             invocations lost an element group in 3 of 7 runs, so a
+                             single run's target list is ONE SAMPLE. Cost is LINEAR
+                             in n. Above one run the 24-target cap binds: the
+                             least-voted targets are cut and the run reports how
+                             many, so a cut result is a floor on what more runs
+                             would find, not the whole of it. Discovery path only --
+                             refused with --hunt and --propose-from-priors.
   --synonymize <claim>       HOF-b. Rewrite a claim's WORDING away from the vocabulary
                              a programmer would use, preserving the requirement and the
                              element split, so a corpus whose answers are already known
