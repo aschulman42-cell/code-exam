@@ -31,6 +31,7 @@ import { readCeVersion } from '../utils.js';
 // belongs in `utils.js` — which all of them already import — and moving it is a
 // small follow-up deliberately kept out of this item's scope.
 import { readClaimFile } from './analyze.js';
+import { parseMultisectTerms } from './multisect.js';
 import { wasLastDraftTruncated, resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine } from '../core/llm-runner.js';
 import {
   buildSymbolTable, verifySymbol, isFound, nearbySymbols, navigateFrom,
@@ -597,15 +598,66 @@ export const VOCAB_MAX_OUTPUT_TOKENS = 3000;
 export function contentCandidatesForWords(index, words, opts = {}) {
   if (!index || typeof index.multisectSearch !== 'function' || !words || !words.length) return [];
   const limit = opts.limit ?? 10;
-  const terms = words.map((w) => ({ term: w, negated: false, hard: false }));
+  // Terms are built by the CANONICAL parser, not constructed here.
+  //
+  // 2e867ec hand-rolled `{ term, negated, hard }` while multisectSearch reaches
+  // for `regex.test(line)` and the contract is `{ display, regex, negated,
+  // hard }` (multisect.js:44). The first line tested threw, the catch below
+  // swallowed it, and the arm returned [] on EVERY call from the day it shipped
+  // until asus-CC found it (#315). A second hand-rolled copy of a shape is what
+  // drifts; there is now one builder.
+  //
+  // `?` marks each term SOFT — the arm gates on minTerms:1, not on every word
+  // matching. parseElementWords has already reduced every word to [a-z0-9]{3,24},
+  // so nothing here can collide with the `;` separator or the `?`/`!`/`NOT `
+  // prefixes. This function is exported, though, so a caller could pass anything:
+  // words that cannot round-trip are dropped and REPORTED, never quietly
+  // searched for as something else.
+  const safe = [];
+  for (const w of words) {
+    if (/^[a-z0-9]+$/i.test(String(w))) safe.push(String(w).toLowerCase());
+  }
+  if (safe.length !== words.length) {
+    opts.onError?.(new Error(`${words.length - safe.length} term(s) dropped:`
+      + ` not [a-z0-9] and cannot round-trip the multisect term syntax`));
+  }
+  if (!safe.length) return [];
+  const terms = parseMultisectTerms(safe.map((w) => `?${w}`).join(';'));
+  if (!terms || !terms.length) {
+    opts.onError?.(new Error('multisect term parsing produced no terms'));
+    return [];
+  }
   let res;
   try { res = index.multisectSearch(terms, { minTerms: 1, showProgress: false }); }
-  catch { return []; }                       // retrieval must not take the run down
+  catch (e) {
+    // The POLICY stays — retrieval must not take the run down. The SILENCE does
+    // not. A swallowed throw and an empty result set are different events, and
+    // before this the code could not tell them apart, which is what made a
+    // hard type error look like "searched, found nothing new" for two days.
+    opts.onError?.(e);
+    return [];
+  }
   const fns = (res && res.function_matches) || [];
-  return fns.slice(0, limit).map((m) => ({
-    name: m.name || m.function || m.full_name || '',
-    filepath: m.filepath || m.file || '',
-  })).filter((s) => s.name);
+  // A FILE-SCOPE match is not a citable function. multisect reports matter
+  // outside any function as `(global)`, and on the arm's first real output
+  // those were 20-50% of what it returned — unseeable before now, because the
+  // arm returned nothing at all. Dropped and COUNTED: a candidate list quietly
+  // carrying uncitable entries overstates what the arm found, which is the
+  // same class of overstatement that hid the arm's failure.
+  //
+  // Filtered BEFORE the limit, not after. The old order sliced first, so a
+  // result set half full of file-scope matches yielded fewer real candidates
+  // than the caller asked for and never said why.
+  const named = [];
+  let fileScope = 0;
+  for (const m of fns) {
+    const name = m.name || m.function || m.full_name || '';
+    if (!name) continue;
+    if (/^\(/.test(name)) { fileScope += 1; continue; }
+    named.push({ name, filepath: m.filepath || m.file || '' });
+  }
+  if (fileScope) opts.onNote?.(`${fileScope} file-scope (non-function) match(es) dropped`);
+  return named.slice(0, limit);
 }
 
 export async function retrievePerElement({ draft, elements, symbols, opts = {} }) {
@@ -664,8 +716,12 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
       const key = (s) => `${String(s.filepath || '').split('!').pop()}@${s.name}`;
       const seen = new Set(hits.map((h) => key(h.sym)));
       for (const h of hits) h.arm = 'name';
+      let armError = null;
+      let armNote = null;
       for (const c of contentCandidatesForWords(opts.index, words,
-        { limit: opts.contentPerElement ?? LOCATE_DEFAULTS.contentPerElement })) {
+        { limit: opts.contentPerElement ?? LOCATE_DEFAULTS.contentPerElement,
+          onError: (e) => { armError = e; },
+          onNote: (n) => { armNote = n; } })) {
         if (seen.has(key(c))) {
           const prior = hits.find((h) => key(h.sym) === key(c));
           if (prior) prior.arm = 'both';       // corroborated by two searches
@@ -675,9 +731,17 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
         hits.push({ sym: c, matched: [], score: -Infinity, arm: 'content' });
         contentAdded += 1;
       }
-      if (contentAdded) {
+      // Reported UNCONDITIONALLY where the arm is enabled. Emitting only the
+      // non-zero case is what hid the arm's total failure: an absent line meant
+      // "found nothing new" and "never ran" alike, so three separate checks
+      // read a dead arm as a healthy one. Three states, three distinct lines.
+      if (armError) {
+        process.stderr.write(`    ⚠ CONTENT search arm ERRORED and contributed nothing:`
+          + ` ${armError.message}\n`);
+      } else {
         process.stderr.write(`    +${contentAdded} candidate(s) from CONTENT search`
-          + ` (name search did not surface them)\n`);
+          + `${contentAdded ? ' (name search did not surface them)' : ' (searched, nothing new)'}`
+          + `${armNote ? ` — ${armNote}` : ''}\n`);
       }
     }
     perElement.push({ element, text: limText.slice(0, 160), words, hits, mismatches, contentAdded });

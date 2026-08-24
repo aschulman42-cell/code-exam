@@ -22,6 +22,7 @@ import {
   SPLIT_DEFAULTS,
   buildProposePrompt, buildIndexProfile, formatLocateReport,
   doClaimLocate, buildDiscoverPrompt, parseElementWords, searchSymbolsByWords,
+  contentCandidatesForWords,
   buildSelectPrompt, isTestSymbol,
   buildHuntPrompt, parseHuntActions, makeHuntTools, runSymbolHunt, HUNT_DEFAULTS,
   transcriptSymbols, selectionSeen, partitionSelections,
@@ -1659,7 +1660,23 @@ describe('the vocabulary budget, and a step that was cut off says so', () => {
 // right file and CE looked in the one place it does not appear.
 describe('the content arm is an ARM, never a blend', () => {
   const SYMS = [{ name: 'Tx::sendData', filepath: 'a.java' }];
-  const fakeIndex = (fns) => ({ multisectSearch: () => ({ function_matches: fns }) });
+  // The stub ENFORCES the contract it stands in for. The previous version was
+  // `multisectSearch: () => ({ function_matches: fns })` — it ignored its
+  // arguments entirely, so every merge property below was tested while the one
+  // thing that mattered, the SHAPE of the argument, was the only thing the mock
+  // could not check. The arm shipped with `{ term, negated, hard }`, threw on
+  // `regex.test(line)`, and returned [] on every call for two days.
+  const fakeIndex = (fns) => ({
+    multisectSearch: (terms) => {
+      if (!Array.isArray(terms) || !terms.length) throw new Error('no terms supplied');
+      for (const t of terms) {
+        if (!t || !(t.regex instanceof RegExp)) {
+          throw new TypeError('multisect term is missing `regex` — see multisect.js:44');
+        }
+      }
+      return { function_matches: fns };
+    },
+  });
 
   it('is OFF without an index — the compatibility contract', async () => {
     // Omitting the index must leave this path byte-identical. A regression here
@@ -1990,5 +2007,101 @@ describe('the proposal cap cuts by fewest votes, and says what it cut', () => {
       res.rows.filter((r) => r.verified).map((r) => r.match.name),
       Array.from({ length: 6 }, (_, i) => `Rate::bitrateFn${String(i).padStart(2, '0')}`),
       'proposal order preserved exactly');
+  });
+});
+
+// ===========================================================================
+// THE CONTENT ARM ACTUALLY RUNS
+//
+// It did not, from 2e867ec until asus-CC found it (#315). Three things each
+// independently guaranteed the silence: the term shape was hand-rolled and
+// wrong, a bare `catch { return []; }` swallowed the resulting TypeError, and
+// the stub above ignored its arguments so the suite could not see the shape.
+// The reporting made it worse -- contentAdded was emitted only when non-zero,
+// so total failure and "found nothing new" rendered identically.
+// ===========================================================================
+describe('the content arm runs, and says so when it cannot', () => {
+  const INDEX = '.demo_code_only';
+  const have = fs.existsSync(INDEX);
+
+  it('returns real candidates against a REAL index', { skip: !have }, async () => {
+    // The assertion that could not be made against the old stub, and the one
+    // that would have caught this on day one.
+    const { CodeSearchIndex } = await import('../src/core/CodeSearchIndex.js');
+    const idx = new CodeSearchIndex({ indexPath: INDEX });
+    idx._ensureFunctionIndex();
+    let err = null;
+    const out = contentCandidatesForWords(idx, ['cipher', 'handshake', 'certificate'],
+      { limit: 8, onError: (e) => { err = e; } });
+    assert.equal(err, null, 'the arm must not error against a real index');
+    assert.ok(out.length > 0, 'the arm returns candidates -- it returned 0 for two days');
+    for (const c of out) assert.ok(c.name, 'every candidate carries a name');
+  });
+
+  it('a THROW is reported, not swallowed', () => {
+    // The policy stays: retrieval must not take the run down. The silence does
+    // not. Before this, a hard TypeError and an empty result were the same event.
+    let err = null;
+    const out = contentCandidatesForWords(
+      { multisectSearch: () => { throw new Error('boom'); } },
+      ['alpha'], { onError: (e) => { err = e; } });
+    assert.deepEqual(out, [], 'the run still survives');
+    assert.ok(err && /boom/.test(err.message), 'and the failure is REPORTED');
+  });
+
+  it('file-scope matches are dropped AND counted', () => {
+    // multisect reports matter outside any function as `(global)`. On the arm's
+    // first real output those were 20-50% of the result set -- uncitable as a
+    // function, and invisible while the arm returned nothing at all.
+    let note = null;
+    const idx = { multisectSearch: (terms) => {
+      for (const t of terms) if (!(t.regex instanceof RegExp)) throw new TypeError('bad term');
+      return { function_matches: [
+        { name: '(global)', filepath: 'a.c' },
+        { name: 'realFunction', filepath: 'a.c' },
+        { name: '(global)', filepath: 'b.c' },
+      ] };
+    } };
+    const out = contentCandidatesForWords(idx, ['alpha'], { limit: 10, onNote: (n) => { note = n; } });
+    assert.deepEqual(out.map((c) => c.name), ['realFunction'], 'only citable functions survive');
+    assert.ok(note && /2 file-scope/.test(note), 'and the drop is counted, not silent');
+  });
+
+  it('filters BEFORE the limit, so the caller gets what it asked for', () => {
+    // The old order sliced first, so a result set half full of file-scope
+    // matches quietly yielded fewer real candidates than requested.
+    const fns = [];
+    for (let i = 0; i < 6; i++) { fns.push({ name: '(global)', filepath: 'x.c' }); }
+    for (let i = 0; i < 4; i++) { fns.push({ name: `fn${i}`, filepath: 'x.c' }); }
+    const idx = { multisectSearch: () => ({ function_matches: fns }) };
+    const out = contentCandidatesForWords(idx, ['alpha'], { limit: 3 });
+    assert.equal(out.length, 3, 'three REAL candidates, not three-minus-the-pseudo-ones');
+  });
+
+  it('a word that cannot round-trip the term syntax is dropped and reported', () => {
+    // parseElementWords already reduces words to [a-z0-9]{3,24}, but this
+    // function is exported and `;` `?` `!` all carry meaning in the term string.
+    let err = null;
+    const idx = { multisectSearch: (terms) => ({
+      function_matches: terms.map((t, i) => ({ name: `hit${i}`, filepath: 'a.c' })) }) };
+    const out = contentCandidatesForWords(idx, ['good', 'ba;d', '?sneaky'],
+      { limit: 10, onError: (e) => { err = e; } });
+    assert.ok(err && /2 term\(s\) dropped/.test(err.message), 'the drop is reported');
+    assert.equal(out.length, 1, 'only the safe term was searched for');
+  });
+
+  it('terms reach multisect in the DOCUMENTED shape', () => {
+    // The contract, asserted directly rather than via a permissive mock.
+    let seen = null;
+    const idx = { multisectSearch: (terms) => { seen = terms; return { function_matches: [] }; } };
+    contentCandidatesForWords(idx, ['cipher', 'handshake'], { limit: 5 });
+    assert.equal(seen.length, 2);
+    for (const t of seen) {
+      assert.ok(t.regex instanceof RegExp, 'regex is what multisectSearch calls .test() on');
+      assert.equal(typeof t.display, 'string');
+      assert.equal(t.negated, false);
+      assert.equal(t.hard, false, 'the arm gates on minTerms:1, so terms are SOFT');
+    }
+    assert.ok(seen[0].regex.test('makeCipherSuite'), 'and the regex actually matches');
   });
 });
