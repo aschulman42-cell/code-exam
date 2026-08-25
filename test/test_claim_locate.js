@@ -1497,14 +1497,24 @@ describe('the targets file says what kind of sample it is', () => {
     assert.match(s, /Runs: 1\./);
   });
 
-  it('a local list states the DECODE MODE, and does not promise identity', () => {
-    // The claim made must be exactly the claim measured. Greedy decoding uses
-    // no RNG, but floating-point non-associativity in GPU kernels is not
-    // something a flag fixes and whether it bites here is unmeasured.
+  it('a local list states the DECODE MODE, and SCOPES any repeatability claim', () => {
+    // The original form of this test banned the words outright, because
+    // repeatability was UNMEASURED: greedy decoding uses no RNG, but GPU-kernel
+    // float non-associativity is not something a flag fixes.
+    //
+    // asus-CC measured it on 2026-08-25 (#315) — 3 separate processes, identical
+    // target lists — so silence is no longer the honest answer. The PRINCIPLE the
+    // ban protected is unchanged and is what is asserted now: **the claim made
+    // must be exactly the claim measured.** A repeatability claim is allowed only
+    // if it carries its corpus, its count, and the limit of what was measured.
     const s = samplingLine({ kind: 'gguf', modelPath: '/m/gemma.gguf' });
     assert.match(s, /temperature 0 \(greedy decoding, no RNG\)/);
-    assert.ok(!/identical|reproducib|deterministic/i.test(s),
-      'must not claim repeatability that has not been measured');
+    if (/identical|reproducib|deterministic/i.test(s)) {
+      assert.match(s, /3 separate processes/, 'names how many observations');
+      assert.match(s, /\.demo_code_only/, 'names the corpus it was measured on');
+      assert.match(s, /not a guarantee/i, 'says plainly that it is not a general property');
+      assert.match(s, /unmeasured/i, 'names what remains unmeasured');
+    }
   });
 
   it('never names a seed — --reproducible reaches no CLI command', () => {
@@ -1815,7 +1825,7 @@ describe('--runs N unions the discovery cycle instead of sampling it once', () =
     const body = fs.readFileSync(p, 'utf8');
     assert.ok(!/# Runs-found:/.test(body), 'no per-target frequency at runs=1');
     assert.match(body, /Runs: 1\./);
-    assert.ok(!/each run votes/.test(body), 'no vote-count suffix at runs=1');
+    assert.ok(!/each run votes|WITHIN-PROCESS/.test(body), 'no runs suffix at all at runs=1');
     assert.match(body, /^Rate\.java@RateChooser::chooseBitrate$/m, 'spec line unchanged');
   });
 
@@ -1833,7 +1843,12 @@ describe('--runs N unions the discovery cycle instead of sampling it once', () =
     const body = fs.readFileSync(p, 'utf8');
     assert.match(body, /^# Runs-found: 3\/3$/m);
     assert.match(body, /^# Runs-found: 1\/3$/m);
-    assert.match(body, /each run votes/, 'sampling line explains what the vote count means');
+    // The gguf path no longer says "each run votes" -- on a local engine the
+    // count measures within-process warmup, not sampling (#315).
+    assert.match(body, /WITHIN-PROCESS stability/,
+      'a local sampling line says what the count actually measured');
+    assert.ok(!/each run votes/.test(body),
+      'and does NOT use the cloud meaning, which would invert the reading');
 
     const parsed = parseTargets(`@${p}`);
     assert.ok(parsed.targets.includes('Rate.java@RateChooser::chooseBitrate'),
@@ -2178,5 +2193,64 @@ describe('prompt examples parse as the output they demonstrate (#315)', () => {
     assert.equal(parsed.done, true, 'the demonstrated DONE block reads as done');
     assert.ok(parsed.selections.length > 0,
       'and its element lines parse as selections');
+  });
+});
+
+// ===========================================================================
+// TWO THINGS CLAIM-LOCATE SAYS THAT WERE NOT TRUE OF WHAT IT MEASURED (#315)
+//
+// 1. `Runs-found: N/3` was presented as firmness. On a LOCAL engine all N runs
+//    share one process, so run 1 is cold and the rest are warm — asus-CC
+//    measured run 1 matching a fresh process EXACTLY while runs 2 and 3 matched
+//    each other exactly. Two answers, not three: carried state, not sampling.
+//    A target the engine reproduces byte-for-byte got stamped 2/3, so a reader
+//    following the documented meaning DISCOUNTED it. Worse than uninformative.
+//
+// 2. `+44 candidates from CONTENT search` read as contribution. Content
+//    candidates carry score -Infinity and the sort is descending, so they sit
+//    below every name-arm candidate. Target lists with the arm on and off are
+//    BYTE-IDENTICAL on both corpora — the arm cannot reach a target at all.
+// ===========================================================================
+describe('claim-locate says what it measured, per engine (#315)', () => {
+  it('a LOCAL sampling line calls the count within-process, not a vote', () => {
+    const s = samplingLine({ kind: 'gguf', modelPath: '/m/gemma.gguf' }, 3);
+    assert.match(s, /WITHIN-PROCESS stability/);
+    assert.match(s, /run 1 is cold/, 'names the mechanism, not just the caveat');
+    assert.ok(!/each run votes/.test(s),
+      'the cloud meaning would tell a reader to discount a stable target');
+  });
+
+  it('a CLOUD sampling line is unchanged — the vote meaning is correct there', () => {
+    const s = samplingLine({ kind: 'cloud', model: 'claude' }, 3);
+    assert.match(s, /each run votes/);
+    assert.ok(!/WITHIN-PROCESS/.test(s));
+  });
+
+  it('runs=1 says nothing about runs on either engine', () => {
+    for (const m of [{ kind: 'gguf', modelPath: '/m/g.gguf' }, { kind: 'cloud' }]) {
+      const s = samplingLine(m, 1);
+      assert.match(s, /Runs: 1\./);
+      assert.ok(!/WITHIN-PROCESS|each run votes/.test(s));
+    }
+  });
+
+  it('content candidates sort BELOW every name candidate — the structural fact', () => {
+    // Pins why the arm cannot reach a target. If a remedy ever lands, THIS is
+    // the test that has to be changed deliberately, so nobody rediscovers
+    // -Infinity by archaeology.
+    const hits = [
+      { sym: { name: 'nameA' }, score: 0.1, arm: 'name' },
+      { sym: { name: 'contentA' }, score: -Infinity, arm: 'content' },
+      { sym: { name: 'nameB' }, score: 12.5, arm: 'name' },
+      { sym: { name: 'contentB' }, score: -Infinity, arm: 'content' },
+    ];
+    hits.sort((a, b) => b.score - a.score);
+    const arms = hits.map((h) => h.arm);
+    assert.deepEqual(arms, ['name', 'name', 'content', 'content'],
+      'every content candidate ranks below every name candidate, whatever its quality');
+    // Even the LOWEST-scoring name candidate outranks the best content one.
+    assert.ok(hits.findIndex((h) => h.arm === 'content')
+      > hits.findLastIndex((h) => h.arm === 'name'),
+      'so a selection reading from the top cannot reach one');
   });
 });

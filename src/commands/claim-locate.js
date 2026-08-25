@@ -640,7 +640,9 @@ export function contentCandidatesForWords(index, words, opts = {}) {
   const fns = (res && res.function_matches) || [];
   // A FILE-SCOPE match is not a citable function. multisect reports matter
   // outside any function as `(global)`, and on the arm's first real output
-  // those were 20-50% of what it returned — unseeable before now, because the
+  // those were 20-50% of what it returned -- and on a FULL run asus-CC later
+  // measured 117 dropped against 44 kept on CLAIM 2, i.e. 73% (#315), so the
+  // three-word-set figure understated it — unseeable before now, because the
   // arm returned nothing at all. Dropped and COUNTED: a candidate list quietly
   // carrying uncitable entries overstates what the arm found, which is the
   // same class of overstatement that hid the arm's failure.
@@ -741,6 +743,9 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
       } else {
         process.stderr.write(`    +${contentAdded} candidate(s) from CONTENT search`
           + `${contentAdded ? ' (name search did not surface them)' : ' (searched, nothing new)'}`
+          + `${hits.filter((h) => h.arm === 'content' && h.score === -Infinity).length
+            ? ` - WARNING: all of them rank BELOW every name-arm candidate and cannot`
+              + ` reach a target (#315)` : ''}`
           + `${armNote ? ` — ${armNote}` : ''}\n`);
       }
     }
@@ -1506,15 +1511,46 @@ export function targetsChecksum(targets) {
 // says which decode mode produced it.
 export function samplingLine(model, runs = 1) {
   // "Votes", not "union". Union names the mechanism; voting names what the
-  // number MEANS to whoever reads the chart — a target 3 of 3 runs proposed is
-  // firmer evidence than one proposed once, and that is the sentence a reader
-  // can act on. (Andrew, 2026-08-23: the union framing was what made the
-  // feature hard to follow, and it hid the quorum question inside the cap.)
-  const r = `Runs: ${runs}`
-    + `${runs > 1 ? ` (each run votes; "Runs-found: N/${runs}" is a target's vote count)` : ''}.`;
+  // number MEANS to whoever reads the chart. (Andrew, 2026-08-23.)
+  //
+  // BUT THE VOTE COUNT DOES NOT MEAN THE SAME THING ON BOTH ENGINES, and
+  // saying so is the whole point of this branch. Measured by asus-CC (#315,
+  // CLAIM 2 / .demo_code_only / gemma-3-12b, union under the cap so nothing is
+  // confounded):
+  //
+  //   THREE SEPARATE PROCESSES  ->  byte-identical target lists, 3 for 3
+  //                                 (differing only in `# Command:`/`# Generated:`)
+  //   THREE RUNS IN ONE PROCESS ->  4 of 23 targets non-unanimous
+  //
+  // Randomness gives three different answers; this gave TWO — run 1 matched a
+  // fresh process exactly, runs 2 and 3 matched each other exactly. A step
+  // function on first use is carried state, not sampling: all N runs share one
+  // process, so run 1 is cold and the rest are warm. The entire difference was
+  // one permutation of one element's word list, and order breaks ties
+  // downstream.
+  //
+  // So on the local path a target the engine reproduces BYTE-FOR-BYTE can be
+  // stamped `2/3`, and a reader following the documented meaning DISCOUNTS it.
+  // That is worse than uninformative — it inverts — and it is printed into
+  // charts. The label now says what it actually measured.
+  const isLocal = !!(model && model.kind === 'gguf');
+  const r = runs <= 1
+    ? `Runs: ${runs}.`
+    : isLocal
+      ? `Runs: ${runs} — WITHIN-PROCESS stability, NOT run-to-run variation:`
+        + ` all ${runs} runs share one process, so run 1 is cold and the rest are warm.`
+        + ` "Runs-found: N/${runs}" counts warm-vs-cold agreement, not engine reliability.`
+      : `Runs: ${runs} (each run votes; "Runs-found: N/${runs}" is a target's vote count).`;
   if (!model) return `unknown engine. ${r}`;
-  if (model.kind === 'gguf') {
-    return `local GGUF, temperature 0 (greedy decoding, no RNG). ${r}`;
+  if (isLocal) {
+    // The good news, stated because it is a genuine checkable property that
+    // nothing in CE's output claimed. Scoped to the measurement rather than
+    // asserted as a law — one corpus, one model, three processes.
+    return `local GGUF, temperature 0 (greedy decoding, no RNG) — REPRODUCIBLE`
+      + ` ACROSS PROCESSES ON WHAT HAS BEEN MEASURED: identical target lists were`
+      + ` observed across 3 separate processes on .demo_code_only with gemma-3-12b`
+      + ` (#315). An OBSERVATION, not a guarantee - GPU kernel float`
+      + ` non-associativity remains unmeasured on other models and hardware. ${r}`;
   }
   return `cloud engine, no seed control — this list is ONE SAMPLE and an`
     + ` identical command may produce a different one. ${r}`;
@@ -1626,6 +1662,18 @@ export async function doClaimLocate(index, args, opts = {}) {
   // How many runs actually completed. Not the same as `runs` when a later run
   // fails, and the frequency denominator has to be the honest one.
   let runsCompleted = runs;
+  // NOT a refusal - refusing would break the within-process measurement that
+  // discovered this (#315). A warning, once, because on a local engine the
+  // counts measure process warmup rather than sampling, and the engine is
+  // cross-process deterministic anyway.
+  if (runs > 1 && model && model.kind === 'gguf') {
+    process.stderr.write(`  WARNING: --runs ${runs} on a LOCAL engine measures within-process`
+      + ` stability, not run-to-run variation: all ${runs} runs share one process`
+      + ` (run 1 cold, the rest warm). This engine reproduces byte-for-byte across`
+      + ` processes, so a target stamped "Runs-found: ${runs - 1}/${runs}" may be`
+      + ` perfectly stable - see #315.
+`);
+  }
   const modeLabel = args.propose_from_priors
     ? 'propose-from-priors (model names symbols from its own knowledge)'
     : hunting
