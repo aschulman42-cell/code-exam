@@ -278,6 +278,7 @@ export function parseArgs() {
     claims_only: null,       // --pseudo-claims: machine-readable claims + anchors sidecar
     per_element_select: false,
     runs: null,              // --claim-locate: repeat discovery+selection N times, union targets
+    verdicts_out: null,      // --claim-chart: dump per-target verdicts for offline merge replay
     no_per_element: false,   // --claim-analyze: skip the per-element search arm
     per_element_n: null,     // --claim-analyze: per-element budget (default 1/element)
     hunt_rounds: null,
@@ -596,6 +597,7 @@ export function parseArgs() {
     ['single_claim',         'flag',           ['--single-claim']],
     ['per_element_select',   'flag',           ['--per-element-select']],
     ['runs',                 'int',            ['--runs']],
+    ['verdicts_out',         'value',          ['--verdicts-out']],
     ['no_per_element',       'flag',           ['--no-per-element']],
     ['per_element_n',        'int',            ['--per-element-n']],
     ['hunt_rounds',          'int',            ['--hunt-rounds']],

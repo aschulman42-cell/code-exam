@@ -994,6 +994,76 @@ export async function doClaimChart(index, args, opts = {}) {
 
   if (!perTarget.length) { console.error('No target produced a parseable analysis.'); process.exitCode = 1; return; }
 
+  // THE MERGE'S INPUT, DUMPED BEFORE THE MERGE CONSUMES IT.
+  //
+  // RUN 7 (#315) established that retrieval is no longer the blocker on
+  // '101 x ExoPlayer -- 8 of 45 targets were real playback code, up from 0 of
+  // 22, with the crux in the list -- and the chart still got worse. The
+  // remaining defects are both in mergeBestPerElement: ASSUMED outranks ABSENT
+  // in LABEL_RANK, so a row where 41 targets said ABSENT can report ASSUMED;
+  // and replacement is strictly-greater, so on a TIE the FIRST-ANALYSED target
+  // keeps the citation. asus-CC's three-line proof:
+  //
+  //   mergeBestPerElement([junk, crux]) -> cites LaunchActivity::onStart
+  //   mergeBestPerElement([crux, junk]) -> cites determineIdealSelectedIndex
+  //
+  // Nobody knows which rule is RIGHT, and each candidate rule currently costs a
+  // full model run to evaluate. These per-target analyses already contain the
+  // answer and were being discarded the moment the merge read them. On disk,
+  // any rule can be replayed against real data with no GPU and no model calls.
+  //
+  // WHAT IS AND IS NOT IN THE FILE, and each choice is load-bearing:
+  //   - targets IN ANALYSIS ORDER, because arrival order is the defect under
+  //     study; a replay must reproduce it exactly and be able to permute it. An
+  //     array preserves it, a keyed object would destroy the one property being
+  //     measured.
+  //   - RAW labels and notes only. No tally, no agreement, no winner -- derived
+  //     fields would bake in the assumptions the replay exists to test. This is
+  //     the merge's INPUT, not its output.
+  //   - DROPPED targets with their reason, including the PARSE-FAILED string.
+  //     45 analysed and 41 parsed are different populations, and a rule scored
+  //     against the wrong denominator is scored wrong.
+  //   - provenance binding it to its chart, so a replay cannot be run against
+  //     the wrong run's verdicts and produce a confident answer.
+  if (args.verdicts_out) {
+    const sidecar = {
+      _format: 'codeexam-chart-verdicts/1',
+      _note: 'Raw per-target verdicts as the merge received them, in analysis '
+        + 'order. No derived fields. See mergeBestPerElement.',
+      engine: engineLabel,
+      engineBuild: engineBuildLine(),
+      index: args.index_path || '(unknown)',
+      indexSymbols: symbols.length,
+      claimSource: (typeof spec === 'string' && spec.startsWith('@')) ? spec.slice(1) : 'inline text',
+      claimChars: claimText.length,
+      elements: elements.length,
+      // The integrity VERDICT, not a checksum -- targetIntegrity is a string
+      // ('unmodified' / 'modified' / null), and writing `.checksum` here would
+      // have silently recorded undefined in the one field meant to bind this
+      // file to its chart.
+      targetsIntegrity: targetIntegrity || 'not-supplied',
+      argv: process.argv.slice(1).join(' '),
+      generatedAt: new Date().toISOString(),
+      analysed: perTarget.map((p) => ({
+        target: p.target,
+        elements: p.elements.map((e) => ({
+          element: e.element ?? null, text: e.text ?? '', label: e.label, note: e.note || '',
+        })),
+      })),
+      dropped: dropped.map((d) => ({ target: d.target, reason: d.reason })),
+    };
+    try {
+      fs.writeFileSync(args.verdicts_out, `${JSON.stringify(sidecar, null, 2)}
+`, 'utf8');
+      console.log(`
+Per-target verdicts written to ${args.verdicts_out}`
+        + ` (${sidecar.analysed.length} analysed, ${sidecar.dropped.length} dropped).`);
+    } catch (e) {
+      console.error(`--verdicts-out: cannot write ${args.verdicts_out}: ${e.message}`);
+      process.exitCode = 1;
+    }
+  }
+
   const fills = mergeBestPerElement(perTarget);
   const scopeNote = args.scope_note ? String(args.scope_note) : null;
   const provenance = buildProvenanceHeader({

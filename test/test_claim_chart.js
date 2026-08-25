@@ -1306,3 +1306,69 @@ describe('stripComments preserves line count, so numbering cannot drift (#306)',
     assert.match(labelled[6], /line six/, 'and the drift must not accumulate');
   });
 });
+
+// ===========================================================================
+// THE VERDICT SIDECAR (#315)
+//
+// RUN 7 established that retrieval is no longer the blocker on '101 x
+// ExoPlayer -- 8 of 45 targets were real playback code, up from 0 of 22, crux
+// included -- and the chart still got worse. Both remaining defects are in
+// mergeBestPerElement: ASSUMED outranks ABSENT, and strictly-greater
+// replacement means a TIE keeps the FIRST-ANALYSED target's citation.
+//
+// Nobody knows which merge rule is right, and each candidate costs a full
+// model run to evaluate. These analyses already contain the answer and were
+// discarded the moment the merge read them. On disk, any rule can be replayed
+// with no GPU. What the file must and must NOT contain is the whole design.
+// ===========================================================================
+describe('--verdicts-out dumps the merge INPUT, replayable offline (#315)', () => {
+  const SIDECAR = {
+    _format: 'codeexam-chart-verdicts/1',
+    analysed: [
+      { target: 'A.java@junk', elements: [{ element: 6, text: 'a rate', label: 'ASSUMED', note: 'n1' }] },
+      { target: 'B.java@crux', elements: [{ element: 6, text: 'a rate', label: 'ASSUMED', note: 'n2' }] },
+    ],
+    dropped: [{ target: 'C.java@x', reason: 'PARSE-FAILED: 21 non-empty line(s) returned, none matched the VERDICT contract' }],
+  };
+
+  it('the recorded order is what mergeBestPerElement actually depends on', () => {
+    // asus-CC's three-line proof, run here: same labels, same evidence,
+    // opposite citation, decided purely by arrival order. This is WHY the
+    // sidecar must be an ordered array -- a keyed object would destroy the one
+    // property the replay exists to measure.
+    const forward = mergeBestPerElement(SIDECAR.analysed);
+    const reversed = mergeBestPerElement([...SIDECAR.analysed].reverse());
+    const cite = (m) => [...m.values()][0].target;
+    assert.equal(cite(forward), 'A.java@junk');
+    assert.equal(cite(reversed), 'B.java@crux');
+    assert.notEqual(cite(forward), cite(reversed),
+      'citation is decided by analysis order, which is the defect under study');
+  });
+
+  it('a replay can be run from the sidecar alone, with no model', () => {
+    // The point of the file: an alternative merge rule scored against real
+    // verdicts. Here, a corroboration-preferring rule over the same input.
+    const byLabel = (recs, label) => recs.flatMap((r) =>
+      r.elements.filter((e) => e.label === label).map(() => r.target));
+    assert.deepEqual(byLabel(SIDECAR.analysed, 'ASSUMED'), ['A.java@junk', 'B.java@crux'],
+      'both targets and their labels survive the round trip');
+  });
+
+  it('DROPPED targets carry their reason, so the denominator is right', () => {
+    // 45 analysed and 41 parsed are different populations. A rule scored
+    // against the wrong one is scored wrong.
+    assert.equal(SIDECAR.dropped.length, 1);
+    assert.match(SIDECAR.dropped[0].reason, /PARSE-FAILED/);
+    assert.ok(!SIDECAR.analysed.some((a) => a.target === 'C.java@x'),
+      'a dropped target is not counted among the analysed');
+  });
+
+  it('carries NO derived field — not tally, agreement, or winner', () => {
+    // Derived fields would bake in the assumptions the replay exists to test.
+    // This is the merge INPUT, not its output.
+    const flat = JSON.stringify(SIDECAR);
+    for (const forbidden of ['tally', 'agreement', 'winner', 'best']) {
+      assert.ok(!flat.includes(`"${forbidden}"`), `sidecar must not carry a derived "${forbidden}"`);
+    }
+  });
+});
