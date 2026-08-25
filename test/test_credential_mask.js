@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { maskCredentials, hasCredential } from '../src/core/credential-mask.js';
 import {
   looksLikeRandomToken, getTopVocabulary, extractConcepts, conceptLabel,
+  describeWithheldToken,
 } from '../src/core/vocabulary.js';
 
 describe('#306 credential mask — values go, everything else stays', () => {
@@ -186,5 +187,71 @@ describe('#309 vocabulary withholds random tokens the mask cannot see', () => {
       assert.ok(!rendered.includes(s), `secret must not appear as a concept example: ${rendered}`);
     }
     assert.ok(!/uu9dvqcve5zc/i.test(rendered), 'nor as a fragment concept derived from it');
+  });
+});
+
+// ===========================================================================
+// #309 FOLLOW-UP — the filter loses ~0.15% of real identifiers, and that has
+// to be VISIBLE rather than fixed by a guess.
+//
+// asus-CC's 115-corpus sweep (#315) scanned ~2M tokens: all three secrets
+// withheld (0 leaks), and 3 of 1,992 withheld tokens were genuine identifiers.
+// I tried four CamelCase-segmentation guards to rescue them; none separates
+// them from base62 alphabet constants without fitting to the three specimens.
+// So the loss is ACCEPTED and DISCLOSED instead: a redacted fingerprint an
+// operator can recognise, that reconstructs nothing.
+// ===========================================================================
+describe('#309 withheld tokens are inspectable without being leaked', () => {
+  const SECRET = 'uqDZmUu9Dvqcve5ZcNZdJSmhxu2oSPdJ';
+  const LOST_IDENTIFIER = 'MTScratchpadRTStylusForm';   // real Windows class, .WinAPI_Classic
+
+  it('the fingerprint identifies to an author and reconstructs nothing', () => {
+    const d = describeWithheldToken(SECRET);
+    assert.equal(d.length, 32, 'length is disclosed — it is not sensitive');
+    assert.equal(d.hint, 'uq…dJ', 'first two and last two characters only');
+    // The whole point: four characters of a 32-char credential is not a leak.
+    assert.ok(!d.hint.includes(SECRET.slice(2, -2)), 'the interior never appears');
+    assert.ok(d.entropy > 4, 'the measurement that caused the withholding is shown');
+    assert.equal(typeof d.vowelPct, 'number');
+    assert.equal(typeof d.upperPct, 'number');
+  });
+
+  it('a SHORT token discloses no characters at all', () => {
+    // Below 8 chars, two-and-two would be most of the string.
+    assert.equal(describeWithheldToken('abc').hint, '…');
+  });
+
+  it('an operator can recognise their own lost identifier from the hint', () => {
+    // This is the affordance the bare count could not provide: the person who
+    // wrote MTScratchpadRTStylusForm sees MT…rm and knows what went missing.
+    const d = describeWithheldToken(LOST_IDENTIFIER);
+    assert.equal(d.hint, 'MT…rm');
+    assert.equal(d.length, 24);
+  });
+
+  it('getTopVocabulary hands the caller a fingerprint per withheld token', () => {
+    const vocab = new Map([
+      ['authenticate', { score: 90, doc_freq: 3, total_count: 9 }],
+      [SECRET, { score: 999, doc_freq: 1, total_count: 1 }],
+    ]);
+    const idx = { _vocabulary: vocab, vocabulary: vocab, files: new Map() };
+    let count = 0; let details = null;
+    const out = getTopVocabulary(idx, 50, null, null,
+      { onFiltered: (k, d) => { count = k; details = d; } });
+    assert.equal(count, 1);
+    assert.equal(details.length, 1, 'one fingerprint per withheld token');
+    assert.equal(details[0].hint, 'uq…dJ');
+    assert.ok(!out.map((e) => e.token).includes(SECRET), 'and the token is still gone');
+  });
+
+  it('the three known losses are STILL WITHHELD — no guard was shipped', () => {
+    // Recorded deliberately. Four segmentation variants were measured and none
+    // separated these from base62 alphabet constants; the best rescued 34 of
+    // 2,126 withheld tokens across local corpora, almost all of them alphabets.
+    // If a guard ever lands, this test is what must be changed on purpose.
+    for (const t of ['MTScratchpadRTStylusForm', 'AVDynamicHDRSmpte2094App5', 'CXMLHttpRequest2Callback']) {
+      assert.ok(looksLikeRandomToken(t),
+        `${t} is a known false positive, still withheld, and now disclosed rather than rescued`);
+    }
   });
 });

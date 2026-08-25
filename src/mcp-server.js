@@ -746,8 +746,9 @@ function handleToolRaw(name, args) {
       // A filter that drops silently is indistinguishable from a corpus that
       // never had those tokens, which is how a bound stops being auditable.
       let withheld = 0;
+      let withheldDetails = [];
       const allVocab = index.getTopVocabulary(Number.MAX_SAFE_INTEGER, args.filter || null, null,
-        { onFiltered: (k) => { withheld += k; } });
+        { onFiltered: (k, details) => { withheld += k; withheldDetails = details || []; } });
       const vocab = allVocab ? allVocab.slice(0, n) : allVocab;
       if (!vocab || vocab.length === 0) return 'No vocabulary available (run --discover-vocabulary first or rebuild index)';
       const lines = [_rankedHeader(vocab.length, allVocab.length,
@@ -756,6 +757,19 @@ function handleToolRaw(name, args) {
       if (withheld) {
         lines.push(`(${withheld} high-entropy token(s) withheld — random strings such as keys,`
           + ` hashes and base64 blobs are not domain vocabulary)`);
+        // A COUNT cannot tell an operator whether what vanished was a credential
+        // or their own class name. asus-CC's 115-corpus sweep (#315) found 3 of
+        // 1,992 withheld tokens were real identifiers — a 0.15% loss that was
+        // invisible. These fingerprints are enough to RECOGNISE a false positive
+        // and not enough to rebuild a key. Capped, because the point is
+        // spot-checking rather than dumping the whole withheld set.
+        for (const d of withheldDetails.slice(0, 10)) {
+          lines.push(`   withheld  ${d.length}-char ${d.hint}`
+            + `  entropy ${d.entropy}  vowels ${d.vowelPct}%  upper ${d.upperPct}%`);
+        }
+        if (withheldDetails.length > 10) {
+          lines.push(`   … and ${withheldDetails.length - 10} more withheld`);
+        }
       }
       const concepts = extractConcepts(index);
       if (concepts.length) lines.push(`Potentially important concepts (with examples): ${concepts.map(conceptLabel).join(', ')}`, '');

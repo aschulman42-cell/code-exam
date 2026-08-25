@@ -782,9 +782,60 @@ export function looksLikeRandomToken(token) {
 }
 
 /**
- * @param {object} [opts] - `onFiltered(count)` reports how many random-looking
- *   tokens were withheld. A bound that drops silently is the defect this
- *   project keeps paying for, so the count is offered to every caller.
+ * A REDACTED fingerprint of a withheld token.
+ *
+ * The count alone cannot tell an operator whether what vanished was a
+ * credential or their own class name — and asus-CC's 115-corpus sweep (#315)
+ * found that 3 of 1,992 withheld tokens were genuine identifiers
+ * (`MTScratchpadRTStylusForm`, `AVDynamicHDRSmpte2094App5`,
+ * `CXMLHttpRequest2Callback`), a 0.15% loss that was invisible.
+ *
+ * The tokens cannot simply be listed — they are the secrets. So this gives
+ * enough to RECOGNISE a false positive and not enough to reconstruct a key:
+ * length, first and last two characters, and the three measurements that
+ * caused the withholding.
+ *
+ *   32-char uq…dJ  entropy 4.20  vowels 19%  upper 38%
+ *
+ * An operator who wrote `MTScratchpadRTStylusForm` will recognise `MT…rm`;
+ * nobody can rebuild a 32-char credential from four characters and three
+ * percentages.
+ */
+export function describeWithheldToken(token) {
+  const t = String(token || '');
+  let vowels = 0, upper = 0;
+  for (const c of t) {
+    if (_VOWELS.has(c)) vowels++;
+    if (c >= 'A' && c <= 'Z') upper++;
+  }
+  return {
+    length: t.length,
+    // Four characters is the most that can be shown without materially helping
+    // an attacker, and it is enough for the author of an identifier to know it.
+    hint: t.length >= 8 ? `${t.slice(0, 2)}…${t.slice(-2)}` : '…',
+    entropy: Number(_shannonPerChar(t).toFixed(2)),
+    vowelPct: Math.round((vowels / Math.max(1, t.length)) * 100),
+    upperPct: Math.round((upper / Math.max(1, t.length)) * 100),
+  };
+}
+
+/**
+ * CONTAINMENT IS AT EMIT, NOT ON DISK.
+ *
+ * A secret already present in a persisted `vocabulary.json` STAYS THERE; this
+ * function refuses to emit it. Anything reading that file directly — a script,
+ * a sweep, another tool — bypasses this entirely, which is how asus-CC found a
+ * second affected corpus (`.as_ml_pytest`) during the #315 sweep.
+ *
+ * So "the token is gone from the index" is NOT true; "the token cannot be
+ * emitted" is. A rebuild-derived count (the 4855 -> 4852 figure in `96bb117`)
+ * describes a rebuilt index, not one served from cache. Whether the caches
+ * should be invalidated so secrets do not survive on disk is an open decision,
+ * not an oversight.
+ *
+ * @param {object} [opts] - `onFiltered(count, details)` reports how many
+ *   random-looking tokens were withheld, and a redacted fingerprint of each.
+ *   A bound that drops silently is the defect this project keeps paying for.
  */
 export function getTopVocabulary(idx, n = 50, filter = null, pathFilter = null, opts = {}) {
   const vocab = pathFilter
@@ -800,10 +851,15 @@ export function getTopVocabulary(idx, n = 50, filter = null, pathFilter = null, 
   // Drop random strings BEFORE ranking, so a high-scoring secret can neither
   // occupy a slot here nor become a concept example downstream — extractConcepts
   // draws its examples from these entries.
-  const before = entries.length;
-  entries = entries.filter(e => !looksLikeRandomToken(e.token));
-  const withheld = before - entries.length;
-  if (withheld && typeof opts.onFiltered === 'function') opts.onFiltered(withheld);
+  const withheldDetails = [];
+  entries = entries.filter((e) => {
+    if (!looksLikeRandomToken(e.token)) return true;
+    withheldDetails.push(describeWithheldToken(e.token));
+    return false;
+  });
+  if (withheldDetails.length && typeof opts.onFiltered === 'function') {
+    opts.onFiltered(withheldDetails.length, withheldDetails);
+  }
 
   entries.sort((a, b) => b.score - a.score);
   return entries.slice(0, n);
