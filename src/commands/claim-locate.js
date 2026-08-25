@@ -640,9 +640,14 @@ export function contentCandidatesForWords(index, words, opts = {}) {
   const fns = (res && res.function_matches) || [];
   // A FILE-SCOPE match is not a citable function. multisect reports matter
   // outside any function as `(global)`, and on the arm's first real output
-  // those were 20-50% of what it returned -- and on a FULL run asus-CC later
-  // measured 117 dropped against 44 kept on CLAIM 2, i.e. 73% (#315), so the
-  // three-word-set figure understated it — unseeable before now, because the
+  // those were 20-50% of what it returned, which corpus-scale measurement
+  // CONFIRMED: 117 of 706 = 16.6% on the demo corpus and 16,147 of 130,647 =
+  // 12.4% on ExoPlayer (asus-CC, #315).
+  //
+  // A "73%" figure briefly stood here and was WRONG -- it divided dropped
+  // matches by the POST-LIMIT kept count rather than by raw output. asus-CC
+  // caught their own arithmetic and corrected it; the note survives so a reader
+  // who saw 3a23dda's version knows which number to trust — unseeable before now, because the
   // arm returned nothing at all. Dropped and COUNTED: a candidate list quietly
   // carrying uncitable entries overstates what the arm found, which is the
   // same class of overstatement that hid the arm's failure.
@@ -733,6 +738,43 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
         hits.push({ sym: c, matched: [], score: -Infinity, arm: 'content' });
         contentAdded += 1;
       }
+      // RESERVE ONE SLOT for the content arm's best NEW candidate.
+      //
+      // Content hits carry -Infinity and the list is already sorted descending,
+      // so every one of them sits behind every name-arm candidate and selection
+      // -- which reads from the top -- could never reach one. Measured: target
+      // lists with the arm on and off were BYTE-IDENTICAL on both corpora
+      // (#315). The arm contributed candidates and changed nothing.
+      //
+      // WHY ONE, AND WHY THE FIRST. asus-CC judged the candidates directly:
+      // rank 1 is good and the tail is noise. On the demo corpus content rank 1
+      // for element 2 is `initialize_crypto_context` -- the implementer of the
+      // element that recites "initializing a cryptographic context", absent
+      // from the 26 targets, and reached today only by inference through two
+      // wrappers. On ExoPlayer, content rank 1 for element 7 is
+      // AdaptiveTrackSelection::updateSelectedTrack at name-arm rank >2000:
+      // UNREACHABLE at any depth, because it contains none of the predicted
+      // words and its BODY does the work. The name arm finds its callee and
+      // structurally cannot find the caller.
+      //
+      // Below rank 1 it degrades fast -- NAL-unit tests, audio-sink tests, a
+      // Builder::build. So `contentPerElement` is still fetched for the count
+      // and the file-scope reporting, and exactly ONE is promoted.
+      //
+      // SPLICE, NOT SCORE. -Infinity stands for "no comparable score", and
+      // multisect IDF and name-arm rarity measure different things. Converting
+      // between them would be a guess; reserving a POSITION is a stated policy.
+      // The top name candidate keeps rank 1 -- this goes immediately after it.
+      let promoted = null;
+      if (contentAdded > 0) {
+        const at = hits.findIndex((h) => h.arm === 'content');
+        if (at > 1) {
+          promoted = hits.splice(at, 1)[0];
+          hits.splice(Math.min(1, hits.length), 0, promoted);
+        } else if (at >= 0) {
+          promoted = hits[at];                 // already within reach
+        }
+      }
       // Reported UNCONDITIONALLY where the arm is enabled. Emitting only the
       // non-zero case is what hid the arm's total failure: an absent line meant
       // "found nothing new" and "never ran" alike, so three separate checks
@@ -743,9 +785,10 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
       } else {
         process.stderr.write(`    +${contentAdded} candidate(s) from CONTENT search`
           + `${contentAdded ? ' (name search did not surface them)' : ' (searched, nothing new)'}`
-          + `${hits.filter((h) => h.arm === 'content' && h.score === -Infinity).length
-            ? ` - WARNING: all of them rank BELOW every name-arm candidate and cannot`
-              + ` reach a target (#315)` : ''}`
+          + `${promoted ? ` - 1 promoted to the reserved slot: ${promoted.sym?.name || '?'}`
+            : ''}`
+          + `${contentAdded > 1 ? ` (the other ${contentAdded - 1} rank below every`
+            + ` name-arm candidate and cannot reach a target)` : ''}`
           + `${armNote ? ` — ${armNote}` : ''}\n`);
       }
     }

@@ -2254,3 +2254,85 @@ describe('claim-locate says what it measured, per engine (#315)', () => {
       'so a selection reading from the top cannot reach one');
   });
 });
+
+// ===========================================================================
+// THE RESERVED SLOT (#315)
+//
+// Content hits carry -Infinity, so every one sat behind every name candidate
+// and selection -- which reads from the top -- could never reach one. Target
+// lists with the arm on and off were BYTE-IDENTICAL on both corpora.
+//
+// asus-CC judged the candidates directly: rank 1 is good, the tail is noise.
+// Demo content rank 1 for element 2 is initialize_crypto_context, the
+// implementer of the element reciting "initializing a cryptographic context",
+// absent from the 26 targets. ExoPlayer content rank 1 for element 7 is
+// AdaptiveTrackSelection::updateSelectedTrack at name-arm rank >2000 --
+// unreachable at any depth, because its BODY does the work and its NAME says
+// nothing. So: reserve ONE, not ten.
+// ===========================================================================
+describe('the content arm gets exactly one reserved slot', () => {
+  const SYMS = [
+    { name: 'CipherNegotiator::selectCipherSuites', filepath: 'a.c' },
+    { name: 'CipherNegotiator::negotiate', filepath: 'a.c' },
+    { name: 'cipherHelper', filepath: 'a.c' },
+  ];
+  const contentIndex = (names) => ({
+    multisectSearch: (terms) => {
+      for (const t of terms) if (!(t.regex instanceof RegExp)) throw new TypeError('bad term');
+      return { function_matches: names.map((n) => ({ name: n, filepath: 'z.c' })) };
+    },
+  });
+
+  const run = async (index) => retrievePerElement({
+    draft: async () => 'ELEMENT 1: cipher',
+    elements: ['negotiating a cipher'], symbols: SYMS, opts: { index },
+  });
+
+  it('promotes exactly ONE content candidate, and it is the arm rank 1', async () => {
+    const r = await run(contentIndex(['bodyDoesTheWork', 'secondBest', 'thirdBest']));
+    const hits = r.perElement[0].hits;
+    const promotedIdx = hits.findIndex((h) => h.arm === 'content');
+    assert.equal(hits[promotedIdx].sym.name, 'bodyDoesTheWork',
+      'the arm own rank 1 is the one promoted');
+    assert.equal(promotedIdx, 1, 'and it lands immediately after the top name candidate');
+    // The rest stay where they were -- one slot, not ten.
+    const laterContent = hits.slice(2).filter((h) => h.arm === 'content');
+    assert.equal(laterContent.length, 2, 'the tail is not promoted');
+    assert.ok(hits.slice(2).findIndex((h) => h.arm === 'content')
+      > hits.slice(2).findLastIndex((h) => h.arm === 'name'),
+      'the unpromoted tail still ranks below every name candidate');
+  });
+
+  it('the top NAME candidate keeps rank 1', async () => {
+    const r = await run(contentIndex(['bodyDoesTheWork']));
+    const hits = r.perElement[0].hits;
+    assert.equal(hits[0].arm, 'name', 'rank 1 is never taken by the content arm');
+    assert.ok(hits[0].score > -Infinity, 'and it is a real scored candidate');
+  });
+
+  it('an ERRORING arm promotes nothing and leaves the list untouched', async () => {
+    const withArm = await run({ multisectSearch: () => { throw new Error('boom'); } });
+    const noArm = await run(null);
+    assert.deepEqual(
+      withArm.perElement[0].hits.map((h) => h.sym.name),
+      noArm.perElement[0].hits.map((h) => h.sym.name),
+      'a failed arm cannot reorder anything');
+  });
+
+  it('a content candidate the NAME arm already found is corroborated, not promoted', async () => {
+    // It is already in reach on its own merits; promoting it would waste the slot.
+    // NOTE the filepath must match: dedup keys on file@name, so `cipherHelper`
+    // in a DIFFERENT file is a different symbol and is correctly treated as new.
+    const r = await run({
+      multisectSearch: () => ({ function_matches: [
+        { name: 'cipherHelper', filepath: 'a.c' },      // same file as SYMS
+        { name: 'bodyDoesTheWork', filepath: 'z.c' },
+      ] }),
+    });
+    const hits = r.perElement[0].hits;
+    const helper = hits.find((h) => h.sym.name === 'cipherHelper');
+    assert.equal(helper.arm, 'both', 'found by both arms');
+    assert.equal(hits[1].sym.name, 'bodyDoesTheWork',
+      'so the slot goes to the best genuinely-new candidate');
+  });
+});
