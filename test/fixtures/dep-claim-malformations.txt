@@ -1,0 +1,156 @@
+# Dependent-claim malformation specimens
+#
+# REAL PUBLISHED USPTO CLAIM TEXT, each traceable to its patent and claim
+# number. Published claims carry no legal-sensitivity concern, unlike CE's
+# generated pseudo-claims, which stay gitignored.
+#
+# Drawn from two corpora: dep_claims.csv (615 rows, every one containing the
+# literal string "of claim" -- a PHRASE FILTER, not a curated malformation set)
+# and combined_output_with_allcites_icl_pdpass.csv (99,809 rows, general
+# population). Both are untracked and one is 97 MB, so the tests cannot read
+# them; these extracted specimens are what the suite runs against.
+#
+# One block per specimen. PARENT is the claim number a correct implementation
+# must resolve, or "-" when the text does not contain one at all. RULE is the
+# rule that must be REPORTED -- asserted because the taxonomy is the point: a
+# hit resolving the right parent under the wrong rule name cannot tell anyone
+# where the next gap is. Rules are tried in order, so RULE also pins that order
+# against a later edit silently re-masking a class.
+#
+# Format:  CLASS / SOURCE / PARENT / TEXT, blocks separated by a blank line.
+
+CLASS   canonical
+SOURCE  USRE44721 claim 4
+RULE    canonical
+PARENT  1
+TEXT    4. A solid formed from the method of claim 1.
+
+CLASS   canonical
+SOURCE  USRE43191 claim 7
+RULE    canonical
+PARENT  6
+TEXT    7. The method of claim 6, wherein c is equal to 1.
+
+CLASS   punct-before-number
+SOURCE  US8500935 claim 2
+RULE    canonical
+PARENT  1
+TEXT    2. The method of claim, 1 wherein the opposing surface is heated.
+
+CLASS   punct-before-number
+SOURCE  US7180850 claim 10
+RULE    canonical
+PARENT  7
+TEXT    10. The apparatus of claim, 7 wherein the data comprises a packet.
+
+CLASS   lower-L-for-1
+SOURCE  US7645620 claim 4
+RULE    lower-L-for-1
+PARENT  1
+TEXT    4. The method of claim l, wherein N is at least 2.
+
+CLASS   lower-L-for-1
+SOURCE  US5831116 claim 5
+RULE    lower-L-for-1
+PARENT  1
+TEXT    The process of claim l wherein the ratio of oxygen to said alcohol is from about 0.6:1 to 2.5:1.
+
+CLASS   upper-I-for-1
+SOURCE  US4686150 claim 8
+RULE    upper-I-for-1
+PARENT  1
+TEXT    8. The structure of claim I wherein said substrate is a section of a surface of revolution.
+
+CLASS   upper-I-for-1
+SOURCE  US4945538 claim 2
+RULE    upper-I-for-1
+PARENT  1
+TEXT    2. The method of claim I, including the step of:generating a programmed value for each threshold.
+
+CLASS   number-omitted
+SOURCE  US6399152 claim 6
+RULE    number-omitted
+PARENT  -
+TEXT    The process of claim wherein said substrate is a metal.
+
+CLASS   number-omitted
+SOURCE  US5823477 claim 5
+RULE    number-omitted
+PARENT  -
+TEXT    The device of claim wherein the second unit is a filter.
+
+CLASS   doubled-preposition
+SOURCE  US7559976 claim 3
+RULE    doubled-preposition
+PARENT  1
+TEXT    3. The method of claim of 1 wherein said mixture of gases is a stack gas.
+
+CLASS   doubled-preposition
+SOURCE  US5217526 claim 21
+RULE    doubled-preposition
+PARENT  1,2,3,4
+TEXT    21. The body of claim of 1, 2, 3 or 4 in the form of a felt.
+
+CLASS   word-number
+SOURCE  US5256296 claim 5
+RULE    word-number
+PARENT  1
+TEXT    5. The method of claim one, wherein said fluid is a gas.
+
+CLASS   word-number
+SOURCE  US5256295 claim 9
+RULE    word-number
+PARENT  1
+TEXT    9. The method of claim one, wherein said fluid is a liquid.
+
+CLASS   article-inserted
+SOURCE  US6855432 claim 4
+RULE    article-inserted
+PARENT  1
+TEXT    4. An adhesive composition comprising the resin of claim a 1.
+
+CLASS   article-inserted
+SOURCE  US7769945 claim 4
+RULE    article-inserted
+PARENT  1
+TEXT    4. The method of claim a 1, wherein the updating is performed responsive to an occurrence of a selected event.
+
+CLASS   claimed-for-claim
+SOURCE  US7071783 claim 7
+RULE    claimed-for-claim
+PARENT  6
+TEXT    7. The circuit of claimed 6, further comprising a capacitor coupled to the first collector and the second base.
+
+CLASS   claimed-for-claim
+SOURCE  US6241143 claim 11
+RULE    claimed-for-claim
+PARENT  2
+TEXT    11. The method of claimed 2, wherein the first transmission line pattern is formed on a single side of the film substrate.
+
+CLASS   length-catch-all
+SOURCE  US8224503 claim 12
+RULE    length-catch-all
+PARENT  11
+TEXT    12. A system according to clam 11, comprising a device for selecting and recording the data, or the signals, or the data and the signals.
+
+# Overlap, recorded rather than hidden: this is a 'clam' misspelling, but
+# 'according to clam 1, wherein' also matches the hitachi rule, which is tried
+# first. The catch-all is the net for what no NAMED rule sees, so a named rule
+# winning here is correct behaviour, not a misfiled specimen.
+CLASS   clam-misspelling
+SOURCE  US7808305 claim 8
+RULE    according-to-hitachi
+PARENT  1
+TEXT    8. The circuit according to clam 1, wherein each of the first and second elements is a diode.
+
+CLASS   self-reference-trap
+SOURCE  US4943320 claim 2
+RULE    number-omitted
+PARENT  -
+TEXT    2. The process of claim wherein said first material is a metal.
+
+CLASS   self-reference-trap
+SOURCE  US6684395 claim 6
+RULE    number-omitted
+PARENT  -
+TEXT    The method of claim wherein the portion corresponds to a page.
