@@ -20,6 +20,9 @@ import {
   normalizeAnchorRef,
 } from '../src/commands/pseudo-claims.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
+// The round-trip half of #311 step 4: CE's generator checked against CE's
+// own dependent-claim rules (c4fc448).
+import { classifyClaim } from '../src/core/dep-claim-rules.js';
 import { draftCloud, wasLastDraftTruncated, truncationCount, truncationLine, resetCloudUsage } from '../src/core/llm-runner.js';
 import { PSEUDO_CLAIM_MAX_OUTPUT_TOKENS } from '../src/commands/pseudo-claims.js';
 import { openaiCompletionBudget, OPENAI_REASONING_FLOOR } from '../src/core/openai-util.js';
@@ -520,5 +523,150 @@ describe('anchor refs normalize across every notation engines emit', () => {
       'a.js@f L1-2', 'd.md@L1-2', 'a.js:1', 'qmap']) {
       assert.ok(normalizeAnchorRef(r).shape, `${r} produced no shape label`);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #311 step 4: dependent claims, CONTAINED to the artifact and the sidecar.
+//
+// The containment is the whole design. #311 warns that emitting dependents the
+// pipeline charts as standalone claims is worse than emitting none -- "a
+// 3-limitation dependent rendered as three rows, silently omitting the nine it
+// inherits." So `prose` stays CLAIM 1 ALONE and dependents reach the claims
+// file nowhere. These tests pin that, not just the parsing.
+// ---------------------------------------------------------------------------
+
+const WITH_DEPS = [
+  'CLAIM: A method for streaming media, comprising: receiving a manifest;',
+  'selecting a track; and rendering a frame.',
+  'DEPENDENT CLAIMS:',
+  '2. The method of claim 1, wherein the manifest is a DASH manifest.',
+  '3. The method of claim 1, further comprising: caching the',
+  '   selected track in a local store.',
+  '(number consecutively from 2; OMIT THIS SECTION ENTIRELY if none)',
+  'ANCHORS:',
+  '- Foo.java@selectTrack — selecting a track',
+].join('\n');
+
+const NO_DEPS = [
+  'CLAIM: A method for X, comprising: a step; another step; and a third.',
+  'ANCHORS:',
+  '- Foo.java@bar — the step',
+].join('\n');
+
+describe('dependent claims are parsed out, never folded into claim 1 (#311)', () => {
+  it('keeps prose as CLAIM 1 alone', () => {
+    const { prose } = parseGeneratedClaim(WITH_DEPS);
+    assert.match(prose, /^A method for streaming media/);
+    assert.ok(!prose.includes('DASH manifest'),
+      'a dependent must not leak into prose -- splitClaimElements would count its limitations');
+    assert.ok(!prose.includes('DEPENDENT CLAIMS'));
+  });
+
+  it('returns each dependent with its number and text', () => {
+    const { dependents } = parseGeneratedClaim(WITH_DEPS);
+    assert.equal(dependents.length, 2);
+    assert.deepEqual(dependents[0], { n: 2, text: 'The method of claim 1, wherein the manifest is a DASH manifest.' });
+  });
+
+  it('joins a dependent that wrapped across lines', () => {
+    const { dependents } = parseGeneratedClaim(WITH_DEPS);
+    assert.equal(dependents[1].text,
+      'The method of claim 1, further comprising: caching the selected track in a local store.');
+  });
+
+  it("skips the prompt's own parenthetical guidance when a drafter echoes it", () => {
+    const { dependents } = parseGeneratedClaim(WITH_DEPS);
+    assert.ok(!dependents.some((d) => /OMIT THIS SECTION/.test(d.text)));
+  });
+
+  it('still parses the ANCHORS block that follows the dependents', () => {
+    const { anchors } = parseGeneratedClaim(WITH_DEPS);
+    assert.equal(anchors.length, 1);
+    assert.equal(anchors[0].func, 'selectTrack');
+  });
+
+  it('a draft with no DEPENDENT CLAIMS block behaves exactly as before', () => {
+    // The backward-compatibility contract: this is the shape every existing
+    // consumer has always seen, and it must not have moved.
+    const { prose, dependents, anchors } = parseGeneratedClaim(NO_DEPS);
+    assert.equal(prose, 'A method for X, comprising: a step; another step; and a third.');
+    assert.deepEqual(dependents, []);
+    assert.equal(anchors.length, 1);
+  });
+});
+
+describe('the generated dependents round-trip through CE own dep-claim rules', () => {
+  // The failure mode this project keeps finding is a generator whose own parser
+  // misreads its output. Here it is cheap to check directly, against the rules
+  // that actually shipped (c4fc448). Contribution kind and depth are NOT checked
+  // -- that classifier lives in issue-311-dep-claim-detector and does not exist.
+  const { prose, dependents } = parseGeneratedClaim(WITH_DEPS);
+
+  it('claim 1 does NOT read as dependent', () => {
+    assert.equal(classifyClaim(prose).dependent, false,
+      'the independent claim must not be detected as dependent');
+  });
+
+  it('every drafted dependent is detected as dependent', () => {
+    for (const d of dependents) {
+      assert.equal(classifyClaim(`${d.n}. ${d.text}`).dependent, true, `claim ${d.n}`);
+    }
+  });
+
+  it('each dependent resolves to claim 1, not to its own number', () => {
+    // The self-reference trap the rules module exists to refuse: a naive
+    // first-digit scan over "2. The method of claim 1..." returns 2.
+    for (const d of dependents) {
+      const v = classifyClaim(`${d.n}. ${d.text}`);
+      assert.deepEqual(v.parents, [1], `claim ${d.n} must depend on claim 1`);
+      assert.equal(v.own, d.n);
+      assert.notDeepEqual(v.parents, [d.n], `claim ${d.n} must not resolve to itself`);
+    }
+  });
+
+  it('a dependent naming a non-1 parent resolves to that parent', () => {
+    const v = classifyClaim('4. The method of claim 2, wherein the DASH manifest is segmented.');
+    assert.deepEqual(v.parents, [2]);
+    assert.equal(v.own, 4);
+  });
+});
+
+describe('dependents reach the sidecar and the artifact, and the claims file NOWHERE', () => {
+  const groups = [{ label: 'g1' }];
+  const draftWith = [{
+    prose: 'A method for X, comprising: a; b; and c.',
+    dependents: [{ n: 2, text: 'The method of claim 1, wherein a is red.' }],
+    grounded: [], dropped: [],
+  }];
+  const draftWithout = [{
+    prose: 'A method for X, comprising: a; b; and c.',
+    dependents: [], grounded: [], dropped: [],
+  }];
+
+  it('the sidecar carries them when present', () => {
+    const s = buildAnchorSidecar(groups, draftWith, {});
+    assert.deepEqual(s.claims[0].dependents, [{ n: 2, text: 'The method of claim 1, wherein a is red.' }]);
+  });
+
+  it('the sidecar omits the key entirely when there are none', () => {
+    // Byte-identical to a pre-change sidecar, which is the compatibility test.
+    const s = buildAnchorSidecar(groups, draftWithout, {});
+    assert.ok(!('dependents' in s.claims[0]),
+      'an absent key, not an empty array -- a no-dependent run must be unchanged');
+  });
+
+  it('element counts cover CLAIM 1 only', () => {
+    // The regression that would silently inflate every element count: if a
+    // dependent leaked into prose, splitClaimElements would count it.
+    const s = buildAnchorSidecar(groups, draftWith, {});
+    assert.equal(s.claims[0].elements.length, splitClaimElements('A method for X, comprising: a; b; and c.').length);
+    assert.ok(!JSON.stringify(s.claims[0].elements).includes('red'));
+  });
+
+  it('the claims-file line is the independent claim, with no dependent text', () => {
+    const s = buildAnchorSidecar(groups, draftWith, {});
+    assert.equal(s.claims[0].claim, 'A method for X, comprising: a; b; and c.');
+    assert.ok(!s.claims[0].claim.includes('red'));
   });
 });

@@ -103,16 +103,32 @@ export const PSEUDO_CLAIM_GENERATE_SYS =
   'for THAT mechanism — treat it as the intended subject and purpose; do not ' +
   'substitute a different purpose inferred from the code. ' +
   'A claim covers ONE inventive concept, not every function you were shown. ' +
-  'Real independent claims run about 7 to 11 limitations, typically 9; more ' +
-  'than 15 is rare. If the provided material is larger than one claim can ' +
-  'cover, SELECT the limitations that constitute the mechanism and leave the ' +
-  'rest uncited — do NOT enumerate every function in the material. Fewer, ' +
-  'well-chosen limitations make a better claim than an exhaustive list. ' +
+  'CLAIM 1 is INDEPENDENT and should run about 7 to 11 limitations, typically ' +
+  '9; more than 15 is rare. THAT TARGET IS FOR CLAIM 1 ALONE. ' +
+  'Detail that does not belong in claim 1 goes DOWN INTO DEPENDENT CLAIMS ' +
+  'rather than being dropped. A dependent claim either ADDS a limitation ' +
+  '("The method of claim 1, further comprising: <step>.") or NARROWS an ' +
+  'inherited one ("The method of claim 1, wherein <element> is <narrower ' +
+  'form>."). Write as many dependents as the material genuinely supports — ' +
+  'they are NOT capped — but each must name its parent claim BY NUMBER and ' +
+  'state exactly one narrowing. ' +
+  'If the provided material is larger than one claim can cover, SELECT the ' +
+  'limitations that constitute the mechanism for CLAIM 1 and push the ' +
+  'specifics down into dependents; leave genuinely unrelated functions ' +
+  'uncited — do NOT enumerate every function in the material. Fewer, ' +
+  'well-chosen limitations make a better claim 1 than an exhaustive list. ' +
   'Output EXACTLY this ' +
   'format and nothing else:\n' +
   'CLAIM: <one self-contained paragraph in standard method/apparatus form: a ' +
   'preamble ending in a colon, then each element/step as a SEMICOLON-delimited ' +
   'clause — e.g. "A method for X, comprising: <step>; <step>; and <step>.">\n' +
+  'DEPENDENT CLAIMS:\n' +
+  '2. The <same statutory class as claim 1> of claim 1, wherein <narrowing>.\n' +
+  '3. The <same statutory class as claim 1> of claim 1, further comprising: ' +
+  '<added step>.\n' +
+  '(number consecutively from 2; OMIT THIS SECTION ENTIRELY if the material ' +
+  'supports no dependent claims. Dependents are part of the same illustrative ' +
+  'exercise and carry the same caveat as claim 1.)\n' +
   'ANCHORS:\n' +
   '- <file>@<functionName> — <the claim element it implements>\n' +
   '(one line per distinct element). For a DOCUMENTATION excerpt shown in the ' +
@@ -502,10 +518,59 @@ export function normalizeAnchorRef(ref) {
     shape: core && !core.includes('/') && !core.includes('.') ? 'func-in-file-slot' : 'file-only' };
 }
 
+// DEPENDENT CLAIMS ARE PARSED OUT, NOT FOLDED INTO `prose` (#311 step 4).
+//
+// `prose` stays CLAIM 1 ALONE, and that is the containment this whole change
+// rests on. Every existing consumer reads `prose` as one claim: claimToLine
+// writes it as a line, splitClaimElements counts its limitations for the
+// sidecar, claimPreambleSnippet takes its preamble, formatClaimChart charts it,
+// and writeClaimsOnly emits the `# Format: one claim per line` file that
+// --synonymize matches on (synonymize.js CLAIMS_PER_LINE_MARKER). Folding
+// dependents into `prose` would inflate every element count and hand
+// --claim-chart a dependent to render as a standalone claim -- #311's explicit
+// warning: "a 3-limitation dependent rendered as three rows, silently omitting
+// the nine it inherits."
+//
+// So dependents travel in their own field, reach the Markdown artifact and the
+// .anchors.json sidecar, and reach the claims file NOWHERE. When the consumer
+// side lands (issue-311-dep-claim-input) they can flow onward; until then
+// nothing downstream can mis-chart what it never receives.
+//
+// A draft with no DEPENDENT CLAIMS: block yields `dependents: []` and output
+// byte-identical to before this change.
+export function parseDependentClaims(block) {
+  const out = [];
+  let cur = null;
+  for (const raw of String(block || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    // The prompt's own parenthetical guidance, echoed back by some drafters.
+    if (/^\(/.test(line)) continue;
+    const m = line.match(/^(\d+)\s*[.)]\s*(.+)$/);
+    if (m) {
+      if (cur) out.push(cur);
+      cur = { n: Number(m[1]), text: m[2] };
+    } else if (cur) {
+      // A dependent wrapped across lines; keep appending until the next number.
+      cur.text += ' ' + line;
+    }
+  }
+  if (cur) out.push(cur);
+  return out
+    .map((d) => ({ n: d.n, text: d.text.replace(/\s+/g, ' ').trim() }))
+    .filter((d) => d.text);
+}
+
 export function parseGeneratedClaim(text) {
   const t = String(text || '');
-  const claimM = t.match(/CLAIM:\s*([\s\S]*?)(?:\n\s*ANCHORS:|$)/i);
-  const prose = (claimM ? claimM[1] : t.split(/ANCHORS:/i)[0]).trim().replace(/\s+/g, ' ');
+  // CLAIM: ends at DEPENDENT CLAIMS: or ANCHORS:, whichever comes first.
+  // `/CLAIM:/i` cannot match inside "DEPENDENT CLAIMS:" -- that reads CLAIMS:,
+  // with an S before the colon -- so the first match is the real one.
+  const claimM = t.match(/CLAIM:\s*([\s\S]*?)(?:\n\s*DEPENDENT CLAIMS:|\n\s*ANCHORS:|$)/i);
+  const fallback = t.split(/\n\s*DEPENDENT CLAIMS:|ANCHORS:/i)[0];
+  const prose = (claimM ? claimM[1] : fallback).trim().replace(/\s+/g, ' ');
+  const depM = t.match(/DEPENDENT CLAIMS:\s*([\s\S]*?)(?:\n\s*ANCHORS:|$)/i);
+  const dependents = parseDependentClaims(depM ? depM[1] : '');
   const anchorsBlock = t.split(/ANCHORS:/i)[1] || '';
   const anchors = [];
   for (const ln of anchorsBlock.split(/\r?\n/)) {
@@ -518,7 +583,7 @@ export function parseGeneratedClaim(text) {
     const { file, func, line, citedStart, citedEnd, shape } = norm;
     if (file) anchors.push({ file, func, line, element, citedStart, citedEnd, shape });
   }
-  return { prose, anchors };
+  return { prose, dependents, anchors };
 }
 
 // Grounding pass: keep only cited anchors whose function resolves to a real
@@ -626,6 +691,15 @@ export function buildAnchorSidecar(groups, drafts, meta = {}) {
       // element count no longer matches its key, instead of pairing element 4
       // against element 5 and reporting a plausible wrong number.
       elements: splitClaimElements(claimToLine(d.prose)),
+      // CLAIM 1's elements only -- `prose` is claim 1, so this count does not
+      // silently absorb the dependents' limitations (#311 step 4).
+      //
+      // Dependents ride here and in the Markdown, and NOT in the claims file.
+      // Omitted entirely when the drafter wrote none, so a no-dependent run
+      // produces a byte-identical sidecar to before the change.
+      ...((d.dependents || []).length
+        ? { dependents: d.dependents.map((x) => ({ n: x.n, text: x.text })) }
+        : {}),
       grounded: (d.grounded || []).map((a) => ({
         file: a.file, func: a.func || '', start: a.start, end: a.end,
         kind: a.kind || 'func', element: a.element || '',
@@ -640,7 +714,9 @@ export function buildAnchorSidecar(groups, drafts, meta = {}) {
     format: 'ce-pseudo-claim-anchors',
     version: 1,
     note: 'GROUNDED means the citation resolved to a real symbol in the index. This key records'
-      + ' what the DRAFTING MODEL cited, verified to resolve — not what a practitioner would cite.',
+      + ' what the DRAFTING MODEL cited, verified to resolve — not what a practitioner would cite.'
+      + ' `elements` counts CLAIM 1 only. `dependents`, when present, are drafted dependent claims'
+      + ' that are deliberately NOT in the claims file and have NOT been charted or grounded.',
     ce: meta.ceVersion || '', generated: meta.generatedAt || '', command: meta.argv || '',
     truncated: claims.filter((c) => c.truncated).length,
     claims,
@@ -657,6 +733,17 @@ export function writeClaimsOnly(fpath, groups, drafts, meta = {}) {
     '# Format:     one claim per line',
     `# Claims:     ${sidecar.claims.length}${skipped ? ` (${skipped} skipped — draft failed)` : ''}`,
     `# Anchors:    ${sidecar.claims.reduce((n, c) => n + c.grounded.length, 0)} grounded, in ${fpath}.anchors.json`,
+    // A file that silently omitted drafted dependents would overstate what the
+    // run produced -- the same rule as the truncation and drop disclosures.
+    // Only the INDEPENDENT claims are here, because a dependent charted as a
+    // standalone claim is worse than no dependent at all (#311).
+    ...((() => {
+      const deps = sidecar.claims.reduce((n, c) => n + (c.dependents || []).length, 0);
+      return deps
+        ? [`# Dependents: ${deps} drafted, NOT in this file (independent claims only);`
+           + ` see the .md artifact and ${fpath}.anchors.json`]
+        : [];
+    })()),
     ...(sidecar.truncated ? [`# TRUNCATED:  ${sidecar.truncated} claim(s) hit the output budget` + ` - incomplete text, missing anchors; see .anchors.json for which`] : []),
     `# CE:         ${meta.ceVersion || ''}`,
     `# Generated:  ${meta.generatedAt || ''}`,
@@ -988,9 +1075,9 @@ export async function doPseudoClaims(index, args) {
         // Read the flag IMMEDIATELY after the await -- it carries THIS call's
         // verdict (draftCloud clears it on entry) and drafting is sequential.
         const truncated = wasLastDraftTruncated();
-        const { prose, anchors } = parseGeneratedClaim(raw);
+        const { prose, dependents, anchors } = parseGeneratedClaim(raw);
         const { grounded, dropped } = groundAnchors(index, anchors);
-        drafts.push({ prose, grounded, dropped, truncated });
+        drafts.push({ prose, dependents, grounded, dropped, truncated });
         process.stderr.write(`  claim ${i + 1}/${withAnchors.length}: ${grounded.length} grounded anchor(s)${dropped.length ? `, ${dropped.length} ungrounded dropped` : ''}`
           + `${truncated ? ' - TRUNCATED by the output budget; ANCHORS block incomplete' : ''}\n`);
       } catch (e) {
@@ -1091,6 +1178,17 @@ export async function doPseudoClaims(index, args) {
         out.push('');
       } else {
         out.push(d.prose || '_(model produced no claim text)_');
+        // Rendered here and nowhere else that a downstream command reads. The
+        // label states both facts a reader needs: these are part of the same
+        // illustrative exercise, and CE has not charted or grounded them.
+        if ((d.dependents || []).length) {
+          out.push('');
+          out.push(`**Dependent claims (${d.dependents.length})** — same illustrative exercise as`
+            + ' claim 1, and subject to the same caveat above. NOT charted, NOT grounded, and'
+            + ' deliberately absent from the claims-only file (#311).');
+          out.push('');
+          for (const dep of d.dependents) out.push(`${dep.n}. ${dep.text}`);
+        }
         // A truncated draft must not read as a finished claim. The mark goes in
         // the ARTIFACT, not just stderr: stderr is gone by the time anyone reads
         // the file, which is how 16 anchor-less claims passed for ordinary output.
