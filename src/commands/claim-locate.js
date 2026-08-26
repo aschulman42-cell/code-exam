@@ -435,8 +435,8 @@ software.
 
 So think about how such a system is actually built and what programmers call \
 things. But do NOT discard a claim word that a programmer would plausibly also \
-use — a claim reading "a code rate DETERMINING unit" is implemented by a \
-function called determineIdealSelectedIndex, and "determine" is the word that \
+use — a claim reading "a message REDACTING unit" is implemented by a \
+function called redactSensitiveField, and "redact" is the word that \
 finds it. Translate the boilerplate, keep the concrete verbs and nouns.
 
 Example of the transformation (illustrative only, unrelated domain):
@@ -963,8 +963,8 @@ COMMANDS — one per line, as many per reply as you want:
 Patent language and source code USUALLY differ, and the common mistake is \
 assuming they match. So search for words a programmer would put in an \
 identifier. But do NOT discard a claim word that a programmer would plausibly \
-also use — a claim reading "a code rate DETERMINING unit" is implemented by a \
-function called determineIdealSelectedIndex, and "determine" is the word that \
+also use — a claim reading "a message REDACTING unit" is implemented by a \
+function called redactSensitiveField, and "redact" is the word that \
 finds it. Translate the boilerplate, keep the concrete verbs and nouns.
 
 A strategy that works: SEARCH broad words first. When a result looks close, \

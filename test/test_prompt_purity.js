@@ -31,7 +31,7 @@ import { buildClaimAnalyzePrompt, buildAnalyzePrompt } from '../src/commands/ana
 // mentions any of these, an author has leaked the corpus into the question.
 const DOMAIN_TERMS = [
   // streaming / media (ExoPlayer, ffmpeg)
-  'adaptive', 'bitrate', 'bit rate', 'codec', 'transcode', 'streaming',
+  'adaptive', 'bitrate', 'bit rate', 'code rate', 'codec', 'transcode', 'streaming',
   'playback', 'buffer', 'chunk', 'manifest', 'dash', 'hls', 'mpeg', 'h264',
   'video', 'audio', 'player', 'renderer', 'track selection', 'throughput',
   // specific projects
@@ -92,11 +92,59 @@ describe('prompt purity — no domain knowledge in shipped templates', () => {
     assert.match(buildHuntPrompt(), /Never name a symbol you have not seen in a result/i);
   });
 
-  it('any worked example in step 1 comes from an unrelated domain', () => {
-    // An example is the subtlest leak: illustrating with a streaming example
-    // while examining a streaming codebase primes the exact answer.
-    const p = buildDiscoverPrompt().toLowerCase();
-    if (!p.includes('example')) return;
-    for (const t of DOMAIN_TERMS) assert.ok(!p.includes(t), `example leaks '${t}'`);
+  // WHY A VOCABULARY FILTER IS NOT ENOUGH, and why the test that used to sit
+  // here was replaced rather than extended (#317).
+  //
+  // The old assertion re-ran DOMAIN_TERMS over buildDiscoverPrompt -- the same
+  // scan the loop above already runs over every prompt. The one test written
+  // specifically to catch example leaks therefore added no coverage at all, and
+  // it showed: both prompts shipped `determineIdealSelectedIndex`, a real
+  // function in AdaptiveTrackSelection.java from the corpus CE is measured
+  // against, and every check passed.
+  //
+  // It passed because the symbol decomposes into determine / ideal / selected /
+  // index -- four generic words. A REAL SYMBOL BUILT FROM GENERIC WORDS CANNOT
+  // BE CAUGHT BY A WORD LIST, and never will be. So the check inverts: any
+  // identifier-shaped token in a prompt must be on an allowlist, and anything
+  // unrecognised fails closed. Adding an example then costs one deliberate
+  // line here, which is the review moment this guard exists to create.
+  const NEUTRAL_EXAMPLE_SYMBOLS = new Set([
+    'redactSensitiveField', // #317: replaced determineIdealSelectedIndex, invented domain
+    'someMethod', 'exactName', 'realMethod',
+    'validateRecord', 'maxRetryCount',
+  ]);
+  // camelCase with at least one internal capital. Measured across all seven
+  // prompts when written: it found exactly the six placeholders above plus the
+  // one leak, and nothing else -- no false positives to suppress.
+  const IDENTIFIER_SHAPED = /\b[a-z][a-z0-9]*(?:[A-Z][a-zA-Z0-9]*)+\b/g;
+
+  for (const [label, build] of Object.entries(PROMPTS)) {
+    it(`${label} names no symbol outside the neutral allowlist`, () => {
+      const found = [...new Set(String(build()).match(IDENTIFIER_SHAPED) || [])];
+      const rogue = found.filter((t) => !NEUTRAL_EXAMPLE_SYMBOLS.has(t));
+      assert.deepEqual(rogue, [],
+        `${label} names symbol(s) not on the neutral allowlist: ${rogue.join(', ')}. `
+        + 'A prompt naming a real symbol primes the answer on the corpus it came from '
+        + 'and ships an unrelated codebase to every other user. If the symbol is '
+        + 'invented, add it to NEUTRAL_EXAMPLE_SYMBOLS deliberately.');
+    });
+  }
+
+  it('the guard fails on the symbol that got past it', () => {
+    // Provenance check, not a soak: this guard reads zero forever when it is
+    // working, and a dead one reads zero identically. So fire it on purpose,
+    // with the exact string that shipped in two prompts and passed everything.
+    const leaked = 'a function called determineIdealSelectedIndex, and';
+    const found = [...new Set(leaked.match(IDENTIFIER_SHAPED) || [])];
+    const rogue = found.filter((t) => !NEUTRAL_EXAMPLE_SYMBOLS.has(t));
+    assert.deepEqual(rogue, ['determineIdealSelectedIndex'],
+      'the check must reject the real symbol that the vocabulary filter allowed');
+  });
+
+  it("catches the '101 claim's own spelling, which the word list had missed", () => {
+    // DOMAIN_TERMS carried bitrate and bit rate; the claim says "code rate".
+    assert.ok(DOMAIN_TERMS.includes('code rate'));
+    const leaked = 'a claim reading "a code rate DETERMINING unit"'.toLowerCase();
+    assert.ok(DOMAIN_TERMS.some((t) => leaked.includes(t)), 'code rate must now leak-fail');
   });
 });

@@ -1595,8 +1595,21 @@ describe('the hunt prompt no longer asserts a falsehood either', () => {
     assert.match(P, /do NOT discard a claim word/);
   });
 
-  it('carries the measured example, since that is the evidence', () => {
-    assert.match(P, /determineIdealSelectedIndex/);
+  it('carries a concrete worked example, from an INVENTED domain', () => {
+    // The example IS the evidence -- 3580dc5's measured gain came from showing
+    // the move rather than stating it -- so an example must stay present.
+    //
+    // But this assertion used to name `determineIdealSelectedIndex` directly,
+    // which made a real symbol from the corpus CE is benchmarked on
+    // LOAD-BEARING ON A TEST: the leak could not be removed without a red
+    // suite, and #317 found it shipped in two prompts to every user. Assert the
+    // PROPERTY instead, and let test_prompt_purity.js police which symbols may
+    // appear at all.
+    assert.match(P, /is implemented by a function called/,
+      'a concrete symbol still demonstrates the rule');
+    assert.match(P, /do NOT discard a claim word/);
+    assert.ok(!/determineIdealSelectedIndex/.test(P),
+      'and it is not a real symbol from the corpus CE is measured against (#317)');
   });
 
   it('KEEPS the developer-vocabulary pressure', () => {
