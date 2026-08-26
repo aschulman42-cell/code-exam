@@ -27,6 +27,9 @@
 //                        cases = the raw distinct case count.
 //   --limit N            after ranking, keep N
 //   --dry-run            print the ranked selection (patent, score, cases, est. grant year) and exit, no fetch
+//   --emit-elements <dir>  also write <dir>/<patent>.elements.txt per patent: a --claim-chart --elements file
+//                        whose rows are the attorney's own claim-text divs (preamble first), for charting at
+//                        practitioner granularity without the heuristic splitter
 // Output (--out <dir>, default ./litig_claims_gp)
 //   patents/<n>.json           per-patent cache (resume = re-run; cached patents are not refetched)
 //   litigated_claims.jsonl     one record per patent: claim 1, its dependent chain, all claims, CPC, cases
@@ -271,6 +274,22 @@ const hdr = [`# Litigated-patent claim 1s, fetched from patents.google.com by li
   `# Source litigation list: ${args.litigation || args.patents}`, `# Claims: ${ok.length}`, `# Dependents: in litigated_claims.jsonl (family1), NOT in this file`,
   `# Generated: ${new Date().toISOString()}`, `# Format: one claim per line`];
 fs.writeFileSync(path.join(OUT, 'litigated_claim1.txt'), hdr.join('\n') + '\n' + ok.map((r) => (r.claims.find((c) => c.n === 1) || {}).text || '').filter(Boolean).join('\n') + '\n');
+// --emit-elements <dir>: one --elements file per patent, rows = the attorney's own claim-text divs, so
+// a litigated claim charts at practitioner granularity without the heuristic splitter (which agrees
+// with the attorney on 30% of these claims in fine mode -- see splitter-stage-b-calibration).
+if (args['emit-elements']) {
+  const dir = args['emit-elements']; fs.mkdirSync(dir, { recursive: true });
+  let written = 0;
+  for (const r of ok) {
+    const c1 = r.claims.find((c) => c.n === 1);
+    if (!c1 || !c1.lines || c1.lines.length < 2) continue; // no element structure on the page
+    const lines = [`# US ${r.patent} claim 1 (${r.assignee || 'assignee unknown'}, granted ${r.publicationDate || '?'}) -- element rows = the attorney's claim-text divs from patents.google.com; the preamble is row 1 (#310)`,
+      ...c1.lines];
+    fs.writeFileSync(path.join(dir, `${r.patent}.elements.txt`), lines.join('\n') + '\n');
+    written++;
+  }
+  process.stderr.write(`wrote ${written} --elements file(s) to ${dir} (${ok.length - written} patent(s) had no element structure on the page)\n`);
+}
 const man = ['patent,title,assignee,asserted_by,granted,cpc_first,cases,claim1_words,family1_dependents,family1_max_depth,independents,total_claims'];
 for (const r of ok) {
   const c1 = r.claims.find((c) => c.n === 1); const fam = r.claims.filter((c) => c.root === 1 && c.dependent);

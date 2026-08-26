@@ -121,11 +121,16 @@ export function subdivideElement(text, opts = {}) {
   const t = String(text || '').trim();
   if (!t) return [];
   const cuts = [];
-  BOUNDARY_RE.lastIndex = 0;
+  // `opts.boundaryRe` lets a caller measure a CANDIDATE boundary set against the attorney-structure
+  // fixture (test/fixtures/litigated-claim1-structure.jsonl) without changing the default -- the
+  // stage-B calibration runs that way. A fresh RegExp is built so a caller's regex never carries
+  // lastIndex state between calls.
+  const re = opts.boundaryRe ? new RegExp(opts.boundaryRe.source, 'gi') : BOUNDARY_RE;
+  re.lastIndex = 0;
   let m;
-  while ((m = BOUNDARY_RE.exec(t)) !== null) {
+  while ((m = re.exec(t)) !== null) {
     if (m.index > 0) cuts.push(m.index);
-    if (BOUNDARY_RE.lastIndex === m.index) BOUNDARY_RE.lastIndex++;   // zero-width guard
+    if (re.lastIndex === m.index) re.lastIndex++;   // zero-width guard
   }
   if (!cuts.length) return [t];
   const parts = [];

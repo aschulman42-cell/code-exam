@@ -2349,3 +2349,99 @@ describe('the content arm gets exactly one reserved slot', () => {
       'so the slot goes to the best genuinely-new candidate');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stage-B calibration against the ATTORNEY'S OWN element structure.
+//
+// test/fixtures/litigated-claim1-structure.jsonl holds 380 litigated,
+// big-tech-drafted software claim 1s with the nested `claim-text` divs
+// patents.google.com serves for each -- the drafting attorney's element
+// structure, preamble first (#310). It is the first answer key the splitter
+// has had that was not one hand-wrapped claim. Stage B was calibrated on ONE
+// ('101: "practitioners chart it at ~12 where stage A yields 6"); measured
+// here (2026-08-27) the fine mode agrees with the attorney on 30% of claims
+// and over-splits 62%, cutting inside elements at mid-element `wherein`
+// (378 occurrences the attorney did not split on), `for <verb>ing` (315)
+// and `, and` (183) -- US 7,703,036 becomes "receiving an indication of a
+// selection of an object" / "for editing via the software application".
+//
+// The pinned triple is the current behaviour, so a boundary change must move
+// it ON PURPOSE. The candidate table is a diagnostic: it measures the
+// starting hypotheses in the worklist draft and prints them; which one
+// becomes the default is Andrew's call (#310's "fine is the accused
+// infringer's chart" posture stands), and landing it means re-pinning here.
+describe('splitter: stage-B boundaries vs the attorneys\' structure (380 litigated claim 1s)', () => {
+  const FIX = fixture('litigated-claim1-structure.jsonl');
+  const have = fs.existsSync(FIX);
+  const records = have ? fs.readFileSync(FIX, 'utf-8').split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l)) : [];
+
+  // agree / over / under against the attorney's div count, for one splitter configuration
+  const triple = (opts) => {
+    let agree = 0, over = 0, under = 0;
+    for (const r of records) {
+      const n = splitClaimElements(r.text, opts).length, truth = r.lines.length;
+      if (n === truth) agree++; else if (n > truth) over++; else under++;
+    }
+    const pct = (x) => Math.round(100 * x / records.length);
+    return { agree: pct(agree), over: pct(over), under: pct(under), n: records.length };
+  };
+
+  it('has the full fixture', { skip: !have && 'fixture missing' }, () => {
+    assert.equal(records.length, 380);
+    for (const r of records.slice(0, 5)) assert.ok(r.patent && r.text && r.lines.length >= 2);
+  });
+
+  it('pins the current agreement: fine 30% / over 62%, coarse 72% / over 3%', { skip: !have && 'fixture missing' }, () => {
+    const fine = triple({}), coarse = triple({ fine: false });
+    assert.deepEqual([fine.agree, fine.over], [30, 62], `fine ${JSON.stringify(fine)}`);
+    assert.deepEqual([coarse.agree, coarse.over], [72, 3], `coarse ${JSON.stringify(coarse)}`);
+    assert.ok(coarse.under >= 20 && coarse.under <= 30, `coarse under-splits nested sub-elements: ${coarse.under}%`);
+  });
+
+  // Andrew (2026-08-27, on splitter_compare 7703036): for a source-code examiner and attorneys
+  // drafting infringement or invalidity charts, the FINE rows are the units of argument -- each
+  // embedded `wherein` is a separately-arguable narrowing -- even though the drafting attorney kept
+  // them inside one element. So the count-agreement above is the COARSE tier's test (drafter's
+  // structure), and the fine tier's test is a property instead: a fine row must subdivide an
+  // attorney element, never straddle two. A leading connective is stripped first because the page
+  // puts "; and" at the END of the previous div. The 5% that fail are the same colon-intro merge
+  // coarse has ("responsive to the detecting:" glued to its first sub-step), not fine cuts.
+  it('fine rows subdivide attorney elements and do not straddle them (>= 94%)', { skip: !have && 'fixture missing' }, () => {
+    const norm = (s) => String(typeof s === 'string' ? s : (s && (s.text || s.raw)) || s).toLowerCase()
+      .replace(/^\d+\.\s*/, '').replace(/[^a-z0-9]+/g, ' ').trim().replace(/^(and|or|wherein|whereby) /, '');
+    const contained = (opts) => {
+      let rows = 0, inside = 0;
+      for (const r of records) {
+        const divs = r.lines.map(norm);
+        for (const e of splitClaimElements(r.text, opts)) { const t = norm(e); if (t.length < 12) continue; rows++; if (divs.some((d) => d.includes(t))) inside++; }
+      }
+      return Math.round(1000 * inside / rows) / 10;
+    };
+    const fine = contained({}), coarse = contained({ fine: false });
+    assert.ok(fine >= 94, `fine rows inside one attorney element: ${fine}%`);
+    assert.ok(coarse >= 92, `coarse rows inside one attorney element: ${coarse}%`);
+    assert.ok(fine >= coarse, `fine (${fine}%) should not straddle more than coarse (${coarse}%) -- its extra cuts are subdivisions`);
+  });
+
+  it('measures the candidate boundary sets (diagnostic; the default is unchanged)', { skip: !have && 'fixture missing' }, () => {
+    const CURRENT = /\bwherein\b|,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w)|\bfor\s+\w+ing\b/;
+    const CANDIDATES = {
+      'current (fine default)': CURRENT,
+      'drop "for <verb>ing"': /\bwherein\b|,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w)/,
+      'wherein only after , or ;': /[,;]\s*wherein\b|,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w)|\bfor\s+\w+ing\b/,
+      'drop wherein entirely': /,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w)|\bfor\s+\w+ing\b/,
+      '", and" only before a gerund': /\bwherein\b|,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w+ing\b)|\bfor\s+\w+ing\b/,
+      'all three: no for-ing, no wherein, and+gerund': /,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w+ing\b)/,
+    };
+    const rows = Object.entries(CANDIDATES).map(([name, re]) => ({ name, ...triple({ boundaryRe: re }) }));
+    rows.push({ name: 'coarse (stage A only)', ...triple({ fine: false }) });
+    console.log('\n  stage-B candidates vs 380 attorney-structured claim 1s (agree / over / under, %):');
+    for (const r of rows) console.log(`    ${r.name.padEnd(48)} ${String(r.agree).padStart(3)} / ${String(r.over).padStart(3)} / ${String(r.under).padStart(3)}`);
+    // The knob works: the current set through opts reproduces the default exactly.
+    const viaOpts = rows[0], dflt = triple({});
+    assert.deepEqual([viaOpts.agree, viaOpts.over, viaOpts.under], [dflt.agree, dflt.over, dflt.under]);
+    // And every candidate that removes a boundary over-splits less than the default -- the direction
+    // the attribution predicted; how much less is what the table is for.
+    for (const r of rows.slice(1, -1)) assert.ok(r.over <= viaOpts.over, `${r.name}: over ${r.over}% > default ${viaOpts.over}%`);
+  });
+});
