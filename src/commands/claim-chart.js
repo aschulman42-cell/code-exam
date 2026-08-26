@@ -511,18 +511,60 @@ export function coverageLine(fills, nElements, elements = null) {
     : -1;
   const isPre = (f, i) => (preIdx >= 0 && (f.element != null ? f.element - 1 : i) === preIdx);
 
+  // Part D: the headline reports how well-supported its own counts are.
+  //
+  // The merge is strongest-wins, so ONE target saying PARTIAL takes a row that
+  // twenty-two called ABSENT. fillChartRows above already renders that ratio
+  // per row, and this line was throwing all of it away -- "4 PARTIAL" and "4
+  // PARTIAL, every one a lone dissenter of 23" are different documents, and
+  // only the second lets a reader judge the first.
+  //
+  // REPORT, do not enforce. A quorum rule is the obvious alternative and is
+  // wrong: measured across three engines on the same claim and corpus, no
+  // threshold is correct for all of them. Gemma3-12B emits no PRESENT at all,
+  // so a rule changes nothing; Gemini's lone dissenters were mostly WRONG, so a
+  // rule would help; Qwen3-14B's were mostly RIGHT, so a rule takes it 8/10 ->
+  // 6/10. Any threshold tunes the chart to whichever model happened to be
+  // tested. Suppressing a lone finding would also defeat the reason
+  // strongest-wins exists: one function implementing an element IS infringement
+  // of that element. CE states the support; the reader picks the threshold.
+  //
+  // ABSENT rows are excluded because near-unanimity there is the norm and
+  // carries no signal -- a chart of unanimous ABSENTs would otherwise report
+  // perfect support and mean nothing by it.
   const c = { PRESENT: 0, PARTIAL: 0, ABSENT: 0, ASSUMED: 0 };
   let preLabel = null, cited = 0;
+  let assessed = 0, lone = 0, unassessed = 0, weakest = null;
   fills.forEach((f, i) => {
     if (isPre(f, i)) { preLabel = f.label; return; }
     cited++;
     if (c[f.label] != null) c[f.label] += 1;
+    if (f.label === 'ABSENT') return;
+    const a = f.agreement;
+    // No tally means this row's support CANNOT be computed. Counted separately
+    // and disclosed rather than folded into either side of the ratio: silently
+    // shrinking the denominator would report a support figure over a set the
+    // reader thinks is every non-ABSENT row.
+    if (!a || !(a.total > 0)) { unassessed++; return; }
+    const mine = a[f.label] || 0;
+    assessed++;
+    if (mine <= 1) lone++;
+    if (!weakest || mine < weakest.mine) weakest = { mine, total: a.total };
   });
+  let support = '';
+  if (assessed > 0) {
+    support = ` **Support: ${lone} of ${assessed} non-ABSENT row(s) rest on a single`
+      + ` target; weakest ${weakest.mine} of ${weakest.total}.**`;
+    if (unassessed > 0) support += ` _(${unassessed} further non-ABSENT row(s) carried no agreement data.)_`;
+  } else if (unassessed > 0) {
+    support = ` _(Support not computed: ${unassessed} non-ABSENT row(s) carried no agreement data.)_`;
+  }
   const nLimitations = preIdx >= 0 ? Math.max(0, nElements - 1) : nElements;
   const noFinding = Math.max(0, nLimitations - cited);
   return `**Coverage:** ${c.PRESENT} PRESENT · ${c.PARTIAL} PARTIAL · ${c.ASSUMED} ASSUMED · `
     + `${c.ABSENT} ABSENT · ${noFinding} element(s) with no finding`
-    + `${preIdx >= 0 ? ` across ${nLimitations} limitation(s); preamble ${preLabel || 'no finding'}` : ''}.`;
+    + `${preIdx >= 0 ? ` across ${nLimitations} limitation(s); preamble ${preLabel || 'no finding'}` : ''}.`
+    + support;
 }
 
 // Provenance the artifact must carry to be defensible. Everything here is

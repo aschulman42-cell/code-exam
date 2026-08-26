@@ -129,6 +129,80 @@ describe('coverage summary counts what CE found, including nothing', () => {
   });
 });
 
+// The merge is strongest-wins, so a row can be carried by ONE target over
+// twenty-two dissents. The per-row agreement block has shown that since the
+// tally landed; the headline discarded it. These lock the arithmetic that
+// stopped discarding it -- and lock that it stays arithmetic: nothing here
+// asserts a threshold, because no quorum rule survived measurement across
+// three engines.
+describe('coverage summary reports how well-supported its own counts are', () => {
+  const agree = (label, mine, total) => ({
+    label,
+    agreement: { PRESENT: 0, PARTIAL: 0, ASSUMED: 0, ABSENT: 0, [label]: mine, total },
+  });
+
+  it('counts non-ABSENT rows resting on a single target, and names the weakest', () => {
+    const line = coverageLine([
+      agree('PARTIAL', 1, 23),
+      agree('PARTIAL', 1, 25),
+      agree('PRESENT', 1, 24),
+      agree('ASSUMED', 1, 24),
+      agree('PRESENT', 6, 24),
+      agree('PARTIAL', 3, 24),
+      agree('ASSUMED', 9, 24),
+      agree('PRESENT', 2, 24),
+      agree('ABSENT', 22, 23),
+    ], 9);
+    assert.match(
+      line,
+      /\*\*Support: 4 of 8 non-ABSENT row\(s\) rest on a single target; weakest 1 of 23\.\*\*/,
+    );
+  });
+
+  it('excludes ABSENT rows from both the ratio and the weakest figure', () => {
+    // Near-unanimity on ABSENT is the norm and carries no signal. Were ABSENT
+    // counted, this would read "1 of 2 ... weakest 1 of 23" -- a chart of
+    // unanimous ABSENTs would report perfect support and mean nothing by it.
+    const line = coverageLine([agree('ABSENT', 1, 23), agree('PRESENT', 5, 23)], 2);
+    assert.match(line, /Support: 0 of 1 non-ABSENT row\(s\)/);
+    assert.match(line, /weakest 5 of 23/);
+  });
+
+  it('omits the clause entirely when there are no non-ABSENT rows', () => {
+    const line = coverageLine([agree('ABSENT', 23, 23), agree('ABSENT', 22, 23)], 2);
+    assert.ok(!line.includes('Support'), `no support clause on an all-ABSENT chart: ${line}`);
+  });
+
+  it('does not count the preamble row, which is not a limitation', () => {
+    const elements = ['A distribution system comprising:', 'transmitting content data'];
+    const line = coverageLine([agree('PRESENT', 1, 23), agree('PRESENT', 4, 23)], 2, elements);
+    // Only the limitation is assessed; the lone preamble finding is not a row
+    // the support ratio speaks for.
+    assert.match(line, /Support: 0 of 1 non-ABSENT row\(s\)/);
+    assert.match(line, /weakest 4 of 23/);
+  });
+
+  it('discloses rows whose support could not be computed rather than shrinking the denominator', () => {
+    // Silently dropping them would report a ratio over a set the reader takes
+    // to be every non-ABSENT row.
+    const line = coverageLine([{ label: 'PRESENT' }, agree('PARTIAL', 2, 5)], 2);
+    assert.match(line, /Support: 0 of 1 non-ABSENT row\(s\)/);
+    assert.match(line, /1 further non-ABSENT row\(s\) carried no agreement data/);
+  });
+
+  it('says support was not computed when no row carries agreement data', () => {
+    const line = coverageLine([{ label: 'PRESENT' }, { label: 'ABSENT' }], 2);
+    assert.match(line, /Support not computed: 1 non-ABSENT row\(s\) carried no agreement data/);
+  });
+
+  it('leaves the label counts themselves untouched', () => {
+    const line = coverageLine([agree('PRESENT', 1, 23), agree('ABSENT', 22, 23)], 5);
+    assert.match(line, /1 PRESENT/);
+    assert.match(line, /1 ABSENT/);
+    assert.match(line, /3 element\(s\) with no finding/);
+  });
+});
+
 describe('the emitted artifact', () => {
   const base = () => {
     const { table, elements } = buildChartTable(CLAIM);
