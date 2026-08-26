@@ -85,6 +85,45 @@ export function resolveTargetBudget(elementCount, opts = {}) {
   return { perEl, ceiling, total: Math.min(wanted, ceiling), wanted };
 }
 
+// The one reduction that must agree in three places: SELECTION (which target
+// specs get picked), the ANALYSIS LOOP (what a perTarget entry is keyed by),
+// and the VERDICTS SIDECAR (what a replay joins nominations to). It had been
+// written out separately in each; a fourth copy is how they start disagreeing,
+// and a sidecar whose key silently diverged from selection's would produce a
+// replay that looks right and joins nothing.
+export function targetSpec(sym) {
+  return `${String(sym?.filepath || '').split('!').pop().split('/').pop()}@${sym?.name}`;
+}
+
+// WHICH ELEMENT nominated each target, AT WHAT RANK -- the join the verdicts
+// sidecar needs and could not previously express.
+//
+// Analysis order alone scores arrival-order and LABEL_RANK rules. It cannot
+// score the rule RUN 9's evidence points at: prefer the target the element
+// ITSELF ranked highest over one that arrived from another element's list.
+// `LaunchActivity::onStart` took row 6 without element 6 nominating it at all,
+// and nothing on disk recorded that.
+//
+// ONE ENTRY PER NOMINATOR. A target three elements wanted carries three rows.
+// Collapsing them to a single number is a scoring choice, and this is the
+// merge's INPUT -- it does not make scoring choices on the replay's behalf.
+//
+// Empty for a --targets run: nobody nominated those, they were handed to CE,
+// and targetSource already records that. Empty is the true answer there, and is
+// not the same as a missing field.
+export function nominationIndex(retrieval) {
+  const out = new Map();
+  for (const pe of (Array.isArray(retrieval) ? retrieval : [])) {
+    (pe.hits || []).forEach((h, rank) => {
+      if (!h || !h.sym) return;
+      const k = targetSpec(h.sym);
+      if (!out.has(k)) out.set(k, []);
+      out.get(k).push({ element: pe.element ?? null, rank });
+    });
+  }
+  return out;
+}
+
 // Turn per-element candidates into a bounded target list, ROUND-ROBIN by rank:
 // every element contributes its best candidate before any element contributes a
 // second. Taking the first N in element order would spend the whole budget on
@@ -103,7 +142,6 @@ export function perElementTargets(perElement, opts = {}) {
 export function perElementTargetsWithStats(perElement, opts = {}) {
   const elements = Array.isArray(perElement) ? perElement : [];
   const { perEl, ceiling, total, wanted } = resolveTargetBudget(elements.length, opts);
-  const spec = (sym) => `${String(sym.filepath || '').split('!').pop().split('/').pop()}@${sym.name}`;
   const out = [];
   const seen = new Set();
   let ranksCompleted = 0;
@@ -115,7 +153,7 @@ export function perElementTargetsWithStats(perElement, opts = {}) {
       if (out.length >= total) { cappedMidRank = true; budgetLimited = true; break; }
       const h = (p.hits || [])[rank];
       if (!h || !h.sym) continue;
-      const s = spec(h.sym);
+      const s = targetSpec(h.sym);
       if (seen.has(s)) continue;
       seen.add(s);
       out.push(s);
@@ -998,7 +1036,7 @@ export async function doClaimChart(index, args, opts = {}) {
     const promptSrc = calleeText
       ? `${numbered}\n\n// ===== depth-1 callees, included so the analysis need not infer what they do =====\n${calleeText}`
       : numbered;
-    const label = `${m.filepath.split('!').pop().split('/').pop()}@${m.name}`;
+    const label = targetSpec(m);
     let out;
     try { out = await draft(buildChartAnalysisPrompt(promptSrc, m.name, m.filepath, claimText, elements), '', 1100); }
     catch (e) {
@@ -1067,11 +1105,21 @@ export async function doClaimChart(index, args, opts = {}) {
   //     against the wrong denominator is scored wrong.
   //   - provenance binding it to its chart, so a replay cannot be run against
   //     the wrong run's verdicts and produce a confident answer.
+  //   - WHICH ELEMENT nominated each target, AT WHAT RANK. Analysis order alone
+  //     scores arrival-order and LABEL_RANK rules, but not the rule RUN 9's
+  //     evidence points at -- prefer the target the element ITSELF ranked
+  //     highest over one that arrived from another element's list.
+  //     LaunchActivity::onStart took row 6 without element 6 nominating it at
+  //     all, and without this field nothing on disk records that. Still the
+  //     merge's INPUT: a rank is what retrieval SAID, not a derived winner.
   if (args.verdicts_out) {
+    const nominators = nominationIndex(retrieval);
     const sidecar = {
       _format: 'codeexam-chart-verdicts/1',
       _note: 'Raw per-target verdicts as the merge received them, in analysis '
-        + 'order. No derived fields. See mergeBestPerElement.',
+        + 'order, plus which element nominated each target at what rank. No '
+        + 'MERGE-derived fields: no tally, agreement, or winner. '
+        + 'See mergeBestPerElement.',
       engine: engineLabel,
       engineBuild: engineBuildLine(),
       index: args.index_path || '(unknown)',
@@ -1088,6 +1136,7 @@ export async function doClaimChart(index, args, opts = {}) {
       generatedAt: new Date().toISOString(),
       analysed: perTarget.map((p) => ({
         target: p.target,
+        nominatedBy: nominators.get(p.target) || [],
         elements: p.elements.map((e) => ({
           element: e.element ?? null, text: e.text ?? '', label: e.label, note: e.note || '',
         })),

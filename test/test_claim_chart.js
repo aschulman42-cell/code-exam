@@ -13,7 +13,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildChartTable, parseTargets, collectCalleeBodies, mergeBestPerElement,
-  coverageLine, formatChart, doClaimChart, CHART_DEFAULTS,
+  coverageLine, formatChart, doClaimChart, CHART_DEFAULTS, nominationIndex, targetSpec,
   parseChartVerdicts, fillChartRows, buildChartAnalysisPrompt, buildProvenanceHeader,
   perElementTargets, normalizeVerdictLine, perElementTargetsWithStats, resolveTargetBudget,
   filterMatchesByFile,
@@ -1435,6 +1435,56 @@ describe('--verdicts-out dumps the merge INPUT, replayable offline (#315)', () =
     assert.match(SIDECAR.dropped[0].reason, /PARSE-FAILED/);
     assert.ok(!SIDECAR.analysed.some((a) => a.target === 'C.java@x'),
       'a dropped target is not counted among the analysed');
+  });
+
+  // These exercise the REAL derivation. The fixture above proves things about
+  // the fixture; nominationIndex is where the sidecar's new field actually
+  // comes from, and a hand-built object could not have caught a wrong join key.
+  it('records which element nominated each target, and at what rank', () => {
+    const sym = (f, n) => ({ filepath: f, name: n });
+    const idx = nominationIndex([
+      { element: 6, hits: [{ sym: sym('a!x/AdaptiveTrackSelection.java', 'determineIdealSelectedIndex') }] },
+      { element: 7, hits: [
+        { sym: sym('a!x/LaunchActivity.java', 'onStart') },
+        { sym: sym('a!x/AdaptiveTrackSelection.java', 'determineIdealSelectedIndex') },
+      ] },
+    ]);
+    assert.deepEqual(idx.get('AdaptiveTrackSelection.java@determineIdealSelectedIndex'),
+      [{ element: 6, rank: 0 }, { element: 7, rank: 1 }],
+      'one entry per nominator, each carrying that element own rank');
+    assert.deepEqual(idx.get('LaunchActivity.java@onStart'), [{ element: 7, rank: 0 }]);
+  });
+
+  it('joins on exactly the key selection uses, or the replay joins nothing', () => {
+    // The whole point of extracting targetSpec: selection picks a spec, the
+    // analysis loop keys perTarget by it, and the sidecar looks nominations up
+    // by it. A divergence here yields a file that LOOKS right and matches no
+    // rows -- so assert the two agree on the same symbol rather than trusting
+    // that three copies of a formula stayed equal.
+    const sym = { filepath: 'zip!deep/path/AdaptiveTrackSelection.java', name: 'determineIdealSelectedIndex' };
+    const selected = perElementTargets([{ element: 1, hits: [{ sym }] }]);
+    const idx = nominationIndex([{ element: 1, hits: [{ sym }] }]);
+    assert.equal(selected.length, 1);
+    assert.ok(idx.has(selected[0]),
+      `sidecar key must match the selected target spec: ${selected[0]} vs ${[...idx.keys()]}`);
+  });
+
+  it('is empty for a --targets run, which is an answer and not a gap', () => {
+    // Nobody nominated a supplied target. Empty says that; a missing key would
+    // read as "this run recorded nothing".
+    const idx = nominationIndex(null);
+    assert.equal(idx.size, 0);
+    assert.deepEqual(idx.get('anything.java@x') || [], []);
+  });
+
+  it('skips candidates with no symbol without shifting the ranks after them', () => {
+    // rank is the position retrieval ASSIGNED. Compacting the array would
+    // silently promote later candidates and misreport the one number the
+    // tie-break rules will be scored on.
+    const idx = nominationIndex([
+      { element: 3, hits: [null, { sym: { filepath: 'A.java', name: 'x' } }] },
+    ]);
+    assert.deepEqual(idx.get('A.java@x'), [{ element: 3, rank: 1 }], 'rank 1 stays rank 1');
   });
 
   it('carries NO derived field — not tally, agreement, or winner', () => {
