@@ -463,8 +463,10 @@ describe('Archive Support', () => {
       ]);
       const tgzBuf = zlib.gzipSync(tarBuf);
 
+      // `bundled/`, not `vendor/`: vendor is a skipped directory (SKIP_DIRS),
+      // inside archives as on disk since index-skip-pycache-twins.
       const zipBuf = createZip([
-        { name: 'vendor/engine.tar.gz', content: tgzBuf },
+        { name: 'bundled/engine.tar.gz', content: tgzBuf },
       ]);
       fs.writeFileSync(path.join(SRC_DIR, 'bundle.zip'), zipBuf);
 
@@ -715,6 +717,68 @@ describe('Archive Support', () => {
       const out = runInteractive(['/fast interactive_target'], `--index-path ${idxDir}`);
       assert.ok(out.includes('interactive_target'),
         'should find archive content in interactive mode: ' + out);
+    });
+  });
+
+
+  // index-skip-pycache-twins (2026-08-27): _walkDir never enters __pycache__ /
+  // node_modules / ..., but archive members and @list inputs bypassed that rule,
+  // so an archive-built index carried a bytecode dump beside every source
+  // module. The same rule now applies on every input path; a .pyc OUTSIDE
+  // __pycache__ still becomes a .op (compiled-only distributions).
+  describe('Skipped directories inside archives and @list inputs', () => {
+    // A pyc-shaped buffer with two printable runs binstrings will keep.
+    const fakePyc = Buffer.concat([
+      Buffer.from([0x61, 0x0d, 0x0d, 0x0a, 0x00, 0x00, 0x00, 0x00]),
+      Buffer.from('twin_marker_function\0other_marker_value\0', 'ascii'),
+    ]);
+    const fileKeys = (idxDir) => Object.keys(
+      JSON.parse(fs.readFileSync(path.join(idxDir, 'function_index.json'), 'utf8')));
+
+    it('skips __pycache__ and node_modules members of a zip but still disassembles a .pyc outside them', () => {
+      const SRC_DIR = path.join(TEST_DIR, 'zip_pycache');
+      fs.mkdirSync(SRC_DIR, { recursive: true });
+      const zipBuf = createZip([
+        { name: 'pkg/a.py', content: 'def twin_marker_function():\n    return 1\n' },
+        { name: 'pkg/__pycache__/a.cpython-310.pyc', content: fakePyc },
+        { name: 'pkg/b.pyc', content: fakePyc },
+        { name: 'node_modules/dep/index.js', content: 'module.exports = 1;\n' },
+      ]);
+      fs.writeFileSync(path.join(SRC_DIR, 'project.zip'), zipBuf);
+
+      const idxDir = path.join(TEST_DIR, '.idx_zip_pycache');
+      const out = runCLI(`--build-index ${SRC_DIR} --index-path ${idxDir} 2>&1`);
+      assert.ok(/2 entries under skipped directories/.test(out),
+        'archive summary names the skipped members: ' + out);
+
+      const keys = fileKeys(idxDir);
+      assert.ok(keys.some((k) => k.endsWith('project.zip!pkg/a.py')),
+        'source member indexed: ' + keys.join(', '));
+      assert.ok(!keys.some((k) => k.includes('__pycache__') || k.includes('node_modules')),
+        'no member under a skipped directory is indexed: ' + keys.join(', '));
+      assert.ok(keys.some((k) => k.endsWith('project.zip!pkg/b.pyc.op')),
+        'a .pyc outside __pycache__ still yields its .op: ' + keys.join(', '));
+    });
+
+    it('applies the same rule to an @list input', () => {
+      const SRC_DIR = path.join(TEST_DIR, 'list_pycache');
+      fs.mkdirSync(path.join(SRC_DIR, 'pkg', '__pycache__'), { recursive: true });
+      const src = path.join(SRC_DIR, 'pkg', 'a.py');
+      const pyc = path.join(SRC_DIR, 'pkg', '__pycache__', 'a.cpython-310.pyc');
+      fs.writeFileSync(src, 'def list_marker_function():\n    return 2\n');
+      fs.writeFileSync(pyc, fakePyc);
+      const listFile = path.join(SRC_DIR, 'files.txt');
+      fs.writeFileSync(listFile, src + '\n' + pyc + '\n');
+
+      const idxDir = path.join(TEST_DIR, '.idx_list_pycache');
+      const out = runCLI(`--build-index @${listFile} --index-path ${idxDir} 2>&1`);
+      assert.ok(/Skipped 1 file\(s\) under skipped directories/.test(out),
+        'list build names the skipped file: ' + out);
+
+      const keys = fileKeys(idxDir);
+      assert.ok(keys.some((k) => k.endsWith('a.py')), 'listed source indexed: ' + keys.join(', '));
+      assert.ok(!keys.some((k) => k.includes('__pycache__')),
+        'listed __pycache__ file not indexed: ' + keys.join(', '));
     });
   });
 

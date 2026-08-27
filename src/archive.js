@@ -55,6 +55,41 @@ export const EXECUTABLE_EXTENSIONS = new Set([
   '.class', '.pyc', '.pyo', '.wasm',
 ]);
 
+/**
+ * Directories never indexed, wherever a file arrives from: third-party,
+ * build, cache, and infrastructure trees that are not project source.
+ * `_walkDir` (CodeSearchIndex) never descends into them; archive members and
+ * `@list` / glob inputs used to bypass that rule. Measured 2026-08-27: an
+ * archive-built index carried 1,416 `__pycache__/*.pyc.op` bytecode dumps
+ * beside 1,394 `.py` sources, and per-element retrieval and the ballpark
+ * scored the dumps as functions (30 of 39 "strong" claims had a
+ * `bin_pycache_*` bag as their best function). One Set, one predicate, on
+ * every input path. A `.pyc` OUTSIDE `__pycache__` (a compiled-only
+ * distribution) is still indexed -- that is what binstrings is for.
+ */
+export const SKIP_DIRS = new Set([
+  'node_modules', '__pycache__', '.git', '.svn', '.hg',
+  '.tox', '.mypy_cache', '.pytest_cache', '.ruff_cache',
+  'dist', 'build', '.next', '.nuxt',
+  'vendor', 'venv', '.venv', 'env',
+  'coverage', '.nyc_output',
+  '.idea', '.vscode',
+]);
+
+/**
+ * True when a DIRECTORY segment of `relPath` (never the final name) is in
+ * SKIP_DIRS. Callers pass a path relative to the tree being indexed -- an
+ * archive member's name, or `path.relative(basePath, file)` -- so a project
+ * that itself lives under a directory called `build` or `env` is unaffected.
+ */
+export function hasSkippedDirSegment(relPath) {
+  const segs = String(relPath).split(/[\\/]/);
+  for (let i = 0; i < segs.length - 1; i++) {
+    if (SKIP_DIRS.has(segs[i].toLowerCase())) return true;
+  }
+  return false;
+}
+
 
 // ========================================================================
 // ZIP Reader (zero-dep, in-memory)
@@ -397,7 +432,7 @@ export function expandArchive(source, opts = {}) {
     extensions = null,
     showProgress = true,
     demanglerPath = null,
-    stats = { archives: 0, files: 0, encrypted: 0, errors: 0, skippedBinary: 0, binstringsProcessed: 0, depthWarnings: 0, skippedExtensions: {} },
+    stats = { archives: 0, files: 0, encrypted: 0, errors: 0, skippedBinary: 0, binstringsProcessed: 0, depthWarnings: 0, skippedExtensions: {}, skippedDirs: 0 },
   } = opts;
 
   if (depth > MAX_ARCHIVE_DEPTH) {
@@ -453,6 +488,7 @@ export function expandArchive(source, opts = {}) {
     if (stats.binstringsProcessed > 0) parts.push(`${stats.binstringsProcessed} binaries processed (binstrings)`);
     if (stats.encrypted > 0) parts.push(`${stats.encrypted} encrypted entries skipped`);
     if (stats.skippedBinary > 0) parts.push(`${stats.skippedBinary} binary files skipped`);
+    if (stats.skippedDirs > 0) parts.push(`${stats.skippedDirs} entries under skipped directories (__pycache__, node_modules, ...)`);
     if (stats.errors > 0) parts.push(`${stats.errors} errors`);
     process.stderr.write(`  Archive expansion: ${parts.join(', ')}\n`);
   }
@@ -464,7 +500,7 @@ export function expandArchive(source, opts = {}) {
  * Return the stats object for external use (e.g., build summary).
  */
 export function createArchiveStats() {
-  return { archives: 0, files: 0, encrypted: 0, errors: 0, skippedBinary: 0, binstringsProcessed: 0, depthWarnings: 0, skippedExtensions: {} };
+  return { archives: 0, files: 0, encrypted: 0, errors: 0, skippedBinary: 0, binstringsProcessed: 0, depthWarnings: 0, skippedExtensions: {}, skippedDirs: 0 };
 }
 
 
@@ -491,6 +527,7 @@ function _expandZip(buf, archiveName, depth, extensions, showProgress, demangler
     if (!entry.content) continue;
 
     const entryName = entry.name.replace(/\\/g, '/');
+    if (hasSkippedDirSegment(entryName)) { stats.skippedDirs++; continue; }
     const virtualPath = archiveName + '!' + entryName;
     const entryExt = _getExtension(entryName);
 
@@ -545,6 +582,7 @@ function _expandTar(buf, archiveName, depth, extensions, showProgress, demangler
     if (!entry.content) continue;
 
     const entryName = entry.name.replace(/\\/g, '/');
+    if (hasSkippedDirSegment(entryName)) { stats.skippedDirs++; continue; }
     const virtualPath = archiveName + '!' + entryName;
     const entryExt = _getExtension(entryName);
 
@@ -771,6 +809,7 @@ function _expandGzip(buf, archiveName, depth, extensions, showProgress, demangle
       if (!entry.content) continue;
 
       const entryName = entry.name.replace(/\\/g, '/');
+      if (hasSkippedDirSegment(entryName)) { stats.skippedDirs++; continue; }
       const virtualPath = archiveName + '!' + entryName;
       const entryExt = _getExtension(entryName);
 

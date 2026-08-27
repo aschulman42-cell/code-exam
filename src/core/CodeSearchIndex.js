@@ -19,7 +19,7 @@ import {
   ARCHIVE_EXTENSIONS, MEDIA_BINARY_EXTENSIONS, EXECUTABLE_EXTENSIONS,
   displayName, eprint, eprogress, splitCompoundToken, pasteToken,
 } from '../utils.js';
-import { expandArchive, isSupportedArchive, createArchiveStats, resolveIndexDir } from '../archive.js';
+import { expandArchive, isSupportedArchive, createArchiveStats, resolveIndexDir, SKIP_DIRS, hasSkippedDirSegment } from '../archive.js';
 import { processBinary, BINSTRING_EXTENSIONS } from '../binstrings.js';
 import {
   _detectBundleHelpers, _findWrapperEnd, _parseEsbuildWrappers,
@@ -94,18 +94,12 @@ import {
 // (Issue #18, Phase 1 peel 2). Imported at the top of this file.
 
 /**
- * Directories to always skip during directory walks.
- * These contain third-party, build, or infrastructure files
- * that are never project source code.
+ * Directories to always skip -- the walks below never descend into them, and
+ * the `@list` / glob categoriser and archive expansion apply the same rule
+ * through `hasSkippedDirSegment`. The Set lives in archive.js so both sides
+ * share one definition (index-skip-pycache-twins, 2026-08-27).
  */
-const _SKIP_DIRS = new Set([
-  'node_modules', '__pycache__', '.git', '.svn', '.hg',
-  '.tox', '.mypy_cache', '.pytest_cache', '.ruff_cache',
-  'dist', 'build', '.next', '.nuxt',
-  'vendor', 'venv', '.venv', 'env',
-  'coverage', '.nyc_output',
-  '.idea', '.vscode',
-]);
+const _SKIP_DIRS = SKIP_DIRS;
 
 
 
@@ -3437,8 +3431,18 @@ export class CodeSearchIndex {
     const executableFiles = [];
     let mediaSkipped = 0;
     let unsupportedArchives = 0;
+    // `@list` and glob inputs never went through _walkDir, so its skipped
+    // directories (__pycache__, node_modules, ...) reached the index from
+    // them. Same rule, relative to the tree root; a single named file and
+    // walk results are already the user's / the walk's decision.
+    const applySkipDirs = codePathStr.startsWith('@') || codePathStr.includes('*') || codePathStr.includes('?');
+    let skippedDirEntries = 0;
 
     for (const fp of files) {
+      if (applySkipDirs && hasSkippedDirSegment(path.relative(basePath, fp))) {
+        skippedDirEntries++;
+        continue;
+      }
       const ext = path.extname(fp).toLowerCase();
       const lower = fp.toLowerCase();
       // Check compound .tar.gz first
@@ -3463,7 +3467,11 @@ export class CodeSearchIndex {
       }
     }
 
+    stats.skipped_dir_entries = skippedDirEntries;
     if (showProgress) {
+      if (skippedDirEntries > 0) {
+        console.log(`  Skipped ${skippedDirEntries} file(s) under skipped directories (__pycache__, node_modules, ...)`);
+      }
       if (mediaSkipped > 0) {
         console.log(`  Skipped ${mediaSkipped} media/binary files (images, audio, video, fonts, docs)`);
       }
