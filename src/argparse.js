@@ -257,6 +257,7 @@ export function parseArgs() {
     claim_chart: null,
     targets: null,
     elements: null,
+    granularity: 'fine',     // --granularity coarse|fine: how --claim-* commands split a claim into rows (A14)
     no_callees: false,
     scope_note: null,
     targets_note: null,
@@ -574,6 +575,7 @@ export function parseArgs() {
     ['claim_chart',          'value',          ['--claim-chart']],
     ['targets',              'value',          ['--targets']],
     ['elements',             'value',          ['--elements']],
+    ['granularity',          'value',          ['--granularity']],
     ['no_callees',           'flag',           ['--no-callees']],
     ['scope_note',           'value',          ['--scope-note']],
     ['targets_note',         'value',          ['--targets-note']],
@@ -914,6 +916,12 @@ export function parseArgs() {
   if (args.model && !args.analyze_model) args.analyze_model = args.model;
   if (args.follow_calls && args.deep === null) args.deep = '1';
 
+  // --granularity is an enumeration, and a typo must not silently become the
+  // default: a chart's row structure is the one thing two charts are compared on.
+  if (args.granularity !== 'fine' && args.granularity !== 'coarse') {
+    console.error(`--granularity must be "fine" or "coarse", got "${args.granularity}".`);
+    process.exit(2);
+  }
   return args;
 }
 
@@ -1500,6 +1508,17 @@ LLM ANALYSIS:
                              two engines' charts undiffable — a file gives
                              practitioner granularity AND a skeleton identical
                              across every engine.
+  --granularity <tier>       How --claim-chart / --claim-analyze / --claim-locate /
+                             --synonymize split a claim into rows when no
+                             --elements file is supplied. fine (default): the
+                             litigator's rows -- every embedded "wherein", ", and"
+                             and "which is" clause is its own separately-arguable
+                             row. coarse: the drafter's rows -- sub-element
+                             markers, lines, preamble-colon and semicolons only;
+                             agrees with the drafting attorney's own element
+                             count on 72% of 380 litigated claims. Recorded in
+                             the chart header so two charts of one claim at
+                             different tiers are never confused.
   --targets-per-element <n>  --claim-chart, per-element retrieval only: how many
                              ranked candidates to analyse per claim element
                              (default 3). Charting is where cost trades against

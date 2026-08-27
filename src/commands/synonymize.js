@@ -491,7 +491,7 @@ export async function doSynonymize(args, opts = {}) {
   // that fires per claim asks thirteen times and tells the user nothing about
   // what the whole run costs.
   const perClaim = claimTexts.map((text, i) => {
-    const elements = suppliedElements || splitClaimElements(text);
+    const elements = suppliedElements || splitClaimElements(text, { fine: args.granularity !== 'coarse' });
     return { n: i + 1, text, elements };
   });
   const emptyClaims = perClaim.filter((c) => !c.elements.length);
@@ -606,7 +606,7 @@ export async function doSynonymize(args, opts = {}) {
     // Not fatal: the artifact is still worth having, and the caller may know
     // why. But it must never be silent, because the failure is invisible
     // downstream -- the file still has the right number of LINES.
-    c.reSplit = splitClaimElements(c.rows.map((r) => r.rewritten).join('\n')).length;
+    c.reSplit = splitClaimElements(c.rows.map((r) => r.rewritten).join('\n'), { fine: args.granularity !== 'coarse' }).length;
     c.failed = c.rows.filter((r) => r.error).length;
     if (c.reSplit !== c.elements.length) {
       process.stderr.write(`[synonymize] WARNING: ${isCorpus ? `claim ${c.n} ` : 'the rewritten claim '}`

@@ -1147,7 +1147,9 @@ describe('splitter: the preamble is a row (Part A)', () => {
   });
 
   it('does not disturb the paths that already worked', () => {
-    assert.equal(splitClaimElements(P101).length, 10);
+    // 10 -> 9 with claim-granularity-tiers: the retired `for <verb>ing` boundary had cut one
+    // '101 element at a purpose phrase (a fragment, per the 380-claim calibration), not a limitation.
+    assert.equal(splitClaimElements(P101).length, 9);
     assert.match(splitClaimElements(P101)[0], /^A distribution system/);
     assert.equal(splitClaimElements(TLS).length, 11);
     assert.match(splitClaimElements(TLS)[0], /^A method of establishing/);
@@ -2391,9 +2393,11 @@ describe('splitter: stage-B boundaries vs the attorneys\' structure (380 litigat
     for (const r of records.slice(0, 5)) assert.ok(r.patent && r.text && r.lines.length >= 2);
   });
 
-  it('pins the current agreement: fine 30% / over 62%, coarse 72% / over 3%', { skip: !have && 'fixture missing' }, () => {
+  // Re-pinned by claim-granularity-tiers: dropping `for <verb>ing` from stage B moved fine from
+  // 30 / 62 / 8 to 42 / 48 / 10. Coarse is untouched.
+  it('pins the current agreement: fine 42% / over 48%, coarse 72% / over 3%', { skip: !have && 'fixture missing' }, () => {
     const fine = triple({}), coarse = triple({ fine: false });
-    assert.deepEqual([fine.agree, fine.over], [30, 62], `fine ${JSON.stringify(fine)}`);
+    assert.deepEqual([fine.agree, fine.over], [42, 48], `fine ${JSON.stringify(fine)}`);
     assert.deepEqual([coarse.agree, coarse.over], [72, 3], `coarse ${JSON.stringify(coarse)}`);
     assert.ok(coarse.under >= 20 && coarse.under <= 30, `coarse under-splits nested sub-elements: ${coarse.under}%`);
   });
@@ -2424,14 +2428,15 @@ describe('splitter: stage-B boundaries vs the attorneys\' structure (380 litigat
   });
 
   it('measures the candidate boundary sets (diagnostic; the default is unchanged)', { skip: !have && 'fixture missing' }, () => {
-    const CURRENT = /\bwherein\b|,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w)|\bfor\s+\w+ing\b/;
+    // The default since claim-granularity-tiers: wherein, "and also", "which is", ", and" -- no "for <verb>ing".
+    const CURRENT = /\bwherein\b|,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w)/;
     const CANDIDATES = {
       'current (fine default)': CURRENT,
-      'drop "for <verb>ing"': /\bwherein\b|,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w)/,
-      'wherein only after , or ;': /[,;]\s*wherein\b|,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w)|\bfor\s+\w+ing\b/,
-      'drop wherein entirely': /,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w)|\bfor\s+\w+ing\b/,
-      '", and" only before a gerund': /\bwherein\b|,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w+ing\b)|\bfor\s+\w+ing\b/,
-      'all three: no for-ing, no wherein, and+gerund': /,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w+ing\b)/,
+      'with "for <verb>ing" (the pre-f2179ab default)': /\bwherein\b|,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w)|\bfor\s+\w+ing\b/,
+      'wherein only after , or ;': /[,;]\s*wherein\b|,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w)/,
+      'drop wherein entirely': /,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w)/,
+      '", and" only before a gerund': /\bwherein\b|,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w+ing\b)/,
+      'no wherein, and+gerund': /,?\s+and\s+also\s+|,\s*which\s+is\b|,\s*and\s+(?=\w+ing\b)/,
     };
     const rows = Object.entries(CANDIDATES).map(([name, re]) => ({ name, ...triple({ boundaryRe: re }) }));
     rows.push({ name: 'coarse (stage A only)', ...triple({ fine: false }) });
@@ -2440,8 +2445,9 @@ describe('splitter: stage-B boundaries vs the attorneys\' structure (380 litigat
     // The knob works: the current set through opts reproduces the default exactly.
     const viaOpts = rows[0], dflt = triple({});
     assert.deepEqual([viaOpts.agree, viaOpts.over, viaOpts.under], [dflt.agree, dflt.over, dflt.under]);
-    // And every candidate that removes a boundary over-splits less than the default -- the direction
-    // the attribution predicted; how much less is what the table is for.
-    for (const r of rows.slice(1, -1)) assert.ok(r.over <= viaOpts.over, `${r.name}: over ${r.over}% > default ${viaOpts.over}%`);
+    // The retired boundary over-splits MORE than the default (that is why it was retired)...
+    assert.ok(rows[1].over > viaOpts.over, `"for <verb>ing" back in: over ${rows[1].over}% should exceed ${viaOpts.over}%`);
+    // ...and every candidate that removes a further boundary over-splits no more than the default.
+    for (const r of rows.slice(2, -1)) assert.ok(r.over <= viaOpts.over, `${r.name}: over ${r.over}% > default ${viaOpts.over}%`);
   });
 });

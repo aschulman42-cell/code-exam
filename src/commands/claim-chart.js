@@ -196,7 +196,7 @@ export function buildChartTable(claimText, opts = {}) {
   // reaches a practitioner's construction of a claim.
   const elements = (opts.elements && opts.elements.length)
     ? opts.elements
-    : splitClaimElements(claimText);
+    : splitClaimElements(claimText, { fine: opts.granularity !== 'coarse' });
   // The header is where a reader forms their interpretation of the column, and
   // "CE finding" invited the wrong one. The verdict answers whether the
   // LIMITATION is met, not whether the recited feature appears — the same word
@@ -858,8 +858,12 @@ export async function doClaimChart(index, args, opts = {}) {
   catch (e) { console.error(`--claim-chart: ${e.message}`); process.exitCode = 1; return; }
 
   const symbols = buildSymbolTable(index);
-  const { table, elements } = buildChartTable(claimText, { elements: suppliedElements });
-  if (!elementsSource) elementsSource = `${elements.length} from CE's split of the claim text`;
+  const tier = args.granularity === 'coarse' ? 'coarse' : 'fine';
+  const { table, elements } = buildChartTable(claimText, { elements: suppliedElements, granularity: tier });
+  // The tier is part of the row structure's provenance: a fine chart and a coarse
+  // chart of the same claim have different row counts, and a reader comparing two
+  // charts needs the header to say which split produced each.
+  if (!elementsSource) elementsSource = `${elements.length} from CE's split of the claim text (--granularity ${tier})`;
   // Same descriptor the targets file records, so the chart's `**Engine:**` line
   // and the target provenance `Engine:` line cannot disagree about what ran —
   // and so the cloud-vs-local distinction the air-gap argument turns on is

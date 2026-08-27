@@ -56,7 +56,13 @@ Markers are this document's editorial judgement, not the author's.
   - **A target row count** (`--granularity 12`) — precise, but a claim does not always have 12 defensible rows; the splitter would merge or invent to hit a number.
   - **Expose the existing floor** (`--min-element-chars`) — honest about the mechanism, but a coefficient is not a posture and nobody should reason in characters.
 
-  **Leaning to named tiers**, since the underlying knobs are several — the character floor, which boundary words fire, whether sub-limitations get rows — and a tier moves them coherently where one number cannot. **Not decided.**
+  **Leaning to named tiers**, since the underlying knobs are several — the character floor, which boundary words fire, whether sub-limitations get rows — and a tier moves them coherently where one number cannot. ~~**Not decided.**~~
+
+  **Decided 2026-08-27 (`claim-granularity-tiers`), by measurement against the drafting attorneys' own element structure for 380 litigated claim 1s (`test/fixtures/litigated-claim1-structure.jsonl`, `f2179ab`):** `--granularity coarse|fine`, default `fine`.
+  - **`coarse`** = the drafter's rows — stage A only (markers, lines, preamble-colon, semicolons). Agrees with the attorney's own element count on **72%** of the 380; the residue is colon intros to nested lists and attorney-split `, and`/`wherein` rows that text cannot distinguish.
+  - **`fine`** = the litigator's rows — each embedded `wherein`, `, and`, `which is` clause is its own separately-arguable row. Not pinned by count (it is *meant* to have more rows than the drafter) but by a property: **95% of fine rows sit inside one attorney element**. `for <verb>ing` was retired from stage B in the same item — it cut inside attorney elements 315 times and produced fragments (*"receiving an indication of a selection of an object"* / *"for editing via…"*), not limitations; without it, count agreement 30% → 42%.
+  - **`--elements @file`** = the practitioner's own rows, verbatim — including the attorney's, which `scripts/litigated-claims-fetch.mjs --emit-elements` writes for any litigated patent.
+  - The chart header records the tier (*"9 from CE's split of the claim text (--granularity fine)"*), so two charts of one claim at different tiers are never confused. Andrew's posture: *"in litigation, for a source-code examiner and attys drafting claim charts, fine is going to work better."*
 
 ## A2. Primary dividers
 

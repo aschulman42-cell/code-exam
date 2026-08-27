@@ -105,12 +105,25 @@ const SUBELEMENT_RE = /^\s*\(\s*(?:[a-z]|[ivx]+|\d+)\s*\)\s*/i;
 // against `wherein` at 67.7% as a control. About 1 claim in 180 was getting a
 // spurious row -- rare, never zero, and invisible unless someone read the claim
 // carefully.
+//
+// `for <verb>ing` is NOT here either, as of claim-granularity-tiers. It was a
+// stage-B boundary from the first version, calibrated on the one '101 claim.
+// Measured against the drafting attorneys' own element structure for 380
+// litigated claim 1s (test/fixtures/litigated-claim1-structure.jsonl, f2179ab):
+// it cut INSIDE single attorney elements 315 times, and what it produced was
+// fragments, not limitations -- US 7,703,036 became "receiving an indication
+// of a selection of an object" / "for editing via the software application"
+// as two rows, and means-plus-function claims were cut at "...including
+// means" / "for associating data...". A purpose phrase is not a separately
+// arguable limitation. Dropping it moved count agreement with the attorneys
+// from 30% to 42% and left 95% of fine rows inside one attorney element. The
+// remaining boundaries are the litigator's cuts and stay: each embedded
+// `wherein`, `, and`, `which is` is a narrowing a chart argues on its own.
 const BOUNDARY_RE = new RegExp([
   String.raw`\bwherein\b`,
   String.raw`,?\s+and\s+also\s+`,
   String.raw`,\s*which\s+is\b`,
   String.raw`,\s*and\s+(?=\w)`,
-  String.raw`\bfor\s+\w+ing\b`,
 ].join('|'), 'gi');
 
 // Cut one coarse element at every boundary, then merge back any fragment under
@@ -1686,7 +1699,7 @@ export async function doClaimLocate(index, args, opts = {}) {
 
   const symbols = buildSymbolTable(index);
   if (!symbols.length) { console.error('Index has no function/class symbols to verify against.'), process.exitCode = 1; return; }
-  const elements = splitClaimElements(claimText);
+  const elements = splitClaimElements(claimText, { fine: args.granularity !== 'coarse' });
   const blind = !!args.blind;
 
   const hunting = !!args.hunt && args.no_hunt !== true;

@@ -81,10 +81,20 @@ export const PSEUDO_CLAIM_CAVEAT_C =
 //
 // MEASURED against 5,395 real independent claims (randpat_2020_indep_claims.
 // out.txt), counted with CE's own splitClaimElements so the figures sit on the
-// same footing as CE's output:
+// same footing as CE's output. Re-measured 2026-08-27 under the
+// claim-granularity-tiers default (the `for <verb>ing` boundary retired, since
+// it cut fragments rather than limitations -- f2179ab, 380 attorney-structured
+// claims), which is why every figure moved down by about one:
 //
-//   median 9   interquartile 7-11   p90 14   p95 17   mean 9.4
-//   84.8% of real independent claims fall between 5 and 14 limitations
+//   median 8   interquartile 6-11   p90 14   p95 16   mean 9.1
+//   85.2% of real independent claims fall between 5 and 14 limitations
+//   (before the retirement: median 9, IQR 7-11, p90 14, p95 17, mean 9.4, 84.8%)
+//
+// The population --pseudo-claims should actually emulate is narrower than
+// randpat's all-art sample: 385 litigated big-tech-drafted software claim 1s
+// (scripts/litigated-claims-fetch.mjs) run median 146 words, 4-5 attorney
+// elements, 7 rows on this splitter, with 7 dependents beneath (#281,
+// 2026-08-27). Re-derive the target from that set when it is next touched.
 //
 // Against that baseline, the sr_gh run's MEDIAN claim sat at the 90.7th
 // percentile and its longest (27) at the 99.4th; 10 of 23 were above p90. The
@@ -103,8 +113,8 @@ export const PSEUDO_CLAIM_GENERATE_SYS =
   'for THAT mechanism — treat it as the intended subject and purpose; do not ' +
   'substitute a different purpose inferred from the code. ' +
   'A claim covers ONE inventive concept, not every function you were shown. ' +
-  'CLAIM 1 is INDEPENDENT and should run about 7 to 11 limitations, typically ' +
-  '9; more than 15 is rare. THAT TARGET IS FOR CLAIM 1 ALONE. ' +
+  'CLAIM 1 is INDEPENDENT and should run about 6 to 11 limitations, typically ' +
+  '8; more than 15 is rare. THAT TARGET IS FOR CLAIM 1 ALONE. ' +
   'Detail that does not belong in claim 1 goes DOWN INTO DEPENDENT CLAIMS ' +
   'rather than being dropped. A dependent claim either ADDS a limitation ' +
   '("The method of claim 1, further comprising: <step>.") or NARROWS an ' +

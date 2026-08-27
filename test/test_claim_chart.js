@@ -1496,3 +1496,28 @@ describe('--verdicts-out dumps the merge INPUT, replayable offline (#315)', () =
     }
   });
 });
+
+// --granularity (A14, claim-granularity-tiers): the tier reaches the chart's row structure.
+// `coarse` is the drafter's rows (stage A only); `fine`, the default, is the litigator's --
+// every embedded wherein / ", and" / "which is" its own row. A supplied --elements list wins
+// over either. The header line that records the tier is built in doClaimChart, from the
+// same option, so a fine chart and a coarse chart of one claim are never confused.
+describe('claim chart: --granularity reaches the rows', () => {
+  const CLAIM = 'A method of routing a packet, comprising: receiving the packet at an interface, wherein the packet carries a priority field, and the priority field selects a queue; enqueueing the packet on the selected queue; and forwarding the packet from the queue, wherein forwarding is rate-limited per queue.';
+
+  it('coarse yields the semicolon rows; fine subdivides them; fine is the default', () => {
+    const coarse = buildChartTable(CLAIM, { granularity: 'coarse' }).elements;
+    const fine = buildChartTable(CLAIM, { granularity: 'fine' }).elements;
+    const dflt = buildChartTable(CLAIM).elements;
+    assert.equal(coarse.length, 4, `preamble + three semicolon rows: ${JSON.stringify(coarse)}`);
+    assert.ok(fine.length > coarse.length, `fine (${fine.length}) should subdivide coarse (${coarse.length})`);
+    assert.deepEqual(dflt, fine, 'no option = fine');
+  });
+
+  it('a supplied --elements list wins over either tier', () => {
+    const supplied = ['A method of routing a packet, comprising:', 'receiving the packet', 'forwarding the packet'];
+    for (const granularity of ['coarse', 'fine']) {
+      assert.deepEqual(buildChartTable(CLAIM, { elements: supplied, granularity }).elements, supplied);
+    }
+  });
+});

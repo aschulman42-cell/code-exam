@@ -2446,7 +2446,7 @@ async function _addPerElementMatches({ index, args, claimText, topMatches, termL
     console.log('  Per-element arm: disabled (--no-per-element).');
     return [];
   }
-  const elements = splitClaimElements(claimText);
+  const elements = splitClaimElements(claimText, { fine: args.granularity !== 'coarse' });
   if (!elements.length) return [];
 
   const budget = perElementBudget(args, elements.length);
