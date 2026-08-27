@@ -29,6 +29,12 @@
 import fs from 'node:fs';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine, engineBuildLine } from '../core/llm-runner.js';
 import { buildClaimAnalyzePrompt, addLineNumbers, readClaimFile } from './analyze.js';
+import { isPseudoSource } from '../binstrings.js';
+
+// A target spec is `file@symbol`; the file half says whether the target is a
+// binstrings `.op` dump. Labelled wherever a spec is printed so a reader never
+// mistakes a string table for a function (op-pseudo-source-kind-gate).
+const pseudoTag = (spec) => (isPseudoSource(String(spec || '').split('@')[0]) ? ' [pseudo-source]' : '');
 
 // Shared reporter for dropped `#` provenance lines. Never silent: discarding
 // input without saying so is how the next version of this bug hides.
@@ -510,7 +516,7 @@ export function fillChartRows(table, fills) {
     if (!m) continue;
     const f = byNum.get(Number(m[1]));
     if (!f) continue;
-    const cite = f.target ? `\`${f.target}\`` : '—';
+    const cite = f.target ? `\`${f.target}\`${pseudoTag(f.target)}` : '—';
     const note = f.note ? ` ${String(f.note).replace(/\|/g, '\\|').slice(0, 160)}` : '';
     // How lonely is this finding? "(1 of 34; 33 ABSENT)" tells the reader that
     // a lone PRESENT was promoted over 33 dissents — which deserves scrutiny —
@@ -751,7 +757,7 @@ export function formatChart({
   out.push('');
   out.push('## Analysed targets');
   out.push('');
-  for (const t of targets) out.push(`- \`${t}\``);
+  for (const t of targets) out.push(`- \`${t}\`${pseudoTag(t)}`);
   out.push('');
   // PER-ELEMENT RETRIEVAL PROVENANCE. Without it an ABSENT row is ambiguous:
   // "CE examined this element and found nothing" and "CE had nothing to examine"
@@ -784,6 +790,17 @@ export function formatChart({
     if (blind.length) {
       out.push(`⚠ ${blind.length} of ${retrieval.length} element(s) produced no candidate: `
         + `${blind.map((p) => p.element).join(', ')}. Those rows were not examined.`);
+      out.push('');
+    }
+    // What the pseudo-source gate held back (op-pseudo-source-kind-gate). A
+    // binstrings `.op` dump is a string table, not a function; it is indexed
+    // and searchable, but not nominated as a target unless --include-op.
+    const hb = retrieval.heldBack;
+    if (hb && (hb.symbols || hb.content)) {
+      out.push(`${hb.symbols} pseudo-source (.op) symbol(s)`
+        + `${hb.content ? ` and ${hb.content} content-search match(es)` : ''}`
+        + ' were held back from nomination — CE-generated string-dumps of binaries,'
+        + ' indexed and searchable but not functions. `--include-op` admits them.');
       out.push('');
     }
   }
@@ -901,6 +918,7 @@ export async function doClaimChart(index, args, opts = {}) {
       draft, elements, symbols,
       opts: {
         includeTests: !!args.include_tests,
+        includeOp: !!args.include_op,
         // The CONTENT arm needs the index; searchSymbolsByWords only needs the
         // symbol table. Passing it is what turns the arm on, and omitting it
         // leaves this path byte-identical to before (#315 lever 2).
@@ -912,6 +930,10 @@ export async function doClaimChart(index, args, opts = {}) {
     });
     if (disc.error) { console.error(`--claim-chart: ${disc.error}`); process.exitCode = 1; return; }
     retrieval = disc.perElement;
+    // Rides on the array so the provenance renderer can say what retrieval
+    // held back; JSON serialisation of the array drops it, which is fine —
+    // the verdicts sidecar records nominations, not the gate.
+    retrieval.heldBack = disc.heldBack || { symbols: 0, content: 0 };
     const budget = perElementTargetsWithStats(retrieval, args);
     targets = budget.targets;
     if (!targets.length) {

@@ -20,7 +20,7 @@ import {
   displayName, eprint, eprogress, splitCompoundToken, pasteToken,
 } from '../utils.js';
 import { expandArchive, isSupportedArchive, createArchiveStats, resolveIndexDir, SKIP_DIRS, hasSkippedDirSegment } from '../archive.js';
-import { processBinary, BINSTRING_EXTENSIONS } from '../binstrings.js';
+import { processBinary, BINSTRING_EXTENSIONS, isPseudoSource } from '../binstrings.js';
 import {
   _detectBundleHelpers, _findWrapperEnd, _parseEsbuildWrappers,
   _extractModulePreview, _detectNameHelper, _extractNameRecoveryPairs,
@@ -4449,6 +4449,10 @@ export class CodeSearchIndex {
         const fpathNorm = fpath.toLowerCase().replace(/\\/g, '/');
         if (!fpathNorm.includes(filterPath)) continue;
       }
+      // `kind`: a binstrings `.op` dump indexes as one `bin_<name>` pseudo-function
+      // holding every string in the binary; callers that rank or nominate by
+      // function must be able to tell it from code without re-deriving the rule.
+      const kind = isPseudoSource(fpath) ? 'pseudo-source' : 'source';
       for (const [name, info] of Object.entries(functions)) {
         const lineCount = info.end - info.start + 1;
         results.push({
@@ -4459,6 +4463,7 @@ export class CodeSearchIndex {
           end: info.end,
           type: info.type,
           lines: lineCount,
+          kind,
         });
       }
     }

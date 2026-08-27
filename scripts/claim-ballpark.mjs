@@ -43,6 +43,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 import { parseMultisectTerms } from '../src/commands/multisect.js';
+import { isPseudoSource } from '../src/binstrings.js';
 
 // Claim boilerplate: words that carry no subject matter. Kept deliberately long -- every one of
 // these ranked into a claim's top 8 on the 2026-08-27 litigated set before it was listed.
@@ -142,9 +143,14 @@ export function reduceResult(res, symbols, totalFiles = 0, opts = {}) {
     return { k, score: +score.toFixed(2) };
   };
   // Size bounds: a match is a neighbourhood only if a reader could take it in. Every drop is counted.
-  let oversizedFunctions = 0, oversizedFiles = 0, proseFiles = 0;
+  let oversizedFunctions = 0, oversizedFiles = 0, proseFiles = 0, opFunctions = 0;
   const funcs = (res.function_matches || []).filter((m) => {
     if (m.function === '(global)') return false;
+    // A binstrings `.op` dump is one pseudo-function holding every string in the binary: it passes
+    // the line bound and matches everything. Not a function for k; the FILE stays (a real binary's
+    // dump is a legitimate neighbourhood at file level). Measured 2026-08-27: 30 of 39 "strong"
+    // .langchain claims had a bin_pycache_* bag as their best function; 23 fell out without them.
+    if (isPseudoSource(m.filepath)) { opFunctions++; return false; }
     if (m.lines != null && m.lines > maxFunctionLines) { oversizedFunctions++; return false; }
     return true;
   });
@@ -159,7 +165,7 @@ export function reduceResult(res, symbols, totalFiles = 0, opts = {}) {
     termsPresent, termsTotal, rareTerms, functions, files: files.length,
     bestK: fn.k, bestScore: fn.score,          // function level: what a chart would cite
     fileBestK: fl.k, fileBestScore: fl.score,  // file level: the neighbourhood -- a claim's elements span functions
-    oversizedFunctions, oversizedFiles, proseFiles,
+    oversizedFunctions, oversizedFiles, proseFiles, opFunctions,
     symbols, per10k: symbols > 0 ? +(functions / symbols * 1e4).toFixed(2) : 0,
   };
 }
@@ -239,13 +245,13 @@ async function main() {
     try { idx = new CodeSearchIndex({ indexPath: ip }); } catch (e) { process.stderr.write(`  ${ip}: cannot load (${e.message}) -- skipped\n`); continue; }
     const symbols = countSymbols(idx);
     if (!symbols || !idx.files.size) { process.stderr.write(`  ${ip}: no function index or no files -- skipped\n`); continue; }
-    let done = 0; const dropped = { oversizedFunctions: 0, oversizedFiles: 0, proseFiles: 0 };
+    let done = 0; const dropped = { oversizedFunctions: 0, oversizedFiles: 0, proseFiles: 0, opFunctions: 0 };
     for (const c of claims) {
       const terms = parseMultisectTerms(termsOf.get(c.id).join(';'));
       let res = null;
       try { res = idx.multisectSearch(terms, { minTerms: MIN, showProgress: false }); } catch (e) { process.stderr.write(`  ${ip} x ${c.id}: ${e.message}\n`); }
       const row = res ? reduceResult(res, symbols, idx.files.size, bounds)
-        : { termsPresent: 0, termsTotal: terms.length, rareTerms: 0, functions: 0, files: 0, bestK: 0, bestScore: 0, fileBestK: 0, fileBestScore: 0, oversizedFunctions: 0, oversizedFiles: 0, proseFiles: 0, symbols, per10k: 0, error: true };
+        : { termsPresent: 0, termsTotal: terms.length, rareTerms: 0, functions: 0, files: 0, bestK: 0, bestScore: 0, fileBestK: 0, fileBestScore: 0, oversizedFunctions: 0, oversizedFiles: 0, proseFiles: 0, opFunctions: 0, symbols, per10k: 0, error: true };
       for (const k of Object.keys(dropped)) dropped[k] += row[k] || 0;
       rows.get(c.id).push({ index: ip, ...row });
       if (isHit(row, HIT)) process.stderr.write(`  HIT ${ip}  ${c.id} "${c.label.slice(0, 50)}"  file ${row.fileBestK}/${row.termsTotal} (${row.fileBestScore})  fn ${row.bestK}/${row.termsTotal} (${row.bestScore})  ${row.functions}f  [${termsOf.get(c.id).join('; ')}]\n`);
@@ -257,7 +263,7 @@ async function main() {
     const sizes = [...idx.fileLines.values()].map((l) => l.length).sort((a, b) => a - b);
     const pct = (p) => (sizes.length ? sizes[Math.min(sizes.length - 1, Math.floor(sizes.length * p))] : 0);
     process.stderr.write(`  ${ip}: ${idx.files.size} files (median ${pct(0.5)} lines, p99 ${pct(0.99)}), ${symbols} symbols, ${done} claim(s) in ${((Date.now() - t0) / 1000).toFixed(0)}s.` +
-      ` Index ranked; bounds dropped individual matches: ${dropped.oversizedFiles} in files over ${bounds.maxFileLines} lines, ${dropped.proseFiles} in prose files, ${dropped.oversizedFunctions} in functions over ${bounds.maxFunctionLines} lines` +
+      ` Index ranked; bounds dropped individual matches: ${dropped.oversizedFiles} in files over ${bounds.maxFileLines} lines, ${dropped.proseFiles} in prose files, ${dropped.oversizedFunctions} in functions over ${bounds.maxFunctionLines} lines, ${dropped.opFunctions} pseudo-source (.op) functions` +
       `${pct(0.99) > bounds.maxFileLines ? ` -- p99 exceeds the file bound; consider --max-file-lines ${Math.ceil(pct(0.99) / 1000) * 1000} for this index` : ''}\n`);
     idx = null; // let the index go before the next one loads
   }

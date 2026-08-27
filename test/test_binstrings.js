@@ -16,8 +16,24 @@ import { execSync } from 'child_process';
 // Direct imports for unit tests
 import {
   extractStrings, isNoise, classifyString,
-  extractMangledNames, makeFuncName, processBinary,
+  extractMangledNames, makeFuncName, processBinary, isPseudoSource,
 } from '../src/binstrings.js';
+
+// op-pseudo-source-kind-gate: the one predicate for "CE-generated pseudo-source".
+describe('isPseudoSource', () => {
+  it('is true for a binstrings .op dump, in a tree or inside an archive', () => {
+    assert.equal(isPseudoSource('pkg/__pycache__/a.cpython-310.pyc.op'), true);
+    assert.equal(isPseudoSource('project.zip!lib/native.dll.op'), true);
+    assert.equal(isPseudoSource('C:\\idx\\bin\\tool.exe.OP'), true, 'case-insensitive');
+  });
+  it('is false for source, for a binary itself, and for empty input', () => {
+    assert.equal(isPseudoSource('pkg/a.py'), false);
+    assert.equal(isPseudoSource('lib/native.dll'), false);
+    assert.equal(isPseudoSource('notes.op.md'), false, 'only a trailing .op');
+    assert.equal(isPseudoSource(''), false);
+    assert.equal(isPseudoSource(undefined), false);
+  });
+});
 
 const TEST_DIR = path.join(os.tmpdir(), 'ce_test_binstrings');
 const CLI = path.resolve('src/index.js');

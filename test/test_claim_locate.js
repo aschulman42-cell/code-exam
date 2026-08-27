@@ -138,6 +138,40 @@ describe('proposal parsing', () => {
 // The DEFAULT path. Its premise: the model must never need to have seen this
 // codebase, because the real use case is confidential code with no training
 // presence. So step 1 shows the model NO codebase information at all.
+// op-pseudo-source-kind-gate: a binstrings `.op` dump indexes as one
+// `bin_<name>` pseudo-function holding every string in the binary, so the name
+// arm matches it on almost any word list. Held back by default, counted,
+// admitted by --include-op.
+describe('pseudo-source (.op) symbols are held back from retrieval', () => {
+  const syms = [
+    { filepath: 'pkg/__pycache__/rate.cpython-310.pyc.op', name: 'bin_pycache_rate_cpython_310_pyc', bare: 'bin_pycache_rate_cpython_310_pyc', start: 1, end: 400, tokens: [], kind: 'pseudo-source' },
+    { filepath: 'src/main/Rate.java', name: 'RateChooser::chooseBitrate', bare: 'chooseBitrate', start: 1, end: 20, tokens: [], kind: 'source' },
+  ];
+  const draft = async () => 'ELEMENT 1: rate; bitrate';
+  it('excludes them by default and reports how many it held back', async () => {
+    const r = await retrievePerElement({ draft, elements: ['choosing a bitrate'], symbols: syms });
+    assert.deepEqual(r.perElement[0].hits.map((h) => h.sym.name), ['RateChooser::chooseBitrate']);
+    assert.deepEqual(r.heldBack, { symbols: 1, content: 0 });
+  });
+  it('admits them under includeOp, with nothing held back', async () => {
+    const r = await retrievePerElement({ draft, elements: ['choosing a bitrate'], symbols: syms, opts: { includeOp: true } });
+    assert.ok(r.perElement[0].hits.some((h) => h.sym.name === 'bin_pycache_rate_cpython_310_pyc'));
+    assert.deepEqual(r.heldBack, { symbols: 0, content: 0 });
+  });
+  it('the content arm applies the same gate and counts its own drops', () => {
+    const index = { multisectSearch: () => ({ function_matches: [
+      { function: 'bin_pycache_rate_cpython_310_pyc', filepath: 'pkg/__pycache__/rate.cpython-310.pyc.op', matched_indices: new Set([0, 1]) },
+      { function: 'RateChooser::chooseBitrate', filepath: 'src/main/Rate.java', matched_indices: new Set([0]) },
+    ] }) };
+    let held = 0;
+    const got = contentCandidatesForWords(index, ['rate', 'bitrate'], { onPseudoSource: (n) => { held += n; } });
+    assert.deepEqual(got.map((c) => c.name), ['RateChooser::chooseBitrate']);
+    assert.equal(held, 1);
+    const all = contentCandidatesForWords(index, ['rate', 'bitrate'], { includeOp: true });
+    assert.equal(all.length, 2);
+  });
+});
+
 describe('discovery path (default)', () => {
   it('step-1 prompt asks for code words and reveals no codebase identity', () => {
     const p = buildDiscoverPrompt();

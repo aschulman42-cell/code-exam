@@ -32,6 +32,7 @@ import { readCeVersion } from '../utils.js';
 // small follow-up deliberately kept out of this item's scope.
 import { readClaimFile } from './analyze.js';
 import { parseMultisectTerms } from './multisect.js';
+import { isPseudoSource } from '../binstrings.js';
 import { wasLastDraftTruncated, resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine } from '../core/llm-runner.js';
 import {
   buildSymbolTable, verifySymbol, isFound, nearbySymbols, navigateFrom,
@@ -675,13 +676,20 @@ export function contentCandidatesForWords(index, words, opts = {}) {
   // than the caller asked for and never said why.
   const named = [];
   let fileScope = 0;
+  let pseudo = 0;
   for (const m of fns) {
     const name = m.name || m.function || m.full_name || '';
     if (!name) continue;
     if (/^\(/.test(name)) { fileScope += 1; continue; }
-    named.push({ name, filepath: m.filepath || m.file || '' });
+    const filepath = m.filepath || m.file || '';
+    // A binstrings `.op` dump is one pseudo-function holding every string in
+    // the binary; it matches any word list and is not a citable function.
+    // Held back unless the caller admits it (--include-op); counted either way.
+    if (!opts.includeOp && isPseudoSource(filepath)) { pseudo += 1; continue; }
+    named.push({ name, filepath });
   }
   if (fileScope) opts.onNote?.(`${fileScope} file-scope (non-function) match(es) dropped`);
+  if (pseudo) opts.onPseudoSource?.(pseudo);
   return named.slice(0, limit);
 }
 
@@ -710,9 +718,25 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
         ? `The vocabulary response was cut off at the ${VOCAB_MAX_OUTPUT_TOKENS}-token output budget before any element parsed.`
         : 'The model produced no parseable code-word predictions.' };
   }
+  // PSEUDO-SOURCE GATE (op-pseudo-source-kind-gate). A binstrings `.op` dump
+  // indexes as one `bin_<name>` pseudo-function holding every string in the
+  // binary, so the name arm matches it on almost any word list and the content
+  // arm ranks it like a function that mentions everything. Measured 2026-08-27
+  // (#310): `.op` files were nominated as chart targets in six of six charts on
+  // indexes holding binaries -- a fifth of the target budget spent asking the
+  // model to judge string tables. Held back from BOTH arms by default, counted
+  // so the chart can say so, admitted by --include-op. An explicit --targets
+  // list never comes through here, so a user naming a `.op` file keeps it.
+  const includeOp = !!opts.includeOp;
+  const pool = includeOp ? symbols : symbols.filter((s) => !isPseudoSource(s.filepath));
+  const heldBack = { symbols: symbols.length - pool.length, content: 0 };
+  if (heldBack.symbols) {
+    process.stderr.write(`  ${heldBack.symbols} pseudo-source (.op) symbol(s) held back from`
+      + ` retrieval — --include-op to admit them\n`);
+  }
   const perElement = [];
   for (const { element, words } of wordSets) {
-    const hits = searchSymbolsByWords(symbols, words, {
+    const hits = searchSymbolsByWords(pool, words, {
       limit: opts.candidatesPerElement ?? LOCATE_DEFAULTS.candidatesPerElement,
       includeTests: !!opts.includeTests,
     });
@@ -745,6 +769,8 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
       let armNote = null;
       for (const c of contentCandidatesForWords(opts.index, words,
         { limit: opts.contentPerElement ?? LOCATE_DEFAULTS.contentPerElement,
+          includeOp,
+          onPseudoSource: (n) => { heldBack.content += n; },
           onError: (e) => { armError = e; },
           onNote: (n) => { armNote = n; } })) {
         if (seen.has(key(c))) {
@@ -813,7 +839,7 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
     perElement.push({ element, text: limText.slice(0, 160), words, hits, mismatches, contentAdded });
     opts.onElement?.({ element, words, hits, mismatches });
   }
-  return { perElement, raw, error: null, prompt: { sys, user } };
+  return { perElement, raw, error: null, prompt: { sys, user }, heldBack };
 }
 
 // Grep the symbol table for model-supplied words. Ranked by how many DISTINCT

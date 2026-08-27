@@ -25,6 +25,7 @@ import { LOW_DISCRIMINATION_STOPWORDS } from '../commands/claim.js';
 import { STRUCTURE_KEYWORDS } from './structural-fingerprint.js';
 import { _computeTokenRelevance, isMinified } from './CSI-helpers.js';
 import { makeFilterMatcher } from './filter-match.js';
+import { isPseudoSource } from '../binstrings.js';
 
 
 /**
@@ -47,7 +48,7 @@ export function _isNoiseDoc(fp, content) {
   if (_BUILD_OUT_RE.test(norm)) return true;     // bin/Debug, bin/Release, obj — build output
   if (_LOCKFILE_RE.test(norm)) return true;      // dependency lockfiles (integrity-hash soup)
   if (_TEST_RE.test(norm)) return true;          // test/example/fixture trees (corpus-shape, not domain)
-  if (/\.op$/i.test(norm)) return true;          // binstring / decompile dumps
+  if (isPseudoSource(norm)) return true;         // binstring / decompile dumps (one predicate: binstrings.js)
   if (/\.nupkg!/i.test(norm)) return true;        // NuGet package-archive contents (vendored)
   if (content != null && isMinified(fp, content)) return true;  // minified bundles
   return false;

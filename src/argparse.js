@@ -269,6 +269,7 @@ export function parseArgs() {
     no_navigate: false,
     blind: false,
     include_tests: false,
+    include_op: false,       // --include-op: admit .op pseudo-source (binstrings dumps) as retrieval candidates
     propose_from_priors: false,
     hunt: false,
     no_hunt: false,
@@ -587,6 +588,7 @@ export function parseArgs() {
     ['no_navigate',          'flag',           ['--no-navigate']],
     ['blind',                'flag',           ['--blind']],
     ['include_tests',        'flag',           ['--include-tests']],
+    ['include_op',           'flag',           ['--include-op']],
     ['propose_from_priors',  'flag',           ['--propose-from-priors']],
     ['hunt',                 'flag',           ['--hunt']],
     ['no_hunt',              'flag',           ['--no-hunt']],
@@ -1532,6 +1534,15 @@ LLM ANALYSIS:
                              Lower it for casual use. When the ceiling binds,
                              the chart's provenance says BUDGET-LIMITED and
                              names the depth it could not reach.
+  --include-op               --claim-chart / --claim-locate / --claim-analyze:
+                             admit CE's own .op pseudo-source (binstrings
+                             string-dumps of binaries) as retrieval
+                             candidates. Held back by default: a dump is one
+                             bin_<name> pseudo-function holding every string
+                             in the binary, and it ranks like a function that
+                             mentions everything. The chart's retrieval
+                             section counts what was held back; an explicit
+                             --targets list is always honoured as given.
   --no-callees               --claim-chart: omit depth-1 callee bodies (smaller
                               prompt; the analysis may then infer what a callee
                               does rather than read it).

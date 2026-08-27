@@ -45,6 +45,28 @@ export const BINSTRING_EXTENSIONS = new Set([
   '.class', '.pyc', '.pyo', '.wasm',
 ]);
 
+/**
+ * Is this indexed path CE-generated pseudo-source rather than code? Today
+ * that is the `.op` string-dump this module writes for a binary; any future
+ * decompile / disassembly artifact belongs here too. One definition, used by
+ * the vocabulary noise gate, multisect's match `kind`, `listFunctions()`, the
+ * ballpark, and per-element retrieval.
+ *
+ * The material is RIGHT to index (a compiled-only distribution is what
+ * binstrings is for, and `--search` / `--show-file` read it as what it is).
+ * It is WRONG to score as a function: a dump is one `bin_<name>`
+ * pseudo-function holding every string in the binary, so any ranker that
+ * counts co-occurring terms per function ranks it like a very large function
+ * that mentions everything. Measured 2026-08-27 (#310): on an index carrying
+ * `__pycache__` dumps, 30 of 39 "strong" claim-to-index links had a
+ * `bin_pycache_*` bag as their best function, and per-element retrieval
+ * nominated `.op` files as chart targets in six of six charts on indexes
+ * holding binaries (a fifth of the target budget, judged as string tables).
+ */
+export function isPseudoSource(fp) {
+  return /\.op$/i.test(String(fp || ''));
+}
+
 
 // ========================================================================
 // String extraction from binary data

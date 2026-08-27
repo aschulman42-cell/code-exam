@@ -130,6 +130,28 @@ describe('claim-ballpark row reduction', () => {
     assert.equal(loose.bestK, 8);
   });
 
+  it('does not count a binstrings .op pseudo-function as a function, and says so', () => {
+    // op-pseudo-source-kind-gate: on .langchain, 30 of 39 "strong" claims had a bin_pycache_* bag
+    // as their best function (2026-08-27). The dump stays at FILE level (a real binary's dump is a
+    // legitimate neighbourhood) but never sets function-level k.
+    const withOp = {
+      ...res,
+      function_matches: [
+        ...res.function_matches,
+        { function: 'bin_pycache_x', filepath: 'pkg/__pycache__/x.cpython-310.pyc.op', lines: 120, matched_indices: new Set([0, 1, 2, 3, 4, 5, 6, 7]) },
+      ],
+      file_matches: [
+        ...res.file_matches,
+        { filepath: 'pkg/__pycache__/x.cpython-310.pyc.op', lines: 120, matched_indices: new Set([0, 1, 2, 3, 4, 5, 6, 7]) },
+      ],
+    };
+    const r = reduceResult(withOp, 65370, 3578);
+    assert.equal(r.bestK, 7, 'the bag does not set function-level k');
+    assert.equal(r.functions, 2, 'nor count as a function');
+    assert.equal(r.opFunctions, 1, 'but it is counted as what it is');
+    assert.equal(r.fileBestK, 8, 'file level keeps it');
+  });
+
   it('flags a live hit on file k >= N or function k >= N-1', () => {
     assert.ok(isHit({ fileBestK: 6, bestK: 2 }));
     assert.ok(isHit({ fileBestK: 3, bestK: 5 }));

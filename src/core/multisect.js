@@ -18,6 +18,8 @@
  * _renderLinesWithRenames.
  */
 
+import { isPseudoSource } from '../binstrings.js';
+
 // ========================================================================
 // Multi-term intersection search (#146 "scavenger hunt")
 // ========================================================================
@@ -473,6 +475,7 @@ export function multisectSearch(idx, terms, opts = {}) {
     funcMatches.push({
       filepath: fm.filepath,
       function: fm.function,
+      kind: isPseudoSource(fm.filepath) ? 'pseudo-source' : 'source',
       terms_matched: posMatched.size,
       lines: funcLines || 0,
       matched_indices: posMatched,
@@ -581,6 +584,7 @@ export function multisectSearch(idx, terms, opts = {}) {
     const fileLineCount = (idx.fileLines.get(fp) || []).length;
     fileMatches.push({
       filepath: fp,
+      kind: isPseudoSource(fp) ? 'pseudo-source' : 'source',
       terms_matched: posMatched.size,
       lines: fileLineCount,
       matched_indices: posMatched,
