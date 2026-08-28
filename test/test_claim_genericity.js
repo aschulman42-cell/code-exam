@@ -129,18 +129,25 @@ describe('claim genericity: population calibration on the 380 litigated attorney
     .split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l));
   const per = recs.map((r) => elementClasses(r.lines || [], { isPreambleRow }));
   const flat = per.flat();
-  const n = flat.length, generic = flat.filter((c) => c === 'generic').length, mech = flat.filter((c) => c === 'mechanism').length;
+  const n = flat.length, pre = flat.filter((c) => c === 'preamble').length;
+  const generic = flat.filter((c) => c === 'generic').length, mech = flat.filter((c) => c === 'mechanism').length;
   it('scores every attorney element (no unscored rows)', () => {
     assert.ok(n > 2000, `elements: ${n}`);
     assert.equal(flat.filter((c) => c === 'unscored').length, 0);
   });
-  it('generic elements are a minority band, not a majority and not nothing (2026-08-28: 623 of 2,294 = 27%)', () => {
-    const share = generic / n;
-    assert.ok(share >= 0.15 && share <= 0.40, `generic share ${share.toFixed(3)} (${generic}/${n}), mechanism ${mech}`);
+  it('the supplied first row is the preamble for most sets (2026-08-28: 326 of 380; the rest open Jepson-style, "In a system ...")', () => {
+    // preamble-row-on-supplied-elements: supplied rows keep their "1." prefix; before the
+    // prefix was tolerated this was 0 of 380.
+    const sets = per.filter((c) => c[0] === 'preamble').length;
+    assert.ok(sets >= 300, `${sets} of ${per.length} sets have a preamble row`);
   });
-  it('almost every litigated claim 1 has at least two mechanism elements (2026-08-28: 13 of 380 do not)', () => {
+  it('generic elements are a minority band of the non-preamble rows (2026-08-28: 538 of 1,968 = 27%)', () => {
+    const share = generic / (n - pre);
+    assert.ok(share >= 0.15 && share <= 0.40, `generic share ${share.toFixed(3)} (${generic}/${n - pre}), mechanism ${mech}`);
+  });
+  it('most litigated claim 1s have at least two mechanism elements (2026-08-28: 31 of 380 do not, once the preamble is set aside)', () => {
     const under2 = per.filter((c) => c.filter((k) => k === 'mechanism').length < 2).length;
-    assert.ok(under2 <= 20, `${under2} of ${per.length} claims with < 2 mechanism elements (band: 5%)`);
+    assert.ok(under2 <= 45, `${under2} of ${per.length} claims with < 2 mechanism elements (band: 12%)`);
   });
 });
 

@@ -95,6 +95,18 @@ describe('chart structure comes from the claim, not the model', () => {
     assert.match(line, /\*\*By element class:\*\* mechanism 1: 1 PARTIAL; generic 2: 2 PRESENT; preamble 1\./);
     assert.doesNotMatch(coverageLine(fills, 4), /By element class/, 'no elements, no class line');
   });
+
+  // preamble-row-on-supplied-elements (2026-08-28): a supplied list keeps its
+  // claim-number prefix, and the preamble must still be found through it.
+  it('a supplied row 1 with its "1." prefix is the preamble, in the table and in the coverage line', () => {
+    const supplied = ['1. A system comprising:', 'a receiver for receiving packets;', 'a scheduler configured to reorder the packets based on a deadline.'];
+    const { table, classes } = buildChartTable('ignored', { elements: supplied });
+    assert.equal(classes[0], 'preamble');
+    assert.match(table.split('\n').find((l) => /^\| 1 \|/.test(l)), /_\[preamble\]_/);
+    const line = coverageLine([{ element: 1, label: 'ABSENT' }, { element: 2, label: 'PRESENT' }, { element: 3, label: 'PARTIAL' }], 3, supplied);
+    assert.match(line, /across 2 limitation\(s\); preamble ABSENT/);
+    assert.match(line, /preamble 1\./);
+  });
 });
 
 describe('targets', () => {

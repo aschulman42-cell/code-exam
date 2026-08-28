@@ -335,9 +335,18 @@ export function splitClaimElements(claimText, opts = {}) {
 const PREAMBLE_OPEN = /^\s*(?:a|an|the)\b/i;
 const PREAMBLE_TRANS = /\b(?:comprising|consisting of|including|having|characterized (?:in|by))\b/i;
 
+// A SUPPLIED row keeps its claim-number prefix -- "1. A method ... comprising:"
+// from an attorney element file or the litigated fixture -- where CE's own
+// splitter has already stripped it. PREAMBLE_OPEN failed on the `1.`, so 0 of
+// the 380 fixture element sets got a preamble row and every attorney-row chart
+// of 2026-08-27 judged the preamble as a limitation (preamble-row-on-supplied-
+// elements, 2026-08-28). The prefix is ignored for the test only; the row text
+// is never rewritten.
+const CLAIM_NUMBER_PREFIX = /^\s*\d+\s*[.)]\s*/;
+
 export function isPreambleRow(text, index) {
   if (index !== 0) return false;
-  const s = String(text || '');
+  const s = String(text || '').replace(CLAIM_NUMBER_PREFIX, '');
   return PREAMBLE_OPEN.test(s) && PREAMBLE_TRANS.test(s);
 }
 

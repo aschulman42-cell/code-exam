@@ -1286,6 +1286,21 @@ describe('splitter: preamble identification is POSITIONAL (Part B)', () => {
     assert.equal(isPreambleRow('initializing a cryptographic context by creating an object', 0), false);
     assert.equal(isPreambleRow('', 0), false);
   });
+
+  // preamble-row-on-supplied-elements (2026-08-28): a SUPPLIED row keeps its
+  // claim-number prefix ("1. A method ... comprising:"), which CE's own splitter
+  // strips and --elements never does. 0 of 380 fixture sets had a preamble row
+  // before the prefix was tolerated; 326 after. The text is never rewritten.
+  it('sees through a leading claim-number prefix on a supplied row', () => {
+    assert.equal(isPreambleRow('1. A method comprising:', 0), true);
+    assert.equal(isPreambleRow('1) A method comprising:', 0), true);
+    assert.equal(isPreambleRow('1. A method in a processor-based system configured for executing a plurality of management programs according to respective command formats, the method comprising:', 0), true);
+    assert.equal(isPreambleRow('1. the method further comprising', 0), true, 'article + transition, as today');
+    assert.equal(isPreambleRow('1. A method comprising:', 1), false, 'position still does the work');
+    assert.equal(isPreambleRow('1. receiving a packet;', 0), false, 'no article, no transition');
+    assert.equal(isPreambleRow('In a computer system having a processor, a method comprising:', 0), false,
+      'Jepson-style openers are not covered here (54 of 380 fixture sets) — a separate rule');
+  });
 });
 
 // WHAT A ROW MEANS ONCE IT IS CUT (#310, Andrew's Part III).
