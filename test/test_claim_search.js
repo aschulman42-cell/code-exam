@@ -19,7 +19,35 @@
 // is a live run against a real index and is recorded in the commit, not here.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { vocabConcordanceOptions } from '../src/commands/claim.js';
+import { vocabConcordanceOptions, extractFirstClaim } from '../src/commands/claim.js';
+
+// #311 step 3 (issue-311-dep-claim-input): the local-model first-claim cut used to call every claim
+// numbered >= 2 "dependent". It now classifies through dep-claims.js and reports what it dropped.
+describe('extractFirstClaim classifies what it skips', () => {
+  it('two independent claims in one file: the second is reported as an INDEPENDENT claim dropped, not a dependent', () => {
+    const text = '1. A method comprising heating a substrate.\n\n8. An apparatus comprising a heater and a substrate holder.\n\n15. A method of cooling a substrate.';
+    const r = extractFirstClaim(text);
+    assert.equal(r.selected, 1);
+    assert.equal(r.skipped, 2);
+    assert.equal(r.skippedDependent, 0);
+    assert.equal(r.skippedIndependent, 2, 'the old code called these dependents');
+    assert.ok(r.text.includes('heating a substrate') && !r.text.includes('heater'));
+  });
+  it('a mixed file counts dependents and independents apart', () => {
+    const text = '1. A method comprising heating a substrate.\n2. The method of claim 1, wherein the substrate is silicon.\n3. An apparatus comprising a heater.';
+    const r = extractFirstClaim(text);
+    assert.equal(r.skipped, 2);
+    assert.equal(r.skippedDependent, 1);
+    assert.equal(r.skippedIndependent, 1);
+  });
+  it('a single claim is returned untouched with nothing skipped', () => {
+    const text = '1. A method comprising:\n    step A;\n    step B.';
+    const r = extractFirstClaim(text);
+    assert.equal(r.text, text);
+    assert.equal(r.skipped, 0);
+    assert.equal(r.skippedIndependent, 0);
+  });
+});
 
 const KW = new Set(['transmission', 'reproduction', 'storage']);
 

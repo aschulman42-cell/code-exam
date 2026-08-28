@@ -7,7 +7,69 @@
 // pointed at the wrong subsystem.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { livePositiveTerms, mergeSearchResults, claimAnalyzeTopN, claimNeighbourhoodN, termProbeSource, readClaimFile } from '../src/commands/analyze.js';
+import { livePositiveTerms, mergeSearchResults, claimAnalyzeTopN, claimNeighbourhoodN, termProbeSource, readClaimFile, resolveClaimScope, splitNumberedClaims } from '../src/commands/analyze.js';
+
+// #311 step 3 (issue-311-dep-claim-input): which claim of a multi-claim input is used, with what
+// scope, and the scope stated.
+describe('resolveClaimScope: a dependent claim carries its inherited chain, and says so', () => {
+  const FILE = [
+    '1. A method comprising: receiving a packet; classifying the packet by a rule table having a plurality of rules; and forwarding the packet according to the classification.',
+    '2. The method of claim 1, wherein the rule table is a ternary content-addressable memory.',
+    '3. The method of claim 2, further comprising logging each forwarded packet.',
+    '4. An apparatus comprising a network interface and a classifier.',
+    '5. The apparatus of claim 4, wherein the classifier is a TCAM.',
+  ].join('\n\n');
+
+  it('splits numbered claims, continuing a claim across lines', () => {
+    const parts = splitNumberedClaims('1. A method comprising:\n  step A;\n  step B.\n2. The method of claim 1, wherein B precedes A.');
+    assert.deepEqual(parts.map((p) => p.n), [1, 2]);
+    assert.match(parts[0].text, /^A method comprising: step A; step B\.$/);
+  });
+  it('default is the first claim, and the other claims are counted dependent / independent', () => {
+    const s = resolveClaimScope(FILE);
+    assert.equal(s.selected, 1);
+    assert.equal(s.dependent, false);
+    assert.deepEqual(s.inherited, []);
+    assert.deepEqual(s.skipped, { total: 4, dependent: 3, independent: 1, ambiguous: 0 });
+    assert.match(s.note, /claim 1 \(independent\)/);
+    assert.match(s.note, /4 other claim\(s\) in the input not used: 3 dependent, 1 independent/);
+    assert.ok(!s.text.includes('ternary'), 'claim 2 is not part of claim 1');
+  });
+  it('a depth-2 dependent is searched with both ancestors, root first, and names them', () => {
+    const s = resolveClaimScope(FILE, { claim: 3 });
+    assert.equal(s.selected, 3);
+    assert.equal(s.dependent, true);
+    assert.equal(s.depth, 'D2');
+    assert.deepEqual(s.inherited, [1, 2]);
+    assert.ok(s.text.indexOf('rule table having') < s.text.indexOf('ternary') && s.text.indexOf('ternary') < s.text.indexOf('logging'), 'root first, then the parent, then the claim itself');
+    assert.match(s.note, /claim 3 \(D2\): its own limitations plus those inherited from claim\(s\) 1, 2/);
+    assert.equal(s.contribution.kind, 'ADDITION');
+    assert.deepEqual(s.skipped, { total: 2, dependent: 1, independent: 1, ambiguous: 0 });
+  });
+  it('a multi-parent dependent names the parent it used and the policy', () => {
+    const text = '1. A method comprising receiving a packet and forwarding it according to a table.\n2. A method comprising receiving a packet.\n3. The method of claim 1 or 2, wherein the packet is an IP packet.';
+    const s = resolveClaimScope(text, { claim: 3 });
+    assert.deepEqual(s.inherited, [2], 'shortest-parent picks the broader claim 2');
+    assert.match(s.note, /multi-parent reference; using claim 2 by shortest-parent \(alternatives 1\)/);
+  });
+  it('an unresolvable parent keeps the claim dependent and says the scope is its own text', () => {
+    const text = '1. A process comprising heating a first material.\n2. The process of claim wherein said first material is a metal.';
+    const s = resolveClaimScope(text, { claim: 2 });
+    assert.equal(s.dependent, true);
+    assert.deepEqual(s.inherited, []);
+    assert.match(s.note, /parent could not be resolved/);
+    assert.match(s.text, /^2\. The process of claim wherein/);
+  });
+  it('a claim number not in the input is an error, not a silent default', () => {
+    assert.throws(() => resolveClaimScope(FILE, { claim: 9 }), /claim 9 is not in the input \(claims present: 1, 2, 3, 4, 5\)/);
+  });
+  it('a single-claim input is unchanged, whatever its formatting', () => {
+    const one = 'A method comprising:\n  step A;\n  step B.';
+    assert.equal(resolveClaimScope(one).text, one);
+    assert.equal(resolveClaimScope(one).claims, 1);
+    assert.equal(resolveClaimScope(one).note, null);
+  });
+});
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 import fs from 'node:fs';
 import { parseMultisectTerms } from '../src/commands/multisect.js';

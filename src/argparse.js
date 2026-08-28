@@ -237,6 +237,7 @@ export function parseArgs() {
     // Phase 8a: Claim search (LLM-based term extraction)
     claim_search: null,
     claim_file: null,
+    claim_number: null,      // --claim-number <n>: which claim of a multi-claim input --claim-search / --claim-analyze use (#311 step 3)
     use_claude: false,
     air_gapped: false,      // #223: block all cloud AI calls this run
     allow_connected: false, // #223: keep the block active on a connected machine
@@ -525,6 +526,7 @@ export function parseArgs() {
     // Phase 8a: claim search
     ['claim_search',         'value',          ['--claim-search']],
     ['claim_file',           'value',          ['--claim-file']],
+    ['claim_number',         'value',          ['--claim-number']],
     // #281: pseudo-claim generation (v1: explicit anchors)
     ['pseudo_claims',        'optional_value', ['--pseudo-claims']],
     ['pseudo_out',           'value',          ['--pseudo-out']],
@@ -922,6 +924,10 @@ export function parseArgs() {
   // default: a chart's row structure is the one thing two charts are compared on.
   if (args.granularity !== 'fine' && args.granularity !== 'coarse') {
     console.error(`--granularity must be "fine" or "coarse", got "${args.granularity}".`);
+    process.exit(2);
+  }
+  if (args.claim_number != null && !/^[1-9][0-9]*$/.test(String(args.claim_number).trim())) {
+    console.error(`--claim-number must be a positive claim number, got "${args.claim_number}".`);
     process.exit(2);
   }
   return args;
@@ -1338,6 +1344,13 @@ CLAIM SEARCH (LLM-based patent claim analysis):
   --claim-file <path>        Read patent claim text from file (alternative
                              to --claim-search @file.txt; specific to the
                              claim-search code path).
+  --claim-number <n>         --claim-search / --claim-analyze: which claim of
+                             a multi-claim input to use (default: the first).
+                             A dependent claim is used with every limitation
+                             it inherits up its chain, and the output names
+                             the claims it inherited from; the other claims
+                             are not used, and the note counts how many were
+                             dependent and how many independent.
   --llm <provider>           Select cloud LLM provider: 'claude', 'openai'
                              (alias 'chatgpt'/'gpt'), or 'gemini' (alias
                              'google'). Requires that provider's API key. An

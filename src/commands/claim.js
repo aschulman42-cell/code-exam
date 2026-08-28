@@ -18,7 +18,7 @@ import { parseMultisectTerms, displayMultisectResults, printSelectivityReport, f
 // See the cycle note in claim-locate.js: analyze.js imports from this file, so
 // this edge closes a cycle. Safe because readClaimFile is only referenced inside
 // function bodies. `utils.js` is its proper home; that move is a follow-up.
-import { readClaimFile } from './analyze.js';
+import { readClaimFile, resolveClaimScope } from './analyze.js';
 import fs from 'fs';
 
 // Never silent: discarding input without saying so is how the next version of
@@ -1096,46 +1096,27 @@ export function dropStopListedTerms(termsStr, label = '') {
  * Extract only the first claim from multi-claim patent text.
  * Small local models degenerate with too much text.
  *
- * @returns {{ text: string, skipped: number }}
+ * #311 step 3 (2026-08-28): this used to count every claim numbered >= 2 as
+ * "dependent" and say so -- a patent whose claims 1, 8 and 15 are all
+ * independent reported "skipped 2 dependent claim(s)", two independent claims
+ * dropped and mis-described. It now classifies through resolveClaimScope
+ * (dep-claims.js) and reports what was actually measured: how many claims were
+ * skipped, how many of those were dependent, and how many were INDEPENDENT
+ * claims dropped, which is the user-visible loss the old message hid.
+ *
+ * @returns {{ text: string, skipped: number, skippedDependent: number, skippedIndependent: number, selected: number|null }}
  */
 export function extractFirstClaim(claimText) {
-  const lines = claimText.trim().split('\n');
-  let cutoff = lines.length;
-  const claimsFound = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const stripped = lines[i].trim();
-
-    // Pattern: "2." at start of line (claim numbers 2-999)
-    let m = stripped.match(/^(\d+)\s*\./);
-    if (m) {
-      const claimNum = parseInt(m[1], 10);
-      if (claimNum >= 2) {
-        if (claimsFound.length === 0) cutoff = i;
-        claimsFound.push(claimNum);
-        continue;
-      }
-    }
-
-    // Pattern: "[claim 2]" or "[Claim 2]"
-    m = stripped.match(/^\[(?:claim|Claim)\s+(\d+)\]/);
-    if (m) {
-      const claimNum = parseInt(m[1], 10);
-      if (claimNum >= 2) {
-        if (claimsFound.length === 0) cutoff = i;
-        claimsFound.push(claimNum);
-        continue;
-      }
-    }
+  const scope = resolveClaimScope(claimText);
+  if (scope.claims < 2) {
+    return { text: claimText, skipped: 0, skippedDependent: 0, skippedIndependent: 0, selected: scope.selected };
   }
-
-  if (claimsFound.length === 0) {
-    return { text: claimText, skipped: 0 };
-  }
-
   return {
-    text: lines.slice(0, cutoff).join('\n').trim(),
-    skipped: claimsFound.length,
+    text: scope.text,
+    skipped: scope.skipped.total,
+    skippedDependent: scope.skipped.dependent,
+    skippedIndependent: scope.skipped.independent,
+    selected: scope.selected,
   };
 }
 
@@ -1270,6 +1251,21 @@ export async function doClaimSearch(index, args) {
     return;
   }
 
+  // #311 step 3: a multi-claim input is searched ONE claim at a time -- the
+  // first, or --claim-number <n> -- and a dependent claim carries every
+  // limitation it inherits up its chain (dep-claims.js). The scope is stated,
+  // so a reader can tell a 3-limitation query from a 12-limitation one, and
+  // the claims NOT searched are counted dependent / independent rather than
+  // all called "dependent".
+  let claimScope = null;
+  try { claimScope = resolveClaimScope(claimText, { claim: args.claim_number }); }
+  catch (e) { console.log(`Error: ${e.message}`); return; }
+  if (claimScope.claims > 1) {
+    claimText = claimScope.text;
+    process.stderr.write(`  Claim scope: ${claimScope.note}\n`);
+    console.log(`NOTE: claim scope — ${claimScope.note}`);
+  }
+
   const apiKey = args.api_key || null;
   // Term extraction: --model > --claim-model > --analyze-model > Claude API
   // (#293: --model now routes here — same precedence as llm-runner's resolveModel)
@@ -1282,9 +1278,11 @@ export async function doClaimSearch(index, args) {
 
   // For local GGUF: extract first claim only
   if (localModelPath && !showPrompt) {
-    const { text, skipped } = extractFirstClaim(claimText);
+    const { text, skipped, skippedDependent, skippedIndependent, selected } = extractFirstClaim(claimText);
     if (skipped > 0) {
-      const msg = `Local model: using first claim only (skipped ${skipped} dependent claim(s))`;
+      const msg = `Local model: using claim ${selected} only — skipped ${skipped} claim(s): `
+        + `${skippedDependent} dependent, ${skippedIndependent} independent`
+        + `${skippedIndependent ? ' (independent claims dropped; --claim-number <n> selects one)' : ''}`;
       process.stderr.write(`  ${msg}\n`);
       console.log(`NOTE: ${msg}`);
       claimText = text;

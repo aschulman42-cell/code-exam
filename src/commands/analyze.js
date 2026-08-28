@@ -40,6 +40,7 @@ import { assertLocalOnly, isLocalApiUrl, isAirGapped } from '../core/air-gapped.
 import { openaiSupportsTemperature, openaiCompletionBudget, openaiUsage, openaiText, openaiFinishReason } from '../core/openai-util.js';
 import { makeDrafter, ggufDescriptor, resolveModel, claimsCostGate } from '../core/llm-runner.js';
 import { buildSymbolTable } from '../core/symbol-verify.js';
+import { analyzeClaimSet } from '../core/dep-claims.js';
 import { splitClaimElements, retrievePerElement } from './claim-locate.js';
 
 
@@ -1503,6 +1504,92 @@ function _readClaimFileReporting(fpath) {
   });
 }
 
+/**
+ * Split a multi-claim text into numbered claims. A line beginning "N." / "N)" / "[claim N]" starts a
+ * claim; every other non-blank line continues the current one. Text before the first number is kept
+ * as an unnumbered claim so a single-claim file without "1." is unchanged.
+ */
+export function splitNumberedClaims(text) {
+  const claims = [];
+  let cur = null;
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    const m = line.match(/^(?:\[\s*claim\s+(\d+)\s*\]|(\d+)\s*[.)])\s*(.*)$/i);
+    if (m) { if (cur) claims.push(cur); cur = { n: Number(m[1] || m[2]), lines: [m[3] || ''] }; continue; }
+    if (!line) continue;
+    if (!cur) cur = { n: null, lines: [line] }; else cur.lines.push(line);
+  }
+  if (cur) claims.push(cur);
+  return claims.map((c) => ({ n: c.n, text: c.lines.join(' ').trim() }));
+}
+
+/**
+ * #311 step 3, the INPUT side: which claim of a multi-claim text is being searched or analysed, and
+ * what its scope is.
+ *
+ * A dependent claim imports its parent entire, transitively (A17): "2. The method of claim 1, wherein
+ * the gizmo is recursive" is not a six-word search, it is claim 1's whole mechanism plus one narrowing.
+ * So the selected claim's text is its inherited chain root-first plus itself, resolved by
+ * dep-claims.js, and the SCOPE IS STATED -- which claims it inherited from, which parent a
+ * multi-parent reference chose and by what policy, and how many other claims in the file were not
+ * searched, split dependent / independent. The last split is the one that was wrong before this:
+ * `extractFirstClaim` counted every claim numbered >= 2 as "dependent", so two independent claims
+ * dropped from a file were described to the user as dependents and lost silently.
+ *
+ * Display is a different matter from analysis (Andrew, 2026-08-24: use ALL the parent's limitations
+ * to decide whether the dependent is met, show only the new part). That is the chart's concern
+ * (#311 step 2) and is not done here; this function decides what is ANALYSED.
+ *
+ * @param {string} claimText  the whole file / argument text
+ * @param {object} [opts]
+ * @param {number|string|null} [opts.claim]  which claim number; default the first numbered claim
+ * @returns {{text:string, claims:number, selected:number|null, dependent:boolean, depth:string|null,
+ *            inherited:number[], parentChoice:object|null, contribution:object|null,
+ *            skipped:{total:number, dependent:number, independent:number, ambiguous:number},
+ *            report:object|null, note:string|null}}
+ */
+export function resolveClaimScope(claimText, { claim = null } = {}) {
+  const parts = splitNumberedClaims(claimText);
+  const numbered = parts.filter((p) => p.n != null);
+  const unchanged = { text: String(claimText || '').trim(), claims: numbered.length || 1, selected: numbered.length ? numbered[0].n : null,
+    dependent: false, depth: null, inherited: [], parentChoice: null, contribution: null,
+    skipped: { total: 0, dependent: 0, independent: 0, ambiguous: 0 }, report: null, note: null };
+  if (numbered.length < 2) {
+    if (claim != null && numbered.length === 1 && Number(claim) !== numbered[0].n) {
+      throw new Error(`claim ${claim} is not in the input (only claim ${numbered[0].n} is present)`);
+    }
+    return unchanged;
+  }
+  const res = analyzeClaimSet(numbered.map((p) => ({ n: p.n, text: `${p.n}. ${p.text}` })));
+  const want = claim != null ? Number(claim) : numbered[0].n;
+  const row = res.byNumber.get(want);
+  if (!row) throw new Error(`claim ${want} is not in the input (claims present: ${numbered.map((p) => p.n).join(', ')})`);
+  const textOf = (k) => (numbered.find((p) => p.n === k) || { text: '' }).text;
+  const chain = row.dependent ? (row.chain || [row.n]) : [row.n];
+  const inherited = chain.filter((k) => k !== row.n);
+  const text = chain.map((k) => `${k}. ${textOf(k)}`).join('\n');
+  const others = res.claims.filter((r) => !chain.includes(r.n));
+  const skipped = {
+    total: others.length,
+    dependent: others.filter((r) => r.dependent).length,
+    independent: others.filter((r) => !r.dependent).length,
+    ambiguous: others.filter((r) => r.ambiguous).length,
+  };
+  const note = [];
+  if (row.dependent && row.parent == null) {
+    note.push(`claim ${row.n} is dependent (${row.rule}) but its parent could not be resolved`
+      + `${row.ambiguous ? ` — ${row.ambiguous}` : row.missingParents.length ? ` — depends on missing claim(s) ${row.missingParents.join(', ')}` : ''}; using its own text only`);
+  } else if (row.dependent) {
+    note.push(`claim ${row.n} (${row.depthLabel}): its own limitations plus those inherited from claim(s) ${inherited.join(', ')}`);
+  } else {
+    note.push(`claim ${row.n} (independent): its own limitations`);
+  }
+  if (row.parentChoice) note.push(`multi-parent reference; using claim ${row.parent} by ${row.parentChoice.policy} (alternatives ${row.parentChoice.alternatives.join(', ')})`);
+  if (skipped.total) note.push(`${skipped.total} other claim(s) in the input not used: ${skipped.dependent} dependent, ${skipped.independent} independent`);
+  return { text, claims: numbered.length, selected: row.n, dependent: row.dependent, depth: row.depthLabel, inherited,
+    parentChoice: row.parentChoice, contribution: row.contribution, skipped, report: res.report, note: note.join('; ') };
+}
+
 function _resolveClaimText(args, claimArg) {
   // Source 1: the --claim-analyze argument itself
   if (claimArg) {
@@ -1985,8 +2072,19 @@ export function perElementModel(args, termModelPath) {
 
 export async function doClaimAnalyze(index, args) {
   // --- Step 1: Resolve claim text ---
-  const claimText = _resolveClaimText(args, args.claim_analyze);
-  if (!claimText) return;
+  const claimTextRaw = _resolveClaimText(args, args.claim_analyze);
+  if (!claimTextRaw) return;
+  // #311 step 3: one claim of a multi-claim input, with its inherited chain if
+  // it is dependent; scope stated. See resolveClaimScope.
+  let claimText = claimTextRaw;
+  try {
+    const scope = resolveClaimScope(claimTextRaw, { claim: args.claim_number });
+    if (scope.claims > 1) {
+      claimText = scope.text;
+      process.stderr.write(`  Claim scope: ${scope.note}\n`);
+      console.log(`NOTE: claim scope — ${scope.note}`);
+    }
+  } catch (e) { console.log(`Error: ${e.message}`); return; }
 
   // #290: direct-target mode. "--claim-analyze FUNCNAME --claim-text @f" was
   // advertised in the usage text but FUNCNAME was silently ignored (the arg
