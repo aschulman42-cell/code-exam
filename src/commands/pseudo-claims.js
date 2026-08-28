@@ -27,7 +27,9 @@
 
 import fs from 'node:fs';
 import { parseFuncSpec, readCeVersion } from '../utils.js';
-import { splitClaimElements } from './claim-locate.js';
+import { splitClaimElements, isPreambleRow } from './claim-locate.js';
+import { claimGenericity, elementClasses } from '../core/claim-genericity.js';
+import { analyzeClaimSet, classifyContribution } from '../core/dep-claims.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, wasLastDraftTruncated, truncationCount, truncationLine } from '../core/llm-runner.js';
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
 import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, echoPairs, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
@@ -105,23 +107,130 @@ export const PSEUDO_CLAIM_CAVEAT_C =
 // Re-measure rather than re-guess: the corpus and the splitter are both still
 // here. A cap that pushes claims BELOW the baseline is the opposite failure and
 // just as wrong.
-export const PSEUDO_CLAIM_GENERATE_SYS =
+// pseudo-claims-shape-profile (2026-08-28): the population a draft should
+// resemble, per axis, as median and p10-p90 band. Measured with CE's own
+// splitter (fine rows) and claim-genericity.js on the corpora named, so the
+// numbers sit on the same footing as CE's output. The litigated set is the
+// default: it is the population a source-code examiner meets. The AI/ML column
+// is mostly an era effect (2013-2017 claims run ~50 words longer than the
+// 1990s-heavy litigated set), not a different kind of claim. Dependent count,
+// kind and depth come from the 385 litigated families for all three profiles
+// -- no per-population dependent data exists for the other two, and that is
+// said in `source` rather than hidden.
+//
+// LENGTH IS A REPORT, NOT A GOAL (Andrew, 2026-08-28: "my desire for shorter
+// pseudo-claims was misplaced, and very likely to lead to more generic (not
+// more specific) claim language"). The words and row axes say where a draft
+// sits; the direction of improvement is grounded MECHANISM elements up and
+// specifics down into dependents, which the `mechanism` axis and the
+// dependents' MODIFICATION share track. A draft that "improves" on words while
+// losing a mechanism element is flagged as a regression by shapeReport.
+export const SHAPE_PROFILES = {
+  litigated: {
+    label: 'litigated software claim 1s (385 big-tech-drafted, 1963-2020, litigated-claims-fetch.mjs)',
+    source: 'litig_claims_gp/litigated_claim1.txt, 2026-08-28; dependents from the same 385 families',
+    axes: {
+      words:        { median: 146, p10: 85,   p90: 257 },
+      coarse:       { median: 5,   p10: 3,    p90: 8 },
+      fine:         { median: 6,   p10: 4,    p90: 11 },
+      wordsPerRow:  { median: 22.6, p10: 15.2, p90: 36.3 },
+      wherein:      { median: 0,   p10: 0,    p90: 3 },
+      mechanism:    { median: 4,   p10: 2,    p90: 7 },
+      dependents:   { median: 7,   p10: 2,    p90: 17 },
+      modification: { median: 0.67, p10: 0.4, p90: 1.0 },
+      depth:        { median: 2,   p10: 1,    p90: 4 },
+    },
+  },
+  'ai-ml': {
+    label: 'AI/ML claim 1s (841 AIPD predict93 x patbert, 2013-2017, with a neighbourhood in a CE AI index)',
+    source: 'ai_ml_claims/ai_ml_claim1.txt, 2026-08-28; dependents/kind/depth borrowed from the litigated families (unmeasured for this set)',
+    axes: {
+      words:        { median: 196, p10: 104,  p90: 336 },
+      coarse:       { median: 6,   p10: 4,    p90: 10 },
+      fine:         { median: 8,   p10: 5,    p90: 13 },
+      wordsPerRow:  { median: 24.0, p10: 16.3, p90: 36.1 },
+      wherein:      { median: 1,   p10: 0,    p90: 4 },
+      mechanism:    { median: 5,   p10: 2,    p90: 9 },
+      dependents:   { median: 7,   p10: 2,    p90: 17 },
+      modification: { median: 0.67, p10: 0.4, p90: 1.0 },
+      depth:        { median: 2,   p10: 1,    p90: 4 },
+    },
+  },
+  randpat: {
+    label: 'randpat independent claims (5,395, all art, 2020)',
+    source: 'randpat_2020_indep_claims.out.txt, re-measured 2026-08-27 (fine rows: median 8, IQR 6-11, p90 14; 23.3 words per row); words, coarse, wherein and mechanism unmeasured; dependents borrowed from the litigated families',
+    axes: {
+      fine:         { median: 8,   p10: 5,    p90: 14 },
+      wordsPerRow:  { median: 23.3, p10: 15,  p90: 36 },
+      dependents:   { median: 7,   p10: 2,    p90: 17 },
+      modification: { median: 0.67, p10: 0.4, p90: 1.0 },
+      depth:        { median: 2,   p10: 1,    p90: 4 },
+    },
+  },
+};
+export const DEFAULT_SHAPE_PROFILE = 'litigated';
+
+const PSEUDO_SYS_HEAD =
   'You draft ONE hypothetical, illustrative PSEUDO patent claim for a software ' +
   'mechanism, as a drafting exercise only (not legal advice, not an admission). ' +
   'You are given source code, and may be given a MECHANISM line naming the ' +
   'intended subject and purpose. If a MECHANISM line is present, draft the claim ' +
   'for THAT mechanism — treat it as the intended subject and purpose; do not ' +
   'substitute a different purpose inferred from the code. ' +
-  'A claim covers ONE inventive concept, not every function you were shown. ' +
-  'CLAIM 1 is INDEPENDENT and should run about 6 to 11 limitations, typically ' +
-  '8; more than 15 is rare. THAT TARGET IS FOR CLAIM 1 ALONE. ' +
+  'A claim covers ONE inventive concept, not every function you were shown. ';
+
+/**
+ * The shape guidance rendered from a profile at run time. Numbers and
+ * structure only -- never a worked example (#317).
+ *
+ * MEASURED 2026-08-28, and it changed what is rendered. The first rendering
+ * gave the population's LIMITATION band and word band as targets ("about 4 to
+ * 11 limitations, typically 6, and about 85 to 257 words"). Re-drafting the 97
+ * langchain groups under it, paired by group against the 2026-08-27 drafts:
+ * mechanism elements DOWN in 58 groups, up in 18 (mean -0.74 per claim); three
+ * drafts fell under two mechanism elements (they had 4, 3 and 4); grounded
+ * anchors 811 -> 744. The dependent-kind sentence bound the right way
+ * (MODIFICATION share 0.60 -> 0.71, toward the population's 0.67) and in-band
+ * drafts rose 50 -> 67 -- but the claim-1 bands did exactly what Andrew
+ * predicted a length target would do: the drafter trimmed specifics. So the
+ * prompt carries NO total-length or row-count target. It renders the
+ * MECHANISM axis -- how many limitations that do something specific to this
+ * code a claim 1 in the population carries -- as a count to keep, and the
+ * dependent count and kinds. Words and rows stay in the report.
+ */
+export function shapeTargetLines(profileName = DEFAULT_SHAPE_PROFILE) {
+  const p = SHAPE_PROFILES[profileName] || SHAPE_PROFILES[DEFAULT_SHAPE_PROFILE];
+  const a = p.axes;
+  const mech = a.mechanism, fine = a.fine, deps = a.dependents;
+  const r = (x) => Math.round(x);
+  const pop = p.label.split(' (')[0];
+  let s = 'CLAIM 1 is INDEPENDENT and has NO length target. ';
+  if (mech) {
+    s += `In the population it should resemble (${pop}) a claim 1 carries about ${r(mech.p10)} to ${r(mech.p90)} MECHANISM `
+      + `limitations, typically ${r(mech.median)} — steps or elements that do something specific to this code — framed by the `
+      + 'generic receiving / storing / outputting steps every such claim has. ';
+  } else if (fine) {
+    s += `In the population it should resemble (${pop}) a claim 1 commonly runs ${r(fine.p10)} to ${r(fine.p90)} limitations; `
+      + 'the ones that do something specific to this code are the ones that matter. ';
+  }
+  s += 'Never drop a limitation that carries the mechanism to make the claim shorter, and never pad it with limitations '
+    + 'the code does not support. THAT GUIDANCE IS FOR CLAIM 1 ALONE. ';
+  s += `Such a claim typically carries about ${r(deps.median)} dependent claims (${r(deps.p10)} to ${r(deps.p90)}), `
+    + 'most of which NARROW an element already in claim 1 ("wherein <element> is <narrower form>") and a minority '
+    + 'of which ADD a step ("further comprising: <step>"). ';
+  return s;
+}
+
+const PSEUDO_SYS_DEPENDENTS =
   'Detail that does not belong in claim 1 goes DOWN INTO DEPENDENT CLAIMS ' +
   'rather than being dropped. A dependent claim either ADDS a limitation ' +
   '("The method of claim 1, further comprising: <step>.") or NARROWS an ' +
   'inherited one ("The method of claim 1, wherein <element> is <narrower ' +
   'form>."). Write as many dependents as the material genuinely supports — ' +
   'they are NOT capped — but each must name its parent claim BY NUMBER and ' +
-  'state exactly one narrowing. ' +
+  'state exactly one narrowing. ';
+
+const PSEUDO_SYS_TAIL =
   'If the provided material is larger than one claim can cover, SELECT the ' +
   'limitations that constitute the mechanism for CLAIM 1 and push the ' +
   'specifics down into dependents; leave genuinely unrelated functions ' +
@@ -181,6 +290,14 @@ export const PSEUDO_CLAIM_GENERATE_SYS =
 // call paths (analyze, claim-locate, chart) sized their budgets separately. If
 // truncation persists at 16000, the next lever is capping Gemini's thinking
 // rather than buying more of it, and the detector will say so with a count.
+/** The drafting system prompt for a shape profile (default: litigated). */
+export function buildPseudoClaimSys(profileName = DEFAULT_SHAPE_PROFILE) {
+  return PSEUDO_SYS_HEAD + shapeTargetLines(profileName) + PSEUDO_SYS_DEPENDENTS + PSEUDO_SYS_TAIL;
+}
+// The default-profile rendering, kept under the name every importer and the
+// prompt-purity test know.
+export const PSEUDO_CLAIM_GENERATE_SYS = buildPseudoClaimSys();
+
 export const PSEUDO_CLAIM_MAX_OUTPUT_TOKENS = 16000;
 
 // Evidence-pack size bounds (per group, shared so the pack the user eyeballs in
@@ -685,6 +802,114 @@ export function claimToLine(prose) {
 // ungrounded ones dropped (see verifyAnchors). `dropped` is carried too, with
 // its reason, because a key that silently omits what the drafter cited but CE
 // could not find would overstate how complete it is.
+// ============================================================================
+// Shape report (pseudo-claims-shape-profile, 2026-08-28)
+// ============================================================================
+//
+// Where a draft sits against the population it should resemble, per axis, as a
+// deterministic report -- the instrument that says whether the prompt's numeric
+// bands bound anything, and the thing the split pass is measured against. The
+// mechanism axis is the one that matters (claim-genericity.js): the 2026-08-27
+// intersection on #311 showed drafts meeting real patents ONLY through their
+// generic elements, and a draft whose elements are all bookends is shape
+// without mechanism whatever its word count says.
+
+/**
+ * A draft's shape vector against a profile.
+ * `dependents`: the drafted dependents (`[]` = the drafter wrote none, which IS
+ * scored -- zero dependents sits outside every population's band); `null` =
+ * unknown (a bare claim 1 from a corpus), in which case the dependent axes are
+ * left unscored rather than counted as zero.
+ */
+export function shapeReport(prose, dependents = [], profileName = DEFAULT_SHAPE_PROFILE) {
+  const p = SHAPE_PROFILES[profileName] || SHAPE_PROFILES[DEFAULT_SHAPE_PROFILE];
+  const line = claimToLine(prose);
+  const fineRows = splitClaimElements(line, { fine: true });
+  const coarseRows = splitClaimElements(line, { fine: false });
+  const classes = elementClasses(fineRows, { isPreambleRow });
+  const words = line.split(/\s+/).filter(Boolean).length;
+  const depsKnown = dependents != null;
+  const deps = (dependents || []).filter((d) => d && d.text);
+  const kinds = deps.map((d) => classifyContribution(d.text).kind);
+  const mod = kinds.filter((k) => k === 'MODIFICATION').length;
+  const add = kinds.filter((k) => k === 'ADDITION').length;
+  let depth = null;
+  if (deps.length) {
+    const set = analyzeClaimSet([{ n: 1, text: `1. ${line}` }, ...deps.map((d) => ({ n: d.n, text: `${d.n}. ${d.text}` }))]);
+    depth = Math.max(0, ...set.claims.map((r) => r.depth || 0));
+  }
+  const mechanism = classes.filter((c) => c === 'mechanism').length;
+  const values = {
+    words,
+    coarse: coarseRows.length,
+    fine: fineRows.length,
+    wordsPerRow: +(words / Math.max(1, fineRows.length)).toFixed(1),
+    wherein: (line.match(/\bwherein\b/gi) || []).length,
+    mechanism,
+    dependents: depsKnown ? deps.length : null,
+    modification: deps.length ? +(mod / deps.length).toFixed(2) : null,
+    depth,
+  };
+  const axes = {};
+  let sum = 0, n = 0;
+  const flags = [];
+  for (const [k, v] of Object.entries(values)) {
+    const band = p.axes[k];
+    if (!band || v == null) { axes[k] = { value: v, median: band ? band.median : null, p10: band ? band.p10 : null, p90: band ? band.p90 : null, inBand: null }; continue; }
+    const inBand = v >= band.p10 && v <= band.p90;
+    axes[k] = { value: v, median: band.median, p10: band.p10, p90: band.p90, inBand };
+    sum += Math.abs(v - band.median) / ((band.p90 - band.p10) || 1);
+    n += 1;
+    if (!inBand) flags.push(`${k} ${v} outside ${band.p10}-${band.p90}`);
+  }
+  if (mechanism < 2) flags.push(`only ${mechanism} mechanism element(s): shape without mechanism`);
+  const scored = Object.values(axes).filter((a) => a.inBand !== null);
+  return {
+    profile: profileName,
+    axes,
+    preamble: classes.filter((c) => c === 'preamble').length,
+    generic: classes.filter((c) => c === 'generic').length,
+    mechanism,
+    dependentKinds: { MODIFICATION: mod, ADDITION: add, other: deps.length - mod - add },
+    shapeDistance: n ? +(sum / n).toFixed(2) : null,
+    outside: scored.filter((a) => !a.inBand).length,
+    scoredAxes: scored.length,
+    inBandAll: scored.every((a) => a.inBand),
+    flags,
+  };
+}
+
+/** One Markdown line for the artifact. */
+export function shapeLine(s) {
+  if (!s) return '';
+  const a = s.axes;
+  const band = (k) => (a[k] && a[k].median != null ? ` (${a[k].median}, band ${a[k].p10}-${a[k].p90})` : '');
+  const parts = [
+    `${a.words.value} words${band('words')}`,
+    `${a.fine.value} rows${band('fine')}`,
+    `mechanism ${s.mechanism} / generic ${s.generic}${band('mechanism')}`,
+    a.dependents.value == null ? 'dependents unknown'
+      : `${a.dependents.value} dependent(s)${a.dependents.value ? `, ${s.dependentKinds.MODIFICATION} MODIFICATION / ${s.dependentKinds.ADDITION} ADDITION` : ''}${band('dependents')}`,
+  ];
+  const verdict = s.scoredAxes ? `${s.outside ? `outside on ${s.outside} of ${s.scoredAxes} axes` : 'inside the band on every axis'}; distance ${s.shapeDistance}` : 'no scored axes';
+  const warn = s.flags.filter((f) => /mechanism element/.test(f)).map((f) => ` **${f}**`).join('');
+  return `_Shape vs ${s.profile}: ${parts.join(' · ')} — ${verdict}._${warn}`;
+}
+
+/**
+ * How generic a candidate group's vocabulary is, from its label, purpose and
+ * member identifiers (camel/snake split), scored against the claim genre. Low
+ * = mechanism words = draft first; high = generic-surface words such as
+ * get / documents / search that every retriever carries = draft last.
+ */
+export function groupGenericity(group) {
+  const idents = (group.specs || []).map((s) => String(s).split('@').pop().split('::').pop());
+  const words = idents.flatMap((id) => id.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_\-.]+/g, ' ').toLowerCase().split(/\s+/));
+  const text = [group.label || '', group.purpose || '', words.join(' ')].join(' ');
+  const g = claimGenericity(text);
+  return { score: g.kind === 'unscored' ? null : g.score, rareWords: g.rareWords.slice(0, 6), words: g.words };
+}
+
 export function buildAnchorSidecar(groups, drafts, meta = {}) {
   const claims = [];
   drafts.forEach((d, i) => {
@@ -710,6 +935,10 @@ export function buildAnchorSidecar(groups, drafts, meta = {}) {
       ...((d.dependents || []).length
         ? { dependents: d.dependents.map((x) => ({ n: x.n, text: x.text })) }
         : {}),
+      // pseudo-claims-shape-profile: the draft's shape against the chosen
+      // population, so a scorer or the loop test can rank by it without
+      // re-deriving the rule. Omitted when no report was computed.
+      ...(d.shape ? { shape: d.shape } : {}),
       grounded: (d.grounded || []).map((a) => ({
         file: a.file, func: a.func || '', start: a.start, end: a.end,
         kind: a.kind || 'func', element: a.element || '',
@@ -999,6 +1228,21 @@ export async function doPseudoClaims(index, args) {
   // Selection disclosure for the artifact intro — a chart should say what it excluded.
   const selNote = mr.dropped ? ` ${groups.length} of ${totalGroups} candidate group(s) drafted (--min-rank P${mr.floor}).` : '';
 
+  // pseudo-claims-shape-profile: draft the groups with MECHANISM vocabulary
+  // first. The 2026-08-27 langchain run spent $2.63 over 97 groups in file
+  // order, and the drafts that met real patents at all did so through the
+  // generic retrieval surface (`_get_relevant_documents` across stores,
+  // `from_texts` constructors). Stable sort by genericity score ascending;
+  // the original order is the tie-break, and the score rides on the group.
+  const profileName = args.shape_profile || DEFAULT_SHAPE_PROFILE;
+  if (groups.length > 1) {
+    groups.forEach((g, i) => { g.shapeScore = groupGenericity(g).score; g.fileOrder = i + 1; });
+    groups.sort((a, b) => ((a.shapeScore ?? 1) - (b.shapeScore ?? 1)) || (a.fileOrder - b.fileOrder));
+    const moved = groups.filter((g, i) => g.fileOrder !== i + 1).length;
+    process.stderr.write(`# shape-rank: drafting ${groups.length} group(s) by mechanism vocabulary (claim-genre rarity, low first)`
+      + `${moved ? `; ${moved} moved from file order` : '; file order unchanged'}\n`);
+  }
+
   const multi = groups.length > 1;
 
   // Resolve + pack each group.
@@ -1062,7 +1306,7 @@ export async function doPseudoClaims(index, args) {
     // drafting projection is exact — pack + system prompt in, 900 out per
     // claim. Gate before the first API call.
     const calls = withAnchors.map((s) => ({
-      inChars: PSEUDO_CLAIM_GENERATE_SYS.length + 200 + (s.pack ? s.pack.length : 0),
+      inChars: buildPseudoClaimSys(profileName).length + 200 + (s.pack ? s.pack.length : 0),
       outTokens: 900,
     }));
     if (!claimsCostGate(model, calls, `${withAnchors.length} drafts`, args)) return;
@@ -1081,13 +1325,14 @@ export async function doPseudoClaims(index, args) {
         // ranker-purpose-signal lesson); triage annotations already stripped.
         const mech = s.label ? `${s.label}${s.purpose ? ' — ' + s.purpose : ''}` : '';
         const intent = mech ? `MECHANISM: ${mech}\n\n` : '';
-        const raw = await drafter(PSEUDO_CLAIM_GENERATE_SYS, `${intent}CODE:\n${s.pack}`, PSEUDO_CLAIM_MAX_OUTPUT_TOKENS);
+        const raw = await drafter(buildPseudoClaimSys(profileName), `${intent}CODE:\n${s.pack}`, PSEUDO_CLAIM_MAX_OUTPUT_TOKENS);
         // Read the flag IMMEDIATELY after the await -- it carries THIS call's
         // verdict (draftCloud clears it on entry) and drafting is sequential.
         const truncated = wasLastDraftTruncated();
         const { prose, dependents, anchors } = parseGeneratedClaim(raw);
         const { grounded, dropped } = groundAnchors(index, anchors);
-        drafts.push({ prose, dependents, grounded, dropped, truncated });
+        const shape = prose ? shapeReport(prose, dependents, profileName) : null;
+        drafts.push({ prose, dependents, grounded, dropped, truncated, shape });
         process.stderr.write(`  claim ${i + 1}/${withAnchors.length}: ${grounded.length} grounded anchor(s)${dropped.length ? `, ${dropped.length} ungrounded dropped` : ''}`
           + `${truncated ? ' - TRUNCATED by the output budget; ANCHORS block incomplete' : ''}\n`);
       } catch (e) {
@@ -1113,6 +1358,24 @@ export async function doPseudoClaims(index, args) {
     out.push(`_Drafted from ${withAnchors.length} evidence pack(s) via ${modelDesc}.${selNote} Each claim's cited anchors are **grounded** — verified to resolve to a real function in the index; ungrounded citations are dropped.${showPack ? ' The evidence pack the draft was grounded in follows each claim.' : ' Pass --include-evidence-pack to append each claim\'s evidence pack.'}_`);
   }
   out.push('');
+
+  // pseudo-claims-shape-profile: the run's shape summary, so a reader sees at
+  // once how many drafts sit inside the population's bands on every axis and
+  // how many are shape without mechanism.
+  if (!dryRun) {
+    const shaped = drafts.filter((d) => d && d.shape);
+    if (shaped.length) {
+      const inBand = shaped.filter((d) => d.shape.inBandAll).length;
+      const weak = shaped.filter((d) => d.shape.mechanism < 2).length;
+      const dist = shaped.map((d) => d.shape.shapeDistance).filter((x) => x != null);
+      const med = dist.length ? dist.slice().sort((a, b) => a - b)[Math.floor(dist.length / 2)] : null;
+      const prof = SHAPE_PROFILES[profileName] || SHAPE_PROFILES[DEFAULT_SHAPE_PROFILE];
+      out.push(`_Shape profile: **${profileName}** (${prof.label}). ${inBand} of ${shaped.length} draft(s) inside the band on every scored axis`
+        + `; median distance ${med}` + `${weak ? `; **${weak} with fewer than two mechanism elements** (shape without mechanism)` : ''}.`
+        + ' Length is a report, not a goal: the direction of improvement is grounded mechanism elements up and specifics down into dependents._');
+      out.push('');
+    }
+  }
 
   // WHICH NOTATIONS THE ENGINE USED, as a count on the artifact.
   //
@@ -1198,6 +1461,12 @@ export async function doPseudoClaims(index, args) {
             + ' deliberately absent from the claims-only file (#311).');
           out.push('');
           for (const dep of d.dependents) out.push(`${dep.n}. ${dep.text}`);
+        }
+        // pseudo-claims-shape-profile: where this draft sits against the
+        // chosen population. A report, not a target -- see SHAPE_PROFILES.
+        if (d.shape) {
+          out.push('');
+          out.push(shapeLine(d.shape));
         }
         // A truncated draft must not read as a finished claim. The mark goes in
         // the ARTIFACT, not just stderr: stderr is gone by the time anyone reads

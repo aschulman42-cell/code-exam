@@ -350,6 +350,7 @@ export function parseArgs() {
     literal_seed: false,  // --candidates: seed groups from rare shared string literals (#289)
     body_match_seed: false, // --candidates: body-containment rescue for name-match-failed cutoff tokens (#289)
     min_rank: null,       // --pseudo-claims: draft-time floor over [P..] rank tags (default P2 when tags present)
+    shape_profile: 'litigated', // --pseudo-claims: which claim population the draft should resemble (litigated|ai-ml|randpat)
     doc_anchors: false,   // --candidates: attach best-matching doc sections as path@L anchors (#289 enrichment)
     rank: false,
     include_evidence_pack: false,
@@ -545,6 +546,7 @@ export function parseArgs() {
     ['literal_seed',         'flag',           ['--literal-seed']],
     ['body_match_seed',      'flag',           ['--body-match-seed']],
     ['min_rank',             'value',          ['--min-rank']],
+    ['shape_profile',        'value',          ['--shape-profile']],
     ['doc_anchors',          'flag',           ['--doc-anchors']],
     ['rank',                 'flag',           ['--rank']],
     ['include_evidence_pack', 'flag',          ['--include-evidence-pack']],
@@ -928,6 +930,11 @@ export function parseArgs() {
   }
   if (args.claim_number != null && !/^[1-9][0-9]*$/.test(String(args.claim_number).trim())) {
     console.error(`--claim-number must be a positive claim number, got "${args.claim_number}".`);
+    process.exit(2);
+  }
+  // --shape-profile is an enumeration; a typo must not silently become the default population.
+  if (!['litigated', 'ai-ml', 'randpat'].includes(String(args.shape_profile))) {
+    console.error(`--shape-profile must be "litigated", "ai-ml" or "randpat", got "${args.shape_profile}".`);
     process.exit(2);
   }
   return args;
@@ -1464,6 +1471,15 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              carries [P..] tags; unranked lists draft all
                              groups, and untagged groups always draft. 0 =
                              draft everything.
+  --shape-profile <name>     --pseudo-claims: which claim population the draft
+                             should resemble -- litigated (default: 385
+                             litigated software claim 1s), ai-ml (841 AI/ML
+                             claim 1s, 2013-2017) or randpat (5,395 all-art
+                             independents). Renders the prompt's numeric bands
+                             and scores every draft's shape against the
+                             profile (words, rows, mechanism elements,
+                             dependents and their kind) in the artifact and
+                             the sidecar. Length is a report, not a goal.
   --doc-anchors              With --candidates: attach each group's best-
                              matching documentation sections as path@L<a>-<b>
                              anchors (docs cited as evidence in packs and

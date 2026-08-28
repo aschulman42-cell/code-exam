@@ -18,6 +18,8 @@ import fs from 'node:fs';
 import {
   buildAnchorSidecar, writeClaimsOnly, claimToLine, parseGeneratedClaim, groundAnchors,
   normalizeAnchorRef,
+  SHAPE_PROFILES, DEFAULT_SHAPE_PROFILE, shapeTargetLines, buildPseudoClaimSys, PSEUDO_CLAIM_GENERATE_SYS,
+  shapeReport, shapeLine, groupGenericity,
 } from '../src/commands/pseudo-claims.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 // The round-trip half of #311 step 4: CE's generator checked against CE's
@@ -668,5 +670,126 @@ describe('dependents reach the sidecar and the artifact, and the claims file NOW
     const s = buildAnchorSidecar(groups, draftWith, {});
     assert.equal(s.claims[0].claim, 'A method for X, comprising: a; b; and c.');
     assert.ok(!s.claims[0].claim.includes('red'));
+  });
+});
+
+// ============================================================================
+// pseudo-claims-shape-profile (2026-08-28)
+// ============================================================================
+
+describe('shape profiles: the population a draft should resemble', () => {
+  it('every axis is a well-formed band (p10 <= median <= p90) and the litigated profile carries all nine', () => {
+    for (const [name, p] of Object.entries(SHAPE_PROFILES)) {
+      assert.ok(p.label && p.source, `${name} names its label and source`);
+      for (const [k, a] of Object.entries(p.axes)) {
+        assert.ok(a.p10 <= a.median && a.median <= a.p90, `${name}.${k}: ${a.p10} <= ${a.median} <= ${a.p90}`);
+      }
+    }
+    assert.deepEqual(Object.keys(SHAPE_PROFILES.litigated.axes), ['words', 'coarse', 'fine', 'wordsPerRow', 'wherein', 'mechanism', 'dependents', 'modification', 'depth']);
+    assert.equal(DEFAULT_SHAPE_PROFILE, 'litigated');
+  });
+  it('the prompt renders the MECHANISM count to keep and the dependent kinds -- no length or row target, no worked example', () => {
+    // Measured 2026-08-28 (see shapeTargetLines): a row/word band as a target
+    // cost mechanism elements in 58 of 97 groups. The prompt must not carry one.
+    const lit = shapeTargetLines('litigated'), ai = shapeTargetLines('ai-ml');
+    assert.match(lit, /NO length target/);
+    assert.match(lit, /about 2 to 7 MECHANISM limitations, typically 4/);
+    assert.match(lit, /about 7 dependent claims \(2 to 17\)/);
+    assert.match(lit, /Never drop a limitation that carries the mechanism/);
+    assert.doesNotMatch(lit, /\d+ to \d+ words/, 'no word band in the prompt');
+    assert.doesNotMatch(lit, /\d+ to \d+ limitations, typically/, 'no row-count target in the prompt');
+    assert.match(ai, /about 2 to 9 MECHANISM limitations, typically 5/);
+    assert.notEqual(lit, ai);
+    assert.equal(buildPseudoClaimSys(), PSEUDO_CLAIM_GENERATE_SYS, 'the exported constant is the default rendering');
+    assert.equal(buildPseudoClaimSys('nope'), buildPseudoClaimSys('litigated'), 'an unknown name falls back to the default rendering');
+    // randpat has no mechanism or words axis: it falls back to the row range with the same "never drop" rule, no undefined.
+    const rp = shapeTargetLines('randpat');
+    assert.doesNotMatch(rp, /undefined|NaN|words/);
+    assert.match(rp, /commonly runs 5 to 14 limitations/);
+    assert.match(rp, /Never drop a limitation/);
+  });
+});
+
+describe('shape report: where a draft sits, per axis, with the mechanism count as the axis that matters', () => {
+  const GOOD = 'A method for retrieving documents relevant to a query, comprising: receiving an input text; assigning a weight to each text term based on a term frequency table; forming a local index of the weighted terms; matching the local index against a reference index of documents using a cosine similarity; ranking the matched documents by the similarity; and outputting the ranked documents.';
+  const DEPS = [
+    { n: 2, text: 'The method of claim 1, wherein the weight is a TF-IDF weight.' },
+    { n: 3, text: 'The method of claim 1, further comprising caching the local index.' },
+    { n: 4, text: 'The method of claim 2, wherein the term frequency table is built per document.' },
+  ];
+  it('scores every axis against the profile and classifies the dependents', () => {
+    const s = shapeReport(GOOD, DEPS, 'litigated');
+    assert.equal(s.profile, 'litigated');
+    assert.equal(s.axes.dependents.value, 3);
+    assert.deepEqual(s.dependentKinds, { MODIFICATION: 2, ADDITION: 1, other: 0 });
+    assert.equal(s.axes.modification.value, 0.67);
+    assert.equal(s.axes.depth.value, 2, 'claim 4 depends on claim 2');
+    assert.ok(s.mechanism >= 3, `mechanism elements: ${s.mechanism}`);
+    assert.ok(s.axes.fine.inBand && s.axes.mechanism.inBand);
+    assert.ok(typeof s.shapeDistance === 'number');
+    assert.match(shapeLine(s), /^_Shape vs litigated: \d+ words \(146, band 85-257\) · \d+ rows \(6, band 4-11\) · mechanism \d+ \/ generic \d+/);
+  });
+  it('a long, over-split, ADDITION-heavy draft is flagged on words, rows and kind', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => `performing operation number ${i + 1} on the data structure with a plurality of parameters and a plurality of configuration values selected from a table of values`);
+    const long = `A method comprising: ${rows.join('; ')}.`;
+    const deps = Array.from({ length: 4 }, (_, i) => ({ n: i + 2, text: `The method of claim 1, further comprising step ${i + 1}.` }));
+    const s = shapeReport(long, deps, 'litigated');
+    assert.ok(s.axes.words.value > 257 && !s.axes.words.inBand, `words ${s.axes.words.value}`);
+    assert.ok(s.axes.fine.value >= 12 && !s.axes.fine.inBand, `rows ${s.axes.fine.value}`);
+    assert.equal(s.axes.modification.value, 0);
+    assert.equal(s.axes.modification.inBand, false, 'four additions and no narrowing is outside the population');
+    assert.ok(s.flags.some((f) => /^words /.test(f)) && s.flags.some((f) => /^fine /.test(f)) && s.flags.some((f) => /^modification /.test(f)), s.flags.join(' | '));
+  });
+  it('a claim that is all bookends is shape without mechanism, and says so', () => {
+    const s = shapeReport('A method comprising: receiving an input; storing the input in a memory; and outputting the input.', [], 'litigated');
+    assert.ok(s.mechanism < 2);
+    assert.ok(s.flags.some((f) => /shape without mechanism/.test(f)));
+    assert.match(shapeLine(s), /\*\*only \d mechanism element\(s\): shape without mechanism\*\*/);
+  });
+  it('drafted none ([]) is scored as zero dependents; unknown (null) leaves the dependent axes unscored', () => {
+    const none = shapeReport(GOOD, [], 'litigated');
+    assert.equal(none.axes.dependents.value, 0);
+    assert.equal(none.axes.dependents.inBand, false, 'zero dependents is outside every population');
+    assert.equal(none.axes.modification.inBand, null);
+    assert.equal(none.axes.depth.inBand, null);
+    const unknown = shapeReport(GOOD, null, 'litigated');
+    assert.equal(unknown.axes.dependents.value, null);
+    assert.equal(unknown.axes.dependents.inBand, null);
+    assert.match(shapeLine(unknown), /dependents unknown/);
+  });
+  it('the litigated population scores inside its own bands (calibration, 2026-08-28)', () => {
+    const recs = fs.readFileSync(new URL('./fixtures/litigated-claim1-structure.jsonl', import.meta.url), 'utf8')
+      .split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l));
+    const rs = recs.map((r) => shapeReport(r.text, null, 'litigated'));
+    const inAll = rs.filter((s) => s.inBandAll).length / rs.length;
+    const dist = rs.map((s) => s.shapeDistance).sort((a, b) => a - b);
+    assert.ok(rs.length >= 300, `fixture loaded: ${rs.length}`);
+    assert.ok(inAll >= 0.35, `share inside the band on every scored axis: ${inAll.toFixed(2)}`);
+    assert.ok(dist[Math.floor(dist.length / 2)] <= 0.4, `median shape distance ${dist[Math.floor(dist.length / 2)]}`);
+    for (const k of ['words', 'fine', 'mechanism']) {
+      const share = rs.filter((s) => s.axes[k].inBand).length / rs.length;
+      assert.ok(share >= 0.7, `${k}: ${(100 * share).toFixed(0)}% inside its own p10-p90`);
+    }
+  });
+});
+
+describe('candidate groups are ranked by mechanism vocabulary before drafting', () => {
+  it('a generic-surface retriever group scores higher (more generic) than a mechanism group', () => {
+    const generic = groupGenericity({ label: 'similarity (similarity_search_with_score_by_vector)', purpose: '', specs: ['a.py@VectorStore::similarity_search_with_score_by_vector', 'b.py@Retriever::_get_relevant_documents'] });
+    const mech = groupGenericity({ label: 'suffix tree index', purpose: 'build a suffix automaton over token streams', specs: ['st.py@SuffixAutomaton::extend', 'st.py@SuffixAutomaton::longest_repeated_substring'] });
+    assert.ok(generic.score > mech.score, `${generic.score} vs ${mech.score}`);
+    assert.ok(mech.rareWords.includes('suffix'));
+  });
+});
+
+describe('the sidecar carries the shape report only when one was computed', () => {
+  it('present when the draft has one; absent otherwise (byte-identical to before for old drafts)', () => {
+    const groups = [{ label: 'g', specs: ['a.py@f'] }];
+    const prose = 'A method for X, comprising: a; b; and c.';
+    const shape = shapeReport(prose, [], 'litigated');
+    const withShape = buildAnchorSidecar(groups, [{ prose, dependents: [], grounded: [], dropped: [], shape }], {});
+    const without = buildAnchorSidecar(groups, [{ prose, dependents: [], grounded: [], dropped: [] }], {});
+    assert.equal(withShape.claims[0].shape.profile, 'litigated');
+    assert.ok(!('shape' in without.claims[0]));
   });
 });
