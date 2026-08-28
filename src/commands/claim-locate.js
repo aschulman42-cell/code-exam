@@ -33,6 +33,7 @@ import { readCeVersion } from '../utils.js';
 import { readClaimFile } from './analyze.js';
 import { parseMultisectTerms } from './multisect.js';
 import { isPseudoSource } from '../binstrings.js';
+import { claimGenericity } from '../core/claim-genericity.js';
 import { wasLastDraftTruncated, resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine } from '../core/llm-runner.js';
 import {
   buildSymbolTable, verifySymbol, isFound, nearbySymbols, navigateFrom,
@@ -219,7 +220,13 @@ export function classifyLimitation(text) {
   const negative = t.match(/\bwithout\b|\bin\s+the\s+absence\s+of\b|\bsubstantially\s+free\s+(?:of|from)\b|\bfree\s+(?:of|from)\b|\bdevoid\s+of\b/i);
   if (negative) cues.negative = negative[0];
   const kinds = Object.keys(cues);
-  return { kinds, cues };
+  // claim-chart-element-classes (2026-08-28): the element's genericity rides
+  // along for reports and sidecars. Deliberately NOT part of `kinds`, so
+  // limitationTag -- which reaches the model's prompt -- never prints it: the
+  // label is for the reader, and a model told a row is "generic" would judge
+  // a different question.
+  const g = claimGenericity(t);
+  return { kinds, cues, genericity: g.kind, genericityScore: g.score };
 }
 
 // One short tag per element, or '' — the form the prompt and the chart row

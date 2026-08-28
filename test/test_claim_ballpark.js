@@ -12,6 +12,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildDf, claimTerms, reduceResult, rankRows, readClaims, stem, isHit } from '../scripts/claim-ballpark.mjs';
+import * as core from '../src/core/claim-terms.js';
+
+// claim-chart-element-classes (2026-08-28): the term code moved to src/core/claim-terms.js and the
+// script re-exports it, so every measurement above this line is unchanged by construction.
+describe('claim-ballpark term code is src/core/claim-terms.js', () => {
+  it('re-exports, not copies', () => {
+    assert.equal(stem, core.stem);
+    assert.equal(buildDf, core.buildDf);
+    assert.equal(claimTerms, core.claimTerms);
+  });
+});
 
 const SONOS = 'In a system comprising a plurality of controllers that are communicatively coupled via at least a local area network (LAN) with a plurality of zone players including a first zone player and a second zone player, a method comprising: receiving, at the first zone player, control information from any one of the plurality of controllers via the LAN, wherein the received control information comprises a direction that instructs the first zone player to enter into a synchrony group with at least the second zone player; in response to the direction, the first zone player entering into the synchrony group with the second zone player, wherein in the synchrony group, the first and second zone players are configured to play back audio in synchrony; transmitting, by the first zone player to at least one of the plurality of controllers via the LAN, status information.';
 const APPLE = 'A computer-based system for detecting structures in data and performing actions on detected structures, comprising: an input device for receiving data; an output device for presenting the data; a memory storing information including program routines including an analyzer server for detecting structures in the data, and for linking actions to the detected structures; a user interface enabling the selection of a detected structure and a linked action; an action processor for performing the selected action linked to the selected structure; and a processing unit coupled to the input device, the output device, and the memory for controlling the execution of the program routines.';

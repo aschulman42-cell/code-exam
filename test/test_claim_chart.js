@@ -69,6 +69,32 @@ describe('chart structure comes from the claim, not the model', () => {
     const first = table.split('\n').find((l) => /^\| 1 \|/.test(l));
     assert.match(first, /\|\s*\|\s*\|\s*$/, 'trailing cells start empty');
   });
+
+  // claim-chart-element-classes (2026-08-28): every row carries its class, and
+  // the coverage line tallies verdicts by class so two PRESENT bookends never
+  // read as a partial hit on the mechanism.
+  const CLASSED = '1. A method comprising:\nreceiving an input text;\nvalidating the input based on a parse tree having best-match elements;\noutputting the result.';
+  it('tags every row preamble / generic / mechanism and returns the classes', () => {
+    const { table, elements, classes } = buildChartTable(CLASSED);
+    assert.equal(elements.length, 4);
+    assert.deepEqual(classes, ['preamble', 'generic', 'mechanism', 'generic']);
+    const rows = table.split('\n').filter((l) => /^\| \d+ \|/.test(l));
+    assert.match(rows[0], /_\[preamble\]_/);
+    assert.match(rows[1], /_\[generic\]_/);
+    assert.match(rows[2], /_\[mechanism\]_/);
+    assert.match(rows[3], /_\[generic\]_/);
+  });
+  it('the coverage line adds a by-class tally when it is given the elements', () => {
+    const { elements } = buildChartTable(CLASSED);
+    const fills = [
+      { element: 1, label: 'ABSENT' }, { element: 2, label: 'PRESENT' },
+      { element: 3, label: 'PARTIAL' }, { element: 4, label: 'PRESENT' },
+    ];
+    const line = coverageLine(fills, 4, elements);
+    assert.match(line, /\*\*Coverage:\*\* 2 PRESENT · 1 PARTIAL/);
+    assert.match(line, /\*\*By element class:\*\* mechanism 1: 1 PARTIAL; generic 2: 2 PRESENT; preamble 1\./);
+    assert.doesNotMatch(coverageLine(fills, 4), /By element class/, 'no elements, no class line');
+  });
 });
 
 describe('targets', () => {
@@ -691,8 +717,10 @@ describe('--elements supplies the row skeleton', () => {
     assert.deepEqual(elements, supplied);
     const rows = table.split('\n').filter((l) => /^\| \d+ \|/.test(l));
     assert.equal(rows.length, 3);
-    assert.match(rows[0], /^\| 1 \| first limitation here \|/);
-    assert.match(rows[2], /^\| 3 \| third one \|/);
+    // The element text is verbatim; the class tag that follows it is CE's
+    // (claim-chart-element-classes), not the practitioner's.
+    assert.match(rows[0], /^\| 1 \| first limitation here _\[(?:generic|mechanism|preamble)\]_ \|/);
+    assert.match(rows[2], /^\| 3 \| third one _\[(?:generic|mechanism|preamble)\]_ \|/);
   });
 
   it('falls back to CE splitting when no list is supplied or it is empty', () => {

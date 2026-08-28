@@ -30,6 +30,7 @@ import fs from 'node:fs';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine, engineBuildLine } from '../core/llm-runner.js';
 import { buildClaimAnalyzePrompt, addLineNumbers, readClaimFile } from './analyze.js';
 import { isPseudoSource } from '../binstrings.js';
+import { elementClasses, tallyByClass, classHeadline } from '../core/claim-genericity.js';
 
 // A target spec is `file@symbol`; the file half says whether the target is a
 // binstrings `.op` dump. Labelled wherever a spec is printed so a reader never
@@ -208,6 +209,7 @@ export function buildChartTable(claimText, opts = {}) {
   // LIMITATION is met, not whether the recited feature appears — the same word
   // on a negative limitation would otherwise read backwards.
   const lines = ['| # | Claim element | CE finding — is the limitation met? | Cited code |', '|---|---|---|---|'];
+  const classes = elementClasses(elements, { isPreambleRow });
   elements.forEach((e, i) => {
     // Part B: mark the preamble row.
     //
@@ -222,10 +224,17 @@ export function buildChartTable(claimText, opts = {}) {
     // An examiner reading the first cold sees a claim whose very first row
     // failed, when a preamble is "generally not a limitation" unless it
     // "breathes life and meaning into the claim".
-    const tag = isPreambleRow(e, i) ? ' _[preamble]_' : '';
+    //
+    // claim-chart-element-classes (2026-08-28): every other row is tagged
+    // generic or mechanism too. On 25 charts every PRESENT on a
+    // vocabulary-selected pair was a bookend ("receiving an input ...",
+    // "outputting the identified documents"); the tag lets a reader see which
+    // rows a PRESENT could mean anything on. Deterministic (claim-genericity.js),
+    // and NOT shown to the model -- the prompt rows carry only limitationTag.
+    const tag = ` _[${classes[i]}]_`;
     lines.push(`| ${i + 1} | ${String(e).replace(/\|/g, '\\|')}${tag} |  |  |`);
   });
-  return { table: lines.join('\n'), elements };
+  return { table: lines.join('\n'), elements, classes };
 }
 
 // Parse `--targets "file.java@Class::fn;other.java@fn"` or `@targets.txt`.
@@ -605,10 +614,22 @@ export function coverageLine(fills, nElements, elements = null) {
   }
   const nLimitations = preIdx >= 0 ? Math.max(0, nElements - 1) : nElements;
   const noFinding = Math.max(0, nLimitations - cited);
+  // claim-chart-element-classes: the same verdicts, tallied by what kind of row
+  // they landed on. "2 PRESENT" on the all-rows line and "generic 3: 2 PRESENT;
+  // mechanism 4: 0 PRESENT" are different documents, and 25 charts on
+  // 2026-08-27 were the first kind while reading as the second.
+  let byClass = '';
+  if (Array.isArray(elements) && elements.length) {
+    const classes = elementClasses(elements, { isPreambleRow });
+    const byEl = new Map();
+    fills.forEach((f, i) => { byEl.set(f.element != null ? f.element - 1 : i, f.label); });
+    const rows = elements.map((_, i) => ({ elementClass: classes[i], verdict: byEl.get(i) || null }));
+    byClass = `\n**By element class:** ${classHeadline(tallyByClass(rows))}.`;
+  }
   return `**Coverage:** ${c.PRESENT} PRESENT · ${c.PARTIAL} PARTIAL · ${c.ASSUMED} ASSUMED · `
     + `${c.ABSENT} ABSENT · ${noFinding} element(s) with no finding`
     + `${preIdx >= 0 ? ` across ${nLimitations} limitation(s); preamble ${preLabel || 'no finding'}` : ''}.`
-    + support;
+    + support + byClass;
 }
 
 // Provenance the artifact must carry to be defensible. Everything here is
@@ -1153,6 +1174,9 @@ export async function doClaimChart(index, args, opts = {}) {
       claimSource: (typeof spec === 'string' && spec.startsWith('@')) ? spec.slice(1) : 'inline text',
       claimChars: claimText.length,
       elements: elements.length,
+      // Per-row class (preamble / generic / mechanism), so a replay or a loop
+      // test can re-tally by class without re-deriving the rule.
+      elementClasses: elementClasses(elements, { isPreambleRow }),
       // The integrity VERDICT, not a checksum -- targetIntegrity is a string
       // ('unmodified' / 'modified' / null), and writing `.checksum` here would
       // have silently recorded undefined in the one field meant to bind this
