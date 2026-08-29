@@ -342,7 +342,8 @@ export function parseArgs() {
     group_by: null,
     group_max: null,     // --group-max: split candidate groups larger than this (0 = never)
     include_vendored: false, // --include-vendored: keep detected third-party subtrees as candidates
-    file_seed: false,
+    file_seed: false,        // --file-seed: per-file groups for ALL files under the size cap (the pre-2026-08-29 opt-in behaviour)
+    no_file_seed: false,     // --no-file-seed: no per-file groups at all. Absent both: files with a doc header seed a group (default)
     use_docs: false,      // --candidates: include TEXT_EXTENSIONS docs in the gather vocabulary (#284 signal-rich gather)
     catalog_seed: false,
     no_catalog_seed: false,  // --no-catalog-seed: opt OUT of the command-catalog seed (now default ON)
@@ -539,6 +540,7 @@ export function parseArgs() {
     ['group_max',            'int',            ['--group-max']],
     ['include_vendored',     'flag',           ['--include-vendored']],
     ['file_seed',            'flag',           ['--file-seed']],
+    ['no_file_seed',         'flag',           ['--no-file-seed']],
     ['use_docs',             'flag',           ['--use-docs']],
     ['catalog_seed',         'flag',           ['--catalog-seed']],
     ['no_catalog_seed',      'flag',           ['--no-catalog-seed']],
@@ -1435,8 +1437,17 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              groups. A group that will not divide is emitted
                              intact and named in the file header. This is a
                              COVERAGE control, not a claim-length control.
-  --file-seed                With --candidates: add residual per-file groups
-                             (opt-in; noisy on large C/C++ trees).
+  --file-seed                With --candidates: per-file groups for EVERY file
+                             under the size cap (noisy on large C/C++ trees).
+                             Default without it: a file seeds a group only when
+                             it opens with a doc comment that says what the
+                             module is for (any size; license-only headers do
+                             not count) -- on CE and sr_gh that is the seed
+                             that found the mechanisms the name-token seeds
+                             missed (air-gapping, GGUF, binstrings; one script
+                             per experiment). The candidates header counts what
+                             it seeded and what it skipped.
+  --no-file-seed             With --candidates: no per-file groups at all.
   --use-docs                 With --candidates: EXPERIMENTAL — include doc files
                              (.md/.txt/...) in the gather vocabulary so doc-borne
                              feature terms can seed groups (opt-in; code-only

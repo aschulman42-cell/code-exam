@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, splitDocSections, docAnchorsForGroup, formatAnchors, dominantFile, echoPairs, GROUPER_DEFAULTS, subTokens, subTokenPartition, splitOversizedGroup, detectVendoredSubtrees, copyrightHolder, isUnderVendored } from '../src/core/mechanism-grouper.js';
+import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, splitDocSections, docAnchorsForGroup, formatAnchors, dominantFile, echoPairs, GROUPER_DEFAULTS, subTokens, subTokenPartition, splitOversizedGroup, detectVendoredSubtrees, copyrightHolder, isUnderVendored, docHeaderOf } from '../src/core/mechanism-grouper.js';
 import { collectAnchorGroups, parseMinRank, filterGroupsByMinRank, packDisclosure, parseLineAnchor, groundAnchors, formatClaimChart, claimPreambleSnippet, formatChartToc } from '../src/commands/pseudo-claims.js';
 
 // grouper-echo-flag-fold Phase 1: dominant-file detection + echo pairing +
@@ -883,5 +883,88 @@ describe('the catalog cap reports what it skipped', () => {
     assert.match(out, /not the number of groups foregone/,
       'the caveat is the point: without it the number reads ~10x its real weight');
     assert.ok(!/DROPPED/.test(out), 'the overstated wording must not come back');
+  });
+});
+
+// candidate-file-seed-doc-header (2026-08-29): the file seed is on by default
+// for files that OPEN with a comment describing the module, any size; the old
+// size-gated all-files seed is `--file-seed`; `--no-file-seed` is off. The
+// header must count what it seeded and what it skipped.
+describe('docHeaderOf: a leading comment that describes the module', () => {
+  const DOC = 'air-gapped.js -- refuses every outbound network call once --air-gapped is set, and scrubs API keys from the process environment so a local model run can be shown to have touched nothing outside the machine.';
+  it('reads a JS block comment, a // run, a # run, a Python docstring and an HTML comment', () => {
+    assert.equal(docHeaderOf(['/**', ' * ' + DOC, ' */', 'export function a() {}']).kind, 'doc');
+    assert.equal(docHeaderOf(['// ' + DOC.slice(0, 90), '// ' + DOC.slice(90), 'function a() {}']).kind, 'doc');
+    assert.equal(docHeaderOf(['#!/usr/bin/env python3', '# -*- coding: utf-8 -*-', '# ' + DOC, 'import os']).kind, 'doc');
+    assert.equal(docHeaderOf(['"""', DOC, '"""', 'import os']).kind, 'doc');
+    assert.equal(docHeaderOf(['<!-- ' + DOC + ' -->', '<html>']).kind, 'doc');
+  });
+  it('a license-only header is "license", not a doc header, and a short or absent one is "none"', () => {
+    const lic = ['/*', ' * Copyright (c) 2019 Example Corp. All rights reserved.', ' * Licensed under the Apache License, Version 2.0; you may not use this file except in compliance.', ' */', 'int main() {}'];
+    assert.equal(docHeaderOf(lic).kind, 'license');
+    assert.equal(docHeaderOf(['// utils', 'export const x = 1;']).kind, 'none');
+    assert.equal(docHeaderOf(['export const x = 1;']).kind, 'none');
+    assert.equal(docHeaderOf(null).kind, 'none');
+    assert.equal(docHeaderOf([]).kind, 'none');
+  });
+  it('a license header followed by a real description still counts as doc', () => {
+    const both = ['/*', ' * Copyright (c) 2019 Example Corp. Licensed under the MIT License.', ' *', ' * ' + DOC, ' */', 'int main() {}'];
+    assert.equal(docHeaderOf(both).kind, 'doc');
+  });
+  it('respects the minimum length', () => {
+    assert.equal(docHeaderOf(['/** ' + DOC + ' */'], { min: 10 }).kind, 'doc');
+    assert.equal(docHeaderOf(['/** ' + DOC + ' */'], { min: 10000 }).kind, 'none');
+  });
+});
+
+describe('file seed modes: doc-header (default), all, off', () => {
+  // Four files, each with three candidate functions whose names share no token
+  // (so no concept or class seed forms a group) and no classes or commands.
+  const fn = (s) => ({ type: 'function', start: s, end: s + 9 });
+  const DOC = '/** parity-fixture.js -- a module whose header states its purpose at length so the doc-header gate admits it. */';
+  const LIC = '/* Copyright (c) 2020 Someone. Licensed under the Apache License, Version 2.0. All rights reserved. */';
+  const mkIndex = () => ({
+    _ensureFunctionIndex() {},
+    functionIndex: {
+      'src/doc.js':   { alphaQuux: fn(2), bravoZorp: fn(14), charlieWibble: fn(26) },
+      'src/lic.js':   { deltaFrob: fn(2), echoSnarf: fn(14), foxtrotBlim: fn(26) },
+      'src/small.js': { golfNarg: fn(2), hotelPlonk: fn(14), indiaGrup: fn(26) },
+      'src/big.js':   Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`juliet${i}Vex${i}`, fn(2 + 12 * i)])),
+    },
+    fileLines: new Map([
+      ['src/doc.js', [DOC, ...Array(40).fill('x;')]],
+      ['src/lic.js', [LIC, ...Array(40).fill('x;')]],
+      ['src/small.js', ['const y = 1;', ...Array(40).fill('x;')]],
+      ['src/big.js', ['const z = 1;', ...Array(320).fill('x;')]],
+    ]),
+  });
+  const fileGroups = (r) => r.groups.map((g) => g.label).filter((l) => l.startsWith('[file]')).sort();
+  it('default (doc-header): only the doc-headed file seeds, any size; the skips are counted', () => {
+    const r = groupMechanisms(mkIndex(), { catalogSeed: false });
+    assert.deepEqual(fileGroups(r), ['[file] doc.js']);
+    assert.equal(r.fileSeedMode, 'doc-header');
+    assert.equal(r.fileSeeded, 1);
+    assert.equal(r.fileLicenseOnly, 1, 'lic.js is counted as license-only, apart from "no header"');
+    assert.equal(r.fileNoHeader, 2, 'small.js and big.js have no header');
+    const out = formatAnchors(r, { indexName: 'x' });
+    assert.match(out, /# file seed \(doc-header\): 1 group\(s\) from files whose leading comment describes the module; 2 file\(s\) skipped \(no such header\), 1 license-only header\(s\) rejected/);
+  });
+  it('all (--file-seed): every file under the size cap seeds, headers or not; the big one is skipped and counted', () => {
+    const r = groupMechanisms(mkIndex(), { catalogSeed: false, fileSeed: 'all' });
+    assert.deepEqual(fileGroups(r), ['[file] doc.js', '[file] lic.js', '[file] small.js']);
+    assert.equal(r.fileTooBig, 1);
+    assert.match(formatAnchors(r, { indexName: 'x' }), /# file seed \(all files <= 20 candidates\): 3 group\(s\); 1 file\(s\) over the cap skipped/);
+  });
+  it('`true` is the old spelling of all', () => {
+    assert.deepEqual(fileGroups(groupMechanisms(mkIndex(), { catalogSeed: false, fileSeed: true })), ['[file] doc.js', '[file] lic.js', '[file] small.js']);
+  });
+  it('off (--no-file-seed): no [file] groups, and the header says nothing about the seed', () => {
+    const r = groupMechanisms(mkIndex(), { catalogSeed: false, fileSeed: false });
+    assert.deepEqual(fileGroups(r), []);
+    assert.doesNotMatch(formatAnchors(r, { indexName: 'x' }), /# file seed/);
+  });
+  it('a stub index without fileLines fails open: nothing seeds under the default, nothing throws', () => {
+    const bare = mkIndex(); delete bare.fileLines;
+    assert.deepEqual(fileGroups(groupMechanisms(bare, { catalogSeed: false })), []);
   });
 });

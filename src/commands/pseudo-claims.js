@@ -1058,7 +1058,10 @@ export async function doEmitCandidates(index, args) {
     result = groupMechanisms(index, {
       indexName,
       mode: args.group_by === 'concept' ? 'concept' : 'multi',
-      fileSeed: !!args.file_seed,
+      // candidate-file-seed-doc-header: default 'doc-header' (a file with a
+      // leading doc comment seeds a group, any size); --file-seed = every file
+      // under the size cap (the old opt-in); --no-file-seed = off.
+      fileSeed: args.no_file_seed ? false : (args.file_seed ? 'all' : 'doc-header'),
       useDocs: !!args.use_docs,
       // Default ON; --no-catalog-seed opts out. --catalog-seed stays accepted
       // and inert so scripts written against the opt-in flag keep working.

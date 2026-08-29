@@ -25,8 +25,18 @@ export const GROUPER_DEFAULTS = {
   classes: 12,          // top-N substantial classes admitted by the class seed
   overbroadPct: 0.20,   // over-broad by COUNT: a token owning > this fraction of candidates...
   overbroadFileFrac: 0.25, // ...is a namespace ONLY if it also cross-cuts > this fraction of the corpus files
-  fileMax: 20,          // residual FILE seed only considers files this small
-  fileSeed: false,      // FILE seed is opt-in (firehoses on C++ — see the note below)
+  fileMax: 20,          // 'all' file seed only considers files this small
+  // FILE seed: 'doc-header' (default) | 'all' | false. See the note at the seed.
+  // Measured 2026-08-28/29: on .CE_082526 default seeds grouped 32% of
+  // candidates, + file seed 61% (81 of 91 files); drafted, file-seeded groups
+  // gave 50 of 54 genuinely new claims on CE and 140 of 148 on sr_gh at
+  // mechanism median 6 -- air-gapping, GGUF, binstrings, one script per
+  // experiment: the mechanisms the name-token seeds never group. The C++
+  // firehose that kept it opt-in comes from files that are NOT mechanisms
+  // (translation units, headers, generated code), and what separates the two
+  // is a leading doc comment, not size.
+  fileSeed: 'doc-header',
+  docHeaderMin: 80,     // chars of header text (markers stripped) for a file to count as doc-headed
   useDocs: false,       // --use-docs (#284 signal-rich gather): doc-inclusive gather vocabulary
   // COMMAND-CATALOG seed, ON BY DEFAULT (--no-catalog-seed opts out).
   //
@@ -533,15 +543,35 @@ function multiSeedGroups(index, funcs, o) {
 
   // 6) FILE seed (OPT-IN) — a SMALL file whose leftover (unassigned) functions are
   // its MAJORITY is one cohesive mechanism (scattered names token+class miss).
-  // OFF by default: residual file-cohesion can't tell a distinctive mechanism from
-  // an ordinary module or a codec kernel file, so it firehoses on C++ (~50
-  // file-groups). The clean signal is import/export fan-out — the deferred
-  // import/resource seed — not raw co-location.
-  if (o.fileSeed) {
+  // FILE seed. Residual file-cohesion can't tell a distinctive mechanism from
+  // an ordinary module or a codec kernel file by itself, so as an ALL-files
+  // seed it firehoses on C++ (~50 file-groups) and stayed opt-in. What it
+  // finds where a codebase is organised one-mechanism-per-module is exactly
+  // what the name-token seeds cannot (candidate-file-seed-doc-header,
+  // 2026-08-29: air-gapped.js, llm-runner.js, ai-overview-local.js on CE; one
+  // script per experiment on sr_gh). The gate that separates the two cases is
+  // whether the file opens with a comment saying what the module is for --
+  // 'doc-header' mode: any size, doc-headed files only, license-only headers
+  // rejected, every skip counted. 'all' is the old size-gated behaviour.
+  const fileSeedMode = o.fileSeed === true ? 'all' : (o.fileSeed || false);
+  let fileSeeded = 0, fileNoHeader = 0, fileLicenseOnly = 0, fileTooBig = 0;
+  if (fileSeedMode) {
     const byFileU = new Map();
     for (const f of funcs) { const e = byFileU.get(f.file) || byFileU.set(f.file, { total: 0, un: [] }).get(f.file); e.total++; if (!assigned.has(f.id)) e.un.push(f.id); }
     const base = (fp) => { const s = String(fp).replace(/\\/g, '/'); return s.slice(s.lastIndexOf('/') + 1); };
-    for (const [file, e] of byFileU) if (e.un.length >= o.minComm && e.total <= o.fileMax && e.un.length * 2 >= e.total) for (const id of e.un) assigned.set(id, `[file] ${base(file)}`);
+    const linesOf = (file) => (index && index.fileLines && typeof index.fileLines.get === 'function') ? index.fileLines.get(file) : null;
+    for (const [file, e] of byFileU) {
+      if (!(e.un.length >= o.minComm && e.un.length * 2 >= e.total)) continue;
+      if (fileSeedMode === 'all') {
+        if (e.total > o.fileMax) { fileTooBig++; continue; }
+      } else {
+        const h = docHeaderOf(linesOf(file), { min: o.docHeaderMin });
+        if (h.kind === 'license') { fileLicenseOnly++; continue; }
+        if (h.kind !== 'doc') { fileNoHeader++; continue; }
+      }
+      for (const id of e.un) assigned.set(id, `[file] ${base(file)}`);
+      fileSeeded++;
+    }
   }
 
   const groups = new Map();
@@ -555,8 +585,50 @@ function multiSeedGroups(index, funcs, o) {
   // 84M) both blew a 10-minute grouping budget and went unsampled.
   return {
     groups: [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([lbl, ids]) => ({ label: lbl, ids })),
-    stats: { catalogMade, catalogCapped },
+    stats: { catalogMade, catalogCapped, fileSeedMode, fileSeeded, fileNoHeader, fileLicenseOnly, fileTooBig },
   };
+}
+
+// --- doc header detection (candidate-file-seed-doc-header) -------------------
+//
+// A file's LEADING comment, when it reads as a description of the module:
+// `/** ... */` or `/* ... */`, a run of `//` or `#` lines, a Python/Ruby
+// docstring, or `<!-- -->`, ending at the first code line. License / copyright
+// headers are recognised and returned as `kind: 'license'` so the caller can
+// count them apart from "no header at all" -- a license block is the most
+// common leading comment in third-party code and says nothing about the
+// module. Shebangs, encoding lines and `'use strict'` are skipped first.
+const LICENSE_RE = /\b(copyright|\(c\)\s*\d{4}|licen[cs]ed? (?:under|to)|apache license|mit license|gnu (?:general|lesser)|spdx-license|all rights reserved|permission is hereby granted|redistribution and use|warranty|as-is)\b/i;
+
+export function docHeaderOf(lines, { min = GROUPER_DEFAULTS.docHeaderMin } = {}) {
+  if (!Array.isArray(lines) || !lines.length) return { kind: 'none', text: '', chars: 0 };
+  let i = 0;
+  const skip = (l) => /^\s*$/.test(l) || /^#!/.test(l) || /^\s*#\s*-\*-.*-\*-\s*$/.test(l) || /^\s*['"]use strict['"];?\s*$/.test(l);
+  while (i < lines.length && skip(lines[i])) i++;
+  if (i >= lines.length) return { kind: 'none', text: '', chars: 0 };
+  const first = String(lines[i]);
+  const body = [];
+  if (/^\s*\/\*/.test(first)) {                                  // block comment
+    for (; i < lines.length; i++) { const l = String(lines[i]); body.push(l.replace(/^\s*\/\*+/, '').replace(/\*+\/.*$/, '').replace(/^\s*\*\s?/, '')); if (/\*\//.test(l)) break; }
+  } else if (/^\s*<!--/.test(first)) {
+    for (; i < lines.length; i++) { const l = String(lines[i]); body.push(l.replace(/^\s*<!--\s?/, '').replace(/-->.*$/, '')); if (/-->/.test(l)) break; }
+  } else if (/^\s*("""|''')/.test(first)) {                        // docstring
+    const q = first.match(/("""|''')/)[1];
+    let l = first.replace(/^\s*("""|''')/, ''); let closed = l.includes(q);
+    body.push(l.replace(q, ''));
+    for (i++; !closed && i < lines.length; i++) { l = String(lines[i]); closed = l.includes(q); body.push(l.replace(q, '')); }
+  } else if (/^\s*(\/\/|#|--)/.test(first)) {                      // line-comment run
+    const mark = first.match(/^\s*(\/\/|#|--)/)[1];
+    for (; i < lines.length; i++) { const l = String(lines[i]); if (!new RegExp('^\\s*' + mark.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(l)) break; body.push(l.replace(new RegExp('^\\s*' + mark.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s?'), '')); }
+  } else {
+    return { kind: 'none', text: '', chars: 0 };
+  }
+  const text = body.map((s) => s.replace(/^[\s=\-#*]+$/, '').trim()).filter(Boolean).join(' ');
+  const licenseLines = body.filter((s) => LICENSE_RE.test(s)).length;
+  const descriptive = body.filter((s) => s.trim() && !LICENSE_RE.test(s) && !/^[\s=\-#*]+$/.test(s)).join(' ').trim();
+  if (descriptive.length >= min) return { kind: 'doc', text, chars: descriptive.length };
+  if (licenseLines) return { kind: 'license', text, chars: descriptive.length };
+  return { kind: 'none', text, chars: descriptive.length };
 }
 
 // Emit-faithful anchor spec for a member: exactly the `file@<spec>` tail
@@ -923,6 +995,17 @@ export function formatAnchors(result, meta = {}) {
     out.push('#   commands are tried biggest-mechanism-first; raise --catalog-max to evaluate more.');
     out.push('#   NOT-EVALUATED is not the number of groups foregone: most CLI options never form a');
     out.push('#   group anyway (no resolvable handler, or fewer than minComm unassigned members).');
+  }
+  // THE FILE SEED REPORTS WHAT IT SEEDED AND WHAT IT SKIPPED. A codebase where
+  // the doc-header gate finds nothing must say so, or "no [file] groups" reads
+  // as "no modules" instead of "no headers".
+  if (result.fileSeedMode === 'doc-header') {
+    out.push(`# file seed (doc-header): ${result.fileSeeded || 0} group(s) from files whose leading comment describes the module; `
+      + `${result.fileNoHeader || 0} file(s) skipped (no such header), ${result.fileLicenseOnly || 0} license-only header(s) rejected. `
+      + `--file-seed seeds every file under the size cap; --no-file-seed turns the seed off.`);
+  } else if (result.fileSeedMode === 'all') {
+    out.push(`# file seed (all files <= ${meta.fileMax ?? GROUPER_DEFAULTS.fileMax} candidates): ${result.fileSeeded || 0} group(s); `
+      + `${result.fileTooBig || 0} file(s) over the cap skipped.`);
   }
   // OBSERVE-ONLY COVERAGE (Part B). "Distinctive vocabulary" is a PROXY for
   // claim-worthiness and this reports the skew rather than correcting it: a
