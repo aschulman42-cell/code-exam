@@ -20,7 +20,10 @@ import {
   normalizeAnchorRef,
   SHAPE_PROFILES, DEFAULT_SHAPE_PROFILE, shapeTargetLines, buildPseudoClaimSys, PSEUDO_CLAIM_GENERATE_SYS,
   shapeReport, shapeLine, groupGenericity,
+  echoBlock, withEchoBlock, candidatesSummary, candidatesWroteLine, reportEchoes, collectAnchorGroups,
 } from '../src/commands/pseudo-claims.js';
+import os from 'node:os';
+import path from 'node:path';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 // The round-trip half of #311 step 4: CE's generator checked against CE's
 // own dependent-claim rules (c4fc448).
@@ -791,5 +794,90 @@ describe('the sidecar carries the shape report only when one was computed', () =
     const without = buildAnchorSidecar(groups, [{ prose, dependents: [], grounded: [], dropped: [] }], {});
     assert.equal(withShape.claims[0].shape.profile, 'litigated');
     assert.ok(!('shape' in without.claims[0]));
+  });
+});
+
+// candidates-stderr-quiet: the echo pairs go into the FILE that gets
+// hand-pruned, stderr gets one line (the pairs under --verbose), and stdout
+// gets the success line. Groups are shaped as groupMechanisms emits them
+// ({label, ids:Set, members:[{id, file, name}]}); the one pair below is what
+// echoPairs finds -- two groups whose dominant file is the same.
+function echoFixture() {
+  const m = (id, file) => ({ id, file, name: `f${id}`, bare: `f${id}` });
+  const g = (label, members) => ({ label, ids: new Set(members.map((x) => x.id)), members });
+  const groups = [
+    g('[file] render.js', [m(1, 'src/render.js'), m(2, 'src/render.js'), m(3, 'src/render.js')]),
+    g('render ~ paint', [m(4, 'src/render.js'), m(5, 'src/render.js')]),
+    g('parse', [m(6, 'src/parse.js'), m(7, 'src/parse.js')]),
+  ];
+  // 9 candidates over 3 files; 7 grouped (78%), other.js in no group.
+  const funcs = [...groups.flatMap((x) => x.members), m(8, 'src/other.js'), m(9, 'src/other.js')];
+  return { groups, funcs, mode: 'multi' };
+}
+
+function withCapturedStderr(fn) {
+  const real = console.error;
+  const lines = [];
+  console.error = (...a) => { lines.push(a.join(' ')); };
+  try { fn(); } finally { console.error = real; }
+  return lines;
+}
+
+describe('candidates: the echo pairs land in the file, beneath the header', () => {
+  it('one `#   host ~ echo (file)` line per pair, under a count line', () => {
+    const block = echoBlock(echoFixture().groups);
+    assert.match(block[0], /^# echo pairs \(1\)/);
+    assert.ok(block.every((l) => l.startsWith('#')), 'every line is a comment');
+    assert.ok(block.includes('#   [file] render.js ~ render ~ paint (src/render.js)'), block.join('\n'));
+  });
+
+  it('no pairs, no block; the text comes back byte-identical', () => {
+    const { groups } = echoFixture();
+    assert.deepEqual(echoBlock([groups[2]]), []);
+    const text = '# header\n\n# parse  (2 fns)\nsrc/parse.js@f6\n';
+    assert.equal(withEchoBlock(text, [groups[2]]), text);
+  });
+
+  it('is inserted at the end of the header run, before the first group', () => {
+    const { groups } = echoFixture();
+    const text = '# mechanism-grouper  index=x\n# coverage: 7/9\n\n# [file] render.js  (3 fns)\nsrc/render.js@f1\n';
+    const out = withEchoBlock(text, groups).split('\n');
+    const echoAt = out.findIndex((l) => l.startsWith('# echo pairs'));
+    const blankAt = out.findIndex((l) => l === '');
+    assert.ok(echoAt > 1 && echoAt < blankAt, `echo block at ${echoAt}, first blank at ${blankAt}`);
+    assert.equal(out[out.length - 2], 'src/render.js@f1', 'anchors after the header are untouched');
+  });
+
+  it('survives the round trip: read back as @file, the echo lines own no anchors and are dropped', () => {
+    const { groups } = echoFixture();
+    const text = '# mechanism-grouper  index=x\n\n# [file] render.js  (3 fns)\nsrc/render.js@f1\n\n# parse  (2 fns)\nsrc/parse.js@f6\n';
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-echo-'));
+    const file = path.join(dir, 'cand.lst');
+    fs.writeFileSync(file, withEchoBlock(text, groups), 'utf8');
+    try {
+      const back = collectAnchorGroups('@' + file);
+      assert.deepEqual(back.map((g) => g.label), ['[file] render.js', 'parse']);
+      assert.deepEqual(back.map((g) => g.specs), [['src/render.js@f1'], ['src/parse.js@f6']]);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe('candidates: the console says what was written, once', () => {
+  it('stdout success line carries the counts the file\'s coverage line carries', () => {
+    const r = echoFixture();
+    assert.deepEqual(candidatesSummary(r), { groups: 3, grouped: 7, candidates: 9, pct: 78, filesRepresented: 2, files: 3 });
+    assert.equal(candidatesWroteLine(r, 'out.lst'), 'Wrote 3 candidate group(s) (78% of 9 candidates, 2 of 3 files) to out.lst');
+    assert.equal(candidatesWroteLine(r, 'out.lst', { ranked: true }), 'Wrote 3 ranked candidate group(s) (78% of 9 candidates, 2 of 3 files) to out.lst');
+    // No candidate roster (ground-truth / stub paths): the share is omitted, not 0%.
+    assert.equal(candidatesWroteLine({ groups: r.groups }, 'out.lst'), 'Wrote 3 candidate group(s) to out.lst');
+  });
+
+  it('stderr: one summary line by default, the per-pair lines under --verbose, nothing when there are none', () => {
+    const { groups } = echoFixture();
+    assert.deepEqual(withCapturedStderr(() => reportEchoes(groups, { outPath: 'out.lst' })),
+      ['# 1 echo pair(s) noted in out.lst (--verbose lists them)']);
+    assert.deepEqual(withCapturedStderr(() => reportEchoes(groups, { outPath: 'out.lst', verbose: true })),
+      ['# echo: [file] render.js ~ render ~ paint (src/render.js)']);
+    assert.deepEqual(withCapturedStderr(() => reportEchoes([groups[2]], { outPath: 'out.lst' })), []);
   });
 });

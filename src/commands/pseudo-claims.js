@@ -1141,6 +1141,7 @@ export async function doEmitCandidates(index, args) {
       '#',
     ];
     const lines = [...caveat, `# mechanism-ranker  index=${indexName}  group-by=${result.mode}  ${result.groups.length} groups — RANKED by ${mlabel} (observe-only; anchors unchanged; ${ranked}/${scored.length} scored) — first-pass exploration priority; tag is [P0-3 signal/fold — what it resembles]`];
+    lines.push(...echoBlock(sorted));
     for (const g of sorted) {
       const v = vByLabel.get(g.label);
       const tag = v ? `  [P${v.priority} ${v.signal}/${v.fold}${v.note ? ' — ' + v.note : ''}]` : '  [unscored]';
@@ -1153,35 +1154,99 @@ export async function doEmitCandidates(index, args) {
     const rankedText = lines.join('\n') + '\n';
     if (outPath) {
       fs.writeFileSync(outPath, rankedText, 'utf8');
-      console.error(`# wrote ${result.groups.length} RANKED candidate group(s) to ${outPath}  (${indexName}, ${ranked}/${scored.length} scored by ${mlabel})`);
+      console.log(`${candidatesWroteLine(result, outPath, { ranked: true })}; ${ranked}/${scored.length} scored by ${mlabel}`);
     } else {
       process.stdout.write(rankedText);
     }
-    reportEchoes(sorted);
+    reportEchoes(sorted, { outPath, verbose: !!args.verbose });
     return;
   }
 
-  const text = formatAnchors(result, {
+  const text = withEchoBlock(formatAnchors(result, {
     indexName,
     minComm: GROUPER_DEFAULTS.minComm,
     purposeFor: (label, members) => harvestPurpose(index, label, members),
     ...(args.doc_anchors ? { docAnchorsFor: (label, members) => docAnchorsForGroup(index, label, members) } : {}),
-  });
+  }), result.groups);
   if (outPath) {
     fs.writeFileSync(outPath, text, 'utf8');
-    console.error(`# wrote ${result.groups.length} candidate group(s) to ${outPath}  (${indexName}, group-by=${result.mode}, unranked; pre-filtered ${result.noiseFiles} noise files / ${result.noiseFns} fns)`);
+    console.log(candidatesWroteLine(result, outPath));
   } else {
     process.stdout.write(text);
   }
-  reportEchoes(result.groups);
+  reportEchoes(result.groups, { outPath, verbose: !!args.verbose });
 }
 
-// grouper-echo-flag-fold Phase 1: one stderr line per detected echo pair at
-// emit time, so .lst-stage curation sees them before any drafting spend.
-function reportEchoes(groups) {
-  for (const p of echoPairs(groups)) {
-    console.error(`# echo: ${p.host.label} ~ ${p.echo.label} (${String(p.file).split('!').pop()})`);
+// candidates-stderr-quiet. grouper-echo-flag-fold Phase 1 printed one stderr
+// line per echo pair at emit time "so .lst-stage curation sees them before any
+// drafting spend" -- but curation happens in the FILE, possibly later and on
+// another machine, not on a console whose stderr is gone. On .CE_082826 that
+// was 60 of the command's 64 stderr lines, formatted like the file's own
+// `# label` headers, while stdout said nothing at all; a user read the echo
+// lines AS the output (Andrew, 2026-08-29). So: the pairs go into the
+// candidates file beneath the header, stderr gets one summary line (or the
+// per-pair lines under --verbose), and stdout gets the success line every
+// other writer in CE prints.
+//
+// The `#   host ~ echo (file)` lines are safe to feed back through
+// `--pseudo-claims @file`: collectAnchorGroups drops any `#` header that owns
+// no anchors, which is also how the `# coverage:` lines survive the round trip.
+export function echoBlock(groups) {
+  const pairs = echoPairs(groups);
+  if (!pairs.length) return [];
+  const out = [
+    `# echo pairs (${pairs.length}): groups sharing a dominant file -- the smaller is likely the same`,
+    '#   mechanism cut twice. When curating, keep one or merge them.',
+  ];
+  for (const p of pairs) out.push(`#   ${p.host.label} ~ ${p.echo.label} (${String(p.file).split('!').pop()})`);
+  return out;
+}
+
+// Insert the echo block at the end of the header run (the leading `#` lines,
+// before the first blank line that opens the first group), so it sits with
+// the other provenance rather than after the last anchor.
+export function withEchoBlock(text, groups) {
+  const block = echoBlock(groups);
+  if (!block.length) return text;
+  const lines = String(text).split(/\r?\n/);
+  let at = lines.findIndex((l) => l.trim() === '');
+  if (at < 0) at = lines.length;
+  lines.splice(at, 0, ...block);
+  return lines.join('\n');
+}
+
+// The counts the `Wrote ...` line reports, computed the way formatAnchors'
+// `# coverage:` line computes them so the console and the file agree.
+export function candidatesSummary(result) {
+  const groups = (result && result.groups) || [];
+  const funcs = (result && result.funcs) || [];
+  const grouped = new Set(groups.flatMap((g) => [...(g.ids || (g.members || []).map((m) => m.id))])).size;
+  const filesRepresented = new Set(groups.flatMap((g) => (g.members || []).map((m) => m.file))).size;
+  const files = new Set(funcs.map((f) => f.file)).size;
+  return {
+    groups: groups.length, grouped, candidates: funcs.length,
+    pct: funcs.length ? Math.round(100 * grouped / funcs.length) : null,
+    filesRepresented, files,
+  };
+}
+
+export function candidatesWroteLine(result, outPath, { ranked = false } = {}) {
+  const s = candidatesSummary(result);
+  const n = (x) => Number(x).toLocaleString('en-US');
+  const share = s.candidates ? ` (${s.pct}% of ${n(s.candidates)} candidates, ${n(s.filesRepresented)} of ${n(s.files)} files)` : '';
+  return `Wrote ${n(s.groups)} ${ranked ? 'ranked ' : ''}candidate group(s)${share} to ${outPath}`;
+}
+
+// stderr: one line by default (the pairs are in the file / on stdout), the
+// per-pair lines under --verbose. Silent when there are no pairs.
+export function reportEchoes(groups, { outPath = null, verbose = false } = {}) {
+  const pairs = echoPairs(groups);
+  if (!pairs.length) return;
+  if (verbose) {
+    for (const p of pairs) console.error(`# echo: ${p.host.label} ~ ${p.echo.label} (${String(p.file).split('!').pop()})`);
+    return;
   }
+  console.error(`# ${pairs.length} echo pair(s) noted in ${outPath || 'the candidates output'} (--verbose lists them)`);
 }
 
 /**
