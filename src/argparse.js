@@ -557,6 +557,9 @@ export function parseArgs() {
     // line plus an anchors sidecar, so the claims feed straight into
     // --synonymize and the grounded anchors survive as a scoreable answer key.
     ['claims_only',          'value',          ['--claims-only']],
+    // pseudo-claim-triage: deterministic first cut over a claims sidecar; needs
+    // no index, no model. Writes <base>_triage.md and <base>_keep.txt.
+    ['triage',               'value',          ['--triage']],
     ['dry_run',              'flag',           ['--dry-run']],
     ['use_claude',           'flag',           [], ['--use-claude']],
     ['llm',                  'value',          ['--llm']],
@@ -1510,6 +1513,21 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              CHART — one row per claim element/step, with the
                              grounded cite(s) for that element — instead of a
                              flat anchor list.
+  --triage <sidecar>         Deterministic FIRST CUT over a pseudo-claims run: reads
+                             the .anchors.json sidecar --claims-only wrote, ranks
+                             its claims KEEP / REVIEW / DROP with named reasons
+                             (near-duplicate of a sibling, echo of a bigger group
+                             over the same file, split residue, shape without
+                             mechanism, no grounded anchor, vocabulary generic
+                             within the run, weak dependents), and writes
+                             <base>_triage.md (the ranked table) plus
+                             <base>_keep.txt + .anchors.json (the KEEP tier, in
+                             the one-claim-per-line form --synonymize and
+                             --claim-chart read). Needs no index and no model.
+                             Thresholds are pinned from the drafted-claim
+                             population, never from anyone's picks. NOT a
+                             judgment of novelty or worth: DROP means "look at
+                             the others first". --shape-profile applies.
   --claims-only <file>       With --pseudo-claims: ALSO write a machine-readable
                              claims file — one claim per line, no caveat text,
                              no anchor tables — plus '<file>.anchors.json'

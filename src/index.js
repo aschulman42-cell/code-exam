@@ -61,7 +61,7 @@ import { doSaveFingerprints } from './commands/fingerprint.js';
 import { doInteractive } from './commands/interactive.js';
 import { doMultisect } from './commands/multisect.js';
 import { doClaimSearch } from './commands/claim.js';
-import { doPseudoClaims } from './commands/pseudo-claims.js';
+import { doPseudoClaims, doTriage } from './commands/pseudo-claims.js';
 import {
   doAnalyze, doClaimAnalyze, doMultisectAnalyze, doFileAnalyze,
 } from './commands/analyze.js';
@@ -706,6 +706,14 @@ if (args.add_extensions) {
     if (!ext.startsWith('.')) ext = '.' + ext;
     customExtensions.add(ext);
   }
+}
+
+// pseudo-claim-triage: `--triage <sidecar>` reads a claims sidecar and needs
+// neither an index nor a model, so it runs before the index is even opened --
+// a triage on another machine's run must not fail on a missing local index.
+if (args.triage) {
+  await doTriage(args);
+  process.exit(process.exitCode || 0);
 }
 
 // #230 Part B: first-run with no --index-path/--load-index, no --build-index, and

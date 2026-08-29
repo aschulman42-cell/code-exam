@@ -1,0 +1,15 @@
+{
+  "_doc": [
+    "Blind-round eyeball picks for pseudo-claim triage (src/core/pseudo-claim-triage.js).",
+    "EMPTY BY DESIGN until the cut exists: the picks are read off AFTER, never tuned to.",
+    "Each pick records the group label, the run it was drafted in, and the tier the cut",
+    "gave it when it was read off. `expect: KEEP` is a regression the thresholds must keep",
+    "satisfying; `knownMiss: true` records a pick the cut did not reach, with the reasons",
+    "the cut gave, and is the residue the LLM second cut is for. A threshold is not moved",
+    "to reach a pick unless the move is population-justified and the commit says so.",
+    "`runs` maps a run name to its sidecar fixture (committed, trimmed to what the picks need",
+    "plus a spread of non-picks); test/test_pseudo_claim_triage.js consumes this file."
+  ],
+  "runs": {},
+  "picks": []
+}

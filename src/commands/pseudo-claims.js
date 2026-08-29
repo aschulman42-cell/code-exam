@@ -33,6 +33,7 @@ import { analyzeClaimSet, classifyContribution } from '../core/dep-claims.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, wasLastDraftTruncated, truncationCount, truncationLine } from '../core/llm-runner.js';
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
 import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, echoPairs, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
+import { triageClaims, formatTriage, keepSidecar, formatKeepFile } from '../core/pseudo-claim-triage.js';
 
 // --- Canonical caveat blocks -------------------------------------------------
 // Ported verbatim from pseudo_claim_selftest/CAVEAT.md so the shipped command
@@ -1250,6 +1251,49 @@ export function reportEchoes(groups, { outPath = null, verbose = false } = {}) {
     return;
   }
   console.error(`# ${pairs.length} echo pair(s) noted in ${outPath || 'the candidates output'} (--verbose lists them)`);
+}
+
+/**
+ * pseudo-claim-triage: `--triage <sidecar>`. The deterministic first cut over
+ * a run's claims (src/core/pseudo-claim-triage.js), from the `.anchors.json`
+ * sidecar --claims-only wrote. No index, no model. Writes the ranked table and
+ * the KEEP tier as a claims-only file (+ its own sidecar) beside the source.
+ * Sets process.exitCode on error.
+ */
+export async function doTriage(args) {
+  const src = String(args.triage || '');
+  let sidecar;
+  try {
+    sidecar = JSON.parse(fs.readFileSync(src, 'utf8'));
+  } catch (e) {
+    console.error(`--triage: could not read sidecar '${src}': ${e.message}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (!sidecar || !Array.isArray(sidecar.claims)) {
+    console.error(`--triage: '${src}' is not a pseudo-claims sidecar (expected the .anchors.json that --claims-only writes beside the claims file, format ce-pseudo-claim-anchors).`);
+    process.exitCode = 1;
+    return;
+  }
+  const profile = args.shape_profile || DEFAULT_SHAPE_PROFILE;
+  const result = triageClaims(sidecar, { shapeReport: (claim, deps) => shapeReport(claim, deps, profile) });
+  const base = src.replace(/\.anchors\.json$/i, '').replace(/\.txt$/i, '');
+  const triagePath = `${base}_triage.md`;
+  const keepPath = `${base}_keep.txt`;
+  const keep = keepSidecar(sidecar, result, { source: src, triagePath });
+  try {
+    fs.writeFileSync(triagePath, formatTriage(result, { source: src }), 'utf8');
+    fs.writeFileSync(keepPath, formatKeepFile(keep, {
+      source: src, triagePath, keepPath, ceVersion: readCeVersion(), generatedAt: new Date().toISOString(),
+    }), 'utf8');
+    fs.writeFileSync(`${keepPath}.anchors.json`, `${JSON.stringify(keep, null, 2)}\n`, 'utf8');
+  } catch (e) {
+    console.error(`--triage: write failed: ${e.message}`);
+    process.exitCode = 1;
+    return;
+  }
+  const t = result.tiers;
+  console.log(`Triage: ${t.KEEP} KEEP / ${t.REVIEW} REVIEW / ${t.DROP} DROP of ${result.claims.length} claim(s) -> ${triagePath}; KEEP tier as ${keepPath} (+ .anchors.json)`);
 }
 
 /**
