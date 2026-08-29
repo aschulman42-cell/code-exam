@@ -529,6 +529,8 @@ export function parseArgs() {
     ['claim_search',         'value',          ['--claim-search']],
     ['claim_file',           'value',          ['--claim-file']],
     ['claim_number',         'value',          ['--claim-number']],
+    // issue-311-dep-claim-chart: chart claim 1 and every dependent beneath it.
+    ['claim_family',         'flag',           ['--claim-family']],
     // #281: pseudo-claim generation (v1: explicit anchors)
     ['pseudo_claims',        'optional_value', ['--pseudo-claims']],
     ['pseudo_out',           'value',          ['--pseudo-out']],
@@ -1555,6 +1557,18 @@ LLM ANALYSIS:
                               callee BODIES are included by default so the crux
                               element is not judged on an inference. Takes
                               @file.txt or inline text.
+  --claim-family             --claim-chart: chart claim 1 AND every dependent
+                             claim beneath it (a claims file with numbered
+                             claims). Claim 1 is charted as always; each
+                             dependent's rows are its parent's rows plus what it
+                             contributes: an ADDITION adds a row, a MODIFICATION
+                             re-evaluates the one inherited row it narrows
+                             (against the dependent's language, on the code the
+                             parent row cited), inherited rows carry the
+                             parent's verdict. Costs claim 1 plus the deltas.
+                             Without it, a numbered claims file charts its
+                             FIRST claim only (--claim-number <n> picks
+                             another; a dependent charts its chain).
   --targets <list>           --claim-chart: "file@fn;file@fn" or @targets.txt.
                              Omit it to let CE retrieve evidence PER ELEMENT
                              instead (see --elements); supplying it keeps the

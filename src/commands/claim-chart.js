@@ -28,7 +28,9 @@
 
 import fs from 'node:fs';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine, engineBuildLine } from '../core/llm-runner.js';
-import { buildClaimAnalyzePrompt, addLineNumbers, readClaimFile } from './analyze.js';
+import { buildClaimAnalyzePrompt, addLineNumbers, readClaimFile, resolveClaimScope, splitNumberedClaims } from './analyze.js';
+import { analyzeClaimSet } from '../core/dep-claims.js';
+import { contentWords, stem } from '../core/claim-terms.js';
 import { isPseudoSource } from '../binstrings.js';
 import { elementClasses, tallyByClass, classHeadline } from '../core/claim-genericity.js';
 
@@ -850,6 +852,274 @@ export function formatChart({
   return out.join('\n');
 }
 
+// ============================================================================
+// Dependent claims (issue-311-dep-claim-chart)
+// ============================================================================
+//
+// A claims file usually carries more than claim 1, and until this landed the
+// chart read the whole file as ONE claim: every dependent's text collapsed
+// into claim 1's rows. Scope is now resolved the way --claim-analyze resolves
+// it (20f0756): the first claim by default, `--claim-number <n>` to pick one
+// (a dependent charts its chain), `--claim-family` to chart claim 1 and every
+// dependent that resolves to it.
+//
+// WHAT A DEPENDENT'S CHART IS. Its rows are its parent's rows plus what it
+// contributes (1c71015's kinds): an ADDITION appends a row; a MODIFICATION
+// narrows one inherited row, which is re-evaluated against the dependent's
+// language and may come back with a different verdict on the same code --
+// that is the point of a dependent as a graded test (#311). Inherited rows
+// are rendered as one-line references carrying the parent's verdict; they
+// are not re-judged, so a family costs claim 1 plus the deltas, not N charts.
+// UNDETERMINED contributions are judged as their own row and the ambiguity
+// is stated; cross-class kinds (PRODUCT-BY-PROCESS, COMBINATION) inherit the
+// referenced claim's rows with their kind named.
+
+const ROW_LETTERS = 'abcdefghijklmnopqrstuvwxyz';
+export const rowDesignation = (n, i) => `[${n}${i < ROW_LETTERS.length ? ROW_LETTERS[i] : `r${i + 1}`}]`;
+
+/** A dependent's contribution: the text after its "... of claim N" reference. */
+export function dependentBody(text) {
+  const s = String(text || '').trim();
+  const m = s.match(/\bclai?ms?\s+(?:of\s+|in\s+)?(?:any\s+(?:one\s+)?of\s+)?[0-9]+(?:\s*(?:to|through|-|–|or|and)\s*[0-9]+)*\s*,?\s*/i);
+  if (!m) return s;
+  return s.slice(m.index + m[0].length).replace(/^[\s,;:]+/, '').trim() || s;
+}
+
+const stemsOf = (t) => new Set(contentWords(t).map(stem));
+
+/** The parent row a narrowing most plausibly narrows: best content-stem overlap, ties to the earlier row. */
+export function narrowedRowFor(ownText, parentRows) {
+  const own = stemsOf(ownText);
+  let best = null;
+  for (const row of parentRows || []) {
+    let shared = 0;
+    for (const s of stemsOf(row.text)) if (own.has(s)) shared++;
+    if (shared > 0 && (!best || shared > best.shared)) best = { row, shared };
+  }
+  return best;
+}
+
+/**
+ * Resolve what to chart from the claim text: `{ text, note, family }`.
+ * `family` is null unless `--claim-family`; then `{ root, rootText, members }`
+ * with members in chart order (depth, then number), each carrying the
+ * dep-claims row (n, text, parent, chain, depthLabel, contribution, parentChoice).
+ */
+export function chartScope(claimText, { claim = null, family = false } = {}) {
+  const parts = splitNumberedClaims(claimText).filter((p) => p.n != null);
+  if (parts.length < 2) {
+    if (claim != null && parts.length === 1 && Number(claim) !== parts[0].n) {
+      throw new Error(`claim ${claim} is not in the input (only claim ${parts[0].n} is present)`);
+    }
+    return { text: String(claimText || '').trim(), note: null, family: null };
+  }
+  if (!family) {
+    const s = resolveClaimScope(claimText, { claim });
+    return { text: s.text, note: s.note, family: null };
+  }
+  const res = analyzeClaimSet(parts.map((p) => ({ n: p.n, text: `${p.n}. ${p.text}` })));
+  const rootN = claim != null ? Number(claim) : parts[0].n;
+  const root = res.byNumber.get(rootN);
+  if (!root) throw new Error(`claim ${rootN} is not in the input (claims present: ${parts.map((p) => p.n).join(', ')})`);
+  if (root.dependent) throw new Error(`--claim-family needs an independent claim as its root; claim ${rootN} depends on claim ${root.parent ?? '?'} -- chart it with --claim-number ${rootN} instead`);
+  const textOf = (k) => (parts.find((p) => p.n === k) || { text: '' }).text;
+  const members = res.claims
+    .filter((r) => r.dependent && r.n !== rootN && Array.isArray(r.chain) && r.chain.includes(rootN))
+    .sort((a, b) => (a.depth - b.depth) || (a.n - b.n))
+    .map((r) => ({ n: r.n, text: textOf(r.n), parent: r.parent, chain: r.chain, depth: r.depth, depthLabel: r.depthLabel,
+      contribution: r.contribution, parentChoice: r.parentChoice, rule: r.rule }));
+  const unresolved = res.claims.filter((r) => r.dependent && (r.parent == null || !r.chain));
+  const other = res.claims.filter((r) => !r.dependent && r.n !== rootN);
+  const note = [`family of claim ${rootN}: ${members.length} dependent claim(s) charted beneath it`];
+  if (unresolved.length) note.push(`${unresolved.length} dependent claim(s) not charted, parent unresolved: ${unresolved.map((r) => r.n).join(', ')}`);
+  if (other.length) note.push(`${other.length} other independent claim(s) in the input not charted: ${other.map((r) => r.n).join(', ')}`);
+  // Numbered like the single-claim path (resolveClaimScope keeps "1. ..."), so
+  // the Claim block reads the same whichever way the chart was scoped.
+  return { text: `${rootN}. ${textOf(rootN)}`, note: note.join('; '), family: { root: rootN, rootText: textOf(rootN), members, textOf } };
+}
+
+// The transitional cue is the dependent's KIND, not a limitation: "further
+// comprising:" split off as a row of its own on the first fixture.
+const DEP_CUE_RE = /^(?:further\s+(?:comprising|comprises|including|includes|having|containing)|wherein|in\s+which|where|characteri[sz]ed\s+(?:by|in\s+that))\b\s*[:,]?\s*/i;
+export function dependentRows(body) {
+  const stripped = String(body || '').replace(DEP_CUE_RE, '').trim();
+  const rows = splitClaimElements(stripped, { fine: false })
+    .map((s) => String(s).replace(DEP_CUE_RE, '').trim())
+    .filter((s) => s && contentWords(s).length);
+  return rows.length ? rows : [stripped || String(body || '').trim()];
+}
+
+/** The one-sentence verdict that distinguishes a compressed dependent chart from an incomplete one. */
+export function familyVerdictLine(dep) {
+  const rows = dep.effective;
+  const inherited = dep.inherited.filter((r) => !r.narrowedBy).length;
+  const narrowed = dep.judged.filter((j) => j.origin === 'narrowed').length;
+  const fresh = dep.judged.filter((j) => j.origin === 'new').length;
+  const notMet = rows.filter((r) => r.label !== 'PRESENT');
+  const present = rows.length - notMet.length;
+  const from = [...new Set(dep.inherited.map((r) => r.from))].sort((a, b) => a - b);
+  const inhPresent = dep.inherited.filter((r) => !r.narrowedBy && r.label === 'PRESENT').length;
+  const verdict = notMet.length ? `NOT MET (${present} of ${rows.length} limitations PRESENT)` : `MET (all ${rows.length} limitations PRESENT)`;
+  return `claim ${dep.n} (${dep.depthLabel || 'D'}): ${verdict} over ${rows.length} limitations -- `
+    + `${inherited} inherited from claim${from.length > 1 ? 's' : ''} ${from.join(', ')} (evaluated there, not shown; ${inhPresent} PRESENT), `
+    + `${narrowed} re-evaluated as narrowed, ${fresh} new`;
+}
+
+export function formatFamilySection(fam) {
+  const esc = (s) => String(s == null ? '' : s).replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
+  const out = [];
+  out.push('', `## Dependent claims (family of claim ${fam.root})`, '');
+  out.push(`_${fam.members.length} dependent claim(s). An inherited row is a one-line reference to the parent row it`);
+  out.push('incorporates, carrying that row\'s verdict (evaluated on the parent, not re-judged). An ADDITION adds a row.');
+  out.push('A MODIFICATION re-evaluates the one inherited row it narrows, against the dependent\'s own language and on');
+  out.push('the code the parent row cited; its verdict may differ from the parent\'s, and the row says so. The verdict');
+  out.push('line under each claim counts every limitation the dependent carries, shown or not._');
+  for (const dep of fam.members) {
+    const kind = dep.kind + (dep.cue ? ` ("${dep.cue}")` : '');
+    out.push('', `### Claim ${dep.n} (${dep.depthLabel || 'D'}) — ${kind}`, '');
+    out.push('```', `${dep.n}. ${dep.text}`, '```', '');
+    if (dep.parentChoice) out.push(`_Multi-parent reference: charted under claim ${dep.parent} by ${dep.parentChoice.policy} (alternatives ${dep.parentChoice.alternatives.join(', ')})._`, '');
+    out.push(`**Verdict:** ${dep.verdictLine}`, '');
+    out.push('| # | Claim element | CE finding — is the limitation met? | Cited code |', '|---|---|---|---|');
+    for (const r of dep.effective) {
+      if (r.origin === 'inherited') {
+        out.push(`| ${r.designation} | _inherited from claim ${r.from}; see ${r.parentDesignation}_ | **${r.label}** _(carried)_ | ${r.target ? `\`${r.target}\`` : '—'} |`);
+      } else if (r.origin === 'narrowed') {
+        const was = r.parentLabel ? ` _(was ${r.parentLabel} on ${r.narrows})_` : '';
+        out.push(`| ${r.designation} narrows ${r.narrows} | ${esc(r.text)} | **${r.label}**${was}${r.note ? ' ' + esc(r.note).slice(0, 160) : ''} | ${r.target ? `\`${r.target}\`` : '—'} |`);
+      } else {
+        const amb = r.ambiguous ? ` _(${esc(r.ambiguous)})_` : '';
+        out.push(`| ${r.designation} | ${esc(r.text)}${amb} | **${r.label}**${r.note ? ' ' + esc(r.note).slice(0, 160) : ''} | ${r.target ? `\`${r.target}\`` : '—'} |`);
+      }
+    }
+    const judgedOn = dep.analysed.map((a) => `\`${a.target}\``).join(', ');
+    out.push('', `_Re-evaluated / new rows judged on ${dep.analysed.length} target(s)${judgedOn ? `: ${judgedOn}` : ''}`
+      + `${dep.dropped.length ? `; ${dep.dropped.length} dropped (${dep.dropped.map((d) => d.reason).join('; ')})` : ''}._`);
+  }
+  return out.join('\n');
+}
+
+// One target judged against a dependent's re-evaluated / new rows. The same
+// steps as claim 1's loop (resolve, file-hint filter, source with file line
+// numbers, depth-1 callees, the VERDICT contract, the lexical gate); kept
+// separate rather than refactoring the loop the '101 charts were produced by.
+async function analyseTargetForRows({ index, symbols, target, claimText, rows, draft, args }) {
+  const t = String(target);
+  const at = t.indexOf('@');
+  const fnSpec = at >= 0 ? t.slice(at + 1) : t;
+  const fileHint = at >= 0 ? t.slice(0, at).trim() : '';
+  let v = verifySymbol(symbols, fnSpec);
+  if (fileHint && isFound(v)) {
+    const hinted = filterMatchesByFile(v.matches, fileHint);
+    if (!hinted.length) return { dropped: { target: t, reason: `not found in a file matching \`${fileHint}\`` } };
+    v = { ...v, matches: hinted, ambiguous: hinted.length };
+  }
+  if (!isFound(v)) return { dropped: { target: t, reason: 'not found in this index' } };
+  const m = v.matches[0];
+  let got = null;
+  const _log = console.log; console.log = () => {};
+  try { got = index.getFunctionSourceWithRange?.(m.filepath, m.name); } catch { got = null; } finally { console.log = _log; }
+  const src = got?.source;
+  if (!src) return { dropped: { target: t, reason: 'source not retrievable from the index' } };
+  const { text: calleeText } = args.no_callees === true ? { text: '' } : collectCalleeBodies(index, symbols, m, args);
+  const numFrom = got?.start ?? m.start;
+  const numbered = numFrom != null ? addLineNumbers(String(src), numFrom) : String(src);
+  const promptSrc = calleeText
+    ? `${numbered}\n\n// ===== depth-1 callees, included so the analysis need not infer what they do =====\n${calleeText}`
+    : numbered;
+  const label = targetSpec(m);
+  let out;
+  try { out = await draft(buildChartAnalysisPrompt(promptSrc, m.name, m.filepath, claimText, rows), '', 1100); }
+  catch (e) { return { dropped: { target: label, reason: `analysis failed — ${e.message}` } }; }
+  const verdicts = parseChartVerdicts(out || '', rows);
+  const gated = verdicts.map((e) => ({ ...e, label: lexicalGate(e.label, e.text, `${m.name}\n${promptSrc}`) }));
+  if (!gated.length) {
+    const rawLines = String(out || '').split(/\r?\n/).filter((l) => l.trim()).length;
+    return { dropped: { target: label, reason: rawLines ? `PARSE-FAILED: ${rawLines} non-empty line(s), none matched the VERDICT contract` : 'engine returned an empty response' } };
+  }
+  return { target: label, elements: gated };
+}
+
+/**
+ * Chart every dependent in the family beneath an already-charted claim 1.
+ * Returns `{ root, members: [...] }` for formatFamilySection and the sidecar.
+ */
+export async function chartFamily({ index, symbols, draft, args, scope, rootElements, rootFills, targetsSupplied, onProgress = null }) {
+  const fam = scope.family;
+  const rootN = fam.root;
+  const rowsOf = new Map();
+  rowsOf.set(rootN, rootElements.map((e, i) => {
+    const f = rootFills.find((x) => x.element === i + 1) || null;
+    return { designation: rowDesignation(rootN, i), text: String(e), label: f ? f.label : 'UNANALYSED', note: f ? f.note || '' : '', target: f ? f.target || null : null };
+  }));
+  const chainText = (dep) => (dep.chain || [rootN, dep.n]).map((k) => `${k}. ${fam.textOf(k)}`).join('\n');
+  const members = [];
+  for (const dep of fam.members) {
+    const parentRows = rowsOf.get(dep.parent) || rowsOf.get(rootN);
+    const own = dependentRows(dependentBody(dep.text));
+    const kind = dep.contribution ? dep.contribution.kind : 'UNDETERMINED';
+    const judged = [];
+    const narrowed = new Map(); // parent designation -> judged row
+    own.forEach((t, i) => {
+      const d = rowDesignation(dep.n, i);
+      if (kind === 'MODIFICATION') {
+        const m = narrowedRowFor(t, parentRows);
+        if (m && !narrowed.has(m.row.designation)) {
+          const j = { designation: d, origin: 'narrowed', own: t, text: `${m.row.text} — as narrowed by claim ${dep.n}: ${t}`, narrows: m.row.designation, parentLabel: m.row.label, parentTarget: m.row.target, shared: m.shared };
+          narrowed.set(m.row.designation, j);
+          judged.push(j);
+        } else {
+          judged.push({ designation: d, origin: 'new', own: t, text: t, ambiguous: 'narrowing cue, but no parent row shares its vocabulary; judged as its own row' });
+        }
+      } else if (kind === 'UNDETERMINED') {
+        const m = narrowedRowFor(t, parentRows);
+        judged.push({ designation: d, origin: 'new', own: t, text: t, ambiguous: m ? `UNDETERMINED kind: judged as its own row; could also read as narrowing ${m.row.designation}` : 'UNDETERMINED kind (neither an addition nor a narrowing cue); judged as its own row' });
+      } else {
+        judged.push({ designation: d, origin: 'new', own: t, text: t });
+      }
+    });
+    const inherited = parentRows.map((r) => ({ ...r, origin: 'inherited', from: dep.parent ?? rootN, parentDesignation: r.designation, narrowedBy: narrowed.has(r.designation) ? dep.n : null }));
+
+    // Targets: the parent row's cited code for a narrowed row (the narrowing is
+    // judged where the parent was found), plus per-element retrieval for the
+    // judged rows when the chart retrieves for itself; with --targets supplied,
+    // every target claim 1 cited.
+    const targetSet = new Set();
+    for (const j of judged) if (j.parentTarget) targetSet.add(j.parentTarget);
+    if (targetsSupplied) { for (const r of parentRows) if (r.target) targetSet.add(r.target); }
+    else if (judged.length) {
+      const disc = await retrievePerElement({ draft, elements: judged.map((j) => j.text), symbols,
+        opts: { includeTests: !!args.include_tests, includeOp: !!args.include_op, index } });
+      if (!disc.error) for (const t of perElementTargetsWithStats(disc.perElement, args).targets) targetSet.add(t);
+    }
+    const analysed = [];
+    const dropped = [];
+    for (const t of targetSet) {
+      if (onProgress) onProgress(`  claim ${dep.n}: judging ${judged.length} row(s) on ${t}`);
+      const r = await analyseTargetForRows({ index, symbols, target: t, claimText: chainText(dep), rows: judged.map((j) => j.text), draft, args });
+      if (r.dropped) dropped.push(r.dropped); else analysed.push(r);
+    }
+    const fills = analysed.length ? mergeBestPerElement(analysed) : [];
+    judged.forEach((j, i) => {
+      const f = fills.find((x) => x.element === i + 1) || null;
+      j.label = f ? f.label : 'UNANALYSED';
+      j.note = f ? f.note || '' : (targetSet.size ? 'no target produced a verdict for this row' : 'no target to judge this row on');
+      j.target = f ? f.target || null : null;
+    });
+    const effective = [
+      ...inherited.map((r) => (r.narrowedBy ? narrowed.get(r.designation) : r)),
+      ...judged.filter((j) => j.origin === 'new'),
+    ];
+    const rec = { n: dep.n, text: dep.text, depthLabel: dep.depthLabel, depth: dep.depth, kind, cue: dep.contribution ? dep.contribution.cue : null,
+      parent: dep.parent ?? rootN, chain: dep.chain || [rootN, dep.n], parentChoice: dep.parentChoice || null,
+      inherited, judged, effective, analysed, dropped };
+    rec.verdictLine = familyVerdictLine(rec);
+    rowsOf.set(dep.n, effective.map((r) => ({ designation: r.designation, text: r.text, label: r.label, note: r.note || '', target: r.target || null })));
+    members.push(rec);
+  }
+  return { root: rootN, members };
+}
+
 export async function doClaimChart(index, args, opts = {}) {
   const spec = args.claim_chart;
   let claimText = spec;
@@ -870,6 +1140,15 @@ export async function doClaimChart(index, args, opts = {}) {
     console.error('--claim-chart needs claim text: --claim-chart @claim.txt'); process.exitCode = 1; return;
   }
   claimText = String(claimText).trim();
+
+  // issue-311-dep-claim-chart: which claim(s) of the input this chart is of.
+  // Default the first; --claim-number <n> selects (a dependent charts its
+  // chain); --claim-family charts claim 1 and its dependents beneath it.
+  let scope;
+  try { scope = chartScope(claimText, { claim: args.claim_number ?? null, family: !!args.claim_family }); }
+  catch (e) { console.error(`--claim-chart: ${e.message}`); process.exitCode = 1; return; }
+  claimText = scope.text;
+  if (scope.note) process.stderr.write(`[claim-chart] scope: ${scope.note}\n`);
 
   // --elements @file.txt supplies the row skeleton verbatim. Read before the
   // model exists so a bad path fails immediately rather than after a paid call.
@@ -1206,7 +1485,8 @@ Per-target verdicts written to ${args.verdicts_out}`
   }
 
   const fills = mergeBestPerElement(perTarget);
-  const scopeNote = args.scope_note ? String(args.scope_note) : null;
+  const scopeNote = [scope.note ? `_Scope: ${scope.note}._` : null, args.scope_note ? String(args.scope_note) : null]
+    .filter(Boolean).join('\n\n') || null;
   const provenance = buildProvenanceHeader({
     claimText,
     claimSource: (typeof spec === 'string' && spec.startsWith('@')) ? `\`${spec.slice(1)}\`` : null,
@@ -1227,12 +1507,67 @@ Per-target verdicts written to ${args.verdicts_out}`
     generatedAt: new Date().toISOString(),
     elementsSource, elementComments,
   });
+  // issue-311-dep-claim-chart: the dependents, after claim 1 is settled. Each
+  // costs its re-evaluated / new rows only (one retrieval call when the chart
+  // retrieves for itself, plus one analysis per target); inherited rows carry
+  // claim 1's verdicts. Gated as its own spend before the first call.
+  let family = null;
+  if (scope.family && scope.family.members.length) {
+    const n = scope.family.members.length;
+    const calls = [];
+    for (let i = 0; i < n; i++) {
+      if (!args.targets) calls.push({ inChars: 2500, outTokens: 600 });
+      for (let k = 0; k < 3; k++) calls.push({ inChars: 9000, outTokens: 900 });
+    }
+    if (!claimsCostGate(model, calls, `claim-chart family: ${n} dependent claim(s)`, args)) {
+      process.stderr.write('[claim-chart] family pass declined by the cost gate; claim 1 charted alone.\n');
+    } else {
+      process.stderr.write(`[claim-chart] family: ${n} dependent claim(s) beneath claim ${scope.family.root}\n`);
+      family = await chartFamily({
+        index, symbols, draft, args, scope, rootElements: elements, rootFills: fills, targetsSupplied: !!args.targets,
+        onProgress: (line) => process.stderr.write(line + '\n'),
+      });
+    }
+  }
+
   console.log(formatChart({
     claimText, table, fills, elements, engineLabel, scopeNote, provenance,
     targets: perTarget.map((p) => p.target),
     dropped, retrieval,
-  }));
+  }) + (family ? formatFamilySection(family) + '\n' : ''));
+
+  // The sidecar's family block: per dependent, every row with its origin and
+  // verdict, and the raw per-target analyses of the judged rows -- what the
+  // loop test grades. Appended to the file written above so the claim-1 half
+  // stays exactly the shape replay tools already read.
+  if (family && args.verdicts_out && !process.exitCode) {
+    try {
+      const j = JSON.parse(fs.readFileSync(args.verdicts_out, 'utf8'));
+      j.family = {
+        root: family.root,
+        members: family.members.map((d) => ({
+          n: d.n, depth: d.depthLabel, kind: d.kind, cue: d.cue, parent: d.parent, chain: d.chain,
+          parentChoice: d.parentChoice ? { policy: d.parentChoice.policy, chosen: d.parentChoice.chosen, alternatives: d.parentChoice.alternatives } : null,
+          verdict: d.verdictLine,
+          rows: d.effective.map((r) => ({
+            designation: r.designation, origin: r.origin, text: r.text,
+            ...(r.origin === 'inherited' ? { from: r.from, parentDesignation: r.parentDesignation } : {}),
+            ...(r.origin === 'narrowed' ? { narrows: r.narrows, parentLabel: r.parentLabel, own: r.own } : {}),
+            ...(r.ambiguous ? { ambiguous: r.ambiguous } : {}),
+            label: r.label, note: r.note || '', target: r.target || null,
+          })),
+          analysed: d.analysed.map((a) => ({ target: a.target, elements: a.elements.map((e) => ({ element: e.element ?? null, text: e.text ?? '', label: e.label, note: e.note || '' })) })),
+          dropped: d.dropped,
+        })),
+      };
+      fs.writeFileSync(args.verdicts_out, `${JSON.stringify(j, null, 2)}\n`, 'utf8');
+      console.log(`Family block added to ${args.verdicts_out} (${family.members.length} dependent claim(s)).`);
+    } catch (e) {
+      console.error(`--verdicts-out: cannot add the family block to ${args.verdicts_out}: ${e.message}`);
+      process.exitCode = 1;
+    }
+  }
   const cost = actualCostLine(model);
   if (cost) process.stderr.write(cost + '\n');
-  return { fills, elements: elements.length, targets: perTarget.length };
+  return { fills, elements: elements.length, targets: perTarget.length, family: family ? family.members.length : 0 };
 }

@@ -1561,3 +1561,151 @@ describe('claim chart: --granularity reaches the rows', () => {
     }
   });
 });
+
+// issue-311-dep-claim-chart: a claims file carries more than claim 1, and the
+// chart used to read all of it as ONE claim. Scope is now resolved (first
+// claim / --claim-number / --claim-family), and a family charts each
+// dependent as its parent's rows plus its contribution -- an ADDITION adds a
+// row, a MODIFICATION re-evaluates the row it narrows. The stub model below
+// answers the VERDICT contract from the prompt's ELEMENT lines: a narrowed row
+// is ABSENT, everything else PRESENT, so a re-evaluation comes back different
+// from its parent on the same code -- which is what a graded dependent is for.
+import { chartScope, dependentBody, narrowedRowFor, familyVerdictLine } from '../src/commands/claim-chart.js';
+import os from 'node:os';
+import path from 'node:path';
+
+describe('dependent claims: scope and --claim-family (issue-311-dep-claim-chart)', () => {
+  const index = {
+    functionIndex: { 'x/A.java': { 'A::one': { start: 1, end: 5 }, 'A::two': { start: 7, end: 9 } } },
+    _ensureFunctionIndex() {},
+    findCallers: () => [], findCallees: () => [],
+    getFunctionSource: () => 'void one() { rate(); }',
+    getFunctionSourceWithRange: () => ({ source: 'void one() { rate(); }', start: 1, end: 1, prepended: 0 }),
+  };
+  const FAMILY = [
+    '1. A method of rating a stream, comprising: receiving a stream; computing a rate from the stream; and storing the rate.',
+    '2. The method of claim 1, further comprising: transmitting the rate to a client.',
+    '3. The method of claim 1, wherein computing the rate comprises weighting the rate by a window.',
+    '4. The method of claim 3, wherein the window is squared.',
+    '5. The method of claim 1, characterized by a threshold on the rate.',
+    '6. The method of any of claims 1 to 3, further comprising: logging the rate.',
+  ].join('\n');
+  const draft = async (prompt) => {
+    const lines = [];
+    for (const m of String(prompt).matchAll(/^ELEMENT (\d+): (.*)$/gm)) {
+      lines.push(`VERDICT ${m[1]}: ${/as narrowed by claim/.test(m[2]) ? 'ABSENT — the narrowing is not in this function, no line.' : 'PRESENT — rate() computes it, line 1.'}`);
+    }
+    return lines.join('\n');
+  };
+  const run = async (args) => {
+    const out = [];
+    const origLog = console.log; console.log = (s) => out.push(String(s));
+    const origErr = process.stderr.write; process.stderr.write = () => true;
+    let res;
+    try { res = await doClaimChart(index, { targets: 'x/A.java@A::one', model: 'f.gguf', no_callees: true, ...args }, { draft }); }
+    finally { console.log = origLog; process.stderr.write = origErr; }
+    return { res, chart: out.join('\n') };
+  };
+
+  it('dependentBody strips the reference; narrowedRowFor picks the row sharing the most stems', () => {
+    assert.equal(dependentBody('The method of claim 1, wherein the window is squared.'), 'wherein the window is squared.');
+    assert.equal(dependentBody('The method of any of claims 1 to 3, further comprising: logging the rate.'), 'further comprising: logging the rate.');
+    const rows = [{ designation: '[1a]', text: 'receiving a stream' }, { designation: '[1b]', text: 'computing a rate from the stream' }];
+    assert.equal(narrowedRowFor('wherein computing the rate comprises weighting the rate', rows).row.designation, '[1b]');
+    assert.equal(narrowedRowFor('wherein the colour is blue', rows), null);
+  });
+
+  it('chartScope: first claim by default, the chain for a dependent, the family on request, and a dependent root refused', () => {
+    const one = chartScope(FAMILY, {});
+    assert.match(one.text, /^1\. A method of rating a stream/);
+    assert.ok(!/transmitting/.test(one.text), 'claim 2 text must not fold into claim 1');
+    assert.match(one.note, /5 other claim\(s\) in the input not used/);
+    const three = chartScope(FAMILY, { claim: 3 });
+    assert.match(three.text, /^1\. A method of rating[\s\S]*\n3\. The method of claim 1, wherein computing/);
+    const fam = chartScope(FAMILY, { family: true });
+    assert.equal(fam.family.root, 1);
+    // Claim 6 ("any of claims 1 to 3") resolves to claim 2 by shortest-parent, so it is D2 like claim 4.
+    assert.deepEqual(fam.family.members.map((m) => m.n), [2, 3, 5, 4, 6], 'depth-1 dependents first, then D2');
+    assert.equal(fam.family.members.find((m) => m.n === 4).depthLabel, 'D2');
+    assert.equal(fam.family.members.find((m) => m.n === 6).parent, 2);
+    assert.throws(() => chartScope(FAMILY, { claim: 3, family: true }), /needs an independent claim as its root/);
+  });
+
+  it('familyVerdictLine counts every limitation, shown or not', () => {
+    const dep = {
+      n: 3, depthLabel: 'D',
+      inherited: [{ from: 1, label: 'PRESENT' }, { from: 1, label: 'ABSENT' }, { from: 1, label: 'PRESENT', narrowedBy: 3 }],
+      judged: [{ origin: 'narrowed', label: 'ABSENT' }],
+      effective: [{ label: 'PRESENT' }, { label: 'ABSENT' }, { label: 'ABSENT' }],
+    };
+    assert.equal(familyVerdictLine(dep), 'claim 3 (D): NOT MET (1 of 3 limitations PRESENT) over 3 limitations -- 2 inherited from claim 1 (evaluated there, not shown; 1 PRESENT), 1 re-evaluated as narrowed, 0 new');
+  });
+
+  it('without --claim-family a numbered claims file charts claim 1 only; --claim-number charts a chain', async () => {
+    const { res, chart } = await run({ claim_chart: FAMILY });
+    assert.ok(res && res.family === 0);
+    assert.ok(!/transmitting the rate/.test(chart), 'claim 2 must not appear in a claim-1 chart');
+    assert.match(chart, /Scope: claim 1 \(independent\)/);
+    const three = await run({ claim_chart: FAMILY, claim_number: 3 });
+    assert.match(three.chart, /3\. The method of claim 1, wherein computing/);
+  });
+
+  it('--claim-family charts each dependent as inherited rows plus its contribution, with the sidecar family block', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-family-'));
+    const sidecarPath = path.join(dir, 'verdicts.json');
+    try {
+      const { res, chart } = await run({ claim_chart: FAMILY, claim_family: true, verdicts_out: sidecarPath });
+      assert.ok(res && res.family === 5, JSON.stringify(res));
+      assert.match(chart, /## Dependent claims \(family of claim 1\)/);
+      assert.match(chart, /### Claim 2 \(D\) — ADDITION/);
+      assert.match(chart, /### Claim 3 \(D\) — MODIFICATION/);
+      assert.match(chart, /### Claim 4 \(D2\) — MODIFICATION/);
+      assert.match(chart, /### Claim 5 \(D\) — UNDETERMINED/);
+      assert.match(chart, /_Multi-parent reference: charted under claim \d by shortest-parent \(alternatives/);
+      const j = JSON.parse(fs.readFileSync(sidecarPath, 'utf8'));
+      assert.equal(j._format, 'codeexam-chart-verdicts/1', 'the claim-1 half of the sidecar is untouched');
+      assert.equal(j.family.members.length, 5);
+      const byN = (n) => j.family.members.find((m) => m.n === n);
+      // ADDITION: every claim-1 row inherited with its verdict carried, one new row.
+      const c2 = byN(2);
+      assert.equal(c2.kind, 'ADDITION');
+      assert.equal(c2.rows.filter((r) => r.origin === 'inherited').length, j.elements);
+      const added = c2.rows.find((r) => r.origin === 'new');
+      assert.match(added.text, /transmitting the rate to a client/);
+      assert.equal(added.designation, '[2a]');
+      // The stub says PRESENT; the lexical gate may downgrade it on the one-line
+      // mock source. What matters here is that the row WAS judged.
+      assert.ok(['PRESENT', 'PARTIAL', 'ASSUMED'].includes(added.label), added.label);
+      assert.ok(added.target, 'judged on a target');
+      assert.match(c2.verdict, /^claim 2 \(D\): .*over \d+ limitations -- \d+ inherited from claim 1 \(evaluated there, not shown; \d+ PRESENT\), 0 re-evaluated as narrowed, 1 new$/);
+      // MODIFICATION: the row about computing the rate is re-evaluated and comes back different.
+      const c3 = byN(3);
+      assert.equal(c3.kind, 'MODIFICATION');
+      const narrowed = c3.rows.find((r) => r.origin === 'narrowed');
+      assert.ok(narrowed, JSON.stringify(c3.rows));
+      assert.match(narrowed.text, /computing a rate from the stream — as narrowed by claim 3/);
+      // Claim 1's rows live in the chart table; the narrowed row records the parent's label itself.
+      assert.notEqual(narrowed.parentLabel, 'ABSENT', 'parent row was not ABSENT');
+      assert.equal(narrowed.label, 'ABSENT', 're-evaluated against the narrowing on the same code');
+      assert.match(narrowed.narrows, /^\[1[a-z]\]$/);
+      assert.match(chart, new RegExp(`\\| \\[3a\\] narrows ${narrowed.narrows.replace(/[[\]]/g, '\\$&')} \\|`));
+      assert.match(c3.verdict, /1 re-evaluated as narrowed, 0 new$/);
+      assert.equal(c3.rows.length, j.elements, 'a narrowing adds no row');
+      // D2: claim 4 narrows claim 3's narrowed row, not claim 1's.
+      const c4 = byN(4);
+      assert.deepEqual(c4.chain, [1, 3, 4]);
+      const n4 = c4.rows.find((r) => r.origin === 'narrowed');
+      assert.equal(n4.narrows, '[3a]');
+      assert.match(n4.text, /as narrowed by claim 3[\s\S]*as narrowed by claim 4: the window is squared/);
+      // UNDETERMINED: judged as its own row, the ambiguity stated.
+      const c5 = byN(5);
+      assert.equal(c5.kind, 'UNDETERMINED');
+      assert.match(c5.rows.find((r) => r.origin === 'new').ambiguous, /UNDETERMINED kind/);
+      // Multi-parent: the chosen parent is named and the alternatives recorded.
+      const c6 = byN(6);
+      assert.equal(c6.parentChoice.policy, 'shortest-parent');
+      assert.ok(c6.parentChoice.alternatives.length >= 1);
+      assert.equal(c6.parent, c6.parentChoice.chosen);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});
