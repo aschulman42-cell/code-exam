@@ -43,7 +43,7 @@ const pseudoTag = (spec) => (isPseudoSource(String(spec || '').split('@')[0]) ? 
 // input without saying so is how the next version of this bug hides.
 const _noteComments = (n, f) => process.stderr.write(
   `  Claim file ${f}: ignored ${n} '#' comment line(s) (provenance, not claim text).\n`);
-import { splitClaimElements, targetsChecksum, dedupeTargets, parseElementsFile, retrievePerElement, isPreambleRow, limitationTag, classifyLimitation } from './claim-locate.js';
+import { splitClaimElements, targetsChecksum, dedupeTargets, parseElementsFile, retrievePerElement, isPreambleRow, limitationTag, classifyLimitation, searchSymbolsByWords, contentCandidatesForWords, isTestSymbol } from './claim-locate.js';
 import { readCeVersion } from '../utils.js';
 import { buildSymbolTable, verifySymbol, isFound, navigateFrom } from '../core/symbol-verify.js';
 import { parseAnalysisLabels, lexicalGate } from './claims-loop.js';
@@ -61,6 +61,9 @@ export const CHART_DEFAULTS = {
   calleeDepth: 1,          // depth-1 bodies only; depth 2 blew the local context
   maxCalleeBytes: 6000,    // total appended callee source per target
   maxCallees: 6,
+  // chart-retrieval-whole-claim-arm: targets added from the claim's own words
+  // on top of the per-element budget. 0 disables the arm.
+  wholeClaimTargets: 5,
   // Per-element retrieval bounds. Every target is a model call, and 10 elements
   // x 25 candidates is 250 analyses — so the candidates are a pool to select
   // from, not a target list.
@@ -479,8 +482,28 @@ export function parseChartVerdicts(text, elements) {
 
 // Merge per-element verdicts across targets: best label wins, carrying the
 // citation that produced it. Same rule as claims-loop's anchoredPass.
-export function mergeBestPerElement(perTarget) {
+//
+// chart-cite-nearest-miss (2026-08-29): on a TIE the citation goes to the
+// target the row's OWN element nominated highest, then to any target the
+// element nominated, then -- only as the last resort -- to the first analysed
+// (the old rule, kept so charts without retrieval attribution are unchanged).
+// On the '101 family chart every ABSENT row tied and four of six cited
+// AdTagLoader::sendContentComplete, the first target analysed (an ad-event
+// callback), while the one AdaptiveTrackSelection method examined carried the
+// sentence the reader wanted ("switch order is based on log bitrate
+// differences only, not on remaining time") and never reached the chart. An
+// ABSENT citation is the CLOSEST CANDIDATE EXAMINED, not a finding, and the
+// fill says so (`closest: true`) so the renderers label it that way.
+export function mergeBestPerElement(perTarget, { nominators = null } = {}) {
   const best = new Map();
+  // Best rank at which `element` nominated `target`; Infinity when it did not.
+  const nomRank = (target, element) => {
+    if (!nominators || element == null) return Infinity;
+    const list = nominators.get(target) || [];
+    let r = Infinity;
+    for (const n of list) if (n.element === element && n.rank < r) r = n.rank;
+    return r;
+  };
   // Tally every label each element received, not just the winner. The merge
   // already visits all of them and was discarding the field: a cell reading
   // "ASSUMED, RtspMessageChannel" could be 1 of 34 targets with 33 dissenting,
@@ -503,12 +526,21 @@ export function mergeBestPerElement(perTarget) {
       t.total += 1;
       tally.set(key, t);
       const prev = best.get(key);
-      if (!prev || (LABEL_RANK[e.label] ?? 0) > (LABEL_RANK[prev.label] ?? 0)) {
+      const mine = LABEL_RANK[e.label] ?? 0;
+      const theirs = prev ? (LABEL_RANK[prev.label] ?? 0) : -1;
+      // Strictly better label wins; on a tie the element's own nominee wins
+      // (lower nomination rank), and an earlier target keeps a true tie.
+      const takes = !prev || mine > theirs
+        || (mine === theirs && nomRank(target, e.element) < nomRank(prev.target, e.element));
+      if (takes) {
         best.set(key, { element: e.element, text: e.text, label: e.label, target, note: e.note || '' });
       }
     }
   }
-  for (const [key, v] of best) v.agreement = tally.get(key) || null;
+  for (const [key, v] of best) {
+    v.agreement = tally.get(key) || null;
+    v.closest = v.label === 'ABSENT';
+  }
   return [...best.values()];
 }
 
@@ -527,7 +559,11 @@ export function fillChartRows(table, fills) {
     if (!m) continue;
     const f = byNum.get(Number(m[1]));
     if (!f) continue;
-    const cite = f.target ? `\`${f.target}\`${pseudoTag(f.target)}` : '—';
+    // An ABSENT row's citation is the closest candidate examined, not a
+    // finding, and says so (chart-cite-nearest-miss).
+    const cite = f.target
+      ? `${f.closest ? 'closest examined: ' : ''}\`${f.target}\`${pseudoTag(f.target)}`
+      : '—';
     const note = f.note ? ` ${String(f.note).replace(/\|/g, '\\|').slice(0, 160)}` : '';
     // How lonely is this finding? "(1 of 34; 33 ABSENT)" tells the reader that
     // a lone PRESENT was promoted over 33 dissents — which deserves scrutiny —
@@ -588,13 +624,13 @@ export function coverageLine(fills, nElements, elements = null) {
   // carries no signal -- a chart of unanimous ABSENTs would otherwise report
   // perfect support and mean nothing by it.
   const c = { PRESENT: 0, PARTIAL: 0, ABSENT: 0, ASSUMED: 0 };
-  let preLabel = null, cited = 0;
+  let preLabel = null, cited = 0, closestCited = 0;
   let assessed = 0, lone = 0, unassessed = 0, weakest = null;
   fills.forEach((f, i) => {
     if (isPre(f, i)) { preLabel = f.label; return; }
     cited++;
     if (c[f.label] != null) c[f.label] += 1;
-    if (f.label === 'ABSENT') return;
+    if (f.label === 'ABSENT') { if (f.target) closestCited++; return; }
     const a = f.agreement;
     // No tally means this row's support CANNOT be computed. Counted separately
     // and disclosed rather than folded into either side of the ratio: silently
@@ -631,7 +667,9 @@ export function coverageLine(fills, nElements, elements = null) {
   return `**Coverage:** ${c.PRESENT} PRESENT · ${c.PARTIAL} PARTIAL · ${c.ASSUMED} ASSUMED · `
     + `${c.ABSENT} ABSENT · ${noFinding} element(s) with no finding`
     + `${preIdx >= 0 ? ` across ${nLimitations} limitation(s); preamble ${preLabel || 'no finding'}` : ''}.`
-    + support + byClass;
+    + support
+    + (closestCited ? ` _(${closestCited} ABSENT row(s) cite the closest candidate examined, not a finding.)_` : '')
+    + byClass;
 }
 
 // Provenance the artifact must carry to be defensible. Everything here is
@@ -780,13 +818,21 @@ export function formatChart({
   out.push('');
   out.push('## Analysed targets');
   out.push('');
-  for (const t of targets) out.push(`- \`${t}\`${pseudoTag(t)}`);
+  // A target only the whole-claim arm nominated says so: which arm found the
+  // code is part of the evidence (chart-retrieval-whole-claim-arm).
+  const noms = nominationIndex(retrieval);
+  const wholeOnly = (t) => {
+    const n = noms.get(t) || [];
+    return n.length > 0 && n.every((x) => x.element === 0);
+  };
+  for (const t of targets) out.push(`- \`${t}\`${pseudoTag(t)}${wholeOnly(t) ? ' _(whole-claim arm)_' : ''}`);
   out.push('');
   // PER-ELEMENT RETRIEVAL PROVENANCE. Without it an ABSENT row is ambiguous:
   // "CE examined this element and found nothing" and "CE had nothing to examine"
   // render identically, and only the first is defensible in front of a client.
   if (retrieval && retrieval.length) {
-    const blind = retrieval.filter((p) => !(p.hits || []).length);
+    const perElementOnly = retrieval.filter((p) => p.element !== 0);
+    const blind = perElementOnly.filter((p) => !(p.hits || []).length);
     out.push('## Retrieval by element');
     out.push('');
     out.push('Each element was searched with its OWN predicted vocabulary, ranked by term'
@@ -800,7 +846,10 @@ export function formatChart({
     out.push(`| element | predicted words | candidates |${anyContent ? ' via content |' : ''}`);
     out.push(`|---|---|---|${anyContent ? '---|' : ''}`);
     for (const p of retrieval) {
-      out.push(`| ${p.element} | ${(p.words || []).join(', ').replace(/\|/g, '\\|')} `
+      // Element 0 is the whole-claim arm (chart-retrieval-whole-claim-arm):
+      // the claim's own words, no model prediction, on top of the budget.
+      const label = p.element === 0 ? 'whole claim' : p.element;
+      out.push(`| ${label} | ${(p.words || []).join(', ').replace(/\|/g, '\\|')} `
         + `| ${(p.hits || []).length} |${anyContent ? ` ${p.contentAdded || 0} |` : ''}`);
     }
     if (anyContent) {
@@ -811,7 +860,7 @@ export function formatChart({
     }
     out.push('');
     if (blind.length) {
-      out.push(`⚠ ${blind.length} of ${retrieval.length} element(s) produced no candidate: `
+      out.push(`⚠ ${blind.length} of ${perElementOnly.length} element(s) produced no candidate: `
         + `${blind.map((p) => p.element).join(', ')}. Those rows were not examined.`);
       out.push('');
     }
@@ -983,13 +1032,13 @@ export function formatFamilySection(fam) {
     out.push('| # | Claim element | CE finding — is the limitation met? | Cited code |', '|---|---|---|---|');
     for (const r of dep.effective) {
       if (r.origin === 'inherited') {
-        out.push(`| ${r.designation} | _inherited from claim ${r.from}; see ${r.parentDesignation}_ | **${r.label}** _(carried)_ | ${r.target ? `\`${r.target}\`` : '—'} |`);
+        out.push(`| ${r.designation} | _inherited from claim ${r.from}; see ${r.parentDesignation}_ | **${r.label}** _(carried)_ | ${r.target ? `${r.label === 'ABSENT' ? 'closest examined: ' : ''}\`${r.target}\`` : '—'} |`);
       } else if (r.origin === 'narrowed') {
         const was = r.parentLabel ? ` _(was ${r.parentLabel} on ${r.narrows})_` : '';
-        out.push(`| ${r.designation} narrows ${r.narrows} | ${esc(r.text)} | **${r.label}**${was}${r.note ? ' ' + esc(r.note).slice(0, 160) : ''} | ${r.target ? `\`${r.target}\`` : '—'} |`);
+        out.push(`| ${r.designation} narrows ${r.narrows} | ${esc(r.text)} | **${r.label}**${was}${r.note ? ' ' + esc(r.note).slice(0, 160) : ''} | ${r.target ? `${r.label === 'ABSENT' ? 'closest examined: ' : ''}\`${r.target}\`` : '—'} |`);
       } else {
         const amb = r.ambiguous ? ` _(${esc(r.ambiguous)})_` : '';
-        out.push(`| ${r.designation} | ${esc(r.text)}${amb} | **${r.label}**${r.note ? ' ' + esc(r.note).slice(0, 160) : ''} | ${r.target ? `\`${r.target}\`` : '—'} |`);
+        out.push(`| ${r.designation} | ${esc(r.text)}${amb} | **${r.label}**${r.note ? ' ' + esc(r.note).slice(0, 160) : ''} | ${r.target ? `${r.label === 'ABSENT' ? 'closest examined: ' : ''}\`${r.target}\`` : '—'} |`);
       }
     }
     const judgedOn = dep.analysed.map((a) => `\`${a.target}\``).join(', ');
@@ -997,6 +1046,69 @@ export function formatFamilySection(fam) {
       + `${dep.dropped.length ? `; ${dep.dropped.length} dropped (${dep.dropped.map((d) => d.reason).join('; ')})` : ''}._`);
   }
   return out.join('\n');
+}
+
+// ============================================================================
+// Whole-claim retrieval arm (chart-retrieval-whole-claim-arm)
+// ============================================================================
+//
+// Per-element retrieval asks the model for code vocabulary PER ELEMENT and
+// searches with that. On the '101 family chart it never retrieved the crux --
+// AdaptiveTrackSelection::determineIdealSelectedIndex, in the index -- because
+// element 4's words (reproduce, playback, determine, code, rate, remaining,
+// time, start) put TimeText.kt@TimeFormat::remaining first. The two-chart
+// protocol (#310, 2026-08-27) measured the other arm: the CLAIM's own rare
+// vocabulary over the whole index finds different code, and it is what found
+// the track-selection files. This is that arm, joined into the target list ON
+// TOP of the per-element budget and attributed as element 0 (the whole claim),
+// so the nomination index, the Retrieval-by-element table, the sidecar and the
+// nearest-miss rule all see which arm nominated what. No model call: the
+// words are the claim's own content words, rarity-ranked by the symbol table
+// the way every other name search here is.
+
+/** The claim's content words, one surface form per stem, in claim order. */
+export function wholeClaimTerms(claimText, max = 24) {
+  const out = [];
+  const seen = new Set();
+  for (const w of contentWords(claimText)) {
+    const s = stem(w);
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(w.toLowerCase());
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
+ * `{ element: 0, words, hits, contentAdded, arm: 'claim' }` -- the same shape
+ * as a per-element retrieval entry, so it rides the same plumbing.
+ */
+export function wholeClaimArm({ claimText, symbols, index = null, includeTests = false, includeOp = false, limit = 5 }) {
+  const words = wholeClaimTerms(claimText);
+  const pool = includeOp ? symbols : symbols.filter((s) => !isPseudoSource(s.filepath));
+  const hits = searchSymbolsByWords(pool, words, { limit: Math.max(limit * 3, 15), includeTests })
+    .map((h) => ({ ...h, arm: 'name' }));
+  let contentAdded = 0;
+  if (index && words.length) {
+    const key = (s) => `${String(s.filepath || '').split('!').pop()}@${s.name}`;
+    const seen = new Set(hits.map((h) => key(h.sym)));
+    try {
+      for (const c of contentCandidatesForWords(index, words, { limit, includeOp })) {
+        if (!c) continue;
+        if (seen.has(key(c))) {
+          const prior = hits.find((h) => key(h.sym) === key(c));
+          if (prior) prior.arm = 'both';
+          continue;
+        }
+        if (!includeTests && isTestSymbol(c)) continue;
+        seen.add(key(c));
+        hits.push({ sym: c, matched: [], score: 0, arm: 'content' });
+        contentAdded++;
+      }
+    } catch { /* the content arm is best-effort; the name arm stands alone */ }
+  }
+  return { element: 0, words, hits: hits.slice(0, limit), contentAdded, arm: 'claim' };
 }
 
 // One target judged against a dependent's re-evaluated / new rows. The same
@@ -1085,12 +1197,16 @@ export async function chartFamily({ index, symbols, draft, args, scope, rootElem
     // judged rows when the chart retrieves for itself; with --targets supplied,
     // every target claim 1 cited.
     const targetSet = new Set();
+    let nominators = null;
     for (const j of judged) if (j.parentTarget) targetSet.add(j.parentTarget);
     if (targetsSupplied) { for (const r of parentRows) if (r.target) targetSet.add(r.target); }
     else if (judged.length) {
       const disc = await retrievePerElement({ draft, elements: judged.map((j) => j.text), symbols,
         opts: { includeTests: !!args.include_tests, includeOp: !!args.include_op, index } });
-      if (!disc.error) for (const t of perElementTargetsWithStats(disc.perElement, args).targets) targetSet.add(t);
+      if (!disc.error) {
+        for (const t of perElementTargetsWithStats(disc.perElement, args).targets) targetSet.add(t);
+        nominators = nominationIndex(disc.perElement);
+      }
     }
     const analysed = [];
     const dropped = [];
@@ -1099,7 +1215,7 @@ export async function chartFamily({ index, symbols, draft, args, scope, rootElem
       const r = await analyseTargetForRows({ index, symbols, target: t, claimText: chainText(dep), rows: judged.map((j) => j.text), draft, args });
       if (r.dropped) dropped.push(r.dropped); else analysed.push(r);
     }
-    const fills = analysed.length ? mergeBestPerElement(analysed) : [];
+    const fills = analysed.length ? mergeBestPerElement(analysed, { nominators }) : [];
     judged.forEach((j, i) => {
       const f = fills.find((x) => x.element === i + 1) || null;
       j.label = f ? f.label : 'UNANALYSED';
@@ -1262,6 +1378,30 @@ export async function doClaimChart(index, args, opts = {}) {
             + ` candidates deeper than this, so the budget was not the constraint.`
           : '.'),
     ];
+  }
+  // chart-retrieval-whole-claim-arm: the claim's own words over the whole
+  // symbol table, on top of the per-element budget. --whole-claim-targets 0
+  // turns it off; an explicit --targets list never comes through here.
+  if (!args.targets && Array.isArray(retrieval)) {
+    const wholeN = args.whole_claim_targets == null ? CHART_DEFAULTS.wholeClaimTargets : Math.max(0, Number(args.whole_claim_targets) || 0);
+    if (wholeN > 0) {
+      const arm = wholeClaimArm({ claimText, symbols, index, includeTests: !!args.include_tests, includeOp: !!args.include_op, limit: wholeN });
+      const have = new Set(targets);
+      arm.added = [];
+      for (const h of arm.hits) {
+        const s = targetSpec(h.sym);
+        if (have.has(s)) continue;
+        have.add(s); targets.push(s); arm.added.push(s);
+      }
+      retrieval.push(arm);
+      process.stderr.write(`  whole claim: words [${arm.words.slice(0, 8).join(', ')}${arm.words.length > 8 ? ', …' : ''}]`
+        + ` -> ${arm.hits.length} candidate(s), ${arm.added.length} added on top of the per-element targets\n`);
+      targetProvenance = [...targetProvenance,
+        `Whole-claim arm: ${arm.added.length} target(s) added from the claim's own content words`
+        + ` (${arm.words.slice(0, 8).join(', ')}${arm.words.length > 8 ? ', …' : ''}), rarity-ranked over the symbol table,`
+        + ` on top of the per-element budget (${arm.hits.length - arm.added.length} of its ${arm.hits.length} candidate(s) were already nominated per element).`
+        + ' --whole-claim-targets 0 disables it.'];
+    }
   }
   if (args.targets_note) targetProvenance = [...targetProvenance, String(args.targets_note)];
 
@@ -1484,8 +1624,8 @@ Per-target verdicts written to ${args.verdicts_out}`
     }
   }
 
-  const fills = mergeBestPerElement(perTarget);
-  const scopeNote = [scope.note ? `_Scope: ${scope.note}._` : null, args.scope_note ? String(args.scope_note) : null]
+  const fills = mergeBestPerElement(perTarget, { nominators: nominationIndex(retrieval) });
+  const scopeNote =[scope.note ? `_Scope: ${scope.note}._` : null, args.scope_note ? String(args.scope_note) : null]
     .filter(Boolean).join('\n\n') || null;
   const provenance = buildProvenanceHeader({
     claimText,

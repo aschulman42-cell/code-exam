@@ -1709,3 +1709,127 @@ describe('dependent claims: scope and --claim-family (issue-311-dep-claim-chart)
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 });
+
+// chart-cite-nearest-miss: on a tie the citation goes to the row's own
+// nominee, and an ABSENT citation is labelled as the closest candidate
+// examined. The '101 family chart cited AdTagLoader::sendContentComplete (the
+// first target analysed) on four of six ABSENT rows while the one
+// AdaptiveTrackSelection method examined carried the near-miss sentence.
+describe('nearest-miss citation on ties (chart-cite-nearest-miss)', () => {
+  const v = (element, label, note = '') => ({ element, text: `e${element}`, label, note });
+  const perTarget = [
+    { target: 'a/First.java@first', elements: [v(1, 'ABSENT', 'first analysed'), v(2, 'PARTIAL', 'p-first')] },
+    { target: 'b/Other.java@other', elements: [v(1, 'ABSENT', 'other'), v(2, 'PARTIAL', 'p-other')] },
+    { target: 'c/Near.java@near', elements: [v(1, 'ABSENT', 'the near miss: no remaining-time input'), v(2, 'ABSENT')] },
+  ];
+  const nominators = new Map([
+    ['c/Near.java@near', [{ element: 1, rank: 0 }]],
+    ['b/Other.java@other', [{ element: 2, rank: 0 }, { element: 1, rank: 3 }]],
+    ['a/First.java@first', [{ element: 2, rank: 1 }]],
+  ]);
+
+  it('an all-ABSENT row cites the target its own element nominated highest, analysed last or not', () => {
+    const fills = mergeBestPerElement(perTarget, { nominators });
+    const r1 = fills.find((f) => f.element === 1);
+    assert.equal(r1.target, 'c/Near.java@near');
+    assert.equal(r1.note, 'the near miss: no remaining-time input');
+    assert.equal(r1.closest, true);
+    assert.equal(r1.agreement.ABSENT, 3);
+  });
+
+  it('a shared PARTIAL cites the element\'s own nominee over the first analysed; a better label still wins outright', () => {
+    const fills = mergeBestPerElement(perTarget, { nominators });
+    const r2 = fills.find((f) => f.element === 2);
+    assert.equal(r2.target, 'b/Other.java@other', 'rank 0 for element 2 beats rank 1');
+    assert.equal(r2.closest, false);
+    const withPresent = [...perTarget, { target: 'd/Late.java@late', elements: [v(2, 'PRESENT', 'wins')] }];
+    assert.equal(mergeBestPerElement(withPresent, { nominators }).find((f) => f.element === 2).target, 'd/Late.java@late');
+  });
+
+  it('without nomination data the first analysed keeps a true tie (unchanged behaviour)', () => {
+    const fills = mergeBestPerElement(perTarget);
+    assert.equal(fills.find((f) => f.element === 1).target, 'a/First.java@first');
+    assert.equal(fills.find((f) => f.element === 2).target, 'a/First.java@first');
+  });
+
+  it('the chart labels an ABSENT citation as the closest examined, and the coverage line counts them', () => {
+    // Supplied elements, no preamble row: the preamble is counted apart by the
+    // coverage line and must not be the row under test here.
+    const table = buildChartTable('x', { elements: ['receiving a packet', 'routing the packet by its header'] });
+    const fills = mergeBestPerElement(perTarget, { nominators }).map((f) => ({ ...f }));
+    const filled = fillChartRows(table.table, fills);
+    assert.match(filled, /\| 1 \| .*\*\*ABSENT\*\*.*\| closest examined: `c\/Near\.java@near` \|/);
+    assert.match(filled, /\| 2 \| .*\*\*PARTIAL\*\*.*\| `b\/Other\.java@other` \|/);
+    const cov = coverageLine(fills, table.elements.length, table.elements);
+    assert.match(cov, /1 ABSENT row\(s\) cite the closest candidate examined, not a finding/);
+  });
+});
+
+// chart-retrieval-whole-claim-arm: the claim's own words over the whole symbol
+// table, on top of the per-element budget, attributed as element 0. On the
+// '101 chart the per-element words never retrieved determineIdealSelectedIndex;
+// the claim's own vocabulary (track, selection, bitrate, buffer) does.
+import { wholeClaimTerms, wholeClaimArm } from '../src/commands/claim-chart.js';
+
+describe('whole-claim retrieval arm (chart-retrieval-whole-claim-arm)', () => {
+  const sym = (name, filepath) => ({ name, bare: name.split('::').pop(), filepath, start: 1, end: 10 });
+  const symbols = [
+    sym('AdaptiveTrackSelection::determineIdealSelectedIndex', 'x/trackselection/AdaptiveTrackSelection.java'),
+    sym('TimeFormat::remaining', 'x/ui/TimeText.kt'),
+    sym('AdTagLoader::sendContentComplete', 'x/ima/AdTagLoader.java'),
+    sym('AdaptiveTrackSelectionTest::testBitrate', 'x/test/AdaptiveTrackSelectionTest.java'),
+    sym('Unrelated::thing', 'x/Unrelated.java'),
+  ];
+  // `selection`, `determining`, `unit`, `time` are claim-genre stop words in
+  // contentWords (the ballpark's list); what survives is the claim's own
+  // vocabulary: track, adaptive, bitrate, buffered, index ...
+  const CLAIM = 'A distribution system comprising a code rate determining unit for an adaptive selection of a track by its bitrate and the buffered duration, and storing the selected index and a remaining time.';
+
+  it('terms are the claim\'s content words, one per stem, lowercased', () => {
+    const t = wholeClaimTerms(CLAIM);
+    assert.ok(t.includes('track') && t.includes('adaptive') && t.includes('bitrate'), t.join(' '));
+    assert.ok(!t.includes('selection'), 'claim-genre stop words are out');
+    assert.equal(new Set(t.map((w) => w.slice(0, 6))).size, t.length, 'one surface form per stem');
+  });
+
+  it('finds a symbol the per-element words missed, as element 0, tests excluded by default', () => {
+    const arm = wholeClaimArm({ claimText: CLAIM, symbols, limit: 3 });
+    assert.equal(arm.element, 0);
+    assert.equal(arm.arm, 'claim');
+    const names = arm.hits.map((h) => h.sym.name);
+    assert.equal(names[0], 'AdaptiveTrackSelection::determineIdealSelectedIndex', names.join(' | '));
+    assert.ok(!names.some((n) => /Test/.test(n)), 'test symbol excluded');
+    assert.ok(arm.hits.length <= 3);
+    const withTests = wholeClaimArm({ claimText: CLAIM, symbols, limit: 5, includeTests: true });
+    assert.ok(withTests.hits.some((h) => /Test/.test(h.sym.name)), 'admitted with includeTests');
+  });
+
+  it('rides the nomination index as element 0 and the chart names the arm', () => {
+    const arm = wholeClaimArm({ claimText: CLAIM, symbols, limit: 2 });
+    const retrieval = [
+      { element: 1, words: ['remaining', 'time'], hits: [{ sym: symbols[1] }] },
+      arm,
+    ];
+    const noms = nominationIndex(retrieval);
+    const crux = targetSpec(symbols[0]);
+    assert.equal(noms.get(crux).length, 1);
+    assert.equal(noms.get(crux)[0].element, 0, 'nominated by the whole claim');
+    assert.ok(noms.get(crux)[0].rank >= 0);
+    // The merge's tie-break treats element 0 like any nominator: a row this
+    // element did not nominate falls back to analysis order.
+    const perTarget = [
+      { target: targetSpec(symbols[1]), elements: [{ element: 1, text: 'e1', label: 'ABSENT' }] },
+      { target: crux, elements: [{ element: 1, text: 'e1', label: 'ABSENT' }] },
+    ];
+    assert.equal(mergeBestPerElement(perTarget, { nominators: noms })[0].target, targetSpec(symbols[1]));
+    const table = buildChartTable('x', { elements: ['a remaining time'] });
+    const chart = formatChart({
+      claimText: CLAIM, table: table.table, fills: [], elements: table.elements, engineLabel: 'stub',
+      targets: [targetSpec(symbols[1]), crux], dropped: [], retrieval,
+    });
+    assert.match(chart, /\| whole claim \| .*track.*\| 2 \|/);
+    assert.match(chart, new RegExp('- `' + crux.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '` _\\(whole-claim arm\\)_'));
+    const t1 = targetSpec(symbols[1]);
+    assert.ok(chart.includes('- `' + t1 + '`\n'), 'the per-element target carries no arm marker');
+  });
+});

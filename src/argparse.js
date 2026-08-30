@@ -593,6 +593,9 @@ export function parseArgs() {
     ['targets_note',         'value',          ['--targets-note']],
     ['targets_out',          'value',          ['--targets-out']],
     ['targets_per_element',  'value',          ['--targets-per-element']],
+    // chart-retrieval-whole-claim-arm: targets from the claim's own words, on
+    // top of the per-element budget; 0 disables.
+    ['whole_claim_targets',  'int',            ['--whole-claim-targets']],
     ['max_retrieved_targets', 'value',         ['--max-retrieved-targets']],
     ['claim_locate',         'value',          ['--claim-locate']],
     ['no_refine',            'flag',           ['--no-refine']],
@@ -1593,6 +1596,14 @@ LLM ANALYSIS:
                              count on 72% of 380 litigated claims. Recorded in
                              the chart header so two charts of one claim at
                              different tiers are never confused.
+  --whole-claim-targets <n>  --claim-chart, per-element retrieval only: ALSO add
+                             up to <n> targets found by the CLAIM'S OWN words over
+                             the whole symbol table (default 5), on top of the
+                             per-element budget. The per-element words are what a
+                             model predicts per element; this arm is the claim's
+                             literal vocabulary, rarity-ranked, and finds code the
+                             per-element words miss. Attributed on the chart as
+                             "whole claim" / "(whole-claim arm)". 0 disables it.
   --targets-per-element <n>  --claim-chart, per-element retrieval only: how many
                              ranked candidates to analyse per claim element
                              (default 3). Charting is where cost trades against
