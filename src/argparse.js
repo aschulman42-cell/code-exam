@@ -596,6 +596,9 @@ export function parseArgs() {
     // chart-retrieval-whole-claim-arm: targets from the claim's own words, on
     // top of the per-element budget; 0 disables.
     ['whole_claim_targets',  'int',            ['--whole-claim-targets']],
+    // chart-retrieval-content-arm-and-budget: targets added when 2+ elements'
+    // top candidates share a file that contributed none; 0 disables.
+    ['concentration_targets', 'int',           ['--concentration-targets']],
     ['max_retrieved_targets', 'value',         ['--max-retrieved-targets']],
     ['claim_locate',         'value',          ['--claim-locate']],
     ['no_refine',            'flag',           ['--no-refine']],
@@ -1596,6 +1599,20 @@ LLM ANALYSIS:
                              count on 72% of 380 litigated claims. Recorded in
                              the chart header so two charts of one claim at
                              different tiers are never confused.
+  --concentration-targets <n> --claim-chart, per-element retrieval only: when two
+                             or more elements' top candidates share a file that
+                             contributed no target, add that file's best hit ON
+                             TOP of the budget (default 3, attributed as
+                             "concentration"). The signal the per-element
+                             round-robin cannot see: each element's slice of the
+                             file can sit below its own depth cut while the file
+                             is the strongest cross-element candidate. 0 disables.
+  --verdicts-out <file>      --claim-chart: write the raw per-target verdicts
+                             (analysis order, nominations, drops; the merge's
+                             INPUT, no derived winners) as JSON. With
+                             --claim-family, a "family" block is appended. This
+                             is what merge-rule replays and the loop scorer
+                             consume.
   --whole-claim-targets <n>  --claim-chart, per-element retrieval only: ALSO add
                              up to <n> targets found by the CLAIM'S OWN words over
                              the whole symbol table (default 5), on top of the

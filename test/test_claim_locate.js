@@ -151,12 +151,12 @@ describe('pseudo-source (.op) symbols are held back from retrieval', () => {
   it('excludes them by default and reports how many it held back', async () => {
     const r = await retrievePerElement({ draft, elements: ['choosing a bitrate'], symbols: syms });
     assert.deepEqual(r.perElement[0].hits.map((h) => h.sym.name), ['RateChooser::chooseBitrate']);
-    assert.deepEqual(r.heldBack, { symbols: 1, content: 0 });
+    assert.deepEqual(r.heldBack, { symbols: 1, content: 0, contentTests: 0 });
   });
   it('admits them under includeOp, with nothing held back', async () => {
     const r = await retrievePerElement({ draft, elements: ['choosing a bitrate'], symbols: syms, opts: { includeOp: true } });
     assert.ok(r.perElement[0].hits.some((h) => h.sym.name === 'bin_pycache_rate_cpython_310_pyc'));
-    assert.deepEqual(r.heldBack, { symbols: 0, content: 0 });
+    assert.deepEqual(r.heldBack, { symbols: 0, content: 0, contentTests: 0 });
   });
   it('the content arm applies the same gate and counts its own drops', () => {
     const index = { multisectSearch: () => ({ function_matches: [
@@ -168,6 +168,23 @@ describe('pseudo-source (.op) symbols are held back from retrieval', () => {
     assert.deepEqual(got.map((c) => c.name), ['RateChooser::chooseBitrate']);
     assert.equal(held, 1);
     const all = contentCandidatesForWords(index, ['rate', 'bitrate'], { includeOp: true });
+    assert.equal(all.length, 2);
+  });
+
+  // chart-retrieval-content-arm-and-budget: the content arm gets the SAME test
+  // gate the name arm has always had. On the bridged '101, 36 of 60 content
+  // candidates were tests and a unit test of the mechanism was promoted over
+  // the mechanism itself.
+  it('the content arm holds back test files by default, counts them, and admits them under includeTests', () => {
+    const index = { multisectSearch: () => ({ function_matches: [
+      { function: 'RateChooserTest::choosesBitrate', filepath: 'src/test/RateChooserTest.java' },
+      { function: 'RateChooser::chooseBitrate', filepath: 'src/main/Rate.java' },
+    ] }) };
+    let tests = 0;
+    const got = contentCandidatesForWords(index, ['rate', 'bitrate'], { onTestSymbol: (n) => { tests += n; } });
+    assert.deepEqual(got.map((c) => c.name), ['RateChooser::chooseBitrate']);
+    assert.equal(tests, 1);
+    const all = contentCandidatesForWords(index, ['rate', 'bitrate'], { includeTests: true });
     assert.equal(all.length, 2);
   });
 });

@@ -693,6 +693,7 @@ export function contentCandidatesForWords(index, words, opts = {}) {
   const named = [];
   let fileScope = 0;
   let pseudo = 0;
+  let tests = 0;
   for (const m of fns) {
     const name = m.name || m.function || m.full_name || '';
     if (!name) continue;
@@ -702,10 +703,20 @@ export function contentCandidatesForWords(index, words, opts = {}) {
     // the binary; it matches any word list and is not a citable function.
     // Held back unless the caller admits it (--include-op); counted either way.
     if (!opts.includeOp && isPseudoSource(filepath)) { pseudo += 1; continue; }
+    // chart-retrieval-content-arm-and-budget: the SAME test gate the name arm
+    // has always had. Without it, tests dominated the arm's top ranks (36 of
+    // 60 candidates on the bridged '101 row 6), a unit test of the mechanism
+    // was promoted over the mechanism, and the real code sat outside the cap.
+    // Counted only while the candidate list is still filling: the arm sees
+    // tens of thousands of raw matches on a big index, and "52,398 tests held
+    // back" would describe the corpus, not the candidacy. What is counted is
+    // the tests that stood between the caller and its limit.
+    if (!opts.includeTests && isTestSymbol({ name, filepath })) { if (named.length < limit) tests += 1; continue; }
     named.push({ name, filepath });
   }
   if (fileScope) opts.onNote?.(`${fileScope} file-scope (non-function) match(es) dropped`);
   if (pseudo) opts.onPseudoSource?.(pseudo);
+  if (tests) opts.onTestSymbol?.(tests);
   return named.slice(0, limit);
 }
 
@@ -745,7 +756,7 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
   // list never comes through here, so a user naming a `.op` file keeps it.
   const includeOp = !!opts.includeOp;
   const pool = includeOp ? symbols : symbols.filter((s) => !isPseudoSource(s.filepath));
-  const heldBack = { symbols: symbols.length - pool.length, content: 0 };
+  const heldBack = { symbols: symbols.length - pool.length, content: 0, contentTests: 0 };
   if (heldBack.symbols) {
     process.stderr.write(`  ${heldBack.symbols} pseudo-source (.op) symbol(s) held back from`
       + ` retrieval — --include-op to admit them\n`);
@@ -786,7 +797,9 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
       for (const c of contentCandidatesForWords(opts.index, words,
         { limit: opts.contentPerElement ?? LOCATE_DEFAULTS.contentPerElement,
           includeOp,
+          includeTests: !!opts.includeTests,
           onPseudoSource: (n) => { heldBack.content += n; },
+          onTestSymbol: (n) => { heldBack.contentTests += n; },
           onError: (e) => { armError = e; },
           onNote: (n) => { armNote = n; } })) {
         if (seen.has(key(c))) {
@@ -849,6 +862,7 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
             : ''}`
           + `${contentAdded > 1 ? ` (the other ${contentAdded - 1} rank below every`
             + ` name-arm candidate and cannot reach a target)` : ''}`
+          + `${heldBack.contentTests ? ` (${heldBack.contentTests} test-file candidate(s) held back — --include-tests to admit)` : ''}`
           + `${armNote ? ` — ${armNote}` : ''}\n`);
       }
     }

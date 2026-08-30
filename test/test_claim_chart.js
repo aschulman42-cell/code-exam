@@ -1833,3 +1833,58 @@ describe('whole-claim retrieval arm (chart-retrieval-whole-claim-arm)', () => {
     assert.ok(chart.includes('- `' + t1 + '`\n'), 'the per-element target carries no arm marker');
   });
 });
+
+// chart-retrieval-content-arm-and-budget: concentration and the label-split
+// tie-break. The bridged '101 is the motivating shape: three elements' hits in
+// one file at ranks the round-robin never reaches.
+describe('file concentration and the label-split tie-break (chart-retrieval-content-arm-and-budget)', () => {
+  const sym = (name, filepath) => ({ name, bare: name.split('::').pop(), filepath, start: 1, end: 9 });
+  const hit = (name, filepath) => ({ sym: sym(name, filepath) });
+
+  it('a file 2+ elements point at, with no selected target, contributes its best hit on top of the budget', () => {
+    const shared = 'x/Mechanism.java';
+    const perElement = [
+      { element: 1, hits: [hit('A::a1', 'x/A.java'), hit('Mechanism::partOne', shared)] },
+      { element: 2, hits: [hit('B::b1', 'x/B.java'), hit('C::c1', 'x/C.java'), hit('Mechanism::partTwo', shared)] },
+      { element: 3, hits: [hit('D::d1', 'x/D.java')] },
+    ];
+    const b = perElementTargetsWithStats(perElement, { targets_per_element: 1 });
+    assert.equal(b.concentration.length, 1, JSON.stringify(b.concentration));
+    assert.equal(b.concentration[0].file, shared);
+    assert.deepEqual(b.concentration[0].elements, [1, 2]);
+    assert.match(b.concentration[0].target, /Mechanism::partOne$/, 'the best-ranked hit of the file');
+    assert.ok(b.targets.includes(b.concentration[0].target), 'added on top of the budget');
+    // Depth 1 selected only the rank-0 hits; the shared file's hits were below the cut.
+    assert.ok(!b.targets.includes('x/A.java@A::a1') || b.targets.length >= 4);
+  });
+
+  it('a file that already contributed a selected target is not concentration-promoted; 0 disables', () => {
+    const shared = 'x/Mechanism.java';
+    const perElement = [
+      { element: 1, hits: [hit('Mechanism::partOne', shared), hit('A::a1', 'x/A.java')] },
+      { element: 2, hits: [hit('B::b1', 'x/B.java'), hit('Mechanism::partTwo', shared)] },
+    ];
+    const b = perElementTargetsWithStats(perElement, { targets_per_element: 1 });
+    assert.equal(b.concentration.length, 0, 'partOne was selected at rank 0, so the file already contributes');
+    const off = perElementTargetsWithStats([
+      { element: 1, hits: [hit('A::a1', 'x/A.java'), hit('Mechanism::partOne', shared)] },
+      { element: 2, hits: [hit('B::b1', 'x/B.java'), hit('Mechanism::partTwo', shared)] },
+    ], { targets_per_element: 1, concentration_targets: 0 });
+    assert.equal(off.concentration.length, 0);
+  });
+
+  it('a non-ABSENT tie cites the implementer (most PRESENT rows), not the row\'s nominee; ABSENT ties keep the nearest miss', () => {
+    const v = (element, label) => ({ element, text: 'e' + element, label });
+    const perTarget = [
+      { target: 'x/Namesake.java@namesake', elements: [v(1, 'PRESENT'), v(2, 'ABSENT'), v(3, 'ABSENT')] },
+      { target: 'x/Impl.java@implementer', elements: [v(1, 'PRESENT'), v(2, 'PRESENT'), v(3, 'ABSENT')] },
+    ];
+    const nominators = new Map([
+      ['x/Namesake.java@namesake', [{ element: 1, rank: 0 }, { element: 3, rank: 0 }]],
+      ['x/Impl.java@implementer', [{ element: 1, rank: 5 }]],
+    ]);
+    const fills = mergeBestPerElement(perTarget, { nominators });
+    assert.equal(fills.find((f) => f.element === 1).target, 'x/Impl.java@implementer', 'PRESENT tie -> most PRESENT rows wins over the rank-0 nominee');
+    assert.equal(fills.find((f) => f.element === 3).target, 'x/Namesake.java@namesake', 'ABSENT tie -> the row\'s own nominee (nearest miss)');
+  });
+});

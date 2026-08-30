@@ -64,6 +64,13 @@ export const CHART_DEFAULTS = {
   // chart-retrieval-whole-claim-arm: targets added from the claim's own words
   // on top of the per-element budget. 0 disables the arm.
   wholeClaimTargets: 5,
+  // chart-retrieval-content-arm-and-budget: when two or more elements' top
+  // candidates share a file that contributed no target, the file's best hit is
+  // added (the bridged '101: three rows' hits concentrated in
+  // AdaptiveTrackSelection.java at ranks the per-element budget never reaches).
+  // 0 disables.
+  concentrationTargets: 3,
+  concentrationDepth: 10,  // how deep in each element's list concentration looks
   // Per-element retrieval bounds. Every target is a model call, and 10 elements
   // x 25 candidates is 250 analyses — so the candidates are a pool to select
   // from, not a target list.
@@ -130,7 +137,9 @@ export function nominationIndex(retrieval) {
       if (!h || !h.sym) return;
       const k = targetSpec(h.sym);
       if (!out.has(k)) out.set(k, []);
-      out.get(k).push({ element: pe.element ?? null, rank });
+      // `arm` rides along so the renderers can tell the whole-claim arm from
+      // concentration (both use element 0) without a second index.
+      out.get(k).push({ element: pe.element ?? null, rank, ...(pe.arm ? { arm: pe.arm } : {}) });
     });
   }
   return out;
@@ -189,6 +198,64 @@ export function perElementTargetsWithStats(perElement, opts = {}) {
   // Reporting the second as BUDGET-LIMITED would send a user to raise a ceiling
   // that was never the constraint.
   const deepest = elements.reduce((m, p) => Math.max(m, (p.hits || []).length), 0);
+
+  // chart-retrieval-content-arm-and-budget: FILE CONCENTRATION. Several
+  // elements pointing at one file is a signal the per-element round-robin
+  // cannot see: each element's slice of that file can sit below its own depth
+  // cut while the file is the strongest cross-element candidate on the board
+  // (the bridged '101: three rows' hits in AdaptiveTrackSelection.java at
+  // ranks 4/5/9, none selected). When two or more elements have a hit in the
+  // top concentrationDepth of their lists in a file that contributed no
+  // selected target, the file's best-ranked hit is added ON TOP of the
+  // budget, bounded by concentration_targets and attributed as its own arm.
+  const concentration = [];
+  const cMax = opts.concentration_targets == null
+    ? CHART_DEFAULTS.concentrationTargets
+    : Math.max(0, Number(opts.concentration_targets) || 0);
+  if (cMax > 0) {
+    const fileOf = (s) => String((s && s.filepath) || '');
+    const selFiles = new Set();
+    for (const p of elements) for (const h of p.hits || []) if (h && h.sym && seen.has(targetSpec(h.sym))) selFiles.add(fileOf(h.sym));
+    const byFile = new Map();
+    for (const p of elements) {
+      // The window is the top of the element's list PLUS every content-arm
+      // hit: content hits sit behind the whole name list (splice policy, one
+      // promoted), so a depth window alone would never see them -- and the
+      // motivating case (AdaptiveTrackSelection on the bridged '101) is
+      // reachable ONLY through content hits, at gated ranks the window misses.
+      const window = (p.hits || []).slice(0, CHART_DEFAULTS.concentrationDepth);
+      // 'both' = found by name AND corroborated by content -- the strongest
+      // per-candidate signal there is, and often parked at a name rank the
+      // depth window misses (AdaptiveTrackSelection on the bridged '101).
+      for (const h of p.hits || []) if (h && (h.arm === 'content' || h.arm === 'both') && !window.includes(h)) window.push(h);
+      window.forEach((h, rank) => {
+        if (!h || !h.sym) return;
+        const f = fileOf(h.sym);
+        if (!f || selFiles.has(f)) return;
+        const e = byFile.get(f) || byFile.set(f, { els: new Set(), best: null, content: false }).get(f);
+        e.els.add(p.element);
+        if (h.arm === 'content' || h.arm === 'both') e.content = true;
+        if (!e.best || rank < e.best.rank) e.best = { hit: h, rank };
+      });
+    }
+    // Within an element count, a file reached through the CONTENT arm outranks
+    // one reached only by names: the body doing the work with no name match is
+    // the case concentration exists for, and a name-rank comparison would bury
+    // it behind whatever long name matched the most words.
+    const cands = [...byFile.entries()].filter(([, e]) => e.els.size >= 2)
+      .sort((a, b) => (b[1].els.size - a[1].els.size)
+        || ((b[1].content ? 1 : 0) - (a[1].content ? 1 : 0))
+        || (a[1].best.rank - b[1].best.rank));
+    for (const [file, e] of cands) {
+      if (concentration.length >= cMax) break;
+      const s = targetSpec(e.best.hit.sym);
+      if (seen.has(s)) continue;
+      seen.add(s);
+      out.push(s);
+      concentration.push({ file, target: s, elements: [...e.els].sort((x, y) => x - y), hit: e.best.hit });
+    }
+  }
+
   return {
     targets: out,
     requestedDepth: perEl,
@@ -198,6 +265,7 @@ export function perElementTargetsWithStats(perElement, opts = {}) {
     wanted,
     budgetLimited,
     candidatesExhausted: !budgetLimited && deepest < perEl,
+    concentration,
   };
 }
 
@@ -504,6 +572,12 @@ export function mergeBestPerElement(perTarget, { nominators = null } = {}) {
     for (const n of list) if (n.element === element && n.rank < r) r = n.rank;
     return r;
   };
+  // How many rows each target is PRESENT on -- the "implementer" signal the
+  // non-ABSENT tie-break uses. Computed up front so ties are order-independent.
+  const presentCount = new Map();
+  for (const { target, elements } of perTarget) {
+    for (const e of elements) if (e.label === 'PRESENT') presentCount.set(target, (presentCount.get(target) || 0) + 1);
+  }
   // Tally every label each element received, not just the winner. The merge
   // already visits all of them and was discarding the field: a cell reading
   // "ASSUMED, RtspMessageChannel" could be 1 of 34 targets with 33 dissenting,
@@ -528,10 +602,23 @@ export function mergeBestPerElement(perTarget, { nominators = null } = {}) {
       const prev = best.get(key);
       const mine = LABEL_RANK[e.label] ?? 0;
       const theirs = prev ? (LABEL_RANK[prev.label] ?? 0) : -1;
-      // Strictly better label wins; on a tie the element's own nominee wins
-      // (lower nomination rank), and an earlier target keeps a true tie.
-      const takes = !prev || mine > theirs
-        || (mine === theirs && nomRank(target, e.element) < nomRank(prev.target, e.element));
+      // Strictly better label wins. Ties split by label
+      // (chart-retrieval-content-arm-and-budget, from Andrew's claim-69 row 3
+      // and the positive control's row 6): an ABSENT tie cites the row's own
+      // nominee -- the nearest miss; a non-ABSENT tie cites the target that is
+      // PRESENT on the MOST rows of the claim -- the implementer, not a
+      // namesake or a caller that happens to top the row's retrieval. Then the
+      // row's nominee, then analysis order.
+      let takes = !prev || mine > theirs;
+      if (!takes && mine === theirs) {
+        if (e.label === 'ABSENT') {
+          takes = nomRank(target, e.element) < nomRank(prev.target, e.element);
+        } else {
+          const pc = (t) => presentCount.get(t) || 0;
+          takes = pc(target) > pc(prev.target)
+            || (pc(target) === pc(prev.target) && nomRank(target, e.element) < nomRank(prev.target, e.element));
+        }
+      }
       if (takes) {
         best.set(key, { element: e.element, text: e.text, label: e.label, target, note: e.note || '' });
       }
@@ -821,11 +908,12 @@ export function formatChart({
   // A target only the whole-claim arm nominated says so: which arm found the
   // code is part of the evidence (chart-retrieval-whole-claim-arm).
   const noms = nominationIndex(retrieval);
-  const wholeOnly = (t) => {
+  const armMark = (t) => {
     const n = noms.get(t) || [];
-    return n.length > 0 && n.every((x) => x.element === 0);
+    if (!n.length || !n.every((x) => x.element === 0)) return '';
+    return n.every((x) => x.arm === 'concentration') ? ' _(concentration)_' : ' _(whole-claim arm)_';
   };
-  for (const t of targets) out.push(`- \`${t}\`${pseudoTag(t)}${wholeOnly(t) ? ' _(whole-claim arm)_' : ''}`);
+  for (const t of targets) out.push(`- \`${t}\`${pseudoTag(t)}${armMark(t)}`);
   out.push('');
   // PER-ELEMENT RETRIEVAL PROVENANCE. Without it an ABSENT row is ambiguous:
   // "CE examined this element and found nothing" and "CE had nothing to examine"
@@ -846,9 +934,9 @@ export function formatChart({
     out.push(`| element | predicted words | candidates |${anyContent ? ' via content |' : ''}`);
     out.push(`|---|---|---|${anyContent ? '---|' : ''}`);
     for (const p of retrieval) {
-      // Element 0 is the whole-claim arm (chart-retrieval-whole-claim-arm):
-      // the claim's own words, no model prediction, on top of the budget.
-      const label = p.element === 0 ? 'whole claim' : p.element;
+      // Element 0 entries are the extra arms: the whole-claim arm (the
+      // claim's own words) and concentration (a file 2+ elements point at).
+      const label = p.arm === 'concentration' ? 'concentration' : p.element === 0 ? 'whole claim' : p.element;
       out.push(`| ${label} | ${(p.words || []).join(', ').replace(/\|/g, '\\|')} `
         + `| ${(p.hits || []).length} |${anyContent ? ` ${p.contentAdded || 0} |` : ''}`);
     }
@@ -1094,14 +1182,13 @@ export function wholeClaimArm({ claimText, symbols, index = null, includeTests =
     const key = (s) => `${String(s.filepath || '').split('!').pop()}@${s.name}`;
     const seen = new Set(hits.map((h) => key(h.sym)));
     try {
-      for (const c of contentCandidatesForWords(index, words, { limit, includeOp })) {
+      for (const c of contentCandidatesForWords(index, words, { limit, includeOp, includeTests })) {
         if (!c) continue;
         if (seen.has(key(c))) {
           const prior = hits.find((h) => key(h.sym) === key(c));
           if (prior) prior.arm = 'both';
           continue;
         }
-        if (!includeTests && isTestSymbol(c)) continue;
         seen.add(key(c));
         hits.push({ sym: c, matched: [], score: 0, arm: 'content' });
         contentAdded++;
@@ -1352,6 +1439,10 @@ export async function doClaimChart(index, args, opts = {}) {
     retrieval.heldBack = disc.heldBack || { symbols: 0, content: 0 };
     const budget = perElementTargetsWithStats(retrieval, args);
     targets = budget.targets;
+    // Carried on the array (like heldBack) for the attribution block below;
+    // JSON serialisation drops it, which is fine -- the sidecar records
+    // nominations, not the selection mechanics.
+    retrieval._concentration = budget.concentration || [];
     if (!targets.length) {
       console.error('Per-element retrieval found no candidate symbols in this index.'
         + ' Supply --targets to chart explicit ones.');
@@ -1378,6 +1469,19 @@ export async function doClaimChart(index, args, opts = {}) {
             + ` candidates deeper than this, so the budget was not the constraint.`
           : '.'),
     ];
+  }
+  // chart-retrieval-content-arm-and-budget: attribute the concentration
+  // targets (already in `targets` via perElementTargetsWithStats) so the
+  // retrieval table, sidecar and merge tie-break can see them.
+  if (!args.targets && Array.isArray(retrieval) && retrieval._concentration && retrieval._concentration.length) {
+    const conc = retrieval._concentration;
+    retrieval.push({ element: 0, arm: 'concentration', words: [], hits: conc.map((c) => c.hit) });
+    process.stderr.write(`  concentration: ${conc.length} target(s) added -- 2+ elements pointed at the same file: `
+      + conc.map((c) => `${String(c.file).split('/').pop()} (elements ${c.elements.join(', ')})`).join('; ') + '\n');
+    targetProvenance = [...targetProvenance,
+      `Concentration: ${conc.length} target(s) added because two or more elements' top candidates share a file`
+      + ` that contributed no target: ${conc.map((c) => `${String(c.file).split('/').pop().split('!').pop()} (elements ${c.elements.join(', ')})`).join('; ')}.`
+      + ' --concentration-targets 0 disables it.'];
   }
   // chart-retrieval-whole-claim-arm: the claim's own words over the whole
   // symbol table, on top of the per-element budget. --whole-claim-targets 0
