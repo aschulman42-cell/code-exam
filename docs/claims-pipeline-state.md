@@ -345,3 +345,40 @@ ios81 that arm was decisive both ways (claim 6: 3/8 search vs 4/8 analyze; claim
 datapoint.** And the key is what the drafting model cited, verified to resolve —
 machine-checkable ground truth about consistency under paraphrase, not evidence
 that the anchors are the *right* code for the limitation.
+
+## 10. The loop test (pseudo-claim-loop, 2026-08-30)
+
+The positive side of the ground-truth stack, beside the negative controls (§6's
+vocabulary-pair charts) and the litigated structure tiers: a pseudo-claim
+drafted FROM known anchors is charted BLIND, and the sidecar's grounded anchors
+are the answer key. `scripts/pseudo-claim-loop.mjs` drives the whole recipe —
+hand-picked claims → `--synonymize` (HOF-b, away from the code's vocabulary) →
+`--claim-chart` per claim in both wordings, no `--targets` → optionally the
+drafted dependents as a `--claim-family`, a family with ONE dependent
+deterministically perturbed (`loop-score.perturbDependent`: a number bumped, a
+direction swapped, a condition negated — recorded, never invented), and a
+control index — then `src/core/loop-score.js` turns the verdicts sidecars into
+the scorecard:
+
+- **retrieval recall** — which drafted anchors the blind chart retrieved;
+- **mechanism PRESENT, on-anchor vs elsewhere** — mechanism-class rows only
+  (the classes ride in the sidecar, d4ef852); a PRESENT elsewhere may be right
+  and is not the drafted truth;
+- **generic rows** — reported, never scored;
+- **false PRESENT on the control** — mechanism rows PRESENT where the
+  mechanism is not;
+- **dependent grades** — a real dependent's judged row expected PRESENT, its
+  perturbed twin expected ABSENT on the same code; PRESENT on both is counted
+  as *vacuous*, because that chart measured nothing.
+
+Reference numbers a new engine should reproduce before its own are read
+(claude-sonnet-4-6, artifacts in the repo root): the ATSEL positive control —
+9/9 PRESENT, recall 0.75, the crux at element 5 rank 0 — and the CE_3 baseline
+(claims 69/105/90 of `CE082826_SEED`): recall 1.0 / 0.75 / 0.25 original,
+1.0 / 0.5 / 0.13 synonymized, PRESENT drifting off-anchor as recall falls.
+`--dry-run` prints every command and runs none; swap `--llm claude` for
+`--model <gguf>` and the recipe is unchanged — which is the asus-CC job:
+reproduce the reference numbers on local engines, then run the loop at scale.
+Temp-0 runs are not reproducible across days (measured 2026-08-27 and again
+2026-08-30: two identical '101 commands, different lone PARTIALs); compare
+within a run, and treat cross-day deltas below the run-to-run noise as noise.
