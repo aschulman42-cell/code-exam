@@ -21,6 +21,52 @@
 import { isPseudoSource } from '../binstrings.js';
 
 // ========================================================================
+// Match-line hygiene (chart-term-hygiene-and-rarity-scoring)
+// ========================================================================
+
+// A term "matched" on a comment or annotation line is weaker evidence than
+// one matched in code: javadoc prose and @annotations let big functions
+// harvest [n/k] counts by surface area (the '101 forensics: AmrExtractor's
+// doc-text matches outranked AdaptiveTrackSelection's in-code ones). A
+// comment-only match counts at this weight in weighted_terms and in the
+// command layer's IDF score; a term matched on BOTH kinds of line counts as
+// code. Chosen once, stated here; NOT a per-case tunable, no CLI option.
+export const COMMENT_MATCH_WEIGHT = 0.25;
+
+/**
+ * Classify one matched line as 'code' or 'comment', deterministically, from
+ * the line text multisect already records. Comment shapes observed in the
+ * '101 forensics: javadoc continuation (`* ...`), `//`, `/*`, `#`, and
+ * annotation-only lines (`@Target(TYPE_USE)`). C preprocessor directives
+ * are code, not comments. Synthetic details (`[name match: ...]`,
+ * `[path match: ...]`) are name evidence, not prose: code.
+ */
+export function classifyMatchLine(text) {
+  const t = String(text || '').trim();
+  if (!t) return 'code';
+  if (t.startsWith('[name match:') || t.startsWith('[path match:')) return 'code';
+  if (/^#\s*(include|define|ifn?def|if\b|endif|pragma|undef|else|elif)/.test(t)) return 'code';
+  if (/^(\/\/|\/\*|\*|#)/.test(t)) return 'comment';
+  if (/^@\w+(\([^)]*\))?[;,]?$/.test(t)) return 'comment';
+  return 'code';
+}
+
+/** Weighted matched-term count: code matches count 1, comment-only 0.25. */
+function weightedTermCount(details, posMatched) {
+  let w = 0;
+  for (const ti of posMatched) {
+    const d = details[ti];
+    w += d && d.is_code === false ? COMMENT_MATCH_WEIGHT : 1;
+  }
+  return w;
+}
+
+/** Matched positive indices whose recorded hit is a code line. */
+function codeMatchedIndices(details, posMatched) {
+  return [...posMatched].filter(ti => details[ti] && details[ti].is_code !== false).sort((a, b) => a - b);
+}
+
+// ========================================================================
 // Multi-term intersection search (#146 "scavenger hunt")
 // ========================================================================
 
@@ -354,7 +400,7 @@ export function multisectSearch(idx, terms, opts = {}) {
         if (!fileDetailMap.has(fp)) fileDetailMap.set(fp, {});
         const fDetails = fileDetailMap.get(fp);
         if (fDetails[ti] === undefined) {
-          fDetails[ti] = { line_num: 0, line_text: `[path match: ${fp}]`, func_name: null };
+          fDetails[ti] = { line_num: 0, line_text: `[path match: ${fp}]`, func_name: null, is_code: true };
         }
         continue;
       }
@@ -368,23 +414,28 @@ export function multisectSearch(idx, terms, opts = {}) {
         if (!regex.test(lineText)) continue;
 
         const funcName = idx._bisectFuncLookup(boundaries, lineNum) || '(global)';
+        const isCode = classifyMatchLine(lineText) === 'code';
 
-        // File-level: record first hit per term
+        // File-level: first hit per term, upgraded when a code-line hit
+        // follows a comment-only one (matched-in-both counts as code).
         if (!fileDetailMap.has(fp)) fileDetailMap.set(fp, {});
         const fDetails = fileDetailMap.get(fp);
-        if (fDetails[ti] === undefined) {
-          fDetails[ti] = { line_num: lineNum, line_text: lineText.trim(), func_name: funcName };
+        if (fDetails[ti] === undefined || (fDetails[ti].is_code === false && isCode)) {
+          fDetails[ti] = { line_num: lineNum, line_text: lineText.trim(), func_name: funcName, is_code: isCode };
         }
 
-        // Function-level: one hit per function per term
+        // Function-level: one hit per function per term, with the same
+        // comment->code upgrade. A (term, function) pair closes only once a
+        // code-line hit is recorded, so a comment-first match stays open for
+        // upgrade without re-recording on every subsequent comment line.
         const fnKey = `${fp}\x00${funcName}`;
         if (!seenFuncs.has(funcName)) {
-          seenFuncs.add(funcName);
           if (!funcMap.has(fnKey)) funcMap.set(fnKey, { filepath: fp, function: funcName, details: {} });
           const fm = funcMap.get(fnKey);
-          if (fm.details[ti] === undefined) {
-            fm.details[ti] = { line_num: lineNum, line_text: lineText.trim() };
+          if (fm.details[ti] === undefined || (fm.details[ti].is_code === false && isCode)) {
+            fm.details[ti] = { line_num: lineNum, line_text: lineText.trim(), is_code: isCode };
           }
+          if (isCode) seenFuncs.add(funcName);
         }
       }
 
@@ -412,7 +463,7 @@ export function multisectSearch(idx, terms, opts = {}) {
           }
           const fmName = funcMap.get(fnKey);
           if (fmName.details[ti] === undefined) {
-            fmName.details[ti] = { line_num: s, line_text: `[name match: ${dn}]` };
+            fmName.details[ti] = { line_num: s, line_text: `[name match: ${dn}]`, is_code: true };
           }
         }
       }
@@ -477,6 +528,8 @@ export function multisectSearch(idx, terms, opts = {}) {
       function: fm.function,
       kind: isPseudoSource(fm.filepath) ? 'pseudo-source' : 'source',
       terms_matched: posMatched.size,
+      weighted_terms: weightedTermCount(fm.details, posMatched),
+      code_matched_indices: codeMatchedIndices(fm.details, posMatched),
       lines: funcLines || 0,
       matched_indices: posMatched,
       soft_not_violated: funcSoftNotHits.has(fnKey)
@@ -486,6 +539,7 @@ export function multisectSearch(idx, terms, opts = {}) {
     });
   }
   funcMatches.sort((a, b) =>
+    b.weighted_terms - a.weighted_terms ||
     b.terms_matched - a.terms_matched ||
     a.lines - b.lines ||
     a.function.localeCompare(b.function) ||
@@ -526,12 +580,13 @@ export function multisectSearch(idx, terms, opts = {}) {
     // Merge term details — keep first hit per term for the class
     for (const [tiStr, detail] of Object.entries(fm.details)) {
       const ti = Number(tiStr);
-      if (cm.details[ti] === undefined) {
+      if (cm.details[ti] === undefined || (cm.details[ti].is_code === false && detail.is_code !== false)) {
         cm.details[ti] = {
           line_num: detail.line_num,
           line_text: detail.line_text,
           func_name: funcName,
           filepath: fm.filepath,
+          is_code: detail.is_code !== false,
         };
       }
     }
@@ -555,6 +610,8 @@ export function multisectSearch(idx, terms, opts = {}) {
     classMatches.push({
       class_name: className,
       terms_matched: posMatched.size,
+      weighted_terms: weightedTermCount(cm.details, posMatched),
+      code_matched_indices: codeMatchedIndices(cm.details, posMatched),
       matched_indices: posMatched,
       soft_not_violated: softNotViolated,
       files: [...classFiles].sort(),
@@ -564,6 +621,7 @@ export function multisectSearch(idx, terms, opts = {}) {
     });
   }
   classMatches.sort((a, b) =>
+    b.weighted_terms - a.weighted_terms ||
     b.terms_matched - a.terms_matched ||
     a.total_lines - b.total_lines ||
     a.class_name.localeCompare(b.class_name));
@@ -586,6 +644,8 @@ export function multisectSearch(idx, terms, opts = {}) {
       filepath: fp,
       kind: isPseudoSource(fp) ? 'pseudo-source' : 'source',
       terms_matched: posMatched.size,
+      weighted_terms: weightedTermCount(details, posMatched),
+      code_matched_indices: codeMatchedIndices(details, posMatched),
       lines: fileLineCount,
       matched_indices: posMatched,
       soft_not_violated: softNotViolated,
@@ -593,6 +653,7 @@ export function multisectSearch(idx, terms, opts = {}) {
     });
   }
   fileMatches.sort((a, b) =>
+    b.weighted_terms - a.weighted_terms ||
     b.terms_matched - a.terms_matched ||
     a.lines - b.lines ||
     a.filepath.localeCompare(b.filepath));

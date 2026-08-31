@@ -2517,3 +2517,17 @@ describe('splitter: stage-B boundaries vs the attorneys\' structure (380 litigat
     for (const r of rows.slice(2, -1)) assert.ok(r.over <= viaOpts.over, `${r.name}: over ${r.over}% > default ${viaOpts.over}%`);
   });
 });
+
+describe('contentCandidatesForWords: ranking inherited from the engine, never re-sorted', () => {
+  // Term-hygiene ranks upstream (weighted_terms in core/multisect.js); the
+  // arm must pass the engine order through so a code-dense [5/9] can stand
+  // ahead of a comment-harvest [6/9].
+  it('preserves function_matches order', () => {
+    const index = { multisectSearch: () => ({ function_matches: [
+      { function: 'denseWinner', filepath: 'a.js', terms_matched: 2, weighted_terms: 2 },
+      { function: 'commentHarvest', filepath: 'b.js', terms_matched: 3, weighted_terms: 0.75 },
+    ] }) };
+    const got = contentCandidatesForWords(index, ['rate', 'target']);
+    assert.deepEqual(got.map((x) => x.name), ['denseWinner', 'commentHarvest']);
+  });
+});

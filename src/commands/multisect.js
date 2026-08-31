@@ -18,6 +18,7 @@
 
 import path from 'path';
 import { quotePathIfNeeded } from '../utils.js';
+import { COMMENT_MATCH_WEIGHT } from '../core/multisect.js';
 
 // ========================================================================
 // Term parser
@@ -158,15 +159,30 @@ function computeIdfScores(results, totalFiles) {
   return idfs;
 }
 
-function matchIdfScore(match, idfs) {
+// Density: a 50-line function matching terms in 50 lines is denser evidence
+// than 444 lines matching the same terms (term-hygiene). Fixed constants:
+// factor is 1.0 at <=50 lines, 0.5 at 500, ~0.33 at 5000 — bounded (0, 1].
+export function matchDensityFactor(match) {
+  const lines = match.lines ?? match.total_lines ?? 0;
+  return 1 / (1 + Math.log10(Math.max(1, lines / 50)));
+}
+
+export function matchIdfScore(match, idfs) {
+  const codeSet = match.code_matched_indices ? new Set(match.code_matched_indices) : null;
   let s = 0;
   // Matched positive terms (hard- and soft-required alike) add their IDF —
-  // a soft-required hit is thus a ranking bonus without being a gate.
-  for (const i of match.matched_indices) s += idfs[i] || 0;
+  // a soft-required hit is thus a ranking bonus without being a gate. A term
+  // whose only hit is a comment/annotation line contributes a fraction of
+  // its IDF (COMMENT_MATCH_WEIGHT; matched-in-both counts as code). Legacy
+  // match shapes without code_matched_indices score at full weight.
+  for (const i of match.matched_indices) {
+    const w = codeSet && !codeSet.has(i) ? COMMENT_MATCH_WEIGHT : 1;
+    s += (idfs[i] || 0) * w;
+  }
   // Each violated soft-NOT term subtracts its IDF — a discouraged term
   // present pushes the scope down the ranking without removing it.
   for (const i of (match.soft_not_violated || [])) s -= idfs[i] || 0;
-  return s;
+  return s * matchDensityFactor(match);
 }
 
 
@@ -288,7 +304,9 @@ export function prepareMultisectViews(results, opts = {}) {
   const fileDedup = verbose ? files : files.filter(m => !fileCoveredByFunction(m) && !fileCoveredByClass(m));
   const folderDedup = verbose ? folders : folders.filter(m => !folderCoveredBySingleFile(m));
 
+  const wOf = (m) => m.weighted_terms ?? m.terms_matched;
   const sortByScore = (arr, nameKey) => [...arr].sort((a, b) =>
+    wOf(b) - wOf(a) ||
     b.terms_matched - a.terms_matched ||
     scoreOf(b) - scoreOf(a) ||
     (a[nameKey] || '').localeCompare(b[nameKey] || ''));
@@ -305,6 +323,8 @@ export function prepareMultisectViews(results, opts = {}) {
     filepath: m.filepath,
     function: m.function,
     terms_matched: m.terms_matched,
+    weighted_terms: m.weighted_terms ?? m.terms_matched,
+    code_matched_indices: m.code_matched_indices || [],
     lines: m.lines || 0,
     matched_indices: [...m.matched_indices].sort((a, b) => a - b),
     soft_not_violated: m.soft_not_violated || [],
@@ -316,6 +336,8 @@ export function prepareMultisectViews(results, opts = {}) {
     files: m.files,
     functions: m.functions,
     terms_matched: m.terms_matched,
+    weighted_terms: m.weighted_terms ?? m.terms_matched,
+    code_matched_indices: m.code_matched_indices || [],
     total_lines: m.total_lines || 0,
     matched_indices: [...m.matched_indices].sort((a, b) => a - b),
     soft_not_violated: m.soft_not_violated || [],
@@ -325,6 +347,8 @@ export function prepareMultisectViews(results, opts = {}) {
   const toFile = (m) => ({
     filepath: m.filepath,
     terms_matched: m.terms_matched,
+    weighted_terms: m.weighted_terms ?? m.terms_matched,
+    code_matched_indices: m.code_matched_indices || [],
     lines: m.lines || 0,
     matched_indices: [...m.matched_indices].sort((a, b) => a - b),
     soft_not_violated: m.soft_not_violated || [],
@@ -436,17 +460,22 @@ export function displayMultisectResults(results, args, totalFiles) {
   let fileMatches = results.file_matches;
   let folderMatches = results.folder_matches;
 
-  // IDF re-sort
+  // IDF re-sort — weighted term count first (comment-only matches count
+  // fractionally), then the weighted+density IDF score (term-hygiene).
+  const wOf = (m) => m.weighted_terms ?? m.terms_matched;
   if (idfs) {
     funcMatches = [...funcMatches].sort((a, b) =>
+      wOf(b) - wOf(a) ||
       b.terms_matched - a.terms_matched ||
       matchIdfScore(b, idfs) - matchIdfScore(a, idfs) ||
       a.function.localeCompare(b.function));
     classMatches = [...classMatches].sort((a, b) =>
+      wOf(b) - wOf(a) ||
       b.terms_matched - a.terms_matched ||
       matchIdfScore(b, idfs) - matchIdfScore(a, idfs) ||
       a.class_name.localeCompare(b.class_name));
     fileMatches = [...fileMatches].sort((a, b) =>
+      wOf(b) - wOf(a) ||
       b.terms_matched - a.terms_matched ||
       matchIdfScore(b, idfs) - matchIdfScore(a, idfs) ||
       a.filepath.localeCompare(b.filepath));
@@ -500,11 +529,16 @@ export function displayMultisectResults(results, args, totalFiles) {
     for (let idx = 0; idx < shown.length; idx++) {
       const m = shown[idx];
       const fp = fullPath ? m.filepath : shortPath(m.filepath, 50, pathHighlight);
-      const score = idfs ? ` IDF:${matchIdfScore(m, idfs).toFixed(1)}` : '';
-      console.log(`\n  [${idx + 1}] ${m.function}  (${quotePathIfNeeded(fp)}, ${m.lines} lines)  [${m.terms_matched}/${nPos}]${score}`);
+      const dens = matchDensityFactor(m);
+      const score = idfs ? ` IDF:${matchIdfScore(m, idfs).toFixed(1)}${dens < 1 ? ` (density ${dens.toFixed(2)})` : ''}` : '';
+      const codeN = m.code_matched_indices ? m.code_matched_indices.length : null;
+      const countTag = codeN !== null && codeN !== m.terms_matched
+        ? `[${m.terms_matched}/${nPos}, ${codeN} in code]`
+        : `[${m.terms_matched}/${nPos}]`;
+      console.log(`\n  [${idx + 1}] ${m.function}  (${quotePathIfNeeded(fp)}, ${m.lines} lines)  ${countTag}${score}`);
 
       // Show per-term detail, collapsing terms that hit the same line
-      const lineGroups = new Map(); // lineNum -> { indices: [], text: '' }
+      const lineGroups = new Map(); // lineNum -> { indices: [], text: '', comment: bool }
       const missingIndices = [];
       for (let ti = 0; ti < terms.length; ti++) {
         if (notSet.has(ti)) continue;
@@ -512,19 +546,20 @@ export function displayMultisectResults(results, args, totalFiles) {
         if (detail) {
           const key = detail.line_num;
           if (!lineGroups.has(key)) {
-            lineGroups.set(key, { indices: [], text: detail.line_text });
+            lineGroups.set(key, { indices: [], text: detail.line_text, comment: detail.is_code === false });
           }
           lineGroups.get(key).indices.push(ti + 1);
         } else {
           missingIndices.push(ti + 1);
         }
       }
-      // Sort by line number and display
+      // Sort by line number and display; comment-only matches are marked so
+      // a reader can see why the weighted count is lower than the raw one.
       const sortedLines = [...lineGroups.entries()].sort((a, b) => a[0] - b[0]);
-      for (const [lineNum, { indices, text }] of sortedLines) {
+      for (const [lineNum, { indices, text, comment }] of sortedLines) {
         const lineText = text.length > 80 ? text.slice(0, 77) + '...' : text;
         const tag = indices.length > 1 ? `[${indices.join(',')}]` : `[${indices[0]}]`;
-        console.log(`      ${tag} L${lineNum}  ${lineText}`);
+        console.log(`      ${tag} L${lineNum}  ${lineText}${comment ? '  (comment)' : ''}`);
       }
       for (const ti of missingIndices) {
         console.log(`      [${ti}] -- not found --`);
