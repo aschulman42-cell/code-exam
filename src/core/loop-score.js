@@ -58,11 +58,26 @@ export function anchorKeys(claim) {
  * (report it; do not invent one).
  */
 export function perturbDependent(text) {
-  const s = String(text || '');
+  const full = String(text || '');
+  // Split off the "... of claim N" reference first: it is never a
+  // perturbation site. Bumping it (the run-B failure, 2026-08-31) turns
+  // "claim 1" into a self-reference the family cycle detection then
+  // correctly drops -- the negative arm silently never exists. Same
+  // regex-free scan shape as pseudo-claim-triage's dependentBody.
+  const lower = full.toLowerCase();
+  const at = lower.indexOf('claim ');
+  let head = '';
+  let s = full;
+  if (at >= 0) {
+    let j = at + 6;
+    while (j < full.length && full[j] >= '0' && full[j] <= '9') j++;
+    head = full.slice(0, j);
+    s = full.slice(j);
+  }
   const num = s.match(/\b(\d+)\b/);
   if (num) {
     const v = String(Number(num[1]) + 1);
-    return { text: s.slice(0, num.index) + v + s.slice(num.index + num[1].length), edit: `number ${num[1]} -> ${v}` };
+    return { text: head + s.slice(0, num.index) + v + s.slice(num.index + num[1].length), edit: `number ${num[1]} -> ${v}` };
   }
   const swaps = [
     [/\bgreater\b/, 'less'], [/\bless\b/, 'greater'],
@@ -72,10 +87,10 @@ export function perturbDependent(text) {
   ];
   for (const [re, to] of swaps) {
     const m = s.match(re);
-    if (m) return { text: s.replace(re, to), edit: `"${m[0]}" -> "${to}"` };
+    if (m) return { text: head + s.replace(re, to), edit: `"${m[0]}" -> "${to}"` };
   }
   const is = s.match(/\b is \b/);
-  if (is) return { text: s.replace(/\b is \b/, ' is not '), edit: '"is" -> "is not"' };
+  if (is) return { text: head + s.replace(/\b is \b/, ' is not '), edit: '"is" -> "is not"' };
   return null;
 }
 

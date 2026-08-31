@@ -36,6 +36,16 @@ describe('perturbDependent: one recorded edit, deterministic, honest null', () =
     assert.equal(perturbDependent('further comprising logging'), null, 'no site: null, never invented');
     assert.deepEqual(perturbDependent('wherein the threshold is 5 seconds'), perturbDependent('wherein the threshold is 5 seconds'), 'deterministic');
   });
+  it('never perturbs the claim reference', () => {
+    assert.deepEqual(perturbDependent('The method of claim 1, wherein the threshold is 5 seconds'),
+      { text: 'The method of claim 1, wherein the threshold is 6 seconds', edit: 'number 5 -> 6' },
+      'the body number moves; "claim 1" does not (the run-B self-reference bug)');
+    assert.deepEqual(perturbDependent('The method of claim 2, wherein rows are sorted in descending order'),
+      { text: 'The method of claim 2, wherein rows are sorted in ascending order', edit: '"descending" -> "ascending"' },
+      'swap path leaves the reference intact too');
+    assert.equal(perturbDependent('The method of claim 1, further comprising logging'), null,
+      'the reference digit is not a perturbation site: honest null');
+  });
 });
 
 describe('scoreChart: recall, mechanism on-anchor vs elsewhere, generic reported not scored', () => {

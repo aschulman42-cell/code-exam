@@ -102,9 +102,16 @@ if (!args['no-syn']) {
   synFile = `${base}_SYN_numbered.txt`;
   run([CE, '--synonymize', `@${args.claims}`, '--claims-per-line', '--llm', args['syn-llm'], '--synonymize-out', rawSyn]);
   if (!args['dry-run']) {
+    if (!fs.existsSync(rawSyn)) {
+      // e.g. the synonymize spawn failed (missing key, network): a missing
+      // arm degrades to a skipped arm, like the count-mismatch case below.
+      console.error('synonymize produced no output; skipping the syn arm');
+      synFile = null;
+    } else {
     const lines = fs.readFileSync(rawSyn, 'utf8').split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
     if (lines.length !== picked.length) { console.error(`synonymize returned ${lines.length} claim(s) for ${picked.length}; skipping the syn arm`); synFile = null; }
     else fs.writeFileSync(synFile, lines.map((l, i) => `${picked[i].n}. ${l.replace(/^\d+\s*[.)]\s+/, '')}`).join('\n') + '\n');
+    }
   }
 }
 
