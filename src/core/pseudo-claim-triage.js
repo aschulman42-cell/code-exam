@@ -109,12 +109,24 @@ export function dependentBody(text) {
   return s.slice(j);
 }
 
+/**
+ * Clause-level facet count of a dependent's contribution
+ * (pseudo-dep-tightening). Conservative by design: counts `;` boundaries
+ * and "and wherein" joins; an enumeration inside one clause still counts as
+ * one facet, so this UNDERCOUNTS width -- a facets>1 reading is certain
+ * bundling, never a false positive from a list of species.
+ */
+export function dependentFacetCount(text) {
+  const body = dependentBody(text);
+  return 1 + (body.match(/;/g) || []).length + (body.match(/\band\s+wherein\b/gi) || []).length;
+}
+
 /** What a dependent adds beyond claim 1: fresh stems, and its contribution kind. */
 export function dependentSignal(claimOneStems, dep) {
   const text = dep && typeof dep === 'object' ? dep.text : dep;
   const words = contentWords(dependentBody(text)).map(stem);
   const fresh = [...new Set(words.filter((w) => !claimOneStems.has(w)))];
-  return { n: dep && dep.n, kind: classifyContribution(text).kind, words: words.length, fresh: fresh.length, freshWords: fresh.slice(0, 5) };
+  return { n: dep && dep.n, kind: classifyContribution(text).kind, words: words.length, fresh: fresh.length, freshWords: fresh.slice(0, 5), facets: dependentFacetCount(text) };
 }
 
 const keyOf = (c) => c.label || `#${c.n}`;
@@ -185,6 +197,7 @@ export function triageClaims(sidecar, { shapeReport = null, thresholds = {} } = 
       dependents: deps ? deps.length : null,
       depWeak: deps ? deps.filter((d) => d.fresh <= T.depWeakFresh).length : null,
       depUndetermined: deps ? deps.filter((d) => d.kind === 'UNDETERMINED').length : null,
+      depBundled: deps ? deps.filter((d) => d.facets > 1).length : null,
     };
   }
 
@@ -204,6 +217,9 @@ export function triageClaims(sidecar, { shapeReport = null, thresholds = {} } = 
     else if (s.droppedShare != null && s.droppedShare >= T.droppedShareHigh) { score += 2; reasons.push(`${s.dropped} of ${s.grounded + s.dropped} cited anchors failed to ground`); }
     else if (s.droppedShare != null && s.droppedShare >= T.droppedShareSome) { score += 1; reasons.push(`${s.dropped} of ${s.grounded + s.dropped} cited anchors failed to ground`); }
     if (s.truncated) { score += 2; reasons.push('draft truncated at the output budget'); }
+    // pseudo-dep-tightening: informational only -- names the bundle, moves no
+    // score. The fix belongs to the drafter, not the triage.
+    if (s.depBundled) reasons.push(`${s.depBundled} bundled dependent(s) (multi-facet wherein)`);
 
     if (s.maxSim >= T.dupSim && s.simKey) {
       const o = byKey.get(s.simKey);

@@ -651,7 +651,7 @@ describe('dependents reach the sidecar and the artifact, and the claims file NOW
 
   it('the sidecar carries them when present', () => {
     const s = buildAnchorSidecar(groups, draftWith, {});
-    assert.deepEqual(s.claims[0].dependents, [{ n: 2, text: 'The method of claim 1, wherein a is red.' }]);
+    assert.deepEqual(s.claims[0].dependents, [{ n: 2, text: 'The method of claim 1, wherein a is red.', facets: 1 }]);
   });
 
   it('the sidecar omits the key entirely when there are none', () => {
@@ -879,5 +879,15 @@ describe('candidates: the console says what was written, once', () => {
     assert.deepEqual(withCapturedStderr(() => reportEchoes(groups, { outPath: 'out.lst', verbose: true })),
       ['# echo: [file] render.js ~ render ~ paint (src/render.js)']);
     assert.deepEqual(withCapturedStderr(() => reportEchoes([groups[2]], { outPath: 'out.lst' })), []);
+  });
+});
+
+import { PSEUDO_SYS_DEPENDENTS as _psdeps } from '../src/commands/pseudo-claims.js';
+
+describe('pseudo-dep-tightening: the drafter instruction', () => {
+  it('requires exactly one element and one species per dependent, and forbids bundles', () => {
+    assert.ok(/EXACTLY ONE element/.test(_psdeps));
+    assert.ok(/never a bundle/.test(_psdeps));
+    assert.ok(/deeper chain/.test(_psdeps), 'the chain alternative is offered, not just prohibition');
   });
 });

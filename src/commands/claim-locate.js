@@ -1360,6 +1360,16 @@ export function formatLocateReport(rows, opts = {}) {
   const out = ['', '='.repeat(72), ' LOCATED SYMBOLS — model-proposed, index-verified', '='.repeat(72), ''];
   const found = rows.filter((r) => r.verified);
   const missing = rows.filter((r) => !r.verified);
+  // claim-chart-scattered-targets: the located set carries the same
+  // connectivity disclosure the chart does.
+  if (opts.connectivity) {
+    const c = opts.connectivity;
+    out.push(c.groups.length <= 1
+      ? `  Selected symbols form one connected group (call paths within ${c.depth} hops, or same file).`
+      : `  SCATTERED: ${c.targets} selected symbol(s) in ${c.groups.length} unconnected groups (no call path within ${c.depth} hops): `
+        + c.groups.map((g) => g.join(', ')).join('  |  '));
+    out.push('');
+  }
   if (!found.length) {
     out.push('  No proposed symbol could be verified in this index.');
   }
@@ -2240,8 +2250,14 @@ export async function doClaimLocate(index, args, opts = {}) {
     targets: targetSpecs(found),
   }) : [];
 
+  // claim-chart-scattered-targets: reported only, never changes selection.
+  let locConnectivity = null;
+  try {
+    const locSpecs = targetSpecs(found);
+    if (locSpecs.length >= 2) locConnectivity = targetConnectivity({ targets: locSpecs, neighbors: indexCallNeighbors(index) });
+  } catch { locConnectivity = null; }
   for (const ln of formatLocateReport(rows, {
-    targetsLine: true, hunt, unseen: huntUnseen, provenance,
+    targetsLine: true, hunt, unseen: huntUnseen, provenance, connectivity: locConnectivity,
   })) console.log(ln);
 
   // --targets-out closes the loop mechanically: the chart reads this file and
@@ -2264,4 +2280,86 @@ export async function doClaimLocate(index, args, opts = {}) {
   const cost = actualCostLine(model);
   if (cost) console.log(cost);
   return { rows, symbols: symbols.length, hunt };
+}
+
+// ========================================================================
+// claim-chart-scattered-targets: cited-target connectivity
+// ========================================================================
+//
+// A chart whose PRESENT/PARTIAL verdicts sit on call-graph-disconnected
+// targets shows CAPABILITIES, not the claimed combination -- the 9,152,713
+// x .langchain reading (#310): an ASR wrapper and a web-research retriever,
+// each verdict right about its target, nothing joining them, and nothing in
+// the chart saying so. Deterministic connectivity over the cited targets,
+// REPORTED and recorded, never used to change a verdict. Undirected BFS
+// over callers+callees; same file counts as connected; bounds fixed here.
+export const CONNECTIVITY_DEPTH = 3;
+const CONNECTIVITY_FRONTIER_CAP = 40;   // neighbors kept per node per hop
+const CONNECTIVITY_TOTAL_CAP = 400;     // visited nodes per cited target
+
+export function targetConnectivity({ targets, neighbors, depth = CONNECTIVITY_DEPTH }) {
+  const specs = [...new Set(targets || [])];
+  if (specs.length < 2) return null;
+  const fileKey = (spec) => String(spec).slice(0, Math.max(0, String(spec).indexOf('@'))).split('!').pop().split('/').pop().toLowerCase();
+  const nodeKey = (spec) => {
+    const at = String(spec).indexOf('@');
+    const name = String(spec).slice(at + 1).replace(/@\d+$/, '');
+    return `${fileKey(spec)}@${name.toLowerCase()}`;
+  };
+  const reach = (spec) => {
+    const seen = new Set([nodeKey(spec)]);
+    let frontier = [spec];
+    for (let d = 0; d < depth && frontier.length; d++) {
+      const next = [];
+      for (const s of frontier) {
+        let n = 0;
+        for (const nb of neighbors(s) || []) {
+          if (n >= CONNECTIVITY_FRONTIER_CAP || seen.size >= CONNECTIVITY_TOTAL_CAP) break;
+          const k = nodeKey(nb);
+          if (seen.has(k)) continue;
+          seen.add(k);
+          next.push(nb);
+          n++;
+        }
+      }
+      frontier = next;
+    }
+    return seen;
+  };
+  const sets = specs.map((s) => reach(s));
+  const parent = specs.map((_, i) => i);
+  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const union = (i, j) => { parent[find(j)] = find(i); };
+  for (let i = 0; i < specs.length; i++) {
+    for (let j = i + 1; j < specs.length; j++) {
+      if (fileKey(specs[i]) === fileKey(specs[j])
+        || sets[i].has(nodeKey(specs[j])) || sets[j].has(nodeKey(specs[i]))) union(i, j);
+    }
+  }
+  const byRoot = new Map();
+  specs.forEach((s, i) => { const r = find(i); if (!byRoot.has(r)) byRoot.set(r, []); byRoot.get(r).push(s); });
+  const groups = [...byRoot.values()].sort((a, b) => b.length - a.length || String(a[0]).localeCompare(String(b[0])));
+  return { targets: specs.length, depth, groups };
+}
+
+/** Call-graph neighbor function over a live index, for targetConnectivity. */
+export function indexCallNeighbors(index) {
+  return (spec) => {
+    const at = String(spec).indexOf('@');
+    const file = String(spec).slice(0, at);
+    const bare = String(spec).slice(at + 1).replace(/@\d+$/, '').split('::').pop();
+    const out = [];
+    try {
+      for (const c of index.findCallees(bare, file) || []) {
+        if (c && c.name) out.push(`${String(c.filepath || file).split('!').pop()}@${c.name}`);
+      }
+    } catch { /* reported-only instrument: a resolution failure is silence, not a crash */ }
+    try {
+      for (const c of index.findCallers(bare, 50) || []) {
+        const nm = c && (c.name || c.function);
+        if (nm) out.push(`${String(c.filepath || c.file || '').split('!').pop()}@${nm}`);
+      }
+    } catch { /* ditto */ }
+    return out;
+  };
 }

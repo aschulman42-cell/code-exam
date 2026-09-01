@@ -33,7 +33,7 @@ import { analyzeClaimSet, classifyContribution } from '../core/dep-claims.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, wasLastDraftTruncated, truncationCount, truncationLine } from '../core/llm-runner.js';
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
 import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, echoPairs, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
-import { triageClaims, formatTriage, keepSidecar, formatKeepFile } from '../core/pseudo-claim-triage.js';
+import { triageClaims, formatTriage, keepSidecar, formatKeepFile, dependentFacetCount } from '../core/pseudo-claim-triage.js';
 
 // --- Canonical caveat blocks -------------------------------------------------
 // Ported verbatim from pseudo_claim_selftest/CAVEAT.md so the shipped command
@@ -222,14 +222,19 @@ export function shapeTargetLines(profileName = DEFAULT_SHAPE_PROFILE) {
   return s;
 }
 
-const PSEUDO_SYS_DEPENDENTS =
+export const PSEUDO_SYS_DEPENDENTS =
   'Detail that does not belong in claim 1 goes DOWN INTO DEPENDENT CLAIMS ' +
   'rather than being dropped. A dependent claim either ADDS a limitation ' +
   '("The method of claim 1, further comprising: <step>.") or NARROWS an ' +
   'inherited one ("The method of claim 1, wherein <element> is <narrower ' +
   'form>."). Write as many dependents as the material genuinely supports — ' +
   'they are NOT capped — but each must name its parent claim BY NUMBER and ' +
-  'state exactly one narrowing. ';
+  'narrow EXACTLY ONE element with EXACTLY ONE species or refinement: one ' +
+  '"wherein" clause, one fact. If the material supports several specifics ' +
+  'for one element, write several dependents, or a deeper chain (claim 3 ' +
+  'narrowing claim 2) — never a bundle joined by "and wherein" or by ' +
+  'semicolons. A dependent body should be much shorter than the element it ' +
+  'narrows; genuine dependent claims are one short clause. ';
 
 const PSEUDO_SYS_TAIL =
   'If the provided material is larger than one claim can cover, SELECT the ' +
@@ -934,7 +939,7 @@ export function buildAnchorSidecar(groups, drafts, meta = {}) {
       // Omitted entirely when the drafter wrote none, so a no-dependent run
       // produces a byte-identical sidecar to before the change.
       ...((d.dependents || []).length
-        ? { dependents: d.dependents.map((x) => ({ n: x.n, text: x.text })) }
+        ? { dependents: d.dependents.map((x) => ({ n: x.n, text: x.text, facets: dependentFacetCount(x.text) })) }
         : {}),
       // pseudo-claims-shape-profile: the draft's shape against the chosen
       // population, so a scorer or the loop test can rank by it without
@@ -965,6 +970,19 @@ export function buildAnchorSidecar(groups, drafts, meta = {}) {
 
 export function writeClaimsOnly(fpath, groups, drafts, meta = {}) {
   const sidecar = buildAnchorSidecar(groups, drafts, meta);
+  // pseudo-dep-tightening: dependent WIDTH reported every run, so drift is
+  // visible run over run. Target shape is the genuine population's: median 1
+  // facet, p90 <= 2 ('101; Cisco 7,047,526 -- one narrowing per dependent).
+  {
+    const widths = [];
+    for (const c of sidecar.claims) for (const d of c.dependents || []) widths.push(d.facets || 1);
+    if (widths.length) {
+      const sorted = [...widths].sort((a, b) => a - b);
+      const q = (p) => sorted[Math.min(sorted.length - 1, Math.floor(p * (sorted.length - 1)))];
+      const bundled = widths.filter((w) => w > 1).length;
+      process.stderr.write(`# dependent width: ${widths.length} dependent(s), median ${q(0.5)} facet(s), p90 ${q(0.9)}, ${bundled} bundled (facets > 1)\n`);
+    }
+  }
   const skipped = drafts.filter((d) => !d || d.error || !d.prose).length;
   const header = [
     '# Pseudo-claims — illustrative drafting exercise, NOT legal analysis.',

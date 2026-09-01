@@ -1988,3 +1988,25 @@ describe('chart-within-file-drilldown: scoped per-element nomination', () => {
     assert.ok(got.added.length <= _ddChartMax);
   });
 });
+
+import { targetConnectivity as _tcon } from '../src/commands/claim-locate.js';
+
+describe('claim-chart-scattered-targets: cited-target connectivity', () => {
+  it('call-linked targets group; an unlinked one stands apart', () => {
+    const edges = { 'a.js@A::run': ['b.js@B::step'], 'b.js@B::step': ['a.js@A::run'], 'c.js@C::other': [] };
+    const got = _tcon({ targets: ['a.js@A::run', 'b.js@B::step', 'c.js@C::other'], neighbors: (s) => edges[s] || [] });
+    assert.equal(got.groups.length, 2);
+    assert.deepEqual([...got.groups[0]].sort(), ['a.js@A::run', 'b.js@B::step']);
+  });
+  it('same file counts as connected without any call edge', () => {
+    const got = _tcon({ targets: ['x/f.js@F::a', 'y/f.js@F::b'], neighbors: () => [] });
+    assert.equal(got.groups.length, 1);
+  });
+  it('a 3-hop path connects; a 4-hop one does not; fewer than 2 targets yields null', () => {
+    const chain3 = { 'a@A': ['m1@M1'], 'm1@M1': ['m2@M2'], 'm2@M2': ['b@B'] };
+    assert.equal(_tcon({ targets: ['a@A', 'b@B'], neighbors: (s) => chain3[s] || [] }).groups.length, 1);
+    const chain4 = { 'a@A': ['m1@M1'], 'm1@M1': ['m2@M2'], 'm2@M2': ['m3@M3'], 'm3@M3': ['b@B'] };
+    assert.equal(_tcon({ targets: ['a@A', 'b@B'], neighbors: (s) => chain4[s] || [] }).groups.length, 2);
+    assert.equal(_tcon({ targets: ['a@A'], neighbors: () => [] }), null);
+  });
+});

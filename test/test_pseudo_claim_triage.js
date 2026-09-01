@@ -228,3 +228,23 @@ describe('triage: the blind eyeball-picks harness', () => {
     }
   });
 });
+
+import { dependentFacetCount as _dfc, dependentSignal as _dsig } from '../src/core/pseudo-claim-triage.js';
+
+describe('pseudo-dep-tightening: clause-level facet count', () => {
+  it('a clean single-wherein dependent counts one facet', () => {
+    assert.equal(_dfc('The method of claim 1, wherein said gizmo unit is a widget assembly.'), 1);
+  });
+  it('the OUTPUT_GCS_PATH-shaped bundle counts more than one', () => {
+    const mega = 'The method of claim 1, wherein the per-execution environment variable overrides include an OUTPUT_GCS_PATH variable, a COMMAND variable, and, when input files are present, an INPUT_GCS_PATH variable, and wherein a container override and a task override carrying a timeout are composed into a RunJobRequest that is submitted to a cloud jobs client.';
+    assert.ok(_dfc(mega) > 1, 'and-wherein join detected');
+  });
+  it('semicolon boundaries count as facets; enumeration inside one clause does not', () => {
+    assert.equal(_dfc('The method of claim 1, wherein A is X; and the B is Y.'), 2);
+    assert.equal(_dfc('The method of claim 1, wherein the type is one of alpha, beta, and gamma.'), 1, 'conservative: a species list is one facet');
+  });
+  it('dependentSignal carries the facet count', () => {
+    const sig = _dsig(new Set(), { n: 2, text: 'The method of claim 1, wherein A is X, and wherein B is Y.' });
+    assert.ok(sig.facets > 1);
+  });
+});

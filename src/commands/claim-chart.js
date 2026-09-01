@@ -43,7 +43,7 @@ const pseudoTag = (spec) => (isPseudoSource(String(spec || '').split('@')[0]) ? 
 // input without saying so is how the next version of this bug hides.
 const _noteComments = (n, f) => process.stderr.write(
   `  Claim file ${f}: ignored ${n} '#' comment line(s) (provenance, not claim text).\n`);
-import { splitClaimElements, targetsChecksum, dedupeTargets, parseElementsFile, retrievePerElement, isPreambleRow, limitationTag, classifyLimitation, searchSymbolsByWords, contentCandidatesForWords, isTestSymbol } from './claim-locate.js';
+import { splitClaimElements, targetsChecksum, dedupeTargets, parseElementsFile, retrievePerElement, isPreambleRow, limitationTag, classifyLimitation, searchSymbolsByWords, contentCandidatesForWords, isTestSymbol, targetConnectivity, indexCallNeighbors } from './claim-locate.js';
 import { readCeVersion } from '../utils.js';
 import { buildSymbolTable, verifySymbol, isFound, navigateFrom } from '../core/symbol-verify.js';
 import { parseAnalysisLabels, lexicalGate } from './claims-loop.js';
@@ -945,7 +945,7 @@ export function buildProvenanceHeader({
 
 export function formatChart({
   claimText, table, fills, targets, engineLabel, elements, scopeNote, provenance,
-  dropped, retrieval,
+  dropped, retrieval, connectivity,
 }) {
   const filled = fillChartRows(table, fills);
   const out = [];
@@ -988,6 +988,21 @@ export function formatChart({
   }
   out.push(coverageLine(fills, elements.length, elements));
   out.push('');
+  // claim-chart-scattered-targets: does the chart show the claimed
+  // COMBINATION, or unrelated capabilities? A litigator reads this shape on
+  // sight; a chart that does not name it invites the reader to add rows up.
+  if (connectivity) {
+    if (connectivity.groups.length <= 1) {
+      out.push('_Cited PRESENT/PARTIAL targets form one connected group (call paths within '
+        + `${connectivity.depth} hops, or same file)._`);
+    } else {
+      out.push(`**PRESENT/PARTIAL verdicts rest on ${connectivity.targets} target(s) in `
+        + `${connectivity.groups.length} unconnected groups (no call path within ${connectivity.depth} hops): `
+        + connectivity.groups.map((g) => g.map((s) => `\`${s}\``).join(', ')).join(' | ')
+        + ' — the combination of these elements is not shown.**');
+    }
+    out.push('');
+  }
   out.push('## Analysed targets');
   out.push('');
   // A target only the whole-claim arm nominated says so: which arm found the
@@ -1839,6 +1854,9 @@ export async function doClaimChart(index, args, opts = {}) {
   //     LaunchActivity::onStart took row 6 without element 6 nominating it at
   //     all, and without this field nothing on disk records that. Still the
   //     merge's INPUT: a rank is what retrieval SAID, not a derived winner.
+  // claim-chart-scattered-targets: computed after the merge (the fills are
+  // what a reader sees); declared here so the sidecar can carry the field.
+  let connectivity = null;
   if (args.verdicts_out) {
     const nominators = nominationIndex(retrieval);
     const sidecar = {
@@ -1862,6 +1880,9 @@ export async function doClaimChart(index, args, opts = {}) {
       depSynonyms: depSyn
         ? Object.fromEntries(depSyn.rows.map((r) => [String(r.row + 1), { words: r.words, from: r.from }]))
         : null,
+      // claim-chart-scattered-targets: connectivity groups of the cited
+      // PRESENT/PARTIAL targets (null when fewer than 2 cited).
+      targetGroups: connectivity ? connectivity.groups : null,
       // The integrity VERDICT, not a checksum -- targetIntegrity is a string
       // ('unmodified' / 'modified' / null), and writing `.checksum` here would
       // have silently recorded undefined in the one field meant to bind this
@@ -1891,6 +1912,25 @@ Per-target verdicts written to ${args.verdicts_out}`
   }
 
   const fills = mergeBestPerElement(perTarget, { nominators: nominationIndex(retrieval) });
+  // claim-chart-scattered-targets: connectivity of the cited PRESENT/PARTIAL
+  // targets. Reported and recorded; never changes a verdict.
+  {
+    const cited = [...new Set(fills.filter((f) => f.target && (f.label === 'PRESENT' || f.label === 'PARTIAL')).map((f) => f.target))];
+    if (cited.length >= 2) {
+      try { connectivity = targetConnectivity({ targets: cited, neighbors: indexCallNeighbors(index) }); }
+      catch { connectivity = null; }
+    }
+  }
+  // The sidecar was already written (raw pre-merge verdicts, by design), so
+  // the groups ride in via the same read-modify-write the family block uses.
+  if (connectivity && args.verdicts_out && !process.exitCode) {
+    try {
+      const j = JSON.parse(fs.readFileSync(args.verdicts_out, 'utf8'));
+      j.targetGroups = connectivity.groups;
+      fs.writeFileSync(args.verdicts_out, `${JSON.stringify(j, null, 2)}
+`, 'utf8');
+    } catch { /* best-effort; the chart line still reports */ }
+  }
   const scopeNote =[scope.note ? `_Scope: ${scope.note}._` : null, args.scope_note ? String(args.scope_note) : null]
     .filter(Boolean).join('\n\n') || null;
   const provenance = buildProvenanceHeader({
@@ -1939,7 +1979,7 @@ Per-target verdicts written to ${args.verdicts_out}`
   console.log(formatChart({
     claimText, table, fills, elements, engineLabel, scopeNote, provenance,
     targets: perTarget.map((p) => p.target),
-    dropped, retrieval,
+    dropped, retrieval, connectivity,
   }) + (family ? formatFamilySection(family) + '\n' : ''));
 
   // The sidecar's family block: per dependent, every row with its origin and
