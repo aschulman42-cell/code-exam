@@ -596,6 +596,7 @@ export function parseArgs() {
     // chart-retrieval-whole-claim-arm: targets from the claim's own words, on
     // top of the per-element budget; 0 disables.
     ['whole_claim_targets',  'int',            ['--whole-claim-targets']],
+    ['no_dep_synonyms',      'flag',           ['--no-dep-synonyms']],
     // chart-retrieval-content-arm-and-budget: targets added when 2+ elements'
     // top candidates share a file that contributed none; 0 disables.
     ['concentration_targets', 'int',           ['--concentration-targets']],
@@ -1613,6 +1614,10 @@ LLM ANALYSIS:
                              --claim-family, a "family" block is appended. This
                              is what merge-rule replays and the loop scorer
                              consume.
+  --no-dep-synonyms          --claim-chart: do NOT let MODIFICATION dependents
+                             donate species vocabulary to the parent rows they
+                             narrow (claim differentiation; on by default when
+                             the input carries such dependents)
   --whole-claim-targets <n>  --claim-chart, per-element retrieval only: ALSO add
                              up to <n> targets found by the CLAIM'S OWN words over
                              the whole symbol table (default 5), on top of the

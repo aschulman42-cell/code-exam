@@ -1888,3 +1888,38 @@ describe('file concentration and the label-split tie-break (chart-retrieval-cont
     assert.equal(fills.find((f) => f.element === 3).target, 'x/Namesake.java@namesake', 'ABSENT tie -> the row\'s own nominee (nearest miss)');
   });
 });
+
+import { buildChartAnalysisPrompt as _depBcap } from '../src/commands/claim-chart.js';
+import { retrievePerElement as _depRpe } from '../src/commands/claim-locate.js';
+
+describe('dep-claims-broaden-parent: species vocabulary reaches retrieval and the prompt', () => {
+  it('extraWords join the element word list, retrieve the species symbol, and are attributed', async () => {
+    const symbols = [
+      { name: 'WidgetAssembly::spin', filepath: 'src/widget.js' },
+      { name: 'GizmoUnit::run', filepath: 'src/gizmo.js' },
+    ];
+    const draft = async () => 'ELEMENT 1: gizmo, unit';
+    const got = await _depRpe({ draft, elements: ['a gizmo unit'], symbols,
+      opts: { extraWords: new Map([[1, { words: ['widget', 'assembly'], from: [{ claim: 2, words: ['widget', 'assembly'] }] }]]) } });
+    const p = got.perElement[0];
+    assert.ok(p.words.includes('widget'), 'species word joined the search list');
+    assert.deepEqual(p.depFrom, [2], 'attributed to the donating claim');
+    assert.ok(p.hits.some((h) => /WidgetAssembly/.test(h.sym.name)), 'species word retrieved the species symbol');
+  });
+  it('an element the model response never parsed still gets its species words', async () => {
+    const draft = async () => 'ELEMENT 1: alpha';
+    const got = await _depRpe({ draft, elements: ['alpha row', 'beta row'],
+      symbols: [{ name: 'ZetaTransform::apply', filepath: 'z.js' }],
+      opts: { extraWords: new Map([[2, { words: ['zeta'], from: [{ claim: 3, words: ['zeta'] }] }]]) } });
+    const p2 = got.perElement.find((p) => p.element === 2);
+    assert.ok(p2, 'element 2 searched despite no model words');
+    assert.ok(p2.words.includes('zeta') && p2.depFrom.includes(3));
+  });
+  it('buildChartAnalysisPrompt carries the differentiation NOTE on the narrowed row only', () => {
+    const prompt = _depBcap('src', 'f', 'a.js', 'claim', ['row one', 'row two'],
+      { depNotes: new Map([[1, 'Dependent claim 2 narrows this element to: widget (claim differentiation — a species the element presumptively covers).']]) });
+    assert.ok(prompt.includes('ELEMENT 2: row two'));
+    assert.ok(/NOTE: Dependent claim 2 narrows/.test(prompt), 'note present on row two');
+    assert.ok(!/ELEMENT 1:[^\n]*\n\s+NOTE:/.test(prompt), 'no note on the un-narrowed row');
+  });
+});

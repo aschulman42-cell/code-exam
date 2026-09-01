@@ -246,3 +246,57 @@ describe('dep-claims: the residue reports itself', () => {
     assert.equal(res.byNumber.get(2).depthLabel, 'D');
   });
 });
+
+import { parentElementSynonyms } from '../src/core/dep-claims.js';
+import { dependentBody as _pesBody, narrowedRowFor as _pesRow } from '../src/commands/claim-chart.js';
+import { contentWords as _pesWords, stem as _pesStem } from '../src/core/claim-terms.js';
+
+describe('parentElementSynonyms: claim differentiation as retrieval vocabulary', () => {
+  const helpers = { dependentBody: _pesBody, narrowedRowFor: _pesRow, contentWords: _pesWords, stem: _pesStem };
+  const rows = (texts) => texts.map((text, index) => ({ text, index }));
+  it('a MODIFICATION dependent donates its fresh species words to the row it narrows', () => {
+    const claims = [
+      { n: 1, text: '1. A device comprising: a gizmo unit; and a frobnicator coupled to the gizmo unit.' },
+      { n: 2, text: '2. The device of claim 1, wherein said gizmo unit is a widget assembly.' },
+    ];
+    const got = parentElementSynonyms(claims, rows(['a gizmo unit', 'a frobnicator coupled to the gizmo unit']), { rootN: 1, ...helpers });
+    assert.equal(got.rows.length, 1);
+    assert.equal(got.rows[0].row, 0, 'lands on the gizmo row');
+    assert.ok(got.rows[0].words.some((w) => /widget/i.test(w)), 'widget donated');
+    assert.deepEqual(got.rows[0].from.map((f) => f.claim), [2], 'provenance per dependent');
+  });
+  it('two dependents narrowing the same element union their species (A;/B|E|F/;C;D)', () => {
+    const claims = [
+      { n: 1, text: '1. A method comprising: acquiring alpha; processing beta; emitting gamma.' },
+      { n: 2, text: '2. The method of claim 1, wherein the beta processing uses an epsilon filter.' },
+      { n: 3, text: '3. The method of claim 1, wherein the beta processing uses a zeta transform.' },
+    ];
+    const got = parentElementSynonyms(claims, rows(['acquiring alpha', 'processing beta', 'emitting gamma']), { rootN: 1, ...helpers });
+    assert.equal(got.rows.length, 1);
+    assert.equal(got.rows[0].row, 1);
+    const ws = got.rows[0].words.join(' ');
+    assert.ok(/epsilon/.test(ws) && /zeta/.test(ws), 'both species in the union');
+    assert.deepEqual(got.rows[0].from.map((f) => f.claim), [2, 3]);
+  });
+  it('an ADDITION contributes nothing; an unmatched narrowing is reported, not guessed', () => {
+    const claims = [
+      { n: 1, text: '1. A device comprising: a gizmo unit.' },
+      { n: 2, text: '2. The device of claim 1, further comprising a logging subsystem.' },
+      { n: 3, text: '3. The device of claim 1, wherein the quux flange is titanium.' },
+    ];
+    const got = parentElementSynonyms(claims, rows(['a gizmo unit']), { rootN: 1, ...helpers });
+    assert.equal(got.rows.length, 0);
+    assert.deepEqual(got.unmatched.map((u) => u.claim), [3]);
+    assert.ok(got.skipped.some((s) => s.claim === 2 && s.kind === 'ADDITION'));
+  });
+  it('only direct children of the charted claim donate (a D2 narrows its own parent)', () => {
+    const claims = [
+      { n: 1, text: '1. A method comprising: storing data in a buffer.' },
+      { n: 2, text: '2. The method of claim 1, wherein the buffer is a ring buffer.' },
+      { n: 3, text: '3. The method of claim 2, wherein the ring buffer is lockfree.' },
+    ];
+    const got = parentElementSynonyms(claims, rows(['storing data in a buffer']), { rootN: 1, ...helpers });
+    assert.equal(got.rows.length, 1);
+    assert.deepEqual(got.rows[0].from.map((f) => f.claim), [2], 'claim 3 belongs to claim 2, not the root');
+  });
+});

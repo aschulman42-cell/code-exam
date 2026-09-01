@@ -200,3 +200,59 @@ export function formatDepReport(result) {
   for (const l of r.lowConfidenceResidue) out.push(`  low-confidence residue: claim ${l.n} classified independent but ${l.reasons.join('; ')}`);
   return out;
 }
+
+/**
+ * dep-claims-broaden-parent: claim differentiation as retrieval guidance.
+ *
+ * A MODIFICATION dependent narrowing an element to a species ("wherein said
+ * gizmo is a widget") is presumptive evidence the parent's genus term covers
+ * that species. The species words are exactly the vocabulary bridge lexical
+ * retrieval lacks -- code-shaped where the genus term is claim-shaped. This
+ * returns, per parent row, the fresh species WORDS the dependents donate,
+ * with per-dependent provenance; it never pools sources and never touches
+ * verdicts. ADDITION adds a limitation and broadens nothing; the cross-class
+ * kinds are skipped with their kind named. Only DIRECT children of the
+ * charted claim donate (a D2 narrows its own parent's row set, not the
+ * root's); a multi-parent dependent contributes via its chosen parent only.
+ *
+ * Helpers are INJECTED (dependentBody, narrowedRowFor, contentWords, stem)
+ * so this core module never imports from commands/ -- claim-chart owns the
+ * row-matching machinery, and injection keeps this pure and cycle-free (the
+ * same rule as loop-score's injected merge).
+ *
+ * @param {Array<{n:number,text:string}>} claims  the WHOLE input claim set
+ * @param {Array<{text:string,index:number}>} parentRows  the charted claim's rows
+ * @returns {{rows:Array<{row:number,words:string[],from:Array<{claim:number,words:string[]}>}>, unmatched:Array<{claim:number}>, skipped:Array<{claim:number,kind:string}>}}
+ */
+export function parentElementSynonyms(claims, parentRows, { rootN = null, dependentBody, narrowedRowFor, contentWords, stem } = {}) {
+  const res = analyzeClaimSet(claims);
+  const parentStems = new Set();
+  for (const r of parentRows || []) for (const w of contentWords(r.text)) parentStems.add(stem(w));
+  const byRow = new Map();
+  const unmatched = [];
+  const skipped = [];
+  for (const row of res.claims) {
+    if (!row.dependent) continue;
+    if (rootN != null && row.parent !== Number(rootN)) continue;
+    const kind = row.contribution && row.contribution.kind;
+    if (kind !== 'MODIFICATION') { skipped.push({ claim: row.n, kind: kind || 'UNDETERMINED' }); continue; }
+    const body = dependentBody(row.text);
+    const match = narrowedRowFor(body, parentRows);
+    if (!match) { unmatched.push({ claim: row.n }); continue; }
+    const seen = new Set();
+    const words = [];
+    for (const w of contentWords(body)) {
+      const s = stem(w);
+      if (parentStems.has(s) || seen.has(s)) continue;
+      seen.add(s);
+      words.push(w);
+    }
+    if (!words.length) continue;
+    const idx = match.row.index;
+    if (!byRow.has(idx)) byRow.set(idx, { row: idx, words: [], from: [] });
+    const entry = byRow.get(idx);
+    for (const w of words) if (!entry.words.includes(w)) entry.words.push(w);
+    entry.from.push({ claim: row.n, words });
+  }
+  return { rows: [...byRow.values()].sort((a, b) => a.row - b.row), unmatched, skipped };
+}

@@ -745,6 +745,33 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
         ? `The vocabulary response was cut off at the ${VOCAB_MAX_OUTPUT_TOKENS}-token output budget before any element parsed.`
         : 'The model produced no parseable code-word predictions.' };
   }
+  // dep-claims-broaden-parent: species vocabulary donated by MODIFICATION
+  // dependents joins the narrowed element's search words -- BOTH arms, since
+  // the merged list flows into searchSymbolsByWords and
+  // contentCandidatesForWords alike. Model words keep precedence; donated
+  // words are normalised to the charset the parser enforces. An element the
+  // (possibly truncated) response never parsed still gets its species words
+  // rather than retrieving nothing.
+  if (opts.extraWords instanceof Map && opts.extraWords.size) {
+    const norm = (w) => String(w).toLowerCase().replace(/[^a-z0-9]/g, '');
+    for (const [el, add] of opts.extraWords) {
+      const words = [...new Set((add.words || []).map(norm).filter((w) => w.length >= 3 && w.length <= 24))];
+      if (!words.length) continue;
+      const from = (add.from || []).map((f) => f.claim);
+      const ws = wordSets.find((x) => x.element === el);
+      if (ws) {
+        const have = new Set(ws.words);
+        const fresh = words.filter((w) => !have.has(w));
+        if (!fresh.length) continue;
+        ws.depWords = fresh;
+        ws.depFrom = from;
+        ws.words = [...ws.words, ...fresh];
+      } else {
+        wordSets.push({ element: el, words, depWords: words, depFrom: from });
+      }
+    }
+    wordSets.sort((a, b) => a.element - b.element);
+  }
   // PSEUDO-SOURCE GATE (op-pseudo-source-kind-gate). A binstrings `.op` dump
   // indexes as one `bin_<name>` pseudo-function holding every string in the
   // binary, so the name arm matches it on almost any word list and the content
@@ -762,7 +789,8 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
       + ` retrieval — --include-op to admit them\n`);
   }
   const perElement = [];
-  for (const { element, words } of wordSets) {
+  for (const ws of wordSets) {
+    const { element, words } = ws;
     const hits = searchSymbolsByWords(pool, words, {
       limit: opts.candidatesPerElement ?? LOCATE_DEFAULTS.candidatesPerElement,
       includeTests: !!opts.includeTests,
@@ -866,7 +894,8 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
           + `${armNote ? ` — ${armNote}` : ''}\n`);
       }
     }
-    perElement.push({ element, text: limText.slice(0, 160), words, hits, mismatches, contentAdded });
+    perElement.push({ element, text: limText.slice(0, 160), words, hits, mismatches, contentAdded,
+      ...(ws.depWords && ws.depWords.length ? { depWords: ws.depWords, depFrom: ws.depFrom } : {}) });
     opts.onElement?.({ element, words, hits, mismatches });
   }
   return { perElement, raw, error: null, prompt: { sys, user }, heldBack };

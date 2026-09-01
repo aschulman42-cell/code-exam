@@ -29,7 +29,7 @@
 import fs from 'node:fs';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine, engineBuildLine } from '../core/llm-runner.js';
 import { buildClaimAnalyzePrompt, addLineNumbers, readClaimFile, resolveClaimScope, splitNumberedClaims } from './analyze.js';
-import { analyzeClaimSet } from '../core/dep-claims.js';
+import { analyzeClaimSet, parentElementSynonyms } from '../core/dep-claims.js';
 import { contentWords, stem } from '../core/claim-terms.js';
 import { isPseudoSource } from '../binstrings.js';
 import { elementClasses, tallyByClass, classHeadline } from '../core/claim-genericity.js';
@@ -457,13 +457,17 @@ export function collectCalleeBodies(index, symbols, seed, opts = {}) {
 // from it but no per-element labels, and counts cannot fill rows. Rather than
 // change the output contract of the interactive command for every caller, the
 // chart appends its own explicit contract and parses that.
-export function buildChartAnalysisPrompt(src, fnName, filepath, claimText, elements) {
+export function buildChartAnalysisPrompt(src, fnName, filepath, claimText, elements, { depNotes = null } = {}) {
   const base = buildClaimAnalyzePrompt(src, fnName, filepath, claimText, false);
   // The tag travels with the element, so the model judges the right question.
   // Deterministic regex, not a model construing a claim — see classifyLimitation.
+  // depNotes (dep-claims-broaden-parent) adds the disclosed claim-
+  // differentiation line to the rows dependents narrow -- visible to the
+  // model AND to anyone reading the saved prompt, never an invisible rule.
   const rows = elements.map((e, i) => {
     const tag = limitationTag(e);
-    return `ELEMENT ${i + 1}: ${String(e).slice(0, 150)}${tag ? `\n  ${tag}` : ''}`;
+    const note = depNotes && depNotes.get(i);
+    return `ELEMENT ${i + 1}: ${String(e).slice(0, 150)}${tag ? `\n  ${tag}` : ''}${note ? `\n  NOTE: ${note}` : ''}`;
   }).join('\n');
   return `${base}
 
@@ -937,7 +941,8 @@ export function formatChart({
       // Element 0 entries are the extra arms: the whole-claim arm (the
       // claim's own words) and concentration (a file 2+ elements point at).
       const label = p.arm === 'concentration' ? 'concentration' : p.element === 0 ? 'whole claim' : p.element;
-      out.push(`| ${label} | ${(p.words || []).join(', ').replace(/\|/g, '\\|')} `
+      const depMark = p.depFrom && p.depFrom.length ? ` _(+dep ${p.depFrom.join(', ')})_` : '';
+      out.push(`| ${label} | ${(p.words || []).join(', ').replace(/\|/g, '\\|')}${depMark} `
         + `| ${(p.hits || []).length} |${anyContent ? ` ${p.contentAdded || 0} |` : ''}`);
     }
     if (anyContent) {
@@ -1343,6 +1348,9 @@ export async function doClaimChart(index, args, opts = {}) {
     console.error('--claim-chart needs claim text: --claim-chart @claim.txt'); process.exitCode = 1; return;
   }
   claimText = String(claimText).trim();
+  // dep-claims-broaden-parent: the full input (all claims) survives scoping,
+  // so MODIFICATION dependents can donate species vocabulary to the root's rows.
+  const fullInputText = claimText;
 
   // issue-311-dep-claim-chart: which claim(s) of the input this chart is of.
   // Default the first; --claim-number <n> selects (a dependent charts its
@@ -1384,6 +1392,40 @@ export async function doClaimChart(index, args, opts = {}) {
   // chart of the same claim have different row counts, and a reader comparing two
   // charts needs the header to say which split produced each.
   if (!elementsSource) elementsSource = `${elements.length} from CE's split of the claim text (--granularity ${tier})`;
+
+  // dep-claims-broaden-parent: claim differentiation as retrieval guidance.
+  // A MODIFICATION dependent narrowing an element to a species is presumptive
+  // evidence the parent's genus term covers that species -- so the species
+  // words join the narrowed row's SEARCH (never its verdict rule), and the
+  // analysis prompt carries one disclosed, doctrine-named note per such row.
+  let depSyn = null;
+  let depNotes = null;
+  if (!args.no_dep_synonyms) {
+    const parts = splitNumberedClaims(fullInputText).filter((p) => p.n != null);
+    if (parts.length > 1) {
+      const rootM = String(claimText).match(/^\s*(\d+)\s*[.)]/);
+      const rootN = scope.family ? scope.family.root
+        : rootM ? Number(rootM[1])
+          : args.claim_number != null ? Number(args.claim_number) : parts[0].n;
+      const parentRows = elements.map((text, index) => ({ text, index }));
+      depSyn = parentElementSynonyms(parts.map((p) => ({ n: p.n, text: `${p.n}. ${p.text}` })), parentRows,
+        { rootN, dependentBody, narrowedRowFor, contentWords, stem });
+      if (!depSyn.rows.length) depSyn = null;
+      else {
+        process.stderr.write(`[claim-chart] claim differentiation: ${depSyn.rows.length} element(s) gain species words from`
+          + ` MODIFICATION dependent(s): `
+          + depSyn.rows.map((r) => `element ${r.row + 1} +[${r.words.join(', ')}] (claim ${r.from.map((f) => f.claim).join(', ')})`).join('; ')
+          + ` -- --no-dep-synonyms disables\n`);
+        if (depSyn.unmatched.length) {
+          process.stderr.write(`  ${depSyn.unmatched.length} narrowing dependent(s) matched no parent row -- reported, not guessed:`
+            + ` claim ${depSyn.unmatched.map((u) => u.claim).join(', ')}\n`);
+        }
+        depNotes = new Map(depSyn.rows.map((r) => [r.row,
+          `Dependent claim ${r.from.map((f) => f.claim).join(' and ')} narrows this element to: ${r.words.join(', ')}`
+          + ` (claim differentiation — a species the element presumptively covers).`]));
+      }
+    }
+  }
   // Same descriptor the targets file records, so the chart's `**Engine:**` line
   // and the target provenance `Engine:` line cannot disagree about what ran —
   // and so the cloud-vs-local distinction the air-gap argument turns on is
@@ -1426,6 +1468,8 @@ export async function doClaimChart(index, args, opts = {}) {
         // symbol table. Passing it is what turns the arm on, and omitting it
         // leaves this path byte-identical to before (#315 lever 2).
         index,
+        // dep-claims-broaden-parent: species words for the rows dependents narrow.
+        extraWords: depSyn ? new Map(depSyn.rows.map((r) => [r.row + 1, { words: r.words, from: r.from }])) : null,
         onElement: ({ element, words, hits, contentAdded }) => process.stderr.write(
           `  element ${element}: words [${words.join(', ')}] -> ${hits.length} candidate(s)`
           + `${contentAdded ? ` (${contentAdded} via content search)` : ''}\n`),
@@ -1482,6 +1526,14 @@ export async function doClaimChart(index, args, opts = {}) {
       `Concentration: ${conc.length} target(s) added because two or more elements' top candidates share a file`
       + ` that contributed no target: ${conc.map((c) => `${String(c.file).split('/').pop().split('!').pop()} (elements ${c.elements.join(', ')})`).join('; ')}.`
       + ' --concentration-targets 0 disables it.'];
+  }
+  // dep-claims-broaden-parent: say which rows were searched with dependent
+  // species vocabulary -- retrieval guidance, disclosed, never a verdict rule.
+  if (!args.targets && depSyn) {
+    targetProvenance = [...targetProvenance,
+      `Claim differentiation: ${depSyn.rows.length} element(s) also searched with species vocabulary donated by`
+      + ` MODIFICATION dependent(s): ${depSyn.rows.map((r) => `element ${r.row + 1} from claim ${r.from.map((f) => f.claim).join('/')}`).join('; ')}.`
+      + ' --no-dep-synonyms disables it.'];
   }
   // chart-retrieval-whole-claim-arm: the claim's own words over the whole
   // symbol table, on top of the per-element budget. --whole-claim-targets 0
@@ -1608,7 +1660,7 @@ export async function doClaimChart(index, args, opts = {}) {
       : numbered;
     const label = targetSpec(m);
     let out;
-    try { out = await draft(buildChartAnalysisPrompt(promptSrc, m.name, m.filepath, claimText, elements), '', 1100); }
+    try { out = await draft(buildChartAnalysisPrompt(promptSrc, m.name, m.filepath, claimText, elements, { depNotes }), '', 1100); }
     catch (e) {
       process.stderr.write(`  analysis failed for ${m.name}: ${e.message}\n`);
       dropped.push({ target: label, reason: `analysis failed — ${e.message}` });
@@ -1700,6 +1752,11 @@ export async function doClaimChart(index, args, opts = {}) {
       // Per-row class (preamble / generic / mechanism), so a replay or a loop
       // test can re-tally by class without re-deriving the rule.
       elementClasses: elementClasses(elements, { isPreambleRow }),
+      // Which rows were searched with dependent-donated species vocabulary
+      // (dep-claims-broaden-parent); null when none or --no-dep-synonyms.
+      depSynonyms: depSyn
+        ? Object.fromEntries(depSyn.rows.map((r) => [String(r.row + 1), { words: r.words, from: r.from }]))
+        : null,
       // The integrity VERDICT, not a checksum -- targetIntegrity is a string
       // ('unmodified' / 'modified' / null), and writing `.checksum` here would
       // have silently recorded undefined in the one field meant to bind this
