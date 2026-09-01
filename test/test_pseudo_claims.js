@@ -891,3 +891,24 @@ describe('pseudo-dep-tightening: the drafter instruction', () => {
     assert.ok(/deeper chain/.test(_psdeps), 'the chain alternative is offered, not just prohibition');
   });
 });
+
+import { buildPseudoClaimSys as _bpcs, SHAPE_PROFILES as _shp } from '../src/commands/pseudo-claims.js';
+
+describe('pseudo-claims-statutory-class: prompt and profile', () => {
+  it('the system-class prompt carries the apparatus example and the class-given line', () => {
+    const sys = _bpcs('litigated-system', 'system');
+    assert.ok(/GIVEN: SYSTEM/.test(sys));
+    assert.ok(/processor\s+configured to/i.test(sys));
+    assert.ok(/further configured to/.test(sys), 'apparatus dependent form shown');
+  });
+  it('the method prompt is the given-class method form', () => {
+    const m = _bpcs('litigated', 'method');
+    assert.ok(/GIVEN: METHOD/.test(m));
+    assert.ok(/A method for X, comprising/.test(m));
+  });
+  it('the litigated-system profile exists with its own measured bands', () => {
+    const p = _shp['litigated-system'];
+    assert.ok(p && p.axes.mechanism && p.axes.words);
+    assert.equal(p.axes.wherein.median, 1, 'system claims carry a wherein at median, unlike method (0)');
+  });
+});

@@ -171,6 +171,10 @@ export function triageClaims(sidecar, { shapeReport = null, thresholds = {} } = 
     let maxSim = 0, simKey = null;
     for (const o of rows) {
       if (o === r) continue;
+      // pseudo-claims-statutory-class: near-duplicate compares WITHIN a class
+      // only -- a method and its system counterpart under `both` are the same
+      // mechanism on purpose.
+      if ((o.c.class || 'method') !== (r.c.class || 'method')) continue;
       const j = jaccard(r.stems, o.stems);
       if (j > maxSim) { maxSim = j; simKey = o.key; }
     }
@@ -277,12 +281,12 @@ export function formatTriage(result, { source = '' } = {}) {
     `**Claims:** ${result.claims.length} -- **KEEP ${t.KEEP}**, REVIEW ${t.REVIEW}, DROP ${t.DROP}  `,
     `**Cut:** score >= ${result.thresholds.reviewAt} REVIEW, >= ${result.thresholds.dropAt} DROP; shape without mechanism, no grounded anchor, and the loser of a near-duplicate pair DROP outright.`,
     '',
-    '| # | tier | score | claim | mech | grounded | distinct | reasons |',
-    '|---|---|---|---|---|---|---|---|',
+    '| # | tier | score | claim | class | mech | grounded | distinct | reasons |',
+    '|---|---|---|---|---|---|---|---|---|',
   ];
   for (const r of rows) {
     const s = r.signals;
-    out.push(`| ${r.n} | ${r.tier} | ${r.score}${r.hard ? '*' : ''} | ${esc(r.label)} | ${s.mechanism == null ? '?' : s.mechanism} | ${s.grounded}${s.dropped ? `+${s.dropped}` : ''} | ${s.distinct} | ${r.reasons.length ? esc(r.reasons.join('; ')) : '--'} |`);
+    out.push(`| ${r.n} | ${r.tier} | ${r.score}${r.hard ? '*' : ''} | ${esc(r.label)} | ${esc((r.c && r.c.class) || 'method')} | ${s.mechanism == null ? '?' : s.mechanism} | ${s.grounded}${s.dropped ? `+${s.dropped}` : ''} | ${s.distinct} | ${r.reasons.length ? esc(r.reasons.join('; ')) : '--'} |`);
   }
   out.push('', '_`*` = a hard condition decided the tier. `mech` = mechanism-class elements in claim 1; `grounded` = anchors that resolved (+ cited but unresolved); `distinct` = share of the claim\'s content stems rare within this run._');
   return out.join('\n') + '\n';

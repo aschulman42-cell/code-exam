@@ -300,3 +300,18 @@ describe('parentElementSynonyms: claim differentiation as retrieval vocabulary',
     assert.deepEqual(got.rows[0].from.map((f) => f.claim), [2], 'claim 3 belongs to claim 2, not the root');
   });
 });
+
+describe('pseudo-claims-statutory-class: apparatus ADDITION forms', () => {
+  it('"further configured to" is ADDITION even inside a wherein', () => {
+    const got = classifyContribution('The system of claim 1, wherein the processor is further configured to log each request.');
+    assert.equal(got.kind, 'ADDITION');
+    assert.match(got.note, /apparatus addition/);
+  });
+  it('the CRM forms file as ADDITION too', () => {
+    assert.equal(classifyContribution('The medium of claim 1, wherein the instructions further cause the processor to retry.').kind, 'ADDITION');
+    assert.equal(classifyContribution('The medium of claim 1, further comprising instructions to retry.').kind, 'ADDITION');
+  });
+  it('a plain wherein narrowing still files as MODIFICATION', () => {
+    assert.equal(classifyContribution('The system of claim 1, wherein the buffer is a ring buffer.').kind, 'MODIFICATION');
+  });
+});

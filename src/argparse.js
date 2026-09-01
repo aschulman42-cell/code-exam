@@ -259,6 +259,7 @@ export function parseArgs() {
     targets: null,
     elements: null,
     granularity: 'fine',     // --granularity coarse|fine: how --claim-* commands split a claim into rows (A14)
+    claim_class: 'method',   // --claim-class auto|method|system|both (pseudo-claims-statutory-class); default unchanged until the second both-ways read
     no_callees: false,
     scope_note: null,
     targets_note: null,
@@ -588,6 +589,7 @@ export function parseArgs() {
     ['targets',              'value',          ['--targets']],
     ['elements',             'value',          ['--elements']],
     ['granularity',          'value',          ['--granularity']],
+    ['claim_class',          'value',          ['--claim-class']],
     ['no_callees',           'flag',           ['--no-callees']],
     ['scope_note',           'value',          ['--scope-note']],
     ['targets_note',         'value',          ['--targets-note']],
@@ -938,6 +940,10 @@ export function parseArgs() {
 
   // --granularity is an enumeration, and a typo must not silently become the
   // default: a chart's row structure is the one thing two charts are compared on.
+  if (!['method', 'system', 'auto', 'both'].includes(args.claim_class)) {
+    console.error(`--claim-class must be auto, method, system, or both (got "${args.claim_class}").`);
+    process.exit(2);
+  }
   if (args.granularity !== 'fine' && args.granularity !== 'coarse') {
     console.error(`--granularity must be "fine" or "coarse", got "${args.granularity}".`);
     process.exit(2);
@@ -1564,6 +1570,12 @@ LLM ANALYSIS:
                               callee BODIES are included by default so the crux
                               element is not judged on an inference. Takes
                               @file.txt or inline text.
+  --claim-class <c>          --pseudo-claims: statutory class of the drafts —
+                             method (default), system, auto (a stated
+                             deterministic rule keyed on the mechanism's shape
+                             in the code, reason recorded per claim), or both
+                             (each group drafted twice, labelled — the
+                             measurement mode)
   --claim-family             --claim-chart: chart claim 1 AND every dependent
                              claim beneath it (a claims file with numbered
                              claims). Claim 1 is charted as always; each

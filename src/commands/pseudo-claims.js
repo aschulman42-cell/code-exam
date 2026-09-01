@@ -34,6 +34,7 @@ import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUs
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
 import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, echoPairs, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
 import { triageClaims, formatTriage, keepSidecar, formatKeepFile, dependentFacetCount } from '../core/pseudo-claim-triage.js';
+import { pickClaimClass } from '../core/claim-class.js';
 
 // --- Canonical caveat blocks -------------------------------------------------
 // Ported verbatim from pseudo_claim_selftest/CAVEAT.md so the shipped command
@@ -136,6 +137,21 @@ export const SHAPE_PROFILES = {
       fine:         { median: 6,   p10: 4,    p90: 11 },
       wordsPerRow:  { median: 22.6, p10: 15.2, p90: 36.3 },
       wherein:      { median: 0,   p10: 0,    p90: 3 },
+      mechanism:    { median: 4,   p10: 2,    p90: 7 },
+      dependents:   { median: 7,   p10: 2,    p90: 17 },
+      modification: { median: 0.67, p10: 0.4, p90: 1.0 },
+      depth:        { median: 2,   p10: 1,    p90: 4 },
+    },
+  },
+  'litigated-system': {
+    label: 'litigated software claim 1s, system/apparatus class (70 of the 380-row structure fixture, preamble-classified)',
+    source: 'test/fixtures/litigated-claim1-structure.jsonl split by preamble class 2026-09-01 (method 187, system 70, crm 15, jepson 35, other 73); dependents/modification/depth borrowed from the litigated families (class-unmeasured)',
+    axes: {
+      words:        { median: 149, p10: 82,   p90: 227 },
+      coarse:       { median: 5,   p10: 3,    p90: 9 },
+      fine:         { median: 6,   p10: 4,    p90: 12 },
+      wordsPerRow:  { median: 23.2, p10: 14.1, p90: 33.1 },
+      wherein:      { median: 1,   p10: 0,    p90: 3 },
       mechanism:    { median: 4,   p10: 2,    p90: 7 },
       dependents:   { median: 7,   p10: 2,    p90: 17 },
       modification: { median: 0.67, p10: 0.4, p90: 1.0 },
@@ -261,6 +277,38 @@ const PSEUDO_SYS_TAIL =
   'from its header. Cite ONLY files, functions, and line ranges that appear ' +
   'in the provided material. NEVER invent a path, a name, or a line range.';
 
+// pseudo-claims-statutory-class: the SYSTEM-class tail -- same contract, the
+// example and dependent forms in apparatus shape. The given class's example
+// is the one shown, matching the measured both-ways arms (the class
+// instruction binds: 20/20 per arm).
+const PSEUDO_SYS_TAIL_SYSTEM =
+  'If the provided material is larger than one claim can cover, SELECT the ' +
+  'limitations that constitute the mechanism for CLAIM 1 and push the ' +
+  'specifics down into dependents; leave genuinely unrelated functions ' +
+  'uncited — do NOT enumerate every function in the material. Fewer, ' +
+  'well-chosen limitations make a better claim 1 than an exhaustive list. ' +
+  'Output EXACTLY this ' +
+  'format and nothing else:\n' +
+  'CLAIM: <one self-contained paragraph in system/apparatus form: a preamble ' +
+  'ending in "comprising:", then the structural elements and the operations ' +
+  'the processor is configured to perform — e.g. "A system comprising: a ' +
+  'memory storing an index comprising <structure>; and a processor ' +
+  'configured to: <operation>; <operation>; and <operation>.">\n' +
+  'DEPENDENT CLAIMS:\n' +
+  '2. The system of claim 1, wherein the processor is further configured to ' +
+  '<added operation>.\n' +
+  '3. The system of claim 1, wherein the index further comprises <structure ' +
+  'narrowing>.\n' +
+  '(number consecutively from 2; OMIT THIS SECTION ENTIRELY if the material ' +
+  'supports no dependent claims. Dependents are part of the same illustrative ' +
+  'exercise and carry the same caveat as claim 1.)\n' +
+  'ANCHORS:\n' +
+  '- <file>@<functionName> — <the claim element it implements>\n' +
+  '(one line per distinct element). For a DOCUMENTATION excerpt shown in the ' +
+  'provided material, cite it as <file>@L<start>-<end> using the line range ' +
+  'from its header. Cite ONLY files, functions, and line ranges that appear ' +
+  'in the provided material. NEVER invent a path, a name, or a line range.';
+
 // OUTPUT BUDGET for one drafted claim + its ANCHORS block.
 //
 // Was a bare `900` at the call site, never measured against a real draft. The
@@ -297,8 +345,11 @@ const PSEUDO_SYS_TAIL =
 // truncation persists at 16000, the next lever is capping Gemini's thinking
 // rather than buying more of it, and the detector will say so with a count.
 /** The drafting system prompt for a shape profile (default: litigated). */
-export function buildPseudoClaimSys(profileName = DEFAULT_SHAPE_PROFILE) {
-  return PSEUDO_SYS_HEAD + shapeTargetLines(profileName) + PSEUDO_SYS_DEPENDENTS + PSEUDO_SYS_TAIL;
+export function buildPseudoClaimSys(profileName = DEFAULT_SHAPE_PROFILE, claimClass = 'method') {
+  const classLine = `The statutory class for THIS draft is GIVEN: ${String(claimClass).toUpperCase()}. `
+    + 'Draft in that class; do not choose another. ';
+  const tail = claimClass === 'system' ? PSEUDO_SYS_TAIL_SYSTEM : PSEUDO_SYS_TAIL;
+  return PSEUDO_SYS_HEAD + shapeTargetLines(profileName) + PSEUDO_SYS_DEPENDENTS + classLine + tail;
 }
 // The default-profile rendering, kept under the name every importer and the
 // prompt-purity test know.
@@ -928,6 +979,8 @@ export function buildAnchorSidecar(groups, drafts, meta = {}) {
       // Carried so a downstream consumer (HOF-c scoring, --claims-loop) cannot
       // mistake a severed anchor list for "the drafter cited nothing".
       ...(d.truncated ? { truncated: true } : {}),
+      // pseudo-claims-statutory-class: which class the rule/flag chose, why.
+      ...(d.class ? { class: d.class, classReason: d.classReason || '' } : {}),
       // Recorded so a scorer can refuse to compare a rewritten claim whose
       // element count no longer matches its key, instead of pairing element 4
       // against element 5 and reporting a plausible wrong number.
@@ -1432,11 +1485,29 @@ export async function doPseudoClaims(index, args) {
       process.exitCode = 1;
       return;
     }
+    // pseudo-claims-statutory-class: resolve each pack's class BEFORE the
+    // cost gate -- 'both' doubles the drafting spend and the gate must see
+    // it. Default 'method': no run changes until the second both-ways read.
+    const clsMode = args.claim_class || 'method';
+    if (clsMode === 'both') {
+      const expanded = withAnchors.flatMap((s) => ([
+        { ...s, _class: 'method', _classReason: 'both mode', label: s.label ? `${s.label} [method]` : '[method]' },
+        { ...s, _class: 'system', _classReason: 'both mode', label: s.label ? `${s.label} [system]` : '[system]' },
+      ]));
+      withAnchors.length = 0;
+      withAnchors.push(...expanded);
+    } else {
+      withAnchors.forEach((s) => {
+        const pick = clsMode === 'auto' ? pickClaimClass(s) : { class: clsMode, reason: `--claim-class ${clsMode}` };
+        s._class = pick.class;
+        s._classReason = pick.reason;
+      });
+    }
     // pseudo-claims-cost-guard: packs are already built (s.pack), so the
     // drafting projection is exact — pack + system prompt in, 900 out per
     // claim. Gate before the first API call.
     const calls = withAnchors.map((s) => ({
-      inChars: buildPseudoClaimSys(profileName).length + 200 + (s.pack ? s.pack.length : 0),
+      inChars: buildPseudoClaimSys(profileName, s._class || 'method').length + 200 + (s.pack ? s.pack.length : 0),
       outTokens: 900,
     }));
     if (!claimsCostGate(model, calls, `${withAnchors.length} drafts`, args)) return;
@@ -1455,14 +1526,16 @@ export async function doPseudoClaims(index, args) {
         // ranker-purpose-signal lesson); triage annotations already stripped.
         const mech = s.label ? `${s.label}${s.purpose ? ' — ' + s.purpose : ''}` : '';
         const intent = mech ? `MECHANISM: ${mech}\n\n` : '';
-        const raw = await drafter(buildPseudoClaimSys(profileName), `${intent}CODE:\n${s.pack}`, PSEUDO_CLAIM_MAX_OUTPUT_TOKENS);
+        const cls = s._class || 'method';
+        const clsProfile = cls === 'system' && SHAPE_PROFILES[`${profileName}-system`] ? `${profileName}-system` : profileName;
+        const raw = await drafter(buildPseudoClaimSys(clsProfile, cls), `${intent}CODE:\n${s.pack}`, PSEUDO_CLAIM_MAX_OUTPUT_TOKENS);
         // Read the flag IMMEDIATELY after the await -- it carries THIS call's
         // verdict (draftCloud clears it on entry) and drafting is sequential.
         const truncated = wasLastDraftTruncated();
         const { prose, dependents, anchors } = parseGeneratedClaim(raw);
         const { grounded, dropped } = groundAnchors(index, anchors);
-        const shape = prose ? shapeReport(prose, dependents, profileName) : null;
-        drafts.push({ prose, dependents, grounded, dropped, truncated, shape });
+        const shape = prose ? shapeReport(prose, dependents, clsProfile) : null;
+        drafts.push({ prose, dependents, grounded, dropped, truncated, shape, class: cls, classReason: s._classReason || 'default' });
         process.stderr.write(`  claim ${i + 1}/${withAnchors.length}: ${grounded.length} grounded anchor(s)${dropped.length ? `, ${dropped.length} ungrounded dropped` : ''}`
           + `${truncated ? ' - TRUNCATED by the output budget; ANCHORS block incomplete' : ''}\n`);
       } catch (e) {
@@ -1547,7 +1620,8 @@ export async function doPseudoClaims(index, args) {
   if (withAnchors.length >= 2) {
     const rows = withAnchors.map((s, i) => ({
       n: i + 1,
-      label: s.label,
+      label: (s.label || '') + (!dryRun && drafts[i] && drafts[i].class && drafts[i].class !== 'method'
+        && !/\[(?:method|system)\]$/.test(s.label || '') ? ` [${drafts[i].class}]` : ''),
       priority: s.priority,
       preamble: !dryRun && drafts[i] && drafts[i].prose ? claimPreambleSnippet(drafts[i].prose) : '',
       echoOf: echoByIdx.get(i) || null,

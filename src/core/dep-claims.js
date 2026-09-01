@@ -33,6 +33,11 @@ export const PARENT_POLICIES = {
 };
 
 const ADDITION_RE = /\bfurther\s+(?:comprising|comprises|including|includes|having|containing)\b/i;
+// pseudo-claims-statutory-class: apparatus/CRM ADDITION forms. "wherein the
+// processor is further configured to <op>" ADDS an operation; under the
+// wherein rule alone it filed as MODIFICATION (measured: ADDITION count 0 in
+// all 20 both-ways system drafts). The wherein rule yields to these.
+const APPARATUS_ADDITION_RE = /\b(?:further\s+configured\s+to|further\s+compris\w*\s+instructions|instructions\s+further\s+caus\w*)\b/i;
 const MODIFICATION_RE = /\b(?:wherein|in\s+which|where\s+(?:the|said|each|at\s+least))\b/i;
 // Cross-class variants (Andrew, 2026-08-24: dependent VARIANTS -- they still require looking at another
 // claim, so they ride the same machinery, but they are their own kind and never forced into (a)/(b)).
@@ -47,6 +52,8 @@ export function classifyContribution(text) {
   const s = String(text || '');
   if (PRODUCT_BY_PROCESS_RE.test(s)) return { kind: 'PRODUCT-BY-PROCESS', cue: s.match(PRODUCT_BY_PROCESS_RE)[0], note: 'the referenced claim constrains how the product came to be, not what it structurally exhibits' };
   if (COMBINATION_RE.test(s)) return { kind: 'COMBINATION', cue: s.match(COMBINATION_RE)[0].slice(0, 60), note: 'the referenced claim is incorporated whole and something is added beside it, across a class boundary' };
+  const app = APPARATUS_ADDITION_RE.exec(s);
+  if (app) return { kind: 'ADDITION', cue: app[0], note: 'apparatus addition form; the wherein rule yields to it' };
   const add = ADDITION_RE.exec(s), mod = MODIFICATION_RE.exec(s);
   if (add && !mod) return { kind: 'ADDITION', cue: add[0], note: 'adds a limitation to be satisfied on its own; nothing already judged changes' };
   if (mod && !add) return { kind: 'MODIFICATION', cue: mod[0], note: 'narrows an inherited limitation; the parent’s verdict on it must be re-evaluated' };
