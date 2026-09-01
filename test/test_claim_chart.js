@@ -1923,3 +1923,68 @@ describe('dep-claims-broaden-parent: species vocabulary reaches retrieval and th
     assert.ok(!/ELEMENT 1:[^\n]*\n\s+NOTE:/.test(prompt), 'no note on the un-narrowed row');
   });
 });
+
+import { drilldownTargets as _ddT, DRILLDOWN_PER_CHART as _ddChartMax } from '../src/commands/claim-chart.js';
+
+describe('chart-within-file-drilldown: scoped per-element nomination', () => {
+  const hit = (name, filepath, arm = null) => ({ sym: { name, filepath }, ...(arm ? { arm } : {}) });
+  const mkRetrieval = (entries) => entries.map(([el, hits]) => ({ element: el, words: [`w${el}`, 'shared'], hits }));
+  const idx = {};   // truthiness only; the injected contentSearch never touches it
+  it('derives multi-element files from hit windows -- including files that already contributed a target', () => {
+    const calls = [];
+    const search = (index, words, opts) => {
+      calls.push(opts.includePath[0]);
+      return [{ name: `Impl_${words[0]}`, filepath: opts.includePath[0] }];
+    };
+    const retrieval = mkRetrieval([
+      [4, [hit('A::sel', 'a/F.java')]],       // F already gave a target: still drillable
+      [6, [hit('A::other', 'a/F.java')]],
+      [8, [hit('B::x', 'b/G.java')]],          // single-element file: never drilled
+    ]);
+    const got = _ddT({ index: idx, retrieval, targets: ['a/F.java@A::sel'], contentSearch: search });
+    assert.deepEqual(got.added.map((a) => a.element), [4, 6]);
+    assert.ok(calls.every((f) => f === 'a/F.java'), 'searches scoped to the shared file only');
+  });
+  it('a candidate already in targets is skipped for the next in-file hit', () => {
+    const two = (index, words, opts) => [
+      { name: 'Same::fn', filepath: opts.includePath[0] },
+      { name: 'Next::fn', filepath: opts.includePath[0] },
+    ];
+    const retrieval = () => mkRetrieval([[4, [hit('A::a', 'a/F.java')]], [6, [hit('A::b', 'a/F.java')]]]);
+    const first = _ddT({ index: idx, retrieval: retrieval(), targets: [], contentSearch: two });
+    assert.ok(first.added.length >= 1);
+    const taken = first.added[0].spec;
+    const again = _ddT({ index: idx, retrieval: retrieval(), targets: [taken], contentSearch: two });
+    assert.ok(again.added.length >= 1);
+    assert.notEqual(again.added[0].spec, taken, 'dedup moved to the next in-file candidate');
+  });
+  it('caps hold; disjoint-file retrieval is a no-op', () => {
+    const search = (index, words, opts) => [{ name: `Impl_${words[0]}_${opts.includePath[0]}`, filepath: opts.includePath[0] }];
+    const overlapping = mkRetrieval([
+      [4, [hit('x', 'a/F.java'), hit('y', 'b/G.java')]],
+      [6, [hit('z', 'a/F.java'), hit('w', 'c/H.java')]],
+      [8, [hit('u', 'b/G.java'), hit('v', 'c/H.java')]],
+    ]);
+    const got = _ddT({ index: idx, retrieval: overlapping, targets: [], contentSearch: search });
+    assert.ok(got.added.length <= _ddChartMax);
+    const perEl = {};
+    for (const a of got.added) perEl[a.element] = (perEl[a.element] || 0) + 1;
+    assert.ok(Object.values(perEl).every((n) => n === 1), 'one per element');
+    const disjoint = mkRetrieval([[4, [hit('x', 'a/F.java')]], [6, [hit('y', 'b/G.java')]]]);
+    const none = _ddT({ index: idx, retrieval: disjoint, targets: [], contentSearch: search });
+    assert.deepEqual(none.added, [], 'no multi-element file, no drilldown');
+  });
+  it('round-robins across files: a sponge file cannot consume the whole budget', () => {
+    const search = (index, words, opts) => [{ name: `Impl_${words[0]}_${opts.includePath[0]}`, filepath: opts.includePath[0] }];
+    const retrieval = mkRetrieval([
+      [1, [hit('a', 'sponge/M.java')]],
+      [4, [hit('b', 'sponge/M.java'), hit('e', 'a/ATS.java')]],
+      [7, [hit('c', 'sponge/M.java')]],
+      [6, [hit('f', 'a/ATS.java')]],
+    ]);
+    const got = _ddT({ index: idx, retrieval, targets: [], contentSearch: search });
+    const files = new Set(got.added.map((a) => a.file));
+    assert.ok(files.has('a/ATS.java'), 'the rank-2 file gets a drill before the sponge takes a second');
+    assert.ok(got.added.length <= _ddChartMax);
+  });
+});

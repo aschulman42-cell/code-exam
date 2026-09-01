@@ -145,6 +145,87 @@ export function nominationIndex(retrieval) {
   return out;
 }
 
+// chart-within-file-drilldown: mechanized arm-B. Concentration proves that a
+// FILE matters (2+ elements' candidates share it); this arm finishes the job
+// per element: re-run the CONTENT search scoped to that file with the
+// element's own predicted words, and the top in-file function not already a
+// target joins the analysis set. The manual proof (8752101_armB_chart_*,
+// $0.42) did exactly this by hand and landed updateSelectedTrack. Bounds are
+// FIXED here, not options -- the --concentration-targets-6 episode is the
+// option-archaeology this exists to remove. Byte-identical charts when
+// concentration found nothing.
+export const DRILLDOWN_PER_ELEMENT = 1;
+export const DRILLDOWN_PER_CHART = 3;
+export function drilldownTargets({ index, retrieval, targets, includeOp = false, includeTests = false, contentSearch = contentCandidatesForWords }) {
+  if (!index || !Array.isArray(retrieval)) return { added: [] };
+  // Candidate files are derived HERE, not taken from concentration's rescue
+  // list. Concentration only names files that contributed NO selected target,
+  // and the registered '101 check showed that precondition excludes exactly
+  // the half-represented file: AdaptiveTrackSelection contributed
+  // determineIdealSelectedIndex via one element, so the file was never
+  // drilled and row 6's updateSelectedTrack stayed unexamined. Any file
+  // where 2+ elements' candidates land in the window qualifies, whether or
+  // not it already contributed a target -- dedup against existing targets
+  // keeps re-nomination out. Same window shape as concentration (top
+  // concentrationDepth plus every content/both hit).
+  const fileOf = (s) => String((s && s.filepath) || '');
+  const byFile = new Map();
+  for (const p of retrieval) {
+    if (!p || p.arm === 'drilldown' || !p.element) continue;
+    const window = (p.hits || []).slice(0, CHART_DEFAULTS.concentrationDepth);
+    for (const h of p.hits || []) if (h && (h.arm === 'content' || h.arm === 'both') && !window.includes(h)) window.push(h);
+    window.forEach((h, rank) => {
+      if (!h || !h.sym) return;
+      const f = fileOf(h.sym);
+      if (!f) return;
+      const e = byFile.get(f) || byFile.set(f, { els: new Set(), content: false, bestRank: Infinity }).get(f);
+      e.els.add(p.element);
+      if (h.arm === 'content' || h.arm === 'both') e.content = true;
+      if (rank < e.bestRank) e.bestRank = rank;
+    });
+  }
+  const files = [...byFile.entries()].filter(([, e]) => e.els.size >= 2)
+    .sort((a, b) => (b[1].els.size - a[1].els.size)
+      || ((b[1].content ? 1 : 0) - (a[1].content ? 1 : 0))
+      || (a[1].bestRank - b[1].bestRank))
+    .map(([file, e]) => ({ file, elements: [...e.els].sort((x, y) => x - y) }));
+  if (!files.length) return { added: [] };
+  const have = new Set(targets);
+  const perElement = new Map();
+  const added = [];
+  // ROUND-ROBIN across files: every file gets one drill before any file gets
+  // a second -- the same principle perElementTargetsWithStats states for
+  // elements ("taking the first N in order spends the whole budget on the
+  // first few"). Measured on the '101 (drill2): MediaCodecRenderer, a
+  // sponge-sized file in three elements' windows, consumed the whole
+  // per-chart budget while AdaptiveTrackSelection sat at file rank 2 and
+  // row 6's crux stayed unexamined.
+  const maxEls = Math.max(...files.map((c) => (c.elements || []).length));
+  outer:
+  for (let round = 0; round < maxEls; round++) {
+    for (const c of files) {
+      if (added.length >= DRILLDOWN_PER_CHART) break outer;
+      const el = (c.elements || [])[round];
+      if (el == null) continue;
+      if ((perElement.get(el) || 0) >= DRILLDOWN_PER_ELEMENT) continue;
+      const p = retrieval.find((x) => x.element === el && x.arm !== 'drilldown');
+      if (!p || !(p.words || []).length) continue;
+      let chosen = null;
+      for (const cand of contentSearch(index, p.words, { limit: 5, includePath: [String(c.file)], includeOp, includeTests })) {
+        const s = targetSpec({ name: cand.name, filepath: cand.filepath });
+        if (have.has(s)) continue;
+        chosen = { spec: s, sym: { name: cand.name, filepath: cand.filepath } };
+        break;
+      }
+      if (!chosen) continue;
+      have.add(chosen.spec);
+      perElement.set(el, (perElement.get(el) || 0) + 1);
+      added.push({ element: el, file: c.file, spec: chosen.spec, sym: chosen.sym });
+    }
+  }
+  return { added };
+}
+
 // Turn per-element candidates into a bounded target list, ROUND-ROBIN by rank:
 // every element contributes its best candidate before any element contributes a
 // second. Taking the first N in element order would spend the whole budget on
@@ -914,6 +995,7 @@ export function formatChart({
   const noms = nominationIndex(retrieval);
   const armMark = (t) => {
     const n = noms.get(t) || [];
+    if (n.length && n.every((x) => x.arm === 'drilldown')) return ' _(drilldown)_';
     if (!n.length || !n.every((x) => x.element === 0)) return '';
     return n.every((x) => x.arm === 'concentration') ? ' _(concentration)_' : ' _(whole-claim arm)_';
   };
@@ -940,9 +1022,13 @@ export function formatChart({
     for (const p of retrieval) {
       // Element 0 entries are the extra arms: the whole-claim arm (the
       // claim's own words) and concentration (a file 2+ elements point at).
-      const label = p.arm === 'concentration' ? 'concentration' : p.element === 0 ? 'whole claim' : p.element;
+      const label = p.arm === 'drilldown' ? `${p.element} (drilldown)`
+        : p.arm === 'concentration' ? 'concentration' : p.element === 0 ? 'whole claim' : p.element;
       const depMark = p.depFrom && p.depFrom.length ? ` _(+dep ${p.depFrom.join(', ')})_` : '';
-      out.push(`| ${label} | ${(p.words || []).join(', ').replace(/\|/g, '\\|')}${depMark} `
+      const wordsCell = p.arm === 'drilldown'
+        ? `_scoped to ${String(p.file || '').split('/').pop().split('!').pop()}_`
+        : `${(p.words || []).join(', ').replace(/\|/g, '\\|')}${depMark}`;
+      out.push(`| ${label} | ${wordsCell} `
         + `| ${(p.hits || []).length} |${anyContent ? ` ${p.contentAdded || 0} |` : ''}`);
     }
     if (anyContent) {
@@ -1534,6 +1620,25 @@ export async function doClaimChart(index, args, opts = {}) {
       `Claim differentiation: ${depSyn.rows.length} element(s) also searched with species vocabulary donated by`
       + ` MODIFICATION dependent(s): ${depSyn.rows.map((r) => `element ${r.row + 1} from claim ${r.from.map((f) => f.claim).join('/')}`).join('; ')}.`
       + ' --no-dep-synonyms disables it.'];
+  }
+  // chart-within-file-drilldown: spend the file-level signal. Concentration
+  // named the file(s); per element, the scoped content search names the
+  // FUNCTION -- the last mile the sweep showed the pipeline missing.
+  if (!args.targets && Array.isArray(retrieval) && index) {
+    const dd = drilldownTargets({ index, retrieval, targets,
+      includeOp: !!args.include_op, includeTests: !!args.include_tests });
+    if (dd.added.length) {
+      for (const a of dd.added) {
+        targets.push(a.spec);
+        retrieval.push({ element: a.element, arm: 'drilldown', file: a.file, words: [], hits: [{ sym: a.sym, arm: 'content' }] });
+      }
+      process.stderr.write(`  drilldown: ${dd.added.length} target(s) added -- per-element content search scoped to concentration file(s): `
+        + dd.added.map((a) => `element ${a.element} -> ${a.spec.split('@').pop()} (${String(a.file).split('/').pop().split('!').pop()})`).join('; ') + '\n');
+      targetProvenance = [...targetProvenance,
+        `Drilldown: ${dd.added.length} target(s) added by re-running the content search scoped to concentration file(s), per element`
+        + ` (bounds fixed in code: ${DRILLDOWN_PER_ELEMENT} per element, ${DRILLDOWN_PER_CHART} per chart):`
+        + ` ${dd.added.map((a) => `element ${a.element} -> \`${a.spec}\``).join('; ')}.`];
+    }
   }
   // chart-retrieval-whole-claim-arm: the claim's own words over the whole
   // symbol table, on top of the per-element budget. --whole-claim-targets 0

@@ -663,7 +663,10 @@ export function contentCandidatesForWords(index, words, opts = {}) {
     return [];
   }
   let res;
-  try { res = index.multisectSearch(terms, { minTerms: 1, showProgress: false }); }
+  // opts.includePath (chart-within-file-drilldown): scope the search to the
+  // named file(s) -- the drilldown arm re-runs this per element inside a
+  // concentration file. Same parser, same gates; only the corpus shrinks.
+  try { res = index.multisectSearch(terms, { minTerms: 1, showProgress: false, includePath: opts.includePath || null }); }
   catch (e) {
     // The POLICY stays — retrieval must not take the run down. The SILENCE does
     // not. A swallowed throw and an empty result set are different events, and

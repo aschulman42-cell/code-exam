@@ -2531,3 +2531,18 @@ describe('contentCandidatesForWords: ranking inherited from the engine, never re
     assert.deepEqual(got.map((x) => x.name), ['denseWinner', 'commentHarvest']);
   });
 });
+
+describe('contentCandidatesForWords: includePath scope (chart-within-file-drilldown)', () => {
+  it('forwards includePath to multisectSearch so the drilldown arm searches one file', () => {
+    let got = null;
+    const index = { multisectSearch: (terms, opts) => { got = opts; return { function_matches: [] }; } };
+    contentCandidatesForWords(index, ['rate'], { includePath: ['x/y.js'] });
+    assert.deepEqual(got.includePath, ['x/y.js']);
+  });
+  it('omitting includePath keeps the search corpus-wide (null, not undefined drift)', () => {
+    let got = null;
+    const index = { multisectSearch: (terms, opts) => { got = opts; return { function_matches: [] }; } };
+    contentCandidatesForWords(index, ['rate'], {});
+    assert.equal(got.includePath, null);
+  });
+});
