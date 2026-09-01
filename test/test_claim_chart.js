@@ -1597,15 +1597,28 @@ describe('dependent claims: scope and --claim-family (issue-311-dep-claim-chart)
     }
     return lines.join('\n');
   };
-  const run = async (args) => {
+  const run = async (args, extraOpts = {}) => {
     const out = [];
     const origLog = console.log; console.log = (s) => out.push(String(s));
     const origErr = process.stderr.write; process.stderr.write = () => true;
     let res;
-    try { res = await doClaimChart(index, { targets: 'x/A.java@A::one', model: 'f.gguf', no_callees: true, ...args }, { draft }); }
+    try { res = await doClaimChart(index, { targets: 'x/A.java@A::one', model: 'f.gguf', no_callees: true, ...args }, { draft, ...extraOpts }); }
     finally { console.log = origLog; process.stderr.write = origErr; }
     return { res, chart: out.join('\n') };
   };
+
+  it('a two-sided claim rebuilds the table with other-side tags (regression: table must be reassignable)', async () => {
+    const TWO_SIDED = ['1. A distribution system, including a transmission device and a reception device configured to be capable of communicating with each other,',
+      'the transmission device being equipped with a content transmitting unit for transmitting content data to the reception device, and',
+      'the reception device being equipped with a content reproducing unit for storing received data,',
+      'wherein the content transmitting unit is configured to change the code rate; and',
+      'the content reproducing unit is configured to start reproduction.'].join('\n');
+    const { chart } = await run({ claim_chart: TWO_SIDED },
+      { clientServerVerdict: () => ({ serverRoutes: 0, clientCalls: 0, socketClient: 1, socketServer: 0, verdict: 'client-only' }) });
+    assert.match(chart, /Two-sided claim: transmission device \/ reception device/);
+    assert.match(chart, /CLIENT-ONLY/);
+    assert.ok(chart.includes('_[other side]_'), 'transmission-device rows tagged');
+  });
 
   it('dependentBody strips the reference; narrowedRowFor picks the row sharing the most stems', () => {
     assert.equal(dependentBody('The method of claim 1, wherein the window is squared.'), 'wherein the window is squared.');
@@ -2008,5 +2021,24 @@ describe('claim-chart-scattered-targets: cited-target connectivity', () => {
     const chain4 = { 'a@A': ['m1@M1'], 'm1@M1': ['m2@M2'], 'm2@M2': ['m3@M3'], 'm3@M3': ['b@B'] };
     assert.equal(_tcon({ targets: ['a@A', 'b@B'], neighbors: (s) => chain4[s] || [] }).groups.length, 2);
     assert.equal(_tcon({ targets: ['a@A'], neighbors: () => [] }), null);
+  });
+});
+
+import { clientServerVerdict as _csv, buildChartTable as _bct } from '../src/commands/claim-chart.js';
+
+describe('chart-client-server-scope: index-side verdict and row tags', () => {
+  it('client-only, server-only, both, undetermined from injected counts', () => {
+    const mk = (stats, sockets = []) => _csv({}, { extract: () => ({ sockets, stats }) });
+    assert.equal(mk({ serverCount: 0, clientCount: 0 }, [{ role: 'client' }]).verdict, 'client-only');
+    assert.equal(mk({ serverCount: 3, clientCount: 0 }).verdict, 'server-only');
+    assert.equal(mk({ serverCount: 2, clientCount: 5 }).verdict, 'both');
+    assert.equal(mk({ serverCount: 0, clientCount: 0 }).verdict, 'undetermined');
+  });
+  it('sideTags render the other-side mark beside the class tag; absent without tags', () => {
+    const claim = '1. A method, comprising: sending data; and receiving data.';
+    const tagged = _bct(claim, { sideTags: [false, true, false] });
+    assert.ok(tagged.table.includes('_[other side]_'), 'tagged row marked');
+    const plain = _bct(claim, {});
+    assert.ok(!plain.table.includes('_[other side]_'));
   });
 });

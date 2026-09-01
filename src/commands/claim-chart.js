@@ -30,6 +30,7 @@ import fs from 'node:fs';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine, engineBuildLine } from '../core/llm-runner.js';
 import { buildClaimAnalyzePrompt, addLineNumbers, readClaimFile, resolveClaimScope, splitNumberedClaims } from './analyze.js';
 import { analyzeClaimSet, parentElementSynonyms } from '../core/dep-claims.js';
+import { extractClientServer } from '../core/client-server.js';
 import { contentWords, stem } from '../core/claim-terms.js';
 import { isPseudoSource } from '../binstrings.js';
 import { elementClasses, tallyByClass, classHeadline } from '../core/claim-genericity.js';
@@ -43,7 +44,7 @@ const pseudoTag = (spec) => (isPseudoSource(String(spec || '').split('@')[0]) ? 
 // input without saying so is how the next version of this bug hides.
 const _noteComments = (n, f) => process.stderr.write(
   `  Claim file ${f}: ignored ${n} '#' comment line(s) (provenance, not claim text).\n`);
-import { splitClaimElements, targetsChecksum, dedupeTargets, parseElementsFile, retrievePerElement, isPreambleRow, limitationTag, classifyLimitation, searchSymbolsByWords, contentCandidatesForWords, isTestSymbol, targetConnectivity, indexCallNeighbors } from './claim-locate.js';
+import { splitClaimElements, targetsChecksum, dedupeTargets, parseElementsFile, retrievePerElement, isPreambleRow, limitationTag, classifyLimitation, searchSymbolsByWords, contentCandidatesForWords, isTestSymbol, targetConnectivity, indexCallNeighbors, detectClaimSides } from './claim-locate.js';
 import { readCeVersion } from '../utils.js';
 import { buildSymbolTable, verifySymbol, isFound, navigateFrom } from '../core/symbol-verify.js';
 import { parseAnalysisLabels, lexicalGate } from './claims-loop.js';
@@ -143,6 +144,25 @@ export function nominationIndex(retrieval) {
     });
   }
   return out;
+}
+
+// chart-client-server-scope: the index-side fact for a two-sided claim.
+// CE already knows it deterministically (--client-server); the chart states
+// it instead of leaving ABSENT rows ambiguous between "not in this code" and
+// "this code is the other half of the system". `extract` injectable for tests.
+export function clientServerVerdict(index, { extract = extractClientServer } = {}) {
+  const { sockets = [], stats = {} } = extract(index) || {};
+  const socketClient = sockets.filter((e) => e && e.role === 'client').length;
+  const socketServer = sockets.filter((e) => e && e.role === 'server').length;
+  const counts = {
+    serverRoutes: stats.serverCount || 0,
+    clientCalls: stats.clientCount || 0,
+    socketClient, socketServer,
+  };
+  const hasServer = counts.serverRoutes > 0 || socketServer > 0;
+  const hasClient = counts.clientCalls > 0 || socketClient > 0;
+  const verdict = hasServer && hasClient ? 'both' : hasServer ? 'server-only' : hasClient ? 'client-only' : 'undetermined';
+  return { ...counts, verdict };
 }
 
 // chart-within-file-drilldown: mechanized arm-B. Concentration proves that a
@@ -386,7 +406,11 @@ export function buildChartTable(claimText, opts = {}) {
     // rows a PRESENT could mean anything on. Deterministic (claim-genericity.js),
     // and NOT shown to the model -- the prompt rows carry only limitationTag.
     const tag = ` _[${classes[i]}]_`;
-    lines.push(`| ${i + 1} | ${String(e).replace(/\|/g, '\\|')}${tag} |  |  |`);
+    // chart-client-server-scope: rows the claim attributes to the OTHER party
+    // of a two-sided claim are tagged beside their class. The tag explains,
+    // it never excuses -- verdicts are unchanged.
+    const side = opts.sideTags && opts.sideTags[i] ? ' _[other side]_' : '';
+    lines.push(`| ${i + 1} | ${String(e).replace(/\|/g, '\\|')}${tag}${side} |  |  |`);
   });
   return { table: lines.join('\n'), elements, classes };
 }
@@ -945,7 +969,7 @@ export function buildProvenanceHeader({
 
 export function formatChart({
   claimText, table, fills, targets, engineLabel, elements, scopeNote, provenance,
-  dropped, retrieval, connectivity,
+  dropped, retrieval, connectivity, sideScope, otherSideElements,
 }) {
   const filled = fillChartRows(table, fills);
   const out = [];
@@ -959,7 +983,11 @@ export function formatChart({
   out.push(String(claimText).trim());
   out.push('```');
   out.push('');
-  if (scopeNote) { out.push('## Scope'); out.push(''); out.push(scopeNote); out.push(''); }
+  if (scopeNote || sideScope) {
+    out.push('## Scope'); out.push('');
+    if (scopeNote) { out.push(scopeNote); out.push(''); }
+    if (sideScope) { out.push(sideScope); out.push(''); }
+  }
   out.push('## Chart');
   out.push('');
   // WHAT THE LABELS MEAN, stated on the artifact rather than only in the prompt.
@@ -986,7 +1014,16 @@ export function formatChart({
     for (const r of negRows) out.push(`- Row ${r.n} — cue: \`${r.c.cues.negative}\``);
     out.push('');
   }
-  out.push(coverageLine(fills, elements.length, elements));
+  {
+    let cov = coverageLine(fills, elements.length, elements);
+    // chart-client-server-scope: how much of the ABSENT count is the other
+    // party's -- counted apart, never excused.
+    if (otherSideElements && otherSideElements.size) {
+      const osAbsent = fills.filter((f) => f.label === 'ABSENT' && f.element != null && otherSideElements.has(f.element)).length;
+      if (osAbsent) cov += ` _(${osAbsent} of the ABSENT row(s) are other-side rows)_`;
+    }
+    out.push(cov);
+  }
   out.push('');
   // claim-chart-scattered-targets: does the chart show the claimed
   // COMBINATION, or unrelated capabilities? A litigator reads this shape on
@@ -1488,7 +1525,10 @@ export async function doClaimChart(index, args, opts = {}) {
 
   const symbols = buildSymbolTable(index);
   const tier = args.granularity === 'coarse' ? 'coarse' : 'fine';
-  const { table, elements } = buildChartTable(claimText, { elements: suppliedElements, granularity: tier });
+  // `table` is rebuilt when a two-sided claim tags other-side rows
+  // (chart-client-server-scope) -- hence let, not const. Andrew's pre-commit
+  // test caught the const assignment; the mock e2e now pins this path.
+  let { table, elements } = buildChartTable(claimText, { elements: suppliedElements, granularity: tier });
   // The tier is part of the row structure's provenance: a fine chart and a coarse
   // chart of the same claim have different row counts, and a reader comparing two
   // charts needs the header to say which split produced each.
@@ -1636,6 +1676,43 @@ export async function doClaimChart(index, args, opts = {}) {
       + ` MODIFICATION dependent(s): ${depSyn.rows.map((r) => `element ${r.row + 1} from claim ${r.from.map((f) => f.claim).join('/')}`).join('; ')}.`
       + ' --no-dep-synonyms disables it.'];
   }
+  // chart-client-server-scope: a two-sided claim gets the index-side fact
+  // stated on the artifact, and the other party's rows tagged. Deterministic
+  // in both halves; verdicts never change.
+  let claimSides = null;
+  let indexSide = null;
+  let sideScope = null;
+  let otherSideElements = new Set();
+  try { claimSides = detectClaimSides(claimText, elements); } catch { claimSides = null; }
+  if (claimSides) {
+    try { indexSide = (opts.clientServerVerdict || clientServerVerdict)(index); } catch { indexSide = null; }
+    const [serving, consuming] = claimSides.parties;
+    let otherParty = null;
+    if (claimSides.directional && indexSide) {
+      if (indexSide.verdict === 'client-only') otherParty = serving;
+      else if (indexSide.verdict === 'server-only') otherParty = consuming;
+    }
+    if (otherParty) {
+      claimSides.perElement.forEach((p, i) => { if (p === otherParty) otherSideElements.add(i + 1); });
+    }
+    const countsLine = indexSide
+      ? `--client-server: ${indexSide.serverRoutes} server route(s), ${indexSide.clientCalls} client HTTP call(s), socket/TLS client ${indexSide.socketClient} / server ${indexSide.socketServer}`
+      : '--client-server: unavailable';
+    const rowsList = [...otherSideElements].sort((a, b) => a - b).join(', ');
+    sideScope = `Two-sided claim: ${serving} / ${consuming}. This index is ${indexSide ? indexSide.verdict.toUpperCase() : 'UNDETERMINED'} (${countsLine}).`
+      + (otherParty && rowsList
+        ? ` Rows attributed to the ${otherParty} (${rowsList}) can only be met by a counterpart not in this index; their verdicts below are findings about THIS code, not about the system.`
+        : indexSide && indexSide.verdict === 'undetermined'
+          ? ' Nothing was detected either way (e.g. a library with no network code); no row is tagged.'
+          : '');
+    if (otherSideElements.size) {
+      const sideTags = elements.map((_, i) => otherSideElements.has(i + 1));
+      ({ table } = buildChartTable(claimText, { elements, granularity: tier, sideTags }));
+    }
+    process.stderr.write(`[claim-chart] two-sided claim (${serving} / ${consuming}); index ${indexSide ? indexSide.verdict : 'undetermined'}`
+      + (otherSideElements.size ? `; other-side rows: ${[...otherSideElements].sort((a, b) => a - b).join(', ')}` : '') + '\n');
+  }
+
   // chart-within-file-drilldown: spend the file-level signal. Concentration
   // named the file(s); per element, the scoped content search names the
   // FUNCTION -- the last mile the sweep showed the pipeline missing.
@@ -1883,6 +1960,10 @@ export async function doClaimChart(index, args, opts = {}) {
       // claim-chart-scattered-targets: connectivity groups of the cited
       // PRESENT/PARTIAL targets (null when fewer than 2 cited).
       targetGroups: connectivity ? connectivity.groups : null,
+      // chart-client-server-scope: the two-sided-claim facts, so the loop
+      // scorer can exclude other-side rows without re-deriving the rule.
+      claimSides: claimSides ? { parties: claimSides.parties, directional: claimSides.directional, perElement: claimSides.perElement } : null,
+      indexSide: indexSide || null,
       // The integrity VERDICT, not a checksum -- targetIntegrity is a string
       // ('unmodified' / 'modified' / null), and writing `.checksum` here would
       // have silently recorded undefined in the one field meant to bind this
@@ -1979,7 +2060,7 @@ Per-target verdicts written to ${args.verdicts_out}`
   console.log(formatChart({
     claimText, table, fills, elements, engineLabel, scopeNote, provenance,
     targets: perTarget.map((p) => p.target),
-    dropped, retrieval, connectivity,
+    dropped, retrieval, connectivity, sideScope, otherSideElements,
   }) + (family ? formatFamilySection(family) + '\n' : ''));
 
   // The sidecar's family block: per dependent, every row with its origin and

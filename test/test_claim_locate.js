@@ -2546,3 +2546,27 @@ describe('contentCandidatesForWords: includePath scope (chart-within-file-drilld
     assert.equal(got.includePath, null);
   });
 });
+
+import { detectClaimSides as _dcs } from '../src/commands/claim-locate.js';
+
+describe('chart-client-server-scope: two-sided claim detection', () => {
+  const preamble = 'A distribution system, including a transmission device and a reception device configured to be capable of communicating with each other, the transmission device being equipped with a content transmitting unit for transmitting content data';
+  it('detects the 101 pair and attributes elements by the claim\u0027s own units', () => {
+    const elements = [
+      preamble,
+      'which is one content coded with any one code rate of a plurality of code rates different from each other, to the reception device',
+      'the content transmitting unit is configured to change the code rate of the content data to be transmitted to the reception device to the determined code rate',
+      'and the reception device being equipped with a content reproducing unit for storing received data',
+    ];
+    const got = _dcs(elements.join(' '), elements);
+    assert.ok(got, 'two-sided detected');
+    assert.deepEqual(got.parties, ['transmission device', 'reception device']);
+    assert.equal(got.perElement[2], 'transmission device', 'transmitting-unit row attributed via the equipped-with harvest');
+    assert.equal(got.perElement[1], 'reception device');
+    assert.equal(got.perElement[3], 'reception device');
+  });
+  it('a one-party method claim yields null', () => {
+    const els = ['A method for parsing a file, comprising:', 'reading bytes', 'emitting tokens'];
+    assert.equal(_dcs(els.join(' '), els), null);
+  });
+});

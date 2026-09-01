@@ -2363,3 +2363,60 @@ export function indexCallNeighbors(index) {
     return out;
   };
 }
+
+// ========================================================================
+// chart-client-server-scope: two-sided claim detection
+// ========================================================================
+//
+// A system claim can recite two communicating parties, and an index can be
+// one of them ('101 x ExoPlayer: the reception device). Rows attributed to
+// the other party come back ABSENT and a reader cannot tell "this codebase
+// does not do it" from "this codebase is the other half of the system".
+// Deterministic detection: the pair must be NAMED, attribution comes from
+// the claim's own equipped-with/comprising constructions plus direct party
+// mentions -- never inferred from vocabulary alone. `directional` says which
+// party is the serving/transmitting side; the first/second pair has no
+// inherent direction and gets the scope paragraph without row tags.
+const CLAIM_SIDE_PAIRS = [
+  { pair: ['transmission device', 'reception device'], directional: true },
+  { pair: ['server', 'client'], directional: true },
+  { pair: ['transmitter', 'receiver'], directional: true },
+  { pair: ['sender', 'recipient'], directional: true },
+  { pair: ['first device', 'second device'], directional: false },
+];
+
+export function detectClaimSides(claimText, elements) {
+  const whole = String(claimText || '').toLowerCase();
+  let found = null;
+  for (const p of CLAIM_SIDE_PAIRS) {
+    if (whole.includes(p.pair[0]) && whole.includes(p.pair[1])) { found = p; break; }
+  }
+  if (!found) return null;
+  const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Units each party is "equipped with" / "comprising": the claim's own
+  // attribution, harvested once from the whole text.
+  const unitOf = new Map();
+  for (const party of found.pair) {
+    const re = new RegExp(esc(party)
+      + String.raw`[^.;:]{0,80}?(?:equipped\s+with|comprising|including|includes|having)\s+(?:a|an|the)\s+([a-z][a-z\- ]{2,50}?unit)`, 'gi');
+    let m;
+    while ((m = re.exec(whole))) unitOf.set(m[1].trim(), party);
+  }
+  const markersFor = (party) => [party, ...[...unitOf].filter(([, p]) => p === party).map(([u]) => u)];
+  const markers = { [found.pair[0]]: markersFor(found.pair[0]), [found.pair[1]]: markersFor(found.pair[1]) };
+  // An element belongs to the party whose marker appears EARLIEST in it (the
+  // acting subject leads); an element with no marker stays untagged.
+  const perElement = (elements || []).map((e) => {
+    const t = String(e).toLowerCase();
+    let best = null;
+    for (const party of found.pair) {
+      for (const mk of markers[party]) {
+        const at = t.indexOf(mk);
+        if (at >= 0 && (!best || at < best.at)) best = { party, at };
+      }
+    }
+    return best ? best.party : null;
+  });
+  if (!perElement.some(Boolean)) return null;
+  return { parties: found.pair, directional: found.directional, perElement, units: Object.fromEntries(unitOf) };
+}
