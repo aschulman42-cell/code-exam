@@ -2042,3 +2042,55 @@ describe('chart-client-server-scope: index-side verdict and row tags', () => {
     assert.ok(!plain.table.includes('_[other side]_'));
   });
 });
+
+import { citedDuplicates as _cdup, unshownQualifiers as _unq } from '../src/commands/claim-chart.js';
+
+describe('chart-duplicate-surface-note: structural twins of cited implementations', () => {
+  const fills = [
+    { element: 1, label: 'PRESENT', target: 'contrib/minizip/iowin32.c@win32_open_file_func', note: 'x' },
+    { element: 2, label: 'ABSENT', target: 'a.c@f', note: 'x' },
+  ];
+  it('a cited function with an out-of-file twin surfaces both function- and file-level entries', () => {
+    const getDupes = () => [{ instances: [
+      { filepath: 'contrib/minizip/iowin32.c', name: 'win32_open_file_func' },
+      { filepath: 'contrib/minizip/ioapi.c', name: 'fopen_file_func' },
+    ] }];
+    const got = _cdup({}, fills, { getDupes });
+    const fn = got.find((d) => d.target);
+    assert.ok(fn && fn.target === fills[0].target);
+    assert.match(fn.twins[0], /ioapi\.c@/);
+    const fl = got.find((d) => d.file);
+    assert.ok(fl && fl.file === 'iowin32.c' && fl.twinFile === 'ioapi.c');
+    assert.match(fl.example, /win32_open_file_func ~ fopen_file_func/);
+  });
+  it('the claim-7 shape: cited function NOT in any group, but its FILE shares a group -> file-level only', () => {
+    const shapeFills = [{ element: 1, label: 'PRESENT', target: 'contrib/minizip/iowin32.c@MySetFilePointerEx', note: 'x' }];
+    const getDupes = () => [{ instances: [
+      { filepath: 'contrib/minizip/iowin32.c', name: 'fill_win32_filefunc' },
+      { filepath: 'contrib/minizip/ioapi.c', name: 'fill_fopen_filefunc' },
+    ] }];
+    const got = _cdup({}, shapeFills, { getDupes });
+    assert.ok(!got.some((d) => d.target), 'no function-level entry');
+    const fl = got.find((d) => d.file);
+    assert.ok(fl && fl.twinFile === 'ioapi.c');
+  });
+  it('same-file-only groups and un-cited groups yield nothing', () => {
+    const getDupes = () => [{ instances: [
+      { filepath: 'contrib/minizip/iowin32.c', name: 'win32_open_file_func' },
+      { filepath: 'contrib/minizip/iowin32.c', name: 'win32_open64_file_func' },
+    ] }];
+    assert.deepEqual(_cdup({}, fills, { getDupes }), []);
+  });
+});
+
+describe('chart-qualifier-check v1: limitation words unmatched in the finding', () => {
+  it('the cloud/resolveProvider shape fires on exactly the unshown word', () => {
+    const un = _unq('resolving a cloud provider from a provider identifier',
+      'canonicalProviderId(value) maps the identifier and PROVIDERS[id] returns the resolved provider entry');
+    assert.ok(un.includes('cloud'), 'cloud is not shown');
+    assert.ok(!un.some((w) => /provider|identifier/i.test(w)), 'shown words stay silent');
+  });
+  it('a fully covered row stays silent; stemming matches inflections', () => {
+    assert.deepEqual(_unq('computing a rate', 'computes the rate at line 5'), []);
+  });
+});

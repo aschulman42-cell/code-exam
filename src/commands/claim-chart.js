@@ -33,7 +33,7 @@ import { analyzeClaimSet, parentElementSynonyms } from '../core/dep-claims.js';
 import { extractClientServer } from '../core/client-server.js';
 import { contentWords, stem } from '../core/claim-terms.js';
 import { isPseudoSource } from '../binstrings.js';
-import { elementClasses, tallyByClass, classHeadline } from '../core/claim-genericity.js';
+import { elementClasses, tallyByClass, classHeadline, claimGenericity } from '../core/claim-genericity.js';
 
 // A target spec is `file@symbol`; the file half says whether the target is a
 // binstrings `.op` dump. Labelled wherever a spec is printed so a reader never
@@ -142,6 +142,100 @@ export function nominationIndex(retrieval) {
       // concentration (both use element 0) without a second index.
       out.get(k).push({ element: pe.element ?? null, rank, ...(pe.arm ? { arm: pe.arm } : {}) });
     });
+  }
+  return out;
+}
+
+// chart-duplicate-surface-note: structural twins of cited implementations.
+// zlib's loop slice scored twin-file hits as misses (ioapi/iowin32,
+// inftrees/inftree9) while the chart said nothing about the twins. Cited
+// PRESENT/PARTIAL functions are checked against the index's structural-
+// duplicate groups; an out-of-file twin becomes a disclosure line and a
+// sidecar record. Expert-relevant both ways: a reading on one copy
+// presumptively reaches its twin, and the twin explains retrieval landing
+// on either. Verdicts never change. `getDupes` injectable for tests.
+export function citedDuplicates(index, fills, { getDupes = null } = {}) {
+  const cited = [...new Set(fills.filter((f) => f.target && (f.label === 'PRESENT' || f.label === 'PARTIAL')).map((f) => f.target))];
+  if (!cited.length) return [];
+  let groups;
+  try {
+    if (getDupes) groups = getDupes() || [];
+    else {
+      index.getFuncDupes(1, 3, true);   // populates the structural groups
+      groups = index.getStructDupes(10000) || [];
+    }
+  } catch { return []; }
+  const short = (fp) => String(fp).split('!').pop().split('/').pop();
+  const out = [];
+  const citedFiles = new Set();
+  for (const spec of cited) {
+    const file = short(String(spec).split('@')[0]);
+    citedFiles.add(file);
+    const bare = String(spec).split('@').pop().replace(/@\d+$/, '').split('::').pop();
+    for (const g of groups) {
+      const insts = g.instances || [];
+      if (!insts.some((i) => short(i.filepath) === file && String(i.name).split('::').pop() === bare)) continue;
+      const twins = [...new Set(insts.filter((i) => short(i.filepath) !== file).map((i) => `${short(i.filepath)}@${i.name}`))];
+      if (twins.length) { out.push({ target: spec, twins: twins.slice(0, 4) }); break; }
+    }
+  }
+  // FILE-level pass -- the draft's own example ("cited inftrees.c has a
+  // structural near-duplicate at inftree9.c") is file-level, and the first
+  // zlib re-render showed why function-level alone under-fires: claim 7
+  // cited win32_open64_file_funcA while the cross-file group held the
+  // fill_* siblings. A cited FILE that shares any structural group with
+  // another file gets one line naming the pair and an example.
+  const seenPair = new Set();
+  for (const file of citedFiles) {
+    for (const g of groups) {
+      const insts = g.instances || [];
+      const inFile = insts.filter((i) => short(i.filepath) === file);
+      if (!inFile.length) continue;
+      for (const twin of [...new Set(insts.filter((i) => short(i.filepath) !== file).map((i) => short(i.filepath)))]) {
+        const key = [file, twin].sort().join('~');
+        if (seenPair.has(key) || out.length >= 8) continue;
+        seenPair.add(key);
+        const other = insts.find((i) => short(i.filepath) === twin);
+        out.push({ file, twinFile: twin, example: `${inFile[0].name} ~ ${other.name}` });
+      }
+    }
+  }
+  return out;
+}
+
+// chart-qualifier-check (v1, mechanical, report-only): the limitation words
+// a careful reader would check the citation for. Andrew's motivating case:
+// "resolving a CLOUD provider" PRESENT on resolveProvider -- dead on for
+// resolve/provider/identifier, silent on whether "cloud" is shown or
+// assumed. Words are matched by stem against the finding text; a synonym in
+// the citation still counts as not shown, which is DISCLOSED on the
+// artifact -- this is a reading prompt, never a verdict.
+export function unshownQualifiers(elementText, noteText, { genreFilter = true } = {}) {
+  const noteStems = new Set(contentWords(String(noteText || '')).map(stem));
+  // The registered fire-rate check tripped its named contingency (46/49 rows
+  // fired unfiltered -- a one-sentence finding cannot restate a 15-word
+  // limitation), so the pool is the element's claim-genre RARE words
+  // (claimGenericity's existing classification, nothing new tuned): the
+  // distinctive words a reader would actually check for, with genre-common
+  // boilerplate (receiving/system/device...) excluded. A generic I/O row has
+  // no rare words and never fires.
+  let pool = contentWords(String(elementText || ''));
+  if (genreFilter) {
+    try {
+      const g = claimGenericity(String(elementText || ''));
+      if (g && g.kind !== 'unscored' && Array.isArray(g.rareWords)) {
+        const rare = new Set(g.rareWords);
+        pool = pool.filter((w) => rare.has(w));
+      }
+    } catch { /* unfiltered fallback */ }
+  }
+  const out = [];
+  const seen = new Set();
+  for (const w of pool) {
+    const s = stem(w);
+    if (noteStems.has(s) || seen.has(s)) continue;
+    seen.add(s);
+    out.push(w);
   }
   return out;
 }
@@ -760,7 +854,10 @@ export function fillChartRows(table, fills) {
     const cite = f.target
       ? `${f.closest ? 'closest examined: ' : ''}\`${f.target}\`${pseudoTag(f.target)}`
       : '—';
-    const note = f.note ? ` ${String(f.note).replace(/\|/g, '\\|').slice(0, 160)}` : '';
+    const noteBase = f.note ? ` ${String(f.note).replace(/\|/g, '\\|').slice(0, 160)}` : '';
+    const note = noteBase + (f.unshown && f.unshown.length
+      ? ` _(not shown in citation: ${f.unshown.slice(0, 6).join(', ')}${f.unshown.length > 6 ? ', …' : ''})_`
+      : '');
     // How lonely is this finding? "(1 of 34; 33 ABSENT)" tells the reader that
     // a lone PRESENT was promoted over 33 dissents — which deserves scrutiny —
     // while "(30 of 34)" does not.
@@ -969,7 +1066,7 @@ export function buildProvenanceHeader({
 
 export function formatChart({
   claimText, table, fills, targets, engineLabel, elements, scopeNote, provenance,
-  dropped, retrieval, connectivity, sideScope, otherSideElements,
+  dropped, retrieval, connectivity, sideScope, otherSideElements, citedDupes,
 }) {
   const filled = fillChartRows(table, fills);
   const out = [];
@@ -998,6 +1095,13 @@ export function formatChart({
   out.push('For most limitations those coincide; for a limitation requiring something to be');
   out.push('absent they are opposites, and such rows are marked._');
   out.push('');
+  // chart-qualifier-check: disclose the check's bluntness once, when it fires.
+  if ((fills || []).some((f) => f.unshown && f.unshown.length)) {
+    out.push('_Some rows note "not shown in citation": limitation words with no lexical match in the');
+    out.push('cited finding. A synonym in the citation still counts as not shown — a reading prompt,');
+    out.push('not a verdict._');
+    out.push('');
+  }
   out.push(filled);
   out.push('');
   // Negative rows get a gloss, because a legend is not enough where the word
@@ -1040,6 +1144,19 @@ export function formatChart({
     }
     out.push('');
   }
+  // chart-duplicate-surface-note: twin implementations of cited code.
+  if (citedDupes && citedDupes.length) {
+    for (const d of citedDupes) {
+      if (d.target) {
+        out.push(`_Cited \`${d.target}\` has structural near-duplicate(s) at ${d.twins.map((t) => `\`${t}\``).join(', ')}`
+          + ' (--struct-dupes) — a reading on one copy presumptively reaches its twin._');
+      } else {
+        out.push(`_Cited \`${d.file}\` shares structural near-duplicates with \`${d.twinFile}\``
+          + ` (e.g. \`${d.example}\`; --struct-dupes) — a reading on one copy presumptively reaches its twin._`);
+      }
+    }
+    out.push('');
+  }
   out.push('## Analysed targets');
   out.push('');
   // A target only the whole-claim arm nominated says so: which arm found the
@@ -1079,7 +1196,7 @@ export function formatChart({
       const depMark = p.depFrom && p.depFrom.length ? ` _(+dep ${p.depFrom.join(', ')})_` : '';
       const wordsCell = p.arm === 'drilldown'
         ? `_scoped to ${String(p.file || '').split('/').pop().split('!').pop()}_`
-        : `${(p.words || []).join(', ').replace(/\|/g, '\\|')}${depMark}`;
+        : `${(p.words || []).map((w) => (p.wordRuns && p.wordRuns.single && p.wordRuns.single.includes(w) ? `${w}?` : w)).join(', ').replace(/\|/g, '\\|')}${depMark}`;
       out.push(`| ${label} | ${wordsCell} `
         + `| ${(p.hits || []).length} |${anyContent ? ` ${p.contentAdded || 0} |` : ''}`);
     }
@@ -1596,8 +1713,12 @@ export async function doClaimChart(index, args, opts = {}) {
         + ` searched with their own predicted vocabulary during --claim-locate.`];
     }
   } else {
-    if (!claimsCostGate(model, [{ inChars: claimText.length + 2000, outTokens: 600 }],
-      'claim-chart per-element retrieval (1 call)', args)) return;
+    // chart-retrieval-multi-run-merge: two vocabulary calls on cloud engines
+    // (temp-0 drift), one on bit-stable local models (#306). The gate sees
+    // the real call count.
+    const vocabRuns = model.kind === 'gguf' ? 1 : 2;
+    if (!claimsCostGate(model, Array.from({ length: vocabRuns }, () => ({ inChars: claimText.length + 2000, outTokens: 600 })),
+      `claim-chart per-element retrieval (${vocabRuns} call${vocabRuns > 1 ? 's' : ''})`, args)) return;
     process.stderr.write('[claim-chart] no --targets: retrieving per element'
       + ' (the model is shown the CLAIM ONLY — no paths, no codebase identity)...\n');
     const disc = await retrievePerElement({
@@ -1611,6 +1732,7 @@ export async function doClaimChart(index, args, opts = {}) {
         index,
         // dep-claims-broaden-parent: species words for the rows dependents narrow.
         extraWords: depSyn ? new Map(depSyn.rows.map((r) => [r.row + 1, { words: r.words, from: r.from }])) : null,
+        vocabRuns,
         onElement: ({ element, words, hits, contentAdded }) => process.stderr.write(
           `  element ${element}: words [${words.join(', ')}] -> ${hits.length} candidate(s)`
           + `${contentAdded ? ` (${contentAdded} via content search)` : ''}\n`),
@@ -1675,6 +1797,18 @@ export async function doClaimChart(index, args, opts = {}) {
       `Claim differentiation: ${depSyn.rows.length} element(s) also searched with species vocabulary donated by`
       + ` MODIFICATION dependent(s): ${depSyn.rows.map((r) => `element ${r.row + 1} from claim ${r.from.map((f) => f.claim).join('/')}`).join('; ')}.`
       + ' --no-dep-synonyms disables it.'];
+  }
+  // chart-retrieval-multi-run-merge: how stable the vocabulary was, on the
+  // artifact -- the agreement rate is the reader's variance disclosure.
+  if (!args.targets && Array.isArray(retrieval)) {
+    const rr = retrieval.filter((p) => p.wordRuns);
+    if (rr.length) {
+      let agreed = 0, total = 0;
+      for (const p of rr) { agreed += p.wordRuns.agreed.length; total += (p.words || []).length; }
+      targetProvenance = [...targetProvenance,
+        `Vocabulary: 2 prediction runs merged per element (cloud temp-0 drift); ${total ? Math.round(100 * agreed / total) : 0}%`
+        + ` of searched words agreed between runs — one-run-only words are marked \`?\` in the retrieval table.`];
+    }
   }
   // chart-client-server-scope: a two-sided claim gets the index-side fact
   // stated on the artifact, and the other party's rows tagged. Deterministic
@@ -2002,12 +2136,27 @@ Per-target verdicts written to ${args.verdicts_out}`
       catch { connectivity = null; }
     }
   }
+  // chart-duplicate-surface-note + chart-qualifier-check: post-merge,
+  // deterministic, report-only.
+  let citedDupes = [];
+  try { citedDupes = citedDuplicates(index, fills); } catch { citedDupes = []; }
+  const qualifiers = new Map();
+  for (const f of fills) {
+    if (!(f.label === 'PRESENT' || f.label === 'PARTIAL') || f.element == null) continue;
+    const un = unshownQualifiers(f.text, f.note);
+    if (un.length) { qualifiers.set(f.element, un); f.unshown = un; }
+  }
+  const wordRunsRecorded = Array.isArray(retrieval) ? retrieval.filter((p) => p.wordRuns && p.element) : [];
   // The sidecar was already written (raw pre-merge verdicts, by design), so
-  // the groups ride in via the same read-modify-write the family block uses.
-  if (connectivity && args.verdicts_out && !process.exitCode) {
+  // the post-merge facts ride in via the same read-modify-write the family
+  // block uses.
+  if ((connectivity || citedDupes.length || qualifiers.size || wordRunsRecorded.length) && args.verdicts_out && !process.exitCode) {
     try {
       const j = JSON.parse(fs.readFileSync(args.verdicts_out, 'utf8'));
-      j.targetGroups = connectivity.groups;
+      if (connectivity) j.targetGroups = connectivity.groups;
+      if (citedDupes.length) j.citedDuplicates = citedDupes;
+      if (qualifiers.size) j.unshownQualifiers = Object.fromEntries([...qualifiers].map(([k, v]) => [String(k), v]));
+      if (wordRunsRecorded.length) j.wordRuns = Object.fromEntries(wordRunsRecorded.map((p) => [String(p.element), p.wordRuns]));
       fs.writeFileSync(args.verdicts_out, `${JSON.stringify(j, null, 2)}
 `, 'utf8');
     } catch { /* best-effort; the chart line still reports */ }
@@ -2060,7 +2209,7 @@ Per-target verdicts written to ${args.verdicts_out}`
   console.log(formatChart({
     claimText, table, fills, elements, engineLabel, scopeNote, provenance,
     targets: perTarget.map((p) => p.target),
-    dropped, retrieval, connectivity, sideScope, otherSideElements,
+    dropped, retrieval, connectivity, sideScope, otherSideElements, citedDupes,
   }) + (family ? formatFamilySection(family) + '\n' : ''));
 
   // The sidecar's family block: per dependent, every row with its origin and

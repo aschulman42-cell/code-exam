@@ -2570,3 +2570,32 @@ describe('chart-client-server-scope: two-sided claim detection', () => {
     assert.equal(_dcs(els.join(' '), els), null);
   });
 });
+
+describe('chart-retrieval-multi-run-merge: two vocabulary runs, unioned', () => {
+  it('unions per element, run-1 order first, wordRuns bookkeeping, run-2-only element searched', async () => {
+    let calls = 0;
+    const draft = async () => { calls++; return calls === 1 ? 'ELEMENT 1: alpha, beta' : 'ELEMENT 1: beta, gamma\nELEMENT 2: delta'; };
+    const r = await retrievePerElement({ draft, elements: ['one', 'two'], symbols: [{ name: 'AlphaThing', filepath: 'a.js' }], opts: { vocabRuns: 2 } });
+    assert.equal(calls, 2);
+    const p1 = r.perElement.find((p) => p.element === 1);
+    assert.deepEqual(p1.words, ['alpha', 'beta', 'gamma'], 'run-1 words first, run-2 novelty appended');
+    assert.deepEqual(p1.wordRuns.agreed, ['beta']);
+    assert.deepEqual([...p1.wordRuns.single].sort(), ['alpha', 'gamma']);
+    const p2 = r.perElement.find((p) => p.element === 2);
+    assert.ok(p2 && p2.words.includes('delta'), 'run-2-only element still searched');
+    assert.deepEqual(p2.wordRuns.agreed, []);
+  });
+  it('the single-run path makes exactly one call and records no wordRuns', async () => {
+    let calls = 0;
+    const draft = async () => { calls++; return 'ELEMENT 1: alpha'; };
+    const r = await retrievePerElement({ draft, elements: ['one'], symbols: [], opts: {} });
+    assert.equal(calls, 1);
+    assert.ok(!r.perElement[0].wordRuns);
+  });
+  it('a failed second run degrades to single-run, never a crash', async () => {
+    let calls = 0;
+    const draft = async () => { calls++; if (calls === 2) throw new Error('boom'); return 'ELEMENT 1: alpha'; };
+    const r = await retrievePerElement({ draft, elements: ['one'], symbols: [], opts: { vocabRuns: 2 } });
+    assert.deepEqual(r.perElement[0].words, ['alpha']);
+  });
+});

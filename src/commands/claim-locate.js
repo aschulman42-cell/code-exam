@@ -748,6 +748,37 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
         ? `The vocabulary response was cut off at the ${VOCAB_MAX_OUTPUT_TOKENS}-token output budget before any element parsed.`
         : 'The model produced no parseable code-word predictions.' };
   }
+  // chart-retrieval-multi-run-merge: cloud temp-0 word prediction drifts
+  // between identical calls (three drilldown acceptance failures, one root
+  // cause), so a cloud caller passes vocabRuns: 2 and the two runs are
+  // UNIONED per element -- run-1 words first, run-2 novelties appended, so
+  // one bad draw cannot zero an element. wordRuns records which words both
+  // runs agreed on vs one-run-only, for the renderer's marks and the
+  // provenance's agreement rate. A failed second run degrades to single-run
+  // (the merge is a stabilizer, never a gate); bit-stable local models skip
+  // it at the call site. No CLI option.
+  if ((opts.vocabRuns || 1) >= 2) {
+    let raw2 = null;
+    try { raw2 = await draft(sys, user, VOCAB_MAX_OUTPUT_TOKENS); }
+    catch { raw2 = null; }
+    for (const ws2 of parseElementWords(raw2 || '')) {
+      const ws = wordSets.find((x) => x.element === ws2.element);
+      if (!ws) {
+        wordSets.push({ element: ws2.element, words: [...ws2.words], agreed: [], single: [...ws2.words] });
+        continue;
+      }
+      const have = new Set(ws.words);
+      const novel = ws2.words.filter((w) => !have.has(w));
+      const w2 = new Set(ws2.words);
+      ws.agreed = ws.words.filter((w) => w2.has(w));
+      ws.single = [...ws.words.filter((w) => !w2.has(w)), ...novel];
+      ws.words = [...ws.words, ...novel];
+    }
+    for (const ws of wordSets) {
+      if (ws.agreed === undefined) { ws.agreed = []; ws.single = [...ws.words]; }
+    }
+    wordSets.sort((a, b) => a.element - b.element);
+  }
   // dep-claims-broaden-parent: species vocabulary donated by MODIFICATION
   // dependents joins the narrowed element's search words -- BOTH arms, since
   // the merged list flows into searchSymbolsByWords and
@@ -898,7 +929,8 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
       }
     }
     perElement.push({ element, text: limText.slice(0, 160), words, hits, mismatches, contentAdded,
-      ...(ws.depWords && ws.depWords.length ? { depWords: ws.depWords, depFrom: ws.depFrom } : {}) });
+      ...(ws.depWords && ws.depWords.length ? { depWords: ws.depWords, depFrom: ws.depFrom } : {}),
+      ...(ws.agreed !== undefined ? { wordRuns: { agreed: ws.agreed, single: ws.single } } : {}) });
     opts.onElement?.({ element, words, hits, mismatches });
   }
   return { perElement, raw, error: null, prompt: { sys, user }, heldBack };
