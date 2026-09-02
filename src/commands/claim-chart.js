@@ -154,6 +154,14 @@ export function nominationIndex(retrieval) {
 // sidecar record. Expert-relevant both ways: a reading on one copy
 // presumptively reaches its twin, and the twin explains retrieval landing
 // on either. Verdicts never change. `getDupes` injectable for tests.
+// Boilerplate floor (asus-CC RUN16, 2026-09-02): 3-line getters form giant
+// structural groups on Java corpora and flooded one cited file with eight
+// twin lines (incl. getUri ~ getText). File-level pairs only come from
+// groups of at least this many lines; the motivating zlib fill_* group (10
+// lines) clears it, getter noise does not. Constants stated, no option.
+export const TWIN_GROUP_MIN_LINES = 8;
+const TWIN_PAIRS_PER_FILE = 2;
+
 export function citedDuplicates(index, fills, { getDupes = null } = {}) {
   const cited = [...new Set(fills.filter((f) => f.target && (f.label === 'PRESENT' || f.label === 'PARTIAL')).map((f) => f.target))];
   if (!cited.length) return [];
@@ -161,8 +169,18 @@ export function citedDuplicates(index, fills, { getDupes = null } = {}) {
   try {
     if (getDupes) groups = getDupes() || [];
     else {
-      index.getFuncDupes(1, 3, true);   // populates the structural groups
-      groups = index.getStructDupes(10000) || [];
+      // getFuncDupes prints its progress to stdout, which is the CHART on a
+      // redirected run -- asus-CC's RUN16 artifact opened with five lines of
+      // hashing output. Silenced here (the analyseTargetForRows pattern); one
+      // stderr line states the cost instead.
+      const _log = console.log;
+      console.log = () => {};
+      try {
+        index.getFuncDupes(1, 3, true);   // populates the structural groups
+        groups = index.getStructDupes(10000) || [];
+      } finally { console.log = _log; }
+      process.stderr.write(`  struct-dupes: ${groups.length} structural group(s) consulted for twin notes`
+        + ' (function-body hashing is one-time per index, then cached)\n');
     }
   } catch { return []; }
   const short = (fp) => String(fp).split('!').pop().split('/').pop();
@@ -186,15 +204,18 @@ export function citedDuplicates(index, fills, { getDupes = null } = {}) {
   // fill_* siblings. A cited FILE that shares any structural group with
   // another file gets one line naming the pair and an example.
   const seenPair = new Set();
+  const perFile = new Map();
   for (const file of citedFiles) {
     for (const g of groups) {
+      if ((g.lines || 0) < TWIN_GROUP_MIN_LINES) continue;   // boilerplate floor
       const insts = g.instances || [];
       const inFile = insts.filter((i) => short(i.filepath) === file);
       if (!inFile.length) continue;
       for (const twin of [...new Set(insts.filter((i) => short(i.filepath) !== file).map((i) => short(i.filepath)))]) {
         const key = [file, twin].sort().join('~');
-        if (seenPair.has(key) || out.length >= 8) continue;
+        if (seenPair.has(key) || (perFile.get(file) || 0) >= TWIN_PAIRS_PER_FILE || out.length >= 8) continue;
         seenPair.add(key);
+        perFile.set(file, (perFile.get(file) || 0) + 1);
         const other = insts.find((i) => short(i.filepath) === twin);
         out.push({ file, twinFile: twin, example: `${inFile[0].name} ~ ${other.name}` });
       }

@@ -2051,7 +2051,7 @@ describe('chart-duplicate-surface-note: structural twins of cited implementation
     { element: 2, label: 'ABSENT', target: 'a.c@f', note: 'x' },
   ];
   it('a cited function with an out-of-file twin surfaces both function- and file-level entries', () => {
-    const getDupes = () => [{ instances: [
+    const getDupes = () => [{ lines: 26, instances: [
       { filepath: 'contrib/minizip/iowin32.c', name: 'win32_open_file_func' },
       { filepath: 'contrib/minizip/ioapi.c', name: 'fopen_file_func' },
     ] }];
@@ -2065,7 +2065,7 @@ describe('chart-duplicate-surface-note: structural twins of cited implementation
   });
   it('the claim-7 shape: cited function NOT in any group, but its FILE shares a group -> file-level only', () => {
     const shapeFills = [{ element: 1, label: 'PRESENT', target: 'contrib/minizip/iowin32.c@MySetFilePointerEx', note: 'x' }];
-    const getDupes = () => [{ instances: [
+    const getDupes = () => [{ lines: 10, instances: [
       { filepath: 'contrib/minizip/iowin32.c', name: 'fill_win32_filefunc' },
       { filepath: 'contrib/minizip/ioapi.c', name: 'fill_fopen_filefunc' },
     ] }];
@@ -2074,8 +2074,27 @@ describe('chart-duplicate-surface-note: structural twins of cited implementation
     const fl = got.find((d) => d.file);
     assert.ok(fl && fl.twinFile === 'ioapi.c');
   });
+  it('a boilerplate-sized group never nominates a file pair (asus-CC RUN16 getter flood)', () => {
+    const shapeFills = [{ element: 1, label: 'PRESENT', target: 'a/ContentDataSource.java@getUri', note: 'x' }];
+    const getDupes = () => [{ lines: 3, instances: [
+      { filepath: 'a/ContentDataSource.java', name: 'ContentDataSource::getUri' },
+      { filepath: 'a/Cue.java', name: 'Cue::Builder::getText' },
+    ] }];
+    const got = _cdup({}, shapeFills, { getDupes });
+    assert.ok(!got.some((d) => d.file), 'no file-level entry from a 3-line group');
+    assert.ok(got.some((d) => d.target), 'the function-level fact (cited fn IS in the group) still surfaces');
+  });
+  it('per-cited-file pair cap holds at 2', () => {
+    const shapeFills = [{ element: 1, label: 'PRESENT', target: 'x/F.java@fn', note: 'x' }];
+    const mk = (twin) => ({ lines: 20, instances: [
+      { filepath: 'x/F.java', name: `F::impl_${twin}` },
+      { filepath: `x/${twin}.java`, name: `${twin}::impl` },
+    ] });
+    const got = _cdup({}, shapeFills, { getDupes: () => [mk('A'), mk('B'), mk('C')] });
+    assert.equal(got.filter((d) => d.file).length, 2);
+  });
   it('same-file-only groups and un-cited groups yield nothing', () => {
-    const getDupes = () => [{ instances: [
+    const getDupes = () => [{ lines: 26, instances: [
       { filepath: 'contrib/minizip/iowin32.c', name: 'win32_open_file_func' },
       { filepath: 'contrib/minizip/iowin32.c', name: 'win32_open64_file_func' },
     ] }];
