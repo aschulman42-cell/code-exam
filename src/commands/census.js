@@ -62,22 +62,29 @@ function rollup(entries) {
     b.idxs.size - a.idxs.size || b.occ - a.occ || a.root.localeCompare(b.root));
 }
 
-function render(entries, { multi, nIndexes, pyFiles, args }) {
+function render(entries, { multi, nIndexes, pyFiles, filesByLang, args }) {
   const totalSites = entries.reduce((s, e) => s + e.occ, 0);
   const filterNote = args.filter ? ` — filter: '${args.filter}'` : '';
+  // imports-bill-of-materials tier 1: the census is multi-language now, and
+  // the header says which files fed it instead of assuming Python.
+  const LANG_LABEL = { py: 'Python', js: 'JS/TS', c: 'C/C++', java: 'Java/Kotlin', cs: 'C#' };
+  const langNote = filesByLang && Object.keys(filesByLang).length
+    ? Object.entries(filesByLang).sort((a, b) => b[1] - a[1])
+      .map(([l, n]) => `${n} ${LANG_LABEL[l] || l}`).join(', ')
+    : `${pyFiles} Python`;
   if (multi) {
     console.log(`Import census — ${nIndexes} indexes, ${totalSites} import sites, ` +
-                `${entries.length} distinct targets (Python)${filterNote}\n`);
+                `${entries.length} distinct targets (${langNote} files)${filterNote}\n`);
   } else {
     console.log(`Import census — ${totalSites} import sites, ${entries.length} distinct ` +
-                `targets across ${pyFiles} Python files${filterNote}\n`);
+                `targets across ${langNote} files${filterNote}\n`);
   }
   if (entries.length === 0) {
     if (args.filter) {
       console.log(`  No import targets match --filter '${args.filter}'.`);
     } else {
-      console.log('  No Python imports found. Python is the only language the census');
-      console.log('  extracts today — JS/TS and other languages are #154.');
+      console.log('  No imports found. Covered languages: Python, JS/TS, C/C++,');
+      console.log('  Java/Kotlin, C# (imports-bill-of-materials tier 1).');
     }
     return;
   }
@@ -146,11 +153,11 @@ function render(entries, { multi, nIndexes, pyFiles, args }) {
 
 /** Single-index mode (normal dispatch path: --index-path .foo --census-imports). */
 export function doCensusImports(index, args) {
-  const { rows, pyFiles } = extractImports(index);
+  const { rows, pyFiles, filesByLang } = extractImports(index);
   const match = makeFilterMatcher(args.filter);
   const entries = aggregate(new Map([[index.indexPath, rows]]))
     .filter(e => match(e.target));
-  render(entries, { multi: false, nIndexes: 1, pyFiles, args });
+  render(entries, { multi: false, nIndexes: 1, pyFiles, filesByLang, args });
 }
 
 /**
@@ -161,6 +168,7 @@ export function doCensusImportsMulti(indexPaths, args) {
   const perIndex = new Map();
   let failures = 0;
   let pyFilesTotal = 0;
+  const filesByLangTotal = {};
   for (let i = 0; i < indexPaths.length; i++) {
     const p = indexPaths[i];
     process.stderr.write(`[multi-index] (${i + 1}/${indexPaths.length}) ${p}\n`);
@@ -171,11 +179,12 @@ export function doCensusImportsMulti(indexPaths, args) {
         process.stderr.write(`[multi-index] '${p}' has no loadable index — skipped\n`);
         continue;
       }
-      const { rows, pyFiles } = extractImports(idx);
+      const { rows, pyFiles, filesByLang: fbl } = extractImports(idx);
       pyFilesTotal += pyFiles;
+      for (const [l, n] of Object.entries(fbl || {})) filesByLangTotal[l] = (filesByLangTotal[l] || 0) + n;
       if (rows.length === 0) {
-        process.stderr.write(`[multi-index] note: no Python imports in '${p}' — ` +
-                             `other-language extraction is #154\n`);
+        process.stderr.write(`[multi-index] note: no imports extracted in '${p}' — ` +
+                             `covered languages: Python, JS/TS, C/C++, Java/Kotlin, C#\n`);
       }
       perIndex.set(p, rows);
     } catch (err) {
@@ -189,7 +198,7 @@ export function doCensusImportsMulti(indexPaths, args) {
 
   const match = makeFilterMatcher(args.filter);
   const entries = aggregate(perIndex).filter(e => match(e.target));
-  render(entries, { multi: true, nIndexes: perIndex.size, pyFiles: pyFilesTotal, args });
+  render(entries, { multi: true, nIndexes: perIndex.size, pyFiles: pyFilesTotal, filesByLang: filesByLangTotal, args });
   process.stderr.write(`[multi-index] census across ${perIndex.size} index(es)` +
                        `${failures ? `, ${failures} failed/skipped` : ''}\n`);
   return failures;
