@@ -2562,8 +2562,24 @@ describe('chart-client-server-scope: two-sided claim detection', () => {
     assert.ok(got, 'two-sided detected');
     assert.deepEqual(got.parties, ['transmission device', 'reception device']);
     assert.equal(got.perElement[2], 'transmission device', 'transmitting-unit row attributed via the equipped-with harvest');
-    assert.equal(got.perElement[1], 'reception device');
-    assert.equal(got.perElement[3], 'reception device');
+    // actor-fix: "to the reception device" is the RECIPIENT of transmission-
+    // side work -- object position, never attributes. The element has no
+    // actor-position marker, so it is untagged (the conservative ending).
+    assert.equal(got.perElement[1], null, 'recipient mention does not attribute');
+    assert.equal(got.perElement[3], 'reception device', 'being-equipped subject still attributes');
+  });
+  it('actor-fix: the TLS shape -- verifying the servers artifacts is not server work', () => {
+    const els = [
+      'A method for establishing a secure channel between a client and a server, comprising:',
+      'verifying, by the client, a certificate chain presented by the server device',
+      'validating a hostname against the certificate presented by the server',
+      'the server being configured to transmit a certificate chain',
+    ];
+    const got = _dcs(els.join(' '), els);
+    assert.ok(got);
+    assert.notEqual(got.perElement[1], 'server', 'presented-by-the-server is object position');
+    assert.notEqual(got.perElement[2], 'server');
+    assert.equal(got.perElement[3], 'server', 'configured-to subject still attributes');
   });
   it('a one-party method claim yields null', () => {
     const els = ['A method for parsing a file, comprising:', 'reading bytes', 'emitting tokens'];

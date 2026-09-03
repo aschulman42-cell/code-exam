@@ -1116,6 +1116,11 @@ export function formatChart({
   out.push('For most limitations those coincide; for a limitation requiring something to be');
   out.push('absent they are opposites, and such rows are marked._');
   out.push('');
+  // chart-voice-demarcation: who is speaking, stated once on the artifact.
+  out.push('_Voices: the **Claim element** column and italic passages are claim language verbatim;');
+  out.push('the **finding** column is the analysis model speaking; bracketed tags, headers, and');
+  out.push('provenance lines are CE-mechanical._');
+  out.push('');
   // chart-qualifier-check: disclose the check's bluntness once, when it fires.
   if ((fills || []).some((f) => f.unshown && f.unshown.length)) {
     out.push('_Some rows note "not shown in citation": limitation words with no lexical match in the');
@@ -1323,6 +1328,26 @@ export function narrowedRowFor(ownText, parentRows) {
  * with members in chart order (depth, then number), each carrying the
  * dep-claims row (n, text, parent, chain, depthLabel, contribution, parentChoice).
  */
+// family-split-parity: the fine splitter reads the drafter's lineation as
+// clause structure, and splitNumberedClaims joins wrapped lines with ' ' --
+// so the same claim split 9 rows solo and 7 in a family file (asus-CC,
+// #311; the collapse swallowed the transmitting-unit limitation into the
+// preamble -- measured side-by-side 2026-09-03, lineation wins). The
+// CHART's scope path therefore re-derives each selected claim's text from
+// the RAW input, lineation intact; other splitNumberedClaims consumers are
+// untouched (a global newline join broke 121 tests -- too much blast
+// radius for a rendering-path fix).
+export function rawClaimBlock(claimText, n) {
+  // String.raw: a plain template literal turns \s into 's' before RegExp
+  // ever sees it -- the first cut of this function matched nothing and fell
+  // back to the collapsed text, silently (caught by the 7-vs-9 parity probe).
+  const re = new RegExp(String.raw`(?:^|
+)\s*(?:\[\s*claim\s+${n}\s*\]|${n}\s*[.)])\s*([\s\S]*?)(?=
+\s*(?:\[\s*claim\s+\d+\s*\]|\d+\s*[.)])|$)`);
+  const m = re.exec(String(claimText || ''));
+  return m ? m[1].trim() : null;
+}
+
 export function chartScope(claimText, { claim = null, family = false } = {}) {
   const parts = splitNumberedClaims(claimText).filter((p) => p.n != null);
   if (parts.length < 2) {
@@ -1333,6 +1358,14 @@ export function chartScope(claimText, { claim = null, family = false } = {}) {
   }
   if (!family) {
     const s = resolveClaimScope(claimText, { claim });
+    // Parity: an INDEPENDENT selection is one claim's own text -- serve it
+    // from the raw block so solo and in-file charting split identically.
+    // Dependent chains keep resolveClaimScope's composed text.
+    const chosen = claim != null ? Number(claim) : parts[0].n;
+    if (/\(independent\)/.test(s.note || '') || (claim == null && parts.length)) {
+      const raw = rawClaimBlock(claimText, chosen);
+      if (raw) return { text: `${chosen}. ${raw}`, note: s.note, family: null };
+    }
     return { text: s.text, note: s.note, family: null };
   }
   const res = analyzeClaimSet(parts.map((p) => ({ n: p.n, text: `${p.n}. ${p.text}` })));
@@ -1340,7 +1373,7 @@ export function chartScope(claimText, { claim = null, family = false } = {}) {
   const root = res.byNumber.get(rootN);
   if (!root) throw new Error(`claim ${rootN} is not in the input (claims present: ${parts.map((p) => p.n).join(', ')})`);
   if (root.dependent) throw new Error(`--claim-family needs an independent claim as its root; claim ${rootN} depends on claim ${root.parent ?? '?'} -- chart it with --claim-number ${rootN} instead`);
-  const textOf = (k) => (parts.find((p) => p.n === k) || { text: '' }).text;
+  const textOf = (k) => rawClaimBlock(claimText, k) ?? (parts.find((p) => p.n === k) || { text: '' }).text;
   const members = res.claims
     .filter((r) => r.dependent && r.n !== rootN && Array.isArray(r.chain) && r.chain.includes(rootN))
     .sort((a, b) => (a.depth - b.depth) || (a.n - b.n))
@@ -1389,8 +1422,9 @@ export function formatFamilySection(fam) {
   out.push('', `## Dependent claims (family of claim ${fam.root})`, '');
   out.push(`_${fam.members.length} dependent claim(s). An inherited row is a one-line reference to the parent row it`);
   out.push('incorporates, carrying that row\'s verdict (evaluated on the parent, not re-judged). An ADDITION adds a row.');
-  out.push('A MODIFICATION re-evaluates the one inherited row it narrows, against the dependent\'s own language and on');
-  out.push('the code the parent row cited; its verdict may differ from the parent\'s, and the row says so. The verdict');
+  out.push('A MODIFICATION re-evaluates the one inherited row it narrows, against the dependent\'s own language, on');
+  out.push('the code the parent row cited PLUS targets retrieved on the dependent\'s own words; its verdict may differ');
+  out.push('from the parent\'s, and the row says so. The verdict');
   out.push('line under each claim counts every limitation the dependent carries, shown or not._');
   for (const dep of fam.members) {
     const kind = dep.kind + (dep.cue ? ` ("${dep.cue}")` : '');
@@ -1404,7 +1438,15 @@ export function formatFamilySection(fam) {
         out.push(`| ${r.designation} | _inherited from claim ${r.from}; see ${r.parentDesignation}_ | **${r.label}** _(carried)_ | ${r.target ? `${r.label === 'ABSENT' ? 'closest examined: ' : ''}\`${r.target}\`` : '—'} |`);
       } else if (r.origin === 'narrowed') {
         const was = r.parentLabel ? ` _(was ${r.parentLabel} on ${r.narrows})_` : '';
-        out.push(`| ${r.designation} narrows ${r.narrows} | ${esc(r.text)} | **${r.label}**${was}${r.note ? ' ' + esc(r.note).slice(0, 160) : ''} | ${r.target ? `${r.label === 'ABSENT' ? 'closest examined: ' : ''}\`${r.target}\`` : '—'} |`);
+        // chart-voice-demarcation (Andrew, #311 2026-09-03): the narrowed
+        // row was a solid block of parent text + connector + narrowing.
+        // Three visually separate parts -- claim language in italics, the
+        // connector bolded, CE-mechanical. The MODEL still receives the
+        // plain composed r.text; this is display only.
+        const cell = r.origin === 'narrowed' && r.own
+          ? `_${esc(r.text.split(' — as narrowed by')[0])}_<br>**as narrowed by claim ${String(r.designation).replace(/\D/g, '')}:**<br>_${esc(r.own)}_`
+          : esc(r.text);
+        out.push(`| ${r.designation} narrows ${r.narrows} | ${cell} | **${r.label}**${was}${r.note ? ' ' + esc(r.note).slice(0, 160) : ''} | ${r.target ? `${r.label === 'ABSENT' ? 'closest examined: ' : ''}\`${r.target}\`` : '—'} |`);
       } else {
         const amb = r.ambiguous ? ` _(${esc(r.ambiguous)})_` : '';
         out.push(`| ${r.designation} | ${esc(r.text)}${amb} | **${r.label}**${r.note ? ' ' + esc(r.note).slice(0, 160) : ''} | ${r.target ? `${r.label === 'ABSENT' ? 'closest examined: ' : ''}\`${r.target}\`` : '—'} |`);
@@ -1679,7 +1721,15 @@ export async function doClaimChart(index, args, opts = {}) {
   // analysis prompt carries one disclosed, doctrine-named note per such row.
   let depSyn = null;
   let depNotes = null;
-  if (!args.no_dep_synonyms) {
+  // dep-synonym-rarity-gate, the registered FAIL response (2026-09-03):
+  // donation is OFF BY DEFAULT. Three runs (RUN19/20/21) showed merging the
+  // dependent's words into the parent's set costs the crux via dilution,
+  // and the population measurement (414 donated words, CE + sr_gh) found no
+  // deployable register detector: the stated ordinary-language list kept
+  // words at 34% anchor-relevance against a 36% baseline. The useful half
+  // of dependent language -- the family chart's own delta rows -- is
+  // untouched. --dep-synonyms opts in; the mechanism is unchanged when on.
+  if (args.dep_synonyms && !args.no_dep_synonyms) {
     const parts = splitNumberedClaims(fullInputText).filter((p) => p.n != null);
     if (parts.length > 1) {
       const rootM = String(claimText).match(/^\s*(\d+)\s*[.)]/);
@@ -1850,6 +1900,7 @@ export async function doClaimChart(index, args, opts = {}) {
     if (otherParty) {
       claimSides.perElement.forEach((p, i) => { if (p === otherParty) otherSideElements.add(i + 1); });
     }
+    claimSides._otherParty = otherParty;
     const countsLine = indexSide
       ? `--client-server: ${indexSide.serverRoutes} server route(s), ${indexSide.clientCalls} client HTTP call(s), socket/TLS client ${indexSide.socketClient} / server ${indexSide.socketServer}`
       : '--client-server: unavailable';
@@ -2168,16 +2219,35 @@ Per-target verdicts written to ${args.verdicts_out}`
     if (un.length) { qualifiers.set(f.element, un); f.unshown = un; }
   }
   const wordRunsRecorded = Array.isArray(retrieval) ? retrieval.filter((p) => p.wordRuns && p.element) : [];
+  // two-sided-attribution-actor-fix, evidence retreat: an other-side-tagged
+  // row whose verdict lands PRESENT/PARTIAL in THIS index contradicts the
+  // "can only be met by a counterpart" claim -- the attribution or the
+  // sidedness is wrong, and the artifact must not assert both. The row moves
+  // to a contradicted set: still tagged, but the scope paragraph reports it
+  // as contradicted instead of excusable, and the sidecar records it.
+  const sideContradicted = new Set();
+  if (otherSideElements.size) {
+    for (const f of fills) {
+      if (f.element != null && otherSideElements.has(f.element) && (f.label === 'PRESENT' || f.label === 'PARTIAL')) {
+        sideContradicted.add(f.element);
+      }
+    }
+    if (sideContradicted.size && sideScope) {
+      const list = [...sideContradicted].sort((a, b) => a - b).join(', ');
+      sideScope += ` CONTRADICTED: row(s) ${list} are attributed to the ${claimSides._otherParty || 'other party'} by the claim text, yet met in this index — the attribution or the sidedness may be wrong; those rows are findings, not exclusions.`;
+    }
+  }
   // The sidecar was already written (raw pre-merge verdicts, by design), so
   // the post-merge facts ride in via the same read-modify-write the family
   // block uses.
-  if ((connectivity || citedDupes.length || qualifiers.size || wordRunsRecorded.length) && args.verdicts_out && !process.exitCode) {
+  if ((connectivity || citedDupes.length || qualifiers.size || wordRunsRecorded.length || sideContradicted.size) && args.verdicts_out && !process.exitCode) {
     try {
       const j = JSON.parse(fs.readFileSync(args.verdicts_out, 'utf8'));
       if (connectivity) j.targetGroups = connectivity.groups;
       if (citedDupes.length) j.citedDuplicates = citedDupes;
       if (qualifiers.size) j.unshownQualifiers = Object.fromEntries([...qualifiers].map(([k, v]) => [String(k), v]));
       if (wordRunsRecorded.length) j.wordRuns = Object.fromEntries(wordRunsRecorded.map((p) => [String(p.element), p.wordRuns]));
+      if (sideContradicted.size) j.sideContradicted = [...sideContradicted].sort((a, b) => a - b);
       fs.writeFileSync(args.verdicts_out, `${JSON.stringify(j, null, 2)}
 `, 'utf8');
     } catch { /* best-effort; the chart line still reports */ }
@@ -2233,6 +2303,19 @@ Per-target verdicts written to ${args.verdicts_out}`
     dropped, retrieval, connectivity, sideScope, otherSideElements, citedDupes,
   }) + (family ? formatFamilySection(family) + '\n' : ''));
 
+  // chart-printable-render: the same data, as a self-contained printable page.
+  if (args.chart_html) {
+    try {
+      fs.writeFileSync(args.chart_html, renderChartHtml({
+        claimText, fills, elements, engineLabel, scopeNote, sideScope, otherSideElements,
+        provenance: Array.isArray(targetProvenance) ? targetProvenance.join('\n') : targetProvenance,
+        connectivity, citedDupes, targets: perTarget.map((p) => p.target), family,
+        command: process.argv.slice(1).join(' '), generatedAt: new Date().toISOString(),
+      }), 'utf8');
+      process.stderr.write(`[claim-chart] printable page written to ${args.chart_html}\n`);
+    } catch (e) { console.error(`--chart-html: cannot write ${args.chart_html}: ${e.message}`); }
+  }
+
   // The sidecar's family block: per dependent, every row with its origin and
   // verdict, and the raw per-target analyses of the judged rows -- what the
   // loop test grades. Appended to the file written above so the claim-1 half
@@ -2267,4 +2350,100 @@ Per-target verdicts written to ${args.verdicts_out}`
   const cost = actualCostLine(model);
   if (cost) process.stderr.write(cost + '\n');
   return { fills, elements: elements.length, targets: perTarget.length, family: family ? family.members.length : 0 };
+}
+
+// ===========================================================================
+// chart-printable-render: --chart-html (Andrew, #311 2026-09-03: "this
+// format going forward"; the proven form is asus-CC's artifact pages).
+// Record-per-limitation -- no table column can hold a 62-char citation
+// beside a 200-word limitation; verdict rail; serif = claim language,
+// sans = commentary, mono = symbols; FULL notes (the markdown's 160-char
+// cell cap does not apply here -- the cap silently amputated the model's
+// qualification, asus-CC RUN16 row 6); break-inside avoid for print.
+// Self-contained inline CSS, no external assets (air-gap safe). Built from
+// the same fills as the markdown, never by re-parsing CE's own output.
+// ===========================================================================
+const HTML_ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+const hesc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => HTML_ESC[c]);
+const RAIL = { PRESENT: '#2e7d32', PARTIAL: '#f9a825', ASSUMED: '#8e24aa', ABSENT: '#9e9e9e' };
+
+export function renderChartHtml({ claimText, fills, elements, engineLabel, scopeNote, sideScope, otherSideElements,
+  provenance, connectivity, citedDupes, targets = [], family = null, command = null, generatedAt = null }) {
+  const out = [];
+  out.push('<!doctype html><html><head><meta charset="utf-8"><title>Claim chart</title><style>');
+  out.push(`body{font-family:system-ui,-apple-system,sans-serif;margin:2rem auto;max-width:60rem;color:#1a1a1a;background:#fff}
+.claim,.el{font-family:Georgia,'Times New Roman',serif}
+code,.cite{font-family:ui-monospace,Consolas,monospace;font-size:.9em;overflow-wrap:anywhere}
+.rec{border-left:6px solid #ccc;margin:1rem 0;padding:.6rem 1rem;background:#fafafa;break-inside:avoid}
+.rec .el{font-style:italic;font-size:1.02rem}
+.rec .find{margin:.5rem 0 .3rem}
+.rec .cite{display:block;margin-top:.3rem;color:#333}
+.verdict{font-weight:700}
+.tag{font-size:.78rem;padding:.05rem .4rem;border-radius:.6rem;background:#eee;margin-left:.4rem}
+.tag.other{background:#fde9b8;color:#7a5b00}
+.closest{font-size:.8rem;color:#666;text-transform:uppercase;letter-spacing:.03em}
+.meta{color:#555;font-size:.9rem}
+.scope,.disclose{border:1px solid #ddd;padding:.6rem 1rem;margin:.8rem 0;background:#f5f7fa}
+h1,h2{font-weight:600}
+@media print{body{margin:0.5in}.rec{break-inside:avoid}}`);
+  out.push('</style></head><body>');
+  out.push('<h1>Claim chart</h1>');
+  out.push(`<p class="meta">Engine: ${hesc(engineLabel)}${generatedAt ? ` · ${hesc(generatedAt)}` : ''}${command ? `<br><code>${hesc(command)}</code>` : ''}</p>`);
+  if (provenance) out.push(`<div class="disclose meta">${hesc(String(provenance)).replace(/\n/g, '<br>')}</div>`);
+  out.push(`<h2>Claim</h2><pre class="claim" style="white-space:pre-wrap">${hesc(String(claimText).trim())}</pre>`);
+  if (scopeNote || sideScope) out.push(`<div class="scope">${hesc([scopeNote, sideScope].filter(Boolean).join(' '))}</div>`);
+  out.push('<h2>Chart</h2>');
+  const byNum = new Map((fills || []).filter((f) => f.element != null).map((f) => [f.element, f]));
+  (elements || []).forEach((e, i) => {
+    const f = byNum.get(i + 1);
+    const label = f ? f.label : 'UNANALYSED';
+    const other = otherSideElements && otherSideElements.has && otherSideElements.has(i + 1);
+    out.push(`<div class="rec" style="border-left-color:${RAIL[label] || '#ccc'}">`);
+    out.push(`<div><span class="verdict">${hesc(label)}</span>` +
+      `${other ? '<span class="tag other">other side</span>' : ''}` +
+      `${f && f.agreement && f.agreement.total > 1 ? `<span class="tag">${(f.agreement[label] || 0)} of ${f.agreement.total}</span>` : ''}</div>`);
+    out.push(`<div class="el">${i + 1}. ${hesc(e)}</div>`);
+    if (f && f.note) out.push(`<div class="find">${hesc(f.note)}</div>`);   // FULL note, no cap
+    if (f && f.unshown && f.unshown.length) out.push(`<div class="meta">not shown in citation: ${hesc(f.unshown.join(', '))}</div>`);
+    if (f && f.target) {
+      if (f.closest) out.push('<div class="closest">Closest candidate examined — not a finding</div>');
+      out.push(`<span class="cite">${hesc(f.target)}</span>`);
+    }
+    out.push('</div>');
+  });
+  if (connectivity) {
+    out.push(`<div class="disclose">${connectivity.groups.length <= 1
+      ? 'Cited PRESENT/PARTIAL targets form one connected group.'
+      : `PRESENT/PARTIAL verdicts rest on ${connectivity.targets} target(s) in ${connectivity.groups.length} unconnected groups — the combination of these elements is not shown.`}</div>`);
+  }
+  for (const d of citedDupes || []) {
+    out.push(`<div class="disclose meta">${d.target
+      ? `Cited <span class="cite">${hesc(d.target)}</span> has structural near-duplicate(s): ${d.twins.map((t) => `<span class="cite">${hesc(t)}</span>`).join(', ')}`
+      : `Cited <span class="cite">${hesc(d.file)}</span> shares structural near-duplicates with <span class="cite">${hesc(d.twinFile)}</span> (e.g. ${hesc(d.example)})`}</div>`);
+  }
+  if (family && family.members) {
+    out.push(`<h2>Dependent claims (family of claim ${hesc(family.root)})</h2>`);
+    for (const dep of family.members) {
+      out.push(`<h3>Claim ${hesc(dep.n)} — ${hesc(dep.kind || '')}</h3>`);
+      out.push(`<pre class="claim" style="white-space:pre-wrap">${hesc(dep.text)}</pre>`);
+      if (dep.verdictLine) out.push(`<p class="meta">${hesc(dep.verdictLine)}</p>`);
+      for (const r of dep.effective || []) {
+        out.push(`<div class="rec" style="border-left-color:${RAIL[r.label] || '#ccc'}">`);
+        out.push(`<div><span class="verdict">${hesc(r.label)}</span>${r.origin === 'inherited' ? '<span class="tag">inherited</span>' : ''}${r.origin === 'narrowed' ? '<span class="tag">narrowed</span>' : ''}</div>`);
+        if (r.origin === 'narrowed' && r.own) {
+          out.push(`<div class="el">${hesc(String(r.text).split(' — as narrowed by')[0])}</div>`);
+          out.push(`<div class="meta"><b>as narrowed by claim ${hesc(String(r.designation).replace(/\D/g, ''))}:</b></div>`);
+          out.push(`<div class="el">${hesc(r.own)}</div>`);
+        } else {
+          out.push(`<div class="el">${hesc(r.origin === 'inherited' ? `inherited from claim ${r.from}; see ${r.parentDesignation}` : r.text)}</div>`);
+        }
+        if (r.note) out.push(`<div class="find">${hesc(r.note)}</div>`);
+        if (r.target) out.push(`<span class="cite">${hesc(r.target)}</span>`);
+        out.push('</div>');
+      }
+    }
+  }
+  out.push(`<p class="meta">Analysed targets: ${targets.length}. Voices: serif italic = claim language verbatim; sans = analysis-model finding; mono = symbols; tags and headers are CE-mechanical.</p>`);
+  out.push('</body></html>');
+  return out.join('\n');
 }

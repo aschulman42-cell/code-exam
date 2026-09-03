@@ -532,6 +532,7 @@ export function parseArgs() {
     ['claim_number',         'value',          ['--claim-number']],
     // issue-311-dep-claim-chart: chart claim 1 and every dependent beneath it.
     ['claim_family',         'flag',           ['--claim-family']],
+    ['chart_html',           'value',          ['--chart-html']],
     // #281: pseudo-claim generation (v1: explicit anchors)
     ['pseudo_claims',        'optional_value', ['--pseudo-claims']],
     ['pseudo_out',           'value',          ['--pseudo-out']],
@@ -599,6 +600,7 @@ export function parseArgs() {
     // top of the per-element budget; 0 disables.
     ['whole_claim_targets',  'int',            ['--whole-claim-targets']],
     ['no_dep_synonyms',      'flag',           ['--no-dep-synonyms']],
+    ['dep_synonyms',         'flag',           ['--dep-synonyms']],
     // chart-retrieval-content-arm-and-budget: targets added when 2+ elements'
     // top candidates share a file that contributed none; 0 disables.
     ['concentration_targets', 'int',           ['--concentration-targets']],
@@ -1576,6 +1578,10 @@ LLM ANALYSIS:
                              in the code, reason recorded per claim), or both
                              (each group drafted twice, labelled — the
                              measurement mode)
+  --chart-html <file>        --claim-chart: also write a self-contained
+                             printable HTML page (record-per-limitation,
+                             verdict rail, FULL finding notes untruncated,
+                             print CSS; no external assets — air-gap safe)
   --claim-family             --claim-chart: chart claim 1 AND every dependent
                              claim beneath it (a claims file with numbered
                              claims). Claim 1 is charted as always; each
@@ -1626,10 +1632,14 @@ LLM ANALYSIS:
                              --claim-family, a "family" block is appended. This
                              is what merge-rule replays and the loop scorer
                              consume.
-  --no-dep-synonyms          --claim-chart: do NOT let MODIFICATION dependents
-                             donate species vocabulary to the parent rows they
-                             narrow (claim differentiation; on by default when
-                             the input carries such dependents)
+  --dep-synonyms             --claim-chart: let MODIFICATION dependents donate
+                             species vocabulary to the parent rows they narrow
+                             (claim differentiation). OFF by default: measured
+                             to dilute the parent's decisive words (#311
+                             RUN19/20/21 + the 414-word population read). The
+                             family pass's own delta rows are unaffected and
+                             remain the useful half of dependent language.
+  --no-dep-synonyms          --claim-chart: explicit off (the default)
   --whole-claim-targets <n>  --claim-chart, per-element retrieval only: ALSO add
                              up to <n> targets found by the CLAIM'S OWN words over
                              the whole symbol table (default 5), on top of the

@@ -2113,3 +2113,87 @@ describe('chart-qualifier-check v1: limitation words unmatched in the finding', 
     assert.deepEqual(_unq('computing a rate', 'computes the rate at line 5'), []);
   });
 });
+
+import { rawClaimBlock as _rawBlk, chartScope as _csp } from '../src/commands/claim-chart.js';
+import { splitClaimElements as _sce } from '../src/commands/claim-locate.js';
+
+describe('family-split-parity: same claim text, same rows, solo or family', () => {
+  const LINEATED = ['1. A widget system, comprising:',
+    'a frobnicator being equipped with a gizmo unit for gizmoing,',
+    'the gizmo unit is configured to spin; and',
+    'a stopper configured to halt the spin.',
+    '2. The system of claim 1, wherein the stopper is magnetic.'].join('\n');
+  it('rawClaimBlock preserves lineation and bounds at the next claim number', () => {
+    const b = _rawBlk(LINEATED, 1);
+    assert.ok(b.includes('\n'), 'lineation preserved');
+    assert.ok(!b.includes('magnetic'), 'stops before claim 2');
+    assert.equal(_rawBlk(LINEATED, 2), 'The system of claim 1, wherein the stopper is magnetic.');
+  });
+  it('first-claim and family scope split identically to the solo block (the 9-vs-7 invariant)', () => {
+    const solo = _rawBlk(LINEATED, 1);
+    const a = _sce(solo, { fine: true }).length;
+    const b = _sce(_csp(LINEATED, {}).text, { fine: true }).length;
+    const c = _sce(_csp(LINEATED, { claim: 1, family: true }).text, { fine: true }).length;
+    assert.equal(a, b);
+    assert.equal(b, c);
+  });
+  it('a claim with no internal lineation is unchanged by the parity path', () => {
+    const FLAT = '1. A method, comprising: stepping; and halting.\n2. The method of claim 1, wherein halting is soft.';
+    assert.ok(!_rawBlk(FLAT, 1).includes('\n'));
+    assert.equal(_sce(_csp(FLAT, {}).text, { fine: true }).length, _sce(_rawBlk(FLAT, 1), { fine: true }).length);
+  });
+});
+
+import { formatFamilySection as _ffs } from '../src/commands/claim-chart.js';
+
+describe('chart-voice-demarcation', () => {
+  it('the narrowed row renders three demarcated parts, claim language in italics', () => {
+    const fam = { root: 1, members: [{ n: 2, text: 'x', depthLabel: 'D', kind: 'MODIFICATION', cue: 'wherein',
+      parent: 1, chain: [1, 2], parentChoice: null,
+      inherited: [], analysed: [], dropped: [],
+      judged: [{ designation: '[2a]', origin: 'narrowed', own: 'the stopper is magnetic',
+        text: 'a stopper configured to halt — as narrowed by claim 2: the stopper is magnetic',
+        narrows: '[1c]', parentLabel: 'PRESENT', label: 'PARTIAL', note: 'n', target: 'a.c@f' }],
+      get effective() { return this.judged; }, verdictLine: 'v' }] };
+    const md = String(_ffs(fam));
+    assert.ok(md.includes('_a stopper configured to halt_<br>**as narrowed by claim 2:**<br>_the stopper is magnetic_'),
+      'three-part demarcation present');
+  });
+  it('the chart header carries the voice legend', () => {
+    const out = formatChart({ claimText: '1. x', table: '| # | Claim element | CE finding — is the limitation met? | Cited code |\n|---|---|---|---|',
+      fills: [], targets: [], engineLabel: 'e', elements: ['x'], scopeNote: null, provenance: null, dropped: [], retrieval: null });
+    assert.match(out, /Voices: .*claim language verbatim/);
+  });
+});
+
+import { renderChartHtml as _rch } from '../src/commands/claim-chart.js';
+
+describe('chart-printable-render: --chart-html', () => {
+  const longNote = 'x'.repeat(400) + ' the details of that calculation are not visible here.';
+  const html = _rch({
+    claimText: '1. A widget system, comprising: a gizmo.',
+    fills: [{ element: 1, label: 'PARTIAL', note: longNote, target: 'a.java@A::f', agreement: { total: 30, PARTIAL: 1 }, closest: false }],
+    elements: ['a gizmo'], engineLabel: 'test-engine', scopeNote: null, sideScope: 'Two-sided claim: x / y.',
+    otherSideElements: new Set([1]), provenance: 'Retrieval: p', connectivity: { targets: 2, depth: 3, groups: [['a'], ['b']] },
+    citedDupes: [{ file: 'x.c', twinFile: 'y.c', example: 'f ~ g' }], targets: ['a.java@A::f'],
+  });
+  it('carries the FULL note (no 160-char amputation) and the qualification survives', () => {
+    assert.ok(html.includes('not visible here'), 'the amputated half is present');
+    assert.ok(html.includes(longNote.slice(0, 100)));
+  });
+  it('is self-contained: no external references', () => {
+    assert.ok(!/src=|href=|url\(|@import/.test(html), 'no external asset refs');
+  });
+  it('renders rail, other-side tag, agreement, connectivity and twin disclosures', () => {
+    assert.ok(html.includes('other side'));
+    assert.ok(html.includes('1 of 30'));
+    assert.ok(html.includes('unconnected groups'));
+    assert.ok(html.includes('structural near-duplicates'));
+  });
+  it('the closest-examined label renders only for ABSENT-style fills', () => {
+    assert.ok(!html.includes('not a finding'));
+    const h2 = _rch({ claimText: 'c', fills: [{ element: 1, label: 'ABSENT', note: 'n', target: 't@t', closest: true }],
+      elements: ['e'], engineLabel: 'e' });
+    assert.ok(h2.includes('Closest candidate examined'));
+  });
+});

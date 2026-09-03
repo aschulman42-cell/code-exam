@@ -1,4 +1,6 @@
 # Claims pipeline — state at a glance
+> **Engine qualification**: before trusting a new engine/build, run the two-claim pair in docs/engine-qualification.md (scripts/engine-qualify.mjs scores it mechanically).
+
 
 **Current state only.** No history, no reasoning — those live in issues and commit
 messages. Tables, not prose.

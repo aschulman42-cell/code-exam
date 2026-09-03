@@ -2436,19 +2436,53 @@ export function detectClaimSides(claimText, elements) {
   }
   const markersFor = (party) => [party, ...[...unitOf].filter(([, p]) => p === party).map(([u]) => u)];
   const markers = { [found.pair[0]]: markersFor(found.pair[0]), [found.pair[1]]: markersFor(found.pair[1]) };
-  // An element belongs to the party whose marker appears EARLIEST in it (the
-  // acting subject leads); an element with no marker stays untagged.
+  // An element belongs to the party whose marker appears earliest IN AN
+  // ACTOR POSITION (two-sided-attribution-actor-fix; asus-CC's TLS CLAIM2,
+  // #311/#315). A marker preceded by an object/possessive cue -- of/to/from/
+  // by/at/with the X, or the X's -- names the party something is done TO,
+  // not the party doing it: "verifying a certificate chain presented by the
+  // server" is CLIENT work about the server's certificate, and '101's
+  // "transmitting ... to the reception device" is transmission-side work
+  // naming its recipient. Those occurrences never attribute. An element
+  // with no actor-position marker stays untagged -- the conservative
+  // ending, since an untagged row is never excused.
+  // Three non-actor positions, all from live misattributions:
+  //   object/possessive cue BEFORE the marker ("presented by the server",
+  //     "to the reception device", "the server's ...");
+  //   symmetric coordination ("between a client ... and a server" names both
+  //     parties as objects of the exchange, not an actor);
+  //   noun-adjunct AFTER the marker ("the server certificate" is the
+  //     server's certificate -- possession by compounding, asus-CC's TLS
+  //     rows 7-9).
+  const OBJECT_CUE = /(?:\b(?:of|to|from|by|at|with|against|toward|towards|between)\s+(?:the\s+|a\s+|an\s+)?|['\u2019]s\s+)$/;
+  const ADJUNCT_FOLLOW = /^\s*(?:certificate|credential|key|hostname|response|request|message|data|address|name|identity|authentication)\b/;
+  // A marker inside a "between X and Y" span names an object of the
+  // exchange, whichever side of the "and" it sits on.
+  const BETWEEN_SPAN = 100;
   const perElement = (elements || []).map((e) => {
     const t = String(e).toLowerCase();
     let best = null;
     for (const party of found.pair) {
       for (const mk of markers[party]) {
-        const at = t.indexOf(mk);
-        if (at >= 0 && (!best || at < best.at)) best = { party, at };
+        let from = 0;
+        for (;;) {
+          const at = t.indexOf(mk, from);
+          if (at < 0) break;
+          from = at + 1;
+          if (OBJECT_CUE.test(t.slice(0, at))) continue;               // object position
+          if (ADJUNCT_FOLLOW.test(t.slice(at + mk.length))) continue;  // noun-adjunct possession
+          const btw = t.lastIndexOf('between ', at);
+          if (btw >= 0 && at - btw < BETWEEN_SPAN) continue;           // coordination span
+          if (!best || at < best.at) best = { party, at };
+          break;
+        }
       }
     }
     return best ? best.party : null;
   });
-  if (!perElement.some(Boolean)) return null;
+  // A named pair with ZERO actor attributions still reports (the TLS demo:
+  // every limitation is client-performed, and the CLIENT-ONLY banner is
+  // true and useful with no row tagged). One-party claims return null
+  // above because no pair is found at all.
   return { parties: found.pair, directional: found.directional, perElement, units: Object.fromEntries(unitOf) };
 }
