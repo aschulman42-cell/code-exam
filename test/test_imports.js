@@ -257,3 +257,34 @@ describe('#pragma comment(lib) — the in-source linker surface', () => {
     assert.match(vendor.source, /linker input/);
   });
 });
+
+describe('platform-list gaps from .WinAPI_Classic (case, winrt/, WinRT., tlbimp)', () => {
+  const facts = corpusFacts({ fileLines: new Map([['app/main.cpp', []]]) });
+  const c = (module, extra = {}) => classifyImportRow({ target: module, module, name: null, lang: 'c', ...extra }, facts);
+  const cs = (module) => classifyImportRow({ target: module, module, name: null, lang: 'cs' }, facts);
+
+  it('header lists are case-insensitive; resolution keeps raw spelling', () => {
+    const r = c('Windows.h');
+    assert.equal(r.cls, 'stdlib');
+    assert.match(r.source, /windows platform header/);
+    assert.equal(c('STDIO.H').cls, 'stdlib');
+  });
+
+  it('winrt/ projection headers classify by SDK family', () => {
+    const w = c('winrt/Windows.Foundation.h');
+    assert.equal(w.cls, 'stdlib');
+    assert.match(w.source, /Windows SDK/);
+    const m = c('winrt/Microsoft.UI.Xaml.h');
+    assert.equal(m.cls, 'stdlib');
+    assert.match(m.source, /Windows App SDK/);
+  });
+
+  it('C# WinRT.* is the CsWinRT projection; XxxLib names the tlbimp convention', () => {
+    const w = cs('WinRT.Interop');
+    assert.equal(w.cls, 'stdlib');
+    assert.match(w.source, /CsWinRT/);
+    const f = cs('FAXCOMEXLib');
+    assert.equal(f.cls, 'external', 'COM origin not determinable — stays external');
+    assert.match(f.source, /tlbimp convention/);
+  });
+});
