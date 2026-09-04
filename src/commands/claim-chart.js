@@ -1438,18 +1438,38 @@ export function familyVerdictLine(dep) {
     + `${narrowed} re-evaluated as narrowed, ${fresh} new`;
 }
 
+// chart-dep-kind-reader-labels: ADDITION/MODIFICATION are CE-internal
+// vocabulary (1c71015); a reader meets the artifact cold, and MODIFICATION
+// misleads twice (a dependent modifies nothing, and the word evokes claim
+// AMENDMENT). Rendered labels speak 35 U.S.C. 112(d) — every dependent
+// "specif[ies] a further limitation"; the two flavors are adding a new one
+// vs narrowing a recited one — matching the rows' existing "narrows"
+// vocabulary. PRESENTATION ONLY: kind stays ADDITION/MODIFICATION wherever
+// machines read it (dep-claims.js, the sidecar, the loop scorer), because
+// sidecars must stay join-stable across versions.
+export function depKindLabel(kind) {
+  return String(kind == null ? '' : kind)
+    .replace(/\bADDITION\b/g, 'ADDS A LIMITATION')
+    .replace(/\bMODIFICATION\b/g, 'NARROWS A LIMITATION');
+}
+
+export const DEP_KIND_LEGEND = 'Every dependent claim further limits its parent'
+  + ' (35 U.S.C. §112(d)): it either ADDS A LIMITATION (a new row below) or'
+  + ' NARROWS A LIMITATION already recited (that row re-evaluated against the'
+  + ' dependent’s own language).';
+
 export function formatFamilySection(fam) {
   const esc = (s) => String(s == null ? '' : s).replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
   const out = [];
   out.push('', `## Dependent claims (family of claim ${fam.root})`, '');
-  out.push(`_${fam.members.length} dependent claim(s). An inherited row is a one-line reference to the parent row it`);
-  out.push('incorporates, carrying that row\'s verdict (evaluated on the parent, not re-judged). An ADDITION adds a row.');
-  out.push('A MODIFICATION re-evaluates the one inherited row it narrows, against the dependent\'s own language, on');
-  out.push('the code the parent row cited PLUS targets retrieved on the dependent\'s own words; its verdict may differ');
-  out.push('from the parent\'s, and the row says so. The verdict');
+  out.push(`_${fam.members.length} dependent claim(s). ${DEP_KIND_LEGEND}`);
+  out.push('A narrowed row is judged on the code the parent row cited PLUS targets retrieved on the');
+  out.push('dependent\'s own words; its verdict may differ from the parent\'s, and the row says so.');
+  out.push('An inherited row is a one-line reference to the parent row it incorporates, carrying that');
+  out.push('row\'s verdict (evaluated on the parent, not re-judged). The verdict');
   out.push('line under each claim counts every limitation the dependent carries, shown or not._');
   for (const dep of fam.members) {
-    const kind = dep.kind + (dep.cue ? ` ("${dep.cue}")` : '');
+    const kind = depKindLabel(dep.kind) + (dep.cue ? ` ("${dep.cue}")` : '');
     out.push('', `### Claim ${dep.n} (${dep.depthLabel || 'D'}) — ${kind}`, '');
     out.push('```', `${dep.n}. ${dep.text}`, '```', '');
     if (dep.parentChoice) out.push(`_Multi-parent reference: charted under claim ${dep.parent} by ${dep.parentChoice.policy} (alternatives ${dep.parentChoice.alternatives.join(', ')})._`, '');
@@ -2602,8 +2622,9 @@ h1,h2{font-weight:600}
   }
   if (family && family.members) {
     out.push(`<h2>Dependent claims (family of claim ${hesc(family.root)})</h2>`);
+    out.push(`<p class="meta">${hesc(DEP_KIND_LEGEND)}</p>`);
     for (const dep of family.members) {
-      out.push(`<h3>Claim ${hesc(dep.n)} — ${hesc(dep.kind || '')}</h3>`);
+      out.push(`<h3>Claim ${hesc(dep.n)} — ${hesc(depKindLabel(dep.kind))}</h3>`);
       out.push(`<pre class="claim" style="white-space:pre-wrap">${hesc(dep.text)}</pre>`);
       if (dep.verdictLine) out.push(`<p class="meta">${hesc(dep.verdictLine)}</p>`);
       for (const r of dep.effective || []) {

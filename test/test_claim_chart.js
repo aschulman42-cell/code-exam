@@ -1670,9 +1670,13 @@ describe('dependent claims: scope and --claim-family (issue-311-dep-claim-chart)
       const { res, chart } = await run({ claim_chart: FAMILY, claim_family: true, verdicts_out: sidecarPath });
       assert.ok(res && res.family === 5, JSON.stringify(res));
       assert.match(chart, /## Dependent claims \(family of claim 1\)/);
-      assert.match(chart, /### Claim 2 \(D\) — ADDITION/);
-      assert.match(chart, /### Claim 3 \(D\) — MODIFICATION/);
-      assert.match(chart, /### Claim 4 \(D2\) — MODIFICATION/);
+      // chart-dep-kind-reader-labels: rendered headers speak 112(d); the
+      // sidecar assertions below still expect ADDITION/MODIFICATION — the
+      // internal vocabulary is deliberately unchanged.
+      assert.match(chart, /### Claim 2 \(D\) — ADDS A LIMITATION/);
+      assert.match(chart, /### Claim 3 \(D\) — NARROWS A LIMITATION/);
+      assert.match(chart, /### Claim 4 \(D2\) — NARROWS A LIMITATION/);
+      assert.match(chart, /35 U\.S\.C\. §112\(d\)/, 'legend renders once above the section');
       assert.match(chart, /### Claim 5 \(D\) — UNDETERMINED/);
       assert.match(chart, /_Multi-parent reference: charted under claim \d by shortest-parent \(alternatives/);
       const j = JSON.parse(fs.readFileSync(sidecarPath, 'utf8'));
@@ -2336,5 +2340,28 @@ describe('chart html replay (chart-html-replay)', () => {
     assert.deepEqual([...otherSideElements], [1]);
     assert.match(sideScope, /^Two-sided claim: transmission device \/ reception device\./);
     assert.match(sideScope, /Rows attributed to the transmission device \(1\)/);
+  });
+});
+
+// chart-dep-kind-reader-labels: rendered labels are presentation; the mapper
+// touches whole words only and passes unknown kinds through untouched.
+import { depKindLabel, DEP_KIND_LEGEND } from '../src/commands/claim-chart.js';
+
+describe('dependent kind labels read in 112(d) terms (chart-dep-kind-reader-labels)', () => {
+  it('maps the two internal kinds, composed strings included', () => {
+    assert.equal(depKindLabel('ADDITION'), 'ADDS A LIMITATION');
+    assert.equal(depKindLabel('MODIFICATION'), 'NARROWS A LIMITATION');
+    assert.equal(depKindLabel('D — MODIFICATION'), 'D — NARROWS A LIMITATION', 'replay composition');
+    assert.equal(depKindLabel('UNKNOWN-KIND'), 'UNKNOWN-KIND', 'unknown passes through');
+    assert.equal(depKindLabel(null), '');
+  });
+
+  it('html family section renders the legend and the mapped label', () => {
+    const html = _rch({ claimText: 'c', fills: [], elements: ['e'], engineLabel: 'e',
+      family: { root: 1, members: [{ n: 2, kind: 'D — MODIFICATION', text: 't', verdictLine: 'v', effective: [] }] } });
+    assert.ok(html.includes(DEP_KIND_LEGEND.replace(/’/g, '&#039;')) || html.includes('35 U.S.C. §112(d)'),
+      'legend present');
+    assert.ok(html.includes('NARROWS A LIMITATION'), 'mapped label rendered');
+    assert.ok(!/Claim 2 — D — MODIFICATION</.test(html), 'raw internal kind not shown in the header');
   });
 });
