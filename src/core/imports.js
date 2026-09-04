@@ -302,3 +302,269 @@ export function extractFileImports(lines, filepath, opts = {}) {
   if (isCSharpFile(filepath)) return extractCSharpImports(lines, filepath);
   return null;
 }
+
+// ===========================================================================
+// imports-bill-of-materials: the RESOLVER (#312's missing layer). For any
+// import row, answer: is the target inside the corpus, in the language's
+// standard library / platform SDK, third-party, or vendored?
+//
+// Every classification REPORTS ITS SOURCE — a fixed list, a manifest, a
+// declared package, a resolved path — and a target that resolves to none
+// says so rather than being guessed at (the residue-reports-itself rule).
+// The word lists below are the resolver's whole vocabulary: nothing learned,
+// nothing hidden, and a wrong entry is a one-line fix.
+//
+// Four classes plus the residue:
+//   internal     the target is this corpus's own code
+//   stdlib       the language's standard library, or the platform SDK the
+//                corpus is built against (the source string names which list)
+//   third-party  declared by a package manifest indexed with the corpus
+//   vendored     resolves into a subtree that is someone else's code carried
+//                in-tree (vendor/, third_party/, node_modules/, ...)
+//   external     the residue: none of the above could be shown from what the
+//                index holds. NOT a finding of third-party — a statement that
+//                no manifest or list confirmed it.
+// ===========================================================================
+
+const NODE_BUILTINS = new Set(('assert async_hooks buffer child_process cluster console constants crypto dgram'
+  + ' diagnostics_channel dns domain events fs http http2 https inspector module net os path perf_hooks process'
+  + ' punycode querystring readline repl stream string_decoder timers tls trace_events tty url util v8 vm wasi'
+  + ' worker_threads zlib').split(' '));
+
+const PY_STDLIB = new Set(('abc argparse array ast asyncio base64 bisect builtins calendar cmath codecs collections'
+  + ' concurrent configparser contextlib copy csv ctypes dataclasses datetime decimal difflib dis email enum errno'
+  + ' fnmatch functools gc getopt getpass glob gzip hashlib heapq hmac html http importlib inspect io itertools json'
+  + ' keyword logging marshal math mimetypes multiprocessing operator os pathlib pickle pkgutil platform pprint'
+  + ' pstats queue random re secrets select shlex shutil signal site socket sqlite3 ssl stat statistics string struct'
+  + ' subprocess sys sysconfig tarfile tempfile textwrap threading time timeit token tokenize traceback types typing'
+  + ' unicodedata unittest urllib uuid venv warnings weakref xml zipfile zlib').split(' '));
+
+const C_STD_HEADERS = new Set(('assert.h complex.h ctype.h errno.h fenv.h float.h inttypes.h iso646.h limits.h'
+  + ' locale.h math.h setjmp.h signal.h stdalign.h stdarg.h stdatomic.h stdbool.h stddef.h stdint.h stdio.h stdlib.h'
+  + ' stdnoreturn.h string.h tgmath.h threads.h time.h uchar.h wchar.h wctype.h'
+  + ' algorithm array atomic bitset cassert cctype chrono cmath cstdarg cstddef cstdint cstdio cstdlib cstring ctime'
+  + ' deque exception filesystem fstream functional initializer_list iomanip iostream istream iterator limits list'
+  + ' map memory mutex new numeric optional ostream queue random regex set sstream stack stdexcept string'
+  + ' string_view thread tuple type_traits typeinfo unordered_map unordered_set utility variant vector').split(' '));
+
+const POSIX_HEADERS = new Set(('unistd.h fcntl.h pthread.h dirent.h dlfcn.h poll.h semaphore.h termios.h getopt.h'
+  + ' sys/types.h sys/stat.h sys/time.h sys/socket.h sys/mman.h sys/wait.h sys/ioctl.h netinet/in.h netinet/tcp.h'
+  + ' arpa/inet.h netdb.h').split(' '));
+
+const WINDOWS_HEADERS = new Set(('windows.h io.h direct.h conio.h tchar.h winsock2.h ws2tcpip.h process.h'
+  + ' winbase.h wincrypt.h shlobj.h').split(' '));
+
+// Pre-standard C++ iostream-era headers, still met in older corpora.
+const LEGACY_CXX_HEADERS = new Set('fstream.h iostream.h iomanip.h strstream.h'.split(' '));
+
+// Ordered: first match wins, so a corpus that IS androidx (ExoPlayer) still
+// classifies androidx.* as internal — declared corpus packages are checked
+// BEFORE these lists ever apply.
+const JAVA_PLATFORM_PREFIXES = [
+  ['java.', 'java standard library'], ['javax.', 'java standard library'], ['jdk.', 'java standard library'],
+  ['kotlin.', 'kotlin standard library'], ['kotlinx.', 'kotlinx (JetBrains) library'],
+  ['android.', 'android platform SDK'], ['androidx.', 'androidx (jetpack) library'],
+  ['dalvik.', 'android platform SDK'],
+];
+const CS_PLATFORM_PREFIXES = [
+  ['System', '.NET standard library'], ['Microsoft.', '.NET platform'], ['Windows.', 'windows platform'],
+];
+
+const VENDOR_DIR_RE = /(^|[\\/])(vendor|vendors|third[-_]?party|thirdparty|external|extern|node_modules|deps|contrib)([\\/]|$)/i;
+
+const _norm = (p) => String(p || '').replace(/\\/g, '/');
+const _pkgKey = (s) => String(s || '').toLowerCase().replace(/[-_.]/g, '');
+
+/** Best-effort dependency names from one indexed manifest file. */
+export function manifestDeps(filepath, lines) {
+  const base = _norm(filepath).split('/').pop().toLowerCase();
+  const text = (lines || []).join('\n');
+  const deps = new Set();
+  const add = (d) => { const t = String(d || '').trim(); if (t) deps.add(t); };
+  try {
+    if (base === 'package.json') {
+      const j = JSON.parse(text);
+      for (const k of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+        for (const d of Object.keys(j[k] || {})) add(d);
+      }
+    } else if (/^requirements[^/]*\.txt$/.test(base) || base === 'constraints.txt') {
+      for (const l of lines) {
+        const m = /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(l.replace(/\r+$/, ''));
+        if (m && !l.trim().startsWith('#') && !l.trim().startsWith('-')) add(m[1]);
+      }
+    } else if (base === 'pyproject.toml' || base === 'cargo.toml') {
+      // dependencies arrays and [*dependencies] table keys, regex-level only.
+      let inDeps = false;
+      for (const l of lines) {
+        const s = l.replace(/\r+$/, '');
+        if (/^\s*\[.*dependencies.*\]\s*$/i.test(s)) { inDeps = true; continue; }
+        if (/^\s*\[/.test(s)) { inDeps = false; continue; }
+        if (inDeps) { const m = /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*=/.exec(s); if (m) add(m[1]); }
+        const arr = /^\s*"([A-Za-z0-9][A-Za-z0-9._-]*)[^"]*"\s*,?\s*$/.exec(s);
+        if (arr) add(arr[1]);
+      }
+    } else if (base === 'go.mod') {
+      for (const l of lines) { const m = /^\s*(?:require\s+)?([\w.-]+(?:\/[\w.-]+)+)\s+v/.exec(l); if (m) add(m[1]); }
+    } else if (base === 'pom.xml') {
+      let group = null;
+      for (const l of lines) {
+        let m;
+        if ((m = /<groupId>([^<]+)<\/groupId>/.exec(l))) group = m[1].trim();
+        if ((m = /<artifactId>([^<]+)<\/artifactId>/.exec(l)) && group) { add(group); add(`${group}:${m[1].trim()}`); }
+      }
+    } else if (/\.gradle(\.kts)?$/.test(base)) {
+      for (const l of lines) {
+        const re = /['"]([\w.-]+):([\w.-]+):[^'"]*['"]/g;
+        let m; while ((m = re.exec(l))) { add(m[1]); add(`${m[1]}:${m[2]}`); }
+      }
+    } else if (/\.csproj$/.test(base) || base === 'packages.config') {
+      for (const l of lines) {
+        const m = /(?:PackageReference\s+Include|id)\s*=\s*"([^"]+)"/.exec(l);
+        if (m) add(m[1]);
+      }
+    }
+  } catch { /* a malformed manifest yields what it yields; best-effort by design */ }
+  return deps;
+}
+
+const MANIFEST_BASENAME_RE = /^(package\.json|requirements[^/]*\.txt|constraints\.txt|pyproject\.toml|cargo\.toml|go\.mod|pom\.xml|.*\.gradle(\.kts)?|.*\.csproj|packages\.config)$/i;
+
+/**
+ * One pass over the index: everything the classifier keys on. Cheap relative
+ * to extraction; recomputed per call, never cached on the index.
+ */
+export function corpusFacts(index) {
+  const facts = {
+    basenames: new Set(),            // every indexed file's basename (C include resolution)
+    paths: new Set(),                // normalized indexed paths
+    topLevel: new Set(),             // top-level dir / module names (Python roots)
+    pyModules: new Set(),            // indexed .py basenames (bare sibling imports)
+    javaPackages: [],                // declared `package a.b.c` / `namespace A.B` prefixes, longest first
+    vendorSubtrees: new Map(),       // vendor dir path -> file count
+    manifests: [],                   // { file, deps:Set }
+    depKeys: new Set(),              // normalized dep names across manifests
+    depPrefixes: [],                 // dotted dep prefixes (java groupIds, go modules)
+  };
+  const pkgSet = new Set();
+  for (const [filepath, lines] of index.fileLines) {
+    const p = _norm(filepath);
+    facts.paths.add(p);
+    const segs = p.split('/');
+    facts.basenames.add(segs[segs.length - 1]);
+    facts.topLevel.add(segs[0].replace(/\.(py|pyi)$/i, ''));
+    // A bare `import config_parser` beside config_parser.py ANYWHERE in the
+    // corpus is intra-corpus wiring, whatever directory it sits in.
+    if (isPythonFile(p)) facts.pyModules.add(segs[segs.length - 1].replace(/\.(py|pyi)$/i, ''));
+    const vm = VENDOR_DIR_RE.exec(p);
+    if (vm) {
+      const at = p.toLowerCase().indexOf(vm[2].toLowerCase());
+      const subtree = p.slice(0, at + vm[2].length);
+      facts.vendorSubtrees.set(subtree, (facts.vendorSubtrees.get(subtree) || 0) + 1);
+    }
+    if (isJavaFile(filepath) || isCSharpFile(filepath)) {
+      for (const l of lines.slice(0, 40)) {
+        const m = /^\s*(?:package|namespace)\s+([A-Za-z_][\w.]*)/.exec(stripSlashComment(l));
+        if (m) { pkgSet.add(m[1]); break; }
+      }
+    }
+    if (MANIFEST_BASENAME_RE.test(segs[segs.length - 1])) {
+      const deps = manifestDeps(filepath, lines);
+      if (deps.size) {
+        facts.manifests.push({ file: filepath, deps });
+        for (const d of deps) {
+          facts.depKeys.add(_pkgKey(d.includes(':') ? d.split(':').pop() : d.split('/').pop()));
+          if (d.includes('.') || d.includes('/')) facts.depPrefixes.push(d.replace(/:/g, '.'));
+        }
+      }
+    }
+  }
+  facts.javaPackages = [...pkgSet].sort((a, b) => b.length - a.length);
+  facts.depPrefixes.sort((a, b) => b.length - a.length);
+  return facts;
+}
+
+const _underPrefix = (mod, prefix) => mod === prefix || mod.startsWith(prefix.endsWith('.') ? prefix : prefix + '.');
+
+/** Classify ONE import row against the corpus facts. Returns { cls, source }. */
+export function classifyImportRow(row, facts) {
+  const mod = String(row.module || row.target || '');
+  const vendoredAt = (p) => {
+    for (const subtree of facts.vendorSubtrees.keys()) if (p === subtree || p.startsWith(subtree + '/')) return subtree;
+    return null;
+  };
+  if (row.lang === 'c') {
+    const base = _norm(mod).split('/').pop();
+    // Resolve against indexed paths first: suffix match on the include text,
+    // then bare basename — a vendored header classifies by where it LIVES.
+    let hit = null;
+    const normMod = _norm(mod);
+    for (const p of facts.paths) {
+      if (p === normMod || p.endsWith('/' + normMod)) { hit = p; break; }
+    }
+    if (!hit && facts.basenames.has(base)) {
+      for (const p of facts.paths) if (p.endsWith('/' + base) || p === base) { hit = p; break; }
+    }
+    if (hit) {
+      const v = vendoredAt(hit);
+      if (v) return { cls: 'vendored', source: `resolves to \`${hit}\` under vendored subtree \`${v}/\`` };
+      return { cls: 'internal', source: `resolves to \`${hit}\` in this index` };
+    }
+    if (row.relative) return { cls: 'internal', source: 'quoted #include (project-local convention); target file not in this index' };
+    if (C_STD_HEADERS.has(base) || C_STD_HEADERS.has(mod)) return { cls: 'stdlib', source: 'ISO C/C++ standard header list' };
+    if (POSIX_HEADERS.has(normMod) || POSIX_HEADERS.has(base)) return { cls: 'stdlib', source: 'POSIX header list' };
+    if (WINDOWS_HEADERS.has(base)) return { cls: 'stdlib', source: 'windows platform header list' };
+    if (LEGACY_CXX_HEADERS.has(base)) return { cls: 'stdlib', source: 'pre-standard C++ header list (legacy)' };
+    return { cls: 'external', source: 'angle include; no standard-list or index match' };
+  }
+  if (row.lang === 'js') {
+    if (row.relative) return { cls: 'internal', source: 'relative specifier' };
+    const bare = mod.replace(/^node:/, '');
+    if (mod.startsWith('node:') || NODE_BUILTINS.has(bare.split('/')[0])) {
+      return { cls: 'stdlib', source: 'node builtin list' };
+    }
+    const pkg = bare.startsWith('@') ? bare.split('/').slice(0, 2).join('/') : bare.split('/')[0];
+    if (facts.depKeys.has(_pkgKey(pkg.split('/').pop()))) {
+      return { cls: 'third-party', source: `declared in an indexed manifest (\`${pkg}\`)` };
+    }
+    return { cls: 'external', source: facts.manifests.length ? 'not declared in any indexed manifest' : 'no manifest indexed to confirm' };
+  }
+  if (row.lang === 'py') {
+    const root = mod.split('.')[0];
+    if (row.relative) return { cls: 'internal', source: 'relative import' };
+    if (facts.topLevel.has(root)) return { cls: 'internal', source: `top-level module \`${root}\` is in this index` };
+    if (PY_STDLIB.has(root)) return { cls: 'stdlib', source: 'python standard library list' };
+    if (facts.pyModules.has(root)) return { cls: 'internal', source: `module \`${root}.py\` is in this index` };
+    if (facts.depKeys.has(_pkgKey(root))) return { cls: 'third-party', source: `declared in an indexed manifest (\`${root}\`)` };
+    return { cls: 'external', source: facts.manifests.length ? 'not declared in any indexed manifest' : 'no manifest indexed to confirm' };
+  }
+  // java / kotlin / c#
+  for (const pkg of facts.javaPackages) {
+    if (_underPrefix(mod, pkg)) return { cls: 'internal', source: `corpus declares package \`${pkg}\`` };
+  }
+  const prefixes = row.lang === 'cs' ? CS_PLATFORM_PREFIXES : JAVA_PLATFORM_PREFIXES;
+  for (const [pre, label] of prefixes) {
+    if (pre.endsWith('.') ? mod.startsWith(pre) : (mod === pre || mod.startsWith(pre + '.'))) {
+      return { cls: 'stdlib', source: label };
+    }
+  }
+  for (const dep of facts.depPrefixes) {
+    if (_underPrefix(mod, dep)) return { cls: 'third-party', source: `declared in an indexed manifest (\`${dep}\`)` };
+  }
+  return { cls: 'external', source: facts.manifests.length ? 'not declared in any indexed manifest' : 'no manifest indexed to confirm' };
+}
+
+/**
+ * The layer's public face: extract (relative imports INCLUDED — internal
+ * wiring is exactly what the internal class counts) and classify every row.
+ */
+export function classifyImports(index, opts = {}) {
+  const { rows, filesByLang } = extractImports(index, { includeRelative: true, ...opts });
+  const facts = corpusFacts(index);
+  const summary = { internal: 0, stdlib: 0, 'third-party': 0, vendored: 0, external: 0 };
+  for (const r of rows) {
+    const { cls, source } = classifyImportRow(r, facts);
+    r.cls = cls; r.clsSource = source;
+    summary[cls] += 1;
+  }
+  return { rows, facts, summary, filesByLang };
+}

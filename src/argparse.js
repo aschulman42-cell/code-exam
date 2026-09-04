@@ -161,6 +161,7 @@ export function parseArgs() {
     synthetic_loader: false,
     list_harnessable: false,
     census_imports: false,
+    bom: false,
     exports: null,
     imports_from: null,
     imports: null,
@@ -476,6 +477,8 @@ export function parseArgs() {
     ['synthetic_loader',     'flag',           ['--synthetic-loader']],
     ['list_harnessable',     'flag',           ['--list-harnessable']],
     ['census_imports',       'flag',           ['--census-imports']],
+    // imports-bill-of-materials (#312, #315 A3): four-way dependency report.
+    ['bom',                  'flag',           ['--bom']],
     ['exports',              'optional_value', ['--exports']],
     ['imports_from',         'value',          ['--imports-from']],
     ['imports',              'value',          ['--imports']],
@@ -1186,6 +1189,15 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              ranked by how many indexes import each target —
                              the corpus's de facto API map. Honors --filter;
                              -v drills per-index counts / example sites.
+  --bom                      Bill of materials: every import/include across
+                             the indexed languages (Python, JS/TS, C/C++,
+                             Java/Kotlin, C#) classified four ways — internal
+                             / stdlib-or-platform / third-party (manifest-
+                             declared) / vendored — each with its stated
+                             source; unconfirmable targets report themselves
+                             as external. Ranked external surface, vendored
+                             subtrees, indexed manifests. Honors --filter,
+                             --max-results; -v shows example sites.
   --exports [pkg]            Declared-exports catalog (Python today): what
                              each package SAYS its public API is, tier-marked
                              (A __all__/@*_export, B __init__ re-exports,
