@@ -236,6 +236,20 @@ export function extractJsImports(lines, filepath, opts = {}) {
 export function extractCImports(lines, filepath, opts = {}) {
   const rows = [];
   for (let i = 0; i < lines.length; i++) {
+    // MSVC linker inputs declared in source: the closest thing Windows C code
+    // has to a dependency manifest that lives IN the corpus. One row per
+    // pragma, linkLib:true, so the BoM shows the .lib surface beside the
+    // header surface (Andrew's ask, 2026-09-04: "something that showed .lib
+    // files rather than .h"). Build-file manifests (.vcxproj AdditionalDeps,
+    // CMake target_link_libraries) are a later manifest kind.
+    const pl = /^\s*#\s*pragma\s+comment\s*\(\s*lib\s*,\s*"([^"]+)"\s*\)/.exec((lines[i] || '').replace(/\r+$/, ''));
+    if (pl) {
+      rows.push({
+        target: pl[1], file: filepath, line: i + 1,
+        module: pl[1], name: null, alias: null, relative: false, star: false, lang: 'c', linkLib: true,
+      });
+      continue;
+    }
     const m = /^\s*#\s*include\s*(<([^>]+)>|"([^"]+)")/.exec((lines[i] || '').replace(/\r+$/, ''));
     if (!m) continue;
     const relative = m[3] != null;               // quoted form
@@ -356,6 +370,13 @@ const WINDOWS_HEADERS = new Set(('windows.h io.h direct.h conio.h tchar.h winsoc
 
 // Pre-standard C++ iostream-era headers, still met in older corpora.
 const LEGACY_CXX_HEADERS = new Set('fstream.h iostream.h iomanip.h strstream.h'.split(' '));
+
+// Windows SDK import libraries met in #pragma comment(lib, ...) — the OS
+// surface, as distinct from a third-party .lib shipped beside the code.
+const WINDOWS_SYSTEM_LIBS = new Set(('kernel32 user32 gdi32 advapi32 shell32 ole32 oleaut32 comctl32 comdlg32'
+  + ' winmm ws2_32 wsock32 crypt32 secur32 iphlpapi wininet winhttp version shlwapi psapi setupapi rpcrt4'
+  + ' uuid dbghelp netapi32 userenv mpr opengl32 glu32 dsound ddraw dinput8 xinput d3d9 d3d11 dxgi msimg32'
+  + ' gdiplus wtsapi32 pdh powrprof cfgmgr32').split(' '));
 
 // Ordered: first match wins, so a corpus that IS androidx (ExoPlayer) still
 // classifies androidx.* as internal — declared corpus packages are checked
@@ -493,6 +514,11 @@ export function classifyImportRow(row, facts) {
     return null;
   };
   if (row.lang === 'c') {
+    if (row.linkLib) {
+      const lib = mod.toLowerCase().replace(/\.lib$/, '');
+      if (WINDOWS_SYSTEM_LIBS.has(lib)) return { cls: 'stdlib', source: 'windows system library (#pragma comment(lib))' };
+      return { cls: 'external', source: 'linker input (#pragma comment(lib))' };
+    }
     const base = _norm(mod).split('/').pop();
     // Resolve against indexed paths first: suffix match on the include text,
     // then bare basename — a vendored header classifies by where it LIVES.
@@ -526,7 +552,13 @@ export function classifyImportRow(row, facts) {
     if (facts.depKeys.has(_pkgKey(pkg.split('/').pop()))) {
       return { cls: 'third-party', source: `declared in an indexed manifest (\`${pkg}\`)` };
     }
-    return { cls: 'external', source: facts.manifests.length ? 'not declared in any indexed manifest' : 'no manifest indexed to confirm' };
+    // Manifest absence is a corroboration gap, not a per-row deficiency
+    // (Andrew, 2026-09-04): with no manifest in the index, each row states
+    // its POSITIVE evidence and --bom's Manifests section carries the
+    // corroboration note once. With a manifest present, non-declaration IS
+    // information (a typo, a transitive dep) and the row says so.
+    return { cls: 'external', source: facts.manifests.length
+      ? 'not declared in any indexed manifest' : 'bare npm-style specifier' };
   }
   if (row.lang === 'py') {
     const root = mod.split('.')[0];
@@ -535,7 +567,8 @@ export function classifyImportRow(row, facts) {
     if (PY_STDLIB.has(root)) return { cls: 'stdlib', source: 'python standard library list' };
     if (facts.pyModules.has(root)) return { cls: 'internal', source: `module \`${root}.py\` is in this index` };
     if (facts.depKeys.has(_pkgKey(root))) return { cls: 'third-party', source: `declared in an indexed manifest (\`${root}\`)` };
-    return { cls: 'external', source: facts.manifests.length ? 'not declared in any indexed manifest' : 'no manifest indexed to confirm' };
+    return { cls: 'external', source: facts.manifests.length
+      ? 'not declared in any indexed manifest' : 'not python stdlib; not an indexed module' };
   }
   // java / kotlin / c#
   for (const pkg of facts.javaPackages) {
@@ -550,7 +583,9 @@ export function classifyImportRow(row, facts) {
   for (const dep of facts.depPrefixes) {
     if (_underPrefix(mod, dep)) return { cls: 'third-party', source: `declared in an indexed manifest (\`${dep}\`)` };
   }
-  return { cls: 'external', source: facts.manifests.length ? 'not declared in any indexed manifest' : 'no manifest indexed to confirm' };
+  return { cls: 'external', source: facts.manifests.length
+    ? 'not declared in any indexed manifest'
+    : `unrecognized package root \`${mod.split('.')[0]}\`` };
 }
 
 /**

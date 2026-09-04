@@ -193,7 +193,8 @@ describe('import classification (imports-bill-of-materials resolver)', () => {
     const { rows } = classifyImports(idx);
     const lodash = rows.find((r) => r.module === 'lodash');
     assert.equal(lodash.cls, 'external');
-    assert.match(lodash.clsSource, /no manifest indexed to confirm/);
+    assert.match(lodash.clsSource, /bare npm-style specifier/,
+      'no-manifest rows state positive evidence, not the absence');
   });
 
   it('manifestDeps reads each manifest kind best-effort', () => {
@@ -230,10 +231,29 @@ describe('import classification (imports-bill-of-materials resolver)', () => {
     const text = out.join('\n');
     assert.match(text, /Bill of materials — \.stub/);
     assert.match(text, /internal\s+\d+ site/);
-    assert.match(text, /external\s+\d+ site\(s\) — UNCONFIRMED/);
+    assert.match(text, /external\s+\d+ site\(s\) — outside this index and the stated lists/);
     assert.match(text, /third_party\/\s+— \d+ indexed file/);
     assert.match(text, /Manifests indexed/);
-    assert.match(text, /Residue: \d+ site\(s\)/);
-    assert.match(text, /statement about what this index can show/);
+    assert.match(text, /Manifests indexed \(corroborates third-party rows\)/);
+  });
+});
+
+describe('#pragma comment(lib) — the in-source linker surface', () => {
+  it('extracts pragma libs as linkLib rows and classifies system vs external', () => {
+    const rows = extractCImports([
+      '#pragma comment(lib, "ws2_32.lib")',
+      '#pragma comment(lib, "SomeVendorSdk.lib")',
+      '#include <winsock2.h>',
+    ], 'net/io.c');
+    const libs = rows.filter((r) => r.linkLib);
+    assert.equal(libs.length, 2);
+    assert.equal(libs[0].target, 'ws2_32.lib');
+    const facts = corpusFacts({ fileLines: new Map([['net/io.c', []]]) });
+    const sys = classifyImportRow(libs[0], facts);
+    assert.equal(sys.cls, 'stdlib');
+    assert.match(sys.source, /windows system library/);
+    const vendor = classifyImportRow(libs[1], facts);
+    assert.equal(vendor.cls, 'external');
+    assert.match(vendor.source, /linker input/);
   });
 });
