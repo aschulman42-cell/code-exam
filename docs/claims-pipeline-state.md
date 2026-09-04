@@ -104,6 +104,16 @@ pruning must key on "matches many DISTINCT claims/elements" (what `spongeT`
 already does) rather than on raw corpus frequency, which would discard exactly the
 domain terms that matter. **Unresolved; do not ship a raw-frequency cutoff.**
 
+**The retrieval acceptance instrument** is
+`test/fixtures/retrieval-reachability-8752101-exoplayer3.json` +
+`test/test_retrieval_reachability.js`: two externally-named implementer lists
+for '101 × ExoPlayer3 (ChatGPT's reference chart, asus-CC's prior reading)
+with per-symbol provenance, run model-free through the full default selection
+stack. REPORT + RATCHET — it reports N-of-M reachable per provenance set and
+fails only on regression below the recorded high-water mark (baseline
+2026-09-04: union 2/20, one family). A retrieval change is measurable the day
+it lands; see the fixture's single-pairing caveat before tuning against it.
+
 ## 3. Roadmap — Andrew's (a)–(h), with state
 
 **Andrew's original wording (2026-08-12), verbatim:**
