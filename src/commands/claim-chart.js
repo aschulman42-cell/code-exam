@@ -1921,6 +1921,8 @@ export async function doClaimChart(index, args, opts = {}) {
   // chart-client-server-scope: a two-sided claim gets the index-side fact
   // stated on the artifact, and the other party's rows tagged. Deterministic
   // in both halves; verdicts never change.
+  // (Scope-paragraph construction lives in sideScopeFromRecorded so the
+  // sidecar replay renders the identical text from the recorded fields.)
   let claimSides = null;
   let indexSide = null;
   let sideScope = null;
@@ -1928,31 +1930,14 @@ export async function doClaimChart(index, args, opts = {}) {
   try { claimSides = detectClaimSides(claimText, elements); } catch { claimSides = null; }
   if (claimSides) {
     try { indexSide = (opts.clientServerVerdict || clientServerVerdict)(index); } catch { indexSide = null; }
-    const [serving, consuming] = claimSides.parties;
-    let otherParty = null;
-    if (claimSides.directional && indexSide) {
-      if (indexSide.verdict === 'client-only') otherParty = serving;
-      else if (indexSide.verdict === 'server-only') otherParty = consuming;
-    }
-    if (otherParty) {
-      claimSides.perElement.forEach((p, i) => { if (p === otherParty) otherSideElements.add(i + 1); });
-    }
-    claimSides._otherParty = otherParty;
-    const countsLine = indexSide
-      ? `--client-server: ${indexSide.serverRoutes} server route(s), ${indexSide.clientCalls} client HTTP call(s), socket/TLS client ${indexSide.socketClient} / server ${indexSide.socketServer}`
-      : '--client-server: unavailable';
-    const rowsList = [...otherSideElements].sort((a, b) => a - b).join(', ');
-    sideScope = `Two-sided claim: ${serving} / ${consuming}. This index is ${indexSide ? indexSide.verdict.toUpperCase() : 'UNDETERMINED'} (${countsLine}).`
-      + (otherParty && rowsList
-        ? ` Rows attributed to the ${otherParty} (${rowsList}) can only be met by a counterpart not in this index; their verdicts below are findings about THIS code, not about the system.`
-        : indexSide && indexSide.verdict === 'undetermined'
-          ? ' Nothing was detected either way (e.g. a library with no network code); no row is tagged.'
-          : '');
+    const ss = sideScopeFromRecorded(claimSides, indexSide);
+    ({ sideScope, otherSideElements } = ss);
+    claimSides._otherParty = ss.otherParty;
     if (otherSideElements.size) {
       const sideTags = elements.map((_, i) => otherSideElements.has(i + 1));
       ({ table } = buildChartTable(claimText, { elements, granularity: tier, sideTags }));
     }
-    process.stderr.write(`[claim-chart] two-sided claim (${serving} / ${consuming}); index ${indexSide ? indexSide.verdict : 'undetermined'}`
+    process.stderr.write(`[claim-chart] two-sided claim (${claimSides.parties.join(' / ')}); index ${indexSide ? indexSide.verdict : 'undetermined'}`
       + (otherSideElements.size ? `; other-side rows: ${[...otherSideElements].sort((a, b) => a - b).join(', ')}` : '') + '\n');
   }
 
@@ -2405,6 +2390,157 @@ Per-target verdicts written to ${args.verdicts_out}`
 const HTML_ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 const hesc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => HTML_ESC[c]);
 const RAIL = { PRESENT: '#2e7d32', PARTIAL: '#f9a825', ASSUMED: '#8e24aa', ABSENT: '#9e9e9e' };
+
+// chart-client-server-scope's paragraph, built from the recorded halves so the
+// live chart and the sidecar replay render the identical text. Pure; mutates
+// neither input.
+export function sideScopeFromRecorded(claimSides, indexSide) {
+  const [serving, consuming] = claimSides.parties;
+  let otherParty = null;
+  if (claimSides.directional && indexSide) {
+    if (indexSide.verdict === 'client-only') otherParty = serving;
+    else if (indexSide.verdict === 'server-only') otherParty = consuming;
+  }
+  const otherSideElements = new Set();
+  if (otherParty) {
+    claimSides.perElement.forEach((p, i) => { if (p === otherParty) otherSideElements.add(i + 1); });
+  }
+  const countsLine = indexSide
+    ? `--client-server: ${indexSide.serverRoutes} server route(s), ${indexSide.clientCalls} client HTTP call(s), socket/TLS client ${indexSide.socketClient} / server ${indexSide.socketServer}`
+    : '--client-server: unavailable';
+  const rowsList = [...otherSideElements].sort((a, b) => a - b).join(', ');
+  const sideScope = `Two-sided claim: ${serving} / ${consuming}. This index is ${indexSide ? indexSide.verdict.toUpperCase() : 'UNDETERMINED'} (${countsLine}).`
+    + (otherParty && rowsList
+      ? ` Rows attributed to the ${otherParty} (${rowsList}) can only be met by a counterpart not in this index; their verdicts below are findings about THIS code, not about the system.`
+      : indexSide && indexSide.verdict === 'undetermined'
+        ? ' Nothing was detected either way (e.g. a library with no network code); no row is tagged.'
+        : '');
+  return { sideScope, otherSideElements, otherParty };
+}
+
+// chart-html-replay: re-render the printable page from a verdicts sidecar --
+// no model calls, no index, no new dice. The sidecar was designed for replay
+// (its _note: raw per-target verdicts as the merge received them, plus which
+// element nominated -- the loop scorer already reconstructs merges from it);
+// this does the same reconstruction and hands the result to renderChartHtml,
+// so a temp-0 run that already happened can get a page -- and a post-hoc
+// --chart-notes appendix -- without paying for run N+1 whose verdicts the
+// pre-written note could not describe. The page carries a re-rendered marker:
+// a replayed page must never impersonate a live one.
+export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claimTextOverride = null }) {
+  const analysed = Array.isArray(sidecar.analysed) ? sidecar.analysed : [];
+  if (!analysed.length) throw new Error('sidecar has no analysed targets — nothing to replay');
+  const bounds = [];
+
+  // Element texts: every analysed target carries all judged rows; the union by
+  // element number reconstructs the row skeleton exactly as analysed.
+  const byEl = new Map();
+  for (const a of analysed) {
+    for (const e of a.elements || []) {
+      if (e.element != null && !byEl.has(e.element)) byEl.set(e.element, e.text || '');
+    }
+  }
+  const elNums = [...byEl.keys()].sort((a, b) => a - b);
+  const elements = elNums.map((n) => byEl.get(n));
+
+  // Claim text: the sidecar records the SOURCE, not the text. Re-read it when
+  // it still exists and still has the recorded length; otherwise fall back to
+  // the element texts and say so.
+  let claimText = claimTextOverride;
+  let scope = null;
+  if (!claimText && sidecar.claimSource && !/^\(inline/.test(String(sidecar.claimSource))) {
+    try {
+      const raw = fs.readFileSync(String(sidecar.claimSource).replace(/^@/, ''), 'utf8');
+      const argv = String(sidecar.argv || '');
+      scope = chartScope(raw, {
+        claim: (argv.match(/--claim-number\s+(\d+)/) || [])[1] ?? null,
+        family: /--claim-family\b/.test(argv),
+      });
+      claimText = scope.text;
+      if (sidecar.claimChars && Math.abs(claimText.length - sidecar.claimChars) > 2) {
+        bounds.push(`claim source \`${sidecar.claimSource}\` has changed since the run`
+          + ` (${claimText.length} chars now vs ${sidecar.claimChars} recorded) — text shown as it reads today`);
+      }
+    } catch { claimText = null; scope = null; }
+  }
+  if (!claimText) {
+    claimText = elNums.map((n) => byEl.get(n)).join('\n');
+    bounds.push(`claim source not readable (\`${sidecar.claimSource || 'unrecorded'}\`) — claim shown as the analysed element texts`);
+  }
+
+  // The merge replay — loop-score's incantation, verbatim.
+  const nominators = new Map(analysed.map((a) => [a.target, a.nominatedBy || []]));
+  const fills = mergeBestPerElement(
+    analysed.map((a) => ({ target: a.target, elements: a.elements })), { nominators });
+
+  // The two-sided scope paragraph, from the recorded halves.
+  let sideScope = null;
+  let otherSideElements = new Set();
+  if (sidecar.claimSides && Array.isArray(sidecar.claimSides.parties)) {
+    ({ sideScope, otherSideElements } = sideScopeFromRecorded(sidecar.claimSides, sidecar.indexSide || null));
+  }
+
+  // Family: rows and verdict lines are recorded; the dependents' claim TEXTS
+  // are not, so they come from the re-read claim file when available.
+  let family = null;
+  if (sidecar.family && Array.isArray(sidecar.family.members)) {
+    const textOf = scope && scope.family ? scope.family.textOf : null;
+    family = {
+      root: sidecar.family.root,
+      members: sidecar.family.members.map((m) => ({
+        n: m.n,
+        kind: [m.depth, m.kind].filter(Boolean).join(' — '),
+        text: textOf ? textOf(m.n) : '',
+        verdictLine: m.verdict || '',
+        effective: m.rows || [],
+      })),
+    };
+    if (!textOf) bounds.push('dependent claim texts unavailable (claim file not re-readable) — rows shown without their claim text');
+  }
+
+  bounds.push('not re-rendered (not recorded in the sidecar): connectivity, duplicate-surface notes, not-shown-in-citation annotations');
+  const provenance = [
+    `RE-RENDERED from \`${sidecarPath || 'sidecar'}\` on ${new Date().toISOString()} — no model calls; verdicts, citations and notes are the original run's.`,
+    `Original run: ${sidecar.generatedAt || 'time unrecorded'}${sidecar.argv ? ` — \`${sidecar.argv}\`` : ''}`,
+    ...bounds.map((b) => `Replay bound: ${b}.`),
+  ].join('\n');
+
+  return renderChartHtml({
+    claimText, fills, elements, engineLabel: sidecar.engine || 'unrecorded engine',
+    scopeNote: null, sideScope, otherSideElements, provenance,
+    connectivity: null, citedDupes: null,
+    targets: analysed.map((a) => a.target), family, notes,
+    command: sidecar.argv || null, generatedAt: sidecar.generatedAt || null,
+  });
+}
+
+// The CLI face of the replay: --chart-html-from <verdicts.json> --chart-html
+// <out.html> [--chart-notes <file>]. Needs neither an index nor a model, so
+// index.js dispatches it before the index opens (the --triage precedent).
+export function doChartHtmlFrom(args) {
+  if (!args.chart_html) {
+    console.error('--chart-html-from needs --chart-html <out.html> for the page it writes.');
+    process.exitCode = 1; return;
+  }
+  let sidecar;
+  const sidecarPath = String(args.chart_html_from);
+  try { sidecar = JSON.parse(fs.readFileSync(sidecarPath, 'utf8')); }
+  catch (e) { console.error(`--chart-html-from: cannot read ${sidecarPath}: ${e.message}`); process.exitCode = 1; return; }
+  let notes = null;
+  if (args.chart_notes) {
+    const npath = String(args.chart_notes).replace(/^@/, '');
+    try { notes = fs.readFileSync(npath, 'utf8'); }
+    catch (e) { console.error(`--chart-notes: cannot read ${npath}: ${e.message}`); process.exitCode = 1; return; }
+    if (!notes.trim()) { console.error(`--chart-notes: ${npath} is empty — supply commentary or drop the flag.`); process.exitCode = 1; return; }
+  }
+  let html;
+  try { html = replayChartHtml({ sidecar, sidecarPath, notes }); }
+  catch (e) { console.error(`--chart-html-from: ${e.message}`); process.exitCode = 1; return; }
+  try { fs.writeFileSync(args.chart_html, html, 'utf8'); }
+  catch (e) { console.error(`--chart-html-from: cannot write ${args.chart_html}: ${e.message}`); process.exitCode = 1; return; }
+  process.stderr.write(`[claim-chart] page re-rendered from ${sidecarPath} to ${args.chart_html}`
+    + `${notes ? ' (examiner notes attached)' : ''}\n`);
+}
 
 export function renderChartHtml({ claimText, fills, elements, engineLabel, scopeNote, sideScope, otherSideElements,
   provenance, connectivity, citedDupes, targets = [], family = null, notes = null,

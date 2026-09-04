@@ -535,6 +535,8 @@ export function parseArgs() {
     ['chart_html',           'value',          ['--chart-html']],
     // chart-html-notes-appendix: analyst commentary appended as a labeled section.
     ['chart_notes',          'value',          ['--chart-notes']],
+    // chart-html-replay: re-render the printable page from a verdicts sidecar.
+    ['chart_html_from',      'value',          ['--chart-html-from']],
     // #281: pseudo-claim generation (v1: explicit anchors)
     ['pseudo_claims',        'optional_value', ['--pseudo-claims']],
     ['pseudo_out',           'value',          ['--pseudo-out']],
@@ -1588,6 +1590,12 @@ LLM ANALYSIS:
                              "Examiner's notes" appendix — labeled analyst
                              commentary, visually distinct, never interleaved
                              with chart rows. Verdicts and coverage unchanged
+  --chart-html-from <sidecar>  re-render the printable page from a --verdicts-out
+                             sidecar: no model calls, no index, no re-rolled
+                             verdicts. Needs --chart-html <out.html>; composes
+                             with --chart-notes for post-hoc commentary. The
+                             page carries a RE-RENDERED marker and states what
+                             the sidecar did not record
   --claim-family             --claim-chart: chart claim 1 AND every dependent
                              claim beneath it (a claims file with numbered
                              claims). Claim 1 is charted as always; each

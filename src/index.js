@@ -716,6 +716,14 @@ if (args.triage) {
   process.exit(process.exitCode || 0);
 }
 
+// chart-html-replay: same shape as --triage — a sidecar in, a page out, no
+// index and no model, so it must not fail on a missing local index either.
+if (args.chart_html_from) {
+  const { doChartHtmlFrom } = await import('./commands/claim-chart.js');
+  doChartHtmlFrom(args);
+  process.exit(process.exitCode || 0);
+}
+
 // #230 Part B: first-run with no --index-path/--load-index, no --build-index, and
 // no default index in cwd. If the user gave a COMMAND, run it against the bundled
 // demo index. If they ran a BARE `ce` (nothing to do), show a short welcome

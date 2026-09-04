@@ -2264,3 +2264,77 @@ describe('examiner notes appendix (chart-html-notes-appendix)', () => {
     process.exitCode = prev;
   });
 });
+
+// chart-html-replay: re-render the page from a verdicts sidecar — the same
+// merge replay loop-score performs, handed to the same renderer, plus the
+// honest bounds a replay must state. No model, no index, no re-rolled dice.
+import { replayChartHtml, sideScopeFromRecorded } from '../src/commands/claim-chart.js';
+
+describe('chart html replay (chart-html-replay)', () => {
+  const SIDECAR = {
+    _format: 'codeexam-chart-verdicts/1',
+    engine: 'Test Engine — stub',
+    index: '.stub',
+    claimSource: '(inline)',
+    claimChars: 0,
+    elements: 2,
+    generatedAt: '2026-09-04T00:00:00.000Z',
+    argv: 'src/index.js --claim-chart @x --verdicts-out y.json',
+    claimSides: { parties: ['transmission device', 'reception device'], directional: true,
+      perElement: ['transmission device', null] },
+    indexSide: { serverRoutes: 0, clientCalls: 0, socketClient: 1, socketServer: 0, verdict: 'client-only' },
+    analysed: [
+      { target: 'A.java@A::one', nominatedBy: [{ element: 1, rank: 0 }],
+        elements: [
+          { element: 1, text: 'first element about transmitting', label: 'ABSENT', note: 'no line' },
+          { element: 2, text: 'second element about reproducing', label: 'PARTIAL', note: 'line 3 reproduces.' },
+        ] },
+      { target: 'B.java@B::two', nominatedBy: [{ element: 2, rank: 1 }],
+        elements: [
+          { element: 1, text: 'first element about transmitting', label: 'ABSENT', note: 'no line' },
+          { element: 2, text: 'second element about reproducing', label: 'ABSENT', note: 'no line' },
+        ] },
+    ],
+    family: { root: 1, members: [
+      { n: 2, depth: 'D', kind: 'MODIFICATION', cue: 'wherein', parent: 1, chain: [1, 2],
+        verdict: 'claim 2 (D): NOT MET', rows: [
+          { designation: '[1a]', origin: 'inherited', text: 'first element about transmitting',
+            from: 1, parentDesignation: '[1a]', label: 'ABSENT', note: 'no line', target: 'A.java@A::one' },
+        ] },
+    ] },
+  };
+
+  it('replays the merge and renders rows, family, scope, and the re-rendered marker', () => {
+    const html = replayChartHtml({ sidecar: SIDECAR, sidecarPath: 'y.json' });
+    assert.ok(html.includes('RE-RENDERED from `y.json`'), 're-rendered marker present');
+    assert.ok(html.includes('second element about reproducing'), 'element text recovered from analysed rows');
+    assert.match(html, /PARTIAL/, 'merged verdict rendered (strongest label wins)');
+    assert.ok(html.includes('Two-sided claim: transmission device / reception device'),
+      'side scope rebuilt from recorded halves');
+    assert.ok(html.includes('This index is CLIENT-ONLY'));
+    assert.ok(html.includes('Dependent claims (family of claim 1)'), 'family section rendered');
+    assert.ok(html.includes('not recorded in the sidecar'), 'unrecorded sections stated, not silently omitted');
+    assert.ok(html.includes('claim source not readable') || html.includes('(inline'),
+      'inline claim source falls back with a stated bound');
+  });
+
+  it('attaches post-hoc examiner notes with the standing label', () => {
+    const html = replayChartHtml({ sidecar: SIDECAR, sidecarPath: 'y.json', notes: 'Across N runs, row 2 wobbled.' });
+    assert.ok(html.includes('class="notes"'));
+    assert.ok(html.includes(CHART_NOTES_LABEL));
+    assert.ok(html.includes('Across N runs, row 2 wobbled.'));
+  });
+
+  it('refuses a sidecar with nothing to replay', () => {
+    assert.throws(() => replayChartHtml({ sidecar: { analysed: [] } }), /nothing to replay/);
+  });
+
+  it('sideScopeFromRecorded reproduces the live paragraph from recorded halves', () => {
+    const { sideScope, otherSideElements, otherParty } = sideScopeFromRecorded(
+      SIDECAR.claimSides, SIDECAR.indexSide);
+    assert.equal(otherParty, 'transmission device');
+    assert.deepEqual([...otherSideElements], [1]);
+    assert.match(sideScope, /^Two-sided claim: transmission device \/ reception device\./);
+    assert.match(sideScope, /Rows attributed to the transmission device \(1\)/);
+  });
+});
