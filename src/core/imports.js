@@ -389,7 +389,14 @@ const JAVA_PLATFORM_PREFIXES = [
 ];
 const CS_PLATFORM_PREFIXES = [
   ['System', '.NET standard library'], ['Microsoft.', '.NET platform'], ['Windows.', 'windows platform'],
+  ['WinRT.', 'windows runtime projection (CsWinRT)'],
 ];
+
+// COM type-library interop namespaces follow the tlbimp `XxxLib` convention
+// (FAXCOMEXLib, CERTENROLLLib). The name alone cannot say whether the
+// underlying COM component is a Windows one or third-party, so the class
+// stays external — but the WHY names the convention instead of shrugging.
+const COM_TLB_RE = /^[A-Z][A-Za-z0-9]*Lib$/;
 
 const VENDOR_DIR_RE = /(^|[\\/])(vendor|vendors|third[-_]?party|thirdparty|external|extern|node_modules|deps|contrib)([\\/]|$)/i;
 
@@ -520,6 +527,11 @@ export function classifyImportRow(row, facts) {
       return { cls: 'external', source: 'linker input (#pragma comment(lib))' };
     }
     const base = _norm(mod).split('/').pop();
+    // List lookups are case-insensitive: Windows filesystems are, and real
+    // corpora write `Windows.h` and `windows.h` interchangeably (the capital
+    // form was the top residue row on .WinAPI_Classic). Index RESOLUTION
+    // keeps the raw spelling — path identity is the index's own.
+    const baseLc = base.toLowerCase();
     // Resolve against indexed paths first: suffix match on the include text,
     // then bare basename — a vendored header classifies by where it LIVES.
     let hit = null;
@@ -536,10 +548,20 @@ export function classifyImportRow(row, facts) {
       return { cls: 'internal', source: `resolves to \`${hit}\` in this index` };
     }
     if (row.relative) return { cls: 'internal', source: 'quoted #include (project-local convention); target file not in this index' };
-    if (C_STD_HEADERS.has(base) || C_STD_HEADERS.has(mod)) return { cls: 'stdlib', source: 'ISO C/C++ standard header list' };
-    if (POSIX_HEADERS.has(normMod) || POSIX_HEADERS.has(base)) return { cls: 'stdlib', source: 'POSIX header list' };
-    if (WINDOWS_HEADERS.has(base)) return { cls: 'stdlib', source: 'windows platform header list' };
-    if (LEGACY_CXX_HEADERS.has(base)) return { cls: 'stdlib', source: 'pre-standard C++ header list (legacy)' };
+    const normLc = normMod.toLowerCase();
+    if (C_STD_HEADERS.has(baseLc) || C_STD_HEADERS.has(normLc)) return { cls: 'stdlib', source: 'ISO C/C++ standard header list' };
+    if (POSIX_HEADERS.has(normLc) || POSIX_HEADERS.has(baseLc)) return { cls: 'stdlib', source: 'POSIX header list' };
+    if (WINDOWS_HEADERS.has(baseLc)) return { cls: 'stdlib', source: 'windows platform header list' };
+    if (LEGACY_CXX_HEADERS.has(baseLc)) return { cls: 'stdlib', source: 'pre-standard C++ header list (legacy)' };
+    // C++/WinRT projection headers: winrt/Windows.*.h is the Windows SDK
+    // projection, winrt/Microsoft.*.h the Windows App SDK / WinUI one —
+    // platform surface either way (.WinAPI_Classic's residue was full of
+    // both, 16+10+8... sites a row).
+    if (normLc.startsWith('winrt/')) {
+      return { cls: 'stdlib', source: normLc.startsWith('winrt/microsoft.')
+        ? 'C++/WinRT projection header (Windows App SDK)'
+        : 'C++/WinRT projection header (Windows SDK)' };
+    }
     return { cls: 'external', source: 'angle include; no standard-list or index match' };
   }
   if (row.lang === 'js') {
@@ -582,6 +604,9 @@ export function classifyImportRow(row, facts) {
   }
   for (const dep of facts.depPrefixes) {
     if (_underPrefix(mod, dep)) return { cls: 'third-party', source: `declared in an indexed manifest (\`${dep}\`)` };
+  }
+  if (row.lang === 'cs' && COM_TLB_RE.test(mod.split('.')[0])) {
+    return { cls: 'external', source: 'COM type-library interop namespace (tlbimp convention); component origin not determinable from the name' };
   }
   return { cls: 'external', source: facts.manifests.length
     ? 'not declared in any indexed manifest'
