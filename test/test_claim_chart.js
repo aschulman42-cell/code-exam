@@ -2197,3 +2197,70 @@ describe('chart-printable-render: --chart-html', () => {
     assert.ok(h2.includes('Closest candidate examined'));
   });
 });
+
+// chart-html-notes-appendix: analyst commentary is a labeled FOURTH voice.
+// What is asserted is demarcation — the standing label, the visual separation,
+// no interleaving — never the commentary's content, which is the analyst's.
+import { formatNotesSection, CHART_NOTES_LABEL } from '../src/commands/claim-chart.js';
+import fsn from 'node:fs';
+import osn from 'node:os';
+import pathn from 'node:path';
+
+describe('examiner notes appendix (chart-html-notes-appendix)', () => {
+  it('markdown section carries the standing label and quotes every line', () => {
+    const s = formatNotesSection('First point.\n\nSecond point with `code`.');
+    assert.match(s, /^## Examiner's notes/);
+    assert.ok(s.includes(CHART_NOTES_LABEL), 'standing label present');
+    assert.match(s, /^> First point\.$/m, 'content quoted');
+    assert.match(s, /^>$/m, 'blank lines keep the quote rail');
+    assert.match(s, /^> Second point with `code`\.$/m);
+  });
+
+  it('html page renders the notes block, labeled and escaped; footer names the voice', () => {
+    const html = _rch({ claimText: 'c', fills: [], elements: ['e'], engineLabel: 'e',
+      notes: 'Watch <script>alert(1)</script> & row 6.' });
+    assert.ok(html.includes('class="notes"'), 'notes block present');
+    assert.ok(html.includes(CHART_NOTES_LABEL.replace(/&/g, '&amp;')) || html.includes(CHART_NOTES_LABEL),
+      'standing label present');
+    assert.ok(!html.includes('<script>alert(1)</script>'), 'notes content is escaped');
+    assert.ok(html.includes('&lt;script&gt;'), 'escaped form present');
+    assert.match(html, /dashed amber box = analyst commentary/, 'voices footer names the fourth voice');
+  });
+
+  it('without notes the page has no notes block and the footer is unchanged', () => {
+    const html = _rch({ claimText: 'c', fills: [], elements: ['e'], engineLabel: 'e' });
+    assert.ok(!html.includes('class="notes"'));
+    assert.ok(!html.includes('analyst commentary'));
+  });
+
+  it('a missing notes file fails loudly before any model call', async () => {
+    const prev = process.exitCode;
+    const errs = [];
+    const origErr = console.error; console.error = (s) => errs.push(String(s));
+    let drafted = 0;
+    try {
+      await doClaimChart({ functionIndex: {}, _ensureFunctionIndex() {} },
+        { claim_chart: '1. A method comprising: a step.', chart_notes: 'no_such_notes_file.md', model: 'f.gguf' },
+        { draft: async () => { drafted++; return 'x'; } });
+    } finally { console.error = origErr; }
+    assert.match(errs.join(' '), /--chart-notes: cannot read no_such_notes_file\.md/);
+    assert.equal(drafted, 0, 'failed before any draft call');
+    assert.equal(process.exitCode, 1);
+    process.exitCode = prev;
+  });
+
+  it('an empty notes file is refused, not silently rendered as an empty appendix', async () => {
+    const prev = process.exitCode;
+    const p = pathn.join(osn.tmpdir(), `ce-empty-notes-${process.pid}.md`);
+    fsn.writeFileSync(p, '   \n', 'utf8');
+    const errs = [];
+    const origErr = console.error; console.error = (s) => errs.push(String(s));
+    try {
+      await doClaimChart({ functionIndex: {}, _ensureFunctionIndex() {} },
+        { claim_chart: '1. A method comprising: a step.', chart_notes: p, model: 'f.gguf' },
+        { draft: async () => 'x' });
+    } finally { console.error = origErr; fsn.unlinkSync(p); }
+    assert.match(errs.join(' '), /--chart-notes: .* is empty/);
+    process.exitCode = prev;
+  });
+});

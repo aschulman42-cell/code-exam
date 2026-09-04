@@ -533,6 +533,8 @@ export function parseArgs() {
     // issue-311-dep-claim-chart: chart claim 1 and every dependent beneath it.
     ['claim_family',         'flag',           ['--claim-family']],
     ['chart_html',           'value',          ['--chart-html']],
+    // chart-html-notes-appendix: analyst commentary appended as a labeled section.
+    ['chart_notes',          'value',          ['--chart-notes']],
     // #281: pseudo-claim generation (v1: explicit anchors)
     ['pseudo_claims',        'optional_value', ['--pseudo-claims']],
     ['pseudo_out',           'value',          ['--pseudo-out']],
@@ -1582,6 +1584,10 @@ LLM ANALYSIS:
                              printable HTML page (record-per-limitation,
                              verdict rail, FULL finding notes untruncated,
                              print CSS; no external assets — air-gap safe)
+  --chart-notes <file>       --claim-chart: append the file's text as an
+                             "Examiner's notes" appendix — labeled analyst
+                             commentary, visually distinct, never interleaved
+                             with chart rows. Verdicts and coverage unchanged
   --claim-family             --claim-chart: chart claim 1 AND every dependent
                              claim beneath it (a claims file with numbered
                              claims). Claim 1 is charted as always; each
