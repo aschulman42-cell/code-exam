@@ -50,7 +50,7 @@
     "independent-intersection": 7
   },
   "ratchet": {
-    "_rule": "REPORT + RATCHET: the test reports N-of-M reachable per set and FAILS only when a count falls below its floor. Floors are the recorded high-water marks — raise them (in this file, with a dated note) when a retrieval change legitimately lifts a count; never lower them without a population-justified, disclosed reason.",
+    "_rule": "REPORT + RATCHET: the test reports N-of-M reachable per set and FAILS only when a count falls below its floor. Floors are the recorded high-water marks — raise them (in this file, with a dated note) when a retrieval change legitimately lifts a count; never lower them without a population-justified, disclosed reason. A floor rise accompanied by a re-pin of element_words measures VOCABULARY, not search — the pinned words hold vocabulary constant within the test, so repinning them to a better temp-0 draw can raise every count with no search-mechanism change (asus-CC, #311). Re-pins must add their own dated history entry with a fresh words_pinned_at, so the diff shows the words moved.",
     "floors": {
       "union": 2,
       "chatgpt-external": 2,
@@ -59,6 +59,7 @@
     "history": [
       {
         "date": "2026-09-04",
+        "words_pinned_at": "2026-09-04",
         "union": 2,
         "chatgpt-external": 2,
         "independent-intersection": 0,

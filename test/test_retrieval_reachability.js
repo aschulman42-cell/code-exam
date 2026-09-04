@@ -30,6 +30,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 import { buildSymbolTable } from '../src/core/symbol-verify.js';
@@ -86,14 +87,23 @@ describe('retrieval reachability fixture — integrity', () => {
 });
 
 describe('retrieval reachability — measured against the real index', () => {
-  const indexPath = repoPath(fx.index);
+  // CE_INDEX_DIR: machines that keep indexes outside the repo point this at
+  // the directory that holds them (asus-CC's GPU box: D:/ce_indexes). Unset,
+  // the index resolves against the repo root. Without the env var the test
+  // skipped silently on the one machine with both the index and the GPU — a
+  // pass-shaped skip, the fourth of its kind on this project (#311).
+  const indexPath = process.env.CE_INDEX_DIR
+    ? join(process.env.CE_INDEX_DIR, fx.index)
+    : repoPath(fx.index);
   const present = fs.existsSync(indexPath);
 
   it(`reaches at least the ratchet floors on ${fx.index}`, { timeout: 120000 }, async (t) => {
     if (!present) {
       // CI safety: the index is a locally-built artifact, not in git. Absence
-      // skips with a stated notice — it must never fail a fresh clone.
-      t.skip(`${fx.index} not present — reachability is measured only where the index exists`);
+      // skips with a stated notice — it must never fail a fresh clone. The
+      // notice names the resolved path so a LOCATION problem reads as one.
+      t.skip(`${fx.index} not present at ${indexPath} — set CE_INDEX_DIR if indexes`
+        + ' live outside the repo; reachability is measured only where the index exists');
       return;
     }
     const claimText = fs.readFileSync(fixturePath(fx.claim_file), 'utf8');
