@@ -295,6 +295,13 @@ async function _recordEngineBuild(mod, llama) {
       // processes that asus-CC measured (#316), where a run lands on CPU with
       // nothing in the artifact to show for it.
       gpu: llama?.gpu === false ? 'CPU' : _str(llama?.gpu),
+      // The CARD, not only the backend: "cuda" satisfies numerics provenance,
+      // but a customer-facing header wants "NVIDIA GeForce RTX 5080"
+      // (chart-html-provenance-header; Andrew, 2026-09-04). Same capture
+      // rules: read off the instance the run built, string-or-unknown, and
+      // never let provenance take the run down.
+      gpuDevice: _str(typeof llama?.getGpuDeviceNames === 'function'
+        ? (await llama.getGpuDeviceNames().catch(() => null) || [])[0] : null),
     };
   } catch (_) { /* provenance must never take the run down */ }
 }

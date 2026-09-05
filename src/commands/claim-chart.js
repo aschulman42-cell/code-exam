@@ -27,7 +27,7 @@
 // ============================================================================
 
 import fs from 'node:fs';
-import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine, engineBuildLine } from '../core/llm-runner.js';
+import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine, engineBuildLine, getEngineBuild } from '../core/llm-runner.js';
 import { buildClaimAnalyzePrompt, addLineNumbers, readClaimFile, resolveClaimScope, splitNumberedClaims } from './analyze.js';
 import { analyzeClaimSet, parentElementSynonyms } from '../core/dep-claims.js';
 import { extractClientServer } from '../core/client-server.js';
@@ -2192,6 +2192,13 @@ export async function doClaimChart(index, args, opts = {}) {
         + 'See mergeBestPerElement.',
       engine: engineLabel,
       engineBuild: engineBuildLine(),
+      // chart-html-provenance-header: the three fields the customer-page
+      // header needed that nothing recorded — filled by hand on the first
+      // artifacts, recorded at run time from here on. Additive; a replay of
+      // an older sidecar renders "unrecorded" rather than guessing.
+      device: getEngineBuild()?.gpuDevice || getEngineBuild()?.gpu || null,
+      ceVersion: readCeVersion() || null,
+      indexFiles: index.files ? (index.files.size ?? index.files.length ?? null) : null,
       index: args.index_path || '(unknown)',
       indexSymbols: symbols.length,
       claimSource: (typeof spec === 'string' && spec.startsWith('@')) ? spec.slice(1) : 'inline text',
@@ -2349,12 +2356,32 @@ Per-target verdicts written to ${args.verdicts_out}`
   // chart-printable-render: the same data, as a self-contained printable page.
   if (args.chart_html) {
     try {
+      const _firstClaimLine = String(claimText).split('\n').map((s) => s.trim()).find(Boolean) || '';
       fs.writeFileSync(args.chart_html, renderChartHtml({
         claimText, fills, elements, engineLabel, scopeNote, sideScope, otherSideElements,
         provenance: Array.isArray(targetProvenance) ? targetProvenance.join('\n') : targetProvenance,
         connectivity, citedDupes, targets: perTarget.map((p) => p.target), family,
         notes: chartNotes,
         command: process.argv.slice(1).join(' '), generatedAt: new Date().toISOString(),
+        // The named header (chart-html-provenance-header). Title/subtitle are
+        // the operator's to state (--chart-title / --chart-subtitle); the
+        // fallback derives from what is on hand and never guesses a patent
+        // number from content.
+        head: {
+          title: args.chart_title || `Claim chart — ${String(args.index_path || 'index').replace(/^\.+/, '')}`,
+          subtitle: args.chart_subtitle || _firstClaimLine.replace(/^\d+\.\s*/, '').slice(0, 140) || null,
+          indexPath: args.index_path || '(unknown)',
+          indexFiles: index.files ? (index.files.size ?? index.files.length ?? null) : null,
+          indexSymbols: symbols.length,
+          device: getEngineBuild()?.gpuDevice || getEngineBuild()?.gpu || null,
+          engineBuild: engineBuildLine(),
+          targetsAnalysed: perTarget.length,
+          targetsNoVerdict: dropped.length,
+          targetSource: `from ${targetSource}`,
+          elementsLine: elementsSource || `${elements.length} from CE's split of the claim text (--granularity ${tier})`,
+          familyLine: family ? `${family.members.length} dependent claim(s), ${family.members.reduce((n, d) => n + (d.effective || []).length, 0)} family rows` : null,
+          ceVersion: readCeVersion() || null,
+        },
       }), 'utf8');
       process.stderr.write(`[claim-chart] printable page written to ${args.chart_html}\n`);
     } catch (e) { console.error(`--chart-html: cannot write ${args.chart_html}: ${e.message}`); }
@@ -2447,7 +2474,8 @@ export function sideScopeFromRecorded(claimSides, indexSide) {
 // --chart-notes appendix -- without paying for run N+1 whose verdicts the
 // pre-written note could not describe. The page carries a re-rendered marker:
 // a replayed page must never impersonate a live one.
-export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claimTextOverride = null }) {
+export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claimTextOverride = null,
+  title = null, subtitle = null }) {
   const analysed = Array.isArray(sidecar.analysed) ? sidecar.analysed : [];
   if (!analysed.length) throw new Error('sidecar has no analysed targets — nothing to replay');
   const bounds = [];
@@ -2525,12 +2553,31 @@ export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claim
     ...bounds.map((b) => `Replay bound: ${b}.`),
   ].join('\n');
 
+  const firstLine = String(claimText).split('\n').map((s) => s.trim()).find(Boolean) || '';
   return renderChartHtml({
     claimText, fills, elements, engineLabel: sidecar.engine || 'unrecorded engine',
     scopeNote: null, sideScope, otherSideElements, provenance,
     connectivity: null, citedDupes: null,
     targets: analysed.map((a) => a.target), family, notes,
     command: sidecar.argv || null, generatedAt: sidecar.generatedAt || null,
+    // Recorded fields only; a sidecar predating chart-html-provenance-header
+    // renders "unrecorded" for the fields it never carried.
+    head: {
+      title: title || `Claim chart — ${String(sidecar.index || 'index').replace(/^.*[\\/]/, '').replace(/^\.+/, '')}`,
+      subtitle: subtitle || firstLine.replace(/^\d+\.\s*/, '').slice(0, 140) || null,
+      indexPath: sidecar.index || null,
+      indexFiles: sidecar.indexFiles ?? null,
+      indexSymbols: sidecar.indexSymbols ?? null,
+      device: sidecar.device || null,
+      engineBuild: sidecar.engineBuild || null,
+      targetsAnalysed: analysed.length,
+      targetsNoVerdict: Array.isArray(sidecar.dropped) ? sidecar.dropped.length : 0,
+      targetSource: sidecar.targetsIntegrity === 'not-supplied'
+        ? 'from per-element retrieval (no --targets supplied)' : 'from supplied --targets',
+      elementsLine: sidecar.elements != null ? `${sidecar.elements} from CE's split of the claim text` : null,
+      familyLine: family ? `${family.members.length} dependent claim(s)` : null,
+      ceVersion: sidecar.ceVersion || null,
+    },
   });
 }
 
@@ -2554,7 +2601,8 @@ export function doChartHtmlFrom(args) {
     if (!notes.trim()) { console.error(`--chart-notes: ${npath} is empty — supply commentary or drop the flag.`); process.exitCode = 1; return; }
   }
   let html;
-  try { html = replayChartHtml({ sidecar, sidecarPath, notes }); }
+  try { html = replayChartHtml({ sidecar, sidecarPath, notes,
+    title: args.chart_title || null, subtitle: args.chart_subtitle || null }); }
   catch (e) { console.error(`--chart-html-from: ${e.message}`); process.exitCode = 1; return; }
   try { fs.writeFileSync(args.chart_html, html, 'utf8'); }
   catch (e) { console.error(`--chart-html-from: cannot write ${args.chart_html}: ${e.message}`); process.exitCode = 1; return; }
@@ -2562,9 +2610,19 @@ export function doChartHtmlFrom(args) {
     + `${notes ? ' (examiner notes attached)' : ''}\n`);
 }
 
+// chart-html-provenance-header: the customer-page format Andrew adopted as
+// the standard ("this is a format we should use going forward", 2026-09-04),
+// established by asus-CC's hand-built artifacts and now native. Unconditional
+// until the public release; then this constant gets version-gated — RELEASE
+// CHECKLIST item, alongside the README restructure.
+export const CHART_PRERELEASE_HTML = '<p class="prerelease"><strong>Pre-release output.</strong>'
+  + ' Generated by a pre-public version of CodeExam &mdash; <a href="https://codeexam.ai/">codeexam.ai</a>'
+  + ' &middot; <a href="https://www.softwarelitigationconsulting.com/">softwarelitigationconsulting.com</a>.'
+  + ' Behaviour and output format are subject to change before release.</p>';
+
 export function renderChartHtml({ claimText, fills, elements, engineLabel, scopeNote, sideScope, otherSideElements,
   provenance, connectivity, citedDupes, targets = [], family = null, notes = null,
-  command = null, generatedAt = null }) {
+  command = null, generatedAt = null, head = null }) {
   const out = [];
   out.push('<!doctype html><html><head><meta charset="utf-8"><title>Claim chart</title><style>');
   out.push(`body{font-family:system-ui,-apple-system,sans-serif;margin:2rem auto;max-width:60rem;color:#1a1a1a;background:#fff}
@@ -2583,11 +2641,58 @@ code,.cite{font-family:ui-monospace,Consolas,monospace;font-size:.9em;overflow-w
 .notes{border:1px dashed #b8860b;background:#fdf6e3;padding:.8rem 1.2rem;margin:1.2rem 0}
 .notes .label{font-size:.8rem;color:#7a5b00;text-transform:uppercase;letter-spacing:.03em;margin-bottom:.5rem}
 .notes .body{white-space:pre-wrap}
+header.doc{border-bottom:2px solid #1a1a1a;padding-bottom:18px;margin-bottom:16px}
+.eyebrow{font-size:11.5px;font-weight:600;letter-spacing:.15em;text-transform:uppercase;color:#1F4E79;margin:0 0 10px}
+header.doc h1{font-family:Georgia,'Times New Roman',serif;font-size:28px;line-height:1.22;font-weight:700;margin:0 0 7px;letter-spacing:-.008em}
+.subtitle{font-family:Georgia,'Times New Roman',serif;font-size:17px;color:#545B6B;margin:0;font-style:italic}
+.prerelease{font-size:12px;line-height:1.6;color:#545B6B;background:#fff;border:1px solid #DEE1E8;border-left:3px solid #1F4E79;padding:11px 16px;margin:0 0 24px;max-width:92ch}
+.prerelease a{color:#1F4E79;text-decoration:underline;text-underline-offset:2px}
+.prerelease strong{color:#1a1a1a}
+dl.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:0;border-bottom:1px solid #DEE1E8;margin:0 0 28px}
+dl.meta div{padding:14px 20px 14px 0}
+dl.meta dt{font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#828A9A;margin-bottom:4px}
+dl.meta dd{margin:0;font-size:13.5px;line-height:1.45;overflow-wrap:anywhere}
+pre.cmd{background:#fff;border:1px solid #DEE1E8;border-left:3px solid #1F4E79;padding:13px 18px;margin:0 0 8px;overflow-x:auto;font-size:12.5px;line-height:1.7}
+pre.cmd code{white-space:pre-wrap;word-break:break-word}
+.cmdnote{font-size:12.5px;color:#828A9A;margin:0 0 8px;max-width:84ch;line-height:1.6}
+footer.doc{margin-top:48px;padding-top:16px;border-top:1px solid #DEE1E8;font-size:12px;color:#828A9A;line-height:1.65;max-width:84ch}
+footer.doc .prerelease{margin:14px 0 0}
+@media print{.prerelease{background:#f4f6f9;border-color:#b8b8b8}.prerelease a{color:#1F4E79;text-decoration:none}pre.cmd{background:#fff;border-color:#b8b8b8}}
 h1,h2{font-weight:600}
 @media print{body{margin:0.5in}.rec{break-inside:avoid}}`);
   out.push('</style></head><body>');
-  out.push('<h1>Claim chart</h1>');
-  out.push(`<p class="meta">Engine: ${hesc(engineLabel)}${generatedAt ? ` · ${hesc(generatedAt)}` : ''}${command ? `<br><code>${hesc(command)}</code>` : ''}</p>`);
+  // The provenance header: eyebrow, named title, the metadata grid, the
+  // command as recorded. Every unknown field says "unrecorded" — a silent
+  // omission invites the reader to assume, and a confident guess is worse.
+  const h = head || {};
+  const unrec = (v) => (v == null || v === '' ? 'unrecorded' : v);
+  out.push('<header class="doc">');
+  out.push(' <p class="eyebrow">Claim chart &middot; machine-generated, illustrative only</p>');
+  out.push(` <h1>${hesc(h.title || 'Claim chart')}</h1>`);
+  if (h.subtitle) out.push(` <p class="subtitle">${hesc(h.subtitle)}</p>`);
+  out.push('</header>');
+  out.push(CHART_PRERELEASE_HTML);
+  const meta = [
+    ['Index', `<code>${hesc(unrec(h.indexPath))}${h.indexFiles != null ? ` &mdash; ${hesc(String(h.indexFiles))} files` : ''}${h.indexSymbols != null ? `, ${hesc(String(h.indexSymbols))} symbols` : ''}</code>`],
+    ['Engine', hesc(engineLabel || 'unrecorded') + (h.device ? ` &middot; ${hesc(h.device)}` : '')],
+    ['Engine build', hesc(unrec(h.engineBuild))],
+    ['Targets', h.targetsAnalysed != null
+      ? `${hesc(String((h.targetsAnalysed || 0) + (h.targetsNoVerdict || 0)))} selected &middot; ${hesc(String(h.targetsAnalysed))} analysed`
+        + (h.targetsNoVerdict ? ` &middot; ${hesc(String(h.targetsNoVerdict))} produced no verdict` : '')
+        + (h.targetSource ? `, ${hesc(h.targetSource)}` : '')
+      : 'unrecorded'],
+    ['Elements', hesc(unrec(h.elementsLine)) + (h.familyLine ? `; ${hesc(h.familyLine)}` : '')],
+    ['Generated', hesc(unrec(generatedAt)) + (h.ceVersion ? ` &middot; CodeExam ${hesc(h.ceVersion)}` : '')],
+  ];
+  out.push('<dl class="meta">');
+  for (const [k, v] of meta) out.push(` <div><dt>${k}</dt><dd>${v}</dd></div>`);
+  out.push('</dl>');
+  if (command) {
+    out.push('<h2>Command</h2>');
+    out.push(`<pre class="cmd"><code>${hesc(command)}</code></pre>`);
+    out.push('<p class="cmdnote">Run as recorded by CodeExam. <code>--verdicts-out</code> writes the'
+      + ' per-target verdict sidecar and does not affect the chart.</p>');
+  }
   if (provenance) out.push(`<div class="disclose meta">${hesc(String(provenance)).replace(/\n/g, '<br>')}</div>`);
   out.push(`<h2>Claim</h2><pre class="claim" style="white-space:pre-wrap">${hesc(String(claimText).trim())}</pre>`);
   if (scopeNote || sideScope) out.push(`<div class="scope">${hesc([scopeNote, sideScope].filter(Boolean).join(' '))}</div>`);
@@ -2654,6 +2759,12 @@ h1,h2{font-weight:600}
     out.push('</div>');
   }
   out.push(`<p class="meta">Analysed targets: ${targets.length}. Voices: serif italic = claim language verbatim; sans = analysis-model finding; mono = symbols; tags and headers are CE-mechanical${notes ? '; dashed amber box = analyst commentary, not tool output' : ''}.</p>`);
+  out.push('<footer class="doc">');
+  out.push('Machine-generated from a source index and illustrative only. Not legal advice and not an'
+    + ' infringement opinion. Every citation should be verified against the source &mdash; each is'
+    + ' reproducible with <code>ce --index-path &lt;idx&gt; --extract &lt;file&gt;@&lt;function&gt;</code>.');
+  out.push(CHART_PRERELEASE_HTML);
+  out.push('</footer>');
   out.push('</body></html>');
   return out.join('\n');
 }

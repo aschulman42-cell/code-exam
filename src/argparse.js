@@ -540,6 +540,9 @@ export function parseArgs() {
     ['chart_notes',          'value',          ['--chart-notes']],
     // chart-html-replay: re-render the printable page from a verdicts sidecar.
     ['chart_html_from',      'value',          ['--chart-html-from']],
+    // chart-html-provenance-header: the page's named title/subtitle.
+    ['chart_title',          'value',          ['--chart-title']],
+    ['chart_subtitle',       'value',          ['--chart-subtitle']],
     // #281: pseudo-claim generation (v1: explicit anchors)
     ['pseudo_claims',        'optional_value', ['--pseudo-claims']],
     ['pseudo_out',           'value',          ['--pseudo-out']],
@@ -1608,6 +1611,11 @@ LLM ANALYSIS:
                              with --chart-notes for post-hoc commentary. The
                              page carries a RE-RENDERED marker and states what
                              the sidecar did not record
+  --chart-title <text>       page title for --chart-html / --chart-html-from
+                             (e.g. "US 8,752,101, claim 1 — read against
+                             ExoPlayer"); default derives from the index name.
+                             --chart-subtitle <text> sets the serif subtitle;
+                             default is the claim's first line
   --claim-family             --claim-chart: chart claim 1 AND every dependent
                              claim beneath it (a claims file with numbered
                              claims). Claim 1 is charted as always; each

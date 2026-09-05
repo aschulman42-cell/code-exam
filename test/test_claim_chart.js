@@ -2185,8 +2185,15 @@ describe('chart-printable-render: --chart-html', () => {
     assert.ok(html.includes('not visible here'), 'the amputated half is present');
     assert.ok(html.includes(longNote.slice(0, 100)));
   });
-  it('is self-contained: no external references', () => {
-    assert.ok(!/src=|href=|url\(|@import/.test(html), 'no external asset refs');
+  it('is self-contained: no external ASSET references (prerelease anchors load nothing)', () => {
+    // The air-gap guarantee is about what the page LOADS: scripts, styles,
+    // images, fonts. The pre-release notice's <a href> links
+    // (chart-html-provenance-header) navigate on click and fetch nothing at
+    // render, so anchors are exempt; every loading construct stays banned.
+    assert.ok(!/src=|url\(|@import|<link/.test(html), 'no loading external refs');
+    const hrefs = [...html.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+    assert.ok(hrefs.every((h) => /^https:\/\/(codeexam\.ai|www\.softwarelitigationconsulting\.com)\//.test(h)),
+      `only the prerelease anchors carry hrefs: ${hrefs.join(', ')}`);
   });
   it('renders rail, other-side tag, agreement, connectivity and twin disclosures', () => {
     assert.ok(html.includes('other side'));
@@ -2363,5 +2370,55 @@ describe('dependent kind labels read in 112(d) terms (chart-dep-kind-reader-labe
       'legend present');
     assert.ok(html.includes('NARROWS A LIMITATION'), 'mapped label rendered');
     assert.ok(!/Claim 2 — D — MODIFICATION</.test(html), 'raw internal kind not shown in the header');
+  });
+});
+
+// chart-html-provenance-header: the customer-page format, native. Asserted:
+// the header's fields render from what is passed, every unknown says
+// "unrecorded", and the pre-release notice appears top AND bottom.
+import { CHART_PRERELEASE_HTML } from '../src/commands/claim-chart.js';
+
+describe('provenance header on the html page (chart-html-provenance-header)', () => {
+  it('renders the named title, meta grid, command, and both prerelease notices', () => {
+    const html = _rch({ claimText: '1. A method.', fills: [], elements: ['e'], engineLabel: 'local GGUF — g.gguf',
+      command: 'src/index.js --claim-chart @x', generatedAt: '2026-09-04T00:00:00.000Z',
+      head: { title: 'US 1,234,567 — read against Foo', subtitle: 'A method of things',
+        indexPath: '.Foo', indexFiles: 10, indexSymbols: 200, device: 'NVIDIA GeForce RTX 5080',
+        engineBuild: 'node-llama-cpp 3.18.1', targetsAnalysed: 5, targetsNoVerdict: 1,
+        targetSource: 'from per-element retrieval', elementsLine: '9 from CE', familyLine: '3 dependents',
+        ceVersion: 'v0.5.0' } });
+    assert.ok(html.includes('US 1,234,567 — read against Foo'.replace('—', '—')) || html.includes('US 1,234,567'));
+    assert.match(html, /machine-generated, illustrative only/);
+    assert.ok(html.includes('NVIDIA GeForce RTX 5080'));
+    assert.ok(html.includes('10 files') && html.includes('200 symbols'));
+    assert.ok(html.includes('6 selected') && html.includes('5 analysed') && html.includes('1 produced no verdict'));
+    assert.ok(html.includes('CodeExam v0.5.0'));
+    assert.match(html, /<pre class="cmd"><code>src\/index\.js --claim-chart @x<\/code><\/pre>/);
+    assert.equal(html.split('Pre-release output.').length - 1, 2, 'notice top and bottom');
+    assert.match(html, /Not legal advice/);
+  });
+
+  it('unknown fields say unrecorded, never guess', () => {
+    const html = _rch({ claimText: 'c', fills: [], elements: ['e'], engineLabel: 'Engine X', head: {} });
+    assert.ok(html.includes('unrecorded'), 'absent fields say so');
+    assert.ok(!html.includes('undefined') && !html.includes('null,'), 'no leaking absent values');
+    assert.equal(html.split('Pre-release output.').length - 1, 2);
+  });
+
+  it('replay builds the head from recorded fields; old sidecars read unrecorded', () => {
+    const html = replayChartHtml({ sidecar: {
+      engine: 'local GGUF — g.gguf', index: 'D:/idx/.Foo', indexSymbols: 100, elements: 2,
+      generatedAt: '2026-09-04T00:00:00.000Z', argv: 'src/index.js --claim-chart @x',
+      targetsIntegrity: 'not-supplied',
+      analysed: [{ target: 'A.java@A::one', nominatedBy: [], elements: [
+        { element: 1, text: 'first el', label: 'ABSENT', note: 'no line' },
+        { element: 2, text: 'second el', label: 'ABSENT', note: 'no line' }] }],
+      dropped: [],
+    }, sidecarPath: 'y.json', title: 'Named Title' });
+    assert.ok(html.includes('Named Title'));
+    assert.ok(html.includes('100 symbols'));
+    assert.ok(html.includes('per-element retrieval'));
+    assert.ok(html.includes('unrecorded'), 'engineBuild/device/version unrecorded on an old sidecar');
+    assert.equal(html.split('Pre-release output.').length - 1, 2);
   });
 });
