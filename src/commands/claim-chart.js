@@ -1371,6 +1371,15 @@ export function rawClaimBlock(claimText, n) {
 }
 
 export function chartScope(claimText, { claim = null, family = false } = {}) {
+  // chart-invocation-prompt-parity, completed at the RIGHT boundary: the
+  // first fix normalized in doClaimChart, which covered the CLI paths but
+  // not every caller — the replay renderer reads the claim file raw and
+  // calls chartScope directly, and asus-CC's byte-parity probe does the
+  // same, so both still saw CRLF/LF divergence (its "keep monitoring",
+  // 09-05 — the same bypassed-chokepoint class as its own
+  // splitNumberedClaims lesson). Normalizing HERE makes every present and
+  // future entry path hand identical bytes downstream.
+  claimText = String(claimText || '').replace(/\r\n?/g, '\n');
   const parts = splitNumberedClaims(claimText).filter((p) => p.n != null);
   if (parts.length < 2) {
     if (claim != null && parts.length === 1 && Number(claim) !== parts[0].n) {

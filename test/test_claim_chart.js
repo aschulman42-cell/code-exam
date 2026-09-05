@@ -2461,3 +2461,22 @@ describe('invocation prompt parity (chart-invocation-prompt-parity)', () => {
     assert.equal(norm('a\r\nb\rc\n'), 'a\nb\nc');
   });
 });
+
+// Parity completion: chartScope itself normalizes, so DIRECT callers —
+// the replay renderer's raw file read, external probes — get identical
+// bytes without relying on doClaimChart's ingestion line. Raw CRLF in,
+// LF-normalized scoped text out, all four cells identical with NO
+// pre-normalization by the caller.
+describe('chartScope normalizes line endings for every caller', () => {
+  const FAM = '1. A method comprising:\nreceiving a stream;\nstoring the rate.\n2. The method of claim 1, wherein weighted.';
+  it('raw CRLF and LF inputs yield byte-identical scoped text, solo and family', () => {
+    const cells = [
+      chartScope(FAM.split('\n').slice(0, 3).join('\n'), {}).text,
+      chartScope(FAM.split('\n').slice(0, 3).join('\r\n'), {}).text,
+      chartScope(FAM, { family: true }).text,
+      chartScope(FAM.replace(/\n/g, '\r\n'), { family: true }).text,
+    ];
+    for (const t of cells) assert.equal(t, cells[0]);
+    assert.ok(!cells[0].includes('\r'));
+  });
+});
