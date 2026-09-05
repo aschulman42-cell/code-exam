@@ -139,7 +139,10 @@ export function extractImports(index, opts = {}) {
 // is vanishingly rare in indexed corpora and is the disclosed limit.
 // ===========================================================================
 
-export function isJsFile(filepath) { return /\.(?:jsx?|tsx?|mjs|cjs)$/i.test(filepath); }
+// .xs is xmlui's JavaScript-dialect script file — plain JS import syntax
+// (bom-small-fixes-sweep-residue: the .xmlui_code index read "no extractable
+// files" while holding a JS-dialect corpus).
+export function isJsFile(filepath) { return /\.(?:jsx?|tsx?|mjs|cjs|xs)$/i.test(filepath); }
 export function isCFile(filepath) { return /\.(?:c|h|cc|hh|cpp|hpp|cxx|hxx|inl)$/i.test(filepath); }
 export function isJavaFile(filepath) { return /\.(?:java|kt|kts)$/i.test(filepath); }
 export function isCSharpFile(filepath) { return /\.cs$/i.test(filepath); }
@@ -232,10 +235,21 @@ export function extractJsImports(lines, filepath, opts = {}) {
   return rows;
 }
 
-/** C/C++: #include. Quoted includes are `relative` (project-local); angle-bracket includes are the external surface. */
+/** C/C++: #include; ObjC: #import and @import. Quoted includes are `relative` (project-local); angle-bracket includes are the external surface. */
 export function extractCImports(lines, filepath, opts = {}) {
   const rows = [];
   for (let i = 0; i < lines.length; i++) {
+    // ObjC modules: `@import Foundation;` — a module name, no header file.
+    // (bom-small-fixes-sweep-residue; with #import below, the fix for the iOS
+    // headers index reading 26,175 files / zero import sites.)
+    const om = /^\s*@import\s+([A-Za-z_][\w.]*)\s*;/.exec((lines[i] || '').replace(/\r+$/, ''));
+    if (om) {
+      rows.push({
+        target: om[1], file: filepath, line: i + 1,
+        module: om[1], name: null, alias: null, relative: false, star: false, lang: 'c', objcModule: true,
+      });
+      continue;
+    }
     // MSVC linker inputs declared in source: the closest thing Windows C code
     // has to a dependency manifest that lives IN the corpus. One row per
     // pragma, linkLib:true, so the BoM shows the .lib surface beside the
@@ -250,7 +264,9 @@ export function extractCImports(lines, filepath, opts = {}) {
       });
       continue;
     }
-    const m = /^\s*#\s*include\s*(<([^>]+)>|"([^"]+)")/.exec((lines[i] || '').replace(/\r+$/, ''));
+    // #import is ObjC's #include-with-once semantics — same quoted-vs-angle
+    // meaning, same row shape.
+    const m = /^\s*#\s*(?:include|import)\s*(<([^>]+)>|"([^"]+)")/.exec((lines[i] || '').replace(/\r+$/, ''));
     if (!m) continue;
     const relative = m[3] != null;               // quoted form
     if (relative && !opts.includeRelative) continue;
@@ -351,7 +367,7 @@ const PY_STDLIB = new Set(('abc argparse array ast asyncio base64 bisect builtin
   + ' keyword logging marshal math mimetypes multiprocessing operator os pathlib pickle pkgutil platform pprint'
   + ' pstats queue random re secrets select shlex shutil signal site socket sqlite3 ssl stat statistics string struct'
   + ' subprocess sys sysconfig tarfile tempfile textwrap threading time timeit token tokenize traceback types typing'
-  + ' unicodedata unittest urllib uuid venv warnings weakref xml zipfile zlib').split(' '));
+  + ' unicodedata unittest urllib uuid venv warnings weakref xml zipfile zlib __future__').split(' '));
 
 const C_STD_HEADERS = new Set(('assert.h complex.h ctype.h errno.h fenv.h float.h inttypes.h iso646.h limits.h'
   + ' locale.h math.h setjmp.h signal.h stdalign.h stdarg.h stdatomic.h stdbool.h stddef.h stdint.h stdio.h stdlib.h'
@@ -377,6 +393,15 @@ const WINDOWS_SYSTEM_LIBS = new Set(('kernel32 user32 gdi32 advapi32 shell32 ole
   + ' winmm ws2_32 wsock32 crypt32 secur32 iphlpapi wininet winhttp version shlwapi psapi setupapi rpcrt4'
   + ' uuid dbghelp netapi32 userenv mpr opengl32 glu32 dsound ddraw dinput8 xinput d3d9 d3d11 dxgi msimg32'
   + ' gdiplus wtsapi32 pdh powrprof cfgmgr32').split(' '));
+
+// ObjC `@import <Module>;` — the common Apple platform modules. A module not
+// on the list stays external and says so; the list is the whole vocabulary.
+const APPLE_FRAMEWORKS = new Set(('Foundation UIKit AppKit CoreFoundation CoreGraphics CoreData CoreMedia'
+  + ' CoreVideo CoreAudio CoreLocation CoreText CoreImage AVFoundation AVKit QuartzCore Security'
+  + ' SystemConfiguration Metal MetalKit MapKit WebKit StoreKit CloudKit HealthKit HomeKit GameKit SpriteKit'
+  + ' SceneKit ARKit Photos PhotosUI Contacts EventKit MessageUI SafariServices UserNotifications Network'
+  + ' Combine SwiftUI ObjectiveC Darwin os simd Accelerate AudioToolbox VideoToolbox MediaPlayer CallKit'
+  + ' Intents WidgetKit').split(' '));
 
 // Ordered: first match wins, so a corpus that IS androidx (ExoPlayer) still
 // classifies androidx.* as internal — declared corpus packages are checked
@@ -526,6 +551,10 @@ export function classifyImportRow(row, facts) {
       if (WINDOWS_SYSTEM_LIBS.has(lib)) return { cls: 'stdlib', source: 'windows system library (#pragma comment(lib))' };
       return { cls: 'external', source: 'linker input (#pragma comment(lib))' };
     }
+    if (row.objcModule) {
+      if (APPLE_FRAMEWORKS.has(mod)) return { cls: 'stdlib', source: 'apple platform framework (@import)' };
+      return { cls: 'external', source: 'ObjC @import module; not on the apple framework list' };
+    }
     const base = _norm(mod).split('/').pop();
     // List lookups are case-insensitive: Windows filesystems are, and real
     // corpora write `Windows.h` and `windows.h` interchangeably (the capital
@@ -552,6 +581,7 @@ export function classifyImportRow(row, facts) {
     if (C_STD_HEADERS.has(baseLc) || C_STD_HEADERS.has(normLc)) return { cls: 'stdlib', source: 'ISO C/C++ standard header list' };
     if (POSIX_HEADERS.has(normLc) || POSIX_HEADERS.has(baseLc)) return { cls: 'stdlib', source: 'POSIX header list' };
     if (WINDOWS_HEADERS.has(baseLc)) return { cls: 'stdlib', source: 'windows platform header list' };
+    if (/^(afx|atl)[a-z0-9_]*\.h$/.test(baseLc)) return { cls: 'stdlib', source: 'windows platform header list (MFC/ATL)' };
     if (LEGACY_CXX_HEADERS.has(baseLc)) return { cls: 'stdlib', source: 'pre-standard C++ header list (legacy)' };
     // C++/WinRT projection headers: winrt/Windows.*.h is the Windows SDK
     // projection, winrt/Microsoft.*.h the Windows App SDK / WinUI one —
@@ -566,6 +596,9 @@ export function classifyImportRow(row, facts) {
   }
   if (row.lang === 'js') {
     if (row.relative) return { cls: 'internal', source: 'relative specifier' };
+    // `@/x` and `~/x` are project-root aliases (Vite/webpack/Next
+    // convention), not npm scopes — 916 sites of `@/components` in the sweep.
+    if (/^[@~]\//.test(mod)) return { cls: 'internal', source: 'path alias (project-root convention)' };
     const bare = mod.replace(/^node:/, '');
     if (mod.startsWith('node:') || NODE_BUILTINS.has(bare.split('/')[0])) {
       return { cls: 'stdlib', source: 'node builtin list' };
@@ -610,7 +643,7 @@ export function classifyImportRow(row, facts) {
   }
   return { cls: 'external', source: facts.manifests.length
     ? 'not declared in any indexed manifest'
-    : `unrecognized package root \`${mod.split('.')[0]}\`` };
+    : `unrecognized package \`${mod.split('.').slice(0, 2).join('.')}\`` };
 }
 
 /**

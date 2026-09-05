@@ -288,3 +288,63 @@ describe('platform-list gaps from .WinAPI_Classic (case, winrt/, WinRT., tlbimp)
     assert.match(f.source, /tlbimp convention/);
   });
 });
+
+// bom-small-fixes-sweep-residue: six list/regex fixes named by the 52-index
+// sweep (multi_index_BOM.txt, 2026-09-04). Each asserts the RULE the sweep
+// showed missing, and that its why-line names the list that fired.
+describe('sweep-residue small fixes', () => {
+  const facts0 = () => corpusFacts({ fileLines: new Map([['a/main.m', []]]) });
+
+  it('ObjC #import (quoted and angle) and @import extract like includes', () => {
+    const rows = extractCImports([
+      '#import <Foundation/Foundation.h>',
+      '#import "MyThing.h"',
+      '@import UIKit;',
+    ], 'a/main.m', { includeRelative: true });
+    assert.deepEqual(rows.map((r) => r.module), ['UIKit', 'Foundation/Foundation.h', 'MyThing.h']
+      .sort((a, b) => 0) && rows.map((r) => r.module).sort(), ['Foundation/Foundation.h', 'MyThing.h', 'UIKit']);
+    assert.ok(rows.find((r) => r.module === 'MyThing.h').relative, 'quoted #import is project-local');
+    assert.ok(rows.find((r) => r.module === 'UIKit').objcModule);
+  });
+
+  it('@import classifies via the apple framework list; unknown modules say so', () => {
+    const f = facts0();
+    const uikit = classifyImportRow({ module: 'UIKit', lang: 'c', objcModule: true }, f);
+    assert.equal(uikit.cls, 'stdlib');
+    assert.match(uikit.source, /apple platform framework/);
+    const other = classifyImportRow({ module: 'VendorSDK', lang: 'c', objcModule: true }, f);
+    assert.equal(other.cls, 'external');
+    assert.match(other.source, /not on the apple framework list/);
+  });
+
+  it('__future__ is python stdlib', () => {
+    const r = classifyImportRow({ module: '__future__', lang: 'py' }, facts0());
+    assert.equal(r.cls, 'stdlib');
+  });
+
+  it('JS @/ and ~/ specifiers are path aliases, not npm scopes', () => {
+    const r = classifyImportRow({ module: '@/components/Button', lang: 'js' }, facts0());
+    assert.equal(r.cls, 'internal');
+    assert.match(r.source, /path alias/);
+    assert.equal(classifyImportRow({ module: '~/lib/util', lang: 'js' }, facts0()).cls, 'internal');
+    assert.equal(classifyImportRow({ module: '@scope/pkg', lang: 'js' }, facts0()).cls, 'external', 'real scopes unaffected');
+  });
+
+  it('MFC/ATL headers land on the windows platform list', () => {
+    const r = classifyImportRow({ module: 'afxwin.h', lang: 'c' }, facts0());
+    assert.equal(r.cls, 'stdlib');
+    assert.match(r.source, /MFC\/ATL/);
+    assert.equal(classifyImportRow({ module: 'atlbase.h', lang: 'c' }, facts0()).cls, 'stdlib');
+  });
+
+  it('java external why names two package segments', () => {
+    const r = classifyImportRow({ module: 'org.apache.avalon.framework', lang: 'java' }, facts0());
+    assert.match(r.source, /`org\.apache`/);
+  });
+
+  it('.xs dispatches to the JS extractor', () => {
+    assert.ok(isJsFile('Globals.xs'));
+    const rows = extractFileImports(["import { x } from 'lib';"], 'Globals.xs');
+    assert.equal(rows[0].lang, 'js');
+  });
+});
