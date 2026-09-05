@@ -1707,7 +1707,15 @@ export async function doClaimChart(index, args, opts = {}) {
   if (!claimText || !String(claimText).trim()) {
     console.error('--claim-chart needs claim text: --claim-chart @claim.txt'); process.exitCode = 1; return;
   }
-  claimText = String(claimText).trim();
+  // chart-invocation-prompt-parity: normalize line endings at the ONE
+  // ingestion chokepoint, so the model receives the same bytes for the same
+  // claim however the file was saved. The four-way probe (solo/family x
+  // CRLF/LF, 2026-09-05) showed the invocation PATHS already byte-agree —
+  // a80c6b1 finished that — and the entire residual divergence was \r\n vs
+  // \n riding from the file through chartScope into the analysis prompt
+  // (6009 vs 6004 bytes on the '101; asus-CC measured 16 of 216 verdicts
+  // moving on its bit-stable box from exactly this delta, #318).
+  claimText = String(claimText).replace(/\r\n?/g, '\n').trim();
   // dep-claims-broaden-parent: the full input (all claims) survives scoping,
   // so MODIFICATION dependents can donate species vocabulary to the root's rows.
   const fullInputText = claimText;

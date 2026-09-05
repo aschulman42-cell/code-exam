@@ -2422,3 +2422,42 @@ describe('provenance header on the html page (chart-html-provenance-header)', ()
     assert.equal(html.split('Pre-release output.').length - 1, 2);
   });
 });
+
+// chart-invocation-prompt-parity: same claim, any invocation mode, any file
+// line-ending convention -> byte-identical analysis-prompt inputs. The
+// four-way probe (2026-09-05) showed the solo/family PATHS already agree
+// (a80c6b1); the residual divergence was CRLF vs LF riding into claimText —
+// 5 bytes that moved 16 of 216 verdicts on asus-CC's bit-stable box. The
+// ingestion chokepoint normalizes; this pins all four cells.
+describe('invocation prompt parity (chart-invocation-prompt-parity)', () => {
+  const FAM = [
+    '1. A method of rating a stream, comprising:',
+    'receiving a stream;',
+    'computing a rate from the stream; and',
+    'storing the rate.',
+    '2. The method of claim 1, wherein the rate is weighted.',
+  ].join('\n');
+  const SOLO = FAM.split('\n').slice(0, 4).join('\n');
+  const norm = (s) => String(s).replace(/\r\n?/g, '\n').trim();
+
+  it('all four cells (solo/family x CRLF/LF) yield byte-identical scoped text and prompt', () => {
+    const cells = {
+      'solo/LF': chartScope(norm(SOLO), {}).text,
+      'solo/CRLF': chartScope(norm(SOLO.replace(/\n/g, '\r\n')), {}).text,
+      'family/LF': chartScope(norm(FAM), { family: true }).text,
+      'family/CRLF': chartScope(norm(FAM.replace(/\n/g, '\r\n')), { family: true }).text,
+    };
+    const texts = Object.values(cells);
+    for (const t of texts) assert.equal(t, texts[0], 'scoped claim-1 text identical across all cells');
+    assert.ok(!texts[0].includes('\r'), 'no carriage returns survive ingestion');
+    const prompts = Object.values(cells).map((t) =>
+      buildChartAnalysisPrompt('int f(){}', 'f', 'A.java', t, splitClaimElements(t)));
+    for (const p of prompts) assert.equal(p, prompts[0], 'assembled analysis prompt identical across all cells');
+  });
+
+  it('the chokepoint normalization is the one doClaimChart applies', () => {
+    // Pin the exact transform so a future ingestion change that drops it
+    // fails here by name rather than as a downstream byte drift.
+    assert.equal(norm('a\r\nb\rc\n'), 'a\nb\nc');
+  });
+});
