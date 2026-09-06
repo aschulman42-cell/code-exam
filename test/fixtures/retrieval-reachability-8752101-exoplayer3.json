@@ -17,7 +17,7 @@
     "9": ["content", "reproduce", "start", "time"]
   },
   "sources_legend": {
-    "chatgpt-external": "RMS_ChatGPT_ExoPlayer3_claim_chart.txt — written at a prospective customer's request from knowledge of ExoPlayer, with no exposure to this project's priors. The external, independent list.",
+    "chatgpt-external": "ChatGPT_ExoPlayer3_claim_chart.txt — written at a prospective customer's request from knowledge of ExoPlayer, with no exposure to this project's priors. The external, independent list.",
     "asus-reading": "asus-CC's own regex of believed implementers, written from its reading of ExoPlayer ~10 days before the ChatGPT chart existed (#311). NOT independent of this project — asus-CC had read CE's ExoPlayer output for weeks — which is why the intersection with chatgpt-external is the strongest evidence tier: two sources, no contact, same answer."
   },
   "_contamination_note": "shouldStartPlayback appears twice in HANDOVER_TO_ASUS_CC_080926_1114am.md, written TO asus-CC before its reading began, so its asus-reading provenance is inherited, not independent (asus-CC's own provenance audit, #311). It is excluded from the independent intersection count.",

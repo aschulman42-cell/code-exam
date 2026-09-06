@@ -744,11 +744,11 @@ describe('--elements supplies the row skeleton', () => {
   it('records the skeleton source, so two charts can be compared honestly', () => {
     const hdr = buildProvenanceHeader({
       claimText: CLAIM, indexPath: '.X', engineLabel: 'claude', targets: 1,
-      elementsSource: '`rms_elements.txt` — 12 supplied verbatim, not split by CE',
-      elementComments: ['split by RMS 2026-08-11'],
+      elementsSource: '`elements.txt` — 12 supplied verbatim, not split by CE',
+      elementComments: ['split by prospective user 2026-08-11'],
     });
-    assert.match(hdr, /\*\*Elements:\*\* `rms_elements\.txt`/);
-    assert.match(hdr, /split by RMS 2026-08-11/);
+    assert.match(hdr, /\*\*Elements:\*\* `elements\.txt`/);
+    assert.match(hdr, /split by prospective user 2026-08-11/);
   });
 
   it('omits the Elements row entirely when nothing was recorded', () => {
@@ -995,7 +995,7 @@ describe('the target budget is DERIVED, and reports what it achieved (#306 Edit 
   });
 
   it('--max-retrieved-targets 12 reproduces the OLD list exactly', () => {
-    // Every chart already sent to RMS must stay reproducible, including the
+    // Every chart already sent to the prospective user must stay reproducible, including the
     // '101 charts. This is the compatibility contract for the whole change.
     const old = ['A.java@A::one', 'B.java@B::one', 'A.java@A::two', 'B.java@B::two',
       'A.java@A::three'];

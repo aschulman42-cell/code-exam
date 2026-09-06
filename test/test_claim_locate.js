@@ -1014,7 +1014,7 @@ describe('navigation honours --include-tests', () => {
 // ===========================================================================
 // claim-chart-limitation-granularity — finer element splitting.
 //
-// WHY: CE charted '101 claim 1 at 6 rows; RMS's ChatGPT chart used 12, which is
+// WHY: CE charted '101 claim 1 at 6 rows; the prospective user's ChatGPT chart used 12, which is
 // the granularity practitioners work at. One verdict spanning four
 // separately-arguable limitations says nothing about which part is met.
 //
@@ -1092,9 +1092,9 @@ describe('finer claim splitting', () => {
 describe('--elements file', () => {
   it('takes lines verbatim and separates # comments', () => {
     const { elements, comments } = parseElementsFile(
-      '# split by RMS 2026-08-11\n\nfirst limitation\nsecond limitation\n# trailing note\n');
+      '# split by prospective user 2026-08-11\n\nfirst limitation\nsecond limitation\n# trailing note\n');
     assert.deepEqual(elements, ['first limitation', 'second limitation']);
-    assert.deepEqual(comments, ['split by RMS 2026-08-11', 'trailing note']);
+    assert.deepEqual(comments, ['split by prospective user 2026-08-11', 'trailing note']);
   });
 
   it('returns nothing for a comments-only file, so the caller can refuse it', () => {
