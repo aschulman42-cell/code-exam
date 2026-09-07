@@ -1,3 +1,8 @@
+// test_metrics.js — vocab-density key files: score x concentration ranking, doc-id folding, term counts
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Coverage for the vocab-density "key files" roll-up (vocab-output-hygiene-and-
 // density): computeVocabDensity ranks files by summed score x concentration
 // (NOT raw counts — raw counts let big files win, the hotspots failure mode of

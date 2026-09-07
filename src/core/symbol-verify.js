@@ -1,3 +1,8 @@
+// symbol-verify.js — verifies a model's proposed symbol names against the index and navigates one hop from survivors
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // symbol-verify.js — claim-locate-verify-navigate: check a MODEL'S PROPOSED
 // symbol names against the index, and navigate one hop from the survivors.
 //

@@ -1,3 +1,8 @@
+// test_overview_sdk.js — #196 SDK AI Overview: tool allow-list, name normalization, grounding clause
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // #196: unit coverage for the SDK-based AI Overview (runAiOverview ported off
 // the `claude` CLI). The live agentic cloud call is verified manually (needs an
 // API key + network); here we cover the deterministic, key-free pieces: the

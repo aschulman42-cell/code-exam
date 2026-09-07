@@ -1,3 +1,8 @@
+// test_phase3.js — Phase 3 metrics: hotspot scoring, listClasses (incl. export macros), entry points
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_phase3.js - Tests for Phase 3: metrics / discovery.
  *

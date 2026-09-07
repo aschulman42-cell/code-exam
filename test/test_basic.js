@@ -1,3 +1,8 @@
+// test_basic.js — CodeSearchIndex smoke: build, search, function parsing, extraction, persistence reload
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_basic.js - Basic smoke tests for code-exam Node.js port.
  *

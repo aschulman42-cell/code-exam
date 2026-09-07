@@ -1,4 +1,9 @@
-﻿// test_multisect_scoring.js — chart-term-hygiene-and-rarity-scoring.
+﻿// test_multisect_scoring.js — comment-vs-code match classification, IDF weighting, match-density scoring
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
+// test_multisect_scoring.js — chart-term-hygiene-and-rarity-scoring.
 //
 // Comment/annotation matches are weaker evidence than in-code matches, and
 // surface area is not a score. Classification is deterministic on the line

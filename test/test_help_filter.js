@@ -1,3 +1,8 @@
+// test_help_filter.js — filterHelp: entry blocks and continuation lines, section headers, no-match report
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { filterHelp } from '../src/argparse.js';

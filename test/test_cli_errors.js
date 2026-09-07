@@ -1,3 +1,8 @@
+// test_cli_errors.js — CLI bad input fails before index load: banner, error, run-help, exit 2
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_cli_errors.js - CLI bad-input handling.
  *

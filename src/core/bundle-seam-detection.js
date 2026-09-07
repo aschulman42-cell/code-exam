@@ -1,3 +1,8 @@
+// bundle-seam-detection.js — detects esbuild module-wrapper seams in minified bundles and recovers per-module names and previews
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * bundle-seam-detection.js — Free functions for detecting esbuild-bundled
  * JS module wrappers. Pulled out of CodeSearchIndex.js (Issue #18, Phase 1

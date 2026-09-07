@@ -1,3 +1,8 @@
+// mermaid.js — renders Mermaid diagrams in the right-top pane: zoom, SVG/PNG export, Relationship View
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * mermaid.js — Mermaid-diagram rendering for the right-top pane and
  * its fullscreen overlay. Owns the zoom controls, the SVG/PNG export

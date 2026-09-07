@@ -1,3 +1,8 @@
+// test_class_digest.js — #198 class digest targets the class not its constructor; listClasses start line
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_class_digest.js — #198: class digest must target the class, not a
  * same-named constructor/function, when the caller passes kind:'class'.

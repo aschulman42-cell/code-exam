@@ -1,3 +1,8 @@
+// test_retrieval_reachability.js — retrieval acceptance: implementer reach, ratcheted high-water marks
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // test_retrieval_reachability.js — the retrieval acceptance instrument.
 //
 // Proposed by asus-CC (#311, 2026-09-04): three weeks of retrieval work had

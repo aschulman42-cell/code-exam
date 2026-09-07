@@ -1,3 +1,8 @@
+// version.js — SERVER_BUILD restart canary plus CE_VERSION read from package.json for provenance headers
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * version.js - CodeExam server build counter.
  *

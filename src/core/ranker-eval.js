@@ -1,3 +1,8 @@
+// ranker-eval.js — dev harness scoring candidate orderings and group purity: tie-aware Spearman, recall@k, GT matching
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // ranker-eval.js — #284 ranker-scoring-harness: ground-truth-backed scoring of
 // candidate-group ORDERINGS (tie-aware priority rank-correlation + recall@k)
 // and of candidate-group PURITY, so ranking/candidate quality is a number

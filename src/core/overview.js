@@ -1,3 +1,8 @@
+// overview.js — builds and renders the fast+deep orientation summary: counts, structure, vocabulary, key files, entry points
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * overview.js — one-shot orientation summary built from already-cached signals
  * (#181). The front door of the orient → vocabulary → digest surface: answers

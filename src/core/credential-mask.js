@@ -1,3 +1,8 @@
+// credential-mask.js — masks credential values in tool output while keeping file, line and identifier visible
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // credential-mask.js — #306 F70. A secret reached user-visible prose.
 //
 // From asus-CC's 51-index sweep, `.as_ml_code`:

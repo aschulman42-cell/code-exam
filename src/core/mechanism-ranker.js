@@ -1,3 +1,8 @@
+// mechanism-ranker.js — one comparative LLM pass assigning each candidate group a bounded exploration-priority verdict
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // mechanism-ranker.js — #284 ranker Phase 0 (OBSERVE-ONLY).
 //
 // Assigns each B1 candidate mechanism group a bounded exploration-PRIORITY

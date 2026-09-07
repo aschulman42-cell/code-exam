@@ -1,3 +1,8 @@
+// claim.js — --claim-search: LLM extraction of TIGHT/BROAD multisect terms from claim prose, then runs both searches
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // ============================================================================
 // claim.js - --claim-search: LLM keyword extraction from patent claim text
 //

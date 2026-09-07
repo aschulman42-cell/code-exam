@@ -1,3 +1,8 @@
+// test_phase8b.js — analyze.js primitives: SimpleMasker comment/string masking, language detect, prompts
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {

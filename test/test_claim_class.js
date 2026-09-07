@@ -1,3 +1,8 @@
+// test_claim_class.js — pickClaimClass: the deterministic statutory-class rule, four branches with reasons
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // test_claim_class.js -- pseudo-claims-statutory-class: the deterministic
 // class rule. The rule's whole vocabulary is stated in the module; these
 // fixtures exercise the four branches, never tune them.

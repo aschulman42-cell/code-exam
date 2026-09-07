@@ -1,3 +1,8 @@
+// utils.js — shared SearchResult class, path/name display helpers, and the extension sets that gate indexing
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * utils.js - Shared constants, helpers, and data classes for Code Exam.
  * All other modules import from here.

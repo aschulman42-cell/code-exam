@@ -1,3 +1,8 @@
+// test_linkify_selection.js — #275 source viewer: which identifiers become clickable, knowledge vs shape mode
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Coverage for #275 Part 2: the source-viewer's link-selection decision —
 // which identifier occurrences in a rendered line become clickable.
 // findLinkableIdentifiers is pure (no DOM), so this pins both modes:

@@ -1,3 +1,8 @@
+// test_dep_claims.js — dep-claims chains: parent/root/depth on a real 26-claim family, contribution kinds
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_dep_claims.js -- #311 step 1: chains across a claim set (src/core/dep-claims.js).
  *

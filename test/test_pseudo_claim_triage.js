@@ -1,3 +1,8 @@
+// test_pseudo_claim_triage.js — deterministic first cut over pseudo-claims: signals, thresholds, keep sidecar
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // pseudo-claim-triage: the deterministic first cut over a run's pseudo-claims.
 //
 // WHY THESE TESTS. Each fixture claim is built to trip exactly one signal --

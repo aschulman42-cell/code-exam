@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// hunt-repeat.mjs — reruns one --claim-locate --hunt command N times and reports the distribution
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // hunt-repeat.mjs — run the same `--claim-locate --hunt` invocation N times and
 // report a DISTRIBUTION instead of an anecdote.
 //

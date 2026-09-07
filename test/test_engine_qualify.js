@@ -1,4 +1,9 @@
-﻿// test_engine_qualify.js — the qualification scorer's PASS/FAIL rules.
+﻿// test_engine_qualify.js — engine-qualify scorer: negative/positive pass rules, strongest-per-element rows
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
+// test_engine_qualify.js — the qualification scorer's PASS/FAIL rules.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { scoreNegative, scorePositive, mergedRows, LONE_FLOOR } from '../scripts/engine-qualify.mjs';

@@ -1,3 +1,8 @@
+// llm-runner.js — resolves cloud/GGUF model descriptors and runs the calls, with cost gates, truncation tracking and provenance
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // llm-runner.js — shared LLM model-resolution + call plumbing.
 //
 // Lifted verbatim from pseudo-claims.js (#284 ranker Phase 0) so both the

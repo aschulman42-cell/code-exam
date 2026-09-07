@@ -1,4 +1,9 @@
 ﻿#!/usr/bin/env node
+// engine-qualify.mjs — pass/fails an engine on pinned negative+positive chart sidecars; no model calls
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // engine-qualify: score an engine's pinned qualification pair from sidecars.
 // (engine-qualification-check; spec = asus-CC's two-claim rubric, #311.)
 //

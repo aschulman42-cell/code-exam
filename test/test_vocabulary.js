@@ -1,3 +1,8 @@
+// test_vocabulary.js — vocabulary corpus: noise-doc exclusion, cross-corpus weights, claim-filter guards
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Coverage for #172: the vocabulary corpus excludes vendored / binary-decompiled
 // (.op) / minified files so their lexically-dense, domain-meaningless tokens
 // don't swamp TF-IDF and bury real domain terms. Unit-tests the _isNoiseDoc

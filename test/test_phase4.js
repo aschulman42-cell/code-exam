@@ -1,3 +1,8 @@
+// test_phase4.js — Phase 4 dedup: funcstrings, hashing, exact/near/structural dupes, duplicate files
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_phase4.js - Tests for Phase 4: Deduplication.
  *

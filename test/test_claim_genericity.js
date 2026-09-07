@@ -1,3 +1,8 @@
+// test_claim_genericity.js — claim genericity: head verbs, IO vs mechanism cues, element-class tallies
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_claim_genericity.js -- claim-chart-element-classes (2026-08-28).
  *

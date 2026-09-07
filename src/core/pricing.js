@@ -1,3 +1,8 @@
+// pricing.js — per-1M rate table for Claude/OpenAI/Gemini plus the USD cost estimator every AI surface shares
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * pricing.js — Anthropic model pricing + cost estimation (#llm-cost-display).
  *

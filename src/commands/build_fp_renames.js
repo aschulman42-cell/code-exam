@@ -1,3 +1,8 @@
+// build_fp_renames.js — writes _FP_ display renames into rename_map.json for cross-source fingerprint matches above a threshold
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * --build-fp-renames / --build-fingerprint-renames
  *

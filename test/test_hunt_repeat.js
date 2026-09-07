@@ -1,3 +1,8 @@
+// test_hunt_repeat.js — hunt-repeat harness: the run-report parser behind every reported distribution
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // test_hunt_repeat.js — the repeat-run harness's report parser.
 //
 // The parser is load-bearing: every distribution the harness reports is derived

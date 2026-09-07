@@ -1,3 +1,8 @@
+// test_answer_disclosure.js — refusal detection and disclosure notes over 11 verbatim local-model captures
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // #306 fix-list item 5 (F55, F56) — the declining-answer disclosure.
 //
 // EVERY fixture below is a REAL capture from asus-CC's Chat runs

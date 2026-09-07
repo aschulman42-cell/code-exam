@@ -1,3 +1,8 @@
+// test_file_resolution.js — #238 file-target resolution: exact match wins, leading `/` anchors to repo root
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * #238: file-target resolution — exact match wins, leading '/' anchors to root.
  *

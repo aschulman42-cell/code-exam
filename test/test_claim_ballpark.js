@@ -1,3 +1,8 @@
+// test_claim_ballpark.js — claim-ballpark script: distinctive-term selection, row reduction, ranking
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // claim-ballpark: claim -> distinctive terms -> one multisect per index -> one row per (claim, index).
 //
 // The pure parts are tested here without loading an index: term selection (the part that decides

@@ -1,3 +1,8 @@
+// binstrings.js — extracts printable strings from binaries into indexable .op pseudo-source; C++ demangling optional
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * binstrings.js - Extract indexable strings from compiled binaries.
  *

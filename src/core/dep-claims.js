@@ -1,3 +1,8 @@
+// dep-claims.js — resolves a claim set's dependency graph: depth, parent policy, contribution kind, and a residue report
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * dep-claims.js -- facts about ONE claim (dep-claim-rules.js) -> a CHAIN across a claim set.
  *

@@ -1,3 +1,8 @@
+// archive.js — expands ZIP/TAR/GZIP/HAR archives in memory (nested, depth-capped) for --build-index; zip-bomb guards
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * archive.js - In-memory archive expansion for --build-index.
  *

@@ -1,3 +1,8 @@
+// digest.js — --digest / --comments-only: renders mechanical function, class, and file digests with no interpretation
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * digest.js — CLI handlers for `--digest` and `--comments-only`.
  *

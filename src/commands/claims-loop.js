@@ -1,3 +1,8 @@
+// claims-loop.js — fills pseudo-claim chart cells from anchors and measures draft-vs-retrieval agreement; flags redrafts
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // ============================================================================
 // claims-loop.js — #290 harness: fill pseudo-claim chart cells and measure
 // draft<->retrieve agreement, from a finished chart + the candidates .lst

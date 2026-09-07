@@ -1,3 +1,8 @@
+// test_har.js — #161 .har expansion: text/base64 bodies, mime inference, URL dedupe, malformed input
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_har.js - Tests for .har (DevTools network capture) expansion in
  * --build-index (#161).

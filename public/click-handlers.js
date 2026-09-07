@@ -1,3 +1,8 @@
+// click-handlers.js — routes function/file/class/vocab row clicks to fetches and middle-pane renderers
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * click-handlers.js — Entry points for user-initiated clicks in the
  * left and middle panes: function rows, file rows, class rows, vocab

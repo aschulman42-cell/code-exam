@@ -1,3 +1,8 @@
+// test_claim_locate.js — claim-locate: symbol verify, element splitting, scavenger hunt, targets provenance
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // test_claim_locate.js — claim-locate-verify-navigate.
 //
 // The VERIFY half is fully mechanical, so it is tested for real. The PROPOSE

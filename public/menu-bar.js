@@ -1,3 +1,8 @@
+// menu-bar.js — top dropdown menus and their action dispatch, plus the README popup and tour engine
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * menu-bar.js — Top dropdown menus (Index, Search, Diagrams, etc.)
  * and the menu-action dispatcher. Each dropdown is declared in

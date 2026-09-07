@@ -1,3 +1,8 @@
+// test_follow_calls.js — --follow-calls (--deep) and --comments-only over extracted functions
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_follow_calls.js — Tests for --follow-calls (--deep) and --comments-only.
  */

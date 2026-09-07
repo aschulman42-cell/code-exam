@@ -1,3 +1,8 @@
+// calls.js — call-graph engine: resolves callees, finds callers, builds call inventories and per-name call counts
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * calls.js — Call-graph machinery: callers/callees/inventory/counts plus
  * the helpers that walk call sites. Pulled out of CodeSearchIndex.js in

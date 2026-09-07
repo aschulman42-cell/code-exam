@@ -1,3 +1,8 @@
+// answer-disclosure.js — appends a post-hoc note stating what a declining answer actually searched, rather than scoring refusals
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // answer-disclosure.js — #306 fix-list item 5 (F55, F56).
 //
 // CE catches "claimed without looking": ungroundedWarning() fires when a grounded

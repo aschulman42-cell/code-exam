@@ -1,3 +1,8 @@
+// test_first_run.js — first-run UX: bare `ce` welcome, demo auto-load, bad --index-path, no auto-REPL
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_first_run.js - First-run / no-command experience.
  *

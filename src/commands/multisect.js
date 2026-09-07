@@ -1,3 +1,8 @@
+// multisect.js — multi-term intersection search: parses term syntax, scores by IDF, ranks function/file/folder scopes
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * multisect.js - Multi-term intersection search ("scavenger hunt").
  * Port of ce_multisect.py.

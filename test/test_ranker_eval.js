@@ -1,3 +1,8 @@
+// test_ranker_eval.js — ranker scoring: midranks, tie-corrected Spearman, recall@k, purity, .lst parsers
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // test_ranker_eval.js — #284 ranker-scoring-harness (src/core/ranker-eval.js).
 //
 // Pins the metric math on hand-computable cases — INCLUDING tied inputs, the

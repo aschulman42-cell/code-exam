@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// litigated-claims-fetch.mjs — fetches litigated US patents' claim 1 + dependents from Google Patents
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // litigated-claims-fetch.mjs -- claim 1 + its dependent chain for litigated
 // US patents, fetched from patents.google.com (robots.txt allows /patent/).
 //

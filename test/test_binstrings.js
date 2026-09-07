@@ -1,3 +1,8 @@
+// test_binstrings.js — binstrings: string extraction, noise filter, mangled names, .op pseudo-source gate
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_binstrings.js - Tests for binary string extraction (binstrings).
  *

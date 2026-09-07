@@ -1,3 +1,8 @@
+// extract_js_from_binary.js — dispatches a native binary to its bundler-specific JS extractor (Bun today) and prints the result
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * `--extract-js-from-binary <path>` — top-level command and format dispatcher
  * for issue #74. Detects the bundler that produced a native install binary,

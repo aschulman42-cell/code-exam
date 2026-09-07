@@ -1,3 +1,8 @@
+// test_mechanism_ranker.js — #284 ranker: tolerant verdict parsing, priors, chunked batches with a P3 playoff
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // test_mechanism_ranker.js — #284 ranker Phase 0. Tests the DETERMINISTIC pieces
 // (tolerant verdict parser, priors) and drives rankCandidates with a MOCK drafter
 // — no live LLM in CI. The real-model behavior is validated by the pcrun soak.

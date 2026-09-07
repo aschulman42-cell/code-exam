@@ -1,3 +1,8 @@
+// test_phase2.js — Phase 2 call graph: callers/callees, call counts, file deps, reload persistence
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_phase2.js - Tests for Phase 2: callers, callees, call-tree, file-map.
  *

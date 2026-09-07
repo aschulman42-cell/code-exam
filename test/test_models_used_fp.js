@@ -1,3 +1,8 @@
+// test_models_used_fp.js — listModelsUsed: four false-positive shapes suppressed, real model ids kept
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_models_used_fp.js — #206 slice: false-positive suppression in the
  * listModelsUsed projection. Locks in the four FP shapes that polluted the

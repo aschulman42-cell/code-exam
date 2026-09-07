@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// pseudo-claim-loop.mjs — runs the pseudo-claim loop: synonymize, chart blind, score vs answer key
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // pseudo-claim-loop: the productized loop recipe (pseudo-claim-loop-test, #311).
 //
 // Hand-picked pseudo-claims -> synonymize -> chart each claim BLIND (original

@@ -1,3 +1,8 @@
+// ai-overview.js — agentic prose orientation: drives Claude/OpenAI/Gemini over CE's own MCP tools and sums per-turn cost
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * ai-overview.js — shared "Overview by AI" (#196) engine.
  *

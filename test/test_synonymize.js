@@ -1,3 +1,8 @@
+// test_synonymize.js — synonymizer: prompt build, marker/punctuation restore, overlap, corpus-arg guards
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // HOF-b synonymizer. Rewrite a claim's wording AWAY from code vocabulary, so a
 // corpus whose answers we already know becomes a real test of retrieval.
 //

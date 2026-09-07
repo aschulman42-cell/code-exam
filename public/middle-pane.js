@@ -1,3 +1,8 @@
+// middle-pane.js — middle-pane chrome (loading, nav history) and its result renderers, incl. multisect
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * middle-pane.js — The middle-pane render layer. Contains three
  * tightly-coupled groups that share the show-loading and nav chrome:

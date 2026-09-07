@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// anchor-recall.mjs — scores claim-search recall against saved anchors on CE's four-rung ladder
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * scripts/anchor-recall.mjs — HOF-c. Score CE's retrieval against the anchors
  * a pseudo-claim run already grounded.

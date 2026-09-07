@@ -1,3 +1,8 @@
+// inspect_binary.js — terse per-binary report of format, signing, framework, and embedded source hints before deeper extraction
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * `--inspect-binary <path-or-list-or-glob>` — fast "what is this and where
  * might I find related source" report for native binaries (#77, child of

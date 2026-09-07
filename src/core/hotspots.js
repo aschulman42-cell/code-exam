@@ -1,3 +1,8 @@
+// hotspots.js — ranks important functions, entry points, domain functions and classes, skipping vendored/minified noise
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * hotspots.js — Read-only ranked-listings of "important" functions and
  * classes in an index. Pulled out of `CodeSearchIndex.js` in Issue #18

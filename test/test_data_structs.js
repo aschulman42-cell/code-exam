@@ -1,3 +1,8 @@
+// test_data_structs.js — #194 extractDataStructures: struct/enum/union/trait/interface across Rust/C/Go/TS
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Coverage for #194 extractDataStructures: language-aware detection of
 // struct/enum/union/typedef/trait/interface across Rust/C/Go/TS, plus
 // reference-count ranking. Uses a mock index (fileLines Map) — no on-disk index.

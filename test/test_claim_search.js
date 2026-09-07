@@ -1,3 +1,8 @@
+// test_claim_search.js — --no-claim-filter: the vocab-concordance options decision at all three call sites
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // #301 — `--no-claim-filter`: send the codebase's own vocabulary instead of its
 // intersection with patent-ese.
 //

@@ -1,3 +1,8 @@
+// fingerprint.js — builds string+call-name fingerprints per function (hash and Jaccard) for bundling-resistant matching
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * Helpers for the string-call-dupe family (functions fingerprinted by their
  * distinctive string literals and called-name sets, rather than by structural

@@ -1,3 +1,8 @@
+// dom-utils.js — dependency-free DOM helpers, path/name formatters, and search-highlight utilities
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * dom-utils.js — DOM helpers, string formatters, and search-highlight
  * utilities. Pure leaves: no dependencies on state, api, or any other

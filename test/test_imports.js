@@ -1,4 +1,9 @@
-﻿// test_imports.js -- imports-bill-of-materials tier 1: the per-language
+﻿// test_imports.js — BoM tier 1: JS/C/Java/C# extractors, resolver classes, platform lists, residue
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
+// test_imports.js -- imports-bill-of-materials tier 1: the per-language
 // extractors. Same language-neutral row shape as Python; semantics mapped
 // per language (relative = intra-project wiring; C quoted includes are the
 // project-local form; star per language).

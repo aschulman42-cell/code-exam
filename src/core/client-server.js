@@ -1,3 +1,8 @@
+// client-server.js — detects declared HTTP routes and client calls, then reconciles them to flag missing server code
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * client-server.js — #197 Client/Server detector.
  *

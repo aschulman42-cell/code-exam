@@ -1,3 +1,8 @@
+// test_referenced_resources.js — external surface: URLs, env vars, paths, commands, cloud and model refs
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // #203: referenced-resources extractor — the codebase's external surface
 // (URLs/hosts, env vars, filesystem paths, external commands, cloud, models).
 // Builds a small fixture with known references and asserts each category is

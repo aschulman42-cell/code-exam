@@ -1,3 +1,8 @@
+// test_vocab_extract.js — vocabulary-guided terms: splitCompoundToken, prompt concordance, claim keywords
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_vocab_extract.js — Tests for vocabulary-guided term extraction.
  *

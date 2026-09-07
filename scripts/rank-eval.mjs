@@ -1,3 +1,8 @@
+// rank-eval.mjs — scores a candidate ordering against tiered ground truth (Spearman, recall@k, purity)
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // rank-eval.mjs — #284 ranker-scoring-harness runner: score a candidate-group
 // ORDERING against tier-annotated ground truth (tie-aware Spearman + recall@k)
 // and measure group PURITY, using the pure metrics in src/core/ranker-eval.js.

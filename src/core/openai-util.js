@@ -1,3 +1,8 @@
+// openai-util.js — OpenAI-shape helpers: reasoning budget floor, temperature gating, usage/text/finish-reason readers
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * openai-util.js — provider-shape helpers for the OpenAI / ChatGPT engine
  * (#243 Part B), shared by every OpenAI call site (server GUI dispatch, the CLI

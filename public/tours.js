@@ -1,3 +1,8 @@
+// tours.js — pure-data guided-tour step definitions shared by the GUI spotlight and `ce --tour`
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * tours.js — guided-tour definitions, shared by the GUI and the CLI.
  *

@@ -1,3 +1,8 @@
+// CodeSearchIndex.js — core index class: builds/saves/loads indexes, parses functions/classes, serves literal/inverted/regex search
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * CodeSearchIndex.js - Core data structure for Code Exam.
  *

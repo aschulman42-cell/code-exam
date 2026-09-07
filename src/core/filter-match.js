@@ -1,3 +1,8 @@
+// filter-match.js — one predicate for GUI/CLI filters: substring by default, /pattern/flags for opt-in regex
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * filter-match.js — one shared predicate for the left-pane GUI Filter box and
  * the CLI `--filter`, so `/pattern/flags` works uniformly across every listing

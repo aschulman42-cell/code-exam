@@ -1,3 +1,8 @@
+// graph.js — --call-tree/--class-tree/--file-map/--file-tree renderers, with Mermaid diagram output
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * graph.js - Call graph visualization: call-tree, file-map, file-tree.
  * Includes Mermaid diagram output.

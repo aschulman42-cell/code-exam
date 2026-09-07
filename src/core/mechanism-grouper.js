@@ -1,3 +1,8 @@
+// mechanism-grouper.js — clusters index functions into candidate mechanism groups from token, class, file and command seeds
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // mechanism-grouper.js — #284 B1 candidate-emitter.
 //
 // Deterministic (no LLM) clustering of an index's functions into candidate

@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// splitter-compare.mjs — prints CE's claim-element split beside the attorney's rows for one patent
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // splitter-compare.mjs -- CE's claim rows beside the drafting attorney's, for one litigated patent
 // from test/fixtures/litigated-claim1-structure.jsonl. The eyeball companion to the pinned
 // calibration numbers in test_claim_locate.js: the numbers say how often the tiers agree with

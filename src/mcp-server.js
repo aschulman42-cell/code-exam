@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// mcp-server.js — MCP stdio server exposing 27 index-query tools (search, callers, digest, overview) to MCP clients
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * mcp-server.js — MCP (Model Context Protocol) server for Code Exam.
  *

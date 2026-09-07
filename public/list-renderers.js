@@ -1,3 +1,8 @@
+// list-renderers.js — left-pane structural lists — functions, files, classes, dupes, AI/ML groups
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * list-renderers.js — Left-pane structural list renderers
  * (Functions, Files, Classes, Vocabulary, File Map, Dupes,

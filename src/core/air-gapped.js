@@ -1,3 +1,8 @@
+// air-gapped.js — enforces --air-gapped: blocks cloud calls, scrubs API keys, probes connectivity, emits the disclaimer
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * air-gapped.js — the single source of truth for `--air-gapped` (#223).
  *

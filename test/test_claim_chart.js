@@ -1,3 +1,8 @@
+// test_claim_chart.js — claim-chart pipeline: table structure, target budget, verdict merge, provenance, HTML
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // test_claim_chart.js — #300 Tier 2, the client deliverable.
 //
 // What is asserted here is STRUCTURE, never verdict content. The chart's value

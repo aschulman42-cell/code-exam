@@ -1,3 +1,8 @@
+// claim-selftest.mjs — deterministic offline retrieval regression score against curated anchors
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // claim-selftest.mjs — score CE's claim retrieval against hand-curated anchors,
 // with no GPU, no API key and no network.
 //

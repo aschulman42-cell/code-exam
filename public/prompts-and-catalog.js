@@ -1,3 +1,8 @@
+// prompts-and-catalog.js — lists+details for Prompts, Breadcrumbs, Bundle Seams, Catalog, Struct Diffs
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * prompts-and-catalog.js — Left-pane list renderers and middle-top
  * detail renderers for five accordion families: LLM Prompts,

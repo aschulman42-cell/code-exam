@@ -1,3 +1,8 @@
+// test_extract_roundtrip.js — #241 parse safety: emitted file@func copy-targets round-trip through doExtract
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_extract_roundtrip.js — #241 parse-safety.
  *

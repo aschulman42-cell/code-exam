@@ -1,3 +1,8 @@
+// test_minified.js — isMinified gate: .min.* shortcut, eligible extensions, the maxLine clause for bundles
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Regression coverage for isMinified — the gate for the whole minified-JS
 // prettify pipeline (#161). Previously untested; the avg-only gate silently
 // skipped tall SPA bundles (claude.ai / Google Docs .har captures) whose

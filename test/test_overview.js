@@ -1,3 +1,8 @@
+// test_overview.js — #181 buildOverview/formatOverview: collection detect, language histogram, key files
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Coverage for #181 buildOverview / formatOverview: the one-shot orientation
 // summary. Uses a mock index (no on-disk index needed) so the collection
 // detector, language histogram, vocab-density key files, and absence checks

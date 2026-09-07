@@ -1,3 +1,8 @@
+// test_claim_analyze.js — claim-analyze: claim scope, term probes, multisect scope ladder, per-element arm
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // #307 — claim-analyze retrieval fixes, measured against US 8,752,101 x
 // .AndroidX_Media_ExoPlayer3 (asus-CC, 2026-08-10).
 //

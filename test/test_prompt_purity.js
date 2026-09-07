@@ -1,3 +1,8 @@
+// test_prompt_purity.js — CI guard: shipped prompt templates carry no domain vocabulary or corpus symbols
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // test_prompt_purity.js — CI guard: shipped prompts must carry NO knowledge of
 // any particular codebase or problem domain.
 //

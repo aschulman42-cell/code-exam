@@ -1,3 +1,8 @@
+// structural-fingerprint.js — normalizes function bodies to funcstrings, hashes them exact/tight, and diffs near-dupes by word holes
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * structural-fingerprint.js — Structural normalization ("funcstrings"),
  * structural hashing (exact + tight modes), word-hole token extraction, and

@@ -1,3 +1,8 @@
+// build-claim-genre-df.mjs — builds the content-word document-frequency JSON for the genericity score
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // build-claim-genre-df.mjs -- content-word document frequencies over claim corpora, for the element
 // genericity score (src/core/claim-genericity.js). The corpora are NOT in the repo; this script names
 // them, and the JSON it writes records their sizes and the build date, so a rebuild is a script run.

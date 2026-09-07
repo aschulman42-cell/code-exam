@@ -1,3 +1,8 @@
+// claim-class.js — picks a pseudo-claim's statutory class (method vs system) by a stated word-list rule, with its reason
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * claim-class.js -- pseudo-claims-statutory-class (#311 track).
  *

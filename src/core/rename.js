@@ -1,3 +1,8 @@
+// rename.js — persists and applies the display-name rename map, and infers names for opaque minified identifiers
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * rename.js - Rename-map subsystem extracted from CodeSearchIndex.js
  * (Issue #18 Phase 2 peel 6, theme #2 Rename).

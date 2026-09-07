@@ -1,3 +1,8 @@
+// breadcrumbs-commands.js — extracts telemetry breadcrumbs and the CLI/route/GUI-action command catalog from indexed lines
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * breadcrumbs-commands.js — Two extractor methods pulled out of
  * CodeSearchIndex.js in Issue #18 Phase 2 (theme #6, the third of the

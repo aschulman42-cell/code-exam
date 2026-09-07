@@ -1,3 +1,8 @@
+// ai-overview-local.js — runs the AI overview on a local GGUF via node-llama-cpp tool-calling, with tool-floor and refusal guards
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * ai-overview-local.js — "Overview by AI" via a LOCAL GGUF model (#196 spike).
  *

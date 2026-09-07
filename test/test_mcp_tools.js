@@ -1,3 +1,8 @@
+// test_mcp_tools.js — MCP handleTool: digest, call_tree, command_catalog, models_used, absence disclosure
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Coverage for the chat-essential MCP tools (#35; chat enablers #34/#36):
 // digest, call_tree, command_catalog, models_used. Exercises the actual
 // handleTool dispatch (via the setIndex test seam) against a small built

@@ -1,3 +1,8 @@
+// test_help_flags.js — help discoverability: --gui/--port/--load-index in --help; --load-index synonym
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_help_flags.js - CLI help discoverability + --load-index synonym.
  *

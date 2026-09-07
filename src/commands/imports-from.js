@@ -1,3 +1,8 @@
+// imports-from.js — --imports-from: joins this index's imports against a second index's exports (resolved/private/not-found)
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * imports-from.js — --imports-from <lib-index> (#154): cross-index
  * import <-> export resolution.

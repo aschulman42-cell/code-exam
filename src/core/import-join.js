@@ -1,3 +1,8 @@
+// import-join.js — joins one index's imports to another's export catalog, verdicting resolved / private / not-found
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * import-join.js — shared cross-index import<->export join core (#162).
  *

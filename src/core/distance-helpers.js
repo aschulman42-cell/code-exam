@@ -1,3 +1,8 @@
+// distance-helpers.js — name-token, Jaccard, directory-prefix and file-extension distance functions for dupe/peer scoring
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * distance-helpers.js — Small string/path/set distance functions used by
  * the funcstring-peer-surprise and structural-dupe-group scorers in

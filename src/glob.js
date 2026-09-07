@@ -1,3 +1,8 @@
+// glob.js — zero-dep glob expander over Node fs supporting `*`, `**`, and `?` for file discovery
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * glob.js - Minimal glob implementation using only Node.js built-ins.
  * Supports *, **, and ? wildcards for file discovery.

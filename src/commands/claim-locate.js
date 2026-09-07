@@ -1,3 +1,8 @@
+// claim-locate.js — proposes symbols from a claim, verifies them against the index, navigates callees, emits targets
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // ============================================================================
 // claim-locate.js — --claim-locate: PROPOSE -> VERIFY -> NAVIGATE -> REFINE
 //

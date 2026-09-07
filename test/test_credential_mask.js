@@ -1,3 +1,8 @@
+// test_credential_mask.js — credential masking at the tool seam: assignment forms, random-token entropy gate
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // #306 F70 — credential masking at the tool-output seam.
 //
 // The measured leak: `claude_pto.py:97  API_KEY = "pVJt….uqDZ…SPdJ"` reached an

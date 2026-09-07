@@ -1,3 +1,8 @@
+// claim-chart.js — builds one-row-per-element claim charts merged across targets; CE owns structure, model fills cells
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // ============================================================================
 // claim-chart.js — --claim-chart: ONE element-per-row chart for a real patent
 // claim, merged across explicit targets. The client deliverable (#300 Tier 2).

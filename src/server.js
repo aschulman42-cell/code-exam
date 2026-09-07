@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// server.js — GUI HTTP server: /api JSON routes over loaded indexes, index building, LLM chat and AI overview
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * server.js - GUI server for Code Exam.
  *

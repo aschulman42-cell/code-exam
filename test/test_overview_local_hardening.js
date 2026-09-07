@@ -1,3 +1,8 @@
+// test_overview_local_hardening.js — local Overview gates: tool budget/floor, date pinning, damage cap
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Coverage for #276 overview-local hardening parity: the pure helpers that
 // gate the local Overview-by-AI paths (CLI runAiOverviewLocal and server
 // runAiOverviewLocalShared) — tool budget, special-token neutralization,

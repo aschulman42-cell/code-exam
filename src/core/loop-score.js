@@ -1,3 +1,8 @@
+// loop-score.js — scores a blind claim chart against drafted anchors: recall, mechanism PRESENT, control FPs, dependent grades
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // loop-score: the pseudo-claim loop's scorer (pseudo-claim-loop-test, #311).
 //
 // The loop manufactures ground truth (HOF): a pseudo-claim drafted FROM known

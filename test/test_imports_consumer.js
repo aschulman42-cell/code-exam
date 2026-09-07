@@ -1,3 +1,8 @@
+// test_imports_consumer.js — catalog consumer: classifyAgainstCatalogEntry, ancestor walk, catalogPkgKey
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_imports_consumer.js — #162 split 2: classifyAgainstCatalogEntry, the
  * static (no-live-B) classifier the --imports <catalog> consumer uses.

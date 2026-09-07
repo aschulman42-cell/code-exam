@@ -1,3 +1,8 @@
+// test_hotspots.js — #187: hotspots and entry_points skip vendored/minified files that stay indexed
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Coverage for #187: hotspots / entry_points exclude vendored + minified files
 // (reusing the #172 _isNoiseDoc gate). The noise files stay INDEXED and
 // searchable — only the ranked listings skip them, so they don't bury real

@@ -1,3 +1,8 @@
+// test_zip_index_load.js — #176 zipped-index loading: extractZipToDir over hand-built ZIPs, resolveIndexDir
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Coverage for zipped-index loading (#176): extractZipToDir + resolveIndexDir.
 // No zip *writer* exists in the project, so we hand-build minimal ZIPs (stored
 // + deflate members) in-memory to exercise the real central-directory parser.

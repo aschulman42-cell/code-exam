@@ -1,3 +1,8 @@
+// callers.js — --callers/--callees/--most-called/--call-inventory over the index's call graph, with depth and filters
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * callers.js - Caller/callee commands: callers, callees, most-called.
  * Port of ce_callers.py

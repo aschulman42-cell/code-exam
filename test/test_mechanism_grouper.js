@@ -1,3 +1,8 @@
+// test_mechanism_grouper.js — #284 candidate emitter: seeds, group splitting, vendored-subtree exclusion
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // test_mechanism_grouper.js — #284 B1 candidate-emitter (src/core/mechanism-grouper.js).
 //
 // class-seed fixes on a FABRICATED index — deterministic, no indexer; asserts the

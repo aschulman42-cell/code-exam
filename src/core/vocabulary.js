@@ -1,3 +1,8 @@
+// vocabulary.js — TF-IDF vocabulary discovery with noise-doc exclusion, concept extraction, and LLM-prompt formatting
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * vocabulary.js — TF-IDF-style vocabulary discovery for indexed source code.
  * Pulled out of `CodeSearchIndex.js` in Issue #18 Phase 2 (theme #24).

@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// check-app-loads.mjs — smoke test that evaluates app.js's module graph under DOM stubs
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Smoke test: verifies that public/app.js and its ES-module dependency graph
 // evaluate cleanly without runtime errors. Catches syntax errors, missing
 // exports, top-level reference errors, and circular-import deadlocks that

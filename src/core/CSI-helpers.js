@@ -1,3 +1,8 @@
+// CSI-helpers.js — deobfuscates minified JS, infers opaque names, scans string/comment state, classifies command gates
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * CSI-helpers.js — Free functions and module-level state pulled out of
  * CodeSearchIndex.js. Phase 1 mega-peel of Issue #18 (after the prior

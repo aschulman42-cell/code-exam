@@ -1,3 +1,8 @@
+// claim-terms.js — shared claim tokenizer: stop list, acronym rule, stemmer, and TF-IDF pick of distinctive claim words
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * claim-terms.js -- one definition of "content word" for everything that scores claim text against
  * a corpus: the ballpark screen (scripts/claim-ballpark.mjs), the element genericity score

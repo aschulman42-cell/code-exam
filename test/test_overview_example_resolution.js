@@ -1,3 +1,8 @@
+// test_overview_example_resolution.js — concept examples resolve to a definition, never the mention hub
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Coverage for #275 Part 1: Overview concept examples must resolve to the
 // example identifier's DEFINITION, not to the vocab's mention-concentration
 // top file (typically an import/dispatch hub, where the old hinted lookup

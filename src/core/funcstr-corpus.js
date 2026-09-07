@@ -1,3 +1,8 @@
+// funcstr-corpus.js — loads external funcstr-hash dumps as a DF corpus, labeling functions common / rare-shared / novel
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * funcstr-corpus.js — consume external funcstr-hashes file(s) as a reference
  * corpus (#128). CE can GENERATE funcstr-hashes (#16) but not, until now, USE

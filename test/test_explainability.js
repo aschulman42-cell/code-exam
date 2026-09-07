@@ -1,3 +1,8 @@
+// test_explainability.js — explainability cell: import gating, kinds, variants, data/prose file skip
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_explainability.js — tests for the #155 Explainability / Analysis cell
  * (listExplainability). Focus on the precision-critical behaviors:

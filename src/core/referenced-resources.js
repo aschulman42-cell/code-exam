@@ -1,3 +1,8 @@
+// referenced-resources.js — aggregates the external surface: env vars, URLs, paths, subprocess commands, cloud config, model IDs
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * referenced-resources.js — the "external surface" of a codebase (#203).
  *

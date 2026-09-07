@@ -1,3 +1,8 @@
+// multisect.js — two-phase multi-term intersection search, with per-term file counts and comment-vs-code match weighting
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * multisect.js — Multi-term intersection search ("scavenger hunt" / #146).
  * Pulled out of CodeSearchIndex.js in Issue #18 Phase 2 (theme #25).

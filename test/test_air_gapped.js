@@ -1,3 +1,8 @@
+// test_air_gapped.js — air-gap guard: flag state, assertLocalOnly gate, API-key scrub, disclaimer content
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // #223: unit coverage for the air-gapped guard module. The live blocking of the
 // real cloud call sites is verified manually (CLI + GUI with/without a key); here
 // we cover the deterministic core: flag state, the assertLocalOnly gate, the key

@@ -1,3 +1,8 @@
+// test_binary_sniff.js — TreeSitterParser guards: binary/MPEG-TS sniff keeps grammars off non-source (#299)
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // test_binary_sniff.js — #299/#88: binary content must never reach a language
 // grammar (the ExoPlayer MPEG-TS-as-TypeScript 2-hour build). Deterministic
 // units for the sniff + signature helpers, plus a live integration check that

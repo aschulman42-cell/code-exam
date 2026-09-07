@@ -1,3 +1,8 @@
+// layout.js — pane show/hide, column and split resizers, left-pane filter, find-in-pane, Window menu
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * layout.js — Layout / window management for the GUI.
  *

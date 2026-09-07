@@ -1,3 +1,8 @@
+// app.js — GUI orchestrator: accordion loading, click wiring, workspace, LLM analysis, Chat tab, boot
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * app.js - Code Exam GUI client.
  * Zero external dependencies. Pure DOM manipulation.

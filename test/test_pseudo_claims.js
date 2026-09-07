@@ -1,3 +1,8 @@
+// test_pseudo_claims.js — --claims-only machine format, anchor sidecar, truncation detection, dependents
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // --pseudo-claims --claims-only: the MACHINE-READABLE sibling of the human
 // artifact, plus the anchors sidecar that later becomes a scoreable answer key.
 //

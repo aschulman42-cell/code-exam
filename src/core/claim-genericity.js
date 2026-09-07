@@ -1,3 +1,8 @@
+// claim-genericity.js — scores a claim element generic-bookend vs mechanism via I/O-verb shape and corpus word frequency
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * claim-genericity.js -- is a claim element GENERIC (the bookend every system of the genre
  * satisfies) or a MECHANISM element (where a chart can be right or wrong about something)?

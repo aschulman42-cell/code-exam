@@ -1,3 +1,8 @@
+// test_archives.js — --build-index archive expansion: ZIP/TAR/GZIP, zip-in-zip, encryption, `!` paths
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_archives.js - Tests for archive expansion in --build-index.
  *

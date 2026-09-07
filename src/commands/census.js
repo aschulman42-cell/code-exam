@@ -1,3 +1,8 @@
+// census.js — --census-imports: ranks Python import targets across one index or a whole multi-index corpus
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * census.js — --census-imports (#156): ranked de facto API map for a corpus.
  *

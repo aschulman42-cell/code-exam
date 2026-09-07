@@ -1,3 +1,8 @@
+// test_catalog.js — #162 catalog emit: buildCatalogEntry root aliasing, mergeCatalog de-dupe and refresh
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_catalog.js — #162 catalog emit: buildCatalogEntry (library-keyed,
  * partitioned by root alias) + mergeCatalog (de-dupe by library, richest

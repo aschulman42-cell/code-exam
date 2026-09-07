@@ -1,3 +1,8 @@
+// test_disambiguation.js — callee name resolution: self/this, explicit qualification, same-class, inheritance
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_disambiguation.js - Tests for function/method name disambiguation.
  *

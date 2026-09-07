@@ -1,3 +1,8 @@
+// TreeSitterParser.js — WASM tree-sitter extraction for 11 grammars, with binary sniffing, a size cap and a per-parse timeout
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * TreeSitterParser.js - WASM-based function parsing using web-tree-sitter.
  *

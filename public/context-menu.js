@@ -1,3 +1,8 @@
+// context-menu.js — right-click menu for symbols/files, plus LLM engine status and availability gating
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * context-menu.js — Right-click context menu plus the LLM engine
  * helpers that drive its menu labels and pre-action availability

@@ -1,3 +1,8 @@
+// test_infrastructure.js — #168 infra detector: Containers/K8s/IaC/CI-CD file shapes, plus FP guards
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Coverage for the Infrastructure detector (#168) — file-shape classification
 // for Containers / Kubernetes / IaC / CI-CD. The detector is mechanical-first,
 // so these assertions pin both the positive shapes and the no-false-positive

@@ -1,3 +1,8 @@
+// dep-claim-rules.js — 13 awk-derived plus 5 new named patterns that read one claim's dependency and parent number
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Dependent-claim malformation rules: text -> facts about ONE claim.
 //
 // PROVENANCE. The thirteen named patterns below are ported from `claimlen.awk`

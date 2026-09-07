@@ -1,3 +1,8 @@
+// test_phase6.js — Phase 6 REPL: welcome, search modes, /extract, /callers, redirection, shell escape
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_phase6.js - Tests for Phase 6: Interactive REPL mode.
  *

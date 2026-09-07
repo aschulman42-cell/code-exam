@@ -1,3 +1,8 @@
+// api.js — fetch wrappers for every /api/* endpoint; 5-min default timeout, 10-min for index loads
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * api.js — Fetch wrappers for the Code Exam server's /api/* endpoints.
  *

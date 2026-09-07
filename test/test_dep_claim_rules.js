@@ -1,3 +1,8 @@
+// test_dep_claim_rules.js — dependent-claim malformation rules over real USPTO specimens: parents, taxonomy
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // Dependent-claim malformation rules (#311).
 //
 // The fixture is REAL published USPTO claim text, each specimen traceable to

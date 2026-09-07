@@ -1,3 +1,8 @@
+// test_whousedby.js — catalog v2 annotateUsedBy: named imports credited per library, self-imports excluded
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * test_whousedby.js — #162b catalog-v2 who-uses provenance: annotateUsedBy
  * credits a codebase's NAMED imports of a catalogued export to that library's

@@ -1,3 +1,8 @@
+// console.js — right-bottom tab switching plus the in-GUI REPL running CLI commands via /api/exec
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * console.js — Right-bottom pane: Analysis / Console tab switching,
  * plus the interactive Console (a REPL embedded in the GUI that runs

@@ -1,3 +1,8 @@
+// pseudo-claim-triage.js — deterministic KEEP/REVIEW/DROP first cut over a run's pseudo-claims, each verdict carrying its reasons
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // pseudo-claim-triage: a deterministic FIRST CUT over a run's pseudo-claims,
 // with every verdict carrying its reasons, so a 150-claim run does not need
 // human eyeballs on all 150 before anyone knows where to look.

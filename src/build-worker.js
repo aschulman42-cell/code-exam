@@ -1,3 +1,8 @@
+// build-worker.js — worker thread that runs CodeSearchIndex.buildIndex off the main loop, streaming progress to the parent
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * Worker thread for building indexes without blocking the main event loop.
  * Receives { sourcePath, indexPath, useTreeSitter } via workerData.

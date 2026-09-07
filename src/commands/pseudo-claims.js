@@ -1,3 +1,8 @@
+// pseudo-claims.js — drafts illustrative pseudo-claims from anchor-function evidence packs, with grounding and fixed caveats
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // pseudo-claims.js — `--pseudo-claims`: draft illustrative patent-style
 // "pseudo-claims" from evidence packs of explicit anchor functions.
 //

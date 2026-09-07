@@ -1,3 +1,8 @@
+// test_loop_score.js — loop-score: target keys, answer-key anchors, chart/control scoring, dependent grades
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // loop-score: the pseudo-claim loop's scorer (pseudo-claim-loop-test, #311).
 //
 // The merge is injected so these fixtures never drift from claim-chart.js's

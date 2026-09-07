@@ -1,3 +1,8 @@
+// state.js — the single shared mutable state object passed by reference across every GUI module
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * state.js — Global state for the Code Exam GUI.
  *

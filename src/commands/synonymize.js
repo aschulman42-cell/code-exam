@@ -1,3 +1,8 @@
+// synonymize.js — rewrites claim wording away from a codebase's identifiers to manufacture a retrieval gap; never reads an index
+// Copyright (c) 2026 Andrew Schulman
+// https://github.com/aschulman42-cell/code-exam
+// Co-authored with Claude (Claude Code).
+// Licensed under the Apache License, Version 2.0; see LICENSE.
 // synonymize.js — HOF-b. Rewrite a claim's WORDING away from a codebase's
 // identifiers while preserving its MEANING and STRUCTURE.
 //
