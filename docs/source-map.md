@@ -147,6 +147,7 @@ and data catalogs — those are not first-party source.
 - `scripts/claim-locate-stability.mjs` — measures run-to-run repeatability of --claim-locate targets
 - `scripts/claim-selftest.mjs` — deterministic offline retrieval regression score against curated anchors
 - `scripts/engine-qualify.mjs` — pass/fails an engine on pinned negative+positive chart sidecars; no model calls
+- `scripts/field-note.mjs` — turns an annotated CE transcript's [[comments]] into a post-ready markdown checklist
 - `scripts/hunt-repeat.mjs` — reruns one --claim-locate --hunt command N times and reports the distribution
 - `scripts/litigated-claims-fetch.mjs` — fetches litigated US patents' claim 1 + dependents from Google Patents
 - `scripts/pseudo-claim-loop.mjs` — runs the pseudo-claim loop: synonymize, chart blind, score vs answer key
