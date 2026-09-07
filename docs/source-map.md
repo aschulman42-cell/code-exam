@@ -135,9 +135,6 @@ and data catalogs — those are not first-party source.
 - `public/state.js` — the single shared mutable state object passed by reference across every GUI module
 - `public/style.css` — the GUI's dark IDE theme: CSS variables, three-pane layout, accordions, dialogs, tour
 - `public/tours.js` — pure-data guided-tour step definitions shared by the GUI spotlight and `ce --tour`
-- `public/app_OLD.js` — dead single-file GUI snapshot from before the module peel; unreferenced
-- `public/app_OLD2.js` — second dead single-file GUI snapshot, slightly newer than app_OLD.js; unreferenced
-- `public/style_OLD.css` — dead earlier copy of the theme; nothing links to it
 
 ## scripts — dev and evaluation harnesses
 

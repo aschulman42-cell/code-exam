@@ -13,8 +13,8 @@
 // `ce --claim-chart` invocation (spawned), so what the loop measures is
 // exactly what a user runs; nothing here talks to a model directly.
 //
-//   node scripts/pseudo-claim-loop.mjs --claims CE_3_pseudo_claims.txt \
-//     --source CE082826_SEED_claims.txt --index .CE_082826 \
+//   node scripts/pseudo-claim-loop.mjs --claims <pseudo_claims.txt> \
+//     --source <SEED_claims.txt> --index <.your_index> \
 //     [--control .someOtherIndex] [--llm claude] [--syn-llm chatgpt] \
 //     [--families] [--perturb] [--no-syn] [--limit N] [--dry-run]
 //
@@ -28,7 +28,7 @@
 //              perturbed row is EXPECTED ABSENT -- the graded-test negative
 //   --control  also chart each claim against this index (false-PRESENT rate)
 //   --dry-run  print every command that would run, run none (also the
-//              orientation mode for a new machine, e.g. asus-CC on GGUF:
+//              orientation mode for a new machine, e.g. a GGUF box:
 //              swap --llm for --model <gguf> and the recipe is unchanged)
 //
 // Cost: every chart is ~25-35 analyses on the chosen engine; --force is passed

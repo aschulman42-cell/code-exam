@@ -8,7 +8,8 @@
 // and measure group PURITY, using the pure metrics in src/core/ranker-eval.js.
 //
 // Dev-side only — not wired into the ce CLI (kept out of the shipping command
-// until the metric stabilizes; see worklist-drafts/ranker-scoring-harness.md).
+// until the metric stabilizes; see the ranker-scoring-harness item in the
+// project's worklist history).
 //
 // Usage:
 //   node scripts/rank-eval.mjs --index-path <idx> --lst <candidates.lst> --gt <gt.lst>

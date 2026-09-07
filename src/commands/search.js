@@ -7,7 +7,7 @@
  * search.js - Search commands: search, literal, fast, regex,
  * files-search, folders-search.
  *
- * Port of ce_search.py
+ * Origin: an earlier Python implementation (not in this repo).
  */
 
 import path from 'path';

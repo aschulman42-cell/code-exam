@@ -13,7 +13,7 @@
  *                                  --orig <dir> --syn <dir> [--detail N]
  *
  * <dir> holds per-claim --claim-search outputs named orig_NN.out / syn_NN.out,
- * as produced by sr_gh_claim_pairs/search_pairs.bat.
+ * as produced by a local claim-pairs batch (dev corpus, not in the repo).
  *
  * A VALIDATION HARNESS, NOT A CLI COMMAND. Scoring CE's retrieval against a key
  * CE itself generated is circular as a customer feature; it belongs beside
@@ -244,8 +244,8 @@ export function main(argv) {
 
   // ANCHOR INDEPENDENCE. `[class] X` candidate groups make anchors correlated by
   // construction: sr_gh claim 10 is 14 anchors that are 14 methods of one class,
-  // so a single class-level hit scores 14. asus-CC measured the same shape on
-  // Gemma3 -- 196 grounded anchors resolving to 70 distinct functions.
+  // so a single class-level hit scores 14. A second CE machine measured the same
+  // shape on Gemma3 -- 196 grounded anchors resolving to 70 distinct functions.
   if (indepClasses) {
     console.log('');
     console.log('INDEPENDENCE: ' + indepAnchors + ' distinct anchors across ' + indepClasses

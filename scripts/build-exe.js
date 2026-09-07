@@ -21,7 +21,7 @@
  *                              is in a Bun-compiled exe)
  *   dist/README.txt          — short distribution notes (SmartScreen, etc.)
  *
- * Distribution: ship the whole `dist/` directory as a zip. Clive unzips,
+ * Distribution: ship the whole `dist/` directory as a zip. The recipient unzips,
  * runs codeexam.exe.
  */
 

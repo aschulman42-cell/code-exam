@@ -5,7 +5,7 @@
 // Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
  * multisect.js - Multi-term intersection search ("scavenger hunt").
- * Port of ce_multisect.py.
+ * Origin: an earlier Python implementation (not in this repo).
  *
  * Users provide semicolon-separated search terms; tool finds the smallest
  * code location (function -> file -> folder) containing all terms.

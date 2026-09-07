@@ -21,6 +21,7 @@
   --text: #c8c8d8;
   --text-bright: #e8e8f4;
   --text-muted: #808098;
+  --text-dim: #606078;   /* was referenced 15 places but never defined — silently fell through */
   --accent: #7aa2f7;
   --accent-dim: #5580cc;
   --accent-green: #9ece6a;

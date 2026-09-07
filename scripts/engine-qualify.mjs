@@ -5,7 +5,7 @@
 // Co-authored with Claude (Claude Code).
 // Licensed under the Apache License, Version 2.0; see LICENSE.
 // engine-qualify: score an engine's pinned qualification pair from sidecars.
-// (engine-qualification-check; spec = asus-CC's two-claim rubric, #311.)
+// (engine-qualification-check; spec = the GGUF acceptance machine's two-claim rubric, #311.)
 //
 //   node scripts/engine-qualify.mjs --negative <'101-family>.verdicts.json --positive <tls>.verdicts.json [--engine <label>]
 //

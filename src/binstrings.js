@@ -26,7 +26,7 @@
  * and string literals, making all extracted strings searchable via the
  * inverted index, multisect, callers, etc.
  *
- * Ported from binstrings_2.py. Zero external dependencies.
+ * Origin: an earlier Python implementation (not in this repo). Zero external dependencies.
  * Demangling requires an external tool (vc++filt.exe, c++filt) if desired.
  */
 

@@ -19,7 +19,7 @@ import { contentWords } from '../src/core/claim-terms.js';
 
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 && args[i + 1] != null ? args[i + 1] : d; };
-const AI = opt('--ai-ml', 'C:/work/work_11525/ml/ai_ml_claims/ai_ml_candidates.ballpark.jsonl');
+const AI = opt('--ai-ml', null); // dev corpus, not in the repo — pass the path explicitly
 const LIT = opt('--litigated', 'litig_claims_gp/litigated_claim1.txt');
 const OUT = opt('--out', 'src/core/claim-genre-df.json');
 const MIN_DF = Number(opt('--min-df', '3'));
@@ -40,8 +40,8 @@ function df(texts, minDf) {
 }
 
 const profiles = {};
-if (fs.existsSync(AI)) { profiles['ai-ml'] = { source: 'AIPD 2023 predict93 x patbert claim 1s (2013-2017)', ...df(readJsonlClaims(AI), MIN_DF) }; }
-else console.error(`ai-ml corpus not found: ${AI} (skipped)`);
+if (AI && fs.existsSync(AI)) { profiles['ai-ml'] = { source: 'AIPD 2023 predict93 x patbert claim 1s (2013-2017)', ...df(readJsonlClaims(AI), MIN_DF) }; }
+else console.error(`ai-ml corpus ${AI ? `not found: ${AI}` : 'not provided (--ai-ml <candidates.jsonl>)'} (skipped)`);
 if (fs.existsSync(LIT)) { profiles.litigated = { source: 'litigated big-tech software claim 1s, litigated-claims-fetch.mjs', ...df(readClaimsOnly(LIT), Math.min(MIN_DF, 2)) }; }
 else console.error(`litigated corpus not found: ${LIT} (skipped)`);
 if (!Object.keys(profiles).length) { console.error('no corpora; nothing written'); process.exit(2); }

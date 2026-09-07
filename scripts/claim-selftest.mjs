@@ -14,7 +14,7 @@
 // written, by showing four of five anchors sit below any whole-claim quorum.
 //
 // Until now those numbers came from throwaway scripts rewritten each time, and
-// that cost real accuracy: asus-CC's figures and mine needed reconciling twice
+// that cost real accuracy: the two dev machines' figures needed reconciling twice
 // (file rank 98 vs "absent", a CLI-display artifact; and a six-term rank-1 result
 // still unreproduced). Two agents measuring the same thing with different ad-hoc
 // code is how that happens. This is the shared instrument.
@@ -23,12 +23,12 @@
 // the same livePositiveTerms / claimNeighbourhoodN the claim-analyze ladder uses.
 // A harness that reimplements what it measures only tests itself.
 //
-// Dev-side only, not wired into the ce CLI — same precedent as rank-eval.mjs and
-// overview-eval.mjs: an unstable metric stays out of the shipping command.
+// Dev-side only, not wired into the ce CLI — same precedent as rank-eval.mjs:
+// an unstable metric stays out of the shipping command.
 //
 // Usage:
-//   node scripts/claim-selftest.mjs
-//   node scripts/claim-selftest.mjs --index-path .CE_080426 --claim <file> --gt <anchors.lst>
+//   node scripts/claim-selftest.mjs          # needs the dev index .CE_080426 (not in the repo)
+//   node scripts/claim-selftest.mjs --index-path <your-index> --claim <file> --gt <anchors.lst>
 //   node scripts/claim-selftest.mjs --neighbourhood 0        # pre-ladder baseline
 //   node scripts/claim-selftest.mjs --terms 'a;/b|c/;d'      # skip extraction entirely
 //
