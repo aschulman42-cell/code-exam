@@ -528,6 +528,40 @@ describe('anchor refs normalize across every notation engines emit', () => {
     assert.equal(n('src/a.js:123').line, 123);
   });
 
+  // #321: the drafter's element annotation — asus-CC's three-line repro, from
+  // a run where all five dropped citations hand-verified as CORRECT while the
+  // artifact printed "(no cited anchor resolved to a real function)".
+  it("a trailing element annotation is stripped AND kept — the #321 shape", () => {
+    const r = n('zlib-1.3.2/deflate.c@deflateSetDictionary (receiving a dictionary, inserting the dictionary, initializing a hash table)');
+    assert.equal(r.file, 'zlib-1.3.2/deflate.c');
+    assert.equal(r.func, 'deflateSetDictionary', 'the name findFunctionMatches can resolve');
+    assert.equal(r.annotation, 'receiving a dictionary, inserting the dictionary, initializing a hash table');
+  });
+
+  it('the annotation strip does not disturb the range shapes or empty parens', () => {
+    // Numeric parentheticals are ranges (consumed earlier); `()` is the old
+    // empty-suffix rule; neither produces an annotation.
+    assert.equal(n('src/a.js@fn (L183-276)').annotation, '');
+    assert.equal(n('src/a.js@fn()').func, 'fn');
+    assert.equal(n('src/a.js@fn()').annotation, '');
+  });
+
+  it('the annotation lands in the parsed anchor as its element note', () => {
+    const out = parseGeneratedClaim(
+      'CLAIM: A method, comprising: a step.\nANCHORS:\n- zlib-1.3.2/deflate.c@deflateInit_ (receiving a data stream compression state structure)\n');
+    assert.equal(out.anchors.length, 1);
+    assert.equal(out.anchors[0].func, 'deflateInit_');
+    assert.equal(out.anchors[0].element, 'receiving a data stream compression state structure');
+  });
+
+  it('a genuinely unresolvable ref still drops, with the honest reason', () => {
+    const idx = { findFunctionMatches: () => [] };
+    const { grounded, dropped } = groundAnchors(idx,
+      [{ file: 'a.js', func: 'noSuchFn', line: 0, element: '', citedStart: 0, citedEnd: 0, shape: 'two-part' }]);
+    assert.equal(grounded.length, 0);
+    assert.equal(dropped[0].reason, 'cited function not found in index');
+  });
+
   it('every shape is NAMED, so an unrecognised one is a count and not a silence', () => {
     for (const r of ['a.js@f', 'a.js@f@L1-2', 'a.js@f (L1-2)', 'a.js@f [L1-2]',
       'a.js@f L1-2', 'd.md@L1-2', 'a.js:1', 'qmap']) {

@@ -695,8 +695,25 @@ export function normalizeAnchorRef(ref) {
   // containing `@`, which is a real case (issue-241 round-trips @-in-path).
   const cut = core.lastIndexOf('@');
   if (cut > 0) {
-    return { file: core.slice(0, cut).trim(), func: core.slice(cut + 1).trim().replace(/\(\)$/, ''),
-      line: 0, citedStart, citedEnd, shape };
+    let func = core.slice(cut + 1).trim().replace(/\(\)$/, '');
+    // #321: the drafter annotates a citation with the elements it supports —
+    // `…@deflateSetDictionary (receiving a dictionary, inserting the
+    // dictionary, initializing a hash table)` — and the whole trailing string
+    // was reaching findFunctionMatches as the function name, so five CORRECT
+    // citations dropped as 'cited function not found in index' and the
+    // artifact printed "(no cited anchor resolved to a real function)": a
+    // model-sounding reason for a parser defect, the exact :808 confusion
+    // class surviving in a new branch (asus-CC's hand-verified repro, #321).
+    // Same treatment as the trailing line range: strip the shape and RECORD
+    // it — which elements an anchor supports is signal, not noise. Numeric
+    // parentheticals were already consumed above as paren-range; `()` by the
+    // empty-suffix rule; nested parens fall through untouched (unseen shape,
+    // stays a countable miss rather than a guess).
+    let annotation = '';
+    const ann = func.match(/^(\S+?)\s*\(([^()]+)\)$/);
+    if (ann) { func = ann[1]; annotation = ann[2].trim(); }
+    return { file: core.slice(0, cut).trim(), func,
+      line: 0, citedStart, citedEnd, shape, annotation };
   }
   // No `@` and no range: `file:123`, or a bare token. A bare token with no
   // separator at all is the wrong-FIELD case asus-CC saw once in 37 claims —
@@ -770,7 +787,10 @@ export function parseGeneratedClaim(text) {
     const element = (parts.slice(1).join(' ') || '').trim();
     const norm = normalizeAnchorRef(ref);
     const { file, func, line, citedStart, citedEnd, shape } = norm;
-    if (file) anchors.push({ file, func, line, element, citedStart, citedEnd, shape });
+    // #321: a stripped element annotation joins the dash-separated element as
+    // the anchor's note (both may exist; neither is discarded).
+    const note = [element, norm.annotation].filter(Boolean).join(' — ');
+    if (file) anchors.push({ file, func, line, element: note, citedStart, citedEnd, shape });
   }
   return { prose, dependents, anchors };
 }
