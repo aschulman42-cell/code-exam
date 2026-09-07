@@ -29,6 +29,49 @@ Reference hardware for the verdicts below: RTX 5080 (16 GB) unless a
 cell says otherwise. Cloud engines (Claude/GPT/Gemini) are the reference
 column, not the subject of this table.
 
+## The determinism boundary — every place a model touches CE output
+
+The claim this section makes, and the reason it exists: **the entry
+points below are the ONLY places a language model touches CodeExam's
+output. Every other CE command is deterministic** — the same index and
+the same invocation produce the same bytes. For an examiner (or an
+opposing expert) this is the line that decides which parts of a CE work
+product can vary run-to-run and which cannot; `--reproducible` pins
+what can be pinned on the model side (temperature 0, fixed seed; local
+GGUF inference is bit-reproducible for identical invocations on the
+same engine build), and the provenance header records engine, model,
+and engine build so any variation is attributable.
+
+Verified three ways (2026-09-07): asus-CC's source-level audit (#321),
+CE's own `--prompt-catalog` after its two blind-spot fixes (file-scope
+labels now carry the constant's name; array-joined prompt builders now
+assemble), and hand-reconciliation of the differences between the two.
+
+| Surface | Entry points (file — prompt/builder) |
+|---|---|
+| --overview-by-ai | `core/ai-overview.js` — `AI_OVERVIEW_PROMPT` (+ `aiOverviewPrompt()` wrapper), `LOCAL_ENGINE_GROUNDING` (local-GGUF preamble) |
+| --analyze family | `commands/analyze.js` — `buildAnalyzePrompt`, `buildClaimAnalyzePrompt`, `buildMultisectAnalyzePrompt`, `buildContextAnalyzePrompt`, `buildFileAnalyzePrompt`, `buildClaimFilePrompt` (`doAnalyze` is the driver, not a prompt) |
+| Claim charts | `commands/claim-chart.js` — `buildChartAnalysisPrompt` (delegates to `buildClaimAnalyzePrompt` + dep-claims notes) |
+| claim-locate | `commands/claim-locate.js` — `buildDiscoverPrompt`, `buildSelectPrompt`, `buildHuntPrompt`, `buildProposePrompt`, `buildRefinePrompt` |
+| --claim-search extraction | `commands/claim.js` — `_CLAIM_EXTRACTION_PROMPT` (cloud) and `_CLAIM_EXTRACTION_PROMPT_LOCAL` (local GGUF — a deliberately separate local prompt path), via the `build(Local)ExtractionPromptWithVocab` wrappers |
+| claims-loop | `commands/claims-loop.js` — `buildRedraftPrompt` |
+| --synonymize | `commands/synonymize.js` — `buildSynonymizePrompt` |
+| Pseudo-claims drafting | `commands/pseudo-claims.js` — the drafting instruction (GENERATE_SYS port) + the fixed caveat blocks CE emits itself (added here by the catalog re-run; absent from the initial source audit) |
+| Mechanism ranker | `core/mechanism-ranker.js` — `buildBatchPrompt`, `buildVerdictPrompt` |
+| GUI Chat | `server.js` — `chatSystemPrompt` (+ its `systemMsg`/`grounded` fragments) |
+
+Catalog hits verified NOT to be model entry points, so a reader need
+not wonder: `--emit-harness` rendering (its header states "emitted
+deterministically, no LLM" — the one non-mechanical step is an explicit
+`load_model()` stub left to the user), and the user-facing help/tour
+strings the detector's breadth picks up (`CONSOLE_HELP`, `HELP_TEXT`,
+GUI section text, MCP tool descriptions).
+
+Everything not in this table — indexing, search, multisect, call
+graphs, dedup/fingerprints, BoM, digests, stats, extraction, the
+chart's retrieval and verdict-merge machinery around the model call —
+is deterministic code with no model in the loop.
+
 ## The matrix (status 2026-09-07 evening — K_M column complete, every cell evidenced)
 
 | Feature | Qwen3.5-27B | Qwen3.5-9B | Qwen3-14B | Gemma3-12B K_M | Gemma3-12B QAT | Devstral-Small |
