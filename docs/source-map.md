@@ -208,6 +208,7 @@ and data catalogs — those are not first-party source.
 - `test/test_multisect_scoring.js` — comment-vs-code match classification, IDF weighting, match-density scoring
 - `test/test_overview.js` — #181 buildOverview/formatOverview: collection detect, language histogram, key files
 - `test/test_overview_example_resolution.js` — concept examples resolve to a definition, never the mention hub
+- `test/test_overview_groundedness.js` — the budget refusal-loop stop and the prose-vs-evidence groundedness check
 - `test/test_overview_local_hardening.js` — local Overview gates: tool budget/floor, date pinning, damage cap
 - `test/test_overview_sdk.js` — #196 SDK AI Overview: tool allow-list, name normalization, grounding clause
 - `test/test_path_prefix.js` — commonPathPrefix: strict shared prefix and dominant prefix with outlier tolerance

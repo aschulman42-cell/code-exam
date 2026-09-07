@@ -34,7 +34,7 @@ column, not the subject of this table.
 | Feature | Qwen3.5-27B | Qwen3.5-9B | Qwen3-14B | Gemma3-12B K_M | Gemma3-12B QAT | Devstral-Small |
 |---|---|---|---|---|---|---|
 | Claim charts / claim-locate / claims-loop | **SUPPORTED** ¹ | **DEGRADED** ¹ | UNTESTED | UNTESTED | **DEGRADED** ² | UNTESTED |
-| --overview-by-ai | UNTESTED | UNTESTED | **UNSUPPORTED** ³ | **SUPPORTED** ³ | **UNSUPPORTED** ³ | **DEGRADED** ³ |
+| --overview-by-ai | UNTESTED | UNTESTED | **UNSUPPORTED** ³ | **SUPPORTED** ³ | **UNSUPPORTED** ³ | **DEGRADED** ³ᵇ |
 | --analyze family | UNTESTED | UNTESTED | UNTESTED | **DEGRADED** ⁴ | UNTESTED | UNTESTED |
 | --claim-search extraction (local prompt) | UNTESTED | UNTESTED | UNTESTED | UNTESTED | UNTESTED | UNTESTED |
 | --mask-all analysis | UNTESTED | UNTESTED | UNTESTED | **UNSUPPORTED** ⁴ | UNTESTED | UNTESTED |
@@ -69,11 +69,19 @@ expect terser cells.
   fails on exactly the interesting indexes is not supportable.
 - **Qwen3-14B: UNSUPPORTED (pre-fix)** — 2 tools, wrong AI/ML verdict
   with the evidence already in context.
-- **Devstral-Small: DEGRADED** — engages the tools and got AI/ML right;
-  its outright failures traced to CE's own budget arithmetic (OVERHEAD
-  under-reservation) plus the silent context-ladder halving, both fixed
-  in the #320 slate; 13.3 GB of weights on a 16 GB card is its real
-  constraint, and flash attention does not close the gap (measured).
+- **Devstral-Small: DEGRADED** ᵇ — engages the tools and got AI/ML
+  right. Post-slate history, in full: the slate's CORRECT overhead
+  arithmetic shrank the ctx-8192 tool budget 49% and exposed a
+  refusal-loop defect (the budget stop was a string the model could
+  ignore), taking Devstral 0-for-4; the refusal-loop fix (CE ends the
+  loop itself and re-synthesizes from gathered results with a reset
+  history) took it 3-for-3 on .zlib/.x265/.sr_gh, verified on the GGUF
+  acceptance machine (`ovloopfix_20260907_1200/`, CHANGES_FOR_UPSTREAM
+  2026-09-07). The stated limit: recovers via the budget rescue on a
+  16 GB card; does not complete a clean agentic run at ctx 8192, and
+  the rescued output restates the gathered results more than it
+  synthesizes. 13.3 GB of weights on a 16 GB card is the real
+  constraint; flash attention does not close the gap (measured).
 
 NOTE: these verdicts predate the #320 fix slate (models_used
 substitution/verification, measured overhead, evidentiary footer). The

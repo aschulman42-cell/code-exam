@@ -103,12 +103,23 @@ export function ungroundedWarning(toolCalls, grounding, prefetched = false) {
 // budget): an over-eager investigator gets cut off and told to write from
 // what it has, instead of accumulating results until the context overflows —
 // which for this in-process path ends in a native crash, not a clean error.
+// How many times the model may ignore the budget-exhausted refusal before CE
+// stops asking and ends the tool loop itself. ONE grace turn: the refusal is an
+// instruction, and a model that is going to honour it does so on the very next
+// turn. A second attempt means it is looping, and every further refusal is pure
+// context growth — measured at HEAD e53fa13 on Devstral-Small: 10 refusals on
+// .zlib, 23 on .x265 (to call 26), 39 on .sr_gh (to call 41, past maxCalls=24),
+// every one ending in "context shift strategy did not return a history that
+// fits". Asking a third time has never once produced prose.
+export const BUDGET_REFUSAL_LIMIT = 2;
+
 export function makeToolBudget({ maxCalls = 24, maxChars = 60000 } = {}) {
-  const b = { calls: 0, chars: 0, stopped: false };
+  const b = { calls: 0, chars: 0, stopped: false, refusals: 0 };
   b.gate = () => {
     b.calls++;
     if (b.stopped || b.calls > maxCalls || b.chars > maxChars) {
       b.stopped = true;
+      b.refusals++;
       return 'TOOL BUDGET EXHAUSTED — do not call any more tools. Write your complete overview now from the results you already have.';
     }
     return null;
@@ -145,9 +156,28 @@ export function needsSynthesizeRetry(raw, toolCalls) {
   return !String(raw || '').trim() && toolCalls > 0;
 }
 
-export function rescuedNote(toolCalls) {
-  return `ⓘ RECOVERED OUTPUT: the model made ${toolCalls} tool call(s) and then ended `
-    + 'its turn without writing anything. The overview below came from a second, '
+// Used ONLY on the budget-stop path, where the chat history cannot be trusted:
+// CE aborted generation mid tool-call turn, and re-prompting that session made
+// Devstral-Small write 1703 chars about London weather, FTSE prices and film
+// recommendations for a zlib index. Resetting the history and RE-SUPPLYING the
+// results as plain text removes the broken turn and puts the evidence in front
+// of the model explicitly, instead of trusting it to remember.
+export const SYNTHESIZE_FROM_RESULTS_PREAMBLE =
+  'Below are the tool results CodeExam already gathered from the loaded index. Write the '
+  + 'overview ONLY from these results. Every file name, symbol, count and model id you mention '
+  + 'MUST appear below verbatim. If the results do not support a statement, leave it out. Do '
+  + 'not describe anything other than this codebase.';
+
+export function rescuedNote(toolCalls, reason = 'empty-turn') {
+  // Two different things end in a synthesize-only pass, and saying the wrong one
+  // is a false statement about what happened: on the empty-turn path the model
+  // stopped on its own; on the budget path CE cut it off. The disclosure has to
+  // name the actual cause, not the shared symptom.
+  const cause = reason === 'budget'
+    ? `the model made ${toolCalls} tool call(s), then kept calling tools after CodeExam's `
+      + 'tool budget was spent, so CodeExam ended the tool loop itself'
+    : `the model made ${toolCalls} tool call(s) and then ended its turn without writing anything`;
+  return `ⓘ RECOVERED OUTPUT: ${cause}. The overview below came from a second, `
     + 'synthesize-only pass over results it had already gathered. Treat this as a '
     + 'model limitation on the agentic path, not a clean run.';
 }
@@ -308,6 +338,99 @@ export function countScorableTokens(text) {
   return (stripLeaked(text).match(SCORABLE_RE) || []).length;
 }
 
+// The distinctive tokens of a text, deduped and case-folded. Same regex as the
+// scorable count, so "distinctive" means the same thing in both places.
+export function scorableTokenSet(text) {
+  const out = new Set();
+  for (const m of stripLeaked(text).match(SCORABLE_RE) || []) {
+    const t = m.replace(/`/g, '').trim().toLowerCase();
+    if (t.length >= 3) out.add(t);
+  }
+  return out;
+}
+
+/**
+ * How much of the prose's distinctive vocabulary actually appears in the tool
+ * results CE gathered. null when there is too little of either to judge.
+ */
+export function groundednessRatio(prose, gatheredText) {
+  const p = scorableTokenSet(prose);
+  const g = scorableTokenSet(gatheredText);
+  if (!p.size || !g.size) return null;
+  let shared = 0;
+  for (const t of p) if (g.has(t)) shared++;
+  return { shared, total: p.size, ratio: shared / p.size };
+}
+
+// CALIBRATED, NOT PICKED — and deliberately low. Measured overlap on real
+// outputs from this machine (prose vs the tool results for its own index):
+//
+//   0.360  genuine   gemma K_M  .zlib
+//   0.300  echo      gemma QAT  .sr_gh      <- garbage that scores HIGH
+//   0.276  genuine   gemma QAT  .zlib
+//   0.158  genuine   qwen       .sr_gh
+//   0.080  genuine   gemma K_M  .sr_gh      <- GOOD prose that scores LOW
+//   0.000  cross-check: .zlib prose vs .sr_gh results, and the reverse
+//
+// The genuine band runs 0.08-0.36 and overlaps the garbage, so a "how grounded
+// is this" threshold does NOT exist in this data — an earlier 0.15 cut flagged
+// the good sr_gh overview and passed the prompt-echo. What IS clean is the
+// bottom: only prose about a DIFFERENT index scores 0. So this check answers
+// the narrow question "does this text share anything at all with the evidence",
+// which is the question the observed failure actually fails.
+export const GROUNDEDNESS_FLOOR = 0.05;
+
+// Too few distinctive tokens to score fairly — a short, honest answer should not
+// be accused of fabricating.
+export const GROUNDEDNESS_MIN_TOKENS = 8;
+
+// Prose long enough that saying nothing technical is itself the finding. The
+// measured fabrication was 1703 chars of fluent text naming not one identifier.
+export const GROUNDEDNESS_MIN_CHARS = 400;
+
+/**
+ * The warning for prose that cites tool calls but shares almost no vocabulary
+ * with what those tools returned.
+ *
+ * WHY THIS IS NOT COVERED BY ungroundedWarning(): that one fires only at ZERO
+ * tool calls, so CE has been treating "tools were called" as proof the prose is
+ * grounded. Measured counter-example (Devstral-Small, .zlib, this machine): four
+ * real tool calls, and prose about London weather, FTSE prices and film
+ * recommendations — emitted under a footer that said "Based on 4 model tool
+ * calls". Tool calls and groundedness are independent, and only this compares
+ * the answer against the evidence.
+ */
+export function ungroundedProseWarning(prose, gatheredText, toolCalls) {
+  if (!toolCalls) return null;                 // ungroundedWarning() owns that case
+  const body = stripLeaked(prose).trim();
+  if (body.length < GROUNDEDNESS_MIN_CHARS) return null;
+  const gathered = scorableTokenSet(gatheredText);
+  if (!gathered.size) return null;             // nothing to check against
+  const mine = scorableTokenSet(body);
+  const calls = `${toolCalls} tool call${toolCalls === 1 ? '' : 's'}`;
+
+  // Case 1 — substantial prose naming no identifier, file or symbol at all.
+  // This is the shape the measured fabrication took: 1703 chars about London
+  // weather, FTSE prices and film recommendations, under a footer that said
+  // "Based on 4 model tool calls".
+  if (!mine.size) {
+    return `⚠ PROSE NOT GROUNDED IN THE TOOL RESULTS: the text below names no file, symbol `
+      + `or identifier from this index — nothing technical at all — although the model made `
+      + `${calls}. An overview of a codebase that cites nothing from it is not an overview of `
+      + `it. Treat this as fabricated until checked against the code.`;
+  }
+
+  // Case 2 — it names things, but essentially none of them came from the tools.
+  const shared = [...mine].filter((t) => gathered.has(t)).length;
+  if (mine.size < GROUNDEDNESS_MIN_TOKENS) return null;
+  const ratio = shared / mine.size;
+  if (ratio >= GROUNDEDNESS_FLOOR) return null;
+  return `⚠ PROSE NOT GROUNDED IN THE TOOL RESULTS: ${shared} of ${mine.size} distinctive `
+    + `terms below (${Math.round(ratio * 100)}%) appear anywhere in what CodeExam's tools `
+    + `returned for this index, across ${calls}. The text is not unsourced for lack of trying `
+    + `— it does not match the sources. Treat it as fabricated until checked against the code.`;
+}
+
 // A nudge can knock a model out of the structured function-calling channel, so
 // it emits call syntax as literal prose that node-llama-cpp never intercepts.
 // That is not a weak answer, it is a broken protocol, and it is unambiguous.
@@ -420,6 +543,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
   let modelsUsedResult = '';   // #306 F70: the tool output the prose is checked against
   let overviewSeedResult = ''; // #320 1c: the deterministic seed, for seed-aware verification
   const toolCallCounts = new Map(); // #320 item 4: per-tool counts for the evidentiary footer
+  const gathered = [];         // every tool result, for groundedness + name verification
   const toolFloor = toolFloorFrom(process.env);
   try {
     // Load the index in-process and point handleTool at it (no MCP subprocess).
@@ -510,6 +634,21 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     // results until the context overflows, which crashes natively here.
     const { maxTokens: cappedMaxTokens, toolBudgetChars } = localBudgets(contextSize, maxTokens, measuredOverhead);
     const budget = makeToolBudget({ maxCalls: 24, maxChars: toolBudgetChars });
+
+    // #320 follow-up: the budget refusal is a STRING RETURNED TO THE MODEL, so
+    // a model that ignores it simply calls again — and each refusal is another
+    // turn of history. That is not a slow leak: it is the mechanism that turns
+    // a tight budget into total failure (0 bytes of prose), because the history
+    // overflows before the run can finish and the empty-turn rescue below never
+    // gets to run. CE therefore ends the tool loop ITSELF rather than asking.
+    //
+    // Separate controller from the timeout's, deliberately: the synthesize
+    // rescue must still be able to run after this fires, so it keeps using the
+    // timeout signal alone. Timeout aborts are forwarded INTO this one (rather
+    // than using AbortSignal.any, which needs Node 20.3+ while CE targets >=18).
+    const toolLoopAbort = new AbortController();
+    const budgetStopError = new Error('tool budget exhausted — CE ended the tool loop');
+    budgetStopError.ceBudgetStop = true;
     const byName = new Map(TOOLS.map(t => [t.name, t]));
     const functions = {};
     for (const name of TOOL_NAMES) {
@@ -522,6 +661,10 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
           const stop = budget.gate();
           if (stop) {
             if (budget.calls === 25 || budget.chars > toolBudgetChars) status(`budget-stop after ${budget.calls - 1} calls (${budget.chars} result chars)`);
+            if (budget.refusals >= BUDGET_REFUSAL_LIMIT && !toolLoopAbort.signal.aborted) {
+              status(`budget: model ignored the stop ${budget.refusals}x — ending the tool loop and synthesizing from ${budget.chars} chars already gathered`);
+              toolLoopAbort.abort(budgetStopError);
+            }
             return stop;
           }
           status(`tool ${name}(${JSON.stringify(args || {}).slice(0, 120)})`);
@@ -542,6 +685,16 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
           if (name === 'models_used') modelsUsedResult = capped;
           // #320 1c: the overview seed, for seed-aware name verification.
           if (name === 'overview' && !overviewSeedResult) overviewSeedResult = capped;
+          // EVERY result, not just these two. Two things need the whole set:
+          // the groundedness check (is the prose about THIS index at all), and
+          // the AI/ML name verification, whose basis was models_used + the seed
+          // only — so a name the model correctly read out of `digest` or
+          // `list_files` was footnoted as unverified. Measured: Gemma K_M's
+          // CORRECT sr_gh sentence cites Qwen_Qwen3_4B_Base_e5_lr0…, a real
+          // path with 51 matches in the index, and was footnoted anyway. Same
+          // structural error as the bug #320 fixed — the guard's evidence base
+          // narrower than the model's.
+          gathered.push(capped);
           budget.charge(capped.length);
           return capped;
         },
@@ -623,16 +776,70 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
       }, timeoutMs);
       if (timer.unref) timer.unref();
     });
+    // Forward a timeout into the tool-loop signal so the main prompt still stops
+    // on timeout; the reverse is deliberately NOT wired, so a budget stop leaves
+    // the timeout signal clean for the synthesize rescue.
+    timeoutAbort.signal.addEventListener('abort',
+      () => { if (!toolLoopAbort.signal.aborted) toolLoopAbort.abort(timeoutAbort.signal.reason); },
+      { once: true });
 
     let raw;
     let rescued = false;
+    let budgetStopped = false;
     try {
       // onStream surfaces the live model output (incl. <think> blocks and tool
       // reasoning) for testing; the final stdout prose still strips <think>.
-      raw = await Promise.race([
-        session.prompt(promptText, { functions, maxTokens: cappedMaxTokens, signal: timeoutAbort.signal, onTextChunk: onStream ? (c) => onStream(c) : undefined }),
-        timeout,
-      ]);
+      try {
+        raw = await Promise.race([
+          session.prompt(promptText, { functions, maxTokens: cappedMaxTokens, signal: toolLoopAbort.signal, onTextChunk: onStream ? (c) => onStream(c) : undefined }),
+          timeout,
+        ]);
+      } catch (e) {
+        // A CE-initiated budget stop is not a failure: the tool results are
+        // already in the session, so fall through with an empty `raw` and let
+        // the synthesize rescue below turn them into prose. Any other error
+        // (timeout included) still propagates.
+        if (!(e && e.ceBudgetStop)) throw e;
+        raw = '';
+        budgetStopped = true;
+        // Must NOT start with "tool " — index.js suppressed lines with that
+        // prefix pre-slate (they are the per-call log), so a disclosure worded
+        // that way would have hidden itself; and any harvester counting
+        // `tool NAME(` lines would score this as a real tool call.
+        status('budget: tool loop ended by CE — synthesizing from gathered results');
+      }
+
+      // BUDGET-STOP RESCUE — deliberately NOT the same-session retry below.
+      // That one re-prompts the existing session, which works when the model
+      // simply ended its turn (history intact). Here CE aborted mid-turn, so the
+      // history ends on an unanswered tool call and the model synthesises from
+      // nothing: measured, it produced fluent prose about London weather for a
+      // zlib index. Reset the history and hand the results back as text.
+      // Not once the timeout has already fired: the rescue cannot succeed (its
+      // own race is against an already-rejected promise) and attempting it logs
+      // a second, wrong-sounding cause for an outcome the timeout produced.
+      if (budgetStopped && !timeoutAbort.signal.aborted) {
+        // Leave room for the answer: the results are the bulk of the prompt.
+        const room = Math.max(1000, Math.floor(toolBudgetChars));
+        let supplied = '';
+        for (const g of gathered) {
+          if (supplied.length + g.length > room) break;
+          supplied += (supplied ? '\n\n' : '') + g;
+        }
+        status(`budget rescue: re-prompting with ${supplied.length} chars of gathered results (history reset)`);
+        try {
+          await session.resetChatHistory();
+          raw = await Promise.race([
+            session.prompt(`${SYNTHESIZE_FROM_RESULTS_PREAMBLE}\n\n${supplied}\n\n${SYNTHESIZE_NOW_PROMPT}`, {
+              maxTokens: Math.min(cappedMaxTokens, SYNTHESIZE_RETRY_MAX_TOKENS),
+              signal: timeoutAbort.signal,
+              onTextChunk: onStream ? (c) => onStream(c) : undefined,
+            }),
+            timeout,
+          ]);
+          rescued = !!String(raw || '').trim();
+        } catch (e2) { status(`budget rescue failed: ${e2.message}`); }
+      }
       // Some local models end the turn after the tool phase without writing an
       // answer: `raw` comes back "" though every tool call succeeded and the
       // budget is nowhere near spent (Gemma 3 12B Q4_K_M, 107-file index: 12
@@ -649,7 +856,10 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
       // Capped well under cappedMaxTokens because an overview needs hundreds of
       // tokens (observed rescues: ~520) and a shorter generation is a shorter
       // synchronous block, which is the suspected stall mechanism.
-      if (needsSynthesizeRetry(raw, budget.calls)) {
+      // Same timeout guard as the budget rescue above: after a timeout the
+      // output is empty BECAUSE OF the timeout, and "empty final turn after N
+      // tool calls" would name a model behaviour that did not happen.
+      if (!timeoutAbort.signal.aborted && needsSynthesizeRetry(raw, budget.calls)) {
         status(`empty final turn after ${budget.calls} tool calls — re-prompting to synthesize`);
         try {
           raw = await Promise.race([
@@ -733,11 +943,24 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     // #276 fabrication guard: 0 tool calls in grounded mode = not an overview.
     const warn = ungroundedWarning(toolCalls, grounding, prefetched);
     if (warn && prose) prose = `${warn}\n\n${prose}`;
+    // ungroundedWarning() above only fires at ZERO tool calls, which has meant
+    // CE treats "tools were called" as proof the prose is grounded. It is not:
+    // measured on this machine, Devstral made four real calls on .zlib and then
+    // wrote about London weather and share prices. This compares the answer to
+    // the evidence rather than to the call count. Prepended, because a reader
+    // who trusts the first paragraph must not have to reach the footer.
+    if (prose) {
+      const notGrounded = ungroundedProseWarning(prose, gathered.join('\n'), toolCalls);
+      if (notGrounded) {
+        prose = `${notGrounded}\n\n${prose}`;
+        status('prose shares (almost) nothing with the gathered tool results — flagged as ungrounded');
+      }
+    }
     // Say so when the prose came from the rescue pass. Without this a rescued
     // overview is indistinguishable from a healthy one, and the model defect
     // becomes invisible the moment the workaround lands — the workaround would
     // then quietly mask the very thing that justifies replacing the model.
-    if (rescued && prose) prose = `${rescuedNote(toolCalls)}\n\n${prose}`;
+    if (rescued && prose) prose = `${rescuedNote(toolCalls, budgetStopped ? 'budget' : 'empty-turn')}\n\n${prose}`;
     // #306 F70 + #320 1a/1c: check the AI/ML sentence against models_used.
     // Appended, never rewritten — silently editing the model's prose would make
     // CE's output no longer what the model produced, which is the one thing the
@@ -759,11 +982,14 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
         status('verification: CE ran models_used itself (the model never called it) — NOT a model tool call');
       } catch (e) { status(`verification models_used failed: ${e.message}`); }
     }
+    // The verification basis is every tool result, not the seed alone — a name
+    // read out of `digest` or `list_files` is evidence the model actually saw.
+    const verifyBasis = [overviewSeedResult, ...gathered].join('\n');
     if (prose) {
-      const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult);
+      const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, verifyBasis);
       if (aimlNote) {
         prose += aimlNote;
-        status(`AI/ML sentence names ${unsupportedModelNames(prose, verifyModelsUsed, overviewSeedResult).length} term(s) absent from models_used — footnoted`);
+        status(`AI/ML sentence names ${unsupportedModelNames(prose, verifyModelsUsed, verifyBasis).length} term(s) absent from models_used — footnoted`);
       }
       const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed });
       if (converseNote) {
