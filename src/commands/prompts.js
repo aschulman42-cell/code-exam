@@ -735,6 +735,17 @@ const PROMPT_MAX_CHARS = 50000;
 // deliberately NOT here — markdown-style prompts legitimately begin with it.
 const PROMPT_BAD_START = new Set(['}', ',', ')', ']', ':', ';', '.', '|', '=', '{', '[', '(']);
 
+// #321 blind spot 1: a module-level prompt constant has no enclosing function,
+// so eleven entries all printed `Function: (file scope)` and the identity lived
+// only on the Variable/property line — which is how a `findstr Function`
+// inventory dropped 10 of 34 detected prompts, including AI_OVERVIEW_PROMPT.
+// The label now carries the variable name, so no Function-line filter can hide
+// a file-scope prompt. Exported for tests.
+export function promptFuncLabel(p) {
+  if (p.funcDisplay || p.func) return p.funcDisplay || p.func;
+  return p.varName ? `(file scope: ${p.varName})` : '(file scope)';
+}
+
 export function _looksLikeNonPrompt(text) {
   if (!text) return true;
   if (text.length > PROMPT_MAX_CHARS) return true;
@@ -802,7 +813,7 @@ export async function doPromptCatalog(index, args) {
   for (const p of prompts.slice(0, maxResults)) {
     idx++;
     const shortPath = p.filepath.length > 60 ? '…' + p.filepath.slice(-59) : p.filepath;
-    const funcLabel = p.funcDisplay || p.func || '(file scope)';
+    const funcLabel = promptFuncLabel(p);
     console.log('='.repeat(72));
     console.log(`PROMPT [${idx}]  ${shortPath}:L${p.lineNum}`);
     if (p.varName) console.log(`  Variable/property: ${p.varName}`);
@@ -898,8 +909,17 @@ async function _expandCompositePrompts(index, prompts) {
         // For stub prompts (Pattern 2 with no nearby string — anchored at
         // the function declaration line), there is no string to find;
         // resolve the function directly by row.
+        //
+        // #321 blind spot 2: Pattern-6 builder entries are stubs too. Their
+        // placeholder text has no string node at the declaration row, so they
+        // fell through here and the function-level assembly below never ran —
+        // which is why a builder whose body is `return ['…','…'].join('\n')`
+        // (buildSynonymizePrompt, buildRedraftPrompt) cataloged ZERO prompts:
+        // the detector saw the function, the expansion required a string it
+        // could not have. Measured by asus-CC on a fresh ./src index.
         const targetRow = prompt.lineNum - 1;
-        const isStub = prompt.type && prompt.type.endsWith('-stub');
+        const isBuilder = prompt.type === 'prompt-builder-function';
+        const isStub = !!(prompt.type && (prompt.type.endsWith('-stub') || isBuilder));
         const stringNode = isStub ? null : _findStringNodeAt(tree.rootNode, targetRow, prompt.text);
         if (!isStub && !stringNode) continue;
 
@@ -927,7 +947,33 @@ async function _expandCompositePrompts(index, prompts) {
         if (funcNode && !handledFunctions.has(funcNode.id)) {
           const fnScope = _buildLocalStringMap(funcNode);
           const fnUsed = new Set();
-          const assembled = _tryExpandReturnArrayJoin(funcNode, fnScope, fnUsed);
+          let assembled = _tryExpandReturnArrayJoin(funcNode, fnScope, fnUsed);
+          // #321 blind spot 2, second shape: the join is bound to a LOCAL and
+          // returned inside an object — `const sys = ['…'].join('\n');
+          // return { sys, user }` (buildRedraftPrompt). The return expression
+          // is not renderable, and the scope map deliberately does not peel
+          // `.join` (its callers use arrays for SPREADS, where a join result
+          // is a string). So walk the builder's own declarators and render
+          // each VALUE — a join-call renders via the renderer's array-join
+          // case, a template-string local via its literal case — keeping the
+          // longest substantial result. Same join idiom, not general
+          // dataflow: a builder with no renderable binding still yields
+          // nothing and keeps its note-only entry.
+          if (!assembled && isBuilder) {
+            const body = funcNode.childForFieldName('body');
+            const stack = body ? [body] : [];
+            while (stack.length) {
+              const n = stack.pop();
+              if (n.type === 'variable_declarator') {
+                const v = n.childForFieldName('value');
+                if (v) {
+                  const t = _renderReturnExpression(v, fnScope, new Set());
+                  if (t && t.length >= 200 && (!assembled || t.length > assembled.length)) assembled = t;
+                }
+              }
+              for (let i = 0; i < n.childCount; i++) stack.push(n.child(i));
+            }
+          }
           // Require more content than the detected prompt alone — a trivial
           // helper like `return [a, b].join(',')` wouldn't beat the already-
           // detected string's length.
@@ -955,7 +1001,12 @@ async function _expandCompositePrompts(index, prompts) {
         // Stubs have no per-expression fallback — they exist only so the
         // function-level pass above can fire. If that didn't produce anything,
         // drop the stub from the catalog (its placeholder text isn't useful).
+        // EXCEPT Pattern-6 builder entries (#321): their note-only text
+        // ("use --extract …") is the pre-existing catalog behaviour when
+        // assembly finds nothing, and an unassemblable builder is still a
+        // real LLM entry point worth listing.
         if (isStub) {
+          if (isBuilder) continue;
           toRemove.add(promptIndex.get(prompt));
           continue;
         }

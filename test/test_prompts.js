@@ -13,7 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
-import { _looksLikeNonPrompt, collectPrompts } from '../src/commands/prompts.js';
+import { _looksLikeNonPrompt, collectPrompts, promptFuncLabel } from '../src/commands/prompts.js';
 
 test('#169: keeps real prompts (prose, incl. prose-with-a-snippet)', () => {
   for (const t of [
@@ -104,4 +104,88 @@ test('recognizes a .jinja2 prompt template in a prompt dir; ignores one outside'
   assert.equal(inDir.type, 'template-in-prompt-dir', 'should be tagged template-in-prompt-dir');
   assert.ok(!outDir, 'a .jinja2 outside any prompt dir should NOT be collected');
   assert.ok(rootDir, 'a .jinja2 in a TOP-level prompts/ dir should be collected too');
+});
+
+// ===========================================================================
+// #321: the two --prompt-catalog blind spots asus-CC measured (10 of 34
+// detected prompts hidden behind a bare "(file scope)" label; array-joined
+// prompt builders cataloged as ZERO prompts).
+// ===========================================================================
+
+test('#321: a file-scope prompt carries its variable name in the Function label', () => {
+  assert.equal(promptFuncLabel({ func: null, funcDisplay: null, varName: 'AI_OVERVIEW_PROMPT' }),
+    '(file scope: AI_OVERVIEW_PROMPT)');
+  assert.equal(promptFuncLabel({ func: 'buildFoo', funcDisplay: null, varName: 'x' }), 'buildFoo');
+  assert.equal(promptFuncLabel({ func: null, funcDisplay: null, varName: null }), '(file scope)');
+});
+
+test('#321: a return-array-join prompt builder is cataloged with its assembled text', async () => {
+  const SRC = path.join(os.tmpdir(), 'ce_prompts_join_src');
+  const IDX = path.join(os.tmpdir(), 'ce_prompts_join_idx');
+  fs.rmSync(SRC, { recursive: true, force: true });
+  fs.mkdirSync(SRC, { recursive: true });
+  // The buildSynonymizePrompt shape: 40 short lines, none individually
+  // prompt-shaped, joined at return. Generic wording, not CE's own prompt.
+  const lines = [
+    "'You rewrite one clause of a legal document.'",
+    "''",
+    "'GOAL: express the SAME requirement in DIFFERENT WORDS, so that the'",
+    "'wording no longer matches the vocabulary the original drafter used.'",
+    "'PRESERVE the requirement, the scope, and every condition exactly.'",
+    "'Reply with only the rewritten clause and nothing else.'",
+  ].join(',\n    ');
+  fs.writeFileSync(path.join(SRC, 'rewriter.js'),
+    `export function buildRewritePrompt() {\n  return [\n    ${lines}\n  ].join('\n');\n}\n`);
+  const index = new CodeSearchIndex({ indexPath: IDX });
+  await index.buildIndex(SRC, { showProgress: false });
+  const prompts = await collectPrompts(index, {});
+  const hit = prompts.find(p => p.text.includes('express the SAME requirement in DIFFERENT WORDS'));
+  assert.ok(hit, 'the joined prompt text must be cataloged: ' +
+    JSON.stringify(prompts.map(p => [p.filepath, p.type, p.text.slice(0, 40)])));
+  assert.match(hit.type, /function-assembly/);
+});
+
+test('#321: a join bound to a local and returned in an object is cataloged too', async () => {
+  const SRC = path.join(os.tmpdir(), 'ce_prompts_local_src');
+  const IDX = path.join(os.tmpdir(), 'ce_prompts_local_idx');
+  fs.rmSync(SRC, { recursive: true, force: true });
+  fs.mkdirSync(SRC, { recursive: true });
+  // The buildRedraftPrompt shape: `const sys = [...].join('\n'); return {sys,user}`.
+  fs.writeFileSync(path.join(SRC, 'redraft.js'), [
+    'export function buildRevisePrompt(input) {',
+    '  const sys = [',
+    "    'You revise a draft summary so it accurately describes the provided text.',",
+    "    'Rules:',",
+    "    '- PRESERVE verbatim every sentence marked as CORRECT in the verdict list.',",
+    "    '- REWRITE each sentence marked WRONG so it matches the source material.',",
+    "    '- If nothing supports a sentence, DROP it rather than inventing support.',",
+    "  ].join('\n');",
+    '  const user = `INPUT:\n${input}`;',
+    '  return { sys, user };',
+    '}',
+    '',
+  ].join('\n'));
+  const index = new CodeSearchIndex({ indexPath: IDX });
+  await index.buildIndex(SRC, { showProgress: false });
+  const prompts = await collectPrompts(index, {});
+  const hit = prompts.find(p => p.text.includes('PRESERVE verbatim every sentence marked as CORRECT'));
+  assert.ok(hit, 'the local-bound joined prompt must be cataloged: ' +
+    JSON.stringify(prompts.map(p => [p.filepath, p.type, p.text.slice(0, 40)])));
+});
+
+test('#321: an array of non-prompt strings is NOT dragged in by the join rule', async () => {
+  const SRC = path.join(os.tmpdir(), 'ce_prompts_neg_src');
+  const IDX = path.join(os.tmpdir(), 'ce_prompts_neg_idx');
+  fs.rmSync(SRC, { recursive: true, force: true });
+  fs.mkdirSync(SRC, { recursive: true });
+  // A stop-word list joined for a regex — no prompt vocabulary, and the
+  // function name carries no *Prompt marker, so neither pattern should bite.
+  fs.writeFileSync(path.join(SRC, 'stopwords.js'),
+    `export function stopWordsRe() {\n  return ['the','of','and','a','to','in','is','it','on','for'].join('|');\n}\n`);
+  const index = new CodeSearchIndex({ indexPath: IDX });
+  await index.buildIndex(SRC, { showProgress: false });
+  const prompts = await collectPrompts(index, {});
+  const hit = prompts.find(p => p.filepath.includes('stopwords.js'));
+  assert.equal(hit, undefined, 'a stop-word join must not be cataloged: ' +
+    JSON.stringify(prompts.filter(p => p.filepath.includes('stopwords.js')).map(p => p.type)));
 });
