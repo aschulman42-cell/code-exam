@@ -12,7 +12,7 @@
  * All exports are pure: each takes a `bodyText` string (or array of bodies)
  * and returns computed values. No `idx` parameter needed — the cluster is
  * self-contained, except that `STRUCTURE_KEYWORDS` is also consumed by
- * the Vocabulary theme (still in CSI.js) and re-imported there.
+ * the Vocabulary theme (src/core/vocabulary.js) and imported there.
  *
  * Cross-references inside this module use bare-name calls (`getStructuralNormalized`,
  * `_countControlFlowTokens`, `extractWordHoles`); they used to be `this.foo()`

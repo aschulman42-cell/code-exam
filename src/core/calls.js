@@ -9,11 +9,10 @@
  * Issue #18 Phase 2 (theme #16, fourth and most-coupled of the big-5
  * targets).
  *
- * 11 free-function exports, each taking idx as first arg. The 3
- * underscore-private methods (_resolveCalleeTarget, _findCallersByExactRegex,
- * _buildDefinitionLookup) are not wrappered in the CSI class — they are
- * called only from within this module. The other 7 + guessProvenance get
- * wrappered.
+ * Free-function exports, each taking idx as first arg; the public surface is
+ * wrappered in the CSI class (CodeSearchIndex.js), while the
+ * underscore-private helpers (_resolveCalleeTarget, _findCallersByExactRegex,
+ * _buildDefinitionLookup) and guessProvenance stay module-internal.
  *
  * PROVENANCE_PATTERNS const stays module-private (no external callsite).
  */

@@ -13,7 +13,7 @@
  * Cross-cutting callbacks needed by window management (`consoleAppend`,
  * `fsConsoleAppend`, `executeConsoleCommand` for console-output routing,
  * `openDiagramFullscreen` for the diagram-fullscreen path) are injected
- * via `initWindowManagement({...})` rather than imported, so this module
+ * via `initWindowManagementWithDeps({...})` rather than imported, so this module
  * doesn't take a direct dependency on `console.js` or the render flows
  * in app.js (avoiding a console.js ↔ layout.js import cycle).
  *

@@ -4,14 +4,16 @@
 // Co-authored with Claude (Claude Code).
 // Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
- * pricing.js — Anthropic model pricing + cost estimation (#llm-cost-display).
+ * pricing.js — cloud model pricing (Anthropic/OpenAI/Gemini) + cost
+ * estimation (#llm-cost-display).
  *
  * Shared by the AI-overview engine and ServerLLM (Analyze) so the rate table
  * lives in ONE place. The prior Analyze calc hardcoded Sonnet's $3/$15 per 1M
  * regardless of model, under-reporting by ~40% on Opus.
  *
- * Rates are USD per 1M tokens, [input, output], from the published Anthropic
- * pricing. Matched by substring of the model id so dated/aliased variants work.
+ * Rates are USD per 1M tokens, [input, output], from each provider's
+ * published pricing. Matched by substring of the model id so dated/aliased
+ * variants work.
  */
 const RATES = [
   // #254: Anthropic tier rates are stable across recent generations, so match

@@ -10,8 +10,13 @@
 // model resolution, the cloud/GGUF call, and the fail-closed air-gap gate.
 // Behavior-preserving move — the existing pseudo-claims tests are the guard.
 //
-// Public surface: resolveModel(args) -> descriptor|null|{kind:'error'};
+// Core surface: resolveModel(args) -> descriptor|null|{kind:'error'} and
 // makeDrafter(model, temperature) -> (sys, user, maxTokens) => Promise<text>.
+// Around those, the module also exports the claims cost gate
+// (claimsCostGate / CLAIMS_COST_GUARD_USD), engine-build provenance
+// (getEngineBuild / engineBuildLine), truncation tracking, and the GGUF
+// context/session helpers (ggufContextLadder / ggufContextOptions /
+// chatSessionOptions) that ai-overview-local.js and the claims commands use.
 
 import fs from 'node:fs';
 import { claudeSupportsTemperature } from '../utils.js';

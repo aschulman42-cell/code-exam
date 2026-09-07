@@ -6,9 +6,10 @@
 /**
  * browse.js - Index browsing commands: stats, list-files, show-file,
  * list-functions, list-functions-alpha, list-functions-size,
- * scan-extensions, index-extensions, list-indexes, extract.
+ * scan-extensions, index-extensions, list-indexes, extract,
+ * file-bookends, bundle-seams.
  *
- * Port of ce_browse.py
+ * Origin: an earlier Python implementation (not in this repo).
  */
 
 import fs from 'fs';

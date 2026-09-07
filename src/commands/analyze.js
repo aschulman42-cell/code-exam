@@ -6,8 +6,8 @@
 // ============================================================================
 // analyze.js - Phase 8b: LLM analysis integration for Code Exam
 //
-// Connects the extract -> analyze pipeline.  Ported from Python ce_analyze.py
-// into the Node.js modular architecture.
+// Connects the extract -> analyze pipeline.  Origin: an earlier Python
+// implementation (not in this repo).
 //
 // Analysis modes:
 //   --analyze FUNCTION          General "what does this code do?" analysis
@@ -20,7 +20,8 @@
 //
 // All modes:
 //   - Support --mask-all to strip comments and mask string contents
-//   - Support --llm claude (API) or --analyze-model (local GGUF)
+//   - Support --llm claude|openai|gemini (cloud) or --model (local GGUF;
+//     --analyze-model is a deprecated alias)
 //   - Support --show-prompt to see what would be sent without calling LLM
 //   - Support --line-numbers to include source line numbers in prompts
 //
@@ -419,7 +420,7 @@ export function resetAnalysisLLM() {
  *           on raw source text without needing a parsed AST.  Handles
  *           common cases for C, C++, Java, JavaScript/TS, and Python.
  *
- * Ported from Python ce_analyze.py SimpleMasker.
+ * Origin: the earlier Python implementation's SimpleMasker.
  */
 export class SimpleMasker {
   constructor() {
@@ -2165,7 +2166,7 @@ export async function doClaimAnalyze(index, args) {
   // #301: SECOND of three sites that build this — claim.js:1330 is the
   // --claim-search path, this is --claim-analyze, and claims-loop.js:443 is the
   // third. The first cut of the bridge patched only claim.js, so
-  // `--concept-bridge` on --claim-analyze silently did nothing and the run still
+  // the concept bridge on --claim-analyze silently did nothing and the run still
   // printed `claim-filtered`. Fourth instance today of one shape: the flag was
   // accepted at one site and dropped at the one that mattered.
   let vocabConcordance = '';

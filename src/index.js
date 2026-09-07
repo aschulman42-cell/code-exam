@@ -7,8 +7,9 @@
 /**
  * code-exam - Air-Gapped Source Code Examination Tool (Node.js)
  *
- * CLI entry point. Zero external dependencies.
- * Compatible with Python version's JSON index format.
+ * CLI entry point. The plain search/browse path runs on Node built-ins alone;
+ * the AI surfaces and the GUI pull the dependencies declared in package.json.
+ * Compatible with the earlier Python version's JSON index format.
  */
 
 import fs from 'fs';
@@ -155,7 +156,7 @@ const _POST_BUILD_CONTINUE_KEYS =
 // Detected from raw argv before parseArgs so server.js's own arg parser
 // can re-consume process.argv with only the flags it understands.
 // Designed to work both under `node` (dev) and `bun --compile`'d
-// standalone exe (Clive's path). See #78.
+// standalone exe (the no-Node-install path). See #78.
 // ========================================================================
 
 // Parsed here (before the GUI launch path) so `--gui`/`--tour` are recognized

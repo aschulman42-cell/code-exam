@@ -804,16 +804,6 @@ describe('perElementTargets', () => {
   });
 });
 
-// THE KNOB HAD NEVER TAKEN EFFECT ON A REAL CLAIM. With an independent
-// maxRetrievedTargets of 12, achieved depth was 12/elements — 1.3 on a
-// median-length claim of 9 — so `targetsPerElement: 3` was unreachable above 4
-// limitations, while the provenance line advertised "at most 3" on every chart.
-// asus-CC found it on the '101 run: the crux sits at rank 3 of element 6.
-// asus-CC (#306): the header records engine and model but NOT the
-// node-llama-cpp version or the llama.cpp build, "and those decide the
-// numerics". Bit-determinism under greedy decoding is the local path's headline
-// asymmetry against cloud engines — and a reader who wanted to REPRODUCE a
-// local chart had no way to learn which engine build to install.
 // THE INVARIANT THE CODE ALREADY DEMANDED AND NOTHING CHECKED.
 //
 // claim-chart's own comment: "File-ABSOLUTE line numbers… Every chart citation
@@ -890,6 +880,11 @@ describe('rendered line numbers agree with the file on disk (#306)', () => {
   });
 });
 
+// asus-CC (#306): the header records engine and model but NOT the
+// node-llama-cpp version or the llama.cpp build, "and those decide the
+// numerics". Bit-determinism under greedy decoding is the local path's headline
+// asymmetry against cloud engines — and a reader who wanted to REPRODUCE a
+// local chart had no way to learn which engine build to install.
 describe('the chart records the inference-engine build (#306)', () => {
   const base = () => ({
     claimText: CLAIM, indexPath: '.idx', engineLabel: 'local GGUF — g.gguf (local LLM, no network egress)',
@@ -956,6 +951,11 @@ describe('engineBuildLine names what ran, and where', () => {
   });
 });
 
+// THE KNOB HAD NEVER TAKEN EFFECT ON A REAL CLAIM. With an independent
+// maxRetrievedTargets of 12, achieved depth was 12/elements — 1.3 on a
+// median-length claim of 9 — so `targetsPerElement: 3` was unreachable above 4
+// limitations, while the provenance line advertised "at most 3" on every chart.
+// asus-CC found it on the '101 run: the crux sits at rank 3 of element 6.
 describe('the target budget is DERIVED, and reports what it achieved (#306 Edit 5)', () => {
   const sym = (n, f) => ({ sym: { name: n, filepath: `idx!src/${f}` } });
   // Nine elements, three deep — a median-length claim with evidence to spare.

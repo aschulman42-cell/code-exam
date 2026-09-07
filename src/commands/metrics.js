@@ -4,9 +4,12 @@
 // Co-authored with Claude (Claude Code).
 // Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
- * metrics.js - Discovery/metrics commands: hotspots, hot-folders,
- * entry-points, domain-fns, gaps, list-classes, class-hotspots.
- * Port of ce_metrics.py
+ * metrics.js - Discovery/metrics and AI/ML inventory commands: hotspots,
+ * hot-folders, entry-points, domain-fns, gaps, list-classes, class-hotspots,
+ * vocabulary, data structures, client/server, and the AI/ML family
+ * (models, models-used, training, inference, tools, chains, embeddings,
+ * pipelines, and their drilldowns).
+ * Origin: an earlier Python implementation (not in this repo).
  */
 
 import path from 'path';

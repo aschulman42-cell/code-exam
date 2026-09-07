@@ -9,8 +9,8 @@
  * One builder assembles the banner every surface uses, so surfaces can't
  * drift apart. Phase 1 wires it into CLI stdout via the opt-in
  * `--provenance` flag (default OFF, so machine-readable/piped output stays
- * clean); Phase 2 is the GUI save surfaces (pane 💾 / chat save), which are
- * client-side in public/ and will call the same field set.
+ * clean); Phase 2 shipped server-side — the GUI save surfaces call
+ * `/api/provenance` (server.js), one builder for every surface.
  *
  * "Provenance" here really means FILE HEADERS FOR PRINT-OUTS. In CodeExam's
  * litigation context — source-code examination under protective orders —
@@ -28,7 +28,8 @@
  *     consecutive lines or pages printed, and similar caps that protective
  *     orders commonly impose.
  *
- * None of that is implemented yet. The banner's shape — labeled fields
+ * Of that list, the confidentiality-banner slot is implemented (the `banner`
+ * option below); the rest is not yet. The banner's shape — labeled fields
  * between fixed-width rules, built from an options object — is chosen so
  * those can be added without breaking existing consumers.
  */

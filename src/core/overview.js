@@ -12,8 +12,8 @@
  * entry-point list. No corpus rescan and no detector scans (AI/ML, infra,
  * prompts, command-catalog, exports are *next-hops*, not computed here) — those
  * are O(corpus) and would break the "popup-fast" requirement for the future GUI
- * popup-on-load. `buildOverview` is the producer; the MCP `overview` tool, and
- * the future CLI `--overview` / GUI popup, all render from it.
+ * popup-on-load. `buildOverview` is the producer; the MCP `overview` tool,
+ * the CLI `--overview`, and the GUI popup all render from it.
  */
 import path from 'path';
 import { extractConcepts, conceptLabel } from './vocabulary.js';

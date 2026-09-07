@@ -187,10 +187,10 @@ export function _findWrapperEnd(lines, startLineIdx) {
  * doesn't catch them (it looks for `function NAME(...)` / `class NAME` / etc.
  * shapes, not arrow-assigned-to-var declarations wrapped inside a helper call).
  *
- * Missing these costs us a lot — claude-code's cli.js has ~4,300 such entries
- * that never make it into the function index, so click-through on identifiers
- * like `fwq()` or `bHq()` reports "function not found" even though the call
- * target is right there in the file. See TODO #340.
+ * Missing these would cost a lot — claude-code's cli.js has ~4,300 such
+ * entries. Since #340, CodeSearchIndex overlays this function's output into
+ * the function index, so click-through on identifiers like `fwq()` or
+ * `bHq()` resolves instead of reporting "function not found".
  *
  * This is an ESBUILD-ONLY pattern. Webpack, Parcel, Rollup, Vite use entirely
  * different module-wrapper shapes (see TODO #333). This function deliberately

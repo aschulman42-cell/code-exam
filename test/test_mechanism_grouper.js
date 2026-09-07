@@ -146,8 +146,9 @@ describe('over-broad namespace rejection', () => {
   });
 });
 
-// #284 signal-rich gather knobs (--use-docs / --catalog-seed): both are
-// OPT-IN, default off, and FAIL OPEN — on a stub index with no files/fileLines
+// #284 signal-rich gather knobs (--use-docs / --catalog-seed): --use-docs is
+// opt-in (default off), the catalog seed is default ON (asserted below), and
+// both FAIL OPEN — on a stub index with no files/fileLines
 // the doc-vocabulary and command-catalog paths throw internally, are caught,
 // and the class seed still produces the same groups as with the flags off.
 // (Live-corpus behavior is validated by the measurement runs against the

@@ -4,8 +4,9 @@
 // Co-authored with Claude (Claude Code).
 // Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
- * callers.js - Caller/callee commands: callers, callees, most-called.
- * Port of ce_callers.py
+ * callers.js - Caller/callee commands: callers, callees, most-called,
+ * call-inventory.
+ * Origin: an earlier Python implementation (not in this repo).
  */
 
 import { displayName, parseFuncSpec, quotePathIfNeeded } from '../utils.js';

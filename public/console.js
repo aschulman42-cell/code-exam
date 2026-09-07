@@ -4,9 +4,11 @@
 // Co-authored with Claude (Claude Code).
 // Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
- * console.js — Right-bottom pane: Analysis / Console tab switching,
- * plus the interactive Console (a REPL embedded in the GUI that runs
- * a subset of CodeExam's CLI command surface via /api/exec).
+ * console.js — Right-bottom pane: tab switching (Analysis / Console /
+ * Chat — this module treats any non-analysis tab as Console-like and
+ * app.js's later handler refines the Chat case), plus the interactive
+ * Console (a REPL embedded in the GUI that runs a subset of CodeExam's
+ * CLI command surface via /api/exec).
  *
  * Cross-cutting callbacks for command-output navigation (`showPane`,
  * `onFileClick`) are injected at init via `initConsole({...})` since
@@ -41,11 +43,8 @@ export function initConsole(deps = {}) {
 
 
 // ============================================================================
-// Right-bottom tab switching (Analysis / Console)
+// Right-bottom tab switching
 // ============================================================================
-
-// Right-bottom tab switching (Analysis / Console)
-// ========================================================================
 function initRightBottomTabs() {
   for (const tab of $$('#right-bottom .pane-tab')) {
     tab.addEventListener('click', () => {
@@ -68,14 +67,9 @@ function initRightBottomTabs() {
 }
 
 
-// ========================================================================
-
 // ============================================================================
 // Console — interactive CLI commands within the GUI
 // ============================================================================
-
-// Console — interactive CLI commands within the GUI
-// ========================================================================
 const CONSOLE_HELP = `SEARCH:
   /search <query>          Literal search (or just type text without /)
   /regex /pattern/         Regex search

@@ -25,8 +25,7 @@ import { eprint, eprogress } from '../utils.js';
 import { _classifyCommandGate } from './CSI-helpers.js';
 
 // ========================================================================
-// ========================================================================
-// Command catalog: extract CLI options, interactive commands, GUI actions
+// Telemetry breadcrumbs: extract trace points from indexed lines
 // ========================================================================
 
 /**

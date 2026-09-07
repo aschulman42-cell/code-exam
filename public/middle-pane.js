@@ -25,10 +25,9 @@
  * only declare functions at top level; calls happen inside function
  * bodies at user-interaction time). The load-test confirms this.
  *
- * `wireClickables` stays in app.js for this peel (DI'd in here) —
- * its other big consumer is the left-pane renderers which haven't
- * been extracted yet. Once those land, `wireClickables` becomes a
- * candidate for its own micro-peel.
+ * `wireClickables` stays in app.js (DI'd in here and into the other
+ * modules that need it, including list-renderers.js); lifting it into
+ * its own micro-peel remains an open candidate.
  */
 
 import { state } from './state.js';

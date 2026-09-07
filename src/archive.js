@@ -51,8 +51,9 @@ const ZIP_EXTENSIONS = new Set([
 ]);
 
 /**
- * Executable/binary extensions that Task 2 (binstrings) will process.
- * For now, these are still skipped but tracked separately from media files.
+ * Executable/binary extensions that binstrings.js processes (printable
+ * strings become indexable .op pseudo-source); tracked separately from
+ * media files.
  */
 export const EXECUTABLE_EXTENSIONS = new Set([
   '.exe', '.dll', '.so', '.dylib', '.sys', '.pyd',
@@ -966,7 +967,7 @@ const _SOURCE_LIKE_EXTENSIONS = new Set([
   // Config/text
   '.md', '.txt', '.rst', '.yaml', '.yml',
   '.xml', '.json', '.toml', '.ini', '.cfg', '.conf', '.properties',
-  // Binstrings output (Task 2)
+  // Binstrings output
   '.op',
 ]);
 

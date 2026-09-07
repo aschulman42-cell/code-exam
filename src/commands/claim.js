@@ -14,9 +14,11 @@
 //   patent claim text -> LLM -> TIGHT: terms;... / BROAD: terms;...
 //     -> sanitize -> multisectSearch (TIGHT) -> multisectSearch (BROAD)
 //
-// Two LLM paths:
-//   --llm claude    : Anthropic API (needs ANTHROPIC_API_KEY env var)
-//   --claim-model   : Local GGUF model via node-llama-cpp (TODO: Phase 8a+)
+// LLM paths:
+//   --llm claude|openai|gemini : cloud providers via the shared registry
+//                                (core/providers.js; keys per provider)
+//   --model                    : local GGUF via node-llama-cpp
+//                                (--claim-model is a deprecated alias)
 // ============================================================================
 
 import { parseMultisectTerms, displayMultisectResults, printSelectivityReport, filterLowSelectivity } from './multisect.js';

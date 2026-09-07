@@ -7,7 +7,8 @@
  * multisect.js — Multi-term intersection search ("scavenger hunt" / #146).
  * Pulled out of CodeSearchIndex.js in Issue #18 Phase 2 (theme #25).
  *
- * Two exports, both taking idx as first arg:
+ * Main exports, both taking idx as first arg (COMMENT_MATCH_WEIGHT and
+ * classifyMatchLine, the match-line classifiers, ride along):
  *
  *   computeTermFileCounts(idx, terms, opts)  — cheap per-term file-coverage scan,
  *     used by the LLM claim-search selectivity filter to drop low-discrimination

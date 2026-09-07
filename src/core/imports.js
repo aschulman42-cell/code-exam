@@ -20,9 +20,14 @@
  *     to get them (the #153 exports catalog needs exactly these: `__init__`
  *     re-exports are mostly relative).
  *
- * Python (.py/.pyi) only today; JS/TS extraction is #154's scope. The AI/ML
- * detectors match imports ad hoc per framework family (ai-ml-detectors.js);
- * this is the first place imports are cataloged generically.
+ * Languages: extractImports covers Python (.py/.pyi); extractJsImports,
+ * extractCImports (incl. ObjC #import/@import), extractJavaImports and
+ * extractCSharpImports cover the other families, manifestDeps reads the
+ * package manifests, and classifyImports resolves every row four ways
+ * (internal / stdlib-platform / third-party / vendored) for --bom. The AI/ML
+ * detectors still match imports ad hoc per framework family
+ * (ai-ml-detectors.js); this is the one place imports are cataloged
+ * generically.
  */
 
 export function isPythonFile(filepath) {

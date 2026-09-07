@@ -309,10 +309,9 @@ describe('Phase 5: Multi-term intersection search', () => {
     });
 
     it('finds file via path-only match when term is only in filepath', () => {
-      // "Constants" only appears in the filename Constants.java, not in the file content
-      // (the content has "Constants" in the class name though — let me use a purer example)
-      // "handler" appears in path handler.java but also in content
-      // The test just verifies the mechanism works — path matches count
+      // "handler" appears in the path handler.java and also in the content;
+      // this test only verifies that path matches count toward the
+      // intersection. (The pure path-only case is the next test, using `net`.)
       const terms = parseMultisectTerms('handler;doPost');
       const results = index.multisectSearch(terms, { showProgress: false });
 

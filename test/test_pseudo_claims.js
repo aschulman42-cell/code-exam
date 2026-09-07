@@ -610,7 +610,8 @@ describe('the generated dependents round-trip through CE own dep-claim rules', (
   // The failure mode this project keeps finding is a generator whose own parser
   // misreads its output. Here it is cheap to check directly, against the rules
   // that actually shipped (c4fc448). Contribution kind and depth are NOT checked
-  // -- that classifier lives in issue-311-dep-claim-detector and does not exist.
+  // here -- that classifier lives in src/core/dep-claims.js (classifyContribution
+  // / depthLabel) and is exercised by test_dep_claims.js.
   const { prose, dependents } = parseGeneratedClaim(WITH_DEPS);
 
   it('claim 1 does NOT read as dependent', () => {

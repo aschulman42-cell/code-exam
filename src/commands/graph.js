@@ -4,9 +4,9 @@
 // Co-authored with Claude (Claude Code).
 // Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
- * graph.js - Call graph visualization: call-tree, file-map, file-tree.
- * Includes Mermaid diagram output.
- * Port of ce_graph.py
+ * graph.js - Call graph visualization: call-tree, class-tree, file-map,
+ * file-tree. Includes Mermaid diagram output.
+ * Origin: an earlier Python implementation (not in this repo).
  */
 
 import path from 'path';

@@ -9,7 +9,7 @@
  * Holds indexed source code and provides methods for:
  * - Building/saving/loading indices (JSON-based, compatible with Python version)
  * - Literal, inverted-index, and regex search
- * - Function/class parsing (regex-based)
+ * - Function/class parsing (tree-sitter primary, regex fallback)
  * - Function extraction and listing
  */
 

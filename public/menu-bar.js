@@ -10,9 +10,8 @@
  * elements; this module wires those buttons to action handlers and
  * manages dropdown open/close behavior.
  *
- * All dependencies are direct imports — this is the first peeled
- * module with zero DI dependencies after the middle-pane peel
- * lifted the render-function callbacks into a sibling module.
+ * All dependencies are direct imports — one of the peeled modules
+ * with zero DI dependencies (mermaid.js is another).
  */
 
 import { state } from './state.js';

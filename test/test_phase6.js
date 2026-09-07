@@ -49,15 +49,14 @@ function runInteractive(commands, extraArgs = '') {
 }
 
 /**
- * Alternative: write commands to a temp file and pipe from there.
- * More reliable for complex commands with special characters.
+ * The variant every test actually calls (runInteractive above has no
+ * remaining call sites and an identical body).
  */
 function runInteractiveFile(commands, extraArgs = '') {
   // Originally wrote commands to a temp file and shell-redirected stdin
   // (`< cmdFile`). The `input` option delivers the same bytes to the
   // child's stdin cross-platform, so the temp file and the `< ... 2>/dev/null`
-  // redirect are both unnecessary. Kept as a separate helper since callers
-  // distinguish it from runInteractive for complex command sequences.
+  // redirect are both unnecessary.
   const input = commands.join('\n') + '\n/quit\n';
   const cmd = `node ${CLI} --interactive --index-path ${INDEX_DIR} ${extraArgs}`;
   try {

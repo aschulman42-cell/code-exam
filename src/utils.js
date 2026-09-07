@@ -317,7 +317,7 @@ export const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.rst', '.yaml', '.yml'])
 
 /**
  * Archive extensions handled by archive.js (expanded during --build-index).
- * Separated from BINARY_EXTENSIONS so buildIndex can expand them instead of skip.
+ * Separated from MEDIA_BINARY_EXTENSIONS so buildIndex can expand them instead of skip.
  */
 export const ARCHIVE_EXTENSIONS = new Set([
   '.zip', '.jar', '.war', '.ear', '.apk',  // ZIP format
@@ -327,7 +327,7 @@ export const ARCHIVE_EXTENSIONS = new Set([
 ]);
 
 /**
- * Executable/binary extensions — currently skipped, Task 2 will process via binstrings.
+ * Executable/binary extensions — processed by binstrings.js into indexable .op pseudo-source.
  */
 export const EXECUTABLE_EXTENSIONS = new Set([
   '.exe', '.dll', '.so', '.dylib', '.sys', '.pyd',

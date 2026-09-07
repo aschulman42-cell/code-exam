@@ -7,7 +7,8 @@
 /**
  * server.js - GUI server for Code Exam.
  *
- * Zero external dependencies - uses Node built-in http module.
+ * The HTTP layer is Node's built-in http module (no web framework); the MCP
+ * and AI-overview imports bring the dependencies declared in package.json.
  * Loads one or more CodeSearchIndex instances and exposes API routes
  * that return JSON. The browser UI (public/) handles rendering.
  *

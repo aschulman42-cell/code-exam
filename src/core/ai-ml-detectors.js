@@ -6,7 +6,7 @@
 /**
  * ai-ml-detectors.js - AI/ML detection extracted from CodeSearchIndex.js (#133).
  *
- * The 13 AI/ML "list" detectors plus their two shared helpers, moved verbatim
+ * The AI/ML "list" detectors (17 methods over 18 cells) plus their shared helpers, moved verbatim
  * out of the ~7k-line CodeSearchIndex ("CSI") class. They are mixed onto
  * CodeSearchIndex.prototype via Object.assign(prototype, aimlMethods) in
  * CodeSearchIndex.js, so inside each method `this` resolves to the CSI

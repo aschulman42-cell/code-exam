@@ -6,7 +6,7 @@
 /**
  * ai-overview-local.js — "Overview by AI" via a LOCAL GGUF model (#196 spike).
  *
- * Air-gapped alternative to the `claude` CLI engine (ai-overview.js): loads a
+ * Air-gapped alternative to the cloud engine (ai-overview.js): loads a
  * GGUF with node-llama-cpp IN-PROCESS and runs the same orientation prompt as an
  * agentic tool-loop. Instead of MCP-over-stdio, the CE tools are exposed as
  * node-llama-cpp chat functions that call CE's exported `handleTool` directly —
@@ -18,8 +18,9 @@
  * (server.js). The new piece is the multi-turn function-calling loop, which
  * node-llama-cpp's `session.prompt(..., { functions })` runs for us.
  *
- * Spike status: CLI-first; validated against Qwen3-4B-Q4_K_M. GUI wiring and
- * a local-vs-claude comparison harness are later increments.
+ * Validated against Qwen3-4B-Q4_K_M and later engines. GUI wiring shipped:
+ * server.js routes `/api/ai-overview` with engine 'local' through
+ * runAiOverviewLocalShared.
  */
 
 import { CodeSearchIndex } from './CodeSearchIndex.js';

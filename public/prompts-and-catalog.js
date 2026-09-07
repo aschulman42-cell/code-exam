@@ -11,13 +11,10 @@
  * dispatch) with a detail renderer wired to the per-row click handler.
  *
  * Distinct from the structural/code list renderers (Functions, Files,
- * Classes, Vocabulary, File Map, etc.) which stay in app.js for a
- * later peel.
+ * Classes, Dupes, AI/ML groups), which live in list-renderers.js.
  *
  * Direct imports: state, api, dom-utils, layout (showPane),
- * click-handlers (row-click navigation), context-menu (right-click —
- * actually unused here but kept for symmetry with renderers that
- * might add it later).
+ * click-handlers (row-click navigation), middle-pane.
  *
  * Cross-cutting callbacks (`wireClickables`, `getMaxResults`) are
  * injected via `initPromptsAndCatalog({...})` since their owners

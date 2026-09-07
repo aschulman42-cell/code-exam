@@ -6,7 +6,10 @@
 /**
  * dedup.js - Deduplication display commands.
  *
- * Commands: dupefiles, func-dupes, near-dupes, struct-dupes, show-funcstring.
+ * Commands: dupefiles, func-dupes, near-dupes, struct-dupes, struct-diff(-all),
+ * show-funcstring, plus the string-call fingerprint family (string-call-dupes,
+ * string-call-diff-all, cmp-string-call-dupes, funcstr-hashes, funcstr-corpus,
+ * notable-funcstr-matches).
  */
 
 import { displayName } from '../utils.js';

@@ -4,8 +4,11 @@
 // Co-authored with Claude (Claude Code).
 // Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
- * app.js - Code Exam GUI client.
- * Zero external dependencies. Pure DOM manipulation.
+ * app.js - Code Exam GUI orchestrator: boots the app, wires the peeled
+ * sibling modules together (DI for the cross-cutting callbacks), and owns
+ * the accordion, workspace, LLM-analysis and Chat surfaces.
+ * No framework — direct DOM manipulation; the one vendored library is
+ * Mermaid (public/vendor/, used by mermaid.js for diagrams).
  */
 'use strict';
 
