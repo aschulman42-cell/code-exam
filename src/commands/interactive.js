@@ -247,7 +247,7 @@ const HELP_TEXT = `
 Code Exam Interactive Mode - Commands:
 -------------------------------------------------------------
 SEARCH:
-  <query>                 Hybrid search (literal + semantic if available)
+  <query>                 Search the index (literal, with subtoken/vocabulary expansion)
   /literal <pattern>      Literal text search
   /fast <pattern>         Fast inverted-index search
   /regex <pattern>        Regex pattern search

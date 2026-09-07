@@ -58,7 +58,6 @@ process.stdout.write = (chunk, ...rest) => {
     const idx = new CodeSearchIndex({ indexPath, extensions: customExtensions, excludeCompound });
     const stats = await idx.buildIndex(sourcePath, {
       showProgress: true,
-      skipSemantic: true,
       useTreeSitter: useTreeSitter || false,
     });
     console.log = origLog;

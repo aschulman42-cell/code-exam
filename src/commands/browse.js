@@ -76,7 +76,6 @@ export function doStats(index, args) {
   }
 
   if (index.parseMethod) console.log(`Parse method: ${index.parseMethod}`);
-  console.log('ChromaDB: Not available (semantic search disabled)');
 }
 
 

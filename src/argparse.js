@@ -414,6 +414,9 @@ export function parseArgs() {
     ['index_path',           'value',          ['--index-path', '--load-index']],
     ['port',                 'value',          ['--port']],
     ['multi_index',          'value',          ['--multi-index']],
+    // Vestigial (#322): the Python-era semantic index was removed; the flag is
+    // still accepted so old scripts don't break, gates nothing, and is
+    // deliberately absent from --help.
     ['skip_semantic',        'flag',           ['--skip-semantic']],
     ['use_tree_sitter',      'flag',           ['--use-tree-sitter']],
     ['extensions',           'value',          ['--extensions']],
@@ -1055,7 +1058,6 @@ INDEX MANAGEMENT:
                              command against each and concatenates the output
                              (per-index header, no aggregation). A run uses
                              either --index-path or --multi-index, not both.
-  --skip-semantic            Skip semantic/embedding indexing (default)
   --use-tree-sitter          Use tree-sitter for function parsing
   --extensions <exts>        Comma-separated file extensions to index
                              (replaces the default set)
@@ -1067,7 +1069,8 @@ INDEX MANAGEMENT:
   --demangler <path>         Path to C++ name demangler (e.g., vc++filt.exe, c++filt)
 
 SEARCH:
-  --search <query>           Hybrid search (literal + semantic)
+  --search <query>           Search the index (literal, with subtoken and
+                             vocabulary expansion)
   --literal <query>          Literal/exact text search
   --fast <query>             Fast inverted-index search
   --regex <pattern>          Regex pattern search
