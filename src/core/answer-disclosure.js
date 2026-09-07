@@ -144,7 +144,16 @@ export function answerDisclosure(prose, toolNames = []) {
 // most faithful overview in the set. Requiring whitespace after the terminator
 // means `…_1024.ckpt` is not a boundary. Pinned by a test naming that fixture.
 function modelSentences(prose) {
-  return String(prose || '')
+  // #320 1b: drop CE's OWN ⓘ disclosure lines before scanning. The guard's two
+  // observed false positives were CE footnoting its own banner — "the model
+  // made 5 tool call(s)" matches /\bmodels?\b/, and "RECOVERED", "OUTPUT"
+  // shape like names. Every CE-voice note starts its line with ⓘ, so a
+  // line-level filter removes exactly CE's text and none of the model's.
+  const withoutCeNotes = String(prose || '')
+    .split('\n')
+    .filter((line) => !/^\s*ⓘ/.test(line))
+    .join('\n');
+  return withoutCeNotes
     .split(/(?<=[.!?])\s+|\n+/)
     .filter((s) => /\bmodels?\b/i.test(s));
 }
@@ -205,19 +214,27 @@ export function namesInModelSentences(prose) {
  * "Qwen-7B-Chat" row counts as supported — the test is "did the tool mention
  * this", not "is this an exact id".
  */
-export function unsupportedModelNames(prose, modelsUsedOutput) {
+export function unsupportedModelNames(prose, modelsUsedOutput, seedText) {
   const hay = String(modelsUsedOutput || '').toLowerCase();
   if (!hay) return [];
-  return namesInModelSentences(prose).filter((n) => !hay.includes(n.toLowerCase()));
+  // #320 1c seed-aware: a name the deterministic overview seed contains is
+  // supported evidence too. Gemma K_M's CORRECT sr_gh sentence cited
+  // `Qwen_Qwen1_5_0_5B_Chat_e5_lr0` — a filename from the seed's vocabulary
+  // lines, not one of models_used's 21 ids — and must not be footnoted.
+  const seedHay = String(seedText || '').toLowerCase();
+  return namesInModelSentences(prose).filter((n) => {
+    const needle = n.toLowerCase();
+    return !hay.includes(needle) && !(seedHay && seedHay.includes(needle));
+  });
 }
 
 /**
  * The footnote, or '' when the sentence is fully supported — or when CE has no
  * tool output to check against, which is the "allowed to say nothing" case.
  */
-export function aimlVerificationNote(prose, modelsUsedOutput) {
+export function aimlVerificationNote(prose, modelsUsedOutput, seedText) {
   if (!String(modelsUsedOutput || '').trim()) return '';
-  const unsupported = unsupportedModelNames(prose, modelsUsedOutput);
+  const unsupported = unsupportedModelNames(prose, modelsUsedOutput, seedText);
   if (!unsupported.length) return '';
   const listed = unsupported.slice(0, 8).map((n) => `"${n}"`).join(', ');
   const more = unsupported.length > 8 ? ` (+${unsupported.length - 8} more)` : '';
@@ -226,4 +243,89 @@ export function aimlVerificationNote(prose, modelsUsedOutput) {
     + `reproduced below. This is a mechanical comparison, not a judgement — a name may be a `
     + `vendor or framework rather than a model — but nothing here was read out of the index.`
     + `\n\n<models_used>\n${String(modelsUsedOutput).trim().slice(0, 1200)}\n</models_used>`;
+}
+
+// ---------------------------------------------------------------------------
+// #320 1c: the CONVERSE check — the direction that was actually wrong.
+//
+// The UNVERIFIED footnote above catches INVENTED names; it is structurally
+// silent when the prose says "no AI/ML" and the tool disagrees, because it
+// scans names the prose used, and "none detected" uses none. asus-CC's 11-run
+// matrix: one wrong answer in the suite (qwen3-14b, "No AI/ML models are
+// explicitly detected" on an index where models_used returns 21), unflagged.
+// ---------------------------------------------------------------------------
+
+// The positive models_used output opens "N models used — X api, Y local"
+// (metrics.js doListModelsUsed); the negative path prints the scope/recover
+// prose with no such line. Deterministic on the header, not on absence.
+export function modelsUsedCount(modelsUsedOutput) {
+  const m = String(modelsUsedOutput || '').match(/\b(\d+)\s+models? used\b/i);
+  return m ? Number(m[1]) : 0;
+}
+
+// A model-mentioning sentence that denies AI/ML presence. Matches the four
+// observed shapes ("does not explicitly load or call any AI/ML models…",
+// "No AI/ML models are explicitly detected…") without trying to parse grammar:
+// a negation token and an AI/ML reference in the same sentence.
+function denialSentences(prose) {
+  return modelSentences(prose).filter((s) =>
+    /\b(no|not|none|neither|without|lacks?|absent)\b/i.test(s)
+    && /\b(AI\/?ML|AI|machine[- ]?learning)\b/.test(s));
+}
+
+/**
+ * The converse footnote, or ''. Fires when models_used reports models and the
+ * prose denies any — appended, never rewritten, same contract as the
+ * UNVERIFIED note. `selfCalled` says CE ran the tool for verification (the
+ * model never saw it), which the note discloses.
+ */
+export function aimlConverseNote(prose, modelsUsedOutput, { selfCalled = false } = {}) {
+  const n = modelsUsedCount(modelsUsedOutput);
+  if (!n) return '';
+  const denials = denialSentences(prose);
+  if (!denials.length) return '';
+  const quoted = denials[0].trim().slice(0, 160);
+  const how = selfCalled
+    ? 'CodeExam ran `models_used` itself for this check; the model did not call it and never saw the result'
+    : 'the model called `models_used` and still wrote this';
+  return `\n\nⓘ AI/ML CLAIM CONTRADICTED: the prose above says "${quoted}", but CodeExam's own `
+    + `\`models_used\` result for this index reports ${n} model${n !== 1 ? 's' : ''} (${how}). `
+    + `The result is reproduced below; nothing here was read out of the index.`
+    + `\n\n<models_used>\n${String(modelsUsedOutput).trim().slice(0, 1200)}\n</models_used>`;
+}
+
+// ---------------------------------------------------------------------------
+// #320 item 4: the evidentiary footer — every --overview-by-AI answer states
+// its basis. "Based on 1 tool call: overview" tells the reader in one line
+// that they got a paraphrase of the deterministic --overview, not a second
+// independent view; that disclosure is the point (independence cannot be
+// enforced — 16 nudges, zero additional distinct calls — so it is disclosed).
+// ---------------------------------------------------------------------------
+
+/**
+ * @param {Map<string,number>|Object} counts per-tool call counts (model-chosen
+ *   calls only — prefetch/substitution are disclosed via `opts`, never counted
+ *   here, so the number keeps meaning "calls the MODEL chose to make").
+ * @param {Object} opts { substituted: string[] CE ran on the model's behalf,
+ *   prefetched: bool, selfCalledModelsUsed: bool (verification-only call) }
+ */
+export function toolCallFooter(counts, { substituted = [], prefetched = false, selfCalledModelsUsed = false } = {}) {
+  const entries = counts instanceof Map ? [...counts.entries()] : Object.entries(counts || {});
+  const total = entries.reduce((a, [, n]) => a + n, 0);
+  let line;
+  if (!total) {
+    line = `ⓘ Based on 0 model tool calls — nothing in this overview came from querying the index.`;
+  } else {
+    const listed = entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([name, n]) => (n > 1 ? `${name} ×${n}` : name)).join(', ');
+    line = `ⓘ Based on ${total} model tool call${total !== 1 ? 's' : ''}: ${listed}.`;
+    if (entries.length === 1 && entries[0][0] === 'overview') {
+      line += ' The model consulted only the deterministic overview — this reads as a rewording of `--overview`, not an independent second view.';
+    }
+  }
+  const extras = [];
+  if (prefetched) extras.push('CE prefetched `overview` itself');
+  if (substituted.length) extras.push(`CE ran ${substituted.join(', ')} on the model's behalf`);
+  if (selfCalledModelsUsed) extras.push('CE ran `models_used` for verification only');
+  return extras.length ? `${line} (${extras.join('; ')}.)` : line;
 }

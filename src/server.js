@@ -40,7 +40,8 @@ import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { runAiOverview, AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './core/ai-overview.js';
-import { strictInstructionsFor, ungroundedWarning } from './core/ai-overview-local.js';
+import { strictInstructionsFor, ungroundedWarning, localBudgets } from './core/ai-overview-local.js';
+import { aimlVerificationNote, aimlConverseNote, toolCallFooter } from './core/answer-disclosure.js';
 import { answerDisclosure } from './core/answer-disclosure.js';
 import { setAirGapped, scrubApiKey, airGappedStartupCheck, isAirGapped, isLocalApiUrl, AIR_GAPPED_DISCLAIMER } from './core/air-gapped.js';
 import { estimateCost } from './core/pricing.js';
@@ -354,13 +355,12 @@ function withLocalLock(fn) {
 // hardware. Scale with context and CLAMP the output reserve so prompt overhead
 // plus a minimum tool budget always fit — while preserving the 8k+ behavior
 // (maxTokens stays 2400 there; only the tiny rungs clamp down).
+// #320: delegates to the canonical implementation in ai-overview-local.js so
+// the two copies cannot drift (this one had already drifted from it once —
+// the measured-overhead third parameter exists only there). Callers here have
+// no measured overhead in hand, so they get the documented 1200 fallback.
 function _localBudgets(contextSize, explicitMaxTokens) {
-  const OVERHEAD = 1200;         // system prompt + tool defs + question, approx tokens
-  const MIN_TOOL_TOKENS = 400;
-  let maxTokens = explicitMaxTokens || Math.min(6144, Math.max(2400, Math.floor(contextSize / 6)));
-  maxTokens = Math.max(256, Math.min(maxTokens, contextSize - OVERHEAD - MIN_TOOL_TOKENS));
-  const toolBudgetChars = Math.max(500, Math.floor((contextSize - maxTokens - OVERHEAD) * 2.5));
-  return { maxTokens, toolBudgetChars };
+  return localBudgets(contextSize, explicitMaxTokens);
 }
 
 class ServerLLM {
@@ -2519,6 +2519,9 @@ async function runAiOverviewLocalShared({ index, grounding }) {
   let toolCalls = 0;
   let toolChars = 0;
   let budgetStopped = false;
+  const toolCallCounts = new Map(); // #320 item 4
+  let modelsUsedResult = '';        // #320 1a/1c
+  let overviewSeedResult = '';
   const functions = {};
   for (const name of overviewToolNames) {
     const def = byName.get(name);
@@ -2536,10 +2539,13 @@ async function runAiOverviewLocalShared({ index, grounding }) {
           return 'TOOL BUDGET EXHAUSTED — do not call any more tools. Write your complete overview now from the results you already have.';
         }
         console.log(`  [ai-overview] tool: ${name}(${JSON.stringify(args || {}).slice(0, 120)})`);
+        toolCallCounts.set(name, (toolCallCounts.get(name) || 0) + 1);
         let out;
         try { out = String(handleTool(name, args || {})); }
         catch (e) { out = `Error calling ${name}: ${e.message}`; }
         const capped = neutralizeSpecialTokens(out.slice(0, 4000), `${name} result`);
+        if (name === 'models_used' && !modelsUsedResult) modelsUsedResult = capped;
+        if (name === 'overview' && !overviewSeedResult) overviewSeedResult = capped;
         toolChars += capped.length;
         return capped;
       },
@@ -2561,6 +2567,23 @@ async function runAiOverviewLocalShared({ index, grounding }) {
     // #276 fabrication guard: 0 tool calls in grounded mode = not an overview.
     const ungroundedNote = ungroundedWarning(toolCalls, grounding);
     if (ungroundedNote) prose = `${ungroundedNote}\n\n${prose}`;
+    // #320 1a/1c: AI/ML verification, self-calling models_used when the model
+    // skipped it — the skip is exactly the condition that produces the wrong
+    // answer. Same wiring as the CLI local path (ai-overview-local.js).
+    let verifyModelsUsed = modelsUsedResult;
+    let selfCalledModelsUsed = false;
+    if (!verifyModelsUsed) {
+      try {
+        verifyModelsUsed = String(handleTool('models_used', {})).slice(0, 4000);
+        selfCalledModelsUsed = true;
+      } catch { /* verification is best-effort */ }
+    }
+    const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult);
+    if (aimlNote) prose += aimlNote;
+    const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed });
+    if (converseNote) prose += converseNote;
+    // #320 item 4: the evidentiary footer.
+    prose += `\n\n${toolCallFooter(toolCallCounts, { selfCalledModelsUsed })}`;
     console.log(`  [ai-overview] local done: ${prose.length} chars, ${toolCalls} tool calls${ungroundedNote ? ' (UNGROUNDED — 0 tool calls)' : ''}`);
     return { prose, toolCalls, contextSize: lm.contextSize };
   } finally {

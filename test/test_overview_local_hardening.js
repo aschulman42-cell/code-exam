@@ -381,11 +381,13 @@ test('#306 damage cap: the note says the original was kept, so the failure is no
 
 test('#306 substitution: picks the highest-value tools the model did NOT call', () => {
   // Model called nothing; floor 3 → the top three of the catalog.
-  assert.deepEqual(selectSubstitutionTools(new Set(), 3), ['overview', 'stats', 'vocabulary']);
+  // #320 1a: models_used joined the catalogue at position 3 — the AI/ML
+  // sentence is a mandated output, and its absence was the measured defect.
+  assert.deepEqual(selectSubstitutionTools(new Set(), 3), ['overview', 'stats', 'models_used']);
   // Model already called `overview` → it is skipped, not re-run.
-  assert.deepEqual(selectSubstitutionTools(new Set(['overview']), 3), ['stats', 'vocabulary']);
+  assert.deepEqual(selectSubstitutionTools(new Set(['overview']), 3), ['stats', 'models_used']);
   // Shortfall drives the count, not the floor: 2 called, floor 3 → one tool.
-  assert.deepEqual(selectSubstitutionTools(new Set(['overview', 'stats']), 3), ['vocabulary']);
+  assert.deepEqual(selectSubstitutionTools(new Set(['overview', 'stats']), 3), ['models_used']);
 });
 
 test('#306 substitution: a model at or above the floor is left completely alone', () => {
@@ -485,4 +487,19 @@ test('#306 ggufDescriptor: booleans normalise, so an undefined arg is off not un
   // `undefined` reaching makeGgufDrafter was the actual bug shape at the
   // hand-built sites: falsy, so it "worked", and silently off.
   assert.notEqual(bare.flashAttention, undefined);
+});
+
+// #320 item 2: measured overhead replaces the 1200 assumption when supplied.
+test('#320 localBudgets: a measured overhead shrinks the budgets; omitted keeps 1200', () => {
+  const def = localBudgets(8192, null);
+  const measured = localBudgets(8192, null, 2900);
+  // Same context, bigger overhead → strictly less room for tool results.
+  assert.ok(measured.toolBudgetChars < def.toolBudgetChars,
+    `measured ${measured.toolBudgetChars} should be < default ${def.toolBudgetChars}`);
+  // Backward-compat: null/absent third arg is byte-identical to the old shape.
+  assert.deepEqual(localBudgets(8192, null, null), def);
+  assert.deepEqual(localBudgets(8192, null), def);
+  // Floors still hold at the smallest rung even with a large measured overhead.
+  const tiny = localBudgets(2048, null, 2900);
+  assert.ok(tiny.maxTokens >= 256 && tiny.toolBudgetChars >= 500);
 });

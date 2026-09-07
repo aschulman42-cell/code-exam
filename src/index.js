@@ -579,8 +579,14 @@ if (args.overview_by_ai) {
         flashAttention: !!args.flash_attention, // --flash-attention: frees 0.5-2.3 GB for the KV cache; off by default (experimental upstream)
         liveTodayDate: !!args.live_today_date, // F58: pin `Today Date:` by default — a code index has no today
         gpu: args.cpu ? false : 'auto', // --cpu forces CPU; else GPU with CPU fallback on OOM
-        // model-load / CPU-fallback notes always show; per-tool chatter is verbose-only.
-        onStatus: (s) => { if (args.verbose || !s.startsWith('tool ')) process.stderr.write(`[overview-by-ai] ${s}\n`); },
+        // #320 item 4: tool lines show BY DEFAULT. The old verbose-only gate is
+        // why the first #320 read concluded "only Devstral called tools" —
+        // absence of tool lines was not absence of tool calls, and without -v
+        // there was no way to tell a grounded answer from an ungrounded one.
+        // Each line is short and a run makes 0-24 of them; the cost is lines,
+        // the benefit is that the transcript answers the question this issue
+        // is about.
+        onStatus: (s) => process.stderr.write(`[overview-by-ai] ${s}\n`),
         // -v also streams the live model output (incl. <think>) to stderr for testing.
         onStream: args.verbose ? (c) => process.stderr.write(c) : undefined,
       }));

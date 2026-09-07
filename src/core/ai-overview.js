@@ -31,6 +31,7 @@ import { estimateCost } from './pricing.js';
 import { assertLocalOnly, isLocalApiUrl } from './air-gapped.js';
 import { openaiCompletionBudget } from './openai-util.js';
 import { PROVIDERS } from './providers.js';
+import { aimlVerificationNote, aimlConverseNote, toolCallFooter } from './answer-disclosure.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url)); // src/core
 const MCP_SERVER = path.join(__dirname, '..', 'mcp-server.js');  // src/mcp-server.js
@@ -167,11 +168,21 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
     // path previously did not (it hard-blocked a loopback endpoint here).
 
     // Shared per-tool executor: run one CE MCP tool, return its text.
-    const runTool = async (name, args) => {
+    // #320: counts feed the evidentiary footer; models_used and the overview
+    // seed are captured for the AI/ML verification below — the cloud path had
+    // NO such check (Gemini's wrong "no AI/ML" answer carried no footnote).
+    const toolCallCounts = new Map();
+    let modelsUsedResult = '';
+    let overviewSeedResult = '';
+    const runTool = async (name, args, { countIt = true } = {}) => {
       if (onStderr) onStderr(`[overview] tool: ${name}\n`);
+      if (countIt) toolCallCounts.set(name, (toolCallCounts.get(name) || 0) + 1);
       try {
         const r = await mcpClient.callTool({ name, arguments: args });
-        return { text: (r.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n'), isError: false };
+        const text = (r.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n');
+        if (countIt && name === 'models_used' && !modelsUsedResult) modelsUsedResult = text;
+        if (countIt && name === 'overview' && !overviewSeedResult) overviewSeedResult = text;
+        return { text, isError: false };
       } catch (e) {
         return { text: `Error: ${e.message}`, isError: true };
       }
@@ -284,6 +295,26 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
     }
 
     if (!prose) throw new Error('AI Overview produced no prose (empty model output).');
+
+    // #320 1a/1c, cloud-inclusive: verify the AI/ML sentence on every engine.
+    // When the model never called models_used, CE calls it itself (the MCP
+    // client is still open here) — verification-only, disclosed as such. This
+    // is what catches the observed Gemini failure: "does not explicitly load
+    // or call any AI/ML models" on an index where models_used returns 21.
+    let verifyModelsUsed = modelsUsedResult;
+    let selfCalledModelsUsed = false;
+    if (!verifyModelsUsed) {
+      const { text, isError } = await runTool('models_used', {}, { countIt: false });
+      if (!isError) { verifyModelsUsed = text; selfCalledModelsUsed = true; }
+    }
+    const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult);
+    if (aimlNote) prose += aimlNote;
+    const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed });
+    if (converseNote) prose += converseNote;
+    // #320 item 4: the evidentiary footer — the reader learns in one line
+    // whether this is a grounded second view or a paraphrase of --overview.
+    prose += `\n\n${toolCallFooter(toolCallCounts, { selfCalledModelsUsed })}`;
+
     const { usd } = estimateCost(useModel, usage);
     return { prose, costUsd: Number.isFinite(usd) ? usd : null, usage };
   };

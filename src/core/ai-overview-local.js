@@ -27,7 +27,7 @@ import { CodeSearchIndex } from './CodeSearchIndex.js';
 import { handleTool, TOOLS, setIndex } from '../mcp-server.js';
 import { AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './ai-overview.js';
 import { ggufContextOptions, chatSessionOptions } from './llm-runner.js';
-import { aimlVerificationNote, unsupportedModelNames } from './answer-disclosure.js';
+import { aimlVerificationNote, unsupportedModelNames, aimlConverseNote, toolCallFooter } from './answer-disclosure.js';
 
 // The CE tool names the overview may call (same allow-list as the claude
 // engine), with the mcp__code-exam__ prefix stripped to the handleTool case.
@@ -222,7 +222,13 @@ export const TOOL_FLOOR_MAX_NUDGES = 2;
 // have to invent the argument and would spend context on a result this run may
 // not need. Ordered by orientation value, so a floor of 2 supplies the two most
 // useful rather than an arbitrary pair.
-export const FLOOR_SUBSTITUTION_TOOLS = ['overview', 'stats', 'vocabulary', 'entry_points', 'most_called', 'hotspots'];
+// `models_used` added per #320 1a: it is argument-free and unconditional (the
+// prompt mandates an AI/ML sentence "from models_used" on every run), it was
+// absent despite meeting the stated criterion, and its absence is the defect
+// #320 measured — 0-of-5 sr_gh runs called it, exactly where it returns 21
+// models. Placed after `stats`: the AI/ML sentence is a mandated output; the
+// later entries enrich but are not demanded by the prompt.
+export const FLOOR_SUBSTITUTION_TOOLS = ['overview', 'stats', 'models_used', 'vocabulary', 'entry_points', 'most_called', 'hotspots'];
 
 // Which tools CE should run on the model's behalf: the highest-value ones it did
 // NOT already call, enough to cover the shortfall. Pure so the selection can be
@@ -348,8 +354,17 @@ export function toolFloorNote(distinctTools, floor, substituted = [], reverted =
 }
 
 // Context-scaled output/tool budgets (port of server _localBudgets).
-export function localBudgets(contextSize, explicitMaxTokens) {
-  const OVERHEAD = 1200;         // system prompt + tool defs + question, approx tokens
+//
+// #320 item 2: `overheadTokens` lets the caller pass a MEASURED overhead. The
+// old constant 1200 was assumed; measured reality is ~2900 (assembled system
+// prompt ~1685 + ten tool defs ~1200), and the ~1700-token understatement
+// exceeds ctx-8192's entire slack — which is why the same model failed at one
+// context size and not the other (asus-CC, #320). The 1200 default is kept
+// for callers without a tokenizer in hand; it is a floor, not a truth.
+export function localBudgets(contextSize, explicitMaxTokens, overheadTokens = null) {
+  const OVERHEAD = (Number.isFinite(overheadTokens) && overheadTokens > 0)
+    ? Math.floor(overheadTokens)
+    : 1200;                      // assumed fallback — see note above
   const MIN_TOOL_TOKENS = 400;
   let maxTokens = explicitMaxTokens || Math.min(6144, Math.max(2400, Math.floor(contextSize / 6)));
   maxTokens = Math.max(256, Math.min(maxTokens, contextSize - OVERHEAD - MIN_TOOL_TOKENS));
@@ -403,6 +418,8 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
   let floorReverted = false;
   let floorSubstituted = [];   // tool names CE ran on the model's behalf
   let modelsUsedResult = '';   // #306 F70: the tool output the prose is checked against
+  let overviewSeedResult = ''; // #320 1c: the deterministic seed, for seed-aware verification
+  const toolCallCounts = new Map(); // #320 item 4: per-tool counts for the evidentiary footer
   const toolFloor = toolFloorFrom(process.env);
   try {
     // Load the index in-process and point handleTool at it (no MCP subprocess).
@@ -421,6 +438,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     // flash attention was on changes VRAM headroom and may change numerics, and
     // a capture that does not say so cannot be compared against one that does.
     status(`loading model ${modelPath.split(/[\\/]/).pop()}${flashAttention ? ' (flash attention)' : ''} …`);
+    const requestedCtx = contextSize;   // #320 item 3: remember what was asked for
     const sizes = [contextSize, 8192, 4096, 2048];
 
     // Load the model and create a context, optionally forcing CPU. Returns
@@ -455,11 +473,42 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     model = loaded.m;
     const context = loaded.ctx;
 
+    // #320 item 3: the ladder used to shrink silently — Devstral asked for
+    // 16384, got 8192, and the only trace was the after-the-fact [context: N].
+    // A model silently handed half its window must be visible at the time.
+    if (contextSize < requestedCtx) {
+      status(`context ladder: requested ${requestedCtx}, allocated ${contextSize} — `
+        + `the model is running with a smaller window than asked (VRAM could not fit the request)`);
+    }
+
+    // #320 item 2: measure the real overhead instead of assuming 1200. The
+    // base prompt and the tool definitions are both known here; the strict
+    // wrapper header and question framing are not yet (they need the session),
+    // so a fixed 400-token margin covers them — stated, not hidden. Tokenize
+    // with the model's own tokenizer when available; chars/3.5 as fallback.
+    const tokensOf = (s) => {
+      try { if (typeof model.tokenize === 'function') return model.tokenize(String(s)).length; } catch { /* fall through */ }
+      return Math.ceil(String(s || '').length / 3.5);
+    };
+    const promptBase = aiOverviewPrompt(grounding, { localEngine: true });
+    let toolDefChars = 0;
+    {
+      const byNameForMeasure = new Map(TOOLS.map(t => [t.name, t]));
+      for (const name of TOOL_NAMES) {
+        const def = byNameForMeasure.get(name);
+        if (!def) continue;
+        toolDefChars += String(def.description || '').slice(0, 280).length
+          + JSON.stringify((def.inputSchema && def.inputSchema.properties) ? def.inputSchema : {}).length;
+      }
+    }
+    const measuredOverhead = tokensOf(promptBase) + Math.ceil(toolDefChars / 3.5) + 400;
+    status(`budget: measured overhead ~${measuredOverhead} tokens (prompt + tool defs + margin; old assumption was 1200)`);
+
     // Expose the CE tools as chat functions backed by handleTool. #276: gate
     // every call through the tool budget and neutralize special tokens in
     // results — investigator-class models (Qwen3.5) otherwise accumulate
     // results until the context overflows, which crashes natively here.
-    const { maxTokens: cappedMaxTokens, toolBudgetChars } = localBudgets(contextSize, maxTokens);
+    const { maxTokens: cappedMaxTokens, toolBudgetChars } = localBudgets(contextSize, maxTokens, measuredOverhead);
     const budget = makeToolBudget({ maxCalls: 24, maxChars: toolBudgetChars });
     const byName = new Map(TOOLS.map(t => [t.name, t]));
     const functions = {};
@@ -481,6 +530,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
           // report. Counting before the gate would let budget-stopped attempts
           // satisfy a floor.
           distinctTools.add(name);
+          toolCallCounts.set(name, (toolCallCounts.get(name) || 0) + 1); // #320 item 4
           let out;
           try { out = String(handleTool(name, args || {})); }
           catch (e) { out = `Error calling ${name}: ${e.message}`; }
@@ -490,6 +540,8 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
           // a second call could return something the model never saw, which
           // would make the comparison describe a different run.
           if (name === 'models_used') modelsUsedResult = capped;
+          // #320 1c: the overview seed, for seed-aware name verification.
+          if (name === 'overview' && !overviewSeedResult) overviewSeedResult = capped;
           budget.charge(capped.length);
           return capped;
         },
@@ -545,6 +597,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
       catch (e) { pre = ''; status(`prefetch overview failed: ${e.message}`); }
       if (pre) {
         prefetched = true;
+        if (!overviewSeedResult) overviewSeedResult = pre;  // #320 1c
         budget.charge(pre.length);   // honest accounting against the tool budget
         status(`prefetch: CE called overview itself (${pre.length} chars) — not a model tool call`);
         promptText = `The \`overview\` tool has ALREADY been called for the loaded index. Its result follows.\n\n`
@@ -554,9 +607,20 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
       }
     }
 
+    // #320 item 5: the timeout must STOP inference, not just report. Rejecting
+    // the race hands the user their prompt back while the native evaluation
+    // keeps running (observed: 5,269s of CPU after "timed out" printed, killed
+    // manually; on the CPU-fallback path that could burn for hours). The abort
+    // signal is threaded into every session.prompt below — node-llama-cpp
+    // stops generation and throws `signal.reason` when it fires.
     let timer;
+    const timeoutAbort = new AbortController();
     const timeout = new Promise((_, rej) => {
-      timer = setTimeout(() => rej(new Error(`local AI overview timed out (${Math.round(timeoutMs / 60000)} min)`)), timeoutMs);
+      timer = setTimeout(() => {
+        const err = new Error(`local AI overview timed out (${Math.round(timeoutMs / 60000)} min)`);
+        timeoutAbort.abort(err);
+        rej(err);
+      }, timeoutMs);
       if (timer.unref) timer.unref();
     });
 
@@ -566,7 +630,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
       // onStream surfaces the live model output (incl. <think> blocks and tool
       // reasoning) for testing; the final stdout prose still strips <think>.
       raw = await Promise.race([
-        session.prompt(promptText, { functions, maxTokens: cappedMaxTokens, onTextChunk: onStream ? (c) => onStream(c) : undefined }),
+        session.prompt(promptText, { functions, maxTokens: cappedMaxTokens, signal: timeoutAbort.signal, onTextChunk: onStream ? (c) => onStream(c) : undefined }),
         timeout,
       ]);
       // Some local models end the turn after the tool phase without writing an
@@ -591,6 +655,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
           raw = await Promise.race([
             session.prompt(SYNTHESIZE_NOW_PROMPT, {
               maxTokens: Math.min(cappedMaxTokens, SYNTHESIZE_RETRY_MAX_TOKENS),
+              signal: timeoutAbort.signal,
               onTextChunk: onStream ? (c) => onStream(c) : undefined,
             }),
             timeout,
@@ -616,6 +681,10 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
           catch (e) { status(`floor substitution: ${name} failed — ${e.message}`); continue; }
           if (!out) continue;
           budget.charge(out.length);   // honest accounting, as the prefetch does
+          // #320 1a: a substituted models_used result IS in the model's context
+          // for the revision pass, so the verification can use it.
+          if (name === 'models_used' && !modelsUsedResult) modelsUsedResult = out;
+          if (name === 'overview' && !overviewSeedResult) overviewSeedResult = out;
           supplied.push({ name, out });
         }
         if (!supplied.length) {
@@ -637,6 +706,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
             raw = await Promise.race([
               session.prompt(`${packed}\n\n${SUBSTITUTION_REVISION_PROMPT}`, {
                 maxTokens: cappedMaxTokens,
+                signal: timeoutAbort.signal,
                 onTextChunk: onStream ? (c) => onStream(c) : undefined,
               }),
               timeout,
@@ -668,17 +738,43 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     // becomes invisible the moment the workaround lands — the workaround would
     // then quietly mask the very thing that justifies replacing the model.
     if (rescued && prose) prose = `${rescuedNote(toolCalls)}\n\n${prose}`;
-    // #306 F70: check the AI/ML sentence against the tool result CE already has.
+    // #306 F70 + #320 1a/1c: check the AI/ML sentence against models_used.
     // Appended, never rewritten — silently editing the model's prose would make
     // CE's output no longer what the model produced, which is the one thing the
-    // standing constraint forbids. Says nothing when models_used was not called
-    // or when every name is supported.
+    // standing constraint forbids.
+    //
+    // #320's structural finding: the old guard returned '' exactly when the
+    // model skipped models_used — the condition that produces the wrong answer.
+    // So when the model never called it, CE calls it ITSELF for verification
+    // (the index is loaded, the result is deterministic) and the notes disclose
+    // that the model never saw it. The converse check — "prose says none
+    // detected, tool says N" — is the direction that was actually wrong in the
+    // 11-run matrix, and only works because of this self-call.
+    let verifyModelsUsed = modelsUsedResult;
+    let selfCalledModelsUsed = false;
+    if (prose && !verifyModelsUsed) {
+      try {
+        verifyModelsUsed = String(handleTool('models_used', {})).slice(0, MAX_TOOL_OUTPUT);
+        selfCalledModelsUsed = true;
+        status('verification: CE ran models_used itself (the model never called it) — NOT a model tool call');
+      } catch (e) { status(`verification models_used failed: ${e.message}`); }
+    }
     if (prose) {
-      const aimlNote = aimlVerificationNote(prose, modelsUsedResult);
+      const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult);
       if (aimlNote) {
         prose += aimlNote;
-        status(`AI/ML sentence names ${unsupportedModelNames(prose, modelsUsedResult).length} term(s) absent from models_used — footnoted`);
+        status(`AI/ML sentence names ${unsupportedModelNames(prose, verifyModelsUsed, overviewSeedResult).length} term(s) absent from models_used — footnoted`);
       }
+      const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed });
+      if (converseNote) {
+        prose += converseNote;
+        status('AI/ML claim contradicted by models_used — footnoted');
+      }
+    }
+    // #320 item 4: the evidentiary footer. States what the answer is based on;
+    // one-tool-only answers say so in CE's voice.
+    if (prose) {
+      prose += `\n\n${toolCallFooter(toolCallCounts, { substituted: floorSubstituted, prefetched, selfCalledModelsUsed })}`;
     }
     // Label a floor-influenced run, whether or not the substitution helped. A run
     // CE supplied results to must not read as one that investigated on its own —

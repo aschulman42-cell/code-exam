@@ -234,3 +234,96 @@ describe('#306 AI/ML sentence verification — nine verbatim sweep sentences', (
     assert.match(note, /may be a vendor or framework rather than a model/);
   });
 });
+
+// ===========================================================================
+// #320 — the guard's 0-for-3 scoreboard, repaired. Three mechanisms:
+// 1b: CE's own ⓘ disclosure lines are stripped before the prose is scanned
+//     (both observed firings footnoted CE's own RECOVERED-OUTPUT banner);
+// 1c: verification is seed-aware (a correct citation of a filename from the
+//     deterministic overview seed must not be footnoted), and the CONVERSE
+//     direction — prose denies AI/ML while models_used reports models — is
+//     checked at all (the one wrong answer in the 11-run matrix, unflagged).
+// item 4: the evidentiary footer states what the answer is based on.
+// ===========================================================================
+import { aimlConverseNote, modelsUsedCount, toolCallFooter } from '../src/core/answer-disclosure.js';
+
+describe('#320 1b: CE ⓘ banner lines are not scanned as model prose', () => {
+  const banner = 'ⓘ RECOVERED OUTPUT: the model made 5 tool call(s) and then ended its turn without writing anything.';
+  it('the RECOVERED-OUTPUT banner alone produces no unsupported names', () => {
+    // Before the fix: "RECOVERED", "OUTPUT" shaped like names, the banner's
+    // "the model made..." matched /\bmodels?\b/, and the guard footnoted CE.
+    assert.deepEqual(unsupportedModelNames(`${banner}\n\nA clean overview paragraph.`, '2 models used:\n- qwen\n- gemma'), []);
+  });
+  it('model prose around the banner is still scanned', () => {
+    const prose = `${banner}\n\nThe code uses models including FakeNet-9000.`;
+    assert.deepEqual(unsupportedModelNames(prose, '2 models used:\n- qwen\n- gemma'), ['FakeNet-9000']);
+  });
+});
+
+describe('#320 1c: seed-aware verification', () => {
+  it('a name present in the overview seed is supported evidence', () => {
+    // Gemma K_M's CORRECT sr_gh sentence cited a filename from the seed's
+    // vocabulary lines — not one of models_used's ids. Must not be footnoted.
+    const prose = 'Local models are trained via `Qwen_Qwen1_5_0_5B_Chat_e5_lr0` runs.';
+    const used = '21 models used — 2 api, 19 local\n- sonnet\n- qwen1.5';
+    const seed = '**Vocabulary:**\n- lr0 (Qwen_Qwen1_5_0_5B_Chat_e5_lr0)';
+    assert.deepEqual(unsupportedModelNames(prose, used, seed), []);
+    assert.equal(aimlVerificationNote(prose, used, seed), '');
+  });
+  it('a name in neither the tool output nor the seed is still footnoted', () => {
+    const prose = 'Models include `TotallyInvented-7B` throughout.';
+    assert.deepEqual(unsupportedModelNames(prose, '1 models used:\n- qwen', 'seed text'), ['TotallyInvented-7B']);
+  });
+});
+
+describe('#320 1c: the converse check — denial vs a non-empty models_used', () => {
+  const USED_21 = '21 models used — 2 api, 19 local\n- Qwen_Qwen1_5_0_5B_Chat\n…';
+  const NEGATIVE = 'Models USED = ids the code loads or calls as LITERALS. '
+    + 'To see what is actually loaded, search/regex_search the loader terms.';
+  it('modelsUsedCount reads the positive header and nothing else', () => {
+    assert.equal(modelsUsedCount(USED_21), 21);
+    assert.equal(modelsUsedCount('1 model used — 1 local\n- x'), 1);
+    assert.equal(modelsUsedCount(NEGATIVE), 0);
+    assert.equal(modelsUsedCount(''), 0);
+  });
+  it('fires on the observed qwen3-14b denial with 21 models reported', () => {
+    const note = aimlConverseNote('No AI/ML models are explicitly detected in this index.', USED_21);
+    assert.match(note, /AI\/ML CLAIM CONTRADICTED/);
+    assert.match(note, /reports 21 models/);
+  });
+  it('fires on the observed gemini phrasing too', () => {
+    const note = aimlConverseNote(
+      'The codebase does not explicitly load or call any AI/ML models directly that could be identified.', USED_21);
+    assert.match(note, /CONTRADICTED/);
+  });
+  it('discloses when CE ran the tool itself for verification', () => {
+    const note = aimlConverseNote('No AI/ML models detected.', USED_21, { selfCalled: true });
+    assert.match(note, /ran `models_used` itself for this check/);
+    assert.match(note, /the model did not call it/);
+  });
+  it('silent when the denial is CORRECT (zlib case: negative tool output)', () => {
+    assert.equal(aimlConverseNote('No AI/ML models are detected here.', NEGATIVE), '');
+  });
+  it('silent when the prose affirms models (nothing denied)', () => {
+    assert.equal(aimlConverseNote('The code loads two Qwen models for inference.', USED_21), '');
+  });
+});
+
+describe('#320 item 4: the evidentiary footer', () => {
+  it('lists tools with counts, sorted by frequency', () => {
+    const f = toolCallFooter(new Map([['overview', 1], ['digest', 3], ['search', 1]]));
+    assert.match(f, /Based on 5 model tool calls: digest ×3, overview, search\./);
+  });
+  it('names the paraphrase case in CE voice', () => {
+    const f = toolCallFooter(new Map([['overview', 1]]));
+    assert.match(f, /rewording of `--overview`, not an independent second view/);
+  });
+  it('zero calls says nothing came from the index', () => {
+    assert.match(toolCallFooter(new Map()), /0 model tool calls — nothing in this overview came from querying the index/);
+  });
+  it('disclosures ride in the parenthetical', () => {
+    const f = toolCallFooter(new Map([['overview', 1], ['stats', 1]]),
+      { substituted: ['models_used'], prefetched: true, selfCalledModelsUsed: false });
+    assert.match(f, /CE prefetched `overview` itself; CE ran models_used on the model's behalf/);
+  });
+});
