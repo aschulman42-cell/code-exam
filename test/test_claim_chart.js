@@ -2485,3 +2485,88 @@ describe('chartScope normalizes line endings for every caller', () => {
     assert.ok(!cells[0].includes('\r'));
   });
 });
+
+// ===========================================================================
+// chart-html-two-column-brief: one sidecar, two renderings. `full` stays the
+// evidentiary default, byte-identical; `brief` is the traditional two-column
+// landscape chart. Compression must never drop a disclosure.
+// ===========================================================================
+import { chartFormatFrom } from '../src/commands/claim-chart.js';
+
+describe('--chart-format brief (chart-html-two-column-brief)', () => {
+  const SC = {
+    engine: 'Test Engine — stub', index: '.stub', claimSource: '(inline)', elements: 2,
+    generatedAt: '2026-09-07T00:00:00.000Z', argv: 'src/index.js --claim-chart @x',
+    claimSides: { parties: ['transmission device', 'reception device'], directional: true,
+      perElement: ['transmission device', null] },
+    indexSide: { serverRoutes: 0, clientCalls: 0, socketClient: 1, socketServer: 0, verdict: 'client-only' },
+    analysed: [
+      { target: 'A.java@A::one', elements: [
+        { element: 1, text: 'first element about transmitting', label: 'ABSENT', note: 'no line' },
+        { element: 2, text: 'second element about reproducing', label: 'PARTIAL', note: 'line 3 reproduces.' }] },
+      { target: 'B.java@B::two', elements: [
+        { element: 1, text: 'first element about transmitting', label: 'ABSENT', note: 'no line' },
+        { element: 2, text: 'second element about reproducing', label: 'ABSENT', note: 'no line' }] },
+    ],
+    family: { root: 1, members: [
+      { n: 2, depth: 'D', kind: 'MODIFICATION', cue: 'wherein', parent: 1, chain: [1, 2],
+        verdict: 'claim 2 (D): NOT MET', rows: [
+          { designation: '[1a]', origin: 'inherited', text: 'first element about transmitting',
+            from: 1, parentDesignation: '[1a]', label: 'ABSENT', note: 'no line', target: 'A.java@A::one' }] },
+    ] },
+  };
+  const full = () => replayChartHtml({ sidecar: SC, sidecarPath: 'y.json' });
+  const brief = () => replayChartHtml({ sidecar: SC, sidecarPath: 'y.json', format: 'brief' });
+
+  it('default and explicit full are byte-identical (the flag changes nothing unasked)', () => {
+    // The RE-RENDERED marker embeds the wall clock; normalize it before
+    // comparing — everything else must match to the byte.
+    const noClock = (s) => s.replace(/on \d{4}-[^ ]+Z/g, 'on <t>');
+    assert.equal(noClock(full()), noClock(replayChartHtml({ sidecar: SC, sidecarPath: 'y.json', format: 'full' })));
+  });
+
+  it('brief is the two-column landscape table', () => {
+    const b = brief();
+    assert.ok(b.includes('size:letter landscape'), 'landscape @page');
+    assert.ok(b.includes('<table class="chart">'));
+    assert.ok(b.includes('Claim language (verbatim)'));
+    assert.ok(!b.includes('class="rec"'), 'no record-block layout in brief');
+  });
+
+  it('verdict sequence is identical between the two formats', () => {
+    const labels = (html) => [...html.matchAll(/class="verdict">([A-Z]+)</g)].map((m) => m[1]);
+    assert.deepEqual(labels(brief()), labels(full()));
+  });
+
+  it('brief folds agreement detail away; full keeps it', () => {
+    assert.match(full(), /of 2<\/span>/, 'full carries the N-of-M agreement tag');
+    assert.doesNotMatch(brief(), /of 2<\/span>/, 'brief folds it (the stated compression)');
+  });
+
+  it('every disclosure survives compression', () => {
+    const b = brief();
+    assert.equal((b.match(/Pre-release output/g) || []).length, 2, 'both pre-release notices');
+    assert.ok(b.includes('Two-sided claim: transmission device / reception device'), 'side scope');
+    assert.ok(b.includes('This index is CLIENT-ONLY'));
+    assert.ok(b.includes('machine-generated, illustrative only'), 'eyebrow framing');
+    assert.ok(b.includes('NARROWS A LIMITATION'), 'the 112(d) reader label');
+    assert.ok(b.includes('inherited from claim 1'), 'inherited rows compress to a pointer, not silence');
+  });
+
+  it('examiner notes keep their authorship label in brief', () => {
+    const b = replayChartHtml({ sidecar: SC, sidecarPath: 'y.json', format: 'brief', notes: 'Row 2 wobbled across runs.' });
+    assert.ok(b.includes("Examiner's notes"));
+    assert.ok(b.includes('Row 2 wobbled across runs.'));
+    assert.ok(b.includes('dashed amber box = analyst commentary'));
+  });
+
+  it('chartFormatFrom validates fail-fast', () => {
+    assert.equal(chartFormatFrom({}), 'full');
+    assert.equal(chartFormatFrom({ chart_format: 'brief' }), 'brief');
+    const errs = [];
+    const orig = console.error; console.error = (m) => errs.push(m);
+    try { assert.equal(chartFormatFrom({ chart_format: 'fancy' }), null); }
+    finally { console.error = orig; }
+    assert.match(errs.join(' '), /unknown format "fancy"/);
+  });
+});

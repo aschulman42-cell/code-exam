@@ -1703,6 +1703,10 @@ export async function chartFamily({ index, symbols, draft, args, scope, rootElem
 }
 
 export async function doClaimChart(index, args, opts = {}) {
+  // Fail fast on a bad --chart-format BEFORE any model call is spent — the
+  // page write happens at the end of an expensive run, and discovering the
+  // typo there would waste the whole run.
+  if (args.chart_html && !chartFormatFrom(args)) { process.exitCode = 1; return; }
   const spec = args.claim_chart;
   let claimText = spec;
   if (typeof spec === 'string' && spec.startsWith('@')) {
@@ -2385,6 +2389,7 @@ Per-target verdicts written to ${args.verdicts_out}`
         connectivity, citedDupes, targets: perTarget.map((p) => p.target), family,
         notes: chartNotes,
         command: process.argv.slice(1).join(' '), generatedAt: new Date().toISOString(),
+        format: chartFormatFrom(args) || 'full',
         // The named header (chart-html-provenance-header). Title/subtitle are
         // the operator's to state (--chart-title / --chart-subtitle); the
         // fallback derives from what is on hand and never guesses a patent
@@ -2497,7 +2502,7 @@ export function sideScopeFromRecorded(claimSides, indexSide) {
 // pre-written note could not describe. The page carries a re-rendered marker:
 // a replayed page must never impersonate a live one.
 export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claimTextOverride = null,
-  title = null, subtitle = null }) {
+  title = null, subtitle = null, format = 'full' }) {
   const analysed = Array.isArray(sidecar.analysed) ? sidecar.analysed : [];
   if (!analysed.length) throw new Error('sidecar has no analysed targets — nothing to replay');
   const bounds = [];
@@ -2579,7 +2584,7 @@ export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claim
   return renderChartHtml({
     claimText, fills, elements, engineLabel: sidecar.engine || 'unrecorded engine',
     scopeNote: null, sideScope, otherSideElements, provenance,
-    connectivity: null, citedDupes: null,
+    connectivity: null, citedDupes: null, format,
     targets: analysed.map((a) => a.target), family, notes,
     command: sidecar.argv || null, generatedAt: sidecar.generatedAt || null,
     // Recorded fields only; a sidecar predating chart-html-provenance-header
@@ -2606,6 +2611,16 @@ export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claim
 // The CLI face of the replay: --chart-html-from <verdicts.json> --chart-html
 // <out.html> [--chart-notes <file>]. Needs neither an index nor a model, so
 // index.js dispatches it before the index opens (the --triage precedent).
+// --chart-format validator, shared by the live path and the replay. Returns
+// the format string, or null after printing the error (fail fast, before any
+// model call or file write — the CLI-errors contract).
+export function chartFormatFrom(args) {
+  const f = args.chart_format == null ? 'full' : String(args.chart_format);
+  if (f === 'full' || f === 'brief') return f;
+  console.error(`--chart-format: unknown format "${f}" — use full (the evidentiary default) or brief (two-column landscape).`);
+  return null;
+}
+
 export function doChartHtmlFrom(args) {
   if (!args.chart_html) {
     console.error('--chart-html-from needs --chart-html <out.html> for the page it writes.');
@@ -2622,8 +2637,10 @@ export function doChartHtmlFrom(args) {
     catch (e) { console.error(`--chart-notes: cannot read ${npath}: ${e.message}`); process.exitCode = 1; return; }
     if (!notes.trim()) { console.error(`--chart-notes: ${npath} is empty — supply commentary or drop the flag.`); process.exitCode = 1; return; }
   }
+  const format = chartFormatFrom(args);
+  if (!format) { process.exitCode = 1; return; }
   let html;
-  try { html = replayChartHtml({ sidecar, sidecarPath, notes,
+  try { html = replayChartHtml({ sidecar, sidecarPath, notes, format,
     title: args.chart_title || null, subtitle: args.chart_subtitle || null }); }
   catch (e) { console.error(`--chart-html-from: ${e.message}`); process.exitCode = 1; return; }
   try { fs.writeFileSync(args.chart_html, html, 'utf8'); }
@@ -2642,9 +2659,150 @@ export const CHART_PRERELEASE_HTML = '<p class="prerelease"><strong>Pre-release 
   + ' &middot; <a href="https://www.softwarelitigationconsulting.com/">softwarelitigationconsulting.com</a>.'
   + ' Behaviour and output format are subject to change before release.</p>';
 
+// chart-html-two-column-brief: the traditional two-column claim chart, for
+// the reader who has seen a hundred of them — claim language | evidence, one
+// row per limitation, landscape. The full page stays the evidentiary
+// instrument (verdict rails, agreement counts, retrieval provenance); this is
+// the same data rendered for a first impression. What compresses is per-row
+// agreement detail and layout density. What survives, deliberately: BOTH
+// pre-release notices, the closest-examined-not-a-finding label, the
+// side-scope disclosure, connectivity/near-duplicate disclosures, and the
+// examiner-notes appendix with its authorship label — compression never
+// drops a disclosure.
+export function renderChartHtmlBrief({ claimText, fills, elements, engineLabel, sideScope, otherSideElements,
+  targets = [], family = null, notes = null, connectivity = null, citedDupes = null,
+  command = null, generatedAt = null, head = null }) {
+  const h = head || {};
+  const unrec = (v) => (v == null || v === '' ? 'unrecorded' : v);
+  const out = [];
+  out.push('<!doctype html><html><head><meta charset="utf-8"><title>Claim chart</title><style>');
+  out.push(`@page{size:letter landscape;margin:0.45in}
+body{font-family:system-ui,-apple-system,sans-serif;margin:1.5rem auto;max-width:75rem;color:#1a1a1a;background:#fff}
+.el{font-family:Georgia,'Times New Roman',serif;font-style:italic}
+.cite{font-family:ui-monospace,Consolas,monospace;font-size:.85em;overflow-wrap:anywhere;display:block;margin-top:.25rem;color:#333}
+.verdict{font-weight:700}
+.tag{font-size:.75rem;padding:.05rem .4rem;border-radius:.6rem;background:#fde9b8;color:#7a5b00;margin-left:.4rem}
+.closest{font-size:.75rem;color:#666;text-transform:uppercase;letter-spacing:.03em}
+.meta{color:#555;font-size:.85rem}
+header.doc{border-bottom:2px solid #1a1a1a;padding-bottom:12px;margin-bottom:12px}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:.15em;text-transform:uppercase;color:#1F4E79;margin:0 0 8px}
+header.doc h1{font-family:Georgia,'Times New Roman',serif;font-size:24px;margin:0 0 5px}
+.subtitle{font-family:Georgia,'Times New Roman',serif;font-size:15px;color:#545B6B;margin:0;font-style:italic}
+.prerelease{font-size:11.5px;line-height:1.55;color:#545B6B;background:#fff;border:1px solid #DEE1E8;border-left:3px solid #1F4E79;padding:9px 14px;margin:0 0 16px}
+.prerelease a{color:#1F4E79}
+.strip{font-size:12.5px;color:#545B6B;margin:0 0 14px;line-height:1.6}
+.strip code{font-family:ui-monospace,Consolas,monospace;overflow-wrap:anywhere}
+details.more{font-size:12px;color:#545B6B;margin:0 0 16px}
+details.more pre{background:#fff;border:1px solid #DEE1E8;padding:8px 12px;overflow-x:auto;font-size:11.5px;white-space:pre-wrap;word-break:break-word}
+.scope{border:1px solid #ddd;padding:.5rem .9rem;margin:.7rem 0 1rem;background:#f5f7fa;font-size:.9rem}
+table.chart{border-collapse:collapse;width:100%;margin:0 0 1.2rem}
+table.chart col.claim{width:44%}
+table.chart th{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#828A9A;text-align:left;border-bottom:2px solid #1a1a1a;padding:6px 10px}
+table.chart td{border-bottom:1px solid #DEE1E8;padding:9px 10px;vertical-align:top;font-size:.95rem}
+table.chart td.ev{border-left:4px solid #ccc}
+table.chart tr.sect td{border-bottom:1px solid #1a1a1a;background:#f5f7fa;font-size:.9rem;padding:7px 10px}
+.notes{border:1px dashed #b8860b;background:#fdf6e3;padding:.7rem 1rem;margin:1rem 0}
+.notes .label{font-size:.75rem;color:#7a5b00;text-transform:uppercase;letter-spacing:.03em;margin-bottom:.4rem}
+.notes .body{white-space:pre-wrap;font-size:.9rem}
+footer.doc{margin-top:32px;padding-top:12px;border-top:1px solid #DEE1E8;font-size:11.5px;color:#828A9A;line-height:1.6}
+@media print{body{margin:0}.notes,table.chart tr{break-inside:avoid}.prerelease{background:#f4f6f9}}`);
+  out.push('</style></head><body>');
+  out.push('<header class="doc">');
+  out.push(' <p class="eyebrow">Claim chart &middot; machine-generated, illustrative only</p>');
+  out.push(` <h1>${hesc(h.title || 'Claim chart')}</h1>`);
+  if (h.subtitle) out.push(` <p class="subtitle">${hesc(h.subtitle)}</p>`);
+  out.push('</header>');
+  out.push(CHART_PRERELEASE_HTML);
+  // Condensed provenance strip; the full grid and the command fold away but
+  // remain on the page — condensing must never mean unrecorded.
+  out.push(`<p class="strip"><b>Index</b> <code>${hesc(unrec(h.indexPath))}</code>`
+    + ` &middot; <b>Engine</b> ${hesc(engineLabel || 'unrecorded')}${h.device ? ` &middot; ${hesc(h.device)}` : ''}`
+    + ` &middot; <b>Generated</b> ${hesc(unrec(generatedAt))}${h.ceVersion ? ` &middot; CodeExam ${hesc(h.ceVersion)}` : ''}</p>`);
+  out.push('<details class="more"><summary>Full provenance (engine build, targets, elements, command)</summary>');
+  out.push(`<p><b>Engine build:</b> ${hesc(unrec(h.engineBuild))}<br>`
+    + `<b>Targets:</b> ${h.targetsAnalysed != null ? hesc(String(h.targetsAnalysed)) + ' analysed' + (h.targetsNoVerdict ? `, ${hesc(String(h.targetsNoVerdict))} produced no verdict` : '') : 'unrecorded'}<br>`
+    + `<b>Elements:</b> ${hesc(unrec(h.elementsLine))}${h.familyLine ? `; ${hesc(h.familyLine)}` : ''}</p>`);
+  if (command) out.push(`<pre>${hesc(command)}</pre>`);
+  out.push('</details>');
+  out.push(`<details class="more"><summary>Claim text (verbatim)</summary><pre class="el">${hesc(String(claimText).trim())}</pre></details>`);
+  if (sideScope) out.push(`<div class="scope">${hesc(sideScope)}</div>`);
+
+  const evCell = (label, f, { other = false } = {}) => {
+    const bits = [`<span class="verdict">${hesc(label)}</span>${other ? '<span class="tag">other side</span>' : ''}`];
+    if (f && f.note) bits.push(`<div>${hesc(f.note)}</div>`);
+    if (f && f.unshown && f.unshown.length) bits.push(`<div class="meta">not shown in citation: ${hesc(f.unshown.join(', '))}</div>`);
+    if (f && f.target) {
+      if (f.closest) bits.push('<div class="closest">Closest candidate examined — not a finding</div>');
+      bits.push(`<span class="cite">${hesc(f.target)}</span>`);
+    }
+    return `<td class="ev" style="border-left-color:${RAIL[label] || '#ccc'}">${bits.join('')}</td>`;
+  };
+
+  out.push('<table class="chart"><colgroup><col class="claim"><col></colgroup>');
+  out.push('<thead><tr><th>Claim language (verbatim)</th><th>Evidence &mdash; machine-generated, illustrative only</th></tr></thead><tbody>');
+  const byNum = new Map((fills || []).filter((f) => f.element != null).map((f) => [f.element, f]));
+  (elements || []).forEach((e, i) => {
+    const f = byNum.get(i + 1);
+    const label = f ? f.label : 'UNANALYSED';
+    const other = !!(otherSideElements && otherSideElements.has && otherSideElements.has(i + 1));
+    out.push(`<tr><td class="el">${i + 1}. ${hesc(e)}</td>${evCell(label, f, { other })}</tr>`);
+  });
+  // Dependents continue the same table: one section row per claim, then its
+  // effective rows. Inherited rows compress to a pointer — the parent row
+  // above IS the evidence, and repeating it would misread as new support.
+  if (family && family.members) {
+    for (const dep of family.members) {
+      out.push(`<tr class="sect"><td colspan="2"><b>Claim ${hesc(dep.n)}</b> &mdash; ${hesc(depKindLabel(dep.kind))}${dep.verdictLine ? ` &mdash; <span class="meta">${hesc(dep.verdictLine)}</span>` : ''}</td></tr>`);
+      for (const r of dep.effective || []) {
+        if (r.origin === 'inherited') {
+          out.push(`<tr><td class="el meta">inherited from claim ${hesc(String(r.from))}; see ${hesc(String(r.designation || r.parentDesignation || ''))}</td>`
+            + `<td class="ev" style="border-left-color:${RAIL[r.label] || '#ccc'}"><span class="verdict">${hesc(r.label)}</span></td></tr>`);
+          continue;
+        }
+        const claimCell = r.origin === 'narrowed' && r.own
+          ? `${hesc(String(r.text).split(' — as narrowed by')[0])}<div class="meta"><b>as narrowed by claim ${hesc(String(r.designation).replace(/\D/g, ''))}:</b></div>${hesc(r.own)}`
+          : hesc(r.text);
+        out.push(`<tr><td class="el">${claimCell}</td>${evCell(r.label, r)}</tr>`);
+      }
+    }
+  }
+  out.push('</tbody></table>');
+  if (family && family.members) out.push(`<p class="meta">${hesc(DEP_KIND_LEGEND)}</p>`);
+  if (connectivity && connectivity.groups.length > 1) {
+    out.push(`<div class="scope">PRESENT/PARTIAL verdicts rest on ${connectivity.targets} target(s) in ${connectivity.groups.length} unconnected groups &mdash; the combination of these elements is not shown.</div>`);
+  }
+  for (const d of citedDupes || []) {
+    out.push(`<div class="scope meta">${d.target
+      ? `Cited <span class="cite">${hesc(d.target)}</span> has structural near-duplicate(s): ${d.twins.map((t) => `<span class="cite">${hesc(t)}</span>`).join(', ')}`
+      : `Cited <span class="cite">${hesc(d.file)}</span> shares structural near-duplicates with <span class="cite">${hesc(d.twinFile)}</span> (e.g. ${hesc(d.example)})`}</div>`);
+  }
+  if (notes) {
+    out.push('<div class="notes">');
+    out.push(`<div class="label">Examiner's notes — ${hesc(CHART_NOTES_LABEL)}</div>`);
+    out.push(`<div class="body">${hesc(String(notes).replace(/\s+$/, ''))}</div>`);
+    out.push('</div>');
+  }
+  out.push(`<p class="meta">Analysed targets: ${targets.length}. Voices: serif italic = claim language verbatim; sans = analysis-model finding; mono = symbols${notes ? '; dashed amber box = analyst commentary, not tool output' : ''}. The full-format page (default <code>--chart-format full</code>) carries per-row agreement detail from the same run.</p>`);
+  out.push('<footer class="doc">');
+  out.push('Machine-generated from a source index and illustrative only. Not legal advice and not an'
+    + ' infringement opinion. Every citation should be verified against the source &mdash; each is'
+    + ' reproducible with <code>ce --index-path &lt;idx&gt; --extract &lt;file&gt;@&lt;function&gt;</code>.');
+  out.push(CHART_PRERELEASE_HTML);
+  out.push('</footer>');
+  out.push('</body></html>');
+  return out.join('\n');
+}
+
 export function renderChartHtml({ claimText, fills, elements, engineLabel, scopeNote, sideScope, otherSideElements,
   provenance, connectivity, citedDupes, targets = [], family = null, notes = null,
-  command = null, generatedAt = null, head = null }) {
+  command = null, generatedAt = null, head = null, format = 'full' }) {
+  // chart-html-two-column-brief: one sidecar, two renderings. `full` is the
+  // evidentiary default, byte-identical to before the flag existed; `brief`
+  // is the two-column classic above.
+  if (format === 'brief') {
+    return renderChartHtmlBrief({ claimText, fills, elements, engineLabel, sideScope, otherSideElements,
+      targets, family, notes, connectivity, citedDupes, command, generatedAt, head });
+  }
   const out = [];
   out.push('<!doctype html><html><head><meta charset="utf-8"><title>Claim chart</title><style>');
   out.push(`body{font-family:system-ui,-apple-system,sans-serif;margin:2rem auto;max-width:60rem;color:#1a1a1a;background:#fff}

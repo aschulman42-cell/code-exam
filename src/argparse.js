@@ -548,6 +548,7 @@ export function parseArgs() {
     ['chart_notes',          'value',          ['--chart-notes']],
     // chart-html-replay: re-render the printable page from a verdicts sidecar.
     ['chart_html_from',      'value',          ['--chart-html-from']],
+    ['chart_format',         'value',          ['--chart-format']],
     // chart-html-provenance-header: the page's named title/subtitle.
     ['chart_title',          'value',          ['--chart-title']],
     ['chart_subtitle',       'value',          ['--chart-subtitle']],
@@ -1619,6 +1620,12 @@ LLM ANALYSIS:
                              with --chart-notes for post-hoc commentary. The
                              page carries a RE-RENDERED marker and states what
                              the sidecar did not record
+  --chart-format <fmt>       page layout for --chart-html / --chart-html-from:
+                             "full" (default — the evidentiary page above) or
+                             "brief" (traditional two-column claim chart,
+                             landscape: claim language | evidence, one row per
+                             limitation; same verdicts, same disclosures,
+                             agreement detail folded away)
   --chart-title <text>       page title for --chart-html / --chart-html-from
                              (e.g. "US 8,752,101, claim 1 — read against
                              ExoPlayer"); default derives from the index name.
