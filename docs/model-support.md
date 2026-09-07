@@ -29,18 +29,22 @@ Reference hardware for the verdicts below: RTX 5080 (16 GB) unless a
 cell says otherwise. Cloud engines (Claude/GPT/Gemini) are the reference
 column, not the subject of this table.
 
-## The matrix (status 2026-09-07 — pre-release assessment in progress)
+## The matrix (status 2026-09-07 evening — K_M column complete, every cell evidenced)
 
 | Feature | Qwen3.5-27B | Qwen3.5-9B | Qwen3-14B | Gemma3-12B K_M | Gemma3-12B QAT | Devstral-Small |
 |---|---|---|---|---|---|---|
-| Claim charts / claim-locate / claims-loop | **SUPPORTED** ¹ | **DEGRADED** ¹ | UNTESTED | UNTESTED | **DEGRADED** ² | UNTESTED |
+| Claim charts / claim-locate / claims-loop | **SUPPORTED** ¹ | **DEGRADED** ¹ | UNTESTED | **DEGRADED** ⁵ | **DEGRADED** ² | UNTESTED |
 | --overview-by-ai | UNTESTED | UNTESTED | **UNSUPPORTED** ³ | **SUPPORTED** ³ | **UNSUPPORTED** ³ | **DEGRADED** ³ᵇ |
-| --analyze family | UNTESTED | UNTESTED | UNTESTED | **DEGRADED** ⁴ | UNTESTED | UNTESTED |
-| --claim-search extraction (local prompt) | UNTESTED | UNTESTED | UNTESTED | UNTESTED | UNTESTED | UNTESTED |
+| --analyze family | UNTESTED | UNTESTED | UNTESTED | **SUPPORTED** ⁶ | UNTESTED | UNTESTED |
+| --claim-search extraction (local prompt) | UNTESTED | UNTESTED | UNTESTED | **SUPPORTED** ⁶ | UNTESTED | UNTESTED |
 | --mask-all analysis | UNTESTED | UNTESTED | UNTESTED | **UNSUPPORTED** ⁴ | UNTESTED | UNTESTED |
-| Pseudo-claims / mechanism-ranker | **SUPPORTED** ¹ | UNTESTED | UNTESTED | UNTESTED | UNTESTED | UNTESTED |
-| GUI Chat | UNTESTED | UNTESTED | UNTESTED | **DEGRADED** ⁴ | UNTESTED | UNTESTED |
-| --synonymize | UNTESTED | UNTESTED | UNTESTED | UNTESTED | UNTESTED | UNTESTED |
+| Pseudo-claims / mechanism-ranker | **SUPPORTED** ¹ | UNTESTED | UNTESTED | **SUPPORTED** ⁶ᵇ | UNTESTED | UNTESTED |
+| GUI Chat | UNTESTED | UNTESTED | UNTESTED | **DEGRADED** ⁷ | UNTESTED | UNTESTED |
+| --synonymize | UNTESTED | UNTESTED | UNTESTED | **SUPPORTED** ⁶ | UNTESTED | UNTESTED |
+
+Qwen3.5-27B's UNTESTED cells require the 24 GB / 24k-context cloud
+configuration — the 16 GB acceptance machine cannot load it; that
+column's gaps are hardware attribution, not neglect.
 
 ## Receipts
 
@@ -90,10 +94,92 @@ models**; a post-fix re-measure scores tool engagement, prose fidelity,
 and budget survival instead. Re-run pending on the GGUF acceptance
 machine.
 
-**⁴ Gemma3 (K_M) chat / analyze / mask-all** — #319: chats about code
-capably (including a masked-analysis follow-up conversation), but
-cannot grasp the --mask-all discipline; analyze works with the same
-caveat. One version tested; treat as provisional.
+**⁴ Gemma3 (K_M) mask-all** — #319: chats about code capably, but
+cannot grasp the --mask-all discipline in conversation. Unchanged by
+the 9/07 batch (that test was not repeated); note the analyze-path
+control below found masked *analysis* degrades appropriately without
+corrupting — the #319 finding is about the conversational feature.
+
+**⁵ Gemma3-12B K_M claim charts** — DEGRADED, scored on the fresh
+same-commit f916787 pair under the pre-agreed rule (#321): positive
+11/11 PASS (TLS demo); negative FAIL by the known mechanism — one
+row's PRESENT resting on lone support (1 of 25, floor 20), the same
+row/support/floor as every banked run, digit-identical across commits.
+The limit, stated in the direction it occurs: **may over-claim a
+single row on a true negative** — here a *transmit-side* limitation
+scored against a *receive-side-only* corpus. PRESENT rows resting on
+1-of-N support should be independently verified; the `--verdicts-out`
+sidecar exposes the support count mechanically and
+`scripts/engine-qualify.mjs` (shipped) flags it. Receipts:
+`RUN29_QUAL_8752101_x_ExoPlayer3_gemma3-12b-Q4KM_f916787_20260907_1412.verdicts.json`,
+`CLAIM2_RUN29_tlsdemo_gemma3-12b-Q4KM_f916787_20260907_1449.verdicts.json`.
+
+*Citation density (the "thin" criterion, measured over CITABLE rows
+only — ABSENT rows have nothing to cite and would swamp the
+denominator):* K_M 11/17 (0.65) on the negative, 85/107 (0.79) on the
+positive; Qwen3-14B 22/22 (1.00). K_M is not thin in absolute terms —
+two-thirds to four-fifths of citable rows point at code — but is
+measurably less dense than Qwen. Both K_M pairs reproduce
+digit-for-digit across commits: a reproducibility receipt in its own
+right, and it means the negative-side over-claim is not a sampling
+accident. *(Provisional, n=1: on the true positive only 1 of 42
+PRESENT notes hedges ("could/may/likely…") — a 2% base rate — and the
+suite's one false PRESENT is hedged. ABSENT never hedges, any engine,
+0 of 762. A hedged PRESENT is a candidate flag, not a detector.)*
+
+**⁶ Gemma3-12B K_M, 9/07 batch** (`km_cheap_*` / `km_pseudo_*` run
+dirs, stock f916787, #321): plain **--analyze** clean on two indexes
+with a same-session mask-all control (masking degraded output exactly
+as designed — lost the purpose with the masked name, kept the
+mechanism, and got MIN_MATCH *right* where the unmasked run answered
+from parametric knowledge and got it wrong); **--analyze --with
+<claim>** produced element-by-element verdicts with line citations and
+marked out-of-span helpers "not shown" rather than inventing them.
+**claim-search extraction** returned index-aware TIGHT/BROAD lists
+(media3/mime/pcm — ExoPlayer vocabulary) with runnable multisect
+commands. **synonymize**: 9-of-9 elements preserved, 32.2% mean
+content-word survival — requirement intact, vocabulary moved.
+
+**⁶ᵇ Pseudo-claims / mechanism-ranker (K_M)** — ranker: 43/43 groups
+scored with a genuine P0/P1/P2 spread (6/25/13) and playoff demotions
+working as documented; characterisations accurate. Drafting: the claim
+was accurate and code-true, but every cited anchor was dropped by a
+**CE parser defect** (the drafter's trailing element annotation was
+passed whole to the resolver; all five citations hand-verified
+correct) — fixed at 5a91253, which strips the annotation and keeps it
+as the anchor's element note. SUPPORTED with no model re-measure: the
+citations were right all along. The artifact's "0 grounded" statement
+before the fix was false, and CE's, not the model's.
+
+**⁷ Gemma3-12B K_M GUI Chat** — DEGRADED
+(`scripts/gui-chat-probe.mjs` transcript, four scripted rounds, zero
+fabrication). Answers navigation/orientation questions well; on "what
+does this function do" it calls `digest` (location/callers) without
+following up with `extract` (the body), then honestly reports it lacks
+the information. Told to use extract, it answers correctly and
+specifically — a tool-selection limit, not comprehension. mask-all
+excluded (own row).
+
+## Matrix notes — patterns the cells share
+
+- **"A question whose answer depends on a tool call the model is free
+  not to make."** Named on #321 because it now recurs: the AI/ML
+  sentence delegated to an optional `models_used` call (#320(a), fixed
+  by CE calling it itself), and Chat's digest-without-extract (⁷). The
+  instructive contrast is `--analyze` on the same function, same model,
+  same commit: an excellent answer, because analyze *hands the model
+  the source* instead of hoping it fetches it. Where this pattern
+  bites, the proven remedy is substitution (CE gathers on the model's
+  behalf), not prompting (measured dead, #320).
+- **Part of what a column measures is CE.** Two of K_M's three 9/07
+  DEGRADED verdicts had limits that were CE's to fix, not the model's
+  (the anchor parser, since fixed; the chat tool-selection gap, open).
+  On this evidence Gemma3-12B K_M is a more capable engine than a
+  verdict-count skim of its column would suggest.
+- Post-release chart-disclosure candidates (deterministic, from data CE
+  already has): a support-count note on lone-support PRESENT rows, and
+  a hedge/label-mismatch note (see ⁵'s provisional observation). Not
+  for the 9/21 release.
 
 ## How a cell gets filled
 
