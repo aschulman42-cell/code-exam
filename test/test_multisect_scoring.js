@@ -122,3 +122,74 @@ describe('multisectSearch: a small code-dense function outranks a large comment 
     assert.equal(f.weighted_terms, 1);
   });
 });
+
+// ===========================================================================
+// #307 defect 1 — dead terms must not raise the bar.
+//
+// A hard-positive term with zero corpus-wide hits cannot be matched by any
+// scope, so counting it toward the default requirement makes the gate
+// arithmetically unreachable before a single file is read (the live sighting:
+// 9 terms, 4 dead, CE demanding 7-of-9 against ExoPlayer). The gate now
+// counts LIVE hard positives only; dead terms stay in the scan and are
+// disclosed via dead_term_indices, never silently dropped.
+// ===========================================================================
+describe('dead terms do not raise the multisect bar (#307)', () => {
+  const lines = [
+    'function smallDense() {',
+    '  const rate = pickRate();',
+    '  const target = chooseTarget(rate);',
+    '  return target;',
+    '}',
+  ];
+  const idx = {
+    fileLines: new Map([['small.js', lines]]),
+    functionIndex: {},
+    _ensureFunctionIndex() {},
+    _getFuncBoundaries() { return [[1, lines.length, 'smallDense']]; },
+    _bisectFuncLookup(bounds, lineNum) {
+      for (const [s, e, name] of bounds) if (lineNum >= s && lineNum <= e) return name;
+      return null;
+    },
+  };
+
+  it('a dead term is excluded from the default requirement, and disclosed', () => {
+    const terms = parseMultisectTerms('rate;target;zzz_nowhere_at_all');
+    const res = multisectSearch(idx, terms, { showProgress: false });
+    assert.equal(res.min_terms, 2, 'requirement counts the two live terms, not three');
+    assert.deepEqual(res.dead_term_indices, [2], 'the dead term is named in the result');
+    const f = res.function_matches.find((m) => m.function === 'smallDense');
+    assert.ok(f, 'the live intersection still surfaces');
+    assert.equal(f.terms_matched, 2);
+  });
+
+  it('an explicit min= clamps to the live count', () => {
+    const terms = parseMultisectTerms('rate;target;zzz_nowhere_at_all');
+    const res = multisectSearch(idx, terms, { minTerms: 3, showProgress: false });
+    assert.equal(res.min_terms, 2, 'min=3 cannot demand more live terms than exist');
+    assert.ok(res.function_matches.some((m) => m.function === 'smallDense'));
+  });
+
+  it('all positive terms dead degrades gracefully to no matches, all disclosed', () => {
+    const terms = parseMultisectTerms('zzz_nope;qqq_never');
+    const res = multisectSearch(idx, terms, { showProgress: false });
+    assert.equal(res.min_terms, 0);
+    assert.deepEqual(res.dead_term_indices, [0, 1]);
+    assert.equal(res.function_matches.length, 0);
+    assert.equal(res.file_matches.length, 0);
+  });
+
+  it('a NOT term with zero hits is not a dead term and changes nothing', () => {
+    const terms = parseMultisectTerms('rate;target;!zzz_nowhere_at_all');
+    const res = multisectSearch(idx, terms, { showProgress: false });
+    assert.equal(res.min_terms, 2, 'both live positives still required');
+    assert.deepEqual(res.dead_term_indices, [], 'NOT terms never count as dead');
+    assert.ok(res.function_matches.some((m) => m.function === 'smallDense'));
+  });
+
+  it('no dead terms leaves the original gate untouched', () => {
+    const terms = parseMultisectTerms('rate;target');
+    const res = multisectSearch(idx, terms, { showProgress: false });
+    assert.equal(res.min_terms, 2);
+    assert.deepEqual(res.dead_term_indices, []);
+  });
+});

@@ -252,6 +252,22 @@ export function multisectSearch(idx, terms, opts = {}) {
     termFileCounts[ti] = termFileSets[ti].size;
   }
 
+  // Dead terms must not raise the bar (#307 defect 1). A hard-positive term
+  // with zero corpus-wide hits — content and path, the same tests the gate
+  // counts — cannot be matched by any scope, so leaving it in the
+  // requirement makes the gate arithmetically unreachable before a single
+  // file is read (first sighting: a 9-term query with 4 dead terms silently
+  // demanding 7-of-9). Recompute the gate against LIVE hard positives only;
+  // an explicit min= still clamps, now to the live count. Dead terms stay in
+  // the scan, the per-term display, and the result — disclosed, never
+  // silently dropped.
+  const deadTermIndices = positiveIndices.filter((ti) => termFileCounts[ti] === 0);
+  const nLiveHardPos = hardPosIndices.filter((ti) => termFileCounts[ti] > 0).length;
+  if (nLiveHardPos < nHardPos) {
+    minTerms = minTermsArg ? Math.min(minTermsArg, nLiveHardPos) : nLiveHardPos;
+    minTerms = nLiveHardPos > 0 ? Math.max(1, minTerms) : 0;
+  }
+
   // Compute file-level survivors
   const filePosTerms = new Map();  // filepath -> Set of positive term indices
   for (const ti of positiveIndices) {
@@ -710,6 +726,7 @@ export function multisectSearch(idx, terms, opts = {}) {
     hard_not_indices: hardNotIndices,
     soft_not_indices: softNotIndices,
     min_terms: minTerms,
+    dead_term_indices: deadTermIndices,
     term_file_counts: termFileCounts,
     function_matches: funcMatches,
     class_matches: classMatches,

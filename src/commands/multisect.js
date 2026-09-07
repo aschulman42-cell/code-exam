@@ -447,6 +447,15 @@ export function displayMultisectResults(results, args, totalFiles) {
   if (minT < nPos) label += ` (minimum ${minT} required)`;
   console.log(`\n${label}`);
 
+  // #307 defect 1: dead terms are disclosed, and no longer raise the bar.
+  const deadIdx = results.dead_term_indices || [];
+  if (deadIdx.length > 0) {
+    const names = deadIdx.map((i) => terms[i].display).join(', ');
+    console.log(`  Note: ${deadIdx.length} of ${nPos} positive term${deadIdx.length !== 1 ? 's have' : ' has'} ` +
+      `zero hits anywhere in this index (${names});`);
+    console.log(`  the match requirement counts only the live terms.`);
+  }
+
   const maxDispLen = Math.max(...terms.map(t => t.display.length));
   for (let i = 0; i < terms.length; i++) {
     const fc = results.term_file_counts[i];
@@ -773,7 +782,8 @@ export function displayMultisectResults(results, args, totalFiles) {
   if (!anyResults) {
     console.log('  No matches found at any scope level.');
     if (results.term_file_counts.some((c, i) => c === 0 && !notSet.has(i))) {
-      console.log('  Some terms had zero hits - try broader terms or use min= for partial matching.');
+      console.log('  Zero-hit terms did not raise the requirement (see the note above); ' +
+        'the live terms never intersect - try broader terms or use min= for partial matching.');
     }
     console.log();
   }
