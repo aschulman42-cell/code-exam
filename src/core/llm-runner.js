@@ -535,24 +535,46 @@ export function ggufContextOptions(contextSize, flashAttention = false) {
 
 function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, flashAttention = false, liveTodayDate = false) {
   let session = null;
+  // A load failure is structural for the life of the process (no binding, no
+  // VRAM budget, model file missing/too large): cache the first one and fail
+  // fast on every later draft() instead of re-entering the load path once per
+  // target — one OOM used to become 44 full load attempts, each dumping
+  // llama.cpp diagnostics into the chart's stdout. Deliberately no
+  // retry-with-backoff. #323.
+  let loadFailure = null;
   return async (sys, user, maxTokens) => {
+    if (loadFailure) throw loadFailure;
     if (!session) {
+      try {
       let mod;
       try { mod = await import('node-llama-cpp'); }
       catch (e) { throw new Error(`local GGUF needs node-llama-cpp (npm install node-llama-cpp): ${e.message}`); }
       const { getLlama, LlamaChatSession } = mod;
+      let lastError = null;
       const tryLoad = async (cpuOnly) => {
-        const llama = await getLlama(cpuOnly ? { gpu: false } : undefined);
-        // Recorded on EVERY attempt, so a chart built after a GPU->CPU fallback
-        // reports the device it actually ran on rather than the one it wanted.
-        await _recordEngineBuild(mod, llama);
-        const m = await llama.loadModel({ modelPath });
+        // getLlama/_recordEngineBuild/loadModel sit INSIDE the guarded region:
+        // a model that cannot be loaded at all (cudaMalloc failure on the
+        // weights buffer, ENOENT) used to throw straight past the GPU->CPU
+        // retry below — the ladder guarded model+context, nothing guarded the
+        // model. #323.
+        let m;
+        try {
+          const llama = await getLlama(cpuOnly ? { gpu: false } : undefined);
+          // Recorded on EVERY attempt, so a chart built after a GPU->CPU fallback
+          // reports the device it actually ran on rather than the one it wanted.
+          await _recordEngineBuild(mod, llama);
+          m = await llama.loadModel({ modelPath });
+        } catch (e) {
+          lastError = e;
+          process.stderr.write(`  ${cpuOnly ? 'CPU' : 'GPU'} model load failed: ${e.message}\n`);
+          return null;
+        }
         for (const sz of ggufContextLadder(contextSize)) {
           try {
             const ctx = await m.createContext(ggufContextOptions(sz, flashAttention));
             process.stderr.write(`  context ${sz}${cpuOnly ? ' (CPU)' : ''}${flashAttention ? ' (flash attention)' : ''}\n`);
             return ctx;
-          } catch (_) { /* shrink */ }
+          } catch (e) { lastError = e; /* shrink */ }
         }
         try { await m.dispose(); } catch (_) { /* */ }
         return null;
@@ -563,8 +585,10 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
         process.stderr.write(forceCpu ? '  Using CPU (--cpu)…\n' : '  GPU could not fit model+context; retrying on CPU…\n');
         ctx = await tryLoad(true);
       }
-      if (!ctx) throw new Error('could not allocate a context for the local model (tried GPU and CPU) — try --cpu');
+      if (!ctx) throw new Error('could not allocate a context for the local model (tried GPU and CPU) — try --cpu'
+        + (lastError ? ` (last error: ${lastError.message})` : ''));
       session = new LlamaChatSession(await chatSessionOptions(ctx.getSequence(), { liveTodayDate }));
+      } catch (e) { loadFailure = e; throw e; }
     } else {
       // Isolate each claim: drop the prior claim's accumulated history so it
       // can't bleed into this draft, and so long claim sets don't overflow.

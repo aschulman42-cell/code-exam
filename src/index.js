@@ -759,6 +759,21 @@ if (!args._explicit.has('index_path') && !args.build_index && !fs.existsSync(arg
   }
 }
 
+// Touch CUDA before the index load (asus-CC's measured fix, #323): a local
+// GGUF's first model call after a large index parse is offered roughly half
+// the card under WDDM (7371 vs 15067 MiB free in-process, same rss), which
+// OOMs the weights load on --targets runs — the one path that skips the
+// early retrieval call. getLlama() loads no model and claims no VRAM; it only
+// moves WHEN the CUDA context is created. Guard mirrors resolveModel's
+// local-model predicate; --cpu skips (llm-runner asks for { gpu: false }).
+const _ggufModelPath = args.model || args.claim_model || args.analyze_model || null;
+if (_ggufModelPath && !args.cpu) {
+  try {
+    const { getLlama } = await import('node-llama-cpp');
+    await getLlama();
+  } catch { /* the lazy load in llm-runner still runs, and still reports its own errors */ }
+}
+
 const index = new CodeSearchIndex({
   indexPath: args.index_path,
   extensions: customExtensions,
