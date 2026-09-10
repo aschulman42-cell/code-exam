@@ -298,6 +298,21 @@ if (args.gui || _wantsTour) {
     } catch { /* user can read the URL from the server's startup banner */ }
   }, 1500);
 
+  // Touch CUDA before the server (and its lazy first local-model call): the
+  // GUI/MCP path returns here without reaching the CLI early-init block below,
+  // so without this the server keeps late-init — load indexes, then getLlama()
+  // on the first local chat, by which point WDDM offers the process ~half the
+  // card. Invisible for a ~7 GB model, fatal for a ~13 GB one (Devstral OOM,
+  // #323 — completes a6d2fe2, which only covered the CLI path). Same guard as
+  // that block; never fatal (the server's lazy load still runs and reports).
+  {
+    const _guiGgufModelPath = args.model || args.claim_model || args.analyze_model || null;
+    if (_guiGgufModelPath && !args.cpu) {
+      try { const { getLlama } = await import('node-llama-cpp'); await getLlama(); }
+      catch { /* lazy load in server still runs and reports its own errors */ }
+    }
+  }
+
   // server.js's top-level code starts the HTTP server on import. The GUI/MCP
   // server needs npm dependencies (@modelcontextprotocol/sdk, etc.) that the
   // bare CLI doesn't — a fresh download has no node_modules, so this import
