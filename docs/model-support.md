@@ -80,10 +80,11 @@ is deterministic code with no model in the loop.
 | --overview-by-ai | UNTESTED | UNTESTED | **UNSUPPORTED** ³ | **SUPPORTED** ³ | **UNSUPPORTED** ³ | **DEGRADED** ³ᵇ |
 | --analyze family | UNTESTED | UNTESTED | UNTESTED | **SUPPORTED** ⁶ | UNTESTED | **SUPPORTED** ⁸ |
 | --claim-search extraction (local prompt) | UNTESTED | UNTESTED | UNTESTED | **SUPPORTED** ⁶ | UNTESTED | **SUPPORTED** ⁸ |
-| --mask-all analysis | UNTESTED | UNTESTED | UNTESTED | **UNSUPPORTED** ⁴ | UNTESTED | UNTESTED ⁸ |
+| --mask-all analysis | UNTESTED | UNTESTED | UNTESTED | **SUPPORTED** ⁴ | UNTESTED | **SUPPORTED** ⁴ᵇ |
 | Pseudo-claims / mechanism-ranker | **SUPPORTED** ¹ | UNTESTED | UNTESTED | **SUPPORTED** ⁶ᵇ | UNTESTED | **SUPPORTED** ¹⁰ |
 | GUI Chat | UNTESTED | UNTESTED | UNTESTED | **DEGRADED** ⁷ | UNTESTED | **SUPPORTED** ⁹ᵇ |
 | --synonymize | UNTESTED | UNTESTED | UNTESTED | **SUPPORTED** ⁶ | UNTESTED | **SUPPORTED** ⁸ |
+| Independent analysis (model-as-navigator) | UNTESTED | UNTESTED | UNTESTED | **UNSUPPORTED** ¹¹ | UNTESTED | **UNSUPPORTED** ¹¹ |
 
 † **Devstral column header note:** every Devstral cell ran at ctx 8192
 (13.3 GB of weights on the 16 GB reference card cannot hold 16384) while
@@ -125,7 +126,15 @@ on its sidecars whenever they are re-scored).
 5080, CE 0.5.0), scored per "no AI/ML is only wrong on .sr_gh":
 
 - **Gemma3-12B K_M: SUPPORTED** — 4 tools, correct AI/ML on sr_gh
-  (reproducible ×2), never failed a run.
+  (reproducible ×2), never failed a run. *Index-conditional caveat*
+  (asus-CC, #321 remote-operation pair, 2026-09-08, same commit
+  67ad0f6, hours apart): on `.zlib` it ran well — 5 calls incl.
+  `models_used`, correct earned AI/ML sentence, ctx 16384, no fallback
+  — but still needed the empty-turn rescue; on `.ffmpeg` it collapsed to
+  a seed-only echo (1 tool call; the footer named it a rewording of
+  `--overview`). SUPPORTED rests on `.sr_gh`; the behaviour varies by
+  index and both failure modes were correctly named by the disclosure
+  layer. Two runs — a caveat, not a verdict change.
 - **Gemma3-12B QAT: UNSUPPORTED for this feature** — on sr_gh it emitted
   a plan-to-call-tools instead of an answer (prompt-echo, the failure
   most likely to look like a working feature in a demo). Same 5 calls as
@@ -152,11 +161,30 @@ now CE-guaranteed and **stops discriminating between models**; post-fix
 re-measures score tool engagement, prose fidelity, and budget survival
 instead.
 
-**⁴ Gemma3 (K_M) mask-all** — #319: chats about code capably, but
-cannot grasp the --mask-all discipline in conversation. Unchanged by
-the 9/07 batch (that test was not repeated); the analyze-path control
-found masked *analysis* degrades appropriately without corrupting —
-the #319 finding is about the conversational feature.
+**⁴ Gemma3 (K_M) --mask-all analysis** — SUPPORTED (asus-CC, #321,
+2026-09-08, stock 67ad0f6, measured on #319's own function `ppo_loss`
+on `.sr_gh`): a masked/unmasked analyze-path pair — structure retained
+and semantics withheld, no leakage from the unmasked reading of the
+same function, no fabrication. That is the masking discipline working
+(K_M's route was structure-inference, explicitly hedged and happened to
+be right). The earlier UNSUPPORTED verdict was about #319's
+*conversational* observation, which is a different thing: **chat has no
+masking mode** (`server.js` — `/api/chat` takes no `mask_all`; masking
+exists only on the analyze routes), so "mask-all in conversation" is not
+a selectable configuration. That concept-grasp finding, and its
+user-facing consequence — a chat about masked code can always fetch the
+unmasked source one `extract` call away — move to the gotchas doc
+(ai-examination-gotchas-doc) as a scope disclosure, not a feature
+verdict.
+
+**⁴ᵇ Devstral-Small --mask-all analysis** — SUPPORTED, the same asus-CC
+#321 pair on the same function and commit: the masked run described the
+structure faithfully and **declined to name the algorithm**, with no
+leakage from the unmasked reading — a different, equally honest route
+than K_M's hedged inference. Two probe flaws asus-CC self-reported (a
+fictional-premise probe; a scorer regex that false-positived and would
+have entered a false UNSUPPORTED) are folded into the
+instrument-calibration matrix note.
 
 **⁵ Gemma3-12B K_M claim charts** — DEGRADED, scored on the fresh
 same-commit f916787 pair under the pre-agreed rule (#321): positive
@@ -278,6 +306,49 @@ falsifiable statement; K_M omitted the conditional entirely). Closer
 to the litigated band on shape distance (0.24 vs 0.29), outside on
 more axes (3 vs 2).
 
+**¹¹ Independent analysis (model-as-navigator)** — UNSUPPORTED, and
+model-independent within the local class (#325, 2026-09-09). This is the
+mode where the LLM forms its OWN claim→code mapping from architectural
+knowledge + tool-driven navigation, WITHOUT the managed claims pipeline
+(no `--claim-chart` / retrieval arms / `--synonymize`). Two local
+models — Gemma3-12B K_M and Devstral-Small, different families — across
+7 runs, 46 elements, 154 tool calls, reached the right code neighborhood
+with a valid *extracted* citation **zero times**. Cloud is the
+reference: the frontier reference reads on #325 demonstrate the
+capability, and it is **cloud-only by construction** — non-reproducible
+and non-air-gappable, so it adds no entry point to the determinism
+boundary above.
+
+- **§5A (identical open brief):** answered from parametric memory — 0
+  tool calls on '582, 1 failed call on '101; 6 of 12 citations pointed
+  at nothing; '101's whole run was in the dead
+  `com.google.android.exoplayer2.*` namespace against an `androidx.media3`
+  index (the cleanest tell the source was recall, not the index).
+- **§5B (staged, one element per loop; NOT comparable — CE supplied the
+  split):** navigation fully recovered (0→14, 1→15 calls; fabrication to
+  zero, every cited symbol real) but 10 of 12 NONE, because the model
+  searched claim language *literally* and never made the claim→code
+  vocabulary hop. Devstral confirmed: 3.5× more tool calls (108 vs 29),
+  same 0 neighborhood matches, escalating the result cap rather than the
+  words.
+- **Tier-3 (labelled imperative "first action must be a tool call"):**
+  satisfied by one no-arg `overview({})` call, then fabricated anyway —
+  and that single call *laundered* the output past the namespace tell
+  (fake cites, now in the correct `androidx.media3` layout). More
+  plausible, no more true. #306 F34 reproduced.
+- **The keeper — three-way '582(d):** frontier read STRONG
+  (`resourceOfferSingleTaskSet` + `dequeueTaskHelper`); CE pipeline +
+  `--targets` union PARTIAL; pipeline alone ABSENT; Gemma3 §5A
+  right-class/invented-method; §5B NONE. Neither the pipeline's own
+  retrieval nor the small model's navigation reached it alone —
+  pipeline + union-probes did. The union-plus-probes methodology
+  validated against an independent yardstick.
+
+Scoring caveat: agreement scores against one independent frontier
+*reading*, not correctness. Receipts: the #325 §5A/§5B/Tier-3 comments
+and their `.tools.md` sidecars; asus-CC's citation-validity and §7
+scoring.
+
 ## Matrix notes — patterns the cells share
 
 - **"A question whose answer depends on a tool call the model is free
@@ -309,6 +380,37 @@ more axes (3 vs 2).
   already has): a support-count note on lone-support PRESENT rows — it
   caught both engines' over-claims. (The hedge/label-mismatch
   companion was retired by its own disconfirming test; see ⁵.)
+- **Scoring instruments need calibration as much as models do.** Three
+  times now a measurement instrument, not a model, produced the wrong
+  reading and was caught only by reading the prose: citation-density
+  **ABSENT-swamping** (fixed by scoring over CITABLE rows only, ⁵); the
+  strict citation rule **under-crediting bare line-ranges** ("872,
+  875-881", fixed by reporting both columns, ⁹); and a mask-all scorer
+  **regex that fired on a refusal** (matched the bare string "the
+  clipping epsilon is" without requiring a placeholder, and would have
+  banked a false UNSUPPORTED — ⁴ᵇ). Read a machine verdict against the
+  text before banking it.
+- **Staging fixes willingness to navigate, not retrieval** (#325, ¹¹).
+  The independent-navigator collapse is not unwillingness to open the
+  code — staging fixes that in one shot (0→14 tool calls). The binding
+  constraint is the claim→code **vocabulary hop**, which `--synonymize`
+  and the retrieval arms already perform mechanically. Two models,
+  different families, hit the identical 0/12 ceiling, so it is
+  model-independent within the local class — the sharpest form of "the
+  pipeline is the product."
+- **An instruction imperative can launder fabrication** (#325 Tier-3,
+  ¹¹). Told "your first action must be a tool call," the model made one
+  meaningless call and produced a *more plausible* fabricated answer
+  (right namespace, still-fake symbols) — worse for an examiner-facing
+  document, not better. The reliable lever is mechanical (an
+  element-specific groundedness gate, #326), not prompt wording (#306
+  F34).
+- **The union-plus-probes methodology now has an independent yardstick**
+  (#325 §7, ¹¹). On '582(d) — the hardest, most-documented pair — CE's
+  pipeline reached the frontier reference read only with a hand-built
+  `--targets` union; neither the pipeline's own retrieval nor a local
+  model's navigation reached it alone. A stronger defensibility claim
+  than an internal comparison could make.
 
 ## How a cell gets filled
 
