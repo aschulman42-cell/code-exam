@@ -1,69 +1,122 @@
-# Structural Code Search
+# Structural search: finding code by what it does, not what it says
 
-> **Placeholder — [#274](https://github.com/aschulman42-cell/code-exam/issues/274) Part K pending.** Content below was moved verbatim from the old `README.md` and awaits rewrite/expansion. File name and location (root vs `docs/`) may still change.
+Most code search is textual — you look for a name, a string, a regex. But the names of
+functions, methods, and files can't always be trusted — they may be wrong or outdated, and
+comments can mislead — and a code examiner's search terms may be quite different from the
+words the code itself uses. Names also get erased or rewritten outright: renamed by a
+refactor, mangled by a minifier, stripped from a binary, reworded by an independent
+reimplementation — or the concept is simply described in different words than the code uses
+(the gap in #325 between a claim's "first-come/first-served" and the code's "FIFO
+scheduler"). **Structural search is the family of ways CodeExam finds and identifies code
+when its text is unreliable or doesn't match** — by keying on what the code *does* and how
+it's *shaped* instead.
 
-### Deobfuscation, renames, and fingerprints
-- Detects esbuild / minified JS and prettifies via `js-beautify`.
-- Optional `webcrack` for bundle disassembly (≤500 KB files).
-- Auto-infers readable names from obfuscated code (toggle off with
-  `--no-rename`):
-  - `_KW_` keyword inference from string literals
-  - `_NAME_` recovery from `__name(fn, "originalName")` esbuild helpers
-  - `_IMPORT_` resolution from import bindings
-  - `_CMD_` recovery for command/route/skill handler functions
-- **Funcstrings** — a distinctive-string + call signature per function.
-  Resilient to esbuild/webpack transforms. The goal is to match a bundled
-  `cli.js` function back to its source-library equivalent; this works in
-  controlled cases (see the `franken.fp.json` example below) but reliably
-  identifying generic library code — e.g. C-runtime functions like `fopen` /
-  `printf` in a stripped binary — is still in progress. Two access shapes: full
-  funcstring (`--show-funcstring`) for human inspection, and funcstring
-  hashes (`--funcstr-hashes`) for cross-index intersection.
-- **Portable fingerprint files** (`*.fp.json`) — fingerprint a curated
-  reference library once, then match the resulting `.fp.json` against any
-  working index without redistributing the library's source. Generate with
-  `--build-fp-renames`; the working example shipped today is
-  `franken.fp.json`. Matches surface as `_FP_`-prefixed names.
-- Multiple types of duplication detection: exact (SHA1), near-duplicate, and
-  **structural-dupe** (AST-shape hashing for non-bundled code). Dupes are
-  preserved, not collapsed.
+It's the deliberate counterpart to the naming problems elsewhere in these docs: the
+deobfuscation of [`QUASI_SOURCE.md`](QUASI_SOURCE.md) and the reduce-reliance-on-naming side
+of [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md).
 
-The reason CodeExam spends so much machinery on duplicate detection is not the
-obvious one (avoiding re-analysis): it's the inverse use. The same signatures
-that find duplicates are what let you identify *unknown* code by matching it
-against known reference code, and trace function lineages — three near-dupes
-evolved from a common ancestor — across versions or forks.
+## Complementary signatures, each surviving a different transform
 
-The richness here is that there are *complementary* signature types, and
-deliberately so, because each survives a different kind of transformation:
+No single signature identifies code across every transformation, so CodeExam keeps several
+that succeed or fail in different directions:
 
-- **Structural / near-dupe signatures** (AST-shape and near-duplicate hashing)
-  are *naming-independent* — they still match after a rename pass or
-  minification has mangled every identifier, because they key on the *shape* of
-  the code, not its names.
-- **Funcstrings** are a *naming-dependent, extrinsic* signature — distinctive
-  string literals plus the external API calls a function makes. They key on what
-  the code *says and calls* rather than its shape, and survive the inverse
-  transformation: restructured control flow whose strings and call targets are
-  unchanged.
-- **LLM analysis** (`--analyze`) is the higher-cost adjudicator for the hard
-  cases neither structural nor extrinsic signatures resolve on their own,
-  reasoning about the code in context.
+- **Structural / near / exact duplication** (`--struct-dupes`, `--near-dupes`,
+  `--func-dupes`). AST-shape hashing is **naming-independent** — it keys on the shape of the
+  code, so it still fires after a rename pass or minification has changed every identifier.
+  On the scikit-learn tree, `--struct-dupes` finds **142 structural-dupe groups ("same
+  structure, different names/values")** — e.g. two copies of `BaseHistGradientBoosting.fit`
+  (559 lines, different names) — alongside 12 exact and 219 near-duplicate groups. Dupes are
+  **preserved, not collapsed**; the copies are the point.
+- **Funcstrings** (`--show-funcstring`; hashes for cross-index intersection). The inverse
+  signature: a function's *distinctive string literals plus the external calls it makes* —
+  **extrinsic**, keyed on what the code *says and calls* rather than its shape. It survives
+  the opposite transformation — restructured control flow whose strings and call targets are
+  unchanged — and is resilient to esbuild/webpack bundling.
+- **LLM analysis** (`--analyze`) — the higher-cost adjudicator for the residual hard cases
+  that neither structural nor extrinsic signatures settle on their own, reasoning about the
+  code in context.
 
-No single signature is sufficient on its own; used together — structural,
-extrinsic, and (for the residual hard cases) LLM-assisted — they identify
-unknown code far more reliably than any one of them.
+Used together — structural, extrinsic, and (for the residue) LLM-assisted — they can help
+locate the code you're looking for far more reliably than any one alone.
 
-**Why a plain inverted index rather than a vector database or SQL?** Readers
-coming from recent tooling often expect a vector store (ChromaDB, FAISS) or a
-relational database, and assume either would be preferable to "plain text in
-JSON." The choice is deliberate. Exact and regex code search wants *lexical*
-precision, not nearest-neighbor approximation, so embeddings buy little for the
-core browse-and-cross-reference workload. Keeping the index as inverted-index
-structures serialized to JSON makes it transparent, diffable, and trivially
-portable across machines — there is no database server to stand up and no
-opaque binary store. Semantic / embedding search — vector similarity, and
-lighter-weight options such as small specialized models for retrieval — is
-something we're *exploring* as a layer *on top* of the lexical index rather than
-a replacement for it (backlog: RAG-style retrieval and embedding/small-model
-term extraction, TODO #201 / #202); it is not part of the core today.
+## The point of duplicate detection
+
+CodeExam spends real machinery on duplicate detection, and not for the obvious reason
+(skipping re-analysis). The valuable use is the **inverse**: the same signatures that find
+duplicates let you identify *unknown* code by matching it against *known* reference code, and
+trace a function's lineage — three near-dupes evolved from a common ancestor — across versions
+and forks. For software examination that is the payoff: detecting copied or derived code that
+has been renamed, reformatted, or restructured to hide the copying, and knowing which
+signature it survived.
+
+## Portable fingerprints — the signatures, packaged to travel
+
+A portable fingerprint is those same structural and extrinsic signatures, saved for reuse:
+fingerprint a curated reference library once and carry the result as a small `*.fp.json`
+file, then match it against any working index. Generate it with `--build-fp-renames`; matches
+surface as `_FP_`-prefixed names. This is what makes the inverse use practical when you can't
+put reference and target in the same tree — the fingerprint travels, the source doesn't have
+to. One caveat: the `.fp.json` is not fully source-free — it carries the reference's
+*symbolic names* (so a match can be labeled with them), and those names can leak identifying
+detail; what it leaves behind is the source *code*. A worked example ships today
+([[fingerprint-example filename — pending: rename from the obscure `franken.fp.json`, and
+confirm whether the ~30 MB file is meant to ship]]).
+
+## Deobfuscation and renames
+
+Renaming is where the two halves of this page meet: a `_FP_` rename *is* structural search
+applied to naming — a fingerprint match against reference source is what supplies the
+inferred name, which then makes an otherwise-opaque function findable by ordinary text search
+again. When code arrives obfuscated or minified, CodeExam detects esbuild/minified JS and
+prettifies it (via `js-beautify`; optional `webcrack` for bundle disassembly on smaller
+files), then infers readable names in tiers — `_KW_` (from string literals), `_NAME_`
+(esbuild `__name` helpers), `_IMPORT_` (import bindings), `_CMD_` (command/route/skill
+handlers), and `_FP_` (fingerprint matches against reference source). `--no-rename` shows the
+raw obfuscated names.
+This is the machinery [`QUASI_SOURCE.md`](QUASI_SOURCE.md) points here for — with the caveat
+stated there that these are *inferred* names, not the originals.
+
+## The textual end of the family
+
+Two more ways to loosen the tie to exact text — both with their homes in
+[`CODEEXAM_KEY_FEATURES.md`](CODEEXAM_KEY_FEATURES.md), referenced here only for their
+structural angle:
+
+- **Synonym expansion** (`--synonymize`) feeding **multisect** search makes a term search
+  robust to exact wording — the most *textual* member of this family, and the closest
+  CodeExam comes to bridging a pure vocabulary gap without a model judging the code.
+- The **command catalog** resolves a CLI/menu command to its handler by its **position in a
+  dispatch table**, not by name — so it maps commands to handlers even when the handler names
+  say nothing.
+
+## Why a plain inverted index, not a vector database
+
+Users familiar with AI methods such as RAG often expect a vector store (Chroma, FAISS) or a
+relational database, and assume either beats "plain text in JSON." The choice is deliberate.
+Exact and regex code search wants **lexical precision, not nearest-neighbor approximation**,
+so embeddings buy little for the core browse-and-cross-reference workload; and keeping the
+index as inverted-index structures serialized to JSON makes it transparent, diffable, and
+trivially portable — no database server to stand up, no opaque binary store. Semantic /
+embedding search (vector similarity, plus lighter-weight retrieval models) is being
+*explored as a layer on top* of the lexical index — the RAG/embedding backlog is issues #201
+and #202 — not as a replacement for it.
+
+## Current limits on use
+
+- **Funcstring library-ID is controlled-case today.** Matching a bundled `cli.js` function
+  back to its source-library equivalent works in curated cases (the shipped fingerprint
+  example); reliably identifying *generic* library code — C-runtime functions like `fopen`
+  or `printf` in a stripped binary — is still in progress.
+- **Structural-dupe hashing is for non-bundled code**; bundled/minified code is served by
+  the funcstring and rename paths instead.
+
+## Related
+
+- Recovering structure — and inferring names — from non-source artifacts:
+  [`QUASI_SOURCE.md`](QUASI_SOURCE.md).
+- The reduce-reliance-on-naming side of the same coin (`--mask-all`):
+  [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md).
+- These signatures are mechanical and deterministic — the determinism boundary in
+  [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md).
+- Multisect search and the command catalog:
+  [`CODEEXAM_KEY_FEATURES.md`](CODEEXAM_KEY_FEATURES.md).
