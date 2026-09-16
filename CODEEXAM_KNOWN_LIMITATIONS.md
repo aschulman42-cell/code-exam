@@ -1,79 +1,83 @@
-# CodeExam Known Limitations
+# CodeExam known limitations
 
-> **Placeholder — [#274](https://github.com/aschulman42-cell/code-exam/issues/274) Part Q pending.** Content below was moved verbatim from the old `README.md` and awaits rewrite/expansion. File name and location (root vs `docs/`) may still change.
+CodeExam 0.5.x is a work in progress — published so people can try it and send critiques and
+requests, not recommended for production use yet. This is the honest list of where it falls
+short today; it's kept current as things are fixed.
 
-## Known limitations
+**A note on the word.** "Limitations" here means CodeExam *features* that don't yet work in
+entirely the way one would want — not the "limitations" (the elements or steps) of a patent
+claim, which are a different thing entirely and are discussed in CodeExam's claims-handling
+documentation ([[claims doc filename — pending the #274 PATENT_CLAIMS / CodeClaim decision]]).
 
-- **File-path lookup on Windows / mixed separators** (#67) — paths CodeExam
-  *displays* (e.g. `ace\examples\test.cpp`) don't always round-trip as
-  *input* to path-taking commands (`--digest`, `--show-file`, `--extract`,
-  `--callers`, …). Workaround: use a bare filename, which suffix-matches
-  (`--digest test.cpp`). Under investigation.
-- **Local-LLM model coverage and quality** (#75) — newest GGUF architectures
-  (Gemma 4, Qwen 3.5) fail to load; older ones work. Separately, local-model
-  output quality lags the Claude-API path. See Requirements.
-- **Command-catalog false positives** (#66) — `--command-catalog` and the
-  command section of `--digest` can surface regex fragments or example
-  strings as if they were commands. Being tightened.
-- **GUI test automation** — not yet in place; evaluating an
-  [XMLUI](https://www.xmlui.org/)-driven approach (#73).
-- **Symbol lookup ambiguity across same-named classes/functions** (#85) — in
-  large or mixed-language codebases, multiple classes/functions can share a bare
-  name (across files, versions, even languages). `--digest` and right-click →
-  Digest may merge them or mislabel the result (e.g. a Python class's digest
-  titled with a same-named C++ declaration from a vendored header). The digest
-  *body* is usually still correct; the *title/target* may be wrong. Better
-  disambiguation — file/line-qualified targeting and conflation warnings — is
+## Local models
+
+The local-model path is the least mature part of CodeExam, and its limits are worth stating
+plainly:
+
+- **Model coverage and quality** (#75). Local inference runs GGUF models through a pinned
+  `node-llama-cpp` build; which models load, and how well each does per feature, is enumerated
+  in [`docs/model-support.md`](docs/model-support.md). Some newer architectures don't load
+  cleanly in current testing, so the tested set is what to rely on. Output quality on the local
+  path lags the cloud path.
+- **A local model can't yet reliably link a claim to the code that embodies it — on its own**
+  (#325). Hand a local model a patent claim and ask it to *find* the implementing code without
+  the guided pipeline and it usually fails: not for want of search, but because it can't
+  connect the claim's wording ("first-come/first-served") to the code's ("FIFO scheduler"),
+  and on an open, tool-driven task it tends not to navigate at all — answering from memory
+  instead. The rule this yields, for now: **use the guided claim pipeline for local models,
+  and a cloud model for independent claim→code analysis.** See [`LOCAL_LLM.md`](LOCAL_LLM.md).
+- **Codebase-wide chat exists, but not yet fully air-gapped** (#36, #160). You *can* chat about
+  the codebase today — the GUI Chat pane, and, for a cloud model, CodeExam's MCP tools. What
+  isn't there yet is a *local* model driving those MCP tools well enough for whole-codebase
+  chat with no network — the same weak-navigator limit as above is the gating problem.
+  (Single-function `--analyze` runs locally today, air-gapped included.)
+
+## Everything else
+
+- **Command-catalog false positives** (#66) — `--command-catalog` and the command section of
+  `--digest` can surface regex fragments or example strings as if they were commands. Being
+  tightened.
+- **AI/ML detection is heuristic** (#98 et al.) — the detectors favor recall, so counts are
+  presence *signals*, not exact site counts; expect some false positives and misses. Treat the
+  accordions as leads to verify in source, not an inventory. See
+  [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md).
+- **C++ class recognition is incomplete** (#65, #60) — the C++ parser doesn't reliably catch
+  class *declarations*; many classes surface only as inferred from `::`-qualified usage, so
+  class lists and digests can be partial or mislabeled on C++-heavy trees. See
+  [`CODEEXAM_KEY_FEATURES.md`](CODEEXAM_KEY_FEATURES.md).
+- **Symbol-lookup ambiguity across same-named symbols** (#85) — multiple classes or functions
+  can share a bare name (across files, versions, even languages); `--digest` may merge or
+  mislabel them. The digest *body* is usually still right; the *title/target* may be wrong.
+  File/line-qualified targeting and conflation warnings are planned.
+- **Caller↔callee resolution under dynamic dispatch** (#85, #148) — dynamic dispatch is hard to
+  resolve statically, so call-graph links (`--callers`, `--call-tree`, digest caller/callee
+  lists) can be incomplete or mis-linked.
+- **Import / BoM coverage** (#165) — import/export extraction covers Python, JS, C, Java, and
+  C#; the static-catalog path still misses dynamically-exported names (star-exports, lazy
+  registries) that the live cross-index path resolves.
+- **Explainability detection is Python-only and import-anchored** (#163) — XAI used without a
+  recognizable import (`shap` / `lime` / `captum`), and non-Python XAI, aren't detected.
+- **GUI result caps** (#137) — some left-pane accordions cap the rows returned without always
+  disclosing it, so a large result set can look complete when it isn't. Use `--filter` to
+  narrow, or the CLI for full output; explicit "N of M shown" disclosure is planned.
+- **GUI feature constraints** (#38, #125) — no multiple instances of the same pane type (beyond
+  a limited side-by-side compare), no in-pane search yet, and save/copy only from the Analysis
+  and Mermaid panes. A GUI redesign is planned (#38) — including the "dynamic GUI" of floating,
+independently-operable panels that redesign is built toward.
+- **GUI test automation** (#73) — not yet automated; the GUI is exercised by hand. See
+  [`CODEEXAM_TESTING.md`](CODEEXAM_TESTING.md).
+- **Indexing pathological files** (#88) — *large* is not the same as *pathological*:
+  CodeExam indexes multi-gigabyte codebases fine (the largest built here is ~1.2 GB, and
+  bigger has worked — [[confirm the large-codebase example, e.g. Chromium ~5 GB, + issue #]]).
+  The gap is *pathological single files*: without per-file size caps or parse timeouts,
+  `--build-index` can hang (tree-sitter) or run out of memory on extreme inputs. Guards are
   planned.
-- **AI/ML detection is heuristic** (#98, #92, #122, #135, #136) — the detectors
-  favor recall: counts are *presence signals*, not exact site counts. Expect
-  false positives (library types like `Eigen::Dense` flagged as models, prose
-  or doc-search strings flagged as prompts, `messages.create` collisions) and
-  some misses, especially in vendored/test-heavy trees. Treat the AI/ML
-  accordions as leads to verify in source, not a precise inventory. Precision
-  and recall are being tightened cell by cell.
-- **C++ class recognition is incomplete** (#65) — the C++ parser doesn't
-  reliably catch class *declarations*; many classes surface only as inferred
-  from `::`-qualified usage, so class lists and class digests can be partial or
-  mislabeled on C++-heavy trees. Language-aware C++ digest handling (#60, #68)
-  is planned.
-- **GUI lists can silently cap results** (#137) — left-pane accordions and
-  some drilldowns cap the number of rows returned (e.g. a few hundred) without
-  always disclosing it, so a large result set may look complete when it isn't.
-  Use `--filter` to narrow, or the CLI for full output. Explicit "N of M shown"
-  disclosure everywhere is planned.
-- **Indexing very large or pathological files** (#88) — without per-file size
-  caps / parse timeouts, `--build-index` can hang (tree-sitter) or run out of
-  memory on extreme inputs; guards are planned. (The `codeexam.exe` Bun build
-  also has a known `--build-index` EEXIST bug, #91 — use the Node path
-  meanwhile.)
-- **Mermaid pipeline diagrams render only connected flows** — the AI/ML
-  Pipelines view diagrams multi-stage **connected** flows; isolated
-  detections and very long pipelines may not diagram cleanly.
-- **Import/Export analysis is Python-only** (#165) — and the static catalog
-  path misses dynamically-exported names (star-exports, lazy registries) that
-  the live cross-index path resolves.
-- **Explainability detection is Python-only and import-anchored** (#163) —
-  XAI used without a recognizable import (custom probing/patching), and
-  non-Python XAI, are not detected.
-- **Emitted PY harnesses are scaffolds** — emitted activation-capture
-  harnesses are validated for structure, not guaranteed-runnable;
-  `--synthetic-loader` is opt-in and banners that the load is mechanical.
-- **Caller↔callee resolution under dynamic dispatch** (#85, #148) — dynamic
-  class/method dispatch is hard to resolve statically, so call-graph links
-  (`--callers`, `--call-tree`, digest caller/callee lists) can be incomplete
-  or mis-linked.
-- **GUI feature constraints** (#38, #125) — the current GUI does not allow
-  multiple instances of the same pane type (beyond a limited side-by-side
-  compare), has no in-pane search yet, and supports save/copy only from the
-  Analysis and Mermaid panes. A newer XMLUI-based GUI design is planned (the
-  result-cap (#137) and test-automation (#73) items above are related).
-- **No general LLM chat about the codebase yet** (#36, #160) — today the LLM
-  paths analyze a *single function or file* (`--analyze`, `--build-prompt`),
-  including the air-gapped local-GGUF mode; a wider "chat with the whole
-  codebase" is a goal, not yet a feature. For Claude it is largely a matter of
-  adding MCP tools; the harder, gating part is making a local GGUF drive
-  CodeExam's MCP tools effectively for fully air-gapped use. So if you're
-  wondering *"why can't I just chat with an AI about the codebase?"* — you can
-  chat about a function today; codebase-wide chat awaits broader MCP tooling
-  and capable local models.
+- **Mermaid pipeline diagrams render only connected flows** — isolated detections and very long
+  pipelines may not diagram cleanly.
+- **Emitted PyTorch harnesses are scaffolds** — validated for structure, not guaranteed
+  runnable; the load banners that it is mechanical. See
+  [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md).
+- **Funcstring library identification is controlled-case** — matching bundled code back to a
+  source-library equivalent works in curated cases; reliably identifying generic library code
+  (`fopen` / `printf` in a stripped binary) is still in progress. See
+  [`STRUCTURAL_SEARCH.md`](STRUCTURAL_SEARCH.md).
