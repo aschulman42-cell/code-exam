@@ -533,8 +533,51 @@ export function ggufContextOptions(contextSize, flashAttention = false) {
   return { contextSize, ...(flashAttention ? { flashAttention: true } : {}) };
 }
 
+// ISOLATION BETWEEN TARGETS — and `resetChatHistory()` alone does not provide it.
+//
+// resetChatHistory() calls setChatHistory(), which rewrites the chat history
+// OBJECT. It does not touch the context sequence, which still holds every token
+// evaluated for every previous target. By target N the sequence is near-full,
+// context shifting starts evicting, and the prompt the model actually sees is
+// not the prompt CE built.
+//
+// MEASURED (asus-CC, 2026-09-09, #325): the same target, same code, same 6
+// inlined callee bodies, same claim, temperature 0 —
+// AdaptiveTrackSelection::updateSelectedTrack returns ASSUMED with a line
+// citation when analysed at position 1 or 2 of a run, and a bare
+// `ABSENT | no line` at position 9. Deterministic in both directions, and the
+// position-9 reconstruction reproduced the production chart exactly. That
+// element is the one the frontier reference rates STRONG, so the defect cost a
+// real chart its best citation for a make-or-break limitation — and it silently
+// inflates the `(1 of 25; 24 ABSENT)` agreement counts the artifact offers as
+// evidence.
+//
+// So the sequence is cleared and the session rebuilt on it. Building a
+// LlamaChatSession is cheap — no model load, no context allocation — and it
+// guarantees neither half carries state across targets. This is the pattern
+// server.js callLocal already uses (acquireSharedSequence clears the sequence,
+// then a fresh session per call); the CLI drafter was the one path without it.
+//
+// CE_REUSE_SESSION=1 restores the old behaviour, for reproducing the defect
+// rather than for use. Exported so the isolation contract is testable without
+// a model.
+export async function isolateLocalSession({ session, sequence, ChatSession, sessionOptions, reuse = process.env.CE_REUSE_SESSION === '1' }) {
+  if (reuse) {
+    await session.resetChatHistory();
+    return session;
+  }
+  try { await sequence.clearHistory(); } catch { /* older builds: best effort */ }
+  return new ChatSession(await sessionOptions(sequence));
+}
+
 function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, flashAttention = false, liveTodayDate = false) {
   let session = null;
+  // Held so the KV state can be cleared between targets, not just the chat
+  // history object — see isolateLocalSession above.
+  // The constructor is hoisted too: it is destructured inside the load block,
+  // and the per-target rebuild needs it after that block has returned.
+  let sequence = null;
+  let ChatSession = null;
   // A load failure is structural for the life of the process (no binding, no
   // VRAM budget, model file missing/too large): cache the first one and fail
   // fast on every later draft() instead of re-entering the load path once per
@@ -550,6 +593,7 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
       try { mod = await import('node-llama-cpp'); }
       catch (e) { throw new Error(`local GGUF needs node-llama-cpp (npm install node-llama-cpp): ${e.message}`); }
       const { getLlama, LlamaChatSession } = mod;
+      ChatSession = LlamaChatSession;
       let lastError = null;
       const tryLoad = async (cpuOnly) => {
         // getLlama/_recordEngineBuild/loadModel sit INSIDE the guarded region:
@@ -587,12 +631,16 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
       }
       if (!ctx) throw new Error('could not allocate a context for the local model (tried GPU and CPU) — try --cpu'
         + (lastError ? ` (last error: ${lastError.message})` : ''));
-      session = new LlamaChatSession(await chatSessionOptions(ctx.getSequence(), { liveTodayDate }));
+      sequence = ctx.getSequence();
+      session = new LlamaChatSession(await chatSessionOptions(sequence, { liveTodayDate }));
       } catch (e) { loadFailure = e; throw e; }
     } else {
-      // Isolate each claim: drop the prior claim's accumulated history so it
-      // can't bleed into this draft, and so long claim sets don't overflow.
-      await session.resetChatHistory();
+      // Isolate each target — the KV sequence, not just the chat history
+      // object. See isolateLocalSession.
+      session = await isolateLocalSession({
+        session, sequence, ChatSession,
+        sessionOptions: (seq) => chatSessionOptions(seq, { liveTodayDate }),
+      });
     }
     // LOCAL PATH: node-llama-cpp's promptWithMeta reports WHY generation stopped,
     // so the local drafter gets the same signal as the cloud wires rather than a
