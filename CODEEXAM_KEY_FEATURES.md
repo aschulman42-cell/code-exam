@@ -1,63 +1,69 @@
-# CodeExam Key Features
+# CodeExam key features
 
-> **Placeholder — [#274](https://github.com/aschulman42-cell/code-exam/issues/274) Part L pending.** Content below was moved verbatim from the old `README.md` and awaits rewrite/expansion. File name and location (root vs `docs/`) may still change.
+CodeExam is more than grep over a codebase. This page covers two frequently-used features —
+**Overview** and **Digests** — and points to the rest: searching, browsing, detection, and the
+features related to patent claims (and other technical prose), each documented on its own page.
 
-## Feature highlights
+## Overview: orient in one command
 
-### Browse and search
-- Function/file/class accordions; full-text, regex, and inverted-index
-  (`--fast`) search.
-- **Multisect**: find the smallest scope — function, class, or file —
-  containing substantially all of N search terms. Each term can be
-  hard-required, negated (`!term` / `NOT term`), or **soft** (`?term` —
-  optional: it does not gate the result set but still boosts ranking). Prose
-  — a patent claim, a design spec, a bug report — can be parsed directly into
-  a multisect expression (`--claim-search`).
-- **Cross-reference**: callers, callees, transitive call trees, file and
-  folder coupling maps. Mermaid diagrams for call trees and coupling maps;
-  individual caller/callee lists are tabular.
-- **Function / class / file digests** — concise per-target summary (identity,
-  callers, callees, distinctive strings, structural shape, inheritance chain +
-  known subclasses for classes, imports/exports for files) usable standalone
-  or as input to LLM prompts. Class digests walk the ancestor chain and
-  surface known subclasses with method-override counts. (Reliable
-  class-hierarchy tracking in static examination — especially for C++ — is
-  still being hardened; see #65 and #60.)
+**`--overview`** is where to start on an index you've never seen. In one shot it reports the codebase's
+size and languages, its top-level structure, distinctive domain vocabulary, key files by term
+density (see [`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md)), likely entry points, and a few "watch"
+notes — ending with a suggested next step. It's a fast, deterministic read of what a codebase is and
+where its center of gravity likely sits.
 
-### Metrics and code-surfacing
+**`--overview-by-ai`** is the optional agentic version: an LLM drives CodeExam's own tools to write a
+prose orientation, grounded in what it actually retrieved. It's one of the few places a model touches
+CodeExam's output — the trade-offs, and which local models can do it, are in
+[`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md).
 
-Where to start looking in an unfamiliar codebase. These are useful today but
-under active refinement — some (notably hotspots and gaps) are still being
-tuned toward their intended sharpness.
+## Digests: understand one target fast
 
-- **Hotspots / class hotspots / most-called** — complexity- and
-  centrality-ranked functions and classes.
-- **Domain-function ranking** and **entry points** — the functions most
-  characteristic of, or at the edges of, the codebase.
-- **Dead-code gaps** — references that don't resolve to indexed source,
-  declared dependencies, or the standard library.
-- **Vocabulary / nomenclature discovery** — the project-specific terms a
-  codebase centers on, surfaced by cross-document TF-IDF (with a
-  per-function fallback for single-file / bundled corpora). A shipped
-  cross-corpus catalog (`CE_cross_corpus_vocab_catalog.json`, auto-loaded from
-  the repo root) sharpens this by *demoting* terms that recur across many
-  codebases (`function`, `handler`, `data`) so genuinely distinctive terms
-  rise — remove the file and results simply revert to the baseline.
+**`--digest`** gives a concise, mechanical summary of a single function, class, or file — no
+interpretation, just what's there:
 
-### Catalogs of "what does this code do" / "where should I start reading"
+- **Function** — identity, callers and callees, distinctive strings, and structural shape.
+- **Class** — the same, plus the **inheritance chain** and known subclasses with their
+  method-override counts.
+- **File** — the same, plus its imports and exports.
 
-- **Command catalog** — detected CLI options, slash-commands, and (where
-  recognizable) menu items and dialog actions in the target codebase, linked
-  to handler functions or methods (so a `/skills` entry in a chat tool
-  resolves to its actual handler in the source). Heuristic — some shapes
-  (e.g., chained Commander.js declarations) are still under-detected.
-- **Breadcrumbs** — telemetry markers (logging, analytics, audit calls) with
-  their associated functions, useful for tracing what an obfuscated binary
-  actually reports back.
-- **AI/ML and LLM-app code** — extensive catalogs of the AI/ML and LLM-app
-  constructs in a codebase (models, LLM calls, tools, chains, prompts, and
-  more) — see *AI/ML and LLM-app detectors* below.
-- **Vocabulary** — TF-IDF-ranked domain-specific terms and nomenclature,
-  surfacing what a codebase is "about" (`--vocabulary` / `--vocab`).
-- **Metrics** — code-surfacing rankings (hotspots, complexity, most-called,
-  domain-specific functions) for finding where to start reading.
+A digest is useful on its own as a quick read of a target, and it's also the unit CodeExam feeds to
+an LLM when you ask it to analyze something (see [`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md)).
+A companion mode, `--comments-only`, pulls just a target's comments — a quick way to read the
+stated intent, and to spot where the comments and the code disagree.
+Reliable class-hierarchy tracking in static examination — especially for C++ — is still being
+hardened (#65, #60), so treat deep inheritance chains as a strong lead rather than the last word.
+
+## Searching
+
+Find code by what it contains: literal, fast (inverted-index), and regex search, plus **multisect** —
+the smallest scope containing substantially all of *N* terms at once — and `--claim-search`, which
+turns prose (a patent claim, a spec) into a multisect query. Full treatment in
+[`CODEEXAM_SEARCHING.md`](CODEEXAM_SEARCHING.md).
+
+## Browsing
+
+Survey and navigate a codebase: the structural lists (functions, files, classes, data structures),
+the catalogs (command catalog, breadcrumbs, client/server, referenced resources, imports/BoM,
+distinctive strings, vocabulary), cross-reference (callers, callees, call trees, coupling maps), and
+code-surfacing metrics for finding where to start reading. Full treatment in
+[`CODEEXAM_BROWSING.md`](CODEEXAM_BROWSING.md).
+
+## Detection and claims
+
+- **AI/ML and LLM-app detection** — cataloging the models, LLM calls, tools, chains, and prompts in
+  a codebase: [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md).
+- **Structural search** — finding code by shape rather than text (duplicate and cross-source
+  matching): [`STRUCTURAL_SEARCH.md`](STRUCTURAL_SEARCH.md).
+- **Patent-claim analysis** — claim charts and the rest of the patent-claims pipeline:
+  [[placeholder: link to `CODEEXAM_PATENT_CLAIMS` (the larger patent-claim analysis page) once it
+  exists — a distinct page from the small **CodeClaim** feature page. Both still need worklist
+  items.]]
+
+## Related
+
+- [`GETTING_STARTED.md`](GETTING_STARTED.md) — installing and running CodeExam.
+- [`CODEEXAM_SEARCHING.md`](CODEEXAM_SEARCHING.md) and [`CODEEXAM_BROWSING.md`](CODEEXAM_BROWSING.md)
+  — the two capabilities this page summarizes.
+- [`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md) — the optional LLM layer behind
+  `--overview-by-ai` and analyze.
