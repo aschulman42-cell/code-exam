@@ -35,6 +35,9 @@ GUI, the MCP server, precise tree-sitter parsing, and the local-LLM features nee
 packages (without them the GUI exits with a "run `npm install`" hint, and tree-sitter falls back
 to a regex parser).
 
+[[placeholder: Need an additional section showing 3–4 CLI commands run in a row (for their own
+sake). The CLI commands here now are fine, but mostly lead up to launching the GUI.]]
+
 **The GUI is loopback-only by default — the normal, safe case.** It binds **127.0.0.1**, and
 `ce --gui` refuses `--host`, so out of the box nothing is reachable from the network. The only
 way to expose it is to *deliberately* run `node src/server.js --host <addr>` yourself, which

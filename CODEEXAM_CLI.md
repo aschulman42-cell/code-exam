@@ -6,6 +6,9 @@ CLI but as diagrams in the GUI.) This page is an overview of the CLI. An exhaust
 via **`--help`**, which is always current: run `ce --help` for the full catalog, or `ce --help
 <term>` to filter it.
 
+**Looking for examples?** This page is an overview of the CodeExam CLI's *organization*. For worked
+examples of running CLI commands, see [`GETTING_STARTED.md`](GETTING_STARTED.md).
+
 ## Ways to invoke it
 
 - **One-shot** — `node src/index.js <command>`, or via the shim, `ce <command>`. Almost all commands
