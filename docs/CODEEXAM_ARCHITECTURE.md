@@ -85,7 +85,7 @@ grammars; only `web-tree-sitter` and the built grammars are needed at runtime.
 ## The full source map
 
 A one-line tour of every first-party source file, grouped from the outside in. This list is a
-mirror of [`docs/source-map.md`](docs/source-map.md), which is the **canonical machine-read copy**:
+mirror of [`docs/source-map.md`](source-map.md), which is the **canonical machine-read copy**:
 `scripts/add-license-headers.js` parses its bullets to fill each file's license-header description
 line. Kept as a hand-maintained mirror for now, so the full list is visible in a root doc.
 [[placeholder: revisit whether to auto-generate this section from `docs/source-map.md` at build
@@ -315,7 +315,7 @@ those are not first-party source.*
 
 ## Related
 
-- [`docs/source-map.md`](docs/source-map.md) — the canonical machine-read version of the list above.
+- [`docs/source-map.md`](source-map.md) — the canonical machine-read version of the list above.
 - [`GETTING_STARTED.md`](GETTING_STARTED.md) — the four front-ends from a user's point of view.
 - [`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md) — the on-disk index format the engine reads and writes.
 - [`CODEEXAM_TESTING.md`](CODEEXAM_TESTING.md) — how the `test/` suite above is organized and run.

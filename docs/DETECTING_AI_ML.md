@@ -59,7 +59,7 @@ one searchable entry per logical prompt. It detects inline strings, `getSystemPr
 `systemPrompt:`, `role:"system"` messages, and `.md` skill files — and each entry names the
 `file@function` it was found in, in the CLI and the GUI alike, so the catalog doubles as a
 map to the code that builds each prompt. The catalog recovered from the minified `cli.js`
-inside `claude.exe` — the [README](README.md) image — is this detector run over
+inside `claude.exe` — the [README](../README.md) image — is this detector run over
 quasi-source.
 
 ## The component detectors
@@ -127,4 +127,4 @@ area of active development.
   [`QUASI_SOURCE.md`](QUASI_SOURCE.md).
 - The full **determinism boundary** — which CodeExam commands are mechanical (like these
   detectors) and which involve a model — is enumerated in
-  [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) and [docs/model-support.md](docs/model-support.md).
+  [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) and [docs/model-support.md](model-support.md).

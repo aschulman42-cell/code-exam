@@ -81,7 +81,7 @@ These apply across commands.
 This page is an overview; **`ce --help` is authoritative** and always current:
 
 - `ce --help` — the complete command list; `ce --help <term>` filters it to matching entries.
-- [`docs/cli.md`](docs/cli.md) — a hand-maintained, annotated per-flag reference (a companion to
+- [`docs/cli.md`](cli.md) — a hand-maintained, annotated per-flag reference (a companion to
   `--help`, not a replacement for it).
 
 *(The CLI's flag surface is being rationalized under #52 / #58; this page leans on command families

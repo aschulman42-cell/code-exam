@@ -16,7 +16,7 @@ plainly:
 
 - **Model coverage and quality** (#75). Local inference runs GGUF models through a pinned
   `node-llama-cpp` build; which models load, and how well each does per feature, is enumerated
-  in [`docs/model-support.md`](docs/model-support.md). Some newer architectures don't load
+  in [`docs/model-support.md`](model-support.md). Some newer architectures don't load
   cleanly in current testing, so the tested set is what to rely on. Output quality on the local
   path lags the cloud path.
 - **A local model can't yet reliably link a claim to the code that embodies it — on its own**

@@ -20,7 +20,7 @@ extraction — everything that isn't an LLM feature — produce the same output 
 the same index and the same invocation, every time. There is no model in the
 loop. The exact set of places a model *does* touch CodeExam's output is
 enumerated in the **determinism boundary** table in
-[docs/model-support.md](docs/model-support.md); everything outside that table is
+[docs/model-support.md](model-support.md); everything outside that table is
 deterministic code.
 
 ## Local models: repeatable when you lock a run down

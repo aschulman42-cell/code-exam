@@ -105,7 +105,7 @@ The features above are only as good as the method around them. Two techniques ma
 One boundary worth stating plainly: a **local** model asked to map a claim to code *independently*
 tends to fabricate — it doesn't reliably make the vocabulary hop on its own. CodeExam's managed
 pipeline makes that hop mechanically, which is why the rule is **pipeline-for-local, cloud-for-
-independent**. See [`docs/model-support.md`](docs/model-support.md) and
+independent**. See [`docs/model-support.md`](model-support.md) and
 [`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md).
 
 ## Related
@@ -115,4 +115,4 @@ independent**. See [`docs/model-support.md`](docs/model-support.md) and
 - [`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md) — the verdict labels, `--mask-all`, and the
   determinism boundary the model operates within.
 - [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) — `--reproducible` and the provenance header.
-- [`docs/model-support.md`](docs/model-support.md) — which models can do chart work, per feature.
+- [`docs/model-support.md`](model-support.md) — which models can do chart work, per feature.

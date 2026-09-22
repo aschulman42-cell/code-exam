@@ -93,7 +93,7 @@ Once a symbol is in front of you, the GUI mirrors the CLI's cross-reference comm
 The GUI's **Chat** tab lets an LLM drive CodeExam's own tools to answer free-form questions about
 the loaded index. A cloud model (Claude / ChatGPT / Gemini) is generally the stronger chat engine;
 a local GGUF model works too, within limits. What each local model can and can't do in Chat is
-measured per model in [`docs/model-support.md`](docs/model-support.md) — Gemma3-12B, for example,
+measured per model in [`docs/model-support.md`](model-support.md) — Gemma3-12B, for example,
 is rated **DEGRADED**: it navigates and calls tools correctly but sometimes needs to be told to
 fetch a function body. The tool surface Chat drives is documented in
 [`CODEEXAM_MCP.md`](CODEEXAM_MCP.md).

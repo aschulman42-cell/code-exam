@@ -69,7 +69,7 @@ check against, and — for cloud models — isn't fully reproducible even at tem
 rather than checking each LLM feature against one correct answer, CodeExam **measures how well
 each model performs**, feature by feature, on a separate track:
 
-- **A per-feature × per-model matrix** — [`docs/model-support.md`](docs/model-support.md)
+- **A per-feature × per-model matrix** — [`docs/model-support.md`](model-support.md)
   records which local and cloud models are SUPPORTED / DEGRADED / UNSUPPORTED / UNTESTED for
   each LLM feature (claim charts, `--analyze`, overview, claim-search, …), every cell backed
   by a cited run rather than an assumption.
@@ -85,6 +85,6 @@ no single exact result to check it against.
 ## Related
 
 - [`LOCAL_LLM.md`](LOCAL_LLM.md) — the local-model path and its RunPod testing.
-- [`docs/model-support.md`](docs/model-support.md) — the per-feature × per-model evaluation matrix.
+- [`docs/model-support.md`](model-support.md) — the per-feature × per-model evaluation matrix.
 - [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) — why the deterministic half reproduces, and where a model does or doesn't.
 - Planned: examining code *with* Claude — code-review and security-code-review workflows — will get their own pages, cross-referenced here once they land.

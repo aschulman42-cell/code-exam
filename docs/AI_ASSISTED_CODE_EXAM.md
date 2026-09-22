@@ -31,7 +31,7 @@ an AI language model touches CodeExam's output **only** at these entry points �
   depth.]]
 
 **Everything else is deterministic code with no model in the loop.** That boundary is documented,
-entry point by entry point, in [`docs/model-support.md`](docs/model-support.md). And the one place
+entry point by entry point, in [`docs/model-support.md`](model-support.md). And the one place
 the model side *can* be made repeatable — running it at a fixed temperature and random seed so the
 same input yields the same output — is covered in [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md).
 
@@ -86,7 +86,7 @@ is a trade-off, not a default:
 A local GGUF model is not as capable as a frontier API model; CodeExam compensates by feeding local
 models simpler prompts with narrower expectations. Which models load, how well each does per
 feature, and the hardware requirements are the subject of [`LOCAL_LLM.md`](LOCAL_LLM.md) and
-[`docs/model-support.md`](docs/model-support.md); rely on the models those docs mark as tested,
+[`docs/model-support.md`](model-support.md); rely on the models those docs mark as tested,
 since an untested model carries no assurance either way. If a recent model won't load,
 `npm update node-llama-cpp` (to pick up a newer bundled `llama.cpp`) is the cheapest first thing to
 try.
@@ -97,7 +97,7 @@ fabricate — they don't reliably make the vocabulary hop from a claim's wording
 own names. CodeExam's managed pipeline (retrieval arms, `--synonymize`, the claim chart) performs
 that hop mechanically, which is why the rule of thumb is **pipeline-for-local, cloud-for-
 independent**. The evidence behind this is in [`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md)
-and [`docs/model-support.md`](docs/model-support.md).
+and [`docs/model-support.md`](model-support.md).
 
 ## Reproducibility
 
@@ -110,7 +110,7 @@ variation is attributable. The full account is in [`REPRODUCIBILITY.md`](REPRODU
 ## Related
 
 - [`LOCAL_LLM.md`](LOCAL_LLM.md) — running local GGUF models: which load, how, and the trade-offs.
-- [`docs/model-support.md`](docs/model-support.md) — the per-feature, per-model verdicts and the
+- [`docs/model-support.md`](model-support.md) — the per-feature, per-model verdicts and the
   determinism boundary in full.
 - [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) — `--reproducible`, `--air-gapped`, and the provenance
   header.

@@ -100,7 +100,7 @@ limit, not a comprehension one**. Asked "what does this function do," it may cal
 lacks the information; told to use `extract`, it answers correctly. Smaller models (Qwen3-4B,
 Qwen2.5-Coder-7B) have also discovered, loaded, and chained the tools to answer free-form
 questions about an unseen codebase. The full per-model, per-feature evaluation — including this
-GUI-Chat row — is in [`docs/model-support.md`](docs/model-support.md).
+GUI-Chat row — is in [`docs/model-support.md`](model-support.md).
 
 Caveats from that testing: a small model needs **forceful system-prompt grounding** ("the source
 IS available via these tools; never guess") or it may skip a tool and answer from memory;

@@ -85,7 +85,7 @@ models:
 
 The per-feature verdict for each of these — SUPPORTED / DEGRADED / UNSUPPORTED /
 UNTESTED, with the evidence behind every call — is the matrix in
-[docs/model-support.md](docs/model-support.md). Read a blank cell there as "not
+[docs/model-support.md](model-support.md). Read a blank cell there as "not
 measured," never as "fine."
 
 **Anything outside this set is unsupported.** You *can* point `--model` at any
@@ -145,7 +145,7 @@ A local model is dependable for CodeExam's mechanical LLM tasks: claim charts,
 `--analyze`, claim search, `--synonymize`, and pseudo-claim generation. For
 charts, Gemma3-12B (Q4_K_M) is the safe default on a 16 GB card; with 24 GB,
 Qwen3.5-27B is stronger. Which model does what, and the evidence behind each
-call, is in [docs/model-support.md](docs/model-support.md).
+call, is in [docs/model-support.md](model-support.md).
 
 Where a local model falls short is open-ended judgment. Hand it a patent claim
 and ask it to *find* the code that embodies it, on its own, and it usually fails

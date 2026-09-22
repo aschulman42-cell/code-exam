@@ -74,7 +74,7 @@ bundle (`cli.js`, in the `claude.exe` case), so extraction is normally followed 
 `--split-bundle` / `--bundle-seams` (above) to break it into per-module files before
 analysis.
 
-The prompt-catalog image in the [README](README.md) comes from exactly this path: LLM
+The prompt-catalog image in the [README](../README.md) comes from exactly this path: LLM
 prompts recovered from the minified `cli.js` inside `claude.exe`, then searched like any
 other code.
 

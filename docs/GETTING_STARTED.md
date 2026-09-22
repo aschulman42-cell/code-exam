@@ -44,7 +44,7 @@ way to expose it is to *deliberately* run `node src/server.js --host <addr>` you
 starts an **unauthenticated** server (anyone who can reach it reads your indexed source and
 local files). If you ever need that, do it only on a trusted, firewalled network — or better,
 keep the server loopback-bound and reach it over an SSH tunnel (see
-[`docs/cloud-gpu-chat-testing.md`](docs/cloud-gpu-chat-testing.md)).
+[`docs/cloud-gpu-chat-testing.md`](cloud-gpu-chat-testing.md)).
 
 **First time?** A fresh download bundles a small demo index, **`FIRST_RUN_INDEX.zip`** — mostly
 a TLS demo — so a bare `ce` shows a short welcome and `ce --gui` opens the GUI on it. (This is
@@ -84,7 +84,7 @@ zip, and other index nuances — are described in [`CODEEXAM_INDEXES.md`](CODEEX
   `package.json`).
 - Tree-sitter grammars are vendored in `grammars/`.
 - **For local LLM inference:** a GGUF model file. Which models load, and how well each does per
-  feature, is enumerated in [`docs/model-support.md`](docs/model-support.md) — the tested set is
+  feature, is enumerated in [`docs/model-support.md`](model-support.md) — the tested set is
   what to rely on, and some newer architectures don't load cleanly in current testing. If a
   recent model won't load, `npm update node-llama-cpp` (to pick up a newer bundled `llama.cpp`)
   is the cheapest first thing to try. The local path and its trade-offs are in
