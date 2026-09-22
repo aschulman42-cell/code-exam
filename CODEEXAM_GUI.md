@@ -113,48 +113,16 @@ the menu bar (see **The layout** above); the on-disk index format and multi-inde
 
 ## Symbols & notation
 
-[[placeholder: this Symbols & notation reference applies to **both** the CLI and the GUI, so it
-should move to its own shared doc (e.g. `SYMBOLS.md`), where the prose can be made clearer —
-"Accordion badge counts" especially. Kept here for now so nothing is lost.]]
-
-CodeExam's lists and digests use a few compact markers, consistently across the GUI accordions and
-the CLI:
-
-- **`~` (leading tilde, muted text)** — a **heuristic-tier** finding, as opposed to a mechanical or
-  structural one. Used throughout the AI/ML cells (Artifacts, Kernels, Training, Inference,
-  Multimodal, Post-training, Reasoning, …) to keep the mechanical-vs-heuristic distinction visible
-  rather than presenting every hit with equal confidence.
-- **`[lib?]`** — a **library-vs-consumer** flag on an LLM-call site: the detector suspects it is
-  firing on an SDK's *own* source rather than on code that *uses* the SDK (an over-fire to verify).
-- **`×N`** (and `N×`) — an **occurrence / instance count**: how many raw sites collapsed into a
-  deduped row (e.g. `act_quant_kernel ×4`), how many identical pipelines or duplicate bodies were
-  grouped, or how many times a string occurs within one function (`×3 here` in a digest). A deduped
-  row in the upper-middle pane expands to its underlying sites/source in the lower-middle pane.
-- **Accordion badge counts** — where a cell has both, the badge shows *instances* (the pre-dedup
-  site count) rather than the smaller deduped row count, so a "more than meets the eye" cell is
-  visible at a glance.
-- **`?`** — an unknown / unlabeled family or grouping key (a fallback used when the detector
-  couldn't assign one).
-
-**Test / example handling.** Sites in test, example, benchmark, or demo code can inflate counts and
-dilute the "real" usage signal. By default CodeExam **shows** them: in the AI/ML cells, a row whose
-every site is test/example code is **dimmed** (and its tooltip notes `[test/example code]`) rather
-than hidden. You can opt to drop them entirely:
-
-- **View → Exclude Tests** in the GUI, or `--no-tests` on the CLI — remove AI/ML rows whose every
-  site is test/example code (tests, examples, benchmarks, demos dirs; `test_*` files). A "*N
-  test/example rows hidden*" note then reports what was dropped.
-- `--exclude-tests` — exclude test files from caller / metrics results.
-
-(There is no inline `[test]` text badge: the visible signal for a *kept* test row is dimming plus
-the tooltip note. Likewise, unresolved identifiers — e.g. a model passed as a variable rather than
-a string literal — are shown with the identifier plus an "unresolved" note in the tooltip, not a
-special glyph.)
+CodeExam's lists and digests use a few compact markers — `~` (heuristic), `[lib?]`, the `×N`
+counts, the instance-vs-row counts (the accordion badge), `?`, and the test/example and unresolved
+indicators. They're shared across the GUI and the CLI, so the full reference — what each means, with
+a concrete example on each surface — is in its own doc: [`CODEEXAM_NOTATION.md`](CODEEXAM_NOTATION.md).
 
 ## Related
 
 - [`GETTING_STARTED.md`](GETTING_STARTED.md) — launching the GUI and the loopback-only posture.
 - [`CODEEXAM_CLI.md`](CODEEXAM_CLI.md) — the command line the GUI mirrors (and the Console runs).
+- [`CODEEXAM_NOTATION.md`](CODEEXAM_NOTATION.md) — the `~` / `[lib?]` / `×N` markers, shared with the CLI.
 - [`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md) — the analyze / multisect / claim workflow
   the Workspace drives.
 - [`CODEEXAM_MCP.md`](CODEEXAM_MCP.md) — the tool surface the Chat tab drives.
