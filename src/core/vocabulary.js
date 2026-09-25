@@ -235,11 +235,11 @@ export function _vocabularyPath(idx) {
 // multiplies each token's per-index TF-IDF by a cross-corpus weight that
 // *demotes* (never deletes) universal terms — so a term still surfaces if it
 // genuinely dominates one corpus, which lets us peel back the hand-added #172
-// stopwords over time. Ships as CE_cross_corpus_vocab_catalog.json at the CE
-// root; absent → no-op (scoring is identical to before).
+// stopwords over time. Ships as CE_cross_corpus_vocab_catalog.json in CE's
+// src/ directory; absent → no-op (scoring is identical to before).
 // ----------------------------------------------------------------
 const _CE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const _XCORPUS_CATALOG_PATH = path.join(_CE_ROOT, 'CE_cross_corpus_vocab_catalog.json');
+const _XCORPUS_CATALOG_PATH = path.join(_CE_ROOT, 'src', 'CE_cross_corpus_vocab_catalog.json');
 let _xcorpusCatalogCache; // undefined = unloaded; null = absent/invalid
 
 // #215 provenance choke-point. Which catalog shaped the output is a provenance

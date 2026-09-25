@@ -48,7 +48,7 @@ examination; (c) CodeExam *detects* AI/ML in target code — which,
 interestingly, requires no AI at run time: the AI skill and knowledge are
 baked into mechanical detectors.
 
-![Prompt catalog recovered from the minified cli.js inside claude.exe](prompts_from_cli_js_from_claude_exe.jpg)
+![Prompt catalog recovered from the minified cli.js inside claude.exe](docs/prompts_from_cli_js_from_claude_exe.jpg)
 
 *Prompt catalog — LLM prompts recovered from the minified `cli.js` bundled inside `claude.exe`.*
 

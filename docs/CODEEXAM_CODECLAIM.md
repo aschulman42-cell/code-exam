@@ -133,7 +133,7 @@ thread's artifact would strengthen the infringement thread's charts.
 
 A smaller vocabulary / import-frequency summary can ship even where the full corpus does not — and
 CodeExam already ships one: the open-source-derived cross-corpus vocabulary catalog
-`CE_cross_corpus_vocab_catalog.json` (auto-loaded from the repo root; see
+`CE_cross_corpus_vocab_catalog.json` (auto-loaded from CodeExam's `src/`; see
 [`CODEEXAM_BROWSING.md`](CODEEXAM_BROWSING.md) and [`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md)), with
 an import-frequency counterpart available through the import census (`--census-imports`, #162)
 [[placeholder: name the shipped import-frequency catalog + its doc/issue, if one is settled]]. Any

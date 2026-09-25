@@ -186,7 +186,7 @@ function fakeIdx(tokens) {
 test('concordance: cross-corpus weighting demotes universal morphemes', () => {
   // `check` is in ~96% of catalogued corpora, `bitrate` in 0%. Given parents of
   // equal score, the rare domain noun must now outrank the universal morpheme.
-  const cat = JSON.parse(fs.readFileSync('CE_cross_corpus_vocab_catalog.json', 'utf-8'));
+  const cat = JSON.parse(fs.readFileSync('src/CE_cross_corpus_vocab_catalog.json', 'utf-8'));
   const w = (t) => _subtokenCrossCorpusWeight(t, cat);
   assert.ok(w('bitrate') > w('check'),
     'a corpus-rare domain noun must weigh more than a near-universal morpheme');

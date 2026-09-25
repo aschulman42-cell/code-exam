@@ -84,7 +84,7 @@ documents to compare.
 Two details worth knowing:
 
 - **A shipped cross-corpus catalog sharpens the ranking.**
-  `CE_cross_corpus_vocab_catalog.json` (auto-loaded from the repo root) records terms
+  `CE_cross_corpus_vocab_catalog.json` (auto-loaded from CodeExam's `src/`) records terms
   that recur across many different codebases — `function`, `handler`, `data`,
   `manager` — and *demotes* them, so genuinely distinctive terms surface. Delete the
   file and results simply revert to the plain TF-IDF baseline; nothing else changes.

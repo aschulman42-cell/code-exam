@@ -90,9 +90,9 @@ function exeBase() {
 
 
 // #230 Part B: absolute path to the bundled first-run demo index — a `.zip` CE
-// loads via resolveIndexDir, sitting at the repo root next to src/.
+// loads via resolveIndexDir, sitting in the samples/ directory.
 function firstRunIndexZip() {
-  return path.join(path.dirname(path.dirname(fileURLToPath(import.meta.url))), 'FIRST_RUN_INDEX.zip');
+  return path.join(path.dirname(path.dirname(fileURLToPath(import.meta.url))), 'samples', 'FIRST_RUN_INDEX.zip');
 }
 
 // #249: point a no-index query run at the bundled demo, with a notice on BOTH
