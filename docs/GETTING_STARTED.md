@@ -4,6 +4,36 @@ Install once, then use CodeExam four ways — a CLI, an interactive REPL, a loca
 MCP server for AI clients. All four share one `CodeSearchIndex` engine and one on-disk index
 format: **build an index once, then query it from any of them.**
 
+## Download and install
+
+CodeExam lives at **[github.com/aschulman42-cell/code-exam](https://github.com/aschulman42-cell/code-exam)**.
+The one thing to have first is **[Node.js 18+](https://nodejs.org)** (see [Requirements](#requirements)).
+Get the code either way:
+
+- **Clone it** — `git clone https://github.com/aschulman42-cell/code-exam.git`, then
+  `cd code-exam`.
+- **Download a ZIP** — on the GitHub page, the green **Code ▾** button → **Download ZIP**. It
+  expands to a folder named **`code-exam-main/`** (rename it to `code-exam` if you like); `cd`
+  into it.
+
+Either way you land in the project root, which looks like this:
+
+```text
+code-exam/
+  src/         # the engine, CLI, GUI server, and MCP server
+  public/      # GUI front-end (served on localhost)
+  docs/        # this documentation
+  samples/     # bundled demo index (FIRST_RUN_INDEX.zip) and sample corpora
+  grammars/    # vendored tree-sitter grammars
+  test/        # the test suite
+  scripts/     # dev / maintenance scripts
+  ce  ce.bat  CodeExam  CodeExam.bat   # CLI shims (POSIX / Windows)
+  package.json  README.md  LICENSE  NOTICE
+```
+
+From there, one `npm install` (next section) and you're ready — or skip it for the bare CLI, as
+noted below.
+
 ## Quick start
 
 CodeExam needs **[Node.js 18+](https://nodejs.org)** and a one-time dependency install, run
