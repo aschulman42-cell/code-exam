@@ -440,15 +440,22 @@ export function ggufContextLadder(explicit = null) {
 export const PINNED_TODAY_DATE = new Date(2024, 6, 26, 12);
 
 // The wrappers that default `todayDate` to a live clock in node-llama-cpp
-// 3.18.1. Verified by grepping the installed dist rather than assumed:
-// `todayDate` appears in exactly these three.
+// 3.22.1. Verified by grepping the installed dist rather than assumed:
+// `todayDate` appears in exactly these four.
+//
+// MUSE was added by the 3.18.1 -> 3.22.1 bump (the wrapper ships with Muse
+// Glimmer support, node-llama-cpp 3.20.0). It defaults `todayDate` to
+// `() => new Date()` like the other three and reads `this.todayDate` at RENDER
+// time (MuseChatWrapper :376), so the version-3 remedy below already pins it
+// with no code change — only this list and the drift guard needed updating.
+// The guard test is what caught it, which is what the guard is for.
 //
 // HARMONY IS THE ONE THAT NEARLY GOT MISSED. gpt-oss-20b resolves to it, and a
 // Llama-only fix would have left the model this program is spending a 12 GB
 // download to test drifting day to day. Caught by asus-CC before batch 2 was
 // tested. Any wrapper added upstream with the same default needs adding here —
 // the check is `grep -l todayDate node_modules/node-llama-cpp/dist/chatWrappers/`.
-export const DATE_INJECTING_WRAPPERS = ['llama3.1', 'llama3.2-lightweight', 'harmony'];
+export const DATE_INJECTING_WRAPPERS = ['llama3.1', 'llama3.2-lightweight', 'harmony', 'muse'];
 
 
 // Options for every `new LlamaChatSession` CE creates. One helper so the six
@@ -504,6 +511,29 @@ export async function chatSessionOptions(contextSequence, { liveTodayDate = fals
   try {
     const { resolveChatWrapper } = await import('node-llama-cpp');
     const probe = resolveChatWrapper(contextSequence.model);
+    // LOCAL, not yet upstream (asus-CC 2026-09-29) — experiment for Gemma 4.
+    //
+    // Gemma 4 is a THINKING model: Gemma4ChatWrapper defaults `reasoning = true`,
+    // and the thought tokens are spent before any answer text appears. CE's
+    // output budgets are sized for non-thinking models, so on a real run the
+    // reasoning eats the whole budget and CE parses nothing: --claim-chart's
+    // per-element vocabulary call died with "hit the 3000-token output budget
+    // and was CUT OFF — 0 of 9 element(s) parsed". Same mechanism at small
+    // budgets: 120 maxTokens returns 0 chars with stopReason=maxTokens.
+    //
+    // The wrapper reads `this.reasoning` at render time (Gemma4ChatWrapper :53),
+    // exactly like `todayDate`, so it can be set on the RESOLVED instance
+    // without perturbing resolution — the same version-3 remedy reasoned about
+    // above, for the same reason.
+    //
+    // Gated behind an env var rather than made the default: whether CE wants a
+    // thinking model's reasoning disabled, or its budgets raised instead, is a
+    // product decision, not something to change silently under every engine.
+    if (probe && process.env.CE_DISABLE_LOCAL_REASONING === '1' && probe.reasoning === true) {
+      probe.reasoning = false;
+      chatWrapper = probe;
+      if (onStatus) onStatus(`chat wrapper: ${probe.wrapperName} (reasoning disabled)`);
+    }
     if (probe && probe.todayDate != null) {
       probe.todayDate = PINNED_TODAY_DATE;
       chatWrapper = probe;

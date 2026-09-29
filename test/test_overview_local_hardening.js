@@ -272,6 +272,7 @@ test('#306 todayDate: CE pins every wrapper that injects a date, per the install
     'Llama3_1ChatWrapper.js': 'llama3.1',
     'Llama3_2LightweightChatWrapper.js': 'llama3.2-lightweight',
     'HarmonyChatWrapper.js': 'harmony',
+    'MuseChatWrapper.js': 'muse',
   };
   const injecting = fs.readdirSync(dir)
     .filter((f) => f.endsWith('ChatWrapper.js'))
