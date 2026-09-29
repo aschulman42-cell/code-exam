@@ -129,6 +129,7 @@ export function parseArgs() {
     no_cost: false,       // --overview-by-ai: suppress the cost/usage line (default: shown)
     max_budget_usd: null, // --overview-by-ai (claude engine): hard spend cap; also CE_OVERVIEW_MAX_BUDGET env
     context_size: null,   // --overview-by-ai (local engine): preferred GGUF context (#276); same name as server.js's flag
+    local_reasoning: null, // --local-reasoning <on|off>: front-door for CE_DISABLE_LOCAL_REASONING (thinking models, e.g. Gemma 4)
     flash_attention: false, // local GGUF: createContext({flashAttention}); OFF by default (experimental in node-llama-cpp 3.18.1)
     live_today_date: false, // local GGUF: let node-llama-cpp inject the live date; OFF by default (F58 — a code index has no 'today')
     list_indexes: null,
@@ -594,6 +595,7 @@ export function parseArgs() {
     ['allow_connected',      'flag',           ['--allow-connected']],
     ['api_key',              'value',          ['--api-key']],
     ['model',                'value',          ['--model']],
+    ['local_reasoning',      'value',          ['--local-reasoning']],
     ['claude_model',         'value',          ['--claude-model']],
     ['claim_model',          'value',          [], ['--claim-model', '--term-extract-model']],
     ['temperature',          'float',          ['--temperature']],
@@ -978,6 +980,22 @@ export function parseArgs() {
     console.error(`--shape-profile must be "litigated", "ai-ml" or "randpat", got "${args.shape_profile}".`);
     process.exit(2);
   }
+  // --local-reasoning <on|off> is the CLI front-door for the local thinking-model
+  // reasoning control. The mechanism is the CE_DISABLE_LOCAL_REASONING env var
+  // read in llm-runner.js's chatSessionOptions; the flag SETS/CLEARS that var so
+  // all of chatSessionOptions' call sites stay untouched. Precedence: an explicit
+  // flag WINS over a pre-set env var (matching --max-budget-usd over
+  // CE_OVERVIEW_MAX_BUDGET). Unset (the default) leaves the env var as-is =
+  // reasoning on for current engines (no behavior change). A child process (e.g.
+  // `ce --gui` spawning the server) inherits the set env var.
+  if (args.local_reasoning != null) {
+    if (args.local_reasoning !== 'on' && args.local_reasoning !== 'off') {
+      console.error(`--local-reasoning must be "on" or "off", got "${args.local_reasoning}".`);
+      process.exit(2);
+    }
+    if (args.local_reasoning === 'off') process.env.CE_DISABLE_LOCAL_REASONING = '1';
+    else delete process.env.CE_DISABLE_LOCAL_REASONING;
+  }
   return args;
 }
 
@@ -1126,6 +1144,12 @@ BROWSE:
                              Prefer this on an integrated/small GPU: the default
                              only recovers from GPU out-of-memory, NOT from other
                              GPU failures (e.g. backend crashes).
+  --local-reasoning <on|off> For a local THINKING model (e.g. Gemma 4): "on"
+                             (default) lets the model reason; "off" suppresses
+                             reasoning so the answer fits CE's output budgets (a
+                             thinking model can otherwise spend its whole budget
+                             on thought tokens and emit no answer). Front-door for
+                             the CE_DISABLE_LOCAL_REASONING env var; the flag wins.
   --grounding <mode>         With --overview-by-ai: how freely the model may use
                              knowledge beyond the codebase. grounded (default) =
                              code only, says "not determinable" instead of

@@ -529,6 +529,9 @@ export async function chatSessionOptions(contextSequence, { liveTodayDate = fals
     // Gated behind an env var rather than made the default: whether CE wants a
     // thinking model's reasoning disabled, or its budgets raised instead, is a
     // product decision, not something to change silently under every engine.
+    // The CLI front-door is `--local-reasoning <on|off>` (argparse.js), which
+    // SETS/CLEARS this env var at parse time (flag wins over a pre-set var), so
+    // this gate — and all of chatSessionOptions' call sites — stay unchanged.
     if (probe && process.env.CE_DISABLE_LOCAL_REASONING === '1' && probe.reasoning === true) {
       probe.reasoning = false;
       chatWrapper = probe;

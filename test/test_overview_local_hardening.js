@@ -20,6 +20,7 @@ import {
 import { aiOverviewPrompt, LOCAL_ENGINE_GROUNDING } from '../src/core/ai-overview.js';
 import fs from 'node:fs';
 import { ggufContextOptions, PINNED_TODAY_DATE, DATE_INJECTING_WRAPPERS, ggufDescriptor } from '../src/core/llm-runner.js';
+import { parseArgs } from '../src/argparse.js';
 
 // --flash-attention (#306 fix-list 17, F23). Frees 0.5 GB (Gemma-3-12B) to
 // 2.3 GB (gpt-oss-20b) of VRAM at ctx 16384 — the difference between a 20B
@@ -503,4 +504,40 @@ test('#320 localBudgets: a measured overhead shrinks the budgets; omitted keeps 
   // Floors still hold at the smallest rung even with a large measured overhead.
   const tiny = localBudgets(2048, null, 2900);
   assert.ok(tiny.maxTokens >= 256 && tiny.toolBudgetChars >= 500);
+});
+
+// --local-reasoning <on|off> is the CLI front-door for the local thinking-model
+// reasoning control (Gemma 4). It SETS/CLEARS the CE_DISABLE_LOCAL_REASONING env
+// var that chatSessionOptions' reasoning gate reads, so the gate + all its call
+// sites stay untouched; an explicit flag WINS over a pre-set env var, and unset
+// leaves a pre-set var honored.
+test('--local-reasoning off/on set and clear CE_DISABLE_LOCAL_REASONING (flag wins over env)', () => {
+  const savedArgv = process.argv;
+  const savedEnv = process.env.CE_DISABLE_LOCAL_REASONING;
+  try {
+    // "off" sets the env var (reasoning suppressed)
+    delete process.env.CE_DISABLE_LOCAL_REASONING;
+    process.argv = ['node', 'ce', '--local-reasoning', 'off'];
+    let a = parseArgs();
+    assert.equal(a.local_reasoning, 'off');
+    assert.equal(process.env.CE_DISABLE_LOCAL_REASONING, '1');
+
+    // "on" clears it, winning over a pre-set env var (reasoning enabled)
+    process.env.CE_DISABLE_LOCAL_REASONING = '1';
+    process.argv = ['node', 'ce', '--local-reasoning', 'on'];
+    a = parseArgs();
+    assert.equal(a.local_reasoning, 'on');
+    assert.equal(process.env.CE_DISABLE_LOCAL_REASONING, undefined);
+
+    // unset: a pre-set env var is left untouched (still honored)
+    process.env.CE_DISABLE_LOCAL_REASONING = '1';
+    process.argv = ['node', 'ce'];
+    a = parseArgs();
+    assert.equal(a.local_reasoning, null);
+    assert.equal(process.env.CE_DISABLE_LOCAL_REASONING, '1');
+  } finally {
+    process.argv = savedArgv;
+    if (savedEnv === undefined) delete process.env.CE_DISABLE_LOCAL_REASONING;
+    else process.env.CE_DISABLE_LOCAL_REASONING = savedEnv;
+  }
 });
