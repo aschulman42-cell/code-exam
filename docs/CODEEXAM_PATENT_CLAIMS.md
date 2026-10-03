@@ -41,7 +41,7 @@ three functions that each might implement a limitation, or two versions of a cod
 charts every element against all of them and merges the results into one table, so you see how each
 element fares across the candidates side by side.
 
-Each element gets a verdict — `PRESENT`, `NAME-ONLY`, `IFFY`, or `ABSENT` — with supporting
+Each element gets a verdict — `PRESENT`, `PARTIAL`, `ASSUMED`, or `ABSENT` — with supporting
 citations and a confidence level. A couple of features make a chart easier to scrutinize rather than
 take at face value:
 

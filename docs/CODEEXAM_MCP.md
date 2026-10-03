@@ -46,7 +46,7 @@ GUI use, and document it here if so.]]
 | `callees` | Functions a given function calls. |
 | `call_tree` | Transitive call tree — multi-hop callees down, plus the caller chains that reach it. |
 | `most_called` | Most frequently called functions (`defined_only` to exclude external/library calls). |
-| `hotspots` | Large and frequently-called functions (score = calls × √lines). |
+| `hotspots` | Large and frequently-called functions (score = calls × log₂(lines)). |
 | `entry_points` | Defined-but-rarely-called functions — likely entry points, handlers, or dead code. |
 | **Catalogs & detection** | |
 | `command_catalog` | The target's own user-facing commands (CLI flags, slash-commands, routes, GUI actions), each linked to its handler. Heuristic. |

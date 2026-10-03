@@ -15,8 +15,8 @@ fold further on-box corrections back in here.
 
 ## Constraints that shape the recipe
 
-- CE loads the GGUF **in-process** via node-llama-cpp (`^3.18.1`), so **CE must
-  run *on* the GPU box** — you can't point a local CE at a remote GPU.
+- CE loads the GGUF **in-process** via node-llama-cpp (pinned at `3.22.1`), so
+  **CE must run *on* the GPU box** — you can't point a local CE at a remote GPU.
 - **No code changes are needed for GPU.** `src/server.js` loads the model via
   `getLlama()` + `llama.loadModel({ modelPath })`; node-llama-cpp v3
   auto-detects CUDA and offloads as many layers as fit in VRAM. The same code
