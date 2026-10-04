@@ -1,32 +1,33 @@
-# Testing CE Chat on a Cloud GPU (RunPod)
+# Running CodeExam's local-model chat on a cloud GPU (RunPod)
 
-**Purpose**: run CodeExam's chat-over-codebase with a **local GGUF model + CE's
+**Purpose**: run CodeExam's chat-over-codebase with a **local GGUF model + CodeExam's
 tools on a rented cloud GPU**, using a model class (14B–32B) that a CPU-only
 laptop can't drive. The question this answers: does a bigger model do
 *forensic-grade agentic grounding* — chaining `search` → `extract` to actually
 read code — where a 4B-on-CPU cribbed tool descriptions and emitted garbage
 tool args?
 
-**Status**: first pass 2026-07-01; corrected the same day from the first real
-run (RunPod RTX 4090 — see *First-run findings* below). Still a living doc —
-fold further on-box corrections back in here.
+**Status**: a hands-on recipe, last measured 2026-07-02 on RunPod (RTX 4090,
+A6000, A4000). The results sections below are dated session logs — the software
+versions and hardware named in them are what was current for that run, not
+necessarily today's.
 
 ---
 
 ## Constraints that shape the recipe
 
-- CE loads the GGUF **in-process** via node-llama-cpp (pinned at `3.22.1`), so
-  **CE must run *on* the GPU box** — you can't point a local CE at a remote GPU.
+- CodeExam loads the GGUF **in-process** via node-llama-cpp (pinned at `3.22.1`), so
+  **CodeExam must run *on* the GPU box** — you can't point a local CodeExam at a remote GPU.
 - **No code changes are needed for GPU.** `src/server.js` loads the model via
   `getLlama()` + `llama.loadModel({ modelPath })`; node-llama-cpp v3
   auto-detects CUDA and offloads as many layers as fit in VRAM. The same code
   that runs on CPU lights up the GPU.
-- A cloud GPU is **not air-gapped**. Index **CE's own source or a public repo —
+- A cloud GPU is **not air-gapped**. Index **CodeExam's own source or a public repo —
   never client / protected material.** This validates the tech and the
   model-capability question, not the air-gap posture.
-- CE needs **Node ≥ 18**; the GUI chat pane has an **Engine → Local GGUF**
+- CodeExam needs **Node ≥ 18**; the GUI chat pane has an **Engine → Local GGUF**
   selector.
-- CE tries context sizes **8192 → 4096 → 2048** at load. Agentic loops with
+- CodeExam tries context sizes **8192 → 4096 → 2048** at load. Agentic loops with
   large tool results want the top end, so pick VRAM that holds an 8k context
   alongside the weights.
 
@@ -52,7 +53,7 @@ end-to-end in the first run. Qwen2.5-Coder-14B-Instruct, despite its coding
 reputation, never emitted a native tool call in our run: it wrote the call as
 a JSON block in its prose instead, so zero tools executed.
 
-**Context sizing**: CE defaults to an 8192→4096→2048 fallback ladder, but
+**Context sizing**: CodeExam defaults to an 8192→4096→2048 fallback ladder, but
 agentic multi-tool investigations want **16k+** — strong models (Qwen3.5
 class) run 10-20-call investigations whose accumulated tool results overflow
 8k and error out. Pass `--context-size 16384` (or 24576) when VRAM allows: a
@@ -82,7 +83,7 @@ Then deploy:
    binaries target CUDA 12.
 5. **Edit the deployment before launching**:
    - Container disk: **≥ 60 GB** (a 32B GGUF alone is ~23 GB).
-   - Exposed HTTP ports: **8080** (the CE GUI).
+   - Exposed HTTP ports: **8080** (the CodeExam GUI).
    - Exposed TCP ports: **22** (direct SSH — supports non-interactive command
      execution, scp, and port-forwarding; the `ssh.runpod.io` proxy is
      terminal-only and is the fallback, not the plan).
@@ -95,9 +96,9 @@ Then deploy:
 
 That connection string is everything an agent (or you) needs for Step 2. If
 you're working with an AI agent, paste it the string and let it drive the rest
-over SSH. (A private repo adds one wrinkle: don't put GitHub credentials on
-the pod — `git archive --format=tar.gz HEAD` locally and `scp` the tarball up
-instead of cloning.)
+over SSH. (Working from a private fork, or would rather not put GitHub
+credentials on the pod? Skip the clone and `scp` a tarball up instead — see the
+note in Step 2.)
 
 ## Step 2 — on-box setup (agent-drivable over SSH)
 
@@ -109,10 +110,10 @@ model download on purpose — it front-loads the one genuinely risky step.
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs
 node -v
 
-# 2. Get CE onto the pod + install (node-llama-cpp v3 fetches its CUDA prebuilt
-#    binary). Public repo: clone it. PRIVATE repo (still the case pre-launch):
-#    git clone FAILS — no credentials on the pod by design. Copy a tarball up
-#    instead (Step 1's note): locally `git archive --format=tar.gz -o /tmp/ce.tar.gz HEAD`,
+# 2. Get CodeExam onto the pod + install (node-llama-cpp v3 fetches its CUDA
+#    prebuilt binary). From the public repo, just clone it (below). From a
+#    private fork — or if you'd rather keep GitHub credentials off the pod —
+#    copy a tarball up instead: locally `git archive --format=tar.gz -o /tmp/ce.tar.gz HEAD`,
 #    `scp -P <port> -i ~/.ssh/id_ed25519 /tmp/ce.tar.gz root@<ip>:/root/`, then on
 #    the pod `mkdir -p code-exam && tar -xzf /root/ce.tar.gz -C code-exam`.
 git clone https://github.com/aschulman42-cell/code-exam && cd code-exam
@@ -131,7 +132,7 @@ npx --yes node-llama-cpp source download --gpu cuda
 pip install -U "huggingface_hub[cli]"
 hf download unsloth/Qwen3-14B-GGUF Qwen3-14B-Q5_K_M.gguf --local-dir ./models
 
-# 5. Index NON-SENSITIVE code — CE's own source is ideal
+# 5. Index NON-SENSITIVE code — CodeExam's own source is ideal
 node src/index.js --build-index .
 
 # 6. Launch the GUI bound to all interfaces, inside tmux so it survives SSH
@@ -163,7 +164,7 @@ Reach the GUI one of two ways:
 
 In the chat pane set **Engine → Local GGUF** and ask something that requires
 reading code, e.g. *"explain how multisect works"*. (A non-localhost bind
-intentionally skips CE's loopback Host-header check — the exposure is deliberate
+intentionally skips CodeExam's loopback Host-header check — the exposure is deliberate
 — while enabling the file-path safety validator; both expected here.)
 
 ## What to look for
@@ -194,7 +195,7 @@ What the recipe above already incorporates, plus results:
   checkout predating the fix, `apt-get install -y xdg-utils` is the
   workaround.
 - **The headline: tool-count overload, not raw model capability.** With all
-  26 CE tools exposed, Qwen3-14B degraded to the same failure modes seen from
+  26 CodeExam tools exposed, Qwen3-14B degraded to the same failure modes seen from
   the 4B on CPU: cribbing tool descriptions, garbage numeric args
   (`max: 5e15`), sometimes zero tool calls. Bisecting the tool set (same
   model, same question): 2 tools → clean `search` → `extract` chaining with
@@ -247,12 +248,12 @@ Conclusions:
 ## Cross-family matrix (2026-07-02, RTX 4090 24 GB)
 
 Same battery extended to non-Qwen families, plus a second, unfamiliar
-codebase: Q1 = doMultisect (CE's own index); Q2/Q3 = survey and
+codebase: Q1 = doMultisect (CodeExam's own index); Q2/Q3 = survey and
 RL-role questions against `.sr_gh`, a 1,490-file index of several public
 security-research repos. All curated-8, grounded mode, 8k context.
 
 **The gating factor is chat-template/wrapper compatibility, not model
-quality.** CE's local chat exposes tools through node-llama-cpp's
+quality.** CodeExam's local chat exposes tools through node-llama-cpp's
 function-calling channel, which only exists if the GGUF's chat template
 resolves to a wrapper with function support. Probe before judging a model
 (one-liner: load the model, print `session.chatWrapper.wrapperName`):
@@ -271,14 +272,14 @@ Conclusions:
 - **The failure mode of an incompatible family is fabrication, not
   refusal.** A model with no function channel doesn't say "I can't run
   tools" — it invents tool output that looks real. For a forensic tool
-  this is the worst possible failure shape; it argues for CE detecting
+  this is the worst possible failure shape; it argues for CodeExam detecting
   wrapper support at model load and warning (or refusing local chat).
-- **Possible CE-side remedy** for GLM/Mistral-class failures: pass an
+- **Possible CodeExam-side remedy** for GLM/Mistral-class failures: pass an
   explicit family-appropriate `chatWrapper` to node-llama-cpp instead of
   relying on auto-resolution. Untested; future work.
-- Gemma chats exposed a CE bug — the context's single sequence leaks and
-  subsequent chats fail with "No sequences left" until the model is
-  reloaded (worklist: `local-chat-sequence-leak`).
+- Gemma chats exposed a bug (since fixed) — the context's single sequence
+  leaked and subsequent chats failed with "No sequences left" until the model
+  was reloaded; the post-fix re-test below shows it resolved.
 - Cloud-bar honesty: against Claude transcripts of the same `.sr_gh`
   questions (30+ tool calls, multi-project synthesis), every local model
   tested is several tiers below — the locals make 1–4 calls and survey a
@@ -332,6 +333,35 @@ sequence-reuse fix:
 the 3→3.5 generational jump is larger than the 8B→27B size jump within
 Qwen3. Gemma 3 QAT is a legitimate stable alternative where Google
 provenance or snappier answers matter more than investigative depth.
+
+## Models too big for the laptop — RunPod feasibility
+
+The 16 GB laptop card can't hold the current frontier open-weight models — the
+smallest build of the Chinese frontier set is ~82.5 GB. RunPod can fit all of
+them on VRAM (single GPUs up to a B300 at 288 GB, MI300X 192 GB, B200 180 GB,
+H200 141 GB; up to 8 GPUs per pod via NVLink). But fitting a model is not the
+same as CodeExam being able to run it: CodeExam loads through mainline
+`llama.cpp` (the pinned node-llama-cpp `3.22.1`), and two of these need
+non-mainline forks. Sizes are the smallest usable GGUF as of #330 (2026-09-29).
+
+| Model | Smallest GGUF | RunPod GPU that fits | CodeExam-runnable? |
+|---|---|---|---|
+| DeepSeek V4-Flash (284B, 13B active) | ~82.5 GB (UD-IQ1_S) | 1× H200 / B200 / MI300X, or 2× H100 | likely — mainline arch; confirm at load |
+| GLM-5.3-Flash | ~128 GB (usable 3-bit) | 1× H200 / B200 / MI300X / B300 | confirm GLM-5.3 arch in mainline |
+| GLM-5.3 (full) | ~223–239 GB | 1× B300 (288 GB), or 2× H200 / 4× H100 | confirm arch |
+| Kimi K3 | ~509–594 GB (~610 GB total) | 8× H100 (640 GB) / H200 / B200; 4× B300 / MI300X | **No — needs Unsloth's `llama.cpp` fork, not mainline** |
+| DeepSeek V4.1-Flash | fork-only GGUFs | — | **No — arch `deepseek41` not in mainline (fork: mx-llama.cpp)** |
+
+The realistic candidates are **DeepSeek V4-Flash** and the **GLM-5.3 family** — a
+single high-VRAM card for DeepSeek and GLM-5.3-Flash (single-digit $/hr), a
+2–4-GPU pod for full GLM-5.3 — each pending a one-shot architecture load-test.
+**Kimi K3 and DeepSeek V4.1-Flash are blocked by the engine, not the GPU**: the
+pod exists, but CodeExam's pinned mainline `llama.cpp` can't load them without a
+fork that's off the release path.
+
+[[Placeholder — actual RunPod runs. If any of these are run, fold the result in
+here with the pod, quant, context, and whether CodeExam's tool-calling channel
+engaged — same shape as the matrices above. Tracked in #330.]]
 
 ## Cost and teardown
 
