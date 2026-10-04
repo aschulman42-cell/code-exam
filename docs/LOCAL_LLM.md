@@ -11,18 +11,22 @@ models and GPU machines keep getting more useful, and confidential code often
 *cannot* leave a protected machine.
 
 > **CodeExam 0.5.x is a work in progress.** It's published so people can try it
-> and send critiques and requests — it is **not recommended for production use
-> yet**, and the local-model path is the least mature part of it. Read the notes
+> and send critiques and requests. The local-model path is **not recommended for
+> production use yet** with CodeExam's claim-related features. Read the notes
 > below as "here's what's real today," and please tell us where it falls short.
+
+Newer Chinese open-source models that were too large for our standard GPU test
+laptop (an RTX 5080 with 16 GB) are covered in
+[cloud-gpu-chat-testing.md](cloud-gpu-chat-testing.md).
 
 ## Running a local model
 
-Two flags choose the engine, and they're easy to confuse:
+Two flags choose the engine:
 
 - **`--model <file.gguf>`** runs a **local** GGUF model in-process.
 - **`--llm claude|openai|gemini`** picks a **cloud** provider instead.
 
-Pass `--model` to any LLM-based feature:
+Use `--model` with any LLM-based feature:
 
 ```bash
 # Overview written by a local model
@@ -33,25 +37,33 @@ ce --analyze <file@function> --model path/to/model.gguf --index-path .my_index
 
 # Interactive chat over the index, in the GUI, on a local model
 ce --gui --model path/to/model.gguf --index-path .my_index
+# then chat in lower right pane of GUI
 ```
 
-In the **GUI** you don't have to choose the model up front: a model picker lets
-you load or switch the local model (or pick a cloud engine) while the server is
-running, so `--model` at launch is a convenience, not the only way.
+In the **GUI** you don't have to choose the model up front: two model pickers —
+one at the bottom of the Workspace (lower left) and the other at the top of the
+Chat pane — let you load or switch the local model (or pick a cloud engine) while
+the server is running, so `--model` at launch is a convenience, not the only way.
+More coming soon…
 
 Related flags (local GGUF only unless noted):
 
 - **`--cpu`** — run on the CPU (system RAM) instead of the GPU. Much slower, but
   works without a compatible GPU, and is the right choice on a small/integrated
-  GPU: the GPU path only recovers from out-of-memory, not from other backend
-  failures.
+  GPU: the GPU path recovers automatically from out-of-memory (by backing off),
+  but not from other backend failures — a CUDA or driver mismatch, an
+  unsupported GPU, or a model the GPU backend can't load — where `--cpu`
+  sidesteps the GPU entirely.
 - **`--context-size <n>`** — the model's context window (e.g. `16384`); a larger
   window needs more VRAM.
-- **`--flash-attention`** — frees VRAM for the KV cache (measured 0.5 GB on
+- **`--flash-attention`** — frees VRAM for the KV cache — the Transformer
+  key-value cache, which grows with context length (measured saving: 0.5 GB on
   Gemma-3-12B up to 2.3 GB on a 20B model at ctx 16384 — sometimes the difference
   between a model fitting on a 16 GB card and not). Off by default:
-  node-llama-cpp flags it experimental and it can change numerics, so turn it on
-  deliberately and keep it on across any runs you intend to compare.
+  node-llama-cpp flags it experimental, and it can change the numerics —
+  attention is computed by a different path, so a run may not match a non-flash
+  run bit-for-bit — so turn it on deliberately and keep it on across any runs you
+  intend to compare.
 - **`--reproducible`** and **`--live-today-date`** — the two determinism knobs;
   see [REPRODUCIBILITY.md](REPRODUCIBILITY.md).
 
@@ -65,32 +77,68 @@ pip install -U "huggingface_hub[cli]"
 hf download <repo>/<model>-GGUF <file>.gguf --local-dir ./models
 ```
 
-The exact repository and file names for the tested models — **Gemma3-12B
-Q4_K_M** first — are here:
-[[GGUF_DOWNLOAD_SOURCES — placeholder, to be filled from the Asus test set]].
+The exact repository and file names for the tested models are below. The byte
+sizes are given on purpose: the same quant from different publishers is often a
+*different file* (see the QAT trap below), so a size or hash is what disambiguates.
+
+| Model | Hugging Face repo | File | Bytes | Endorsed? |
+|---|---|---|---|---|
+| Gemma 3 12B (Q4_K_M) — default | `unsloth/gemma-3-12b-it-GGUF` | `gemma-3-12b-it-Q4_K_M.gguf` | 7,300,778,336 | **Y** |
+| Gemma 4 12B (Q4_K_M) — newest | `unsloth/gemma-4-12b-it-GGUF` | `gemma-4-12b-it-Q4_K_M.gguf` | 7,121,861,440 | **Y** |
+| Gemma 3 12B QAT (Q4_0) | *three publishers — see trap* | *see trap* | ~6.9 GB | **Y\*** |
+| Devstral-Small 2505 (Q4_K_M) | `unsloth/Devstral-Small-2505-GGUF` | `Devstral-Small-2505-Q4_K_M.gguf` | 14,333,916,224 | **Y** |
+| Qwen3-14B (Q4_K_M) | `Qwen/Qwen3-14B-GGUF` | `Qwen3-14B-Q4_K_M.gguf` | 9,001,752,960 | tested |
+| Qwen3.8-27B (UD-Q3_K_XL) | `unsloth/Qwen3.8-27B-GGUF` | `Qwen3.8-27B-UD-Q3_K_XL.gguf` | 13,146,393,504 | testing |
+| gpt-oss-20b (MXFP4) | `ggml-org/gpt-oss-20b-GGUF` | `gpt-oss-20b-MXFP4.gguf` | 12,109,566,624 | N |
+| Gemma 4 12B **QAT** (UD-Q4_K_XL) | `unsloth/gemma-4-12B-it-qat-GGUF` | `gemma-4-12B-it-qat-UD-Q4_K_XL.gguf` | 6,716,356,800 | **N — broken** |
+
+Download any row with `hf download <repo> <file> --local-dir ./models`.
+
+**Endorsed legend:** **Y** endorsed for CodeExam's mechanical LLM tasks; **Y\***
+works with a named limit (the QAT build is reliable but laconic); **tested /
+testing** measured, not yet a recommendation (Qwen3.8-27B runs are in progress);
+**N** loads but isn't recommended, or is broken.
+
+Gemma 4 12B (Q4_K_M) is the newest qualified engine, added with the
+node-llama-cpp 3.22.1 bump; Gemma 3-12B stays the default and the most broadly
+tested.
+
+A few other GGUFs were loaded during testing but aren't recommended — various
+Mistral-Nemo / Llama-3.1 / Muse builds, the 4B Gemma, and the 26B Gemma 4 MoE
+(which doesn't fit 16 GB). A larger **24 GB** card opens up Qwen3.5-27B (the
+claims-track champion) and others; those runs, on cloud GPUs via RunPod.io, are
+written up in [cloud-gpu-chat-testing.md](cloud-gpu-chat-testing.md).
+
+**The QAT Q4_0 trap.** `gemma-3-12b-it-qat-Q4_0` is published by at least three
+houses at three different byte sizes — lmstudio-community
+(`gemma-3-12B-it-QAT-Q4_0.gguf`, 6,887,164,256), unsloth
+(`gemma-3-12b-it-qat-Q4_0.gguf`, 6,909,282,688), and bartowski (6,909,282,976) —
+and they are **not** the same file. Any result that cites "gemma-3-12b QAT Q4_0"
+without a byte count or hash is ambiguous between the three.
 
 ## Which models are supported
 
-CodeExam has been measured against a specific, small set of GGUFs. Those, and
-only those, carry a support verdict; everything else is untested. The tested
-models:
+The table above is the at-a-glance picture: the specific GGUFs CodeExam has been
+run against, where to get each one, and a single **Endorsed?** verdict per model.
+Those, and only those, carry a verdict; everything else is untested. Two things
+that single verdict can't show, and where they live:
 
-- **Gemma3-12B (Q4_K_M)** — the 16 GB workhorse and the default local model,
-  and the most broadly tested.
-- **Devstral-Small (24B)** — a stronger analysis and chat engine where the VRAM
-  allows (measured at ctx 8192), slower than the 12B.
-- **Qwen3.5-27B** — the 24 GB / 24k-context champion on the claims track.
-- **Gemma3-12B QAT**, **Qwen3.5-9B**, **Qwen3-14B** — partially measured, each
-  with named limits.
-
-The per-feature verdict for each of these — SUPPORTED / DEGRADED / UNSUPPORTED /
-UNTESTED, with the evidence behind every call — is the matrix in
-[docs/model-support.md](model-support.md). Read a blank cell there as "not
-measured," never as "fine."
+- **The per-feature breakdown.** "Endorsed" collapses several features into one
+  word. The full matrix — claim charts vs `--analyze` vs claim search vs chat,
+  each marked SUPPORTED / DEGRADED / UNSUPPORTED / UNTESTED with the evidence
+  behind every call — is [docs/model-support.md](model-support.md). Read a blank
+  cell there as "not measured," never as "fine." It also covers the 24 GB-class
+  models that don't appear in the 16 GB table above, such as the **Qwen3.5-27B**
+  claims-track champion.
+- **The default and the workhorses.** On a 16 GB card, **Gemma 3-12B (Q4_K_M)**
+  is the default and the most broadly tested; **Devstral-Small (24B)** is a
+  stronger analysis/chat engine where the VRAM allows.
 
 **Anything outside this set is unsupported.** You *can* point `--model` at any
 GGUF and CodeExam will try to load it — but an untested model may fail to load
-or behave oddly (a newer Gemma release did not load cleanly in current testing).
+or behave oddly (the Gemma 4 **QAT** `UD-Q4_K_XL` build, for one, produced
+unusable output in current testing — the plain Gemma 4 `Q4_K_M` above is the
+supported build).
 
 > **[[placeholder for blocking certain GGUFs]] — not yet implemented.**
 > CodeExam does **not** currently block, warn on, or otherwise gate an
@@ -116,17 +164,24 @@ worth knowing before you choose a model (learned the hard way):
   model is roughly **2× slower** than a 12B on any hardware; on a 16 GB card,
   context-halving, partial offload, and KV-cache pressure add up to a further
   **~4×**. On a 24 GB card the inherent 2× remains and the rest shrinks.
+- **A small GPU has a floor.** The smallest *tested* model still needs roughly
+  **7 GB of VRAM**, so a 4 GB card cannot run any tested model on the GPU at all.
+  Use `--cpu` (system RAM, much slower, but it works) or a larger-VRAM machine;
+  don't download a 12B GGUF onto a 4 GB card expecting GPU inference.
 
-The reference hardware for CodeExam's local-model measurements is a 16 GB card;
-`docs/model-support.md` notes where a verdict would differ on 24 GB.
+The reference hardware for CodeExam's local-model measurements is a 16 GB card —
+specifically an NVIDIA RTX 5080 (16 GB) in an ASUS ROG Strix SCAR 16 (2025), with
+some runs on larger cloud GPUs (RTX 4090, A5000) via RunPod.io (see
+[cloud-gpu-chat-testing.md](cloud-gpu-chat-testing.md)). `docs/model-support.md`
+notes where a verdict would differ on 24 GB.
 
-## The engine, and why it's pinned
+## The inference engine (node-llama-cpp), and why its version is pinned
 
 CodeExam runs local models through **node-llama-cpp** — the npm package (a Node
 binding around `llama.cpp`) that loads and runs GGUF files; it installs with
 `npm install` alongside everything else. CodeExam pins it at **exactly
-`3.18.1`** (bundling `llama.cpp` build `b8390`), not an open range, because the
-bundled `llama.cpp` build decides inference numerics: an open range could change
+`3.22.1`**, not an open range, because the bundled `llama.cpp` build decides
+inference numerics: an open range could change
 the engine underneath a result with no CodeExam change at all. That pin is what
 makes a local run reproducible in the first place (next section).
 
@@ -152,11 +207,20 @@ and ask it to *find* the code that embodies it, on its own, and it usually fails
 — not because it can't search, but because it can't reliably connect the claim's
 wording ("first-come/first-served") to the code's ("FIFO scheduler"). That is a
 limit of the model's judgment *today*, and it showed up in every local model
-tested, small or large. For now, for that kind of work, use a cloud model — or
-CodeExam's guided claim pipeline, which makes that connection *for* the model
-instead of asking the model to make it. And the line is expected to move: new
-local GGUF models are tested as they appear, and CodeExam keeps improving how it
-drives the ones it supports.
+tested, small or large. Two ways around it:
+
+- **If the code doesn't require an air-gapped exam** (see
+  [AIR_GAPPED.md](AIR_GAPPED.md)), a cloud model is simply stronger at this
+  open-ended step.
+- **Either way — including air-gapped — use CodeExam's guided claim pipeline**
+  instead of asking a model to free-form hunt. Here CodeExam's *deterministic*
+  code makes the claim→code connection (its retrieval and anchoring find the
+  candidate sites); the model is left only the narrower per-element verdict it
+  *can* do reliably. Because the connection is deterministic and that verdict
+  runs on a local model, the whole pipeline runs on your own GPU — air-gapped.
+
+And the line is expected to move: new local GGUF models are tested as they
+appear, and CodeExam keeps improving how it drives the ones it supports.
 
 Reading any local-model output, two habits are worth keeping:
 
@@ -166,8 +230,9 @@ Reading any local-model output, two habits are worth keeping:
 - **Trust the numbers, check the sentences.** The counts and flags CodeExam
   prints around a result — how many candidate targets agreed, which claim words
   never appear in the cited code — are computed, not written by the model, so
-  they're reliable. The model's prose is not always: before you rely on a
-  citation, open the line it points to.
+  they're reliable. What the model itself writes is not — its prose can overstate,
+  and a citation can point to the wrong line — so before you rely on a citation,
+  open the line it points to.
 
 ## Air-gapped operation
 
