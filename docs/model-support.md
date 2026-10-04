@@ -177,8 +177,8 @@ unmasked source one `extract` call away — move to the gotchas doc
 (ai-examination-gotchas-doc) as a scope disclosure, not a feature
 verdict.
 
-**⁴ᵇ Devstral-Small --mask-all analysis** — SUPPORTED, the same asus-CC
-#321 pair on the same function and commit: the masked run described the
+**⁴ᵇ Devstral-Small --mask-all analysis** — SUPPORTED, the same asus-CC #321
+pair on the same function and commit: the masked run described the
 structure faithfully and **declined to name the algorithm**, with no
 leakage from the unmasked reading — a different, equally honest route
 than K_M's hedged inference. Two probe flaws asus-CC self-reported (a
@@ -276,8 +276,8 @@ content-byte store), not K_M's impossible-by-construction category
 error. The bigger defect is on the positive: **61% of targets
 PARSE-FAILED** (the model returns ~36 lines of analysis per target
 that do not match CE's VERDICT contract; the target is discarded), so
-the positive passes only marginally — 6/11 PRESENT against a floor of
-6. Evidence loss errs safe (a discarded target cannot create a false
+the positive passes only marginally — 6/11 PRESENT against a floor of 6.
+Evidence loss errs safe (a discarded target cannot create a false
 verdict) and is loudly visible in stderr and in engine-qualify, which
 is why this is DEGRADED rather than UNSUPPORTED — but the cell would
 be dishonest without the rate: **usable with the sidecar checked; not
