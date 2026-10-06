@@ -940,6 +940,23 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     const toolCalls = budget.calls; // attempts (incl. budget-stopped), same as the server path
     // Strip any chain-of-thought block (Qwen3 etc. emit <think>…</think>).
     let prose = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    // GEMMA 4 DSL MARKERS leak as literal text on some builds. This GGUF
+    // declares 7 of its 19 control-looking tokens as type 4 (USER_DEFINED)
+    // instead of 3 (CONTROL), enumerated from the vocab: `<|tool_call>` (48),
+    // `<tool_call|>` (49), `<|tool_response>` (50), `<tool_response|>` (51),
+    // the DSL string delimiter `<|"|>` (52), and the thought-channel pair
+    // `<|channel>` (100) / `<channel|>` (101). The turn markers `<|turn>` /
+    // `<turn|>` (105/106) ARE typed correctly, which is why they never leak.
+    // llama.cpp warns at load and repairs the `<|x>` spelling, but not the
+    // reversed `<x|>` one, so a tool-using run prints one stray `<tool_call|>`
+    // per call ahead of the prose. Nothing downstream can tell these from
+    // content, so drop whole blocks first, then any orphaned marker.
+    prose = prose
+      .replace(/<\|tool_call>[\s\S]*?<tool_call\|>/g, '')
+      .replace(/<\|tool_response>[\s\S]*?<tool_response\|>/g, '')
+      .replace(/<\|channel>[\s\S]*?<channel\|>/g, '')
+      .replace(/<\|(?:tool_call|tool_response|channel)>|<(?:tool_call|tool_response|channel)\|>|<\|"\|>/g, '')
+      .trim();
     // #276 fabrication guard: 0 tool calls in grounded mode = not an overview.
     const warn = ungroundedWarning(toolCalls, grounding, prefetched);
     if (warn && prose) prose = `${warn}\n\n${prose}`;

@@ -656,6 +656,19 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
         try { await m.dispose(); } catch (_) { /* */ }
         return null;
       };
+      // A MISSING FILE IS NOT A VRAM PROBLEM. Every failure below funnels into
+      // "GPU could not fit model+context; retrying on CPU", so a mistyped
+      // --model path sends the user to debug their GPU, provokes a CPU retry
+      // that can kick off a local llama.cpp build, and ends by advising --cpu,
+      // which cannot help. Check the path first and report the true reason.
+      // The hint earns its keep: the GGUFs live in models/, and a bare
+      // `--model foo.gguf` resolves against the current directory.
+      if (!fs.existsSync(modelPath)) {
+        const base = String(modelPath).replace(/^.*[\\/]/, "");
+        const alt = ["models", "gguf"].map((d) => `${d}/${base}`).find((p) => fs.existsSync(p));
+        throw new Error(`model file not found: ${modelPath}`
+          + (alt ? ` — did you mean ${alt} ?` : " (a relative --model path resolves against the current directory)"));
+      }
       process.stderr.write(`Loading local model: ${modelPath}…\n`);
       let ctx = forceCpu ? null : await tryLoad(false);
       if (!ctx) {

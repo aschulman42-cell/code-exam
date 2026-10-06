@@ -185,7 +185,7 @@ if (args.gui || _wantsTour) {
   // that the CLI parser rejects.
   {
     const _GUI_BOOL = new Set(['--gui', '--tour', ..._GUI_BOOL_FORWARD]);
-    const _GUI_VALUE = new Set(['--port', '--index-path', '--index', '--load-index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--claude-model', '--temperature', '--context-size', '--openai-key', '--openai-model', '--llm']);
+    const _GUI_VALUE = new Set(['--port', '--index-path', '--index', '--load-index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--claude-model', '--temperature', '--context-size', '--local-reasoning', '--openai-key', '--openai-model', '--llm']);
     const _unknown = [];
     for (let i = 0; i < _rawArgvForGui.length; i++) {
       let tok = _rawArgvForGui[i];

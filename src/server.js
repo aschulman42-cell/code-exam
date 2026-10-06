@@ -591,9 +591,13 @@ class ServerLLM {
       // investigations want 16k+ when VRAM allows (a 27B Q4 + 24k context
       // measured 17.9 GB on a 24 GB card; see docs/cloud-gpu-chat-testing.md).
       // The smaller rungs still protect modest hardware from OOM.
+      // #330: lead the ladder with 16384 to match the CLI's --overview-by-ai
+      // ladder (index.js) — the GUI used to default to 8192, handing the same
+      // model half the context purely by launch path (the remaining half of the
+      // #306 F67 GUI/CLI divergence). Fall-through still protects small cards.
       const ladder = this.preferredContextSize
-        ? [this.preferredContextSize, ...[8192, 4096, 2048].filter(s => s < this.preferredContextSize)]
-        : [8192, 4096, 2048];
+        ? [this.preferredContextSize, ...[16384, 8192, 4096, 2048].filter(s => s < this.preferredContextSize)]
+        : [16384, 8192, 4096, 2048];
       let context = null;
       let contextSize = 0;
       for (const trySize of ladder) {
@@ -4419,9 +4423,23 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
   // Strip a chain-of-thought block — closed OR truncated-open (Qwen3 etc. emit
   // <think>…</think>; maxTokens can cut it off before the closing tag, which
   // would otherwise leave the raw <think> as the "answer").
+  // GEMMA 4 DSL MARKERS. This GGUF declares 7 of its 19 control-looking
+  // tokens as type 4 (USER_DEFINED) rather than 3 (CONTROL), so they render
+  // as literal text: `<|tool_call>` (48), `<tool_call|>` (49),
+  // `<|tool_response>` (50), `<tool_response|>` (51), the DSL string
+  // delimiter `<|\"|>` (52), and `<|channel>` (100) / `<channel|>` (101).
+  // The turn markers (105/106) are typed correctly and never leak.
+  // llama.cpp warns at load and repairs the `<|x>` spelling but not the
+  // reversed `<x|>` one. Same strip as ai-overview-local.js; duplicated
+  // rather than shared because this is a release-eve fix — worth folding
+  // into one exported helper afterwards.
   const stripThink = (s) => String(s || '')
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/<think>[\s\S]*$/i, '')
+    .replace(/<\|tool_call>[\s\S]*?<tool_call\|>/g, '')
+    .replace(/<\|tool_response>[\s\S]*?<tool_response\|>/g, '')
+    .replace(/<\|channel>[\s\S]*?<channel\|>/g, '')
+    .replace(/<\|(?:tool_call|tool_response|channel)>|<(?:tool_call|tool_response|channel)\|>|<\|\"\|>/g, '')
     .trim();
 
   const sequence = await acquireSequence();
