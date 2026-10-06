@@ -108,6 +108,48 @@ pipeline makes that hop mechanically, which is why the rule is **pipeline-for-lo
 independent**. See [`docs/model-support.md`](model-support.md) and
 [`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md).
 
+### An ABSENT row is only as strong as the target set
+
+A chart's rows are verdicts on **the code that was examined**, not on the
+codebase. For a PRESENT row that distinction is mostly harmless: the row names a
+`file@function`, so a reader can open it and judge. A wrong PRESENT is visibly
+wrong, and it is self-correcting under review.
+
+An ABSENT row carries no such handle. "Not found here" reads the same whether the
+examined set contained the best candidate and ruled it out, or never contained it
+at all. So the two failures are not symmetric:
+
+- a **PRESENT** row that cites the wrong function is *conspicuously* wrong;
+- an **ABSENT** row that skipped the right function looks clean and is wrong.
+
+This matters most in the situation an opponent will look for first: the codebase
+contains something that *resembles* the missing limitation. If a limitation
+speaks of "determining a rate from the remaining playback time" and the codebase
+has an adaptive bitrate selector that picks a rate from buffered duration, a chart
+that says only "ABSENT" invites the obvious question — *did you look at it?* — and
+has no answer. A chart that says "we examined
+`AdaptiveTrackSelection::updateSelectedTrack`; it selects a track from bandwidth
+estimates and buffered duration, not from a remaining time before a set
+reproduction start time, so the limitation is unmet" answers it in advance.
+
+**Before relying on an all-ABSENT or mostly-ABSENT chart, read the chart's own
+`Analysed targets` section and ask whether it contains the code an opponent would
+raise.** CodeExam prints that list precisely so this is checkable; it is the
+audit surface for a negative. If the plausible candidates are missing, the chart
+has not yet established absence — it has established that retrieval did not
+surface them, which is a different and much weaker statement.
+
+The remedy is the union-plus-probes method above, applied to negatives as well as
+to hard positives: add directed probes for the code you expect an opponent to
+cite, re-chart against the combined set, and let the chart show those candidates
+examined and distinguished. A negative built that way is defensible. A negative
+built from automatic retrieval alone is not, however unanimous its agreement
+counts look.
+
+> **Agreement counts do not fix this.** A row reading `ABSENT (37 of 37)` means
+> 37 examined functions did not meet the limitation. If the best candidate was
+> not among the 37, unanimity measures the targets, not the codebase.
+
 ## Related
 
 - [`CODEEXAM_SEARCHING.md`](CODEEXAM_SEARCHING.md) — multisect and `--claim-search`, the search
