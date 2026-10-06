@@ -66,6 +66,16 @@ Related flags (local GGUF only unless noted):
   intend to compare.
 - **`--reproducible`** and **`--live-today-date`** — the two determinism knobs;
   see [REPRODUCIBILITY.md](REPRODUCIBILITY.md).
+- **`--local-reasoning <on|off>`** — control a *thinking* model's reasoning.
+  **Gemma 4 needs `--local-reasoning off`:** it reasons before answering, and
+  with reasoning on it spends CodeExam's vocabulary/analysis budget thinking
+  before any answer appears — a claim chart comes back `0 of N element(s)
+  parsed`. Turning it off also suppresses Gemma 4's thought-channel output.
+  Harmless on a non-thinking model (e.g. Gemma 3); currently a no-op on Qwen, so
+  attach it to **Gemma 4 specifically**, not to "thinking models" in general. It
+  works the same on the `--gui` launch line (`ce --gui … --local-reasoning off`);
+  the equivalent is the `CE_DISABLE_LOCAL_REASONING=1` environment variable, handy
+  for scripted or wrapper launches (set it before starting CodeExam).
 
 ## Getting a model
 
@@ -100,8 +110,9 @@ testing** measured, not yet a recommendation (Qwen3.8-27B runs are in progress);
 **N** loads but isn't recommended, or is broken.
 
 Gemma 4 12B (Q4_K_M) is the newest qualified engine, added with the
-node-llama-cpp 3.22.1 bump; Gemma 3-12B stays the default and the most broadly
-tested.
+node-llama-cpp 3.22.1 bump — **run it with `--local-reasoning off`** (it's a
+thinking model; see Related flags above). Gemma 3-12B stays the default and the
+most broadly tested.
 
 A few other GGUFs were loaded during testing but aren't recommended — various
 Mistral-Nemo / Llama-3.1 / Muse builds, the 4B Gemma, and the 26B Gemma 4 MoE
