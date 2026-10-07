@@ -22,8 +22,10 @@
     "js-beautify": "^1.15.4",
     "node-llama-cpp": "3.22.1",
     "web-tree-sitter": "^0.26.6",
-    "webcrack": "^2.15.1",
     "zod": "^4.3.6"
+  },
+  "optionalDependencies": {
+    "webcrack": "^2.15.1"
   },
   "keywords": [
     "source-code",
@@ -32,7 +34,7 @@
     "air-gapped",
     "code-examination"
   ],
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "devDependencies": {
     "tree-sitter-c": "^0.24.1",
     "tree-sitter-c-sharp": "^0.23.1",
