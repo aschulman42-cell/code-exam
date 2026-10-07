@@ -130,6 +130,11 @@ given you a foothold. They live in their own pages rather than being repeated he
   [CODEEXAM_KEY_FEATURES.md](CODEEXAM_KEY_FEATURES.md).
 - **The AI/ML and infrastructure detectors** — the models, LLM calls, tools, prompts,
   and operational stack a codebase contains. See [DETECTING_AI_ML.md](DETECTING_AI_ML.md).
+- **"Searching by counting"** — because CodeExam sorts most of its catalogs by a measure of
+  importance (occurrences, references-to, length, with an inverse-frequency weighting that demotes
+  generic items), eyeballing the *top* of such a list — the left-accordion categories in the GUI —
+  is itself a way to approach what might be important in a codebase without knowing its name first.
+  See [CODEEXAM_BROWSING.md](CODEEXAM_BROWSING.md).
 
 Some of these are still being tuned toward their intended sharpness — hotspots and
 dead-code gaps in particular — so read their output as a strong starting signal, not a

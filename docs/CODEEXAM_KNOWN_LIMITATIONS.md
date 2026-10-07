@@ -81,3 +81,19 @@ independently-operable panels that redesign is built toward.
   source-library equivalent works in curated cases; reliably identifying generic library code
   (`fopen` / `printf` in a stripped binary) is still in progress. See
   [`STRUCTURAL_SEARCH.md`](STRUCTURAL_SEARCH.md).
+- **No file-date / timestamp handling** — CodeExam indexes code content, not file dates or
+  modification times. In patent and trade-secret work, where *when* code existed can matter, track
+  dates outside CodeExam (e.g. from version control or the produced materials).
+- **Some commands are CLI-only** — e.g. `--multi-index` (running one command across several
+  indexes) has no GUI equivalent, and a few commands render differently in the GUI than on the CLI.
+- **The GUI can block on voluminous pane output** — a pane producing very large output can stall
+  the interface, which is the reason several commands impose the result caps noted above; the
+  planned GUI redesign (#38) is built toward non-blocking, independently-operable panels.
+- **Function/method-end detection is imperfect** — both the regex and tree-sitter paths sometimes
+  miss where a function or method ends, so trailing code can be attributed to an ostensibly huge
+  function, which in turn can skew any ranking that weights by length.
+- **Class-method navigation can resolve to the wrong handler** (#85, #148) — resolution is static,
+  not dynamic, so clicking a method in the GUI can land on a same-named or otherwise wrong target
+  where dynamic dispatch (a vtable, a registry) decides the real one only at run time.
+- **For other limitations, see the open issues** —
+  [open CodeExam issues](https://github.com/aschulman42-cell/code-exam/issues?q=is%3Aissue+state%3Aopen).

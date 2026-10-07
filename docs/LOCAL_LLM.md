@@ -118,7 +118,11 @@ A few other GGUFs were loaded during testing but aren't recommended — various
 Mistral-Nemo / Llama-3.1 / Muse builds, the 4B Gemma, and the 26B Gemma 4 MoE
 (which doesn't fit 16 GB). A larger **24 GB** card opens up Qwen3.5-27B (the
 claims-track champion) and others; those runs, on cloud GPUs via RunPod.io, are
-written up in [cloud-gpu-chat-testing.md](cloud-gpu-chat-testing.md).
+written up in [cloud-gpu-chat-testing.md](cloud-gpu-chat-testing.md). The current frontier
+open-weight models have moved well past a single 16 GB card — the smallest usable builds of
+Kimi K3, GLM-5.3, and DeepSeek V4 run from roughly 80 GB to 600 GB — so testing those is a
+rented-cloud-GPU question, not a laptop one; that same doc lays out which are even reachable and
+which are blocked by the engine rather than the GPU.
 
 **The QAT Q4_0 trap.** `gemma-3-12b-it-qat-Q4_0` is published by at least three
 houses at three different byte sizes — lmstudio-community
@@ -252,3 +256,11 @@ call, scrubs the API key, and refuses to start on a reachable network — plus w
 it does and does **not** guarantee (it cannot police where you save), see
 **[AIR_GAPPED.md](AIR_GAPPED.md)**. A local GGUF model is what you run in that
 mode.
+
+## Related
+
+- [AIR_GAPPED.md](AIR_GAPPED.md) — the enforced no-cloud posture a local model runs under.
+- [cloud-gpu-chat-testing.md](cloud-gpu-chat-testing.md) — running local models on a rented cloud
+  GPU, and which frontier models are reachable there.
+- [model-support.md](model-support.md) — the per-feature support matrix for each tested model.
+- [REPRODUCIBILITY.md](REPRODUCIBILITY.md) — pinning a local run for a repeatable answer.

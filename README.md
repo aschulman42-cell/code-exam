@@ -42,9 +42,9 @@ There are four ways to drive that one engine and one on-disk index format: a
 only), and an **MCP server** for AI clients. Build the index once; query it
 from any of these four interfaces.
 
-**CodeExam and AI:** CodeExam relates to AI in three distinct ways: (a) AI
+**CodeExam and AI:** CodeExam relates to AI in three distinct ways: (a) AI (primarily Claude Code)
 was used to *build* CodeExam; (b) users can *optionally* use AI during an
-examination; (c) CodeExam *detects* AI/ML in target code — which,
+examination; (c) CodeExam *detects* AI and ML (machine learning) in target code — which,
 interestingly, requires no AI at run time: the AI skill and knowledge are
 baked into mechanical detectors.
 
@@ -54,7 +54,7 @@ baked into mechanical detectors.
 
 ## Six key features
 
-1. **AI-assisted examination.** An optional set of AI-based features — a
+1. **AI-assisted examination.** An optional set of AI-based features — using a
    cloud model (Claude, ChatGPT, or Gemini), or a local GGUF model on your
    own GPU — together with CodeExam's MCP tools, to summarize code, answer
    questions, and draft analyses. AI-assisted examination may already be
@@ -68,13 +68,14 @@ baked into mechanical detectors.
    internet/cloud access blocked, you still have the option of using
    CodeExam's AI features by pointing it at a local AI (GGUF) model. Though
    optional and only one part of CodeExam, and while most users won't need
-   it, nonetheless "local first" is a key underlying premise: we see local
+   it, and while local-LLM code analysis is a work in progress, nonetheless
+   "local first" is a key underlying premise: we see local
    models and more capable GPU machines becoming steadily more important.
    → [`AIR_GAPPED.md`](docs/AIR_GAPPED.md), [`LOCAL_LLM.md`](docs/LOCAL_LLM.md)
 
 3. **Uncovering what a codebase is about.** CodeExam works to extract a
    codebase's "vocabulary" and key concepts, its "breadcrumbs" (telemetry
-   markers in code), and metrics — and presents initial questions to ask and
+   markers in code), and referenced-resources (data files, URLs, environment variables, etc.) — and presents initial questions to ask and
    good first places to look, via the Overview and (optional) AI Overview
    features. → [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md)
 
@@ -84,7 +85,7 @@ baked into mechanical detectors.
    native executables — then searched and cross-referenced with the same
    machinery as real source. → [`QUASI_SOURCE.md`](docs/QUASI_SOURCE.md)
 
-5. **Detecting AI/ML and infrastructure in target code.** A detector suite
+5. **Detecting AI and ML (machine learning) and infrastructure in target code.** A detector suite
    surfaces inferred AI/ML pipelines, the models a codebase defines and
    uses, LLM calls, tools, agents/chains, embeddings, prompts, and the
    operational stack (e.g. containers).
@@ -93,18 +94,21 @@ baked into mechanical detectors.
 6. **Structural (non-textual) code search.** Ways of finding and identifying
    code that don't depend on what the code *says*: structural
    duplicate detection and diff, transform-resilient function fingerprints
-   ("funcstrings"), synonym expansion in Multisect search, and catalogs that
+   ("funcstrings"), synonym expansion in Multisect search, "searching by counting," and catalogs that
    link commands to their handlers by position in dispatch tables rather
-   than by name. → [`STRUCTURAL_SEARCH.md`](docs/STRUCTURAL_SEARCH.md)
+   than by name. → [`STRUCTURAL_SEARCH.md`](docs/STRUCTURAL_SEARCH.md), [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md)
 
 ## What CodeExam is good at
 
-- **Orienting fast in unfamiliar code** — vocabulary and Overview tell you
+- **Orienting fast in unfamiliar code** — Vocabulary and Overview help tell you
   what a codebase is about and where to look first, before you read a line.
   → [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md)
 - **Helping to prove an absence** — corpus-wide *negative* search: helping
   show something is *not* present anywhere in the index, not just that it's
-  missing from the file you happened to open.
+  missing from the file you happened to open. (Caveat: absence from the *index*
+  is only as complete as the index — `--build-index` warns when file types
+  weren't included, `ce --help extensions` manages that, and
+  `--referenced-resources` finds objects the code references but doesn't contain.)
   → [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md)
 - **Examining what wasn't shipped as source** — quasi-source recovers
   structure from minified bundles and binaries.
@@ -116,7 +120,8 @@ baked into mechanical detectors.
   data, keys, templates), with how often each is referenced.
   → [`CODEEXAM_BROWSING.md`](docs/CODEEXAM_BROWSING.md)
 - **Working on technical prose, not just code** — searching and charting
-  **patent claims** against a codebase, and (work in progress) generating
+  **text (such as patent claims, and portions of technical specifications)**
+  against a codebase, and (work in progress) generating
   **"pseudo-claims" from code**: claim-shaped descriptions of what the code
   does. → [`CODEEXAM_PATENT_CLAIMS.md`](docs/CODEEXAM_PATENT_CLAIMS.md)
 - **Multisect search** — narrowing a multi-term search to the smallest scope
@@ -167,6 +172,12 @@ node src/index.js --index-path .mycode --functions --sort size
 
 # List LLM prompts found in the code, with the associated code
 node src/index.js --index-path .mycode --prompt-catalog
+
+# Run several commands on one index in a single invocation (ce shim, below)
+ce --index-path .sr_gh --models --command-catalog
+
+# Add -v / --verbose for more detail on many commands
+ce --index-path .sr_gh --models -v
 ```
 
 The repo ships shims — **`ce`** (POSIX) / **`ce.bat`** (Windows) — so `ce
@@ -190,7 +201,8 @@ Language coverage is deep for the tree-sitter languages and shallower
 recognition in particular is incomplete. And CodeExam works from an index
 *snapshot*: it reflects the code as it stood when the index was built, so
 rebuild the index to pick up later changes. For a more thorough list, see
-[`CODEEXAM_KNOWN_LIMITATIONS.md`](docs/CODEEXAM_KNOWN_LIMITATIONS.md).
+[`CODEEXAM_KNOWN_LIMITATIONS.md`](docs/CODEEXAM_KNOWN_LIMITATIONS.md) and the
+[open issues](https://github.com/aschulman42-cell/code-exam/issues?q=is%3Aissue+state%3Aopen).
 
 ## Documentation
 
@@ -237,6 +249,10 @@ it bounded:
   and asks before sending anything (raise the value, or pass `--force`, to
   proceed).
 
+Both guards are **per run** — a ceiling on a single AI Overview, or a pre-flight
+estimate on a single claim/analyze run. Neither accumulates spend across separate
+`ce` invocations or within a GUI session, so size each run's limit accordingly.
+
 Running a **local GGUF model has no API cost at all** — another argument for
 the local path.
 
@@ -253,8 +269,11 @@ CodeExam itself already carries some initial claim-analysis machinery. See
 test suite and dev scripts) running under Node.js, nearly all written by
 Claude Code in close collaboration with the main author, in several places
 building on his earlier tooling. [[placeholder for URLs to ndx/find C++ and
-awk code; Opstrings code; term-ranking code; etc.]] CodeExam and CodeClaim
+awk code; Opstrings code; term-ranking code; module import/export source/sink
+code; cgrep (context-grep with a delimiter); possibly tools from the
+Schulman-authored portions of Undocumented DOS, 2nd edition; etc.]] CodeExam and CodeClaim
 are developed by Andrew Schulman — see
+[CodeExam.ai](https://codeexam.ai) and
 [softwarelitigationconsulting.com](https://www.softwarelitigationconsulting.com/).*
 
 *Examples of how different CodeExam features evolved from an initial "vibe"
@@ -263,6 +282,14 @@ Claude can be seen for the
 [Python prototype](https://claude.ai/share/f601d9be-5e3c-4353-a643-2d148bb83a16)
 and the
 [initial Python-to-Node.js port](https://claude.ai/share/e86c26cf-69d4-454a-94b9-bc9aed7bf523).*
+
+- CodeExam's local-LLM features were developed in part using **two** Claude Code (CC)
+  instances — one on the main development computer, the other on an Asus laptop with an
+  NVIDIA RTX 5080 GPU — communicating via a "blackboard" built on GitHub issues that the two
+  instances periodically checked (see #308, #318).
+- CodeExam was developed under **Bram** ("Bram runs agents mindfully") by Jon Udell, whose name
+  is also reflected in the "jontest-CC" handle seen in the issues. For more on Bram, see
+  [blog.jonudell.net](https://blog.jonudell.net/) and [github.com/judell/bram](https://github.com/judell/bram).
 
 *This documentation was drafted by Claude Code, with substantial editing
 ("punch lists") by Schulman.*

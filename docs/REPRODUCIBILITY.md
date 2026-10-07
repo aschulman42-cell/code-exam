@@ -23,7 +23,7 @@ enumerated in the **determinism boundary** table in
 [docs/model-support.md](model-support.md); everything outside that table is
 deterministic code.
 
-## Local models: repeatable when you lock a run down
+## Local models: repeatable when you lock down a run
 
 A local GGUF model can be made to give the same answer twice. Add
 **`--reproducible`** and CodeExam runs the model deterministically — temperature

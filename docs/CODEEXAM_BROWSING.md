@@ -12,7 +12,12 @@ commands, strings, AI/ML usage). In the GUI these are the left-pane accordions (
 The plain inventory of what the codebase defines. CodeExam ranks most of these by **importance
 rather than alphabetically** — the alphabetical top of a large list is rarely what you're looking
 for — so the most significant items surface first. ("Most important" is a heuristic, and of course
-a matter of judgment.)
+a matter of judgment.) The ranking is built from counts — how often an item occurs, how many other
+things reference it, its length — with an **inverse-document-frequency (IDF)** weighting that
+demotes common, generic items in favor of *distinctive* ones (names and strings specific to this
+codebase rather than boilerplate). That count-based ranking is what makes **"searching by
+counting"** possible: eyeballing the top of a sorted catalog to find what matters without knowing
+its name (see also [`CODEEXAM_SEARCHING.md`](CODEEXAM_SEARCHING.md)).
 
 - **Functions** (`--functions [pattern]`) — the indexed functions, most-significant first by
   default; `--sort alpha` orders them alphabetically and `--sort size` by length.

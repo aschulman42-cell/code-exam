@@ -20,7 +20,7 @@ The GUI is organized into a menu bar and several panes:
   with the build number and a summary of the loaded index on the right. The menus open the main
   dialogs and options: **Index** → **Load Index** and **Build Index** (and lists the indexes it
   finds); **Search** → the search dialog and its match options; **View** and **Window** → which
-  panes are shown and how they're arranged (including pop-outs, and **View → Exclude Tests**);
+  panes are shown and how they're arranged (including pop-outs, **View → Exclude Tests**, and **View → Max Results**, which caps how many rows a pane returns);
   **Help** → the README and the guided tour. The GGUF-model browser (for choosing a local model)
   is reachable from the Workspace and the menus.
 - **Left pane** — a search box plus the catalogs you browse the codebase through (detailed below).
@@ -45,6 +45,10 @@ The GUI is organized into a menu bar and several panes:
 **Right-click** a function or file — in the left pane or the middle pane — for a context menu of
 actions on that item: extract, digest, callers, analyze. (The Analyze action uses whichever LLM
 engine is currently selected, so what it offers tracks your engine choice.)
+
+**Panes that obscure each other.** A popped-out or enlarged pane can end up on top of another; the
+**Window** menu controls which panes are shown and how they're arranged, so use it to surface a
+pane hidden behind another. Pane layering is one of the rough edges the redesign below addresses.
 
 The exact pane geometry is deliberately in flux: CodeExam is moving away from a fixed layout toward
 a design where many features behave as semi-independent mini-apps — so that, for example, several

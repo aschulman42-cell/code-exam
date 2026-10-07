@@ -1,5 +1,9 @@
 # Detecting AI/ML in a codebase
 
+"AI/ML" is, of course, **Artificial Intelligence / Machine Learning** — large language models
+(LLMs), deep learning, neural networks, reinforcement learning, embeddings, and the surrounding
+tooling.
+
 "AI" shows up in CodeExam in three distinct senses, and it's worth separating them before
 reading the rest of this page, which is about the third:
 

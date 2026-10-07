@@ -54,8 +54,11 @@ functions**, each searchable and cross-referenceable like any hand-written one. 
 descriptive names** and add them: `--build-rename-map` writes a `rename_map.json` from the
 strings, keywords, and imports a function uses — and, via `--build-fp-renames`, from
 structural fingerprints matched against reference library source. The inferred names are
-applied at display time by default (`--no-rename` shows the raw tokens) and are included
-in search. It does a reasonable job: the minified `jy8` becomes
+applied at display time by default — `--no-rename` shows the raw tokens, and in the GUI the same
+display toggle is **View → Show Inferred Name Suffixes** — and are included in search.
+(`--rename-min-lines <n>` skips functions shorter than *n* when building the map.) The renaming
+isn't specific to quasi-source — CodeExam infers names wherever they're short or obscured — but
+minified and stripped artifacts are where it matters most. It does a reasonable job: the minified `jy8` becomes
 `jy8_KW_STRICT_MCP_CONFIG_PLUGIN_DIR` — the raw token kept, a descriptor appended from the
 distinctive strings it references — so a search for `MCP` or `PLUGIN` now reaches it. But
 this is *inference, not recovery*: the author's original name is unrecoverable. For
@@ -63,6 +66,11 @@ bundles built by esbuild-style bundlers, `--split-bundle` goes further at index 
 splitting the one bundle into per-module virtual files so vocabulary, TF-IDF, and the
 file map operate on the modules rather than one giant blob; `--bundle-seams` reports the
 boundaries it detects.
+
+Once recovered, quasi-source strings feed the same analyses as real source — including
+`--referenced-resources`, which surfaces embedded SQL and other "executable strings" (code meant
+for some interpreter) alongside URLs, hosts, environment variables, and paths, whether those
+strings came from real source or were recovered from a binary.
 
 **JavaScript embedded in native executables** — `--extract-js-from-binary <path>`
 recovers the JS packed inside a native installer and writes it to a directory CodeExam
@@ -119,7 +127,7 @@ solved*.
 - The vocabulary and TF-IDF machinery this page's tension turns on is in
   [`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md).
 
-## Honest limits
+## Some limitations in quasi-source handling
 
 - **Binary granularity is coarse.** One pseudo-function per binary file — enough to
   search and fingerprint at scale, but there is no call graph *inside* a binary's

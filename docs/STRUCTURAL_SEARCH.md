@@ -39,6 +39,16 @@ that succeed or fail in different directions:
 Used together — structural, extrinsic, and (for the residue) LLM-assisted — they can help
 locate the code you're looking for far more reliably than any one alone.
 
+As another approach to structural searching — one where you don't need to know the name of what
+you're looking for beforehand — consider **"searching by counting."** As described in
+[`CODEEXAM_BROWSING.md`](CODEEXAM_BROWSING.md) and [`CODEEXAM_SEARCHING.md`](CODEEXAM_SEARCHING.md),
+CodeExam builds catalogs of items in different categories (Functions, Vocabulary, Strings,
+Referenced Resources, and so on) and sorts them by measures of importance based on counts — an
+item's occurrences, how many things reference it, its length, and its distinctiveness (an
+inverse-document-frequency weighting that demotes frequent but generic items) — with the potentially
+most important items at the top. That lets you search for something without knowing its name, by
+eyeballing the tops of the catalogs and seeing whether anything relevant-sounding jumps out.
+
 ## The point of duplicate detection
 
 CodeExam spends real machinery on duplicate detection, and not for the obvious reason

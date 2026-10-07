@@ -70,6 +70,31 @@ approaches. Why CodeExam does *not* (yet) reach for a semantic / vector database
 explained in [`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md) — the embedding-on-top-of-lexical
 exploration, #201 / #202.
 
+## Searching when you don't quite know what you're searching for
+
+When you can't name the thing you're after, start from what CodeExam has already ranked:
+
+- **Overview** — its vocabulary and concepts, and, with **Overview-by-AI**, suggested questions to
+  ask and good first places to look (see [`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md)).
+- **Vocabulary** — the ranked term list the Overview draws on, also a category on its own (the
+  GUI's left-pane accordion, `--vocabulary` on the CLI).
+- **"Searching by counting"** — eyeball the tops of the GUI's left-pane accordion categories.
+  CodeExam ranks most categories by a measure of importance built from counts (occurrences,
+  references-to, length) with an **inverse-document-frequency (IDF)** weighting that demotes common,
+  generic items, so distinctive, codebase-specific items tend to rise to the top. (The very tops can
+  still be dominated by frequently-referenced generic items; the IDF weighting is what works against
+  that.) See [`CODEEXAM_BROWSING.md`](CODEEXAM_BROWSING.md).
+
+## Absence is only as complete as the index
+
+A corpus-wide *negative* search — showing something appears nowhere — is only as trustworthy as
+what the index contains. Depending on how the index was built, absence from the index may not mean
+absence from the codebase: `--build-index` **warns** when file types present in the tree weren't
+included, and the file-extension controls (`ce --help extensions`) let you manage what's indexed.
+Code can also *reference* objects it doesn't contain (config, data, templates, keys), which
+`--referenced-resources` surfaces. So before relying on "not found anywhere," confirm the index
+actually covers the file types you care about.
+
 ## How results are shown
 
 CodeExam reports a hit in **`file@func` context, not just `file:line`** — you see *which function
