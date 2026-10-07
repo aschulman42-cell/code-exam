@@ -71,8 +71,10 @@ Related flags (local GGUF only unless noted):
   with reasoning on it spends CodeExam's vocabulary/analysis budget thinking
   before any answer appears — a claim chart comes back `0 of N element(s)
   parsed`. Turning it off also suppresses Gemma 4's thought-channel output.
-  Harmless on a non-thinking model (e.g. Gemma 3); currently a no-op on Qwen, so
-  attach it to **Gemma 4 specifically**, not to "thinking models" in general. It
+  Harmless on a non-thinking model (e.g. Gemma 3). On Qwen it sets the model's
+  `thoughts` lever to *discourage*, which clears the same budget wall — but Qwen
+  still fails CodeExam's verdict contract on claim charts for a separate reason,
+  so **Gemma 4 remains the local engine to rely on**. It
   works the same on the `--gui` launch line (`ce --gui … --local-reasoning off`);
   the equivalent is the `CE_DISABLE_LOCAL_REASONING=1` environment variable, handy
   for scripted or wrapper launches (set it before starting CodeExam).

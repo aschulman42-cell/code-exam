@@ -532,10 +532,29 @@ export async function chatSessionOptions(contextSequence, { liveTodayDate = fals
     // The CLI front-door is `--local-reasoning <on|off>` (argparse.js), which
     // SETS/CLEARS this env var at parse time (flag wins over a pre-set var), so
     // this gate — and all of chatSessionOptions' call sites — stay unchanged.
-    if (probe && process.env.CE_DISABLE_LOCAL_REASONING === '1' && probe.reasoning === true) {
-      probe.reasoning = false;
-      chatWrapper = probe;
-      if (onStatus) onStatus(`chat wrapper: ${probe.wrapperName} (reasoning disabled)`);
+    // Per LEVER, not per model (asus-CC, #330). Gemma4ChatWrapper exposes
+    // `reasoning` (boolean, :53); QwenChatWrapper exposes `thoughts`
+    // ("auto" | "discourage" | "modelInitiated", :140). Both are read at RENDER
+    // time, so both can be set on the resolved instance.
+    //
+    // node-llama-cpp's own disable path covers only `reasoning`, so gating on it
+    // alone would make `--local-reasoning off` a SILENT NO-OP on Qwen --
+    // QwenChatWrapper has no `reasoning` field at all. Measured: Qwen3.8-27B dies
+    // exactly as Gemma 4 did without this, "vocabulary response hit the
+    // 3000-token output budget and was CUT OFF, 0 of 9 element(s) parsed", on
+    // both halves of the pinned pair. (Disabling the lever fixes the budget wall,
+    // not Qwen's verdict-contract failures on charts -- see LOCAL_LLM.md.)
+    if (probe && process.env.CE_DISABLE_LOCAL_REASONING === '1') {
+      const disabled = [];
+      if (probe.reasoning === true) { probe.reasoning = false; disabled.push('reasoning'); }
+      if (probe.thoughts === 'auto' || probe.thoughts === 'modelInitiated') {
+        probe.thoughts = 'discourage';
+        disabled.push('thoughts');
+      }
+      if (disabled.length) {
+        chatWrapper = probe;
+        if (onStatus) onStatus(`chat wrapper: ${probe.wrapperName} (${disabled.join(' + ')} disabled)`);
+      }
     }
     if (probe && probe.todayDate != null) {
       probe.todayDate = PINNED_TODAY_DATE;
