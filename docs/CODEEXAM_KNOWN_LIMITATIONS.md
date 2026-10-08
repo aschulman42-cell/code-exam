@@ -96,4 +96,7 @@ independently-operable panels that redesign is built toward.
   not dynamic, so clicking a method in the GUI can land on a same-named or otherwise wrong target
   where dynamic dispatch (a vtable, a registry) decides the real one only at run time.
 - **For other limitations, see the open issues** —
-  [open CodeExam issues](https://github.com/aschulman42-cell/code-exam/issues?q=is%3Aissue+state%3Aopen).
+  [open CodeExam issues](https://github.com/aschulman42-cell/code-exam/issues?q=is%3Aissue+state%3Aopen),
+  and the consolidated GUI/engine field-test triage in
+  [#343](https://github.com/aschulman42-cell/code-exam/issues/343), which maps a
+  first-time-user session's findings to the issues that track them.
