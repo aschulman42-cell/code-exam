@@ -73,6 +73,18 @@ import {
 } from './commands/analyze.js';
 
 
+// Every CE command is built to be piped (| head, | less, a pager the user
+// quits early). Node doesn't die quietly on a broken pipe the way most CLIs
+// do — it surfaces EPIPE as an 'error' event on process.stdout, and with no
+// listener that becomes a fatal unhandled-error stack trace. Install one
+// global guard here, before any command runs or any output is written, so
+// every command exits cleanly (code 0) when its downstream consumer closes
+// the pipe. (Was previously only local to dedup's --funcstr-hashes.)
+process.stdout.on('error', (err) => {
+  if (err && err.code === 'EPIPE') process.exit(0);
+});
+
+
 // How the user invoked CE, for help/example lines: the standalone exe basename,
 // else `node src/index.js`. (Run via the `ce` / `CodeExam` launchers, execPath
 // is still `node`, so examples show `node src/index.js` — same as before.)

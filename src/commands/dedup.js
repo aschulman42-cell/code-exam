@@ -908,12 +908,8 @@ export function doFuncstrHashes(index, args) {
     ? index.ensureFuncHashesTight(minLines)
     : index.ensureFuncHashes(minLines, false);
 
-  // This command is built to be piped (| head, | awk). Exit quietly when
-  // the downstream consumer closes the pipe, instead of crashing on EPIPE.
-  process.stdout.on('error', (err) => {
-    if (err && err.code === 'EPIPE') process.exit(0);
-    throw err;
-  });
+  // (EPIPE on early-closed pipe is handled by the global stdout guard in
+  // src/index.js, installed before any command runs.)
 
   // A function "name" can carry embedded tabs/newlines (parser mis-captures
   // — see issue #348); collapse whitespace so every row stays one clean,
