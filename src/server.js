@@ -4691,7 +4691,7 @@ function handleRequest(req, res) {
     const handler = routes[urlPath];
     if (handler) {
       try { handler(req, res); }
-      catch (err) { console.error(`API error: ${urlPath}`, err); errorResponse(res, `Internal error: ${err.message}`, 500); }
+      catch (err) { console.error('API error:', urlPath, err); errorResponse(res, 'Internal error', 500); }
     } else {
       errorResponse(res, 'Unknown API endpoint', 404);
     }
