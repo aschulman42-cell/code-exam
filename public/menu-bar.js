@@ -153,11 +153,28 @@ async function maybeAutoOpenTour() {
   } catch { /* best-effort */ }
 }
 
+// Escape the three HTML-significant characters. Module-scope so the Markdown
+// renderer and the guided-tour tooltip (which assigns innerHTML) share one
+// escaper instead of duplicating it.
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Tour step copy is CE-authored and may carry a <code> span (e.g. a command).
+// Escape everything first — so any index-derived string a future entity-targeted
+// tour (#240) interpolates into a step can't inject — then re-admit ONLY the
+// benign <code> wrapper. A hostile <script> / <img onerror=...> stays escaped,
+// and even <code>-wrapped hostile content keeps its inner markup escaped; the
+// <code> token itself carries no script or event-handler surface.
+function escTourText(s) {
+  return escHtml(s).replace(/&lt;code&gt;(.*?)&lt;\/code&gt;/g, '<code>$1</code>');
+}
+
 // Compact Markdown -> HTML. Escapes HTML first (no injection, no raw markup),
 // then handles fenced code, headings, inline code/bold/italic/links, ordered &
 // unordered lists, blockquotes, horizontal rules, and paragraphs.
 export function renderMarkdown(md) {
-  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const esc = escHtml;
   const inline = (s) => esc(s)
     .replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`)
     // Images: http(s) render inline; relative targets aren't served in the
@@ -321,8 +338,8 @@ function gotoTourStep(n, scroll = true, dir = 1) {
     const last = n === activeTour.length - 1;
     tip.style.display = 'block';
     tip.innerHTML =
-      `<div class="tour-tip-title">${step.title}</div>` +
-      `<div class="tour-tip-body">${step.body}</div>` +
+      `<div class="tour-tip-title">${escTourText(step.title)}</div>` +
+      `<div class="tour-tip-body">${escTourText(step.body)}</div>` +
       `<div class="tour-tip-nav"><span class="tour-tip-count">${n + 1} / ${activeTour.length}</span>` +
       `<span class="tour-tip-btns"><button id="tour-skip">Skip</button>` +
       (n > 0 ? `<button id="tour-back">Back</button>` : '') +
