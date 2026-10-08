@@ -275,3 +275,46 @@ test('claim filter: a claim word that IS a good code term is NOT banned', () => 
     assert.ok(emitted.has(t), `${t} is both a claim word and a real code term — must ship`);
   }
 });
+
+// ===========================================================================
+// base64 / image-blob guard. `--overview` on a 65-notebook corpus listed
+// NOTHING but matplotlib PNG data under "Potentially important concepts"
+// (Andrew, 2026-09-30): base64 PNG blobs are LOW-entropy (repetitive AAAA...
+// runs) so looksLikeRandomToken let them through, then they split into
+// word-like fragments and the raw blob was reprinted as the example (#309
+// shape). looksLikeBase64Blob now drops them in both filter sites.
+// ===========================================================================
+import { getTopVocabulary, looksLikeBase64Blob } from '../src/core/vocabulary.js';
+
+const PNG_BLOB = 'iVBORw0KGgoAAAANSUhEUgAABdEAAATNCAYAAAC' + 'A'.repeat(220);
+
+test('base64 guard: recognizes image/base64 blobs, spares real identifiers', () => {
+  assert.ok(looksLikeBase64Blob(PNG_BLOB), 'a PNG-signature base64 blob must be recognized');
+  assert.ok(looksLikeBase64Blob('QWxhZGRpbjpvcGVuc2VzYW1l' + 'Zm9vYmFy'.repeat(8)),
+    'a long pure-base64 run must be recognized by shape');
+  assert.ok(!looksLikeBase64Blob('AdaptiveTrackSelection'), 'a normal identifier must not be flagged');
+  assert.ok(!looksLikeBase64Blob('this_is_a_very_long_snake_case_identifier_with_many_parts'),
+    'a long snake_case name has a separator — not a blob');
+  assert.ok(!looksLikeBase64Blob('iVBORw0KGgo'), 'too short to judge (< 64) — not flagged');
+});
+
+test('base64 guard: a matplotlib PNG blob never becomes a concept or example', () => {
+  const entries = [
+    { token: PNG_BLOB, score: 100000, top_files: [] },    // would dominate if not dropped
+    { token: 'AdaptiveTrackSelection', score: 900, top_files: [] },
+    { token: 'DecoderInputBuffer', score: 880, top_files: [] },
+  ];
+  const concepts = extractConcepts(null, { catalog: null, entries, maxConcepts: 20 });
+  const label = concepts.map((c) => `${c.concept} ${c.example || ''}`).join(' ').toLowerCase();
+  assert.ok(!/ivborw0|aaaa/.test(label), `no base64 fragment may surface as a concept/example: ${label}`);
+  const names = new Set(concepts.map((c) => c.concept));
+  assert.ok(names.has('track') || names.has('buffer') || names.has('decoder'),
+    `real domain concepts must still surface alongside the dropped blob: ${[...names].join(',')}`);
+});
+
+test('base64 guard: getTopVocabulary withholds the blob, keeps the real token', () => {
+  const idx = fakeIdx({ [PNG_BLOB]: 100000, AdaptiveTrackSelection: 900 });
+  const top = getTopVocabulary(idx, 50).map((e) => e.token);
+  assert.ok(!top.includes(PNG_BLOB), 'the base64 blob must be withheld from top vocabulary');
+  assert.ok(top.includes('AdaptiveTrackSelection'), 'the real token must survive the filter');
+});

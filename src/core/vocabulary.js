@@ -787,6 +787,24 @@ export function looksLikeRandomToken(token) {
   return _shannonPerChar(t) >= 4.0;
 }
 
+// Image / base64 payloads — matplotlib PNGs in .ipynb cell outputs, embedded
+// `data:image` URIs, cert bodies — are noise, not domain terms. They evade
+// `looksLikeRandomToken` precisely because they are LOW-entropy: a base64 PNG
+// has long repetitive `AAAA…` runs, so its per-char Shannon falls under the 4.0
+// bar and the token survives, then `splitCompoundToken` shatters it into
+// word-like fragments (`aaa`, `rfwhr`) that rank as "concepts" and the raw blob
+// is reprinted as the example — the exact `concept (example)` shape #309 warned
+// against. Catch them by known image signature or by pure-base64 shape.
+const _IMG_BASE64_PREFIX = /^(?:iVBORw0KGgo|R0lGOD|PHN2Zy)/; // PNG / GIF / SVG magic, base64-encoded
+export function looksLikeBase64Blob(token) {
+  const t = String(token || '');
+  if (t.length < 64) return false;            // only long runs; short tokens decided elsewhere
+  if (t.includes('_') || t.includes('-')) return false; // a human named it; no payload carries a separator
+  if (_IMG_BASE64_PREFIX.test(t)) return true;          // known image signature
+  if (t.includes('data:image/')) return true;           // an embedded data: URI that survived tokenization
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(t);              // pure base64 alphabet, 64+ chars, no word chars broken up
+}
+
 /**
  * A REDACTED fingerprint of a withheld token.
  *
@@ -859,9 +877,13 @@ export function getTopVocabulary(idx, n = 50, filter = null, pathFilter = null, 
   // draws its examples from these entries.
   const withheldDetails = [];
   entries = entries.filter((e) => {
-    if (!looksLikeRandomToken(e.token)) return true;
-    withheldDetails.push(describeWithheldToken(e.token));
-    return false;
+    // Random-looking (secret-shaped) OR image/base64 payloads are withheld
+    // before ranking, so neither can take a slot here or feed a concept example.
+    if (looksLikeRandomToken(e.token) || looksLikeBase64Blob(e.token)) {
+      withheldDetails.push(describeWithheldToken(e.token));
+      return false;
+    }
+    return true;
   });
   if (withheldDetails.length && typeof opts.onFiltered === 'function') {
     opts.onFiltered(withheldDetails.length, withheldDetails);
@@ -894,7 +916,7 @@ export function extractConcepts(idx, { topN = 200, maxConcepts = 15, catalog, en
   // leak took: `uu9dvqcve5zc (uqDZmUu9Dvqcve5ZcNZdJSmhxu2oSPdJ)`, where the
   // concept is a fragment of the secret and the example is the secret entire.
   const list = (entries || getTopVocabulary(idx, topN))   // entries injectable / reusable
-    .filter((e) => !looksLikeRandomToken(e.token));
+    .filter((e) => !looksLikeRandomToken(e.token) && !looksLikeBase64Blob(e.token));
   const subScore = new Map();
   const subExample = new Map(); // part -> { token, score }: best COMPOUND identifier
   for (const e of list) {
