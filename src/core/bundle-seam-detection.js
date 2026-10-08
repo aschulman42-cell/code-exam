@@ -641,7 +641,11 @@ export function _scanModuleHints(lines, startIdx, endIdx) {
     if (!line) continue;
     // File path-ish strings inside quotes — must look like node_modules/...,
     // @scope/pkg/..., or a relative path ending in .js/.mjs/.cjs/.ts/.tsx
-    const pathRe = /["'`]((?:[.@\w/-]+\/)+[\w.-]+\.(?:js|mjs|cjs|ts|tsx|jsx))["'`]/g;
+    // NB: the repeated segment class deliberately excludes `/` (each segment is
+    // "non-slash chars, then a slash"); including `/` made the group ambiguous
+    // and caused catastrophic backtracking on an unterminated quoted run
+    // (CodeQL js/redos). Same match set for well-formed paths.
+    const pathRe = /["'`]((?:[.@\w-]+\/)+[\w.-]+\.(?:js|mjs|cjs|ts|tsx|jsx))["'`]/g;
     let m;
     while ((m = pathRe.exec(line)) !== null) {
       const p = m[1];

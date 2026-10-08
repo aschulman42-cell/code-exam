@@ -315,9 +315,14 @@ export function needsToolFloorNudge({ raw, distinctTools, floor, nudges, rescued
 // identifiers, CamelCase words, and anything with a file extension. Deliberately
 // conservative — it is a floor on "names something checkable", not a claim to
 // measure groundedness.
+// The qualified-identifier alternative bounds its quantifiers ({0,63} per run,
+// {1,16} segments) instead of using nested `*`/`+`: `_` is both a segment
+// separator and a member of the identifier class, so the unbounded form
+// backtracked super-linearly on long underscore runs (CodeQL js/redos). Bounds
+// cover any realistic identifier while making worst-case work constant.
 const SCORABLE_RE = new RegExp([
   '`[^`\\n]+`',
-  '\\b[A-Za-z_][A-Za-z0-9_]*(?:(?:::|\\.|_)[A-Za-z0-9_]+)+\\b',
+  '\\b[A-Za-z_][A-Za-z0-9_]{0,63}(?:(?:::|\\.|_)[A-Za-z0-9_]{1,63}){1,16}\\b',
   '\\b[a-z0-9]+[A-Z][A-Za-z0-9]*\\b',
   '\\b[A-Za-z][A-Za-z0-9_-]*\\.[a-z]{1,5}\\b',
 ].join('|'), 'g');
