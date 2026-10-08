@@ -127,12 +127,15 @@ function _runAll(regexes, line, fp, lineNo, map, accept) {
 // the request — and CE was already (mis-)capturing it under "External commands"
 // because `db.exec("SELECT …")` collides with `child_process.exec`. Route SQL
 // here instead, and exclude it from subprocess.
-function _looksLikeSql(v) {
+export function _looksLikeSql(v) {
   // Require real SQL shape, not a bare leading keyword — "Select channel
   // (QuickStart)" (UI prose) starts with SELECT but has no FROM, so it must not
-  // qualify. SELECT⇒needs FROM; UPDATE⇒needs SET; INSERT/DELETE⇒need INTO/FROM
-  // + an identifier.
-  return /^\s*(SELECT\s+[\w*"`(][\s\S]*?\bFROM\b|INSERT\s+INTO\s+[\w"`[(]|UPDATE\s+[\w"`.\[\]]+\s+SET\b|DELETE\s+FROM\s+[\w"`[]|CREATE\s+(?:(?:TEMP|TEMPORARY|UNIQUE)\s+)?(?:TABLE|INDEX|VIEW|DATABASE|TRIGGER|SCHEMA)\b|ALTER\s+TABLE\s|DROP\s+(?:TABLE|INDEX|VIEW)\b|WITH\s+[\w"`]+\s+AS\s*\(\s*SELECT\b|REPLACE\s+INTO\s+[\w"`[]|TRUNCATE\s+TABLE\b)/i.test(v);
+  // qualify. SELECT⇒needs a column list — `*` or comma-separated cols (optional
+  // DISTINCT / AS), then FROM — NOT free prose, so "Select a specific Chrome
+  // browser by deviceId ... from ..." (the observed FP) no longer matches. The
+  // old `[\s\S]*?\bFROM\b` gap matched any sentence with a later "from".
+  // UPDATE⇒needs SET; INSERT/DELETE⇒need INTO/FROM + an identifier.
+  return /^\s*(SELECT\s+(?:DISTINCT\s+|ALL\s+)?(?:\*|[\w"`.()\[\]]+(?:\s+AS\s+[\w"`]+)?(?:\s*,\s*[\w"`.()\[\]*]+)*)\s+FROM\b|INSERT\s+INTO\s+[\w"`[(]|UPDATE\s+[\w"`.\[\]]+\s+SET\b|DELETE\s+FROM\s+[\w"`[]|CREATE\s+(?:(?:TEMP|TEMPORARY|UNIQUE)\s+)?(?:TABLE|INDEX|VIEW|DATABASE|TRIGGER|SCHEMA)\b|ALTER\s+TABLE\s|DROP\s+(?:TABLE|INDEX|VIEW)\b|WITH\s+[\w"`]+\s+AS\s*\(\s*SELECT\b|REPLACE\s+INTO\s+[\w"`[]|TRUNCATE\s+TABLE\b)/i.test(v);
 }
 // Normalize SQL for dedup/display: collapse whitespace, cap length.
 function _sqlKey(v) { return v.replace(/\s+/g, ' ').trim().slice(0, 140); }

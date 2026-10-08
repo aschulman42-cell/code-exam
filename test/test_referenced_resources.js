@@ -13,7 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
-import { extractReferencedResources } from '../src/core/referenced-resources.js';
+import { extractReferencedResources, _looksLikeSql } from '../src/core/referenced-resources.js';
 import { handleTool, setIndex } from '../src/mcp-server.js';
 
 const SRC = path.join(os.tmpdir(), 'ce_refres_src');
@@ -176,5 +176,33 @@ describe('referenced-resources extractor (#203)', () => {
     const out = handleTool('referenced_resources', { category: 'env' });
     assert.match(out, /Environment variables/);
     assert.doesNotMatch(out, /Network \(URLs\)/, 'category=env should omit other sections');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #202 SQL-shape precision. The SELECT branch used a lazy unbounded gap
+// (`SELECT\s+...[\s\S]*?\bFROM\b`), so any sentence starting with "Select" and
+// containing "from" later qualified. Observed FP (Andrew, 2026-09-30, on the
+// claude.exe index): "Select a specific Chrome browser by deviceId ... from ...".
+// ---------------------------------------------------------------------------
+describe('_looksLikeSql: real SQL shape, not prose with SELECT...FROM', () => {
+  it('rejects UI prose that merely starts with Select and contains "from"', () => {
+    assert.equal(_looksLikeSql('Select a specific Chrome browser by deviceId from the list'), false);
+    assert.equal(_looksLikeSql('Select channel (QuickStart)'), false);            // no FROM at all
+    assert.equal(_looksLikeSql('Please select an option from the dropdown'), false); // leading word, not SELECT
+  });
+  it('still matches genuine SELECT queries', () => {
+    assert.equal(_looksLikeSql('SELECT * FROM users'), true);
+    assert.equal(_looksLikeSql('SELECT * FROM users WHERE id = ?'), true);
+    assert.equal(_looksLikeSql('SELECT state, count(*) FROM pg_stat_activity GROUP BY state'), true);
+    assert.equal(_looksLikeSql('SELECT u.id, u.name FROM users u'), true);
+    assert.equal(_looksLikeSql('SELECT DISTINCT user_id FROM events'), true);
+    assert.equal(_looksLikeSql('SELECT name AS n FROM t'), true);
+  });
+  it('leaves the other SQL branches matching as before', () => {
+    assert.equal(_looksLikeSql('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)'), true);
+    assert.equal(_looksLikeSql('INSERT INTO users (id) VALUES (1)'), true);
+    assert.equal(_looksLikeSql('UPDATE users SET name = ? WHERE id = ?'), true);
+    assert.equal(_looksLikeSql('DELETE FROM users WHERE id = ?'), true);
   });
 });
