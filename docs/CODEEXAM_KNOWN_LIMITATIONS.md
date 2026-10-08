@@ -95,6 +95,17 @@ independently-operable panels that redesign is built toward.
 - **Class-method navigation can resolve to the wrong handler** (#85, #148) — resolution is static,
   not dynamic, so clicking a method in the GUI can land on a same-named or otherwise wrong target
   where dynamic dispatch (a vtable, a registry) decides the real one only at run time.
+- **A residual `npm audit` finding in a pinned dependency** — `node-llama-cpp`
+  (pinned for local GGUF inference) depends on a `simple-git` version with
+  unpatched command-execution advisories, and the only patched `simple-git` is
+  a major bump `node-llama-cpp` does not yet support. So a fresh `npm install`
+  shows 3 criticals from the `node-llama-cpp → simple-git` chain that can't be
+  cleared without downgrading `node-llama-cpp` (which would break local models).
+  Practical reachability is low: `simple-git` is used internally by
+  `node-llama-cpp` with fixed arguments, and CodeExam never passes it untrusted
+  input. Tracked upstream at
+  [withcatai/node-llama-cpp#669](https://github.com/withcatai/node-llama-cpp/issues/669);
+  it clears when `node-llama-cpp` bumps `simple-git`.
 - **For other limitations, see the open issues** —
   [open CodeExam issues](https://github.com/aschulman42-cell/code-exam/issues?q=is%3Aissue+state%3Aopen),
   and the consolidated GUI/engine field-test triage in
