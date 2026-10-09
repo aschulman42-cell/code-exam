@@ -107,7 +107,8 @@ from a hit you can open the function (click it in the GUI, or `--extract` on the
 **A caution on result limits.** Like the rest of CodeExam, search results are **limited by default**
 (the top N). A limited result is *not* evidence that nothing else matches — the missing item may
 simply be past the limit. When absence matters, raise the limit and re-run: `--max-results` (aliases
-`--max`, `-n`) on the CLI, or the equivalent limit control in the GUI. (The same caution appears in
+`--max`, `-n`), or `--all-results` to lift the cap entirely, on the CLI — or the equivalent limit
+control in the GUI. (The same caution appears in
 [`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md), #137.)
 
 ## Related

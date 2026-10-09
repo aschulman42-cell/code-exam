@@ -492,7 +492,15 @@ These modify how query results are rendered. They don't affect index state.
 - **Good for**: Cutting noise; deeper exploration via raising the cap.
 - **Couples with**: every list-producing command.
 - **Naming**: long form `--max-results`; short alias `-n`. Multiple aliases reflect frequent use.
+- **Note**: `--max-results 0` means no cap.
 - **Verified against**: `src/argparse.js:234`
+
+#### `--all-results`
+
+- **Does**: Lifts the per-scope result cap entirely — every result prints, with no number to guess.
+- **Good for**: "just show me everything" without picking an N; equivalent to `--max-results 0`.
+- **Couples with**: the search / multisect commands and the string & resource catalogs today; rollout to every capped command is in progress.
+- **Not**: `-v` / `--verbose`, which expands per-item detail but keeps the cap.
 
 #### `--context <n>`
 

@@ -60,9 +60,10 @@ These apply across commands.
 - **`--max-results`** (aliases `--max`, `-n`) — sets the result limit. **You will often need this:**
   most CodeExam listings are capped by default, so a result that looks complete may just be the top
   N — raise the limit when absence matters (the same caution as
-  [`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md), #137). [[placeholder: consider a
-  `--no-max` / `--no-caps` option to lift the cap entirely — unless `-v` already does that as well as
-  expanding per-item detail; confirm.]]
+  [`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md), #137). `--max-results 0` also lifts
+  the cap.
+- **`--all-results`** — lifts the per-scope cap entirely, so every result prints (no number to guess).
+  Distinct from `-v` / `--verbose`, which expands per-item detail but keeps the cap.
 - **`-v` / `--verbose`** — expands each row to show its underlying detail (e.g. every site behind a
   deduped row, with code snippets) rather than the summarized form.
 - Bad input fails fast — CodeExam errors and exits non-zero *before* loading an index, so a mistyped

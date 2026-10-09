@@ -12,6 +12,7 @@
 
 import path from 'path';
 import { SearchResult, displayName, quotePathIfNeeded } from '../utils.js';
+import { effectiveMaxResults } from '../argparse.js';
 
 
 // ========================================================================
@@ -342,11 +343,11 @@ export function doRegex(index, args) {
     pattern = litMatch[1];
     caseSensitive = !litMatch[2].includes('i');
   }
-  const effectiveMax = args.max_results !== 20 ? args.max_results : 200;
+  const effectiveMax = effectiveMaxResults(args, 200);
   let results = index.searchLiteral(pattern, {
     useRegex: true,
     caseSensitive,
-    maxResults: Math.max(effectiveMax * 5, 1000),
+    maxResults: Number.isFinite(effectiveMax) ? Math.max(effectiveMax * 5, 1000) : 1000000,
     contextLines: args.context,
   });
   results = filterResultsByPath(results, args);
@@ -389,7 +390,7 @@ export function doFilesSearch(index, args) {
   console.log(`  ${'Hits'.padStart(6)}  File`);
   console.log(`  ${'----'.padStart(6)}  ----`);
 
-  const n = args.max_results || 30;
+  const n = effectiveMaxResults(args, 30);
   const sorted = [...fileCounts.entries()].sort((a, b) => b[1] - a[1]);
 
   for (const [filepath, count] of sorted.slice(0, n)) {
@@ -401,7 +402,7 @@ export function doFilesSearch(index, args) {
   }
 
   if (sorted.length > n) {
-    console.log(`\n  ... ${sorted.length - n} more files (use --max-results to see more)`);
+    console.log(`\n  ... ${sorted.length - n} more files (use --max-results or --all-results to see more)`);
   }
 }
 
@@ -436,7 +437,7 @@ export function doFoldersSearch(index, args) {
   console.log(`  ${'Hits'.padStart(6)}  ${'Files'.padStart(6)}  Folder`);
   console.log(`  ${'----'.padStart(6)}  ${'-----'.padStart(6)}  ------`);
 
-  const n = args.max_results || 30;
+  const n = effectiveMaxResults(args, 30);
   const sorted = [...folderCounts.entries()].sort((a, b) => b[1] - a[1]);
 
   for (const [folder, count] of sorted.slice(0, n)) {
@@ -449,6 +450,6 @@ export function doFoldersSearch(index, args) {
   }
 
   if (sorted.length > n) {
-    console.log(`\n  ... ${sorted.length - n} more folders (use --max-results to see more)`);
+    console.log(`\n  ... ${sorted.length - n} more folders (use --max-results or --all-results to see more)`);
   }
 }

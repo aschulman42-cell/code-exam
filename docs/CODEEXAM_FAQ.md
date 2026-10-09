@@ -156,16 +156,14 @@ clickable/sortable column headers.
 showed ("+60 more") and tells me to pass `--max-results <N>`, but I don't know N.
 And when I redirect output to a file and grep, a line I'm sure exists isn't there.
 
-**CLI.** Pass a number larger than any plausible count: `--max-results 100000`.
-Each scope is capped before printing (default 20); there is **no `--all-results`
-and no "all" value**, and `--max-results 0` is a *trap* — read internally as
-`0 || <default>`, it falls back to the default and shows *fewer*. The grep miss
-has the same root: rows past the cap are dropped at display time, so they're
-never written to your file in the first place — grep can't find a line CodeExam
-never emitted. The fix isn't about grep: pass a large `--max-results` to the
-*CodeExam* command so the complete set lands in the file, then grep that file.
-Note `-v` / `--verbose` is **not** this: it adds detail and (in `multisect`)
-un-dedups categories, but each scope is still capped, so you still see "+N more".
+**CLI.** Use **`--all-results`** to print every row with no number to guess — or
+**`--max-results 0`**, which now also means "no cap"; `--max-results <N>` still
+sets an explicit limit. The grep miss has the same root: rows past the cap are
+dropped at display time, so they're never written to your file in the first place
+— grep can't find a line CodeExam never emitted. So pass `--all-results` (or a
+large `--max-results`) to the *CodeExam* command first, then grep that file. Note
+`-v` / `--verbose` is **not** this: it adds detail and (in `multisect`) un-dedups
+categories, but each scope is still capped.
 
 **GUI.** The prime example is the **left-pane accordions** (Functions, Strings,
 and the other catalogs): they cap the rows they return and *don't always say so*,
@@ -175,9 +173,10 @@ narrows the list; when completeness matters, confirm from the CLI with a large
 `--max-results`. (Other silent GUI truncations exist too — e.g. Chat answers cut
 at a token budget, #343, and search results, #272.)
 
-**Status.** Candidate fix: we will add `--all-results` (and let `--max-results 0`
-mean unlimited), and surface GUI truncation instead of hiding it. For output that
-is genuinely unbounded, "all" should say so rather than imply a complete list.
+**Status.** CLI: **done** — `--all-results` lifts the cap and `--max-results 0`
+now means unlimited. GUI: still pending — the left-pane caps aren't always
+disclosed; surfacing them (and a GUI "All Results", the `gui-all-results-view-menu`
+item) is the remaining work.
 
 ## How do I get a file's real path on disk? `--full-path` only gives the in-index path
 

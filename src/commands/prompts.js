@@ -793,7 +793,10 @@ export async function doPromptCatalog(index, args) {
   // Use a high default for prompt-catalog specifically — the global
   // max_results default (20) is too low for a "dump everything" command.
   // Only respect max_results if the user explicitly passed --max-results.
-  const maxResults = args._explicit?.has('max_results') ? args.max_results : 9999;
+  const maxResults = args.all_results ? Infinity
+    : (args._explicit?.has('max_results')
+        ? (Number(args.max_results) > 0 ? Number(args.max_results) : Infinity)
+        : 9999);
 
   const prompts = await collectPrompts(index, { filter });
 
@@ -834,7 +837,7 @@ export async function doPromptCatalog(index, args) {
   }
 
   if (prompts.length > maxResults) {
-    console.log(`\n  Showing ${maxResults} of ${prompts.length}. Use --max-results ${prompts.length} for all.`);
+    console.log(`\n  Showing ${maxResults} of ${prompts.length}. Use --max-results ${prompts.length} or --all-results for all.`);
   }
 }
 

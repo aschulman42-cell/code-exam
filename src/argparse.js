@@ -37,6 +37,30 @@ export function printBanner(stream = process.stdout) {
   stream.write(BANNER + '\n');
 }
 
+// Effective result cap for a scope. `--all-results` lifts the cap; an explicit
+// `--max-results N` uses N (and an explicit 0 also means "no cap"); otherwise the
+// command's own default applies. Mirrors the _explicit-aware "0 = unlimited"
+// pattern already used in metrics.js / prompts.js. Returns Infinity for "no cap",
+// which is safe for `.slice(0, n)` and for `length > n` truncation checks.
+export function effectiveMaxResults(args, dflt) {
+  if (args.all_results) return Infinity;
+  if (args._explicit && args._explicit.has('max_results')) {
+    const n = Number(args.max_results);
+    return Number.isFinite(n) && n > 0 ? n : Infinity;
+  }
+  return dflt;
+}
+
+// Standard trailing notice for a capped list. Centralizes the wording so every
+// capped command discloses truncation the same way AND names --all-results.
+// `total` is the full count, `shown` is what was printed. Returns '' when nothing
+// was withheld (shown >= total), e.g. under --all-results / --max-results 0.
+export function capNotice(total, shown, noun = 'results') {
+  const more = total - shown;
+  if (!(more > 0)) return '';
+  return `  ... +${more} more ${noun} (use --max-results <N> or --all-results to see all)`;
+}
+
 
 /**
  * Levenshtein edit distance, capped early once it exceeds `max` (returns
@@ -153,6 +177,7 @@ export function parseArgs() {
 
     // Display modifiers
     max_results: 20,
+    all_results: false,
     timeout: null,        // minutes; currently consumed by --overview-by-ai
     context: 3,
     verbose: false,
@@ -454,6 +479,7 @@ export function parseArgs() {
     ['list_indexes',         'optional_value', ['--indexes'], ['--list-indexes']],
 
     ['max_results',          'int',            ['--max-results', '--max', '-n']],
+    ['all_results',          'flag',           ['--all-results']],
     ['timeout',              'int',            ['--timeout']],
     ['context',              'int',            ['--context']],
     ['verbose',              'flag',           ['--verbose', '-v']],
@@ -1181,7 +1207,9 @@ BROWSE:
                              (deprecated alias: --list-indexes)
 
 DISPLAY / FILTERING (query-time, does not affect index build):
-  --max-results <n>          Maximum results to display (alias: --max) (default: 20)
+  --max-results <n>          Maximum results to display (alias: --max) (default: 20;
+                             --max-results 0 means no cap)
+  --all-results              Show every result (lift the per-scope cap entirely)
   --context <n>              Context lines around matches (default: 3)
   -v, --verbose              Show extra detail
   --full-path                Show full file paths in output

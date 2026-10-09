@@ -23,6 +23,7 @@
 
 import path from 'path';
 import { quotePathIfNeeded } from '../utils.js';
+import { effectiveMaxResults } from '../argparse.js';
 import { COMMENT_MATCH_WEIGHT } from '../core/multisect.js';
 
 // ========================================================================
@@ -427,7 +428,7 @@ export function displayMultisectResults(results, args, totalFiles) {
   const nPos = results.num_positive;
   const notSet = new Set(results.not_indices);
   const minT = results.min_terms;
-  const maxPerScope = args.max_results || 10;
+  const maxPerScope = effectiveMaxResults(args, 10);
   const fullPath = args.full_path || false;
   const verbose = args.verbose || false;
   const pathHighlight = args.vocab_in || (args.include_path && args.include_path[0]) || null;
@@ -580,7 +581,7 @@ export function displayMultisectResults(results, args, totalFiles) {
       }
     }
     if (realFuncMatches.length > maxPerScope) {
-      console.log(`  ... +${realFuncMatches.length - maxPerScope} more (use --max-results <N> to see all)`);
+      console.log(`  ... +${realFuncMatches.length - maxPerScope} more (use --max-results <N> or --all-results to see all)`);
     }
     console.log();
   }
@@ -640,7 +641,7 @@ export function displayMultisectResults(results, args, totalFiles) {
       }
     }
     if (filteredClasses.length > maxPerScope) {
-      console.log(`  ... +${filteredClasses.length - maxPerScope} more (use --max-results <N> to see all)`);
+      console.log(`  ... +${filteredClasses.length - maxPerScope} more (use --max-results <N> or --all-results to see all)`);
     }
     console.log();
   }
@@ -702,7 +703,7 @@ export function displayMultisectResults(results, args, totalFiles) {
       }
     }
     if (filteredFiles.length > maxPerScope) {
-      console.log(`  ... +${filteredFiles.length - maxPerScope} more (use --max-results <N> to see all)`);
+      console.log(`  ... +${filteredFiles.length - maxPerScope} more (use --max-results <N> or --all-results to see all)`);
     }
     console.log();
   }
@@ -769,7 +770,7 @@ export function displayMultisectResults(results, args, totalFiles) {
       }
     }
     if (displayFolders.length > maxPerScope) {
-      console.log(`  ... +${displayFolders.length - maxPerScope} more (use --max-results <N> to see all)`);
+      console.log(`  ... +${displayFolders.length - maxPerScope} more (use --max-results <N> or --all-results to see all)`);
     }
     console.log();
   } else if (folderSuppressed > 0 && !verbose) {

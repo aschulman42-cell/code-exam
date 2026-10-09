@@ -16,7 +16,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawnSync } from 'child_process';
-import { parseArgs, printBanner } from './argparse.js';
+import { parseArgs, printBanner, effectiveMaxResults, capNotice } from './argparse.js';
 import { setAirGapped, scrubApiKey, airGappedStartupCheck, AIR_GAPPED_DISCLAIMER } from './core/air-gapped.js';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
 import { buildOverview, formatOverview } from './core/overview.js';
@@ -1041,7 +1041,7 @@ if (args.client_server)                     doClientServer(index, args);
 if (args.referenced_resources) {
   // #203: the codebase's external surface (URLs/env/fs/sql/commands/cloud/models).
   const rr = extractReferencedResources(index);
-  const max = args.max_results || 20;
+  const max = effectiveMaxResults(args, 20);
   const filt = args.filter ? args.filter.toLowerCase() : null;
   // Optional subsection selection: --referenced-resources sql,env → only those.
   const RR_ALIASES = {
@@ -1231,13 +1231,15 @@ if (args._explicit.has('string_table') || args.string_table) {
       results = table.filter(s => s.value.toLowerCase().includes(filter.toLowerCase()));
     }
   }
-  const max = args.max_results || 50;
+  const max = effectiveMaxResults(args, 50);
   console.log(`\nStrings${filter ? ' matching "' + filter + '"' : ''}: ${results.length} unique (showing ${Math.min(max, results.length)})`);
   for (const s of results.slice(0, max)) {
     const preview = s.value.length > 70 ? s.value.slice(0, 70).replace(/\n/g, '\\n') + '...' : s.value.replace(/\n/g, '\\n');
     const locs = s.locations.slice(0, 3).map(l => (l.func || '(scope)') + '@' + l.line).join(', ');
     console.log(`  ${s.count}x ${s.files}f  "${preview}"  [${locs}]`);
   }
+  const note = capNotice(results.length, Math.min(max, results.length), 'strings');
+  if (note) console.log('\n' + note);
 }
 
 if (args.prompt_catalog) {
