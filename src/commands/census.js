@@ -24,6 +24,7 @@
  */
 
 import { CodeSearchIndex } from '../core/CodeSearchIndex.js';
+import { effectiveMaxResults, capNotice } from '../argparse.js';
 import { extractImports } from '../core/imports.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
 
@@ -97,7 +98,7 @@ function render(entries, { multi, nIndexes, pyFiles, filesByLang, args }) {
   // Fixed default cap; an explicit --max-results overrides it (the parsed
   // default of 20 is for search hits — too low for a census, so only an
   // explicit flag counts).
-  const cap = args._explicit && args._explicit.has('max_results') ? args.max_results : CAP;
+  const cap = effectiveMaxResults(args, CAP);
   const shown = entries.slice(0, cap);
   if (multi) {
     console.log('rank  indexes  count  import');
@@ -131,9 +132,9 @@ function render(entries, { multi, nIndexes, pyFiles, filesByLang, args }) {
       }
     });
   }
-  if (entries.length > cap) {
-    console.log(`\n  (showing ${cap} of ${entries.length} targets — raise with --max-results N, ` +
-                `or narrow with --filter <module>)`);
+  {
+    const note = capNotice(entries.length, Math.min(cap, entries.length), 'targets');
+    if (note) console.log('\n' + note + '\n  (or narrow with --filter <module>)');
   }
 
   // Corpus-orientation rollup. Skipped under --filter: a rollup of a

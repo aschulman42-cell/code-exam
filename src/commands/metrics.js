@@ -15,7 +15,7 @@
 import path from 'path';
 import { eprint, quotePathIfNeeded } from '../utils.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
-import { effectiveCount } from '../argparse.js';
+import { effectiveCount, effectiveMaxResults, capNotice } from '../argparse.js';
 import { extractConcepts, conceptLabel } from '../core/vocabulary.js';
 import { extractDataStructures } from '../core/data-structs.js';
 import { extractClientServer } from '../core/client-server.js';
@@ -127,9 +127,8 @@ export function doHotspots(index, args) {
     console.log(`  ${h.score.toFixed(0).padStart(8)}  ${String(h.calls).padStart(6)}  ${String(h.lines).padStart(6)}  ${dn.padEnd(40)}  ${fp}`);
   }
 
-  if (filtered.length > n) {
-    console.log(`\n  Showing ${n} of ${filtered.length} hotspots. Use --hotspots ${n * 2} for more.`);
-  }
+  const note = capNotice(filtered.length, Math.min(n, filtered.length), 'hotspots', '--hotspots <N>');
+  if (note) console.log('\n' + note);
 }
 
 
@@ -202,9 +201,8 @@ export function doHotFolders(index, args) {
     console.log(`  ${stats.score.toFixed(0).padStart(10)}  ${String(stats.funcs).padStart(6)}  ${String(stats.files.size).padStart(6)}  ${top.padEnd(35)}  ${folder}`);
   }
 
-  if (filtered.length > n) {
-    console.log(`\n  Showing ${n} of ${filtered.length} folders. Use --hot-folders ${n * 2} for more.`);
-  }
+  const note = capNotice(filtered.length, Math.min(n, filtered.length), 'folders', '--hot-folders <N>');
+  if (note) console.log('\n' + note);
 }
 
 
@@ -280,9 +278,8 @@ export function doEntryPoints(index, args) {
     console.log(`  ${String(e.lines).padStart(6)}  ${String(e.calls).padStart(6)}  ${dn.padEnd(45)}  ${fp}`);
   }
 
-  if (filtered.length > n) {
-    console.log(`\n  Showing ${n} of ${filtered.length} entry points. Use --entry-points ${n * 2} for more.`);
-  }
+  const note = capNotice(filtered.length, Math.min(n, filtered.length), 'entry points', '--entry-points <N>');
+  if (note) console.log('\n' + note);
 
   console.log('\n  See also: --gaps (suspicious dead code), --call-inventory (external dependencies)');
 }
@@ -293,8 +290,8 @@ export function doEntryPoints(index, args) {
 // ========================================================================
 
 export function doGaps(index, args) {
-  // Bare --gaps (boolean sentinel) or a non-numeric value falls back to 25.
-  const n = parseInt(args.gaps, 10) || 25;
+  // Bare --gaps (boolean sentinel) falls back to 25; --all-results / --max-results 0 show all.
+  const n = effectiveCount(args, args.gaps, 25);
   const entries = index.getEntryPoints(999, 0, true);
 
   if (!entries.length) {
@@ -340,9 +337,8 @@ export function doGaps(index, args) {
     shown++;
   }
 
-  if (suspicious.length > n) {
-    console.log(`\n  Showing ${n} of ${suspicious.length} gaps. Use --gaps ${n * 2} for more.`);
-  }
+  const note = capNotice(suspicious.length, Math.min(n, suspicious.length), 'gaps', '--gaps <N>');
+  if (note) console.log('\n' + note);
 
   const serviceGaps = suspicious.filter(s =>
     ['service', 'controller'].some(p => s.filepath.toLowerCase().includes(p)));
@@ -399,9 +395,8 @@ export function doDomainFns(index, args) {
     console.log(`  ${d.score.toFixed(0).padStart(8)}  ${String(d.calls).padStart(6)}  ${String(d.lines).padStart(6)}  ${String(d.name_count).padStart(5)}  ${dn.padEnd(40)}  ${fp}`);
   }
 
-  if (filtered.length > n) {
-    console.log(`\n  Showing ${n} of ${filtered.length} domain functions. Use --domain-fns ${n * 2} for more.`);
-  }
+  const note = capNotice(filtered.length, Math.min(n, filtered.length), 'domain functions', '--domain-fns <N>');
+  if (note) console.log('\n' + note);
 }
 
 
@@ -1337,27 +1332,28 @@ export function doDataStructs(index, args) {
   // -n / --max / --max-results all populate args.max_results (argparse.js:376);
   // args.n is only set on the MCP tool path. Reading args.n alone pinned the
   // cap at 50 and made the list unpageable from the CLI.
-  const n = args.max_results || args.n || 50;
+  const n = effectiveMaxResults(args, args.n || 50);
   console.log(`Data structures (${structs.length} unique, ranked by file spread, then references):\n`);
   for (const s of structs.slice(0, n)) {
     const spread = s.fileCount > 1 ? `  [${s.fileCount} files]` : '';
     console.log(`  ${String(s.refs).padStart(5)} refs  ${s.kind.padEnd(9)} ${s.name}  (${quotePathIfNeeded(s.filepath + ':' + s.line)})${spread}`);
   }
-  if (structs.length > n) console.log(`\n  … and ${structs.length - n} more (use --max to show more).`);
+  const note = capNotice(structs.length, Math.min(n, structs.length), 'data structures');
+  if (note) console.log('\n' + note);
 }
 
 export function doClientServer(index, args) {
   const { server, client, unmatched, sockets, rpc, ipc, stats } = extractClientServer(index);
   if (!server.length && !client.length && !sockets.length && !rpc.length && !ipc.length) { console.log('No client/server surface found.'); return; }
   // Same paging fix as doDataStructs: the CLI flags set args.max_results.
-  const n = args.max_results || args.n || 50;
+  const n = effectiveMaxResults(args, args.n || 50);
 
   console.log(`Server routes (${stats.serverCount}):\n`);
   if (!server.length) console.log('  (none detected)');
   for (const s of server.slice(0, n)) {
     console.log(`  ${s.method.padEnd(8)} ${s.path}  [${s.framework}]  (${quotePathIfNeeded(s.filepath + ':' + s.line)})`);
   }
-  if (server.length > n) console.log(`  … and ${server.length - n} more.`);
+  { const note = capNotice(server.length, Math.min(n, server.length), 'server routes'); if (note) console.log(note); }
 
   console.log(`\nClient calls (${stats.clientCount}):\n`);
   if (!client.length) console.log('  (none detected)');
@@ -1366,7 +1362,7 @@ export function doClientServer(index, args) {
     const named = c.name ? ` (via ${c.name})` : '';
     console.log(`  ${c.method.padEnd(8)} ${c.url}${named}  (${c.kind})${tag}  (${quotePathIfNeeded(c.filepath + ':' + c.line)})`);
   }
-  if (client.length > n) console.log(`  … and ${client.length - n} more.`);
+  { const note = capNotice(client.length, Math.min(n, client.length), 'client calls'); if (note) console.log(note); }
 
   // The distinctive signal: internal client calls with no matching server route.
   console.log(`\nClient calls with NO matching server route (${stats.unmatchedCount}):\n`);
@@ -1376,7 +1372,7 @@ export function doClientServer(index, args) {
     for (const u of unmatched.slice(0, n)) {
       console.log(`  ${u.method.padEnd(8)} ${u.pathOnly}  (first seen ${quotePathIfNeeded(u.filepath + ':' + u.line)})`);
     }
-    if (unmatched.length > n) console.log(`  … and ${unmatched.length - n} more.`);
+    { const note = capNotice(unmatched.length, Math.min(n, unmatched.length), 'unmatched calls'); if (note) console.log(note); }
     console.log(`\n  Note: heuristic match (path only). A "missing" route may be served`);
     console.log(`  by a framework/proxy not yet detected, or by an external service.`);
   }
@@ -1394,7 +1390,7 @@ export function doClientServer(index, args) {
         const extra = e.detail ? `${e.detail} ` : (e.tls ? '[TLS] ' : '');
         console.log(`    ${e.api.padEnd(16)} ${extra}${e.lang}  (${quotePathIfNeeded(e.filepath + ':' + e.line)})`);
       }
-      if (list.length > n) console.log(`    … and ${list.length - n} more.`);
+      { const note = capNotice(list.length, Math.min(n, list.length), `${role} entries`); if (note) console.log('  ' + note); }
     }
     if (cl.length && !sv.length) console.log(`\n  ${label}: client side only — no ${label} server side in this index.`);
     else if (sv.length && !cl.length) console.log(`\n  ${label}: server side only — no ${label} client side in this index.`);
@@ -1527,9 +1523,8 @@ export function doClassHotspots(index, args) {
     console.log(`  ${c.score.toFixed(0).padStart(8)}  ${String(c.total_calls).padStart(7)}  ${String(c.method_count).padStart(8)}  ${String(c.total_method_lines).padStart(8)}  ${String(c.name_count).padStart(5)}  ${name.padEnd(35)}  ${fp}`);
   }
 
-  if (filtered.length > n) {
-    console.log(`\n  Showing ${n} of ${filtered.length} classes. Use --class-hotspots ${n * 2} for more.`);
-  }
+  const note = capNotice(filtered.length, Math.min(n, filtered.length), 'classes', '--class-hotspots <N>');
+  if (note) console.log('\n' + note);
 }
 
 
@@ -1612,8 +1607,13 @@ export function doVocabulary(index, args) {
     console.log();
   }
 
-  if (topTokens.length >= n) {
-    console.log(`  Showing ${n}. Use --vocabulary ${n * 2} for more.`);
+  // topTokens is capped to n by getTopVocabulary. Unfiltered, vocab.size is the
+  // true total; filtered, we only know whether a full page came back.
+  if (!filter && !pathFilter) {
+    const note = capNotice(totalTokens, Math.min(n, topTokens.length), 'tokens', '--vocabulary <N>');
+    if (note) console.log('\n' + note);
+  } else if (Number.isFinite(n) && topTokens.length >= n) {
+    console.log('\n  ... more tokens (use --vocabulary <N> or --all-results to see all)');
   }
 
   // Vocab-density "key files" roll-up — "what files do I read first?"

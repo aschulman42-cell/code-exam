@@ -30,6 +30,7 @@
  */
 
 import fs from 'fs';
+import { effectiveMaxResults, capNotice } from '../argparse.js';
 import path from 'path';
 import { eprint } from '../utils.js';
 
@@ -792,9 +793,10 @@ export function doListHarnessable(index, args) {
   console.log(`\n${models.length} PyTorch model classes; ${pkg ? pkgNote : pkgNote}.`);
   console.log(`  ${ready.length} synthetic-ready (--synthetic-loader auto-fills load_model)`);
   console.log(`  ${manual.length} instrumentable but need a hand-written loader`);
-  const max = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : 25;
+  const max = effectiveMaxResults(args, 25);
   console.log(`\nSynthetic-ready (file@Class)${ready.length > max ? `, first ${max}` : ''}:`);
   for (const m of ready.slice(0, max)) console.log(`  ${m.filepath.replace(/\\/g, '/')}@${m.name}`);
+  { const note = capNotice(ready.length, Math.min(max, ready.length), 'models'); if (note) console.log('\n' + note); }
   const reasons = Object.entries(skip).sort((a, b) => b[1] - a[1]);
   if (reasons.length) {
     console.log(`\nWhy the rest aren't synthetic-ready:`);

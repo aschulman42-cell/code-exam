@@ -11,7 +11,7 @@
 
 import { displayName, parseFuncSpec, quotePathIfNeeded } from '../utils.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
-import { effectiveCount } from '../argparse.js';
+import { effectiveCount, effectiveMaxResults, capNotice } from '../argparse.js';
 import { isIntrinsicName } from '../core/vocabulary.js';
 
 
@@ -391,7 +391,7 @@ export function doCallInventory(index, args) {
   const target = args.call_inventory;
   const verbose = args.verbose || false;
   const fullPath = args.full_path || false;
-  const maxResults = args.max_results || 50;
+  const maxResults = effectiveMaxResults(args, 50);
   const includePath = args.include_path ? args.include_path[0] : null;
   const excludePath = args.exclude_path ? args.exclude_path[0] : null;
   const filter = args.filter || null;
@@ -499,8 +499,9 @@ export function doCallInventory(index, args) {
             console.log(`    ${item.name}${sitesNote}`);
           }
         }
-        if (ungrouped.length > maxResults) {
-          console.log(`    ... +${ungrouped.length - maxResults} more`);
+        {
+          const note = capNotice(ungrouped.length, Math.min(maxResults, ungrouped.length), 'functions');
+          if (note) console.log('  ' + note);
         }
       }
     } else {
@@ -512,8 +513,9 @@ export function doCallInventory(index, args) {
         const sitesNote = isAll && sites > 1 ? `  [${sites} call sites]` : '';
         console.log(`  ${item.name}${prov}${sitesNote}`);
       }
-      if (filteredExternal.length > shown.length) {
-        console.log(`  ... +${filteredExternal.length - shown.length} more`);
+      {
+        const note = capNotice(filteredExternal.length, shown.length, 'external calls');
+        if (note) console.log(note);
       }
     }
     console.log();

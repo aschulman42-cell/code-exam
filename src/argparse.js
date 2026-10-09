@@ -55,10 +55,10 @@ export function effectiveMaxResults(args, dflt) {
 // capped command discloses truncation the same way AND names --all-results.
 // `total` is the full count, `shown` is what was printed. Returns '' when nothing
 // was withheld (shown >= total), e.g. under --all-results / --max-results 0.
-export function capNotice(total, shown, noun = 'results') {
+export function capNotice(total, shown, noun = 'results', raiseWith = '--max-results <N>') {
   const more = total - shown;
   if (!(more > 0)) return '';
-  return `  ... +${more} more ${noun} (use --max-results <N> or --all-results to see all)`;
+  return `  ... +${more} more ${noun} (use ${raiseWith} or --all-results to see all)`;
 }
 
 // Resolve a per-command top-N count (e.g. --hotspots N, --vocabulary N). These

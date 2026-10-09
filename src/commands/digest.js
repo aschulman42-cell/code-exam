@@ -32,6 +32,7 @@
  */
 
 import { quotePathIfNeeded } from '../utils.js';
+import { effectiveMaxResults } from '../argparse.js';
 
 function _shortPath(fp, maxLen = 60) {
   if (!fp || fp.length <= maxLen) return fp || '';
@@ -937,9 +938,9 @@ export function doDigest(index, args) {
     return;
   }
   const opts = {
-    maxCallers: args.max_results || 10,
-    maxCallees: args.max_results || 10,
-    maxStrings: Math.max(15, args.max_results || 15),
+    maxCallers: effectiveMaxResults(args, 10),
+    maxCallees: effectiveMaxResults(args, 10),
+    maxStrings: Math.max(15, effectiveMaxResults(args, 15)),
   };
   const digest = index.buildDigest(spec, opts);
   if (!digest) {

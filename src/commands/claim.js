@@ -22,6 +22,7 @@
 // ============================================================================
 
 import { parseMultisectTerms, displayMultisectResults, printSelectivityReport, filterLowSelectivity } from './multisect.js';
+import { effectiveMaxResults } from '../argparse.js';
 // See the cycle note in claim-locate.js: analyze.js imports from this file, so
 // this edge closes a cycle. Safe because readClaimFile is only referenced inside
 // function bodies. `utils.js` is its proper home; that move is a follow-up.
@@ -1474,7 +1475,7 @@ export async function doClaimSearch(index, args) {
   const searchOpts = {
     includePath: args.include_path || args.in || null,
     excludePath: args.exclude_path || null,
-    maxResults: args.max_results || 10,
+    maxResults: effectiveMaxResults(args, 10),
     verbose,
   };
 

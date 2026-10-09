@@ -13,6 +13,7 @@
  */
 
 import { displayName } from '../utils.js';
+import { effectiveCount, effectiveMaxResults, capNotice } from '../argparse.js';
 import {
   computeAllFingerprints,
   loadFingerprintsList,
@@ -28,7 +29,7 @@ import { makeFilterMatcher } from '../core/filter-match.js';
 // ========================================================================
 
 export function doDupefiles(index, args) {
-  const n = args.dupefiles;
+  const n = effectiveCount(args, args.dupefiles, 25);
   const fileHashes = index.fileHashes || {};
 
   if (!fileHashes || Object.keys(fileHashes).length === 0) {
@@ -95,8 +96,9 @@ export function doDupefiles(index, args) {
     shown++;
   }
 
-  if (groupInfo.length > n) {
-    console.log(`\n  Showing ${n} of ${groupInfo.length} groups. Use --dupefiles ${n * 2} for more.`);
+  {
+    const note = capNotice(groupInfo.length, Math.min(n, groupInfo.length), 'groups', '--dupefiles <N>');
+    if (note) console.log('\n' + note);
   }
 }
 
@@ -585,7 +587,7 @@ export function doStructDiff(index, args) {
 const _sourceOfPath = sourceOfPath;
 
 export function doStructDiffAll(index, args) {
-  const n = args.struct_diff_all || 25;
+  const n = effectiveCount(args, args.struct_diff_all, 25);
   const filter = args.filter || null;
   const showSources = !!args.show_sources;
   const crossSourceOnly = !!args.cross_source_only;
@@ -713,8 +715,9 @@ export function doStructDiffAll(index, args) {
     console.log();  // blank line between entries
   }
 
-  if (groups.length > n) {
-    console.log(`\n  Showing ${n} of ${groups.length}. Use --struct-diff-all ${n * 2} for more.`);
+  {
+    const note = capNotice(groups.length, Math.min(n, groups.length), 'groups', '--struct-diff-all <N>');
+    if (note) console.log('\n' + note);
   }
   console.log('\n  Use /struct-diff <name> for full word-hole comparison of a specific group.');
 }
@@ -776,7 +779,7 @@ function _getStringCallDupeGroups(index, opts = {}) {
 }
 
 export function doStringCallDupes(index, args) {
-  const n = args.string_call_dupes;
+  const n = effectiveCount(args, args.string_call_dupes, 25);
   if (args.verbose) args.show_dupes = true;
 
   let groups = _getStringCallDupeGroups(index);
@@ -814,8 +817,9 @@ export function doStringCallDupes(index, args) {
     }
   }
 
-  if (groups.length > n) {
-    console.log(`\n  Showing ${n} of ${groups.length}. Use --string-call-dupes ${n * 2} for more.`);
+  {
+    const note = capNotice(groups.length, Math.min(n, groups.length), 'groups', '--string-call-dupes <N>');
+    if (note) console.log('\n' + note);
   }
 }
 
@@ -830,7 +834,7 @@ export function doStringCallDupes(index, args) {
 // identical groups for the same index + thresholds.
 
 export function doNotableFuncstrMatches(index, args) {
-  const limit = args.notable_funcstr_matches;
+  const limit = effectiveCount(args, args.notable_funcstr_matches, 25);
   const opts = {
     limit,
     minLines: args.nf_min_lines ? Math.max(3, args.nf_min_lines) : 3,
@@ -884,9 +888,9 @@ export function doNotableFuncstrMatches(index, args) {
     }
   }
 
-  if (result.total > limit) {
-    console.log(`\n  Showing ${limit} of ${result.total}. ` +
-      `Use --notable-funcstr-matches ${limit * 2} for more.`);
+  {
+    const note = capNotice(result.total, Math.min(limit, result.total), 'matches', '--notable-funcstr-matches <N>');
+    if (note) console.log('\n' + note);
   }
 }
 
@@ -1015,7 +1019,7 @@ export function doFuncstrCorpus(index, args) {
 // itself so the user can see WHY the group formed).
 
 export function doStringCallDiffAll(index, args) {
-  const n = args.string_call_diff_all || 25;
+  const n = effectiveCount(args, args.string_call_diff_all, 25);
   const filter = args.filter || null;
   const showSources = !!args.show_sources;
   const crossSourceOnly = !!args.cross_source_only;
@@ -1070,8 +1074,9 @@ export function doStringCallDiffAll(index, args) {
     console.log();
   }
 
-  if (groups.length > n) {
-    console.log(`  Showing ${n} of ${groups.length}. Use --string-call-diff-all ${n * 2} for more.`);
+  {
+    const note = capNotice(groups.length, Math.min(n, groups.length), 'groups', '--string-call-diff-all <N>');
+    if (note) console.log(note);
   }
 }
 
@@ -1095,7 +1100,7 @@ export function doCmpStringCallDupes(index, args) {
   const refSource = args.fingerprint_ref || null;
   const nameFilter = args.filter || null;
   const matchName = nameFilter ? makeFilterMatcher(nameFilter) : null;
-  const maxResults = args.max_results || 50;
+  const maxResults = effectiveMaxResults(args, 50);
   const showTokens = !!args.show_tokens;
 
   console.log('Computing fingerprints for all functions...');

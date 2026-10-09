@@ -10,6 +10,7 @@
  */
 
 import path from 'path';
+import { effectiveMaxResults, capNotice } from '../argparse.js';
 import crypto from 'crypto';
 import { displayName, eprint, quotePathIfNeeded } from '../utils.js';
 
@@ -277,7 +278,7 @@ export function doFileMap(index, args) {
   if (pathFilter === true || pathFilter === '') pathFilter = null;
   const mermaid = args.mermaid || false;
   const verbose = args.verbose || false;
-  const n = args.max_results || 30;
+  const n = effectiveMaxResults(args, 30);
 
   eprint('  Scanning cross-file function calls...');
   let fileDeps = index.getAllFileDeps(pathFilter, true);
@@ -334,8 +335,10 @@ export function doFileMap(index, args) {
       console.log();
       shown++;
     }
-    if (shown < fileSummary.length)
-      console.log(`  ... ${fileSummary.length - shown} more files (use --max-results to see more)`);
+    {
+      const note = capNotice(fileSummary.length, shown, 'files');
+      if (note) console.log(note);
+    }
 
     console.log('\n  --- Strongest file-to-file couplings ---\n');
     console.log(`  ${'Calls'.padStart(6)}  ${'Source'.padStart(40)}  ->  Target`);

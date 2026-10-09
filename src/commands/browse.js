@@ -13,6 +13,7 @@
  */
 
 import fs from 'fs';
+import { effectiveMaxResults, capNotice } from '../argparse.js';
 import path from 'path';
 import { displayName, eprint, pasteToken, quotePathIfNeeded } from '../utils.js';
 import { CodeSearchIndex } from '../core/CodeSearchIndex.js';
@@ -916,7 +917,7 @@ export function doBundleSeams(index, args) {
   files.sort();
 
   const verbose = args.seam_verbose || args.verbose;
-  const max = args.max_results || 20;
+  const max = effectiveMaxResults(args, 20);
 
   for (const filepath of files) {
     const lines = index.fileLines.get(filepath);
@@ -998,8 +999,9 @@ export function doBundleSeams(index, args) {
         }
       }
     }
-    if (result.modules.length > toShow.length) {
-      console.log(`\n  ... and ${result.modules.length - toShow.length} more. Use --max-results N (or --max N) for more.`);
+    {
+      const note = capNotice(result.modules.length, toShow.length, 'modules');
+      if (note) console.log('\n' + note);
     }
   }
 }

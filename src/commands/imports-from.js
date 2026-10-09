@@ -23,6 +23,7 @@
  */
 
 import { CodeSearchIndex } from '../core/CodeSearchIndex.js';
+import { effectiveMaxResults, capNotice } from '../argparse.js';
 import { extractImports } from '../core/imports.js';
 import { reTestExamplePath } from '../core/ai-ml-detectors.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
@@ -87,7 +88,7 @@ export function doImportsFrom(index, args) {
       .filter(j => match(j.name, j.module))
       .sort((x, y) => y.siteCount - x.siteCount || x.name.localeCompare(y.name));
   }
-  const cap = args._explicit && args._explicit.has('max_results') ? args.max_results : CAP;
+  const cap = effectiveMaxResults(args, CAP);
   const filterNote = args.filter ? ` — filter: '${args.filter}'` : '';
   const nNames = verdicts.resolved.length + verdicts.private.length + verdicts.notfound.length;
 
@@ -154,7 +155,8 @@ export function doImportsFrom(index, args) {
     if (truncated) break;
   }
   if (truncated) {
-    console.log(`  (showing ${printed} of ${nNames} names — raise with --max-results N, or narrow with --filter)\n`);
+    const note = capNotice(nNames, printed, 'names');
+    if (note) console.log('  ' + note + '  (or narrow with --filter)\n');
   }
 
   // --- Reverse view (-v): B's public surface A never touches.

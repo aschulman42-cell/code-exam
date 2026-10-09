@@ -16,6 +16,7 @@
  */
 
 import fs from 'fs';
+import { effectiveMaxResults, capNotice } from '../argparse.js';
 import { extractExports } from '../core/exports.js';
 import { extractImports } from '../core/imports.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
@@ -216,7 +217,7 @@ export function doExports(index, args) {
     match(r.name, r.dottedPath || '', r.package));
   if (scope) rows = rows.filter(r => pkgMatches(scope, r.package));
 
-  const cap = args._explicit && args._explicit.has('max_results') ? args.max_results : CAP;
+  const cap = effectiveMaxResults(args, CAP);
   const filterNote = args.filter ? ` — filter: '${args.filter}'` : '';
   const scopeNote = scope ? ` — package: '${scope}'` : '';
 
@@ -318,7 +319,8 @@ export function doExports(index, args) {
   if (truncated) {
     const unit = listNames ? 'name rows' : 'packages';
     const total = listNames ? rows.length : pkgLabels.length;
-    console.log(`  (showing ${printed} of ${total} ${unit} — raise with --max-results N, or narrow with --exports <package> / --filter)`);
+    const note = capNotice(total, printed, unit);
+    if (note) console.log('  ' + note + '  (or narrow with --exports <package> / --filter)');
   }
   if (usedByFor) {
     console.log(`\n  De facto API: ${usedCount} export(s) imported elsewhere in the corpus, ` +
