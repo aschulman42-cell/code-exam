@@ -11,6 +11,7 @@
 
 import { displayName, parseFuncSpec, quotePathIfNeeded } from '../utils.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
+import { effectiveCount } from '../argparse.js';
 import { isIntrinsicName } from '../core/vocabulary.js';
 
 
@@ -235,7 +236,7 @@ export function doCallees(index, args) {
 // ========================================================================
 
 export function doMostCalled(index, args) {
-  const n = args.most_called;
+  const n = effectiveCount(args, args.most_called, 20);
   const callData = index.getCallCountsWithDefinitions(true);
 
   if (callData.length === 0) {

@@ -61,6 +61,22 @@ export function capNotice(total, shown, noun = 'results') {
   return `  ... +${more} more ${noun} (use --max-results <N> or --all-results to see all)`;
 }
 
+// Resolve a per-command top-N count (e.g. --hotspots N, --vocabulary N). These
+// flags are `optional_value`, so `raw` is a numeric string when a count was
+// given, or the boolean "present, no value" sentinel when run bare — in which
+// case we fall back to `dflt` instead of erroring. `--all-results` (or
+// `--max-results 0`) still means "all" (Infinity), which is safe for
+// `.slice(0, n)` and `length > n` checks. An explicit count on the command
+// itself takes precedence over everything but --all-results / --max-results 0.
+export function effectiveCount(args, raw, dflt) {
+  if (args.all_results) return Infinity;
+  if (args._explicit && args._explicit.has('max_results') && Number(args.max_results) === 0) {
+    return Infinity;
+  }
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : dflt;
+}
+
 
 /**
  * Levenshtein edit distance, capped early once it exceeds `max` (returns
@@ -499,7 +515,7 @@ export function parseArgs() {
     // Phase 2: callers/callees/graph
     ['callers',              'value',          ['--callers']],
     ['callees',              'value',          ['--callees']],
-    ['most_called',          'int',            ['--most-called']],
+    ['most_called',          'optional_value', ['--most-called']],
     ['depth',                'int',            ['--depth']],
     ['min_name_length',      'int',            ['--min-name-length']],
     ['include_macros',       'flag',           ['--include-macros']],
@@ -529,12 +545,12 @@ export function parseArgs() {
     ['mermaid',              'flag',           ['--mermaid']],
 
     // Phase 3: metrics/discovery
-    ['hotspots',             'int',            ['--hotspots']],
-    ['hot_folders',          'int',            ['--hot-folders']],
-    ['entry_points',         'int',            ['--entry-points']],
+    ['hotspots',             'optional_value', ['--hotspots']],
+    ['hot_folders',          'optional_value', ['--hot-folders']],
+    ['entry_points',         'optional_value', ['--entry-points']],
     ['max_calls',            'int',            ['--max-calls']],
     ['gaps',                 'optional_value', ['--gaps']],
-    ['domain_fns',           'int',            ['--domain-fns']],
+    ['domain_fns',           'optional_value', ['--domain-fns']],
     ['list_classes',         'flag',           ['--classes'], ['--list-classes']],
     ['data_structs',         'flag',           ['--data-structs'], ['--structs']],
     ['client_server',        'flag',           ['--client-server'], ['--routes']],
@@ -556,8 +572,8 @@ export function parseArgs() {
     ['list_models_used',     'flag',           ['--models-used'], ['--list-models-used']],
     ['list_pipelines',       'flag',           ['--pipelines'], ['--list-pipelines', '--workflows']],
     ['list_explainability',  'flag',           ['--explainability'], ['--list-explainability', '--analysis']],
-    ['class_hotspots',       'int',            ['--class-hotspots']],
-    ['discover_vocabulary',  'int',            ['--vocabulary', '--vocab'], ['--discover-vocabulary']],
+    ['class_hotspots',       'optional_value', ['--class-hotspots']],
+    ['discover_vocabulary',  'optional_value', ['--vocabulary', '--vocab'], ['--discover-vocabulary']],
     ['multisect_search',     'value',          ['--multisect-search', '--multisect']],
     ['vocab_in',             'value',          ['--in']],
     ['bare',                 'flag',           ['--bare']],
@@ -1370,7 +1386,7 @@ CALLERS / CALLEES:
                              No argument: scan entire codebase (bill of materials)
                              With function name: single function inventory
                              Use --filter to search externals, --verbose for in-index list
-  --most-called <n>          Show top N most frequently called functions
+  --most-called [n]          Show top N most frequently called functions (default 20)
   --depth <n>                Depth for transitive callers (default when used
                              with --callers: 1) or for tree views (default
                              when used with --call-tree / --file-tree: 3).
@@ -1416,16 +1432,16 @@ METRICS / DISCOVERY:
                                commands (external commands; aliases: cmds, exec)
                                cloud    (cloud/infra config; alias: infra)
                                models   (model IDs)
-  --vocabulary <n>           Top N domain-specific tokens by TF-IDF score
+  --vocabulary [n]           Top N domain-specific tokens by TF-IDF score (default 50)
                              (short alias: --vocab; deprecated alias:
                              --discover-vocabulary)
-  --hotspots <n>             Top N structurally important functions (calls x log2(lines))
-  --hot-folders <n>          Top N directories by aggregated hotspot score
-  --class-hotspots <n>       Top N classes by aggregated method hotspot score
-  --entry-points <n>         Top N uncalled functions (sorted by size)
+  --hotspots [n]             Top N structurally important functions (calls x log2(lines), default 20)
+  --hot-folders [n]          Top N directories by aggregated hotspot score (default 20)
+  --class-hotspots [n]       Top N classes by aggregated method hotspot score (default 20)
+  --entry-points [n]         Top N uncalled functions (sorted by size, default 20)
   --max-calls <n>            Max call count for entry-points (default: 0 = never called)
   --gaps [n]                 Find suspicious dead code (defined, no callers, not entry-point)
-  --domain-fns <n>           Top N domain-specific functions (score / sqrt(name defs))
+  --domain-fns [n]           Top N domain-specific functions (score / sqrt(name defs), default 20)
 
 AI/ML DETECTORS (list AI/ML constructs; each has a --list-<name> alias):
   --pipelines                Connected AI/ML pipelines (RAG/training/inference/agent/LLM-app) by cell co-occurrence

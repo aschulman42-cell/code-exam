@@ -15,6 +15,7 @@
 import path from 'path';
 import { eprint, quotePathIfNeeded } from '../utils.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
+import { effectiveCount } from '../argparse.js';
 import { extractConcepts, conceptLabel } from '../core/vocabulary.js';
 import { extractDataStructures } from '../core/data-structs.js';
 import { extractClientServer } from '../core/client-server.js';
@@ -92,7 +93,7 @@ function applyPathFilters(items, args, fpKey = 'filepath') {
 // ========================================================================
 
 export function doHotspots(index, args) {
-  const n = args.hotspots;
+  const n = effectiveCount(args, args.hotspots, 20);
   const hotspots = index.getHotspots(n * 3, true);
 
   if (!hotspots.length) {
@@ -137,7 +138,7 @@ export function doHotspots(index, args) {
 // ========================================================================
 
 export function doHotFolders(index, args) {
-  const n = args.hot_folders;
+  const n = effectiveCount(args, args.hot_folders, 20);
   const hotspots = index.getHotspots(50000, true);
 
   if (!hotspots.length) {
@@ -246,7 +247,7 @@ function looksLikeEntryPoint(name, filepath) {
 
 
 export function doEntryPoints(index, args) {
-  const n = args.entry_points;
+  const n = effectiveCount(args, args.entry_points, 20);
   const maxCalls = args.max_calls != null ? args.max_calls : 0;
   const entries = index.getEntryPoints(n * 3, maxCalls, true);
 
@@ -362,7 +363,7 @@ export function doGaps(index, args) {
 // ========================================================================
 
 export function doDomainFns(index, args) {
-  const n = args.domain_fns;
+  const n = effectiveCount(args, args.domain_fns, 20);
   const domain = index.getDomainHotspots(n * 3, true);
 
   if (!domain.length) {
@@ -1498,7 +1499,7 @@ export function doListClasses(index, args) {
 // ========================================================================
 
 export function doClassHotspots(index, args) {
-  const n = args.class_hotspots;
+  const n = effectiveCount(args, args.class_hotspots, 20);
   const classes = index.getClassHotspots(n * 3, true);
 
   if (!classes.length) {
@@ -1537,7 +1538,7 @@ export function doClassHotspots(index, args) {
 // ========================================================================
 
 export function doVocabulary(index, args) {
-  const n = args.discover_vocabulary || 50;
+  const n = effectiveCount(args, args.discover_vocabulary, 50);
   const filter = args.filter || null;
   const pathFilter = args.vocab_in || null;
   const bare = !!args.bare;
