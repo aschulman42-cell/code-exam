@@ -119,7 +119,7 @@ export function renderFileListWithSub(container, files, total) {
     const subHeader = h('div', { className: 'sub-accordion-header' }, [
       h('span', { className: 'sub-accordion-toggle', text: '▸' }),
       nameSpan,
-      h('span', { className: 'filepath', text: dir, style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
+      h('span', { className: 'filepath', text: dir, title: fp.replace(/\\/g, '/'), style: 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;flex:1 1 0;min-width:0' }),
     ]);
     const sub = h('div', { className: 'sub-accordion', 'data-filepath': fp }, [subHeader, subContent]);
 

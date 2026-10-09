@@ -361,7 +361,29 @@ function _shortPath(fp, maxLen = 50) {
   if (!fp) return '';
   const norm = fp.replace(/\\/g, '/');
   if (norm.length <= maxLen) return norm;
-  return '...' + norm.slice(-(maxLen - 3));
+  // Middle-truncate (keep head dir + filename), not left-truncate (#242 / #343).
+  return _midTruncatePath(norm, maxLen, '...');
+}
+
+// Keep head + tail of a path, eliding the middle with `ell`. Segment-aware when
+// there is room; char-based fallback otherwise. `norm` is '/'-normalized and
+// longer than `maxLen`.
+function _midTruncatePath(norm, maxLen, ell) {
+  const segs = norm.split('/');
+  if (segs.length >= 3) {
+    const first = segs[0];
+    let tail = segs[segs.length - 1];
+    for (let i = segs.length - 2; i >= 1; i--) {
+      const cand = segs[i] + '/' + tail;
+      if (first.length + 2 + ell.length + cand.length > maxLen) break;
+      tail = cand;
+    }
+    const out = first + '/' + ell + '/' + tail;
+    if (out.length <= maxLen) return out;
+  }
+  const keep = Math.max(maxLen - ell.length, 1);
+  const tailLen = Math.ceil(keep / 2);
+  return norm.slice(0, keep - tailLen) + ell + norm.slice(norm.length - tailLen);
 }
 
 export function doCallInventory(index, args) {

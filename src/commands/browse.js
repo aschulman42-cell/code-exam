@@ -20,6 +20,30 @@ import { skippedExtensionCensus } from '../core/extension-census.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
 
 
+// Keep head + tail of a path, eliding the middle with `ell`, rather than the
+// left-truncation / hard-slice that drops the distinguishing leading directory
+// (#242 / #343). Segment-aware when there is room; char-based fallback.
+function _midTruncatePath(fp, maxLen, ell = '...') {
+  const norm = String(fp || '').replace(/\\/g, '/');
+  if (norm.length <= maxLen) return norm;
+  const segs = norm.split('/');
+  if (segs.length >= 3) {
+    const first = segs[0];
+    let tail = segs[segs.length - 1];
+    for (let i = segs.length - 2; i >= 1; i--) {
+      const cand = segs[i] + '/' + tail;
+      if (first.length + 2 + ell.length + cand.length > maxLen) break;
+      tail = cand;
+    }
+    const out = first + '/' + ell + '/' + tail;
+    if (out.length <= maxLen) return out;
+  }
+  const keep = Math.max(maxLen - ell.length, 1);
+  const tailLen = Math.ceil(keep / 2);
+  return norm.slice(0, keep - tailLen) + ell + norm.slice(norm.length - tailLen);
+}
+
+
 // ========================================================================
 // Stats
 // ========================================================================
@@ -1116,7 +1140,7 @@ export function doListFunctionsAlpha(index, args) {
     console.log('='.repeat(105));
     for (const f of functions) {
       const dn = (f.displayName || f.name).slice(0, 44);
-      const filepath = f.filepath.slice(0, 49);
+      const filepath = _midTruncatePath(f.filepath, 49);
       console.log(`${dn.padEnd(45)} ${String(f.lines).padStart(6)}  ${filepath.padEnd(50)}`);
     }
   }
@@ -1166,7 +1190,7 @@ export function doListFunctionsSize(index, args) {
     console.log('='.repeat(105));
     for (const f of functions) {
       const dn = (f.displayName || f.name).slice(0, 44);
-      const filepath = f.filepath.slice(0, 49);
+      const filepath = _midTruncatePath(f.filepath, 49);
       console.log(`${String(f.lines).padStart(6)}  ${dn.padEnd(45)} ${filepath.padEnd(50)}`);
     }
   }

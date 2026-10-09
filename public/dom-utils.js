@@ -326,7 +326,35 @@ export function paneSaveName(bodyEl, fallback) {
 export function shortPath(fp, maxLen = 45) {
   if (!fp) return '';
   fp = fp.replace(/\\/g, '/');
-  return fp.length <= maxLen ? fp : '…' + fp.slice(-(maxLen - 1));
+  if (fp.length <= maxLen) return fp;
+  // Middle-truncate: keep the leading directory (the distinguisher) AND the
+  // filename, eliding the middle. Left-truncation dropped the head, which is
+  // exactly what tells same-named files apart (#242 / #343).
+  return _midTruncatePath(fp, maxLen, '…');
+}
+
+/**
+ * Keep the head and tail of a path, eliding the middle with `ell`. Segment-aware
+ * when there is room (first dir + as many trailing segments as fit, joined by
+ * `/<ell>/`); falls back to a char-based head+ell+tail for 0–2 segment paths.
+ * `fp` is assumed already '/'-normalized and longer than `maxLen`.
+ */
+function _midTruncatePath(fp, maxLen, ell) {
+  const segs = fp.split('/');
+  if (segs.length >= 3) {
+    const first = segs[0];
+    let tail = segs[segs.length - 1];
+    for (let i = segs.length - 2; i >= 1; i--) {
+      const cand = segs[i] + '/' + tail;
+      if (first.length + 2 + ell.length + cand.length > maxLen) break;
+      tail = cand;
+    }
+    const out = first + '/' + ell + '/' + tail;
+    if (out.length <= maxLen) return out;
+  }
+  const keep = Math.max(maxLen - ell.length, 1);
+  const tailLen = Math.ceil(keep / 2);
+  return fp.slice(0, keep - tailLen) + ell + fp.slice(fp.length - tailLen);
 }
 
 /**
