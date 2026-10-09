@@ -93,7 +93,10 @@ export function renderSource(data) {
   title.innerHTML = `${displayNameHtml(data.display_name || data.name)}  (${escHtml(data.filepath)}, ${escHtml(String(data.lines))} lines)`;
   state.currentSourceFile = data.filepath;
   state.lastSourceRender = { kind: 'function', data };
-  const lines = data.source.split('\n'), startLine = data.start || 1;
+  // #343: prefer start_line (the true first line of the returned text, which is
+  // banner-aware) over start (the symbol's signature line) so numbers match the
+  // file when a leading doc comment is prepended.
+  const lines = data.source.split('\n'), startLine = data.start_line ?? data.start ?? 1;
   const hl = state.highlightTerms;
   const _wrapCls = $('#opt-wrap-lines')?.checked ? ' wrap-lines' : '';
   const _breakEnabled = !!$('#opt-break-long-lines')?.checked;

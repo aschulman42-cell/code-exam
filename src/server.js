@@ -1362,11 +1362,19 @@ routes['/api/extract'] = (req, res) => {
     });
   }
   const m = matches[0];
-  const source = index.getFunctionSource(m.filepath, m.name);
+  // #343: number from the range the SOURCE actually covers, not from m.start.
+  // getFunctionSourceWithRange prepends the preceding doc comment and reports the
+  // true first line of the returned text in `.start`; m.start is the signature
+  // line, so numbering from it labels every displayed line too high by the length
+  // of the function's own doc comment. `start` stays m.start for the info panel
+  // (the symbol's own location); `start_line` is the numbering anchor.
+  const got = index.getFunctionSourceWithRange?.(m.filepath, m.name);
+  const source = got ? got.source : index.getFunctionSource(m.filepath, m.name);
+  const srcStart = got ? got.start : m.start;
   jsonResponse(res, {
     filepath: m.filepath, name: index.getDisplayName(m.name), display_name: displayName(index.getDisplayName(m.name), m.filepath),
     start: m.start, end: m.end, lines: m.end - m.start + 1,
-    start_line: m.start,
+    start_line: srcStart,
     type: m.type,  // #198: lets the info panel label a class "Class Info:" vs "Function Info:"
     source: index.applyRenames(source || '(source not available)'), language: guessLanguage(m.filepath),
   });
@@ -1408,7 +1416,10 @@ routes['/api/extract-linkified'] = (req, res) => {
     });
   }
   const m = matches[0];
-  const rawSource = index.getFunctionSource(m.filepath, m.name) || '(source not available)';
+  // #343: use the range's true start for line numbering (see /api/extract).
+  const gotRange = index.getFunctionSourceWithRange?.(m.filepath, m.name);
+  const rawSource = (gotRange ? gotRange.source : index.getFunctionSource(m.filepath, m.name)) || '(source not available)';
+  const srcStart = gotRange ? gotRange.start : m.start;
   const renamedSource = index.applyRenames(rawSource);
   const knownNames = _buildKnownNameSet(index);
   const selfDisplay = index.getDisplayName(m.name);
@@ -1445,7 +1456,7 @@ routes['/api/extract-linkified'] = (req, res) => {
     display_name: displayName(selfDisplay, m.filepath),
     start: m.start, end: m.end,
     line_count: m.end - m.start + 1,
-    start_line: m.start,
+    start_line: srcStart,
     lines: outLines,
     language: guessLanguage(m.filepath),
   });
