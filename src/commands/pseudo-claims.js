@@ -1400,7 +1400,10 @@ export async function doTriage(args) {
  */
 export async function doPseudoClaims(index, args) {
   if (args.candidates || args.ground_truth || args.rank) { await doEmitCandidates(index, args); return; }
-  const spec = args.pseudo_claims;
+  // Bare --pseudo-claims (boolean sentinel) carries no anchors — coerce to ''
+  // so collectAnchorGroups yields zero groups and the clean "no anchors given"
+  // help fires, rather than trying to resolve the old '.' marker as an anchor.
+  const spec = typeof args.pseudo_claims === 'string' ? args.pseudo_claims : '';
 
   let groups;
   try {

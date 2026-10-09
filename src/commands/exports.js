@@ -187,7 +187,7 @@ function tierCol(tiers) {
 }
 
 export function doExports(index, args) {
-  const scope = (args.exports && args.exports !== '.') ? args.exports : null;
+  const scope = (typeof args.exports === 'string' && args.exports !== '.') ? args.exports : null;
   const { records, packages, pyFiles } = extractExports(index);
 
   if (pyFiles === 0) {

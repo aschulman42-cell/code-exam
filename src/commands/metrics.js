@@ -292,7 +292,8 @@ export function doEntryPoints(index, args) {
 // ========================================================================
 
 export function doGaps(index, args) {
-  const n = args.gaps || 25;
+  // Bare --gaps (boolean sentinel) or a non-numeric value falls back to 25.
+  const n = parseInt(args.gaps, 10) || 25;
   const entries = index.getEntryPoints(999, 0, true);
 
   if (!entries.length) {

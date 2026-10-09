@@ -187,7 +187,9 @@ export function doIndexExtensions(index, args) {
 // ========================================================================
 
 export function doListIndexes(args) {
-  const searchPath = args.list_indexes === '.' ? process.cwd() : args.list_indexes;
+  // Bare --indexes (boolean sentinel) or an explicit "." both mean cwd.
+  const searchPath = (args.list_indexes === '.' || args.list_indexes === true)
+    ? process.cwd() : args.list_indexes;
 
   if (!fs.existsSync(searchPath) || !fs.statSync(searchPath).isDirectory()) {
     console.log(`Not a directory: ${searchPath}`);
@@ -609,7 +611,7 @@ function _printComments(source, funcName, indent = '') {
 // ========================================================================
 
 export function doListFiles(index, args) {
-  const pattern = (args.list_files && args.list_files !== '.') ? args.list_files : null;
+  const pattern = (typeof args.list_files === 'string' && args.list_files !== '.') ? args.list_files : null;
   const verbose = args.verbose || false;
   const fullPath = args.full_path || false;
 
@@ -762,7 +764,7 @@ export function doShowFile(index, args) {
 export function doFileBookends(index, args) {
   // Parse N: default 20, or from optional value
   let n = 20;
-  const argVal = args.file_bookends;
+  const argVal = typeof args.file_bookends === 'string' ? args.file_bookends : null;
   if (argVal && argVal !== '.') {
     const parsed = parseInt(argVal, 10);
     if (!isNaN(parsed) && parsed > 0) n = parsed;
@@ -1008,7 +1010,8 @@ export function doBundleSeams(index, args) {
 // ========================================================================
 
 export function doListFunctions(index, args) {
-  const pattern = args.list_functions;
+  // Bare --functions (boolean sentinel) means "no filter"; only a string filters.
+  const pattern = typeof args.list_functions === 'string' ? args.list_functions : null;
   let functions = index.listFunctions();
 
   if (pattern) {

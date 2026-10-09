@@ -920,8 +920,15 @@ export function parseArgs() {
           args[def.name] = argv[i + 1];
           i += 2;
         } else {
-          // Flag-only, no value: use default marker
-          args[def.name] = '.';
+          // Flag-only, no value: mark "present, no value" with a boolean
+          // sentinel. This was the literal '.', which filter-consuming commands
+          // then matched as a regex/substring — printing `matching "."` /
+          // `Filtered to: .`, and for --pseudo-claims feeding '.' in as the sole
+          // anchor so the command silently no-opped. A boolean can't be mistaken
+          // for a user-supplied filter; consumers check `typeof === 'string'`
+          // (or `=== true`) to tell "no value" from an explicit value. An
+          // explicitly typed `.` still arrives as the string '.' and is honored.
+          args[def.name] = true;
           i++;
         }
         break;
