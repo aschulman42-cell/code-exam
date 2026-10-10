@@ -189,3 +189,106 @@ test('#321: an array of non-prompt strings is NOT dragged in by the join rule', 
   assert.equal(hit, undefined, 'a stop-word join must not be cataloged: ' +
     JSON.stringify(prompts.filter(p => p.filepath.includes('stopwords.js')).map(p => p.type)));
 });
+
+// prompts-concat-not-branch-variant: a `+` concatenation is ONE string, not a
+// set of alternatives — it must reconstruct cleanly, with no BRANCH VARIANT
+// separators (those belong to genuine one-of composites: ||/??/ternary).
+
+test('composite: a `+` concatenation is one joined prompt, not BRANCH VARIANTs', async () => {
+  const SRC = path.join(os.tmpdir(), 'ce_prompts_concat_src');
+  const IDX = path.join(os.tmpdir(), 'ce_prompts_concat_idx');
+  fs.rmSync(SRC, { recursive: true, force: true });
+  fs.mkdirSync(SRC, { recursive: true });
+  fs.writeFileSync(path.join(SRC, 'sys.js'),
+    "const SYS_HEAD =\n" +
+    "  'You draft ONE hypothetical, illustrative pseudo patent claim for a software ' +\n" +
+    "  'mechanism, as a drafting exercise only, not legal advice and not an admission. ' +\n" +
+    "  'You are given source code and may be given a mechanism line naming the target.';\n" +
+    "export function sys() { return SYS_HEAD; }\n");
+  const index = new CodeSearchIndex({ indexPath: IDX });
+  await index.buildIndex(SRC, { showProgress: false });
+  const prompts = await collectPrompts(index, {});
+  const p = prompts.find(x => x.text.includes('You draft ONE hypothetical'));
+  assert.ok(p, 'the concatenated prompt must be cataloged: ' +
+    JSON.stringify(prompts.map(x => x.text.slice(0, 40))));
+  assert.doesNotMatch(p.text, /BRANCH VARIANT/,
+    'a + concatenation is one string, not branch variants: ' + p.text);
+  assert.match(p.text, /software mechanism/, 'segments should concatenate cleanly: ' + p.text);
+  assert.match(p.text, /mechanism line naming the target/, 'all segments present: ' + p.text);
+});
+
+test('composite: a ternary of two prompts still renders as BRANCH VARIANTs', async () => {
+  const SRC = path.join(os.tmpdir(), 'ce_prompts_ternary_src');
+  const IDX = path.join(os.tmpdir(), 'ce_prompts_ternary_idx');
+  fs.rmSync(SRC, { recursive: true, force: true });
+  fs.mkdirSync(SRC, { recursive: true });
+  fs.writeFileSync(path.join(SRC, 'sys.js'),
+    "function sys(mode) {\n" +
+    "  return mode === 'strict'\n" +
+    "    ? 'You are a strict code reviewer. Reject anything that is not clearly correct and say exactly why.'\n" +
+    "    : 'You are a lenient code reviewer. Accept reasonable answers and note only the minor issues you see.';\n" +
+    "}\n");
+  const index = new CodeSearchIndex({ indexPath: IDX });
+  await index.buildIndex(SRC, { showProgress: false });
+  const prompts = await collectPrompts(index, {});
+  const p = prompts.find(x => x.text.includes('strict code reviewer'));
+  assert.ok(p, 'the ternary prompt must be cataloged: ' +
+    JSON.stringify(prompts.map(x => x.text.slice(0, 40))));
+  assert.match(p.text, /BRANCH VARIANT/,
+    'genuine alternatives must still show branch variants: ' + p.text);
+  assert.match(p.text, /lenient code reviewer/, 'both branches present: ' + p.text);
+});
+
+// prompts-concat-not-branch-variant (follow-up): a `\n` inside a `+` segment is
+// a separate escape_sequence node; it was being dropped, so once segments join
+// with '' they ran together. The separator must survive.
+
+test('composite: a `+` segment boundary with \\n keeps the newline', async () => {
+  const SRC = path.join(os.tmpdir(), 'ce_prompts_nl_src');
+  const IDX = path.join(os.tmpdir(), 'ce_prompts_nl_idx');
+  fs.rmSync(SRC, { recursive: true, force: true });
+  fs.rmSync(IDX, { recursive: true, force: true });
+  fs.mkdirSync(SRC, { recursive: true });
+  fs.writeFileSync(path.join(SRC, 'sys.js'),
+    "const SYS =\n" +
+    "  'You draft ONE hypothetical, illustrative pseudo patent claim for a software ' +\n" +
+    "  'mechanism, as a drafting exercise only, not legal advice and not an admission.\\n' +\n" +
+    "  'You are given source code and may be given a mechanism line naming the target.';\n" +
+    "export function sys() { return SYS; }\n");
+  const index = new CodeSearchIndex({ indexPath: IDX });
+  await index.buildIndex(SRC, { showProgress: false });
+  const prompts = await collectPrompts(index, {});
+  const p = prompts.find(x => x.text.includes('You draft ONE hypothetical'));
+  assert.ok(p, 'the prompt must be cataloged: ' + JSON.stringify(prompts.map(x => x.text.slice(0, 40))));
+  assert.doesNotMatch(p.text, /admission\.You are given/,
+    'the \\n must survive, not run adjacent segments together: ' + JSON.stringify(p.text));
+  assert.match(p.text, /admission\.\nYou are given/,
+    'the real newline inside the segment is preserved: ' + JSON.stringify(p.text));
+  assert.doesNotMatch(p.text, /BRANCH VARIANT/, 'a + concat is one string: ' + p.text);
+});
+
+test('composite: an array .join("\\n") reconstructs with the newline separator', async () => {
+  const SRC = path.join(os.tmpdir(), 'ce_prompts_arr_src');
+  const IDX = path.join(os.tmpdir(), 'ce_prompts_arr_idx');
+  fs.rmSync(SRC, { recursive: true, force: true });
+  fs.rmSync(IDX, { recursive: true, force: true });
+  fs.mkdirSync(SRC, { recursive: true });
+  // The enclosing name carries a prompt marker (#321) so the array builder is
+  // cataloged; the '' element + .join('\n') makes a \n\n paragraph break.
+  fs.writeFileSync(path.join(SRC, 'builder.js'),
+    "export function buildRewritePrompt() {\n" +
+    "  return [\n" +
+    "    'You rewrite ONE limitation of a patent claim as a drafting exercise, not legal advice.',\n" +
+    "    '',\n" +
+    "    'GOAL: express the SAME technical requirement in DIFFERENT WORDS so the wording no longer',\n" +
+    "    'matches the vocabulary a programmer would have used when implementing the mechanism.',\n" +
+    "  ].join('\\n');\n" +
+    "}\n");
+  const index = new CodeSearchIndex({ indexPath: IDX });
+  await index.buildIndex(SRC, { showProgress: false });
+  const prompts = await collectPrompts(index, {});
+  const p = prompts.find(x => x.text.includes('You rewrite ONE limitation'));
+  assert.ok(p, 'the array-join prompt must be cataloged: ' + JSON.stringify(prompts.map(x => x.text.slice(0, 40))));
+  assert.doesNotMatch(p.text, /legal advice\.GOAL:/, 'the join separator must not be dropped: ' + JSON.stringify(p.text));
+  assert.match(p.text, /legal advice\.\n\nGOAL:/, 'the \\n\\n paragraph break is reconstructed: ' + JSON.stringify(p.text));
+});

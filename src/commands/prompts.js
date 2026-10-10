@@ -1051,7 +1051,10 @@ async function _expandCompositePrompts(index, prompts) {
           const branches = [];
           _collectStringBranches(composite, branches, scope, usedIdents);
           if (branches.length < 2) continue; // not actually a merge candidate
-          mergedText = branches.join(BRANCH_SEP);
+          // A `+` concatenation is ONE string (segments joined), not a set of
+          // alternatives — reconstruct it with ''. BRANCH VARIANT markers are
+          // reserved for genuine one-of composites (||/??/ternary).
+          mergedText = _isPureConcat(composite) ? branches.join('') : branches.join(BRANCH_SEP);
         }
         if (!mergedText || mergedText.length <= prompt.text.length) continue;
 
@@ -1160,6 +1163,28 @@ function _findStringNodeAt(root, row /* matchText unused */) {
 // is a ternary / binary-op-of-interest / template-string-with-interpolations.
 // Stops at the first non-expression parent (statement, call, etc.).
 const _COMPOSITE_BINOPS = new Set(['+', '||', '??']);
+
+// True when `node` is a `+`-only concatenation subtree (no ternary, no ||/??):
+// its string segments form ONE runtime string, so the catalog joins them with
+// '' rather than the BRANCH VARIANT separator reserved for genuine one-of
+// composites. Mixed subtrees (a `+` containing a nested ternary/||) return
+// false and keep the variant markers — that case is genuinely ambiguous.
+function _isPureConcat(node) {
+  if (!node || node.type !== 'binary_expression') return false;
+  let pure = true;
+  const walk = (n) => {
+    if (!pure || !n) return;
+    if (n.type === 'ternary_expression') { pure = false; return; }
+    if (n.type === 'binary_expression') {
+      const opNode = n.childForFieldName('operator') || n.child(1);
+      const op = opNode ? opNode.text : null;
+      if (op !== '+') { pure = false; return; }
+    }
+    for (let i = 0; i < n.childCount; i++) walk(n.child(i));
+  };
+  walk(node);
+  return pure;
+}
 function _findEnclosingComposite(stringNode) {
   let current = stringNode;
   // If the detected node is already a template_string (with or without
@@ -1353,7 +1378,14 @@ function _extractStringText(node, scope = null, usedIdents = null) {
     let out = '';
     for (let i = 0; i < node.childCount; i++) {
       const c = node.child(i);
+      // escape_sequence nodes (\n, \t, …) are SEPARATE children from
+      // string_fragment in tree-sitter; collecting only fragments silently
+      // dropped them. That was masked while `+` segments joined with the
+      // BRANCH VARIANT separator, but once they join with '' a dropped
+      // trailing "\n" runs adjacent segments together ("…else:\n" + "CLAIM:"
+      // → "…else:CLAIM:"). The same drop zeroed a .join("\n") separator.
       if (c.type === 'string_fragment') out += _unescapeJs(c.text);
+      else if (c.type === 'escape_sequence') out += _unescapeJs(c.text);
     }
     return out;
   }
@@ -1362,6 +1394,7 @@ function _extractStringText(node, scope = null, usedIdents = null) {
     for (let i = 0; i < node.childCount; i++) {
       const c = node.child(i);
       if (c.type === 'string_fragment') out += c.text;
+      else if (c.type === 'escape_sequence') out += _unescapeJs(c.text);
       else if (c.type === 'template_substitution') {
         const expr = c.namedChild(0);
         if (!expr) { out += '${…}'; continue; }
