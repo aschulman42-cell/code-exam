@@ -1191,17 +1191,17 @@ export function doCmpStringCallDupes(index, args) {
   // ref functions a single work fn can show (not redundant source variants).
   const perWorkCap = 3;
   const capCount = new Map();
-  const final = [];
+  const eligible = [];
   for (const m of dedupedMatches) {
     const key = m.w.filepath + '|||' + m.w.name;
     const c = capCount.get(key) || 0;
     if (c >= perWorkCap) continue;
     capCount.set(key, c + 1);
-    final.push(m);
-    if (final.length >= maxResults) break;
+    eligible.push(m);
   }
+  const final = eligible.slice(0, maxResults);
 
-  console.log(`\nFingerprint-similarity matches (top ${final.length}, min-score=${minScore}):\n`);
+  console.log(`\nFingerprint-similarity matches (showing ${final.length} of ${eligible.length}, min-score=${minScore}):\n`);
   for (const m of final) {
     const wShort = m.w.filepath.length > 60 ? '…' + m.w.filepath.slice(-59) : m.w.filepath;
     const rShort = m.r.filepath.length > 60 ? '…' + m.r.filepath.slice(-59) : m.r.filepath;
@@ -1223,4 +1223,5 @@ export function doCmpStringCallDupes(index, args) {
     }
     console.log();
   }
+  { const note = capNotice(eligible.length, final.length, 'matches'); if (note) console.log(note); }
 }

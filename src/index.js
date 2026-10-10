@@ -1064,7 +1064,9 @@ if (args.referenced_resources) {
     }
     if (unknown.length) process.stderr.write(`[referenced-resources] unknown subsection(s): ${unknown.join(', ')}. Valid: network, env, files, paths, sql, commands, cloud, models\n`);
   }
-  const pick = (arr, key) => (filt ? arr.filter(e => key(e).toLowerCase().includes(filt)) : arr).slice(0, max);
+  // Filter only; the slice + cap-notice happen in section() so the header shows
+  // the TRUE post-filter count and the cap is disclosed when it bites.
+  const pick = (arr, key) => (filt ? arr.filter(e => key(e).toLowerCase().includes(filt)) : arr);
   const verbose = !!args.verbose;
   // First-site info: the source-line snippet (the actual usage, e.g. the full
   // `exec("git", […])`) when it adds info beyond the value, plus the location.
@@ -1078,14 +1080,16 @@ if (args.referenced_resources) {
   const section = (subKey, title, arr, fmt) => {
     if (want && !want.has(subKey)) return;     // subsection filter
     out.push(`${title} (${arr.length}):`);
-    if (!arr.length) out.push('  (none)');
-    else for (const e of arr) {
+    if (!arr.length) { out.push('  (none)'); out.push(''); return; }
+    const shown = arr.slice(0, max);
+    for (const e of shown) {
       out.push('  ' + fmt(e));
       // -v: list every captured site with its source line (the per-call specifics).
       if (verbose && e.sites && e.sites.length > 1) {
         for (const s of e.sites) out.push(`      ${s.filepath}:${s.line}${s.snippet ? '  ' + s.snippet : ''}`);
       }
     }
+    { const note = capNotice(arr.length, shown.length, 'entries'); if (note) out.push(note); }
     out.push('');
   };
   const fsFiles = (rr.filesystem || []).filter(e => e.kind === 'file');

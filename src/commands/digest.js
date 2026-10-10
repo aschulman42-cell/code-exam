@@ -32,7 +32,7 @@
  */
 
 import { quotePathIfNeeded } from '../utils.js';
-import { effectiveMaxResults } from '../argparse.js';
+import { effectiveMaxResults, capNotice } from '../argparse.js';
 
 function _shortPath(fp, maxLen = 60) {
   if (!fp || fp.length <= maxLen) return fp || '';
@@ -157,6 +157,7 @@ export function formatFunctionDigest(digest, opts = {}) {
         }
       }
     }
+    { const note = capNotice(c.distinctCallers, c.byCaller.length, 'callers'); if (note) push(note); }
   }
   push('');
 
@@ -175,6 +176,7 @@ export function formatFunctionDigest(digest, opts = {}) {
         : `${nm}  (${callee.siteCount} sites)`;
       push(`    ${label}`);
     }
+    { const note = capNotice(ce.distinctCallees, ce.topByFrequency.length, 'callees'); if (note) push(note); }
   }
   push('');
 
@@ -200,6 +202,7 @@ export function formatFunctionDigest(digest, opts = {}) {
         const lc = str.localCount > 1 ? `  ×${str.localCount} here` : '';
         push(`    ${JSON.stringify(_truncate(str.val, 80))}${lc}${rarity}`);
       }
+      { const note = capNotice(s.distinctStrings, s.distinctive.length, 'distinct strings'); if (note) push(note); }
     }
     if (s.repeated.length > 0) {
       push('  Repeated within this function:');
@@ -432,6 +435,7 @@ export function formatClassDigest(digest, opts = {}) {
         }
       }
     }
+    { const note = capNotice(inst.distinctCallers, inst.byCaller.length, 'callers'); if (note) push(note); }
   }
   push('');
 
@@ -447,6 +451,7 @@ export function formatClassDigest(digest, opts = {}) {
       const label = callee.siteCount === 1 ? nm : `${nm}  (${callee.siteCount} sites)`;
       push(`    ${label}`);
     }
+    { const note = capNotice(ec.distinctCallees, ec.topByFrequency.length, 'callees'); if (note) push(note); }
   }
   push('');
 
@@ -485,6 +490,7 @@ export function formatClassDigest(digest, opts = {}) {
         const lc = str.localCount > 1 ? `  ×${str.localCount} here` : '';
         push(`    ${JSON.stringify(_truncate(str.val, 80))}${lc}${rarity}`);
       }
+      { const note = capNotice(s.distinctStrings, s.distinctive.length, 'distinct strings'); if (note) push(note); }
     }
     if (s.repeated.length > 0) {
       push('  Repeated within the class:');
@@ -676,6 +682,7 @@ export function formatFileDigest(digest, opts = {}) {
         const lc = str.localCount > 1 ? `  ×${str.localCount} here` : '';
         push(`    ${JSON.stringify(_truncate(str.val, 80))}${lc}${rarity}`);
       }
+      { const note = capNotice(s.distinctStrings, s.distinctive.length, 'distinct strings'); if (note) push(note); }
     }
     if (s.repeated.length > 0) {
       push('  Repeated within this file:');

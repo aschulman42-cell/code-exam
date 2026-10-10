@@ -62,12 +62,26 @@ function runCLI(args) {
 
 before(() => {
   fs.mkdirSync(SRC_DIR, { recursive: true });
-  // 25 called functions → more than the default --hotspots cap of 20.
+  // 25 called functions → more than the default --hotspots cap of 20. main()
+  // calls all 25 (25 in-index call targets → --call-inventory in-index cap),
+  // and each f() calls popular() so popular() has 25 callers (--digest callers
+  // cap). popular() is the top --most-called identifier.
   let body = 'def main():\n';
   for (let i = 0; i < 25; i++) body += `    f${i}()\n`;
   body += '\n';
-  for (let i = 0; i < 25; i++) body += `def f${i}():\n    x = ${i}\n    return x + 1\n\n`;
+  for (let i = 0; i < 25; i++) body += `def f${i}():\n    popular()\n    x = ${i}\n    return x + 1\n\n`;
+  body += 'def popular():\n    return 0\n\n';
+  // 16 distinct string literals → more than the default --digest strings cap
+  // of 15 (--digest strings cap-notice).
+  body += 'def stringy():\n';
+  for (let i = 0; i < 16; i++) body += `    s${i} = "distinct-string-value-number-${i}"\n`;
+  body += '    return 0\n\n';
   fs.writeFileSync(path.join(SRC_DIR, 'app.py'), body);
+  // 25 distinct URLs → more than the default --referenced-resources cap of 20.
+  let net = 'def urls():\n';
+  for (let i = 0; i < 25; i++) net += `    u${i} = "https://example${i}.test/api/endpoint"\n`;
+  net += '    return 0\n';
+  fs.writeFileSync(path.join(SRC_DIR, 'net.py'), net);
   runCLI(`--build-index ${SRC_DIR} --index-path ${IDX_DIR} --skip-semantic 2>&1`);
 });
 
@@ -92,5 +106,65 @@ describe('cap-notice end-to-end (--hotspots)', () => {
   it('--max-results 0 also means unlimited (no tip)', () => {
     const out = runCLI(`--hotspots --max-results 0 --index-path ${IDX_DIR} 2>&1`);
     assert.doesNotMatch(out, TIP, '--max-results 0 should uncap: ' + out);
+  });
+});
+
+// The gaps the central sweep missed (call-inventory-all-results-notice):
+// commands that honor --all-results but did not disclose it on truncation.
+
+describe('cap-notice (--most-called)', () => {
+  const TIP = /\+\d+ more identifiers \(use --most-called <N> or --all-results to see all\)/;
+  it('a truncated --most-called discloses the flag-aware tip', () => {
+    const out = runCLI(`--most-called 5 --index-path ${IDX_DIR} 2>&1`);
+    assert.match(out, TIP, out);
+  });
+  it('--all-results removes the tip', () => {
+    const out = runCLI(`--most-called 5 --all-results --index-path ${IDX_DIR} 2>&1`);
+    assert.doesNotMatch(out, TIP, out);
+  });
+});
+
+describe('cap-notice (--call-inventory in-index)', () => {
+  const TIP = /\+\d+ more targets \(use --max-results <N> or --all-results to see all\)/;
+  it('a truncated in-index listing discloses the tip', () => {
+    const out = runCLI(`--call-inventory -v --max-results 5 --index-path ${IDX_DIR} 2>&1`);
+    assert.match(out, TIP, out);
+  });
+  it('--all-results removes the tip', () => {
+    const out = runCLI(`--call-inventory -v --all-results --index-path ${IDX_DIR} 2>&1`);
+    assert.doesNotMatch(out, TIP, out);
+  });
+});
+
+describe('cap-notice (--digest callers / strings)', () => {
+  const CALLERS = /\+\d+ more callers \(use --max-results <N> or --all-results to see all\)/;
+  const STRINGS = /\+\d+ more distinct strings \(use --max-results <N> or --all-results to see all\)/;
+  it('a digest with more callers than the cap discloses the tip', () => {
+    const out = runCLI(`--digest popular --max-results 3 --index-path ${IDX_DIR} 2>&1`);
+    assert.match(out, CALLERS, out);
+  });
+  it('--all-results removes the callers tip', () => {
+    const out = runCLI(`--digest popular --all-results --index-path ${IDX_DIR} 2>&1`);
+    assert.doesNotMatch(out, CALLERS, out);
+  });
+  it('a digest with >15 distinct strings discloses the tip', () => {
+    const out = runCLI(`--digest stringy --index-path ${IDX_DIR} 2>&1`);
+    assert.match(out, STRINGS, out);
+  });
+  it('--all-results removes the strings tip', () => {
+    const out = runCLI(`--digest stringy --all-results --index-path ${IDX_DIR} 2>&1`);
+    assert.doesNotMatch(out, STRINGS, out);
+  });
+});
+
+describe('cap-notice (--referenced-resources)', () => {
+  const TIP = /\+\d+ more entries \(use --max-results <N> or --all-results to see all\)/;
+  it('a section over the cap discloses the tip', () => {
+    const out = runCLI(`--referenced-resources --max-results 5 --index-path ${IDX_DIR} 2>&1`);
+    assert.match(out, TIP, out);
+  });
+  it('--all-results removes the tip', () => {
+    const out = runCLI(`--referenced-resources --all-results --index-path ${IDX_DIR} 2>&1`);
+    assert.doesNotMatch(out, TIP, out);
   });
 });

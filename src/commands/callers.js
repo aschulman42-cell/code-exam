@@ -342,6 +342,7 @@ export function doMostCalled(index, args) {
   console.log();
   const totalCount = filteredData.reduce((sum, item) => sum + item.count, 0);
   console.log(`Showing: ${Math.min(n, filteredData.length)} of ${filteredData.length} identifiers (after filtering)`);
+  { const note = capNotice(filteredData.length, Math.min(n, filteredData.length), 'identifiers', '--most-called <N>'); if (note) console.log(note); }
   console.log(`Total call sites in filtered set: ${totalCount}`);
   console.log();
   console.log('Tip: Use -v/--verbose to see definition locations for multi-definition functions');
@@ -428,7 +429,10 @@ export function doCallInventory(index, args) {
   // ---- In-index section ----
   if (!isAll || verbose) {
     // For single-function, always show in-index. For --all, only with --verbose.
-    const shownIn = in_index.slice(0, isAll ? maxResults : 200);
+    // Both --all and single-function modes honor --all-results / --max-results,
+    // so the cap-notice below is truthful in both.
+    const inCap = isAll ? maxResults : effectiveMaxResults(args, 200);
+    const shownIn = in_index.slice(0, inCap);
     if (shownIn.length > 0) {
       console.log(`=== IN INDEX (${in_index.length} targets) ===`);
       for (const item of shownIn) {
@@ -437,9 +441,7 @@ export function doCallInventory(index, args) {
         const callerNote = isAll && callerCount > 1 ? `  (called by ${callerCount} functions)` : '';
         console.log(`  ${item.qualified_name.padEnd(40)}  ${quotePathIfNeeded(fp)}  (${item.lines}L)${callerNote}`);
       }
-      if (in_index.length > shownIn.length) {
-        console.log(`  ... +${in_index.length - shownIn.length} more`);
-      }
+      { const note = capNotice(in_index.length, shownIn.length, 'targets'); if (note) console.log(note); }
       console.log();
     }
   }
