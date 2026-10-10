@@ -1528,17 +1528,25 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              commands) or a local GGUF (--model <gguf>, --cpu
                              forces CPU); air-gap honored. Each cited anchor is
                              grounded (must resolve to a real function) or
-                             dropped. With no model (or --dry-run) it stops after
-                             the evidence pack. (CE_OPENAI_API_URL still points
-                             the openai-compat wire at a localhost gateway.)
+                             dropped. With no model (or --dry-run) it drafts NO
+                             claims — it prints the evidence packs only, and says
+                             so. (CE_OPENAI_API_URL still points the openai-compat
+                             wire at a localhost gateway.)
   --pseudo-out <file>        Write the pseudo-claims artifact to <file> (UTF-8)
                              instead of stdout.
   --dry-run                  With --pseudo-claims: emit the caveat + evidence
                              packs only, skipping the model draft even when one
                              is configured.
   --candidates <file>        With --pseudo-claims: AUTO-DISCOVER unranked candidate
-                             mechanism groups (deterministic, no LLM) → <file>;
-                             hand-prune, then --pseudo-claims @<file> --dry-run.
+                             mechanism groups (deterministic, no LLM) and write
+                             them to <file>. <file> is an OUTPUT FILENAME, not a
+                             count. The written file IS an anchors list: hand-prune
+                             it, then draft with --pseudo-claims @<file> --llm
+                             claude (or --model <gguf>). Add --filter <text> to
+                             keep only candidate groups whose header matches
+                             (substring, or /regex/); with a model, --pseudo-claims
+                             --filter <text> --llm claude drafts straight from the
+                             filtered set with no interim file.
   --group-by <mode>          With --candidates: 'multi' (default: name-token +
                              class seeds) | 'concept' (token-only baseline).
   --include-vendored         With --candidates: KEEP third-party subtrees that
