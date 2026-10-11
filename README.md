@@ -217,6 +217,7 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md) | Literal / fast / regex search and multisect |
 | [`CODEEXAM_BROWSING.md`](docs/CODEEXAM_BROWSING.md) | Structural lists, cross-reference, and code-surfacing metrics |
 | [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md) | Vocabulary, breadcrumbs, Overview / AI Overview |
+| [`MEASURING_IMPORTANCE.md`](docs/MEASURING_IMPORTANCE.md) | How CodeExam estimates "importance" (rareness, TF-IDF, cross-corpus down-weighting, centrality) and uses it to steer and sort |
 | [`CODEEXAM_SUMMARIZING.md`](docs/CODEEXAM_SUMMARIZING.md) | Summarizing code: overview, digest, analyze, GUI chat (outline) |
 | [`QUASI_SOURCE.md`](docs/QUASI_SOURCE.md) | Binary analysis and bundled-JS extraction |
 | [`DETECTING_AI_ML.md`](docs/DETECTING_AI_ML.md) | The AI/ML, LLM-app, and infrastructure detector suite |
