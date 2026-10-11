@@ -23,7 +23,7 @@ import {
   classifyLimitation, limitationTag, directionOf, directionalMismatch,
   buildTargetsFileBody, attributeTargets, samplingLine, VOCAB_MAX_OUTPUT_TOKENS,
   LOCATE_DEFAULTS,
-  repairStrayAndComma, isPreambleRow,
+  repairStrayAndComma, isPreambleRow, isJepsonPreamble,
   SPLIT_DEFAULTS,
   buildProposePrompt, buildIndexProfile, formatLocateReport,
   doClaimLocate, buildDiscoverPrompt, parseElementWords, searchSymbolsByWords,
@@ -1312,7 +1312,8 @@ describe('splitter: preamble identification is POSITIONAL (Part B)', () => {
   // preamble-row-on-supplied-elements (2026-08-28): a SUPPLIED row keeps its
   // claim-number prefix ("1. A method ... comprising:"), which CE's own splitter
   // strips and --elements never does. 0 of 380 fixture sets had a preamble row
-  // before the prefix was tolerated; 326 after. The text is never rewritten.
+  // before the prefix was tolerated; 326 after that, 377 after Jepson/bare-noun
+  // openers (preamble-jepson-openers, 2026-10-11). The text is never rewritten.
   it('sees through a leading claim-number prefix on a supplied row', () => {
     assert.equal(isPreambleRow('1. A method comprising:', 0), true);
     assert.equal(isPreambleRow('1) A method comprising:', 0), true);
@@ -1320,8 +1321,37 @@ describe('splitter: preamble identification is POSITIONAL (Part B)', () => {
     assert.equal(isPreambleRow('1. the method further comprising', 0), true, 'article + transition, as today');
     assert.equal(isPreambleRow('1. A method comprising:', 1), false, 'position still does the work');
     assert.equal(isPreambleRow('1. receiving a packet;', 0), false, 'no article, no transition');
-    assert.equal(isPreambleRow('In a computer system having a processor, a method comprising:', 0), false,
-      'Jepson-style openers are not covered here (54 of 380 fixture sets) — a separate rule');
+    assert.equal(isPreambleRow('In a computer system having a processor, a method comprising:', 0), true,
+      'Jepson-style openers ARE covered now (preamble-jepson-openers)');
+  });
+
+  // preamble-jepson-openers (2026-10-11): the opener was widened to Jepson
+  // ("In a … having …, a method comprising:") and bare-noun ("Apparatus for …
+  // comprising:") forms; PREAMBLE_TRANS and the index-0 rule are unchanged, so
+  // the opener never discriminates on its own.
+  it('recognizes Jepson and bare-noun preamble openers', () => {
+    assert.equal(isPreambleRow('In a cellular telephone system in which messages are exchanged, a method comprising:', 0), true, 'Jepson "In a … system …"');
+    assert.equal(isPreambleRow('For use in a graphical, event-driven computer system, a method comprising:', 0), true, 'Jepson "For use in …"');
+    assert.equal(isPreambleRow('Apparatus for authenticating a hardcopy document comprising:', 0), true, 'bare-noun "Apparatus for …"');
+    // Still fail-safe: no transition word → not a preamble. Named so nobody
+    // "fixes" the rule to catch a misspelling or a truncation.
+    assert.equal(isPreambleRow('A method comprsing:', 0), false, 'typo in the transition stays unrecognized');
+    assert.equal(isPreambleRow('A wireless telephone (', 0), false, 'truncated row stays unrecognized');
+    // The opener is still the guard against a row-1 limitation that merely
+    // contains a transition word.
+    assert.equal(isPreambleRow('receiving a packet including a header', 0), false, 'a limitation that contains "including" is not a preamble');
+  });
+
+  // The Jepson tag: a Jepson preamble's recited elements are ADMITTED PRIOR ART
+  // (the claim is the improvement over them), so the detection layer flags it
+  // distinctly from a plain-article or bare-noun preamble. Downstream (charting)
+  // can use the tag to treat those elements as conceded-old.
+  it('tags Jepson preambles (admitted prior art) distinctly', () => {
+    assert.equal(isJepsonPreamble('In a computer system having a processor, a method comprising:', 0), true, 'Jepson → tagged');
+    assert.equal(isJepsonPreamble('For use in a graphical computer system, a method comprising:', 0), true, 'Jepson "For use in" → tagged');
+    assert.equal(isJepsonPreamble('A method comprising:', 0), false, 'plain-article preamble is NOT Jepson');
+    assert.equal(isJepsonPreamble('Apparatus for authenticating a document comprising:', 0), false, 'bare-noun preamble is NOT Jepson');
+    assert.equal(isJepsonPreamble('In a system having X, a method comprising:', 1), false, 'index still does the work');
   });
 });
 

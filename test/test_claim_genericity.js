@@ -15,7 +15,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { isPreambleRow } from '../src/commands/claim-locate.js';
+import { isPreambleRow, isJepsonPreamble } from '../src/commands/claim-locate.js';
 import {
   claimGenericity, elementClass, elementClasses, headVerb, tallyByClass, classHeadline,
   genericityProfiles, IO_VERBS, MECHANISM_CUE,
@@ -140,19 +140,24 @@ describe('claim genericity: population calibration on the 380 litigated attorney
     assert.ok(n > 2000, `elements: ${n}`);
     assert.equal(flat.filter((c) => c === 'unscored').length, 0);
   });
-  it('the supplied first row is the preamble for most sets (2026-08-28: 326 of 380; the rest open Jepson-style, "In a system ...")', () => {
-    // preamble-row-on-supplied-elements: supplied rows keep their "1." prefix; before the
-    // prefix was tolerated this was 0 of 380.
+  it('the supplied first row is the preamble for nearly all sets (2026-10-11: 377 of 380 after Jepson/bare-noun openers; the 3 left are a typo, a truncation, and a non-transition verb)', () => {
+    // preamble-row-on-supplied-elements → preamble-jepson-openers: 0 of 380 before
+    // the "1." prefix was tolerated, 326 after that, 377 after the opener widened
+    // to Jepson ("In a …") and bare-noun ("Apparatus for …") forms.
     const sets = per.filter((c) => c[0] === 'preamble').length;
-    assert.ok(sets >= 300, `${sets} of ${per.length} sets have a preamble row`);
+    assert.ok(sets >= 370, `${sets} of ${per.length} sets have a preamble row`);
   });
-  it('generic elements are a minority band of the non-preamble rows (2026-08-28: 538 of 1,968 = 27%)', () => {
+  it('generic elements are a minority band of the non-preamble rows (2026-10-11: 534 of 1,917 = 28%)', () => {
     const share = generic / (n - pre);
     assert.ok(share >= 0.15 && share <= 0.40, `generic share ${share.toFixed(3)} (${generic}/${n - pre}), mechanism ${mech}`);
   });
-  it('most litigated claim 1s have at least two mechanism elements (2026-08-28: 31 of 380 do not, once the preamble is set aside)', () => {
+  it('most litigated claim 1s have at least two mechanism elements (2026-10-11: 36 of 380 do not, once the preamble is set aside)', () => {
     const under2 = per.filter((c) => c.filter((k) => k === 'mechanism').length < 2).length;
     assert.ok(under2 <= 45, `${under2} of ${per.length} claims with < 2 mechanism elements (band: 12%)`);
+  });
+  it('a distinct minority open Jepson-style — admitted-prior-art preambles (2026-10-11: 49 of 380)', () => {
+    const jep = recs.filter((r) => (r.lines || []).length && isJepsonPreamble(r.lines[0], 0)).length;
+    assert.ok(jep >= 40 && jep <= 70, `${jep} of ${recs.length} sets open Jepson-style`);
   });
 });
 

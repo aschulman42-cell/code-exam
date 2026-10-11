@@ -337,7 +337,22 @@ export function splitClaimElements(claimText, opts = {}) {
  * Fails safe: if either test misses, the row is not labelled. A missing label is
  * a cosmetic gap; a wrong one is a false statement about a claim.
  */
-const PREAMBLE_OPEN = /^\s*(?:a|an|the)\b/i;
+// preamble-jepson-openers: the opener was article-only (a|an|the), which missed
+// 54 of the 380 litigated element sets whose first row opens Jepson-style ("In a
+// system having …, a method comprising:") or with a bare head noun ("Apparatus
+// for … comprising:"). Widened to also accept an environment-setting preposition
+// (in / for / with — covers "for use in" / "in connection with" by their leading
+// word) and a bare head noun. PREAMBLE_TRANS and the index-0 rule stay as the
+// guards, exactly as the function comment requires — the opener is never a
+// discriminator on its own.
+const PREAMBLE_OPEN = /^\s*(?:(?:a|an|the)|(?:in|for|with)|(?:apparatus|system|method|device|one or more))\b/i;
+// A Jepson preamble sets a KNOWN environment before the inventive part: by
+// definition its recited elements are admitted prior art and the claim is the
+// improvement OVER them (they remain limiting for infringement — "known" is not
+// "ignorable"). The environment-setting prepositional opener is the signal, and
+// isJepsonPreamble (below) tags it so downstream can treat those elements as
+// conceded-old later. Bare-noun and plain-article preambles are NOT Jepson.
+const PREAMBLE_JEPSON_OPEN = /^\s*(?:in|for|with)\b/i;
 const PREAMBLE_TRANS = /\b(?:comprising|consisting of|including|having|characterized (?:in|by))\b/i;
 
 // A SUPPLIED row keeps its claim-number prefix -- "1. A method ... comprising:"
@@ -353,6 +368,18 @@ export function isPreambleRow(text, index) {
   if (index !== 0) return false;
   const s = String(text || '').replace(CLAIM_NUMBER_PREFIX, '');
   return PREAMBLE_OPEN.test(s) && PREAMBLE_TRANS.test(s);
+}
+
+// Jepson tag (preamble-jepson-openers): true when the preamble sets a known
+// environment via a prepositional opener — i.e. its recited elements are
+// ADMITTED PRIOR ART and the claim is the improvement over them. A
+// detection-layer marker; downstream (claim charting, genericity) can use it to
+// treat those elements as conceded-old. Bare-noun and plain-article preambles
+// return false (they make no prior-art admission by form).
+export function isJepsonPreamble(text, index) {
+  if (!isPreambleRow(text, index)) return false;
+  const s = String(text || '').replace(CLAIM_NUMBER_PREFIX, '');
+  return PREAMBLE_JEPSON_OPEN.test(s);
 }
 
 /**
