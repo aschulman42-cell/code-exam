@@ -184,8 +184,9 @@ Sections still to write (TODO):
   list is to eyeball.
 - **TODO — the drafting prompts.** A section on the prompt(s) CodeExam uses to
   steer the LLM when drafting pseudo-claims, and the ways to see them: the prompt
-  catalog `--prompt-catalog` (alias `--prompts`), and `--show-prompt` — which
-  will cover `--pseudo-claims` once `show-prompt-all-llm-commands` lands.
+  catalog `--prompt-catalog` (alias `--prompts`), and `--show-prompt` (which
+  prints the system prompt plus each group's evidence pack and exits without
+  drafting — works with or without a model).
 - **TODO — hand-editing a candidates list.** A section on editing a
   CodeExam-generated `cand.lst` before drafting — pruning groups, merging or
   splitting them, and re-ranking.

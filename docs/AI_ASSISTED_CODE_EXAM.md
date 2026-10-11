@@ -63,9 +63,10 @@ same input yields the same output — is covered in [`REPRODUCIBILITY.md`](REPRO
   depending on configuration, and — a scope note worth stating — masking exists on the analyze
   routes, not in Chat, so a conversation about masked code can always fetch the unmasked source one
   `extract` away.)
-- **`--show-prompt`** — add it to any analyze command to print the **prompt** (the
-  digest-plus-source text CodeExam would otherwise send to the model) and exit with **no API
-  call**. Use it to hand-paste a CodeExam-built prompt into any chat tool while making no network
+- **`--show-prompt`** — add it to any LLM command (`--analyze`, `--claim-search`,
+  `--claim-chart`, `--claim-locate`, `--synonymize`, `--pseudo-claims`, `--claims-loop`) to print
+  the **prompt(s)** CodeExam would otherwise send to the model — the system prompt plus the
+  per-item user content — and exit with **no API call** (works even with no `--llm` / `--model`). Use it to hand-paste a CodeExam-built prompt into any chat tool while making no network
   request from CodeExam itself. The same caveat as `--mask-all` applies: this keeps your source
   *files* on your machine, but it is not a hard confidentiality boundary — the prompt text you
   paste still contains code (or masked code, from which proprietary detail can leak), and where it

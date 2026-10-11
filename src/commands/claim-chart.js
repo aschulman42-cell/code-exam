@@ -32,7 +32,7 @@
 // ============================================================================
 
 import fs from 'node:fs';
-import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine, engineBuildLine, getEngineBuild } from '../core/llm-runner.js';
+import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine, engineBuildLine, getEngineBuild, printShownPrompts } from '../core/llm-runner.js';
 import { buildClaimAnalyzePrompt, addLineNumbers, readClaimFile, resolveClaimScope, splitNumberedClaims } from './analyze.js';
 import { analyzeClaimSet, parentElementSynonyms } from '../core/dep-claims.js';
 import { extractClientServer } from '../core/client-server.js';
@@ -1777,6 +1777,22 @@ export async function doClaimChart(index, args, opts = {}) {
       console.error(`--chart-notes: ${npath} is empty — supply commentary or drop the flag.`);
       process.exitCode = 1; return;
     }
+  }
+
+  // --show-prompt: print the per-cell analysis prompt template and exit — no
+  // model call (works with no --llm/--model). claim-chart sends one prompt per
+  // (claim element × candidate function); the claim is shown in full, the
+  // per-function source is spliced in at run time.
+  if (args.show_prompt) {
+    const tier = args.granularity === 'coarse' ? 'coarse' : 'fine';
+    const { elements } = buildChartTable(claimText, { granularity: tier });
+    const scaffold = buildChartAnalysisPrompt(
+      '«FUNCTION SOURCE spliced here at run time»', '<function>', '<file>', claimText, elements);
+    printShownPrompts({
+      users: [{ label: 'per-cell chart-analysis prompt (combined; no separate system)', text: scaffold }],
+      note: '(--claim-chart sends one such prompt per claim element × candidate function; the per-function source is spliced into the marked slot at run time.)',
+    });
+    return;
   }
 
   const model = resolveModel(args);

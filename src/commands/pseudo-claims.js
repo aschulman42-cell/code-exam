@@ -35,7 +35,7 @@ import { parseFuncSpec, readCeVersion } from '../utils.js';
 import { splitClaimElements, isPreambleRow } from './claim-locate.js';
 import { claimGenericity, elementClasses } from '../core/claim-genericity.js';
 import { analyzeClaimSet, classifyContribution } from '../core/dep-claims.js';
-import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, wasLastDraftTruncated, truncationCount, truncationLine } from '../core/llm-runner.js';
+import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, wasLastDraftTruncated, truncationCount, truncationLine, printShownPrompts } from '../core/llm-runner.js';
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
 import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, echoPairs, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
@@ -1513,7 +1513,7 @@ export async function doPseudoClaims(index, args) {
     // form 1). With no model that is the whole job; with a model, draft from
     // the SAME filtered groups (form 3).
     await doEmitCandidates(index, args);
-    if (!resolveModel(args)) return;
+    if (!resolveModel(args) && !args.show_prompt) return;
     const result = computeCandidateGroups(index, args);
     if (result == null) return;
     groups = candidateGroupsToParsed(index, args, result);
@@ -1525,7 +1525,9 @@ export async function doPseudoClaims(index, args) {
     // the stdout stays a clean anchors list.
     const result = computeCandidateGroups(index, args);
     if (result == null) return;
-    if (!resolveModel(args)) {
+    // --show-prompt wants the drafting prompt, not the candidates list — fall
+    // through to build groups and print it (below), even with no model.
+    if (!resolveModel(args) && !args.show_prompt) {
       process.stdout.write(renderCandidates(index, args, result));
       console.error(`\n# ${result.groups.length} candidate group(s) matched --filter '${args.filter}' — these are CANDIDATES, not claims (no model configured).`);
       console.error('# To draft pseudo-claims from them, re-run with --llm claude|openai|gemini (key via ANTHROPIC_API_KEY / …) or --model <gguf>.');
@@ -1621,6 +1623,29 @@ export async function doPseudoClaims(index, args) {
   }
 
   const withAnchors = sections.filter((s) => s.resolved.length);
+
+  // --show-prompt (show-prompt-all-llm-commands): print the exact drafting
+  // prompt(s) — system + the per-group evidence pack — and exit, no model call.
+  // Runs BEFORE the model gate, so it works with no --llm/--model.
+  if (args.show_prompt) {
+    const spName = args.shape_profile || DEFAULT_SHAPE_PROFILE;
+    const clsMode = args.claim_class || 'method';
+    const users = withAnchors.map((s) => {
+      const cls = clsMode === 'auto' ? pickClaimClass(s).class : (clsMode === 'both' ? 'method' : clsMode);
+      const mech = s.label ? `${s.label}${s.purpose ? ' — ' + s.purpose : ''}` : '';
+      const intent = mech ? `MECHANISM: ${mech}\n\n` : '';
+      return { label: `${s.label || 'group'} [${cls}]`, text: `${intent}CODE:\n${s.pack}` };
+    });
+    const sysCls = (clsMode === 'auto' || clsMode === 'both') ? 'method' : clsMode;
+    const sysProfile = sysCls === 'system' && SHAPE_PROFILES[`${spName}-system`] ? `${spName}-system` : spName;
+    printShownPrompts({
+      system: buildPseudoClaimSys(sysProfile, sysCls),
+      users,
+      note: `(one claim is drafted per group; ${users.length} group(s) shown. The system prompt is per statutory class — shown here for '${sysCls}'.)`,
+    });
+    return;
+  }
+
   const model = resolveModel(args);
   if (model && model.kind === 'error') {
     console.error(`--pseudo-claims: ${model.error}`);

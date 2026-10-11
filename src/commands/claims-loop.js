@@ -32,7 +32,7 @@
 // ============================================================================
 
 import fs from 'node:fs';
-import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage } from '../core/llm-runner.js';
+import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, printShownPrompts } from '../core/llm-runner.js';
 import { buildClaimAnalyzePrompt } from './analyze.js';
 import {
   CLAIM_EXTRACTION_PROMPT_LOCAL, buildLocalExtractionPromptWithVocab,
@@ -341,6 +341,24 @@ export async function doClaimsLoop(index, args, opts = {}) {
   catch (e) { console.log(`Cannot read chart: ${e.message}`); return; }
   try { lstText = fs.readFileSync(candPath, 'utf8'); }
   catch (e) { console.log(`Cannot read candidates: ${e.message}`); return; }
+
+  // --show-prompt: print the prompt templates claims-loop uses and exit — no
+  // model call (works with no --llm/--model). It runs an analyze pass per
+  // pseudo-claim × anchor, then a redraft pass; claim text and code are spliced
+  // in at run time.
+  if (args.show_prompt) {
+    const analyze = buildClaimAnalyzePrompt('«candidate function source spliced here»', '<function>', '<file>', '«each pseudo-claim from the chart»', false);
+    const rd = buildRedraftPrompt('«the pseudo-claim»', [{ label: 'ABSENT', text: '«element»' }], '«cited sources»');
+    printShownPrompts({
+      users: [
+        { label: 'analyze pass — per-anchor claim-analysis prompt', text: analyze },
+        { label: 'redraft pass — SYSTEM', text: rd.sys },
+        { label: 'redraft pass — USER', text: rd.user },
+      ],
+      note: '(--claims-loop runs an analyze pass per pseudo-claim × anchor, then a redraft pass; claim text and code are spliced in at run time. Templates shown.)',
+    });
+    return;
+  }
 
   const model = resolveModel(args);
   if (!model) { console.log('--claims-loop needs a model: --model <gguf> or --llm <provider>.'); return; }

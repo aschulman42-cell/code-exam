@@ -41,7 +41,7 @@
 // a claim that reads differently without being any harder.
 import fs from 'node:fs';
 import { readCeVersion } from '../utils.js';
-import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine } from '../core/llm-runner.js';
+import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine, printShownPrompts } from '../core/llm-runner.js';
 import { splitClaimElements, parseElementsFile, repairStrayAndComma } from './claim-locate.js';
 
 export const SYNONYMIZE_DEFAULTS = {
@@ -513,6 +513,22 @@ export async function doSynonymize(args, opts = {}) {
   if (!suppliedElements) {
     const total = perClaim.reduce((n, c) => n + c.elements.length, 0);
     elementsSource = `${total} from CE's split`;
+  }
+
+  // --show-prompt: print the system prompt + each element's user text and exit,
+  // no model call (works with no --llm/--model). The model is shown the CLAIM
+  // ONLY — no index, no code.
+  if (args.show_prompt) {
+    const users = perClaim.flatMap((c) => c.elements.map((e, i) => ({
+      label: isCorpus ? `claim ${c.n}, element ${i + 1}` : `element ${i + 1}`,
+      text: String(e),
+    })));
+    printShownPrompts({
+      system: buildSynonymizePrompt(),
+      users,
+      note: `(one model call per element; ${users.length} element(s) shown. The model is given the CLAIM ONLY — no index, no code, no paths.)`,
+    });
+    return;
   }
 
   const model = resolveModel(args);

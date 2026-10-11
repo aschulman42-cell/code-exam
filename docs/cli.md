@@ -652,9 +652,10 @@ Deprecated alias for `--model`. Continues to work; sets `args.claim_model` and (
 
 #### `--show-prompt`
 
-- **Does**: Display the LLM prompt and exit (no API call).
+- **Does**: Display the prompt(s) a command would send and exit (no API call); works on **every** LLM command, with or without `--llm` / `--model`.
+- **Reading the output**: the SYSTEM prompt prints first; the long blocks after it are the USER content actually sent — for `--pseudo-claims`, the per-group evidence packs, which double as a useful filter-scoped digest of the matched code. After a large prompt a footer (stdout) and a line on stderr point back to the top, so the system prompt isn't lost above the scroll.
 - **Good for**: Auditing what gets sent to the LLM — reproducibility, prompt-engineering iteration, and litigation context (showing court what was asked).
-- **Couples with**: `--claim-search`, `--analyze`, others using LLM.
+- **Couples with**: every LLM command — `--analyze`, `--claim-search`, `--claim-chart`, `--claim-locate`, `--synonymize`, `--pseudo-claims`, `--claims-loop`.
 - **Naming**: imperative verb-noun.
 - **Verified against**: `src/argparse.js:287`
 

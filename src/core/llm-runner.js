@@ -105,6 +105,43 @@ export function describeEngine(model) {
   return `${label}${id} (cloud LLM)`;
 }
 
+// --show-prompt (show-prompt-all-llm-commands): print the exact prompt(s) a
+// command would send to the model, then let the caller `return` — no API call,
+// no cost gate, works with no --llm/--model. Uniform across every LLM command.
+// `users` is the list of user prompts (one per element / group / phase), each a
+// string or `{ label, text }`; `system` is the shared system prompt (omit when a
+// command sends a single combined string — pass it as the sole `users` entry).
+export function printShownPrompts({ system = null, users = [], note = null } = {}) {
+  if (system != null) {
+    console.log('===== SYSTEM PROMPT =====');
+    console.log(system);
+    console.log('');
+  }
+  const many = users.length > 1;
+  let userChars = 0;
+  users.forEach((u, i) => {
+    const text = typeof u === 'string' ? u : ((u && u.text) || '');
+    userChars += text.length;
+    const label = (u && typeof u === 'object' && u.label) ? ` — ${u.label}` : '';
+    const head = system != null ? 'USER' : 'PROMPT';
+    console.log(`===== ${head}${many ? ` ${i + 1}/${users.length}` : ''}${label} =====`);
+    console.log(text);
+    console.log('');
+  });
+  if (note) { console.log(note); console.log(''); }
+  // After a large prompt the reader lands at the bottom and may not see the
+  // system prompt at the top — orient them back up. The long USER blocks ARE
+  // part of the prompt (the code / evidence packs sent to the model), which is
+  // why the output can be big. Footer on stdout; a copy on stderr so the
+  // pointer survives stdout redirection and a long scroll.
+  const where = system != null
+    ? 'the SYSTEM prompt is at the TOP; the long block(s) above are the USER content (code / evidence packs) sent with it'
+    : 'the full prompt is above';
+  const size = userChars > 4000 ? `  [${Math.round(userChars / 1024)} KB of user content across ${users.length} block(s)]` : '';
+  console.log(`(--show-prompt: prompt displayed above, no LLM call made — ${where}.${size})`);
+  console.error(`[--show-prompt] prompt written to stdout, no LLM call — ${where}.`);
+}
+
 // Build a cloud descriptor for a resolved provider — key + model + endpoint
 // resolution mirrors analyze.js (provider flag > --api-key > provider key env >
 // provider key file; CE_OPENAI_API_URL / CLAIM_SEARCH_API_URL override the base).

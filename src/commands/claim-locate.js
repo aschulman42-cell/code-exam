@@ -39,7 +39,7 @@ import { readClaimFile } from './analyze.js';
 import { parseMultisectTerms } from './multisect.js';
 import { isPseudoSource } from '../binstrings.js';
 import { claimGenericity } from '../core/claim-genericity.js';
-import { wasLastDraftTruncated, resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine } from '../core/llm-runner.js';
+import { wasLastDraftTruncated, resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine, printShownPrompts } from '../core/llm-runner.js';
 import {
   buildSymbolTable, verifySymbol, isFound, nearbySymbols, navigateFrom,
   parseProposedSymbols,
@@ -1824,6 +1824,21 @@ export async function doClaimLocate(index, args, opts = {}) {
     return;
   }
   claimText = String(claimText).trim();
+
+  // --show-prompt: print claim-locate's phase system prompt(s) and exit — no
+  // model call (works with no --llm/--model). The command runs several phases
+  // (discover, propose, select); the claim and codebase profile are spliced in
+  // at run time.
+  if (args.show_prompt) {
+    printShownPrompts({
+      users: [
+        { label: 'discovery-phase system prompt', text: buildDiscoverPrompt() },
+        { label: 'propose-phase system prompt', text: buildProposePrompt('«codebase profile summary spliced here at run time»') },
+      ],
+      note: '(--claim-locate runs several phases, each with its own prompt; the claim text and per-run data are spliced in at run time. The main system prompts are shown.)',
+    });
+    return;
+  }
 
   const model = resolveModel(args);
   if (!model) { console.error('--claim-locate needs a model: --llm <provider> or --model <gguf>.'), process.exitCode = 1; return; }

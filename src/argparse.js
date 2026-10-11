@@ -1501,7 +1501,10 @@ CLAIM SEARCH (LLM-based patent claim analysis):
                              (which is a local GGUF path). Overrides the
                              CLAIM_SEARCH_MODEL env var; default claude-sonnet-4-6.
   --temperature <float>      LLM temperature (default: 0.0)
-  --show-prompt              Display the LLM prompt and exit (no API call)
+  --show-prompt              Display the LLM prompt and exit (no API call). Works on
+                             every LLM command — analyze, claim-search / -chart /
+                             -locate, synonymize, pseudo-claims, claims-loop — with
+                             or without --llm / --model.
   --vocab-tight              Also use codebase vocabulary for TIGHT term generation
                               (default: vocabulary only influences BROAD terms)
   --no-vocabulary            Disable codebase vocabulary in term extraction prompts
