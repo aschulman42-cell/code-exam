@@ -66,12 +66,19 @@ plainly:
 independently-operable panels that redesign is built toward.
 - **GUI test automation** (#73) — not yet automated; the GUI is exercised by hand. See
   [`CODEEXAM_TESTING.md`](CODEEXAM_TESTING.md).
-- **Indexing pathological files** (#88) — *large* is not the same as *pathological*:
-  CodeExam indexes multi-gigabyte codebases fine (the largest built here is ~1.2 GB, and
-  bigger has worked — [[confirm the large-codebase example, e.g. Chromium ~5 GB, + issue #]]).
-  The gap is *pathological single files*: without per-file size caps or parse timeouts,
-  `--build-index` can hang (tree-sitter) or run out of memory on extreme inputs. Guards are
-  planned.
+- **Indexing very large inputs / pathological files** (#88) — *large* is not the same as
+  *pathological*: CodeExam indexes multi-gigabyte codebases fine (the largest built here is
+  ~1.2 GB; Chromium at ~195K files / ~5 GB has been built and queried with
+  `NODE_OPTIONS=--max-old-space-size=8192`). Two real limits remain, both on `--build-index`,
+  because Node's default heap is ~4 GB and a V8 heap OOM is **uncatchable** (there is no way to
+  print a nice message *after* it):
+    - **One pathological single file** — a huge minified bundle can hang or OOM the tree-sitter
+      parse. Remedy: more heap + `--split-bundle`.
+    - **A huge corpus** (very high file count / total bytes) — the inverted-index build holds the
+      whole corpus in memory. Remedy: more heap, or shard the build by subtree and query across
+      shards with `--multi-index`.
+  `--build-index` now prints a **pre-flight advisory** with the exact flags before the crash (it
+  does not skip anything); see the FAQ.
 - **Mermaid pipeline diagrams render only connected flows** — isolated detections and very long
   pipelines may not diagram cleanly.
 - **Emitted PyTorch harnesses are scaffolds** — validated for structure, not guaranteed

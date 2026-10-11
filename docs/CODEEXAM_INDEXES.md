@@ -29,7 +29,12 @@ network log (#161); Fiddler `.saz` captures are planned as well.
 
 Indexes scale: a pure-Node streaming JSON parser handles multi-gigabyte indexes — the largest
 tested is **Chromium, ~195K files / ~5 GB**, loaded with `NODE_OPTIONS=--max-old-space-size=8192`.
-(*Large* is routine; the real caveat is *pathological single files* — see
+**Build-time caveat:** Node's default heap is ~4 GB, so *building* a multi-GB corpus (not just
+loading it) usually needs `--max-old-space-size=8192` too, and an extreme corpus is best built one
+subtree at a time and queried with `--multi-index`; `--build-index` prints a pre-flight advisory
+with the exact flags when an input is large enough to risk an out-of-memory crash. (Some of the
+earliest large-scale testing was on the Python version, which had no such heap limit.) *Large* is
+routine; the other caveat is *pathological single files* — both are in
 [`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md).)
 
 **Languages.** Precise structure comes from tree-sitter WASM grammars for **C, C++, Java,

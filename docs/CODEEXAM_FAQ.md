@@ -293,6 +293,36 @@ rename-aware search behavior so it stops surprising people.
 
 ---
 
+## `--build-index` died with "JavaScript heap out of memory"
+
+**Q.** My `--build-index` run crashed with `FATAL ERROR: … JavaScript heap out of
+memory`. How do I index it?
+
+**A.** Node's default heap is ~4 GB and that crash is uncatchable, so CodeExam can
+only warn *before* it — and now does, printing a pre-flight advisory with the exact
+flags when an input looks large enough to risk it. Nothing is skipped; it is
+guidance only. Two shapes:
+
+- **One very large file** (e.g. a big minified bundle — the tree-sitter parse blows
+  the heap). Give it more heap and split the bundle:
+
+  ```
+  node --max-old-space-size=8192 src/index.js --build-index <src> --split-bundle --index-path <name>
+  ```
+
+- **A huge corpus** (very high file count / total bytes — the inverted-index build
+  holds the whole corpus in memory). More heap helps, but for an extreme corpus
+  **shard** it: build one index per subtree, then query across them with
+  `--multi-index` (which runs one process per index, so memory stays per-shard):
+
+  ```
+  NODE_OPTIONS=--max-old-space-size=8192 ce --build-index <subtree> --index-path .shard1
+  ce --multi-index @indexes.txt <command>
+  ```
+
+See [`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md) and
+[`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md).
+
 ## GUI-only rough edges
 
 These are specific to the GUI; most are logged in **issue #343** and awaiting
