@@ -198,6 +198,14 @@ the *common-ancestor directory* of the listed files, not the list file and not
 necessarily a root you can prepend to every printed path (scattered inputs push
 it up to a high directory, or to your cwd).
 
+**Also — a `--files <filter>` result that looks wrong.** **Q.** I ran `ce
+--files safety` and the results include filenames that say nothing about safety.
+What's up with that? **A.** The string `safety` you chose as a filter to
+`--files` must appear in the *full in-index path* (e.g. a parent `safety/`
+directory) — but the default display shows only the basename, so the match is
+hidden. Re-run with `--full-path` to see the whole path and why each file
+matched.
+
 **GUI.** Path display is space-constrained and left-truncates, hiding the
 directory that distinguishes same-named files (#242) — the full/original path
 isn't shown; use the CLI recipe above when you need it. The left-pane accordions
