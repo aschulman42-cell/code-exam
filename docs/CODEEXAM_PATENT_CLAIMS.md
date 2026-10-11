@@ -72,17 +72,15 @@ mechanism — so attention lands on the elements that actually distinguish the c
 
 ## Pseudo-claims
 
-**`--pseudo-claims`** (machine-readable form `--claims-only`) drafts *illustrative* claims from
-evidence found in a codebase — a way to explore what claims a body of code might read on.
+**`--pseudo-claims`** drafts *illustrative* claims from evidence found in a codebase — a way to
+explore what claims a body of code might read on. A pseudo-claim is written in the voice of a patent
+claim, so out of context it can read like an assertion about what a codebase actually practices; it
+is not — it is an illustrative draft carrying fixed non-admission caveats. Keep them labeled as
+drafts, not findings.
 
-**Handle these with care.** A pseudo-claim is written in the voice of a patent claim, so out of
-context it can read like an assertion about what a codebase actually practices. It is not — a
-pseudo-claim is an illustrative draft, and CodeExam attaches fixed caveats to that effect. Keep them
-labeled as drafts, not findings.
-
-[[placeholder: link a `docs/` example of CE-generated pseudo-claims run on CodeExam's own codebase,
-if that exemplary sample ships — an illustration only, carrying the caveat that it is an example and
-not an assertion of what CodeExam embodies or practices.]]
+Pseudo-claims have their own page: see [`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md) for
+what they are and are not, how to run them (explicit anchors, the candidates arc, and the
+one-command `--filter … --llm` form), the model / air-gap requirements, and examples.
 
 ## Methodology and defensibility
 

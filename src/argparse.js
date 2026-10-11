@@ -1531,7 +1531,9 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              dropped. With no model (or --dry-run) it drafts NO
                              claims — it prints the evidence packs only, and says
                              so. (CE_OPENAI_API_URL still points the openai-compat
-                             wire at a localhost gateway.)
+                             wire at a localhost gateway.) Full guide, with the
+                             candidates arc and the one-command --filter … --llm
+                             form: docs/CODEEXAM_PSEUDO_CLAIMS.md.
   --pseudo-out <file>        Write the pseudo-claims artifact to <file> (UTF-8)
                              instead of stdout.
   --dry-run                  With --pseudo-claims: emit the caveat + evidence
