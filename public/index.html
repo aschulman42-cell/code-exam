@@ -51,6 +51,7 @@
           <label><input type="checkbox" id="opt-show-inferred-suffix" checked title="Show the inferred-name suffix (e.g. _KW_, _CMD_, _NAME_, _IMPORT_, _FP_) on function/class display names. Off-state shows the bundler-emitted raw name only (e.g. wI1 instead of wI1_GET_COST_COUNTER). Display-only — multisect search still consults inferred names."> Show Inferred Name Suffixes</label>
           <hr>
           <label>Max Results: <input type="number" id="opt-max-results" value="50" min="5" max="999" style="width:60px"></label>
+          <label title="Remove the result cap — Max Results becomes a soft ceiling. On a large index this can be slow or briefly freeze the pane while every row renders."><input type="checkbox" id="opt-all-results"> All Results (&#9888; may freeze on a large index)</label>
         </div>
       </div>
       <div class="menu-group">

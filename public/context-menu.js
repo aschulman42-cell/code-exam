@@ -289,7 +289,7 @@ export async function handleContextAction(action) {
       // Honor the View-menu Max Results setting (default 50), like the main
       // search box — otherwise Find Uses fell back to the server's lower
       // default and capped at 20 regardless of the setting.
-      try { renderSearchResults(target.name, await api.search({ q: target.name, max: parseInt($('#opt-max-results')?.value) || 50 })); }
+      try { renderSearchResults(target.name, await api.search({ q: target.name, max: ($('#opt-all-results')?.checked ? 1000000 : (parseInt($('#opt-max-results')?.value) || 50)) })); }
       catch (err) { showMiddleTopError(err.message); }
       break;
 

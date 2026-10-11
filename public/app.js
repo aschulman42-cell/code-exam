@@ -106,7 +106,13 @@ function toggleSection(section) {
   }
 }
 
+// gui-all-results-view-menu: Max Results is a SOFT ceiling. The View-menu
+// "All Results" toggle lifts it to effectively-unlimited (a large sentinel, so
+// `max`/`n` query params stay plain integers). The caution that this may freeze
+// the pane on a large index lives on the toggle's label and the cap banners.
+const ALL_RESULTS_SENTINEL = 1000000;
 function getMaxResults() {
+  if ($('#opt-all-results')?.checked) return ALL_RESULTS_SENTINEL;
   return parseInt($('#opt-max-results')?.value) || 50;
 }
 
@@ -1853,6 +1859,17 @@ async function init() {
   // the checkbox at render time; toggling reloads the open accordions so the
   // hide takes effect without a close/re-open.
   $('#opt-exclude-tests')?.addEventListener('change', () => {
+    const filter = $('#left-filter').value.trim();
+    for (const sec of $$('.accordion-section.open')) {
+      state.sectionData[sec.dataset.section] = null;
+      loadSectionData(sec.dataset.section, filter);
+    }
+  });
+  // gui-all-results-view-menu: toggling All Results re-renders the open
+  // accordion lists so the lifted cap (or restored soft ceiling) takes effect
+  // without a close/re-open — same pattern as Exclude Tests above. Middle-pane
+  // results (search / multisect) are re-run by re-submitting the query.
+  $('#opt-all-results')?.addEventListener('change', () => {
     const filter = $('#left-filter').value.trim();
     for (const sec of $$('.accordion-section.open')) {
       state.sectionData[sec.dataset.section] = null;

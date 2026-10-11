@@ -528,7 +528,7 @@ export function renderClassMethodsDetail(data) {
 function _capWarning(shown, total) {
   const more = (total != null) ? `showing ${shown} of ${total}` : `showing ${shown}; more matches exist`;
   return `<div style="padding:6px 12px;background:#5a3a00;color:#ffd479;font-size:12px;border-bottom:1px solid var(--border)">`
-    + `&#9888; Results capped — ${more}. Raise <b>Max Results</b> (View menu) or use CLI <code>--max-results &lt;N&gt;</code>.</div>`;
+    + `&#9888; Results capped — ${more}. Turn on <b>All Results</b> (View menu — &#9888; may freeze on a large index), raise <b>Max Results</b>, or use CLI <code>--max-results &lt;N&gt;</code>. (Re-run the search after toggling.)</div>`;
 }
 
 export function renderFilesSearchResults(token, data) {
@@ -777,7 +777,7 @@ export function _renderScopeViews(views, opts = {}) {
   // (avoids two redundant, differently-phrased cap messages).
   if (grandTotal > totalHits) {
     html += '<div style="padding:6px 12px;background:#5a3a00;color:#ffd479;font-size:12px;border-bottom:1px solid var(--border)">'
-      + '&#9888; Some scopes capped (counts in title) — raise <b>Max Results</b> (View menu) or use CLI <code>--max-results &lt;N&gt;</code> to see all.</div>';
+      + '&#9888; Some scopes capped (counts in title) — turn on <b>All Results</b> (View menu — &#9888; may freeze on a large index), raise <b>Max Results</b>, or use CLI <code>--max-results &lt;N&gt;</code>. (Re-run the search after toggling.)</div>';
   }
 
   // Numbered term legend (so screenshots are self-contained)

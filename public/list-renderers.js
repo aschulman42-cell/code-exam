@@ -2818,7 +2818,7 @@ export function renderStringTable(container, strings, meta) {
     const warn = h('div', {
       className: 'list-placeholder',
       style: 'background:var(--bg-input);color:var(--accent);padding:4px 8px;font-size:11px;border-left:3px solid var(--accent);margin-bottom:4px',
-      text: `Showing ${meta.shown} of ${meta.total}+. Increase Max Results to see more.`,
+      text: `Showing ${meta.shown} of ${meta.total}+. Turn on All Results (View menu — may freeze on a large index) or increase Max Results.`,
     });
     container.appendChild(warn);
   }
