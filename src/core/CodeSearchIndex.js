@@ -106,6 +106,37 @@ import {
  */
 const _SKIP_DIRS = SKIP_DIRS;
 
+// build-oom-preflight-guidance: given a cheap census of a --build-index input,
+// return a one-time advisory when the input is large enough to risk an
+// UNCATCHABLE V8 heap OOM (which cannot be caught and messaged after the fact),
+// or null. Advisory only — nothing is skipped. Two shapes, different remedies:
+//   Shape 1 — one very large file (the tree-sitter parse blows the heap):
+//             bigger heap + --split-bundle.
+//   Shape 2 — huge file count / total bytes (the inverted-index build holds the
+//             whole corpus in memory): bigger heap, or shard + --multi-index.
+// A single very large file dominates when both would trip (its remedy differs).
+export function buildOomAdvisory({ largestFileBytes = 0, fileCount = 0, totalBytes = 0 } = {}) {
+  const MB = 1024 * 1024, GB = 1024 * MB;
+  const LARGE_FILE = 15 * MB;   // a single file in the tens-of-MB range
+  const MANY_FILES = 50000;     // ~50k+ files
+  const LARGE_TOTAL = 1 * GB;   // ~1 GB+ total
+  const human = (b) => (b >= GB ? `${(b / GB).toFixed(1)} GB` : `${Math.round(b / MB)} MB`);
+  if (largestFileBytes >= LARGE_FILE) {
+    return `Large input file detected (~${human(largestFileBytes)}). If this build fails with\n`
+      + `"JavaScript heap out of memory", re-run with more heap and bundle splitting:\n`
+      + `  node --max-old-space-size=8192 src/index.js --build-index <src> --split-bundle --index-path <name>`;
+  }
+  if (fileCount >= MANY_FILES || totalBytes >= LARGE_TOTAL) {
+    return `Large corpus detected (${fileCount.toLocaleString('en-US')} files / ~${human(totalBytes)}). The inverted-index\n`
+      + `build holds the whole corpus in memory and may exhaust the default ~4 GB heap. Options:\n`
+      + `  - more heap:  set NODE_OPTIONS=--max-old-space-size=8192   (then re-run)\n`
+      + `  - shard it:   build one index per subdirectory, then query across them:\n`
+      + `                  ce --multi-index @indexes.txt <command>\n`
+      + `                (--multi-index runs one process per index, so memory stays per-shard)`;
+  }
+  return null;
+}
+
 
 
 export class CodeSearchIndex {
@@ -3429,6 +3460,22 @@ export class CodeSearchIndex {
     if (showProgress && !codePathStr.startsWith('@') && !codePathStr.includes('*')) {
       console.log(`Indexing ${files.length} files from: ${basePath}`);
     }
+
+    // build-oom-preflight-guidance: a cheap census of the discovered files → a
+    // one-time advisory to stderr BEFORE the (uncatchable) V8 heap OOM that very
+    // large inputs can trigger. Advisory only; nothing is skipped. Best-effort —
+    // a census failure must never break a build.
+    try {
+      let totalBytes = 0, largestFileBytes = 0;
+      for (const fp of files) {
+        let sz = 0;
+        try { sz = fs.statSync(fp).size; } catch { /* unreadable — ignore */ }
+        totalBytes += sz;
+        if (sz > largestFileBytes) largestFileBytes = sz;
+      }
+      const advisory = buildOomAdvisory({ largestFileBytes, fileCount: files.length, totalBytes });
+      if (advisory) process.stderr.write('\n' + advisory + '\n\n');
+    } catch { /* never fail a build over the census */ }
 
     // Separate files into categories: source, archive, executable, and skip
     const sourceFiles = [];
