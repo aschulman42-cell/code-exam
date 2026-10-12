@@ -1341,6 +1341,9 @@ MODE:
   --gui                      Launch the browser GUI (starts a local server and
                              opens your browser). Also accepts --index-path /
                              --port and the --model / --api-key flags.
+                             Ctrl-C in that terminal stops it; closing the
+                             browser tab leaves the server (and its memory)
+                             running.
   --port <n>                 GUI server port (default 8080)
   --context-size <n>         GUI server: preferred local-model context size
                              (first rung of the 8192/4096/2048 ladder; falls

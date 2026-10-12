@@ -191,7 +191,8 @@ ce --gui --index-path .mycode
 ```
 
 It prints a localhost URL to open in your browser (e.g.
-`http://127.0.0.1:3000/`).
+`http://127.0.0.1:3000/`). Stop it with Ctrl-C in that terminal; closing the
+browser tab leaves the server running.
 
 **Some current limits.** Output from many commands is capped by default, to
 simplify output especially in the GUI, so absence in a result can mean "past

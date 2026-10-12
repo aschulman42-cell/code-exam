@@ -352,6 +352,32 @@ Widen or maximize the window — the tabs are there. (For the pane header contro
 and the **Window** menu generally, see [`CODEEXAM_GUI.md`](./CODEEXAM_GUI.md).)
 *Tracked:* #343.
 
+### I loaded a smaller index (or switched models), but memory is still high — and closing the browser didn't help
+
+`ce --gui` is a **server process**; the browser tab is only a view of it. Closing
+the tab stops nothing. To stop the server, press **Ctrl-C in the terminal that
+launched it** (or end the `node` process from Task Manager / Activity Monitor).
+
+What Load Index does about memory:
+
+- Loading a different index **releases the previous one and returns its memory
+  to the OS at the switch**. The server drops every reference and runs V8's
+  collect-all-and-shrink collection. Measured on Windows 11 / Node 24 with a
+  1 GB index-shaped heap: process memory 1111 MB → 47 MB at the call. (A plain
+  collection frees the objects but V8 keeps the pages resident for ~10 s; the
+  server uses the variant that doesn't.)
+- The server console prints `[load-index]` lines per switch — `before`,
+  `released`, `loaded`, and a `settled+15s` check — with `rssMB` (what Task
+  Manager shows) and `heapUsedMB`. The GUI's Console tab shows the before/after
+  MB too. If `rssMB` does **not** fall at `released`, something is wrong — please
+  file it with those lines.
+- **Switching local models** is different: for some model families the loaded
+  context cannot be disposed (an upstream `node-llama-cpp` defect, #248), so that
+  memory stays until the process exits. Restart (Ctrl-C) is the remedy there.
+
+*Tracked:* this entry and the `[load-index]` log come from the 2026-10-11 field
+report; see [`CODEEXAM_KNOWN_LIMITATIONS.md`](./CODEEXAM_KNOWN_LIMITATIONS.md).
+
 ### More known GUI rough edges (tracked in #343, fixes pending)
 
 No workaround beyond what's noted:

@@ -95,7 +95,8 @@ index]].
   `/file-map`, `/help`, …); a few commands are REPL-only.
 - **GUI** — `node src/server.js --port 3000` (or `ce --gui`) opens a multi-pane interface
   served from **localhost only** — nothing about it is web-facing; it just renders in a local
-  browser. The panes, catalogs, and the planned redesign are described in
+  browser. Stop it with Ctrl-C in that terminal; closing the browser tab leaves the server
+  (and its memory) running. The panes, catalogs, and the planned redesign are described in
   [`CODEEXAM_GUI.md`](CODEEXAM_GUI.md).
 - **MCP server** — `node src/mcp-server.js` exposes the indexed codebase as Model Context
   Protocol tools, so an AI client (Claude Code, Claude Desktop) can search, extract, and

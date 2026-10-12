@@ -26,6 +26,7 @@ import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import v8 from 'v8';
 import { CodeSearchIndex } from './core/CodeSearchIndex.js';
+import { IndexManager } from './core/index-manager.js';
 import { handleTool, TOOLS, setIndex } from './mcp-server.js';
 import { resolveIndexDir } from './archive.js';
 import { groupSites, groupPipelines, reTestExamplePath, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from './core/ai-ml-detectors.js';
@@ -223,42 +224,10 @@ function parseServerArgs() {
 
 
 // ========================================================================
-// Index manager: holds one or more named indexes
+// Index manager: holds one or more named indexes — see core/index-manager.js
+// (moved there so replace() is unit-testable; this file can't be imported by
+// tests because it starts the HTTP server on import).
 // ========================================================================
-
-class IndexManager {
-  constructor() {
-    /** @type {Map<string, CodeSearchIndex>} name -> index */
-    this.indexes = new Map();
-    /** @type {string|null} */
-    this.activeIndex = null;
-  }
-
-  load(indexPath) {
-    const idx = new CodeSearchIndex({ indexPath });
-    if (idx.files.size === 0) {
-      console.error(`Warning: No files loaded from index at ${indexPath}`);
-      return null;
-    }
-    const name = path.basename(indexPath) || indexPath;
-    this.indexes.set(name, idx);
-    if (!this.activeIndex) this.activeIndex = name;
-    console.log(`Loaded index "${name}": ${idx.files.size} files`);
-    return name;
-  }
-
-  get(name = null) {
-    const key = name || this.activeIndex;
-    return this.indexes.get(key) || null;
-  }
-
-  list() {
-    return [...this.indexes.entries()].map(([name, idx]) => ({
-      name, files: idx.files.size, active: name === this.activeIndex,
-      indexSource: idx.indexSource || null, indexPath: idx.indexPath || null,
-    }));
-  }
-}
 
 const serverArgs = parseServerArgs();
 
@@ -1800,11 +1769,26 @@ routes['/api/load-index'] = (req, res) => {
           catch (_) { warnings.push(`${fname} is unreadable`); }
         }
       }
-      if (mode === 'replace') { mgr.indexes.clear(); mgr.activeIndex = null; }
-      const name = mgr.load(indexDir);
+      // Replace mode (the only mode the dialog offers today): release every
+      // loaded index AND the MCP tool module's reference to it (the chat /
+      // analyze / overview loops point handleTool at the active index via
+      // setIndex, and that reference used to outlive a Load Index — the big
+      // index stayed in memory until Ctrl-C), force a GC when one is available,
+      // then load. Three [load-index] lines land in this console per switch;
+      // core/index-manager.js says how to read them.
+      const released = (mode === 'replace') ? (mgr.activeIndex || null) : null;
+      const name = (mode === 'replace')
+        ? mgr.replace(indexDir, { onRelease: () => setIndex(null), onActive: (idx) => setIndex(idx) })
+        : mgr.load(indexDir);
       if (!name) return errorResponse(res, `No files found in index at: ${indexPath}`, 400);
       mgr.activeIndex = name;
       const resp = { loaded: name, mode, indexes: mgr.list() };
+      // Tell the GUI which index was let go and what the process's memory did,
+      // so its Console note states numbers rather than reassurance.
+      if (released && released !== name) {
+        resp.released = released;
+        if (mgr.lastReplace) resp.memory = mgr.lastReplace;
+      }
       if (warnings.length > 0) resp.warnings = warnings;
       jsonResponse(res, resp);
     } catch (err) {

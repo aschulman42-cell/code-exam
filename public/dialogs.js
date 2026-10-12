@@ -18,6 +18,7 @@
 import { $, $$, h, escHtml, makeDraggable, bringToFront } from './dom-utils.js';
 import { api } from './api.js';
 import { state } from './state.js';
+import { consoleAppend } from './console.js';
 
 // ============================================================================
 // Cross-cutting callbacks (injected by initDialogs)
@@ -192,6 +193,25 @@ function initLoadIndex() {
 
       // Clear all content panes
       _clearAllPanes();
+
+      // gui-load-index-memory-release: say what happened to the previous index,
+      // somewhere that persists (this dialog is already closed; the Console tab
+      // keeps its lines). The server names the released index in the response;
+      // the numbers are the [load-index] lines in the terminal running ce --gui.
+      if (result.released) {
+        const m = result.memory || null;
+        const ran = !!(m && /^ran/.test(m.gc || ''));
+        const numbers = (m && m.beforeMB != null)
+          ? ` Process memory ${m.beforeMB} MB → ${m.releasedMB} MB after release, ${m.loadedMB} MB with the new index.`
+          : '';
+        const caveat = (m && !ran)
+          ? ` No forced collection was available (${m.gc}); memory returns on Node's own schedule, or at restart (Ctrl-C in the ce --gui terminal).`
+          : '';
+        consoleAppend(
+          `Released index "${result.released}" (replaced by "${result.loaded}").${numbers}${caveat} ` +
+          `Details: the [load-index] lines in the terminal running ce --gui.`,
+          'console-info');
+      }
 
       // Show warnings for partially valid indexes
       if (result.warnings && result.warnings.length > 0) {

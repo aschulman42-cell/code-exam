@@ -35,6 +35,16 @@ describe('help discoverability', () => {
     assert.match(r.stdout, /--gui\b/);
   });
 
+  it('--help says how to STOP the GUI (closing the browser does not)', () => {
+    // gui-load-index-memory-release: the only stop instruction used to be the
+    // server console's "Press Ctrl+C to stop." — a user who closed the browser
+    // tab to free memory found nothing freed.
+    const r = run('--help', 'gui');
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /Ctrl-C in that terminal stops it/);
+    assert.match(r.stdout, /closing the\s+browser tab leaves the server/);
+  });
+
   it('--load-index is a synonym for --index-path (bad path → No index found)', () => {
     const r = run('--load-index', 'definitely_not_here');
     assert.equal(r.status, 1);

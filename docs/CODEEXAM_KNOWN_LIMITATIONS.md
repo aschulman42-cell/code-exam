@@ -113,6 +113,13 @@ independently-operable panels that redesign is built toward.
   input. Tracked upstream at
   [withcatai/node-llama-cpp#669](https://github.com/withcatai/node-llama-cpp/issues/669);
   it clears when `node-llama-cpp` bumps `simple-git`.
+- **The GUI's memory is the server's, not the browser's** — closing the browser tab frees
+  nothing; only Ctrl-C in the terminal that launched `ce --gui` ends the process. Load Index
+  releases the previous index and returns its memory to the OS at the switch (the server's
+  `[load-index]` console lines show `rssMB` falling at `released`). What is **not** released:
+  a switched-away local model's context, which cannot be disposed for some model families
+  (upstream `node-llama-cpp`, #248) and so is held until exit — restart to get it back. See the
+  FAQ entry *I loaded a smaller index … but memory is still high*.
 - **For other limitations, see the open issues** —
   [open CodeExam issues](https://github.com/aschulman42-cell/code-exam/issues?q=is%3Aissue+state%3Aopen),
   and the consolidated GUI/engine field-test triage in
