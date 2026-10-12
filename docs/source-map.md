@@ -145,6 +145,7 @@ and data catalogs — those are not first-party source.
 - `scripts/anchor-recall.mjs` — scores claim-search recall against saved anchors on CE's four-rung ladder
 - `scripts/build-claim-genre-df.mjs` — builds the content-word document-frequency JSON for the genericity score
 - `scripts/build-exe.js` — compiles the standalone Windows exe via `bun --compile`, staging grammars into dist/
+- `scripts/build-first-run-index.mjs` — rebuilds samples/FIRST_RUN_INDEX.zip from the tracked samples/ tree: hybrid build, base path sanitized to "samples" (#237), deflate zip, verified load
 - `scripts/check-app-loads.mjs` — smoke test that evaluates app.js's module graph under DOM stubs
 - `scripts/claim-ballpark.mjs` — ranks which index best matches each claim via multisect hits; no model calls
 - `scripts/claim-locate-stability.mjs` — measures run-to-run repeatability of --claim-locate targets

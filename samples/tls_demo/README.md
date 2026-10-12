@@ -1,8 +1,8 @@
 # Demo Source Tree: SecureNet TLS Connection Library
 
-This is a **synthetic sample codebase** designed to demonstrate the
-Air-Gapped Source Code Analysis Tool. It implements a multi-language
-TLS/SSL connection management system across C, Java, and Python.
+This is a **synthetic sample codebase** designed to demonstrate CodeExam.
+It implements a multi-language TLS/SSL connection management system across
+C, Java, and Python — the client side only; there is no server code here.
 
 ## Purpose
 
@@ -36,33 +36,36 @@ demonstrable output:
 
 ## File Inventory
 
+(Function counts are not listed: they depend on the parser — `--functions`
+on the index is the live count.)
+
 ### C (core implementation layer)
-| File | Functions | Role |
-|------|-----------|------|
-| `c/tls_handler.c` | 7 | **Star file**: tls_connect, SSL_CTX_new, cipher negotiation, send/recv |
-| `c/tls_handler.h` | 0 (declarations) | Public API declarations, struct definitions |
-| `c/cert_verify.c` | 5 | Certificate chain verification, hostname matching |
-| `c/crypto_context.c` | 5 | SSL context lifecycle, session caching |
-| `c/utils/buffer_pool.c` | 5 | Buffer memory management (utility) |
-| `c/utils/logging.c` | 6 | Logging infrastructure (utility, small functions) |
+| File | Role |
+|------|------|
+| `c/tls_handler.c` | **Star file**: tls_connect, initialize_crypto_context, cipher negotiation, send/recv |
+| `c/tls_handler.h` | Public API declarations, struct definitions |
+| `c/cert_verify.c` | Certificate chain verification, hostname matching |
+| `c/crypto_context.c` | SSL context lifecycle, session caching |
+| `c/utils/buffer_pool.c` | Buffer memory management (utility) |
+| `c/utils/logging.c` | Logging infrastructure (utility, small functions) |
 
 ### Java (application layer)
-| File | Methods | Role |
-|------|---------|------|
-| `java/net/NetworkManager.java` | 8 | **Orchestrator**: high fan-out, calls everything |
-| `java/net/CertificateValidator.java` | 7 | Cert verification (structural dupe of cert_verify.c) |
-| `java/net/CipherNegotiator.java` | 4 | Cipher suite selection |
-| `java/net/SecureChannel.java` | 4 | Encrypted data framing and transmission |
-| `java/net/ConnectionPool.java` | 5 | Connection reuse management |
-| `java/net/ConnectionConfig.java` | 11 | Config data class (getters/setters) |
+| File | Role |
+|------|------|
+| `java/net/NetworkManager.java` | **Orchestrator**: high fan-out, calls everything |
+| `java/net/CertificateValidator.java` | Cert verification (structural dupe of cert_verify.c) |
+| `java/net/CipherNegotiator.java` | Cipher suite selection |
+| `java/net/SecureChannel.java` | Encrypted data framing and transmission |
+| `java/net/ConnectionPool.java` | Connection reuse management |
+| `java/net/ConnectionConfig.java` | Config data class (getters/setters) |
 
 ### Python (scripting/testing layer)
-| File | Functions | Role |
-|------|-----------|------|
-| `python/config_parser.py` | 6 | TLS config loading and validation |
-| `python/handshake.py` | 7 | TLS handshake protocol implementation |
-| `python/session_manager.py` | 11 | Session lifecycle management, entry point |
-| `python/test_tls.py` | 9 | Unit tests (exclude with --exclude-path test) |
+| File | Role |
+|------|------|
+| `python/config_parser.py` | TLS config loading and validation |
+| `python/handshake.py` | TLS handshake protocol implementation |
+| `python/session_manager.py` | Session lifecycle management, entry point |
+| `python/test_tls.py` | Unit tests (exclude with --exclude-path test) |
 
 ## Sample Patent Claim
 
