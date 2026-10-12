@@ -1686,11 +1686,18 @@ routes['/api/callers'] = (req, res) => {
   if (!index) return errorResponse(res, 'No index loaded', 404);
   let func = q.func;
   if (!func) return errorResponse(res, 'Missing ?func= parameter');
-  if (func.includes('@')) func = func.slice(func.indexOf('@') + 1);
+  // `file@name`: the file names which definition is asked for, so the search
+  // can drop call sites that cannot reach it (#343 ★A: two file-local
+  // `_shortPath`s shared one "Called By" list).
+  let fileHint = null;
+  if (func.includes('@')) {
+    fileHint = func.slice(0, func.indexOf('@')) || null;
+    func = func.slice(func.indexOf('@') + 1);
+  }
   func = index.getOriginalName(func);
   let callers;
   try {
-    callers = index.findCallers(func, safeMax(q.max, 200));
+    callers = index.findCallers(func, safeMax(q.max, 200), { fileHint });
   } catch (e) {
     // Short-name bail-out (#280): scan would block the event loop for
     // minutes on short bundled-JS names like 'h1' or 'N8'. Return 400 with
@@ -1969,11 +1976,12 @@ routes['/api/call-tree'] = (req, res) => {
 
   function safeId(name) { return name.replace(/[^a-zA-Z0-9_]/g, '_'); }
   function safeLbl(name) { return name.replace(/["<>&]/g, c => ({'<':'‹','>':'›','"':"'", '&':'+'}[c])); }
-  function addEdge(fromName, toName) {
+  function addEdge(fromName, toName, { dashed = false, toLabel = null } = {}) {
     const key = `${fromName}-->${toName}`;
     if (edges.has(key)) return;
     edges.add(key);
-    mermaidLines.push(`  ${safeId(fromName)}["${safeLbl(fromName)}"] --> ${safeId(toName)}["${safeLbl(toName)}"]`);
+    const arrow = dashed ? '-.->' : '-->';
+    mermaidLines.push(`  ${safeId(fromName)}["${safeLbl(fromName)}"] ${arrow} ${safeId(toName)}["${safeLbl(toLabel || toName)}"]`);
   }
 
   // --- Callees (downward from root) ---
@@ -1983,9 +1991,11 @@ routes['/api/call-tree'] = (req, res) => {
     visitedDown.add(fn);
     const callees = index.findCallees(fn, fh);
     for (const c of callees.slice(0, 12)) {
-      if (c.ambiguous && !c.resolved_def) continue;  // skip unresolved
-      addEdge(fn, c.name);
-      if (c.resolved_def) addCallees(c.name, null, d + 1);
+      if (c.ambiguous && !c.resolved_def) continue;  // no reachable definition: no edge
+      // A pick among several reachable definitions is a dashed edge to a
+      // `?`-labelled node and is not descended into.
+      addEdge(fn, c.name, c.ambiguous ? { dashed: true, toLabel: `${c.name} ?` } : {});
+      if (c.resolved_def && !c.ambiguous) addCallees(c.name, null, d + 1);
     }
   }
   addCallees(root.name, root.filepath, 0);
@@ -1999,11 +2009,16 @@ routes['/api/call-tree'] = (req, res) => {
       const callerHits = index.findCallers(fn, 100);
       // Deduplicate by caller function name, keep top by frequency
       const callerCounts = new Map();
+      let fileScopeSites = 0;
       for (const c of callerHits) {
-        if (c.caller_function && c.caller_function !== fn && c.caller_function !== '(global)') {
+        if (!c.caller_function) { fileScopeSites++; continue; }   // module-scope call site
+        if (c.caller_function !== fn && c.caller_function !== '(global)') {
           callerCounts.set(c.caller_function, (callerCounts.get(c.caller_function) || 0) + 1);
         }
       }
+      // Module-scope callers were dropped from the diagram (#343 ★A); draw
+      // them as one `(file scope)` node, never walked further.
+      if (fileScopeSites > 0) addEdge('(file scope)', fn);
       const topCallers = [...callerCounts.entries()]
         .sort((a, b) => b[1] - a[1])
         .slice(0, 8);

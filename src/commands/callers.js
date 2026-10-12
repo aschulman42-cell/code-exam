@@ -53,7 +53,7 @@ export function doCallers(index, args) {
     // Simple single-level callers
     let callers;
     try {
-      callers = index.findCallers(functionName, args.max_results);
+      callers = index.findCallers(functionName, args.max_results, { fileHint: pathHint });
     } catch (e) {
       if (e.code === 'SHORT_NAME_BAILOUT') {
         console.log(`\n${e.message}`);
@@ -73,7 +73,7 @@ export function doCallers(index, args) {
     // Group by caller function
     const byCaller = new Map();
     for (const c of callers) {
-      const caller = c.caller_function || '(unknown)';
+      const caller = c.caller_function || '(file scope)';
       if (!byCaller.has(caller)) byCaller.set(caller, []);
       byCaller.get(caller).push(c);
     }
@@ -138,7 +138,7 @@ export function doCallers(index, args) {
         const callers = index.findCallers(target, 200);
         const callerNames = {};
         for (const c of callers) {
-          const caller = c.caller_function || '(unknown)';
+          const caller = c.caller_function || '(file scope)';
           callerNames[caller] = (callerNames[caller] || 0) + 1;
         }
 
@@ -148,7 +148,7 @@ export function doCallers(index, args) {
         for (const [caller, count] of Object.entries(callerNames).sort()) {
           const suffix = count > 1 ? ` (${count} calls)` : '';
           console.log(`${indent}<- ${caller}${suffix}`);
-          if (!visited.has(caller) && caller !== '(unknown)') {
+          if (!visited.has(caller) && caller !== '(file scope)') {
             nextLevel.add(caller);
           }
         }
@@ -439,7 +439,8 @@ export function doCallInventory(index, args) {
         const fp = fullPath ? item.filepath : _shortPath(item.filepath, 40);
         const callerCount = item.callers.length;
         const callerNote = isAll && callerCount > 1 ? `  (called by ${callerCount} functions)` : '';
-        console.log(`  ${item.qualified_name.padEnd(40)}  ${quotePathIfNeeded(fp)}  (${item.lines}L)${callerNote}`);
+        const ambigNote = item.ambiguous ? `  [ambiguous: ${item.candidates} definitions]` : '';
+        console.log(`  ${item.qualified_name.padEnd(40)}  ${quotePathIfNeeded(fp)}  (${item.lines}L)${callerNote}${ambigNote}`);
       }
       { const note = capNotice(in_index.length, shownIn.length, 'targets'); if (note) console.log(note); }
       console.log();

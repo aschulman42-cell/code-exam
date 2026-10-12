@@ -65,6 +65,17 @@ describe('maskCodeLines', () => {
     assert.equal(m[2].trim(), '');
     assert.ok(m[4].includes('return 1'));
   });
+  it('python: f-string interpolations stay code, literal text and {{ }} are masked', () => {
+    const src = ['print(f"Processed {len(results)} items {{braces}} {x:>4}")', "msg = 'not f: {len(x)}'", 'rf"{a}"'];
+    const m = maskCodeLines(src, 'python');
+    assert.ok(m[0].includes('len(results)'), m[0]);
+    assert.ok(!m[0].includes('Processed'), m[0]);
+    assert.ok(!m[0].includes('braces'), m[0]);
+    assert.ok(m[0].includes('x:>4'), 'format spec rides inside the interpolation');
+    assert.ok(!m[1].includes('len('), 'a plain string is masked whole');
+    assert.ok(m[2].includes('a'), 'rf prefix counts as f');
+    assert.equal(m[0].length, src[0].length);
+  });
   it('unknown family returns the lines unchanged', () => {
     const src = ["' a VBScript comment {", 'Sub Go()'];
     assert.deepEqual(maskCodeLines(src, familyForExt('.vbs')), src);

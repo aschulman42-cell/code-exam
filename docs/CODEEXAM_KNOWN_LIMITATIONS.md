@@ -49,9 +49,20 @@ plainly:
   can share a bare name (across files, versions, even languages); `--digest` may merge or
   mislabel them. The digest *body* is usually still right; the *title/target* may be wrong.
   File/line-qualified targeting and conflation warnings are planned.
-- **Caller↔callee resolution under dynamic dispatch** (#85, #148) — dynamic dispatch is hard to
-  resolve statically, so call-graph links (`--callers`, `--call-tree`, digest caller/callee
-  lists) can be incomplete or mis-linked.
+- **Bare-name call resolution is precise about what it refuses, not complete** (#85, #148,
+  #343) — a call binds to a definition only when the definition is reachable from the call
+  site: a function nested in another function only from inside it, a non-exported JS/TS
+  function or a C `static` function only from its own file, and never across language
+  families. A method call on a receiver (`out.push(`) binds to a free function only when the
+  receiver is an import alias of that function's module (`utils.foo(`, Python
+  `helpers.compute(`); elsewhere it is **unresolved**, or in languages with no import
+  evidence a pick marked **ambiguous**. Among several reachable definitions, the one the caller
+  imports wins; otherwise the same-file or closest-directory pick is kept and marked
+  `[ambiguous]` (dashed in diagrams), and trees do not descend into it. A file-qualified
+  Find Callers (`FILE@func`) lists only the sites that can reach that definition; a bare-name
+  Find Callers still lists every same-named site. What is not done: dynamic dispatch (a vtable,
+  a registry) still resolves statically or not at all; CommonJS `require` and non-ESM aliases
+  give no import evidence; the digest's silent first-match pick for a bare target is unchanged.
 - **Import / BoM coverage** (#165) — import/export extraction covers Python, JS, C, Java, and
   C#; the static-catalog path still misses dynamically-exported names (star-exports, lazy
   registries) that the live cross-index path resolves.

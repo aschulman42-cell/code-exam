@@ -17,8 +17,27 @@
  * PROVENANCE_PATTERNS const stays module-private (no external callsite).
  */
 
+import path from 'path';
 import { displayName, eprint } from '../utils.js';
 import { escapeRegex } from './CSI-helpers.js';
+import { familyForExt, maskCodeLines } from './function-bounds.js';
+
+// Body lines with string, template, comment and regex-literal contents
+// blanked (columns preserved), so the call scan does not read `'\n(--x'` as a
+// call to `n` or `row(s)` inside a message as a call to `row`. The scan uses
+// the masked line; the resolver gets it too (identifiers are untouched).
+function _maskedBody(idx, filepath, lines) {
+  const fam = familyForExt(path.extname(filepath).toLowerCase());
+  if (!fam) return lines;
+  const all = idx.fileLines.get(filepath);
+  if (!all) return maskCodeLines(lines, fam);
+  // Mask the whole file once per index (cached), so a block comment or
+  // template literal open above the body is carried into it correctly.
+  if (!idx._maskedLinesCache) idx._maskedLinesCache = new Map();
+  let masked = idx._maskedLinesCache.get(filepath);
+  if (!masked) { masked = maskCodeLines(all, fam); idx._maskedLinesCache.set(filepath, masked); }
+  return masked;
+}
 
 /**
  * Resolve which definition of a callee is most likely being called,
@@ -39,9 +58,62 @@ import { escapeRegex } from './CSI-helpers.js';
  * @param {Array} defs - All definitions with this bare name
  * @returns {{def: object, resolvedName: string, ambiguous: boolean}}
  */
-export function _resolveCalleeTarget(idx, bareName, line, callerClass, callerFilepath, defs) {
+export function _resolveCalleeTarget(idx, bareName, line, callerClass, callerFilepath, defs, opts = {}) {
   if (!defs || defs.length === 0) return { def: null, resolvedName: bareName, ambiguous: false };
-  if (defs.length === 1) return { def: defs[0], resolvedName: defs[0].full_name, ambiguous: false };
+  const callerSpan = opts.callerSpan || null;
+  const receiver = opts.receiver || null;
+  const total = defs.length;
+
+  // 0a. One definition recorded under two names (a regex duplicate of a
+  //     tree-sitter entry, in an index built before the merge dedupe): keep
+  //     the shorter span.
+  const byStart = new Map();
+  for (const d of defs) {
+    const k = `${d.filepath}|${d.start}`;
+    const prev = byStart.get(k);
+    if (!prev || (d.end - d.start) < (prev.end - prev.start)) byStart.set(k, d);
+  }
+  let usable = [...byStart.values()];
+
+  // 0b. Reachability (#343 ★A). A local function (nested in another
+  //     definition) is callable only from inside its container; a
+  //     non-exported JS/TS function or a C `static` function only from its
+  //     own file. Methods pass through to the class steps. With no
+  //     reachable candidate the call is not an edge: it falls to
+  //     external / unresolved, with the reason.
+  usable = usable.filter(d => _reachable(idx, d, callerFilepath, callerSpan));
+  if (usable.length === 0) {
+    return { def: null, resolvedName: bareName, ambiguous: true, reason: 'unreachable', candidates: total };
+  }
+
+  // 0c. A call on a receiver (`out.push(`, `arr.find(`) is a method call:
+  //     it binds to a class method via the steps below, never to a free
+  //     function, unless the receiver is a namespace / default import of
+  //     that function's module (`utils.foo(`, Python `helpers.compute(`).
+  //     Where the language gives no import evidence (C, Go, ...) the bind
+  //     is kept but marked ambiguous rather than refused.
+  if (receiver && !['this', 'self', 'super', 'cls'].includes(receiver)) {
+    const methods = usable.filter(d => d.class_name);
+    const free = usable.filter(d => !d.class_name);
+    let evidenced = false;
+    const viaAlias = free.filter(d => {
+      const ev = idx._importEvidence ? idx._importEvidence(callerFilepath, d) : null;
+      if (ev) evidenced = true;
+      return ev && ev.aliases.includes(receiver);
+    });
+    if (methods.length > 0 || viaAlias.length > 0) {
+      // `index.getCallInventory(` with both a free function and a class
+      // method of that name: the receiver says method.
+      usable = [...methods, ...viaAlias];
+    } else if (evidenced) {
+      return { def: null, resolvedName: bareName, ambiguous: true, reason: 'receiver', candidates: total };
+    } else {
+      const pick = _pickByProximity(free, callerFilepath);
+      return { def: pick, resolvedName: pick.full_name, ambiguous: true, reason: 'receiver', candidates: total };
+    }
+  }
+
+  if (usable.length === 1) return _single(idx, usable[0], callerFilepath, total);
 
   // 1. Check for explicit qualification in the source line
   //    e.g., ClassName::method(, ClassName.method(, ClassName->method(
@@ -52,10 +124,10 @@ export function _resolveCalleeTarget(idx, bareName, line, callerClass, callerFil
   if (qualMatch) {
     const explicitClass = qualMatch[1];
     // Find def matching this class
-    const match = defs.find(d => d.class_name === explicitClass);
+    const match = usable.find(d => d.class_name === explicitClass);
     if (match) return { def: match, resolvedName: match.full_name, ambiguous: false };
     // Try partial match (class name might be just the leaf)
-    const partialMatch = defs.find(d =>
+    const partialMatch = usable.find(d =>
       d.class_name && d.class_name.endsWith(explicitClass)
     );
     if (partialMatch) return { def: partialMatch, resolvedName: partialMatch.full_name, ambiguous: false };
@@ -63,7 +135,7 @@ export function _resolveCalleeTarget(idx, bareName, line, callerClass, callerFil
     // 1b. Explicit class might be a child class — walk up its chain
     const ancestors = idx._getAncestorClasses(explicitClass);
     for (const ancestor of ancestors) {
-      const inheritMatch = defs.find(d => d.class_name === ancestor);
+      const inheritMatch = usable.find(d => d.class_name === ancestor);
       if (inheritMatch) return { def: inheritMatch, resolvedName: inheritMatch.full_name, ambiguous: false };
     }
   }
@@ -73,41 +145,129 @@ export function _resolveCalleeTarget(idx, bareName, line, callerClass, callerFil
     '(?:self|this)\\s*(?:\\.|->)\\s*' + escapeRegex(bareName) + '\\s*\\('
   );
   if (selfRe.test(line) && callerClass) {
-    const match = defs.find(d => d.class_name === callerClass);
+    const match = usable.find(d => d.class_name === callerClass);
     if (match) return { def: match, resolvedName: match.full_name, ambiguous: false };
 
     // 2b. Not in caller's class — check parent classes (inherited method)
     const ancestors = idx._getAncestorClasses(callerClass);
     for (const ancestor of ancestors) {
-      const inheritMatch = defs.find(d => d.class_name === ancestor);
+      const inheritMatch = usable.find(d => d.class_name === ancestor);
       if (inheritMatch) return { def: inheritMatch, resolvedName: inheritMatch.full_name, ambiguous: false };
     }
   }
 
   // 3. Same-class definition (if caller is in a class)
   if (callerClass) {
-    const match = defs.find(d => d.class_name === callerClass);
+    const match = usable.find(d => d.class_name === callerClass);
     if (match) return { def: match, resolvedName: match.full_name, ambiguous: false };
 
     // 3b. Walk inheritance chain for bare calls too
     const ancestors = idx._getAncestorClasses(callerClass);
     for (const ancestor of ancestors) {
-      const inheritMatch = defs.find(d => d.class_name === ancestor);
+      const inheritMatch = usable.find(d => d.class_name === ancestor);
       if (inheritMatch) return { def: inheritMatch, resolvedName: inheritMatch.full_name, ambiguous: false };
     }
   }
 
+  // 3c. Import-directed (JS/TS, Python): the definition whose module the
+  //     caller imports, by name or by module. One such definition is a
+  //     certain bind; several narrow the field.
+  if (idx._importEvidence) {
+    const imported = usable.filter(d => {
+      const ev = idx._importEvidence(callerFilepath, d);
+      return ev && (ev.named || ev.module);
+    });
+    if (imported.length === 1) return { def: imported[0], resolvedName: imported[0].full_name, ambiguous: false };
+    if (imported.length > 1) usable = imported;
+  }
+
   // 4. Same-file definition
-  const sameFile = defs.filter(d => d.filepath === callerFilepath);
+  const sameFile = usable.filter(d => d.filepath === callerFilepath);
   if (sameFile.length === 1) return { def: sameFile[0], resolvedName: sameFile[0].full_name, ambiguous: false };
 
-  // 5. Closest directory path
-  const srcParts = callerFilepath.replace(/\\/g, '/').toLowerCase().split('/');
-  const srcDir = srcParts.slice(0, -1);
+  // 5. Closest directory path. The pick is a guess among several reachable
+  //    definitions and stays marked ambiguous; renderers label it and do not
+  //    descend into it.
+  const best = _pickByProximity(usable, callerFilepath);
+  if (best) return { def: best, resolvedName: best.full_name, ambiguous: usable.length > 1, candidates: total };
+
+  // 6. Fall back
+  return { def: usable[0], resolvedName: usable[0].full_name, ambiguous: true, candidates: total };
+}
+
+// Method names that belong to built-in types in the common languages: a call
+// on a receiver with one of these names needs the class itself as receiver
+// before it binds to a project method of that name.
+const _BUILTIN_METHOD_NAMES = new Set([
+  'push', 'pop', 'shift', 'unshift', 'slice', 'splice', 'concat', 'join', 'reverse', 'sort',
+  'map', 'filter', 'reduce', 'forEach', 'some', 'every', 'find', 'findIndex', 'includes',
+  'indexOf', 'lastIndexOf', 'flat', 'flatMap', 'fill', 'keys', 'values', 'entries',
+  'has', 'get', 'set', 'add', 'delete', 'clear', 'size',
+  'toString', 'valueOf', 'toJSON', 'toLowerCase', 'toUpperCase', 'trim', 'split', 'replace',
+  'replaceAll', 'match', 'matchAll', 'search', 'startsWith', 'endsWith', 'padStart', 'padEnd',
+  'substring', 'substr', 'charAt', 'charCodeAt', 'repeat', 'test', 'exec',
+  'then', 'catch', 'finally', 'apply', 'call', 'bind',
+  'log', 'warn', 'error', 'info', 'debug', 'write', 'read', 'open', 'close', 'end',
+  'append', 'extend', 'insert', 'remove', 'update', 'items', 'format', 'encode', 'decode',
+  'strip', 'lower', 'upper', 'copy', 'count', 'index', 'length', 'next', 'send', 'emit', 'on', 'off',
+]);
+
+// Language family by extension, for the cross-language rule below. Null
+// means unknown: compatible with anything.
+const _LANG_FAMILY = {
+  js: ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.coffee'],
+  py: ['.py', '.pyw'],
+  c: ['.c', '.h', '.cc', '.cpp', '.cxx', '.hpp', '.hxx', '.h++', '.c++', '.m', '.mm', '.cu', '.cuh'],
+  jvm: ['.java', '.kt', '.kts', '.scala', '.groovy'],
+  cs: ['.cs'], go: ['.go'], rs: ['.rs'], php: ['.php'], rb: ['.rb'], swift: ['.swift'],
+  lua: ['.lua'], perl: ['.pl', '.pm'],
+};
+const _EXT_FAMILY = new Map();
+for (const [fam, exts] of Object.entries(_LANG_FAMILY)) for (const e of exts) _EXT_FAMILY.set(e, fam);
+function _langFamily(filepath) {
+  const m = String(filepath).toLowerCase().match(/\.[^./\\]+$/);
+  return m ? (_EXT_FAMILY.get(m[0]) || null) : null;
+}
+
+// Can `callerFilepath` (at `callerSpan`, when known) reach definition `d`?
+function _reachable(idx, d, callerFilepath, callerSpan) {
+  // The bare-name table spans languages; a JS caller does not call a C
+  // `helper`. Families: JS/TS, Python, C-family (C, C++, Objective-C, CUDA),
+  // JVM (Java, Kotlin, Scala), and one per remaining language.
+  const cf = _langFamily(callerFilepath), df = _langFamily(d.filepath);
+  if (cf && df && cf !== df) return false;
+  if (d.container) {
+    if (d.filepath !== callerFilepath) return false;
+    if (!callerSpan) return true;
+    return callerSpan.start >= d.container.start && callerSpan.end <= d.container.end;
+  }
+  if (d.class_name) return true;
+  if (d.filepath === callerFilepath) return true;
+  const vis = idx._fileVisibility ? idx._fileVisibility(d.filepath) : null;
+  if (!vis) return true;
+  if (vis.kind === 'js') return !vis.explicit || vis.exported.has(d.base_name);
+  if (vis.kind === 'c') return !(idx._isStaticDef && idx._isStaticDef(d));
+  return true;
+}
+
+// One reachable candidate. Cross-file, in a module-based language whose
+// caller file has imports but none for this module: keep the bind, mark it.
+function _single(idx, d, callerFilepath, total) {
+  if (d.filepath !== callerFilepath && !d.class_name && idx._importEvidence) {
+    const ev = idx._importEvidence(callerFilepath, d);
+    if (ev && !ev.named && !ev.module) {
+      return { def: d, resolvedName: d.full_name, ambiguous: true, reason: 'no-import', candidates: total };
+    }
+  }
+  return { def: d, resolvedName: d.full_name, ambiguous: false };
+}
+
+// The candidate whose directory shares the longest prefix with the caller's.
+function _pickByProximity(cands, callerFilepath) {
+  const srcDir = callerFilepath.replace(/\\/g, '/').toLowerCase().split('/').slice(0, -1);
   let best = null, bestScore = -1;
-  for (const d of defs) {
-    const tgtParts = d.filepath.replace(/\\/g, '/').toLowerCase().split('/');
-    const tgtDir = tgtParts.slice(0, -1);
+  for (const d of cands) {
+    const tgtDir = d.filepath.replace(/\\/g, '/').toLowerCase().split('/').slice(0, -1);
     let shared = 0;
     for (let i = 0; i < Math.min(srcDir.length, tgtDir.length); i++) {
       if (srcDir[i] === tgtDir[i]) shared++;
@@ -115,10 +275,7 @@ export function _resolveCalleeTarget(idx, bareName, line, callerClass, callerFil
     }
     if (shared > bestScore) { bestScore = shared; best = d; }
   }
-  if (best) return { def: best, resolvedName: best.full_name, ambiguous: defs.length > 1 };
-
-  // 6. Fall back
-  return { def: defs[0], resolvedName: defs[0].full_name, ambiguous: true };
+  return best;
 }
 
 
@@ -242,6 +399,30 @@ export function findCallers(idx, functionName, maxResults = 500, opts = {}) {
   const seen = new Set();
   const bareEsc = escapeRegex(bareName);
 
+  // Target-aware filtering (#343 ★A, "Find Callers merges same-named
+  // functions"). When a specific definition is asked for (a file hint, a
+  // qualified name, or a name with one definition), a call site that cannot
+  // reach it is a call to a different same-named function and is dropped: a
+  // site outside the container of a local function, in another file for a
+  // non-exported JS function or a C `static` one. Without a target the
+  // search stays name-based, as before.
+  let targetDef = null;
+  {
+    const cands = (idx._getKnownFunctions()[bareName] || []);
+    const norm = (p) => String(p).replace(/\\/g, '/').toLowerCase();
+    if (opts.fileHint) {
+      const hint = norm(opts.fileHint);
+      const hits = cands.filter(d => { const fp = norm(d.filepath); return fp === hint || fp.endsWith('/' + hint) || fp.includes(hint); });
+      if (hits.length === 1) targetDef = hits[0];
+      else if (hits.length > 1 && functionName.includes('::')) targetDef = hits.find(d => d.full_name === functionName) || null;
+    } else if (cands.length === 1) {
+      targetDef = cands[0];
+    } else if (functionName.includes('::')) {
+      const q = cands.filter(d => d.full_name === functionName);
+      if (q.length === 1) targetDef = q[0];
+    }
+  }
+
   idx.forEachInvertedEntry((line, locations) => {
     // Check patterns
     let matchedType = null;
@@ -259,8 +440,12 @@ export function findCallers(idx, functionName, maxResults = 500, opts = {}) {
       const stripped = line.trimEnd();
       // Skip declarations
       if (stripped.endsWith(';') && !line.includes('{')) {
+        // `int foo(int a);` is a declaration; `return foo(a);` is a call that
+        // the same shape would swallow (every `return f(...)` site was being
+        // dropped from caller lists). A leading statement keyword means call.
         const declRe = new RegExp('^\\s*[\\w\\s*&]+\\s+' + bareEsc + '\\s*\\([^)]*\\)\\s*;$');
-        if (declRe.test(line)) return;
+        const stmtKw = /^\s*(?:return|await|yield|throw|case|new|delete|typeof|else|do|co_return|co_yield|co_await)\b/;
+        if (declRe.test(line) && !stmtKw.test(line)) return;
       }
       // Skip definitions
       if (stripped.endsWith('{')) {
@@ -292,6 +477,12 @@ export function findCallers(idx, functionName, maxResults = 500, opts = {}) {
         seen.add(key);
 
         const callerFunc = idx._findContainingFunctionFromIndex(filepath, lineNum);
+        if (targetDef) {
+          const info = callerFunc && idx.functionIndex && idx.functionIndex[filepath]
+            ? idx.functionIndex[filepath][callerFunc] : null;
+          const siteSpan = info ? { start: info.start, end: info.end } : { start: lineNum, end: lineNum };
+          if (!_reachable(idx, targetDef, filepath, siteSpan)) continue;
+        }
 
         // Determine call type
         let callType;
@@ -347,13 +538,17 @@ export function findCallees(idx, functionName, fileHint = null) {
 
   const lines = idx.fileLines.get(targetFilepath);
   if (!lines) return [];
-  const bodyLines = lines.slice(targetStart - 1, targetEnd);
+  const bodyLines = _maskedBody(idx, targetFilepath, lines).slice(targetStart - 1, targetEnd);
 
   const knownFunctions = idx._getKnownFunctions();
   const results = [];
   // Dedup by resolved qualified name (not bare name), so ClassA::run
   // and ClassB::run both appear when both are called.
   const seenResolved = new Set();
+  // Direct-call entries by key, so a name first seen as unresolved
+  // (`const push = (s) => out.push(s)` refuses the receiver call) is replaced
+  // when a later site in the same body binds (`push('x')` to that local).
+  const seenIndex = new Map();
 
   const callPattern = /(?<![a-zA-Z_])([a-zA-Z_]\w*)\s*\(/g;
   const indirectPattern = /\(\s*\*\s*([a-zA-Z_]\w*)\s*\)\s*\(/g;
@@ -389,8 +584,9 @@ export function findCallees(idx, functionName, fileHint = null) {
       if (calleeName === targetBare) continue;
 
       const defs = knownFunctions[calleeName];
-      const resolved = _resolveCalleeTarget(idx, 
-        calleeName, line, callerClass, targetFilepath, defs
+      const resolved = _resolveCalleeTarget(idx,
+        calleeName, line, callerClass, targetFilepath, defs,
+        { callerSpan: { start: targetStart, end: targetEnd } }
       );
       const resolvedKey = resolved.resolvedName || calleeName;
       if (seenResolved.has(resolvedKey)) continue;
@@ -404,6 +600,7 @@ export function findCallees(idx, functionName, fileHint = null) {
         line_number: lineNum,
         call_type: 'indirect',
         ambiguous: resolved.ambiguous,
+        reason: resolved.reason || null,
       });
     }
 
@@ -441,15 +638,8 @@ export function findCallees(idx, functionName, fileHint = null) {
         continue;
       }
 
-      // Resolve which definition is being called
-      const resolved = _resolveCalleeTarget(idx, 
-        calleeName, line, callerClass, targetFilepath, defs
-      );
-      const resolvedKey = resolved.resolvedName || calleeName;
-      if (seenResolved.has(resolvedKey)) continue;
-      seenResolved.add(resolvedKey);
-
-      // Determine call type from context
+      // Determine call type from context first: the receiver of a dot-call
+      // is evidence the resolver uses.
       const pos = m.index;
       const prefix = line.slice(0, pos);
       let callType;
@@ -457,10 +647,28 @@ export function findCallees(idx, functionName, fileHint = null) {
       else if (prefix.trimEnd().endsWith('.')) callType = 'method_dot';
       else if (prefix.trimEnd().endsWith('::')) callType = 'qualified';
       else callType = 'direct';
+      const recvMatch = (callType === 'method_dot' || callType === 'method_ptr')
+        ? prefix.match(/([A-Za-z_$][\w$]*)\s*(?:\.|->)\s*$/) : null;
+
+      // Resolve which definition is being called
+      const resolved = _resolveCalleeTarget(idx,
+        calleeName, line, callerClass, targetFilepath, defs,
+        { callerSpan: { start: targetStart, end: targetEnd }, receiver: recvMatch ? recvMatch[1] : null }
+      );
+      const resolvedKey = resolved.resolvedName || calleeName;
+      const prevIdx = seenIndex.get(resolvedKey);
+      const replaces = prevIdx !== undefined && resolved.def && !results[prevIdx].resolved_def;
+      if (seenResolved.has(resolvedKey) && !replaces) continue;
+      seenResolved.add(resolvedKey);
 
       // For dot-calls, check if the resolved class actually appears as the
       // receiver. If not (e.g. `e.message.includes(...)` resolved to
-      // `LlamaText::includes`), strip the false class attribution.
+      // `LlamaText::includes`), strip the false class attribution. One
+      // exception (2026-10-11): a method that is the only method of that
+      // name in the index, with a name that is not a built-in method, is
+      // kept (`index.getCallInventory(` → `CodeSearchIndex::getCallInventory`;
+      // the receiver variable is never named like its class). A built-in
+      // name (`includes`, `push`, `find`) still needs the class as receiver.
       if (callType === 'method_dot' && resolved.def?.class_name) {
         const resolvedClass = resolved.def.class_name;
         const receiverMatch = prefix.match(/([a-zA-Z_]\w*)\s*\.\s*$/);
@@ -471,15 +679,19 @@ export function findCallees(idx, functionName, fileHint = null) {
         // Also keep if the class name appears explicitly elsewhere in the prefix
         const classInPrefix = !receiverConfirmed
           && new RegExp('\\b' + escapeRegex(resolvedClass) + '\\b').test(prefix);
-        if (!receiverConfirmed && !classInPrefix) {
+        const soleMethod = !receiverConfirmed && !classInPrefix
+          && !_BUILTIN_METHOD_NAMES.has(calleeName)
+          && defs.filter(d => d.class_name).length === 1;
+        if (!receiverConfirmed && !classInPrefix && !soleMethod) {
           // Demote to bare name — still show the call, just without the wrong class
           resolved.resolvedName = calleeName;
           resolved.def = null;
           resolved.ambiguous = true;
+          resolved.reason = 'receiver';
         }
       }
 
-      results.push({
+      const entry = {
         name: calleeName,
         display_name: displayName(resolved.resolvedName, resolved.def?.filepath || ''),
         definitions: defs,
@@ -487,7 +699,14 @@ export function findCallees(idx, functionName, fileHint = null) {
         line_number: lineNum,
         call_type: callType,
         ambiguous: resolved.ambiguous,
-      });
+        reason: resolved.reason || null,
+      };
+      if (replaces) {
+        results[prevIdx] = entry;
+      } else {
+        seenIndex.set(resolvedKey, results.length);
+        results.push(entry);
+      }
     }
 
     // Check event handler registrations: addEventListener('event', handler)
@@ -497,8 +716,9 @@ export function findCallees(idx, functionName, fileHint = null) {
       if (!(handlerName in knownFunctions)) continue;
       if (handlerName === targetBare) continue;
       const defs = knownFunctions[handlerName];
-      const resolved = _resolveCalleeTarget(idx, 
-        handlerName, line, callerClass, targetFilepath, defs
+      const resolved = _resolveCalleeTarget(idx,
+        handlerName, line, callerClass, targetFilepath, defs,
+        { callerSpan: { start: targetStart, end: targetEnd } }
       );
       const resolvedKey = resolved.resolvedName || handlerName;
       if (seenResolved.has(resolvedKey)) continue;
@@ -701,7 +921,7 @@ export function getCallInventory(idx, functionName = null, opts = {}) {
 
     const lines = idx.fileLines.get(func.filepath);
     if (!lines) continue;
-    const bodyLines = lines.slice(func.start - 1, func.end);
+    const bodyLines = _maskedBody(idx, func.filepath, lines).slice(func.start - 1, func.end);
 
     const callerName = func.name;
     let callerBare = callerName;
@@ -734,31 +954,43 @@ export function getCallInventory(idx, functionName = null, opts = {}) {
         if (seenInThisFunc.has(calleeName)) continue;
         seenInThisFunc.add(calleeName);
 
-        if (calleeName in knownFunctions) {
-          // IN INDEX
-          const defs = knownFunctions[calleeName];
-          const resolved = _resolveCalleeTarget(idx, 
-            calleeName, line, callerClass, func.filepath, defs
-          );
+        const prefix = line.slice(0, m.index);
+        const recv = prefix.match(/([A-Za-z_$][\w$]*)\s*(?:\.|->)\s*$/);
+        const resolved = (calleeName in knownFunctions)
+          ? _resolveCalleeTarget(idx, calleeName, line, callerClass, func.filepath, knownFunctions[calleeName],
+                                 { callerSpan: { start: func.start, end: func.end }, receiver: recv ? recv[1] : null })
+          : null;
+        if (resolved && resolved.def) {
+          // IN INDEX (a closest-directory pick among several reachable
+          // definitions stays marked ambiguous)
           const qName = resolved.resolvedName || calleeName;
           if (!inIndexMap.has(qName)) {
             const def = resolved.def;
             inIndexMap.set(qName, {
               name: calleeName,
               qualified_name: qName,
-              filepath: def?.filepath || '',
-              lines: def ? (def.end - def.start + 1) : 0,
+              filepath: def.filepath || '',
+              lines: def.end - def.start + 1,
               callers: new Set(),
+              ambiguous: false,
+              candidates: knownFunctions[calleeName].length,
             });
           }
-          inIndexMap.get(qName).callers.add(callerName);
+          const entry = inIndexMap.get(qName);
+          entry.callers.add(callerName);
+          if (resolved.ambiguous) entry.ambiguous = true;
         } else {
-          // EXTERNAL
+          // EXTERNAL: not in the index, or in the index but not reachable from
+          // here (a local helper of another function, a non-exported function
+          // in another file, a method call on a receiver with no evidence for
+          // a free function). `reason` says which.
           if (!externalMap.has(calleeName)) {
             externalMap.set(calleeName, {
               name: calleeName,
               provenance: guessProvenance(calleeName),
               call_sites: [],
+              reason: resolved ? (resolved.reason || null) : null,
+              candidates: resolved ? (resolved.candidates || 0) : 0,
             });
           }
           externalMap.get(calleeName).call_sites.push({

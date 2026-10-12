@@ -36,6 +36,7 @@ import {
   familyForExt, maskCodeLines, computeFunctionEnd, trimTrailingBlank,
   mergeRegexOnlyEntries, labelParser,
 } from './function-bounds.js';
+import { extractPythonImports } from './imports.js';
 import {
   getJsBeautify, getWebcrack, isMinified, deobfuscateSimple, tryWebcrack,
   isOpaqueName, camelToScreamingSnake, extractReadableIdents, inferAllNames,
@@ -874,7 +875,7 @@ export class CodeSearchIndex {
     // --- Instantiation sites (uses findCallers on the class name) ---
     let rawCallers = [];
     try {
-      rawCallers = this.findCallers(fn.name, 500);
+      rawCallers = this.findCallers(fn.name, 500, { fileHint: fn.filepath });
     } catch (e) {
       if (e.code === 'SHORT_NAME_BAILOUT') {
         rawCallers = this._findCallersByExactRegex(fn.name, 500);
@@ -1795,7 +1796,7 @@ export class CodeSearchIndex {
     let rawCallers;
     let callersSkipped = null;
     try {
-      rawCallers = this.findCallers(fn.name, 500);
+      rawCallers = this.findCallers(fn.name, 500, { fileHint: fn.filepath });
     } catch (e) {
       if (e.code === 'SHORT_NAME_BAILOUT') {
         // Inverted-index path bailed out (short names match too many lines).
@@ -4786,9 +4787,16 @@ export class CodeSearchIndex {
     const qualified = Object.create(null);  // "Class::method" -> [defs]
 
     for (const [fpath, functions] of Object.entries(this.functionIndex || {})) {
+      const fileDefs = [];
       for (const [fname, info] of Object.entries(functions)) {
         let bare = fname.includes('::') ? fname.split('::').pop() : fname;
         bare = bare.includes('.') ? bare.split('.').pop() : bare;
+        // A second definition of the same name in a file is stored as
+        // `name@line`; it is still a definition of `name` (four local `walk`
+        // helpers in one file were keyed as `walk@1175` etc. and never offered
+        // as candidates for a call to `walk`). The locality rule then picks the
+        // container's own one.
+        bare = (info.base_name && !info.base_name.includes('@')) ? info.base_name : bare.replace(/@\d+$/, '');
 
         // Extract class name from qualified "Class::method"
         let className = null;
@@ -4802,14 +4810,17 @@ export class CodeSearchIndex {
         const def = {
           filepath: fpath,
           full_name: fname,
+          base_name: bare,
           start: info.start,
           end: info.end,
           type: info.type || 'function',
           class_name: className,
+          container: null,   // filled below: the enclosing definition of a local function
         };
 
         if (!known[bare]) known[bare] = [];
         known[bare].push(def);
+        fileDefs.push(def);
 
         // Qualified index
         if (className) {
@@ -4817,6 +4828,29 @@ export class CodeSearchIndex {
           if (!qualified[qKey]) qualified[qKey] = [];
           qualified[qKey].push(def);
         }
+      }
+
+      // Locality (callgraph-name-resolution-precision, 2026-10-11): a
+      // definition whose span lies inside another non-class definition's span
+      // in the same file is a local function, callable only from inside that
+      // container (#343 ★A: `out.push(s)` bound to a `const push = ...` local
+      // of an unrelated function). Sweep in (start asc, end desc) order with a
+      // stack of open spans; the innermost open non-class span that contains
+      // the definition is its container. A same-start span is a duplicate
+      // name for the same definition (an index built before the merge
+      // dedupe), not a container. Classes are not containers: a method is
+      // reachable through its class, which the resolver's class steps handle.
+      fileDefs.sort((a, b) => a.start - b.start || b.end - a.end);
+      const open = [];
+      for (const d of fileDefs) {
+        while (open.length && open[open.length - 1].end < d.start) open.pop();
+        for (let k = open.length - 1; k >= 0; k--) {
+          const o = open[k];
+          if (o.type === 'class' || o.start === d.start || o.end < d.end) continue;
+          d.container = { filepath: o.filepath, full_name: o.full_name, start: o.start, end: o.end };
+          break;
+        }
+        open.push(d);
       }
     }
 
@@ -4832,6 +4866,129 @@ export class CodeSearchIndex {
   _getQualifiedFunctions() {
     if (!this._qualifiedFunctionsCache) this._getKnownFunctions();
     return this._qualifiedFunctionsCache;
+  }
+
+  /**
+   * File-level visibility of top-level definitions, computed at query time
+   * from the file's lines and cached per file (callgraph-name-resolution
+   * precision, 2026-10-11). JS/TS: the locally exported names, from ESM
+   * `export` forms and CommonJS `module.exports` / `exports.x`; `explicit`
+   * is false when the file has no export syntax at all (a script, a bundle,
+   * a module of globals), in which case nothing is file-local. C-family:
+   * `static` on the definition line marks a file-local function (see
+   * _isStaticDef). Other languages: no visibility information.
+   */
+  _fileVisibility(filepath) {
+    if (!this._fileVisibilityCache) this._fileVisibilityCache = new Map();
+    const cached = this._fileVisibilityCache.get(filepath);
+    if (cached) return cached;
+    const ext = path.extname(filepath).toLowerCase();
+    let vis;
+    if (/^\.(js|mjs|cjs|jsx|ts|tsx)$/.test(ext)) {
+      const lines = this.fileLines.get(filepath) || [];
+      const exported = new Set();
+      let explicit = false;
+      const declRe = /^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function\s*\*?|class|const|let|var)\s+([\w$]+)/;
+      const blockRe = /^\s*export\s*\{([^}]*)\}/;
+      const defaultIdRe = /^\s*export\s+default\s+([\w$]+)\s*;?\s*$/;
+      const cjsObjRe = /module\.exports\s*=\s*\{([^}]*)\}/;
+      const cjsIdRe = /module\.exports\s*=\s*([\w$]+)\s*;?\s*$/;
+      const cjsPropRe = /(?:module\.)?exports\.([\w$]+)\s*=\s*([\w$]+)?/;
+      for (const line of lines) {
+        let m;
+        if ((m = line.match(declRe))) { exported.add(m[1]); explicit = true; }
+        else if ((m = line.match(blockRe))) {
+          explicit = true;
+          for (const part of m[1].split(',')) {
+            const local = part.trim().split(/\s+as\s+/)[0].trim();
+            if (local) exported.add(local);
+          }
+        }
+        else if ((m = line.match(defaultIdRe))) { exported.add(m[1]); explicit = true; }
+        else if ((m = line.match(cjsObjRe))) {
+          explicit = true;
+          for (const part of m[1].split(',')) {
+            for (const tok of part.split(':')) { const t = tok.trim(); if (/^[\w$]+$/.test(t)) exported.add(t); }
+          }
+        }
+        else if ((m = line.match(cjsIdRe))) { exported.add(m[1]); explicit = true; }
+        else if ((m = line.match(cjsPropRe))) { explicit = true; exported.add(m[1]); if (m[2]) exported.add(m[2]); }
+        else if (/^\s*export\s+/.test(line)) explicit = true;   // re-exports, `export type`, ...
+      }
+      vis = { kind: 'js', explicit, exported };
+    } else if (/^\.(c|h|cc|cpp|cxx|hpp|hxx|h\+\+|c\+\+|m|mm)$/.test(ext)) {
+      vis = { kind: 'c' };
+    } else {
+      vis = { kind: 'none' };
+    }
+    this._fileVisibilityCache.set(filepath, vis);
+    return vis;
+  }
+
+  /** True when a C-family definition is declared `static`, i.e. file-local. */
+  _isStaticDef(def) {
+    const lines = this.fileLines.get(def.filepath);
+    if (!lines) return false;
+    const re = /^\s*static\b/;
+    if (re.test(lines[def.start - 1] || '')) return true;
+    // Return type on its own line above the name (Chromium / Google style).
+    const above = def.start >= 2 ? (lines[def.start - 2] || '') : '';
+    return re.test(above) && !/[;{}]\s*$/.test(above.trimEnd());
+  }
+
+  /**
+   * Import evidence that `callerFilepath` can see `def`, for module-based
+   * languages: ES modules via the import graph, Python via its import rows.
+   * Returns null when the caller file has no imports or the language has no
+   * module system here (C headers, Java packages: nothing to say), else
+   * { named, module, aliases }: `named` when the def's bare name is imported
+   * from the def's module, `module` when any import resolves to the def's
+   * file, `aliases` the namespace / default binding names for that module
+   * (`utils` in `import * as utils`, `helpers` in `import helpers`).
+   */
+  _importEvidence(callerFilepath, def) {
+    const ext = path.extname(callerFilepath).toLowerCase();
+    const stem = (p) => path.basename(String(p)).replace(/\.[^.]+$/, '').toLowerCase();
+    const defStem = stem(def.filepath);
+    let named = false, module = false;
+    const aliases = [];
+    if (/^\.(js|mjs|cjs|jsx|ts|tsx)$/.test(ext)) {
+      const rows = this._buildImportGraph().get(callerFilepath);
+      if (!rows || rows.length === 0) return null;
+      for (const r of rows) {
+        const sameModule = !r.isBuiltin && stem(r.source) === defStem;
+        if (sameModule) module = true;
+        for (const n of r.names || []) {
+          const m = n.match(/^([\w$]+)(?:\s+\((namespace|default)\))?$/);
+          if (!m) continue;
+          if (sameModule && !m[2] && m[1] === def.base_name) named = true;
+          if (sameModule && m[2]) aliases.push(m[1]);
+        }
+      }
+      return { named, module, aliases };
+    }
+    if (ext === '.py' || ext === '.pyw') {
+      if (!this._pyImportRowsCache) this._pyImportRowsCache = new Map();
+      let rows = this._pyImportRowsCache.get(callerFilepath);
+      if (!rows) {
+        const lines = this.fileLines.get(callerFilepath) || [];
+        try { rows = extractPythonImports(lines, callerFilepath) || []; } catch { rows = []; }
+        this._pyImportRowsCache.set(callerFilepath, rows);
+      }
+      if (rows.length === 0) return null;
+      for (const r of rows) {
+        const modLeaf = String(r.module || '').split('.').pop().toLowerCase();
+        const sameModule = modLeaf === defStem || (r.name && !r.star && String(r.name).toLowerCase() === defStem && r.module);
+        if (!sameModule) continue;
+        module = true;
+        if (r.name && String(r.name) === def.base_name) named = true;
+        if (r.star) named = true;                        // from module import *
+        if (!r.name) aliases.push(r.alias || modLeaf);   // import module [as alias]
+        else if (String(r.name).toLowerCase() === defStem) aliases.push(r.alias || r.name);  // from pkg import module
+      }
+      return { named, module, aliases };
+    }
+    return null;
   }
 
   /**

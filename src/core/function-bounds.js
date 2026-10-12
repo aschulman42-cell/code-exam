@@ -37,7 +37,7 @@ const FAMILIES = {
   rust:   { line: ['//'], block: [['/*', '*/']], quotes: ['"'], braces: true },   // 'a lifetimes: no single-quote strings
   go:     { line: ['//'], block: [['/*', '*/']], quotes: ["'", '"'], template: '`', braces: true },
   php:    { line: ['//', '#'], block: [['/*', '*/']], quotes: ["'", '"'], braces: true },
-  python: { line: ['#'], block: [], quotes: ["'", '"'], triple: true, indent: true },
+  python: { line: ['#'], block: [], quotes: ["'", '"'], triple: true, indent: true, fstrings: true },
   perl:   { line: ['#'], block: [], quotes: ["'", '"'], braces: true },
   hash:   { line: ['#'], block: [], quotes: ["'", '"'] },                    // Ruby, CoffeeScript: masking only, ends fall back
   lua:    { line: ['--'], block: [['--[[', ']]']], quotes: ["'", '"'] },      // `end`-delimited: ends fall back
@@ -162,10 +162,33 @@ export function maskCodeLines(lines, family) {
       }
       if (F.quotes.includes(ch)) {
         const verbatim = F.verbatim && i > 0 && line[i - 1] === '@';
+        // Python f-string: the letters right before the quote include f/F.
+        // `{expr}` inside is code (a call there is a real call, and the
+        // call scan must see it), `{{` is a brace; only literal text is
+        // masked. (callgraph-name-resolution-precision, 2026-10-11.)
+        let fstr = false;
+        if (F.fstrings) {
+          let p = i - 1, letters = '';
+          while (p >= 0 && /[A-Za-z]/.test(line[p]) && letters.length < 3) { letters = line[p] + letters; p--; }
+          fstr = /[fF]/.test(letters) && (p < 0 || !/[\w$]/.test(line[p]));
+        }
         let j = i + 1;
+        let depth = 0;                               // f-string interpolation depth
+        const keep = [];                             // columns of interpolation code
         while (j < n) {
-          if (!verbatim && line[j] === '\\') { j += 2; continue; }
-          if (line[j] === ch) {
+          const c = line[j];
+          if (depth > 0) {
+            if (c === '{') depth++;
+            else if (c === '}') { depth--; if (depth === 0) { j++; continue; } }
+            else keep.push(j);
+            j++; continue;
+          }
+          if (fstr && c === '{') {
+            if (line[j + 1] === '{') { j += 2; continue; }
+            depth = 1; j++; continue;
+          }
+          if (!verbatim && c === '\\') { j += 2; continue; }
+          if (c === ch) {
             if (verbatim && line[j + 1] === ch) { j += 2; continue; }
             break;
           }
@@ -173,6 +196,7 @@ export function maskCodeLines(lines, family) {
         }
         const endJ = Math.min(j, n - 1);           // unterminated: mask to end of line
         for (let k = i; k <= endJ; k++) chars[k] = ' ';
+        for (const k of keep) chars[k] = line[k];
         i = endJ + 1; continue;
       }
       if (F.regex && ch === '/') {

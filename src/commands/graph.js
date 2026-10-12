@@ -77,10 +77,11 @@ export function doCallTree(index, args) {
     const callers = index.findCallers(targetName, 200);
     if (callers.length === 0) return [];
 
+    // A call site inside no function is module scope: shown as its own
+    // `(file scope)` link (the digest's name for it), never walked further.
     const callerFuncs = {};
     for (const c of callers) {
-      const cf = c.caller_function || '(unknown)';
-      if (cf === '(unknown)') continue;
+      const cf = c.caller_function || '(file scope)';
       callerFuncs[cf] = (callerFuncs[cf] || 0) + 1;
     }
 
@@ -94,7 +95,7 @@ export function doCallTree(index, args) {
     const chains = [];
     for (const [, cf, cfLines, callSites] of scored) {
       const thisLink = [cf, cfLines, hotspotScore(cf, cfLines), callSites];
-      if (maxUp > 1) {
+      if (maxUp > 1 && cf !== '(file scope)') {
         const parentChains = buildCallerChains(cf, maxUp - 1);
         if (parentChains.length > 0) {
           for (const pc of parentChains) chains.push([...pc, thisLink]);
@@ -169,9 +170,10 @@ export function doCallTree(index, args) {
       if (callees.length === 0) return;
 
       const scored = [];
+      const unresolved = [];   // no reachable definition: named once, not drawn as an edge
       for (const ce of callees) {
         if (ce.call_type === 'recursive') continue;
-        if (ce.ambiguous && !ce.resolved_def) continue;  // skip unresolved dot-calls
+        if (ce.ambiguous && !ce.resolved_def) { unresolved.push(ce); continue; }
         const fd = ce.resolved_def || (ce.definitions && ce.definitions[0]);
         const cl = fd ? (fd.end - fd.start + 1) : 0;
         scored.push([hotspotScore(ce.name, cl), cl, ce]);
@@ -183,17 +185,21 @@ export function doCallTree(index, args) {
         const name = ce.display_name;
         const ct = ce.call_type || 'direct';
         const tag = ['indirect', 'reference', 'recursive'].includes(ct) ? ` [${ct}]` : '';
+        // A pick among several reachable definitions is a guess: labelled,
+        // and not descended into (its subtree would be the wrong function's).
+        const ndefs = (ce.definitions && ce.definitions.length) || 0;
+        const ambig = ce.ambiguous ? `  [ambiguous: ${ndefs} definition${ndefs === 1 ? '' : 's'}]` : '';
 
         const ekey = expandedKey(ce);
         if (visitedStack.has(ekey)) { console.log(`${indent}${name}${tag}  [cycle]`); continue; }
 
         const ss = (verbose || score > 0) ? `  (${ceLines}L, score ${score.toFixed(0)})` : (ceLines > 0 ? `  (${ceLines}L)` : '');
-        if (expanded.has(ekey)) { console.log(`${indent}${name}${tag}${ss}  [see above]`); continue; }
+        if (expanded.has(ekey)) { console.log(`${indent}${name}${tag}${ss}${ambig}  [see above]`); continue; }
 
-        console.log(`${indent}${name}${tag}${ss}`);
+        console.log(`${indent}${name}${tag}${ss}${ambig}`);
         expanded.add(ekey);
 
-        if (rem > 1) {
+        if (rem > 1 && !ce.ambiguous) {
           const fd = ce.resolved_def || (ce.definitions && ce.definitions[0]);
           if (fd) {
             visitedStack.add(ekey);
@@ -201,6 +207,10 @@ export function doCallTree(index, args) {
             visitedStack.delete(ekey);
           }
         }
+      }
+      if (unresolved.length > 0) {
+        const names = unresolved.map(u => `${u.name}${u.reason === 'receiver' ? ' (method call)' : ''}`);
+        console.log(`${indent}[unresolved: ${names.join(', ')}]`);
       }
     }
 
@@ -245,16 +255,17 @@ export function doCallTree(index, args) {
     const srcId = mid(bareSrc);
     for (const ce of callees) {
       if (ce.call_type === 'recursive') continue;
-      if (ce.ambiguous && !ce.resolved_def) continue;  // skip unresolved dot-calls
+      if (ce.ambiguous && !ce.resolved_def) continue;  // no reachable definition: no edge
       const fd = ce.resolved_def || (ce.definitions && ce.definitions[0]);
       const tgtId = mid(ce.name);
-      const e = `    ${srcId} --> ${tgtId}`;
+      // An ambiguous pick is a dashed edge to a `?`-labelled node, not descended into.
+      const e = ce.ambiguous ? `    ${srcId} -.-> ${tgtId}` : `    ${srcId} --> ${tgtId}`;
       if (!edges.includes(e)) edges.push(e);
       if (!nodesSeen.has(tgtId)) {
         nodesSeen.add(tgtId);
-        if (fd) { const cl = fd.end - fd.start + 1; console.log(`    ${tgtId}["${ce.display_name} (${cl}L)"]`); }
+        if (fd) { const cl = fd.end - fd.start + 1; console.log(`    ${tgtId}["${ce.display_name}${ce.ambiguous ? ' ?' : ''} (${cl}L)"]`); }
       }
-      if (!mVis.has(ce.name) && rem > 1 && fd) {
+      if (!mVis.has(ce.name) && rem > 1 && fd && !ce.ambiguous) {
         mVis.add(ce.name);
         collectMermaid(fd.full_name || ce.name, fd.filepath, rem - 1);
         mVis.delete(ce.name);
@@ -386,7 +397,7 @@ function _getFileOutgoingDeps(index, filepath) {
   for (const [fname] of Object.entries(index.functionIndex[filepath])) {
     const callees = index.findCallees(fname, filepath);
     for (const ce of callees) {
-      if (ce.ambiguous && !ce.resolved_def) continue;  // skip unresolved
+      if (ce.ambiguous) continue;  // unresolved, or a guess among several files: no coupling edge
       // Use resolved definition for accuracy
       const bestDef = ce.resolved_def || (ce.definitions && ce.definitions[0]);
       if (bestDef && bestDef.filepath !== filepath) {

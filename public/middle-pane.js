@@ -219,7 +219,14 @@ export function renderCallInfo(extractData, callersData, calleesData) {
       const nameHtml = demoted
         ? `<span class="muted">${escHtml(c.display_name || c.name)}</span>`
         : `<span class="clickable" data-funcname="${escHtml(c.resolved_def?.full_name || c.name)}"${c.resolved_def?.filepath ? ` data-filepath="${escHtml(c.resolved_def.filepath)}"` : ''}>${escHtml(c.display_name || c.name)}</span>`;
-      html += `<tr><td class="mono">${nameHtml}${demoted ? ' <span class="type-badge">unresolved</span>' : ''}</td>`;
+      // `unresolved`: no reachable definition (a local of another function, a
+      // non-exported function elsewhere, a method call on a receiver).
+      // `ambiguous`: a pick among several reachable definitions; the link
+      // goes to the pick, the badge says it is a guess.
+      const badge = demoted
+        ? ' <span class="type-badge" title="No reachable definition in the index">unresolved</span>'
+        : (c.ambiguous ? ` <span class="type-badge" title="${c.definitions} definitions; this is the closest-directory pick">ambiguous</span>` : '');
+      html += `<tr><td class="mono">${nameHtml}${badge}</td>`;
       html += `<td class="muted">${c.call_type}</td><td class="${isDef ? '' : 'muted'}">${isDef ? `${c.definitions} def` : 'external'}</td></tr>`;
     }
     html += '</table></div>';
