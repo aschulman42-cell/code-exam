@@ -752,7 +752,102 @@ export function contentCandidatesForWords(index, words, opts = {}) {
   if (fileScope) opts.onNote?.(`${fileScope} file-scope (non-function) match(es) dropped`);
   if (pseudo) opts.onPseudoSource?.(pseudo);
   if (tests) opts.onTestSymbol?.(tests);
-  return named.slice(0, limit);
+  return Object.assign(named.slice(0, limit), { total: named.length });
+}
+
+// The deterministic half of per-element retrieval, as one call: the name arm,
+// the direction check, then the content arm merged behind it with its one
+// reserved slot. `retrievePerElement` runs it after the vocabulary step; the
+// MCP `claim_candidates` tool runs it on words the Chat model supplies itself,
+// so the two surfaces cannot drift (claim-mcp-primitives). Pure: every note a
+// caller might print comes back in the result; nothing is written here.
+//
+//   index    the CodeSearchIndex, or null to skip the content arm
+//   pool     the symbol table, already filtered for pseudo-source
+//   limText  the limitation's text, for the direction check
+//   words    the predicted code words for this element
+//   opts     candidatesPerElement, contentPerElement, includeTests, includeOp
+export function candidatesForElement({ index, pool, limText, words, opts = {} }) {
+  const hits = searchSymbolsByWords(pool, words, {
+    limit: opts.candidatesPerElement ?? LOCATE_DEFAULTS.candidatesPerElement,
+    includeTests: !!opts.includeTests,
+  });
+  const nameTotal = hits.total ?? hits.length;
+  // Attach the direction verdict to each hit rather than recomputing it in
+  // every consumer — the limitation text is here and nowhere downstream.
+  let mismatches = 0;
+  for (const h of hits) {
+    const mm = directionalMismatch(limText || '', h.sym?.name || '');
+    if (mm) { h.directionalMismatch = mm; mismatches += 1; }
+  }
+  const r = { hits, nameTotal, mismatches, contentRan: false, contentAdded: 0, promoted: null,
+    armError: null, armNote: null, contentPseudo: 0, contentTests: 0 };
+  if (!index) return r;
+  // Merge the content arm AFTER scoring, de-duplicated by symbol. Each
+  // candidate records which arm found it: a symbol found only by content
+  // search is a different kind of evidence from one whose NAME matches, and a
+  // reader deciding whether to trust a citation should be able to see which.
+  //
+  // The name arm keeps precedence on ties — it is the narrower, higher
+  // confidence read, same rule as TIGHT over BROAD in analyze.js.
+  r.contentRan = true;
+  const key = (s) => `${String(s.filepath || '').split('!').pop()}@${s.name}`;
+  const seen = new Set(hits.map((h) => key(h.sym)));
+  for (const h of hits) h.arm = 'name';
+  for (const c of contentCandidatesForWords(index, words,
+    { limit: opts.contentPerElement ?? LOCATE_DEFAULTS.contentPerElement,
+      includeOp: !!opts.includeOp,
+      includeTests: !!opts.includeTests,
+      onPseudoSource: (n) => { r.contentPseudo += n; },
+      onTestSymbol: (n) => { r.contentTests += n; },
+      onError: (e) => { r.armError = e; },
+      onNote: (n) => { r.armNote = n; } })) {
+    if (seen.has(key(c))) {
+      const prior = hits.find((h) => key(h.sym) === key(c));
+      if (prior) prior.arm = 'both';       // corroborated by two searches
+      continue;
+    }
+    seen.add(key(c));
+    hits.push({ sym: c, matched: [], score: -Infinity, arm: 'content' });
+    r.contentAdded += 1;
+  }
+  // RESERVE ONE SLOT for the content arm's best NEW candidate.
+  //
+  // Content hits carry -Infinity and the list is already sorted descending,
+  // so every one of them sits behind every name-arm candidate and selection
+  // -- which reads from the top -- could never reach one. Measured: target
+  // lists with the arm on and off were BYTE-IDENTICAL on both corpora
+  // (#315). The arm contributed candidates and changed nothing.
+  //
+  // WHY ONE, AND WHY THE FIRST. asus-CC judged the candidates directly:
+  // rank 1 is good and the tail is noise. On the demo corpus content rank 1
+  // for element 2 is `initialize_crypto_context` -- the implementer of the
+  // element that recites "initializing a cryptographic context", absent
+  // from the 26 targets, and reached today only by inference through two
+  // wrappers. On ExoPlayer, content rank 1 for element 7 is
+  // AdaptiveTrackSelection::updateSelectedTrack at name-arm rank >2000:
+  // UNREACHABLE at any depth, because it contains none of the predicted
+  // words and its BODY does the work. The name arm finds its callee and
+  // structurally cannot find the caller.
+  //
+  // Below rank 1 it degrades fast -- NAL-unit tests, audio-sink tests, a
+  // Builder::build. So `contentPerElement` is still fetched for the count
+  // and the file-scope reporting, and exactly ONE is promoted.
+  //
+  // SPLICE, NOT SCORE. -Infinity stands for "no comparable score", and
+  // multisect IDF and name-arm rarity measure different things. Converting
+  // between them would be a guess; reserving a POSITION is a stated policy.
+  // The top name candidate keeps rank 1 -- this goes immediately after it.
+  if (r.contentAdded > 0) {
+    const at = hits.findIndex((h) => h.arm === 'content');
+    if (at > 1) {
+      r.promoted = hits.splice(at, 1)[0];
+      hits.splice(Math.min(1, hits.length), 0, r.promoted);
+    } else if (at >= 0) {
+      r.promoted = hits[at];                 // already within reach
+    }
+  }
+  return r;
 }
 
 export async function retrievePerElement({ draft, elements, symbols, opts = {} }) {
@@ -857,98 +952,29 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
   const perElement = [];
   for (const ws of wordSets) {
     const { element, words } = ws;
-    const hits = searchSymbolsByWords(pool, words, {
-      limit: opts.candidatesPerElement ?? LOCATE_DEFAULTS.candidatesPerElement,
-      includeTests: !!opts.includeTests,
-    });
-    // Attach the direction verdict to each hit rather than recomputing it in
-    // every consumer — the limitation text is here and nowhere downstream.
     const limText = elements[element - 1] || '';
-    let mismatches = 0;
-    for (const h of hits) {
-      const mm = directionalMismatch(limText, h.sym?.name || '');
-      if (mm) { h.directionalMismatch = mm; mismatches += 1; }
-    }
+    // Both arms, the direction check and the reserved slot live in
+    // candidatesForElement (shared with the MCP claim_candidates tool); this
+    // loop keeps the CLI's stderr narration, printed from what it returns.
+    const r = candidatesForElement({ index: opts.index, pool, limText, words, opts: {
+      candidatesPerElement: opts.candidatesPerElement, contentPerElement: opts.contentPerElement,
+      includeTests: !!opts.includeTests, includeOp } });
+    const { hits, mismatches, contentAdded, promoted } = r;
     if (mismatches) {
       process.stderr.write(`    ⚠ element ${element}: ${mismatches} candidate(s) point the`
         + ` OPPOSITE direction to the limitation (${directionOf(limText)}) — not filtered,`
         + ` verify before citing\n`);
     }
-    // Merge the content arm AFTER scoring, de-duplicated by symbol. Each
-    // candidate records which arm found it: a symbol found only by content
-    // search is a different kind of evidence from one whose NAME matches, and a
-    // reader deciding whether to trust a citation should be able to see which.
-    //
-    // The name arm keeps precedence on ties — it is the narrower, higher
-    // confidence read, same rule as TIGHT over BROAD in analyze.js.
-    let contentAdded = 0;
-    if (opts.index) {
-      const key = (s) => `${String(s.filepath || '').split('!').pop()}@${s.name}`;
-      const seen = new Set(hits.map((h) => key(h.sym)));
-      for (const h of hits) h.arm = 'name';
-      let armError = null;
-      let armNote = null;
-      for (const c of contentCandidatesForWords(opts.index, words,
-        { limit: opts.contentPerElement ?? LOCATE_DEFAULTS.contentPerElement,
-          includeOp,
-          includeTests: !!opts.includeTests,
-          onPseudoSource: (n) => { heldBack.content += n; },
-          onTestSymbol: (n) => { heldBack.contentTests += n; },
-          onError: (e) => { armError = e; },
-          onNote: (n) => { armNote = n; } })) {
-        if (seen.has(key(c))) {
-          const prior = hits.find((h) => key(h.sym) === key(c));
-          if (prior) prior.arm = 'both';       // corroborated by two searches
-          continue;
-        }
-        seen.add(key(c));
-        hits.push({ sym: c, matched: [], score: -Infinity, arm: 'content' });
-        contentAdded += 1;
-      }
-      // RESERVE ONE SLOT for the content arm's best NEW candidate.
-      //
-      // Content hits carry -Infinity and the list is already sorted descending,
-      // so every one of them sits behind every name-arm candidate and selection
-      // -- which reads from the top -- could never reach one. Measured: target
-      // lists with the arm on and off were BYTE-IDENTICAL on both corpora
-      // (#315). The arm contributed candidates and changed nothing.
-      //
-      // WHY ONE, AND WHY THE FIRST. asus-CC judged the candidates directly:
-      // rank 1 is good and the tail is noise. On the demo corpus content rank 1
-      // for element 2 is `initialize_crypto_context` -- the implementer of the
-      // element that recites "initializing a cryptographic context", absent
-      // from the 26 targets, and reached today only by inference through two
-      // wrappers. On ExoPlayer, content rank 1 for element 7 is
-      // AdaptiveTrackSelection::updateSelectedTrack at name-arm rank >2000:
-      // UNREACHABLE at any depth, because it contains none of the predicted
-      // words and its BODY does the work. The name arm finds its callee and
-      // structurally cannot find the caller.
-      //
-      // Below rank 1 it degrades fast -- NAL-unit tests, audio-sink tests, a
-      // Builder::build. So `contentPerElement` is still fetched for the count
-      // and the file-scope reporting, and exactly ONE is promoted.
-      //
-      // SPLICE, NOT SCORE. -Infinity stands for "no comparable score", and
-      // multisect IDF and name-arm rarity measure different things. Converting
-      // between them would be a guess; reserving a POSITION is a stated policy.
-      // The top name candidate keeps rank 1 -- this goes immediately after it.
-      let promoted = null;
-      if (contentAdded > 0) {
-        const at = hits.findIndex((h) => h.arm === 'content');
-        if (at > 1) {
-          promoted = hits.splice(at, 1)[0];
-          hits.splice(Math.min(1, hits.length), 0, promoted);
-        } else if (at >= 0) {
-          promoted = hits[at];                 // already within reach
-        }
-      }
+    if (r.contentRan) {
+      heldBack.content += r.contentPseudo;
+      heldBack.contentTests += r.contentTests;
       // Reported UNCONDITIONALLY where the arm is enabled. Emitting only the
       // non-zero case is what hid the arm's total failure: an absent line meant
       // "found nothing new" and "never ran" alike, so three separate checks
       // read a dead arm as a healthy one. Three states, three distinct lines.
-      if (armError) {
+      if (r.armError) {
         process.stderr.write(`    ⚠ CONTENT search arm ERRORED and contributed nothing:`
-          + ` ${armError.message}\n`);
+          + ` ${r.armError.message}\n`);
       } else {
         process.stderr.write(`    +${contentAdded} candidate(s) from CONTENT search`
           + `${contentAdded ? ' (name search did not surface them)' : ' (searched, nothing new)'}`
@@ -957,7 +983,7 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
           + `${contentAdded > 1 ? ` (the other ${contentAdded - 1} rank below every`
             + ` name-arm candidate and cannot reach a target)` : ''}`
           + `${heldBack.contentTests ? ` (${heldBack.contentTests} test-file candidate(s) held back — --include-tests to admit)` : ''}`
-          + `${armNote ? ` — ${armNote}` : ''}\n`);
+          + `${r.armNote ? ` — ${r.armNote}` : ''}\n`);
       }
     }
     perElement.push({ element, text: limText.slice(0, 160), words, hits, mismatches, contentAdded,
@@ -1041,7 +1067,11 @@ export function searchSymbolsByWords(symbols, words, opts = {}) {
     if (prev) { prev.dupes = (prev.dupes || 1) + 1; continue; }
     byBare.set(key, h);
   }
-  return [...byBare.values()].slice(0, limit);
+  // `total` rides on the array so a capped consumer (the MCP claim_candidates
+  // tool) can state its population, per the #306 rule that a ranked head
+  // without its population is uninterpretable.
+  const all = [...byBare.values()];
+  return Object.assign(all.slice(0, limit), { total: all.length });
 }
 
 // Round 2: choose from candidates that EXIST. Blind mode hides file paths so a

@@ -77,6 +77,7 @@ is deterministic code with no model in the loop.
 | Feature | Qwen3.5-27B | Qwen3.5-9B | Qwen3-14B | Gemma3-12B K_M | Gemma3-12B QAT | Devstral-Small † |
 |---|---|---|---|---|---|---|
 | Claim charts / claim-locate / claims-loop | **SUPPORTED** ¹ | **DEGRADED** ¹ | UNTESTED | **DEGRADED** ⁵ | **DEGRADED** ² | **DEGRADED** ⁹ |
+| MCP claim tools (`claim_elements` / `claim_candidates` / `capabilities`; deterministic, not on the local-Chat menu) | UNTESTED | UNTESTED | UNTESTED | UNTESTED | UNTESTED | UNTESTED |
 | --overview-by-ai | UNTESTED | UNTESTED | **UNSUPPORTED** ³ | **SUPPORTED** ³ | **UNSUPPORTED** ³ | **DEGRADED** ³ᵇ |
 | --analyze family | UNTESTED | UNTESTED | UNTESTED | **SUPPORTED** ⁶ | UNTESTED | **SUPPORTED** ⁸ |
 | --claim-search extraction (local prompt) | UNTESTED | UNTESTED | UNTESTED | **SUPPORTED** ⁶ | UNTESTED | **SUPPORTED** ⁸ |

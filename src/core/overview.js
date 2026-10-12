@@ -448,6 +448,7 @@ export function formatOverview(ov, { surface = 'cli' } = {}) {
     L.push('  - `vocabulary` (n: 50) — the full ranked terms');
     L.push('  - `list_files` (filter: <dir>) — explore a folder');
     L.push('  - `command_catalog` / `models_used` — probe what kinds of content this index holds');
+    L.push('  - `capabilities` — what CodeExam can do and which tool fits, including the patent-claim-to-code workflow');
   } else {
     L.push('  - `--extract <name>` — print the source of a function by name. (The names in parentheses above, and under Entry points, are functions — pass one to `--extract` or `--digest`.)');
     L.push('  - `--digest <file@function>` — a summary of a function or file');

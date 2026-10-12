@@ -41,6 +41,7 @@ import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { runAiOverview, AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './core/ai-overview.js';
+import { resolveLocalChatTools } from './core/local-chat-tools.js';
 import { strictInstructionsFor, ungroundedWarning, localBudgets } from './core/ai-overview-local.js';
 import { aimlVerificationNote, aimlConverseNote, toolCallFooter } from './core/answer-disclosure.js';
 import { answerDisclosure } from './core/answer-disclosure.js';
@@ -4273,10 +4274,14 @@ const _asChatText = (c) => Array.isArray(c)
 // Local models degrade sharply as the tool menu grows (see
 // docs/cloud-gpu-chat-testing.md, First-run findings + Cross-model matrix:
 // 8B/14B collapse to zero calls or garbage args at 26 tools; even 32B args
-// degrade). Keep the local loop to this curated core; the cloud (Claude)
-// loop still gets all TOOLS.
-const LOCAL_CHAT_TOOLS = ['search', 'extract', 'show_file', 'callers',
-  'callees', 'digest', 'overview', 'list_functions'];
+// degrade). Keep the local loop to the curated core in
+// src/core/local-chat-tools.js; the cloud (Claude) loop still gets all TOOLS.
+// CE_LOCAL_CHAT_TOOLS extends or replaces the core for one launch — a testing
+// knob, the core is the measured product — and the server says so at startup
+// so an unmeasured menu is never silent.
+const { names: LOCAL_CHAT_TOOLS, note: _localChatToolsNote } =
+  resolveLocalChatTools(process.env.CE_LOCAL_CHAT_TOOLS, TOOLS.map((t) => t.name));
+if (_localChatToolsNote) console.error(_localChatToolsNote);
 
 // Chat-template special tokens must never reach a local model as literal
 // text: a user who TYPES <think> in a question — or a tool result carrying

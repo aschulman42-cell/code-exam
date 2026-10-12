@@ -29,6 +29,11 @@ PTO examination), and the codebase names things its own way. Bridging that gap i
 - **`--claim-locate <prose>`** — propose candidate symbols from the claim, verify them against the
   index (discarding ones that don't exist), navigate a hop from the survivors, and emit a set of
   **targets** to chart. `--hunt` widens the search when the first pass comes up short.
+- **In Chat and other MCP clients: `claim_elements` and `claim_candidates`** — the same splitter,
+  and the deterministic half of `--claim-locate`'s retrieval (name match weighted by rarity, a
+  search of function bodies, the direction check, sponge marking) as tools. The model supplies
+  the per-element code words itself and reads the candidates with `extract` / `digest`; the
+  audited chart stays `--claim-chart`. See [`CODEEXAM_MCP.md`](CODEEXAM_MCP.md).
 
 ## Claim charts
 

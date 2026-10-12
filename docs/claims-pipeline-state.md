@@ -93,8 +93,10 @@ of the index matched, or whether the rank scores actually separate.
 searches, e.g. `printUsage`, `x265_param`, whose help text and parsers match
 everything (`claims-loop.js:193-207`). That is the same phenomenon as `session`
 flooding a candidate list, and as `argparse.js` ranking first in the CE self-test.
-**The mechanism exists only in `claims-loop`** — `claim-locate`, `claim-analyze`
-and `claim-chart` have no equivalent. Another instance of the #309 class, and a
+**The mechanism exists in `claims-loop` and, since the MCP claim tools landed
+(2026-10-12), in `claim_candidates`, which marks sponges across one claim's
+elements** — `claim-locate`, `claim-analyze` and `claim-chart` still have no
+equivalent. Another instance of the #309 class, and a
 tuned in-tree precedent for the "prune high-frequency terms" idea in §3/(c).
 
 A sponge is an **overly-attractive distractor** — it absorbs searches it does not

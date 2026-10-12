@@ -78,6 +78,18 @@ Related flags (local GGUF only unless noted):
   works the same on the `--gui` launch line (`ce --gui … --local-reasoning off`);
   the equivalent is the `CE_DISABLE_LOCAL_REASONING=1` environment variable, handy
   for scripted or wrapper launches (set it before starting CodeExam).
+- **`CE_LOCAL_CHAT_TOOLS`** — the GUI Chat's tool menu for a local model. Unset,
+  the local Chat sees a curated core of eight tools (`search`, `extract`,
+  `show_file`, `callers`, `callees`, `digest`, `overview`, `list_functions`), the
+  menu measured to work for 8B–14B models (see
+  [cloud-gpu-chat-testing.md](cloud-gpu-chat-testing.md)); the cloud engines get
+  every tool. `CE_LOCAL_CHAT_TOOLS=+claim_elements,claim_candidates,capabilities`
+  adds tools to that core (the patent-claim tools, for instance),
+  `CE_LOCAL_CHAT_TOOLS=all` exposes every tool, and a plain comma-separated list
+  replaces the core. The server prints the resulting menu at startup. Any menu
+  other than the core is unmeasured: a small model may stop calling tools or
+  pass garbage arguments, which is why this is an environment variable for a
+  test session and not a flag.
 
 ## Getting a model
 

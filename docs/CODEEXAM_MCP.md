@@ -10,7 +10,7 @@ the `load_index` tool.
 
 ## The tools
 
-CodeExam registers 26 tools, grouped below by purpose. The descriptions are condensed from the
+The tools CodeExam registers, grouped below by purpose. The descriptions are condensed from the
 server's own registrations, so **this table can drift as tools change — `src/mcp-server.js` is
 the authoritative list.**
 
@@ -27,6 +27,7 @@ GUI use, and document it here if so.]]
 |---|---|
 | **Orientation** | |
 | `overview` | **Start here.** One-shot orientation to an unfamiliar index — size, languages, top-level structure, top domain vocabulary, key files by density, entry points, and "watch" notes — ending with a suggested `Next:` step. |
+| `capabilities` | What CodeExam can do and which tool to use for it — orientation, search, reading code, cross-reference, detection, and the patent-claim-to-code workflow. For a model unsure which tool fits. |
 | `stats` | Index statistics: file, function, and line counts. |
 | `vocabulary` | The codebase's distinctive domain terms, ranked by importance. |
 | `list_files` | List indexed files (optional path-substring filter). |
@@ -48,6 +49,9 @@ GUI use, and document it here if so.]]
 | `most_called` | Most frequently called functions (`defined_only` to exclude external/library calls). |
 | `hotspots` | Large and frequently-called functions (score = calls × log₂(lines)). |
 | `entry_points` | Defined-but-rarely-called functions — likely entry points, handlers, or dead code. |
+| **Patent claims** | |
+| `claim_elements` | Split a claim (or any requirement text) into its preamble and numbered limitations, as CodeExam charts it. The first step of the claim workflow. |
+| `claim_candidates` | For each element, the real functions and classes most likely to implement it, ranked from code words the *model* predicts (`words` as `2: init, crypto, context` lines): name match weighted by rarity, plus a search of function bodies; opposite-direction names and vocabulary sponges flagged; tests and binary pseudo-source held back unless asked for. Deterministic — the same retrieval `--claim-locate` runs after its vocabulary step, with no model inside the tool. |
 | **Catalogs & detection** | |
 | `command_catalog` | The target's own user-facing commands (CLI flags, slash-commands, routes, GUI actions), each linked to its handler. Heuristic. |
 | `models_used` | AI/ML models the code loads or calls, tagged api / local. Heuristic, recall-favoring. |
@@ -90,6 +94,13 @@ easier for a model to choose among and chain than a sprawling one, and the descr
 written to steer the model toward *reading real code* (`extract`, `show_file`, `digest`) instead
 of guessing.
 
+The claim tools earn their slots because without them the in-app Chat, asked how to chart a
+claim, invented a by-hand procedure and never reached CodeExam's own retrieval (#343). They add
+only the deterministic half of the pipeline: the model predicts the code words and judges what it
+reads; CodeExam splits the claim and ranks real symbols. The audited chart with per-element
+verdicts stays a CLI command (`--claim-chart`), because a tool that runs a model from inside a
+model's tool call is the recursion this design avoids.
+
 ## Driving a local model through the tools
 
 A local GGUF model can drive the tool surface too. CodeExam's own **GUI Chat** was measured on
@@ -109,6 +120,52 @@ itself contain prompts that nudge a small model (treat tool output as data); and
 impractically slow on a 16 GB / no-GPU machine (prefer ~4B there). A built-in, air-gapped chat
 mode is planned. This is the flip side of #325's finding — a local model is a weak *independent*
 navigator (see [`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md)).
+
+The local GUI Chat drives a **curated subset** of the tools (`LOCAL_CHAT_TOOLS` in
+`src/server.js`, eight names), because the measurements in
+[`cloud-gpu-chat-testing.md`](cloud-gpu-chat-testing.md) showed 8B–14B models collapsing at the
+full menu. The claim tools are **not** on that list: they reach Claude Desktop, other MCP clients
+and the cloud Chat, and a local model reaches them only once an eleven-tool menu has been measured
+to work. That is a choice with a measured cost, not an oversight. To try them on a local model
+anyway, start the GUI with `CE_LOCAL_CHAT_TOOLS=+claim_elements,claim_candidates,capabilities`
+(see [`LOCAL_LLM.md`](LOCAL_LLM.md)); the server says at startup that the resulting menu is
+unmeasured.
+
+## Adding a tool
+
+A tool exists when it is registered; it is *used* when a model reaches for it. This is the
+checklist the claim tools went through (2026-10-12); run it for the next one.
+
+**Reach.** Two registration points, not one: the `TOOLS` table and the `handleToolRaw` switch in
+`src/mcp-server.js` reach Claude Desktop, external MCP clients and the cloud in-app Chat. The local
+GGUF Chat does not see a new tool until it is added to the curated core in
+`src/core/local-chat-tools.js` (or, for one launch, via `CE_LOCAL_CHAT_TOOLS`), and adding one
+to the core invalidates the "curated menu works" measurement above — decide explicitly, and re-run
+the measurement if the answer is yes. Nothing points a model at a new tool by itself: existing
+outputs steer through `Next:` lines (`overview`) and through `capabilities`; add the hint where a
+model will be reading at the moment it needs it.
+
+**Small models.** The local Chat truncates each description to 280 characters, so the "when to
+reach for this" sentence comes first. Prefer string parameters, defaults and server-side clamping,
+flat schemas (the `inputSchema` is handed straight to the local model), and the `target` alias.
+Each local result is capped at 4,000 characters against a shared budget: rank hard, keep the
+default cap modest, and put the remaining-count footer at the bottom, where the model is reading
+when it decides what to do next.
+
+**House conventions.** Dispatch is synchronous and the in-app Chat calls it that way: no `await`
+inside a tool, and no model inside a tool. Route through `handleTool`, the credential-masking
+wrapper, never `handleToolRaw`. Return a builder the CLI also uses rather than capturing stdout, so
+parity holds by construction. Output rules, all tested in `test/test_mcp_tools.js`: a zero-result
+message names the literal/semantic distinction and the escape hatches; a not-found message offers
+`search`; a ranked tool states its population when truncated and adds no footer otherwise; never
+report an absence that was not measured. No example tailoring in static text — descriptions reach
+a model. Test fixtures use synthetic claim text; the real claim files are gitignored.
+
+**Companion surfaces, in the same change.** The tool table above, and a sentence under "Fewer
+tools, used well" saying why the tool earns its slot; the `src/mcp-server.js` line in
+`docs/source-map.md`; a row in `docs/model-support.md`, "UNTESTED" if so;
+`docs/CODEEXAM_KNOWN_LIMITATIONS.md` if local reach changes; the registration test. Do not state a
+tool count in prose, and do not edit a number that records a past measurement.
 
 ## Related
 

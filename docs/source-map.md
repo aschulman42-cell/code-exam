@@ -25,7 +25,7 @@ and data catalogs — those are not first-party source.
 - `src/index.js` — CLI entry point: parses argv, loads the index, dispatches every command; handles --gui/--mcp/--multi-index
 - `src/argparse.js` — declarative CLI flag table plus parser, deprecation and typo hints; sole source of --help text
 - `src/server.js` — GUI HTTP server: /api JSON routes over loaded indexes, index building, LLM chat and AI overview
-- `src/mcp-server.js` — MCP stdio server exposing 27 index-query tools (search, callers, digest, overview) to MCP clients
+- `src/mcp-server.js` — MCP stdio server exposing CodeExam's index-query tools (search, callers, digest, overview, claim candidates) to MCP clients
 - `src/archive.js` — expands ZIP/TAR/GZIP/HAR archives in memory (nested, depth-capped) for --build-index; zip-bomb guards
 - `src/binstrings.js` — extracts printable strings from binaries into indexable .op pseudo-source; C++ demangling optional
 - `src/build-worker.js` — worker thread that runs CodeSearchIndex.buildIndex off the main loop, streaming progress to the parent
@@ -83,6 +83,7 @@ and data catalogs — those are not first-party source.
 - `src/core/claim-genericity.js` — scores a claim element generic-bookend vs mechanism via I/O-verb shape and corpus word frequency
 - `src/core/claim-terms.js` — shared claim tokenizer: stop list, acronym rule, stemmer, and TF-IDF pick of distinctive claim words
 - `src/core/client-server.js` — detects declared HTTP routes and client calls, then reconciles them to flag missing server code
+- `src/core/local-chat-tools.js` — resolves the local GUI Chat's tool menu: the curated eight-tool core, or the CE_LOCAL_CHAT_TOOLS override (all / +names / names), with a startup note when the menu is unmeasured
 - `src/core/credential-mask.js` — masks credential values in tool output while keeping file, line and identifier visible
 - `src/core/data-structs.js` — finds struct/enum/union/typedef/interface/record definitions per language and ranks them by references
 - `src/core/dep-claim-rules.js` — 13 awk-derived plus 5 new named patterns that read one claim's dependency and parent number
@@ -162,6 +163,7 @@ and data catalogs — those are not first-party source.
 - `test/test_air_gapped.js` — air-gap guard: flag state, assertLocalOnly gate, API-key scrub, disclaimer content
 - `test/test_anchor_recall.js` — anchor-recall scorer: output parsing, four-rung tier ladder, gap accounting
 - `test/test_answer_disclosure.js` — refusal detection and disclosure notes over 11 verbatim local-model captures
+- `test/test_local_chat_tools.js` — the local Chat tool menu: curated default, CE_LOCAL_CHAT_TOOLS all / +names / names, unknown names ignored with a note
 - `test/test_archives.js` — --build-index archive expansion: ZIP/TAR/GZIP, zip-in-zip, encryption, `!` paths
 - `test/test_basic.js` — CodeSearchIndex smoke: build, search, function parsing, extraction, persistence reload
 - `test/test_binary_sniff.js` — TreeSitterParser guards: binary/MPEG-TS sniff keeps grammars off non-source (#299)

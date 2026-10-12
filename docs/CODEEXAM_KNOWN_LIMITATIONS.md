@@ -29,7 +29,12 @@ plainly:
 - **Codebase-wide chat exists, but not yet fully air-gapped** (#36, #160). You *can* chat about
   the codebase today — the GUI Chat pane, and, for a cloud model, CodeExam's MCP tools. What
   isn't there yet is a *local* model driving those MCP tools well enough for whole-codebase
-  chat with no network — the same weak-navigator limit as above is the gating problem.
+  chat with no network — the same weak-navigator limit as above is the gating problem. The MCP
+  claim tools (`claim_elements`, `claim_candidates`, `capabilities`) reach Claude Desktop and
+  the cloud Chat only: the local Chat keeps its curated eight-tool menu, the one measured to
+  work, so a local model does not reach them unless the GUI is started with
+  `CE_LOCAL_CHAT_TOOLS=+claim_elements,claim_candidates,capabilities`, an unmeasured menu (see
+  [`LOCAL_LLM.md`](LOCAL_LLM.md)).
   (Single-function `--analyze` runs locally today, air-gapped included.)
 
 ## Everything else

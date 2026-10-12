@@ -496,3 +496,117 @@ module.exports = { useC };
     assert.match(out, /fmt[^\n]*\[b\.js\]/, 'the same-file fmt resolves: ' + out);
   });
 });
+
+// claim-mcp-primitives (#343 B2, #35): the deterministic half of the claim
+// pipeline as tools — split the claim, rank real symbols for the words the
+// Chat model predicts, say what CodeExam can do — with no LLM inside a tool.
+// The claim text below is SYNTHETIC; the real claim files are gitignored and
+// must not become test dependencies.
+describe('claim tools: claim_elements, claim_candidates, capabilities', () => {
+  const SRC4 = path.join(os.tmpdir(), 'ce_mcp_tools_src4');
+  const IDX4 = path.join(os.tmpdir(), 'ce_mcp_tools_idx4');
+  const CLAIM = '1. A method of securing a session, comprising: initializing a cryptographic context; '
+    + 'transmitting an encrypted payload to a peer; receiving an acknowledgement from the peer.';
+  // Words as the discover prompt asks a model for them: one numbered line per
+  // element. "session" on three elements makes sessionLogger a sponge.
+  const WORDS = '2: init, crypto, context, session\n3: transmit, send, encrypted, payload, session\n4: receive, send, session';
+  let idx4;
+
+  before(async () => {
+    fs.rmSync(SRC4, { recursive: true, force: true });
+    fs.rmSync(IDX4, { recursive: true, force: true });
+    fs.mkdirSync(path.join(SRC4, 'test'), { recursive: true });
+    fs.writeFileSync(path.join(SRC4, 'a.js'), `function initCryptoContext(cfg) {
+  return { cfg, ready: true };
+}
+function sessionLogger(msg) {
+  return 'session: ' + msg;
+}
+module.exports = { initCryptoContext, sessionLogger };
+`);
+    fs.writeFileSync(path.join(SRC4, 'b.js'), `function sendEncryptedPayload(peer, payload) {
+  const session = sessionLogger('send');
+  return peer.write(payload);
+}
+function receivePayload(peer) {
+  return peer.read();
+}
+function finishHandshake(peer) {
+  // transmit the encrypted payload once the crypto context is ready
+  return peer.flush();
+}
+module.exports = { sendEncryptedPayload, receivePayload, finishHandshake };
+`);
+    fs.writeFileSync(path.join(SRC4, 'test', 'crypto.test.js'), `function initCryptoContextTest() {
+  return initCryptoContext({});
+}
+module.exports = { initCryptoContextTest };
+`);
+    idx4 = new CodeSearchIndex({ indexPath: IDX4 });
+    await idx4.buildIndex(SRC4, { showProgress: false });
+    setIndex(idx4);
+  });
+
+  after(() => { setIndex(new CodeSearchIndex({ indexPath: IDX })); });
+
+  it('registers the three claim tools, each with its "when to use" inside the 280-char local cut', () => {
+    const byName = new Map(TOOLS.map(t => [t.name, t]));
+    for (const n of ['claim_elements', 'claim_candidates', 'capabilities']) {
+      assert.ok(byName.has(n), `TOOLS missing ${n}`);
+    }
+    assert.match(byName.get('claim_elements').description.slice(0, 280), /claim/i);
+    assert.match(byName.get('claim_candidates').description.slice(0, 280), /words/i);
+    assert.match(byName.get('capabilities').description.slice(0, 280), /which tool/i);
+  });
+
+  it('claim_elements puts the preamble first and numbers the limitations', () => {
+    const out = handleTool('claim_elements', { claim_text: CLAIM, granularity: 'coarse' });
+    assert.match(out, /^4 elements/m, out);
+    assert.match(out, /1\. \[preamble\][^\n]*securing a session/, out);
+    assert.match(out, /2\. initializing a cryptographic context/, out);
+    assert.match(out, /4\. receiving an acknowledgement/, out);
+    assert.match(out, /claim_candidates/, 'points at the next step');
+  });
+
+  it('claim_candidates ranks name matches, merges a content-arm hit, and holds tests back', () => {
+    const out = handleTool('claim_candidates', { claim_text: CLAIM, words: WORDS, granularity: 'coarse' });
+    const el2 = out.slice(out.indexOf('Element 2'), out.indexOf('Element 3'));
+    assert.match(el2, /a\.js@initCryptoContext/, el2);
+    assert.doesNotMatch(el2, /initCryptoContextTest/, 'test symbols held back by default: ' + el2);
+    assert.match(el2, /test-file candidate|held back/, 'and says so: ' + el2);
+    const el3 = out.slice(out.indexOf('Element 3'), out.indexOf('Element 4'));
+    assert.match(el3, /b\.js@sendEncryptedPayload/, el3);
+    assert.match(el3, /finishHandshake[^\n]*content/, 'body-only match arrives via the content arm: ' + el3);
+    assert.match(out, /Next:[^\n]*extract/, 'routes to reading the code');
+  });
+
+  it('claim_candidates flags an opposite-direction name and a vocabulary sponge', () => {
+    const out = handleTool('claim_candidates', { claim_text: CLAIM, words: WORDS, granularity: 'coarse' });
+    const el4 = out.slice(out.indexOf('Element 4'));
+    assert.match(el4, /sendEncryptedPayload[^\n]*opposite direction/, el4);
+    assert.match(out, /sponge[^\n]*sessionLogger/i, 'sessionLogger tops three elements: ' + out);
+  });
+
+  it('claim_candidates admits tests on request and states its population when capped', () => {
+    const withTests = handleTool('claim_candidates', { claim_text: CLAIM, words: WORDS, granularity: 'coarse', include_tests: true });
+    assert.match(withTests, /initCryptoContextTest/, withTests);
+    const capped = handleTool('claim_candidates', { claim_text: CLAIM, words: WORDS, granularity: 'coarse', max_per_element: 1 });
+    const el2 = capped.slice(capped.indexOf('Element 2'), capped.indexOf('Element 3'));
+    assert.match(el2, /Top 1 of \d+ name matches/, el2);
+    assert.match(el2, /PARTIAL result; do not infer absence/, el2);
+  });
+
+  it('claim_candidates explains the words format at the point of failure', () => {
+    const out = handleTool('claim_candidates', { claim_text: CLAIM, words: 'crypto session send' });
+    assert.match(out, /one line per element/i, out);
+    assert.match(out, /2: init, crypto, context/, 'shows the shape, starting at the first limitation');
+  });
+
+  it('capabilities names the claim workflow and the tools to read code with', () => {
+    const out = handleTool('capabilities', {});
+    assert.match(out, /claim_elements/);
+    assert.match(out, /claim_candidates/);
+    assert.match(out, /extract/);
+    assert.match(out, /--claim-chart/, 'the audited chart stays a CLI command');
+  });
+});
