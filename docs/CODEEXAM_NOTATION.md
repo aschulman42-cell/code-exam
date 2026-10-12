@@ -19,6 +19,9 @@ in the AI/ML cells — see [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md) — and th
 | `?` | an unknown / unlabeled family or grouping key | `~?` |
 | `[test]` / dimmed | every site is test / example / demo code | CLI `[test]`; GUI dimmed |
 | `<var>` / "unresolved" | an identifier passed as a variable, not a string literal | `<var>`; "(unresolved variable)" |
+| `(file scope)` | a call site at module level, inside no function | Called By: `(file scope)`; `--call-tree`: `(file scope) (2x)` |
+| `[unresolved]` / `unresolved` badge | a call with no definition reachable from its site | `push [unresolved] (13 definitions)` |
+| `[ambiguous]` / `ambiguous` badge / dashed edge / `name ?` | several reachable definitions; the closest pick is shown, not expanded | `[ambiguous: 2 definitions]`; Mermaid `-.->` to `fmt ?` |
 
 The sections below explain each, with a concrete example on the CLI and in the GUI.
 
@@ -105,6 +108,34 @@ it.
 - **CLI:** the placeholder token `<var>` stands in for the value, and a note reports the count, e.g.
   *"3 model references found, but no id resolved — each is a runtime-determined value"* or
   *"+2 unresolved <var> model ref(s) — excluded"*.
+
+## Call-graph markers
+
+Callers, callees, call trees and the GUI's Calls / Called By tables bind a call to a definition
+only when the definition is **reachable** from the call site: the same file for a non-exported or
+`static` function, an import path otherwise, never across languages (the rules are in
+[`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md)). Three markers say what
+happened when that bind was not clean:
+
+- **`(file scope)`** — the call site is at module level, inside no function (a CLI dispatch line, a
+  top-level statement). **CLI:** `--callers` groups such sites under `(file scope)`; `--call-tree`
+  lists `(file scope) (2x)` among the callers. **GUI:** the Called By table names `(file scope)` as
+  the caller, and the diagram draws a `(file scope)` node.
+- **`[unresolved]`** — the call has no definition CodeExam can reach from that site: a method on
+  some object (`out.push(`), a local of another function, a name from a module the caller does not
+  import. The call is kept so it stays visible, but it is not linked and trees do not descend into
+  it. **CLI:** `--callees` prints `push [unresolved] (13 definitions)`; `--call-tree` collects them
+  once per node as `[unresolved: push, find (method call)]`; `--call-inventory` lists them as
+  external with the reason. **GUI:** an `unresolved` badge on the Calls row (tooltip: *"No
+  reachable definition in the index"*).
+- **`[ambiguous]`** — several definitions are reachable and nothing (no import, no same-file
+  definition) says which; the closest one is shown and marked. **CLI:** `--callees` appends
+  `[ambiguous]`; `--call-tree` prints `[ambiguous: N definitions]` and does not expand the node;
+  `--mermaid` output draws a dashed edge (`-.->`) to a node labelled `name ?`. **GUI:** an
+  `ambiguous` badge (its tooltip gives the definition count) and the dashed edge in the diagram.
+
+These are distinct from the `<var>` / "unresolved variable" marker above, which is about a model
+*identifier* that is a run-time value, not about a call.
 
 ## Related
 

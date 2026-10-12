@@ -266,7 +266,7 @@ Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior a
 
 #### `--callers <spec>`
 
-- **Does**: Find callers of a function. `<spec>` is `FUNC` or `FILE@FUNC`.
+- **Does**: Find callers of a function. `<spec>` is `FUNC` or `FILE@FUNC`; the file form lists only the sites that can reach that definition (a bare name lists every same-named site). Module-level sites are grouped under `(file scope)`.
 - **Good for**: "Who calls this?" — the most common reverse-navigation question.
 - **Couples with**: `--depth` (transitive callers), `--exclude-tests`, `--max-results`, `--filter`, `--include-path`, `--exclude-path`.
 - **Naming**: noun-only.
@@ -274,7 +274,7 @@ Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior a
 
 #### `--callees <spec>`
 
-- **Does**: Find functions called by a function.
+- **Does**: Find functions called by a function. `<spec>` as for `--callers`; a call with no reachable definition is marked `[unresolved]`, a pick among several `[ambiguous]`.
 - **Good for**: "What does this call?" — the forward direction.
 - **Couples with**: same as `--callers`.
 - **Naming**: parallel.

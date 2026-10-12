@@ -246,9 +246,12 @@ Other circumstances can cause the same symptom; these two are confirmed.
 **GUI.** Less of an issue — you select a result by clicking it rather than
 retyping a target — but a result you reached by clicking can't always be
 expressed as a CLI argument; use the CLI escape hatches above when scripting.
-However, clicking a function/method in the GUI may take you to the *wrong*
-function/method with the same name (see #343, "Engine root cause — name-only
-symbol resolution").
+A click sends the file-qualified name (`file@func`), so the function you reach
+by clicking is the one you clicked, and its **Called By** lists only the sites
+that can reach that definition. What can still land on a same-named sibling:
+the digest's title for a *bare* target, and a method dispatched dynamically at
+run time (see [`CODEEXAM_KNOWN_LIMITATIONS.md`](./CODEEXAM_KNOWN_LIMITATIONS.md),
+#85 / #148).
 
 **Status.** Candidate fix: accept `[N]` from the plain CLI, and guarantee any
 target CE prints round-trips as a CE input.
@@ -327,6 +330,18 @@ See [`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md) and
 
 These are specific to the GUI; most are logged in **issue #343** and awaiting
 fixes. Listed so a behavior you hit reads as *known*, not as your mistake.
+
+### The Calls table says `unresolved` or `ambiguous`; Called By says `(file scope)`
+
+Not errors — disclosures. `unresolved`: the call has no definition CodeExam can
+reach from that call site (a method on some object, a local of another function,
+a name from a module the caller doesn't import); the row is kept so the call
+stays visible, but it links nowhere. `ambiguous`: several definitions could be
+meant and the one shown is the closest pick; the diagram draws it dashed and
+doesn't expand it. `(file scope)`: the call sits at module level — a dispatch
+line, a top-level statement — inside no function, so no function is named as
+the caller. The marker reference is
+[`CODEEXAM_NOTATION.md`](./CODEEXAM_NOTATION.md).
 
 ### A floating window is covering the results I just clicked on
 

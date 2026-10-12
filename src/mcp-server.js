@@ -162,11 +162,11 @@ const TOOLS = [
   },
   {
     name: 'callers',
-    description: 'Find all call sites of a function — who calls it and from where.',
+    description: 'Find all call sites of a function — who calls it and from where. A site inside no function reads "(file scope)".',
     inputSchema: {
       type: 'object',
       properties: {
-        function_name: { type: 'string', description: 'Function name to find callers of' },
+        function_name: { type: 'string', description: 'Function name, optionally with file hint: "file@funcname" (lists only the sites that can reach that definition; a bare name lists every same-named site)' },
         target: { type: 'string', description: 'Alias for "function_name".' },
         max: { type: 'number', description: 'Max results (default 50)' },
       },
@@ -644,17 +644,23 @@ function handleToolRaw(name, args) {
     }
 
     case 'callers': {
-      const fn = args.function_name ?? args.target;
-      if (!fn) return 'callers requires "function_name" (alias: "target").';
+      const spec = args.function_name ?? args.target;
+      if (!spec) return 'callers requires "function_name" (alias: "target").';
+      // Honour file@func the way `callees` does: a file-qualified spec lists only
+      // the sites that can reach that definition (the raw spec used to go straight
+      // to findCallers, so "a.js@fmt" found nothing and a bare name merged every
+      // same-named definition).
+      const { fileHint, funcName } = parseFuncSpec(spec);
       const max = args.max || 50;
       const probe = Math.max(max * 5, 200);  // count past `max` so "N callers" isn't a capped total (#272)
-      const all = index.findCallers(fn, probe);
-      if (all.length === 0) return `No callers found for: ${fn}`;
+      const all = index.findCallers(funcName, probe, { fileHint });
+      if (all.length === 0) return `No callers found for: ${spec}`;
       const shown = all.slice(0, max);
-      const lines = [_capNote(shown.length, all.length, all.length >= probe, `callers of ${fn}`, `Raise "max" to see the rest.`)];
+      const lines = [_capNote(shown.length, all.length, all.length >= probe, `callers of ${spec}`, `Raise "max" to see the rest.`)];
       for (const c of shown) {
+        // A site inside no function is a module-level call: say so, as the CLI does.
         lines.push(`  ${c.filepath}:${c.line_number}  ${clipLine(c.line_text.trim())}` +
-          (c.caller_function ? `  (in ${clipLine(c.caller_function, 80)})` : ''));
+          (c.caller_function ? `  (in ${clipLine(c.caller_function, 80)})` : '  (file scope)'));
       }
       return lines.join('\n')
         + _capFooter(shown.length, all.length, all.length >= probe, 'Raise "max" to see the rest.');
@@ -668,9 +674,15 @@ function handleToolRaw(name, args) {
       if (callees.length === 0) return `No callees found for: ${spec}`;
       const lines = [`${callees.length} callees of ${funcName}:`];
       for (const c of callees) {
+        // Same markers as `--callees`: `ambiguous` with no resolved definition is
+        // an unresolved call (no definition reachable from this site), not "N defs"
+        // waiting to be picked; `ambiguous` with one is the closest pick, marked.
+        const nDefs = c.definitions?.length || 0;
+        const plural = nDefs === 1 ? 'definition' : 'definitions';
         const defInfo = c.resolved_def
-          ? `  [${c.resolved_def.filepath}]`
-          : (c.definitions?.length ? `  [${c.definitions.length} defs]` : '  [external]');
+          ? (c.ambiguous ? `  [ambiguous: ${nDefs} ${plural}, showing ${c.resolved_def.filepath}]` : `  [${c.resolved_def.filepath}]`)
+          : (c.ambiguous ? `  [unresolved] (${nDefs} ${plural})`
+            : (nDefs ? `  [${nDefs} defs]` : '  [external]'));
         lines.push(`  ${clipLine(c.display_name || c.name, 80)}  (${c.call_type})${defInfo}`);
       }
       return lines.join('\n');

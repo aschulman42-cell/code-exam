@@ -42,8 +42,8 @@ GUI use, and document it here if so.]]
 | `show_file` | The complete source of a file, or a line range. |
 | `digest` | The "tell me about X" summary of a function/class/file — identity, callers, callees, distinctive strings, structure. |
 | **Cross-reference** | |
-| `callers` | Call sites of a function — who calls it, and from where. |
-| `callees` | Functions a given function calls. |
+| `callers` | Call sites of a function — who calls it, and from where (`file@func` to pick one of several same-named definitions; a module-level site reads `(file scope)`). |
+| `callees` | Functions a given function calls (`file@func` as for `callers`; `[unresolved]` marks a call with no reachable definition). |
 | `call_tree` | Transitive call tree — multi-hop callees down, plus the caller chains that reach it. |
 | `most_called` | Most frequently called functions (`defined_only` to exclude external/library calls). |
 | `hotspots` | Large and frequently-called functions (score = calls × log₂(lines)). |

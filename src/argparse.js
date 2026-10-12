@@ -1384,7 +1384,7 @@ MODE:
 
 CALLERS / CALLEES:
   --callers <spec>           Find callers of a function (FUNC or FILE@FUNC)
-  --callees <spec>           Find functions called by a function
+  --callees <spec>           Find functions called by a function (FUNC or FILE@FUNC)
   --call-inventory [spec]    Show call targets partitioned into in-index vs external
                              No argument: scan entire codebase (bill of materials)
                              With function name: single function inventory

@@ -48,7 +48,10 @@ plainly:
 - **Symbol-lookup ambiguity across same-named symbols** (#85) — multiple classes or functions
   can share a bare name (across files, versions, even languages); `--digest` may merge or
   mislabel them. The digest *body* is usually still right; the *title/target* may be wrong.
-  File/line-qualified targeting and conflation warnings are planned.
+  File-qualified targeting exists for the call commands (`FILE@func`, which the GUI always
+  sends) and `file@func@LINE` for `--extract`, and call resolution marks its uncertain picks
+  `[ambiguous]` (next bullet); the digest's silent first-match pick for a bare target is what
+  remains.
 - **Bare-name call resolution is precise about what it refuses, not complete** (#85, #148,
   #343) — a call binds to a definition only when the definition is reachable from the call
   site: a function nested in another function only from inside it, a non-exported JS/TS

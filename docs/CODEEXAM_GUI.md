@@ -82,7 +82,10 @@ Once a symbol is in front of you, the GUI mirrors the CLI's cross-reference comm
 
 - **Callers / callees** — who calls this function, and what it calls. In the upper-middle pane a
   function's **Calls** table lists each call with its type and how many definitions match; each
-  entry is clickable.
+  entry is clickable. A call CodeExam cannot bind to a definition reachable from that site carries
+  an `unresolved` badge, a pick among several an `ambiguous` badge, and **Called By** names
+  `(file scope)` for a call made at module level rather than inside a function — see
+  [`CODEEXAM_NOTATION.md`](CODEEXAM_NOTATION.md).
 - **Diagrams** — the transitive call tree and file-coupling / relationship views render in the
   upper-right pane, with a depth control, zoom, and image (SVG/PNG) export.
 - **The source viewer** makes call sites **clickable**: click a call to jump straight to the

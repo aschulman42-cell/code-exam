@@ -71,19 +71,22 @@ not merely a `file:line`.
 
 Where a catalog is heuristic rather than mechanical, CodeExam says so, and marks individual
 heuristic hits with compact notation (a leading `~`, and a few others). That notation is shared by
-the CLI and the GUI. [[placeholder: the notation reference is moving to its own shared doc, linked
-from here and from [`CODEEXAM_GUI.md`](CODEEXAM_GUI.md).]] A catalog is a lead to follow, not a
-finding to quote.
+the CLI and the GUI and is documented in [`CODEEXAM_NOTATION.md`](CODEEXAM_NOTATION.md). A catalog
+is a lead to follow, not a finding to quote.
 
 ## Cross-reference: how the code inter-connects
 
 - **`--callers` / `--callees`** — who calls a function, and what it calls, each an entry you can
-  follow.
+  follow. Name the function as `FILE@func` when several files define the name: `--callers` then
+  lists only the sites that can reach *that* definition. A call with no reachable definition is
+  marked `[unresolved]`, a pick among several `[ambiguous]`, and a call made at module level is
+  credited to `(file scope)` — see [`CODEEXAM_NOTATION.md`](CODEEXAM_NOTATION.md).
 - **`--most-called`** — the most-frequently called functions and class methods, counted from
   **static references in the code, not dynamic runtime calls** (with an option to exclude
   external/library calls).
 - **`--call-tree`** — the transitive call tree, multiple hops down plus the caller chains that
-  reach a function.
+  reach a function. An ambiguous pick is shown but not expanded (dashed in `--mermaid` output);
+  unresolved calls are collected once per node.
 - **`--file-map`** — file and folder coupling. In the GUI these render as diagrams; on the CLI
   `--file-map` prints the same information as text.
 

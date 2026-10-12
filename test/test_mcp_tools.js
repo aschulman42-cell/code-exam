@@ -7,7 +7,7 @@
 // digest, call_tree, command_catalog, models_used. Exercises the actual
 // handleTool dispatch (via the setIndex test seam) against a small built
 // fixture index — same handler path the stdio server uses.
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
@@ -418,5 +418,81 @@ describe('#306 models_used does not report absence it did not measure', () => {
     } finally {
       setIndex(real); // never leave the fixture pointed at a stub
     }
+  });
+});
+
+// callgraph-companion-surfaces: the MCP `callers` tool handed the raw spec to
+// findCallers with no file hint, so "a.js@fmt" found nothing and a bare name
+// merged every same-named definition; `callees` printed "[N defs]" for a call
+// the engine marks unresolved. Both now read as the CLI does.
+describe('callers / callees honour file@func and the resolution markers', () => {
+  const SRC3 = path.join(os.tmpdir(), 'ce_mcp_tools_src3');
+  const IDX3 = path.join(os.tmpdir(), 'ce_mcp_tools_idx3');
+  let idx3;
+
+  before(async () => {
+    fs.rmSync(SRC3, { recursive: true, force: true });
+    fs.rmSync(IDX3, { recursive: true, force: true });
+    fs.mkdirSync(SRC3, { recursive: true });
+    // Two file-local `fmt` definitions; CJS exports make the visibility explicit.
+    fs.writeFileSync(path.join(SRC3, 'a.js'), `function fmt(x) {
+  return 'a:' + x;
+}
+function useA() {
+  return fmt(1);
+}
+module.exports = { useA };
+`);
+    fs.writeFileSync(path.join(SRC3, 'b.js'), `function fmt(x) {
+  return 'b:' + x;
+}
+function useB() {
+  const out = [];
+  out.push(fmt(2));
+  return out;
+}
+fmt(3);
+module.exports = { useB };
+`);
+    // A non-exported `push` elsewhere: not reachable from b.js's `out.push(`.
+    fs.writeFileSync(path.join(SRC3, 'c.js'), `function push(s) {
+  return s;
+}
+function useC() {
+  return push('x');
+}
+module.exports = { useC };
+`);
+    idx3 = new CodeSearchIndex({ indexPath: IDX3 });
+    await idx3.buildIndex(SRC3, { showProgress: false });
+    setIndex(idx3);
+  });
+
+  after(() => { setIndex(new CodeSearchIndex({ indexPath: IDX })); });
+
+  it('callers with file@func lists only the sites that can reach that definition', () => {
+    const out = handleTool('callers', { function_name: 'a.js@fmt' });
+    assert.match(out, /a\.js:\d+/, 'the a.js site: ' + out);
+    assert.doesNotMatch(out, /b\.js:\d+/, 'no b.js site: ' + out);
+    assert.doesNotMatch(out, /No callers found/, out);
+  });
+
+  it('callers with a bare name still lists every same-named site (documented, unchanged)', () => {
+    const out = handleTool('callers', { function_name: 'fmt' });
+    assert.match(out, /a\.js:\d+/, out);
+    assert.match(out, /b\.js:\d+/, out);
+  });
+
+  it('a module-scope call site is credited to (file scope)', () => {
+    const out = handleTool('callers', { function_name: 'b.js@fmt' });
+    assert.match(out, /\(file scope\)/, out);
+    assert.match(out, /\(in useB\)/, out);
+  });
+
+  it('callees marks a receiver call with no reachable definition [unresolved]', () => {
+    const out = handleTool('callees', { function_name: 'b.js@useB' });
+    assert.match(out, /push[^\n]*\[unresolved\]/, out);
+    assert.doesNotMatch(out, /push[^\n]*\[1 defs\]/, out);
+    assert.match(out, /fmt[^\n]*\[b\.js\]/, 'the same-file fmt resolves: ' + out);
   });
 });
