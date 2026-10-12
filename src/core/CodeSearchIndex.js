@@ -33,6 +33,10 @@ import {
   _deriveWrapperHint,
 } from './bundle-seam-detection.js';
 import {
+  familyForExt, maskCodeLines, computeFunctionEnd, trimTrailingBlank,
+  mergeRegexOnlyEntries, labelParser,
+} from './function-bounds.js';
+import {
   getJsBeautify, getWebcrack, isMinified, deobfuscateSimple, tryWebcrack,
   isOpaqueName, camelToScreamingSnake, extractReadableIdents, inferAllNames,
   _IMPORT_LOCAL_BLOCKLIST,
@@ -2941,10 +2945,15 @@ export class CodeSearchIndex {
     if (patterns.length === 0) return {};
 
     const fileFunctions = {};
-    let currentFunc = null;
-    let currentStart = null;
     let currentClass = null;
     let classIndent = -1;
+    // Literal contents masked out (strings, comments, template text, JS regex
+    // literals), columns preserved: the definition scan below and the end
+    // scan after the loop both read `masked`, so prose inside a template
+    // literal cannot start a definition and a brace inside a string cannot
+    // end one. Unknown family (e.g. VBScript): `masked` is `lines`.
+    const family = familyForExt(ext);
+    const masked = maskCodeLines(lines, family);
 
     for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
       const lineNum = lineIdx + 1;
@@ -2955,17 +2964,12 @@ export class CodeSearchIndex {
       const indent = stripped ? (line.length - stripped.length) : 999;
 
       for (const [regex, funcType, nameGroup] of patterns) {
-        const match = line.match(regex);
+        const match = masked[lineIdx].match(regex);
         if (!match) continue;
 
         // nameGroup -1: composite name from groups 1+2 (e.g. TEST_P(Suite, Name) → Suite::Name)
         let name = nameGroup === -1 ? (match[1] + '::' + match[2]) : match[nameGroup];
         if (!name || CodeSearchIndex.SKIP_KEYWORDS.has(name)) continue;
-
-        // Close previous function at line before this one
-        if (currentFunc && currentStart) {
-          fileFunctions[currentFunc].end = lineNum - 1;
-        }
 
         if (funcType === 'class') {
           currentClass = name;
@@ -2989,8 +2993,6 @@ export class CodeSearchIndex {
           storedName = `${name}@${lineNum}`;
         }
 
-        currentFunc = storedName;
-        currentStart = lineNum;
         const bare = name.includes('::') ? name.split('::').pop() : name;
 
         fileFunctions[storedName] = {
@@ -3005,86 +3007,29 @@ export class CodeSearchIndex {
       }
     }
 
-    // Close last function at end of file
-    if (currentFunc && fileFunctions[currentFunc] && fileFunctions[currentFunc].end === null) {
-      fileFunctions[currentFunc].end = lines.length;
-    }
-
-    // Post-process: fix truncated functions using brace counting.
-    // When inner constructs (object literal methods, nested functions) match
-    // patterns, the outer function gets prematurely terminated. Detect this
-    // by checking if the extracted body has unbalanced braces - more '{' than '}'.
-    for (const [fname, info] of Object.entries(fileFunctions)) {
-      // Only applies to functions whose start line contains '{'
-      const startLine = lines[info.start - 1] || '';
-      if (!startLine.includes('{')) continue;
-
-      // Count braces in current span
-      let depth = 0;
-      for (let i = info.start - 1; i < info.end && i < lines.length; i++) {
-        for (const ch of lines[i]) {
-          if (ch === '{') depth++;
-          else if (ch === '}') depth--;
-        }
-      }
-
-      // If balanced (depth === 0), function boundaries are correct
-      if (depth <= 0) continue;
-
-      // Unbalanced: scan forward from end to find matching '}'
-      let remaining = depth;
-      let foundEnd = null;
-      for (let i = info.end; i < lines.length; i++) {
-        for (const ch of lines[i]) {
-          if (ch === '{') remaining++;
-          else if (ch === '}') {
-            remaining--;
-            if (remaining === 0) {
-              foundEnd = i + 1; // 1-indexed
-              break;
-            }
-          }
-        }
-        if (foundEnd !== null) break;
-      }
-
-      if (foundEnd !== null && foundEnd > info.end) {
-        info.end = foundEnd;
-      }
-    }
-
-    // Re-sort overlapping: if a brace-expanded function now encloses others,
-    // those inner functions should be kept (they're real inner functions).
-    // No action needed - the function index supports overlapping ranges.
-
-    // Shrink over-extended nested arrow functions. The initial end-setting
-    // heuristic ("close previous function at next function start - 1") gets
-    // the end wrong for `const foo = () => {...}` nested inside another
-    // function: the next detected function-start is often hundreds of lines
-    // past the arrow's real close. The naive brace-count post-process above
-    // can't detect this because the over-extended range happens to be
-    // brace-balanced overall.
+    // Ends (2026-10-11, function-end-detection-accuracy). One strategy per
+    // language family, on the masked lines: brace balance (C-like, JS, Go,
+    // Rust, PHP, Perl), arrow-expression extent for brace-less arrows (JS),
+    // indentation (Python). A family without a strategy (Ruby, Lua,
+    // VBScript, ...) or a header whose body never opens falls back to the
+    // old "next definition's start - 1" heuristic. Entries are in start order
+    // (insertion order), nested definitions included, so that fallback for an
+    // outer definition with a nested one is the nested start - 1: the same
+    // truncation the old code produced, now only on the fallback path.
     //
-    // Fix: for entries whose start line is an arrow-assignment (=> {), use
-    // the state-aware _findWrapperEnd to find the earliest balanced close.
-    // That counts strings, template literals, line/block comments correctly
-    // (but NOT regex literals — rare in practice; a function whose body has
-    // `/}/` could false-close early, accepted limitation, same as #340).
-    //
-    // Scoped to arrow-assignment shapes only: regular `function foo() {`
-    // declarations keep the existing post-process behavior unchanged. This
-    // limits the blast radius of the state-machine swap.
-    const arrowDeclRe = /(?:=>\s*\{|=\s*(?:async\s+)?(?:function\s*)?\([^)]*\)\s*(?:=>\s*)?\{)/;
-    for (const [fname, info] of Object.entries(fileFunctions)) {
-      if (info.start < 1 || info.start > lines.length) continue;
-      const startLine = lines[info.start - 1] || '';
-      if (!arrowDeclRe.test(startLine)) continue;
-      const tightEnd = _findWrapperEnd(lines, info.start - 1);
-      // Only shrink — never extend past whatever the prior pass produced.
-      // Don't accept a degenerate result (same line or beyond file end).
-      if (tightEnd > info.start && tightEnd < info.end) {
-        info.end = tightEnd;
+    // Replaced here: the raw brace-count extend pass (braces in strings and
+    // comments cut `maskFunctionSource` to 546-663, real end 800) and the
+    // arrow-only shrink pass (a brace-less one-line arrow ran 594 -> 1068).
+    const ordered = Object.entries(fileFunctions);
+    for (let k = 0; k < ordered.length; k++) {
+      const [, info] = ordered[k];
+      const found = computeFunctionEnd(lines, masked, info.start - 1, family);
+      let end = found ? found.end : null;
+      if (end == null || end < info.start) {
+        end = (k + 1 < ordered.length) ? ordered[k + 1][1].start - 1 : lines.length;
+        if (end < info.start) end = info.start;
       }
+      info.end = trimTrailingBlank(lines, info.start, end);
     }
 
     return fileFunctions;
@@ -3164,6 +3109,7 @@ export class CodeSearchIndex {
     let tsCount = 0;
     let regexCount = 0;
     let tsFailedCount = 0;
+    const regexFallbackFiles = [];   // named in the summary, like the parse-error files
     let binarySkipped = 0;
     let processed = 0;
     const slowFiles = [];
@@ -3184,6 +3130,7 @@ export class CodeSearchIndex {
       }
       const tFile = Date.now();
       let tsFuncs;
+      const errorsBefore = tsParser.stats ? tsParser.stats.filesWithErrors : 0;
       try {
         tsFuncs = await tsParser.parseFunctions(filepath, lines);
       } catch (e) {
@@ -3198,21 +3145,29 @@ export class CodeSearchIndex {
       let fileFuncs;
 
       if (tsFuncs && Object.keys(tsFuncs).length > 0) {
-        // Hybrid merge: tree-sitter boundaries + regex-only entries (nested fns)
-        fileFuncs = { ...tsFuncs };
-        for (const [name, info] of Object.entries(regexFuncs)) {
-          if (!(name in fileFuncs)) fileFuncs[name] = info;
-        }
+        // Hybrid merge: tree-sitter boundaries + regex-only entries (nested
+        // fns, shapes the grammar walk skips). A regex entry at a start line
+        // tree-sitter already has is the same definition under another name
+        // (regex prefixes nested / class-field functions with the class) and
+        // is dropped; kept entries are clamped to their tree-sitter container
+        // and labelled `parser: 'regex'`. Measured before this (2026-10-11):
+        // 96 such names on CE's own source, 82 with runaway regex spans, 87
+        // start lines carrying two entries.
+        const parseHadErrors = tsParser.stats ? tsParser.stats.filesWithErrors > errorsBefore : false;
+        fileFuncs = mergeRegexOnlyEntries({ ...tsFuncs }, regexFuncs, { parseHadErrors });
         tsCount++;
       } else if (tsFuncs === null) {
-        // No grammar or parse failed — regex only
-        fileFuncs = regexFuncs;
+        // No grammar or parse failed — regex only, labelled so consumers of a
+        // tree-sitter+regex index can tell these spans apart.
+        fileFuncs = labelParser(regexFuncs, 'regex');
         regexCount++;
+        if (regexFallbackFiles.length < 20) regexFallbackFiles.push(filepath);
       } else {
         // tsFuncs was {} (parsed but found nothing) — use regex
-        fileFuncs = regexFuncs;
+        fileFuncs = labelParser(regexFuncs, 'regex');
         if (Object.keys(fileFuncs).length > 0) {
           regexCount++;
+          if (regexFallbackFiles.length < 20) regexFallbackFiles.push(filepath);
         } else {
           tsCount++;
         }
@@ -3263,8 +3218,26 @@ export class CodeSearchIndex {
     if (showProgress) {
       console.log(`Function index: ${totalFunctions} functions in ` +
                   `${Object.keys(this.functionIndex).length} files`);
+      const errFiles = tsParser.stats ? tsParser.stats.filesWithErrors : 0;
       console.log(`  tree-sitter: ${tsCount} files, regex fallback: ${regexCount} files` +
-                  (tsFailedCount > 0 ? `, tree-sitter failures: ${tsFailedCount}` : ''));
+                  (tsFailedCount > 0 ? `, tree-sitter failures: ${tsFailedCount}` : '') +
+                  (errFiles > 0 ? `, parse errors recovered in ${errFiles} file(s)` : ''));
+      if (errFiles > 0) {
+        // Recovery is usually local (a stray brace), but a boundary near the
+        // error can be wrong and the regex parser does not take over, so
+        // name the files.
+        const shown = tsParser.stats.errorFiles.slice(0, 5);
+        console.log(`    with parse errors: ${shown.join(', ')}` +
+                    (errFiles > shown.length ? `, ... (${errFiles - shown.length} more)` : ''));
+      }
+      if (regexCount > 0) {
+        // Name them, as the parse-error line does: a fallback is a file with
+        // no grammar for its extension, a thrown parse, an over-size or
+        // timed-out parse, or a grammar that found nothing.
+        const shown = regexFallbackFiles.slice(0, 5);
+        console.log(`    regex fallback: ${shown.join(', ')}` +
+                    (regexCount > shown.length ? `, ... (${regexCount - shown.length} more)` : ''));
+      }
       if (binarySkipped > 0) {
         console.log(`  Skipped ${binarySkipped} binary file(s) by content sniff (#299 — e.g. media fixtures with code-like extensions)`);
       }

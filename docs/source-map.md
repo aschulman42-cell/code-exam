@@ -69,7 +69,7 @@ and data catalogs — those are not first-party source.
 
 - `src/core/CodeSearchIndex.js` — core index class: builds/saves/loads indexes, parses functions/classes, serves literal/inverted/regex search
 - `src/core/CSI-helpers.js` — deobfuscates minified JS, infers opaque names, scans string/comment state, classifies command gates
-- `src/core/TreeSitterParser.js` — WASM tree-sitter extraction for 11 grammars, with binary sniffing, a size cap and a per-parse timeout
+- `src/core/TreeSitterParser.js` — WASM tree-sitter extraction for 12 grammars, with binary sniffing, a size cap and a per-parse timeout
 - `src/core/ai-ml-detectors.js` — 17 AI/ML detector methods (models, kernels, training, LLM calls, chains…) mixed onto the index prototype
 - `src/core/ai-overview.js` — agentic prose orientation: drives Claude/OpenAI/Gemini over CE's own MCP tools and sums per-turn cost
 - `src/core/ai-overview-local.js` — runs the AI overview on a local GGUF via node-llama-cpp tool-calling, with tool-floor and refusal guards
@@ -92,6 +92,7 @@ and data catalogs — those are not first-party source.
 - `src/core/extension-census.js` — unions archive-internal and on-disk skips into the "present but not indexed" extension report
 - `src/core/filter-match.js` — one predicate for GUI/CLI filters: substring by default, /pattern/flags for opt-in regex
 - `src/core/funcstr-corpus.js` — loads external funcstr-hash dumps as a DF corpus, labeling functions common / rare-shared / novel
+- `src/core/function-bounds.js` — language-aware function-end detection for the regex parser: masks strings, comments and regex literals, then finds brace, arrow-expression or indentation ends; dedupes the tree-sitter + regex merge
 - `src/core/hotspots.js` — ranks important functions, entry points, domain functions and classes, skipping vendored/minified noise
 - `src/core/import-join.js` — joins one index's imports to another's export catalog, verdicting resolved / private / not-found
 - `src/core/imports.js` — per-language import extractor (Py/JS/C/Java/C#) classifying rows internal/stdlib/third-party/vendored
@@ -190,6 +191,7 @@ and data catalogs — those are not first-party source.
 - `test/test_file_resolution.js` — #238 file-target resolution: exact match wins, leading `/` anchors to repo root
 - `test/test_first_run.js` — first-run UX: bare `ce` welcome, demo auto-load, bad --index-path, no auto-REPL
 - `test/test_follow_calls.js` — --follow-calls (--deep) and --comments-only over extracted functions
+- `test/test_function_bounds.js` — function-end detection: masked tokenizer, brace / arrow / indentation ends, prose-in-template guard, hybrid-merge dedupe, tree-sitter macro names and parse-error counts
 - `test/test_har.js` — #161 .har expansion: text/base64 bodies, mime inference, URL dedupe, malformed input
 - `test/test_help_filter.js` — filterHelp: entry blocks and continuation lines, section headers, no-match report
 - `test/test_help_flags.js` — help discoverability: --gui/--port/--load-index in --help; --load-index synonym

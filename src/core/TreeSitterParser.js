@@ -1,4 +1,4 @@
-// TreeSitterParser.js — WASM tree-sitter extraction for 11 grammars, with binary sniffing, a size cap and a per-parse timeout
+// TreeSitterParser.js — WASM tree-sitter extraction for 12 grammars, with binary sniffing, a size cap and a per-parse timeout
 // Copyright (c) 2026 Andrew Schulman
 // https://github.com/aschulman42-cell/code-exam
 // Co-authored with Claude (Claude Code).
@@ -17,6 +17,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
+import { macroFunctionName } from './function-bounds.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -85,6 +86,11 @@ const GRAMMAR_FILES = {
   python:     'tree-sitter-python.wasm',
   javascript: 'tree-sitter-javascript.wasm',
   typescript: 'tree-sitter-typescript.wasm',
+  // JSX-enabled TypeScript: a separate grammar in the same npm package (JSX
+  // conflicts with `<T>x` type assertions). Without it, `.tsx` went to the
+  // TypeScript grammar and every JSX element was an ERROR node that swallowed
+  // the functions after it (function-end-detection-accuracy, 2026-10-11).
+  tsx:        'tree-sitter-tsx.wasm',
   go:         'tree-sitter-go.wasm',
   rust:       'tree-sitter-rust.wasm',
   c_sharp:    'tree-sitter-c-sharp.wasm',
@@ -101,7 +107,7 @@ const EXT_TO_TS_LANG = {
   '.java': 'java',
   '.py': 'python', '.pyw': 'python',
   '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript', '.jsx': 'javascript',
-  '.ts': 'typescript', '.tsx': 'typescript',
+  '.ts': 'typescript', '.tsx': 'tsx',
   '.cs': 'c_sharp',
   '.go': 'go',
   '.rs': 'rust',
@@ -117,6 +123,10 @@ export class TreeSitterParser {
     this._initialized = false;
     this._languages = new Map(); // langName -> Language object
     this._failedGrammars = new Set(); // langNames that failed to load
+    // Parses that recovered from ERROR nodes: boundaries near the error may
+    // be wrong, and nothing falls back to regex on recovery, so the build
+    // summary names these files (function-end-detection-accuracy, 2026-10-11).
+    this.stats = { filesWithErrors: 0, errorFiles: [] };
   }
 
   /**
@@ -213,6 +223,16 @@ export class TreeSitterParser {
       tree = parser.parse(sourceCode);
       if (!tree) return null;
 
+      // A tree with ERROR nodes still yields boundaries, and recovery is
+      // usually local (a stray brace), but a function near the error can get
+      // a wrong start or end. Count it; the regex parser does not take over.
+      const root = tree.rootNode;
+      const hasErr = typeof root.hasError === 'function' ? root.hasError() : !!root.hasError;
+      if (hasErr) {
+        this.stats.filesWithErrors++;
+        if (this.stats.errorFiles.length < 20) this.stats.errorFiles.push(filepath);
+      }
+
       let result;
       switch (langName) {
         case 'c':
@@ -227,6 +247,7 @@ export class TreeSitterParser {
           break;
         case 'javascript':
         case 'typescript':
+        case 'tsx':
           result = this._extractJavaScript(tree.rootNode, sourceLines);
           break;
         case 'go':
@@ -377,7 +398,7 @@ export class TreeSitterParser {
   // Helper: deduplicate function names (same logic as regex parser)
   // ========================================================================
 
-  _addFunction(result, name, startLine, endLine, type) {
+  _addFunction(result, name, startLine, endLine, type, extra = null) {
     const bare = name.includes('::') ? name.split('::').pop() : name;
     let storedName = name;
     if (name in result) {
@@ -388,6 +409,7 @@ export class TreeSitterParser {
       end: endLine,
       type: (type !== 'class' && name.includes('::')) ? 'method' : type,
       base_name: bare,
+      ...(extra || {}),   // e.g. { macro: 'TEST_F' } for a macro-defined function
     };
   }
 
@@ -446,7 +468,13 @@ export class TreeSitterParser {
           }
         } else if (type === 'function_definition') {
           const declarator = child.childForFieldName('declarator');
-          const funcName = this._extractCFuncName(declarator);
+          // `TEST_F(Suite, Name) { ... }` / `DEFINE_METHOD(Foo, bar) { ... }`:
+          // the grammar parses a macro-with-body as a function_definition
+          // named by the macro, so every TEST_F in a file collided on the
+          // name `TEST_F` (the expression_statement branch above only sees
+          // older grammar output). Name it from the macro's arguments.
+          const macroDef = this._macroDefinedFunction(declarator);
+          const funcName = macroDef ? macroDef.name : this._extractCFuncName(declarator);
           if (funcName) {
             // If name already has :: (e.g. Class::method), use as-is
             // Otherwise, prefix with scope stack
@@ -458,7 +486,8 @@ export class TreeSitterParser {
               fullName = prefix + funcName;
             }
             const fType = fullName.includes('::') ? 'method' : 'function';
-            this._addFunction(result, fullName, startLine, endLine, fType);
+            this._addFunction(result, fullName, startLine, endLine, fType,
+                              macroDef ? { macro: macroDef.macro } : null);
           }
           // Don't recurse into function bodies for top-level extraction
         } else {
@@ -506,6 +535,35 @@ export class TreeSitterParser {
       return declarator.text;
     }
     return null;
+  }
+
+  /**
+   * `MACRO(a, b)` used as a function declarator: an ALL_CAPS identifier whose
+   * parameters are all bare identifiers (the grammar parses each as a
+   * parameter_declaration carrying only a type_identifier). Returns
+   * { macro, args, name } or null for an ordinary declarator. The open-brace
+   * macro shape (`BEGIN_FN(x) ... END_FN`) is not a function_definition at
+   * all and stays invisible; see CODEEXAM_KNOWN_LIMITATIONS.
+   */
+  _macroDefinedFunction(declarator) {
+    if (!declarator || declarator.type !== 'function_declarator') return null;
+    const inner = declarator.childForFieldName('declarator');
+    if (!inner || inner.type !== 'identifier') return null;
+    const macro = inner.text;
+    if (!/^[A-Z][A-Z0-9_]{2,}$/.test(macro)) return null;
+    const params = declarator.childForFieldName('parameters');
+    if (!params) return null;
+    const args = [];
+    for (let i = 0; i < params.namedChildCount; i++) {
+      const p = params.namedChild(i);
+      if (p.type === 'comment') continue;
+      if (p.type !== 'parameter_declaration' || p.namedChildCount !== 1) return null;
+      const t = p.namedChild(0);
+      if (t.type !== 'type_identifier' && t.type !== 'identifier') return null;
+      args.push(t.text);
+    }
+    if (args.length === 0) return null;
+    return { macro, args, name: macroFunctionName(macro, args) };
   }
 
 

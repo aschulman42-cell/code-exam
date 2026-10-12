@@ -96,9 +96,28 @@ independently-operable panels that redesign is built toward.
 - **The GUI can block on voluminous pane output** — a pane producing very large output can stall
   the interface, which is the reason several commands impose the result caps noted above; the
   planned GUI redesign (#38) is built toward non-blocking, independently-operable panels.
-- **Function/method-end detection is imperfect** — both the regex and tree-sitter paths sometimes
-  miss where a function or method ends, so trailing code can be attributed to an ostensibly huge
-  function, which in turn can skew any ranking that weights by length.
+- **Function/method-end detection is imperfect** (#343) — the regex parser (the `--build-index`
+  default) now masks strings, comments and regex literals before it scans, ends brace-less arrow
+  functions and Python blocks on their own, and no longer takes prose inside a template literal for
+  a definition; a `--use-tree-sitter` build keeps one entry per definition and marks the regex-only
+  ones (`"parser": "regex"` in `function_index.json`). What remains: languages with neither a
+  brace, an indentation nor a grammar strategy (Ruby, Lua, VBScript, ...) still end at the next
+  definition; a tree-sitter parse that recovers from a syntax error keeps whatever boundaries the
+  recovery produced, except that a longer regex end for the same definition replaces a truncated
+  one (`"parser": "regex-end"`), and the build summary names such files (a raw NUL byte inside a
+  template literal is one known trigger); and any wrong end still credits trailing
+  code to an ostensibly huge function and skews length-weighted rankings. Rebuild an existing
+  index to get the new spans: a plain rebuild gets the regex-side fixes; pass `--use-tree-sitter`
+  (or tick the Build Index dialog's tree-sitter box, off by default) to also get grammar spans,
+  the deduped merge and the macro names. An index records its `parse_method` but no CodeExam
+  version, so nothing tells you an index predates this change.
+- **Macro-defined functions in C/C++** — a macro that *opens* a function (`BEGIN_FN(name) ...
+  END_FN`, a common Chromium and kernel idiom) is invisible to both parsers: its body is credited to
+  the previous function on a regex index and to file scope on a tree-sitter index. A macro *with*
+  a body (`TEST_F(Suite, Name) { ... }`, `DEFINE_METHOD(Foo, bar) { ... }`) is found and named
+  `Suite::Name` / `Foo::bar` by both parsers; tree-sitter also records the macro (`macro` in the
+  entry). CodeExam does no preprocessing, so project-specific macro idioms beyond these shapes can
+  still hide code.
 - **Class-method navigation can resolve to the wrong handler** (#85, #148) — resolution is static,
   not dynamic, so clicking a method in the GUI can land on a same-named or otherwise wrong target
   where dynamic dispatch (a vtable, a registry) decides the real one only at run time.
