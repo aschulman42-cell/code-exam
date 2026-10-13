@@ -466,8 +466,8 @@ export function formatClassDigest(digest, opts = {}) {
     push('─── BODY-SCOPED SECTIONS ────────────────────────────────────────────');
     push('  (strings / breadcrumbs / comments not shown: class synthesized from');
     push('   method names; no class-declaration body to scope against. If the');
-    push('   source includes the class declaration, rebuild the index with');
-    push('   --use-tree-sitter or check the parser to pick it up — see #63, #65.)');
+    push('   source includes the class declaration, rebuild the index with the');
+    push('   default tree-sitter parse (not --regex-parser) to pick it up — see #63, #65.)');
     push('');
   }
 

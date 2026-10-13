@@ -3410,7 +3410,7 @@ export class CodeSearchIndex {
    * @param {boolean} [opts.skipSemantic=true]
    * @returns {object} stats
    */
-  async buildIndex(codePath, { chunkSize = 50, showProgress = true, skipSemantic = true, demanglerPath = null, useTreeSitter = false, renameMinLines = 0, splitBundle = false } = {}) {
+  async buildIndex(codePath, { chunkSize = 50, showProgress = true, skipSemantic = true, demanglerPath = null, useTreeSitter = true, renameMinLines = 0, splitBundle = false } = {}) {
     const stats = { files_indexed: 0, total_lines: 0, chunks_created: 0, errors: [], prettified: 0, skippedExtensions: {} };
     const codePathStr = codePath.trim();
 

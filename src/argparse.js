@@ -137,7 +137,8 @@ export function parseArgs() {
     port: null,
     multi_index: null,
     skip_semantic: true,
-    use_tree_sitter: false,
+    use_tree_sitter: true,     // tree-sitter wherever a grammar ships; --regex-parser opts out
+    regex_parser: false,
     extensions: null,
     exclude_extensions: null,
     add_extensions: null,
@@ -460,7 +461,12 @@ export function parseArgs() {
     // still accepted so old scripts don't break, gates nothing, and is
     // deliberately absent from --help.
     ['skip_semantic',        'flag',           ['--skip-semantic']],
+    // tree-sitter-default-parser: the grammar parser is the default, so
+    // --use-tree-sitter names the default and is kept, silently, for the
+    // recipes in the wild; --regex-parser is the opt-out (regex only, every
+    // file). Both together is an error (see the post-parse checks).
     ['use_tree_sitter',      'flag',           ['--use-tree-sitter']],
+    ['regex_parser',         'flag',           ['--regex-parser']],
     ['extensions',           'value',          ['--extensions']],
     ['exclude_extensions',   'value',          ['--exclude-extensions']],
     ['add_extensions',       'value',          ['--add-extensions']],
@@ -1010,6 +1016,17 @@ export function parseArgs() {
   if (args.model && !args.analyze_model) args.analyze_model = args.model;
   if (args.follow_calls && args.deep === null) args.deep = '1';
 
+  // tree-sitter-default-parser: --regex-parser opts out of the default grammar
+  // parse. With --use-tree-sitter (the old opt-in, still accepted because it
+  // names the default) it is a contradiction, not a precedence question.
+  if (args.regex_parser) {
+    if (args._explicit.has('use_tree_sitter')) {
+      console.error('--regex-parser and --use-tree-sitter contradict each other; give one of them.');
+      process.exit(2);
+    }
+    args.use_tree_sitter = false;
+  }
+
   // --granularity is an enumeration, and a typo must not silently become the
   // default: a chart's row structure is the one thing two charts are compared on.
   if (!['method', 'system', 'auto', 'both'].includes(args.claim_class)) {
@@ -1126,7 +1143,12 @@ INDEX MANAGEMENT:
                              command against each and concatenates the output
                              (per-index header, no aggregation). A run uses
                              either --index-path or --multi-index, not both.
-  --use-tree-sitter          Use tree-sitter for function parsing
+  --regex-parser             Build with the regex parser only, every file
+                             (faster, coarser). The default parses with the
+                             shipped tree-sitter grammars where a language has
+                             one and falls back to regex per file otherwise;
+                             use this for a bundle that exhausts memory under
+                             the grammar parse.
   --extensions <exts>        Comma-separated file extensions to index
                              (replaces the default set)
   --add-extensions <exts>    Comma-separated extensions to ADD to the default

@@ -61,9 +61,9 @@ ce --gui --index-path .myindex          # the GUI, localhost only
 ```
 
 The bare command-line tools (indexing, search, `--overview`) run *without* `npm install`; the
-GUI, the MCP server, precise tree-sitter parsing, and the local-LLM features need the installed
-packages (without them the GUI exits with a "run `npm install`" hint, and tree-sitter falls back
-to a regex parser).
+GUI, the MCP server, precise tree-sitter parsing (the default once installed), and the local-LLM
+features need the installed packages (without them the GUI exits with a "run `npm install`" hint,
+and a build uses the regex parser for every file).
 
 [[placeholder: Need an additional section showing 3–4 CLI commands run in a row (for their own
 sake). The CLI commands here now are fine, but mostly lead up to launching the GUI.]]

@@ -28,7 +28,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 - **Does**: Builds a CodeExam index from a directory, a single file, a glob pattern, or `@filelist.txt` (one path per line).
 - **Good for**: First-time indexing of a codebase. The entry point for nearly every workflow — every subsequent flag operates against the index produced here.
-- **Couples with**: `--index-path`, `--extensions`, `--exclude-extensions`, `--demangler`, `--use-tree-sitter`, `--skip-semantic`, `--rename-min-lines`, `--no-rename`.
+- **Couples with**: `--index-path`, `--extensions`, `--exclude-extensions`, `--demangler`, `--regex-parser`, `--skip-semantic`, `--rename-min-lines`, `--no-rename`.
 - **Naming**: verb-noun form (`--build-index`) keeps the namespace open for sibling actions on indexes (`--rebuild-functions`, `--build-rename-map`, `--indexes`). Without the verb, ambiguity grows fast.
 - **Verified against**: `src/argparse.js:200`
 
@@ -36,7 +36,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 - **Does**: Rebuilds the function index from already-loaded file contents (the index's stored source) without re-walking the filesystem.
 - **Good for**: Iterating on the function-parser logic without paying the file-walk cost. Pair with parser changes during development.
-- **Couples with**: `--index-path` (operates on the existing index); `--use-tree-sitter` if the parser choice affects the rebuild.
+- **Couples with**: `--index-path` (operates on the existing index); `--regex-parser` if the rebuild should use the regex parser only.
 - **Naming**: parallel to `--build-index` — explicit verb form.
 - **Verified against**: `src/argparse.js:201`
 
@@ -88,13 +88,13 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Naming**: negative-default form (`--skip-X`) signals the user is opting out of a default behavior; consistent with `--no-rename`.
 - **Verified against**: `src/argparse.js:210`
 
-#### `--use-tree-sitter`
+#### `--regex-parser`
 
-- **Does**: Use tree-sitter for function parsing (in addition to or instead of the regex parser, depending on hybrid-merge logic).
-- **Good for**: Higher-fidelity function boundary detection on languages with good tree-sitter grammars; trades regex's speed for accuracy.
-- **Couples with**: `--build-index`, `--rebuild-functions`. Affects parser dispatch in `src/core/TreeSitterParser.js`.
-- **Naming**: prefix `--use-X` — opting in to a feature.
-- **Verified against**: `src/argparse.js:211`
+- **Does**: Builds the function index with the regex parser on every file. The default (no flag) parses each file whose language has a shipped tree-sitter grammar (C, C++, C#, Go, Java, JavaScript, PHP, Python, Ruby, Rust, TypeScript, TSX) with that grammar and merges in the regex parser's extra entries; files in other languages, and every file when `web-tree-sitter` is not installed, get the regex parser anyway.
+- **Good for**: Speed on a very large tree, and the pathological single file (a ~400k-line minified bundle) that exhausts Node's heap under the grammar parse — see `example-indexes.md`.
+- **Couples with**: `--build-index`, `--rebuild-functions`. `--use-tree-sitter` is still accepted: it names the default, does nothing extra, and is absent from `--help`; giving both flags is an error.
+- **Naming**: names the parser you get, not the one you leave; opting out of the default (same family as `--no-rename`, `--skip-semantic`).
+- **Verified against**: `src/argparse.js:468-469`
 
 #### `--extensions <exts>`
 

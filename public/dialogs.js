@@ -286,7 +286,7 @@ function initLoadIndex() {
 
       let buildResult;
       try {
-        buildResult = await api.buildIndex({ sourcePath, indexName, useTreeSitter: true });
+        buildResult = await api.buildIndex({ sourcePath, indexName });
       } catch (buildErr) {
         const msg = buildErr.message || '';
         if (msg.includes('Path not found') || msg.includes('not found')) {
@@ -526,7 +526,8 @@ function initBuildIndex() {
       statusDiv.textContent = 'Starting build…';
       statusDiv.style.color = 'var(--text-muted)';
 
-      const useTreeSitter = $('#build-index-tree-sitter')?.checked || false;
+      // tree-sitter is the default; the box opts out to the regex parser only
+      const useTreeSitter = !($('#build-index-regex-only')?.checked);
       const extInclude = $('#build-index-ext')?.value.trim() || '';
       const extExclude = $('#build-index-exclude-ext')?.value.trim() || '';
       // #218: build to disk WITHOUT auto-loading; onBuildComplete pops the

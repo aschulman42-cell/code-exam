@@ -135,9 +135,9 @@ export class TreeSitterParser {
       const missingModule = e && (e.code === 'MODULE_NOT_FOUND'
         || /Cannot find module/.test(e.message || ''));
       if (missingModule) {
-        console.log('Warning: web-tree-sitter is not installed — using the regex parser instead.');
-        console.log('  For precise tree-sitter parsing (better function boundaries), run `npm install`');
-        console.log('  from the CodeExam folder (it reads package.json and installs all dependencies).');
+        console.log('Warning: web-tree-sitter is not installed; this build uses the regex parser for every file.');
+        console.log('  The grammar parser (precise function boundaries) is the default once `npm install`');
+        console.log('  has run from the CodeExam folder (it reads package.json and installs all dependencies).');
       } else {
         console.log(`Warning: web-tree-sitter init failed: ${e.message}`);
       }

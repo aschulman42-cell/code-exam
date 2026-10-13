@@ -14,9 +14,10 @@
 //
 //   1. the file list is `git ls-files samples/` minus *.zip / *.lst — exactly
 //      what ships, never a stray scratch file;
-//   2. `node src/index.js --index-path <tmp> --build-index @<list>
-//      --use-tree-sitter`, from the repo root (the demo ships the hybrid
-//      build: grammar spans, deduped merge, macro names);
+//   2. `node src/index.js --index-path <tmp> --build-index @<list>`, from the
+//      repo root, with the default parsers (the demo ships the hybrid build:
+//      grammar spans, deduped merge, macro names; tree-sitter has been the
+//      default since tree-sitter-default-parser, 2026-10-13);
 //   3. base_path and index_source in literal_index.json are rewritten to
 //      "samples", and every build file is checked for the absolute path;
 //   4. the build's JSON files are zipped under a FIRST_RUN_INDEX/ folder
@@ -81,8 +82,8 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), 'codeexam-first-run-'));
 const listPath = path.join(work, 'samples.lst');
 fs.writeFileSync(listPath, files.join('\n') + '\n');
 const idxDir = path.join(work, 'index');
-console.log(`[first-run] building ${idxDir} (hybrid: --use-tree-sitter)`);
-const b = ce(['--index-path', idxDir, '--build-index', `@${listPath}`, '--use-tree-sitter']);
+console.log(`[first-run] building ${idxDir} (hybrid: the default tree-sitter + regex parse)`);
+const b = ce(['--index-path', idxDir, '--build-index', `@${listPath}`]);
 process.stdout.write(b.stdout.split('\n').filter((l) => /Function index|tree-sitter:|regex fallback|parse errors|Indexing complete|Read \d+ files/.test(l)).map((l) => `    ${l.trim()}`).join('\n') + '\n');
 if (b.status !== 0) { process.stderr.write(b.stderr); fail(`build exited ${b.status}`); }
 

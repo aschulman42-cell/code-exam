@@ -8,10 +8,10 @@ public source.
 Every recipe is the same three steps:
 
 1. **Get the source** — download the project as a `.zip` (or `git clone` it).
-2. **Build an index** — `node src/index.js --build-index <source> --index-path .name
-   --use-tree-sitter` (or `ce --build-index …`). `--use-tree-sitter` turns on the precise parser for
-   the [supported languages](GETTING_STARTED.md#requirements) (it needs `npm install`; without it CE
-   falls back to a coarser regex parse).
+2. **Build an index** — `node src/index.js --build-index <source> --index-path .name` (or
+   `ce --build-index …`). The precise tree-sitter parser is the default for the
+   [supported languages](GETTING_STARTED.md#requirements) (it needs `npm install`; without it CE
+   builds with the coarser regex parser, which `--regex-parser` also selects on purpose).
 3. **Look around** — start with `--overview` and `--vocabulary`, then follow your nose.
 
 See [`GETTING_STARTED.md`](GETTING_STARTED.md) for install and [`CODEEXAM_CLI.md`](CODEEXAM_CLI.md)
@@ -42,7 +42,7 @@ Small enough to grasp whole. Build and orient:
 ```bash
 # Source: https://github.com/madler/zlib
 #   (Code ▸ Download ZIP: https://github.com/madler/zlib/archive/refs/heads/develop.zip)
-node src/index.js --build-index ./zlib-src --index-path .zlib --use-tree-sitter
+node src/index.js --build-index ./zlib-src --index-path .zlib
 node src/index.js --index-path .zlib --overview
 node src/index.js --index-path .zlib --vocabulary 25
 ```
@@ -62,7 +62,7 @@ A mid-size C++ codebase where **file ≈ class** (`ratecontrol.cpp` ↔ `RateCon
 
 ```bash
 #    [[placeholder: confirm the current .zip URL for the x265 project (MulticoreWare)]]
-node src/index.js --build-index ./x265-src --index-path .x265 --use-tree-sitter
+node src/index.js --build-index ./x265-src --index-path .x265
 node src/index.js --index-path .x265 --overview
 node src/index.js --index-path .x265 --classes          # note: --classes takes no count
 ```
@@ -92,7 +92,7 @@ are some places CodeExam can help when there's too much to read quickly.
 ```bash
 # Source: https://github.com/ffmpeg/ffmpeg
 #   (Code ▸ Download ZIP: https://github.com/FFmpeg/FFmpeg/archive/refs/heads/master.zip)
-node src/index.js --build-index ./ffmpeg-src --index-path .ffmpeg --use-tree-sitter
+node src/index.js --build-index ./ffmpeg-src --index-path .ffmpeg
 node src/index.js --index-path .ffmpeg --overview
 node src/index.js --index-path .ffmpeg --call-tree av_index_search_timestamp
 node src/index.js --index-path .ffmpeg --vocabulary 30
@@ -115,7 +115,7 @@ first-run numbers were ~175/1,169/54k (zlib), ~303/2,626/354k (x265), ~5,434/43,
 related repos becomes a single index.
 
 ```bash
-node src/index.js --build-index @sr_gh.lst --index-path .sr_gh --use-tree-sitter
+node src/index.js --build-index @sr_gh.lst --index-path .sr_gh
 ```
 
 To build `sr_gh.lst`: start at [github.com/safety-research](https://github.com/safety-research) and
@@ -136,17 +136,19 @@ build over it.
 # 1. Extract the embedded JS (use your own claude.exe path; quote it if it has spaces)
 ce --extract-js-from-binary "<path>\claude-code\bin\claude.exe" --output-dir .\claude_exe_js
 # 2. cli.js is ONE very large minified bundle — split it into modules, and raise Node's heap first
-#    (a plain --use-tree-sitter build runs out of memory):
+#    (the default tree-sitter parse runs out of memory on it):
 #      POSIX:    export NODE_OPTIONS=--max-old-space-size=8192
 #      Windows:  set NODE_OPTIONS=--max-old-space-size=8192
 node src/index.js --build-index claude_exe_js --split-bundle --index-path .claude_exe_js
 ```
 
 **This build is demanding.** The extracted `cli.js` is a single, very large (~400k-line) minified
-bundle — the "pathological single file" case. Building it with `--use-tree-sitter` can exhaust Node's
-default (~4 GB) heap and crash with a bare `JavaScript heap out of memory`. The invocation above is a
-**workaround**, not a fix: `--split-bundle` breaks the bundle into component modules (a more useful
-index anyway) and `NODE_OPTIONS=--max-old-space-size=8192` lifts Node's ~4 GB default heap. A cleaner
+bundle — the "pathological single file" case. Building it with the default tree-sitter parse can
+exhaust Node's default (~4 GB) heap and crash with a bare `JavaScript heap out of memory`. The
+invocation above is a **workaround**, not a fix: `--split-bundle` breaks the bundle into component
+modules (a more useful index anyway) and `NODE_OPTIONS=--max-old-space-size=8192` lifts Node's ~4 GB
+default heap. (`--regex-parser` is the other way out — it never runs the grammar — at the cost of the
+coarser function boundaries on the whole bundle.) A cleaner
 in-tool
 message — detecting the oversized input and pointing you at these flags *before* the crash — is
 tracked separately (#88 and the pre-flight-guidance item).
@@ -187,7 +189,7 @@ third-party plugin "skills":
 ```bash
 #    [[placeholder (Andrew): confirm the GitHub URL — the index was built from `plugins-main.zip`
 #    (the "plugins" repo, default branch main); confirm the owner/org before publishing.]]
-node src/index.js --build-index ./plugins-src --index-path .plugins --use-tree-sitter
+node src/index.js --build-index ./plugins-src --index-path .plugins
 node src/index.js --index-path .plugins --referenced-resources
 ```
 
@@ -213,7 +215,7 @@ features to explain its features:
 
 ```bash
 # From the CodeExam project root
-node src/index.js --build-index . --index-path .ce --use-tree-sitter
+node src/index.js --build-index . --index-path .ce
 ```
 
 Then see how CodeExam's own command line is wired — `--command-catalog` maps every CLI flag to the

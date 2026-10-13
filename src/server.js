@@ -1831,7 +1831,7 @@ routes['/api/build-index'] = (req, res) => {
       // Run the build in a Worker thread so the event loop stays responsive
       const workerPath = path.join(__dirname, 'build-worker.js');
       const worker = new Worker(workerPath, {
-        workerData: { sourcePath, indexPath: resolvedIndex, useTreeSitter: useTreeSitter || false, extensions: extensions || '', excludeExtensions: excludeExtensions || '' }
+        workerData: { sourcePath, indexPath: resolvedIndex, useTreeSitter: useTreeSitter !== false, extensions: extensions || '', excludeExtensions: excludeExtensions || '' }
       });
 
       const job = buildJobs.get(jobId);

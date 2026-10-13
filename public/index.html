@@ -597,7 +597,7 @@
         <label>Exclude extensions (comma-separated):</label>
         <input type="text" id="build-index-exclude-ext" placeholder=".html,.png,.txt,.svg" spellcheck="false" style="margin-top:0;margin-bottom:8px;font-size:12px">
         <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:12px;cursor:pointer">
-          <input type="checkbox" id="build-index-tree-sitter"> Use tree-sitter parsing (more accurate)
+          <input type="checkbox" id="build-index-regex-only"> Regex parser only (faster, coarser; the default parses with tree-sitter grammars)
         </label>
         <div id="build-index-status" style="display:none;padding:8px 0;color:var(--text-muted);font-size:12px">Building index… this may take a while.</div>
         <div id="build-index-error" class="error-msg" style="display:none"></div>

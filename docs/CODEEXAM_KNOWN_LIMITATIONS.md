@@ -115,21 +115,22 @@ independently-operable panels that redesign is built toward.
 - **The GUI can block on voluminous pane output** — a pane producing very large output can stall
   the interface, which is the reason several commands impose the result caps noted above; the
   planned GUI redesign (#38) is built toward non-blocking, independently-operable panels.
-- **Function/method-end detection is imperfect** (#343) — the regex parser (the `--build-index`
-  default) now masks strings, comments and regex literals before it scans, ends brace-less arrow
-  functions and Python blocks on their own, and no longer takes prose inside a template literal for
-  a definition; a `--use-tree-sitter` build keeps one entry per definition and marks the regex-only
-  ones (`"parser": "regex"` in `function_index.json`). What remains: languages with neither a
+- **Function/method-end detection is imperfect** (#343) — the regex parser (`--regex-parser`
+  builds, and the fallback for languages without a grammar) now masks strings, comments and regex
+  literals before it scans, ends brace-less arrow functions and Python blocks on their own, and no
+  longer takes prose inside a template literal for a definition; a tree-sitter build (the default)
+  keeps one entry per definition and marks the regex-only ones (`"parser": "regex"` in
+  `function_index.json`). What remains: languages with neither a
   brace, an indentation nor a grammar strategy (Ruby, Lua, VBScript, ...) still end at the next
   definition; a tree-sitter parse that recovers from a syntax error keeps whatever boundaries the
   recovery produced, except that a longer regex end for the same definition replaces a truncated
   one (`"parser": "regex-end"`), and the build summary names such files (a raw NUL byte inside a
   template literal is one known trigger); and any wrong end still credits trailing
   code to an ostensibly huge function and skews length-weighted rankings. Rebuild an existing
-  index to get the new spans: a plain rebuild gets the regex-side fixes; pass `--use-tree-sitter`
-  (or tick the Build Index dialog's tree-sitter box, off by default) to also get grammar spans,
-  the deduped merge and the macro names. An index records its `parse_method` but no CodeExam
-  version, so nothing tells you an index predates this change.
+  index to get the new spans: a rebuild now parses with tree-sitter by default and gets grammar
+  spans, the deduped merge and the macro names; a `--regex-parser` rebuild (or the Build Index
+  dialog's "Regex parser only" box) gets the regex-side fixes only. An index records its
+  `parse_method` but no CodeExam version, so nothing tells you an index predates this change.
 - **Regex-parser definition detection** (#343) — the regex parser now finds the C shapes it
   used to skip: the pointer written on the name (`SSL_CTX *initialize_crypto_context(`, the
   shipped demo's star functions were never listed), the GNU layout with the return type on its
@@ -146,8 +147,9 @@ independently-operable panels that redesign is built toward.
   JavaScript 95 → 98 %. What remains for the regex parser: constructors with no return type
   (`Foo(int a) : a_(a) {`), `= default` / `= delete` and `operator` members, a macro that wraps
   the signature (`PNG_FUNCTION(void, PNGAPI`), old K&R parameter declarations, and a nested
-  arrow assigned to an existing property (`console.log = () => {}`). A `--use-tree-sitter` build
-  is still the precise parser; rebuild an existing index to get the new entries.
+  arrow assigned to an existing property (`console.log = () => {}`). Tree-sitter, the default
+  build, is still the precise parser; these shapes matter for `--regex-parser` builds and for the
+  languages without a grammar. Rebuild an existing index to get the new entries.
 - **Macro-defined functions in C/C++** — a macro that *opens* a function (`BEGIN_FN(name) ...
   END_FN`, a common Chromium and kernel idiom) is invisible to both parsers: its body is credited to
   the previous function on a regex index and to file scope on a tree-sitter index. A macro *with*

@@ -852,9 +852,16 @@ if (args.build_index) {
     }
   } catch { /* best-effort tip; never break the build */ }
 
-  // If only building (no other command), exit
+  // If only building (no other command), stop here: set the exit code and let
+  // the event loop drain. Not process.exit(): on Windows with Node 24 an
+  // immediate exit after a tree-sitter build of a small JavaScript corpus died
+  // in libuv ("Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)", exit
+  // 127) while V8's background work was still winding down; with the loop
+  // left to drain the same build ends cleanly in the same half second
+  // (tree-sitter-default-parser, 2026-10-13). Every block below is gated on a
+  // command, so nothing more runs.
   if (!_POST_BUILD_CONTINUE_KEYS.some(c => args._explicit.has(c) || args[c])) {
-    process.exit(0);
+    process.exitCode = 0;
   }
 }
 
@@ -947,9 +954,11 @@ if (args.build_rename_map) {
               (minFuncLines > 0 ? ` (skipping functions with <= ${minFuncLines} lines)` : '') + '...');
   const r = index.inferAndSaveRenameMap({ showProgress: true, minFuncLines });
   console.log(`Done: ${r.namesInferred + r.cmdRenames + r.importRenames} total renames written to ${index.indexPath}/rename_map.json`);
-  // If only --build-rename-map (no other command), exit
+  // If only --build-rename-map (no other command), stop here and let the loop
+  // drain (same reason as after --build-index: a --rebuild-functions
+  // tree-sitter pass may have run just before this).
   if (!_POST_BUILD_CONTINUE_KEYS.some(c => args._explicit.has(c) || args[c])) {
-    process.exit(0);
+    process.exitCode = 0;
   }
 }
 

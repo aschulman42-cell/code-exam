@@ -401,7 +401,7 @@ async function handleMenuAction(action) {
       $('#build-index-error').style.display = 'none';
       $('#build-index-status').style.display = 'none';
       $('#build-index-browser').style.display = 'none';
-      if ($('#build-index-tree-sitter')) $('#build-index-tree-sitter').checked = false;
+      if ($('#build-index-regex-only')) $('#build-index-regex-only').checked = false;   // default: tree-sitter grammars
       $('#build-browse-dir-list').innerHTML = '';
       $('#build-index-overlay').classList.remove('hidden');
       setTimeout(() => $('#build-index-source').focus(), 100);

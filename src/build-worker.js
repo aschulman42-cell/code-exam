@@ -58,7 +58,9 @@ process.stdout.write = (chunk, ...rest) => {
     const idx = new CodeSearchIndex({ indexPath, extensions: customExtensions, excludeCompound });
     const stats = await idx.buildIndex(sourcePath, {
       showProgress: true,
-      useTreeSitter: useTreeSitter || false,
+      // Absent means the default (tree-sitter where a grammar ships); only an
+      // explicit false asks for the regex parser on every file.
+      useTreeSitter: useTreeSitter !== false,
     });
     console.log = origLog;
     process.stdout.write = origWrite;
