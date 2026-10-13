@@ -130,6 +130,24 @@ independently-operable panels that redesign is built toward.
   (or tick the Build Index dialog's tree-sitter box, off by default) to also get grammar spans,
   the deduped merge and the macro names. An index records its `parse_method` but no CodeExam
   version, so nothing tells you an index predates this change.
+- **Regex-parser definition detection** (#343) — the regex parser now finds the C shapes it
+  used to skip: the pointer written on the name (`SSL_CTX *initialize_crypto_context(`, the
+  shipped demo's star functions were never listed), the GNU layout with the return type on its
+  own line and the name at column 0 (libxml, libpng, git, gcc, PostgreSQL style, which came out
+  at 4 % recall; the entry starts at the type line, as tree-sitter's does, so `--extract` keeps
+  the return type), one-line bodies (`{ return x; }`) in C, C++, Java, JavaScript and C#, Java
+  parameter lists wrapped onto the next line, `typedef struct name {`, `) const override {`
+  tails, `export const f = () =>` in JavaScript, and `TEST_F(Suite,` with the test name on the
+  next line. It no longer takes a wrapped declaration (`extern int f(int a,` … `);`), a
+  `return` / `throw` / `new` line, `synchronized (x) {` or `__asm__ volatile (` for a
+  definition, and `--callers` no longer lists a `Type *name(...);` prototype as a call site.
+  Measured against tree-sitter on 2026-10-13: the demo 84 → 100 % of definitions found, libxml
+  4 → 100 %, libpng 7 → 99.5 %, zlib 92 → 97 %, Chromium `cc/` 76 → 90 %, CodeExam's own
+  JavaScript 95 → 98 %. What remains for the regex parser: constructors with no return type
+  (`Foo(int a) : a_(a) {`), `= default` / `= delete` and `operator` members, a macro that wraps
+  the signature (`PNG_FUNCTION(void, PNGAPI`), old K&R parameter declarations, and a nested
+  arrow assigned to an existing property (`console.log = () => {}`). A `--use-tree-sitter` build
+  is still the precise parser; rebuild an existing index to get the new entries.
 - **Macro-defined functions in C/C++** — a macro that *opens* a function (`BEGIN_FN(name) ...
   END_FN`, a common Chromium and kernel idiom) is invisible to both parsers: its body is credited to
   the previous function on a regex index and to file scope on a tree-sitter index. A macro *with*

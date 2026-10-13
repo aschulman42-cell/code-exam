@@ -385,12 +385,24 @@ export function findCallers(idx, functionName, maxResults = 500, opts = {}) {
     new RegExp('(?:=\\s*&?\\s*|,\\s*&?\\s*)' + escapeRegex(bareName) + '\\s*(?:[,;\\)\\]]|$)', caseFlag),
   ]);
 
-  // Find definition locations to exclude
+  // Find definition locations to exclude: the start line, and when the name
+  // sits below it (the GNU layout, `static int` over `name(args)`, as both
+  // parsers record it) the header lines down to the one carrying the name,
+  // so a definition is never a call site of itself. The walk stops at the
+  // name, at `{` or at `;`, so a recursive call on the first body line stays.
   const definitionLocations = new Set();
+  const headerNameRe = new RegExp('(?:^|[^\\w.>:])' + escapeRegex(bareName) + '\\s*\\(');
   for (const [fpath, functions] of Object.entries(idx.functionIndex || {})) {
+    const fileText = idx.fileLines && idx.fileLines.get(fpath);
     for (const [fname, info] of Object.entries(functions)) {
       if (fname === functionName || fname.endsWith('::' + bareName) || fname === bareName) {
         definitionLocations.add(`${fpath}:${info.start}`);
+        if (!fileText) continue;
+        for (let ln = info.start; ln <= Math.min(info.end || info.start, info.start + 4); ln++) {
+          const text = fileText[ln - 1] || '';
+          definitionLocations.add(`${fpath}:${ln}`);
+          if (headerNameRe.test(text) || text.includes('{') || text.includes(';')) break;
+        }
       }
     }
   }
@@ -438,18 +450,31 @@ export function findCallers(idx, functionName, maxResults = 500, opts = {}) {
 
     if (!isReference) {
       const stripped = line.trimEnd();
+      // A leading statement keyword means call, whatever the rest of the line
+      // looks like (`return foo(a);` has the shape of a declaration).
+      const stmtKw = /^\s*(?:return|await|yield|throw|case|new|delete|typeof|else|do|if|elif|while|for|switch|and|or|not|in|is|assert|print|co_return|co_yield|co_await)\b/;
       // Skip declarations
       if (stripped.endsWith(';') && !line.includes('{')) {
         // `int foo(int a);` is a declaration; `return foo(a);` is a call that
         // the same shape would swallow (every `return f(...)` site was being
-        // dropped from caller lists). A leading statement keyword means call.
-        const declRe = new RegExp('^\\s*[\\w\\s*&]+\\s+' + bareEsc + '\\s*\\([^)]*\\)\\s*;$');
-        const stmtKw = /^\s*(?:return|await|yield|throw|case|new|delete|typeof|else|do|co_return|co_yield|co_await)\b/;
+        // dropped from caller lists).
+        // `[\s*&]+` before the name: `tls_connection_t *tls_connect(...);` is
+        // a declaration too (the pointer written on the name).
+        const declRe = new RegExp('^\\s*[\\w\\s*&]+[\\s*&]+' + bareEsc + '\\s*\\([^)]*\\)\\s*;$');
         if (declRe.test(line) && !stmtKw.test(line)) return;
+      }
+      // Skip a header whose parameter list continues on the next line:
+      // `tls_connection_t *tls_connect(const char *hostname, int port,` is a
+      // declaration or a definition, never a call (a call never starts with a
+      // type). The shipped demo's tls_handler.h:46 was listed as a
+      // `(file scope)` caller of tls_connect because of this.
+      if (!stripped.includes(')') && !stripped.includes(';') && !stripped.includes('=')) {
+        const headRe = new RegExp('^\\s*[\\w\\s*&:~<>,]+[\\s*&]+' + bareEsc + '\\s*\\([^)]*$');
+        if (headRe.test(stripped) && !stmtKw.test(stripped)) return;
       }
       // Skip definitions
       if (stripped.endsWith('{')) {
-        const defRe = new RegExp('^\\s*[\\w\\s*&:~]+\\s+' + bareEsc + '\\s*\\([^)]*\\)\\s*(?:const\\s*)?(?:override\\s*)?(?:final\\s*)?\\{$');
+        const defRe = new RegExp('^\\s*[\\w\\s*&:~]+[\\s*&]+' + bareEsc + '\\s*\\([^)]*\\)\\s*(?:const\\s*)?(?:override\\s*)?(?:final\\s*)?\\{$');
         if (defRe.test(stripped)) return;
       }
       // Skip inline constructors/destructors
@@ -1080,11 +1105,21 @@ export function getCallCounts(idx, showProgress = true) {
     const strippedR = line.trimEnd();
     // Skip function definitions
     if (strippedR.endsWith('{')) {
-      if (/^\s*[\w\s*&:~]+\s+\w+\s*\([^)]*\)\s*(?:const\s*)?(?:override\s*)?(?:final\s*)?\{$/.test(strippedR)) return;
+      if (/^\s*[\w\s*&:~]+[\s*&]+\w+\s*\([^)]*\)\s*(?:const\s*)?(?:override\s*)?(?:final\s*)?\{$/.test(strippedR)) return;
+      // GNU layout, name at column 0 with the type on the previous line:
+      // `xmlBufDetach(xmlBufPtr buf) {` (this scan has no previous line; a
+      // call at column 0 would end in `;`, not `{`).
+      if (/^\w+\s*\([^)]*\)\s*(?:const\s*)?\{$/.test(strippedR)) return;
     }
-    // Skip declarations
+    // Definition header with the brace on the next line (K&R / Allman):
+    // `tls_connection_t *tls_connect(const char *hostname, int port)` alone,
+    // and a header whose parameter list continues on the next line
+    // (`type *name(a, b,`): a declaration or a definition, never a call.
+    if (/^\s*(?!(?:return|await|yield|throw|case|new|delete|typeof|else|do|if|elif|while|for|switch|and|or|not|in|is|assert|print|co_return|co_yield|co_await)\b)[\w\s*&:~<>,]+[\s*&]+\w+\s*\((?:[^)]*\)\s*(?:const\s*)?(?:override\s*)?(?:final\s*)?(?:noexcept\s*)?|[^)=;]*)$/.test(strippedR)) return;
+    // Skip declarations (`[\s*&]+` before the name: the pointer may be
+    // written on the name, `tls_connection_t *tls_connect(...);`)
     if (strippedR.endsWith(';') && !line.includes('{')) {
-      if (/^\s*[\w\s*&:~<>,]+\s+\w+\s*\([^)]*\)\s*;$/.test(strippedR)) return;
+      if (/^\s*[\w\s*&:~<>,]+[\s*&]+\w+\s*\([^)]*\)\s*;$/.test(strippedR)) return;
     }
 
     // Quick check: does this line contain any function call at all?

@@ -34,7 +34,7 @@ import {
 } from './bundle-seam-detection.js';
 import {
   familyForExt, maskCodeLines, computeFunctionEnd, trimTrailingBlank,
-  mergeRegexOnlyEntries, labelParser,
+  mergeRegexOnlyEntries, labelParser, findBraceEnd,
 } from './function-bounds.js';
 import { extractPythonImports } from './imports.js';
 import {
@@ -2717,8 +2717,13 @@ export class CodeSearchIndex {
    * Returns array of [regex, funcType, nameGroupIndex] tuples.
    */
   static _getPatternsForExt(ext) {
-    // Pattern format: [regex_string, type, name_capture_group_index]
-    // We use named groups (?<name>...) for clarity, but track the group name.
+    // Pattern format: [regex, type, name_capture_group_index, guard?]
+    // A line matches on the masked text (strings and comments blanked). The
+    // optional guard `(masked, lineIdx) => boolean` adds context a single
+    // line cannot carry: `_notDeclaration` rejects a header that runs on to a
+    // `;` (a wrapped prototype), `_gnuDefinition` requires a bare type on the
+    // previous line for a name at column 0 (regex-parser-signature-detection,
+    // 2026-10-13, #343).
 
     const pythonPatterns = [
       [/^\s*(?:async\s+)?def\s+(\w+)\s*\(/, 'function', 1],
@@ -2729,44 +2734,81 @@ export class CodeSearchIndex {
       // Google Test macros: TEST_P(Suite, Name), TEST_F(Suite, Name), TEST(Suite, Name), etc.
       // Treated as functions named Suite::Name (like class methods)
       [/^\s*(?:TEST_F|TEST_P|TEST|TYPED_TEST|TYPED_TEST_P|TYPED_TEST_SUITE|TEST_CASE)\s*\(\s*(\w+)\s*,\s*(\w+)/, 'function', -1],
+      // The same with the test name wrapped onto the next line (clang-format
+      // on a long name): `TEST_F(ElementAnimationsTest,` / `  Name) {`.
+      // nameGroup -2: Suite from this line, Name from the next non-blank line.
+      [/^\s*(?:TEST_F|TEST_P|TEST|TYPED_TEST|TYPED_TEST_P|TYPED_TEST_SUITE|TEST_CASE)\s*\(\s*(\w+)\s*,\s*$/, 'function', -2],
       // C++ constructor: ClassName::ClassName(args) {
       [/^\s*([\w]+::[\w]+)\s*\([^;]*\)\s*(?::\s*[\w()\s,]+)?\s*\{?\s*$/, 'function', 1],
       // C++ destructor: ClassName::~ClassName() {
       [/^\s*([\w]+::~[\w]+)\s*\([^;]*\)\s*\{?\s*$/, 'function', 1],
-      // C++ class method: return type + Class::Method(args) on SAME line
-      [/^[\w\s*&<>:]+\s+([\w:]+::[\w~]+)\s*\([^;]*\)\s*(?:const)?\s*(?:override)?\s*\{?\s*$/, 'function', 1],
+      // C++ class method: return type + Class::Method(args) on SAME line.
+      // The return type must start with a letter: leading indentation alone
+      // used to pass as the type, so any indented `Qualified::call(x)` line
+      // without a `;` (an expression wrapped onto the next line) was a
+      // definition. The tail takes `) const override {`, `) noexcept` and a
+      // body that closes on the line (`{ return x_; }`), or no brace.
+      [/^\s*(?!(?:return|else|case|goto|throw|new|delete|sizeof|co_return|co_yield|co_await|using|namespace)\b)[a-zA-Z_][\w\s*&<>:]*\s+([\w:]+::[\w~]+)\s*\([^;]*\)(?:\s*(?:const|override|final|noexcept|volatile|&&?))*\s*(?:\{.*\})?\s*\{?\s*$/, 'function', 1],
       // C++ class method: return type + Class::Method( with args on NEXT line(s)
       // e.g. "Region OcclusionTracker::ComputeVisibleRegionInScreen("
-      [/^[\w\s*&<>:]+\s+([\w:]+::[\w~]+)\s*\([^);]*$/, 'function', 1],
+      [/^\s*(?!(?:return|else|case|goto|throw|new|delete|sizeof|co_return|co_yield|co_await|using|namespace)\b)[a-zA-Z_][\w\s*&<>:]*\s+([\w:]+::[\w~]+)\s*\([^);]*$/, 'function', 1, CodeSearchIndex._notDeclaration],
       // C++ class method with return type on PREVIOUS line (Chromium/Google style):
       //   ReturnType\n
       //   ClassName::MethodName(args) const {\n
       // Matches: Qualified::Name( at start of line (not preceded by = or return etc.)
       [/^([\w]+(?:::[\w~]+)+)\s*\(/, 'function', 1],
       // Plain C function / inline class method: ReturnType funcname(args) {
-      // Allow :: in return type for qualified types like cc::Layer*
-      [/^\s*[a-zA-Z_][\w\s*&:<>,]*\s+(\w+)\s*\([^;]*\)\s*\{?\s*$/, 'function', 1],
-      // Plain C function: ReturnType funcname( with args on next line(s)
-      [/^\s*[a-zA-Z_][\w\s*&:<>,]*\s+(\w+)\s*\([^);]*$/, 'function', 1],
+      // `[\s*&]+` between type and name takes `SSL_CTX *initialize_crypto_context(`
+      // (the pointer written on the name, the dominant C style; the shipped demo's
+      // star functions were never listed) as well as `SSL_CTX* f(`. Allow :: in
+      // the return type for qualified types like cc::Layer*. A statement keyword
+      // is never a return type (`return *f(`, `throw Error(`, `new Widget(`).
+      [/^\s*(?!(?:return|else|case|goto|throw|new|delete|sizeof|typedef|co_return|co_yield|co_await|using|namespace)\b)[a-zA-Z_][\w\s*&:<>,]*[\s*&]+(\w+)\s*\([^;]*\)(?:\s*(?:const|override|final|noexcept|volatile|&&?))*\s*(?:\{.*\})?\s*\{?\s*$/, 'function', 1, CodeSearchIndex._notDeclaration],
+      // Plain C function: ReturnType funcname( with args on next line(s). The
+      // guard drops a wrapped declaration (`extern int f(int a,\n int b);`).
+      [/^\s*(?!(?:return|else|case|goto|throw|new|delete|sizeof|typedef|co_return|co_yield|co_await|using|namespace)\b)[a-zA-Z_][\w\s*&:<>,]*[\s*&]+(\w+)\s*\([^);]*$/, 'function', 1, CodeSearchIndex._notDeclaration],
+      // GNU / K&R layout: the return type on its own line, the name at column 0
+      //   static void
+      //   xmlBufMemoryError(xmlBufPtr buf, const char *extra)
+      //   {
+      // (libxml, libpng, git, gcc, PostgreSQL, much of Linux). Column 0 is the
+      // discriminator: statements are indented. The guard requires a bare type
+      // on the previous non-blank line and a header that does not end in `;`.
+      [/^(\w+)\s*\([^;]*\)(?:\s*(?:const|override|final|noexcept|volatile|&&?))*\s*(?:\{.*\})?\s*\{?\s*$/, 'function', 1, CodeSearchIndex._gnuDefinition],
+      [/^(\w+)\s*\([^);]*$/, 'function', 1, CodeSearchIndex._gnuDefinition],
       // C++ class/struct - skip export macros like CC_EXPORT, BLINK_EXPORT, COMPONENT_EXPORT(viz)
       // Export macros are ALL_CAPS words containing underscore, optionally with (args)
       [/^\s*(?:template\s*<[^>]*>\s*)?class\s+(?:[A-Z][A-Z0-9]*_[A-Z0-9_]*(?:\([^)]*\))?\s+)*(\w+)/, 'class', 1],
-      [/^\s*(?:template\s*<[^>]*>\s*)?struct\s+(?:[A-Z][A-Z0-9]*_[A-Z0-9_]*(?:\([^)]*\))?\s+)*(\w+)/, 'class', 1],
+      // `typedef struct name {` names the struct like `struct name {` does.
+      [/^\s*(?:template\s*<[^>]*>\s*)?(?:typedef\s+)?struct\s+(?:[A-Z][A-Z0-9]*_[A-Z0-9_]*(?:\([^)]*\))?\s+)*(\w+)/, 'class', 1],
     ];
 
     const javaPatterns = [
-      [/^\s*(?:(?:public|private|protected|static|final|synchronized|abstract|native|strictfp)\s+)*(?:[\w<>\[\],.\s]+\s+)?(\w+)\s*\([^)]*\)\s*(?:throws\s+[\w,\s]+)?\s*\{?\s*$/, 'function', 1],
+      // Parameter list on the line; `throws`; a body that closes on the line
+      // (`{ return minTlsVersion; }`) or a brace on the next line.
+      [/^\s*(?:(?:public|private|protected|static|final|synchronized|abstract|native|strictfp|default)\s+)*(?:[\w<>\[\],.?\s]+\s+)?(\w+)\s*\([^)]*\)\s*(?:throws\s+[\w,.\s]+)?\s*(?:\{.*\})?\s*\{?\s*$/, 'function', 1],
+      // Parameter list continuing on the next line(s). A return type (one or
+      // more type tokens before the name) is required, so a wrapped call at
+      // statement start (`assertEquals(`) or `return foo(` cannot match; the
+      // guard drops a wrapped abstract or interface declaration ending in `;`.
+      [/^\s*(?:(?:public|private|protected|static|final|synchronized|abstract|native|strictfp|default)\s+)*(?!(?:return|new|throw|else|case|assert|await|yield)\b)(?:[\w<>\[\],.?]+\s+)+(\w+)\s*\([^);]*$/, 'function', 1, CodeSearchIndex._notDeclaration],
       [/^\s*(?:(?:public|private|protected|static|final|abstract)\s+)*class\s+(\w+)/, 'class', 1],
       [/^\s*(?:(?:public|private|protected|static)\s+)*interface\s+(\w+)/, 'class', 1],
       [/^\s*(?:(?:public|private|protected|static)\s+)*enum\s+(\w+)/, 'class', 1],
     ];
 
     const jsPatterns = [
-      [/^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)/, 'function', 1],
-      [/^\s*(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\([^)]*\)\s*=>/, 'function', 1],
-      [/^\s*(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?function\b/, 'function', 1],
-      // Class method shorthand
-      [/^\s*(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?(\w+)\s*\([^)]*\)\s*\{\s*$/, 'function', 1],
+      [/^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)/, 'function', 1],
+      // `export const f = (a) => …` / `export const f = function …` are the
+      // common module shape; `export` was missing from both.
+      // `(?!\(\s*\()`: `const X = (() => { … })()` is a value computed once,
+      // not a function named X.
+      [/^\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?!\(\s*\()(?:async\s+)?\([^)]*\)\s*=>/, 'function', 1],
+      [/^\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?function\b/, 'function', 1],
+      // Class / object method shorthand; the body may close on the line
+      // (`isCloud() { return !!this.provider; }`), an object-literal method
+      // ends in `},`.
+      [/^\s*(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?(\w+)\s*\([^)]*\)\s*\{(?:.*\})?\s*,?\s*$/, 'function', 1],
       // #283: member-assignment function definitions the `NAME = …` patterns
       // above miss — window.X / globalThis.X / self.X / exports.X /
       // module.exports.X / this.X (with optional deeper nesting), and
@@ -2826,7 +2868,7 @@ export class CodeSearchIndex {
 
     const csPatterns = [
       // C# methods (similar to Java)
-      [/^\s*(?:(?:public|private|protected|internal|static|virtual|override|abstract|sealed|async|partial)\s+)*(?:[\w<>\[\],.\s]+\s+)?(\w+)\s*\([^)]*\)\s*\{?\s*$/, 'function', 1],
+      [/^\s*(?:(?:public|private|protected|internal|static|virtual|override|abstract|sealed|async|partial)\s+)*(?:[\w<>\[\],.\s]+\s+)?(\w+)\s*\([^)]*\)\s*(?:\{.*\})?\s*\{?\s*$/, 'function', 1],
       [/^\s*(?:(?:public|private|protected|internal|static|abstract|sealed|partial)\s+)*class\s+(\w+)/, 'class', 1],
       [/^\s*(?:(?:public|private|protected|internal)\s+)*interface\s+(\w+)/, 'class', 1],
       [/^\s*(?:(?:public|private|protected|internal)\s+)*enum\s+(\w+)/, 'class', 1],
@@ -2929,8 +2971,36 @@ export class CodeSearchIndex {
 
   static SKIP_KEYWORDS = new Set([
     'if', 'else', 'while', 'for', 'switch', 'catch', 'return',
-    'sizeof', 'typeof', 'elif', 'except', 'finally', 'with'
+    'sizeof', 'typeof', 'elif', 'except', 'finally', 'with',
+    'synchronized', 'defined', 'volatile', 'asm', '__asm__', '__asm',
   ]);
+
+  // Pattern guards (see _getPatternsForExt). Both read the masked lines.
+
+  /** A header that reaches a `;` at paren depth 0 before any `{` is a
+   *  declaration (a wrapped prototype, a pure-virtual, a `Type var(args);`
+   *  initialisation), not a definition. A header with its brace on the line,
+   *  or one findBraceEnd cannot classify within its window, passes. */
+  static _notDeclaration(masked, lineIdx) {
+    if ((masked[lineIdx] || '').includes('{')) return true;
+    const r = findBraceEnd(masked, lineIdx, 0, 60);   // zip.h wraps a prototype over 20 lines
+    return !(r && r.kind === 'declaration');
+  }
+
+  /** GNU layout: a name at column 0 is a definition when the previous
+   *  non-blank line is a bare type (`static void`, `xmlChar *`, `void PNGAPI`)
+   *  and the header is not a declaration. Accepts with the index of that type
+   *  line: the definition starts there, as tree-sitter records it, so
+   *  `--extract` keeps the return type and a hybrid merge sees one start. */
+  static _gnuDefinition(masked, lineIdx) {
+    let p = lineIdx - 1;
+    while (p >= 0 && (masked[p] || '').trim() === '') p--;
+    if (p < 0) return false;
+    const prev = (masked[p] || '').trim();
+    if (!/^[A-Za-z_][\w\s*&:<>]*$/.test(prev)) return false;
+    if (/^(?:else|do|try|return|goto|case|default|break|continue|typedef|enum|union)\b/.test(prev)) return false;
+    return CodeSearchIndex._notDeclaration(masked, lineIdx) ? p : false;
+  }
 
   /**
    * Parse functions from a single file using regex patterns.
@@ -2957,19 +3027,34 @@ export class CodeSearchIndex {
     const masked = maskCodeLines(lines, family);
 
     for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-      const lineNum = lineIdx + 1;
       const line = lines[lineIdx];
 
       // Track indentation for class scope
       const stripped = line.trimStart();
       const indent = stripped ? (line.length - stripped.length) : 999;
 
-      for (const [regex, funcType, nameGroup] of patterns) {
+      for (const [regex, funcType, nameGroup, guard] of patterns) {
         const match = masked[lineIdx].match(regex);
         if (!match) continue;
+        // A guard rejects with `false`, accepts with `true`, or accepts with
+        // the index of the line the definition starts on (the GNU layout's
+        // return-type line, above the matched name line).
+        const verdict = guard ? guard(masked, lineIdx) : true;
+        if (verdict === false) continue;
+        const startLine = (typeof verdict === 'number' ? verdict : lineIdx) + 1;
 
         // nameGroup -1: composite name from groups 1+2 (e.g. TEST_P(Suite, Name) → Suite::Name)
-        let name = nameGroup === -1 ? (match[1] + '::' + match[2]) : match[nameGroup];
+        // nameGroup -2: group 1 plus the first word of the next non-blank line
+        // (the test name wrapped by clang-format)
+        let name;
+        if (nameGroup === -1) name = match[1] + '::' + match[2];
+        else if (nameGroup === -2) {
+          let nx = lineIdx + 1;
+          while (nx < masked.length && (masked[nx] || '').trim() === '') nx++;
+          const second = nx < masked.length ? (masked[nx].match(/^\s*(\w+)\s*\)/) || [])[1] : null;
+          if (!second) continue;
+          name = match[1] + '::' + second;
+        } else name = match[nameGroup];
         if (!name || CodeSearchIndex.SKIP_KEYWORDS.has(name)) continue;
 
         if (funcType === 'class') {
@@ -2991,13 +3076,13 @@ export class CodeSearchIndex {
         // Handle duplicate function names
         let storedName = name;
         if (name in fileFunctions) {
-          storedName = `${name}@${lineNum}`;
+          storedName = `${name}@${startLine}`;
         }
 
         const bare = name.includes('::') ? name.split('::').pop() : name;
 
         fileFunctions[storedName] = {
-          start: lineNum,
+          start: startLine,
           end: null,
           // If name contains ::, it's a method - even without a class declaration
           // in this file (the class may be declared in a .h we didn't index)
