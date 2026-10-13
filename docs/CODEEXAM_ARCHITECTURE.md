@@ -79,8 +79,15 @@ CodeExam leans on a small set of third-party packages (declared in `package.json
 - **Mermaid** (`public/vendor/mermaid.min.js`, client-side) — renders the call-tree and
   file-coupling diagrams in the browser.
 
-The `tree-sitter-*` grammar packages are **dev** dependencies used to build the vendored WASM
-grammars; only `web-tree-sitter` and the built grammars are needed at runtime.
+The `tree-sitter-*` grammar packages are **dev** dependencies that supply the vendored WASM
+grammars (copied from each package, not rebuilt); only `web-tree-sitter` and the vendored grammars
+are needed at runtime.
+
+The grammar `.wasm` files and `mermaid.min.js` are the third-party files the repository itself
+**redistributes**, all under MIT. [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md) at the
+root inventories each one with its upstream package, version, copyright holder and licence, and
+`test/test_third_party_notices.js` fails when a shipped file has no row or a row's version drifts
+from the installed package.
 
 ## The full source map
 
@@ -92,7 +99,8 @@ line. Kept as a hand-maintained mirror for now, so the full list is visible in a
 time, rather than keeping two copies in sync by hand.]]
 
 *Not covered here: vendored code (`public/vendor/`), grammars, sample corpora, and data catalogs —
-those are not first-party source.*
+those are not first-party source. The vendored code and grammars are inventoried, with their
+licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 
 ### Launchers
 
@@ -222,7 +230,7 @@ those are not first-party source.*
 - `scripts/add-license-headers.js` — idempotent Apache-2.0 header inserter; reads `docs/source-map.md` for per-file descriptions
 - `scripts/anchor-recall.mjs` — scores claim-search recall against saved anchors on CE's four-rung ladder
 - `scripts/build-claim-genre-df.mjs` — builds the content-word document-frequency JSON for the genericity score
-- `scripts/build-exe.js` — compiles the standalone Windows exe via `bun --compile`, staging grammars into `dist/`
+- `scripts/build-first-run-index.mjs` — rebuilds `samples/FIRST_RUN_INDEX.zip` from the tracked `samples/` tree: hybrid build, base path sanitized to "samples" (#237), deflate zip, verified load
 - `scripts/check-app-loads.mjs` — smoke test that evaluates `app.js`'s module graph under DOM stubs
 - `scripts/claim-ballpark.mjs` — ranks which index best matches each claim via multisect hits; no model calls
 - `scripts/claim-locate-stability.mjs` — measures run-to-run repeatability of `--claim-locate` targets
@@ -279,6 +287,7 @@ those are not first-party source.*
 - `test/test_imports_consumer.js` — catalog consumer: `classifyAgainstCatalogEntry`, ancestor walk, `catalogPkgKey`
 - `test/test_infrastructure.js` — #168 infra detector: Containers/K8s/IaC/CI-CD file shapes, plus FP guards
 - `test/test_linkify_selection.js` — #275 source viewer: which identifiers become clickable, knowledge vs shape mode
+- `test/test_local_chat_tools.js` — the local Chat tool menu: curated default, `CE_LOCAL_CHAT_TOOLS` all / +names / names
 - `test/test_loop_score.js` — loop-score: target keys, answer-key anchors, chart/control scoring, dependent grades
 - `test/test_mcp_tools.js` — MCP `handleTool`: digest, call_tree, command_catalog, models_used, absence disclosure
 - `test/test_mechanism_grouper.js` — #284 candidate emitter: seeds, group splitting, vendored-subtree exclusion
@@ -308,6 +317,7 @@ those are not first-party source.*
 - `test/test_referenced_resources.js` — external surface: URLs, env vars, paths, commands, cloud and model refs
 - `test/test_retrieval_reachability.js` — retrieval acceptance: implementer reach, ratcheted high-water marks
 - `test/test_synonymize.js` — synonymizer: prompt build, marker/punctuation restore, overlap, corpus-arg guards
+- `test/test_third_party_notices.js` — every shipped third-party file (`grammars/*.wasm`, `public/vendor/*`) has a row in `THIRD-PARTY-NOTICES.md` naming the installed version
 - `test/test_vocab_extract.js` — vocabulary-guided terms: `splitCompoundToken`, prompt concordance, claim keywords
 - `test/test_vocabulary.js` — vocabulary corpus: noise-doc exclusion, cross-corpus weights, claim-filter guards
 - `test/test_whousedby.js` — catalog v2 `annotateUsedBy`: named imports credited per library, self-imports excluded

@@ -265,8 +265,8 @@ function initLoadIndex() {
 
       // Convert Windows paths to WSL paths (e.g. C:\foo\bar -> /mnt/c/foo/bar)
       // ONLY when the server is actually running inside WSL. On a native
-      // Windows server (including the standalone .exe) the backend wants the
-      // C:\ form as-is; converting it produces a /mnt/c/... path the Windows
+      // Windows server the backend wants the C:\ form as-is; converting it
+      // produces a /mnt/c/... path the Windows
       // filesystem can't resolve. #43.
       if (/^[A-Za-z]:\\/.test(sourcePath)) {
         let serverIsWSL = false;

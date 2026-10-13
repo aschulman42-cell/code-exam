@@ -22,27 +22,12 @@ import { macroFunctionName } from './function-bounds.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Grammar-WASM lookup. Standard dev/install path: `<repo>/grammars/`,
-// reachable from `src/core/` via `../../grammars`. Standalone-exe path
-// (Bun --compile, see #78): `__dirname` resolves into the embedded virtual
-// filesystem (e.g. `/$bunfs/root/src/core/`), so `../../grammars` won't hit
-// disk. Fall back to a `grammars/` directory sitting next to the exe itself
-// (`process.execPath`), the layout the build script ships.
-function _resolveGrammarsDir() {
-  const candidates = [
-    path.join(__dirname, '..', '..', 'grammars'),
-    path.join(path.dirname(process.execPath), 'grammars'),
-  ];
-  for (const c of candidates) {
-    try {
-      if (fs.existsSync(c) && fs.statSync(c).isDirectory()) return c;
-    } catch { /* try next */ }
-  }
-  // First candidate is the dev-mode default; let the rest of the file emit
-  // its usual "wasm not found" warning rather than crashing here.
-  return candidates[0];
-}
-const GRAMMARS_DIR = _resolveGrammarsDir();
+// Grammar-WASM lookup: `<repo>/grammars/`, reachable from `src/core/` via
+// `../../grammars`. (A second candidate next to `process.execPath` once served
+// the Bun-compiled standalone exe; the exe was retired, see #78.) When the
+// directory is missing, the rest of the file emits its usual "wasm not found"
+// warning rather than crashing here.
+const GRAMMARS_DIR = path.join(__dirname, '..', '..', 'grammars');
 
 // --- binary content sniff (#299 / #88) ---------------------------------------
 // Binary files reaching a language grammar is the 2-hour-build failure mode:

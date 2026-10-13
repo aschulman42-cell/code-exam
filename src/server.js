@@ -76,25 +76,10 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Static-files lookup. Dev/install path: `<repo>/public/`, reachable from
-// `src/` via `../public`. Standalone-exe path (Bun --compile, see #78):
-// `__dirname` resolves into the embedded virtual filesystem
-// (e.g. `/$bunfs/root/src/`), which won't hit disk. Fall back to a
-// `public/` directory sitting next to the exe (`process.execPath`), the
-// layout `scripts/build-exe.js` produces.
-function _resolvePublicDir() {
-  const candidates = [
-    path.join(__dirname, '..', 'public'),
-    path.join(path.dirname(process.execPath), 'public'),
-  ];
-  for (const c of candidates) {
-    try {
-      if (fs.existsSync(c) && fs.statSync(c).isDirectory()) return c;
-    } catch { /* try next */ }
-  }
-  return candidates[0];
-}
-const PUBLIC_DIR = _resolvePublicDir();
+// Static-files lookup: `<repo>/public/`, reachable from `src/` via
+// `../public`. (A second candidate next to `process.execPath` once served the
+// Bun-compiled standalone exe; the exe was retired, see #78.)
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 
 // ========================================================================

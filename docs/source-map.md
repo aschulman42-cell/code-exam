@@ -11,7 +11,8 @@ an em dash, one line); a file missing from this map gets a header with no
 description rather than a guessed one.
 
 Not covered here: vendored code (`public/vendor/`), grammars, sample corpora,
-and data catalogs — those are not first-party source.
+and data catalogs — those are not first-party source. The vendored code and
+grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 
 ## Launchers
 
@@ -144,7 +145,6 @@ and data catalogs — those are not first-party source.
 - `scripts/add-license-headers.js` — idempotent Apache-2.0 header inserter; reads this file for per-file descriptions
 - `scripts/anchor-recall.mjs` — scores claim-search recall against saved anchors on CE's four-rung ladder
 - `scripts/build-claim-genre-df.mjs` — builds the content-word document-frequency JSON for the genericity score
-- `scripts/build-exe.js` — compiles the standalone Windows exe via `bun --compile`, staging grammars into dist/
 - `scripts/build-first-run-index.mjs` — rebuilds samples/FIRST_RUN_INDEX.zip from the tracked samples/ tree: hybrid build, base path sanitized to "samples" (#237), deflate zip, verified load
 - `scripts/check-app-loads.mjs` — smoke test that evaluates app.js's module graph under DOM stubs
 - `scripts/claim-ballpark.mjs` — ranks which index best matches each claim via multisect hits; no model calls
@@ -233,6 +233,7 @@ and data catalogs — those are not first-party source.
 - `test/test_referenced_resources.js` — external surface: URLs, env vars, paths, commands, cloud and model refs
 - `test/test_retrieval_reachability.js` — retrieval acceptance: implementer reach, ratcheted high-water marks
 - `test/test_synonymize.js` — synonymizer: prompt build, marker/punctuation restore, overlap, corpus-arg guards
+- `test/test_third_party_notices.js` — every shipped third-party file (grammars/*.wasm, public/vendor/*) has a row in THIRD-PARTY-NOTICES.md naming the installed version
 - `test/test_vocab_extract.js` — vocabulary-guided terms: splitCompoundToken, prompt concordance, claim keywords
 - `test/test_vocabulary.js` — vocabulary corpus: noise-doc exclusion, cross-corpus weights, claim-filter guards
 - `test/test_whousedby.js` — catalog v2 annotateUsedBy: named imports credited per library, self-imports excluded

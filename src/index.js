@@ -85,19 +85,12 @@ process.stdout.on('error', (err) => {
 });
 
 
-// How the user invoked CE, for help/example lines: the standalone exe basename,
-// else `node src/index.js`. (Run via the `ce` / `CodeExam` launchers, execPath
-// is still `node`, so examples show `node src/index.js` — same as before.)
+// How the user invoked CE, for help/example lines: the `ce` / `CodeExam`
+// launchers export CODEEXAM_INVOKED_AS, so help and welcome text echo the name
+// the user typed; otherwise `node src/index.js`. (The standalone exe's
+// basename was a third case; the exe was retired, see #78.)
 function exeBase() {
-  try {
-    // The ce / CodeExam launchers export this as how the user actually invoked
-    // CodeExam, so help/welcome text reads `ce` rather than `node src/index.js`.
-    if (process.env.CODEEXAM_INVOKED_AS) return process.env.CODEEXAM_INVOKED_AS;
-    const b = process.execPath.split(/[\\/]/).pop() || 'node';
-    const lower = b.toLowerCase().replace(/\.exe$/, '');
-    if (lower === 'node' || lower === 'bun' || lower === 'tsx') return 'node src/index.js';
-    return b;
-  } catch { return 'node src/index.js'; }
+  return process.env.CODEEXAM_INVOKED_AS || 'node src/index.js';
 }
 
 
@@ -167,8 +160,6 @@ const _POST_BUILD_CONTINUE_KEYS =
 // --gui: launch the GUI server + open the user's browser.
 // Detected from raw argv before parseArgs so server.js's own arg parser
 // can re-consume process.argv with only the flags it understands.
-// Designed to work both under `node` (dev) and `bun --compile`'d
-// standalone exe (the no-Node-install path). See #78.
 // ========================================================================
 
 // Parsed here (before the GUI launch path) so `--gui`/`--tour` are recognized
