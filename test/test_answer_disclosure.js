@@ -611,6 +611,34 @@ describe('class I: extraction junk from the CLI cloud run', () => {
   });
 });
 
+// aiml-footnote-tool-names-and-plural-acronyms (asus-CC's acceptance run of
+// 70b4ef5 on #330): "APIs" and `regex_search` were flagged on a correct Gemma
+// overview. The shape filter of the zero-id branch is NOT the fix for the main
+// branch — measured, it loses six of the nine sweep catches — so: tool names
+// from the live tool table, passed in by each loop, and plural acronyms checked
+// against the stop set as their singular.
+describe('tool names and plural acronyms are not model names', () => {
+  const TOOLS_SAMPLE = ['regex_search', 'call_tree', 'list_files', 'models_used', 'digest'];
+  const GEMMA_HOSTED = 'The project integrates with a wide array of AI models, supporting both hosted APIs (Claude, GPT, Gemini, DeepSeek) and local inference (Qwen, Llama, Phi).';
+  const GEMMA_NEXT = 'Run `regex_search` for the model loader terms to see which AI models are wired in.';
+  it('the two Gemma shapes draw nothing with the tool list passed', () => {
+    assert.deepEqual(unsupportedModelNames(GEMMA_HOSTED, GHOST_TABLE, '', null, { toolNames: TOOLS_SAMPLE }), []);
+    assert.deepEqual(unsupportedModelNames(GEMMA_NEXT, GHOST_TABLE, '', null, { toolNames: TOOLS_SAMPLE }), []);
+    assert.equal(aimlVerificationNote([GEMMA_HOSTED, GEMMA_NEXT].join('\n'), GHOST_TABLE, '', null, { toolNames: TOOLS_SAMPLE }), '');
+  });
+  it('the tool-name exclusion is visibly the list\'s doing', () => {
+    assert.deepEqual(unsupportedModelNames(GEMMA_NEXT, GHOST_TABLE), ['regex_search']);
+    assert.deepEqual(unsupportedModelNames(GEMMA_NEXT, GHOST_TABLE, '', null, { toolNames: [] }), ['regex_search']);
+  });
+  it('plural acronyms are checked as their singular; a capitalised plural noun is unchanged', () => {
+    assert.deepEqual(namesInModelSentences('The AI models run on GPUs via SDKs and APIs.'), []);
+    assert.ok(namesInModelSentences('The AI models come from Transformers and FakeNet-9000.').includes('Transformers'));
+  });
+  it('a bare tool name in prose is excluded too, not only a backticked one', () => {
+    assert.deepEqual(namesInModelSentences('Use call_tree on the AI model dispatcher.', { toolNames: TOOLS_SAMPLE }), []);
+  });
+});
+
 describe('overview-verification-basis-unfiltered: the footer names the unfiltered self-call', () => {
   it('the verification extra says unfiltered', () => {
     const line = toolCallFooter(new Map([['overview', 1], ['models_used', 1]]), { selfCalledModelsUsed: true });

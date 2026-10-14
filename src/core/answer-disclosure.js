@@ -245,7 +245,16 @@ const _CAMEL_IDENT = /^[a-z][a-zA-Z]*[A-Z][a-zA-Z]*$/;
 const _CODE_REF = /^[\w./-]+@[\w.$-]+$/;
 const _NUM_WORD = /^\d+-[a-z]+$/;
 
-export function namesInModelSentences(prose) {
+/**
+ * @param {object} [opts]
+ * @param {Iterable<string>} [opts.toolNames] CodeExam's tool names (the live
+ *   MCP tool table, passed in by each overview loop): the prompt asks the model
+ *   to suggest CE commands, so tool names appear in the prose by design and are
+ *   never model ids (`regex_search` on a correct Gemma overview, #330). Passed
+ *   in rather than listed here so the tool table has one registration point.
+ */
+export function namesInModelSentences(prose, { toolNames = [] } = {}) {
+  const tools = new Set(toolNames);
   const out = new Set();
   for (const s of modelSentences(prose)) {
     // Class E: a sentence that DENIES models makes no model claim to verify.
@@ -259,7 +268,7 @@ export function namesInModelSentences(prose) {
     // pass below, so its words are still seen one by one.
     for (const m of s.matchAll(/`([^`\s]{2,60})`|"([^"\s]{2,60})"/g)) {
       const q = (m[1] || m[2]).trim();
-      if (_ENV_VAR.test(q) || _CAMEL_IDENT.test(q) || _ABBREV(q) || _CODE_REF.test(q)) continue;
+      if (tools.has(q) || _ENV_VAR.test(q) || _CAMEL_IDENT.test(q) || _ABBREV(q) || _CODE_REF.test(q)) continue;
       // A backticked plain lowercase word (`dispatch`, `queue`) is an identifier
       // unless it is a model family name (`llama`, `qwen`), which the shape
       // rule knows.
@@ -275,7 +284,11 @@ export function namesInModelSentences(prose) {
       // left as "Phi-4)" when the period came off first — class I).
       const t = raw.replace(/^[^A-Za-z0-9_.\-/]+|[^A-Za-z0-9_\-/]+$/g, '')
         .replace(/['’]s$/, '');   // possessive: "OpenAI's models" names OpenAI
-      if (t.length < 3 || _STOP.has(t) || _ENV_VAR.test(t) || _CAMEL_IDENT.test(t) || _ABBREV(t)) continue;
+      // A plural acronym ("APIs", "GPUs", "SDKs") is its singular for the stop
+      // check; a capitalised plural noun ("Transformers") is not an acronym.
+      const singular = /^[A-Z]{2,}s$/.test(t) ? t.slice(0, -1) : t;
+      if (t.length < 3 || _STOP.has(t) || _STOP.has(singular) || tools.has(t)) continue;
+      if (_ENV_VAR.test(t) || _CAMEL_IDENT.test(t) || _ABBREV(t)) continue;
       if (_CODE_REF.test(t) || _NUM_WORD.test(t)) continue;
       if (!hyphenShapeOk(t)) continue;
       // `[a-z][A-Z]` earns its place: the credential fragment that motivated this
@@ -296,7 +309,7 @@ export function namesInModelSentences(prose) {
  * "Qwen-7B-Chat" row counts as supported — the test is "did the tool mention
  * this", not "is this an exact id".
  */
-export function unsupportedModelNames(prose, modelsUsedOutput, seedText, indexPaths = null) {
+export function unsupportedModelNames(prose, modelsUsedOutput, seedText, indexPaths = null, opts = {}) {
   const hay = String(modelsUsedOutput || '').toLowerCase();
   if (!hay) return [];
   // A FILE CE ITSELF INDEXED is supported evidence, and the most authoritative
@@ -335,7 +348,7 @@ export function unsupportedModelNames(prose, modelsUsedOutput, seedText, indexPa
     return hay.includes(needle) || (seedHay && seedHay.includes(needle)) || indexedFile(needle)
       || (fam && fam.test(hay));
   };
-  return namesInModelSentences(prose).filter((n) => {
+  return namesInModelSentences(prose, opts).filter((n) => {
     const needle = n.toLowerCase();
     if (supported(needle)) return false;
     // Class I: a slash-joined pair in prose ("GPT-4o/GPT-5") is two names; it
@@ -408,10 +421,10 @@ const _MODEL_SHAPED = /\d|\.(?:gguf|ckpt|safetensors|onnx|h5|pt|pth|bin)$|^(?:gp
  * are compared, the reproduction is the tool's first sentence, and an affirming
  * AI/ML sentence with nothing shaped to check gets one line saying so.
  */
-export function aimlVerificationNote(prose, modelsUsedOutput, seedText, indexPaths = null) {
+export function aimlVerificationNote(prose, modelsUsedOutput, seedText, indexPaths = null, opts = {}) {
   const out = String(modelsUsedOutput || '').trim();
   if (!out) return '';
-  const unsupported = unsupportedModelNames(prose, out, seedText, indexPaths);
+  const unsupported = unsupportedModelNames(prose, out, seedText, indexPaths, opts);
   if (modelsUsedCount(out) === 0) {
     const shaped = unsupported.filter((n) => _MODEL_SHAPED.test(n));
     if (!shaped.length) {

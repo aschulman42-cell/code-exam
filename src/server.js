@@ -2652,7 +2652,9 @@ async function runAiOverviewLocalShared({ index, grounding }) {
       selfCalledModelsUsed = true;
     } catch { /* verification is best-effort */ }
     // index.files.keys(): a path CE itself indexed is not an invented model id.
-    const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult, index.files.keys());
+    // index.files.keys(): a path CE itself indexed is not an invented model id;
+    // TOOLS: a CE tool name the prose suggests is not one either.
+    const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult, index.files.keys(), { toolNames: TOOLS.map(t => t.name) });
     if (aimlNote) prose += aimlNote;
     const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed, modelCallArgs: modelsUsedArgs });
     if (converseNote) prose += converseNote;

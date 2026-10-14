@@ -1006,10 +1006,12 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     const verifyBasis = [overviewSeedResult, ...gathered].join('\n');
     if (prose) {
       // index.files.keys(): a path CE itself indexed is not an invented model id.
-      const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, verifyBasis, index.files.keys());
+      // TOOLS: a CE tool name the prose suggests is not an invented model id.
+      const nameOpts = { toolNames: TOOLS.map(t => t.name) };
+      const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, verifyBasis, index.files.keys(), nameOpts);
       if (aimlNote) {
         prose += aimlNote;
-        status(`AI/ML sentence names ${unsupportedModelNames(prose, verifyModelsUsed, verifyBasis, index.files.keys()).length} term(s) absent from models_used — footnoted`);
+        status(`AI/ML sentence names ${unsupportedModelNames(prose, verifyModelsUsed, verifyBasis, index.files.keys(), nameOpts).length} term(s) absent from models_used — footnoted`);
       }
       const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed, modelCallArgs: modelsUsedArgs });
       if (converseNote) {

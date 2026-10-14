@@ -318,11 +318,18 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
     // candidate looks like a path, so the common case pays nothing. A
     // verification lookup, not a model tool call: not counted in the footer.
     let indexPaths = null;
-    if (unsupportedModelNames(prose, verifyModelsUsed, overviewSeedResult).some(looksLikePathRef)) {
+    // The live tool table, so a CE tool name the prose suggests is not an
+    // invented model id. Importing TOOLS from mcp-server.js here closes an
+    // import cycle (the local loop imports both modules), so this loop asks its
+    // own MCP server over the protocol; the allow-list is the fallback.
+    let toolNames = AI_OVERVIEW_TOOL_NAMES;
+    try { toolNames = ((await mcpClient.listTools()).tools || []).map(t => t.name); } catch { /* fallback above */ }
+    const nameOpts = { toolNames };
+    if (unsupportedModelNames(prose, verifyModelsUsed, overviewSeedResult, null, nameOpts).some(looksLikePathRef)) {
       const { text, isError } = await runTool('list_files', { max: 1000000000 }, { countIt: false });
       if (!isError) indexPaths = indexPathsFromListFiles(text);
     }
-    const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult, indexPaths);
+    const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult, indexPaths, nameOpts);
     if (aimlNote) prose += aimlNote;
     const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed, modelCallArgs: modelsUsedArgs });
     if (converseNote) prose += converseNote;
