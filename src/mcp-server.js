@@ -385,7 +385,7 @@ const TOOLS = [
   },
   {
     name: 'models_used',
-    description: 'AI/ML models the codebase actually loads or calls, deduped and tagged api=hosted / local=loaded. Distinct from models DEFINED (class inheritance). Answers "what models does this use". Heuristic, recall-favoring.',
+    description: 'AI/ML models the codebase actually loads or calls, deduped and tagged api=hosted / local=loaded, plus ids declared in code as defaults or fallbacks (cell "declared": declared, not necessarily called). Distinct from models DEFINED (class inheritance). Answers "what models does this use". Heuristic, recall-favoring.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1362,10 +1362,14 @@ function handleToolRaw(name, args) {
       const api = models.filter(m => m.access === 'api').length;
       const local = models.filter(m => m.access === 'local').length;
       const mixed = models.filter(m => m.access === 'mixed').length;
+      // #345: declared-only rows (a literal in code, no call site) are counted
+      // apart, so the model reading this does not report N calls.
+      const declaredOnly = models.filter(m => (m.cells || []).length === 1 && m.cells[0] === 'declared').length;
       const max = args.max || 50;
       const shown = models.slice(0, max);
       const lines = [`${models.length} models used — ${api} api, ${local} local`
         + (mixed ? `, ${mixed} mixed` : '')
+        + (declaredOnly ? `; ${declaredOnly} declared only (a literal in code, no call site)` : '')
         + (models.unresolved ? ` (+${models.unresolved} unresolved)` : '')
         + (models.length > max ? `; showing ${max}` : '') + ':'];
       for (const m of shown) {

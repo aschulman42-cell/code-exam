@@ -288,12 +288,14 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `test/test_infrastructure.js` — #168 infra detector: Containers/K8s/IaC/CI-CD file shapes, plus FP guards
 - `test/test_linkify_selection.js` — #275 source viewer: which identifiers become clickable, knowledge vs shape mode
 - `test/test_local_chat_tools.js` — the local Chat tool menu: curated default, `CE_LOCAL_CHAT_TOOLS` all / +names / names
+- `test/test_llm_calls_local.js` — `listLlmCalls` tier C: Ollama endpoints (port unconditional, `/api/*` paths gated on a file-level Ollama marker) (#345)
 - `test/test_loop_score.js` — loop-score: target keys, answer-key anchors, chart/control scoring, dependent grades
 - `test/test_mcp_tools.js` — MCP `handleTool`: digest, call_tree, command_catalog, models_used, absence disclosure
 - `test/test_mechanism_grouper.js` — #284 candidate emitter: seeds, group splitting, vendored-subtree exclusion
 - `test/test_mechanism_ranker.js` — #284 ranker: tolerant verdict parsing, priors, chunked batches with a P3 playoff
 - `test/test_metrics.js` — vocab-density key files: score x concentration ranking, doc-id folding, term counts
 - `test/test_minified.js` — `isMinified` gate: `.min.*` shortcut, eligible extensions, the maxLine clause for bundles
+- `test/test_models_used_defaults.js` — `listModelsUsed`: declared model ids (config defaults, fallbacks, bare literals) and unresolved call arguments (#345)
 - `test/test_models_used_fp.js` — `listModelsUsed`: four false-positive shapes suppressed, real model ids kept
 - `test/test_multisect_scoring.js` — comment-vs-code match classification, IDF weighting, match-density scoring
 - `test/test_overview.js` — #181 `buildOverview`/`formatOverview`: collection detect, language histogram, key files

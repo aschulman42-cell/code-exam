@@ -523,7 +523,9 @@ export function doListEmbeddings(index, args) {
 // examiner reading this is at least as consequential as a model reading it.
 export function modelsUsedNegative(unresolved = 0) {
   const scope = 'Models USED = ids the code loads or calls as LITERALS (LLM calls, artifacts, '
-    + 'embeddings, inference); distinct from models DEFINED via class inheritance (--models).';
+    + 'embeddings, inference), or declares as a literal default (a config object, a || fallback, '
+    + 'a candidate list — the "declared" cell, which may never be called); distinct from models '
+    + 'DEFINED via class inheritance (--models).';
   const recover = 'To see what is actually loaded, search/regex_search the loader terms '
     + '(e.g. "gguf", "from_pretrained", "model_id").';
   if (unresolved > 0) {
@@ -545,11 +547,15 @@ export function doListModelsUsed(index, args) {
   const api = models.filter(m => m.access === 'api').length;
   const local = models.filter(m => m.access === 'local').length;
   const mixed = models.filter(m => m.access === 'mixed').length;
+  // #345: say how many rows are declared in code with no call site behind them,
+  // so "N models used" is not read as N calls.
+  const declaredOnly = models.filter(m => m.cells.length === 1 && m.cells[0] === 'declared').length;
 
   const max = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : 0;
   const shown = max > 0 ? models.slice(0, max) : models;
 
   console.log(`\n${models.length} models used — ${api} api, ${local} local${mixed ? `, ${mixed} mixed` : ''}`
+    + `${declaredOnly ? `; ${declaredOnly} declared only (no call site)` : ''}`
     + `${models.unresolved ? ` (+${models.unresolved} unresolved refs)` : ''}`
     + `${max > 0 && models.length > max ? `; showing ${shown.length}` : ''}:\n`);
 
@@ -567,6 +573,8 @@ export function doListModelsUsed(index, args) {
     console.log(`${m.access.padEnd(6)}  ${(basenameIfPath(m.model) || '').slice(0, 52).padEnd(52)}  ${m.cells.join(',').slice(0, 26).padEnd(26)}  ${m.count}`);
   }
   console.log(`\n  (Models USED — named models the code loads/calls, deduped & tagged api=hosted / local=loaded.`
+    + ` Cell "declared" = a model-shaped literal in code (a config default, a || fallback, a candidate list):`
+    + ` declared, not necessarily called; its api/local tag is inferred from the id's shape.`
     + ` Distinct from models DEFINED (--models, class inheritance).`
     + ` Non-model artifacts (optimizer/vocab/config, device strings) are filtered out.`
     + (models.unresolved ? ` ${models.unresolved} refs were unresolved <var> and excluded.` : '') + `)`);
@@ -763,7 +771,7 @@ export function doListLlmCalls(index, args) {
   const calls = dropTests(index.listLlmCalls(args.filter), args);
   if (!calls.length) {
     console.log('No LLM API calls found (no messages.create / chat.completions.create / '
-      + 'ChatOpenAI / LlamaChatSession / .invoke, or api.anthropic.com·/v1/messages endpoints). '
+      + 'ChatOpenAI / LlamaChatSession / .invoke, or api.anthropic.com·/v1/messages·Ollama localhost:11434 endpoints). '
       + 'A pure harness that spawns an agent CLI (e.g. Bram) correctly shows none.');
     return;
   }

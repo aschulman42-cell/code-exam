@@ -1478,7 +1478,8 @@ AI/ML DETECTORS (list AI/ML constructs; each has a --list-<name> alias):
                              systemPrompt: properties, role:"system" messages, and
                              build*Prompt functions. Full text, no truncation — pipe
                              to a file and grep for keywords. (alias: --prompts)
-  --llm-calls                LLM API calls (messages.create, ChatOpenAI, LlamaChatSession)
+  --llm-calls                LLM API calls (messages.create, ChatOpenAI, LlamaChatSession,
+                             hosted and Ollama endpoints)
   --reasoning                Reasoning-prompt language (CoT "think step by step", reflection/reflexion,
                              scratchpad) — HEURISTIC (prompt prose, not constructs); misses Tree-of-Thoughts
   --tools                    Tool defs / function-calling (@tool, input_schema, MCP, tool_use)
@@ -1491,7 +1492,8 @@ AI/ML DETECTORS (list AI/ML constructs; each has a --list-<name> alias):
   --datasets                 Datasets (Dataset/IterableDataset, tf.data, ML loaders)
   --artifacts                Model load/save sites (from_pretrained, GGUF, safetensors)
   --models                   ML model classes (nn.Module / keras / sklearn subclasses)
-  --models-used              Models USED — named models loaded/called across the cells, deduped (api/local)
+  --models-used              Models USED — named models loaded/called across the cells, plus
+                             ids declared as defaults/fallbacks, deduped (api/local)
   --kernels                  GPU kernels (CUDA __global__, Triton @triton.jit, numba)
   --multimodal               Multimodal/vision (CLIP/ViT/ResNet/YOLO/diffusion/VLM) [alias: --vision]
 

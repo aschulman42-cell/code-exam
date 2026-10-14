@@ -1094,7 +1094,7 @@ export function renderLlmCallsList(container, calls, total) {
   if (!calls || !calls.length) {
     container.innerHTML = '<div class="list-placeholder">No LLM API calls found '
       + '(no messages.create / chat.completions.create / ChatOpenAI / LlamaChatSession '
-      + '/ .invoke, or api.anthropic.com·/v1/messages endpoints). A pure harness that '
+      + '/ .invoke, or api.anthropic.com·/v1/messages·Ollama localhost:11434 endpoints). A pure harness that '
       + 'spawns an agent CLI correctly shows none.</div>';
     return;
   }
@@ -1276,7 +1276,8 @@ export function renderModelsUsedList(container, models, total, unresolved, onMod
   if (hiddenTests) models = models.filter(m => !m.isTest);
   if (!models || !models.length) {
     container.innerHTML = '<div class="list-placeholder">No models used found '
-      + '(no resolved model id from LLM calls / artifacts / embeddings / inference). '
+      + '(no resolved model id from LLM calls / artifacts / embeddings / inference, and no '
+      + 'model-shaped literal declared in code). '
       + 'Models USED (loaded/called) is distinct from models DEFINED (Models accordion).'
       + (unresolved ? ` ${unresolved} refs were unresolved &lt;var&gt;.` : '') + '</div>';
     return;
@@ -1286,7 +1287,7 @@ export function renderModelsUsedList(container, models, total, unresolved, onMod
     const site0 = (m.sites && m.sites[0]) || {};
     const item = h('div', {
       className: 'list-item' + (m.isTest ? ' is-test' : ''),
-      title: `${m.model}\naccess: ${m.access}\ncells: ${(m.cells || []).join(', ')}\n${m.count} site${m.count > 1 ? 's' : ''}${site0.filepath ? `\nfirst: ${(site0.filepath || '').replace(/\\/g, '/')}:${site0.line}` : ''}${m.isTest ? '\n[test/example code — all sites]' : ''}`,
+      title: `${m.model}\naccess: ${m.access}\ncells: ${(m.cells || []).join(', ')}\n${m.count} site${m.count > 1 ? 's' : ''}${site0.filepath ? `\nfirst: ${(site0.filepath || '').replace(/\\/g, '/')}:${site0.line}` : ''}${(m.cells || []).includes('declared') ? '\ndeclared = a model-shaped literal in code (config default / fallback / candidate list); declared, not necessarily called' : ''}${m.isTest ? '\n[test/example code — all sites]' : ''}`,
     }, [
       h('span', { className: 'metric', text: m.access, style: `min-width:54px;color:${accColor};font-size:10px` }),
       h('span', { className: 'name clickable', text: basenameIfPath(m.model) || '', style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),

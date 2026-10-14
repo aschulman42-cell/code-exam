@@ -54,7 +54,7 @@ GUI use, and document it here if so.]]
 | `claim_candidates` | For each element, the real functions and classes most likely to implement it, ranked from code words the *model* predicts (`words` as `2: init, crypto, context` lines): name match weighted by rarity, plus a search of function bodies; opposite-direction names and vocabulary sponges flagged; tests and binary pseudo-source held back unless asked for. Deterministic — the same retrieval `--claim-locate` runs after its vocabulary step, with no model inside the tool. |
 | **Catalogs & detection** | |
 | `command_catalog` | The target's own user-facing commands (CLI flags, slash-commands, routes, GUI actions), each linked to its handler. Heuristic. |
-| `models_used` | AI/ML models the code loads or calls, tagged api / local. Heuristic, recall-favoring. |
+| `models_used` | AI/ML models the code loads or calls, tagged api / local, plus ids declared in code as defaults or fallbacks (`declared` cell: not necessarily called). Heuristic, recall-favoring. |
 | `client_server` | The HTTP surface — server routes, client calls, and client calls with no matching route. Heuristic. |
 | `referenced_resources` | The external surface — URLs/hosts, env vars, paths, external commands, cloud config, model IDs — ranked with `file:line` sites. |
 | **Structural** | |

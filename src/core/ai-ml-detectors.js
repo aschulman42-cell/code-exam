@@ -1384,6 +1384,11 @@ class _AIMLMethods {
       const idm = km[1].match(/^([A-Za-z_$][\w.$]*)/);
       if (idm) return resolveIdent(idm[1]);
     }
+    // #345: JS object shorthand `({ model })` — the variable is named by the key.
+    if (/\bmodel\b/.test(idArg)) {
+      const sh = seg.match(/[{,]\s*(model)\s*[,}]/);
+      if (sh) return resolveIdent(sh[1]);
+    }
     return { id: null, resolved: true };
   }
 
@@ -1426,9 +1431,21 @@ class _AIMLMethods {
     ];
     const reInvoke = /\.(a?invoke)\s*\(/;
     const reChatComplete = /\.(chat|complete)\s*\(/;
-    const reEndpoint = /(api\.anthropic\.com|\/v1\/messages|api\.openai\.com|\/v1\/chat\/completions|generativelanguage\.googleapis\.com|api\.cohere\.ai|api\.mistral\.ai|api\.together\.xyz|api\.groq\.com)/;
+    const reEndpoint = /(api\.anthropic\.com|\/v1\/messages|api\.openai\.com|\/v1\/chat\/completions|generativelanguage\.googleapis\.com|api\.cohere\.ai|api\.mistral\.ai|api\.together\.xyz|api\.groq\.com|(?:localhost|127\.0\.0\.1):11434)/;
+    // #345 part B: Ollama. Its port is unconditional (nothing else listens on
+    // 11434). Its completion paths are generic route names — CodeExam's own GUI
+    // serves routes['/api/chat'] — so they count only in a file that also names
+    // Ollama or its port: the same file-level gate shape as tier B's import
+    // gates. /api/tags (model listing) and /api/embeddings are not completion
+    // requests and are left out, as /v1/embeddings is for OpenAI; on the Ghost
+    // Architect index /api/tags alone was 8 health-check sites. LM Studio
+    // (:1234) and llama.cpp's server (:8080) are deferred: common dev ports, and
+    // their /v1/chat/completions already lists as OpenAI.
+    const reOllamaPath = /(\/api\/(?:chat|generate))\b/;
+    const reOllamaMarker = /\bollama\b|11434/i;
     const endpointProv = (u) =>
-      /anthropic/.test(u) || /v1\/messages/.test(u) ? 'Anthropic'
+      /11434|\/api\/(?:chat|generate)/.test(u) ? 'Ollama'
+      : /anthropic/.test(u) || /v1\/messages/.test(u) ? 'Anthropic'
       : /openai|chat\/completions/.test(u) ? 'OpenAI'
       : /googleapis/.test(u) ? 'Google' : /cohere/.test(u) ? 'Cohere'
       : /mistral/.test(u) ? 'Mistral' : 'other';
@@ -1444,6 +1461,8 @@ class _AIMLMethods {
     // the call's parens stay open (cap 8 lines), so it can't bleed into the next
     // statement.
     const reModelKw = /\bmodel(?:_name|_id|_path)?\s*[:=]\s*(?:(["'`])([^"'`]+)\1|([A-Za-z_$][\w.$]*))/;
+    // #345: JS object shorthand `{ model }` / `{ …, model }` — a variable with no `:`.
+    const reModelShorthand = /[{,]\s*model\s*[,}]/;
     const reFirstStr = /\(\s*(["'`])([^"'`]+)\1/;
     const extractModel = (lines, startIdx, marker) => {
       let depth = 0, started = false, buf = lines[startIdx] || '';
@@ -1462,8 +1481,20 @@ class _AIMLMethods {
         if (kw[3] != null) {
           const lit = this._resolveLiteral(lines, kw[3], startIdx);
           if (lit != null) return { model: lit.slice(0, 80), modelResolved: true };
-          return { model: '<' + kw[3] + '>', modelResolved: false };
+          // #345: a call expression (`model: getModel()`) is shown as one, so the
+          // reader sees a computed id rather than a bare variable name.
+          const isCall = new RegExp('\\b' + kw[3].replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\(').test(buf);
+          return { model: '<' + kw[3] + (isCall ? '()' : '') + '>', modelResolved: false };
         }
+      }
+      // #345: the shorthand carries the variable `model`; resolve it like any
+      // identifier, else disclose it as unresolved. It used to yield {model:null},
+      // which listModelsUsed could neither list nor count (#106: disclosed, never
+      // silently dropped).
+      if (reModelShorthand.test(buf)) {
+        const lit = this._resolveLiteral(lines, 'model', startIdx);
+        if (lit != null) return { model: lit.slice(0, 80), modelResolved: true };
+        return { model: '<model>', modelResolved: false };
       }
       if (marker === 'Llama()' || marker === 'GenerativeModel()') {
         const p = reFirstStr.exec(buf);
@@ -1482,6 +1513,7 @@ class _AIMLMethods {
       // can't collide with an unrelated `Llama` class. (Direct calls `llm(...)`
       // are a generic verb → recall gap, tracked in #98.)
       const hasLlamaCpp = lines.some(l => /\b(?:from|import)\s+llama_cpp\b/.test(l));
+      const hasOllama = lines.some(l => reOllamaMarker.test(l));
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -1501,8 +1533,9 @@ class _AIMLMethods {
         // Tier B — gated generic verbs.
         if (hasLangchain) { const im = reInvoke.exec(line); if (im) { push('call', 'LangChain', 'B', '.' + im[1], 'heuristic'); continue; } }
         if (hasSDK) { const cm = reChatComplete.exec(line); if (cm) { push('call', 'SDK', 'B', '.' + cm[1], 'heuristic'); continue; } }
-        // Tier C — endpoint URLs in string literals.
-        const em = reEndpoint.exec(line);
+        // Tier C — endpoint URLs in string literals (Ollama paths only in a file
+        // that carries an Ollama marker, see reOllamaPath).
+        const em = reEndpoint.exec(line) || (hasOllama ? reOllamaPath.exec(line) : null);
         if (em) { push('endpoint', endpointProv(em[1]), 'C', em[1], 'heuristic'); continue; }
       }
     }
@@ -1856,16 +1889,103 @@ class _AIMLMethods {
   }
 
   /**
+   * _listDeclaredModelLiterals() — #345 part A: model-shaped string literals in
+   * code, independent of any call site. Feeds the `declared` cell of
+   * listModelsUsed. Reported by Ernst Wisner (Ghost Architect): a config object
+   * set `model: 'qwen3-coder:30b'` and a getter fell back to `'claude-sonnet-4-6'`,
+   * and `models_used` saw neither; CodeExam's own src/ had ten such literals.
+   *
+   * Gate = the literal's SHAPE, not the slot it is assigned to (slot names vary —
+   * `M`, `engine`, an array — and the ids are distinctive): a known family prefix
+   * followed by a version (`claude-sonnet-4-6`, `gpt-4o-mini`, `gemma3`,
+   * `qwen3-coder:30b`), one of the digitless hosted ids (`gemini-pro`,
+   * `mistral-large-latest`, `command-r-plus`), or a weights file (`.gguf` /
+   * `.safetensors` / `.onnx` / `.ckpt`; `.pt` / `.pth` / `.bin` only with a model
+   * word in the name). Whitespace, a template hole, a glob or an operator char
+   * means prose or code, not an id. Package names (`node-llama-cpp`,
+   * `llama_index`) and the bare family word (`gpt`) fail the version rule.
+   * Comment lines and docstring openers are skipped, `.md`/`.rst` skipped, as in
+   * the other cells.
+   *
+   * The assignment context on the line is a MARKER on the site, not a
+   * precondition: `assigned:defaultModel`, `fallback:model`, `literal`.
+   *
+   * Access is inferred from the shape, and the CLI caption says so: an Ollama
+   * `name:tag` or a weights file is local; claude / gpt / o-series / gemini /
+   * mistral / mixtral / deepseek / command-r / text-embedding ids are api; the
+   * open-weight families (llama / qwen / gemma / phi) without a tag are local.
+   * A hosted llama (Groq, Together) is the known miss.
+   */
+  _listDeclaredModelLiterals() {
+    const reDocFile = /\.(?:md|markdown|mdx|rst)$/i;
+    const reComment = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*')
+      || t.startsWith('"""') || t.startsWith("'''");
+    const reLiteral = /(["'`])((?:\\.|(?!\1)[^\\\r\n])*)\1/g;
+    const reFamily = /^(?:claude|gpt|gemini|gemma|qwen|llama|mistral|mixtral|deepseek|phi|command-r|text-embedding|o[134])(?=[-_.:\d]|$)/i;
+    const reDigitless = /^(?:gemini-(?:pro|ultra|flash)(?:-[a-z]+)?|mistral-(?:large|medium|small|tiny)(?:-latest)?|command-r(?:-plus)?|claude-instant(?:-[a-z]+)?)$/i;
+    const reApiFamily = /^(?:claude|gpt|o[134]|gemini|mistral|mixtral|deepseek|command-r|text-embedding)(?=[-_.:\d]|$)/i;
+    const reWeights = /\.(?:gguf|safetensors|onnx|ckpt)$/i;
+    const reWeightsWeak = /\.(?:pt|pth|bin)$/i;
+    const reModelWord = /(?:model|weights?|adapter|checkpoint|ckpt|ggml|gguf|lora|pytorch|safetensors?)/i;
+    const reSlot = /([A-Za-z_$][\w.$]*)["']?\s*[:=]\s*$/;      // `model:`, `"model":`, `model =`
+    const reFallback = /([A-Za-z_$][\w.$]*)\s*(?:\|\||\?\?)\s*$/;
+    const shapeOf = (s) => {
+      if (!s || s.length > 80 || /[\s*${}()<>|;,=]/.test(s)) return null;
+      if (/[-_.:]$/.test(s)) return null;                     // a prefix used for matching (`claude-opus-4-7-`), not an id
+      const base = s.split(/[\\/]/).pop();
+      if (reWeights.test(s) || (reWeightsWeak.test(s) && reModelWord.test(base))) return 'local';
+      if (/[\\/]/.test(s)) return null;                       // a path that is not a weights file
+      if (!reFamily.test(s)) return null;
+      if (!(/\d/.test(s) || reDigitless.test(s))) return null;
+      if (s.includes(':')) return 'local';                    // Ollama name:tag
+      return reApiFamily.test(s) ? 'api' : 'local';
+    };
+    const out = [];
+    for (const [filepath, lines] of this._scanLines()) {
+      if (reDocFile.test(filepath)) continue;
+      // In a JSON data file a quoted KEY is a name, not a declared value: a
+      // token-statistics catalog keyed by words like `gpt2` / `llama3` is not a
+      // list of models (CodeExam's own src/CE_cross_corpus_vocab_catalog.json).
+      // A JSON VALUE (`"model": "claude-sonnet-4-6"`) is the config default the
+      // cell exists for.
+      const isJson = /\.jsonl?$/i.test(filepath);
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const trimmed = line.trimStart();
+        if (reComment(trimmed)) continue;
+        reLiteral.lastIndex = 0;
+        let m;
+        while ((m = reLiteral.exec(line)) !== null) {
+          const access = shapeOf(m[2]);
+          if (!access) continue;
+          if (isJson && /^\s*:/.test(line.slice(m.index + m[0].length))) continue;
+          const before = line.slice(0, m.index);
+          let marker = 'literal', s;
+          if ((s = reSlot.exec(before))) marker = 'assigned:' + s[1].split('.').pop();
+          else if ((s = reFallback.exec(before))) marker = 'fallback:' + s[1].split('.').pop();
+          out.push({ id: m[2], access, marker, filepath, line: i + 1 });
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
    * listModelsUsed(filter) — #110 step 3 capstone. A PROJECTION (not a marker
    * scan): harvests the model ids the per-cell detectors already extracted (step
    * 2), dedupes by id, and tags each api (hosted) vs local (loaded). Distinct from
    * listModels (#84, models DEFINED via class inheritance) — this is models USED.
    *
-   *   - LLM-calls   `model`  → api, or local when provider==='local' (a GGUF path).
+   *   - LLM-calls   `model`  → api, or local when provider==='local' / 'Ollama'.
    *   - Artifacts   `path`   → local (loaded weights: from_pretrained/GGUF).
    *   - Embeddings  `id`     → api for OpenAI/Cohere, local for ST/HF (kind
    *                           'embedding' only — vector-store names aren't models).
    *   - Inference   `id`     → local (pipeline model).
+   *   - Declared    `id`     → #345: a model-shaped literal no call site consumed
+   *                           (config default, `|| 'id'` fallback, candidate list);
+   *                           access inferred from the id's shape. Declared, not
+   *                           necessarily called — the caption says so.
    *
    * Only RESOLVED ids enter the deduped list; unresolved `<var>` sites are counted
    * and exposed as `result.unresolved` (#106 — disclosed, never silently dropped).
@@ -1926,12 +2046,16 @@ class _AIMLMethods {
       return true;
     };
     const add = (id, resolved, access, cell, marker, filepath, line) => {
-      if (!looksLikeModel(id)) return;
-      raw.push({ id, unresolved: isUnresolved(id, resolved), access, cell, marker, filepath, line });
+      const unres = isUnresolved(id, resolved);
+      // #345: an unresolved `<var>` / `<call()>` is a disclosure, not a model id —
+      // it is counted, never listed, so the model-shape gate does not apply to it
+      // (`<getModel()>` carries parens that would otherwise reject it).
+      if (unres ? !id : !looksLikeModel(id)) return;
+      raw.push({ id, unresolved: unres, access, cell, marker, filepath, line });
     };
 
     for (const t of this.listLlmCalls())
-      add(t.model, t.modelResolved, t.provider === 'local' ? 'local' : 'api', 'llm-call', t.marker, t.filepath, t.line);
+      add(t.model, t.modelResolved, (t.provider === 'local' || t.provider === 'Ollama') ? 'local' : 'api', 'llm-call', t.marker, t.filepath, t.line);
     for (const a of this.listArtifacts())
       add(a.path, a.pathResolved, 'local', 'artifact', a.marker, a.filepath, a.line);
     for (const e of this.listEmbeddings())
@@ -1939,6 +2063,23 @@ class _AIMLMethods {
         add(e.id, e.resolved, (e.framework === 'OpenAI' || e.framework === 'Cohere') ? 'api' : 'local', 'embedding', e.marker, e.filepath, e.line);
     for (const inf of this.listInference())
       add(inf.id, inf.resolved, 'local', 'inference', inf.marker, inf.filepath, inf.line);
+
+    // #345 part A — the `declared` cell: model-shaped literals anywhere in code
+    // (config defaults, `|| 'id'` fallbacks, candidate lists). Declared is not
+    // called; the caption says so. A literal that a call cell already resolved
+    // to the same model on the same line is that call's id, not a second site.
+    const resolvedAt = new Map();
+    for (const r of raw) {
+      if (r.unresolved) continue;
+      const k = r.filepath + ':' + r.line;
+      if (!resolvedAt.has(k)) resolvedAt.set(k, new Set());
+      resolvedAt.get(k).add(modelKey(r.id));
+    }
+    for (const d of this._listDeclaredModelLiterals()) {
+      const seen = resolvedAt.get(d.filepath + ':' + d.line);
+      if (seen && seen.has(modelKey(d.id))) continue;
+      add(d.id, true, d.access, 'declared', d.marker, d.filepath, d.line);
+    }
 
     const unresolved = raw.filter(r => r.unresolved).length;
 

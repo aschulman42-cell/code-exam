@@ -52,7 +52,10 @@ traced dataflow; confidence is scoped file > folder > module.)
 **Models Used vs. Models Defined** — two different questions. *Models Used*
 (`--models-used`) is the named models the code actually loads or calls, deduped and tagged
 **api** (a hosted id like `gpt-4o`) vs. **local** (a `.gguf` path or a Hugging Face repo
-id). *Models Defined* (`--models`) is model *classes* by inheritance — on the scikit-learn
+id). A model-shaped literal that no call site consumes — a config-object default, a
+`|| 'id'` fallback, a list of candidates — is reported in a `declared` cell: declared in the
+code, not necessarily called, with its api/local tag inferred from the id's shape (#345).
+*Models Defined* (`--models`) is model *classes* by inheritance — on the scikit-learn
 tree, **474 model classes** (`Pipeline` and `ColumnTransformer` extending `BaseEstimator` /
 `TransformerMixin`, the gradient-boosting and mixture bases, and so on). One tells you what
 the code *uses*; the other, what it *is*.
@@ -73,7 +76,7 @@ Pipelines view above is synthesized from their co-occurrence.
 
 | Detector | Flag | What it finds |
 |---|---|---|
-| LLM Calls | `--llm-calls` | SDK calls / endpoints (`messages.create`, `ChatOpenAI`, `LlamaChatSession`) |
+| LLM Calls | `--llm-calls` | SDK calls / endpoints (`messages.create`, `ChatOpenAI`, `LlamaChatSession`; hosted hosts, Ollama's `localhost:11434` and its `/api/chat` family in a file that names Ollama) |
 | Tools | `--tools` | tool / function-calling defs and dispatch (`@tool`, `input_schema`, MCP) |
 | Chains / Agents | `--chains` (`--agents`) | orchestration (LangChain / LangGraph / DSPy / CrewAI) |
 | Embeddings / Vectors | `--embeddings` (`--vectors`) | embedding + vector-search sites (FAISS / Chroma, similarity search) |
