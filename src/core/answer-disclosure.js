@@ -214,9 +214,30 @@ export function namesInModelSentences(prose) {
  * "Qwen-7B-Chat" row counts as supported — the test is "did the tool mention
  * this", not "is this an exact id".
  */
-export function unsupportedModelNames(prose, modelsUsedOutput, seedText) {
+export function unsupportedModelNames(prose, modelsUsedOutput, seedText, indexPaths = null) {
   const hay = String(modelsUsedOutput || '').toLowerCase();
   if (!hay) return [];
+  // A FILE CE ITSELF INDEXED is supported evidence, and the most authoritative
+  // kind: CE read it. Without this, a markdown-formatted path in a sentence
+  // containing the word "model" gets footnoted as an invented model id —
+  // measured on .GhostArch, where the prose cited `src/model-provider.js`
+  // (a file CE had just digested) and CE footnoted its own overview.
+  //
+  // The quoted/backticked branch of namesInModelSentences() is what lets this
+  // through: it adds the span verbatim, bypassing the hyphenShapeOk() filter
+  // that correctly rejects the same path unquoted. So the trigger is the
+  // model writing ordinary markdown, which it always does.
+  //
+  // Deliberately narrow: only candidates that LOOK like a file reference get
+  // the carve-out, matched by whole path or path suffix. A bare word must not
+  // become "supported" because some file happens to contain it as a substring.
+  const paths = indexPaths ? [...indexPaths].map((p) => String(p).toLowerCase().replace(/\\/g, '/')) : null;
+  const indexedFile = (needle) => {
+    if (!paths || !paths.length) return false;
+    if (!(/[\\/]/.test(needle) || /\.[a-z0-9]{1,5}$/.test(needle))) return false;
+    const n = needle.replace(/\\/g, '/');
+    return paths.some((p) => p === n || p.endsWith('/' + n));
+  };
   // #320 1c seed-aware: a name the deterministic overview seed contains is
   // supported evidence too. Gemma K_M's CORRECT sr_gh sentence cited
   // `Qwen_Qwen1_5_0_5B_Chat_e5_lr0` — a filename from the seed's vocabulary
@@ -224,7 +245,7 @@ export function unsupportedModelNames(prose, modelsUsedOutput, seedText) {
   const seedHay = String(seedText || '').toLowerCase();
   return namesInModelSentences(prose).filter((n) => {
     const needle = n.toLowerCase();
-    return !hay.includes(needle) && !(seedHay && seedHay.includes(needle));
+    return !hay.includes(needle) && !(seedHay && seedHay.includes(needle)) && !indexedFile(needle);
   });
 }
 
@@ -232,9 +253,9 @@ export function unsupportedModelNames(prose, modelsUsedOutput, seedText) {
  * The footnote, or '' when the sentence is fully supported — or when CE has no
  * tool output to check against, which is the "allowed to say nothing" case.
  */
-export function aimlVerificationNote(prose, modelsUsedOutput, seedText) {
+export function aimlVerificationNote(prose, modelsUsedOutput, seedText, indexPaths = null) {
   if (!String(modelsUsedOutput || '').trim()) return '';
-  const unsupported = unsupportedModelNames(prose, modelsUsedOutput, seedText);
+  const unsupported = unsupportedModelNames(prose, modelsUsedOutput, seedText, indexPaths);
   if (!unsupported.length) return '';
   const listed = unsupported.slice(0, 8).map((n) => `"${n}"`).join(', ');
   const more = unsupported.length > 8 ? ` (+${unsupported.length - 8} more)` : '';

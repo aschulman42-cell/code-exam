@@ -26,7 +26,7 @@
 import { CodeSearchIndex } from './CodeSearchIndex.js';
 import { handleTool, TOOLS, setIndex } from '../mcp-server.js';
 import { AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './ai-overview.js';
-import { ggufContextOptions, chatSessionOptions } from './llm-runner.js';
+import { ggufContextOptions, chatSessionOptions, stripLocalArtifacts } from './llm-runner.js';
 import { aimlVerificationNote, unsupportedModelNames, aimlConverseNote, toolCallFooter } from './answer-disclosure.js';
 
 // The CE tool names the overview may call (same allow-list as the claude
@@ -943,25 +943,11 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     }
 
     const toolCalls = budget.calls; // attempts (incl. budget-stopped), same as the server path
-    // Strip any chain-of-thought block (Qwen3 etc. emit <think>…</think>).
-    let prose = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-    // GEMMA 4 DSL MARKERS leak as literal text on some builds. This GGUF
-    // declares 7 of its 19 control-looking tokens as type 4 (USER_DEFINED)
-    // instead of 3 (CONTROL), enumerated from the vocab: `<|tool_call>` (48),
-    // `<tool_call|>` (49), `<|tool_response>` (50), `<tool_response|>` (51),
-    // the DSL string delimiter `<|"|>` (52), and the thought-channel pair
-    // `<|channel>` (100) / `<channel|>` (101). The turn markers `<|turn>` /
-    // `<turn|>` (105/106) ARE typed correctly, which is why they never leak.
-    // llama.cpp warns at load and repairs the `<|x>` spelling, but not the
-    // reversed `<x|>` one, so a tool-using run prints one stray `<tool_call|>`
-    // per call ahead of the prose. Nothing downstream can tell these from
-    // content, so drop whole blocks first, then any orphaned marker.
-    prose = prose
-      .replace(/<\|tool_call>[\s\S]*?<tool_call\|>/g, '')
-      .replace(/<\|tool_response>[\s\S]*?<tool_response\|>/g, '')
-      .replace(/<\|channel>[\s\S]*?<channel\|>/g, '')
-      .replace(/<\|(?:tool_call|tool_response|channel)>|<(?:tool_call|tool_response|channel)\|>|<\|"\|>/g, '')
-      .trim();
+    // Chain-of-thought + Gemma 4 DSL markers + fabricated closers. The
+    // enumeration and the reasoning now live in ONE place (llm-runner's
+    // stripLocalArtifacts) because keeping three copies is exactly how the GUI
+    // AI Overview path missed the marker fix.
+    let prose = stripLocalArtifacts(raw);
     // #276 fabrication guard: 0 tool calls in grounded mode = not an overview.
     const warn = ungroundedWarning(toolCalls, grounding, prefetched);
     if (warn && prose) prose = `${warn}\n\n${prose}`;
@@ -1008,10 +994,11 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     // read out of `digest` or `list_files` is evidence the model actually saw.
     const verifyBasis = [overviewSeedResult, ...gathered].join('\n');
     if (prose) {
-      const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, verifyBasis);
+      // index.files.keys(): a path CE itself indexed is not an invented model id.
+      const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, verifyBasis, index.files.keys());
       if (aimlNote) {
         prose += aimlNote;
-        status(`AI/ML sentence names ${unsupportedModelNames(prose, verifyModelsUsed, verifyBasis).length} term(s) absent from models_used — footnoted`);
+        status(`AI/ML sentence names ${unsupportedModelNames(prose, verifyModelsUsed, verifyBasis, index.files.keys()).length} term(s) absent from models_used — footnoted`);
       }
       const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed });
       if (converseNote) {

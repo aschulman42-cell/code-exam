@@ -414,6 +414,83 @@ export function actualCostLine(model) {
   return `# actual cost: ~$${usd.toFixed(2)} (${_cloudUsage.calls} calls, ${kk(_cloudUsage.input_tokens)} tok in / ${kk(_cloudUsage.output_tokens)} out)`;
 }
 
+// ---------------------------------------------------------------------------
+// Local-model output cleanup, in ONE place.
+//
+// This was duplicated at three call sites (ai-overview-local.js, server.js's
+// GUI Chat, server.js's GUI AI Overview). Two got the Gemma 4 marker fix; the
+// third never did, so the GUI AI Overview — the surface in the release
+// screenshots — still printed the markers. Duplication caused that, so the
+// remedy is one exported helper rather than a fourth copy.
+//
+// TWO TIERS, because the junk has two different origins and they need
+// different treatment:
+//
+//  1. REAL mis-typed tokens, stripped ANYWHERE. Gemma 4's GGUF declares six
+//     control-looking tokens as USER_DEFINED (16) rather than CONTROL (8), so
+//     llama.cpp renders them as text. Verified by attribute bitfield over all
+//     262,144 tokens: `<|tool_call>` (48), `<tool_call|>` (49),
+//     `<tool_response|>` (51), `<|"|>` (52), `<|channel>` (100),
+//     `<channel|>` (101). `<|tool_response>` (50) is repaired at load, and the
+//     turn markers (105/106) are typed correctly. These are never legitimate
+//     model prose, so removing them mid-stream is safe.
+//
+//  2. FABRICATED structure, stripped ONLY as a leading run. Measured on
+//     .GhostArch: after a tool-using turn the model also emits closers that
+//     are NOT in the vocabulary at all — `</div_thought>`, `</div_response>`,
+//     bare `}}}}`. It is spelling them out of ordinary word tokens, so they
+//     are indistinguishable from content by shape. They are only ever a prefix
+//     (16/16 runs), while `}}`, `</div>` and a `>` blockquote are ordinary
+//     prose mid-sentence — so anchoring to the start is what makes this safe.
+//
+// Measured cause (asus-CC, 2026-10-13, n=16, deterministic decoding): the junk
+// appears if and only if tools are available (8/8 with, 0/8 without) and is
+// independent of --local-reasoning. It is the model closing a tool-call
+// structure whose terminators the function-call parser never consumed, which
+// is why enumerating spellings cannot win and a prefix anchor can.
+const MISTYPED_GEMMA4_TOKENS = [
+  '<|tool_call>', '<tool_call|>', '<|tool_response>', '<tool_response|>',
+  '<|channel>', '<channel|>', '<|"|>',
+];
+
+// Tier 2. Exported for tests: the prefix rule is the part that must be proven
+// not to eat prose.
+export function stripLeadingStructuralNoise(text) {
+  let out = String(text || '');
+  for (;;) {
+    const before = out;
+    out = out.replace(/^[ \t\r\n]+/, '');
+    for (const tok of MISTYPED_GEMMA4_TOKENS) {
+      while (out.startsWith(tok)) out = out.slice(tok.length);
+    }
+    // A fabricated tag: </div_thought>, <tool_call|>-shaped inventions.
+    out = out.replace(/^<\/?[A-Za-z][A-Za-z0-9_]*\|?>/, '');
+    out = out.replace(/^[}\])]+/, '');          // }}}}  ]]]  )))
+    // A stray '>' left behind by a half-eaten marker, but NOT "> blockquote":
+    // the loop must not halt on one unrecognized character the way the first
+    // version did, which let twelve markers behind it survive.
+    out = out.replace(/^>(?!\s)/, '');
+    if (out === before) break;
+  }
+  return out;
+}
+
+// The one cleanup every local-model text path should use.
+export function stripLocalArtifacts(text) {
+  let out = String(text || '')
+    // Chain-of-thought, closed OR truncated-open (maxTokens can cut the block
+    // before its closing tag, which would otherwise BE the answer).
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<think>[\s\S]*$/i, '')
+    // Tier 1: complete DSL blocks, then orphaned markers, anywhere.
+    .replace(/<\|tool_call>[\s\S]*?<tool_call\|>/g, '')
+    .replace(/<\|tool_response>[\s\S]*?<tool_response\|>/g, '')
+    .replace(/<\|channel>[\s\S]*?<channel\|>/g, '')
+    .replace(/<\|(?:tool_call|tool_response|channel)>|<(?:tool_call|tool_response|channel)\|>|<\|"\|>/g, '');
+  // Tier 2: whatever closers remain at the very front.
+  return stripLeadingStructuralNoise(out).trim();
+}
+
 // gguf-context-ladder: context sizes to attempt, largest first. 8192 was the
 // old ceiling, and the biggest evidence packs (24KB ≈ 6-7k tokens + system +
 // ~900 output) overflowed it — 10 of ~240 Gemma pod drafts failed with

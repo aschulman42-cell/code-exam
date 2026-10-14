@@ -276,6 +276,44 @@ describe('#320 1c: seed-aware verification', () => {
   });
 });
 
+describe('index-path carve-out: a file CE indexed is not an invented model id', () => {
+  // Measured on .GhostArch: the overview said "Model selection is handled in
+  // `src/model-provider.js`" — a file CE had just digested — and CE footnoted
+  // its own prose as naming an unverified model. The quoted/backticked branch
+  // of namesInModelSentences adds the span verbatim, bypassing the shape
+  // filter that rejects the same path unquoted, so ordinary markdown is the
+  // trigger.
+  const PROSE = 'Model selection is handled in `src/model-provider.js`, which routes AI calls.';
+  const NONE = 'No model ids found - do not infer absence. Models USED = ids the code loads as LITERALS';
+  const FILES = ['package/src/model-provider.js', 'package/src/portal-server.js', 'package/README.md'];
+
+  it('reproduces the false positive when the index is not supplied', () => {
+    assert.deepEqual(unsupportedModelNames(PROSE, NONE, ''), ['src/model-provider.js']);
+  });
+  it('clears once the indexed paths are passed', () => {
+    assert.deepEqual(unsupportedModelNames(PROSE, NONE, '', FILES), []);
+    assert.equal(aimlVerificationNote(PROSE, NONE, '', FILES), '');
+  });
+  it('matches by whole path as well as by suffix', () => {
+    const exact = 'The model registry lives in `package/src/model-provider.js` only.';
+    assert.deepEqual(unsupportedModelNames(exact, NONE, '', FILES), []);
+  });
+  it('an invented model id is STILL footnoted when an index is supplied', () => {
+    // The carve-out must not become a blanket amnesty.
+    const made_up = 'Models include `FakeNet-9000` for ranking.';
+    assert.deepEqual(unsupportedModelNames(made_up, NONE, '', FILES), ['FakeNet-9000']);
+  });
+  it('a bare word is not excused by a file that merely contains it', () => {
+    // Deliberately narrow: only candidates shaped like a file reference get
+    // the carve-out, matched whole or by path suffix — never by substring.
+    const bare = 'The models are served by Portal, the deployment target.';
+    assert.deepEqual(unsupportedModelNames(bare, NONE, '', FILES), ['Portal']);
+  });
+  it('accepts an iterator, which is what index.files.keys() gives', () => {
+    assert.deepEqual(unsupportedModelNames(PROSE, NONE, '', new Map(FILES.map(f => [f, 1])).keys()), []);
+  });
+});
+
 describe('#320 1c: the converse check — denial vs a non-empty models_used', () => {
   const USED_21 = '21 models used — 2 api, 19 local\n- Qwen_Qwen1_5_0_5B_Chat\n…';
   const NEGATIVE = 'Models USED = ids the code loads or calls as LITERALS. '

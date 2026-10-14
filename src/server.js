@@ -32,7 +32,7 @@ import { resolveIndexDir } from './archive.js';
 import { groupSites, groupPipelines, reTestExamplePath, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { makeFilterMatcher } from './core/filter-match.js';
 // F58: pin `Today Date:` so the GUI's local sessions do not inherit a live clock.
-import { chatSessionOptions, ggufContextOptions } from './core/llm-runner.js';
+import { chatSessionOptions, ggufContextOptions, stripLocalArtifacts } from './core/llm-runner.js';
 import { extractExports } from './core/exports.js';
 import { extractImports } from './core/imports.js';
 import { extractConcepts, INTRINSIC_NAMES, isIntrinsicName } from './core/vocabulary.js';
@@ -312,10 +312,40 @@ function withLocalLock(fn) {
 // (maxTokens stays 2400 there; only the tiny rungs clamp down).
 // #320: delegates to the canonical implementation in ai-overview-local.js so
 // the two copies cannot drift (this one had already drifted from it once —
-// the measured-overhead third parameter exists only there). Callers here have
-// no measured overhead in hand, so they get the documented 1200 fallback.
-function _localBudgets(contextSize, explicitMaxTokens) {
-  return localBudgets(contextSize, explicitMaxTokens);
+// the measured-overhead third parameter exists only there).
+//
+// That third parameter is now threaded through. The old note here said callers
+// "have no measured overhead in hand", and that was simply not true: both call
+// sites hold the loaded model, so they hold its tokenizer. Taking the 1200
+// fallback was therefore a GUI/CLI divergence of the #306-F67 family — the CLI
+// measures ~2970 and passes it, the GUI assumed 1200 — and at ctx-8192 that
+// understatement is larger than the entire remaining slack, so the tool budget
+// handed out more space than existed and the context-shift failure was
+// arithmetic rather than bad luck (asus-CC, 2026-10-13).
+function _localBudgets(contextSize, explicitMaxTokens, overheadTokens = null) {
+  return localBudgets(contextSize, explicitMaxTokens, overheadTokens);
+}
+
+// The CLI's measurement (ai-overview-local.js), mirrored rather than re-derived:
+// base prompt through the model's own tokenizer, tool definitions at chars/3.5,
+// plus the same stated 400-token margin for the framing that only exists once
+// the session is built. Returns null when there is nothing to measure with, so
+// the caller falls back to the documented 1200.
+function _measureOverhead(model, promptBase, toolDefs) {
+  try {
+    const tokensOf = (s) => {
+      try { if (model && typeof model.tokenize === 'function') return model.tokenize(String(s)).length; }
+      catch { /* fall through to the ratio */ }
+      return Math.ceil(String(s || '').length / 3.5);
+    };
+    let toolDefChars = 0;
+    for (const def of toolDefs || []) {
+      if (!def) continue;
+      toolDefChars += String(def.description || '').slice(0, 280).length
+        + JSON.stringify((def.inputSchema && def.inputSchema.properties) ? def.inputSchema : {}).length;
+    }
+    return tokensOf(promptBase) + Math.ceil(toolDefChars / 3.5) + 400;
+  } catch { return null; }
 }
 
 class ServerLLM {
@@ -2513,9 +2543,35 @@ async function runAiOverviewLocalShared({ index, grounding }) {
     throw new Error('local AI overview: node-llama-cpp function-calling unavailable (update node-llama-cpp).');
   }
   const { LlamaChatSession, defineChatSessionFunction } = lm;
-  const { maxTokens, toolBudgetChars } = _localBudgets(lm.contextSize, null);
   const overviewToolNames = AI_OVERVIEW_TOOLS.split(',').map(t => t.replace(/^mcp__code-exam__/, ''));
   const byName = new Map(TOOLS.map(t => [t.name, t]));
+  // Measure the overhead instead of assuming 1200 — the tool definitions below
+  // are rendered into the prompt and are ~1500 tokens on their own.
+  const _overhead = _measureOverhead(
+    lm.model,
+    aiOverviewPrompt(grounding, { localEngine: true }),
+    overviewToolNames.map(n => byName.get(n)),
+  );
+  const { maxTokens, toolBudgetChars } = _localBudgets(lm.contextSize, null, _overhead);
+  console.log(`  [ai-overview] budget: context ${lm.contextSize}, measured overhead ~${_overhead ?? 1200} tokens, `
+    + `maxTokens ${maxTokens}, tool budget ${toolBudgetChars} chars`);
+  // PRE-FLIGHT. Once the overhead is measured rather than assumed, some rungs
+  // are arithmetically impossible: at 4096 the prompt plus the 16 tool
+  // definitions are ~3478 of 4096 tokens, leaving no room for a single tool
+  // result. Measured end to end — that configuration dies inside
+  // node-llama-cpp with "The default context shift strategy did not return a
+  // history that fits the context size. This may happen due to the system
+  // prompt being too long", which sends the user to debug a prompt they did
+  // not write. Say it in CE's own voice, with the numbers and a way out,
+  // BEFORE spending a model call on a run that cannot finish.
+  const _headroom = lm.contextSize - (_overhead ?? 1200) - maxTokens;
+  if (_headroom < 400) {
+    throw new Error(
+      `local AI overview needs a larger context: ${lm.contextSize} tokens cannot hold the prompt and `
+      + `${overviewToolNames.length} tool definitions (~${_overhead ?? 1200} tokens) plus room for tool results. `
+      + `Try --context-size 8192 or more, add --flash-attention so a larger context fits in the same VRAM, `
+      + `or use a smaller model.`);
+  }
   let toolCalls = 0;
   let toolChars = 0;
   let budgetStopped = false;
@@ -2562,7 +2618,22 @@ async function runAiOverviewLocalShared({ index, grounding }) {
     const wrapperName = session.chatWrapper && session.chatWrapper.wrapperName;
     const promptText = strictInstructionsFor(wrapperName, aiOverviewPrompt(grounding, { localEngine: true }));
     const raw = await session.prompt(promptText, { functions, maxTokens, ...sampling });
-    let prose = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*$/i, '').trim();
+    // Was <think>-only here, so the mis-typed Gemma 4 markers reached the GUI
+    // verbatim — the `<|"|>`-prefixed overviews in the release screenshots.
+    let prose = stripLocalArtifacts(raw);
+    // Adding that strip without this nudge would REGRESS the visible result:
+    // a Gemma 4 run with reasoning left on returns closers and no prose at all
+    // (measured 4/4), which used to render as junk and would now throw. Chat
+    // has recovered from this since #250 by re-prompting with tools off; the
+    // overview path never got it. Same remedy, same reason — the tool results
+    // are already in the session's history, so the model only has to write.
+    if (!prose) {
+      const NUDGE = 'Based on the tool results above, write your complete overview now. Do not call any more tools.';
+      try {
+        prose = stripLocalArtifacts(await session.prompt(NUDGE, { maxTokens, ...sampling }));
+        if (prose) console.log('  [ai-overview] first pass returned no prose — recovered via nudge');
+      } catch (e) { console.warn(`  [ai-overview] nudge failed: ${e.message}`); }
+    }
     if (!prose) throw new Error('local AI overview: the model returned no prose — try a stronger model or larger --context-size.');
     // #276 fabrication guard: 0 tool calls in grounded mode = not an overview.
     const ungroundedNote = ungroundedWarning(toolCalls, grounding);
@@ -2578,7 +2649,8 @@ async function runAiOverviewLocalShared({ index, grounding }) {
         selfCalledModelsUsed = true;
       } catch { /* verification is best-effort */ }
     }
-    const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult);
+    // index.files.keys(): a path CE itself indexed is not an invented model id.
+    const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult, index.files.keys());
     if (aimlNote) prose += aimlNote;
     const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed });
     if (converseNote) prose += converseNote;
@@ -4327,7 +4399,12 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
   // mid-sentence at large contexts (chat-response-length). Must be resolved
   // BEFORE the tool budget below, which reserves this many output tokens.
   // #248: budgets that provably fit the loaded context (incl. the 2048/4096 rungs).
-  const _b = _localBudgets(lm.contextSize, maxTokens);
+  // Same measured overhead as the overview path: the chat tool definitions are
+  // rendered into the prompt too, so assuming 1200 over-issues the tool budget
+  // by whatever they actually cost.
+  const _b = _localBudgets(lm.contextSize, maxTokens, _measureOverhead(
+    lm.model, system, TOOLS.filter(tl => LOCAL_CHAT_TOOLS.includes(tl.name)),
+  ));
   maxTokens = _b.maxTokens;
 
   // --reproducible pins sampling for reproducible runs (honest scope: see
@@ -4420,27 +4497,11 @@ async function runChatToolLoopLocal({ messages, index, indexName, fileCount, mod
     ? `Earlier questions in this chat (reference only — the code is the source of truth; do NOT answer from these or from memory):\n${priorQs}\n\nNow answer this question. First call the tools to read the ACTUAL current code, then answer from what they return:\n${question}`
     : question, 'user question');
 
-  // Strip a chain-of-thought block — closed OR truncated-open (Qwen3 etc. emit
-  // <think>…</think>; maxTokens can cut it off before the closing tag, which
-  // would otherwise leave the raw <think> as the "answer").
-  // GEMMA 4 DSL MARKERS. This GGUF declares 7 of its 19 control-looking
-  // tokens as type 4 (USER_DEFINED) rather than 3 (CONTROL), so they render
-  // as literal text: `<|tool_call>` (48), `<tool_call|>` (49),
-  // `<|tool_response>` (50), `<tool_response|>` (51), the DSL string
-  // delimiter `<|\"|>` (52), and `<|channel>` (100) / `<channel|>` (101).
-  // The turn markers (105/106) are typed correctly and never leak.
-  // llama.cpp warns at load and repairs the `<|x>` spelling but not the
-  // reversed `<x|>` one. Same strip as ai-overview-local.js; duplicated
-  // rather than shared because this is a release-eve fix — worth folding
-  // into one exported helper afterwards.
-  const stripThink = (s) => String(s || '')
-    .replace(/<think>[\s\S]*?<\/think>/gi, '')
-    .replace(/<think>[\s\S]*$/i, '')
-    .replace(/<\|tool_call>[\s\S]*?<tool_call\|>/g, '')
-    .replace(/<\|tool_response>[\s\S]*?<tool_response\|>/g, '')
-    .replace(/<\|channel>[\s\S]*?<channel\|>/g, '')
-    .replace(/<\|(?:tool_call|tool_response|channel)>|<(?:tool_call|tool_response|channel)\|>|<\|\"\|>/g, '')
-    .trim();
+  // The duplication this comment used to apologise for is now gone: one
+  // exported helper (llm-runner's stripLocalArtifacts) handles the
+  // chain-of-thought block, the mis-typed Gemma 4 markers, and the fabricated
+  // closers, for this path and both overview paths alike.
+  const stripThink = stripLocalArtifacts;
 
   const sequence = await acquireSequence();
   let session;
