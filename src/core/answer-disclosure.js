@@ -143,6 +143,29 @@ export function answerDisclosure(prose, toolNames = []) {
 // then reported the surviving fragment as unsupported — a false footnote on the
 // most faithful overview in the set. Requiring whitespace after the terminator
 // means `…_1024.ckpt` is not a boundary. Pinned by a test naming that fixture.
+//
+// overview-aiml-footnote-false-positives, class A: "model" is also an English
+// word. On a Claude overview of the Ghost Architect index (2026-10-13), "uses
+// a hub-and-spoke model: …" and "the offline model" were selected, and every
+// function name and path in them was compared against models_used. A sentence
+// is a model sentence only when it ALSO carries an AI/ML cue: an AI term, a
+// model family or vendor, a weights/checkpoint extension, a parameter size
+// (7B), a model-shaped token (GPT-4, FakeNet-9000), "local model(s)" / "model
+// locally", or a load/call/train verb near "model". "uses … model" is NOT a cue
+// (that is how "uses a hub-and-spoke model" reads) and "load balancing" is not
+// the load verb. The nine verbatim sweep sentences pin the list from the other
+// side: every one of them must still be scanned.
+const _AI_CUE = new RegExp([
+  String.raw`\b(?:AI\/?ML|AI|ML|LLMs?|machine[- ]?learning|deep[- ]?learning|neural|inference|embeddings?|checkpoints?|weights|quantiz\w*|fine-?tun\w*|transformers?|models?_used|GGUF|ONNX|safetensors|Hugging ?Face|Ollama|OpenAI|Anthropic|Claude|GPT|Gemini|Gemma|Llama|Qwen|Mistral|DeepSeek|Phi|BERT|ResNet|YOLO)\b`,
+  String.raw`\.(?:gguf|ckpt|safetensors|onnx|h5|pt|pth|bin)\b`,
+  String.raw`\b\d+[bB]\b`,
+  String.raw`\b[A-Za-z]+(?:[-_][A-Za-z0-9]+)*[-_]\d[\w.]*\b`,
+  String.raw`\blocal\s+(?:\w+\s+){0,2}models?\b`,
+  String.raw`\bmodels?\s+(?:\w+\s+){0,2}locally\b`,
+  String.raw`\b(?:loads?(?!\s*balanc)|loaded|loading|calls?|called|calling|trains?|trained|training|infer\w*|invok\w*|serv(?:e|es|ed|ing)|hardcoded|hard-coded|declared)\b[^.;!?]{0,60}\bmodels?\b`,
+  String.raw`\bmodels?\b[^.;!?]{0,60}\b(?:loads?(?!\s*balanc)|loaded|calls?|called|trained|served|invoked|hardcoded|hard-coded|declared|detected|found)\b`,
+].join('|'), 'i');
+
 function modelSentences(prose) {
   // #320 1b: drop CE's OWN ⓘ disclosure lines before scanning. The guard's two
   // observed false positives were CE footnoting its own banner — "the model
@@ -155,8 +178,29 @@ function modelSentences(prose) {
     .join('\n');
   return withoutCeNotes
     .split(/(?<=[.!?])\s+|\n+/)
-    .filter((s) => /\bmodels?\b/i.test(s));
+    .filter((s) => /\bmodels?\b/i.test(s) && _AI_CUE.test(s));
 }
+
+// A model-mentioning sentence that DENIES: a negation BESIDE the thing denied.
+// The observed shapes: "does not explicitly load or call any AI/ML models…",
+// "No AI/ML models are explicitly detected…", and — class D, from Ernst
+// Wisner's Ghost case — "No model IDs are hardcoded as literals", "model
+// identifiers are config-driven at runtime, not literal strings".
+//
+// Class H (iterate round 1): a negation ANYWHERE plus a topic ANYWHERE was too
+// loose. On the post-fix Ghost run it read "treat them as examples of a
+// provider-agnostic slot, not as live API identifiers" — a sentence that
+// affirms the ids and comments on their naming — as a denial, and CE
+// contradicted a correct sentence with its own table. So the negation must
+// sit within six tokens before the topic ("not explicitly load or call any
+// AI/ML models") or the topic within three tokens before the negation ("the
+// models are not called"). "none are hardcoded as the sole runtime target" is
+// not a denial of models either; "hardcoded" is not a topic on its own.
+const _NEG_TOK = String.raw`(?:no|not|none|neither|without|never|lacks?|lacking|absent)`;
+const _TOPIC = String.raw`(?:AI\/?ML models?|AI models?|machine[- ]?learning models?|models?|model[- ]?(?:ids?|names?|identifiers?)|literal strings?|literals?)`;
+const _DENIAL_FWD = new RegExp(String.raw`\b${_NEG_TOK}\b\W+(?:[\w/'’-]+\W+){0,6}${_TOPIC}\b`, 'i');
+const _DENIAL_REV = new RegExp(String.raw`\b${_TOPIC}\b\W+(?:[\w/'’-]+\W+){0,3}${_NEG_TOK}\b`, 'i');
+function isDenial(s) { return _DENIAL_FWD.test(s) || _DENIAL_REV.test(s); }
 
 // A hyphen-joined token counts as a name only if every part is a digit run or a
 // letter run of 2+ — so `GPT-4`, `text-embedding-ada-002`, `deepseek-vl2` and
@@ -177,24 +221,62 @@ function hyphenShapeOk(t) {
 // narrow "model-shaped" rule missed five of nine, so breadth is the point and the
 // note's wording carries the hedge.
 const _STOP = new Set(['AI', 'ML', 'AI/ML', 'API', 'CE', 'CodeExam', 'The', 'This', 'It', 'A', 'An',
-  'No', 'None', 'I', 'GPU', 'CPU', 'LLM', 'LLMs', 'SDK', 'CLI', 'README']);
+  'No', 'None', 'I', 'GPU', 'CPU', 'LLM', 'LLMs', 'SDK', 'CLI', 'README', 'models_used', 'ID', 'IDs']);
+// "e.g", "i.e", "a.k.a": a dotted token whose parts are all one or two
+// characters is an abbreviation. A model id with a dot keeps a longer part on
+// at least one side (`gpt-4.1`, `llama3.1`, `model.ckpt`).
+const _ABBREV = (t) => t.includes('.') && t.split('.').every((p) => p.length <= 2);
+// Class E: ALLCAPS_WITH_UNDERSCORES is an environment variable (OPENAI_API_KEY,
+// GHOST_LOCAL_DATA_DIR), never a model id. A credential VALUE (the as_ml_code
+// case, mixed case with digits) does not have this shape and is still caught.
+const _ENV_VAR = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
+// Class F (iterate round 1): a camelCase identifier with no digit (`callModel`,
+// `getModelProviderConfig`, selectModelForTask) is a code symbol, never a model
+// id. The credential value that motivated the internal-capital rule below
+// carries digits and is still caught. Applies to backticked tokens too, which
+// the shape rules otherwise bypass.
+const _CAMEL_IDENT = /^[a-z][a-zA-Z]*[A-Z][a-zA-Z]*$/;
+// Class I (iterate round 2, the CLI cloud run): CodeExam's own `file@function`
+// notation (`model-provider.js@callModel`) is a code reference, and a
+// backticked span with whitespace (`digest model-provider.js@callModel`,
+// `call_tree x depth:2`) is a command or a phrase — neither is a model id. A
+// `<digits>-<word>` compound ("864-line", "2-layer") is English; a model id
+// never opens with bare digits.
+const _CODE_REF = /^[\w./-]+@[\w.$-]+$/;
+const _NUM_WORD = /^\d+-[a-z]+$/;
 
 export function namesInModelSentences(prose) {
   const out = new Set();
   for (const s of modelSentences(prose)) {
-    for (const m of s.matchAll(/`([^`]{2,60})`|"([^"]{2,60})"/g)) out.add((m[1] || m[2]).trim());
+    // Class E: a sentence that DENIES models makes no model claim to verify.
+    // The names in it (an env var, a backend, a config file) are context; the
+    // denial itself is the converse check's business (aimlConverseNote). On
+    // the Ghost overview, "No model IDs are hardcoded … but ANTHROPIC_API_KEY is
+    // read in config.js and Ollama is the default backend" footnoted all three.
+    if (isDenial(s)) continue;
+    // Quoted / backticked spans WITHOUT whitespace are taken verbatim (a model
+    // id never contains a space); a span with whitespace is left to the bare
+    // pass below, so its words are still seen one by one.
+    for (const m of s.matchAll(/`([^`\s]{2,60})`|"([^"\s]{2,60})"/g)) {
+      const q = (m[1] || m[2]).trim();
+      if (_ENV_VAR.test(q) || _CAMEL_IDENT.test(q) || _ABBREV(q) || _CODE_REF.test(q)) continue;
+      // A backticked plain lowercase word (`dispatch`, `queue`) is an identifier
+      // unless it is a model family name (`llama`, `qwen`), which the shape
+      // rule knows.
+      if (/^[a-z]+$/.test(q) && !_MODEL_SHAPED.test(q)) continue;
+      out.add(q);
+    }
     // Bare tokens; drop the sentence's first word so a leading "The" is not a name.
-    const bare = s.replace(/`[^`]*`|"[^"]*"/g, ' ').trim().split(/\s+/).slice(1);
+    const bare = s.replace(/`[^`\s]*`|"[^"\s]*"/g, ' ').replace(/[`"]/g, ' ').trim().split(/\s+/).slice(1);
     for (const raw of bare) {
       // `.` stays inside the allowed set because model ids carry it
-      // (`model.ckpt`), which means a SENTENCE-final period survives the first
-      // strip. Left in, `resnet50.` fails to match a tool output containing
-      // `resnet50` and the faithful case footnotes itself — caught in the first
-      // smoke test, and the reason for the second strip.
-      const t = raw.replace(/^[^A-Za-z0-9_.\-/]+|[^A-Za-z0-9_.\-/]+$/g, '')
-        .replace(/\.+$/, '')
+      // (`model.ckpt`), but never at the END of one: a trailing period, paren
+      // or comma is sentence punctuation, stripped in any order ("Phi-4)." was
+      // left as "Phi-4)" when the period came off first — class I).
+      const t = raw.replace(/^[^A-Za-z0-9_.\-/]+|[^A-Za-z0-9_\-/]+$/g, '')
         .replace(/['’]s$/, '');   // possessive: "OpenAI's models" names OpenAI
-      if (t.length < 3 || _STOP.has(t)) continue;
+      if (t.length < 3 || _STOP.has(t) || _ENV_VAR.test(t) || _CAMEL_IDENT.test(t) || _ABBREV(t)) continue;
+      if (_CODE_REF.test(t) || _NUM_WORD.test(t)) continue;
       if (!hyphenShapeOk(t)) continue;
       // `[a-z][A-Z]` earns its place: the credential fragment that motivated this
       // whole item (`uqDZ…SPdJ`) has no digit, no separator and a lowercase first
@@ -234,7 +316,7 @@ export function unsupportedModelNames(prose, modelsUsedOutput, seedText, indexPa
   const paths = indexPaths ? [...indexPaths].map((p) => String(p).toLowerCase().replace(/\\/g, '/')) : null;
   const indexedFile = (needle) => {
     if (!paths || !paths.length) return false;
-    if (!(/[\\/]/.test(needle) || /\.[a-z0-9]{1,5}$/.test(needle))) return false;
+    if (!looksLikePathRef(needle)) return false;
     const n = needle.replace(/\\/g, '/');
     return paths.some((p) => p === n || p.endsWith('/' + n));
   };
@@ -243,19 +325,109 @@ export function unsupportedModelNames(prose, modelsUsedOutput, seedText, indexPa
   // `Qwen_Qwen1_5_0_5B_Chat_e5_lr0` — a filename from the seed's vocabulary
   // lines, not one of models_used's 21 ids — and must not be footnoted.
   const seedHay = String(seedText || '').toLowerCase();
+  // Class G (iterate round 1): a vendor named in the prose is supported when
+  // the table holds an id of that vendor's family — "Anthropic, OpenAI,
+  // Google" against claude-*, gpt-*, gemini-* rows is the table restated by
+  // maker, not an invention. A vendor whose family is absent is still
+  // reported (the .CrewAI "Anthropic and Bedrock" against an all-OpenAI table).
+  const supported = (needle) => {
+    const fam = _VENDOR_FAMILY[needle];
+    return hay.includes(needle) || (seedHay && seedHay.includes(needle)) || indexedFile(needle)
+      || (fam && fam.test(hay));
+  };
   return namesInModelSentences(prose).filter((n) => {
     const needle = n.toLowerCase();
-    return !hay.includes(needle) && !(seedHay && seedHay.includes(needle)) && !indexedFile(needle);
+    if (supported(needle)) return false;
+    // Class I: a slash-joined pair in prose ("GPT-4o/GPT-5") is two names; it
+    // is supported when every part is. An HF id (`Qwen/Qwen-7B-Chat`) is
+    // matched whole first, above.
+    if (needle.includes('/')) {
+      const parts = needle.split('/').filter(Boolean);
+      if (parts.length > 1 && parts.every(supported)) return false;
+    }
+    return true;
   });
 }
+
+const _VENDOR_FAMILY = {
+  anthropic: /\bclaude\b|claude-/i,
+  openai: /\bgpt[-_\d]|\bo[134]\b|text-embedding|davinci|chatgpt/i,
+  google: /gemini|gemma|palm/i,
+  meta: /llama/i,
+  mistral: /mistral|mixtral/i,
+  deepseek: /deepseek/i,
+  microsoft: /\bphi[-\d]/i,
+  cohere: /command-r|cohere/i,
+  alibaba: /qwen/i,
+  // Ollama is a backend, not a family: an Ollama `name:tag` id in the table is
+  // the evidence that it is in use.
+  ollama: /\b(?=[\w.:-]*\d)[a-z][\w.-]*:[\w.-]+\b/i,
+};
+
+/**
+ * A candidate that LOOKS like a file reference (a path separator, or a short
+ * extension) — the only kind the indexed-path carve-out applies to, and the
+ * trigger for the cloud path to fetch the file list at all (class C). One
+ * definition, shared by both, so they cannot drift.
+ */
+export function looksLikePathRef(name) {
+  const n = String(name || '');
+  return /[\\/]/.test(n) || /\.[a-z0-9]{1,5}$/i.test(n);
+}
+
+/**
+ * The file list as the MCP `list_files` tool prints it ("N files (showing M):"
+ * then one path per line, then a "... K more not shown" footer when capped) →
+ * the paths. The cloud overview loop has no in-process index and gets its
+ * indexed paths this way (class C); the local and GUI loops pass
+ * index.files.keys() directly.
+ */
+export function indexPathsFromListFiles(text) {
+  const lines = String(text || '').split('\n');
+  if (lines.length < 2 || !/^\d+ files?\b/.test(lines[0])) return [];
+  return lines.slice(1).map((l) => l.trim()).filter((l) => l && !/^\.\.\.\s/.test(l) && !/^\(/.test(l));
+}
+
+// Class B: on a zero-id table the only comparison that carries information is
+// against a name that is itself model-shaped — a digit-bearing token (GPT-4,
+// a credential value), a weights file, or a known family. Vendors and
+// frameworks ("Ollama", "TensorFlow") are compared on positive tables, where
+// the breadth earns its keep; on a zero-id table they would be "not contained"
+// by construction.
+const _MODEL_SHAPED = /\d|\.(?:gguf|ckpt|safetensors|onnx|h5|pt|pth|bin)$|^(?:gpt|claude|gemini|gemma|llama|qwen|mistral|mixtral|deepseek|phi|bert|resnet|yolo|whisper|codellama)\b/i;
 
 /**
  * The footnote, or '' when the sentence is fully supported — or when CE has no
  * tool output to check against, which is the "allowed to say nothing" case.
+ *
+ * Class B (overview-aiml-footnote-false-positives): when models_used found no
+ * ids, the haystack is the tool's negative boilerplate and every name in every
+ * selected sentence is "not contained" by construction. On the Ghost overview
+ * that footnoted a correct sentence and reproduced 1,200 characters of
+ * loader-search advice under it. So on a zero-id table only model-shaped names
+ * are compared, the reproduction is the tool's first sentence, and an affirming
+ * AI/ML sentence with nothing shaped to check gets one line saying so.
  */
 export function aimlVerificationNote(prose, modelsUsedOutput, seedText, indexPaths = null) {
-  if (!String(modelsUsedOutput || '').trim()) return '';
-  const unsupported = unsupportedModelNames(prose, modelsUsedOutput, seedText, indexPaths);
+  const out = String(modelsUsedOutput || '').trim();
+  if (!out) return '';
+  const unsupported = unsupportedModelNames(prose, out, seedText, indexPaths);
+  if (modelsUsedCount(out) === 0) {
+    const shaped = unsupported.filter((n) => _MODEL_SHAPED.test(n));
+    if (!shaped.length) {
+      const affirming = modelSentences(prose).some((s) => !isDenial(s));
+      return affirming
+        ? `\n\nⓘ CodeExam's own \`models_used\` found no literal model ids in this index; the AI/ML sentence above was not checked against it.`
+        : '';
+    }
+    const listed = shaped.slice(0, 8).map((n) => `"${n}"`).join(', ');
+    const more = shaped.length > 8 ? ` (+${shaped.length - 8} more)` : '';
+    const firstLine = out.split(/(?<=[.!?])\s+|\n/)[0];
+    return `\n\nⓘ AI/ML SENTENCE UNVERIFIED: the prose above names ${listed}${more}, and CodeExam's own `
+      + `\`models_used\` found no literal model ids in this index. This is a mechanical comparison, not a `
+      + `judgement — an id resolved at run time would not be found — but nothing here was read out of the index.`
+      + `\n\n<models_used>\n${firstLine}\n</models_used>`;
+  }
   if (!unsupported.length) return '';
   const listed = unsupported.slice(0, 8).map((n) => `"${n}"`).join(', ');
   const more = unsupported.length > 8 ? ` (+${unsupported.length - 8} more)` : '';
@@ -284,14 +456,25 @@ export function modelsUsedCount(modelsUsedOutput) {
   return m ? Number(m[1]) : 0;
 }
 
-// A model-mentioning sentence that denies AI/ML presence. Matches the four
-// observed shapes ("does not explicitly load or call any AI/ML models…",
-// "No AI/ML models are explicitly detected…") without trying to parse grammar:
-// a negation token and an AI/ML reference in the same sentence.
-function denialSentences(prose) {
-  return modelSentences(prose).filter((s) =>
-    /\b(no|not|none|neither|without|lacks?|absent)\b/i.test(s)
-    && /\b(AI\/?ML|AI|machine[- ]?learning)\b/.test(s));
+// #345: the headline adds "; N declared only (no call site)" when rows are
+// model-shaped literals in code that no call site consumed.
+export function modelsUsedDeclaredOnly(modelsUsedOutput) {
+  const m = String(modelsUsedOutput || '').match(/;\s*(\d+)\s+declared only\b/i);
+  return m ? Number(m[1]) : 0;
+}
+
+// Class D: a denial of CALLING ("does not call any AI/ML models") is not
+// contradicted by a table whose rows are all declared-only — those rows say
+// "no call site" themselves. A denial of presence, detection, ids or literals
+// is contradicted by any row.
+const _CALL_DENIAL = /\b(?:loads?|loaded|calls?|called|invokes?|invoked|runs?|uses?|used|utiliz\w+|executes?|queries|querying|inference)\b/i;
+const _PRESENCE_DENIAL = /\b(?:detected|identified|found|present|exists?|hardcoded|hard-coded|declared|named|written|literals?|ids?|identifiers?|names?)\b/i;
+
+function denialSentences(prose, declaredOnly = 0, total = 0) {
+  return modelSentences(prose).filter(isDenial).filter((s) => {
+    const callOnly = _CALL_DENIAL.test(s) && !_PRESENCE_DENIAL.test(s);
+    return !(callOnly && declaredOnly > 0 && declaredOnly >= total);
+  });
 }
 
 /**
@@ -303,14 +486,18 @@ function denialSentences(prose) {
 export function aimlConverseNote(prose, modelsUsedOutput, { selfCalled = false } = {}) {
   const n = modelsUsedCount(modelsUsedOutput);
   if (!n) return '';
-  const denials = denialSentences(prose);
+  const declaredOnly = modelsUsedDeclaredOnly(modelsUsedOutput);
+  const denials = denialSentences(prose, declaredOnly, n);
   if (!denials.length) return '';
   const quoted = denials[0].trim().slice(0, 160);
   const how = selfCalled
     ? 'CodeExam ran `models_used` itself for this check; the model did not call it and never saw the result'
     : 'the model called `models_used` and still wrote this';
+  const what = declaredOnly
+    ? ` (${declaredOnly >= n ? 'all' : declaredOnly} of them declared in the code with no call site found)`
+    : '';
   return `\n\nⓘ AI/ML CLAIM CONTRADICTED: the prose above says "${quoted}", but CodeExam's own `
-    + `\`models_used\` result for this index reports ${n} model${n !== 1 ? 's' : ''} (${how}). `
+    + `\`models_used\` result for this index reports ${n} model${n !== 1 ? 's' : ''}${what} (${how}). `
     + `The result is reproduced below; nothing here was read out of the index.`
     + `\n\n<models_used>\n${String(modelsUsedOutput).trim().slice(0, 1200)}\n</models_used>`;
 }

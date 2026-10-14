@@ -19,6 +19,7 @@ in the AI/ML cells — see [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md) — and th
 | `?` | an unknown / unlabeled family or grouping key | `~?` |
 | `[test]` / dimmed | every site is test / example / demo code | CLI `[test]`; GUI dimmed |
 | `<var>` / "unresolved" | an identifier passed as a variable, not a string literal | `<var>`; "(unresolved variable)" |
+| `ⓘ` | a note in CodeExam's own voice under an AI answer: what it rests on, what CodeExam could or could not check | `ⓘ Based on 8 model tool calls: digest ×3, …` |
 | `(file scope)` | a call site at module level, inside no function | Called By: `(file scope)`; `--call-tree`: `(file scope) (2x)` |
 | `[unresolved]` / `unresolved` badge | a call with no definition reachable from its site | `push [unresolved] (13 definitions)` |
 | `[ambiguous]` / `ambiguous` badge / dashed edge / `name ?` | several reachable definitions; the closest pick is shown, not expanded | `[ambiguous: 2 definitions]`; Mermaid `-.->` to `fmt ?` |
@@ -136,6 +137,39 @@ happened when that bind was not clean:
 
 These are distinct from the `<var>` / "unresolved variable" marker above, which is about a model
 *identifier* that is a run-time value, not about a call.
+
+## `ⓘ` — CodeExam's own notes under an AI answer
+
+Every **Overview by AI** (`--overview-by-ai`, and the GUI's button, on the cloud and the local
+engines alike) ends with one or more lines beginning `ⓘ`. CodeExam writes them, not the model:
+they are appended after the model has finished, never edited into its prose, and they say what
+the answer rests on. Each is mechanical — a comparison between two things CodeExam already holds —
+not a judgement of the answer.
+
+- **`ⓘ Based on N model tool calls: …`** — the evidentiary footer: which CodeExam tools the model
+  chose to call, and how often. *"Based on 1 tool call: overview"* means a rewording of the
+  deterministic `--overview`, not an independent second view. A parenthetical discloses anything
+  CodeExam ran on the model's behalf (a prefetched overview, a substituted tool, a
+  verification-only `models_used`).
+- **`ⓘ AI/ML SENTENCE UNVERIFIED: the prose above names "X", "Y", …`** — the answer's AI/ML
+  sentence named things that CodeExam's own `models_used` result for this index does not
+  contain; that result is reproduced under the note. A name may be a vendor or a framework rather
+  than a model: the note reports, it does not classify. Only sentences that carry an AI/ML cue are
+  scanned, so *"the data model"* and *"a hub-and-spoke model"* are not, and a sentence that
+  *denies* models is left to the converse check below.
+- **`ⓘ CodeExam's own models_used found no literal model ids in this index; the AI/ML sentence
+  above was not checked against it.`** — the zero-id case. When `models_used` found nothing there
+  is nothing to compare an affirming sentence against, and CodeExam says so rather than listing
+  every name in the sentence as unverified. An invented model id (`GPT-4` on a codebase that has
+  none) is still flagged, with the tool's one-line result under it.
+- **`ⓘ AI/ML CLAIM CONTRADICTED: the prose above says "…", but CodeExam's own models_used result
+  for this index reports N models …`** — the converse: the answer denied models, model ids or
+  literals, and the tool found some. A denial of *calling* models is not contradicted by rows
+  that are all `declared` (a model-shaped literal in code with no call site found); when such rows
+  exist the note says how many.
+
+The `<models_used>` block under a note is the tool's own text, reproduced so the reader can judge
+for themselves; nothing in a note was read out of the index.
 
 ## Related
 

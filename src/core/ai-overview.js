@@ -31,7 +31,7 @@ import { estimateCost } from './pricing.js';
 import { assertLocalOnly, isLocalApiUrl } from './air-gapped.js';
 import { openaiCompletionBudget } from './openai-util.js';
 import { PROVIDERS } from './providers.js';
-import { aimlVerificationNote, aimlConverseNote, toolCallFooter } from './answer-disclosure.js';
+import { aimlVerificationNote, aimlConverseNote, toolCallFooter, unsupportedModelNames, looksLikePathRef, indexPathsFromListFiles } from './answer-disclosure.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url)); // src/core
 const MCP_SERVER = path.join(__dirname, '..', 'mcp-server.js');  // src/mcp-server.js
@@ -307,7 +307,18 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
       const { text, isError } = await runTool('models_used', {}, { countIt: false });
       if (!isError) { verifyModelsUsed = text; selfCalledModelsUsed = true; }
     }
-    const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult);
+    // overview-aiml-footnote-false-positives, class C: the indexed-path
+    // carve-out the local and GUI loops got in ca220b3 (a backticked path CE
+    // itself indexed is not an invented model id). This loop has no in-process
+    // index, so it asks its own MCP server for the file list — only when a
+    // candidate looks like a path, so the common case pays nothing. A
+    // verification lookup, not a model tool call: not counted in the footer.
+    let indexPaths = null;
+    if (unsupportedModelNames(prose, verifyModelsUsed, overviewSeedResult).some(looksLikePathRef)) {
+      const { text, isError } = await runTool('list_files', { max: 1000000000 }, { countIt: false });
+      if (!isError) indexPaths = indexPathsFromListFiles(text);
+    }
+    const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult, indexPaths);
     if (aimlNote) prose += aimlNote;
     const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed });
     if (converseNote) prose += converseNote;
