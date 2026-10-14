@@ -545,7 +545,8 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
   let preNudgeRaw = '';
   let floorReverted = false;
   let floorSubstituted = [];   // tool names CE ran on the model's behalf
-  let modelsUsedResult = '';   // #306 F70: the tool output the prose is checked against
+  let modelsUsedResult = '';   // #306 F70: the model's own models_used view (for the prose; NOT the verification basis)
+  let modelsUsedArgs = null;   // the model's own call's arguments, disclosed in the notes
   let overviewSeedResult = ''; // #320 1c: the deterministic seed, for seed-aware verification
   const toolCallCounts = new Map(); // #320 item 4: per-tool counts for the evidentiary footer
   const gathered = [];         // every tool result, for groundedness + name verification
@@ -683,11 +684,14 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
           try { out = String(handleTool(name, args || {})); }
           catch (e) { out = `Error calling ${name}: ${e.message}`; }
           const capped = neutralizeSpecialTokens(out.slice(0, MAX_TOOL_OUTPUT), `${name} result`, status);
-          // #306 F70: keep the models_used result so CE can check its own prose
-          // against it afterwards. Captured here rather than re-called later —
-          // a second call could return something the model never saw, which
-          // would make the comparison describe a different run.
-          if (name === 'models_used') modelsUsedResult = capped;
+          // #306 F70: keep the model's models_used result for the PROSE and the
+          // disclosure. It is no longer the verification basis: that is CE's own
+          // unfiltered call below (overview-verification-basis-unfiltered). The
+          // old rationale — "captured rather than re-called, so the comparison
+          // describes the same run" — was superseded once the notes made claims
+          // about the index; a model's filtered call (Gemma's {"filter":"/"} on
+          // #330) made CE describe an empty table as the index.
+          if (name === 'models_used') { modelsUsedResult = capped; modelsUsedArgs = JSON.stringify(args || {}); }
           // #320 1c: the overview seed, for seed-aware name verification.
           if (name === 'overview' && !overviewSeedResult) overviewSeedResult = capped;
           // EVERY result, not just these two. Two things need the whole set:
@@ -898,7 +902,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
           budget.charge(out.length);   // honest accounting, as the prefetch does
           // #320 1a: a substituted models_used result IS in the model's context
           // for the revision pass, so the verification can use it.
-          if (name === 'models_used' && !modelsUsedResult) modelsUsedResult = out;
+          if (name === 'models_used' && !modelsUsedResult) { modelsUsedResult = out; modelsUsedArgs = '{}'; }
           if (name === 'overview' && !overviewSeedResult) overviewSeedResult = out;
           supplied.push({ name, out });
         }
@@ -981,13 +985,20 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     // that the model never saw it. The converse check — "prose says none
     // detected, tool says N" — is the direction that was actually wrong in the
     // 11-run matrix, and only works because of this self-call.
-    let verifyModelsUsed = modelsUsedResult;
+    //
+    // overview-verification-basis-unfiltered (asus-CC on #330): the basis is
+    // CE's OWN unfiltered call, always. The old rule reused the model's
+    // captured result and self-called only when there was none; Gemma called
+    // models_used({"filter":"/"}), emptied the table, and the footnote then
+    // said "found no literal model ids in this index". The model's result
+    // stays for the prose; its arguments are disclosed in the notes.
+    let verifyModelsUsed = '';
     let selfCalledModelsUsed = false;
-    if (prose && !verifyModelsUsed) {
+    if (prose) {
       try {
         verifyModelsUsed = String(handleTool('models_used', {})).slice(0, MAX_TOOL_OUTPUT);
         selfCalledModelsUsed = true;
-        status('verification: CE ran models_used itself (the model never called it) — NOT a model tool call');
+        status(`verification: CE ran models_used unfiltered itself${modelsUsedArgs == null ? ' (the model never called it)' : ` (the model's own call was models_used(${modelsUsedArgs}))`} — NOT a model tool call`);
       } catch (e) { status(`verification models_used failed: ${e.message}`); }
     }
     // The verification basis is every tool result, not the seed alone — a name
@@ -1000,7 +1011,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
         prose += aimlNote;
         status(`AI/ML sentence names ${unsupportedModelNames(prose, verifyModelsUsed, verifyBasis, index.files.keys()).length} term(s) absent from models_used — footnoted`);
       }
-      const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed });
+      const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed, modelCallArgs: modelsUsedArgs });
       if (converseNote) {
         prose += converseNote;
         status('AI/ML claim contradicted by models_used — footnoted');

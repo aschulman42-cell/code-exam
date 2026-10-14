@@ -18,7 +18,7 @@ import path from 'path';
 import { displayName, eprint, pasteToken, quotePathIfNeeded } from '../utils.js';
 import { CodeSearchIndex } from '../core/CodeSearchIndex.js';
 import { skippedExtensionCensus } from '../core/extension-census.js';
-import { makeFilterMatcher } from '../core/filter-match.js';
+import { makeFilterMatcher, filteredEmptyNotice } from '../core/filter-match.js';
 
 
 // Keep head + tail of a path, eliding the middle with `ell`, rather than the
@@ -1015,6 +1015,7 @@ export function doListFunctions(index, args) {
   // Bare --functions (boolean sentinel) means "no filter"; only a string filters.
   const pattern = typeof args.list_functions === 'string' ? args.list_functions : null;
   let functions = index.listFunctions();
+  const totalFunctions = functions.length;
 
   if (pattern) {
     const patLower = pattern.toLowerCase().replace(/\\/g, '/');
@@ -1044,7 +1045,8 @@ export function doListFunctions(index, args) {
   }
 
   if (functions.length === 0) {
-    console.log('No functions found.');
+    // A filter that matched nothing is not absence (asus-CC, #330).
+    console.log(args.filter && totalFunctions ? filteredEmptyNotice('functions', totalFunctions, args.filter) : 'No functions found.');
     return;
   }
 
@@ -1107,6 +1109,7 @@ export function doListFunctions(index, args) {
 
 export function doListFunctionsAlpha(index, args) {
   let functions = index.listFunctions();
+  const totalFunctions = functions.length;
 
   if (args.filter) {
     const match = makeFilterMatcher(args.filter);
@@ -1122,7 +1125,8 @@ export function doListFunctionsAlpha(index, args) {
   }
 
   if (functions.length === 0) {
-    console.log('No functions found.');
+    // A filter that matched nothing is not absence (asus-CC, #330).
+    console.log(args.filter && totalFunctions ? filteredEmptyNotice('functions', totalFunctions, args.filter) : 'No functions found.');
     return;
   }
 
@@ -1154,6 +1158,7 @@ export function doListFunctionsAlpha(index, args) {
 
 export function doListFunctionsSize(index, args) {
   let functions = index.listFunctions();
+  const totalFunctions = functions.length;
 
   // Apply --filter
   if (args.filter) {
@@ -1172,7 +1177,8 @@ export function doListFunctionsSize(index, args) {
   }
 
   if (functions.length === 0) {
-    console.log('No functions found.');
+    // A filter that matched nothing is not absence (asus-CC, #330).
+    console.log(args.filter && totalFunctions ? filteredEmptyNotice('functions', totalFunctions, args.filter) : 'No functions found.');
     return;
   }
 

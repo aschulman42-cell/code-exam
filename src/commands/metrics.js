@@ -14,7 +14,7 @@
 
 import path from 'path';
 import { eprint, quotePathIfNeeded } from '../utils.js';
-import { makeFilterMatcher } from '../core/filter-match.js';
+import { makeFilterMatcher, filteredEmptyNotice } from '../core/filter-match.js';
 import { effectiveCount, effectiveMaxResults, capNotice } from '../argparse.js';
 import { extractConcepts, conceptLabel } from '../core/vocabulary.js';
 import { extractDataStructures } from '../core/data-structs.js';
@@ -94,7 +94,11 @@ function applyPathFilters(items, args, fpKey = 'filepath') {
 
 export function doHotspots(index, args) {
   const n = effectiveCount(args, args.hotspots, 20);
-  const hotspots = index.getHotspots(n * 3, true);
+  // With a filter active, score everything: filtering inside the top n*3 could
+  // report nothing while matches sat just below the cut (the MCP hotspots tool
+  // had the same defect; #306), and the filtered-empty notice needs the true
+  // population to name.
+  const hotspots = index.getHotspots(args.filter ? Number.MAX_SAFE_INTEGER : n * 3, true);
 
   if (!hotspots.length) {
     console.log('No hotspots found (need both function index and inverted index).');
@@ -114,6 +118,10 @@ export function doHotspots(index, args) {
 
   filtered = applyPathFilters(filtered, args);
 
+  if (!filtered.length && args.filter) {
+    console.log(filteredEmptyNotice('hotspots', hotspots.length, args.filter));
+    return;
+  }
   const shown = Math.min(n, filtered.length);
   console.log(`\nTop ${shown} hotspots (big functions x high call frequency):`);
   console.log(`  Score = calls x log2(lines)`);
@@ -541,6 +549,11 @@ export function modelsUsedNegative(unresolved = 0) {
 export function doListModelsUsed(index, args) {
   const models = dropTests(index.listModelsUsed(args.filter), args);
   if (!models.length) {
+    // A filter that matched nothing is not absence (asus-CC, #330).
+    if (args.filter) {
+      const all = index.listModelsUsed();
+      if (all.length) { console.log(filteredEmptyNotice('models', all.length, args.filter)); return; }
+    }
     console.log(modelsUsedNegative(models.unresolved || 0));
     return;
   }
@@ -1413,13 +1426,14 @@ export function doListClasses(index, args) {
 
   classes = applyPathFilters(classes, args);
 
+  const classesBeforeFilter = classes.length;
   if (args.filter) {
     const match = makeFilterMatcher(args.filter);
     classes = classes.filter(c => match(c.name));
   }
 
   if (!classes.length) {
-    console.log('No classes found.');
+    console.log(args.filter && classesBeforeFilter ? filteredEmptyNotice('classes', classesBeforeFilter, args.filter) : 'No classes found.');
     return;
   }
 

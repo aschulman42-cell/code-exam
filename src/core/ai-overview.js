@@ -172,7 +172,8 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
     // seed are captured for the AI/ML verification below — the cloud path had
     // NO such check (Gemini's wrong "no AI/ML" answer carried no footnote).
     const toolCallCounts = new Map();
-    let modelsUsedResult = '';
+    let modelsUsedResult = '';   // the model's own view, for the prose
+    let modelsUsedArgs = null;   // the model's own call's arguments, disclosed in the notes
     let overviewSeedResult = '';
     const runTool = async (name, args, { countIt = true } = {}) => {
       if (onStderr) onStderr(`[overview] tool: ${name}\n`);
@@ -180,7 +181,7 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
       try {
         const r = await mcpClient.callTool({ name, arguments: args });
         const text = (r.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n');
-        if (countIt && name === 'models_used' && !modelsUsedResult) modelsUsedResult = text;
+        if (countIt && name === 'models_used' && !modelsUsedResult) { modelsUsedResult = text; modelsUsedArgs = JSON.stringify(args || {}); }
         if (countIt && name === 'overview' && !overviewSeedResult) overviewSeedResult = text;
         return { text, isError: false };
       } catch (e) {
@@ -297,13 +298,16 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
     if (!prose) throw new Error('AI Overview produced no prose (empty model output).');
 
     // #320 1a/1c, cloud-inclusive: verify the AI/ML sentence on every engine.
-    // When the model never called models_used, CE calls it itself (the MCP
-    // client is still open here) — verification-only, disclosed as such. This
-    // is what catches the observed Gemini failure: "does not explicitly load
-    // or call any AI/ML models" on an index where models_used returns 21.
-    let verifyModelsUsed = modelsUsedResult;
+    // The basis is CE's OWN unfiltered call, always (the MCP client is still
+    // open here) — never the model's captured result, which may be filtered
+    // (overview-verification-basis-unfiltered; asus-CC on #330). Verification-
+    // only, disclosed as such; the model's own call's arguments are disclosed
+    // beside it. This is what catches the observed Gemini failure: "does not
+    // explicitly load or call any AI/ML models" on an index where models_used
+    // returns 21.
+    let verifyModelsUsed = '';
     let selfCalledModelsUsed = false;
-    if (!verifyModelsUsed) {
+    {
       const { text, isError } = await runTool('models_used', {}, { countIt: false });
       if (!isError) { verifyModelsUsed = text; selfCalledModelsUsed = true; }
     }
@@ -320,7 +324,7 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
     }
     const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult, indexPaths);
     if (aimlNote) prose += aimlNote;
-    const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed });
+    const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed, modelCallArgs: modelsUsedArgs });
     if (converseNote) prose += converseNote;
     // #320 item 4: the evidentiary footer — the reader learns in one line
     // whether this is a grounded second view or a paraphrase of --overview.

@@ -483,16 +483,24 @@ function denialSentences(prose, declaredOnly = 0, total = 0) {
  * UNVERIFIED note. `selfCalled` says CE ran the tool for verification (the
  * model never saw it), which the note discloses.
  */
-export function aimlConverseNote(prose, modelsUsedOutput, { selfCalled = false } = {}) {
+export function aimlConverseNote(prose, modelsUsedOutput, { selfCalled = false, modelCallArgs = null } = {}) {
   const n = modelsUsedCount(modelsUsedOutput);
   if (!n) return '';
   const declaredOnly = modelsUsedDeclaredOnly(modelsUsedOutput);
   const denials = denialSentences(prose, declaredOnly, n);
   if (!denials.length) return '';
   const quoted = denials[0].trim().slice(0, 160);
-  const how = selfCalled
-    ? 'CodeExam ran `models_used` itself for this check; the model did not call it and never saw the result'
-    : 'the model called `models_used` and still wrote this';
+  // overview-verification-basis-unfiltered (asus-CC, #330): the basis is CE's
+  // own unfiltered call, always. The model's own call, when it made one with
+  // arguments, is disclosed so a reader can see why the two differed (Gemma's
+  // `{"filter":"/"}` emptied the table).
+  const how = !selfCalled
+    ? 'the model called `models_used` and still wrote this'
+    : modelCallArgs == null
+      ? 'CodeExam ran `models_used` unfiltered for this check; the model never called it'
+      : modelCallArgs === '{}'
+        ? 'the model called `models_used` and still wrote this; CodeExam re-ran it unfiltered for this check'
+        : `the model's own call was \`models_used(${modelCallArgs})\`; CodeExam re-ran it unfiltered for this check`;
   const what = declaredOnly
     ? ` (${declaredOnly >= n ? 'all' : declaredOnly} of them declared in the code with no call site found)`
     : '';
@@ -534,6 +542,6 @@ export function toolCallFooter(counts, { substituted = [], prefetched = false, s
   const extras = [];
   if (prefetched) extras.push('CE prefetched `overview` itself');
   if (substituted.length) extras.push(`CE ran ${substituted.join(', ')} on the model's behalf`);
-  if (selfCalledModelsUsed) extras.push('CE ran `models_used` for verification only');
+  if (selfCalledModelsUsed) extras.push('CE ran `models_used` unfiltered for verification');
   return extras.length ? `${line} (${extras.join('; ')}.)` : line;
 }

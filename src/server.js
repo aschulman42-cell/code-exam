@@ -2576,7 +2576,8 @@ async function runAiOverviewLocalShared({ index, grounding }) {
   let toolChars = 0;
   let budgetStopped = false;
   const toolCallCounts = new Map(); // #320 item 4
-  let modelsUsedResult = '';        // #320 1a/1c
+  let modelsUsedResult = '';        // #320 1a/1c (the model's own view, for the prose)
+  let modelsUsedArgs = null;        // the model's own call's arguments, disclosed in the notes
   let overviewSeedResult = '';
   const functions = {};
   for (const name of overviewToolNames) {
@@ -2600,7 +2601,7 @@ async function runAiOverviewLocalShared({ index, grounding }) {
         try { out = String(handleTool(name, args || {})); }
         catch (e) { out = `Error calling ${name}: ${e.message}`; }
         const capped = neutralizeSpecialTokens(out.slice(0, 4000), `${name} result`);
-        if (name === 'models_used' && !modelsUsedResult) modelsUsedResult = capped;
+        if (name === 'models_used' && !modelsUsedResult) { modelsUsedResult = capped; modelsUsedArgs = JSON.stringify(args || {}); }
         if (name === 'overview' && !overviewSeedResult) overviewSeedResult = capped;
         toolChars += capped.length;
         return capped;
@@ -2638,21 +2639,22 @@ async function runAiOverviewLocalShared({ index, grounding }) {
     // #276 fabrication guard: 0 tool calls in grounded mode = not an overview.
     const ungroundedNote = ungroundedWarning(toolCalls, grounding);
     if (ungroundedNote) prose = `${ungroundedNote}\n\n${prose}`;
-    // #320 1a/1c: AI/ML verification, self-calling models_used when the model
-    // skipped it — the skip is exactly the condition that produces the wrong
-    // answer. Same wiring as the CLI local path (ai-overview-local.js).
-    let verifyModelsUsed = modelsUsedResult;
+    // #320 1a/1c: AI/ML verification. The basis is CE's OWN unfiltered call,
+    // always — never the model's captured result (overview-verification-basis-
+    // unfiltered; asus-CC on #330: Gemma called models_used({"filter":"/"}),
+    // emptied the table, and the footnote then said "found no literal model ids
+    // in this index"). The model's result stays for the prose; its arguments
+    // are disclosed in the notes. Same wiring as the CLI paths.
+    let verifyModelsUsed = '';
     let selfCalledModelsUsed = false;
-    if (!verifyModelsUsed) {
-      try {
-        verifyModelsUsed = String(handleTool('models_used', {})).slice(0, 4000);
-        selfCalledModelsUsed = true;
-      } catch { /* verification is best-effort */ }
-    }
+    try {
+      verifyModelsUsed = String(handleTool('models_used', {})).slice(0, 4000);
+      selfCalledModelsUsed = true;
+    } catch { /* verification is best-effort */ }
     // index.files.keys(): a path CE itself indexed is not an invented model id.
     const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult, index.files.keys());
     if (aimlNote) prose += aimlNote;
-    const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed });
+    const converseNote = aimlConverseNote(prose, verifyModelsUsed, { selfCalled: selfCalledModelsUsed, modelCallArgs: modelsUsedArgs });
     if (converseNote) prose += converseNote;
     // #320 item 4: the evidentiary footer.
     prose += `\n\n${toolCallFooter(toolCallCounts, { selfCalledModelsUsed })}`;

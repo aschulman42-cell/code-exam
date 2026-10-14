@@ -31,6 +31,7 @@ import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { modelsUsedNegative } from './commands/metrics.js';
+import { filteredEmptyNotice } from './core/filter-match.js';
 import { maskCredentials } from './core/credential-mask.js';
 import { displayName, parseFuncSpec } from './utils.js';
 import { doCallTree } from './commands/graph.js';
@@ -895,7 +896,7 @@ function handleToolRaw(name, args) {
         if (args.filter && !item.name.toLowerCase().includes(args.filter.toLowerCase())) return false;
         return true;
       });
-      if (filtered.length === 0) return 'No results';
+      if (filtered.length === 0) return (args.filter && callData.length) ? filteredEmptyNotice('called functions', callData.length, args.filter) : 'No results';
       // `filtered` IS the population here — the full call list, filtered, then
       // sliced. The total was already in hand and was being discarded.
       const lines = [_rankedHeader(Math.min(n, filtered.length), filtered.length,
@@ -925,7 +926,7 @@ function handleToolRaw(name, args) {
         const f = args.filter.toLowerCase();
         results = scored.filter(h => h.name.toLowerCase().includes(f) || h.filepath.toLowerCase().includes(f));
       }
-      if (results.length === 0) return 'No hotspots found';
+      if (results.length === 0) return (args.filter && scored.length) ? filteredEmptyNotice('hotspots', scored.length, args.filter) : 'No hotspots found';
       const lines = [_rankedHeader(Math.min(n, results.length), results.length,
         'hotspots (score = calls x sqrt(lines))', 'Raise "n" to see more.')];
       for (const h of results.slice(0, n)) {
@@ -1007,7 +1008,7 @@ function handleToolRaw(name, args) {
           fn.name.toLowerCase().includes(f) || fn.filepath.toLowerCase().includes(f)
         );
       }
-      if (filtered.length === 0) return 'No functions found';
+      if (filtered.length === 0) return (args.filter && allFuncs.length) ? filteredEmptyNotice('functions', allFuncs.length, args.filter) : 'No functions found';
       // #160 A8: same non-selective-filter warning as list_files.
       const unselective = (args.filter && allFuncs.length && filtered.length >= allFuncs.length * 0.9)
         ? ` (note: filter "${args.filter}" matched ${filtered.length}/${allFuncs.length} — not selective; omit it for the whole picture)`
@@ -1032,7 +1033,7 @@ function handleToolRaw(name, args) {
         const f = args.filter.toLowerCase();
         files = files.filter(p => p.toLowerCase().includes(f));
       }
-      if (files.length === 0) return 'No files found';
+      if (files.length === 0) return (args.filter && all.length) ? filteredEmptyNotice('files', all.length, args.filter) : 'No files found';
       // #160 A8: warn on a non-selective filter — "main" matches every
       // `repo-main.zip!...` path, so a caller mistakes it for structure.
       const unselective = (args.filter && all.length && files.length >= all.length * 0.9)
@@ -1075,7 +1076,7 @@ function handleToolRaw(name, args) {
         const f = args.filter.toLowerCase();
         filtered = classes.filter(c => c.name.toLowerCase().includes(f));
       }
-      if (filtered.length === 0) return 'No classes found';
+      if (filtered.length === 0) return (args.filter && classes.length) ? filteredEmptyNotice('classes', classes.length, args.filter) : 'No classes found';
       const lines = [`${filtered.length} classes${args.filter ? ` matching "${args.filter}"` : ''}:`];
       for (const c of filtered.slice(0, 50)) {
         lines.push(`  ${c.name}  (${c.methods.length} methods, ${c.filepath})`);
@@ -1358,6 +1359,13 @@ function handleToolRaw(name, args) {
       const models = index.listModelsUsed(args.filter);
       // One definition, shared with the CLI — see modelsUsedNegative for why the
       // old wording produced a false claim about CE that a model then repeated.
+      // A filter that matched nothing is NOT absence (asus-CC, #330: a "/"
+      // filter emptied a 36-model table and the absence text was repeated as a
+      // fact about the index).
+      if (!models.length && args.filter) {
+        const all = index.listModelsUsed();
+        if (all.length) return filteredEmptyNotice('models', all.length, args.filter);
+      }
       if (!models.length) return modelsUsedNegative(models.unresolved || 0);
       const api = models.filter(m => m.access === 'api').length;
       const local = models.filter(m => m.access === 'local').length;

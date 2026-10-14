@@ -610,3 +610,50 @@ module.exports = { initCryptoContextTest };
     assert.match(out, /--claim-chart/, 'the audited chart stays a CLI command');
   });
 });
+
+// ---------------------------------------------------------------------------
+// overview-verification-basis-unfiltered, part B (asus-CC, #330): a filter that
+// matches nothing must not produce the ABSENCE message. Gemma called
+// models_used({"filter":"/"}) on a 36-model index and got "No model ids found -
+// do not infer absence", reasoned from it, and CE's footnote then repeated the
+// emptiness as a fact about the index. The same shape sat in list_functions,
+// list_files, list_classes, hotspots and most_called ("No X found").
+// ---------------------------------------------------------------------------
+
+describe('part B: a filter that matches nothing is disclosed, not reported as absence', () => {
+  const mem = new CodeSearchIndex({ indexPath: '.__test_mcp_filter_noindex__' });
+  const files = {
+    'a.js': "const DEFAULT_MODEL = 'claude-sonnet-4-6';\nexport function pickModel() { return DEFAULT_MODEL; }",
+    'b.js': "export function other() { return 1; }",
+  };
+  mem.fileLines = new Map(Object.entries(files).map(([p, s]) => [p, s.split('\n')]));
+  mem.files = new Map(Object.entries(files));
+  before(() => setIndex(mem));
+  after(() => setIndex(new CodeSearchIndex({ indexPath: IDX })));
+
+  it('models_used with a filter that matches nothing names the filter and the count, never the absence text', () => {
+    const out = handleTool('models_used', { filter: '/' });
+    assert.match(out, /No models match filter "\/"/, out);
+    assert.match(out, /1 exists/, out);
+    assert.doesNotMatch(out, /No model ids found/, 'the absence text is for an unfiltered empty result');
+    assert.doesNotMatch(out, /do not infer absence/);
+  });
+  it('models_used unfiltered still lists the model', () => {
+    assert.match(handleTool('models_used', {}), /claude-sonnet-4-6/);
+  });
+  it('list_files with an impossible filter names it', () => {
+    const out = handleTool('list_files', { filter: 'zzz-nothing' });
+    assert.match(out, /No files match filter "zzz-nothing"/, out);
+    assert.match(out, /2 exist/, out);
+    assert.doesNotMatch(out, /^No files found/);
+  });
+  it('an unfiltered empty list keeps its plain absence message', () => {
+    const empty = new CodeSearchIndex({ indexPath: '.__test_mcp_filter_empty__' });
+    empty.fileLines = new Map(); empty.files = new Map();
+    setIndex(empty);
+    try {
+      assert.equal(handleTool('list_files', {}), 'No files found');
+      assert.match(handleTool('models_used', {}), /No model ids found/);
+    } finally { setIndex(mem); }
+  });
+});

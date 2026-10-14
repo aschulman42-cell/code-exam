@@ -345,10 +345,18 @@ describe('#320 1c: the converse check — denial vs a non-empty models_used', ()
       'The codebase does not explicitly load or call any AI/ML models directly that could be identified.', USED_21);
     assert.match(note, /CONTRADICTED/);
   });
-  it('discloses when CE ran the tool itself for verification', () => {
+  it('discloses when CE ran the tool itself for verification (the model never called it)', () => {
     const note = aimlConverseNote('No AI/ML models detected.', USED_21, { selfCalled: true });
-    assert.match(note, /ran `models_used` itself for this check/);
-    assert.match(note, /the model did not call it/);
+    assert.match(note, /ran `models_used` unfiltered for this check/);
+    assert.match(note, /the model never called it/);
+  });
+  it('discloses the model\'s own call when it differed (overview-verification-basis-unfiltered)', () => {
+    // asus-CC, #330: Gemma called models_used({"filter":"/"}), emptied the table,
+    // and CE verified against that. The basis is now CE's unfiltered call; the
+    // model's call is disclosed, not used.
+    const note = aimlConverseNote('No AI/ML models detected.', USED_21, { selfCalled: true, modelCallArgs: '{"filter":"/"}' });
+    assert.match(note, /the model's own call was `models_used\(\{"filter":"\/"\}\)`/);
+    assert.match(note, /CodeExam re-ran it unfiltered for this check/);
   });
   it('silent when the denial is CORRECT (zlib case: negative tool output)', () => {
     assert.equal(aimlConverseNote('No AI/ML models are detected here.', NEGATIVE), '');
@@ -600,6 +608,13 @@ describe('class I: extraction junk from the CLI cloud run', () => {
   });
   it('a quoted span with spaces is seen word by word, not dropped', () => {
     assert.ok(namesInModelSentences('The AI model is "FakeNet 9000 Turbo" by the vendor.').includes('FakeNet'));
+  });
+});
+
+describe('overview-verification-basis-unfiltered: the footer names the unfiltered self-call', () => {
+  it('the verification extra says unfiltered', () => {
+    const line = toolCallFooter(new Map([['overview', 1], ['models_used', 1]]), { selfCalledModelsUsed: true });
+    assert.match(line, /CE ran `models_used` unfiltered for verification/);
   });
 });
 
