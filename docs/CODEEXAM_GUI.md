@@ -64,6 +64,16 @@ structural lists — **Functions**, **Files**, **Classes**, **Class Inheritance*
 Structures**, plus **Bundle Seams** and the extension census. Clicking a row loads it into the
 middle panes.
 
+The Overview surface ends with the opt-in **✨ Overview by AI** button, and the same surface is
+available as a pop-up (the **⧉ Open Overview pop-up** button in the Overview's button row). The two are one view: the
+prose, the ⓘ notes and the controls are identical in both. Under "Questions to start with", each
+question carries an **Ask in Chat** link, which switches to the Chat tab with the question filled
+in but not sent, and the heading carries a **↻ New questions** control, which fetches a different
+five in one short sampled call. Ask in Chat closes the pop-up when clicked from inside it, so the
+Chat tab is in view; the Overview in the pane keeps the same prose, and the pop-up reopens with it.
+Both controls are muted, with a tooltip saying why, until an engine is available. Detail in
+[`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md).
+
 Below those are the cross-cutting **catalogs and detectors** that summarize a whole codebase at
 once: the **AI/ML** inventory (models, kernels, training, inference, pipelines, …), the
 **client/server** HTTP surface, **referenced resources** (URLs, env vars, paths, external commands,

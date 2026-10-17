@@ -46,6 +46,16 @@ Two honest caveats:
   to the next). The rule of thumb: pin the sampling, and don't feed the model
   anything that changes on its own.
 
+One deliberate exception: the GUI's **↻ New questions** control on an Overview by
+AI's "Questions to start with" list makes a separate short call at temperature
+0.8, because a different five is the point, and replaces only the questions. The
+overview the questions sit under is unchanged and reproduces as above, and the
+note CodeExam writes under the new list (`ⓘ Questions regenerated (sampled,
+temperature 0.8); the overview above is unchanged.`, see
+[CODEEXAM_NOTATION.md](CODEEXAM_NOTATION.md)) is how a saved pane says which part
+came from which call. Under `--reproducible` the control is muted: pinned
+sampling cannot give different questions.
+
 ## Cloud models: not fully reproducible, even at temperature 0
 
 A cloud model (Claude, ChatGPT, Gemini) is **not fully reproducible**, even pinned

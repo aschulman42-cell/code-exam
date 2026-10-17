@@ -167,6 +167,12 @@ not a judgement of the answer.
   literals, and the tool found some. A denial of *calling* models is not contradicted by rows
   that are all `declared` (a model-shaped literal in code with no call site found); when such rows
   exist the note says how many.
+- **`ⓘ Questions regenerated (sampled, temperature 0.8); the overview above is unchanged.`** —
+  written under the "Questions to start with" list when the GUI's **↻ New questions** control
+  replaced it with a fresh set from a separate, sampled call. The overview's prose, the other
+  notes and the footer are the original run's; this note is what tells the reader of a saved
+  pane that the questions came from a second call at a temperature the overview did not use.
+  One line, never accumulated across regenerations.
 
 The `<models_used>` block under a note is the tool's own text, reproduced so the reader can judge
 for themselves; nothing in a note was read out of the index.

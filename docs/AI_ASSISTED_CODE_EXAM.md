@@ -22,7 +22,9 @@ an AI language model touches CodeExam's output **only** at these entry points �
 
 - the **`--analyze`** family — `--analyze`, `--file-analyze`, `--claim-analyze`, and
   `--multisect-analyze`;
-- **`--overview-by-ai`** — the agentic prose orientation of a whole codebase;
+- **`--overview-by-ai`** — the agentic prose orientation of a whole codebase (in the GUI, its
+  "Questions to start with" link to Chat and can be regenerated; see
+  [`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md));
 - **`--claim-search`** — term extraction from claim prose;
 - the **GUI Chat** tab;
 - and the **claims-analysis pipeline** — claim charts, `--claim-locate`, `claims-loop`,
