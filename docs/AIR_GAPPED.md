@@ -2,7 +2,9 @@
 
 CodeExam can run as a **hard no-cloud tool** for source-code review on isolated
 machines — e.g. under a source-code protective order in litigation, where the
-review computer must have no internet access.
+review computer must have no internet access (what those orders say, including
+the 2025–2026 AI provisions, is in
+[`SOURCE_CODE_PROTECTIVE_ORDERS.md`](SOURCE_CODE_PROTECTIVE_ORDERS.md)).
 
 ## What `--air-gapped` does
 
@@ -62,7 +64,11 @@ responsible for:
 
 In a protective-order setting the producing party is responsible for the
 isolated environment; `--air-gapped` is CodeExam doing *its* part (and flagging a
-reachable network), not a substitute for that isolation.
+reachable network), not a substitute for that isolation. To see CodeExam's own
+outbound surface rather than take it on trust, run its catalogs on an index of
+its source; the recipe and a dated run are in
+[`SOURCE_CODE_PROTECTIVE_ORDERS.md`](SOURCE_CODE_PROTECTIVE_ORDERS.md) under
+"Examining the examiner".
 
 ## Saving results
 
@@ -87,4 +93,5 @@ source, and AI-engine details), #215.
 - [`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md) — the optional AI features `--air-gapped` gates.
 - [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) — `--reproducible` and the provenance header.
 - [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md) — claim work under a protective order.
+- [`SOURCE_CODE_PROTECTIVE_ORDERS.md`](SOURCE_CODE_PROTECTIVE_ORDERS.md) — the orders themselves: the basics, the 2025–2026 AI provisions, where CodeExam fits.
 - [`GETTING_STARTED.md`](GETTING_STARTED.md) — installing and running CodeExam.

@@ -326,6 +326,23 @@ guidance only. Two shapes:
 See [`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md) and
 [`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md).
 
+## A protective order says AI tools must be "fully containerized". Does CodeExam qualify?
+
+**Q.** The protective order in my case allows AI tools only if they are "fully
+containerized" (or only under no-training, no-retention terms). Can I use CodeExam's AI
+features on the produced code?
+
+**A.** The term is order-specific, so read the definition in your order. With a **local
+model** (a GGUF under node-llama-cpp) CodeExam meets the data-use clauses by design: nothing
+is retained, trained on or reused, and nothing is sent anywhere; `--air-gapped` makes the
+no-cloud part the tool's own rule rather than a promise, though it is not a network sandbox
+for the machine. An order that also asks the tool to log access asks for something CodeExam
+does not do today. With a **cloud engine** (Claude API, OpenAI, Gemini) the material goes to
+the provider, and whether that is permitted is a question about your account's terms, not
+about CodeExam, which cannot see them. The 2025 and 2026 orders, the definitions, and what
+CodeExam writes to disk that a close-of-case clause must cover are in
+[`SOURCE_CODE_PROTECTIVE_ORDERS.md`](SOURCE_CODE_PROTECTIVE_ORDERS.md).
+
 ## GUI-only rough edges
 
 These are specific to the GUI; most are logged in **issue #343** and awaiting
