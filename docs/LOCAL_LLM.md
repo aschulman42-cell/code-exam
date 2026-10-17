@@ -1,7 +1,7 @@
 # Local LLMs in CodeExam
 
 CodeExam's LLM-assisted features can run against a **local GGUF model** on your
-own GPU — no cloud API, no network. The same Overview-by-AI, `--analyze`, claim
+own GPU — no cloud API, no network. The same Overview by AI, `--analyze`, claim
 search, and interactive chat you'd otherwise run against a cloud LLM like
 **Claude, ChatGPT, or Gemini**, driven instead by a model file on disk. This is
 what makes an air-gapped examination possible (see [AIR_GAPPED.md](AIR_GAPPED.md)

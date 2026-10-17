@@ -25,7 +25,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 
 - `src/index.js` — CLI entry point: parses argv, loads the index, dispatches every command; handles --gui/--mcp/--multi-index
 - `src/argparse.js` — declarative CLI flag table plus parser, deprecation and typo hints; sole source of --help text
-- `src/server.js` — GUI HTTP server: /api JSON routes over loaded indexes, index building, LLM chat and AI overview
+- `src/server.js` — GUI HTTP server: /api JSON routes over loaded indexes, index building, LLM chat and Overview by AI
 - `src/mcp-server.js` — MCP stdio server exposing CodeExam's index-query tools (search, callers, digest, overview, claim candidates) to MCP clients
 - `src/archive.js` — expands ZIP/TAR/GZIP/HAR archives in memory (nested, depth-capped) for --build-index; zip-bomb guards
 - `src/binstrings.js` — extracts printable strings from binaries into indexable .op pseudo-source; C++ demangling optional
@@ -73,7 +73,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/core/TreeSitterParser.js` — WASM tree-sitter extraction for 12 grammars, with binary sniffing, a size cap and a per-parse timeout
 - `src/core/ai-ml-detectors.js` — 17 AI/ML detector methods (models, kernels, training, LLM calls, chains…) mixed onto the index prototype
 - `src/core/ai-overview.js` — agentic prose orientation: drives Claude/OpenAI/Gemini over CE's own MCP tools and sums per-turn cost
-- `src/core/ai-overview-local.js` — runs the AI overview on a local GGUF via node-llama-cpp tool-calling, with tool-floor and refusal guards
+- `src/core/ai-overview-local.js` — runs the Overview by AI on a local GGUF via node-llama-cpp tool-calling, with tool-floor and refusal guards
 - `src/core/air-gapped.js` — enforces --air-gapped: blocks cloud calls, scrubs API keys, probes connectivity, emits the disclaimer
 - `src/core/answer-disclosure.js` — appends a post-hoc note stating what a declining answer actually searched, rather than scoring refusals
 - `src/core/breadcrumbs-commands.js` — extracts telemetry breadcrumbs and the CLI/route/GUI-action command catalog from indexed lines
@@ -218,7 +218,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_overview_example_resolution.js` — concept examples resolve to a definition, never the mention hub
 - `test/test_overview_groundedness.js` — the budget refusal-loop stop and the prose-vs-evidence groundedness check
 - `test/test_overview_local_hardening.js` — local Overview gates: tool budget/floor, date pinning, damage cap
-- `test/test_overview_sdk.js` — #196 SDK AI Overview: tool allow-list, name normalization, grounding clause
+- `test/test_overview_sdk.js` — #196 SDK Overview by AI: tool allow-list, name normalization, grounding clause
 - `test/test_path_prefix.js` — commonPathPrefix: strict shared prefix and dominant prefix with outlier tolerance
 - `test/test_phase2.js` — Phase 2 call graph: callers/callees, call counts, file deps, reload persistence
 - `test/test_phase3.js` — Phase 3 metrics: hotspot scoring, listClasses (incl. export macros), entry points

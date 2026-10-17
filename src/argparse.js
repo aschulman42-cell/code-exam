@@ -1239,7 +1239,7 @@ BROWSE:
                              the CE_OVERVIEW_MAX_BUDGET env var (this flag wins).
                              Local --model GGUF is air-gapped — no cap.
   --air-gapped               Block ALL cloud AI calls this run (claim/analyze
-                             LLM, chat, AI Overview); ANTHROPIC_API_KEY is
+                             LLM, chat, Overview by AI); ANTHROPIC_API_KEY is
                              ignored. Use a local --model GGUF (or a localhost
                              LLM endpoint) to still get AI. Refuses to start if
                              the internet is reachable — pass --allow-connected

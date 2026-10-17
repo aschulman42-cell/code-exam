@@ -17,7 +17,7 @@ import { stripLocalArtifacts, stripLeadingStructuralNoise } from '../src/core/ll
 const Q = String.fromCharCode(34);
 const DELIM = `<|${Q}|>`;          // token 52, the DSL string delimiter
 
-test('REAL: a <|"|> run ahead of the prose (GUI AI Overview)', () => {
+test('REAL: a <|"|> run ahead of the prose (GUI Overview by AI)', () => {
   const out = stripLocalArtifacts(DELIM.repeat(7) + 'Ghost Architect is a multi-pass scanning engine.');
   assert.equal(out, 'Ghost Architect is a multi-pass scanning engine.');
 });

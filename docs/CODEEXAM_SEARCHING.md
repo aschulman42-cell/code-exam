@@ -74,7 +74,7 @@ exploration, #201 / #202.
 
 When you can't name the thing you're after, start from what CodeExam has already ranked:
 
-- **Overview** — its vocabulary and concepts, and, with **Overview-by-AI**, suggested questions to
+- **Overview** — its vocabulary and concepts, and, with **Overview by AI**, suggested questions to
   ask and good first places to look (see [`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md)).
 - **Vocabulary** — the ranked term list the Overview draws on, also a category on its own (the
   GUI's left-pane accordion, `--vocabulary` on the CLI).

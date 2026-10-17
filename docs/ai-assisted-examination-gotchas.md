@@ -11,7 +11,7 @@ examiner who will have to defend a work product: some of CodeExam's audience wor
 under a Protective Order, across the table (so to speak) from an opposing expert whose job is to
 find weak spots. A fabricated detail that survives into a report is such a weak spot.
 
-**Scope.** Everything here is about the **optional AI layer** — Overview-by-AI, `--analyze`, claim
+**Scope.** Everything here is about the **optional AI layer** — Overview by AI, `--analyze`, claim
 search, claim charts, GUI Chat, and the rest of the claims-analysis pipeline. See
 [`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md) for the full list of CodeExam features that
 employ AI. CodeExam's deterministic core (search, the structural lists and catalogs,

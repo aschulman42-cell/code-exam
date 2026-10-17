@@ -9,7 +9,7 @@ how *this* code names things. CodeExam has a small set of features aimed squarel
 that first question: *what is this code about, and where should I start?* They run off
 the index, so they behave the same on a million-line tree as on a single file.
 
-Two of them — the **Overview** and the **AI Overview** — attempt to synthesize the
+Two of them — the **Overview** and the **Overview by AI** — attempt to synthesize the
 whole index into an initial orientation to the codebase's key terminology and
 nomenclature. The other two — **vocabulary** and **breadcrumbs** — surface the raw
 signals that orientation is built from, and are useful on their own.
@@ -46,7 +46,7 @@ The concept and file lists come straight from the vocabulary ranking, so an over
 is only as sharp as the vocabulary underneath it — which is a feature in its own right
 (see **Vocabulary**, below).
 
-## AI Overview — `--overview-by-ai`
+## Overview by AI — `--overview-by-ai`
 
 `ce --overview-by-ai` produces a *written* orientation instead of a structured one: a
 short prose narrative of what the code is, its architecture, and what it does, plus
@@ -63,7 +63,7 @@ two things the deterministic overview can't give you —
 It runs against a cloud LLM or a local GGUF model — your choice of engine — and is
 **grounded by default**: the model is told to base the overview only on what the tools
 surface about the code, and to say when something can't be determined rather than
-filling the gap from general knowledge. Because a model is involved, the AI Overview
+filling the gap from general knowledge. Because a model is involved, the Overview by AI
 is optional and does not repeat bit-for-bit the way the deterministic overview does.
 For the engine choice see [AI_ASSISTED_CODE_EXAM.md](AI_ASSISTED_CODE_EXAM.md) and
 [LOCAL_LLM.md](LOCAL_LLM.md); for what does and doesn't repeat,

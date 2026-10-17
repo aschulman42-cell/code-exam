@@ -29,7 +29,7 @@ a term that is frequent in a few files but rare across the codebase is
 Corpus-shape and license-text noise that swamps TF-IDF is handled with explicit
 stopword lists (#172).
 
-**Powers:** `--vocabulary`, the Overview and AI Overview, and the breadcrumb
+**Powers:** `--vocabulary`, the Overview and Overview by AI, and the breadcrumb
 labels.
 
 ### 2. Term rareness *across* codebases — "universal-term down-weighting"
@@ -107,7 +107,7 @@ of many lists and catalogs:
 ## See also
 
 - [`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md) — vocabulary, breadcrumbs,
-  Overview / AI Overview (the main consumers of importance).
+  Overview / Overview by AI (the main consumers of importance).
 - [`CODEEXAM_BROWSING.md`](CODEEXAM_BROWSING.md) — hotspots and cross-reference
   metrics.
 - [`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md) — candidate salience.

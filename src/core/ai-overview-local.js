@@ -1,4 +1,4 @@
-// ai-overview-local.js — runs the AI overview on a local GGUF via node-llama-cpp tool-calling, with tool-floor and refusal guards
+// ai-overview-local.js — runs the Overview by AI on a local GGUF via node-llama-cpp tool-calling, with tool-floor and refusal guards
 // Copyright (c) 2026 Andrew Schulman
 // https://github.com/aschulman42-cell/code-exam
 // Co-authored with Claude (Claude Code).
@@ -779,7 +779,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     const timeoutAbort = new AbortController();
     const timeout = new Promise((_, rej) => {
       timer = setTimeout(() => {
-        const err = new Error(`local AI overview timed out (${Math.round(timeoutMs / 60000)} min)`);
+        const err = new Error(`local Overview by AI timed out (${Math.round(timeoutMs / 60000)} min)`);
         timeoutAbort.abort(err);
         rej(err);
       }, timeoutMs);
@@ -950,7 +950,7 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     // Chain-of-thought + Gemma 4 DSL markers + fabricated closers. The
     // enumeration and the reasoning now live in ONE place (llm-runner's
     // stripLocalArtifacts) because keeping three copies is exactly how the GUI
-    // AI Overview path missed the marker fix.
+    // Overview by AI path missed the marker fix.
     let prose = stripLocalArtifacts(raw);
     // #276 fabrication guard: 0 tool calls in grounded mode = not an overview.
     const warn = ungroundedWarning(toolCalls, grounding, prefetched);

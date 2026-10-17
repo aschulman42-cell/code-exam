@@ -30,8 +30,8 @@ test('assertLocalOnly throws only when air-gapped, with a helpful message', () =
   setAirGapped(false);
   assert.doesNotThrow(() => assertLocalOnly('claim-search'));
   setAirGapped(true);
-  assert.throws(() => assertLocalOnly('AI Overview'),
-    /air-gapped[\s\S]*AI Overview[\s\S]*--model/i);
+  assert.throws(() => assertLocalOnly('Overview by AI'),
+    /air-gapped[\s\S]*Overview by AI[\s\S]*--model/i);
   setAirGapped(false); // reset
 });
 

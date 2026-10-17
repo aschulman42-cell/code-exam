@@ -158,7 +158,7 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
       .filter(t => allowed.has(String(t.name).split('__').pop()))
       .map(t => ({ name: t.name, description: t.description, input_schema: t.inputSchema }));
     if (!sdkTools.length) {
-      throw new Error('AI Overview: no CodeExam MCP tools reachable (the mcp-server may have failed to start).');
+      throw new Error('Overview by AI: no CodeExam MCP tools reachable (the mcp-server may have failed to start).');
     }
 
     // #223 air-gap is enforced per-engine below: the Claude branch blocks
@@ -192,7 +192,7 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
     const checkBudget = () => {
       const { usd } = estimateCost(useModel, usage);
       if (Number.isFinite(usd) && usd > budgetUsd) {
-        throw new Error(`AI Overview hit the $${budgetUsd} spend cap. Raise it with CE_OVERVIEW_MAX_BUDGET=<amount> and retry, or narrow the index.`);
+        throw new Error(`Overview by AI hit the $${budgetUsd} spend cap. Raise it with CE_OVERVIEW_MAX_BUDGET=<amount> and retry, or narrow the index.`);
       }
     };
     let prose = '';
@@ -207,10 +207,10 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
       // CE_OPENAI_API_URL (e.g. LM Studio) — parity with chat/analyze. Checked
       // BEFORE the key check so an air-gapped run reports the air-gap reason
       // (parallel to the Claude branch), not a misleading "no API key".
-      if (!isLocalApiUrl(apiUrl)) assertLocalOnly(`AI Overview (cloud ${prov.label})`);
+      if (!isLocalApiUrl(apiUrl)) assertLocalOnly(`Overview by AI (cloud ${prov.label})`);
       const key = apiKey || process.env[prov.keyEnv];
       if (!key) {
-        throw new Error(`AI Overview needs a ${prov.label} key — set ${prov.keyEnv} (or ${prov.keyFiles[0]} / ${prov.keyFlag}), or run an air-gapped overview with a local --model <gguf>.`);
+        throw new Error(`Overview by AI needs a ${prov.label} key — set ${prov.keyEnv} (or ${prov.keyFiles[0]} / ${prov.keyFlag}), or run an air-gapped overview with a local --model <gguf>.`);
       }
       const oaTools = sdkTools.map(t => ({
         type: 'function',
@@ -256,13 +256,13 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
     } else {
       // #223: Claude egresses to api.anthropic.com (no loopback override), so an
       // air-gapped run is blocked unconditionally here.
-      assertLocalOnly('AI Overview (cloud)');
+      assertLocalOnly('Overview by AI (cloud)');
       // Honor the forwarded key (--api-key / claude.txt), not just the env var —
       // previously the Claude branch ignored apiKey and hard-required the env,
       // so a --api-key-only setup failed Overview while Chat/Analyze worked.
       const key = apiKey || process.env.ANTHROPIC_API_KEY;
       if (!key) {
-        throw new Error('AI Overview needs an Anthropic API key — set ANTHROPIC_API_KEY, pass --api-key, create claude.txt, or run an air-gapped overview with a local --model <gguf>.');
+        throw new Error('Overview by AI needs an Anthropic API key — set ANTHROPIC_API_KEY, pass --api-key, create claude.txt, or run an air-gapped overview with a local --model <gguf>.');
       }
       const Anthropic = (await import('@anthropic-ai/sdk')).default;
       const anthropic = new Anthropic({ apiKey: key });
@@ -295,7 +295,7 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
       }
     }
 
-    if (!prose) throw new Error('AI Overview produced no prose (empty model output).');
+    if (!prose) throw new Error('Overview by AI produced no prose (empty model output).');
 
     // #320 1a/1c, cloud-inclusive: verify the AI/ML sentence on every engine.
     // The basis is CE's OWN unfiltered call, always (the MCP client is still
@@ -345,7 +345,7 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
   let timer;
   const timeout = new Promise((_, rej) => {
     timer = setTimeout(() => rej(new Error(
-      `AI Overview timed out (${Math.round(timeoutMs / 60000)} min). Very large indexes may need a longer --timeout.`)), timeoutMs);
+      `Overview by AI timed out (${Math.round(timeoutMs / 60000)} min). Very large indexes may need a longer --timeout.`)), timeoutMs);
   });
 
   try {

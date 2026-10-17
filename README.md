@@ -76,7 +76,7 @@ baked into mechanical detectors.
 3. **Uncovering what a codebase is about.** CodeExam works to extract a
    codebase's "vocabulary" and key concepts, its "breadcrumbs" (telemetry
    markers in code), and referenced-resources (data files, URLs, environment variables, etc.) — and presents initial questions to ask and
-   good first places to look, via the Overview and (optional) AI Overview
+   good first places to look, via the Overview and (optional) Overview by AI
    features. → [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md)
 
 4. **Quasi-source.** A surprising amount of indexable structure can be
@@ -217,7 +217,7 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`CODEEXAM_KEY_FEATURES.md`](docs/CODEEXAM_KEY_FEATURES.md) | Browse and search, metrics, catalogs — the overview |
 | [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md) | Literal / fast / regex search and multisect |
 | [`CODEEXAM_BROWSING.md`](docs/CODEEXAM_BROWSING.md) | Structural lists, cross-reference, and code-surfacing metrics |
-| [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md) | Vocabulary, breadcrumbs, Overview / AI Overview |
+| [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md) | Vocabulary, breadcrumbs, Overview / Overview by AI |
 | [`MEASURING_IMPORTANCE.md`](docs/MEASURING_IMPORTANCE.md) | How CodeExam estimates "importance" (rareness, TF-IDF, cross-corpus down-weighting, centrality) and uses it to steer and sort |
 | [`CODEEXAM_SUMMARIZING.md`](docs/CODEEXAM_SUMMARIZING.md) | Summarizing code: overview, digest, analyze, GUI chat (outline) |
 | [`QUASI_SOURCE.md`](docs/QUASI_SOURCE.md) | Binary analysis and bundled-JS extraction |
@@ -247,14 +247,14 @@ Overview typically runs around $0.50, analyzing a single function a few
 cents — and CodeExam shows an estimated cost before it spends. Two guards keep
 it bounded:
 
-- **`--max-budget-usd`** — a hard spend ceiling on an AI Overview run (also
+- **`--max-budget-usd`** — a hard spend ceiling on an Overview by AI run (also
   settable via the `CE_OVERVIEW_MAX_BUDGET` environment variable; default $5).
 - **`CE_CLAIMS_COST_GUARD`** — an estimated-cost threshold for the
   claim/analyze pipeline: if a run's projected cost exceeds it, CodeExam stops
   and asks before sending anything (raise the value, or pass `--force`, to
   proceed).
 
-Both guards are **per run** — a ceiling on a single AI Overview, or a pre-flight
+Both guards are **per run** — a ceiling on a single Overview by AI, or a pre-flight
 estimate on a single claim/analyze run. Neither accumulates spend across separate
 `ce` invocations or within a GUI session, so size each run's limit accordingly.
 

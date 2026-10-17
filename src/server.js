@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// server.js — GUI HTTP server: /api JSON routes over loaded indexes, index building, LLM chat and AI overview
+// server.js — GUI HTTP server: /api JSON routes over loaded indexes, index building, LLM chat and Overview by AI
 // Copyright (c) 2026 Andrew Schulman
 // https://github.com/aschulman42-cell/code-exam
 // Co-authored with Claude (Claude Code).
@@ -8,7 +8,7 @@
  * server.js - GUI server for Code Exam.
  *
  * The HTTP layer is Node's built-in http module (no web framework); the MCP
- * and AI-overview imports bring the dependencies declared in package.json.
+ * and Overview by AI imports bring the dependencies declared in package.json.
  * Loads one or more CodeSearchIndex instances and exposes API routes
  * that return JSON. The browser UI (public/) handles rendering.
  *
@@ -291,7 +291,7 @@ if (serverArgs.catalogPath) {
 // params (engine, apiKey). Local model is loaded once and reused.
 // ========================================================================
 
-// Serialize ALL local-GGUF work — chat, AI-overview, and analyze/claim term
+// Serialize ALL local-GGUF work — chat, Overview by AI, and analyze/claim term
 // extraction share the model's single cached sequence (and clearHistory reset),
 // so overlapping local requests would prompt the same sequence concurrently and
 // corrupt both generations (garbled output or a native crash). This promise-
@@ -2540,7 +2540,7 @@ async function runAiOverviewLocalShared({ index, grounding }) {
   if (loaded.error) throw new Error(loaded.error);
   const lm = serverLLM._localModel;
   if (!lm || !lm.defineChatSessionFunction) {
-    throw new Error('local AI overview: node-llama-cpp function-calling unavailable (update node-llama-cpp).');
+    throw new Error('local Overview by AI: node-llama-cpp function-calling unavailable (update node-llama-cpp).');
   }
   const { LlamaChatSession, defineChatSessionFunction } = lm;
   const overviewToolNames = AI_OVERVIEW_TOOLS.split(',').map(t => t.replace(/^mcp__code-exam__/, ''));
@@ -2567,7 +2567,7 @@ async function runAiOverviewLocalShared({ index, grounding }) {
   const _headroom = lm.contextSize - (_overhead ?? 1200) - maxTokens;
   if (_headroom < 400) {
     throw new Error(
-      `local AI overview needs a larger context: ${lm.contextSize} tokens cannot hold the prompt and `
+      `local Overview by AI needs a larger context: ${lm.contextSize} tokens cannot hold the prompt and `
       + `${overviewToolNames.length} tool definitions (~${_overhead ?? 1200} tokens) plus room for tool results. `
       + `Try --context-size 8192 or more, add --flash-attention so a larger context fits in the same VRAM, `
       + `or use a smaller model.`);
@@ -2635,7 +2635,7 @@ async function runAiOverviewLocalShared({ index, grounding }) {
         if (prose) console.log('  [ai-overview] first pass returned no prose — recovered via nudge');
       } catch (e) { console.warn(`  [ai-overview] nudge failed: ${e.message}`); }
     }
-    if (!prose) throw new Error('local AI overview: the model returned no prose — try a stronger model or larger --context-size.');
+    if (!prose) throw new Error('local Overview by AI: the model returned no prose — try a stronger model or larger --context-size.');
     // #276 fabrication guard: 0 tool calls in grounded mode = not an overview.
     const ungroundedNote = ungroundedWarning(toolCalls, grounding);
     if (ungroundedNote) prose = `${ungroundedNote}\n\n${prose}`;
@@ -2685,7 +2685,7 @@ routes['/api/ai-overview'] = (req, res) => {
   }
 
   const idxPath = index.indexPath;
-  if (!idxPath) return errorResponse(res, 'The loaded index has no on-disk path; AI Overview needs one to point the MCP server at it.', 400);
+  if (!idxPath) return errorResponse(res, 'The loaded index has no on-disk path; Overview by AI needs one to point the MCP server at it.', 400);
 
   // #246: cloud engines resolved through the registry (claude / openai /
   // gemini). Same agentic loop over CE's own mcp-server; runAiOverview
