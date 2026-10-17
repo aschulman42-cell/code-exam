@@ -229,6 +229,8 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`CODEEXAM_PSEUDO_CLAIMS.md`](docs/CODEEXAM_PSEUDO_CLAIMS.md) | Drafting illustrative "pseudo-claims" from code — anchors, candidates, `--filter` |
 | [`LOCAL_LLM.md`](docs/LOCAL_LLM.md) | Local GGUF models |
 | [`AIR_GAPPED.md`](docs/AIR_GAPPED.md) | Enforced no-cloud operation |
+| [`SOURCE_CODE_PROTECTIVE_ORDERS.md`](docs/SOURCE_CODE_PROTECTIVE_ORDERS.md) | Source-code protective orders: the basics, the 2025–2026 AI provisions ("fully containerized"), and where CodeExam fits |
+| [`CODEEXAM_AND_UNDERSTAND.md`](docs/CODEEXAM_AND_UNDERSTAND.md) | CodeExam beside SciTools Understand: where they overlap, the two "Overview" features that share a name, what each does that the other does not, using both in one review |
 | [`REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) | Reproducibility of AI-layer answers; pinning the model side (`--reproducible`) |
 | [`CODEEXAM_INDEXES.md`](docs/CODEEXAM_INDEXES.md) | Building and managing indexes; the on-disk format |
 | [`CODEEXAM_ARCHITECTURE.md`](docs/CODEEXAM_ARCHITECTURE.md) | Engine and module layout |
