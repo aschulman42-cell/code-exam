@@ -15,6 +15,7 @@ import os from 'os';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 import { handleTool, TOOLS, setIndex } from '../src/mcp-server.js';
 import { modelsUsedNegative } from '../src/commands/metrics.js';
+import { indexPathsFromListFiles } from '../src/core/answer-disclosure.js';
 
 const SRC = path.join(os.tmpdir(), 'ce_mcp_tools_src');
 const IDX = path.join(os.tmpdir(), 'ce_mcp_tools_idx');
@@ -295,6 +296,36 @@ describe('#306 cap footer reaches the highest-volume truncations', () => {
   it('neither adds a footer when nothing was truncated', () => {
     assert.doesNotMatch(handleTool('list_functions', { max: 10000 }), /not shown/);
     assert.doesNotMatch(handleTool('list_files', { max: 10000 }), /not shown/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// overview-cloud-carveout-trace-and-parser-test (asus-CC on #330, item 3). The
+// cloud overview loop has no in-process index: for the indexed-path carve-out
+// it asks its own MCP server for list_files and parses the text with
+// indexPathsFromListFiles. That parser was unit-tested against a hand-written
+// fixture, never against what the handler emits. The MCP client receives
+// exactly the handler's return string, so the round trip is exercised here
+// through handleTool with no key, no client and no transport.
+// ---------------------------------------------------------------------------
+describe('cloud carve-out: indexPathsFromListFiles parses the real list_files text', () => {
+  before(() => { setIndex(new CodeSearchIndex({ indexPath: IDX })); });
+
+  it('an uncapped list_files round-trips to every indexed path, in order', () => {
+    const expected = [...new CodeSearchIndex({ indexPath: IDX }).files.keys()];
+    assert.ok(expected.length >= 2, 'fixture has several files');
+    const got = indexPathsFromListFiles(handleTool('list_files', { max: 1000000000 }));
+    assert.deepEqual(got, expected);
+  });
+
+  it('a capped list keeps the paths and drops the "... N more not shown" footer', () => {
+    const got = indexPathsFromListFiles(handleTool('list_files', { max: 1 }));
+    assert.equal(got.length, 1);
+    assert.doesNotMatch(got[0], /not shown/);
+  });
+
+  it('an impossible filter yields no paths from the filtered-empty notice', () => {
+    assert.deepEqual(indexPathsFromListFiles(handleTool('list_files', { filter: 'no-such-file-zzz' })), []);
   });
 });
 

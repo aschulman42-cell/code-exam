@@ -32,7 +32,7 @@ import { resolveIndexDir } from './archive.js';
 import { groupSites, groupPipelines, reTestExamplePath, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { makeFilterMatcher } from './core/filter-match.js';
 // F58: pin `Today Date:` so the GUI's local sessions do not inherit a live clock.
-import { chatSessionOptions, ggufContextOptions, stripLocalArtifacts } from './core/llm-runner.js';
+import { chatSessionOptions, ggufContextOptions, stripLocalArtifacts, draftCloud } from './core/llm-runner.js';
 import { extractExports } from './core/exports.js';
 import { extractImports } from './core/imports.js';
 import { extractConcepts, INTRINSIC_NAMES, isIntrinsicName } from './core/vocabulary.js';
@@ -40,7 +40,7 @@ import { buildOverviewFast, buildOverviewDeep } from './core/overview.js';
 import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
-import { runAiOverview, AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './core/ai-overview.js';
+import { runAiOverview, AI_OVERVIEW_TOOLS, aiOverviewPrompt, questionsRegenPrompt, questionLinesFromAnswer, QUESTIONS_REGEN_TEMPERATURE, QUESTIONS_REGEN_MAX_TOKENS } from './core/ai-overview.js';
 import { resolveLocalChatTools } from './core/local-chat-tools.js';
 import { strictInstructionsFor, ungroundedWarning, localBudgets } from './core/ai-overview-local.js';
 import { aimlVerificationNote, aimlConverseNote, toolCallFooter } from './core/answer-disclosure.js';
@@ -2763,6 +2763,74 @@ routes['/api/string-table'] = (req, res) => {
 
 
 // --- Breadcrumbs (telemetry trace) ---
+
+// gui-overview-questions-regenerate: one short, tool-free call for a different
+// "Questions to start with" list. The client sends the overview it shows and
+// the questions on screen; the prompt builder drops CE's ⓘ notes from the
+// orientation and quotes the current five so the new ones differ. Sampled on
+// purpose: the overview runs pinned or greedy, so a re-run gives the same
+// five. Local: the server-loaded GGUF on the shared sequence, serialized like
+// every local request, refused as "pinned" under --reproducible. Cloud: a
+// single draftCloud call over the selected engine, no tools, behind the
+// air-gap check like the chat loops.
+routes['/api/ai-overview-questions'] = (req, res) => {
+  if (req.method !== 'POST') return errorResponse(res, 'POST required', 405);
+  let body = '';
+  req.on('data', chunk => { body += chunk; if (body.length > 400_000) req.destroy(); });
+  req.on('end', async () => {
+    let params;
+    try { params = JSON.parse(body || '{}'); } catch { return errorResponse(res, 'Invalid JSON body'); }
+    const index = mgr.get(params.index);
+    if (!index) return errorResponse(res, 'No index loaded', 404);
+    const prose = String(params.prose || '');
+    if (!prose.trim()) return errorResponse(res, 'Missing "prose" (the overview to write new questions for)');
+    const current = Array.isArray(params.current) ? params.current.map(String) : [];
+    const { system, user } = questionsRegenPrompt(prose, current);
+    const engine = params.engine === 'local' ? 'local'
+      : (params.engine === 'openai' || params.engine === 'gemini') ? params.engine : 'claude';
+    const note = `ⓘ Questions regenerated (sampled, temperature ${QUESTIONS_REGEN_TEMPERATURE}); the overview above is unchanged.`;
+    try {
+      if (engine === 'local') {
+        const out = await withLocalLock(async () => {
+          if (serverLLM.reproducible) return { pinned: true };
+          const loaded = await serverLLM.ensureLocalModel();
+          if (loaded.error) throw new Error(loaded.error);
+          const lm = serverLLM._localModel;
+          const sequence = await serverLLM.acquireSharedSequence();
+          const session = new lm.LlamaChatSession(await chatSessionOptions(sequence));
+          const wrapperName = session.chatWrapper && session.chatWrapper.wrapperName;
+          const promptText = strictInstructionsFor(wrapperName, `${system}\n\n${user}`);
+          const raw = await session.prompt(promptText, { maxTokens: QUESTIONS_REGEN_MAX_TOKENS, temperature: QUESTIONS_REGEN_TEMPERATURE });
+          return { text: stripLocalArtifacts(raw), model: serverLLM.defaultModelPath ? path.basename(serverLLM.defaultModelPath) : '(local)' };
+        });
+        if (out.pinned) return jsonResponse(res, { pinned: true, note: 'Pinned sampling (--reproducible) cannot give new questions.' });
+        const lines = questionLinesFromAnswer(out.text);
+        if (!lines.length) return errorResponse(res, 'local Overview by AI: the model returned no questions — try again, or a stronger model.', 502);
+        console.log(`  [ai-overview] new questions (local · ${out.model}): ${lines.length}`);
+        return jsonResponse(res, { lines, note, engine: 'local', model: out.model });
+      }
+      if (isAirGapped()) return errorResponse(res, '--air-gapped: new questions over a cloud engine are blocked. Set the Workspace engine to Local.', 403);
+      const prov = PROVIDERS[engine];
+      const key = engine === 'openai' ? serverLLM.defaultOpenAIKey : engine === 'gemini' ? serverLLM.defaultGeminiKey : serverLLM.defaultApiKey;
+      if (!key) return errorResponse(res, `${prov.label}: no API key configured (set ${prov.keyEnv}).`, 400);
+      const modelId = engine === 'openai' ? serverLLM.defaultOpenAIModel
+        : engine === 'gemini' ? serverLLM.defaultGeminiModel
+        : (process.env.CE_AI_OVERVIEW_MODEL || prov.defaultModel);
+      const descriptor = prov.wire === 'anthropic'
+        ? { wire: 'anthropic', apiUrl: process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages', key, model: modelId, label: prov.label }
+        : { wire: prov.wire, apiUrl: `${prov.baseUrl}/chat/completions`, key, model: modelId, label: prov.label };
+      const text = await draftCloud(descriptor, system, user, QUESTIONS_REGEN_MAX_TOKENS, QUESTIONS_REGEN_TEMPERATURE);
+      const lines = questionLinesFromAnswer(text);
+      if (!lines.length) return errorResponse(res, `${prov.label} returned no questions.`, 502);
+      console.log(`  [ai-overview] new questions (${engine} · ${modelId}): ${lines.length}`);
+      return jsonResponse(res, { lines, note, engine, model: modelId });
+    } catch (e) {
+      const msg = (e && e.message) ? e.message : String(e);
+      console.log(`  [ai-overview] new questions did not complete: ${msg}`);
+      return errorResponse(res, msg, /timed out/i.test(msg) ? 504 : 502);
+    }
+  });
+};
 
 routes['/api/breadcrumbs'] = (req, res) => {
   const q = parseQuery(req.url);

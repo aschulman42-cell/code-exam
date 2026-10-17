@@ -38,6 +38,7 @@ import { showMiddleTopError, showMiddleTopLoading, renderFilesByExtension, clear
 import { renderStringDetail } from './prompts-and-catalog.js';
 import { openCompareView } from './overlays.js';
 import { showConfirmDialog } from './dialogs.js';
+import { findQuestionsSection, questionFromOverviewLine, questionsInProse, spliceQuestions } from './overview-questions.js';
 
 
 // ============================================================================
@@ -2156,9 +2157,15 @@ async function runAiOverview(btn, result, ov, renderProse) {
 export function renderAiOverview(container, prose) {
   container.innerHTML = '';
   const wrap = h('div', { className: 'ai-overview-prose', style: 'padding:2px 6px;line-height:1.5;font-size:13px' });
-  for (const raw of String(prose || '').split('\n')) {
+  const lines = String(prose || '').split('\n');
+  // gui-overview-questions-to-chat: the "Questions to start with" section gets
+  // an Ask in Chat link per question (overview-questions.js finds the section
+  // and extracts the prompt from either model shape).
+  const qsec = findQuestionsSection(lines);
+  const chatReady = _anyEngineAvailable();
+  lines.forEach((raw, i) => {
     const line = raw.replace(/\s+$/, '');
-    if (!line.trim()) { wrap.appendChild(h('div', { style: 'height:7px' })); continue; }
+    if (!line.trim()) { wrap.appendChild(h('div', { style: 'height:7px' })); return; }
     const isHeader = /^#{1,6}\s/.test(line) || /^\*\*[^*].*\*\*:?\s*$/.test(line);
     const isBullet = /^\s*[-*]\s+/.test(line) && !/^\s*\*\*/.test(line);
     const text = line.replace(/^#{1,6}\s+/, '').replace(/^\s*[-*]\s+/, '');
@@ -2166,9 +2173,108 @@ export function renderAiOverview(container, prose) {
       style: (isHeader ? 'font-weight:700;color:var(--accent-blue);margin-top:9px;' : '') + (isBullet ? 'padding-left:16px;text-indent:-9px;' : ''),
     });
     appendProseWithRefs(el, (isBullet ? '• ' : '') + text);
+    if (qsec && i >= qsec.start && i < qsec.end) {
+      const q = questionFromOverviewLine(line);
+      if (q) el.appendChild(makeAskInChatLink(q, chatReady));
+    }
+    // gui-overview-questions-regenerate: the control sits on the section's
+    // header line.
+    if (qsec && i === qsec.headerAt) el.appendChild(makeNewQuestionsControl(prose, chatReady));
     wrap.appendChild(el);
-  }
+  });
   container.appendChild(wrap);
+}
+
+// The ↻ New questions control: live when an engine is available and the
+// server is not running with --reproducible (pinned sampling cannot give new
+// questions); muted with a tooltip otherwise.
+function makeNewQuestionsControl(prose, engineReady) {
+  const pinned = !!(state.llmStatus && state.llmStatus.reproducible);
+  const ready = engineReady && !pinned;
+  const a = h('span', {
+    className: ready ? 'name clickable new-questions' : 'new-questions',
+    text: '↻ New questions',
+    title: pinned
+      ? 'Pinned sampling (--reproducible) cannot give new questions'
+      : ready
+        ? 'Ask the engine for a different five (one short sampled call; the overview above is unchanged)'
+        : 'Chat needs an LLM: set an API key, or load a local model (Index menu)',
+    style: 'margin-left:10px;font-size:11px;font-weight:400;white-space:nowrap' + (ready ? '' : ';color:var(--text-muted);cursor:default'),
+  });
+  if (ready) a.addEventListener('click', (e) => { e.stopPropagation(); regenerateQuestions(a, prose); });
+  return a;
+}
+
+const _REGEN_NOTE_RE = /^ⓘ Questions regenerated[^\n]*\n?/m;
+
+// One short, tool-free call for a different five; the answer is spliced into
+// the cached prose in place of the old list (the ⓘ notes and the footer stay),
+// with a note in CE's voice under the list saying the questions were sampled.
+// Every rendered copy (pane and pop-up) is re-rendered from the spliced prose.
+async function regenerateQuestions(ctl, prose) {
+  const orig = ctl.textContent;
+  ctl.textContent = '⏳ New questions…';
+  ctl.style.pointerEvents = 'none';
+  try {
+    const data = await api.post('ai-overview-questions', {
+      engine: _wsEngine(),
+      prose,
+      current: questionsInProse(prose),
+    }, { timeout: 300000 });
+    if (data.pinned) {
+      ctl.title = data.note || 'Pinned sampling (--reproducible) cannot give new questions';
+      ctl.textContent = orig;
+      return;
+    }
+    const base = String(prose || '').replace(_REGEN_NOTE_RE, '');
+    const next = spliceQuestions(base, [...(data.lines || []), '', data.note || 'ⓘ Questions regenerated (sampled); the overview above is unchanged.']);
+    if (_aiOverviewProse === prose) _aiOverviewProse = next;
+    document.querySelectorAll('.ai-overview-result').forEach((c) => renderAiOverview(c, next));
+  } catch (err) {
+    ctl.textContent = orig;
+    ctl.style.pointerEvents = '';
+    ctl.title = `New questions failed: ${err.message}`;
+    ctl.style.color = 'var(--accent-red,#d33)';
+  }
+}
+
+// Any engine the server reports available? Unknown (no status yet) counts as
+// available, the same call checkEngineAvailability makes: let Chat's own
+// refusal hints speak rather than hide the affordance.
+function _anyEngineAvailable() {
+  const s = state.llmStatus;
+  if (!s) return true;
+  return ['claude', 'openai', 'gemini', 'local'].some((e) => s[e] && s[e].available);
+}
+
+// The Ask in Chat link after a question: live when an engine is available
+// (prefills the Chat tab, does not send), muted with a tooltip otherwise — a
+// silent absence would be the first-contact head-slapper class.
+function makeAskInChatLink(question, ready) {
+  const a = h('span', {
+    className: ready ? 'name clickable ask-in-chat' : 'ask-in-chat',
+    text: 'Ask in Chat',
+    title: ready
+      ? 'Open the Chat tab with this question filled in (not sent — edit, then Enter)'
+      : 'Chat needs an LLM: set an API key, or load a local model (Index menu)',
+    style: 'margin-left:8px;font-size:11px;white-space:nowrap' + (ready ? '' : ';color:var(--text-muted);cursor:default'),
+  });
+  if (ready) a.addEventListener('click', (e) => { e.stopPropagation(); askInChat(question, a); });
+  return a;
+}
+
+// Switch to the Chat tab by clicking its pane tab (initChatTab's handler does
+// the panel work), prefill the question, focus the input, and close the
+// Overview pop-up when the click came from inside it. No cross-module API:
+// app.js is the entry module, and a DOM-level click avoids an import cycle.
+function askInChat(question, fromEl) {
+  const overlay = document.querySelector('#overview-overlay');
+  if (overlay && fromEl && overlay.contains(fromEl)) overlay.classList.add('hidden');
+  try { showPane('right-bottom'); } catch { /* pane helper unavailable: the tab click still works */ }
+  const tab = document.querySelector('#right-bottom .pane-tab[data-tab="chat"]');
+  if (tab) tab.click();
+  const input = document.querySelector('#chat-input');
+  if (input) { input.value = question; input.focus(); }
 }
 
 // Parse one line of model prose into DOM: split on backtick spans and **strong**;

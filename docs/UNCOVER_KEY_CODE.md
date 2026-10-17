@@ -58,7 +58,14 @@ two things the deterministic overview can't give you —
   guidance, reasoned about the actual code rather than a fixed list.
 - **"Questions to start with"** — up to five orienting questions, each paired with the
   single CodeExam action that most directly answers it, and mixed across the GUI (open
-  an accordion, ask the Chat pane about a term) and the CLI.
+  an accordion, ask the Chat pane about a term) and the CLI. In the GUI each question
+  carries an **Ask in Chat** link that opens the Chat tab with the question filled in,
+  not sent, so you can edit it first; the link is muted until an engine is available
+  (an API key, or a loaded local model). A **↻ New questions** control beside the heading
+  asks the engine for a different five in one short sampled call; the rest of the overview
+  is unchanged, a note under the list says the questions were regenerated, and the control
+  is muted when the server runs with `--reproducible`, since pinned sampling cannot give
+  new questions.
 
 It runs against a cloud LLM or a local GGUF model — your choice of engine — and is
 **grounded by default**: the model is told to base the overview only on what the tools

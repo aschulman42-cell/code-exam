@@ -48,6 +48,12 @@ export const AI_OVERVIEW_TOOL_NAMES = [
 ];
 export const AI_OVERVIEW_TOOLS = AI_OVERVIEW_TOOL_NAMES.map(t => `mcp__code-exam__${t}`).join(',');
 
+// The "Questions to start with" rule, as the overview prompt states it. One
+// registration point: the overview prompt interpolates it, and the
+// questions-regenerate prompt (gui-overview-questions-regenerate) quotes it,
+// so the two cannot drift.
+export const QUESTIONS_RULE = `- "Questions to start with" — AT MOST 5 entries, and give a MIX of surfaces: include 2-3 phrased for the GUI (e.g. "open the Functions accordion and filter for \`<term>\`", "ask the Chat pane about \`<topic>\`", "click \`<file>\` in the Files list") and 2 as CLI commands. Pair each with the single CE action/command that most DIRECTLY answers it (verify a structural claim with the confirming command — a clone claim uses struct_dupes --cross-source-only or list_files, not a bare struct_dupes). Directed exploration, not noodling.`;
+
 export const AI_OVERVIEW_PROMPT = `You are orienting a code examiner to an unfamiliar codebase using the CodeExam MCP tools (mcp__code-exam__*) over the currently-loaded index. Produce a SHORT prose orientation — 2-4 short paragraphs (NOT one long block, NOT bullet lists), then the two labeled lists at the end. Budget: ~5-8 tool calls; do not exceed ~5 digests.
 
 STYLE — read first:
@@ -75,8 +81,47 @@ STYLE — read first:
 OUTPUT (prose + two short labeled lists):
 - The 2-4 short paragraphs (what it is, architecture, what it does, the AI/ML sentence).
 - "Where to look first / highest-payback CE commands" — AT MOST 5 entries, each with one-line reasoning, including "skip X here" when a tool is defeated by the target.
-- "Questions to start with" — AT MOST 5 entries, and give a MIX of surfaces: include 2-3 phrased for the GUI (e.g. "open the Functions accordion and filter for \`<term>\`", "ask the Chat pane about \`<topic>\`", "click \`<file>\` in the Files list") and 2 as CLI commands. Pair each with the single CE action/command that most DIRECTLY answers it (verify a structural claim with the confirming command — a clone claim uses struct_dupes --cross-source-only or list_files, not a bare struct_dupes). Directed exploration, not noodling.
+${QUESTIONS_RULE}
 Emit file/function references as backticked paths (\`path\` or \`path@func\`) so they can be made clickable.`;
+
+// gui-overview-questions-regenerate: a short, tool-free call that asks the
+// engine for a different "Questions to start with" list, given the overview it
+// already wrote. Sampled (the overview itself runs pinned or greedy, so a
+// re-run reproduces the same questions); the caller discloses the temperature
+// under the list.
+export const QUESTIONS_REGEN_TEMPERATURE = 0.8;
+export const QUESTIONS_REGEN_MAX_TOKENS = 400;
+
+/**
+ * Prompt for regenerating the questions. `prose` is the overview as shown
+ * (CE's ⓘ notes are dropped before it is quoted); `currentQuestions` are the
+ * ones on screen now, which the new list must not repeat.
+ * @returns {{ system: string, user: string }}
+ */
+export function questionsRegenPrompt(prose, currentQuestions = []) {
+  const orientation = String(prose || '').split('\n').filter((l) => !/^\s*ⓘ/.test(l)).join('\n').trim();
+  const current = (currentQuestions || []).map((q) => String(q).trim()).filter(Boolean);
+  const system = [
+    'You are helping a code examiner get oriented in an unfamiliar codebase. Below is an orientation written earlier from CodeExam\'s tools over that codebase.',
+    'Write a NEW "Questions to start with" list for it: the questions a reviewer should bring next. Follow this rule exactly:',
+    QUESTIONS_RULE,
+    'The new questions must be DIFFERENT from the current ones listed below: different subjects, not rewordings.',
+    'Base them only on what the orientation says about the code; do not invent files, functions or commands it does not name.',
+    'Output ONLY the list, one entry per line, numbered 1. to 5., in the same shape as the current list (an italic question, then the CE action that answers it). No header, no preamble, no closing remark.',
+  ].join('\n');
+  const user = `ORIENTATION:\n${orientation}\n\nCURRENT QUESTIONS (do not repeat these):\n${current.length ? current.map((q, i) => `${i + 1}. ${q}`).join('\n') : '(none)'}`;
+  return { system, user };
+}
+
+/**
+ * The model's answer as list lines: blank lines and an echoed header dropped,
+ * at most five entries, each carrying a `N.` marker (added when missing).
+ */
+export function questionLinesFromAnswer(text) {
+  const lines = String(text || '').split('\n').map((l) => l.replace(/\s+$/, '')).filter((l) => l.trim());
+  const body = lines.filter((l) => !/questions to start with/i.test(l) || l.length > 40);
+  return body.slice(0, 5).map((l, i) => (/^\s*(?:\d+[.)]|[-*•])\s+/.test(l) ? l.trim() : `${i + 1}. ${l.trim()}`));
+}
 
 // Grounding mode (#196, mirrors the chat's #36 clauses): how freely the overview
 // may use knowledge beyond the indexed codebase. Default 'grounded' — forensic by
@@ -325,9 +370,20 @@ export async function runAiOverview({ indexPath, engine = 'claude', model, apiKe
     let toolNames = AI_OVERVIEW_TOOL_NAMES;
     try { toolNames = ((await mcpClient.listTools()).tools || []).map(t => t.name); } catch { /* fallback above */ }
     const nameOpts = { toolNames };
-    if (unsupportedModelNames(prose, verifyModelsUsed, overviewSeedResult, null, nameOpts).some(looksLikePathRef)) {
-      const { text, isError } = await runTool('list_files', { max: 1000000000 }, { countIt: false });
-      if (!isError) indexPaths = indexPathsFromListFiles(text);
+    {
+      const pathShaped = unsupportedModelNames(prose, verifyModelsUsed, overviewSeedResult, null, nameOpts).filter(looksLikePathRef);
+      if (pathShaped.length) {
+        // overview-cloud-carveout-trace-and-parser-test: the branch is otherwise
+        // invisible in the artifact (not counted in the footer, by design, and
+        // the runTool echo is indistinguishable from a model's own list_files),
+        // so a run that cites an indexed path says so on stderr in the loop's
+        // own style — through onStderr when the caller passed one (the CLI),
+        // else to the process's stderr, which is the GUI's server console.
+        const trace = `[overview] indexed-path carve-out: ${pathShaped.length} path-shaped candidate(s) in the AI/ML sentence — re-reading list_files\n`;
+        if (onStderr) onStderr(trace); else process.stderr.write(trace);
+        const { text, isError } = await runTool('list_files', { max: 1000000000 }, { countIt: false });
+        if (!isError) indexPaths = indexPathsFromListFiles(text);
+      }
     }
     const aimlNote = aimlVerificationNote(prose, verifyModelsUsed, overviewSeedResult, indexPaths, nameOpts);
     if (aimlNote) prose += aimlNote;
