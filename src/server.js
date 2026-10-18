@@ -3122,8 +3122,11 @@ routes['/api/imports'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
-  const { rows, pyFiles } = extractImports(index);   // external imports only (relative skipped)
-  if (pyFiles === 0) return jsonResponse(res, { total: 0, instances: 0, imports: [], pyFiles: 0 });
+  // external imports only (relative skipped); every indexed language, plus what
+  // HTML and page templates load. The pane's Imports accordion was empty for any
+  // corpus without Python files because this gated on pyFiles — the GUI sibling
+  // of the "Python only" claim the CLI dropped in 3c3b903.
+  const { rows, filesByLang } = extractImports(index);
 
   const byLib = new Map();
   for (const r of rows) {
@@ -3141,6 +3144,7 @@ routes['/api/imports'] = (req, res) => {
   jsonResponse(res, {
     total: libs.length,
     instances: rows.length,
+    filesByLang: filesByLang || {},
     imports: libs.slice(0, max).map(g => ({
       library: g.library, count: g.count, targets: g.targets.size, sites: g.sites,
     })),
