@@ -29,7 +29,7 @@ A local GGUF model can be made to give the same answer twice. Add
 **`--reproducible`** and CodeExam runs the model deterministically — temperature
 0 and a fixed seed, so sampling stops introducing variation. With the engine
 version also fixed — CodeExam ships one exact `node-llama-cpp` / `llama.cpp`
-build (see [LOCAL_LLM.md](LOCAL_LLM.md)) — the same question over the same index
+build (see [`LOCAL_LLM.md`](LOCAL_LLM.md)) — the same question over the same index
 and model file has, in testing, produced the same answer bit for bit.
 
 Two honest caveats:
@@ -52,7 +52,7 @@ AI's "Questions to start with" list makes a separate short call at temperature
 overview the questions sit under is unchanged and reproduces as above, and the
 note CodeExam writes under the new list (`ⓘ Questions regenerated (sampled,
 temperature 0.8); the overview above is unchanged.`, see
-[CODEEXAM_NOTATION.md](CODEEXAM_NOTATION.md)) is how a saved pane says which part
+[`CODEEXAM_NOTATION.md`](CODEEXAM_NOTATION.md)) is how a saved pane says which part
 came from which call. Under `--reproducible` the control is muted: pinned
 sampling cannot give different questions.
 

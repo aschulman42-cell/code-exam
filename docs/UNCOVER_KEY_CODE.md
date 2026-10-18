@@ -75,8 +75,8 @@ filling the gap from general knowledge. Because a model is involved, the Overvie
 is optional and does not repeat bit-for-bit the way the deterministic overview does.
 In the GUI the generated overview is kept for the life of the browser tab, not written to disk: a
 reload shows it again at no cost, closing the tab discards it, and #207 is the design for caching it
-with the index. For the engine choice see [AI_ASSISTED_CODE_EXAM.md](AI_ASSISTED_CODE_EXAM.md) and
-[LOCAL_LLM.md](LOCAL_LLM.md); for what does and doesn't repeat,
+with the index. For the engine choice see [`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md) and
+[`LOCAL_LLM.md`](LOCAL_LLM.md); for what does and doesn't repeat,
 [REPRODUCIBILITY.md](REPRODUCIBILITY.md).
 
 ## Vocabulary — `--vocabulary` / `--vocab`
@@ -120,31 +120,31 @@ given you a foothold. They live in their own pages rather than being repeated he
 
 - **Code-surfacing metrics** — hotspots, most-called, domain-function ranking, entry
   points, and dead-code gaps — rank functions and classes by centrality and
-  complexity. See [CODEEXAM_KEY_FEATURES.md](CODEEXAM_KEY_FEATURES.md).
+  complexity. See [`CODEEXAM_KEY_FEATURES.md`](CODEEXAM_KEY_FEATURES.md).
 - **Cross-references** (`--callers`, `--callees`, `--call-tree`) — who calls a
   function, what it calls, the transitive call tree, and file/folder coupling maps:
   how you navigate the code once the Overview has pointed you at a starting function
-  or file. See [CODEEXAM_KEY_FEATURES.md](CODEEXAM_KEY_FEATURES.md).
+  or file. See [`CODEEXAM_KEY_FEATURES.md`](CODEEXAM_KEY_FEATURES.md).
 - **Digests** (`--digest`) — a concise summary of one function, class, or file
   (identity, callers and callees, distinctive strings, structural shape), for taking
   in one of the "important files" without reading the whole thing. See
-  [CODEEXAM_KEY_FEATURES.md](CODEEXAM_KEY_FEATURES.md).
+  [`CODEEXAM_KEY_FEATURES.md`](CODEEXAM_KEY_FEATURES.md).
 - **Catalogs of what the code does** — the command catalog (CLI options,
   slash-commands, and recognizable menu/dialog actions, each linked to its handler
   function), plus the content probes the Overview's `Next:` block points at
   (`--command-catalog`, `--models`, `--prompts`, `--exports`). See
-  [CODEEXAM_KEY_FEATURES.md](CODEEXAM_KEY_FEATURES.md).
+  [`CODEEXAM_KEY_FEATURES.md`](CODEEXAM_KEY_FEATURES.md).
 - **Referenced resources** (`--referenced-resources`) — the external surface: the
   environment variables, hosts and URLs, embedded SQL, external commands, and
   data/config files a codebase reaches out to. See
-  [CODEEXAM_KEY_FEATURES.md](CODEEXAM_KEY_FEATURES.md).
+  [`CODEEXAM_KEY_FEATURES.md`](CODEEXAM_KEY_FEATURES.md).
 - **The AI/ML and infrastructure detectors** — the models, LLM calls, tools, prompts,
-  and operational stack a codebase contains. See [DETECTING_AI_ML.md](DETECTING_AI_ML.md).
+  and operational stack a codebase contains. See [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md).
 - **"Searching by counting"** — because CodeExam sorts most of its catalogs by a measure of
   importance (occurrences, references-to, length, with an inverse-frequency weighting that demotes
   generic items), eyeballing the *top* of such a list — the left-accordion categories in the GUI —
   is itself a way to approach what might be important in a codebase without knowing its name first.
-  See [CODEEXAM_BROWSING.md](CODEEXAM_BROWSING.md).
+  See [`CODEEXAM_BROWSING.md`](CODEEXAM_BROWSING.md).
 
 Some of these are still being tuned toward their intended sharpness — hotspots and
 dead-code gaps in particular — so read their output as a strong starting signal, not a
