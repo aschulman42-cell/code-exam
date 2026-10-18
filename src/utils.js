@@ -350,6 +350,23 @@ export function isDependencyFileName(name) {
 }
 
 /**
+ * License documents (LICENSE, LICENSE.md, LICENSE-MIT, COPYING, NOTICE,
+ * THIRD-PARTY-NOTICES, PATENTS, UNLICENSE), admitted by name like the
+ * dependency files: a bare LICENSE has no extension, so nothing else could
+ * reach it, and the copyright harvest (--copyrights) lists them apart from
+ * the holders of the code around them (copyright-notices-first-vs-third).
+ */
+export const LICENSE_DOC_RE = /^(?:licen[cs]e(?:[-_.][\w.-]*)?|copying(?:[-_.][\w.-]*)?|notice(?:[-_.][\w.-]*)?|third[-_]?party[-_]?notices?(?:[-_.][\w.-]*)?|unlicense(?:\.\w+)?|patents)$/i;
+export function isLicenseDocName(name) {
+  return LICENSE_DOC_RE.test(String(name || '').split(/[\\/]/).pop());
+}
+
+/** The by-name admission rule the index walk and the archive expander share. */
+export function isByNameIndexed(name) {
+  return isDependencyFileName(name) || isLicenseDocName(name);
+}
+
+/**
  * Archive extensions handled by archive.js (expanded during --build-index).
  * Separated from MEDIA_BINARY_EXTENSIONS so buildIndex can expand them instead of skip.
  */

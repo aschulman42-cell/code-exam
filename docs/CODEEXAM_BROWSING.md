@@ -65,7 +65,10 @@ not merely a `file:line`.
   by script, stylesheet and importmap tags (HTML and most template types need
   `--add-extensions` at build), with manifests and lockfiles, which every default build indexes
   by name (pinned versions, the direct/transitive split, sources, and the
-  declared/imported/locked joins); cross-index
+  declared/imported/locked joins), and the in-tree half from file headers: `--copyrights`
+  lists the copyright holders with a presumption (most files = presumptively first-party,
+  every other holder presumptively third-party), license identifiers and license documents;
+  cross-index
   resolution against an export catalog is covered in [`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md).
 - **Prompts** (`--prompt-catalog`, alias `--prompts`) — LLM prompt strings found in the code.
 - **AI/ML and LLM-app constructs** — the models, LLM calls, tools, chains, and prompts a codebase

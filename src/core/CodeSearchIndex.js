@@ -23,7 +23,7 @@ import {
   SearchResult, DEFAULT_EXTENSIONS, TEXT_EXTENSIONS,
   ARCHIVE_EXTENSIONS, MEDIA_BINARY_EXTENSIONS, EXECUTABLE_EXTENSIONS,
   displayName, eprint, eprogress, splitCompoundToken, pasteToken,
-  isDependencyFileName,
+  isByNameIndexed,
 } from '../utils.js';
 import { expandArchive, isSupportedArchive, createArchiveStats, resolveIndexDir, SKIP_DIRS, hasSkippedDirSegment } from '../archive.js';
 import { processBinary, BINSTRING_EXTENSIONS, isPseudoSource } from '../binstrings.js';
@@ -4008,9 +4008,10 @@ export class CodeSearchIndex {
           const ext = path.extname(entry.name).toLowerCase();
           const lower = entry.name.toLowerCase();
           // Include source files (by extension, excluding compound like .d.ts),
-          // and dependency/build files by name (Makefile, go.mod, Cargo.lock, ...).
+          // and dependency/build files and license documents by name
+          // (Makefile, go.mod, Cargo.lock, LICENSE, NOTICE, ...).
           if ((this.extensions.has(ext) && !this._isCompoundExcluded(entry.name)) ||
-              (this.dependencyFilesByName && isDependencyFileName(entry.name))) {
+              (this.dependencyFilesByName && isByNameIndexed(entry.name))) {
             results.push(fullPath);
           }
           // Also include supported archive files for expansion

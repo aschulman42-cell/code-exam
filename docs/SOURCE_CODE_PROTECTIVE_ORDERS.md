@@ -517,7 +517,13 @@ audited above. GitHub's dependency graph for the repository (Insights, Dependenc
 SBOM export, and Dependabot alerts built on it) adds the vulnerability view; it is exhaustive
 where CodeExam's catalog is scoped to what the code itself imports or loads (import statements,
 and the script, stylesheet and importmap tags of indexed HTML and page templates), with the line
-that does it, plus what the lockfile pins. Issue #27 tracks the bill-of-materials feature. The run also turned up a declared-but-unused pair: `express` and
+that does it, plus what the lockfile pins. The in-tree half is `--copyrights`: every file's header
+notice, holders normalized and counted, so a library copied into `lib/` or a pasted file shows
+up where the bill of materials, which sees foreign code only under `vendor/`-named directories,
+cannot. The first party is a presumption from counts, marked as such on every line: on CodeExam's
+tree one holder on 226 files, a sample program's fictional company on 15 (presumptively third-party),
+Apache-2.0 on 228 headers, and the `LICENSE`, `NOTICE` and `THIRD-PARTY-NOTICES.md` documents
+listed apart. Issue #27 tracks the bill-of-materials feature. The run also turned up a declared-but-unused pair: `express` and
 `zod` were in `package.json` but imported nowhere by CodeExam's code (the GUI server is Node's
 own `http`), and both arrive anyway as dependencies of the MCP SDK. The catalog was right and
 two of CodeExam's own pages were wrong, which is the point of running it; the two declarations

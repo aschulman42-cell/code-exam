@@ -17,7 +17,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 import { expandArchive } from '../src/archive.js';
-import { isDependencyFileName, DEPENDENCY_FILE_RE } from '../src/utils.js';
+import { isDependencyFileName, DEPENDENCY_FILE_RE, isLicenseDocName, isByNameIndexed } from '../src/utils.js';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-depfiles-'));
 const write = (rel, text) => {
@@ -33,6 +33,8 @@ write('BUILD', 'cc_library(name = "x")\n');
 write('app/main.py', 'import os\n');
 write('notes.lock', 'not a dependency file\n');
 write('data.sum', 'not go.sum either\n');
+write('LICENSE', 'Apache License\nVersion 2.0\n');
+write('THIRD-PARTY-NOTICES.md', '# Notices\n');
 
 const names = (idx) => [...idx.fileLines.keys()].map((p) => p.replace(/\\/g, '/')).sort();
 
@@ -48,12 +50,17 @@ describe('dependency and build files are indexed by name', () => {
       assert.ok(!isDependencyFileName(n), `${n} should not be`);
     }
     assert.ok(DEPENDENCY_FILE_RE.flags.includes('i'), 'case-insensitive: BUILD, Makefile, makefile');
+    // License documents ride the same rule (copyright-notices-first-vs-third).
+    for (const n of ['LICENSE', 'LICENSE.md', 'LICENSE-MIT', 'licence.txt', 'COPYING', 'COPYING.LESSER', 'NOTICE', 'NOTICE.txt', 'THIRD-PARTY-NOTICES.md', 'UNLICENSE', 'PATENTS']) {
+      assert.ok(isLicenseDocName(n) && isByNameIndexed(n), `${n} should be a license document`);
+    }
+    assert.ok(!isLicenseDocName('main.py') && !isLicenseDocName('README.md'));
   });
 
   it('a default build admits them beside the source files; look-alikes stay out', async () => {
     const idx = new CodeSearchIndex({ indexPath: path.join(root, '.idx-default') });
     await idx.buildIndex(path.join(root, 'src'), { showProgress: false });
-    assert.deepEqual(names(idx), ['BUILD', 'Cargo.lock', 'Dockerfile', 'Makefile', 'app/main.py', 'go.mod']);
+    assert.deepEqual(names(idx), ['BUILD', 'Cargo.lock', 'Dockerfile', 'LICENSE', 'Makefile', 'THIRD-PARTY-NOTICES.md', 'app/main.py', 'go.mod']);
   });
 
   it('an explicit --extensions list means exactly that list', async () => {
@@ -68,9 +75,10 @@ describe('dependency and build files are indexed by name', () => {
       { name: 'proj/go.sum', data: Buffer.from('example.com/y v1.0.0 h1:abc=\n') },
       { name: 'proj/main.py', data: Buffer.from('import os\n') },
       { name: 'proj/notes.lock', data: Buffer.from('x\n') },
+      { name: 'proj/LICENSE', data: Buffer.from('MIT License\n') },
     ]);
     const got = (opts) => expandArchive(zip, { archiveName: 'proj.zip', showProgress: false, ...opts }).map((e) => e.virtualPath.replace(/\\/g, '/').replace(/^.*?proj\.zip[/!]*/, '')).sort();
-    assert.deepEqual(got({ extensions: new Set(['.py']) }), ['proj/Makefile', 'proj/go.sum', 'proj/main.py']);
+    assert.deepEqual(got({ extensions: new Set(['.py']) }), ['proj/LICENSE', 'proj/Makefile', 'proj/go.sum', 'proj/main.py'], 'LICENSE used to be skipped by name inside archives');
     assert.deepEqual(got({ extensions: new Set(['.py']), dependencyFilesByName: false }), ['proj/main.py']);
   });
 });

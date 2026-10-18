@@ -24,7 +24,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { processBinary } from './binstrings.js';
-import { DEFAULT_EXTENSIONS, isDependencyFileName } from './utils.js';
+import { DEFAULT_EXTENSIONS, isByNameIndexed } from './utils.js';
 
 // ========================================================================
 // Constants
@@ -937,9 +937,10 @@ function _isIndexableEntry(name, ext, extensions) {
   // Skip common non-source files inside archives
   if (_SKIP_ARCHIVE_ENTRIES.has(baseName.toLowerCase())) return false;
 
-  // Dependency and build files by name, whatever the extension set says
-  // (Makefile, go.mod, Cargo.lock, package-lock.json, ...): what --bom reads.
-  if (_byNameAdmission && isDependencyFileName(baseName)) return true;
+  // Dependency and build files and license documents by name, whatever the
+  // extension set says (Makefile, go.mod, Cargo.lock, LICENSE, NOTICE, ...):
+  // what --bom and --copyrights read.
+  if (_byNameAdmission && isByNameIndexed(baseName)) return true;
 
   // If caller provided extension set, use it
   if (extensions) {
@@ -951,11 +952,11 @@ function _isIndexableEntry(name, ext, extensions) {
   return _SOURCE_LIKE_EXTENSIONS.has(ext);
 }
 
-/** Files commonly found in archives that are never source code */
+/** Files commonly found in archives that are never source code. License and
+ *  NOTICE documents used to be listed here; they are admitted by name now,
+ *  because the copyright harvest reads them (copyright-notices-first-vs-third). */
 const _SKIP_ARCHIVE_ENTRIES = new Set([
   'manifest.mf', 'thumbs.db', '.ds_store', 'desktop.ini',
-  'license', 'license.txt', 'license.md', 'copying',
-  'notice', 'notice.txt',
 ]);
 
 /** Extensions likely to be source or text worth indexing */

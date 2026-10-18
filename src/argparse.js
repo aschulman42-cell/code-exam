@@ -539,6 +539,8 @@ export function parseArgs() {
     ['census_imports',       'flag',           ['--census-imports']],
     // imports-bill-of-materials (#312, #315 A3): four-way dependency report.
     ['bom',                  'flag',           ['--bom']],
+    // copyright-notices-first-vs-third: the in-tree half of the dependency story.
+    ['copyrights',           'flag',           ['--copyrights']],
     ['exports',              'optional_value', ['--exports']],
     ['imports_from',         'value',          ['--imports-from']],
     ['imports',              'value',          ['--imports']],
@@ -1342,6 +1344,17 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              resolved counts, sources, pinned versions, and
                              the declared/imported/locked joins. Honors
                              --filter, --max-results; -v shows example sites.
+  --copyrights               Copyright holders from file headers and /*!
+                             banners, normalized and counted: the holder with
+                             the most files is PRESUMPTIVELY first-party,
+                             every other presumptively third-party (vendored
+                             directories noted) — the in-tree half of the
+                             dependency story; a library copied into lib/
+                             shows here when --bom cannot see it. Then license
+                             identifiers per file, license documents apart,
+                             bundle files carrying several holders' banners.
+                             Honors --filter (holder or path), --max-results;
+                             -v shows sites and spellings.
   --exports [pkg]            Declared-exports catalog (Python today): what
                              each package SAYS its public API is, tier-marked
                              (A __all__/@*_export, B __init__ re-exports,

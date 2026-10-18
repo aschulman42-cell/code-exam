@@ -40,9 +40,11 @@ network log (#161); Fiddler `.saz` captures are planned as well.
 - **Dependency and build files are indexed by name**, whatever their extension: manifests
   (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, Gradle and MSBuild
   project files), lockfiles (`package-lock.json`, `yarn.lock`, `Cargo.lock`, `poetry.lock`,
-  `go.sum`, `composer.lock`, ...) and build files (`Makefile`, `CMakeLists.txt`, `Dockerfile`,
-  Bazel files, ...). A `Makefile` has no extension at all, so no extension flag could reach it;
-  the by-name rule is what makes `--bom` and the build-file and copyright work possible. Only an
+  `go.sum`, `composer.lock`, ...), build files (`Makefile`, `CMakeLists.txt`, `Dockerfile`,
+  Bazel files, ...) and license documents (`LICENSE`, `COPYING`, `NOTICE`,
+  `THIRD-PARTY-NOTICES`, `PATENTS`). A `Makefile` or a bare `LICENSE` has no extension at all, so
+  no extension flag could reach it; the by-name rule is what makes `--bom`, `--copyrights` and
+  the build-file work possible. Only an
   explicit `--extensions` list turns it off. `--bom` reads six lockfile kinds (`package-lock.json`,
   `Pipfile.lock`, `composer.lock`, `go.sum`, `Cargo.lock`, `poetry.lock`; `yarn.lock` and
   `pnpm-lock.yaml` are recognised but not read yet) and names a `package.json`, `Cargo.toml` or

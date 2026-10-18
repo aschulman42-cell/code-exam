@@ -139,6 +139,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `src/commands/claim-locate.js` — proposes symbols from a claim, verifies them against the index, navigates callees, emits targets
 - `src/commands/claims-loop.js` — fills pseudo-claim chart cells from anchors and measures draft-vs-retrieval agreement; flags redrafts
 - `src/commands/dedup.js` — duplicate reporting: file SHA1, function, near, structural, and string-call fingerprint families
+- `src/commands/copyrights.js` — `--copyrights`: the copyright-holder table, presumptive first vs third party, licenses and license documents
 - `src/commands/digest.js` — `--digest` / `--comments-only`: renders mechanical function, class, and file digests with no interpretation
 - `src/commands/exports.js` — `--exports`: tier-marked, definition-resolved export catalog per package; `--emit-catalog` writes it as JSON
 - `src/commands/extract_js_from_binary.js` — dispatches a native binary to its bundler-specific JS extractor (Bun today) and prints the result
@@ -175,6 +176,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `src/core/claim-genericity.js` — scores a claim element generic-bookend vs mechanism via I/O-verb shape and corpus word frequency
 - `src/core/claim-terms.js` — shared claim tokenizer: stop list, acronym rule, stemmer, and TF-IDF pick of distinctive claim words
 - `src/core/client-server.js` — detects declared HTTP routes and client calls, then reconciles them to flag missing server code
+- `src/core/copyrights.js` — copyright/license notice harvest: holders normalized and counted, a first-vs-third presumption from counts, license documents apart
 - `src/core/credential-mask.js` — masks credential values in tool output while keeping file, line and identifier visible
 - `src/core/data-structs.js` — finds struct/enum/union/typedef/interface/record definitions per language and ranks them by references
 - `src/core/dep-claim-rules.js` — 13 awk-derived plus 5 new named patterns that read one claim's dependency and parent number

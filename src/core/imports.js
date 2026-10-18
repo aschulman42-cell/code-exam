@@ -644,7 +644,7 @@ const CS_PLATFORM_PREFIXES = [
 // stays external — but the WHY names the convention instead of shrugging.
 const COM_TLB_RE = /^[A-Z][A-Za-z0-9]*Lib$/;
 
-const VENDOR_DIR_RE = /(^|[\\/])(vendor|vendors|third[-_]?party|thirdparty|external|extern|node_modules|deps|contrib)([\\/]|$)/i;
+export const VENDOR_DIR_RE = /(^|[\\/])(vendor|vendors|third[-_]?party|thirdparty|external|extern|node_modules|deps|contrib)([\\/]|$)/i;
 
 const _norm = (p) => String(p || '').replace(/\\/g, '/');
 const _pkgKey = (s) => String(s || '').toLowerCase().replace(/[-_.]/g, '');

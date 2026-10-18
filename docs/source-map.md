@@ -47,6 +47,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/commands/claim-chart.js` — builds one-row-per-element claim charts merged across targets; CE owns structure, model fills cells
 - `src/commands/claim-locate.js` — proposes symbols from a claim, verifies them against the index, navigates callees, emits targets
 - `src/commands/claims-loop.js` — fills pseudo-claim chart cells from anchors and measures draft-vs-retrieval agreement; flags redrafts
+- `src/commands/copyrights.js` — --copyrights: the copyright-holder table, presumptive first vs third party, licenses and license documents
 - `src/commands/dedup.js` — duplicate reporting: file SHA1, function, near, structural, and string-call fingerprint families
 - `src/commands/digest.js` — --digest / --comments-only: renders mechanical function, class, and file digests with no interpretation
 - `src/commands/exports.js` — --exports: tier-marked, definition-resolved export catalog per package; --emit-catalog writes it as JSON
@@ -85,6 +86,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/core/claim-terms.js` — shared claim tokenizer: stop list, acronym rule, stemmer, and TF-IDF pick of distinctive claim words
 - `src/core/client-server.js` — detects declared HTTP routes and client calls, then reconciles them to flag missing server code
 - `src/core/local-chat-tools.js` — resolves the local GUI Chat's tool menu: the curated eight-tool core, or the CE_LOCAL_CHAT_TOOLS override (all / +names / names), with a startup note when the menu is unmeasured
+- `src/core/copyrights.js` — copyright/license notice harvest: holders normalized and counted, a first-vs-third presumption from counts, license documents apart
 - `src/core/credential-mask.js` — masks credential values in tool output while keeping file, line and identifier visible
 - `src/core/data-structs.js` — finds struct/enum/union/typedef/interface/record definitions per language and ranks them by references
 - `src/core/dep-claim-rules.js` — 13 awk-derived plus 5 new named patterns that read one claim's dependency and parent number
@@ -183,6 +185,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_class_scope.js` — multisect class-level scope: terms spread across methods of one class, dedupe
 - `test/test_cli_errors.js` — CLI bad input fails before index load: banner, error, run-help, exit 2
 - `test/test_client_server.js` — client/server detector: route + call detection, unmatched-call reconciliation
+- `test/test_copyrights.js` — the copyright-notice harvest: holder normalization, the first-vs-third presumption, banners, license documents, the two commands
 - `test/test_credential_mask.js` — credential masking at the tool seam: assignment forms, random-token entropy gate
 - `test/test_data_structs.js` — #194 extractDataStructures: struct/enum/union/trait/interface across Rust/C/Go/TS
 - `test/test_declared_dependencies.js` — package.json vs first-party imports: every declared dependency imported, every bare import declared
@@ -196,12 +199,14 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_first_run.js` — first-run UX: bare `ce` welcome, demo auto-load, bad --index-path, no auto-REPL
 - `test/test_follow_calls.js` — --follow-calls (--deep) and --comments-only over extracted functions
 - `test/test_function_bounds.js` — function-end detection: masked tokenizer, brace / arrow / indentation ends, prose-in-template guard, hybrid-merge dedupe, tree-sitter macro names and parse-error counts
+- `test/test_gui_imports_route.js` — /api/imports answers for a corpus with no Python (the Imports accordion is not Python-only)
 - `test/test_har.js` — #161 .har expansion: text/base64 bodies, mime inference, URL dedupe, malformed input
 - `test/test_help_filter.js` — filterHelp: entry blocks and continuation lines, section headers, no-match report
 - `test/test_help_flags.js` — help discoverability: --gui/--port/--load-index in --help; --load-index synonym
 - `test/test_hotspots.js` — #187: hotspots and entry_points skip vendored/minified files that stay indexed
 - `test/test_hunt_repeat.js` — hunt-repeat harness: the run-report parser behind every reported distribution
-- `test/test_imports.js` — BoM tier 1: JS/C/Java/C# extractors, resolver classes, platform lists, residue
+- `test/test_imports.js` — BoM tier 1: JS/C/Java/C# extractors, resolver classes, platform lists, residue; HTML and template tags; lockfiles and the joins
+- `test/test_index_dependency_files.js` — dependency and build files and license documents are indexed by name, whatever the extension
 - `test/test_imports_consumer.js` — catalog consumer: classifyAgainstCatalogEntry, ancestor walk, catalogPkgKey
 - `test/test_infrastructure.js` — #168 infra detector: Containers/K8s/IaC/CI-CD file shapes, plus FP guards
 - `test/test_linkify_selection.js` — #275 source viewer: which identifiers become clickable, knowledge vs shape mode
