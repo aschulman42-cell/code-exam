@@ -58,7 +58,8 @@ assemble), and hand-reconciliation of the differences between the two.
 | --synonymize | `commands/synonymize.js` — `buildSynonymizePrompt` |
 | Pseudo-claims drafting | `commands/pseudo-claims.js` — the drafting instruction (GENERATE_SYS port) + the fixed caveat blocks CE emits itself (added here by the catalog re-run; absent from the initial source audit) |
 | Mechanism ranker | `core/mechanism-ranker.js` — `buildBatchPrompt`, `buildVerdictPrompt` |
-| GUI Chat | `server.js` — `chatSystemPrompt` (+ its `systemMsg`/`grounded` fragments) |
+| GUI Chat | `core/chat-runner.js` — `chatSystemPrompt` (+ its `grounded` fragments); the three loops live there too, shared with `--ask-ai` |
+| --ask-ai | `core/chat-runner.js` — the same prompt and loops as GUI Chat, driven from `commands/ask.js` |
 
 Catalog hits verified NOT to be model entry points, so a reader need
 not wonder: `--emit-harness` rendering (its header states "emitted
@@ -84,6 +85,7 @@ is deterministic code with no model in the loop.
 | --mask-all analysis | UNTESTED | UNTESTED | UNTESTED | **SUPPORTED** ⁴ | UNTESTED | **SUPPORTED** ⁴ᵇ |
 | Pseudo-claims / mechanism-ranker | **SUPPORTED** ¹ | UNTESTED | UNTESTED | **SUPPORTED** ⁶ᵇ | UNTESTED | **SUPPORTED** ¹⁰ |
 | GUI Chat | UNTESTED | UNTESTED | UNTESTED | **DEGRADED** ⁷ | UNTESTED | **SUPPORTED** ⁹ᵇ |
+| --ask-ai (the GUI Chat loops from the CLI; the loop evidence above applies, the CLI surface is unmeasured) | UNTESTED | UNTESTED | UNTESTED | UNTESTED | UNTESTED | UNTESTED |
 | --synonymize | UNTESTED | UNTESTED | UNTESTED | **SUPPORTED** ⁶ | UNTESTED | **SUPPORTED** ⁸ |
 | Independent analysis (model-as-navigator) | UNTESTED | UNTESTED | UNTESTED | **UNSUPPORTED** ¹¹ | UNTESTED | **UNSUPPORTED** ¹¹ |
 

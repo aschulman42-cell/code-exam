@@ -57,7 +57,8 @@ baked into mechanical detectors.
 1. **AI-assisted examination.** An optional set of AI-based features — using a
    cloud model (Claude, ChatGPT, or Gemini), or a local GGUF model on your
    own GPU — together with CodeExam's MCP tools, to summarize code, answer
-   questions, and draft analyses. AI-assisted examination may already be
+   questions (in the GUI's Chat, or with `--ask-ai` from the command line), and
+   draft analyses. AI-assisted examination may already be
    familiar (e.g. GitHub Copilot); CodeExam's emphasis is on running it over
    its own deterministic index, and on the local option.
    → [`AI_ASSISTED_CODE_EXAM.md`](docs/AI_ASSISTED_CODE_EXAM.md),

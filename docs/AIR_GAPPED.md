@@ -11,7 +11,7 @@ the 2025–2026 AI provisions, is in
 Pass `--air-gapped` (CLI) or `ce --gui --air-gapped` (GUI), and CodeExam makes
 **no cloud AI call** for the entire run:
 
-- Every cloud-AI feature — the claim/analyze LLM, the chat, and the Overview by AI,
+- Every cloud-AI feature — the claim/analyze LLM, the chat (the GUI's and `--ask-ai`), and the Overview by AI,
   on any cloud engine (**Claude, ChatGPT, or Gemini**) — is **blocked** before it
   touches the network; you get a clear message pointing at the local alternative.
 - The cloud **API keys are scrubbed** from the environment — `ANTHROPIC_API_KEY`,

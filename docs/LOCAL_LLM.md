@@ -38,6 +38,9 @@ ce --analyze <file@function> --model path/to/model.gguf --index-path .my_index
 # Interactive chat over the index, in the GUI, on a local model
 ce --gui --model path/to/model.gguf --index-path .my_index
 # then chat in lower right pane of GUI
+
+# One question through the same Chat loops, from the command line
+ce --ask-ai "what does resolveIndexDir do?" --model path/to/model.gguf --index-path .my_index
 ```
 
 In the **GUI** you don't have to choose the model up front: two model pickers —

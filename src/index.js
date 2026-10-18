@@ -534,6 +534,15 @@ if (args.multi_index) {
 // ========================================================================
 //
 // Runs BEFORE the in-process index load below: the spawned mcp-server loads its
+// cli-ask-ai: one question through the Chat loops. Dispatched before any
+// index is constructed here — the command loads the index itself after its
+// own pre-flight (no model, no API call against a missing path).
+if (args.ask_ai != null) {
+  useDemoIndexIfNeeded(args);
+  const { doAskAi } = await import('./commands/ask.js');
+  process.exit(await doAskAi(args));
+}
+
 // own copy of the index, so loading it here too would double the cost on huge
 // indexes (the whole point of pointing the MCP server at the dir). Non-air-
 // gapped — shells out to the `claude` CLI. With --multi-index @list this runs

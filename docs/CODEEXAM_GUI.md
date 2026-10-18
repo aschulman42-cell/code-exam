@@ -72,7 +72,8 @@ in but not sent, and the heading carries a **↻ New questions** control, which 
 five in one short sampled call. Ask in Chat closes the pop-up when clicked from inside it, so the
 Chat tab is in view; the Overview in the pane keeps the same prose, and the pop-up reopens with it.
 Both controls are muted, with a tooltip saying why, until an engine is available. Detail in
-[`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md).
+[`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md). The command-line equivalent of Ask in Chat is
+`ce --ask-ai "<question>"`, which runs the same loops and prints the same footer.
 
 Below those are the cross-cutting **catalogs and detectors** that summarize a whole codebase at
 once: the **AI/ML** inventory (models, kernels, training, inference, pipelines, …), the

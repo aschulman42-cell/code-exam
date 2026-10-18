@@ -144,7 +144,8 @@ Every **Overview by AI** (`--overview-by-ai`, and the GUI's button, on the cloud
 engines alike) ends with one or more lines beginning `ⓘ`. CodeExam writes them, not the model:
 they are appended after the model has finished, never edited into its prose, and they say what
 the answer rests on. Each is mechanical — a comparison between two things CodeExam already holds —
-not a judgement of the answer.
+not a judgement of the answer. An `--ask-ai` answer carries the first of them, the footer, the
+same way; the AI/ML notes are the overview's.
 
 - **`ⓘ Based on N model tool calls: …`** — the evidentiary footer: which CodeExam tools the model
   chose to call, and how often. *"Based on 1 tool call: overview"* means a rewording of the

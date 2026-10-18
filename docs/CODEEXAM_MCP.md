@@ -121,8 +121,9 @@ impractically slow on a 16 GB / no-GPU machine (prefer ~4B there). A built-in, a
 mode is planned. This is the flip side of #325's finding — a local model is a weak *independent*
 navigator (see [`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md)).
 
-The local GUI Chat drives a **curated subset** of the tools (`LOCAL_CHAT_TOOLS` in
-`src/server.js`, eight names), because the measurements in
+The local GUI Chat, and `--ask-ai` on a local model, drive a **curated subset** of the tools
+(`LOCAL_CHAT_TOOLS`, resolved in `src/core/chat-runner.js` from the core in
+`src/core/local-chat-tools.js`, eight names), because the measurements in
 [`cloud-gpu-chat-testing.md`](cloud-gpu-chat-testing.md) showed 8B–14B models collapsing at the
 full menu. The claim tools are **not** on that list: they reach Claude Desktop, other MCP clients
 and the cloud Chat, and a local model reaches them only once an eleven-tool menu has been measured

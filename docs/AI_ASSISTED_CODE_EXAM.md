@@ -25,6 +25,10 @@ an AI language model touches CodeExam's output **only** at these entry points �
 - **`--overview-by-ai`** — the agentic prose orientation of a whole codebase (in the GUI, its
   "Questions to start with" link to Chat and can be regenerated; see
   [`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md));
+- **`--ask-ai "<question>"`** — one question through the same tool loops the GUI Chat runs,
+  on a cloud engine or a local model, printed with a provenance header and the
+  tool-call footer; the CLI side of the GUI's Ask in Chat link
+  ([`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md), "Questions to start with");
 - **`--claim-search`** — term extraction from claim prose;
 - the **GUI Chat** tab;
 - and the **claims-analysis pipeline** — claim charts, `--claim-locate`, `claims-loop`,

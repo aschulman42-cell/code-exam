@@ -164,6 +164,7 @@ export function parseArgs() {
     index_extensions: false,
     overview: false,
     overview_by_ai: false,
+    ask_ai: null,            // --ask-ai "<question>": one question through the Chat loops (cli-ask-ai)
     cpu: false,           // --overview-by-ai: force local GGUF onto CPU (skip GPU)
     grounding: null,      // --overview-by-ai: grounded (default) | augmented | attributed
     cost: false,          // --overview-by-ai: explicit "show cost" (default; affirmation only)
@@ -490,6 +491,7 @@ export function parseArgs() {
     ['index_extensions',     'flag',           ['--index-extensions']],
     ['overview',             'flag',           ['--overview']],
     ['overview_by_ai',       'flag',           ['--overview-by-ai', '--overview-by-AI']],
+    ['ask_ai',               'value',          ['--ask-ai', '--ask-AI']],
     ['context_size',         'int',            ['--context-size']],
     ['flash_attention',      'flag',           ['--flash-attention']],
     ['live_today_date',      'flag',           ['--live-today-date']],
@@ -1198,6 +1200,17 @@ BROWSE:
   --index-extensions         Count file extensions in current index
   --overview                 One-shot orientation: size, languages, structure,
                              top vocabulary, key files, entry points (run first)
+  --ask-ai "<question>"      One question to an engine over the index, through
+                             the same tool loops the GUI Chat runs (every tool
+                             on a cloud engine; the curated core on a local
+                             model). Engine: --llm claude|openai|gemini, or
+                             --model <file.gguf> for the air-gapped local
+                             engine; honours --grounding, --cpu,
+                             --context-size, --reproducible, -v (prints each
+                             tool call). stdout: provenance header, the
+                             answer, then the "Based on N model tool calls"
+                             footer. Exit 1: no index, no key, or a cloud
+                             engine under --air-gapped. (alias: --ask-AI)
   --overview-by-ai           Prose 1-2 page orientation written by running an
                              LLM AGENTICALLY over CE's own MCP tools against this
                              index (overview -> shape-appropriate tools ->

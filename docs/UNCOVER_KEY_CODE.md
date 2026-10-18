@@ -65,7 +65,8 @@ two things the deterministic overview can't give you —
   asks the engine for a different five in one short sampled call; the rest of the overview
   is unchanged, a note under the list says the questions were regenerated, and the control
   is muted when the server runs with `--reproducible`, since pinned sampling cannot give
-  new questions.
+  new questions. From the command line, `ce --ask-ai "<question>"` runs any of them the same
+  way, through the same loops, with the same footer under the answer.
 
 It runs against a cloud LLM or a local GGUF model — your choice of engine — and is
 **grounded by default**: the model is told to base the overview only on what the tools

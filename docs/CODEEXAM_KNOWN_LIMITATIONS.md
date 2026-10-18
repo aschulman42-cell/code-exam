@@ -26,13 +26,16 @@ plainly:
   and on an open, tool-driven task it tends not to navigate at all — answering from memory
   instead. The rule this yields, for now: **use the guided claim pipeline for local models,
   and a cloud model for independent claim→code analysis.** See [`LOCAL_LLM.md`](LOCAL_LLM.md).
-- **Codebase-wide chat exists, but not yet fully air-gapped** (#36, #160). You *can* chat about
-  the codebase today — the GUI Chat pane, and, for a cloud model, CodeExam's MCP tools. What
-  isn't there yet is a *local* model driving those MCP tools well enough for whole-codebase
-  chat with no network — the same weak-navigator limit as above is the gating problem. The MCP
-  claim tools (`claim_elements`, `claim_candidates`, `capabilities`) reach Claude Desktop and
-  the cloud Chat only: the local Chat keeps its curated eight-tool menu, the one measured to
-  work, so a local model does not reach them unless the GUI is started with
+- **Codebase-wide chat exists, in the GUI and on the CLI, and runs air-gapped on a local model;
+  what limits it is the weak-navigator problem** (#36, #160). The GUI Chat pane and
+  `--ask-ai "<question>"` drive CodeExam's tools through the same loops, on a cloud engine or
+  a local GGUF with no network. How well a given local model drives them is the per-model
+  question in [`model-support.md`](model-support.md) (the GUI Chat row; `--ask-ai` runs the
+  same loops and is unmeasured as a surface), and the weak-navigator limit above is why the
+  answers vary by model. The MCP claim tools (`claim_elements`, `claim_candidates`,
+  `capabilities`) reach Claude Desktop and the cloud Chat only: the local Chat, GUI and CLI
+  alike, keeps its curated eight-tool menu, the one measured to work, so a local model does
+  not reach them unless started with
   `CE_LOCAL_CHAT_TOOLS=+claim_elements,claim_candidates,capabilities`, an unmeasured menu (see
   [`LOCAL_LLM.md`](LOCAL_LLM.md)).
   (Single-function `--analyze` runs locally today, air-gapped included.)

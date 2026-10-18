@@ -695,6 +695,14 @@ Deprecated alias for `--model`. Continues to work; sets `args.claim_model` and (
 - **Naming**: bare verb.
 - **Verified against**: `src/argparse.js:292`
 
+#### `--ask-ai "<question>"` (alias: `--ask-AI`)
+
+- **Does**: One question to an engine over the index, through the same tool loops the GUI Chat runs: every registered tool on a cloud engine, the curated core on a local model, the same budgets and guards. Prints a provenance header, the answer, then the `ⓘ Based on N model tool calls` footer on stdout; each tool call and the timing on stderr. Exit 1 when there is no index at the path, no key for the cloud engine, a cloud engine under `--air-gapped`, or no answer.
+- **Good for**: Running a question from an Overview by AI's "Questions to start with" without the GUI; scripted or batch questions; an answer whose basis is recorded under it.
+- **Couples with**: `--index-path`; `--llm claude|openai|gemini` or `--model <file.gguf>`; `--grounding`, `--cpu`, `--context-size`, `--flash-attention`, `--reproducible`, `-v`.
+- **Naming**: verb-noun, like `--build-index`; "AI" names the engine family, as `--overview-by-ai` does.
+- **Verified against**: `src/argparse.js:494`
+
 #### `--claim-analyze <claim>`
 
 - **Does**: End-to-end patent claim analysis: extract terms → search → analyze top matches.

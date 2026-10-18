@@ -15,7 +15,9 @@ where its center of gravity likely sits.
 **`--overview-by-ai`** is the optional agentic version: an LLM drives CodeExam's own tools to write a
 prose orientation, grounded in what it actually retrieved. It's one of the few places a model touches
 CodeExam's output — the trade-offs, and which local models can do it, are in
-[`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md).
+[`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md). **`--ask-ai "<question>"`** is the
+one-question counterpart: the same tool loops the GUI Chat runs, from the command line, with the
+same footer saying which tools the answer rested on.
 
 ## Digests: understand one target fast
 
@@ -69,4 +71,4 @@ eyeballing the top of a sorted catalog to find what matters without knowing its 
 - [`CODEEXAM_SEARCHING.md`](CODEEXAM_SEARCHING.md) and [`CODEEXAM_BROWSING.md`](CODEEXAM_BROWSING.md)
   — the two capabilities this page summarizes.
 - [`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md) — the optional LLM layer behind
-  `--overview-by-ai` and analyze.
+  `--overview-by-ai`, `--ask-ai` and analyze.

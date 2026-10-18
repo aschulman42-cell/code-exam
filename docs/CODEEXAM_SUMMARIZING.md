@@ -13,6 +13,7 @@ Planned coverage:
 
 - **`--overview`** — a deterministic, whole-codebase summary (no model).
 - **`--overview-by-ai`** — an LLM-written overview, on a cloud or local model.
+- **`--ask-ai "<question>"`** — one question answered through the tool loops, on a cloud or local model.
 - **`--digest`** — a target-aware summary of a function, class, or file.
 - **`--comments-only`** — extract just the comments.
 - **`--file-map`** — a structural map of a file.
