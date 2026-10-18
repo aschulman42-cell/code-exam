@@ -2038,6 +2038,49 @@ let _aiOverviewProse = null;
 let _aiOverviewFor = null;
 let _aiOverviewBy = null; // "ChatGPT API · gpt-5.1" etc. — what produced the cached prose
 
+// gui-overview-survives-reload (asus-CC, #330): an Overview by AI costs minutes
+// of GPU time on a local GGUF, and until now it lived ONLY in the three
+// variables above — an accidental F5 threw it away with no warning and no way
+// back but re-running it. sessionStorage keeps it for the life of the tab (not
+// localStorage: a stale overview resurfacing days later, against an index that
+// has since been rebuilt, would be worse than regenerating). Key includes
+// nothing secret — the prose is already on screen — and every access is
+// wrapped, because storage throws in private windows and when site data is
+// blocked.
+const _AI_OVERVIEW_KEY = 'ce_ai_overview_v1';
+
+function _saveAiOverview() {
+  try {
+    if (_aiOverviewProse == null) { sessionStorage.removeItem(_AI_OVERVIEW_KEY); return; }
+    sessionStorage.setItem(_AI_OVERVIEW_KEY, JSON.stringify({
+      prose: _aiOverviewProse, for: _aiOverviewFor, by: _aiOverviewBy,
+    }));
+  } catch { /* best-effort: storage unavailable or full */ }
+}
+
+function _restoreAiOverview() {
+  try {
+    const raw = sessionStorage.getItem(_AI_OVERVIEW_KEY);
+    if (!raw) return;
+    const o = JSON.parse(raw);
+    if (o && typeof o.prose === 'string' && o.prose) {
+      _aiOverviewProse = o.prose;
+      _aiOverviewFor = typeof o.for === 'string' ? o.for : '';
+      _aiOverviewBy = typeof o.by === 'string' ? o.by : null;
+    }
+  } catch { /* best-effort: absent, unreadable, or not JSON */ }
+}
+_restoreAiOverview();
+
+// regen-control-inflight-fixes (asus-CC, #330): true while a "New questions"
+// call is outstanding. Module-level, not per control: switching panes
+// re-renders the Overview section and builds a FRESH control, which otherwise
+// reads "↻ New questions" while the request is still running — the orphaned
+// original keeps the ⏳ and is no longer in the document. That made a running
+// regenerate look finished, which is what made a 47-second wait undiagnosable
+// from the screen.
+let _regenInFlight = false;
+
 // Render the opt-in Overview by AI block at the bottom of the Overview surface: a
 // button (+ air-gapped warning) when not yet generated, or the cached prose
 // (+ regenerate button) when it has been.
@@ -2127,6 +2170,7 @@ async function runAiOverview(btn, result, ov, renderProse) {
       : data.engine === 'openai' ? 'ChatGPT API'
       : data.engine === 'gemini' ? 'Gemini API' : 'Claude API';
     _aiOverviewBy = data.model ? `${engLabel} · ${data.model}` : engLabel;
+    _saveAiOverview();   // after `by` is known — survive a reload, see _AI_OVERVIEW_KEY
     const sec = btn.parentElement;
     if (sec) {
       const warnEl = sec.querySelector('.ai-overview-warn');
@@ -2202,7 +2246,26 @@ function makeNewQuestionsControl(prose, engineReady) {
     style: 'margin-left:10px;font-size:11px;font-weight:400;white-space:nowrap' + (ready ? '' : ';color:var(--text-muted);cursor:default'),
   });
   if (ready) a.addEventListener('click', (e) => { e.stopPropagation(); regenerateQuestions(a, prose); });
+  // A control built WHILE a regenerate is outstanding must not read as idle:
+  // switching panes re-renders this section, and the original control (still
+  // showing ⏳) is detached by that render. Without this, a running request
+  // looks finished and a second click queues a second call behind the first.
+  if (ready && _regenInFlight) {
+    a.textContent = _regenBusyLabel();
+    a.style.pointerEvents = 'none';
+  }
   return a;
+}
+
+// The busy label. On the local engine the wait is usually NOT generation — the
+// model answers in a few seconds — it is the single local-model lock, behind
+// whatever Chat or Overview is already running. Measured on .GhostArch-class
+// work: 3s of model time inside a 48s wall-clock wait. Saying so is the
+// difference between "this is working" and "this is stuck".
+function _regenBusyLabel() {
+  return _wsEngine() === 'local'
+    ? '⏳ New questions… (waiting for the local model)'
+    : '⏳ New questions…';
 }
 
 const _REGEN_NOTE_RE = /^ⓘ Questions regenerated[^\n]*\n?/m;
@@ -2213,7 +2276,8 @@ const _REGEN_NOTE_RE = /^ⓘ Questions regenerated[^\n]*\n?/m;
 // Every rendered copy (pane and pop-up) is re-rendered from the spliced prose.
 async function regenerateQuestions(ctl, prose) {
   const orig = ctl.textContent;
-  ctl.textContent = '⏳ New questions…';
+  _regenInFlight = true;
+  ctl.textContent = _regenBusyLabel();
   ctl.style.pointerEvents = 'none';
   try {
     const data = await api.post('ai-overview-questions', {
@@ -2221,6 +2285,9 @@ async function regenerateQuestions(ctl, prose) {
       prose,
       current: questionsInProse(prose),
     }, { timeout: 300000 });
+    // Cleared BEFORE the splice/re-render below: the controls that render
+    // rebuilds must come back idle, not busy.
+    _regenInFlight = false;
     if (data.pinned) {
       ctl.title = data.note || 'Pinned sampling (--reproducible) cannot give new questions';
       ctl.textContent = orig;
@@ -2228,13 +2295,20 @@ async function regenerateQuestions(ctl, prose) {
     }
     const base = String(prose || '').replace(_REGEN_NOTE_RE, '');
     const next = spliceQuestions(base, [...(data.lines || []), '', data.note || 'ⓘ Questions regenerated (sampled); the overview above is unchanged.']);
-    if (_aiOverviewProse === prose) _aiOverviewProse = next;
+    if (_aiOverviewProse === prose) { _aiOverviewProse = next; _saveAiOverview(); }
     document.querySelectorAll('.ai-overview-result').forEach((c) => renderAiOverview(c, next));
   } catch (err) {
     ctl.textContent = orig;
-    ctl.style.pointerEvents = '';
     ctl.title = `New questions failed: ${err.message}`;
     ctl.style.color = 'var(--accent-red,#d33)';
+  } finally {
+    // ALWAYS restore. Previously this lived only in the catch, so the two
+    // non-throwing exits leaked `pointerEvents: none` onto the control: the
+    // success path got away with it only because the re-render replaces the
+    // node, and the `pinned` early return (--reproducible) did not — there the
+    // first click disabled the control permanently, silently, every time.
+    _regenInFlight = false;
+    ctl.style.pointerEvents = '';
   }
 }
 

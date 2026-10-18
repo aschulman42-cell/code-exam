@@ -69,8 +69,12 @@ available as a pop-up (the **⧉ Open Overview pop-up** button in the Overview's
 prose, the ⓘ notes and the controls are identical in both. Under "Questions to start with", each
 question carries an **Ask in Chat** link, which switches to the Chat tab with the question filled
 in but not sent, and the heading carries a **↻ New questions** control, which fetches a different
-five in one short sampled call. Ask in Chat closes the pop-up when clicked from inside it, so the
-Chat tab is in view; the Overview in the pane keeps the same prose, and the pop-up reopens with it.
+five in one short sampled call. On a local engine that call queues behind whatever Chat or Overview
+is already running, and the control says so ("waiting for the local model"): the model's own
+part is seconds, the wait is the queue. Ask in Chat closes the pop-up when clicked from inside it, so
+the Chat tab is in view; the Overview in the pane keeps the same prose, and the pop-up reopens with it.
+The generated overview is kept for the life of the browser tab, so a reload shows it again without
+re-running it; closing the tab discards it (#207 is the design for caching it with the index).
 Both controls are muted, with a tooltip saying why, until an engine is available. Detail in
 [`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md). The command-line equivalent of Ask in Chat is
 `ce --ask-ai "<question>"`, which runs the same loops and prints the same footer.

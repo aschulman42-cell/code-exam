@@ -73,7 +73,9 @@ It runs against a cloud LLM or a local GGUF model — your choice of engine — 
 surface about the code, and to say when something can't be determined rather than
 filling the gap from general knowledge. Because a model is involved, the Overview by AI
 is optional and does not repeat bit-for-bit the way the deterministic overview does.
-For the engine choice see [AI_ASSISTED_CODE_EXAM.md](AI_ASSISTED_CODE_EXAM.md) and
+In the GUI the generated overview is kept for the life of the browser tab, not written to disk: a
+reload shows it again at no cost, closing the tab discards it, and #207 is the design for caching it
+with the index. For the engine choice see [AI_ASSISTED_CODE_EXAM.md](AI_ASSISTED_CODE_EXAM.md) and
 [LOCAL_LLM.md](LOCAL_LLM.md); for what does and doesn't repeat,
 [REPRODUCIBILITY.md](REPRODUCIBILITY.md).
 
