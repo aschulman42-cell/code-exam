@@ -28,11 +28,13 @@ plainly:
   and a cloud model for independent claim→code analysis.** See [`LOCAL_LLM.md`](LOCAL_LLM.md).
 - **Codebase-wide chat exists, in the GUI and on the CLI, and runs air-gapped on a local model;
   what limits it is the weak-navigator problem** (#36, #160). The GUI Chat pane and
-  `--ask-ai "<question>"` drive CodeExam's tools through the same loops, on a cloud engine or
+  `--ask-ai "<question>"` drive CodeExam's tools — the one table the MCP server registers,
+  called in-process by a local model rather than over MCP ([`CODEEXAM_MCP.md`](CODEEXAM_MCP.md),
+  "One tool table, three menus") — through the same loops, on a cloud engine or
   a local GGUF with no network. How well a given local model drives them is the per-model
   question in [`model-support.md`](model-support.md) (the GUI Chat row; `--ask-ai` runs the
   same loops and is unmeasured as a surface), and the weak-navigator limit above is why the
-  answers vary by model. The MCP claim tools (`claim_elements`, `claim_candidates`,
+  answers vary by model. The claim tools (`claim_elements`, `claim_candidates`,
   `capabilities`) reach Claude Desktop and the cloud Chat only: the local Chat, GUI and CLI
   alike, keeps its curated eight-tool menu, the one measured to work, so a local model does
   not reach them unless started with

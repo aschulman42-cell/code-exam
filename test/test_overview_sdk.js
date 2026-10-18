@@ -15,6 +15,16 @@ import {
   AI_OVERVIEW_TOOL_NAMES, AI_OVERVIEW_TOOLS, aiOverviewPrompt,
   AI_OVERVIEW_GROUNDING_CLAUSES,
 } from '../src/core/ai-overview.js';
+import { TOOLS } from '../src/mcp-server.js';
+
+// docs-one-tool-table-three-menus: the overview menu is a subset of the one
+// TOOLS table (the docs say "sixteen, drawn from the MCP server's table"); a
+// renamed or removed tool must fail here, not drift silently.
+test('every overview tool name is registered in TOOLS', () => {
+  const registered = new Set(TOOLS.map((t) => t.name));
+  for (const n of AI_OVERVIEW_TOOL_NAMES) assert.ok(registered.has(n), `${n} is in AI_OVERVIEW_TOOL_NAMES but not in TOOLS`);
+  assert.ok(AI_OVERVIEW_TOOL_NAMES.length < TOOLS.length, 'the overview menu is a strict subset');
+});
 
 test('AI_OVERVIEW_TOOLS is the prefixed, comma-joined form of the names', () => {
   assert.ok(Array.isArray(AI_OVERVIEW_TOOL_NAMES));

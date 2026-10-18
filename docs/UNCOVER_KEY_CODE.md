@@ -71,7 +71,10 @@ two things the deterministic overview can't give you —
 It runs against a cloud LLM or a local GGUF model — your choice of engine — and is
 **grounded by default**: the model is told to base the overview only on what the tools
 surface about the code, and to say when something can't be determined rather than
-filling the gap from general knowledge. Because a model is involved, the Overview by AI
+filling the gap from general knowledge. The tools are a sixteen-name orientation menu
+drawn from the MCP server's table (`AI_OVERVIEW_TOOL_NAMES`): a cloud engine runs them over
+CodeExam's MCP subprocess, a local model in-process, same tools either way
+([`CODEEXAM_MCP.md`](CODEEXAM_MCP.md), "One tool table, three menus"). Because a model is involved, the Overview by AI
 is optional and does not repeat bit-for-bit the way the deterministic overview does.
 In the GUI the generated overview is kept for the life of the browser tab, not written to disk: a
 reload shows it again at no cost, closing the tab discards it, and #207 is the design for caching it

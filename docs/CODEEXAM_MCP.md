@@ -8,6 +8,34 @@ stdin/stdout, with **no network socket** — the same local-only posture as the 
 Point it at an index the way you would the CLI (`--index-path`), or switch indexes at runtime with
 the `load_index` tool.
 
+## One tool table, three menus, three paths to it
+
+The `TOOLS` table in `src/mcp-server.js` is the only registration. Every surface that lets a model
+call CodeExam draws its names, descriptions and input schemas from that table, and every call,
+whatever the path, runs through the same `handleTool` router: same arguments, same answer. So
+"does the local model use MCP?" has two true answers. It uses the MCP server's tools; it does not
+speak the MCP protocol to reach them.
+
+| Surface | Menu | Path to `handleTool` |
+|---|---|---|
+| External MCP clients (Claude Code, Claude Desktop, …) | every registered tool | MCP over STDIO to `src/mcp-server.js` as a child process |
+| Overview by AI, cloud engine | the overview menu: `AI_OVERVIEW_TOOL_NAMES` in `src/core/ai-overview.js`, sixteen orientation tools | the cloud engine spawns `src/mcp-server.js` itself and calls over STDIO |
+| Overview by AI, local model (CLI and GUI) | the same overview menu | in-process node-llama-cpp function calling: no subprocess, no stdio, no JSON-RPC |
+| GUI Chat and `--ask-ai`, cloud engine | every registered tool | the provider's own tool-use API, each call answered in-process by `handleTool` |
+| GUI Chat and `--ask-ai`, local model | the curated core: `CURATED_LOCAL_CHAT_TOOLS` in `src/core/local-chat-tools.js`, eight tools; `CE_LOCAL_CHAT_TOOLS` changes it for one launch | in-process node-llama-cpp function calling |
+
+The counts are the live ones at this writing; the table in the next section is the authoritative
+list, and no total is written here because it changes with every tool added. `CE_LOCAL_CHAT_TOOLS`
+touches only the local Chat menu, never the overview's.
+
+What the local path adds, each measured against a failure in
+[`cloud-gpu-chat-testing.md`](cloud-gpu-chat-testing.md): a call and character budget scaled to the
+context size, a refusal of identical repeat calls (which waste context), a 4,000-character cap on
+each tool result, tool descriptions trimmed to 280 characters in the menu the model sees, and
+neutralization of chat-template control tokens inside tool results, so retrieved text cannot end a
+turn. The GUI's local Overview by AI shares the model the server already loaded rather than loading
+its own, because a second copy beside the first measured out of memory on a 24 GB GPU.
+
 ## The tools
 
 The tools CodeExam registers, grouped below by purpose. The descriptions are condensed from the
@@ -123,7 +151,8 @@ navigator (see [`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md))
 
 The local GUI Chat, and `--ask-ai` on a local model, drive a **curated subset** of the tools
 (`LOCAL_CHAT_TOOLS`, resolved in `src/core/chat-runner.js` from the core in
-`src/core/local-chat-tools.js`, eight names), because the measurements in
+`src/core/local-chat-tools.js`, eight names; the menus and paths are laid out side by side in
+"One tool table, three menus" above), because the measurements in
 [`cloud-gpu-chat-testing.md`](cloud-gpu-chat-testing.md) showed 8B–14B models collapsing at the
 full menu. The claim tools are **not** on that list: they reach Claude Desktop, other MCP clients
 and the cloud Chat, and a local model reaches them only once an eleven-tool menu has been measured

@@ -42,7 +42,10 @@ nine files, mostly registration boilerplate).
 - **MCP server** — `src/mcp-server.js` exposes the index-query tools to MCP clients over STDIO and,
   like the REPL and GUI, keeps the index resident for the life of the process (the `load_index`
   tool switches indexes at runtime). The full tool table is in
-  [`CODEEXAM_MCP.md`](CODEEXAM_MCP.md).
+  [`CODEEXAM_MCP.md`](CODEEXAM_MCP.md). That table is the only registration: the GUI's local
+  Chat and local Overview by AI import the same `TOOLS` and `handleTool` and call them
+  in-process, and the cloud paths reach the same router through the provider's tool-use API or
+  the MCP subprocess ("One tool table, three menus" on that page).
 
 All four share one on-disk index format — build once, query from any of them (see
 [`GETTING_STARTED.md`](GETTING_STARTED.md) and [`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md)). The

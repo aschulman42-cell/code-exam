@@ -86,7 +86,12 @@ Related flags (local GGUF only unless noted):
   `show_file`, `callers`, `callees`, `digest`, `overview`, `list_functions`), the
   menu measured to work for 8B–14B models (see
   [cloud-gpu-chat-testing.md](cloud-gpu-chat-testing.md)); the cloud engines get
-  every tool. `CE_LOCAL_CHAT_TOOLS=+claim_elements,claim_candidates,capabilities`
+  every tool. These are the MCP server's own tools, the one `TOOLS` table in
+  `src/mcp-server.js`, called in-process by the local model rather than over the
+  MCP protocol; the Overview by AI has its own sixteen-tool menu, which this
+  variable does not touch (both laid out in
+  [`CODEEXAM_MCP.md`](CODEEXAM_MCP.md), "One tool table, three menus").
+  `CE_LOCAL_CHAT_TOOLS=+claim_elements,claim_candidates,capabilities`
   adds tools to that core (the patent-claim tools, for instance),
   `CE_LOCAL_CHAT_TOOLS=all` exposes every tool, and a plain comma-separated list
   replaces the core. The server prints the resulting menu at startup. Any menu
