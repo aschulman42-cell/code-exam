@@ -133,7 +133,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `src/commands/browse.js` — index browsing: stats, list/show files, list functions, extract, bundle seams, extension census
 - `src/commands/build_fp_renames.js` — writes `_FP_` display renames into `rename_map.json` for cross-source fingerprint matches above a threshold
 - `src/commands/callers.js` — `--callers`/`--callees`/`--most-called`/`--call-inventory` over the index's call graph, with depth and filters
-- `src/commands/census.js` — `--census-imports`: ranks Python import targets across one index or a whole multi-index corpus
+- `src/commands/census.js` — `--census-imports`: ranks import targets (Python, JS/TS, C/C++, Java/Kotlin, C#) across one index or a whole multi-index corpus
 - `src/commands/claim.js` — `--claim-search`: LLM extraction of TIGHT/BROAD multisect terms from claim prose, then runs both searches
 - `src/commands/claim-chart.js` — builds one-row-per-element claim charts merged across targets; CE owns structure, model fills cells
 - `src/commands/claim-locate.js` — proposes symbols from a claim, verifies them against the index, navigates callees, emits targets

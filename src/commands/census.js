@@ -1,4 +1,4 @@
-// census.js — --census-imports: ranks Python import targets across one index or a whole multi-index corpus
+// census.js — --census-imports: ranks import targets (Python, JS/TS, C/C++, Java/Kotlin, C#) across one index or a whole multi-index corpus
 // Copyright (c) 2026 Andrew Schulman
 // https://github.com/aschulman42-cell/code-exam
 // Co-authored with Claude (Claude Code).
@@ -152,6 +152,13 @@ function render(entries, { multi, nIndexes, pyFiles, filesByLang, args }) {
       }
     }
   }
+
+  // What this census reads, said on the output itself: the report travels as
+  // a file, and "why is library X not here" (Mermaid, loaded by a <script>
+  // tag, 2026-10-17) is answered by the coverage, not by a docs page.
+  console.log('\nCoverage: import and include statements in Python, JS/TS, C/C++, Java/Kotlin and C#.');
+  console.log('Not read: HTML <script src> and <link> tags, importmaps and URL imports — a library a');
+  console.log('web page loads that way, vendored or from a CDN, is not counted (#27).');
 
   console.log(`\n  Tip: --census-imports --filter <module> -v drills into one subtree` +
               (multi ? ' with per-index counts.' : ' with example sites.'));

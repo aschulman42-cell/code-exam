@@ -117,6 +117,7 @@ describe('extractFileImports dispatch', () => {
 // come back external, saying so.
 import { classifyImports, classifyImportRow, corpusFacts, manifestDeps } from '../src/core/imports.js';
 import { doBom } from '../src/commands/imports.js';
+import { doCensusImports } from '../src/commands/census.js';
 
 describe('import classification (imports-bill-of-materials resolver)', () => {
   const stub = () => ({
@@ -240,6 +241,21 @@ describe('import classification (imports-bill-of-materials resolver)', () => {
     assert.match(text, /third_party\/\s+— \d+ indexed file/);
     assert.match(text, /Manifests indexed/);
     assert.match(text, /Manifests indexed \(corroborates third-party rows\)/);
+    // The report says what it reads (import-reports-coverage-truth): the
+    // Mermaid case — a library loaded by a <script> tag — is absent by design,
+    // and the output, which travels as a file, must say so itself.
+    assert.match(text, /Coverage: import and include statements in Python, JS\/TS, C\/C\+\+, Java\/Kotlin and C#\./);
+    assert.match(text, /Not read: HTML <script src> and <link> tags, importmaps and URL imports/);
+  });
+
+  it('doCensusImports ends with the same coverage statement', () => {
+    const out = [];
+    const origLog = console.log; console.log = (s) => out.push(String(s));
+    try { doCensusImports(stub(), { _explicit: new Set() }); } finally { console.log = origLog; }
+    const text = out.join('\n');
+    assert.match(text, /Import census — \d+ import sites/);
+    assert.match(text, /Coverage: import and include statements in Python, JS\/TS, C\/C\+\+, Java\/Kotlin and C#\./);
+    assert.match(text, /is not counted \(#27\)/);
   });
 });
 

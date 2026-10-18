@@ -488,6 +488,38 @@ Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior a
 - **Naming**: hyphenated boolean.
 - **Verified against**: `src/argparse.js:276`
 
+#### `--census-imports`
+
+- **Does**: Ranked census of import targets across the indexed languages (Python, JS/TS, C/C++, Java/Kotlin, C#) for one index; with `--multi-index <list>` it reduces across indexes, ranked by how many indexes import each target. Import statements only, and the output ends with a coverage line saying so (HTML-loaded libraries are not read; #27).
+- **Good for**: The corpus's de facto API map — what the code actually reaches for, and in a multi-index corpus which libraries all of it shares.
+- **Couples with**: `--multi-index`, `--filter`, `--max-results`, `-v` (per-index counts / example sites).
+- **Naming**: noun-noun; `census` for the counting, `imports` for the subject.
+- **Verified against**: `src/argparse.js:539`
+
+#### `--bom`
+
+- **Does**: Bill of materials — every import/include across the indexed languages classified four ways (internal / stdlib-or-platform / third-party, manifest-declared / vendored), each row with its stated source; unconfirmable targets report themselves as external. Ranked external surface, vendored subtrees, indexed manifests, and a coverage line (import statements only; HTML-loaded libraries are not read, #27).
+- **Good for**: Answering "what does this code depend on, and how do we know" with the line that imports it — the dependencies half of a protective-order inventory.
+- **Couples with**: `--filter`, `--max-results`, `-v`; `--add-extensions` at build for manifests outside the default set (`pyproject.toml`, `Cargo.toml`, `go.mod`, Gradle, `.csproj`, `packages.config`); `package.json`, `requirements.txt` and `pom.xml` are indexed by default.
+- **Naming**: the industry acronym (bill of materials); the SBOM umbrella is #27.
+- **Verified against**: `src/argparse.js:541`
+
+#### `--exports [pkg]`
+
+- **Does**: Declared-exports catalog (Python today): what each package says its public API is, tier-marked (A `__all__` / `@*_export`, B `__init__` re-exports, C heuristic floor) and resolved to definition sites. Bare form: per-package summary; `--exports <pkg>`: that package's names, segment-matched. `--emit-catalog <file>` writes the catalog that `--imports` and the GUI read.
+- **Good for**: Building the library-side answer key for cross-index resolution; seeing a package's public surface without reading it.
+- **Couples with**: `--emit-catalog`, `--catalog-replace`, `--used-by`, `--multi-index`, `--filter`, `-v`.
+- **Naming**: bare noun, the mirror of `--imports`.
+- **Verified against**: `src/argparse.js:542`
+
+#### `--imports <catalog.json>`
+
+- **Does**: Discovery join (#162): resolve this index's imports against a pre-built multi-library catalog from `--exports --emit-catalog`; each import is attributed to whichever catalogued library provides it, including qualified attribute access. `--imports-from <index>` is the single-library form (#154).
+- **Good for**: "Which of these imports are *that* library's, and which does the catalog not explain" — the join that turns an import list into a dependency map.
+- **Couples with**: `--imports-from`, `--exports`, `--filter`.
+- **Naming**: bare noun, the mirror of `--exports`; the value is a catalog file, not a package.
+- **Verified against**: `src/argparse.js:544`
+
 ---
 
 ## DISPLAY / FILTERING
