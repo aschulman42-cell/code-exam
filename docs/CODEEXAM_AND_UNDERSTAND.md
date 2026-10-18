@@ -68,7 +68,7 @@ Understand does it with bundled models and a sizing tool. The consequential diff
 the workflows built around it, the artifacts each tool can analyze, and how results are
 recorded and reviewed. What follows is what differs.
 
-Nor is Understand the only neighbour with a local model. **Ghost Architect Local**, whose
+Nor is Understand the only neighbour with a local model. [**Ghost Architect Local**](https://ghostarchitect.dev/), whose
 scans of CodeExam are the subject of issue #344, describes itself as "codebase intelligence on
 your own hardware, inside your network", runs its rule-based scans against a model server you
 own (Ollama, vLLM, LM Studio or any OpenAI-compatible endpoint) and says "air-gapped if that
