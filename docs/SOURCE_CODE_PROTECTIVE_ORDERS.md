@@ -511,7 +511,8 @@ them does at runtime, including whether it reaches the network, is the item mark
 above. For the full transitive tree, GitHub's dependency graph for the repository (Insights,
 Dependency graph, with an SBOM export, and Dependabot alerts built on it) lists every package
 including the indirect ones; it is exhaustive where CodeExam's catalog is deliberately scoped
-to what the code itself imports, with the line that imports it. Issue #27 tracks the
+to what the code itself imports or loads (import statements, and the script, stylesheet and
+importmap tags of indexed HTML and page templates), with the line that does it. Issue #27 tracks the
 bill-of-materials feature. The run also turned up a declared-but-unused pair: `express` and
 `zod` were in `package.json` but imported nowhere by CodeExam's code (the GUI server is Node's
 own `http`), and both arrive anyway as dependencies of the MCP SDK. The catalog was right and

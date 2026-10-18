@@ -25,7 +25,7 @@
 
 import { CodeSearchIndex } from '../core/CodeSearchIndex.js';
 import { effectiveMaxResults, capNotice } from '../argparse.js';
-import { extractImports } from '../core/imports.js';
+import { extractImports, htmlCoverageNote, tagsInCodeStrings, codeStringTagNote } from '../core/imports.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
 
 const CAP = 50;          // ranked-table rows shown (disclosed when exceeded)
@@ -68,12 +68,12 @@ function rollup(entries) {
     b.idxs.size - a.idxs.size || b.occ - a.occ || a.root.localeCompare(b.root));
 }
 
-function render(entries, { multi, nIndexes, pyFiles, filesByLang, args }) {
+function render(entries, { multi, nIndexes, pyFiles, filesByLang, args, htmlNote = null, codeTagNote = null }) {
   const totalSites = entries.reduce((s, e) => s + e.occ, 0);
   const filterNote = args.filter ? ` — filter: '${args.filter}'` : '';
   // imports-bill-of-materials tier 1: the census is multi-language now, and
   // the header says which files fed it instead of assuming Python.
-  const LANG_LABEL = { py: 'Python', js: 'JS/TS', c: 'C/C++', java: 'Java/Kotlin', cs: 'C#' };
+  const LANG_LABEL = { py: 'Python', js: 'JS/TS', c: 'C/C++', java: 'Java/Kotlin', cs: 'C#', html: 'HTML/template' };
   const langNote = filesByLang && Object.keys(filesByLang).length
     ? Object.entries(filesByLang).sort((a, b) => b[1] - a[1])
       .map(([l, n]) => `${n} ${LANG_LABEL[l] || l}`).join(', ')
@@ -90,7 +90,8 @@ function render(entries, { multi, nIndexes, pyFiles, filesByLang, args }) {
       console.log(`  No import targets match --filter '${args.filter}'.`);
     } else {
       console.log('  No imports found. Covered languages: Python, JS/TS, C/C++,');
-      console.log('  Java/Kotlin, C# (imports-bill-of-materials tier 1).');
+      console.log('  Java/Kotlin, C# (imports-bill-of-materials tier 1), plus script/link tags in indexed HTML and page templates.');
+      if (htmlNote) console.log(`  ${htmlNote}`);
     }
     return;
   }
@@ -156,9 +157,12 @@ function render(entries, { multi, nIndexes, pyFiles, filesByLang, args }) {
   // What this census reads, said on the output itself: the report travels as
   // a file, and "why is library X not here" (Mermaid, loaded by a <script>
   // tag, 2026-10-17) is answered by the coverage, not by a docs page.
-  console.log('\nCoverage: import and include statements in Python, JS/TS, C/C++, Java/Kotlin and C#.');
-  console.log('Not read: HTML <script src> and <link> tags, importmaps and URL imports — a library a');
-  console.log('web page loads that way, vendored or from a CDN, is not counted (#27).');
+  console.log('\nCoverage: import and include statements in Python, JS/TS, C/C++, Java/Kotlin and C#,');
+  console.log('plus script, stylesheet and importmap tags in indexed HTML and page templates (HTML');
+  console.log('and most template types need --add-extensions at build); a library loaded from a');
+  console.log('vendored directory is counted from the tag alone (#27).');
+  if (htmlNote) console.log(htmlNote);
+  if (codeTagNote) console.log(codeTagNote);
 
   console.log(`\n  Tip: --census-imports --filter <module> -v drills into one subtree` +
               (multi ? ' with per-index counts.' : ' with example sites.'));
@@ -170,7 +174,8 @@ export function doCensusImports(index, args) {
   const match = makeFilterMatcher(args.filter);
   const entries = aggregate(new Map([[index.indexPath, rows]]))
     .filter(e => match(e.target));
-  render(entries, { multi: false, nIndexes: 1, pyFiles, filesByLang, args });
+  render(entries, { multi: false, nIndexes: 1, pyFiles, filesByLang, args,
+    htmlNote: htmlCoverageNote(index, filesByLang), codeTagNote: codeStringTagNote(tagsInCodeStrings(index)) });
 }
 
 /**
@@ -182,6 +187,8 @@ export function doCensusImportsMulti(indexPaths, args) {
   let failures = 0;
   let pyFilesTotal = 0;
   const filesByLangTotal = {};
+  let skippedHtmlTotal = 0;   // HTML files the builds saw but did not index (#191 counts), summed
+  const codeTags = { sites: 0, files: 0 };   // tag-shaped strings in non-page files, summed
   for (let i = 0; i < indexPaths.length; i++) {
     const p = indexPaths[i];
     process.stderr.write(`[multi-index] (${i + 1}/${indexPaths.length}) ${p}\n`);
@@ -195,6 +202,10 @@ export function doCensusImportsMulti(indexPaths, args) {
       const { rows, pyFiles, filesByLang: fbl } = extractImports(idx);
       pyFilesTotal += pyFiles;
       for (const [l, n] of Object.entries(fbl || {})) filesByLangTotal[l] = (filesByLangTotal[l] || 0) + n;
+      const sk = idx.skippedExtensions || {};
+      for (const k of ['.html', '.htm', 'html', 'htm']) skippedHtmlTotal += Number(sk[k]) || 0;
+      const ct = tagsInCodeStrings(idx);
+      codeTags.sites += ct.sites; codeTags.files += ct.files;
       if (rows.length === 0) {
         process.stderr.write(`[multi-index] note: no imports extracted in '${p}' — ` +
                              `covered languages: Python, JS/TS, C/C++, Java/Kotlin, C#\n`);
@@ -211,7 +222,9 @@ export function doCensusImportsMulti(indexPaths, args) {
 
   const match = makeFilterMatcher(args.filter);
   const entries = aggregate(perIndex).filter(e => match(e.target));
-  render(entries, { multi: true, nIndexes: perIndex.size, pyFiles: pyFilesTotal, filesByLang: filesByLangTotal, args });
+  render(entries, { multi: true, nIndexes: perIndex.size, pyFiles: pyFilesTotal, filesByLang: filesByLangTotal, args,
+    htmlNote: htmlCoverageNote({ skippedExtensions: { '.html': skippedHtmlTotal } }, filesByLangTotal),
+    codeTagNote: codeStringTagNote(codeTags) });
   process.stderr.write(`[multi-index] census across ${perIndex.size} index(es)` +
                        `${failures ? `, ${failures} failed/skipped` : ''}\n`);
   return failures;

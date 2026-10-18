@@ -1312,15 +1312,20 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              (vs need a hand-written loader). Honors --filter.
   --census-imports           Ranked import census: what the code actually
                              imports across the indexed languages (Python,
-                             JS/TS, C/C++, Java/Kotlin, C#) — import
-                             statements only; --bom classifies them. With
+                             JS/TS, C/C++, Java/Kotlin, C#), plus what
+                             indexed HTML and page templates load by
+                             script/link/importmap tags; --bom classifies
+                             them. With
                              --multi-index <list> it reduces ACROSS indexes —
                              ranked by how many indexes import each target —
                              the corpus's de facto API map. Honors --filter;
                              -v drills per-index counts / example sites.
   --bom                      Bill of materials: every import/include across
                              the indexed languages (Python, JS/TS, C/C++,
-                             Java/Kotlin, C#) classified four ways — internal
+                             Java/Kotlin, C#), plus script/link/importmap
+                             tags in indexed HTML and page templates
+                             (--add-extensions .html,.htm,... at build),
+                             classified four ways — internal
                              / stdlib-or-platform / third-party (manifest-
                              declared) / vendored — each with its stated
                              source; unconfirmable targets report themselves

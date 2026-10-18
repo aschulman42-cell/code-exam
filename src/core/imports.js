@@ -1,4 +1,4 @@
-// imports.js — per-language import extractor (Py/JS/C/Java/C#) classifying rows internal/stdlib/third-party/vendored
+// imports.js — per-language import extractor (Py/JS/C/Java/C#, plus HTML script/link/importmap tags) classifying rows internal/stdlib/third-party/vendored
 // Copyright (c) 2026 Andrew Schulman
 // https://github.com/aschulman42-cell/code-exam
 // Co-authored with Claude (Claude Code).
@@ -22,7 +22,8 @@
  *
  * Languages: extractImports covers Python (.py/.pyi); extractJsImports,
  * extractCImports (incl. ObjC #import/@import), extractJavaImports and
- * extractCSharpImports cover the other families, manifestDeps reads the
+ * extractCSharpImports cover the other families, extractHtmlImports reads
+ * what a page LOADS (script/link/importmap tags), manifestDeps reads the
  * package manifests, and classifyImports resolves every row four ways
  * (internal / stdlib-platform / third-party / vendored) for --bom. The AI/ML
  * detectors still match imports ad hoc per framework family
@@ -122,7 +123,8 @@ export function extractImports(index, opts = {}) {
     if (got == null) continue;
     const lang = got.length ? got[0].lang
       : isPythonFile(filepath) ? 'py' : isJsFile(filepath) ? 'js'
-        : isCFile(filepath) ? 'c' : isJavaFile(filepath) ? 'java' : 'cs';
+        : isCFile(filepath) ? 'c' : isJavaFile(filepath) ? 'java'
+          : (isHtmlFile(filepath) || isTemplateFile(filepath)) ? 'html' : 'cs';
     filesByLang[lang] = (filesByLang[lang] || 0) + 1;
     if (lang === 'py') pyFiles++;
     rows.push(...got);
@@ -156,6 +158,15 @@ export function isJsFile(filepath) { return /\.(?:jsx?|tsx?|mjs|cjs|xs)$/i.test(
 export function isCFile(filepath) { return /\.(?:c|h|cc|hh|cpp|hpp|cxx|hxx|inl)$/i.test(filepath); }
 export function isJavaFile(filepath) { return /\.(?:java|kt|kts)$/i.test(filepath); }
 export function isCSharpFile(filepath) { return /\.cs$/i.test(filepath); }
+export function isHtmlFile(filepath) { return /\.(?:html?|xhtml)$/i.test(filepath); }
+// Server-side page templates carry a web app's <script>/<link> tags as often
+// as .html does, so the tag scan runs on them when they are indexed (most of
+// these extensions need --add-extensions at build). Only what the page LOADS
+// is read: the template language's own imports (PHP use/require, Ruby
+// require) have no extractor here.
+export function isTemplateFile(filepath) {
+  return /\.(?:php|phtml|jsp|jspx|aspx|ascx|cshtml|vbhtml|razor|erb|ejs|hbs|handlebars|mustache|twig|njk|nunjucks|jinja2?|j2|liquid|tpl|tmpl)$/i.test(filepath);
+}
 
 const stripSlashComment = (s) => {
   const t = (s || '').replace(/\r+$/, '');
@@ -183,10 +194,17 @@ export function extractJsImports(lines, filepath, opts = {}) {
   const push = (module, name, alias, star, line) => {
     const relative = module.startsWith('./') || module.startsWith('../');
     if (relative && !opts.includeRelative) return;
+    // A URL specifier (`import x from 'https://esm.sh/preact@10'`) is a
+    // library loaded over the network, not an npm name: carry the host and
+    // the library/version the URL names (bom-html-loaded-libraries).
+    const isUrl = /^(?:https?:)?\/\//i.test(module);
+    const lib = isUrl ? libFromUrl(module) : null;
+    const head = lib && lib.name ? lib.name : module;   // the census ranks `preact.default`, not the URL
     rows.push({
-      target: name ? `${module}.${name}` : module,
+      target: name ? `${head}.${name}` : head,
       file: filepath, line, module, name: name || null, alias: alias || null,
       relative, star: !!star, lang: 'js',
+      ...(isUrl ? { url: true, host: lib ? lib.host : null, libName: lib ? lib.name : null, libVersion: lib ? lib.version : null } : {}),
     });
   };
   for (let i = 0; i < lines.length; i++) {
@@ -340,7 +358,200 @@ export function extractFileImports(lines, filepath, opts = {}) {
   if (isCFile(filepath)) return extractCImports(lines, filepath, opts);
   if (isJavaFile(filepath)) return extractJavaImports(lines, filepath);
   if (isCSharpFile(filepath)) return extractCSharpImports(lines, filepath);
+  if (isHtmlFile(filepath) || isTemplateFile(filepath)) return extractHtmlImports(lines, filepath, opts);
   return null;
+}
+
+// ===========================================================================
+// bom-html-loaded-libraries: what a web page LOADS. A front end's libraries
+// often arrive by <script src>, <link rel="stylesheet">, an importmap or a
+// URL import rather than by an import statement, and none of those were
+// read: Mermaid, loaded by one <script> tag in public/index.html, was absent
+// from --bom and --census-imports on CodeExam's own index (2026-10-17).
+//
+// Rows keep the shape above. `module` is the raw src/href/URL, `target` the
+// library name the tag loads (what the census ranks), `lang` is 'html' and
+// `kind` names the tag (script-tag / stylesheet / modulepreload / preload /
+// importmap). `libName` / `libVersion` come from the filename
+// (jquery-3.7.1.min.js) or a CDN path (jsDelivr, unpkg, esm.sh, cdnjs,
+// Google Hosted Libraries) — never from the loaded file's contents, which
+// the index usually does not hold: vendor/ and its kin are skipped at build
+// (archive.js SKIP_DIRS). A local path under such a directory is still a
+// library (relative: false, so the census counts it); any other local path
+// is the page's own asset (relative: true, intra-package wiring).
+// ===========================================================================
+
+const _CDN_PATH_PATTERNS = [
+  /^\/npm\/((?:@[^/@]+\/)?[^/@]+)(?:@v?([^/]+))?/,   // cdn.jsdelivr.net/npm/<name>@<ver>/…
+  /^\/gh\/[^/]+\/([^/@]+)(?:@v?([^/]+))?/,            // cdn.jsdelivr.net/gh/<user>/<repo>@<ver>/…
+  /^\/ajax\/libs\/([^/]+)\/([^/]+)\//,                // cdnjs.cloudflare.com and ajax.googleapis.com /ajax/libs/<name>/<ver>/…
+  /^\/((?:@[^/@]+\/)?[^/@]+)@v?([^/]+)/,              // unpkg.com/<name>@<ver>/…, esm.sh/<name>@<ver>
+];
+
+/**
+ * Library name and version from a loaded file's basename:
+ *   jquery-3.7.1.min.js -> { name: 'jquery', version: '3.7.1' }
+ *   mermaid.min.js      -> { name: 'mermaid', version: null }
+ *   bootstrap.bundle.min.js -> 'bootstrap';  d3.v7.min.js -> { 'd3', '7' }
+ */
+export function libFromBasename(base) {
+  let b = String(base || '').split(/[?#]/)[0];
+  b = b.replace(/\.(?:m?js|cjs|css|wasm)$/i, '');
+  b = b.replace(/\.(?:min|bundle|umd|esm|iife|global|prod|production|development|dev|slim)(?=\.|$)/gi, '');
+  let version = null;
+  const v = /^(.*?)[-_.@](?:v(\d+(?:\.\d+)*)|(\d+(?:\.\d+)+)(?:[-+][\w.]+)?)$/.exec(b);
+  if (v) { b = v[1]; version = v[2] || v[3]; }
+  b = b.replace(/[-_.]+$/, '');
+  return { name: b || String(base || ''), version };
+}
+
+/** Library name, version and host from a URL; CDN path conventions first, then the basename rule. */
+export function libFromUrl(url) {
+  let u;
+  try { u = new URL(/^\/\//.test(url) ? `https:${url}` : url); } catch { return null; }
+  for (const re of _CDN_PATH_PATTERNS) {
+    const m = re.exec(u.pathname);
+    if (m) return { host: u.hostname, name: m[1], version: m[2] || null, fromPath: true };
+  }
+  const { name, version } = libFromBasename(u.pathname.split('/').pop());
+  return { host: u.hostname, name, version, fromPath: false };
+}
+
+// Attribute value out of one tag's attribute text; `(?:^|[\s"'])` keeps
+// `data-src=` from matching `src=`.
+const _htmlAttr = (tag, name) => {
+  const m = new RegExp(`(?:^|[\\s"'])${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(tag);
+  return m ? (m[1] ?? m[2] ?? m[3] ?? '').trim() : null;
+};
+
+/** HTML: <script src>, <link rel="stylesheet"|"modulepreload"|"preload" as=script/style>, importmap entries. */
+export function extractHtmlImports(lines, filepath, opts = {}) {
+  const rows = [];
+  const raw = (lines || []).map((l) => String(l || '').replace(/\r+$/, '')).join('\n');
+  // Blank comments, keeping their newlines so offsets still map to lines.
+  const text = raw.replace(/<!--[\s\S]*?-->/g, (c) => c.replace(/[^\n]/g, ' '));
+  const lineStarts = [0];
+  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) lineStarts.push(i + 1);
+  const lineOf = (at) => {
+    let lo = 0, hi = lineStarts.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (lineStarts[mid] <= at) lo = mid; else hi = mid - 1; }
+    return lo + 1;
+  };
+  const push = (kind, src, at, extra = {}) => {
+    const s = String(src || '').trim();
+    if (!s || /^(?:data|javascript|blob|about):/i.test(s)) return;
+    // A templated value (`{{ static('js/app.js') }}`, `<?= asset('x.js') ?>`,
+    // `<%= asset_path 'x.js' %>`) names its asset in a quoted literal when it
+    // names one at all; that literal is what resolves. The raw value stays in
+    // `module` so the row is traceable. With no literal the row is kept but
+    // treated as the page's own wiring (relative), so the census does not
+    // rank a template expression as a library; --bom still lists it.
+    const templated = /\{\{|\{%|<%|<\?|\$\{|@\(/.test(s);
+    const literal = templated ? ((/['"]([^'"]*\.(?:m?js|cjs|css|wasm))(?:\?[^'"]*)?['"]/i.exec(s) || [])[1] || null) : null;
+    const effective = templated ? literal : s;
+    const isUrl = !!effective && /^(?:https?:)?\/\//i.test(effective);
+    const path = effective ? effective.split(/[?#]/)[0] : null;
+    const vendored = !!path && !isUrl && VENDOR_DIR_RE.test(path);
+    const relative = !isUrl && !vendored;
+    if (relative && !opts.includeRelative) return;
+    const lib = !effective ? null : isUrl ? libFromUrl(effective) : libFromBasename(path.split('/').pop());
+    const name = (lib && lib.name) || s;
+    rows.push({
+      target: name, file: filepath, line: lineOf(at),
+      module: s, name: null, alias: null, relative, star: false, lang: 'html', kind,
+      url: isUrl, host: isUrl && lib ? lib.host : null,
+      libName: name, libVersion: lib ? lib.version : null,
+      ...(templated ? { templated: true, templatedPath: path } : {}), ...extra,
+    });
+  };
+  // A quoted attribute value may itself contain `>` (`src="<?= asset('x') ?>"`),
+  // so the tag body is quoted strings or non-`>` characters, not just non-`>`.
+  const tagRe = /<(script|link)\b((?:"[^"]*"|'[^']*'|[^>"'])*)>/gi;
+  let m;
+  while ((m = tagRe.exec(text))) {
+    const tag = m[2];
+    if (m[1].toLowerCase() === 'script') {
+      if ((_htmlAttr(tag, 'type') || '').toLowerCase() === 'importmap') {
+        const end = text.indexOf('</script', tagRe.lastIndex);
+        const body = end < 0 ? '' : text.slice(tagRe.lastIndex, end);
+        let map = null;
+        try { map = JSON.parse(body); } catch { map = null; }
+        const imports = map && map.imports && typeof map.imports === 'object' ? map.imports : {};
+        for (const [specifier, dest] of Object.entries(imports)) {
+          if (typeof dest !== 'string') continue;
+          const at = text.indexOf(JSON.stringify(specifier), tagRe.lastIndex);
+          push('importmap', dest, at < 0 ? m.index : at, { importName: specifier });
+        }
+        continue;
+      }
+      const src = _htmlAttr(tag, 'src');
+      if (src) push('script-tag', src, m.index);
+      continue;
+    }
+    const rel = (_htmlAttr(tag, 'rel') || '').toLowerCase();
+    const href = _htmlAttr(tag, 'href');
+    if (!href) continue;
+    if (/\bstylesheet\b/.test(rel)) push('stylesheet', href, m.index);
+    else if (/\bmodulepreload\b/.test(rel)) push('modulepreload', href, m.index);
+    else if (/\bpreload\b/.test(rel) && /^(?:script|style)$/i.test(_htmlAttr(tag, 'as') || '')) push('preload', href, m.index);
+  }
+  return rows;
+}
+
+/**
+ * The HTML half of a report's coverage statement, or null when nothing needs
+ * saying. An index stores the extensions its ARCHIVE expansion skipped (#191,
+ * `skipped_extensions`; a plain directory build stores none — its on-disk skip
+ * census is a live scan at build time), so an archive-built index can name the
+ * HTML it never saw; otherwise an index with JS and no HTML gets the
+ * conditional form. Reading the source tree to count is not an option here:
+ * reports answer from the index alone.
+ */
+export function htmlCoverageNote(index, filesByLang) {
+  const skipped = (index && index.skippedExtensions) || {};
+  const n = ['.html', '.htm', 'html', 'htm'].reduce((s, k) => s + (Number(skipped[k]) || 0), 0);
+  if (n) {
+    return `${n} HTML file(s) were not indexed at build (not in the default extensions), so their tags were not read; ` +
+      'rebuild with --add-extensions .html,.htm to include them.';
+  }
+  const html = (filesByLang && filesByLang.html) || 0;
+  const js = (filesByLang && filesByLang.js) || 0;
+  if (!html && js) {
+    return 'No HTML in this index: if the source has pages that load libraries by <script> or <link> tags, ' +
+      'those were not read; rebuild with --add-extensions .html,.htm.';
+  }
+  return null;
+}
+
+/**
+ * Tag-shaped strings in NON-page files: HTML that code emits
+ * (`writeText("<script src=\"http://…/ga.js\">")` — jdiff, in
+ * .android-1.5-java — or a snippet in a README). Not rows: a dependency of the
+ * generated output, not of the program, with no page context to resolve a
+ * local path, and --referenced-resources already catalogues the URLs. But the
+ * reports say they exist, so "not in the BoM" is not read as "nothing this
+ * code makes loads it" (Andrew, 2026-10-17). Counts sites and distinct files.
+ */
+const _CODE_TAG_RE = /<(?:script\b[^>]*?\bsrc\s*=|link\b[^>]*?\bhref\s*=)/gi;
+export function tagsInCodeStrings(index) {
+  let sites = 0;
+  const files = new Set();
+  for (const [filepath, lines] of index.fileLines) {
+    if (isHtmlFile(filepath) || isTemplateFile(filepath)) continue;
+    for (const line of lines) {
+      if (!/<(?:script|link)\b/i.test(line)) continue;
+      const n = (String(line).match(_CODE_TAG_RE) || []).length;
+      if (n) { sites += n; files.add(filepath); }
+    }
+  }
+  return { sites, files: files.size };
+}
+
+/** The signpost line for `tagsInCodeStrings` counts, or null when there are none. */
+export function codeStringTagNote({ sites = 0, files = 0 } = {}) {
+  if (!sites) return null;
+  return `${sites} script/link tag(s) inside non-page files (code strings, docs) in ${files} file(s), not counted above; ` +
+    '--referenced-resources catalogues the URLs they name.';
 }
 
 // ===========================================================================
@@ -604,8 +815,57 @@ export function classifyImportRow(row, facts) {
     }
     return { cls: 'external', source: 'angle include; no standard-list or index match' };
   }
+  if (row.lang === 'html') {
+    const kind = row.kind || 'tag';
+    const where = `${kind} in \`${row.file}:${row.line}\`${row.templated ? ' (templated src)' : ''}`;
+    if (row.url) {
+      const lib = libFromUrl(row.templatedPath || mod);
+      const host = lib ? lib.host : '?';
+      if (lib && facts.depKeys.has(_pkgKey(lib.name.split('/').pop()))) {
+        return { cls: 'third-party', source: `declared in an indexed manifest (\`${lib.name}\`); loaded from \`${host}\` by ${where}` };
+      }
+      return { cls: 'external', source: `loaded from \`${host}\` by ${where}` };
+    }
+    if (row.templated && !row.templatedPath) {
+      return { cls: 'external', source: `${where} has a template expression (\`${mod}\`) with no literal path to resolve` };
+    }
+    // A local path: site-root (/vendor/x.js), relative (./x.js, ../x.js) or
+    // bare (x.js). Resolve against the indexed paths — as written, beside
+    // the page, or by suffix — and classify by where the file lives; a
+    // path that resolves nowhere is judged by its shape. Either way a
+    // library the manifest declares (lib/lodash.min.js with lodash in
+    // package.json) is third-party, with the copy's location in the why.
+    const declared = row.libName && facts.depKeys.has(_pkgKey(String(row.libName).split('/').pop()));
+    const path = _norm(row.templatedPath || mod).split(/[?#]/)[0];
+    const rel = path.replace(/^\.?\//, '');
+    const htmlDir = _norm(row.file).split('/').slice(0, -1);
+    const candidates = [rel, [...htmlDir, rel].join('/')];
+    if (path.startsWith('../')) {
+      const segs = [...htmlDir]; let p = path;
+      while (p.startsWith('../') && segs.length) { p = p.slice(3); segs.pop(); }
+      candidates.push([...segs, p].join('/'));
+    }
+    let hit = candidates.find((c) => facts.paths.has(c)) || null;
+    if (!hit) for (const p of facts.paths) { if (p.endsWith('/' + rel)) { hit = p; break; } }
+    if (hit) {
+      const v = vendoredAt(hit);
+      if (v) return { cls: 'vendored', source: `resolves to \`${hit}\` under vendored subtree \`${v}/\` (${where})` };
+      if (declared) return { cls: 'third-party', source: `declared in an indexed manifest (\`${row.libName}\`); a copy at \`${hit}\` is loaded by ${where}` };
+      return { cls: 'internal', source: `resolves to \`${hit}\` in this index (${kind}${row.templated ? ', templated src' : ''})` };
+    }
+    const vm = VENDOR_DIR_RE.exec(path);
+    if (vm) {
+      return { cls: 'vendored', source: `${where} loads \`${path}\` under a vendored directory (\`${vm[2]}/\`), which the index skips at build; version from the filename when it has one` };
+    }
+    if (declared) return { cls: 'third-party', source: `declared in an indexed manifest (\`${row.libName}\`); loaded by ${where} from \`${path}\`, which is not in this index` };
+    return { cls: 'external', source: `${where} loads \`${path}\`, which is not in this index` };
+  }
   if (row.lang === 'js') {
     if (row.relative) return { cls: 'internal', source: 'relative specifier' };
+    if (row.url) {
+      const lib = libFromUrl(mod);
+      return { cls: 'external', source: `URL import, loaded from \`${lib ? lib.host : '?'}\`` };
+    }
     // `@/x` and `~/x` are project-root aliases (Vite/webpack/Next
     // convention), not npm scopes — 916 sites of `@/components` in the sweep.
     if (/^[@~]\//.test(mod)) return { cls: 'internal', source: 'path alias (project-root convention)' };

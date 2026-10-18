@@ -490,7 +490,7 @@ Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior a
 
 #### `--census-imports`
 
-- **Does**: Ranked census of import targets across the indexed languages (Python, JS/TS, C/C++, Java/Kotlin, C#) for one index; with `--multi-index <list>` it reduces across indexes, ranked by how many indexes import each target. Import statements only, and the output ends with a coverage line saying so (HTML-loaded libraries are not read; #27).
+- **Does**: Ranked census of import targets across the indexed languages (Python, JS/TS, C/C++, Java/Kotlin, C#) for one index; with `--multi-index <list>` it reduces across indexes, ranked by how many indexes import each target. Counts what indexed HTML and page templates load too (script, stylesheet and importmap tags; `--add-extensions .html,.htm` and the template type at build), and the output ends with a coverage line, including the HTML the build skipped (#27).
 - **Good for**: The corpus's de facto API map — what the code actually reaches for, and in a multi-index corpus which libraries all of it shares.
 - **Couples with**: `--multi-index`, `--filter`, `--max-results`, `-v` (per-index counts / example sites).
 - **Naming**: noun-noun; `census` for the counting, `imports` for the subject.
@@ -498,9 +498,9 @@ Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior a
 
 #### `--bom`
 
-- **Does**: Bill of materials — every import/include across the indexed languages classified four ways (internal / stdlib-or-platform / third-party, manifest-declared / vendored), each row with its stated source; unconfirmable targets report themselves as external. Ranked external surface, vendored subtrees, indexed manifests, and a coverage line (import statements only; HTML-loaded libraries are not read, #27).
-- **Good for**: Answering "what does this code depend on, and how do we know" with the line that imports it — the dependencies half of a protective-order inventory.
-- **Couples with**: `--filter`, `--max-results`, `-v`; `--add-extensions` at build for manifests outside the default set (`pyproject.toml`, `Cargo.toml`, `go.mod`, Gradle, `.csproj`, `packages.config`); `package.json`, `requirements.txt` and `pom.xml` are indexed by default.
+- **Does**: Bill of materials — every import/include across the indexed languages, plus the script, stylesheet and importmap tags of indexed HTML and page templates (`.php`, `.erb`, `.cshtml`, `.twig`, …) and URL imports, classified four ways (internal / stdlib-or-platform / third-party, manifest-declared / vendored), each row with its stated source; unconfirmable targets report themselves as external. A library a page loads is named from its filename or CDN path, with the version when either carries one (`jquery@3.7.1`); a local copy of a library the manifest declares (`lib/lodash.min.js`) is third-party, with the copy's location named; a templated `src` resolves by the quoted asset inside it, or says it cannot. HTML that code emits (a report generator writing a `<script>` tag into its output) is not a row — it is a dependency of the generated output, not of the program — but the footer counts those tag-shaped strings and points at `--referenced-resources`, which catalogues their URLs. Ranked external surface, vendored subtrees, indexed manifests, and a coverage line naming what was read, including the HTML the build skipped (#27).
+- **Good for**: Answering "what does this code depend on, and how do we know" with the line that imports or loads it — the dependencies half of a protective-order inventory.
+- **Couples with**: `--filter`, `--max-results`, `-v`; `--add-extensions` at build for HTML (`.html,.htm`, not indexed by default) and for manifests outside the default set (`pyproject.toml`, `Cargo.toml`, `go.mod`, Gradle, `.csproj`, `packages.config`); `package.json`, `requirements.txt` and `pom.xml` are indexed by default.
 - **Naming**: the industry acronym (bill of materials); the SBOM umbrella is #27.
 - **Verified against**: `src/argparse.js:541`
 

@@ -25,7 +25,18 @@ network log (#161); Fiddler `.saz` captures are planned as well.
   in turn.
 - **Extensions.** After a build, CodeExam reports any *text* extensions it found but did **not**
   index by default and tips the `--add-extensions <list>` you'd rebuild with to include them
-  (#191); `--extensions` and `--exclude-extensions` set the extension set explicitly.
+  (#191); `--extensions` and `--exclude-extensions` set the extension set explicitly. HTML is
+  not in the default set, by choice (generated HTML such as docs builds and coverage reports
+  is common and large, and the indexer has no per-file size cap); `--bom` and
+  `--census-imports` read the script, stylesheet and importmap tags of *indexed* HTML and of
+  indexed page templates (`.php`, `.jsp`, `.aspx`, `.cshtml`, `.erb`, `.ejs`, `.twig`, `.njk`
+  and the like), so a web front end whose libraries arrive that way wants
+  `--add-extensions .html,.htm` at build, plus its template type if it is not `.php` or `.hbs`.
+  Both reports say so when an index with JavaScript holds no HTML, and an index built from
+  archives also knows how many HTML files the expansion skipped (the on-disk census above is
+  a live scan at build time, not stored in the index). Tags inside code strings (HTML that a
+  program emits) are not rows in either report; the footer counts them and points at
+  `--referenced-resources`, where their URLs are catalogued.
 
 Indexes scale: a pure-Node streaming JSON parser handles multi-gigabyte indexes — the largest
 tested is **Chromium, ~195K files / ~5 GB**, loaded with `NODE_OPTIONS=--max-old-space-size=8192`.

@@ -60,7 +60,10 @@ not merely a `file:line`.
 - **Strings** (`--string-table`, alias `--strings`) — the frequently-occurring string literals
   (optionally filtered by substring or `/regex/`), the distinctive strings that often fingerprint a
   library or pin down a behavior.
-- **Imports / BoM** (`--imports`, `--bom`) — the dependency bill of materials; cross-index
+- **Imports / BoM** (`--imports`, `--bom`) — the dependency bill of materials: import and
+  include statements in every indexed language, and what indexed HTML and page templates load
+  by script, stylesheet and importmap tags (HTML and most template types need
+  `--add-extensions` at build); cross-index
   resolution against an export catalog is covered in [`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md).
 - **Prompts** (`--prompt-catalog`, alias `--prompts`) — LLM prompt strings found in the code.
 - **AI/ML and LLM-app constructs** — the models, LLM calls, tools, chains, and prompts a codebase

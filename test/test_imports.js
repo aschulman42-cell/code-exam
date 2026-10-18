@@ -104,10 +104,13 @@ describe('extractFileImports dispatch', () => {
     assert.equal(extractFileImports(['#include <a.h>'], 'a.hpp')[0].lang, 'c');
     assert.equal(extractFileImports(['import a.b.C;'], 'a.kt')[0].lang, 'java');
     assert.equal(extractFileImports(['using A.B;'], 'a.cs')[0].lang, 'cs');
+    assert.equal(extractFileImports(['<script src="/vendor/x.js"></script>'], 'a.html')[0].lang, 'html');
+    assert.equal(extractFileImports(['<script src="/vendor/x.js"></script>'], 'views/layout.php')[0].lang, 'html');
   });
   it('the file classifiers agree with the dispatch', () => {
-    assert.ok(isJsFile('m.mjs') && isCFile('x.cxx') && isJavaFile('k.kts') && isCSharpFile('p.cs'));
-    assert.ok(!isJsFile('a.json') && !isCFile('a.cs'));
+    assert.ok(isJsFile('m.mjs') && isCFile('x.cxx') && isJavaFile('k.kts') && isCSharpFile('p.cs') && isHtmlFile('p.htm'));
+    assert.ok(isTemplateFile('a.php') && isTemplateFile('show.html.erb') && isTemplateFile('page.cshtml') && isTemplateFile('t.jinja2'));
+    assert.ok(!isJsFile('a.json') && !isCFile('a.cs') && !isHtmlFile('a.xml') && !isTemplateFile('a.vue') && !isTemplateFile('a.html'));
   });
 });
 
@@ -118,6 +121,7 @@ describe('extractFileImports dispatch', () => {
 import { classifyImports, classifyImportRow, corpusFacts, manifestDeps } from '../src/core/imports.js';
 import { doBom } from '../src/commands/imports.js';
 import { doCensusImports } from '../src/commands/census.js';
+import { extractHtmlImports, libFromBasename, libFromUrl, htmlCoverageNote, isHtmlFile, isTemplateFile, tagsInCodeStrings, codeStringTagNote } from '../src/core/imports.js';
 
 describe('import classification (imports-bill-of-materials resolver)', () => {
   const stub = () => ({
@@ -244,8 +248,10 @@ describe('import classification (imports-bill-of-materials resolver)', () => {
     // The report says what it reads (import-reports-coverage-truth): the
     // Mermaid case — a library loaded by a <script> tag — is absent by design,
     // and the output, which travels as a file, must say so itself.
-    assert.match(text, /Coverage: import and include statements in Python, JS\/TS, C\/C\+\+, Java\/Kotlin and C#\./);
-    assert.match(text, /Not read: HTML <script src> and <link> tags, importmaps and URL imports/);
+    assert.match(text, /Coverage: import and include statements in Python, JS\/TS, C\/C\+\+, Java\/Kotlin and C#,/);
+    assert.match(text, /plus script, stylesheet and importmap tags in indexed HTML/);
+    // The stub has JS and no HTML, so the conditional note fires.
+    assert.match(text, /No HTML in this index: if the source has pages that load libraries/);
   });
 
   it('doCensusImports ends with the same coverage statement', () => {
@@ -254,8 +260,9 @@ describe('import classification (imports-bill-of-materials resolver)', () => {
     try { doCensusImports(stub(), { _explicit: new Set() }); } finally { console.log = origLog; }
     const text = out.join('\n');
     assert.match(text, /Import census — \d+ import sites/);
-    assert.match(text, /Coverage: import and include statements in Python, JS\/TS, C\/C\+\+, Java\/Kotlin and C#\./);
-    assert.match(text, /is not counted \(#27\)/);
+    assert.match(text, /Coverage: import and include statements in Python, JS\/TS, C\/C\+\+, Java\/Kotlin and C#,/);
+    assert.match(text, /counted from the tag alone \(#27\)/);
+    assert.match(text, /No HTML in this index/);
   });
 });
 
@@ -313,6 +320,211 @@ describe('platform-list gaps from .WinAPI_Classic (case, winrt/, WinRT., tlbimp)
 // bom-small-fixes-sweep-residue: six list/regex fixes named by the 52-index
 // sweep (multi_index_BOM.txt, 2026-09-04). Each asserts the RULE the sweep
 // showed missing, and that its why-line names the list that fired.
+// bom-html-loaded-libraries: what a page LOADS. One fixture page carries
+// every tag kind, a commented-out tag, a data: URL, a data-src decoy and a
+// tag that spans lines; Mermaid's own case (a vendored bundle the index never
+// holds, loaded by one <script> tag) is the row the item exists for.
+describe('HTML-loaded libraries (bom-html-loaded-libraries)', () => {
+  const page = [
+    '<!doctype html>',
+    '<html><head>',
+    '  <link rel="icon" href="favicon.ico">',
+    '  <link rel="stylesheet" href="/vendor/bootstrap-5.3.2.min.css">',
+    '  <link rel="modulepreload" href="./app.js">',
+    '  <script type="importmap">',
+    '  { "imports": { "vue": "https://cdn.jsdelivr.net/npm/vue@3.4.0/dist/vue.esm-browser.js",',
+    '                 "lodash": "./lib/lodash.min.js" } }',
+    '  </script>',
+    '  <!-- <script src="/vendor/old-thing.min.js"></script> -->',
+    '  <script src="data:text/javascript;base64,AAAA"></script>',
+    '  <script',
+    '    src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"',
+    '    defer></script>',
+    '</head><body>',
+    "  <script src='/vendor/mermaid.min.js'></script>",
+    '  <script src="app.js" data-src="not-this.js"></script>',
+    '</body></html>',
+  ];
+  const webIndex = () => ({
+    indexPath: '.web',
+    fileLines: new Map([
+      ['web/index.html', page],
+      ['web/app.js', ["import p from 'https://esm.sh/preact@10.19.3';", 'export const a = 1;']],
+      ['web/lib/lodash.min.js', ['/* a copy of lodash carried in lib/ */']],
+      ['package.json', ['{ "dependencies": { "vue": "^3.4.0", "lodash": "^4.17.0" } }']],
+    ]),
+    skippedExtensions: {},
+  });
+  // A server-side template is a page too: tags with literal paths, a vendored
+  // path, templated values with and without a literal asset inside.
+  const phpIndex = () => ({
+    indexPath: '.php',
+    fileLines: new Map([
+      ['views/layout.php', [
+        '<?php $v = "1.9.10"; ?>',
+        '<html><head>',
+        '<script src="/vendor/htmx-1.9.10.min.js"></script>',
+        '<script src="<?= asset(\'js/app.js\') ?>"></script>',
+        '<script src="{{ static(\'vendor/chart.umd.min.js\') }}"></script>',
+        '<script src="<?= $dynamic ?>"></script>',
+        '</head></html>',
+      ]],
+      ['public/js/app.js', ['export const a = 1;']],
+    ]),
+    skippedExtensions: {},
+  });
+  const capture = (fn) => {
+    const out = [];
+    const orig = console.log; console.log = (s) => out.push(String(s));
+    try { fn(); } finally { console.log = orig; }
+    return out.join('\n');
+  };
+
+  it('extractHtmlImports reads script, stylesheet, modulepreload and importmap tags; skips comments, data: URLs and data-src', () => {
+    const rows = extractHtmlImports(page, 'web/index.html', { includeRelative: true });
+    assert.deepEqual(rows.map((r) => [r.module, r.kind, r.line]), [
+      ['/vendor/bootstrap-5.3.2.min.css', 'stylesheet', 4],
+      ['./app.js', 'modulepreload', 5],
+      ['https://cdn.jsdelivr.net/npm/vue@3.4.0/dist/vue.esm-browser.js', 'importmap', 7],
+      ['./lib/lodash.min.js', 'importmap', 8],
+      ['https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js', 'script-tag', 12],
+      ['/vendor/mermaid.min.js', 'script-tag', 16],
+      ['app.js', 'script-tag', 17],
+    ]);
+    const by = (m) => rows.find((r) => r.module === m);
+    const bs = by('/vendor/bootstrap-5.3.2.min.css');
+    assert.deepEqual([bs.libName, bs.libVersion, bs.relative], ['bootstrap', '5.3.2', false], 'a vendored path is a library, not the page\'s own asset');
+    assert.equal(by('./app.js').relative, true);
+    const vue = by('https://cdn.jsdelivr.net/npm/vue@3.4.0/dist/vue.esm-browser.js');
+    assert.deepEqual([vue.url, vue.host, vue.libName, vue.libVersion, vue.importName], [true, 'cdn.jsdelivr.net', 'vue', '3.4.0', 'vue']);
+    const jq = by('https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js');
+    assert.deepEqual([jq.host, jq.libName, jq.libVersion, jq.target], ['cdnjs.cloudflare.com', 'jquery', '3.7.1', 'jquery']);
+    const mm = by('/vendor/mermaid.min.js');
+    assert.deepEqual([mm.libName, mm.libVersion, mm.relative, mm.lang], ['mermaid', null, false, 'html']);
+    // The census view (no includeRelative) keeps the libraries and drops the page's own assets.
+    assert.deepEqual(extractHtmlImports(page, 'web/index.html').map((r) => r.target), ['bootstrap', 'vue', 'jquery', 'mermaid']);
+  });
+
+  it('libFromBasename and libFromUrl name the library and version from filenames and CDN paths', () => {
+    assert.deepEqual(libFromBasename('jquery-3.7.1.min.js'), { name: 'jquery', version: '3.7.1' });
+    assert.deepEqual(libFromBasename('mermaid.min.js'), { name: 'mermaid', version: null });
+    assert.deepEqual(libFromBasename('bootstrap.bundle.min.js'), { name: 'bootstrap', version: null });
+    assert.deepEqual(libFromBasename('d3.v7.min.js'), { name: 'd3', version: '7' });
+    assert.deepEqual(libFromBasename('vue.global.prod.js'), { name: 'vue', version: null });
+    assert.deepEqual(libFromBasename('react-dom.development.js'), { name: 'react-dom', version: null });
+    const u = (s) => { const l = libFromUrl(s); return [l.host, l.name, l.version]; };
+    assert.deepEqual(u('https://cdn.jsdelivr.net/npm/@scope/pkg@1.2.3/dist/x.js'), ['cdn.jsdelivr.net', '@scope/pkg', '1.2.3']);
+    assert.deepEqual(u('https://cdn.jsdelivr.net/gh/user/repo@v2.0/lib.js'), ['cdn.jsdelivr.net', 'repo', '2.0']);
+    assert.deepEqual(u('https://unpkg.com/three@0.160.0/build/three.module.js'), ['unpkg.com', 'three', '0.160.0']);
+    assert.deepEqual(u('https://esm.sh/preact@10.19.3'), ['esm.sh', 'preact', '10.19.3']);
+    assert.deepEqual(u('https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js'), ['ajax.googleapis.com', 'jquery', '3.7.1']);
+    assert.deepEqual(u('//static.example.com/js/htmx-1.9.10.min.js'), ['static.example.com', 'htmx', '1.9.10']);
+    assert.equal(libFromUrl('not a url'), null);
+  });
+
+  it('classifies what the page loads: vendored by path shape, CDN by host (third-party when the manifest declares it), own assets internal', () => {
+    const { rows, summary, filesByLang } = classifyImports(webIndex());
+    const by = (m) => rows.find((r) => r.module === m);
+    const expect = (m, cls, re) => { const r = by(m); assert.ok(r, m); assert.equal(r.cls, cls, `${m}: ${r.clsSource}`); assert.match(r.clsSource, re); };
+    expect('/vendor/mermaid.min.js', 'vendored', /vendored directory \(`vendor\/`\), which the index skips/);
+    expect('/vendor/bootstrap-5.3.2.min.css', 'vendored', /stylesheet in `web\/index\.html:4`/);
+    expect('https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js', 'external', /loaded from `cdnjs\.cloudflare\.com` by script-tag/);
+    expect('https://cdn.jsdelivr.net/npm/vue@3.4.0/dist/vue.esm-browser.js', 'third-party', /declared in an indexed manifest \(`vue`\); loaded from `cdn\.jsdelivr\.net`/);
+    // A library copy under a non-vendor name is third-party when the manifest declares it, with the copy's location named.
+    expect('./lib/lodash.min.js', 'third-party', /declared in an indexed manifest \(`lodash`\); a copy at `web\/lib\/lodash\.min\.js` is loaded by importmap/);
+    expect('app.js', 'internal', /resolves to `web\/app\.js` in this index/);
+    expect('./app.js', 'internal', /resolves to `web\/app\.js`/);
+    expect('https://esm.sh/preact@10.19.3', 'external', /URL import, loaded from `esm\.sh`/);
+    assert.equal(filesByLang.html, 1);
+    assert.equal(summary.vendored, 2);
+  });
+
+  it('page templates are scanned like HTML: literal paths resolve, templated values resolve by their quoted asset, or say they cannot', () => {
+    const rows = extractHtmlImports(phpIndex().fileLines.get('views/layout.php'), 'views/layout.php', { includeRelative: true });
+    assert.deepEqual(rows.map((r) => [r.module, r.libName, r.templated || false, r.templatedPath || null, r.relative]), [
+      ['/vendor/htmx-1.9.10.min.js', 'htmx', false, null, false],
+      ["<?= asset('js/app.js') ?>", 'app', true, 'js/app.js', true],
+      ["{{ static('vendor/chart.umd.min.js') }}", 'chart', true, 'vendor/chart.umd.min.js', false],
+      ['<?= $dynamic ?>', '<?= $dynamic ?>', true, null, true],
+    ]);
+    // The census view keeps the two libraries and drops the page's own wiring, templated or not.
+    assert.deepEqual(extractHtmlImports(phpIndex().fileLines.get('views/layout.php'), 'views/layout.php').map((r) => r.target), ['htmx', 'chart']);
+    const { rows: classified, filesByLang } = classifyImports(phpIndex());
+    const by = (m) => classified.find((r) => r.module === m);
+    assert.equal(by('/vendor/htmx-1.9.10.min.js').cls, 'vendored');
+    assert.equal(by("<?= asset('js/app.js') ?>").cls, 'internal');
+    assert.match(by("<?= asset('js/app.js') ?>").clsSource, /resolves to `public\/js\/app\.js` in this index \(script-tag, templated src\)/);
+    assert.equal(by("{{ static('vendor/chart.umd.min.js') }}").cls, 'vendored');
+    assert.match(by("{{ static('vendor/chart.umd.min.js') }}").clsSource, /\(templated src\) loads `vendor\/chart\.umd\.min\.js` under a vendored directory/);
+    assert.equal(by('<?= $dynamic ?>').cls, 'external');
+    assert.match(by('<?= $dynamic ?>').clsSource, /template expression \(`<\?= \$dynamic \?>`\) with no literal path to resolve/);
+    assert.equal(filesByLang.html, 1, 'a template counts as an HTML-class file');
+  });
+
+  it('--bom and the census show what the page loads, name the version, and say their coverage', () => {
+    const bom = capture(() => doBom(webIndex(), { _explicit: new Set() }));
+    assert.match(bom, /of which\s+7 site\(s\) are script\/stylesheet\/importmap tags in indexed HTML or page templates/);
+    assert.match(bom, /vendored\s+mermaid\s+script-tag in `web\/index\.html:16`/);
+    assert.match(bom, /vendored\s+bootstrap@5\.3\.2\s+stylesheet/);
+    assert.match(bom, /external\s+jquery@3\.7\.1\s+loaded from `cdnjs\.cloudflare\.com`/);
+    assert.match(bom, /third-party\s+vue@3\.4\.0\s+declared in an indexed manifest/);
+    assert.match(bom, /third-party\s+lodash\s+declared in an indexed manifest \(`lodash`\); a copy at `web\/lib\/lodash\.min\.js`/);
+    assert.match(bom, /external\s+preact@10\.19\.3\s+URL import, loaded from `esm\.sh`/);
+    assert.match(bom, /plus script, stylesheet and importmap tags in indexed HTML/);
+    assert.doesNotMatch(bom, /No HTML in this index/);
+    const census = capture(() => doCensusImports(webIndex(), { _explicit: new Set() }));
+    assert.match(census, /1 HTML/);
+    assert.match(census, /\bmermaid\b/);
+    assert.match(census, /counted from the tag alone \(#27\)/);
+    assert.doesNotMatch(census, /No HTML in this index/);
+    // Nothing in the web index emits HTML from code, so no signpost.
+    assert.doesNotMatch(bom, /inside non-page files/);
+    assert.doesNotMatch(census, /inside non-page files/);
+  });
+
+  it('HTML emitted by code is signposted, not counted: the jdiff case', () => {
+    // .android-1.5-java: two Java sites write the Google Analytics tag into
+    // generated reports. Not a dependency of the program; the reports say the
+    // strings exist and point at --referenced-resources.
+    const idx = {
+      indexPath: '.jdiff',
+      fileLines: new Map([
+        ['jdiff/HTMLReportGenerator.java', [
+          'package jdiff;',
+          'public class HTMLReportGenerator {',
+          '  void writeHTMLFooter() {',
+          '    writeText("<script src=\\"http://www.google-analytics.com/ga.js\\" type=\\"text/javascript\\">");',
+          '  }',
+          '}',
+        ]],
+        ['jdiff/HTMLStatistics.java', [
+          'package jdiff;',
+          '  h_.writeText("<script src=\\"http://www.google-analytics.com/ga.js\\" type=\\"text/javascript\\">");',
+          '  h_.writeText("<link rel=\\"stylesheet\\" href=\\"stylesheet-jdiff.css\\">");',
+        ]],
+        ['jdiff/Notes.java', ['// a <script> in a comment with no src is not a tag-shaped string']],
+        ['web/page.html', ['<script src="/vendor/x.js"></script>']],
+      ]),
+      skippedExtensions: {},
+    };
+    assert.deepEqual(tagsInCodeStrings(idx), { sites: 3, files: 2 });
+    assert.equal(codeStringTagNote({ sites: 0, files: 0 }), null);
+    assert.match(codeStringTagNote(tagsInCodeStrings(idx)), /^3 script\/link tag\(s\) inside non-page files \(code strings, docs\) in 2 file\(s\), not counted above; --referenced-resources catalogues the URLs they name\.$/);
+    const bom = capture(() => doBom(idx, { _explicit: new Set() }));
+    assert.match(bom, /3 script\/link tag\(s\) inside non-page files .* in 2 file\(s\), not counted above/);
+    assert.doesNotMatch(bom, /google-analytics/, 'the emitted tag is not a BoM row');
+    const census = capture(() => doCensusImports(idx, { _explicit: new Set() }));
+    assert.match(census, /3 script\/link tag\(s\) inside non-page files/);
+  });
+
+  it('htmlCoverageNote names skipped HTML, or the conditional form for a JS index with no HTML', () => {
+    assert.match(htmlCoverageNote({ skippedExtensions: { '.html': 3 } }, { js: 2 }), /^3 HTML file\(s\) were not indexed at build/);
+    assert.match(htmlCoverageNote({ skippedExtensions: {} }, { js: 2 }), /^No HTML in this index/);
+    assert.equal(htmlCoverageNote({ skippedExtensions: {} }, { js: 2, html: 1 }), null);
+    assert.equal(htmlCoverageNote({}, { py: 4 }), null);
+  });
+});
+
 describe('sweep-residue small fixes', () => {
   const facts0 = () => corpusFacts({ fileLines: new Map([['a/main.m', []]]) });
 
