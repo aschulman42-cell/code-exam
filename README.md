@@ -1,9 +1,9 @@
 # CodeExam
 
 CodeExam, as its name implies, is a tool for **examining code** — primarily
-source code, and with a growing emphasis on **quasi-source**: recovering
-indexable structure from artifacts that weren't shipped as source (minified
-bundles, binary executable files, embedded scripts).
+source code, and with a growing emphasis on **quasi-source** (i.e., recovering
+indexable structure from artifacts that weren't shipped as source, such as minified
+bundles and binary executable files).
 
 Use CodeExam to first build an index over a codebase, then browse, search,
 and cross-reference (callers, callees, call trees, file/folder coupling) at
