@@ -98,7 +98,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 #### `--extensions <exts>`
 
-- **Does**: Comma-separated file extensions to index. Overrides the default extension list.
+- **Does**: Comma-separated file extensions to index. Overrides the default extension list, and turns off the by-name rule that indexes dependency and build files (manifests, lockfiles, `Makefile`, ...) whatever their extension: an explicit list means exactly that list.
 - **Good for**: Indexing files that aren't in the default extensions set, or restricting to a specific language family.
 - **Couples with**: `--build-index`, `--exclude-extensions`. Interaction with `--scan-extensions` / `--index-extensions` is read-only inspection of extension data.
 - **Naming**: noun-only — implies "the extensions to include." Asymmetric with `--exclude-extensions` (explicitly negated).
@@ -107,7 +107,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 #### `--exclude-extensions <exts>`
 
 - **Does**: Comma-separated extensions to exclude from the index.
-- **Good for**: Trimming the index by skipping noisy or irrelevant file types (e.g. `--exclude-extensions json,md` to skip resource files).
+- **Good for**: Trimming the index by skipping noisy or irrelevant file types (e.g. `--exclude-extensions json,md` to skip resource files). Dependency and build files stay in by name (`package.json` survives `--exclude-extensions json`); only `--extensions` leaves them out.
 - **Couples with**: `--build-index`, `--extensions`.
 - **Naming**: explicit `--exclude-X` form (parallels `--include-path` / `--exclude-path`).
 - **Verified against**: `src/argparse.js:213`
@@ -498,9 +498,9 @@ Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior a
 
 #### `--bom`
 
-- **Does**: Bill of materials — every import/include across the indexed languages, plus the script, stylesheet and importmap tags of indexed HTML and page templates (`.php`, `.erb`, `.cshtml`, `.twig`, …) and URL imports, classified four ways (internal / stdlib-or-platform / third-party, manifest-declared / vendored), each row with its stated source; unconfirmable targets report themselves as external. A library a page loads is named from its filename or CDN path, with the version when either carries one (`jquery@3.7.1`); a local copy of a library the manifest declares (`lib/lodash.min.js`) is third-party, with the copy's location named; a templated `src` resolves by the quoted asset inside it, or says it cannot. HTML that code emits (a report generator writing a `<script>` tag into its output) is not a row — it is a dependency of the generated output, not of the program — but the footer counts those tag-shaped strings and points at `--referenced-resources`, which catalogues their URLs. Ranked external surface, vendored subtrees, indexed manifests, and a coverage line naming what was read, including the HTML the build skipped (#27).
+- **Does**: Bill of materials — every import/include across the indexed languages, plus the script, stylesheet and importmap tags of indexed HTML and page templates (`.php`, `.erb`, `.cshtml`, `.twig`, …) and URL imports, classified four ways (internal / stdlib-or-platform / third-party, manifest-declared / vendored), each row with its stated source; unconfirmable targets report themselves as external. A library a page loads is named from its filename or CDN path, with the version when either carries one (`jquery@3.7.1`); a local copy of a library the manifest declares (`lib/lodash.min.js`) is third-party, with the copy's location named; a templated `src` resolves by the quoted asset inside it, or says it cannot. HTML that code emits (a report generator writing a `<script>` tag into its output) is not a row — it is a dependency of the generated output, not of the program — but the footer counts those tag-shaped strings and points at `--referenced-resources`, which catalogues their URLs. Ranked external surface, vendored subtrees, indexed manifests, and a coverage line naming what was read, including the HTML the build skipped (#27). Lockfiles are read when present (`package-lock.json`, `Pipfile.lock`, `composer.lock`, `go.sum`, `Cargo.lock`, `poetry.lock`; `yarn.lock` and `pnpm-lock.yaml` not yet): a Resolved section with the package count, the direct/transitive split, the sources (registries counted per installed entry, every git, tarball or `file:` source in full), pinned versions on the third-party rows, and the joins for npm and Python manifests — declared but imported nowhere (runtime apart from dev), imported but not declared (present in the lockfile as transitive, or absent), declared but absent from the lockfile.
 - **Good for**: Answering "what does this code depend on, and how do we know" with the line that imports or loads it — the dependencies half of a protective-order inventory.
-- **Couples with**: `--filter`, `--max-results`, `-v`; `--add-extensions` at build for HTML (`.html,.htm`, not indexed by default) and for manifests outside the default set (`pyproject.toml`, `Cargo.toml`, `go.mod`, Gradle, `.csproj`, `packages.config`); `package.json`, `requirements.txt` and `pom.xml` are indexed by default.
+- **Couples with**: `--filter`, `--max-results`, `-v`; `--add-extensions .html,.htm` at build for HTML (not indexed by default). Manifests, lockfiles and build files are indexed by name in every default build; only an explicit `--extensions` list leaves them out.
 - **Naming**: the industry acronym (bill of materials); the SBOM umbrella is #27.
 - **Verified against**: `src/argparse.js:541`
 

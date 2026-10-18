@@ -122,6 +122,7 @@ import { classifyImports, classifyImportRow, corpusFacts, manifestDeps } from '.
 import { doBom } from '../src/commands/imports.js';
 import { doCensusImports } from '../src/commands/census.js';
 import { extractHtmlImports, libFromBasename, libFromUrl, htmlCoverageNote, isHtmlFile, isTemplateFile, tagsInCodeStrings, codeStringTagNote } from '../src/core/imports.js';
+import { lockfileDeps, manifestDepKinds, bomJoins } from '../src/core/imports.js';
 
 describe('import classification (imports-bill-of-materials resolver)', () => {
   const stub = () => ({
@@ -522,6 +523,158 @@ describe('HTML-loaded libraries (bom-html-loaded-libraries)', () => {
     assert.match(htmlCoverageNote({ skippedExtensions: {} }, { js: 2 }), /^No HTML in this index/);
     assert.equal(htmlCoverageNote({ skippedExtensions: {} }, { js: 2, html: 1 }), null);
     assert.equal(htmlCoverageNote({}, { py: 4 }), null);
+  });
+});
+
+// bom-lockfiles-resolved-tree: what gets installed. Hand-built lockfiles of
+// each kind, the facts they feed, the rows they enrich, the joins they make
+// decidable, and the --bom sections that print them.
+describe('lockfiles: resolved tree, sources and the joins (bom-lockfiles-resolved-tree)', () => {
+  const npmLockV3 = [JSON.stringify({
+    name: 'app', lockfileVersion: 3,
+    packages: {
+      '': { dependencies: { alpha: '^1.0.0', echo: '^2.0.0' }, devDependencies: { bravo: '^3.0.0' } },
+      'node_modules/alpha': { version: '1.2.3', resolved: 'https://registry.npmjs.org/alpha/-/alpha-1.2.3.tgz' },
+      'node_modules/echo': { version: '2.0.0', resolved: 'https://registry.npmjs.org/echo/-/echo-2.0.0.tgz' },
+      'node_modules/bravo': { version: '3.0.1', resolved: 'https://registry.npmjs.org/bravo/-/bravo-3.0.1.tgz', dev: true },
+      'node_modules/charlie': { version: '0.9.0', resolved: 'git+ssh://git@github.com/x/charlie.git#abc123' },
+      'node_modules/alpha/node_modules/delta': { version: '4.0.0', resolved: 'https://npm.example.corp/delta/-/delta-4.0.0.tgz' },
+    },
+  })];
+  const capture = (fn) => {
+    const out = [];
+    const orig = console.log; console.log = (s) => out.push(String(s));
+    try { fn(); } finally { console.log = orig; }
+    return out.join('\n');
+  };
+  const appIndex = () => ({
+    indexPath: '.app',
+    fileLines: new Map([
+      ['package.json', [JSON.stringify({ dependencies: { alpha: '^1.0.0', echo: '^2.0.0' }, devDependencies: { bravo: '^3.0.0' } })]],
+      ['package-lock.json', npmLockV3],
+      ['src/main.js', ["import a from 'alpha';", "import c from 'charlie';", "import z from 'zulu';", "import fs from 'node:fs';"]],
+      ['rs/Cargo.toml', ['[package]', 'name = "tool"', '[dependencies]', 'serde = "1"', '[dev-dependencies]', 'pretty_assertions = "1"']],
+      ['rs/Cargo.lock', ['[[package]]', 'name = "serde"', 'version = "1.0.200"', 'source = "registry+https://github.com/rust-lang/crates.io-index"', '',
+        '[[package]]', 'name = "tool"', 'version = "0.1.0"', 'dependencies = [', ' "serde 1.0.200",', ']', '',
+        '[[package]]', 'name = "pretty_assertions"', 'version = "1.4.0"', 'source = "git+https://github.com/rust-pretty-assertions/rust-pretty-assertions?rev=deadbeef"']],
+      ['go/go.mod', ['module example.com/svc', 'go 1.22', 'require github.com/stretchr/testify v1.9.0']],
+      ['web/yarn.lock', ['# yarn lockfile v1']],
+    ]),
+    skippedExtensions: {},
+  });
+
+  it('lockfileDeps reads package-lock v3 and v1: entries, direct set, nested copies, sources', () => {
+    const v3 = lockfileDeps('package-lock.json', npmLockV3);
+    assert.equal(v3.kind, 'npm');
+    assert.deepEqual([v3.total, v3.directCount, [...v3.direct].sort()], [5, 3, ['alpha', 'bravo', 'echo']]);
+    assert.deepEqual([...v3.hosts.entries()], [['registry.npmjs.org', 3], ['npm.example.corp', 1]]);
+    assert.deepEqual(v3.nonRegistry.map((n) => n.name), ['charlie']);
+    assert.equal(v3.packages.get('delta').nested, true);
+    assert.equal(v3.packages.get('bravo').dev, true);
+    const v1 = lockfileDeps('package-lock.json', [JSON.stringify({ lockfileVersion: 1, dependencies: {
+      alpha: { version: '1.2.3', resolved: 'https://registry.npmjs.org/alpha/-/alpha-1.2.3.tgz', dependencies: { delta: { version: '4.0.0' } } },
+    } })]);
+    assert.deepEqual([v1.total, v1.direct.size, v1.packages.get('delta').nested], [2, 0, true]);
+  });
+
+  it('lockfileDeps reads Pipfile.lock, composer.lock, go.sum, Cargo.lock and poetry.lock', () => {
+    const pip = lockfileDeps('Pipfile.lock', [JSON.stringify({ _meta: { sources: [{ name: 'pypi', url: 'https://pypi.org/simple' }] },
+      default: { requests: { version: '==2.31.0', index: 'pypi' } }, develop: { pytest: { version: '==8.0.0' } } })]);
+    assert.deepEqual([pip.kind, pip.total, pip.packages.get('requests').version, pip.packages.get('pytest').dev, [...pip.hosts.entries()]], ['pipenv', 2, '2.31.0', true, [['pypi.org', 2]]]);
+    const comp = lockfileDeps('composer.lock', [JSON.stringify({ packages: [{ name: 'monolog/monolog', version: '3.5.0', dist: { url: 'https://api.github.com/repos/Seldaek/monolog/zipball/abc' } }], 'packages-dev': [] })]);
+    assert.deepEqual([comp.kind, comp.total, [...comp.hosts.keys()]], ['composer', 1, ['api.github.com']]);
+    const gosum = lockfileDeps('go.sum', ['github.com/stretchr/testify v1.9.0 h1:abc=', 'github.com/stretchr/testify v1.9.0/go.mod h1:def=', 'golang.org/x/sys v0.20.0 h1:ghi=']);
+    assert.deepEqual([gosum.kind, gosum.total, gosum.packages.get('github.com/stretchr/testify').version, [...gosum.hosts.entries()]], ['go', 2, 'v1.9.0', [['github.com', 1], ['golang.org', 1]]]);
+    const cargo = lockfileDeps('Cargo.lock', appIndex().fileLines.get('rs/Cargo.lock'));
+    assert.deepEqual([cargo.kind, cargo.total, [...cargo.hosts.entries()], cargo.nonRegistry.map((n) => n.name)], ['cargo', 3, [['crates.io', 1]], ['pretty_assertions']]);
+    assert.equal(cargo.packages.get('tool').source, null, 'a workspace member has no source');
+    const poetry = lockfileDeps('poetry.lock', ['[[package]]', 'name = "httpx"', 'version = "0.27.0"', 'category = "main"', '',
+      '[[package]]', 'name = "mylib"', 'version = "0.1.0"', 'category = "dev"', '', '[package.source]', 'type = "git"', 'url = "https://github.com/me/mylib.git"']);
+    assert.deepEqual([poetry.kind, poetry.total, poetry.packages.get('mylib').dev, poetry.nonRegistry.map((n) => n.name)], ['poetry', 2, true, ['mylib']]);
+    assert.equal(lockfileDeps('README.md', ['x']).kind, null);
+  });
+
+  it('manifestDepKinds separates runtime from dev/peer/optional where the manifest says', () => {
+    const k = manifestDepKinds('package.json', [JSON.stringify({ dependencies: { a: '1' }, devDependencies: { b: '1' }, peerDependencies: { c: '1' } })]);
+    assert.deepEqual([k.get('a'), k.get('b'), k.get('c')], ['runtime', 'dev', 'peer']);
+    assert.equal(manifestDepKinds('requirements-dev.txt', ['pytest==8']).get('pytest'), 'dev');
+    const c = manifestDepKinds('Cargo.toml', appIndex().fileLines.get('rs/Cargo.toml'));
+    assert.deepEqual([c.get('serde'), c.get('pretty_assertions')], ['runtime', 'dev']);
+  });
+
+  it('corpusFacts carries the lockfiles: direct set from the lockfile or the manifest beside it, unread kinds named, manifests without a lockfile', () => {
+    const facts = corpusFacts(appIndex());
+    const by = (f) => facts.lockfiles.find((l) => l.file === f);
+    assert.deepEqual(facts.lockfiles.map((l) => [l.file, l.kind, l.read]), [['package-lock.json', 'npm', true], ['rs/Cargo.lock', 'cargo', true], ['web/yarn.lock', 'yarn', false]]);
+    assert.equal(by('package-lock.json').directFrom, undefined, 'package-lock v3 names its own direct set');
+    assert.deepEqual([by('rs/Cargo.lock').directFrom, by('rs/Cargo.lock').directCount], ['rs/Cargo.toml', 2], 'Cargo.lock takes its direct set from Cargo.toml');
+    assert.deepEqual(facts.lockedVersions.get('alpha'), { version: '1.2.3', file: 'package-lock.json', name: 'alpha' });
+    assert.deepEqual(facts.manifestsNoLock, [{ file: 'go/go.mod', kind: 'go' }]);
+  });
+
+  it('rows carry the lockfile evidence: locked versions on third-party rows, transitive presence on the residue', () => {
+    const { rows } = classifyImports(appIndex());
+    const by = (m) => rows.find((r) => r.module === m);
+    assert.equal(by('alpha').cls, 'third-party');
+    assert.match(by('alpha').clsSource, /declared in an indexed manifest \(`alpha`\), locked at 1\.2\.3/);
+    assert.equal(by('charlie').cls, 'external');
+    assert.match(by('charlie').clsSource, /not declared in any indexed manifest; present in `package-lock\.json` as a transitive dependency \(0\.9\.0\)/);
+    assert.equal(by('zulu').cls, 'external');
+    assert.equal(by('zulu').clsSource, 'not declared in any indexed manifest');
+  });
+
+  it('scoped packages that share a last segment keep their own locked versions (@a/sdk vs @b/sdk)', () => {
+    const idx = {
+      indexPath: '.scoped',
+      fileLines: new Map([
+        ['package.json', [JSON.stringify({ dependencies: { '@a/sdk': '^1', '@b/sdk': '^2' } })]],
+        ['package-lock.json', [JSON.stringify({ lockfileVersion: 3, packages: { '': { dependencies: { '@a/sdk': '^1', '@b/sdk': '^2' } },
+          'node_modules/@a/sdk': { version: '1.0.0' }, 'node_modules/@b/sdk': { version: '2.0.0' } } })]],
+        ['m.js', ["import a from '@a/sdk';", "import b from '@b/sdk';"]],
+      ]),
+    };
+    const { rows } = classifyImports(idx);
+    assert.match(rows.find((r) => r.module === '@a/sdk').clsSource, /locked at 1\.0\.0/);
+    assert.match(rows.find((r) => r.module === '@b/sdk').clsSource, /locked at 2\.0\.0/);
+  });
+
+  it('bomJoins: declared-not-imported (runtime apart from dev), imported-not-declared (transitive or absent), declared-not-locked', () => {
+    const idx = appIndex();
+    // echo is declared and locked but imported nowhere; foxtrot is declared and never locked.
+    idx.fileLines.set('package.json', [JSON.stringify({ dependencies: { alpha: '^1.0.0', echo: '^2.0.0', foxtrot: '^1.0.0' }, devDependencies: { bravo: '^3.0.0' } })]);
+    const { rows, facts } = classifyImports(idx);
+    const j = bomJoins(rows, facts);
+    assert.equal(j.checked, true);
+    assert.deepEqual(j.declaredNotImported, [{ manifest: 'package.json', runtime: ['echo', 'foxtrot'], dev: ['bravo'] }]);
+    assert.deepEqual(j.importedNotDeclared, { transitive: [{ pkg: 'charlie', lockfile: 'package-lock.json', version: '0.9.0' }], absent: ['zulu'] });
+    assert.deepEqual(j.declaredNotLocked, [{ manifest: 'package.json', lockfile: 'package-lock.json', names: ['foxtrot'] }]);
+    const none = bomJoins([], corpusFacts({ fileLines: new Map([['a.c', ['#include <stdio.h>']]]) }));
+    assert.equal(none.checked, false, 'no npm or Python manifest: nothing to join');
+  });
+
+  it('--bom prints the Resolved section, the joins and the lockfile coverage line', () => {
+    const text = capture(() => doBom(appIndex(), { _explicit: new Set() }));
+    assert.match(text, /Resolved by lockfiles \(what gets installed; says nothing about runtime reach\):/);
+    assert.match(text, /package-lock\.json — 5 package\(s\): 3 direct, 2 transitive/);
+    assert.match(text, /sources: registry\.npmjs\.org \(3\), npm\.example\.corp \(1\)/);
+    assert.match(text, /non-registry source: charlie@0\.9\.0 <- git\+ssh:\/\/git@github\.com\/x\/charlie\.git#abc123/);
+    assert.match(text, /rs\/Cargo\.lock — 3 package\(s\): 2 direct \(per rs\/Cargo\.toml\), 1 transitive/);
+    assert.match(text, /1 without a source \(bundled, linked or workspace packages: no download of their own\)/);
+    assert.match(text, /web\/yarn\.lock — Yarn lockfile, not read yet/);
+    assert.match(text, /go\/go\.mod has no lockfile beside it \(go\.sum; lockfiles are indexed by name/);
+    assert.match(text, /Declared vs imported vs locked \(npm and Python manifests\):/);
+    assert.match(text, /declared in package\.json, imported nowhere: echo/);
+    assert.match(text, /declared in package\.json as dev\/peer\/optional, imported nowhere \(expected for build-time tools\): bravo/);
+    assert.match(text, /imported but not declared: charlie — present in package-lock\.json as a transitive dependency \(0\.9\.0\); a dependency bump can drop it/);
+    assert.match(text, /imported but neither declared nor locked: zulu/);
+    assert.match(text, /Manifests, lockfiles and build files are indexed by name in every default build/);
+    // With nothing to join, the section says so instead of vanishing.
+    const clean = appIndex();
+    clean.fileLines.set('package.json', [JSON.stringify({ dependencies: { alpha: '^1.0.0', charlie: '^0.9.0', zulu: '^1.0.0' } })]);
+    clean.fileLines.set('package-lock.json', [JSON.stringify({ lockfileVersion: 3, packages: { '': { dependencies: { alpha: '^1.0.0', charlie: '^0.9.0', zulu: '^1.0.0' } },
+      'node_modules/alpha': { version: '1.2.3' }, 'node_modules/charlie': { version: '0.9.0' }, 'node_modules/zulu': { version: '1.0.0' } } })]);
+    const t2 = capture(() => doBom(clean, { _explicit: new Set() }));
+    assert.match(t2, /nothing to report: every declared runtime dependency is imported, every imported package is declared/);
   });
 });
 

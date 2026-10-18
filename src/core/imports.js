@@ -1,4 +1,4 @@
-// imports.js — per-language import extractor (Py/JS/C/Java/C#, plus HTML script/link/importmap tags) classifying rows internal/stdlib/third-party/vendored
+// imports.js — per-language import extractor (Py/JS/C/Java/C#, plus HTML script/link/importmap tags) classifying rows internal/stdlib/third-party/vendored; reads manifests and lockfiles
 // Copyright (c) 2026 Andrew Schulman
 // https://github.com/aschulman42-cell/code-exam
 // Co-authored with Claude (Claude Code).
@@ -704,6 +704,183 @@ export function manifestDeps(filepath, lines) {
 const MANIFEST_BASENAME_RE = /^(package\.json|requirements[^/]*\.txt|constraints\.txt|pyproject\.toml|cargo\.toml|go\.mod|pom\.xml|.*\.gradle(\.kts)?|.*\.csproj|packages\.config)$/i;
 
 /**
+ * Which kind each declared dependency is — runtime, dev, peer, optional —
+ * for the manifests that say (package.json sections; requirements files
+ * named dev/test/docs/lint; pyproject and Cargo tables). `manifestDeps`
+ * keeps its flat Set; this is the companion the declared-versus-imported
+ * join needs, so a build-time tool is not reported as an unused dependency.
+ */
+export function manifestDepKinds(filepath, lines) {
+  const base = _norm(filepath).split('/').pop().toLowerCase();
+  const kinds = new Map();
+  try {
+    if (base === 'package.json') {
+      const j = JSON.parse((lines || []).join('\n'));
+      for (const [k, kind] of [['dependencies', 'runtime'], ['devDependencies', 'dev'], ['peerDependencies', 'peer'], ['optionalDependencies', 'optional']]) {
+        for (const d of Object.keys(j[k] || {})) if (!kinds.has(d)) kinds.set(d, kind);
+      }
+    } else if (/^requirements[^/]*\.txt$/.test(base) || base === 'constraints.txt') {
+      const dev = /dev|test|lint|docs?/i.test(base);
+      for (const d of manifestDeps(filepath, lines)) kinds.set(d, dev ? 'dev' : 'runtime');
+    } else if (base === 'pyproject.toml' || base === 'cargo.toml') {
+      let kind = 'runtime';
+      for (const l of lines || []) {
+        const s = String(l).replace(/\r+$/, '');
+        const h = /^\s*\[([^\]]+)\]\s*$/.exec(s);
+        if (h) { kind = /dev|test|docs|lint|build-dependencies|optional-dependencies|group\./i.test(h[1]) ? 'dev' : 'runtime'; continue; }
+        const m = /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*=/.exec(s) || /^\s*"([A-Za-z0-9][A-Za-z0-9._-]*)[^"]*"\s*,?\s*$/.exec(s);
+        if (m && !kinds.has(m[1])) kinds.set(m[1], kind);
+      }
+    }
+  } catch { /* best-effort, like manifestDeps */ }
+  return kinds;
+}
+
+// ===========================================================================
+// bom-lockfiles-resolved-tree: what gets INSTALLED. A manifest declares; a
+// lockfile resolves the declaration to pinned versions, the full transitive
+// set, and the sources they come from (registries, git, tarballs, file:).
+// Six kinds are read when indexed; yarn.lock and pnpm-lock.yaml are
+// recognised and reported as not read. The direct-versus-transitive split
+// comes from the lockfile's own root (package-lock v2/v3) or from the
+// manifest beside it (corpusFacts fills it in). No lockfile is read from the
+// source tree: reports answer from the index alone.
+// ===========================================================================
+
+const LOCKFILE_BASENAME_RE = /^(package-lock\.json|npm-shrinkwrap\.json|pipfile\.lock|composer\.lock|go\.sum|cargo\.lock|poetry\.lock)$/i;
+const UNREAD_LOCKFILE_RE = /^(yarn\.lock|pnpm-lock\.yaml)$/i;
+
+const _sourceHost = (src) => {
+  const s = String(src || '');
+  if (!s) return null;
+  if (/^registry\+/.test(s)) return 'crates.io';   // Cargo: registry+https://github.com/rust-lang/crates.io-index
+  try { return new URL(s.replace(/^(?:git|hg|svn)\+/, '')).hostname || null; } catch { return null; }
+};
+const _nonRegistrySource = (src) => {
+  const s = String(src || '');
+  return /^(?:git\+|git:|file:|link:|workspace:|path\+|hg\+)/i.test(s) || /\.git(?:[#?]|$)/.test(s);
+};
+
+/**
+ * Read one lockfile into { kind, packages: Map(name -> { version, source, dev, optional, nested }),
+ * direct: Set (names the lockfile itself marks direct; empty when it cannot say),
+ * total (installed entries; a name can appear nested at several versions),
+ * directCount, hosts: Map(host -> count), nonRegistry: [{ name, version, source }] }.
+ */
+export function lockfileDeps(filepath, lines) {
+  const base = _norm(filepath).split('/').pop().toLowerCase();
+  const text = (lines || []).join('\n');
+  const packages = new Map();
+  const direct = new Set();
+  const hosts = new Map();          // per installed entry, so the counts add up to `total`
+  const nonRegistry = [];           // per distinct name + source
+  let unsourced = 0;                // entries with no download of their own (bundled, linked, workspace)
+  let total = 0;
+  let kind = null;
+  const put = (name, info) => {
+    total++;
+    if (!packages.has(name)) packages.set(name, info);
+    if (!info.source) { unsourced++; return; }
+    if (_nonRegistrySource(info.source)) {
+      if (!nonRegistry.some((n) => n.name === name && n.source === info.source)) nonRegistry.push({ name, version: info.version, source: info.source });
+      return;
+    }
+    const h = _sourceHost(info.source);
+    if (h) hosts.set(h, (hosts.get(h) || 0) + 1);
+  };
+  try {
+    if (base === 'package-lock.json' || base === 'npm-shrinkwrap.json') {
+      kind = 'npm';
+      const j = JSON.parse(text);
+      if (j.packages && typeof j.packages === 'object') {           // lockfileVersion 2/3
+        const root = j.packages[''] || {};
+        for (const k of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
+          for (const d of Object.keys(root[k] || {})) direct.add(d);
+        }
+        for (const [p, e] of Object.entries(j.packages)) {
+          if (p === '' || !e || typeof e !== 'object') continue;
+          const i = p.lastIndexOf('node_modules/');
+          const name = i >= 0 ? p.slice(i + 'node_modules/'.length) : p;
+          put(name, { version: e.version || null, source: e.resolved || null, dev: !!e.dev, optional: !!e.optional, nested: i > 0 });
+        }
+      } else if (j.dependencies) {                                    // lockfileVersion 1: nested tree
+        const walk = (deps, depth) => {
+          for (const [name, e] of Object.entries(deps || {})) {
+            if (!e || typeof e !== 'object') continue;
+            put(name, { version: e.version || null, source: e.resolved || null, dev: !!e.dev, optional: !!e.optional, nested: depth > 0 });
+            walk(e.dependencies, depth + 1);
+          }
+        };
+        walk(j.dependencies, 0);
+      }
+    } else if (base === 'pipfile.lock') {
+      kind = 'pipenv';
+      const j = JSON.parse(text);
+      const sources = new Map(((j._meta && j._meta.sources) || []).map((s) => [s.name, s.url]));
+      const firstSource = sources.size ? [...sources.values()][0] : null;
+      for (const [sect, dev] of [['default', false], ['develop', true]]) {
+        for (const [name, e] of Object.entries(j[sect] || {})) {
+          const src = e && e.index && sources.has(e.index) ? sources.get(e.index) : firstSource;
+          put(name, { version: e && e.version ? String(e.version).replace(/^==/, '') : null, source: src, dev, optional: false, nested: false });
+        }
+      }
+    } else if (base === 'composer.lock') {
+      kind = 'composer';
+      const j = JSON.parse(text);
+      for (const [sect, dev] of [['packages', false], ['packages-dev', true]]) {
+        for (const e of j[sect] || []) {
+          if (!e || !e.name) continue;
+          put(e.name, { version: e.version || null, source: (e.dist && e.dist.url) || (e.source && e.source.url) || null, dev, optional: false, nested: false });
+        }
+      }
+    } else if (base === 'go.sum') {
+      kind = 'go';
+      const seen = new Set();
+      for (const l of lines || []) {
+        const m = /^(\S+)\s+(v\S+?)(\/go\.mod)?\s+h1:/.exec(String(l).replace(/\r+$/, ''));
+        if (!m || m[3]) continue;
+        const key = `${m[1]}@${m[2]}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        put(m[1], { version: m[2], source: `https://${m[1]}`, dev: false, optional: false, nested: false });
+      }
+    } else if (base === 'cargo.lock' || base === 'poetry.lock') {
+      kind = base === 'cargo.lock' ? 'cargo' : 'poetry';
+      let cur = null;
+      const flush = () => {
+        if (cur && cur.name) put(cur.name, { version: cur.version || null, source: cur.source || null, dev: !!cur.dev, optional: !!cur.optional, nested: false });
+        cur = null;
+      };
+      for (const l of lines || []) {
+        const s = String(l).replace(/\r+$/, '');
+        if (/^\s*\[\[package\]\]\s*$/.test(s)) { flush(); cur = {}; continue; }
+        if (!cur) continue;
+        if (/^\s*\[package\.source\]/.test(s)) { cur.inSource = true; continue; }
+        if (/^\s*\[/.test(s)) { cur.inSource = false; continue; }
+        let m;
+        if ((m = /^\s*name\s*=\s*"([^"]+)"/.exec(s))) cur.name = m[1];
+        else if ((m = /^\s*version\s*=\s*"([^"]+)"/.exec(s))) cur.version = m[1];
+        else if ((m = /^\s*source\s*=\s*"([^"]+)"/.exec(s))) cur.source = m[1];
+        else if (cur.inSource && (m = /^\s*url\s*=\s*"([^"]+)"/.exec(s))) cur.source = m[1];
+        else if (/^\s*category\s*=\s*"dev"/.test(s)) cur.dev = true;
+        else if (/^\s*optional\s*=\s*true/.test(s)) cur.optional = true;
+      }
+      flush();
+    }
+  } catch { /* a malformed lockfile yields what it yields; best-effort by design */ }
+  const directCount = [...packages.keys()].filter((n) => direct.has(n)).length;
+  return { kind, packages, direct, total, directCount, hosts, nonRegistry, unsourced };
+}
+
+// ", locked at 1.2.3" for a third-party row's why, or '' when no lockfile pins it.
+// Keyed by the FULL package name: `@anthropic-ai/sdk` and
+// `@modelcontextprotocol/sdk` both end in `sdk` and must not share a version.
+const _lockNote = (facts, name) => {
+  const v = facts.lockedVersions && facts.lockedVersions.get(_pkgKey(String(name || '')));
+  return v && v.version ? `, locked at ${v.version}` : '';
+};
+
+/**
  * One pass over the index: everything the classifier keys on. Cheap relative
  * to extraction; recomputed per call, never cached on the index.
  */
@@ -715,8 +892,12 @@ export function corpusFacts(index) {
     pyModules: new Set(),            // indexed .py basenames (bare sibling imports)
     javaPackages: [],                // declared `package a.b.c` / `namespace A.B` prefixes, longest first
     vendorSubtrees: new Map(),       // vendor dir path -> file count
-    manifests: [],                   // { file, deps:Set }
+    manifests: [],                   // { file, dir, deps:Set, kinds:Map }
     depKeys: new Set(),              // normalized dep names across manifests
+    lockfiles: [],                   // lockfileDeps() results + { file, dir, read }; unread kinds carry read:false
+    lockedKeys: new Set(),           // normalized package names across read lockfiles
+    lockedVersions: new Map(),       // normalized name -> { version, file, name }
+    manifestsNoLock: [],             // package.json / Cargo.toml / go.mod with no lockfile beside them
     depPrefixes: [],                 // dotted dep prefixes (java groupIds, go modules)
   };
   const pkgSet = new Set();
@@ -741,20 +922,120 @@ export function corpusFacts(index) {
         if (m) { pkgSet.add(m[1]); break; }
       }
     }
-    if (MANIFEST_BASENAME_RE.test(segs[segs.length - 1])) {
+    const baseName = segs[segs.length - 1];
+    const dir = segs.slice(0, -1).join('/');
+    if (MANIFEST_BASENAME_RE.test(baseName)) {
       const deps = manifestDeps(filepath, lines);
       if (deps.size) {
-        facts.manifests.push({ file: filepath, deps });
+        facts.manifests.push({ file: filepath, dir, deps, kinds: manifestDepKinds(filepath, lines) });
         for (const d of deps) {
           facts.depKeys.add(_pkgKey(d.includes(':') ? d.split(':').pop() : d.split('/').pop()));
           if (d.includes('.') || d.includes('/')) facts.depPrefixes.push(d.replace(/:/g, '.'));
         }
       }
+    } else if (LOCKFILE_BASENAME_RE.test(baseName)) {
+      const lf = lockfileDeps(filepath, lines);
+      if (lf.kind) {
+        facts.lockfiles.push({ file: filepath, dir, read: true, ...lf });
+        for (const [name, e] of lf.packages) {
+          const key = _pkgKey(name);   // full name: scoped packages must not collide on their last segment
+          facts.lockedKeys.add(key);
+          if (!facts.lockedVersions.has(key)) facts.lockedVersions.set(key, { version: e.version, file: filepath, name });
+        }
+      }
+    } else if (UNREAD_LOCKFILE_RE.test(baseName)) {
+      facts.lockfiles.push({ file: filepath, dir, read: false, kind: /^yarn/i.test(baseName) ? 'yarn' : 'pnpm',
+        packages: new Map(), direct: new Set(), total: 0, directCount: 0, hosts: new Map(), nonRegistry: [] });
     }
   }
   facts.javaPackages = [...pkgSet].sort((a, b) => b.length - a.length);
   facts.depPrefixes.sort((a, b) => b.length - a.length);
+  // A lockfile that cannot name its direct set (every kind but package-lock
+  // v2+) takes it from the manifest beside it, and says so.
+  const manifestFor = { npm: /^package\.json$/i, go: /^go\.mod$/i, cargo: /^cargo\.toml$/i, poetry: /^pyproject\.toml$/i };
+  for (const lf of facts.lockfiles) {
+    if (!lf.read || lf.direct.size) continue;
+    const re = manifestFor[lf.kind];
+    const m = re && facts.manifests.find((x) => x.dir === lf.dir && re.test(x.file.split('/').pop()));
+    if (m) {
+      for (const d of m.deps) lf.direct.add(d);
+      lf.directCount = [...lf.packages.keys()].filter((n) => lf.direct.has(n)).length;
+      lf.directFrom = m.file;
+    }
+  }
+  // Manifests of lockfile-bearing ecosystems with no lockfile beside them.
+  const lockKindFor = { 'package.json': 'npm', 'cargo.toml': 'cargo', 'go.mod': 'go' };
+  for (const m of facts.manifests) {
+    const k = lockKindFor[m.file.split('/').pop().toLowerCase()];
+    if (k && !facts.lockfiles.some((lf) => lf.dir === m.dir)) facts.manifestsNoLock.push({ file: m.file, kind: k });
+  }
   return facts;
+}
+
+/**
+ * The joins a lockfile makes decidable, for npm and Python manifests (the
+ * ecosystems whose import names match their manifest names):
+ *   declaredNotImported  manifest entries no import site reaches for, runtime
+ *                        apart from dev/peer/optional (the 4c1ed10 class);
+ *   importedNotDeclared  external rows whose package no manifest declares,
+ *                        split by whether a lockfile holds it (transitive
+ *                        reliance) or nothing does;
+ *   declaredNotLocked    runtime manifest entries absent from the lockfile
+ *                        beside the manifest (drift).
+ * `checked` is false when no npm or Python manifest is indexed.
+ */
+export function bomJoins(rows, facts) {
+  const npmPkg = (r) => {
+    const bare = String(r.module || '').replace(/^node:/, '');
+    if (!bare || /^[@~]\//.test(bare)) return null;
+    return bare.startsWith('@') ? bare.split('/').slice(0, 2).join('/') : bare.split('/')[0];
+  };
+  const keyOf = (name) => _pkgKey(String(name || ''));   // full name; scoped packages stay distinct
+  const imported = new Set();
+  for (const r of rows) {
+    if (r.lang === 'js' && !r.relative && !r.url) { const p = npmPkg(r); if (p) imported.add(keyOf(p)); }
+    else if (r.lang === 'py' && !r.relative) imported.add(_pkgKey(String(r.module || '').split('.')[0]));
+    else if ((r.lang === 'html' || r.url) && r.libName) imported.add(keyOf(r.libName));
+  }
+  const isNpm = (m) => /^package\.json$/i.test(m.file.split('/').pop());
+  const isPy = (m) => /^(?:requirements[^/]*\.txt|constraints\.txt|pyproject\.toml)$/i.test(m.file.split('/').pop());
+  const declaredNotImported = [];
+  for (const m of facts.manifests) {
+    if (!isNpm(m) && !isPy(m)) continue;
+    const runtime = [], dev = [];
+    for (const d of m.deps) {
+      if (imported.has(keyOf(d))) continue;
+      const kind = m.kinds && m.kinds.get(d);
+      (kind && kind !== 'runtime' ? dev : runtime).push(d);
+    }
+    if (runtime.length || dev.length) declaredNotImported.push({ manifest: m.file, runtime, dev });
+  }
+  const haveNpm = facts.manifests.some(isNpm), havePy = facts.manifests.some(isPy);
+  const transitive = [], absent = [];
+  const seen = new Set();
+  for (const r of rows) {
+    if (r.cls !== 'external') continue;
+    let shown = null;
+    if (r.lang === 'js' && haveNpm && !r.relative && !r.url) shown = npmPkg(r);
+    else if (r.lang === 'py' && havePy && !r.relative) shown = String(r.module || '').split('.')[0];
+    if (!shown) continue;
+    const key = keyOf(shown);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const lv = facts.lockedVersions.get(key);
+    if (lv) transitive.push({ pkg: shown, lockfile: lv.file, version: lv.version }); else absent.push(shown);
+  }
+  const declaredNotLocked = [];
+  for (const lf of facts.lockfiles) {
+    if (!lf.read) continue;
+    const m = facts.manifests.find((x) => x.file === lf.directFrom)
+      || facts.manifests.find((x) => x.dir === lf.dir && (isNpm(x) || isPy(x)));
+    if (!m) continue;
+    const locked = new Set([...lf.packages.keys()].map(keyOf));
+    const names = [...m.deps].filter((d) => { const k = m.kinds && m.kinds.get(d); return (!k || k === 'runtime') && !locked.has(keyOf(d)); });
+    if (names.length) declaredNotLocked.push({ manifest: m.file, lockfile: lf.file, names });
+  }
+  return { checked: haveNpm || havePy, declaredNotImported, importedNotDeclared: { transitive, absent }, declaredNotLocked };
 }
 
 const _underPrefix = (mod, prefix) => mod === prefix || mod.startsWith(prefix.endsWith('.') ? prefix : prefix + '.');
@@ -822,7 +1103,7 @@ export function classifyImportRow(row, facts) {
       const lib = libFromUrl(row.templatedPath || mod);
       const host = lib ? lib.host : '?';
       if (lib && facts.depKeys.has(_pkgKey(lib.name.split('/').pop()))) {
-        return { cls: 'third-party', source: `declared in an indexed manifest (\`${lib.name}\`); loaded from \`${host}\` by ${where}` };
+        return { cls: 'third-party', source: `declared in an indexed manifest (\`${lib.name}\`)${_lockNote(facts, lib.name)}; loaded from \`${host}\` by ${where}` };
       }
       return { cls: 'external', source: `loaded from \`${host}\` by ${where}` };
     }
@@ -850,14 +1131,14 @@ export function classifyImportRow(row, facts) {
     if (hit) {
       const v = vendoredAt(hit);
       if (v) return { cls: 'vendored', source: `resolves to \`${hit}\` under vendored subtree \`${v}/\` (${where})` };
-      if (declared) return { cls: 'third-party', source: `declared in an indexed manifest (\`${row.libName}\`); a copy at \`${hit}\` is loaded by ${where}` };
+      if (declared) return { cls: 'third-party', source: `declared in an indexed manifest (\`${row.libName}\`)${_lockNote(facts, row.libName)}; a copy at \`${hit}\` is loaded by ${where}` };
       return { cls: 'internal', source: `resolves to \`${hit}\` in this index (${kind}${row.templated ? ', templated src' : ''})` };
     }
     const vm = VENDOR_DIR_RE.exec(path);
     if (vm) {
       return { cls: 'vendored', source: `${where} loads \`${path}\` under a vendored directory (\`${vm[2]}/\`), which the index skips at build; version from the filename when it has one` };
     }
-    if (declared) return { cls: 'third-party', source: `declared in an indexed manifest (\`${row.libName}\`); loaded by ${where} from \`${path}\`, which is not in this index` };
+    if (declared) return { cls: 'third-party', source: `declared in an indexed manifest (\`${row.libName}\`)${_lockNote(facts, row.libName)}; loaded by ${where} from \`${path}\`, which is not in this index` };
     return { cls: 'external', source: `${where} loads \`${path}\`, which is not in this index` };
   }
   if (row.lang === 'js') {
@@ -875,13 +1156,18 @@ export function classifyImportRow(row, facts) {
     }
     const pkg = bare.startsWith('@') ? bare.split('/').slice(0, 2).join('/') : bare.split('/')[0];
     if (facts.depKeys.has(_pkgKey(pkg.split('/').pop()))) {
-      return { cls: 'third-party', source: `declared in an indexed manifest (\`${pkg}\`)` };
+      return { cls: 'third-party', source: `declared in an indexed manifest (\`${pkg}\`)${_lockNote(facts, pkg)}` };
     }
     // Manifest absence is a corroboration gap, not a per-row deficiency
     // (Andrew, 2026-09-04): with no manifest in the index, each row states
     // its POSITIVE evidence and --bom's Manifests section carries the
     // corroboration note once. With a manifest present, non-declaration IS
-    // information (a typo, a transitive dep) and the row says so.
+    // information (a typo, a transitive dep) and the row says so — and a
+    // lockfile can say which: present there means transitive reliance.
+    const lockedIn = facts.lockedVersions && facts.lockedVersions.get(_pkgKey(pkg));
+    if (lockedIn) {
+      return { cls: 'external', source: `not declared in any indexed manifest; present in \`${lockedIn.file}\` as a transitive dependency${lockedIn.version ? ` (${lockedIn.version})` : ''}` };
+    }
     return { cls: 'external', source: facts.manifests.length
       ? 'not declared in any indexed manifest' : 'bare npm-style specifier' };
   }
@@ -891,7 +1177,11 @@ export function classifyImportRow(row, facts) {
     if (facts.topLevel.has(root)) return { cls: 'internal', source: `top-level module \`${root}\` is in this index` };
     if (PY_STDLIB.has(root)) return { cls: 'stdlib', source: 'python standard library list' };
     if (facts.pyModules.has(root)) return { cls: 'internal', source: `module \`${root}.py\` is in this index` };
-    if (facts.depKeys.has(_pkgKey(root))) return { cls: 'third-party', source: `declared in an indexed manifest (\`${root}\`)` };
+    if (facts.depKeys.has(_pkgKey(root))) return { cls: 'third-party', source: `declared in an indexed manifest (\`${root}\`)${_lockNote(facts, root)}` };
+    const lockedIn = facts.lockedVersions && facts.lockedVersions.get(_pkgKey(root));
+    if (lockedIn) {
+      return { cls: 'external', source: `not declared in any indexed manifest; present in \`${lockedIn.file}\` as a transitive dependency${lockedIn.version ? ` (${lockedIn.version})` : ''}` };
+    }
     return { cls: 'external', source: facts.manifests.length
       ? 'not declared in any indexed manifest' : 'not python stdlib; not an indexed module' };
   }
@@ -906,7 +1196,7 @@ export function classifyImportRow(row, facts) {
     }
   }
   for (const dep of facts.depPrefixes) {
-    if (_underPrefix(mod, dep)) return { cls: 'third-party', source: `declared in an indexed manifest (\`${dep}\`)` };
+    if (_underPrefix(mod, dep)) return { cls: 'third-party', source: `declared in an indexed manifest (\`${dep}\`)${_lockNote(facts, dep.split('.').pop())}` };
   }
   if (row.lang === 'cs' && COM_TLB_RE.test(mod.split('.')[0])) {
     return { cls: 'external', source: 'COM type-library interop namespace (tlbimp convention); component origin not determinable from the name' };

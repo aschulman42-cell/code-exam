@@ -817,6 +817,10 @@ const index = new CodeSearchIndex({
   indexPath: args.index_path,
   extensions: customExtensions,
   excludeCompound,
+  // Manifests, lockfiles and build files are indexed by name in every build;
+  // an explicit --extensions list means exactly that list, so it turns the
+  // rule off (--add-extensions and --exclude-extensions do not).
+  dependencyFilesByName: !args.extensions,
 });
 
 

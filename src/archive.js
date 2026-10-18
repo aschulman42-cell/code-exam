@@ -24,7 +24,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { processBinary } from './binstrings.js';
-import { DEFAULT_EXTENSIONS } from './utils.js';
+import { DEFAULT_EXTENSIONS, isDependencyFileName } from './utils.js';
 
 // ========================================================================
 // Constants
@@ -436,10 +436,14 @@ export function expandArchive(source, opts = {}) {
     archiveName = '',
     depth = 0,
     extensions = null,
+    dependencyFilesByName = true,
     showProgress = true,
     demanglerPath = null,
     stats = { archives: 0, files: 0, encrypted: 0, errors: 0, skippedBinary: 0, binstringsProcessed: 0, depthWarnings: 0, skippedExtensions: {}, skippedDirs: 0 },
   } = opts;
+  // Expansion is synchronous, so the admission predicate reads this module
+  // flag; nested archives pass it on (see the recursive calls).
+  _byNameAdmission = dependencyFilesByName !== false;
 
   if (depth > MAX_ARCHIVE_DEPTH) {
     if (stats.depthWarnings === 0) {
@@ -543,6 +547,7 @@ function _expandZip(buf, archiveName, depth, extensions, showProgress, demangler
         archiveName: virtualPath,
         depth: depth + 1,
         extensions,
+        dependencyFilesByName: _byNameAdmission,
         showProgress,
         demanglerPath,
         stats,
@@ -598,6 +603,7 @@ function _expandTar(buf, archiveName, depth, extensions, showProgress, demangler
         archiveName: virtualPath,
         depth: depth + 1,
         extensions,
+        dependencyFilesByName: _byNameAdmission,
         showProgress,
         demanglerPath,
         stats,
@@ -921,6 +927,8 @@ function _getExtension(name) {
  * @param {string} ext - Lowercase extension
  * @param {Set<string>|null} extensions - Allowed extensions (null = use default heuristic)
  */
+let _byNameAdmission = true;   // set per expandArchive call; dependency/build files admitted by name
+
 function _isIndexableEntry(name, ext, extensions) {
   // Skip hidden files
   const baseName = path.basename(name);
@@ -928,6 +936,10 @@ function _isIndexableEntry(name, ext, extensions) {
 
   // Skip common non-source files inside archives
   if (_SKIP_ARCHIVE_ENTRIES.has(baseName.toLowerCase())) return false;
+
+  // Dependency and build files by name, whatever the extension set says
+  // (Makefile, go.mod, Cargo.lock, package-lock.json, ...): what --bom reads.
+  if (_byNameAdmission && isDependencyFileName(baseName)) return true;
 
   // If caller provided extension set, use it
   if (extensions) {

@@ -316,6 +316,40 @@ export const DEFAULT_EXTENSIONS = new Set([
 export const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.rst', '.yaml', '.yml']);
 
 /**
+ * Dependency and build files, admitted by NAME in every default build
+ * regardless of extension (bom-lockfiles-resolved-tree; Andrew, 2026-10-18).
+ * A Makefile, Dockerfile, Gemfile or Pipfile has no extension at all, and
+ * go.mod, go.sum, Cargo.toml and every *.lock have extensions no default list
+ * carries, so --add-extensions could never reach some of them. They are small,
+ * one per package, and exactly what --bom reads (manifests, lockfiles) and what
+ * the build-file manifest and copyright work will read next. An explicit
+ * --extensions list turns the rule off: explicit means exactly that.
+ */
+export const DEPENDENCY_FILE_RE = new RegExp('^(?:' + [
+  // npm / yarn / pnpm
+  'package\\.json', 'package-lock\\.json', 'npm-shrinkwrap\\.json', 'yarn\\.lock', 'pnpm-lock\\.yaml',
+  // Python
+  'pipfile', 'pipfile\\.lock', 'pyproject\\.toml', 'poetry\\.lock', 'uv\\.lock', 'setup\\.cfg',
+  // Rust, Go, PHP, Ruby
+  'cargo\\.toml', 'cargo\\.lock', 'go\\.mod', 'go\\.sum', 'composer\\.json', 'composer\\.lock',
+  'gemfile', 'gemfile\\.lock', '.*\\.gemspec',
+  // JVM, .NET
+  'pom\\.xml', 'build\\.gradle', 'settings\\.gradle', 'gradle\\.lockfile',
+  '.*\\.csproj', '.*\\.vcxproj', '.*\\.props', '.*\\.targets', 'packages\\.config', '.*\\.nuspec',
+  // Build systems
+  'makefile', 'gnumakefile', '.*\\.mk', 'cmakelists\\.txt', '.*\\.cmake', 'meson\\.build', 'build\\.gn',
+  'build', 'build\\.bazel', 'workspace', 'workspace\\.bazel', 'module\\.bazel', '.*\\.bzl',
+  'build\\.sbt', 'build\\.zig', 'mix\\.exs', 'mix\\.lock', '.*\\.cabal',
+  // Containers, Apple, Dart
+  'dockerfile', '.*\\.dockerfile', 'podfile', 'podfile\\.lock', '.*\\.podspec', 'cartfile', 'pubspec\\.lock',
+].join('|') + ')$', 'i');
+
+/** True for a path whose basename is a dependency or build file (see DEPENDENCY_FILE_RE). */
+export function isDependencyFileName(name) {
+  return DEPENDENCY_FILE_RE.test(String(name || '').split(/[\\/]/).pop());
+}
+
+/**
  * Archive extensions handled by archive.js (expanded during --build-index).
  * Separated from MEDIA_BINARY_EXTENSIONS so buildIndex can expand them instead of skip.
  */

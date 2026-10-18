@@ -503,17 +503,21 @@ its own detector vocabulary, such as a `Cloud: aws` entry that is the AWS patter
 templates.
 
 A tool's own source is only part of its surface. CodeExam's code imports six packages;
-`--bom` lists them, and with `package.json` in the index (add it to the file list and build
-with `--add-extensions .json`) corroborates each against the manifest's nineteen declared
-dependencies. What the catalogs cannot see is below that: the lockfile resolves those
-declarations to 347 packages that `npm install` fetches, none of them indexed, and what any of
-them does at runtime, including whether it reaches the network, is the item marked not audited
-above. For the full transitive tree, GitHub's dependency graph for the repository (Insights,
-Dependency graph, with an SBOM export, and Dependabot alerts built on it) lists every package
-including the indirect ones; it is exhaustive where CodeExam's catalog is deliberately scoped
-to what the code itself imports or loads (import statements, and the script, stylesheet and
-importmap tags of indexed HTML and page templates), with the line that does it. Issue #27 tracks the
-bill-of-materials feature. The run also turned up a declared-but-unused pair: `express` and
+`--bom` lists them and, with `package.json` in the index (every default build indexes
+manifests, lockfiles and build files by name; a build from a file list must name them),
+corroborates each against the manifest's declared dependencies, with the version the lockfile
+pins. Below that it reads the lockfile: 347 packages that `npm install` fetches (17 direct,
+330 transitive), all from `registry.npmjs.org`, no git or tarball sources, and the joins the
+lockfile makes decidable: declared but imported nowhere (the eleven tree-sitter grammar packages,
+dev dependencies used only to regenerate the vendored grammars), imported but not declared, and
+declared but absent from the lockfile. On CodeExam's own tree the last two joins show only the
+import strings inside its test fixtures, which is what the joins are for. What any of those
+packages does at runtime, including whether it reaches the network, remains the item marked not
+audited above. GitHub's dependency graph for the repository (Insights, Dependency graph, with an
+SBOM export, and Dependabot alerts built on it) adds the vulnerability view; it is exhaustive
+where CodeExam's catalog is scoped to what the code itself imports or loads (import statements,
+and the script, stylesheet and importmap tags of indexed HTML and page templates), with the line
+that does it, plus what the lockfile pins. Issue #27 tracks the bill-of-materials feature. The run also turned up a declared-but-unused pair: `express` and
 `zod` were in `package.json` but imported nowhere by CodeExam's code (the GUI server is Node's
 own `http`), and both arrive anyway as dependencies of the MCP SDK. The catalog was right and
 two of CodeExam's own pages were wrong, which is the point of running it; the two declarations

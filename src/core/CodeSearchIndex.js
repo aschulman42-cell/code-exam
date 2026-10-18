@@ -23,6 +23,7 @@ import {
   SearchResult, DEFAULT_EXTENSIONS, TEXT_EXTENSIONS,
   ARCHIVE_EXTENSIONS, MEDIA_BINARY_EXTENSIONS, EXECUTABLE_EXTENSIONS,
   displayName, eprint, eprogress, splitCompoundToken, pasteToken,
+  isDependencyFileName,
 } from '../utils.js';
 import { expandArchive, isSupportedArchive, createArchiveStats, resolveIndexDir, SKIP_DIRS, hasSkippedDirSegment } from '../archive.js';
 import { processBinary, BINSTRING_EXTENSIONS, isPseudoSource } from '../binstrings.js';
@@ -156,11 +157,16 @@ export class CodeSearchIndex {
    * @param {string} [opts.embeddingModel='default']
    */
   constructor({ indexPath = '.code_search_index', extensions = null,
-                embeddingModel = 'default', excludeCompound = null } = {}) {
+                embeddingModel = 'default', excludeCompound = null,
+                dependencyFilesByName = true } = {}) {
     // #176: a `.zip` of an index is extracted to a cached temp dir and used
     // as the index directory; non-zip paths pass through unchanged.
     this.indexPath = resolveIndexDir(indexPath);
     this.extensions = extensions || new Set(DEFAULT_EXTENSIONS);
+    // Dependency and build files (manifests, lockfiles, Makefile, ...) are
+    // admitted by name whatever their extension; an explicit --extensions
+    // list turns this off (index.js passes false then).
+    this.dependencyFilesByName = dependencyFilesByName !== false;
     this.embeddingModel = embeddingModel;
 
     /** @type {Set<string>} Compound extensions to exclude (e.g., '.d.ts') */
@@ -3703,6 +3709,7 @@ export class CodeSearchIndex {
         const entries = expandArchive(archivePath, {
           archiveName: relArchive,
           extensions: this.extensions,
+          dependencyFilesByName: this.dependencyFilesByName,
           showProgress,
           demanglerPath,
           stats: archiveStats,
@@ -4000,9 +4007,10 @@ export class CodeSearchIndex {
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase();
           const lower = entry.name.toLowerCase();
-          // Include source files (by extension, excluding compound like .d.ts)
-          if (this.extensions.has(ext) &&
-              !this._isCompoundExcluded(entry.name)) {
+          // Include source files (by extension, excluding compound like .d.ts),
+          // and dependency/build files by name (Makefile, go.mod, Cargo.lock, ...).
+          if ((this.extensions.has(ext) && !this._isCompoundExcluded(entry.name)) ||
+              (this.dependencyFilesByName && isDependencyFileName(entry.name))) {
             results.push(fullPath);
           }
           // Also include supported archive files for expansion

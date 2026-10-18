@@ -1153,11 +1153,17 @@ INDEX MANAGEMENT:
                              use this for a bundle that exhausts memory under
                              the grammar parse.
   --extensions <exts>        Comma-separated file extensions to index
-                             (replaces the default set)
+                             (replaces the default set, and turns off the
+                             by-name indexing of dependency/build files)
   --add-extensions <exts>    Comma-separated extensions to ADD to the default
                              set (e.g. --add-extensions .xmlui,.xs,.md). Quote the
                              list if your shell treats a character specially:
                              --add-extensions ".jinja2,.tmpl"
+                             Dependency and build files (package.json and
+                             lockfiles, pyproject/Cargo/go.mod, Makefile,
+                             CMakeLists.txt, Dockerfile, .csproj, ...) are
+                             indexed by NAME in every build; only an explicit
+                             --extensions list turns that off.
   --exclude-extensions <exts> Comma-separated extensions to exclude from index
   --demangler <path>         Path to C++ name demangler (e.g., vc++filt.exe, c++filt)
 
@@ -1330,8 +1336,12 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              declared) / vendored — each with its stated
                              source; unconfirmable targets report themselves
                              as external. Ranked external surface, vendored
-                             subtrees, indexed manifests. Honors --filter,
-                             --max-results; -v shows example sites.
+                             subtrees, indexed manifests; lockfiles when
+                             indexed (package-lock, Pipfile.lock,
+                             composer.lock, go.sum, Cargo.lock, poetry.lock):
+                             resolved counts, sources, pinned versions, and
+                             the declared/imported/locked joins. Honors
+                             --filter, --max-results; -v shows example sites.
   --exports [pkg]            Declared-exports catalog (Python today): what
                              each package SAYS its public API is, tier-marked
                              (A __all__/@*_export, B __init__ re-exports,

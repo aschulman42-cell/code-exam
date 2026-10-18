@@ -37,6 +37,16 @@ network log (#161); Fiddler `.saz` captures are planned as well.
   a live scan at build time, not stored in the index). Tags inside code strings (HTML that a
   program emits) are not rows in either report; the footer counts them and points at
   `--referenced-resources`, where their URLs are catalogued.
+- **Dependency and build files are indexed by name**, whatever their extension: manifests
+  (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, Gradle and MSBuild
+  project files), lockfiles (`package-lock.json`, `yarn.lock`, `Cargo.lock`, `poetry.lock`,
+  `go.sum`, `composer.lock`, ...) and build files (`Makefile`, `CMakeLists.txt`, `Dockerfile`,
+  Bazel files, ...). A `Makefile` has no extension at all, so no extension flag could reach it;
+  the by-name rule is what makes `--bom` and the build-file and copyright work possible. Only an
+  explicit `--extensions` list turns it off. `--bom` reads six lockfile kinds (`package-lock.json`,
+  `Pipfile.lock`, `composer.lock`, `go.sum`, `Cargo.lock`, `poetry.lock`; `yarn.lock` and
+  `pnpm-lock.yaml` are recognised but not read yet) and names a `package.json`, `Cargo.toml` or
+  `go.mod` that has no lockfile beside it in the tree.
 
 Indexes scale: a pure-Node streaming JSON parser handles multi-gigabyte indexes — the largest
 tested is **Chromium, ~195K files / ~5 GB**, loaded with `NODE_OPTIONS=--max-old-space-size=8192`.
