@@ -513,9 +513,11 @@ Dependency graph, with an SBOM export, and Dependabot alerts built on it) lists 
 including the indirect ones; it is exhaustive where CodeExam's catalog is deliberately scoped
 to what the code itself imports, with the line that imports it. Issue #27 tracks the
 bill-of-materials feature. The run also turned up a declared-but-unused pair: `express` and
-`zod` are in `package.json` but imported nowhere by CodeExam's code (the GUI server is Node's
-own `http`), and both are installed anyway as dependencies of the MCP SDK. The catalog was
-right and two of CodeExam's own pages were wrong, which is the point of running it.
+`zod` were in `package.json` but imported nowhere by CodeExam's code (the GUI server is Node's
+own `http`), and both arrive anyway as dependencies of the MCP SDK. The catalog was right and
+two of CodeExam's own pages were wrong, which is the point of running it; the two declarations
+and the pages were then corrected, and `test/test_declared_dependencies.js` now fails the suite
+if a declared dependency goes unimported again.
 
 **Hardware.** Fry's figures (a 14 GB download, a high-end GPU or 32 GB of unified memory)
 describe agentic coding models; CodeExam's local path runs smaller models (e.g. Gemma 4 on an

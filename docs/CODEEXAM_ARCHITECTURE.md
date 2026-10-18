@@ -71,13 +71,16 @@ CodeExam leans on a small set of third-party packages (declared in `package.json
   (C, C++, Java, JS, TS, Python, C#, Go, Rust, PHP, Ruby); a regex fallback covers the rest.
 - **`node-llama-cpp`** — local GGUF model inference for the air-gapped LLM path.
 - **`@anthropic-ai/sdk`** — the Claude API client for the cloud LLM path.
-- **`@modelcontextprotocol/sdk`** — the MCP server / protocol layer.
-- **`express`** — the GUI's local HTTP server.
+- **`@modelcontextprotocol/sdk`** — the MCP server / protocol layer (it brings its own schema
+  validator, `zod`; CodeExam declares none).
 - **`webcrack`** and **`js-beautify`** — unminify and pretty-print bundled/minified JavaScript for
   the source-recovery features.
-- **`zod`** — schema validation for MCP tool inputs and structured output.
 - **Mermaid** (`public/vendor/mermaid.min.js`, client-side) — renders the call-tree and
   file-coupling diagrams in the browser.
+
+Not on the list, by design: the GUI's local HTTP server is Node's own `http` module (`https` for
+the calls to cloud provider endpoints), not a web framework. `test/test_declared_dependencies.js`
+fails the suite if a declared dependency goes unimported, or an import goes undeclared.
 
 The `tree-sitter-*` grammar packages are **dev** dependencies that supply the vendored WASM
 grammars (copied from each package, not rebuilt); only `web-tree-sitter` and the vendored grammars

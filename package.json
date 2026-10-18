@@ -18,11 +18,9 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "express": "^5.2.1",
     "js-beautify": "^1.15.4",
     "node-llama-cpp": "3.22.1",
-    "web-tree-sitter": "^0.26.6",
-    "zod": "^4.3.6"
+    "web-tree-sitter": "^0.26.6"
   },
   "optionalDependencies": {
     "webcrack": "^2.15.1"

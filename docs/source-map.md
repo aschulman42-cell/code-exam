@@ -185,6 +185,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_client_server.js` — client/server detector: route + call detection, unmatched-call reconciliation
 - `test/test_credential_mask.js` — credential masking at the tool seam: assignment forms, random-token entropy gate
 - `test/test_data_structs.js` — #194 extractDataStructures: struct/enum/union/trait/interface across Rust/C/Go/TS
+- `test/test_declared_dependencies.js` — package.json vs first-party imports: every declared dependency imported, every bare import declared
 - `test/test_dep_claim_rules.js` — dependent-claim malformation rules over real USPTO specimens: parents, taxonomy
 - `test/test_dep_claims.js` — dep-claims chains: parent/root/depth on a real 26-claim family, contribution kinds
 - `test/test_disambiguation.js` — callee name resolution: self/this, explicit qualification, same-class, inheritance

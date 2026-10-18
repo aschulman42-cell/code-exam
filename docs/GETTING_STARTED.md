@@ -110,9 +110,10 @@ zip, and other index nuances — are described in [`CODEEXAM_INDEXES.md`](CODEEX
 ## Requirements
 
 - **Node.js 18+** (ES modules, the built-in `node:test` runner).
-- **`npm install`** for the runtime packages — the Anthropic SDK, Express, the MCP SDK,
-  web-tree-sitter, js-beautify, webcrack, node-llama-cpp, and the Mermaid renderers (see
-  `package.json`).
+- **`npm install`** for the runtime packages — the Anthropic SDK, the MCP SDK, node-llama-cpp,
+  web-tree-sitter, js-beautify and webcrack (see `package.json`); the lockfile resolves those
+  to several hundred packages. The Mermaid renderer is vendored in `public/vendor/`, not
+  installed.
 - Tree-sitter grammars are vendored in `grammars/`.
 - **For local LLM inference:** a GGUF model file. Which models load, and how well each does per
   feature, is enumerated in [`docs/model-support.md`](model-support.md) — the tested set is
