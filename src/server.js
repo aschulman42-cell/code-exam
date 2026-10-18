@@ -34,7 +34,8 @@ import { makeFilterMatcher } from './core/filter-match.js';
 // F58: pin `Today Date:` so the GUI's local sessions do not inherit a live clock.
 import { chatSessionOptions, ggufContextOptions, stripLocalArtifacts, draftCloud } from './core/llm-runner.js';
 import { extractExports } from './core/exports.js';
-import { extractImports } from './core/imports.js';
+import { extractImports, bomReport } from './core/imports.js';
+import { copyrightNotices } from './core/copyrights.js';
 import { extractConcepts, INTRINSIC_NAMES, isIntrinsicName } from './core/vocabulary.js';
 import { buildOverviewFast, buildOverviewDeep } from './core/overview.js';
 import { extractDataStructures } from './core/data-structs.js';
@@ -3148,6 +3149,40 @@ routes['/api/imports'] = (req, res) => {
     imports: libs.slice(0, max).map(g => ({
       library: g.library, count: g.count, targets: g.targets.size, sites: g.sites,
     })),
+  });
+};
+
+// gui-bom-imports-section: the bill of materials as the CLI prints it, one
+// fetch — the class rollup, the ranked external surface with sites and each
+// row's reason, vendored subtrees, manifests, lockfiles, the joins, coverage.
+routes['/api/bom'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  jsonResponse(res, bomReport(index, { filter: q.filter || null, max: safeMax(q.max, 500) }));
+};
+
+// The in-tree half: copyright holders with the first-vs-third presumption
+// (marked presumptive, with its reason), license identifiers, license
+// documents apart, bundles. --filter matches the holder or a path.
+routes['/api/copyrights'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const cr = copyrightNotices(index);
+  const match = q.filter ? makeFilterMatcher(q.filter) : null;
+  const holders = cr.holders.filter((hd) => !match || match(hd.holder) || hd.sites.some((s) => match(s.file)));
+  const max = safeMax(q.max, 500);
+  jsonResponse(res, {
+    scanned: cr.scanned, withNotice: cr.withNotice, noNotice: cr.noNotice,
+    total: holders.length,
+    holders: holders.slice(0, max).map((hd) => ({
+      holder: hd.holder, files: hd.files, spellings: hd.spellings, presumption: hd.presumption, reason: hd.reason,
+      embeddedOnly: hd.embeddedOnly, vendoredFiles: hd.vendoredFiles, example: hd.example,
+      sites: hd.sites.map((s) => ({ filepath: s.file, line: s.line, embedded: !!s.embedded })),
+    })),
+    dominant: cr.dominant ? cr.dominant.holder : null, tie: cr.tie,
+    licenses: cr.licenses, documents: cr.documents, bundles: cr.bundles,
   });
 };
 

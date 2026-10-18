@@ -83,7 +83,11 @@ Below those are the cross-cutting **catalogs and detectors** that summarize a wh
 once: the **AI/ML** inventory (models, kernels, training, inference, pipelines, …), the
 **client/server** HTTP surface, **referenced resources** (URLs, env vars, paths, external commands,
 model IDs), the **command catalog** (the target's own user-facing commands), telemetry
-**breadcrumbs**, **imports / BoM**, and **prompts** — each row linking to its `file:line` sites —
+**breadcrumbs**, **imports**, the **bill of materials** (the sections `--bom` prints: the class
+rollup, the ranked external surface with each row's reason, vendored subtrees, manifests and
+lockfiles, the declared/imported/locked joins, coverage), **copyright holders** (the in-tree half,
+with the first-versus-third presumption marked on every row and the license documents apart), and
+**prompts** — each row linking to its `file:line` sites —
 and the **duplicate** families (exact, near, structural, and fingerprint; see
 [`STRUCTURAL_SEARCH.md`](STRUCTURAL_SEARCH.md)).
 

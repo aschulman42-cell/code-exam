@@ -31,6 +31,8 @@
  * generically.
  */
 
+import { makeFilterMatcher } from './filter-match.js';
+
 export function isPythonFile(filepath) {
   return /\.pyi?$/i.test(filepath);
 }
@@ -1204,6 +1206,57 @@ export function classifyImportRow(row, facts) {
   return { cls: 'external', source: facts.manifests.length
     ? 'not declared in any indexed manifest'
     : `unrecognized package \`${mod.split('.').slice(0, 2).join('.')}\`` };
+}
+
+/**
+ * The bill of materials as DATA (gui-bom-imports-section): what --bom prints,
+ * for the GUI route and anything else that wants the facts without the
+ * printing — the class rollup, the ranked external surface with sites,
+ * vendored subtrees, manifests, lockfiles, the joins, and the coverage
+ * notes. doBom keeps its own printing of the same facts; when tier 2 touches
+ * it, unify the two on this.
+ */
+export function bomReport(index, { filter = null, max = 500, sitesPerRow = 20 } = {}) {
+  const { rows, facts, summary, filesByLang } = classifyImports(index);
+  const pkgOf = (r) => {
+    if (r.lang === 'html' || r.url) return r.libName || r.module;
+    if (r.lang === 'js') { const b = String(r.module || '').replace(/^node:/, ''); return b.startsWith('@') ? b.split('/').slice(0, 2).join('/') : b.split('/')[0]; }
+    if (r.lang === 'py') return String(r.module || '').split('.')[0];
+    if (r.lang === 'c') return r.module;
+    const segs = String(r.module || '').split('.');
+    return segs.slice(0, Math.min(3, segs.length)).join('.');
+  };
+  const surface = new Map();
+  for (const r of rows) {
+    if (r.cls !== 'third-party' && r.cls !== 'external' && r.cls !== 'vendored') continue;
+    const pkg = pkgOf(r);
+    const ver = (r.lang === 'html' || r.url) ? (r.libVersion || null) : null;
+    const key = `${r.cls}\u0000${pkg}\u0000${ver || ''}`;
+    let e = surface.get(key);
+    if (!e) { e = { cls: r.cls, pkg, ver, label: ver ? `${pkg}@${ver}` : pkg, lang: r.lang, count: 0, why: r.clsSource, sites: [] }; surface.set(key, e); }
+    e.count++;
+    if (e.sites.length < sitesPerRow) e.sites.push({ filepath: r.file, line: r.line, name: r.target });
+  }
+  const match = filter ? makeFilterMatcher(filter) : null;
+  const all = [...surface.values()].filter((e) => !match || match(e.pkg) || match(e.why))
+    .sort((a, b) => b.count - a.count || a.pkg.localeCompare(b.pkg));
+  const lockfiles = facts.lockfiles.map((lf) => ({
+    file: lf.file, kind: lf.kind, read: lf.read, total: lf.total, direct: lf.directCount, transitive: lf.total - lf.directCount,
+    directKnown: lf.direct.size > 0, directFrom: lf.directFrom || null,
+    hosts: [...lf.hosts.entries()].sort((a, b) => b[1] - a[1]).map(([host, n]) => ({ host, n })),
+    unsourced: lf.unsourced || 0, nonRegistry: lf.nonRegistry.slice(0, 50),
+  }));
+  return {
+    summary, filesByLang, sites: rows.length,
+    surface: all.slice(0, max), surfaceTotal: all.length,
+    vendorSubtrees: [...facts.vendorSubtrees.entries()].map(([subtree, files]) => ({ subtree, files })).sort((a, b) => b.files - a.files),
+    manifests: facts.manifests.map((m) => ({ file: m.file, declared: m.deps.size })),
+    manifestsNoLock: facts.manifestsNoLock, lockfiles,
+    joins: bomJoins(rows, facts),
+    htmlSites: rows.filter((r) => r.lang === 'html').length,
+    htmlNote: htmlCoverageNote(index, filesByLang),
+    codeTagNote: codeStringTagNote(tagsInCodeStrings(index)),
+  };
 }
 
 /**

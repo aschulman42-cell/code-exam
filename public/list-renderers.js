@@ -3029,6 +3029,162 @@ export function renderStringTable(container, strings, meta) {
 
 // Left pane: one row per deduped group (columns + `×count`), click → onItemClick.
 // columns: [{ get(item)->text, className?, style? }]; countOf(item)->number.
+// ============================================================================
+// gui-bom-imports-section: the Bill of Materials and Copyrights accordions.
+// Both render the sections their CLI commands print (--bom, --copyrights),
+// one fetch each, as collapsible sub-sections like Referenced Resources.
+// ============================================================================
+
+// A collapsible sub-section: header with a count, body built lazily-visible.
+function bomSubsection(container, title, count, { open = false, hint = null } = {}) {
+  const toggle = h('span', { className: 'accordion-toggle', text: open ? '▾' : '▸', style: 'margin-right:5px' });
+  const hdr = h('div', { className: 'list-item', style: 'cursor:pointer;font-weight:600;font-size:11px;color:var(--accent-blue);margin-top:6px', title: hint || '' }, [
+    toggle, h('span', { text: title }), h('span', { className: 'metric muted', text: count == null ? '' : `${count}`, style: 'margin-left:auto' }),
+  ]);
+  const body = h('div', { style: open ? '' : 'display:none' });
+  hdr.addEventListener('click', () => {
+    const hidden = body.style.display === 'none';
+    body.style.display = hidden ? '' : 'none';
+    toggle.textContent = hidden ? '▾' : '▸';
+  });
+  container.appendChild(hdr);
+  container.appendChild(body);
+  return body;
+}
+
+const BOM_CLASS_COLORS = {
+  'third-party': 'var(--accent-blue)', vendored: '#d08a3a', external: 'var(--text-muted)',
+  'first-party': '#4caf7d', undetermined: 'var(--text-muted)',
+};
+const classTag = (cls) => h('span', {
+  text: cls, className: 'metric',
+  style: `flex:0 0 auto;min-width:84px;font-family:var(--font-mono);font-size:10px;color:${BOM_CLASS_COLORS[cls] || 'var(--text-muted)'}`,
+});
+const noteLine = (parent, text, { strong = false } = {}) => parent.appendChild(h('div', {
+  className: 'list-placeholder', text,
+  style: `white-space:normal;text-align:left;${strong ? 'color:var(--text-bright)' : 'color:var(--text-muted)'};font-size:10px;line-height:1.35`,
+}));
+
+export function renderBomList(container, data, { onRowClick } = {}) {
+  container.innerHTML = '';
+  const d = data || {};
+  const s = d.summary || {};
+  if (!d.sites) { container.innerHTML = '<div class="list-placeholder">No imports extracted. Languages covered: Python, JS/TS, C/C++, Java/Kotlin, C#, plus script/link tags in indexed HTML and page templates.</div>'; return; }
+  const langs = Object.entries(d.filesByLang || {}).sort((a, b) => b[1] - a[1]).map(([l, n]) => `${n} ${l}`).join(', ');
+  noteLine(container, `${d.sites} import site(s) across ${langs}. Classes: internal ${s.internal || 0} · stdlib ${s.stdlib || 0} · third-party ${s['third-party'] || 0} · vendored ${s.vendored || 0} · external ${s.external || 0}${d.htmlSites ? ` (${d.htmlSites} from HTML/template tags)` : ''}. Every row names its reason (hover); click a row for its sites.`, { strong: true });
+
+  // External surface — the BoM proper, open by default.
+  const surf = bomSubsection(container, 'External surface', d.surfaceTotal, { open: true, hint: 'third-party, vendored and external targets ranked by use' });
+  if (!(d.surface || []).length) noteLine(surf, 'None — every import classified internal or stdlib/platform.');
+  for (const e of d.surface || []) {
+    const item = h('div', { className: 'list-item', title: `${e.label}\n${e.cls}: ${e.why}\n${e.count} site(s)` }, [
+      classTag(e.cls),
+      h('span', { className: 'name clickable', text: e.label, style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' }),
+      h('span', { className: 'metric', text: '×' + e.count, style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }),
+    ]);
+    if (onRowClick) item.addEventListener('click', (ev) => { ev.stopPropagation(); onRowClick(e); });
+    surf.appendChild(item);
+  }
+  if (d.surfaceTotal > (d.surface || []).length) noteLine(surf, `${d.surface.length} of ${d.surfaceTotal} targets shown`);
+
+  if ((d.vendorSubtrees || []).length) {
+    const v = bomSubsection(container, 'Vendored subtrees', d.vendorSubtrees.length, { hint: 'carried in-tree; own provenance and licensing apply' });
+    for (const t of d.vendorSubtrees) v.appendChild(h('div', { className: 'list-item' }, [
+      h('span', { className: 'name', text: `${t.subtree}/`, style: 'flex:1;font-family:var(--font-mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' }),
+      h('span', { className: 'metric', text: `${t.files} file(s)`, style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }),
+    ]));
+  }
+
+  // Manifests and lockfiles together: what is declared and what gets installed.
+  const mans = d.manifests || [], locks = d.lockfiles || [], noLock = d.manifestsNoLock || [];
+  if (mans.length || locks.length || noLock.length) {
+    const m = bomSubsection(container, 'Manifests and lockfiles', mans.length + locks.length, { hint: 'declared dependencies, and what the lockfile resolves them to' });
+    for (const x of mans) m.appendChild(h('div', { className: 'list-item' }, [
+      h('span', { className: 'name', text: x.file, style: 'flex:1;font-family:var(--font-mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' }),
+      h('span', { className: 'metric', text: `${x.declared} declared`, style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }),
+    ]));
+    for (const lf of locks) {
+      if (!lf.read) { noteLine(m, `${lf.file} — ${lf.kind} lockfile, not read yet (yarn and pnpm are the second wave)`); continue; }
+      const split = lf.directKnown ? `${lf.direct} direct${lf.directFrom ? ` (per ${lf.directFrom})` : ''}, ${lf.transitive} transitive` : 'direct set unknown (no manifest read beside it)';
+      m.appendChild(h('div', { className: 'list-item', title: `${lf.file}\n${split}` }, [
+        h('span', { className: 'name', text: lf.file, style: 'flex:1;font-family:var(--font-mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' }),
+        h('span', { className: 'metric', text: `${lf.total} resolved: ${split}`, style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }),
+      ]));
+      if (lf.hosts.length) noteLine(m, `sources: ${lf.hosts.slice(0, 6).map((x) => `${x.host} (${x.n})`).join(', ')}${lf.hosts.length > 6 ? `, +${lf.hosts.length - 6} more` : ''}`);
+      if (lf.unsourced) noteLine(m, `${lf.unsourced} without a source (bundled, linked or workspace packages)`);
+      for (const nr of lf.nonRegistry.slice(0, 10)) noteLine(m, `non-registry source: ${nr.name}${nr.version ? `@${nr.version}` : ''} ← ${nr.source}`);
+    }
+    for (const x of noLock) noteLine(m, `${x.file} has no lockfile beside it`);
+  }
+
+  // The joins: what the lockfile makes decidable.
+  const j = d.joins;
+  if (j && j.checked) {
+    const lines = [];
+    for (const x of j.declaredNotImported || []) {
+      if (x.runtime.length) lines.push(`declared in ${x.manifest}, imported nowhere: ${x.runtime.join(', ')}`);
+      if (x.dev.length) lines.push(`declared in ${x.manifest} as dev/peer/optional, imported nowhere (expected for build-time tools): ${x.dev.join(', ')}`);
+    }
+    for (const t of (j.importedNotDeclared || {}).transitive || []) lines.push(`imported but not declared: ${t.pkg} — present in ${t.lockfile} as a transitive dependency${t.version ? ` (${t.version})` : ''}`);
+    if (((j.importedNotDeclared || {}).absent || []).length) lines.push(`imported but neither declared nor locked: ${j.importedNotDeclared.absent.join(', ')}`);
+    for (const x of j.declaredNotLocked || []) lines.push(`declared in ${x.manifest}, absent from ${x.lockfile} (drift): ${x.names.join(', ')}`);
+    const jb = bomSubsection(container, 'Declared vs imported vs locked', lines.length, { open: lines.length > 0, hint: 'npm and Python manifests' });
+    if (lines.length) for (const l of lines) noteLine(jb, l, { strong: true });
+    else noteLine(jb, 'nothing to report: every declared runtime dependency is imported, every imported package is declared.');
+  }
+
+  const cov = bomSubsection(container, 'Coverage', null, { hint: 'what this report reads, and what it does not' });
+  noteLine(cov, 'Import and include statements in Python, JS/TS, C/C++, Java/Kotlin and C#, plus script, stylesheet and importmap tags in indexed HTML and page templates (HTML and most template types need --add-extensions at build). A file under a vendored directory is skipped at build, so a library loaded from one is reported from the tag alone. Manifests, lockfiles and build files are indexed by name; of the lockfiles, package-lock.json, Pipfile.lock, composer.lock, go.sum, Cargo.lock and poetry.lock are read. Copyright holders — the in-tree half — are the Copyrights accordion below.');
+  if (d.htmlNote) noteLine(cov, d.htmlNote);
+  if (d.codeTagNote) noteLine(cov, d.codeTagNote);
+}
+
+export function renderCopyrightsList(container, data, { onRowClick } = {}) {
+  container.innerHTML = '';
+  const d = data || {};
+  if (!d.scanned) { container.innerHTML = '<div class="list-placeholder">No files scanned.</div>'; return; }
+  noteLine(container, `${d.scanned} file(s) scanned; ${d.withNotice} carry a notice in the first 60 lines or a /*! banner; ${d.noNotice} carry none. First-party is a presumption from file counts, never a finding; hover a row for the reason, click it for the sites.`, { strong: true });
+  if (!(d.holders || []).length) noteLine(container, 'No copyright notices found in file headers or banners.');
+  for (const hd of d.holders || []) {
+    const eg = hd.sites && hd.sites[0] ? `${hd.sites[0].filepath}:${hd.sites[0].line}` : '';
+    const item = h('div', { className: 'list-item', title: `${hd.holder}\n${hd.presumption} (presumptive): ${hd.reason}\n${hd.files} file(s)${hd.spellings > 1 ? `, ${hd.spellings} spellings` : ''}${eg ? `\ne.g. ${eg}` : ''}` }, [
+      classTag(hd.presumption),
+      h('span', { className: 'name clickable', text: hd.holder, style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' }),
+      h('span', { className: 'metric', text: `${hd.files} file${hd.files === 1 ? '' : 's'}`, style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }),
+    ]);
+    if (onRowClick) item.addEventListener('click', (ev) => { ev.stopPropagation(); onRowClick(hd); });
+    container.appendChild(item);
+  }
+  if (d.total > (d.holders || []).length) noteLine(container, `${d.holders.length} of ${d.total} holders shown`);
+  if (d.dominant) noteLine(container, `Presumption: ${d.dominant} is presumptively first-party (most files); every other holder presumptively third-party; one whose files all sit under a vendored directory is third-party by location too.`);
+  else if (d.tie) noteLine(container, 'Presumption: none — the top holders tie on file count, and counts are all the index holds.');
+  else if ((d.holders || []).length) noteLine(container, 'Presumption: none — no holder has two files.');
+
+  if ((d.licenses || []).length) noteLine(container, `License identifiers in file headers: ${d.licenses.map((l) => `${l.id} (${l.files})`).join(', ')}`);
+  if ((d.documents || []).length) {
+    const docs = bomSubsection(container, 'License documents', d.documents.length, { hint: 'listed apart: their holders are not the holders of the code around them' });
+    for (const doc of d.documents) {
+      const item = h('div', { className: 'list-item', title: `${doc.file}\n${doc.license}${doc.holders && doc.holders.length ? `\nnames ${doc.holders.join('; ')}` : ''}` }, [
+        h('span', { className: 'name clickable', text: doc.file, style: 'flex:1;font-family:var(--font-mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' }),
+        h('span', { className: 'metric', text: doc.license, style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }),
+      ]);
+      item.addEventListener('click', (ev) => { ev.stopPropagation(); onFileClick(doc.file, 1); });
+      docs.appendChild(item);
+    }
+  }
+  if ((d.bundles || []).length) {
+    const b = bomSubsection(container, 'Bundles with embedded notices', d.bundles.length, { hint: 'one file, several holders: evidence of a bundle, not of one library' });
+    for (const x of d.bundles) {
+      const item = h('div', { className: 'list-item' }, [
+        h('span', { className: 'name clickable', text: x.file, style: 'flex:1;font-family:var(--font-mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' }),
+        h('span', { className: 'metric', text: `${x.holders} holders`, style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }),
+      ]);
+      item.addEventListener('click', (ev) => { ev.stopPropagation(); onFileClick(x.file, 1); });
+      b.appendChild(item);
+    }
+  }
+}
+
 export function renderDrilldownList(container, items, { columns, countOf, onItemClick, title, footer, caveat }) {
   container.innerHTML = '';
   // #132: rows whose every site is test/example code dim (.is-test); the

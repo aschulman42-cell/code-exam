@@ -122,7 +122,7 @@ import { classifyImports, classifyImportRow, corpusFacts, manifestDeps } from '.
 import { doBom } from '../src/commands/imports.js';
 import { doCensusImports } from '../src/commands/census.js';
 import { extractHtmlImports, libFromBasename, libFromUrl, htmlCoverageNote, isHtmlFile, isTemplateFile, tagsInCodeStrings, codeStringTagNote } from '../src/core/imports.js';
-import { lockfileDeps, manifestDepKinds, bomJoins } from '../src/core/imports.js';
+import { lockfileDeps, manifestDepKinds, bomJoins, bomReport } from '../src/core/imports.js';
 
 describe('import classification (imports-bill-of-materials resolver)', () => {
   const stub = () => ({
@@ -650,6 +650,23 @@ describe('lockfiles: resolved tree, sources and the joins (bom-lockfiles-resolve
     assert.deepEqual(j.declaredNotLocked, [{ manifest: 'package.json', lockfile: 'package-lock.json', names: ['foxtrot'] }]);
     const none = bomJoins([], corpusFacts({ fileLines: new Map([['a.c', ['#include <stdio.h>']]]) }));
     assert.equal(none.checked, false, 'no npm or Python manifest: nothing to join');
+  });
+
+  it('bomReport returns what --bom prints, as data: the ranked surface with sites and reasons, lockfiles, joins, notes', () => {
+    const r = bomReport(appIndex());
+    assert.deepEqual([r.sites, r.summary['third-party'], r.summary.external], [4, 1, 2]);
+    const alpha = r.surface.find((e) => e.pkg === 'alpha');
+    assert.deepEqual([alpha.cls, alpha.label, alpha.count, alpha.sites], ['third-party', 'alpha', 1, [{ filepath: 'src/main.js', line: 1, name: 'alpha.default' }]]);
+    assert.match(alpha.why, /locked at 1\.2\.3/);
+    assert.deepEqual(r.lockfiles.map((l) => [l.file, l.read, l.total, l.direct, l.transitive, l.directFrom]), [['package-lock.json', true, 5, 3, 2, null], ['rs/Cargo.lock', true, 3, 2, 1, 'rs/Cargo.toml'], ['web/yarn.lock', false, 0, 0, 0, null]]);
+    assert.deepEqual(r.lockfiles[0].hosts, [{ host: 'registry.npmjs.org', n: 3 }, { host: 'npm.example.corp', n: 1 }]);
+    assert.deepEqual(r.manifestsNoLock, [{ file: 'go/go.mod', kind: 'go' }]);
+    assert.equal(r.joins.checked, true);
+    assert.deepEqual(r.joins.importedNotDeclared.absent, ['zulu']);
+    assert.match(r.htmlNote, /No HTML in this index/);
+    assert.deepEqual(bomReport(appIndex(), { filter: 'charlie' }).surface.map((e) => e.pkg), ['charlie']);
+    assert.equal(bomReport(appIndex(), { max: 1 }).surface.length, 1);
+    assert.equal(bomReport(appIndex(), { max: 1 }).surfaceTotal, 3);
   });
 
   it('--bom prints the Resolved section, the joins and the lockfile coverage line', () => {

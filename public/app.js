@@ -76,6 +76,7 @@ import {
   renderExtensionList, renderClassListWithSub, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, pipelineMermaid, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, POSTTRAINING_KIND_COLOR, REASONING_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR, EXPLAINABILITY_KIND_COLOR,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList, renderDataStructuresList, renderClientServerList, renderReferencedResourcesList,
+  renderBomList, renderCopyrightsList,
   loadOverviewInto, showOverviewOverlay, initOverviewOverlay,
   renderIndexesList, renderFileMapList, renderCallInventoryList,
   renderExtensionsList, renderDupeGroupList,
@@ -220,6 +221,22 @@ async function loadSectionData(sectionId, filter = '') {
           title: g => `${g.library}\n${g.count} import site${g.count === 1 ? '' : 's'}, ${g.targets} distinct target${g.targets === 1 ? '' : 's'}`,
           footer: data.total > data.imports.length ? `${data.imports.length} of ${data.total} libraries shown` : '',
         });
+        badge.textContent = data.total;
+        break;
+      }
+
+      case 'bom': {   // gui-bom-imports-section: the bill of materials, the sections --bom prints
+        data = await api.listBom({ filter, max: 500 });
+        state.sectionData[sectionId] = data;
+        renderBomList(content, data, { onRowClick: onBomRowClick });
+        badge.textContent = data.surfaceTotal;
+        break;
+      }
+
+      case 'copyrights': {   // the in-tree half: copyright holders with the first-vs-third presumption
+        data = await api.listCopyrights({ filter, max: 500 });
+        state.sectionData[sectionId] = data;
+        renderCopyrightsList(content, data, { onRowClick: onCopyrightHolderClick });
         badge.textContent = data.total;
         break;
       }
@@ -811,6 +828,38 @@ function onImportsLibClick(g) {
       { get: s => s.name || '', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' },
       { get: s => `${shortPath(s.filepath || '')}:${s.line}`, className: 'filepath', style: 'flex-shrink:0;max-width:300px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left' },
     ] : FILEPATH_SITE_COLS,
+  });
+}
+
+// gui-bom-imports-section: a BoM row's sites — every import or tag that
+// reaches for the target — with the classification's reason in the header.
+function onBomRowClick(e) {
+  showPane('middle-top');
+  navPush('middle-top');
+  $('#middle-top-title').textContent = `BoM: ${e.label}`;
+  renderDrilldownSites($('#middle-top-body'), {
+    header: `${e.label}  ·  ${e.cls}  ·  ${e.count} site${e.count === 1 ? '' : 's'}  ·  ${e.why}`,
+    sites: e.sites,
+    columns: [
+      { get: s => s.name || '', className: 'name clickable', style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' },
+      { get: s => `${shortPath(s.filepath || '')}:${s.line}`, className: 'filepath', style: 'flex-shrink:0;max-width:300px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left' },
+    ],
+  });
+}
+
+// A copyright holder's sites (header notices and banners), the presumption
+// and its reason in the header — presumptive on the line, never a finding.
+function onCopyrightHolderClick(hd) {
+  showPane('middle-top');
+  navPush('middle-top');
+  $('#middle-top-title').textContent = `Copyright: ${hd.holder}`;
+  renderDrilldownSites($('#middle-top-body'), {
+    header: `${hd.holder}  ·  ${hd.files} file${hd.files === 1 ? '' : 's'}  ·  ${hd.presumption} (presumptive): ${hd.reason}`,
+    sites: hd.sites,
+    columns: [
+      { get: s => (s.embedded ? 'banner' : 'header'), className: 'metric', style: 'flex:0 0 auto;min-width:60px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);text-align:left' },
+      { get: s => `${shortPath(s.filepath || '')}:${s.line}`, className: 'filepath', style: 'flex:1 1 0;min-width:0;font-family:var(--font-mono);font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left' },
+    ],
   });
 }
 

@@ -37,9 +37,12 @@ const freePort = () => new Promise((resolve, reject) => {
 describe('/api/imports is not Python-only', () => {
   before(async () => {
     fs.mkdirSync(src, { recursive: true });
-    fs.writeFileSync(path.join(src, 'core.c'), '#include <stdio.h>\n#include "local.h"\nint main(void) { return 0; }\n');
+    fs.writeFileSync(path.join(src, 'core.c'), '/* Copyright (c) 2020 Fixture Corp */\n#include <stdio.h>\n#include "local.h"\nint main(void) { return 0; }\n');
     fs.writeFileSync(path.join(src, 'local.h'), '/* local */\n');
-    fs.writeFileSync(path.join(src, 'app.js'), "import fs from 'node:fs';\nimport _ from 'lodash';\nexport const a = 1;\n");
+    fs.writeFileSync(path.join(src, 'app.js'), "// Copyright (c) 2021 Fixture Corp\nimport fs from 'node:fs';\nimport _ from 'lodash';\nexport const a = 1;\n");
+    // gui-bom-imports-section: a manifest (no lockfile beside it) and a license document for /api/bom and /api/copyrights.
+    fs.writeFileSync(path.join(src, 'package.json'), JSON.stringify({ dependencies: { lodash: '^4.17.0', unused: '^1.0.0' } }));
+    fs.writeFileSync(path.join(src, 'LICENSE'), 'MIT License\n\nCopyright (c) 2020 Fixture Corp\n\nPermission is hereby granted, free of charge, to any person\n');
     const idx = new CodeSearchIndex({ indexPath });
     await idx.buildIndex(src, { showProgress: false });
     port = await freePort();
@@ -66,5 +69,38 @@ describe('/api/imports is not Python-only', () => {
     assert.ok(libs.includes('lodash'), `expected lodash among ${libs.join(', ')}`);
     assert.equal(body.pyFiles, undefined, 'the Python-only gate and its field are gone');
     assert.deepEqual(Object.keys(body.filesByLang || {}).sort(), ['c', 'js']);
+  });
+
+  it('/api/bom carries the sections --bom prints: classes, the ranked surface with reasons and sites, manifests, joins, coverage', async () => {
+    const r = await fetch(`http://127.0.0.1:${port}/api/bom?index=${encodeURIComponent(path.basename(indexPath))}`);
+    assert.equal(r.status, 200, `status ${r.status}\n${log.slice(0, 1000)}`);
+    const b = await r.json();
+    assert.ok(b.summary && b.summary['third-party'] >= 1, `summary ${JSON.stringify(b.summary)}`);
+    const lodash = b.surface.find((e) => e.pkg === 'lodash');
+    assert.ok(lodash, `lodash on the surface: ${b.surface.map((e) => e.label).join(', ')}`);
+    assert.deepEqual([lodash.cls, lodash.count], ['third-party', 1]);
+    assert.match(lodash.why, /declared in an indexed manifest \(`lodash`\)/);
+    assert.deepEqual(lodash.sites, [{ filepath: 'app.js', line: 3, name: 'lodash.default' }]);
+    assert.deepEqual(b.manifests, [{ file: 'package.json', declared: 2 }]);
+    assert.deepEqual(b.manifestsNoLock, [{ file: 'package.json', kind: 'npm' }]);
+    assert.equal(b.joins.checked, true);
+    assert.deepEqual(b.joins.declaredNotImported, [{ manifest: 'package.json', runtime: ['unused'], dev: [] }]);
+    assert.match(b.htmlNote || '', /No HTML in this index/);
+    const filtered = await (await fetch(`http://127.0.0.1:${port}/api/bom?index=${encodeURIComponent(path.basename(indexPath))}&filter=lodash`)).json();
+    assert.deepEqual(filtered.surface.map((e) => e.pkg), ['lodash'], '--filter narrows the surface');
+  });
+
+  it('/api/copyrights carries the holders with the presumption, license identifiers and the license document apart', async () => {
+    const r = await fetch(`http://127.0.0.1:${port}/api/copyrights?index=${encodeURIComponent(path.basename(indexPath))}`);
+    assert.equal(r.status, 200, `status ${r.status}`);
+    const c = await r.json();
+    assert.deepEqual([c.scanned, c.withNotice, c.noNotice], [4, 2, 2], 'LICENSE is a document, not a scanned code file');
+    assert.equal(c.holders.length, 1);
+    const fx = c.holders[0];
+    assert.deepEqual([fx.holder, fx.files, fx.presumption], ['Fixture Corp', 2, 'first-party']);
+    assert.match(fx.reason, /derived from counts, not knowledge/);
+    assert.deepEqual(fx.sites.map((s) => `${s.filepath}:${s.line}`).sort(), ['app.js:1', 'core.c:1']);
+    assert.equal(c.dominant, 'Fixture Corp');
+    assert.deepEqual(c.documents, [{ file: 'LICENSE', license: 'MIT', holders: ['Fixture Corp'] }]);
   });
 });
