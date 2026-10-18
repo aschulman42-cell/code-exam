@@ -1320,8 +1320,8 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              (vs need a hand-written loader). Honors --filter.
   --census-imports           Ranked import census: what the code actually
                              imports across the indexed languages (Python,
-                             JS/TS, C/C++, Java/Kotlin, C#), plus what
-                             indexed HTML and page templates load by
+                             JS/TS, C/C++, Java/Kotlin, C#, Go, Rust), plus
+                             what indexed HTML and page templates load by
                              script/link/importmap tags; --bom classifies
                              them. With
                              --multi-index <list> it reduces ACROSS indexes —
@@ -1330,15 +1330,19 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              -v drills per-index counts / example sites.
   --bom                      Bill of materials: every import/include across
                              the indexed languages (Python, JS/TS, C/C++,
-                             Java/Kotlin, C#), plus script/link/importmap
-                             tags in indexed HTML and page templates
-                             (--add-extensions .html,.htm,... at build),
-                             classified four ways — internal
+                             Java/Kotlin, C#, Go, Rust), plus script/link/
+                             importmap tags in indexed HTML and page
+                             templates (--add-extensions .html,.htm,... at
+                             build), and run-time dynamic loads (dlopen,
+                             LoadLibrary, Class.forName, importlib,
+                             require(expr), ...), classified four ways — internal
                              / stdlib-or-platform / third-party (manifest-
                              declared) / vendored — each with its stated
                              source; unconfirmable targets report themselves
                              as external. Ranked external surface, vendored
-                             subtrees, indexed manifests; lockfiles when
+                             subtrees, indexed manifests (package manifests
+                             and build files: .vcxproj, CMake, Makefile);
+                             lockfiles when
                              indexed (package-lock, Pipfile.lock,
                              composer.lock, go.sum, Cargo.lock, poetry.lock):
                              resolved counts, sources, pinned versions, and

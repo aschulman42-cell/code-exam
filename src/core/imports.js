@@ -1,4 +1,4 @@
-// imports.js — per-language import extractor (Py/JS/C/Java/C#, plus HTML script/link/importmap tags) classifying rows internal/stdlib/third-party/vendored; reads manifests and lockfiles
+// imports.js — per-language import extractor (Py/JS/C/Java/C#/Go/Rust, plus HTML script/link/importmap tags and run-time dynamic loads) classifying rows internal/stdlib/third-party/vendored; reads manifests, build files and lockfiles
 // Copyright (c) 2026 Andrew Schulman
 // https://github.com/aschulman42-cell/code-exam
 // Co-authored with Claude (Claude Code).
@@ -126,7 +126,8 @@ export function extractImports(index, opts = {}) {
     const lang = got.length ? got[0].lang
       : isPythonFile(filepath) ? 'py' : isJsFile(filepath) ? 'js'
         : isCFile(filepath) ? 'c' : isJavaFile(filepath) ? 'java'
-          : (isHtmlFile(filepath) || isTemplateFile(filepath)) ? 'html' : 'cs';
+          : (isHtmlFile(filepath) || isTemplateFile(filepath)) ? 'html'
+            : isGoFile(filepath) ? 'go' : isRustFile(filepath) ? 'rust' : 'cs';
     filesByLang[lang] = (filesByLang[lang] || 0) + 1;
     if (lang === 'py') pyFiles++;
     rows.push(...got);
@@ -161,6 +162,110 @@ export function isCFile(filepath) { return /\.(?:c|h|cc|hh|cpp|hpp|cxx|hxx|inl)$
 export function isJavaFile(filepath) { return /\.(?:java|kt|kts)$/i.test(filepath); }
 export function isCSharpFile(filepath) { return /\.cs$/i.test(filepath); }
 export function isHtmlFile(filepath) { return /\.(?:html?|xhtml)$/i.test(filepath); }
+export function isGoFile(filepath) { return /\.go$/i.test(filepath); }
+export function isRustFile(filepath) { return /\.rs$/i.test(filepath); }
+
+// ===========================================================================
+// bom-tier2-notices-and-build-manifests, part 1: Go and Rust. Their manifests
+// (go.mod, Cargo.toml) have parsed since tier 1, but their imports were never
+// extracted, so manifest corroboration could never fire for a Go or Rust
+// corpus and a whole tree read as importing nothing.
+// ===========================================================================
+
+/** Go: `import "x"`, `import alias "x"`, and grouped `import ( … )` over lines. */
+export function extractGoImports(lines, filepath) {
+  const rows = [];
+  // `.` imports the package's names into scope (star); `_` imports for side
+  // effects only (no alias); anything else is an alias.
+  const push = (mod, alias, line) => rows.push({
+    target: mod, file: filepath, line, module: mod, name: null,
+    alias: alias && alias !== '_' && alias !== '.' ? alias : null, relative: false, star: alias === '.', lang: 'go',
+  });
+  const spec = /(?:([A-Za-z_]\w*|\.|_)\s+)?"([^"]+)"/g;
+  let inGroup = false;
+  for (let i = 0; i < lines.length; i++) {
+    const s = stripSlashComment(lines[i]);
+    if (inGroup) {
+      if (/^\s*\)/.test(s)) { inGroup = false; continue; }
+      let m; spec.lastIndex = 0;
+      while ((m = spec.exec(s))) push(m[2], m[1] || null, i + 1);
+      continue;
+    }
+    let m;
+    if ((m = /^\s*import\s+(?:([A-Za-z_]\w*|\.|_)\s+)?"([^"]+)"/.exec(s))) { push(m[2], m[1] || null, i + 1); continue; }
+    if (/^\s*import\s*\(\s*$/.test(s)) { inGroup = true; continue; }
+    if ((m = /^\s*import\s*\(\s*(.+?)\s*\)\s*$/.exec(s))) {
+      let mm; spec.lastIndex = 0;
+      while ((mm = spec.exec(m[1]))) push(mm[2], mm[1] || null, i + 1);
+    }
+  }
+  return rows;
+}
+
+// `a::b::{c, d::{e, f as g}, self, *}` → one call per leaf path.
+function _expandRustUse(body, prefix, emit) {
+  const b = body.trim();
+  const brace = b.indexOf('{');
+  if (brace < 0) {
+    const m = /^([\w:*]+)(?:\s+as\s+([A-Za-z_]\w*))?$/.exec(b.replace(/\s+/g, ' '));
+    if (!m) return;
+    const path = (prefix + m[1]).replace(/::self$/, '');
+    if (path === '*' || path.endsWith('::*')) emit(path.replace(/(?:^|::)\*$/, ''), null, true);
+    else emit(path, m[2] || null, false);
+    return;
+  }
+  const head = b.slice(0, brace).trim();
+  const inner = b.slice(brace + 1, b.lastIndexOf('}'));
+  const parts = [];
+  let depth = 0, cur = '';
+  for (const ch of inner) {
+    if (ch === '{') depth++;
+    if (ch === '}') depth--;
+    if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; } else cur += ch;
+  }
+  if (cur.trim()) parts.push(cur);
+  for (const p of parts) {
+    const t = p.trim();
+    if (!t) continue;
+    if (t === 'self') emit((prefix + head).replace(/::$/, ''), null, false);
+    else _expandRustUse(t, prefix + head, emit);
+  }
+}
+
+/**
+ * Rust: `use a::b::{c, d as e}`, `use a::*`, `extern crate x`, and `mod x;`
+ * (the crate's own module tree, relative). `crate::`, `self::` and `super::`
+ * paths are relative too; held back unless includeRelative, like JS.
+ */
+export function extractRustImports(lines, filepath, opts = {}) {
+  const rows = [];
+  const MAX_JOIN = 30;
+  const push = (module, name, alias, star, line, relative) => {
+    if (relative && !opts.includeRelative) return;
+    rows.push({ target: name ? `${module}::${name}` : module, file: filepath, line, module, name: name || null, alias: alias || null, relative, star: !!star, lang: 'rust' });
+  };
+  for (let i = 0; i < lines.length; i++) {
+    let s = stripSlashComment(lines[i]);
+    const startLine = i + 1;
+    let m;
+    if ((m = /^\s*(?:pub(?:\([^)]*\))?\s+)?extern\s+crate\s+([A-Za-z_]\w*)(?:\s+as\s+([A-Za-z_]\w*))?\s*;/.exec(s))) { push(m[1], null, m[2] || null, false, startLine, false); continue; }
+    if ((m = /^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_]\w*)\s*;/.exec(s))) { push(m[1], null, null, false, startLine, true); continue; }
+    if (!/^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+/.test(s)) continue;
+    let guard = 0;
+    while (!/;\s*$/.test(s) && i + 1 < lines.length && guard++ < MAX_JOIN) s += ' ' + stripSlashComment(lines[++i]);
+    const body = s.replace(/^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+/, '').replace(/;\s*$/, '').trim();
+    _expandRustUse(body, '', (path, alias, star) => {
+      const segs = path.split('::').filter(Boolean);
+      if (!segs.length) return;
+      const relative = segs[0] === 'crate' || segs[0] === 'self' || segs[0] === 'super';
+      if (star) { push(segs.join('::'), null, null, true, startLine, relative); return; }
+      const module = segs.length > 1 ? segs.slice(0, -1).join('::') : segs[0];
+      const name = segs.length > 1 ? segs[segs.length - 1] : null;
+      push(module, name, alias, false, startLine, relative);
+    });
+  }
+  return rows;
+}
 // Server-side page templates carry a web app's <script>/<link> tags as often
 // as .html does, so the tag scan runs on them when they are indexed (most of
 // these extensions need --add-extensions at build). Only what the page LOADS
@@ -361,6 +466,8 @@ export function extractFileImports(lines, filepath, opts = {}) {
   if (isJavaFile(filepath)) return extractJavaImports(lines, filepath);
   if (isCSharpFile(filepath)) return extractCSharpImports(lines, filepath);
   if (isHtmlFile(filepath) || isTemplateFile(filepath)) return extractHtmlImports(lines, filepath, opts);
+  if (isGoFile(filepath)) return extractGoImports(lines, filepath);
+  if (isRustFile(filepath)) return extractRustImports(lines, filepath, opts);
   return null;
 }
 
@@ -557,6 +664,106 @@ export function codeStringTagNote({ sites = 0, files = 0 } = {}) {
 }
 
 // ===========================================================================
+// bom-tier2-notices-and-build-manifests, part 3: run-time dynamic linking,
+// #27's third phase item — what import tables miss. Every site names its API;
+// a literal target is classified by the same rules as an import (a .dll/.so
+// basename as a link library, a Java class as a Java import, a .NET assembly
+// as a C# namespace, a Python module as a Python import); a computed target
+// is counted, never guessed. Symbol lookups (GetProcAddress, dlsym) are
+// counted beside the load calls they complete.
+// ===========================================================================
+
+const DYNAMIC_LOAD_PATTERNS = [
+  // [api label, regex (group 1 = literal target when the call has one), kind]
+  ['LoadLibrary', /\bLoadLibrary(?:Ex)?[AW]?\s*\(\s*(?:L?"([^"]+)")?/g, 'lib'],
+  ['GetProcAddress', /\bGetProcAddress\s*\(/g, 'symbol'],
+  ['dlopen', /\bdlopen\s*\(\s*(?:"([^"]+)")?/g, 'lib'],
+  ['dlsym', /\bdlsym\s*\(/g, 'symbol'],
+  ['CFBundleGetFunctionPointerForName', /\bCFBundleGetFunctionPointerForName\s*\(/g, 'symbol'],
+  ['NSLookupSymbolInModule', /\bNSLookupSymbolInModule\s*\(/g, 'symbol'],
+  ['Class.forName', /\bClass\.forName\s*\(\s*(?:"([^"]+)")?/g, 'java'],
+  ['ClassLoader.loadClass', /\b(?:[Cc]lassLoader|loader)\.loadClass\s*\(\s*(?:"([^"]+)")?/g, 'java'],
+  ['System.loadLibrary', /\bSystem\.load(?:Library)?\s*\(\s*(?:"([^"]+)")?/g, 'lib'],
+  ['Assembly.Load', /\bAssembly\.Load(?:From|File|WithPartialName)?\s*\(\s*(?:@?"([^"]+)")?/g, 'dotnet'],
+  ['importlib.import_module', /\bimportlib\.import_module\s*\(\s*(?:['"]([^'"]+)['"])?/g, 'py'],
+  ['__import__', /\b__import__\s*\(\s*(?:['"]([^'"]+)['"])?/g, 'py'],
+  ['require(expr)', /\brequire\s*\(\s*(?!['"`])([A-Za-z_$][\w$.]*)\s*\)/g, 'node-expr'],
+  ['import(expr)', /\bimport\s*\(\s*(?!['"`])([A-Za-z_$][\w$.]*)/g, 'node-expr'],
+];
+const DYNAMIC_PREFILTER_RE = /LoadLibrary|GetProcAddress|dlopen|dlsym|CFBundleGetFunctionPointerForName|NSLookupSymbolInModule|\.forName|\.loadClass|System\.load|Assembly\.Load|import_module|__import__|require\s*\(|import\s*\(/;
+
+function _classifyDynamicTarget(e, facts) {
+  if (e.kind === 'lib') {
+    const base = String(e.target).split(/[\\/]/).pop().replace(/\.(?:dll|dylib|so(?:\.\d+)*|a|lib)$/i, '').replace(/^lib(?=[a-z])/i, '');
+    return classifyImportRow({ lang: 'c', linkLib: true, module: base, target: base, dynamic: `loaded at run time by ${e.api}` }, facts);
+  }
+  if (e.kind === 'java' && /^\[/.test(e.target)) {
+    return { cls: 'stdlib', source: `loaded at run time by ${e.api}; JVM array class descriptor` };
+  }
+  const lang = e.kind === 'java' ? 'java' : e.kind === 'dotnet' ? 'cs' : 'py';
+  const r = classifyImportRow({ lang, module: e.target, target: e.target, relative: false }, facts);
+  return { cls: r.cls, source: `loaded at run time by ${e.api}; ${r.source}` };
+}
+
+/**
+ * Run-time dynamic loads over the indexed code. Returns
+ *   { total, literal, rows: [{ api, kind, target, label, count, cls, why, sites }],
+ *     computed: [{ api, kind, count, sites }] }
+ * where `rows` are the literal targets, classified, and `computed` the calls
+ * whose target is built at run time or whose call is a symbol lookup.
+ */
+export function dynamicLoads(index, facts = null) {
+  const f = facts || corpusFacts(index);
+  const literal = new Map();
+  const computed = new Map();
+  let total = 0;
+  for (const [file, lines] of index.fileLines) {
+    const py = isPythonFile(file);
+    if (!(py || isJsFile(file) || isCFile(file) || isJavaFile(file) || isCSharpFile(file) || isGoFile(file) || isRustFile(file) || /\.(?:m|mm|swift)$/i.test(file))) continue;
+    for (let i = 0; i < (lines || []).length; i++) {
+      const raw = String(lines[i] || '');
+      if (!DYNAMIC_PREFILTER_RE.test(raw)) continue;
+      const s = py ? raw.replace(/#.*$/, '') : stripSlashComment(raw);
+      for (const [api, re, kind] of DYNAMIC_LOAD_PATTERNS) {
+        re.lastIndex = 0;
+        let m;
+        while ((m = re.exec(s))) {
+          total++;
+          const target = (kind === 'node-expr' || kind === 'symbol') ? null : (m[1] || null);
+          const site = { filepath: file, line: i + 1, name: api };
+          if (target) {
+            const key = `${api}\u0000${target}`;
+            let e = literal.get(key);
+            if (!e) { e = { api, kind, target, count: 0, sites: [] }; literal.set(key, e); }
+            e.count++;
+            if (e.sites.length < 20) e.sites.push(site);
+          } else {
+            let e = computed.get(api);
+            if (!e) { e = { api, kind, count: 0, sites: [] }; computed.set(api, e); }
+            e.count++;
+            if (e.sites.length < 20) e.sites.push(site);
+          }
+        }
+      }
+    }
+  }
+  const rows = [...literal.values()].map((e) => {
+    const { cls, source } = _classifyDynamicTarget(e, f);
+    return { ...e, cls, why: source, label: `${e.api} → ${e.target}` };
+  }).sort((a, b) => b.count - a.count || a.target.localeCompare(b.target));
+  return {
+    total, literal: rows.reduce((s, r) => s + r.count, 0), rows,
+    computed: [...computed.values()].sort((a, b) => b.count - a.count),
+  };
+}
+
+/** The census signpost for dynamic loads, or null when there are none. */
+export function dynamicLoadNote({ total = 0 } = {}) {
+  if (!total) return null;
+  return `${total} run-time dynamic-loading site(s) (dlopen, LoadLibrary, Class.forName, importlib, require(expr), ...) are not counted above; --bom lists them.`;
+}
+
+// ===========================================================================
 // imports-bill-of-materials: the RESOLVER (#312's missing layer). For any
 // import row, answer: is the target inside the corpus, in the language's
 // standard library / platform SDK, third-party, or vendored?
@@ -698,12 +905,45 @@ export function manifestDeps(filepath, lines) {
         const m = /(?:PackageReference\s+Include|id)\s*=\s*"([^"]+)"/.exec(l);
         if (m) add(m[1]);
       }
+    // bom-tier2-notices-and-build-manifests, part 2: build files as manifests —
+    // the Windows .lib answer key beyond `#pragma comment(lib)`, and the
+    // libraries a CMake or Makefile links.
+    } else if (/\.vcxproj$/.test(base)) {
+      for (const l of lines) {
+        const m = /<AdditionalDependencies>([^<]*)<\/AdditionalDependencies>/i.exec(l);
+        if (!m) continue;
+        for (const lib of m[1].split(';')) { const t = lib.trim(); if (t && !t.startsWith('%(')) add(t.replace(/\.lib$/i, '')); }
+      }
+    } else if (base === 'cmakelists.txt' || /\.cmake$/.test(base)) {
+      const src = text.replace(/#[^\n]*/g, '');
+      let m;
+      const tll = /target_link_libraries\s*\(([^)]*)\)/gi;
+      while ((m = tll.exec(src))) {
+        const toks = m[1].split(/\s+/).filter(Boolean);
+        for (const t of toks.slice(1)) {
+          if (/^(?:PRIVATE|PUBLIC|INTERFACE|LINK_PRIVATE|LINK_PUBLIC|LINK_INTERFACE_LIBRARIES|debug|optimized|general)$/i.test(t)) continue;
+          if (t.startsWith('${') || t.startsWith('$<')) continue;
+          add(t.replace(/^-l/, '').replace(/^.*::/, '').replace(/\.(?:lib|a|so|dylib)$/i, '').replace(/^lib(?=[a-z])/, ''));
+        }
+      }
+      const fp = /find_package\s*\(\s*([A-Za-z0-9_]+)/gi;
+      while ((m = fp.exec(src))) add(m[1]);
+    } else if (/^(?:makefile|gnumakefile)$/.test(base) || /\.mk$/.test(base)) {
+      for (const l of lines) {
+        const s = String(l).replace(/#.*$/, '');
+        const re = /(?:^|\s)-l([\w.+-]+)/g;
+        let m;
+        while ((m = re.exec(s))) add(m[1]);
+        // Android.mk: the libraries a module links, by name.
+        const al = /^\s*LOCAL_(?:SHARED|STATIC|WHOLE_STATIC)_LIBRARIES\s*[:+]?=\s*(.+)$/.exec(s);
+        if (al) for (const t of al[1].split(/\s+/)) { const n = t.replace(/^lib(?=[a-z])/, ''); if (n && !n.startsWith('$')) add(n); }
+      }
     }
   } catch { /* a malformed manifest yields what it yields; best-effort by design */ }
   return deps;
 }
 
-const MANIFEST_BASENAME_RE = /^(package\.json|requirements[^/]*\.txt|constraints\.txt|pyproject\.toml|cargo\.toml|go\.mod|pom\.xml|.*\.gradle(\.kts)?|.*\.csproj|packages\.config)$/i;
+const MANIFEST_BASENAME_RE = /^(package\.json|requirements[^/]*\.txt|constraints\.txt|pyproject\.toml|cargo\.toml|go\.mod|pom\.xml|.*\.gradle(\.kts)?|.*\.csproj|packages\.config|.*\.vcxproj|cmakelists\.txt|.*\.cmake|makefile|gnumakefile|.*\.mk)$/i;
 
 /**
  * Which kind each declared dependency is — runtime, dev, peer, optional —
@@ -900,6 +1140,9 @@ export function corpusFacts(index) {
     lockedKeys: new Set(),           // normalized package names across read lockfiles
     lockedVersions: new Map(),       // normalized name -> { version, file, name }
     manifestsNoLock: [],             // package.json / Cargo.toml / go.mod with no lockfile beside them
+    goModule: null,                  // go.mod `module` path: imports under it are this corpus
+    crateNames: new Set(),           // Cargo.toml [package] names: `use` of them is this corpus
+    builtLibs: new Map(),            // normalized library name -> build file that BUILDS it (CMake add_library, Android.mk LOCAL_MODULE)
     depPrefixes: [],                 // dotted dep prefixes (java groupIds, go modules)
   };
   const pkgSet = new Set();
@@ -927,6 +1170,28 @@ export function corpusFacts(index) {
     const baseName = segs[segs.length - 1];
     const dir = segs.slice(0, -1).join('/');
     if (MANIFEST_BASENAME_RE.test(baseName)) {
+      const lowerBase = baseName.toLowerCase();
+      if (lowerBase === 'go.mod') {
+        for (const l of lines) { const m = /^\s*module\s+(\S+)/.exec(String(l)); if (m) { facts.goModule = m[1]; break; } }
+      } else if (lowerBase === 'cargo.toml') {
+        let inPackage = false;
+        for (const l of lines) {
+          const s = String(l).replace(/\r+$/, '');
+          if (/^\s*\[package\]\s*$/.test(s)) { inPackage = true; continue; }
+          if (/^\s*\[/.test(s)) { inPackage = false; continue; }
+          const m = inPackage && /^\s*name\s*=\s*"([^"]+)"/.exec(s);
+          if (m) facts.crateNames.add(_pkgKey(m[1]));
+        }
+      } else if (lowerBase === 'cmakelists.txt' || /\.cmake$/.test(lowerBase) || /^(?:makefile|gnumakefile)$/.test(lowerBase) || /\.mk$/.test(lowerBase)) {
+        // What a build file BUILDS is this corpus's own: a dlopen or
+        // System.loadLibrary of it is internal, not an external dependency.
+        const text = lines.join('\n').replace(/#[^\n]*/g, '');
+        let m;
+        const cm = /\badd_(?:library|executable)\s*\(\s*([A-Za-z0-9_.+-]+)/g;
+        while ((m = cm.exec(text))) facts.builtLibs.set(_pkgKey(m[1].replace(/^lib(?=[a-z])/, '')), filepath);
+        const am = /^\s*LOCAL_MODULE\s*[:+]?=\s*([A-Za-z0-9_.+-]+)/gm;
+        while ((m = am.exec(text))) facts.builtLibs.set(_pkgKey(m[1].replace(/^lib(?=[a-z])/, '')), filepath);
+      }
       const deps = manifestDeps(filepath, lines);
       if (deps.size) {
         facts.manifests.push({ file: filepath, dir, deps, kinds: manifestDepKinds(filepath, lines) });
@@ -1052,8 +1317,11 @@ export function classifyImportRow(row, facts) {
   if (row.lang === 'c') {
     if (row.linkLib) {
       const lib = mod.toLowerCase().replace(/\.lib$/, '');
-      if (WINDOWS_SYSTEM_LIBS.has(lib)) return { cls: 'stdlib', source: 'windows system library (#pragma comment(lib))' };
-      return { cls: 'external', source: 'linker input (#pragma comment(lib))' };
+      const built = facts.builtLibs && facts.builtLibs.get(_pkgKey(lib));
+      if (built) return { cls: 'internal', source: `built by this corpus (\`${built}\`)${row.dynamic ? `; ${row.dynamic}` : ''}` };
+      if (WINDOWS_SYSTEM_LIBS.has(lib)) return { cls: 'stdlib', source: `windows system library (${row.dynamic ? row.dynamic : '#pragma comment(lib)'})` };
+      if (facts.depKeys.has(_pkgKey(lib))) return { cls: 'third-party', source: `declared in an indexed build file (\`${lib}\`)${row.dynamic ? `; ${row.dynamic}` : ''}` };
+      return { cls: 'external', source: row.dynamic ? `${row.dynamic}; no build file names it` : 'linker input (#pragma comment(lib))' };
     }
     if (row.objcModule) {
       if (APPLE_FRAMEWORKS.has(mod)) return { cls: 'stdlib', source: 'apple platform framework (@import)' };
@@ -1096,7 +1364,34 @@ export function classifyImportRow(row, facts) {
         ? 'C++/WinRT projection header (Windows App SDK)'
         : 'C++/WinRT projection header (Windows SDK)' };
     }
+    // A build file naming the library corroborates an angle include:
+    // `#include <curl/curl.h>` with `target_link_libraries(app curl)`.
+    const libGuess = _pkgKey(normMod.split('/')[0].replace(/\.(?:h|hpp|hh)$/i, ''));
+    if (libGuess && facts.depKeys.has(libGuess)) return { cls: 'third-party', source: `declared in an indexed build file (\`${normMod.split('/')[0]}\`)` };
     return { cls: 'external', source: 'angle include; no standard-list or index match' };
+  }
+  if (row.lang === 'go') {
+    const first = mod.split('/')[0];
+    if (facts.goModule && (mod === facts.goModule || mod.startsWith(facts.goModule + '/'))) {
+      return { cls: 'internal', source: `under this corpus's go.mod module \`${facts.goModule}\`` };
+    }
+    if (!first.includes('.')) return { cls: 'stdlib', source: 'go standard library (import path without a host)' };
+    for (const m of facts.manifests) {
+      for (const d of m.deps) if (d.includes('/') && (mod === d || mod.startsWith(d + '/'))) return { cls: 'third-party', source: `declared in an indexed go.mod (\`${d}\`)${_lockNote(facts, d)}` };
+    }
+    const lockedIn = facts.lockedVersions.get(_pkgKey(mod.split('/').slice(0, 3).join('/')));
+    if (lockedIn) return { cls: 'external', source: `not declared in any indexed go.mod; present in \`${lockedIn.file}\` (${lockedIn.version})` };
+    return { cls: 'external', source: facts.goModule ? 'not declared in any indexed go.mod' : 'module path; no go.mod indexed' };
+  }
+  if (row.lang === 'rust') {
+    const root = mod.split('::')[0];
+    if (row.relative) return { cls: 'internal', source: `\`${root}::\` path (this crate)` };
+    if (['std', 'core', 'alloc', 'proc_macro', 'test'].includes(root)) return { cls: 'stdlib', source: 'rust standard library' };
+    if (facts.crateNames.has(_pkgKey(root))) return { cls: 'internal', source: `this corpus declares crate \`${root}\`` };
+    if (facts.depKeys.has(_pkgKey(root))) return { cls: 'third-party', source: `declared in an indexed Cargo.toml (\`${root}\`)${_lockNote(facts, root)}` };
+    const lockedIn = facts.lockedVersions.get(_pkgKey(root));
+    if (lockedIn) return { cls: 'external', source: `not declared in any indexed Cargo.toml; present in \`${lockedIn.file}\` as a transitive dependency${lockedIn.version ? ` (${lockedIn.version})` : ''}` };
+    return { cls: 'external', source: facts.manifests.some((m) => /cargo\.toml$/i.test(m.file)) ? 'not declared in any indexed Cargo.toml' : 'crate; no Cargo.toml indexed' };
   }
   if (row.lang === 'html') {
     const kind = row.kind || 'tag';
@@ -1256,6 +1551,10 @@ export function bomReport(index, { filter = null, max = 500, sitesPerRow = 20 } 
     htmlSites: rows.filter((r) => r.lang === 'html').length,
     htmlNote: htmlCoverageNote(index, filesByLang),
     codeTagNote: codeStringTagNote(tagsInCodeStrings(index)),
+    dynamic: (() => {
+      const d = dynamicLoads(index, facts);
+      return { total: d.total, literal: d.literal, rows: d.rows.slice(0, 50), computed: d.computed };
+    })(),
   };
 }
 

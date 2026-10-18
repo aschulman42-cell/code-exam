@@ -61,7 +61,9 @@ not merely a `file:line`.
   (optionally filtered by substring or `/regex/`), the distinctive strings that often fingerprint a
   library or pin down a behavior.
 - **Imports / BoM** (`--imports`, `--bom`) — the dependency bill of materials: import and
-  include statements in every indexed language, and what indexed HTML and page templates load
+  include statements in every indexed language (Python, JS/TS, C/C++, Java/Kotlin, C#, Go, Rust),
+  run-time dynamic loads (`dlopen`, `LoadLibrary`, `Class.forName`, `importlib`, computed
+  `require`), and what indexed HTML and page templates load
   by script, stylesheet and importmap tags (HTML and most template types need
   `--add-extensions` at build), with manifests and lockfiles, which every default build indexes
   by name (pinned versions, the direct/transitive split, sources, and the

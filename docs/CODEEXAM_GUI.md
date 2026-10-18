@@ -84,8 +84,8 @@ once: the **AI/ML** inventory (models, kernels, training, inference, pipelines, 
 **client/server** HTTP surface, **referenced resources** (URLs, env vars, paths, external commands,
 model IDs), the **command catalog** (the target's own user-facing commands), telemetry
 **breadcrumbs**, **imports**, the **bill of materials** (the sections `--bom` prints: the class
-rollup, the ranked external surface with each row's reason, vendored subtrees, manifests and
-lockfiles, the declared/imported/locked joins, coverage), **copyright holders** (the in-tree half,
+rollup, the ranked external surface with each row's reason, vendored subtrees, run-time dynamic
+loads, manifests and lockfiles, the declared/imported/locked joins, coverage), **copyright holders** (the in-tree half,
 with the first-versus-third presumption marked on every row and the license documents apart), and
 **prompts** — each row linking to its `file:line` sites —
 and the **duplicate** families (exact, near, structural, and fingerprint; see

@@ -3069,7 +3069,7 @@ export function renderBomList(container, data, { onRowClick } = {}) {
   container.innerHTML = '';
   const d = data || {};
   const s = d.summary || {};
-  if (!d.sites) { container.innerHTML = '<div class="list-placeholder">No imports extracted. Languages covered: Python, JS/TS, C/C++, Java/Kotlin, C#, plus script/link tags in indexed HTML and page templates.</div>'; return; }
+  if (!d.sites) { container.innerHTML = '<div class="list-placeholder">No imports extracted. Languages covered: Python, JS/TS, C/C++, Java/Kotlin, C#, Go, Rust, plus script/link tags in indexed HTML and page templates.</div>'; return; }
   const langs = Object.entries(d.filesByLang || {}).sort((a, b) => b[1] - a[1]).map(([l, n]) => `${n} ${l}`).join(', ');
   noteLine(container, `${d.sites} import site(s) across ${langs}. Classes: internal ${s.internal || 0} · stdlib ${s.stdlib || 0} · third-party ${s['third-party'] || 0} · vendored ${s.vendored || 0} · external ${s.external || 0}${d.htmlSites ? ` (${d.htmlSites} from HTML/template tags)` : ''}. Every row names its reason (hover); click a row for its sites.`, { strong: true });
 
@@ -3093,6 +3093,34 @@ export function renderBomList(container, data, { onRowClick } = {}) {
       h('span', { className: 'name', text: `${t.subtree}/`, style: 'flex:1;font-family:var(--font-mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' }),
       h('span', { className: 'metric', text: `${t.files} file(s)`, style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }),
     ]));
+  }
+
+  // Dynamic loading (bom-tier2, part 3): what import tables miss. Literal
+  // targets classified like imports; computed ones counted, not guessed.
+  const dyn = d.dynamic;
+  if (dyn && dyn.total) {
+    const computedN = (dyn.computed || []).reduce((s, c) => s + c.count, 0);
+    const dv = bomSubsection(container, 'Dynamic loading', dyn.total, { hint: `${dyn.literal} with a literal target, ${computedN} computed at run time or symbol lookups` });
+    for (const r of dyn.rows || []) {
+      const item = h('div', { className: 'list-item', title: `${r.label}\n${r.cls}: ${r.why}\n${r.count} site(s)` }, [
+        classTag(r.cls),
+        h('span', { className: 'name clickable', text: r.label, style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' }),
+        h('span', { className: 'metric', text: '×' + r.count, style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }),
+      ]);
+      if (onRowClick) item.addEventListener('click', (ev) => { ev.stopPropagation(); onRowClick(r); });
+      dv.appendChild(item);
+    }
+    for (const c of dyn.computed || []) {
+      const why = c.kind === 'symbol' ? 'symbol lookup; the library is the matching load call' : 'target built at run time';
+      const row = { label: `${c.api} (computed)`, cls: 'external', count: c.count, why, sites: c.sites };
+      const item = h('div', { className: 'list-item', title: `${row.label}\n${why}\n${c.count} site(s)` }, [
+        h('span', { className: 'metric', text: '—', style: 'flex:0 0 auto;min-width:84px;font-family:var(--font-mono);font-size:10px;color:var(--text-muted)' }),
+        h('span', { className: 'name clickable', text: row.label, style: 'flex:1;color:var(--text-bright);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0' }),
+        h('span', { className: 'metric', text: '×' + c.count, style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }),
+      ]);
+      if (onRowClick) item.addEventListener('click', (ev) => { ev.stopPropagation(); onRowClick(row); });
+      dv.appendChild(item);
+    }
   }
 
   // Manifests and lockfiles together: what is declared and what gets installed.
@@ -3134,7 +3162,7 @@ export function renderBomList(container, data, { onRowClick } = {}) {
   }
 
   const cov = bomSubsection(container, 'Coverage', null, { hint: 'what this report reads, and what it does not' });
-  noteLine(cov, 'Import and include statements in Python, JS/TS, C/C++, Java/Kotlin and C#, plus script, stylesheet and importmap tags in indexed HTML and page templates (HTML and most template types need --add-extensions at build). A file under a vendored directory is skipped at build, so a library loaded from one is reported from the tag alone. Manifests, lockfiles and build files are indexed by name; of the lockfiles, package-lock.json, Pipfile.lock, composer.lock, go.sum, Cargo.lock and poetry.lock are read. Copyright holders — the in-tree half — are the Copyrights accordion below.');
+  noteLine(cov, 'Import and include statements in Python, JS/TS, C/C++, Java/Kotlin, C#, Go and Rust, plus script, stylesheet and importmap tags in indexed HTML and page templates (HTML and most template types need --add-extensions at build), and run-time dynamic loads with a literal target. A file under a vendored directory is skipped at build, so a library loaded from one is reported from the tag alone. Manifests (package manifests and build files: .vcxproj, CMake, Makefile), lockfiles and license documents are indexed by name; of the lockfiles, package-lock.json, Pipfile.lock, composer.lock, go.sum, Cargo.lock and poetry.lock are read. Copyright holders — the in-tree half — are the Copyrights accordion below.');
   if (d.htmlNote) noteLine(cov, d.htmlNote);
   if (d.codeTagNote) noteLine(cov, d.codeTagNote);
 }

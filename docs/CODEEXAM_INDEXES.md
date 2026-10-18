@@ -120,7 +120,7 @@ data), then:
   (the **"Used by"** column in the GUI Exports pane), surfacing public surface that nobody imports.
 
 Coverage differs by direction: **import** extraction is multi-language (Python, JS/TS, C, Java,
-C#), while **export** extraction is **Python-only today** (no open issue tracks other languages yet) — so no default
+C#, Go, Rust), while **export** extraction is **Python-only today** (no open issue tracks other languages yet) — so no default
 catalog ships (a Python-only one would be too partial); you build your own from the libraries you
 care about and pass the filename explicitly. The build is *appendable* — re-emitting merges by
 library identity (`--catalog-replace` overwrites) — so one catalog can grow across many libraries.

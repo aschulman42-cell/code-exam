@@ -42,7 +42,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/commands/browse.js` — index browsing: stats, list/show files, list functions, extract, bundle seams, extension census
 - `src/commands/build_fp_renames.js` — writes _FP_ display renames into rename_map.json for cross-source fingerprint matches above a threshold
 - `src/commands/callers.js` — --callers/--callees/--most-called/--call-inventory over the index's call graph, with depth and filters
-- `src/commands/census.js` — --census-imports: ranks import targets (Python, JS/TS, C/C++, Java/Kotlin, C#) across one index or a whole multi-index corpus
+- `src/commands/census.js` — --census-imports: ranks import targets (Python, JS/TS, C/C++, Java/Kotlin, C#, Go, Rust) across one index or a whole multi-index corpus
 - `src/commands/claim.js` — --claim-search: LLM extraction of TIGHT/BROAD multisect terms from claim prose, then runs both searches
 - `src/commands/claim-chart.js` — builds one-row-per-element claim charts merged across targets; CE owns structure, model fills cells
 - `src/commands/claim-locate.js` — proposes symbols from a claim, verifies them against the index, navigates callees, emits targets
@@ -99,7 +99,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/core/function-bounds.js` — language-aware function-end detection for the regex parser: masks strings, comments and regex literals, then finds brace, arrow-expression or indentation ends; dedupes the tree-sitter + regex merge
 - `src/core/hotspots.js` — ranks important functions, entry points, domain functions and classes, skipping vendored/minified noise
 - `src/core/import-join.js` — joins one index's imports to another's export catalog, verdicting resolved / private / not-found
-- `src/core/imports.js` — per-language import extractor (Py/JS/C/Java/C#, plus HTML script/link/importmap tags) classifying rows internal/stdlib/third-party/vendored; reads manifests and lockfiles
+- `src/core/imports.js` — per-language import extractor (Py/JS/C/Java/C#/Go/Rust, plus HTML script/link/importmap tags and run-time dynamic loads) classifying rows internal/stdlib/third-party/vendored; reads manifests, build files and lockfiles
 - `src/core/index-manager.js` — holds the GUI server's named indexes; replace() releases the old one, forces a GC when one is available, and logs process memory per stage
 - `src/core/llm-runner.js` — resolves cloud/GGUF model descriptors and runs the calls, with cost gates, truncation tracking and provenance
 - `src/core/loop-score.js` — scores a blind claim chart against drafted anchors: recall, mechanism PRESENT, control FPs, dependent grades

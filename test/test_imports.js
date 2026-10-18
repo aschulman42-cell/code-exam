@@ -98,7 +98,9 @@ describe('extractCSharpImports', () => {
 
 describe('extractFileImports dispatch', () => {
   it('routes by extension, tags lang, returns null for unknown languages', () => {
-    assert.equal(extractFileImports(['x'], 'a.rs'), null);
+    assert.equal(extractFileImports(['x'], 'a.zig'), null);
+    assert.equal(extractFileImports(['use serde::Deserialize;'], 'a.rs')[0].lang, 'rust');
+    assert.equal(extractFileImports(['import "fmt"'], 'a.go')[0].lang, 'go');
     assert.equal(extractFileImports(['import os'], 'a.py')[0].lang, 'py');
     assert.equal(extractFileImports(["import x from 'y';"], 'a.tsx')[0].lang, 'js');
     assert.equal(extractFileImports(['#include <a.h>'], 'a.hpp')[0].lang, 'c');
@@ -123,6 +125,8 @@ import { doBom } from '../src/commands/imports.js';
 import { doCensusImports } from '../src/commands/census.js';
 import { extractHtmlImports, libFromBasename, libFromUrl, htmlCoverageNote, isHtmlFile, isTemplateFile, tagsInCodeStrings, codeStringTagNote } from '../src/core/imports.js';
 import { lockfileDeps, manifestDepKinds, bomJoins, bomReport } from '../src/core/imports.js';
+import { extractGoImports, extractRustImports, isGoFile, isRustFile, dynamicLoads, dynamicLoadNote } from '../src/core/imports.js';
+import { doCensusImports as doCensus2 } from '../src/commands/census.js';
 
 describe('import classification (imports-bill-of-materials resolver)', () => {
   const stub = () => ({
@@ -249,7 +253,7 @@ describe('import classification (imports-bill-of-materials resolver)', () => {
     // The report says what it reads (import-reports-coverage-truth): the
     // Mermaid case — a library loaded by a <script> tag — is absent by design,
     // and the output, which travels as a file, must say so itself.
-    assert.match(text, /Coverage: import and include statements in Python, JS\/TS, C\/C\+\+, Java\/Kotlin and C#,/);
+    assert.match(text, /Coverage: import and include statements in Python, JS\/TS, C\/C\+\+, Java\/Kotlin, C#, Go and Rust,/);
     assert.match(text, /plus script, stylesheet and importmap tags in indexed HTML/);
     // The stub has JS and no HTML, so the conditional note fires.
     assert.match(text, /No HTML in this index: if the source has pages that load libraries/);
@@ -261,7 +265,7 @@ describe('import classification (imports-bill-of-materials resolver)', () => {
     try { doCensusImports(stub(), { _explicit: new Set() }); } finally { console.log = origLog; }
     const text = out.join('\n');
     assert.match(text, /Import census — \d+ import sites/);
-    assert.match(text, /Coverage: import and include statements in Python, JS\/TS, C\/C\+\+, Java\/Kotlin and C#,/);
+    assert.match(text, /Coverage: import and include statements in Python, JS\/TS, C\/C\+\+, Java\/Kotlin, C#, Go and Rust,/);
     assert.match(text, /counted from the tag alone \(#27\)/);
     assert.match(text, /No HTML in this index/);
   });
@@ -692,6 +696,134 @@ describe('lockfiles: resolved tree, sources and the joins (bom-lockfiles-resolve
       'node_modules/alpha': { version: '1.2.3' }, 'node_modules/charlie': { version: '0.9.0' }, 'node_modules/zulu': { version: '1.0.0' } } })]);
     const t2 = capture(() => doBom(clean, { _explicit: new Set() }));
     assert.match(t2, /nothing to report: every declared runtime dependency is imported, every imported package is declared/);
+  });
+});
+
+// bom-tier2-notices-and-build-manifests: Go and Rust extractors, build files
+// as manifests, and run-time dynamic loading (#27's third phase item).
+describe('tier 2: Go and Rust, build-file manifests, dynamic loading', () => {
+  const capture = (fn) => {
+    const out = [];
+    const orig = console.log; console.log = (s) => out.push(String(s));
+    try { fn(); } finally { console.log = orig; }
+    return out.join('\n');
+  };
+
+  it('extractGoImports: single, aliased, dot and blank imports, grouped over lines and on one line', () => {
+    const rows = extractGoImports(['package main', 'import "fmt"', 'import (', '  "os"', '  log "github.com/sirupsen/logrus"', '  . "github.com/x/y/util"', '  _ "example.com/svc/internal/db"', ')', 'import ( "a/b"; c "d/e" )'], 'main.go');
+    assert.deepEqual(rows.map((r) => [r.module, r.alias, r.star]), [['fmt', null, false], ['os', null, false], ['github.com/sirupsen/logrus', 'log', false], ['github.com/x/y/util', null, true], ['example.com/svc/internal/db', null, false], ['a/b', null, false], ['d/e', 'c', false]]);
+    assert.ok(rows.every((r) => r.lang === 'go'));
+    assert.ok(isGoFile('x.go') && !isGoFile('x.gob'));
+  });
+
+  it('extractRustImports: nested braces, aliases, self and star, extern crate, mod (relative), multi-line use', () => {
+    const rows = extractRustImports(['use std::collections::{HashMap, HashSet as HS};', 'use serde::{Deserialize, Serialize};', 'use crate::util::helper;', 'use tokio::*;', 'extern crate rand;', 'mod config;', 'pub use self::config::Config;', 'use anyhow::{', '  Context,', '  Result,', '};', 'use a::b::{c::{d, e}, self};'], 'src/main.rs', { includeRelative: true });
+    assert.deepEqual(rows.map((r) => [r.target, r.alias, r.relative, r.star]), [
+      ['std::collections::HashMap', null, false, false], ['std::collections::HashSet', 'HS', false, false],
+      ['serde::Deserialize', null, false, false], ['serde::Serialize', null, false, false],
+      ['crate::util::helper', null, true, false], ['tokio', null, false, true], ['rand', null, false, false],
+      ['config', null, true, false], ['self::config::Config', null, true, false],
+      ['anyhow::Context', null, false, false], ['anyhow::Result', null, false, false],
+      ['a::b::c::d', null, false, false], ['a::b::c::e', null, false, false], ['a::b', null, false, false],
+    ]);
+    assert.equal(extractRustImports(['use crate::x;', 'mod y;'], 'lib.rs').length, 0, 'relative held back by default');
+    assert.ok(isRustFile('m.rs') && !isRustFile('m.rst'));
+  });
+
+  it('classifies Go by module path and go.mod, Rust by std/crate/Cargo.toml, with the lockfile evidence', () => {
+    const idx = { indexPath: '.gr', fileLines: new Map([
+      ['go.mod', ['module example.com/svc', 'go 1.22', 'require github.com/sirupsen/logrus v1.9.3']],
+      ['go.sum', ['github.com/sirupsen/logrus v1.9.3 h1:abc=', 'golang.org/x/sys v0.20.0 h1:def=']],
+      ['main.go', ['import (', '  "fmt"', '  "github.com/sirupsen/logrus"', '  "example.com/svc/internal/db"', '  "golang.org/x/sys/unix"', '  "github.com/unknown/thing"', ')']],
+      ['rs/Cargo.toml', ['[package]', 'name = "my-tool"', '[dependencies]', 'serde = "1"']],
+      ['rs/Cargo.lock', ['[[package]]', 'name = "serde"', 'version = "1.0.200"', 'source = "registry+https://github.com/rust-lang/crates.io-index"', '', '[[package]]', 'name = "rand"', 'version = "0.8.5"', 'source = "registry+https://github.com/rust-lang/crates.io-index"']],
+      ['rs/src/main.rs', ['use std::io;', 'use serde::Deserialize;', 'use my_tool::engine;', 'use rand::Rng;', 'use nope::x;', 'use crate::x::y;']],
+    ]) };
+    const { rows, summary, filesByLang } = classifyImports(idx);
+    const by = (m) => rows.find((r) => r.module === m);
+    const expect = (m, cls, re) => { const r = by(m); assert.ok(r, m); assert.equal(r.cls, cls, `${m}: ${r.clsSource}`); assert.match(r.clsSource, re); };
+    expect('fmt', 'stdlib', /go standard library/);
+    expect('github.com/sirupsen/logrus', 'third-party', /declared in an indexed go\.mod \(`github\.com\/sirupsen\/logrus`\), locked at v1\.9\.3/);
+    expect('example.com/svc/internal/db', 'internal', /under this corpus's go\.mod module `example\.com\/svc`/);
+    expect('golang.org/x/sys/unix', 'external', /not declared in any indexed go\.mod; present in `go\.sum` \(v0\.20\.0\)/);
+    expect('github.com/unknown/thing', 'external', /not declared in any indexed go\.mod$/);
+    expect('std', 'stdlib', /rust standard library/);
+    expect('serde', 'third-party', /declared in an indexed Cargo\.toml \(`serde`\), locked at 1\.0\.200/);
+    expect('my_tool', 'internal', /this corpus declares crate `my_tool`/);
+    expect('rand', 'external', /present in `rs\/Cargo\.lock` as a transitive dependency \(0\.8\.5\)/);
+    expect('nope', 'external', /not declared in any indexed Cargo\.toml/);
+    expect('crate::x', 'internal', /`crate::` path/);
+    assert.deepEqual([filesByLang.go, filesByLang.rust], [1, 1]);
+    assert.ok(summary.internal >= 2);
+  });
+
+  it('build files are manifests: .vcxproj, CMake and Makefile name the libraries that corroborate pragmas and angle includes', () => {
+    assert.deepEqual([...manifestDeps('win/app.vcxproj', ['<Link>', '  <AdditionalDependencies>ws2_32.lib;SomeVendorSdk.lib;%(AdditionalDependencies)</AdditionalDependencies>', '</Link>'])].sort(), ['SomeVendorSdk', 'ws2_32']);
+    assert.deepEqual([...manifestDeps('CMakeLists.txt', ['find_package(OpenSSL REQUIRED)', 'target_link_libraries(app PRIVATE curl ${EXTRA} OpenSSL::SSL -lz)', '# target_link_libraries(app commented)'])].sort(), ['OpenSSL', 'SSL', 'curl', 'z']);
+    assert.deepEqual([...manifestDeps('Makefile', ['LDLIBS = -lcrypto -lssl # -lnot', 'all: main.o'])].sort(), ['crypto', 'ssl']);
+    assert.deepEqual([...manifestDeps('jni/Android.mk', ['LOCAL_MODULE := libmedia_jni', 'LOCAL_SHARED_LIBRARIES := libmedia libutils $(LOCAL_EXTRA)', 'LOCAL_LDLIBS := -llog'])].sort(), ['log', 'media', 'utils']);
+    // What a build file BUILDS is the corpus's own: a loaded library named by
+    // add_library or LOCAL_MODULE is internal, not an external dependency.
+    const own = { indexPath: '.own', fileLines: new Map([
+      ['jni/Android.mk', ['LOCAL_MODULE := libmedia_jni', 'LOCAL_SHARED_LIBRARIES := libmedia']],
+      ['CMakeLists.txt', ['add_library(engine SHARED engine.c)', 'target_link_libraries(engine PRIVATE curl)']],
+      ['app/Player.java', ['System.loadLibrary("media_jni");', 'System.loadLibrary("media");', 'System.loadLibrary("engine");', 'System.loadLibrary("other");']],
+    ]) };
+    const dyn = dynamicLoads(own);
+    const cls = Object.fromEntries(dyn.rows.map((r) => [r.target, [r.cls, r.why]]));
+    assert.deepEqual(cls.media_jni, ['internal', 'built by this corpus (`jni/Android.mk`); loaded at run time by System.loadLibrary']);
+    assert.deepEqual(cls.engine[0], 'internal');
+    assert.deepEqual(cls.media[0], 'third-party', 'LOCAL_SHARED_LIBRARIES names it as a dependency');
+    assert.deepEqual(cls.other[0], 'external');
+    const idx = { indexPath: '.c', fileLines: new Map([
+      ['net/io.c', ['#pragma comment(lib, "SomeVendorSdk.lib")', '#pragma comment(lib, "Other.lib")', '#include <curl/curl.h>', '#include <weird/thing.h>']],
+      ['win/app.vcxproj', ['<AdditionalDependencies>SomeVendorSdk.lib;%(AdditionalDependencies)</AdditionalDependencies>']],
+      ['CMakeLists.txt', ['target_link_libraries(app PRIVATE curl)']],
+    ]) };
+    const { rows, facts } = classifyImports(idx);
+    const by = (m) => rows.find((r) => r.module === m);
+    assert.deepEqual([by('SomeVendorSdk.lib').cls, by('Other.lib').cls], ['third-party', 'external']);
+    assert.match(by('SomeVendorSdk.lib').clsSource, /declared in an indexed build file \(`somevendorsdk`\)/);
+    assert.deepEqual([by('curl/curl.h').cls, by('weird/thing.h').cls], ['third-party', 'external']);
+    assert.match(by('curl/curl.h').clsSource, /declared in an indexed build file \(`curl`\)/);
+    assert.deepEqual(facts.manifests.map((m) => m.file).sort(), ['CMakeLists.txt', 'win/app.vcxproj']);
+  });
+
+  it('dynamicLoads: every API counted; literal targets classified like imports, computed ones counted, symbol lookups beside their loads', () => {
+    const idx = { indexPath: '.dyn', fileLines: new Map([
+      ['native/plug.c', ['HMODULE h = LoadLibraryA("kernel32.dll");', 'void *p = dlopen("libcrypto.so.1.1", RTLD_NOW);', 'f = GetProcAddress(h, "X");', 'g = dlsym(p, "Y");', 'HMODULE v = LoadLibrary(L"SomeVendorSdk.dll");', '// LoadLibrary("in-a-comment.dll")']],
+      ['app/Plugin.java', ['Class<?> c = Class.forName("com.corp.app.Plug");', 'Class<?> d = Class.forName("org.mystery.Thing");', 'System.loadLibrary("native");', 'Object o = loader.loadClass(name);', 'Class<?> arr = Class.forName("[Ljava.lang.Object;");']],
+      ['app/Main.java', ['package com.corp.app;']],
+      ['tools/load.py', ['m = importlib.import_module("os")', 'n = importlib.import_module(mod_name)', 'q = __import__("requests")  # import_module("not-this")']],
+      ['svc/plugins.js', ["const p = require(pluginPath);", "const q = await import(spec);", "const r = require('real');"]],
+      ['dotnet/Host.cs', ['var a = Assembly.Load("System.Data");', 'var b = Assembly.LoadFrom(path);']],
+      ['CMakeLists.txt', ['target_link_libraries(app PRIVATE SomeVendorSdk)']],
+    ]) };
+    const d = dynamicLoads(idx);
+    assert.equal(d.total, 17, JSON.stringify({ rows: d.rows.map((r) => r.label), computed: d.computed.map((c) => `${c.api}×${c.count}`) }));
+    assert.deepEqual([d.rows.find((r) => r.target === '[Ljava.lang.Object;').cls, d.rows.find((r) => r.target === '[Ljava.lang.Object;').why], ['stdlib', 'loaded at run time by Class.forName; JVM array class descriptor']);
+    const row = (api, target) => d.rows.find((r) => r.api === api && r.target === target);
+    assert.deepEqual([row('LoadLibrary', 'kernel32.dll').cls, row('LoadLibrary', 'kernel32.dll').why], ['stdlib', 'windows system library (loaded at run time by LoadLibrary)']);
+    assert.deepEqual([row('LoadLibrary', 'SomeVendorSdk.dll').cls], ['third-party']);
+    assert.match(row('LoadLibrary', 'SomeVendorSdk.dll').why, /declared in an indexed build file \(`somevendorsdk`\); loaded at run time by LoadLibrary/);
+    assert.deepEqual([row('dlopen', 'libcrypto.so.1.1').cls], ['external']);
+    assert.match(row('dlopen', 'libcrypto.so.1.1').why, /loaded at run time by dlopen; no build file names it/);
+    assert.deepEqual([row('Class.forName', 'com.corp.app.Plug').cls, row('Class.forName', 'org.mystery.Thing').cls], ['internal', 'external']);
+    assert.match(row('Class.forName', 'com.corp.app.Plug').why, /loaded at run time by Class\.forName; corpus declares package `com\.corp\.app`/);
+    assert.deepEqual([row('importlib.import_module', 'os').cls, row('__import__', 'requests').cls, row('Assembly.Load', 'System.Data').cls], ['stdlib', 'external', 'stdlib']);
+    assert.deepEqual(d.computed.map((c) => `${c.api}×${c.count}`).sort(), ['Assembly.Load×1', 'ClassLoader.loadClass×1', 'GetProcAddress×1', 'dlsym×1', 'import(expr)×1', 'importlib.import_module×1', 'require(expr)×1']);
+    assert.equal(d.literal, 10);
+    assert.equal(dynamicLoadNote(d), '17 run-time dynamic-loading site(s) (dlopen, LoadLibrary, Class.forName, importlib, require(expr), ...) are not counted above; --bom lists them.');
+    assert.equal(dynamicLoadNote({ total: 0 }), null);
+    const bom = capture(() => doBom(idx, { _explicit: new Set() }));
+    assert.match(bom, /Dynamic loading — 17 site\(s\): 10 with a literal target, 7 computed at run time or symbol lookups:/);
+    assert.match(bom, /LoadLibrary\s+kernel32\.dll\s+stdlib\s+windows system library/);
+    assert.match(bom, /require\(expr\)\s+\(computed\)\s+—\s+target built at run time, e\.g\. svc\/plugins\.js:1/);
+    assert.match(bom, /GetProcAddress\s+\(computed\)\s+—\s+symbol lookup; the library is the matching load call/);
+    const census = capture(() => doCensus2(idx, { _explicit: new Set() }));
+    assert.match(census, /17 run-time dynamic-loading site\(s\) .* are not counted above; --bom lists them\./);
+    const report = bomReport(idx);
+    assert.deepEqual([report.dynamic.total, report.dynamic.literal, report.dynamic.rows.length, report.dynamic.computed.length], [17, 10, 10, 7]);
   });
 });
 
