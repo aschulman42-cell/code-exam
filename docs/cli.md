@@ -260,6 +260,14 @@ Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior a
 - **Naming**: target-type-first (post-CLI-normalization).
 - **Verified against**: `src/argparse.js:232`
 
+#### `--clean-zip-cache`
+
+- **Does**: Remove every cached extraction of a zipped index (`codeexam-zip-index/<name-size-mtime>` under the system temporary directory, the place CodeExam names on the terminal when it extracts a `.zip` index) and say how many it removed, or that there was nothing. Touches nothing else; loads no index.
+- **Good for**: The close-of-case destruction step a protective order requires: the cache is an on-disk copy of the index that nothing removes by itself (see [`SOURCE_CODE_PROTECTIVE_ORDERS.md`](SOURCE_CODE_PROTECTIVE_ORDERS.md), the artifacts inventory). Also reclaims the entries the test suite's zip tests leave behind.
+- **Couples with**: independent; the cache is per machine, not per index.
+- **Naming**: verb-noun, like `--build-index`; "zip cache" names the one cache CodeExam keeps outside an index directory.
+- **Verified against**: `src/argparse.js:502`
+
 ---
 
 ## CALLERS / CALLEES

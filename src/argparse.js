@@ -499,6 +499,7 @@ export function parseArgs() {
     ['no_cost',              'flag',           ['--no-cost']],
     ['max_budget_usd',       'value',          ['--max-budget-usd']],
     ['list_indexes',         'optional_value', ['--indexes'], ['--list-indexes']],
+    ['clean_zip_cache',      'flag',           ['--clean-zip-cache']],
 
     ['max_results',          'int',            ['--max-results', '--max', '-n']],
     ['all_results',          'flag',           ['--all-results']],
@@ -1250,6 +1251,10 @@ BROWSE:
                              running air-gapped CE on a connected machine.
   --indexes [path]           List available index directories
                              (deprecated alias: --list-indexes)
+  --clean-zip-cache          Remove every cached extraction of a zipped index
+                             (<tmp>/codeexam-zip-index; CodeExam names the
+                             directory when it extracts). Nothing else is
+                             touched. For a close-of-case destruction step.
 
 DISPLAY / FILTERING (query-time, does not affect index build):
   --max-results <n>          Maximum results to display (alias: --max) (default: 20;

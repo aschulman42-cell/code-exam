@@ -26,6 +26,7 @@ import { MEDIA_BINARY_EXTENSIONS, ARCHIVE_EXTENSIONS, EXECUTABLE_EXTENSIONS } fr
 import { BINSTRING_EXTENSIONS } from './binstrings.js';
 import { skippedExtensionCensus } from './core/extension-census.js';
 import { buildProvenanceHeader, sanitizedCommandLine } from './core/provenance.js';
+import { cleanZipIndexCache } from './archive.js';
 import { CE_VERSION } from './version.js';
 import { resolveProvider } from './core/providers.js';
 import {
@@ -400,6 +401,17 @@ if (args.scan_extensions) {
 
 if (args._explicit.has('list_indexes')) {
   doListIndexes(args);
+  process.exit(0);
+}
+
+// notebook-critique-small-fixes: a close-of-case step. The zipped-index cache
+// is an on-disk copy of an index that nothing removes by itself; this removes
+// it and says so. Dispatched before any index is loaded, touching nothing else.
+if (args.clean_zip_cache) {
+  const r = cleanZipIndexCache();
+  console.log(r.existed
+    ? `Removed ${r.removed} cached zipped-index extraction(s) from ${r.root}.`
+    : `No zipped-index cache at ${r.root}; nothing to remove.`);
   process.exit(0);
 }
 

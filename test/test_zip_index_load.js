@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { extractZipToDir, resolveIndexDir } from '../src/archive.js';
+import { extractZipToDir, resolveIndexDir, cleanZipIndexCache, ZIP_INDEX_CACHE_ROOT } from '../src/archive.js';
 
 // Build a ZIP from [{name, data:Buffer, deflate?:bool}]. CRC fields are left 0;
 // the reader keys off central-directory sizes/offsets, not CRC.
@@ -98,6 +98,41 @@ test('resolveIndexDir finds the index dir nested under a top folder', () => {
   // Second call hits the size+mtime cache and returns the same root.
   assert.equal(resolveIndexDir(zip), root);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// notebook-critique-small-fixes: the cache is an on-disk copy of the index that
+// nothing removes by itself, so the extraction names it and a command clears it.
+test('resolveIndexDir names the cache directory on stderr when it extracts', () => {
+  const dir = tmp('cezip-msg-');
+  const zip = path.join(dir, 'named.zip');
+  fs.writeFileSync(zip, makeZip(idxFiles().map(f => ({ ...f, name: `.Named/${f.name}` }))));
+  const lines = [];
+  const orig = process.stderr.write;
+  process.stderr.write = (s) => { lines.push(String(s)); return true; };
+  let root;
+  try { root = resolveIndexDir(zip); } finally { process.stderr.write = orig; }
+  const extracting = lines.find(l => l.startsWith('[zip-index] extracting'));
+  assert.ok(extracting, 'an extraction line was written');
+  assert.ok(extracting.includes(ZIP_INDEX_CACHE_ROOT), 'it names the cache root');
+  assert.ok(extracting.includes('--clean-zip-cache'), 'and the way to clear it');
+  assert.ok(root.startsWith(ZIP_INDEX_CACHE_ROOT));
+  // Leave no entry of our own in the real cache (the suite's other zip tests
+  // do, which is one reason the cache grows; --clean-zip-cache clears them).
+  fs.rmSync(path.dirname(root), { recursive: true, force: true });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('cleanZipIndexCache removes every cached extraction under the given root and reports the count', () => {
+  const root = tmp('cezip-cache-');
+  for (const k of ['a-1-1', 'b-2-2', 'c-3-3']) fs.mkdirSync(path.join(root, k, '.Idx'), { recursive: true });
+  const r = cleanZipIndexCache(root);
+  assert.deepEqual(r, { root, removed: 3, existed: true });
+  assert.ok(!fs.existsSync(root));
+});
+
+test('cleanZipIndexCache on a missing root is a no-op that says so', () => {
+  const root = path.join(os.tmpdir(), `cezip-none-${process.pid}-${Date.now()}`);
+  assert.deepEqual(cleanZipIndexCache(root), { root, removed: 0, existed: false });
 });
 
 test('resolveIndexDir passes non-zip and missing paths through unchanged', () => {

@@ -1097,6 +1097,22 @@ function _findIndexRoot(base) {
  * @param {string} indexPath
  * @returns {string}
  */
+// Where zipped indexes are unpacked: one subdirectory per (name, size, mtime).
+// Exported so the cleanup command and the message that names it cannot drift.
+export const ZIP_INDEX_CACHE_ROOT = path.join(os.tmpdir(), 'codeexam-zip-index');
+
+/**
+ * Remove every cached extraction (`--clean-zip-cache`). Returns what was
+ * removed so the caller can say so; a missing root is a no-op with
+ * `removed: 0`. `root` is a parameter so tests never touch the real cache.
+ */
+export function cleanZipIndexCache(root = ZIP_INDEX_CACHE_ROOT) {
+  let entries = [];
+  try { entries = fs.readdirSync(root); } catch { return { root, removed: 0, existed: false }; }
+  fs.rmSync(root, { recursive: true, force: true });
+  return { root, removed: entries.length, existed: true };
+}
+
 export function resolveIndexDir(indexPath) {
   if (!indexPath || typeof indexPath !== 'string') return indexPath;
   if (!/\.zip$/i.test(indexPath)) return indexPath;
@@ -1106,7 +1122,7 @@ export function resolveIndexDir(indexPath) {
 
   const base = path.basename(indexPath).replace(/\.zip$/i, '');
   const key = `${base}-${st.size}-${Math.round(st.mtimeMs)}`;
-  const cacheDir = path.join(os.tmpdir(), 'codeexam-zip-index', key);
+  const cacheDir = path.join(ZIP_INDEX_CACHE_ROOT, key);
 
   const cached = _findIndexRoot(cacheDir);
   if (cached) {
@@ -1116,7 +1132,11 @@ export function resolveIndexDir(indexPath) {
 
   const staging = `${cacheDir}.staging-${process.pid}`;
   try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* ignore */ }
-  process.stderr.write(`[zip-index] extracting ${path.basename(indexPath)} (one-time, cached afterward)...\n`);
+  // notebook-critique-small-fixes: name the cache directory at the moment it is
+  // created. It is an on-disk copy of the index that nothing removes by itself
+  // (a close-of-case destruction clause has to reach it), so the terminal says
+  // where it is and how to clear it, not only a docs page.
+  process.stderr.write(`[zip-index] extracting ${path.basename(indexPath)} to ${cacheDir} (cached until you delete it or run --clean-zip-cache)...\n`);
   const { fileCount, encryptedCount } = extractZipToDir(indexPath, staging);
 
   let root = _findIndexRoot(staging);

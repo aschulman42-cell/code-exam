@@ -80,6 +80,13 @@ or any path that later syncs will move the data off the machine. Save to a known
 **local, non-synced** directory, and treat the destination as your
 responsibility — not CodeExam's.
 
+One more thing CodeExam writes without being asked: an index loaded from a
+`.zip` is unpacked into `codeexam-zip-index/<name-size-mtime>` under the system
+temporary directory, named on the terminal when it happens, and kept so the
+next load is fast. Nothing removes it by itself. `ce --clean-zip-cache` removes
+every cached extraction and says what it removed; the protective-orders page's
+inventory lists it among the artifacts a destruction clause must reach.
+
 ## Planned improvements
 
 A **provable** mode — an attestation record (*"air-gapped active; 0 cloud calls;

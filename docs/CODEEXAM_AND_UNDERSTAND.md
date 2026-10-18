@@ -42,9 +42,15 @@ Both tools:
   ([`CODEEXAM_MCP.md`](CODEEXAM_MCP.md)) registers thirty tools (as of 2026-10-16), all of
   them queries over a loaded index: orientation, search, reading files and functions,
   callers and callees, the AI/ML detectors, and the claim-to-code workflow. There are no
-  write, reparse or GUI operations, and no permission model beyond that. The tools run the
-  same underlying operations as CodeExam's own CLI and GUI, so an answer an agent obtained
-  over MCP can be re-run by hand from the command line and should match.
+  write, reparse or GUI operations, and no permission model beyond that; nor is one needed
+  for the examined code, because the tools answer from the index in memory and never open
+  the source tree (`show_file` returns the index's copy of a file). The two exceptions read
+  index directories, not source: `load_index` switches to another index and `list_indexes`
+  enumerates them. No tool builds an index; that is the CLI's or the GUI's job. CodeExam
+  keeps no log of the calls an agent makes. The tools run the same underlying operations as
+  CodeExam's own CLI and GUI,
+  so an answer an agent obtained over MCP can be re-run by hand from the command line and
+  should match.
 - **Put a deterministic engine first and AI second.** Understand's documentation has a page
   titled "Why use Understand when AI 'does the same thing'?", and its one-line answer is
   "Understand is deterministic." That is CodeExam's design argument too
