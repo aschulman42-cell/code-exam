@@ -1419,10 +1419,11 @@ MODE:
                              browser tab leaves the server (and its memory)
                              running.
   --port <n>                 GUI server port (default 8080)
-  --context-size <n>         GUI server: preferred local-model context size
-                             (first rung of the 8192/4096/2048 ladder; falls
-                             back on OOM, so safe to over-ask). Agentic chat
-                             wants 16384+ when VRAM allows.
+  --context-size <n>         Preferred local-model context size, for the GUI
+                             server, --overview-by-ai, --ask-ai and --analyze
+                             (put first on the 16384/8192/4096/2048 ladder;
+                             falls back on OOM, so safe to over-ask). Agentic
+                             chat wants 16384+ when VRAM allows.
   --flash-attention          Local GGUF only: enable flash attention on the
                              model context. Frees VRAM for the KV cache —
                              measured 0.5 GB (Gemma-3-12B) to 2.3 GB

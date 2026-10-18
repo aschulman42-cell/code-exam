@@ -4,7 +4,7 @@ CodeExam's LLM-assisted features can run against a **local GGUF model** on your
 own GPU — no cloud API, no network. The same Overview by AI, `--analyze`, claim
 search, and interactive chat you'd otherwise run against a cloud LLM like
 **Claude, ChatGPT, or Gemini**, driven instead by a model file on disk. This is
-what makes an air-gapped examination possible (see [AIR_GAPPED.md](AIR_GAPPED.md)
+what makes an air-gapped examination possible (see [`AIR_GAPPED.md`](AIR_GAPPED.md)
 for the enforced no-cloud posture). It is optional, and for most users the cloud
 path is more capable — but "local first" is a deliberate design basis: local
 models and GPU machines keep getting more useful, and confidential code often
@@ -93,6 +93,44 @@ Related flags (local GGUF only unless noted):
   other than the core is unmeasured: a small model may stop calling tools or
   pass garbage arguments, which is why this is an environment variable for a
   test session and not a flag.
+
+## What are these GGUF files, and how does CodeExam use them?
+
+A `.gguf` file ([the format's specification](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md),
+[Wikipedia](https://en.wikipedia.org/wiki/GGUF)) is one self-contained binary file. Most of it is the model's weights: billions of
+numbers, stored **quantized**, which is what the suffix means. `Q4_K_M` is roughly four bits per
+weight with a mixed scheme, which is why a 12-billion-parameter model is a 7 GB file rather than
+the 24 GB its full-precision weights would take; `Q3`, `Q5`, `Q8` and `MXFP4` are other
+precisions, and a lower number trades answer quality for memory. The rest is metadata the model
+needs to run: its **tokenizer vocabulary** (the tens of thousands of text fragments it reads and
+writes), its **special tokens** (turn boundaries, tool-call markers, and for thinking models the
+reasoning tags), and its **chat template**, which says how system, user and assistant turns and
+tool calls are laid out for that model family. Nothing in the file is specific to CodeExam, and
+nothing in it knows any codebase (though its weights may reflect training on some codebases). On
+disk it is inert.
+
+CodeExam runs it through **node-llama-cpp**, which binds llama.cpp into Node. At startup the GPU
+backend is chosen (`--cpu` forces the CPU), the weights are mapped into VRAM or RAM, and a
+**context** is allocated: the working memory the model reads and writes during a conversation,
+which also fixes how much text one conversation can hold. CodeExam tries 16,384 tokens first, then
+8,192, 4,096 and 2,048, until one fits beside the weights (`--context-size` puts your own number
+first). Each request then gets a chat session: the prompt is turned into token ids with the file's
+own vocabulary, the model produces one token at a time, and the tokens are decoded back to text.
+CodeExam measures its prompts with that same tokenizer where it can, so budgets are counted in
+tokens rather than guessed from characters; node-llama-cpp matches the file's chat template to the
+right wrapper, and CodeExam handles the family quirks it has met (Gemma 4 declares its control
+tokens as ordinary text, so CodeExam strips them; see [model-support.md](model-support.md)).
+
+The model does not know your code; CodeExam does. The index is in memory, and for Chat and
+Overview by AI the model is handed CodeExam's tools as functions it may call: on a local engine
+the curated core described above, drawn from the same table the MCP server registers
+([`CODEEXAM_MCP.md`](CODEEXAM_MCP.md)). Each call runs inside CodeExam and its result goes into the
+conversation, so the model reads real code and answers from it. For `--analyze` and the claims
+track CodeExam retrieves the code first and puts it in the prompt; the model only reads. One local
+request runs at a time, because they share one loaded model. Nothing is written back: the file is
+never modified, nothing is trained, and when the session ends the context is discarded, which is
+what the protective-orders page relies on
+([`SOURCE_CODE_PROTECTIVE_ORDERS.md`](SOURCE_CODE_PROTECTIVE_ORDERS.md)).
 
 ## Getting a model
 
@@ -242,7 +280,7 @@ limit of the model's judgment *today*, and it showed up in every local model
 tested, small or large. Two ways around it:
 
 - **If the code doesn't require an air-gapped exam** (see
-  [AIR_GAPPED.md](AIR_GAPPED.md)), a cloud model is simply stronger at this
+  [`AIR_GAPPED.md`](AIR_GAPPED.md)), a cloud model is simply stronger at this
   open-ended step.
 - **Either way — including air-gapped — use CodeExam's guided claim pipeline**
   instead of asking a model to free-form hunt. Here CodeExam's *deterministic*
@@ -271,12 +309,12 @@ Reading any local-model output, two habits are worth keeping:
 For an **enforced** no-cloud run — `--air-gapped` hard-blocks every cloud AI
 call, scrubs the API key, and refuses to start on a reachable network — plus what
 it does and does **not** guarantee (it cannot police where you save), see
-**[AIR_GAPPED.md](AIR_GAPPED.md)**. A local GGUF model is what you run in that
+**[`AIR_GAPPED.md`](AIR_GAPPED.md)**. A local GGUF model is what you run in that
 mode.
 
 ## Related
 
-- [AIR_GAPPED.md](AIR_GAPPED.md) — the enforced no-cloud posture a local model runs under.
+- [`AIR_GAPPED.md`](AIR_GAPPED.md) — the enforced no-cloud posture a local model runs under.
 - [cloud-gpu-chat-testing.md](cloud-gpu-chat-testing.md) — running local models on a rented cloud
   GPU, and which frontier models are reachable there.
 - [model-support.md](model-support.md) — the per-feature support matrix for each tested model.
