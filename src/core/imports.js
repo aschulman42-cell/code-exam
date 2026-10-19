@@ -1014,6 +1014,24 @@ export function lockfileDeps(filepath, lines) {
   const text = (lines || []).join('\n');
   const packages = new Map();
   const direct = new Set();
+  // bom-why-package: the lockfile's own dependency edges, kept per NODE so a
+  // nested copy (node_modules/a/node_modules/b) resolves the way the package
+  // manager resolves it. nodes: Map(nodePath -> { name, version, deps: [{ name, kind }] });
+  // '' is the root. `edges` is false for kinds that record none (go.sum, Pipfile.lock).
+  const nodes = new Map();
+  let edges = false;
+  const addDep = (list, name, kind) => {
+    const e = list.find((d) => d.name === name);
+    if (!e) list.push({ name, kind });
+    else if (kind !== 'prod') e.kind = kind;     // optional/peer/dev override a plain listing
+  };
+  const npmDeps = (e, withDev = false) => {
+    const list = [];
+    const fields = [['dependencies', 'prod'], ['optionalDependencies', 'optional'], ['peerDependencies', 'peer']];
+    if (withDev) fields.push(['devDependencies', 'dev']);
+    for (const [k, kind] of fields) for (const d of Object.keys((e && e[k]) || {})) addDep(list, d, kind);
+    return list;
+  };
   const hosts = new Map();          // per installed entry, so the counts add up to `total`
   const nonRegistry = [];           // per distinct name + source
   let unsourced = 0;                // entries with no download of their own (bundled, linked, workspace)
@@ -1035,25 +1053,34 @@ export function lockfileDeps(filepath, lines) {
       kind = 'npm';
       const j = JSON.parse(text);
       if (j.packages && typeof j.packages === 'object') {           // lockfileVersion 2/3
+        edges = true;
         const root = j.packages[''] || {};
         for (const k of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
           for (const d of Object.keys(root[k] || {})) direct.add(d);
         }
+        nodes.set('', { name: '', version: root.version || null, deps: npmDeps(root, true) });
         for (const [p, e] of Object.entries(j.packages)) {
           if (p === '' || !e || typeof e !== 'object') continue;
           const i = p.lastIndexOf('node_modules/');
           const name = i >= 0 ? p.slice(i + 'node_modules/'.length) : p;
           put(name, { version: e.version || null, source: e.resolved || null, dev: !!e.dev, optional: !!e.optional, nested: i > 0 });
+          nodes.set(p, { name, version: e.version || null, deps: npmDeps(e) });
         }
       } else if (j.dependencies) {                                    // lockfileVersion 1: nested tree
-        const walk = (deps, depth) => {
+        // v1 records each entry's `requires`; the root's own set is not in the
+        // file, so lockfileChains takes it from the manifest beside it.
+        edges = true;
+        nodes.set('', { name: '', version: j.version || null, deps: [] });
+        const walk = (deps, depth, parentPath) => {
           for (const [name, e] of Object.entries(deps || {})) {
             if (!e || typeof e !== 'object') continue;
+            const p = parentPath ? `${parentPath}/node_modules/${name}` : `node_modules/${name}`;
             put(name, { version: e.version || null, source: e.resolved || null, dev: !!e.dev, optional: !!e.optional, nested: depth > 0 });
-            walk(e.dependencies, depth + 1);
+            nodes.set(p, { name, version: e.version || null, deps: Object.keys(e.requires || {}).map((n) => ({ name: n, kind: 'prod' })) });
+            walk(e.dependencies, depth + 1, p);
           }
         };
-        walk(j.dependencies, 0);
+        walk(j.dependencies, 0, '');
       }
     } else if (base === 'pipfile.lock') {
       kind = 'pipenv';
@@ -1069,10 +1096,14 @@ export function lockfileDeps(filepath, lines) {
     } else if (base === 'composer.lock') {
       kind = 'composer';
       const j = JSON.parse(text);
+      edges = true;
       for (const [sect, dev] of [['packages', false], ['packages-dev', true]]) {
         for (const e of j[sect] || []) {
           if (!e || !e.name) continue;
           put(e.name, { version: e.version || null, source: (e.dist && e.dist.url) || (e.source && e.source.url) || null, dev, optional: false, nested: false });
+          // `php`, `ext-*`, `lib-*` and `composer-*` are platform requirements, not packages.
+          const deps = Object.keys(e.require || {}).filter((n) => !/^(?:php|hhvm|ext-|lib-|composer-)/i.test(n)).map((n) => ({ name: n, kind: 'prod' }));
+          if (!nodes.has(e.name)) nodes.set(e.name, { name: e.name, version: e.version || null, deps });
         }
       }
     } else if (base === 'go.sum') {
@@ -1088,19 +1119,42 @@ export function lockfileDeps(filepath, lines) {
       }
     } else if (base === 'cargo.lock' || base === 'poetry.lock') {
       kind = base === 'cargo.lock' ? 'cargo' : 'poetry';
+      edges = true;
       let cur = null;
       const flush = () => {
-        if (cur && cur.name) put(cur.name, { version: cur.version || null, source: cur.source || null, dev: !!cur.dev, optional: !!cur.optional, nested: false });
+        if (cur && cur.name) {
+          put(cur.name, { version: cur.version || null, source: cur.source || null, dev: !!cur.dev, optional: !!cur.optional, nested: false });
+          if (!nodes.has(cur.name)) nodes.set(cur.name, { name: cur.name, version: cur.version || null, deps: cur.deps || [] });
+        }
         cur = null;
       };
+      // Cargo: `dependencies = [ "name version (source)", ... ]`, one item per
+      // line or all on one. Poetry: a `[package.dependencies]` table, one
+      // `name = constraint` per line, `optional = true` inside the value.
+      const cargoItem = (item) => { const m = /^"?([^"\s]+)/.exec(item.trim()); return m ? m[1] : null; };
       for (const l of lines || []) {
         const s = String(l).replace(/\r+$/, '');
         if (/^\s*\[\[package\]\]\s*$/.test(s)) { flush(); cur = {}; continue; }
         if (!cur) continue;
-        if (/^\s*\[package\.source\]/.test(s)) { cur.inSource = true; continue; }
-        if (/^\s*\[/.test(s)) { cur.inSource = false; continue; }
+        if (cur.inDepList) {
+          if (/^\s*\]/.test(s)) { cur.inDepList = false; continue; }
+          const n = cargoItem(s.replace(/,\s*$/, ''));
+          if (n) cur.deps.push({ name: n, kind: 'prod' });
+          continue;
+        }
+        if (/^\s*\[package\.source\]/.test(s)) { cur.inSource = true; cur.inDeps = false; continue; }
+        if (/^\s*\[package\.dependencies\]/.test(s)) { cur.inDeps = true; cur.inSource = false; cur.deps = cur.deps || []; continue; }
+        if (/^\s*\[/.test(s)) { cur.inSource = false; cur.inDeps = false; continue; }
         let m;
-        if ((m = /^\s*name\s*=\s*"([^"]+)"/.exec(s))) cur.name = m[1];
+        if ((m = /^\s*dependencies\s*=\s*\[(.*)$/.exec(s))) {
+          cur.deps = cur.deps || [];
+          const rest = m[1];
+          if (/\]\s*$/.test(rest)) {
+            for (const item of rest.replace(/\]\s*$/, '').split(',')) { const n = cargoItem(item); if (n) cur.deps.push({ name: n, kind: 'prod' }); }
+          } else cur.inDepList = true;
+        }
+        else if (cur.inDeps && (m = /^\s*"?([A-Za-z0-9_.\-\[\]]+)"?\s*=\s*(.*)$/.exec(s))) cur.deps.push({ name: m[1], kind: /optional\s*=\s*true/.test(m[2]) ? 'optional' : 'prod' });
+        else if ((m = /^\s*name\s*=\s*"([^"]+)"/.exec(s))) cur.name = m[1];
         else if ((m = /^\s*version\s*=\s*"([^"]+)"/.exec(s))) cur.version = m[1];
         else if ((m = /^\s*source\s*=\s*"([^"]+)"/.exec(s))) cur.source = m[1];
         else if (cur.inSource && (m = /^\s*url\s*=\s*"([^"]+)"/.exec(s))) cur.source = m[1];
@@ -1111,7 +1165,84 @@ export function lockfileDeps(filepath, lines) {
     }
   } catch { /* a malformed lockfile yields what it yields; best-effort by design */ }
   const directCount = [...packages.keys()].filter((n) => direct.has(n)).length;
-  return { kind, packages, direct, total, directCount, hosts, nonRegistry, unsourced };
+  return { kind, packages, direct, total, directCount, hosts, nonRegistry, unsourced, nodes, edges };
+}
+
+/**
+ * bom-why-package: every chain from a lockfile's root to `target`, walked from
+ * the lockfile's own edges (no node_modules needed). Each hop is
+ * { name, version, kind }; `kind` is the edge's kind where the lockfile
+ * records one (prod / dev / optional / peer). npm edges resolve the way npm
+ * does, from the dependent's own node_modules upward; the other kinds are
+ * name-keyed. Simple paths only (no revisits on a path), reachability-pruned
+ * so a 350-package lockfile does not explode, capped at `max` chains.
+ * `heads` names the direct dependency at the start of each chain.
+ */
+export function lockfileChains(lf, target, { max = 50, maxDepth = 40 } = {}) {
+  const key = _pkgKey(target);
+  const packages = lf.packages || new Map();
+  const installedEntry = [...packages.entries()].find(([n]) => _pkgKey(n) === key);
+  const out = {
+    installed: !!installedEntry, version: installedEntry ? installedEntry[1].version : null,
+    direct: [...(lf.direct || [])].some((n) => _pkgKey(n) === key),
+    edges: !!lf.edges, chains: [], truncated: false, heads: [],
+  };
+  if (!lf.edges || !lf.nodes) return out;
+  const nodes = lf.nodes;
+  const byName = new Map();
+  for (const [p, n] of nodes) { if (p === '') continue; const k = _pkgKey(n.name); if (!byName.has(k)) byName.set(k, p); }
+  const resolve = (name, fromPath) => {
+    if (lf.kind !== 'npm') return byName.get(_pkgKey(name)) || null;
+    let base = fromPath;
+    for (;;) {
+      const cand = base ? `${base}/node_modules/${name}` : `node_modules/${name}`;
+      if (nodes.has(cand)) return cand;
+      if (!base) return null;
+      const i = base.lastIndexOf('/node_modules/');
+      base = i >= 0 ? base.slice(0, i) : '';
+    }
+  };
+  const root = nodes.get('');
+  const rootDeps = root && root.deps && root.deps.length
+    ? root.deps
+    : [...(lf.direct || [])].map((n) => { const e = packages.get(n); return { name: n, kind: e && e.dev ? 'dev' : 'prod' }; });
+  const depsOf = (p) => (p === '' ? rootDeps : ((nodes.get(p) || {}).deps || []));
+  // Can `target` be reached from node p? Memoized; a node on the current
+  // descent counts as unreachable until it resolves, which breaks cycles.
+  const reach = new Map();
+  const canReach = (p) => {
+    if (reach.has(p)) return reach.get(p);
+    reach.set(p, false);
+    let r = false;
+    for (const d of depsOf(p)) {
+      const q = resolve(d.name, p);
+      if (!q) continue;
+      if (_pkgKey(nodes.get(q).name) === key || canReach(q)) { r = true; break; }
+    }
+    reach.set(p, r);
+    return r;
+  };
+  const walk = (p, hops, onPath) => {
+    if (out.truncated || hops.length > maxDepth) return;
+    for (const d of depsOf(p)) {
+      const q = resolve(d.name, p);
+      if (!q || onPath.has(q)) continue;
+      const n = nodes.get(q);
+      const hop = { name: n.name, version: n.version, kind: d.kind };
+      if (_pkgKey(n.name) === key) {
+        if (out.chains.length >= max) { out.truncated = true; return; }
+        out.chains.push([...hops, hop]);
+        continue;
+      }
+      if (!canReach(q)) continue;
+      onPath.add(q);
+      walk(q, [...hops, hop], onPath);
+      onPath.delete(q);
+    }
+  };
+  walk('', [], new Set());
+  out.heads = [...new Set(out.chains.map((c) => c[0].name))];
+  return out;
 }
 
 // ", locked at 1.2.3" for a third-party row's why, or '' when no lockfile pins it.
@@ -1511,16 +1642,21 @@ export function classifyImportRow(row, facts) {
  * notes. doBom keeps its own printing of the same facts; when tier 2 touches
  * it, unify the two on this.
  */
+// The package a classified import row names: the npm package (scope kept), the
+// Python top-level module, the C header, the first three segments of a dotted
+// name elsewhere. Shared by the bill of materials and --why-depends.
+const _rowPackage = (r) => {
+  if (r.lang === 'html' || r.url) return r.libName || r.module;
+  if (r.lang === 'js') { const b = String(r.module || '').replace(/^node:/, ''); return b.startsWith('@') ? b.split('/').slice(0, 2).join('/') : b.split('/')[0]; }
+  if (r.lang === 'py') return String(r.module || '').split('.')[0];
+  if (r.lang === 'c') return r.module;
+  const segs = String(r.module || '').split('.');
+  return segs.slice(0, Math.min(3, segs.length)).join('.');
+};
+
 export function bomReport(index, { filter = null, max = 500, sitesPerRow = 20 } = {}) {
   const { rows, facts, summary, filesByLang } = classifyImports(index);
-  const pkgOf = (r) => {
-    if (r.lang === 'html' || r.url) return r.libName || r.module;
-    if (r.lang === 'js') { const b = String(r.module || '').replace(/^node:/, ''); return b.startsWith('@') ? b.split('/').slice(0, 2).join('/') : b.split('/')[0]; }
-    if (r.lang === 'py') return String(r.module || '').split('.')[0];
-    if (r.lang === 'c') return r.module;
-    const segs = String(r.module || '').split('.');
-    return segs.slice(0, Math.min(3, segs.length)).join('.');
-  };
+  const pkgOf = _rowPackage;
   const surface = new Map();
   for (const r of rows) {
     if (r.cls !== 'third-party' && r.cls !== 'external' && r.cls !== 'vendored') continue;
@@ -1572,4 +1708,257 @@ export function classifyImports(index, opts = {}) {
     summary[cls] += 1;
   }
   return { rows, facts, summary, filesByLang };
+}
+
+// ---------------------------------------------------------------------------
+// bom-why-package: --why-depends <package>. The chain from a package in a lockfile
+// back to the direct dependency at the head of each chain, that dependency's
+// import sites, the functions that use the imported binding, their callers to
+// a depth, and the catalogued operations (CLI flags, routes, GUI actions,
+// commands) above them. Static reading end to end: the caveat is part of the
+// result, not a footnote.
+// ---------------------------------------------------------------------------
+
+export const WHY_CAVEAT = 'Installed and importable on the way to an operation is what this shows; it is not shown to execute. '
+  + 'A build-time or install-time tool (a compiler driver, a binary fetcher) looks the same as a run-time library to a static '
+  + 'reading, and the lockfile says nothing about runtime reach.';
+
+const _whyEsc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const _bareFunc = (name) => String(name || '').split('::').pop().split('.').pop().split('@')[0];
+
+/**
+ * The local names an import line binds, so the functions that USE the
+ * dependency can be told from the ones that merely sit in the same file.
+ * JavaScript/TypeScript and Python forms; other languages return [] and the
+ * caller falls back to the file.
+ */
+export function importBindings(line, lang) {
+  const text = String(line || '').trim();
+  const names = [];
+  const namedList = (s) => {
+    for (const part of String(s || '').split(',')) {
+      const p = part.trim().replace(/^type\s+/, '');
+      if (!p || p === '*') continue;
+      const m = /^(?:[\w$.]+)\s+as\s+([A-Za-z_$][\w$]*)$/.exec(p);
+      names.push(m ? m[1] : p.replace(/:\s*([A-Za-z_$][\w$]*)$/, '$1').split(/\s+/)[0]);
+    }
+  };
+  if (lang === 'js') {
+    let m;
+    if ((m = /^import\s+\*\s+as\s+([A-Za-z_$][\w$]*)/.exec(text))) names.push(m[1]);
+    else if ((m = /^import\s+(?:type\s+)?\{([^}]*)\}\s*from/.exec(text))) namedList(m[1]);
+    else if ((m = /^import\s+(?:type\s+)?([A-Za-z_$][\w$]*)\s*(?:,\s*\{([^}]*)\})?\s*from/.exec(text))) { names.push(m[1]); if (m[2]) namedList(m[2]); }
+    else if ((m = /^import\s+([A-Za-z_$][\w$]*)\s*,\s*\*\s+as\s+([A-Za-z_$][\w$]*)/.exec(text))) names.push(m[1], m[2]);
+    else if ((m = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?(?:require|import)\s*\(/.exec(text))) names.push(m[1]);
+    else if ((m = /(?:const|let|var)\s+\{([^}]*)\}\s*=\s*(?:await\s+)?(?:require|import)\s*\(/.exec(text))) namedList(m[1]);
+  } else if (lang === 'py') {
+    let m;
+    if ((m = /^from\s+\S+\s+import\s+\(?\s*(.+?)\s*\)?\s*$/.exec(text))) namedList(m[1]);
+    else if ((m = /^import\s+(.+)$/.exec(text))) {
+      for (const part of m[1].split(',')) {
+        const p = part.trim();
+        const a = /^(\S+)\s+as\s+([A-Za-z_]\w*)$/.exec(p);
+        if (a) names.push(a[2]); else if (p) names.push(p.split('.')[0]);
+      }
+    }
+  }
+  return [...new Set(names.filter((n) => /^[A-Za-z_$][\w$]*$/.test(n)))];
+}
+
+// Every catalogued operation as { kind, label, file, line, funcs }, from the
+// command catalog's four lists; `funcs` are the handler names where the
+// catalog resolved one.
+function _catalogEntries(index) {
+  let c;
+  try { c = index.extractCommandCatalog(false); } catch { return null; }
+  if (!c) return null;
+  const entries = [];
+  const funcsOf = (o) => [o.func, o.handlerFunc, o.handler && o.handler.func, o.handler && o.handler.handlerFunc].filter(Boolean);
+  // A flag whose dispatch (`if (args.x)`) sits at file scope is a command;
+  // one read inside a handler is a modifier of that handler's command.
+  const dispatchOf = (o) => (o.handler ? (o.handler.func ? 'inner' : 'top') : null);
+  for (const o of c.cliOptions || []) entries.push({ kind: 'CLI option', label: (o.flags || []).join(', ') || o.name, file: o.filepath, line: o.line, funcs: funcsOf(o), dispatch: dispatchOf(o) });
+  for (const o of c.commands || []) entries.push({ kind: 'command', label: o.name, file: (o.handler && o.handler.filepath) || o.filepath, line: o.line, funcs: funcsOf(o) });
+  for (const o of c.routes || []) entries.push({ kind: 'route', label: o.path, file: o.filepath, line: o.line, funcs: funcsOf(o) });
+  for (const o of c.guiActions || []) entries.push({ kind: 'GUI action', label: o.name, file: (o.handler && o.handler.filepath) || o.filepath, line: o.line, funcs: funcsOf(o) });
+  // A label that is a template literal (`${section}-list`) names nothing.
+  return entries.filter((e) => e.label && !/\$\{/.test(String(e.label)));
+}
+
+// The attribute or decorator lines just above a function's start: `#[tauri::command]`,
+// `@app.route('/x')`, `[HttpGet]`. A function with one and no in-tree caller is
+// an entry point reached by name (IPC, a router, a test runner), not a dead end.
+const _ATTR_RE = /^\s*(?:#\[[^\]]*\]|@[\w.]+(?:\([^)]*\))?|\[[A-Z]\w*(?:\([^)]*\))?\])\s*$/;
+function _funcAttrs(index, file, funcName) {
+  let bounds = [];
+  try { bounds = index._getFuncBoundaries(file) || []; } catch { return []; }
+  const b = bounds.find((x) => x[2] === funcName) || bounds.find((x) => _bareFunc(x[2]) === _bareFunc(funcName));
+  if (!b) return [];
+  const lines = (index.fileLines && index.fileLines.get(file)) || [];
+  const attrs = [];
+  for (let i = b[0] - 2; i >= 0 && i >= b[0] - 5; i--) {
+    const l = String(lines[i] || '');
+    if (!_ATTR_RE.test(l)) break;
+    attrs.unshift(l.trim());
+  }
+  return attrs;
+}
+
+// Caller paths above `func` (defined in `file`), each a list of hops going UP,
+// to `depth`. The file travels with each lookup as the callers API's file hint,
+// so a same-named function elsewhere (a GUI renderer named like a server
+// function) is not read as a caller (#343). `top` marks a path whose last
+// function has no callers the index can find; a call from file scope (no
+// enclosing function) ends a path with a "(top level)" hop rather than
+// reading as "no callers".
+function _callerPaths(index, func, file, depth, { maxPaths = 8, fanout = 5 } = {}) {
+  const paths = [];
+  const walk = (name, fromFile, hops, seen) => {
+    if (paths.length >= maxPaths) return;
+    if (hops.length >= depth) { paths.push({ hops, top: false }); return; }
+    // A constructor is called by its class's name (`new Foo(`), never by
+    // `constructor(`, which would match junk in every file.
+    const lookup = _bareFunc(name) === 'constructor' && name.includes('::') ? name.split('::')[0] : name;
+    let callers = [];
+    try { callers = index.findCallers(lookup, 100, { fileHint: fromFile }) || []; } catch { callers = []; }
+    const uniq = new Map();
+    const fileScope = [];
+    for (const c of callers) {
+      if (!c.caller_function) { fileScope.push({ func: '(top level)', file: c.filepath, line: c.line_number }); continue; }
+      const b = _bareFunc(c.caller_function);
+      if (b === _bareFunc(name) || seen.has(b) || uniq.has(b)) continue;
+      uniq.set(b, { func: c.caller_function, file: c.filepath, line: c.line_number });
+    }
+    if (!uniq.size) {
+      if (fileScope.length) { for (const t of fileScope.slice(0, 2)) paths.push({ hops: [...hops, t], top: true }); }
+      else {
+        const last = hops[hops.length - 1];
+        if (last) last.attrs = _funcAttrs(index, last.file, last.func);
+        paths.push({ hops, top: true });
+      }
+      return;
+    }
+    for (const h of [...uniq.values()].slice(0, fanout)) walk(h.func, h.file, [...hops, h], new Set([...seen, _bareFunc(h.func)]));
+  };
+  walk(func, file, [], new Set([_bareFunc(func)]));
+  return paths;
+}
+
+// The catalogued operations whose handler is one of the chain's functions:
+// the flag whose `args.x` is read there, the route or GUI action or command
+// whose handler the catalog resolved to it. A match by file alone is not
+// offered: every tool in a dispatch file would qualify, which says nothing.
+function _operationsFor(catalog, user) {
+  const hops = [{ func: user.func, file: user.file }];
+  for (const p of user.paths || []) for (const h of p.hops) hops.push(h);
+  const found = new Map();
+  for (const e of catalog) {
+    if (!e.funcs.length) continue;
+    if (!hops.some((h) => e.funcs.some((f) => _bareFunc(f) === _bareFunc(h.func)))) continue;
+    const k = `${e.kind}\u0000${e.label}`;
+    if (!found.has(k)) found.set(k, { kind: e.kind, label: e.label, file: e.file, line: e.line, via: 'handler', dispatch: e.dispatch || null });
+  }
+  return [...found.values()];
+}
+
+// The places a package is NAMED outside an import (a grammar table, a build
+// script, a notices file): the fallback for a head that no indexed file
+// imports. Manifests and lockfiles are skipped, since naming it there is the
+// declaration, not a use. Word-bounded; `/` may follow (a path).
+function _mentions(index, name, { max = 20 } = {}) {
+  const out = { mentions: [], total: 0 };
+  if (!index.fileLines) return out;
+  const re = new RegExp(`(?<![\\w@/.-])${_whyEsc(name)}(?![\\w-])`);
+  for (const [file, lines] of index.fileLines) {
+    const base = String(file).split(/[\\/]/).pop();
+    if (MANIFEST_BASENAME_RE.test(base) || LOCKFILE_BASENAME_RE.test(base) || UNREAD_LOCKFILE_RE.test(base)) continue;
+    for (let i = 0; i < lines.length; i++) {
+      const l = String(lines[i] || '');
+      if (l.length > 2000 || !re.test(l)) continue;
+      out.total++;
+      if (out.mentions.length < max) out.mentions.push({ file, line: i + 1, text: l.trim().slice(0, 160), bindings: [], users: [], usersTotal: 0, mention: true });
+    }
+  }
+  return out;
+}
+
+/**
+ * --why-depends <package> as data. See the module comment above; the printer is
+ * src/commands/why.js. `callGraph` is false when the index cannot give
+ * function boundaries and callers (a bare fileLines object, an unbuilt
+ * index), and the heads then carry sites only.
+ */
+export function whyPackage(index, target, { depth = 3, maxChains = 50, maxUsers = 10 } = {}) {
+  const { rows, facts } = classifyImports(index);
+  const key = _pkgKey(target);
+  const lockfiles = facts.lockfiles.map((lf) => {
+    const c = lockfileChains(lf, target, { max: maxChains });
+    return { file: lf.file, kind: lf.kind, read: lf.read, total: lf.total, ...c };
+  });
+  const lastSeg = (d) => (d.includes(':') ? d.split(':').pop() : d);
+  const declared = facts.manifests
+    .filter((m) => [...m.deps].some((d) => _pkgKey(lastSeg(d)) === key))
+    .map((m) => {
+      const hit = m.kinds ? [...m.kinds.entries()].find(([n]) => _pkgKey(lastSeg(n)) === key) : null;
+      return { file: m.file, kind: hit ? hit[1] : null };
+    });
+  const headNames = [...new Set(lockfiles.flatMap((l) => l.heads))];
+  // The target itself is a head when the code imports it by name (a direct
+  // dependency, or an import nothing declares), and when nothing else leads to
+  // it: then its own sites, or the places that name it, are all there is.
+  if (!headNames.some((h) => _pkgKey(h) === key) && (!headNames.length || rows.some((r) => _pkgKey(_rowPackage(r)) === key))) headNames.unshift(target);
+  const callGraph = typeof index._getFuncBoundaries === 'function' && typeof index.findCallers === 'function';
+  const catalog = callGraph && typeof index.extractCommandCatalog === 'function' ? _catalogEntries(index) : null;
+  const heads = headNames.map((name) => {
+    const hk = _pkgKey(name);
+    // One site per file:line (an import line naming two bindings is one site).
+    const byLoc = new Map();
+    for (const r of rows) {
+      if (_pkgKey(_rowPackage(r)) !== hk) continue;
+      const k = `${r.file}\u0000${r.line}`;
+      if (byLoc.has(k)) continue;
+      const lines = (index.fileLines && index.fileLines.get(r.file)) || [];
+      const text = String(lines[r.line - 1] || '');
+      byLoc.set(k, { file: r.file, line: r.line, lang: r.lang, cls: r.cls, text: text.trim(), bindings: importBindings(text, r.lang), users: [], usersTotal: 0 });
+    }
+    const sites = [...byLoc.values()];
+    const named = sites.length ? { mentions: [], total: 0 } : _mentions(index, name);
+    // The functions that use a site's binding (or enclose the import or the
+    // mention), then each distinct function ONCE per head with the lines it
+    // covers, its caller paths and the operations above it.
+    const users = new Map();
+    if (callGraph) {
+      for (const s of [...sites, ...named.mentions]) {
+        const lines = (index.fileLines && index.fileLines.get(s.file)) || [];
+        let bounds = [];
+        try { bounds = index._getFuncBoundaries(s.file) || []; } catch { bounds = []; }
+        let found = [];
+        for (const [start, end, fname] of bounds) {
+          if (s.line >= start && s.line <= end) { found.push({ func: fname, line: start, end, encloses: true }); continue; }
+          if (!s.bindings.length) continue;
+          const body = lines.slice(start - 1, Math.min(end, lines.length)).join('\n');
+          if (s.bindings.some((b) => new RegExp(`(?<![\\w$.])${_whyEsc(b)}(?![\\w$])`).test(body))) found.push({ func: fname, line: start, end, encloses: false });
+        }
+        // A class whose body uses the binding is listed through its methods,
+        // not beside them: drop any entry that strictly contains another.
+        found = found.filter((a) => !found.some((b) => b !== a && a.line <= b.line && b.end <= a.end && (a.line < b.line || b.end < a.end)));
+        s.usersTotal = found.length;
+        s.users = found.slice(0, maxUsers);
+        for (const u of s.users) {
+          const k = `${s.file}\u0000${u.func}`;
+          const e = users.get(k) || { func: u.func, file: s.file, line: u.line, encloses: false, sites: [] };
+          e.encloses = e.encloses || u.encloses;
+          e.sites.push(s.line);
+          users.set(k, e);
+        }
+      }
+      for (const u of users.values()) {
+        u.attrs = _funcAttrs(index, u.file, u.func);
+        u.paths = _callerPaths(index, u.func, u.file, depth);
+        u.operations = catalog ? _operationsFor(catalog, u) : [];
+      }
+    }
+    return { name, sites, mentions: named.mentions, mentionsTotal: named.total, users: [...users.values()] };
+  });
+  return { target, depth, lockfiles, declared, manifests: facts.manifests.length, heads, callGraph, catalog: !!catalog, caveat: WHY_CAVEAT };
 }

@@ -60,14 +60,17 @@ not merely a `file:line`.
 - **Strings** (`--string-table`, alias `--strings`) — the frequently-occurring string literals
   (optionally filtered by substring or `/regex/`), the distinctive strings that often fingerprint a
   library or pin down a behavior.
-- **Imports / BoM** (`--census-imports`, `--bom`, `--copyrights`) — the dependency bill of materials: import and
+- **Imports / BoM** (`--census-imports`, `--bom`, `--why-depends`, `--copyrights`) — the dependency bill of materials: import and
   include statements in every indexed language (Python, JS/TS, C/C++, Java/Kotlin, C#, Go, Rust),
   run-time dynamic loads (`dlopen`, `LoadLibrary`, `Class.forName`, `importlib`, computed
   `require`), and what indexed HTML and page templates load
   by script, stylesheet and importmap tags (HTML and most template types need
   `--add-extensions` at build), with manifests and lockfiles, which every default build indexes
   by name (pinned versions, the direct/transitive split, sources, and the
-  declared/imported/locked joins), and the in-tree half from file headers: `--copyrights`
+  declared/imported/locked joins; `--why-depends <package>`, experimental, walks a lockfile's own
+  edges from a package back to the direct dependency, its import sites and the operations above
+  them), and
+  the in-tree half from file headers: `--copyrights`
   lists the copyright holders with a presumption (most files = presumptively first-party,
   every other holder presumptively third-party), license identifiers and license documents;
   cross-index

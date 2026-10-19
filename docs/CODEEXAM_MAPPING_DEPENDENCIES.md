@@ -119,6 +119,7 @@ about runtime reach").
 |---|---|---|---|---|
 | `--census-imports` | What does the code reach for, ranked by sites? With `--multi-index`, what do all the indexes share? | Import, include and `use` statements in the seven language families; script, stylesheet and importmap tags of indexed HTML and page templates | Relative (in-tree) imports; dynamic loads and tags inside code strings (the footer counts both); manifests and lockfiles | CLI ([`cli.md`](cli.md)) |
 | `--bom` | What does the code depend on, and how do we know? | Everything the census reads plus relative imports; run-time dynamic loads; manifests and build files; six lockfile kinds; copyright notices (capped) | `yarn.lock` and `pnpm-lock.yaml`; binary import tables; what a package does once loaded | CLI ([`cli.md`](cli.md)); GUI **Bill of Materials** accordion (`/api/bom`) |
+| `--why-depends <package>` (experimental) | How does a package in the lockfile reach the code, and which operation needs it? | The lockfile's own edges (`package-lock.json` v1–v3, `Cargo.lock`, `poetry.lock`, `composer.lock`); the head dependency's import sites and the functions that use the binding (JavaScript, Python); their callers to `--depth`; the command catalog | `go.sum` and `Pipfile.lock` edges (none exist); bindings in other languages; whether anything executes | CLI ([`cli.md`](cli.md)) |
 | `--copyrights` | Whose (c)-identified code is in the tree? | The first 60 lines of every indexed file, `/*! */` banners anywhere in a file, license documents whole | Files with no notice (counted, not attributed); a notice past line 60 outside a banner; who the parties actually are | CLI ([`cli.md`](cli.md)); GUI **Copyrights** accordion (`/api/copyrights`) |
 | GUI **Imports** accordion | Which libraries, grouped, with every site | The census's rows, every language, grouped by top-level library | Relative imports; dynamic loads | GUI (`/api/imports`) |
 | `--exports [pkg]`, `--emit-catalog`, `--used-by` | What does a library say its public API is, and who imports it? | Python packages: `__all__`, export decorators, `__init__` re-exports, a heuristic floor | Every other language | CLI; GUI **Exports** accordion (Python only) |
@@ -127,7 +128,7 @@ about runtime reach").
 | `--client-server` | Which HTTP routes does the code declare, which does it call, and which calls have no route in the production? | Route declarations (Express, Flask, FastAPI, Rails, Go) and client calls (`fetch`, `axios`, XHR, `requests`, URL literals), reconciled by path | Anything not HTTP; a route table built at run time | CLI; GUI **Client / Server** accordion; MCP `client_server` |
 | `--file-map`, `--file-tree` | Which files import from which — the internal coupling; one file's imports, then those files' imports, and so on to `--depth` | In-tree import edges between files | Anything outside the index | CLI, with `--mermaid` and `--depth` |
 | `--call-inventory` | Which calls go to in-index functions and which to something else | Call targets, partitioned in-index / external | Imports as such; it is a call-level view, not the bill of materials | CLI |
-| MCP | — | `referenced_resources` and `client_server` are tools | There is currently no MCP tool for the census, the bill of materials or the holders: an LLM client, cloud or local, cannot ask for them yet | [`CODEEXAM_MCP.md`](CODEEXAM_MCP.md) |
+| MCP | — | `referenced_resources` and `client_server` are tools | There is currently no MCP tool for the census, the bill of materials, the holders or `--why-depends`: an LLM client, cloud or local, cannot ask for them yet | [`CODEEXAM_MCP.md`](CODEEXAM_MCP.md) |
 
 The table is the state on 2026-10-18, checked against `src/argparse.js` and the GUI's
 accordion list; the flag reference in [`cli.md`](cli.md) carries each entry's details and
@@ -266,6 +267,9 @@ ce --build-index . --index-path .ce_dir_ndx --add-extensions .html,.htm
 printf 'public/index.html\n' > more.lst
 ce --build-index @more.lst --index-path .ce_dir_ndx
 ce --index-path .ce_dir_ndx --bom | grep -i mermaid
+
+# from a package in the lockfile back to the code and the operation that needs it:
+ce --index-path .ce_ndx --why-depends y18n
 ```
 
 The counts drift with every commit, which is why they are dated; the protective-orders page
@@ -432,16 +436,16 @@ question about any name on that list — `zod`, `y18n`, `wrappy`, `universalify`
 reaches the code: through which chosen package, and for which user operation. The chain has
 two halves, and today they come from two tools:
 
-- **Package to package** is in the lockfile, and `npm explain <package>` (alias `npm why`)
-  prints it from the installed tree. On CodeExam, 2026-10-18: `zod` is required by
+- **Package to package** is in the lockfile. `--why-depends <package>` prints it from the lockfile's
+  own edges, and `npm explain <package>` (alias `npm why`) prints the same from the installed
+  tree. On CodeExam, 2026-10-18: `zod` is required by
   `@modelcontextprotocol/sdk` (and is an optional peer of `@anthropic-ai/sdk`); `y18n` comes
   by `yargs` from `node-llama-cpp`, directly and through `cmake-js`; `universalify` comes by
   `fs-extra` from `node-llama-cpp`, through `cmake-js` and through `ipull`; `wrappy` has two
   routes, `once` under `express` under the MCP SDK, and `once` under `pump` under
   `prebuild-install` under `isolated-vm` under `webcrack`. A version-3 `package-lock.json`
   carries these edges itself (149 of CodeExam's 347 packages have dependency maps; the rest
-  are leaves), so the walk needs no `node_modules`; CodeExam's lockfile reader parses the
-  file but does not keep the edges yet.
+  are leaves), so the walk needs no `node_modules`, which is how `--why-depends` walks it.
 - **Package to code** is the direct dependency's import sites, which `--bom -v --filter
   <direct dependency>` lists, and the file names the operation. `@modelcontextprotocol/sdk`
   is imported at `src/mcp-server.js:23` (the MCP server a client talks to) and
@@ -460,11 +464,18 @@ matches the machine, so on a machine with a prebuilt binary `y18n` installs for 
 plausibly runs for none; `prebuild-install` runs at install time to fetch `isolated-vm`'s
 binary and never again. Static reading cannot tell those cases from the live ones, which is
 why the "Resolved by lockfiles" section says "says nothing about runtime reach" and the bill
-of materials stops at the import site. CodeExam has no single command for this chain today;
-`npm explain` plus `--bom -v --filter` plus `--callers` on the function at the site is the
-manual version, and a built-in `--why <package>` that joins the lockfile's edges to the import
-sites and the call graph is proposed as a follow-up. The same chain, read from the operation
-end, answers the review-room question above: the operations an examination will use name the
+of materials stops at the import site. `--why-depends <package>`, experimental as of
+2026-10-19, prints the chain in one run where a lockfile is indexed: the lockfile's routes to
+the package and the direct dependency at the head of each, that dependency's import sites with
+the functions that use them, and the callers above each to `--depth`, ending at the CLI
+commands, routes or actions whose handlers lie on the chain. On CodeExam, `--why-depends y18n`
+gives the two routes above, `node-llama-cpp` as the head, and chains that end at the handlers
+of `--ask-ai`, `--claim-chart`, `--claim-locate` and `--claim-analyze`. Without a lockfile, or
+for a name that is no package (a program the code spawns), it has import sites and the places
+that name the thing, which show where a name appears without establishing why; that half is
+still being worked on, and `--referenced-resources` and `--search` remain the surfaces for a
+spawned program or a host. The same chain, read from the operation end, answers the
+review-room question above: the operations an examination will use name the
 packages that must be present and exercised before the machine is sealed, and `y18n`'s route
 through `cmake-js` is the warning that the install contains a build step that could run on
 first use, which is why CodeExam pins it off (#231).
@@ -576,10 +587,10 @@ Not done, in rough order of how often it will matter:
   to all three.
 - The copyright harvester reports notice-shaped strings inside code as holders (see the worked
   example above).
-- No MCP tool for the census, the bill of materials or the holders.
-- No `--why <package>`: the chain from an installed package back through the lockfile's
-  edges to a direct dependency, its import sites and the operations above them (the worked
-  example does it by hand with `npm explain` and `--bom -v --filter`).
+- No MCP tool for the census, the bill of materials, the holders or `--why-depends`.
+- `--why-depends` reads JavaScript and Python import bindings; for the other languages it lists the
+  sites and walks no further, and its callers are resolved by name, with the same-name hazard
+  `--callers` has.
 - No CycloneDX or SPDX export; no vulnerability data.
 
 "No vulnerability data" refers to a database — the GitHub Advisory Database, OSV, the NVD's CVE records — of entries keyed by

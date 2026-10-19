@@ -124,7 +124,12 @@ import { classifyImports, classifyImportRow, corpusFacts, manifestDeps } from '.
 import { doBom } from '../src/commands/imports.js';
 import { doCensusImports } from '../src/commands/census.js';
 import { extractHtmlImports, libFromBasename, libFromUrl, htmlCoverageNote, isHtmlFile, isTemplateFile, tagsInCodeStrings, codeStringTagNote } from '../src/core/imports.js';
-import { lockfileDeps, manifestDepKinds, bomJoins, bomReport } from '../src/core/imports.js';
+import { lockfileDeps, manifestDepKinds, bomJoins, bomReport, lockfileChains, whyPackage } from '../src/core/imports.js';
+import { doWhy } from '../src/commands/why.js';
+import * as _whyFs from 'node:fs';
+import * as _whyOs from 'node:os';
+import * as _whyPath from 'node:path';
+import { CodeSearchIndex as _WhyIndex } from '../src/core/CodeSearchIndex.js';
 import { extractGoImports, extractRustImports, isGoFile, isRustFile, dynamicLoads, dynamicLoadNote } from '../src/core/imports.js';
 import { doCensusImports as doCensus2 } from '../src/commands/census.js';
 
@@ -881,5 +886,187 @@ describe('sweep-residue small fixes', () => {
     assert.ok(isJsFile('Globals.xs'));
     const rows = extractFileImports(["import { x } from 'lib';"], 'Globals.xs');
     assert.equal(rows[0].lang, 'js');
+  });
+});
+
+// bom-why-package: --why-depends <package>, the chain from a package in a lockfile
+// back to the direct dependency at the head of each chain, that dependency's
+// import sites, the functions that use the binding, their callers, and the
+// catalogued operations above them. The lockfile's own edges are the graph;
+// no node_modules is needed. A hand-built package-lock v3:
+//   root -> alpha (prod) -> delta (the NESTED 4.0.0 copy, not the top-level 1.0.0)
+//   root -> alpha (prod) -> foxtrot (optional) -> golf (prod)
+//   root -> echo  (prod) -> foxtrot (prod)     -> golf (prod)
+//   root -> bravo (dev), no deps
+describe('--why-depends <package>: lockfile chains, import sites, operations (bom-why-package)', () => {
+  const lockV3 = [JSON.stringify({
+    name: 'app', lockfileVersion: 3,
+    packages: {
+      '': { dependencies: { alpha: '^1.0.0', echo: '^2.0.0' }, devDependencies: { bravo: '^3.0.0' } },
+      'node_modules/alpha': { version: '1.2.3', resolved: 'https://registry.npmjs.org/alpha/-/alpha-1.2.3.tgz', dependencies: { delta: '^4.0.0', foxtrot: '^1.0.0' }, optionalDependencies: { foxtrot: '^1.0.0' } },
+      'node_modules/echo': { version: '2.0.0', resolved: 'https://registry.npmjs.org/echo/-/echo-2.0.0.tgz', dependencies: { foxtrot: '^1.0.0' } },
+      'node_modules/bravo': { version: '3.0.1', resolved: 'https://registry.npmjs.org/bravo/-/bravo-3.0.1.tgz', dev: true },
+      'node_modules/foxtrot': { version: '1.5.0', resolved: 'https://registry.npmjs.org/foxtrot/-/foxtrot-1.5.0.tgz', dependencies: { golf: '^2.0.0' } },
+      'node_modules/golf': { version: '2.2.0', resolved: 'https://registry.npmjs.org/golf/-/golf-2.2.0.tgz' },
+      'node_modules/delta': { version: '1.0.0', resolved: 'https://registry.npmjs.org/delta/-/delta-1.0.0.tgz' },
+      'node_modules/alpha/node_modules/delta': { version: '4.0.0', resolved: 'https://registry.npmjs.org/delta/-/delta-4.0.0.tgz' },
+    },
+  })];
+  const whyIndex = () => ({
+    indexPath: '.why',
+    fileLines: new Map([
+      ['package.json', [JSON.stringify({ dependencies: { alpha: '^1.0.0', echo: '^2.0.0' }, devDependencies: { bravo: '^3.0.0' } })]],
+      ['package-lock.json', lockV3],
+      ['src/main.js', ["import a from 'alpha';", "import { e } from 'echo';", "import fs from 'node:fs';"]],
+      ['src/other.js', ["const a2 = require('alpha');"]],
+      ['src/build.js', ["const GRAMMAR = 'bravo/grammar.wasm';   // bravo is a dev dependency imported nowhere"]],
+      ['go/go.mod', ['module example.com/svc', 'go 1.22', 'require github.com/stretchr/testify v1.9.0']],
+      ['go/go.sum', ['github.com/stretchr/testify v1.9.0 h1:abc=']],
+    ]),
+    skippedExtensions: {},
+  });
+  const capture = (fn) => {
+    const out = [];
+    const orig = console.log; console.log = (s) => out.push(String(s));
+    try { fn(); } finally { console.log = orig; }
+    return out.join('\n');
+  };
+
+  it('lockfileDeps keeps the edges per node, with the kind of each, and says when a kind has none', () => {
+    const lf = lockfileDeps('package-lock.json', lockV3);
+    assert.equal(lf.edges, true);
+    assert.deepEqual(lf.nodes.get('').deps.map((d) => [d.name, d.kind]).sort(), [['alpha', 'prod'], ['bravo', 'dev'], ['echo', 'prod']]);
+    assert.deepEqual(lf.nodes.get('node_modules/alpha').deps.map((d) => [d.name, d.kind]).sort(), [['delta', 'prod'], ['foxtrot', 'optional']]);
+    assert.equal(lf.nodes.get('node_modules/alpha/node_modules/delta').version, '4.0.0');
+    assert.equal(lockfileDeps('go.sum', ['github.com/stretchr/testify v1.9.0 h1:abc=']).edges, false);
+    const cargo = lockfileDeps('Cargo.lock', ['[[package]]', 'name = "tool"', 'version = "0.1.0"', 'dependencies = [', ' "serde 1.0.200",', ' "anyhow",', ']', '',
+      '[[package]]', 'name = "serde"', 'version = "1.0.200"', 'source = "registry+https://github.com/rust-lang/crates.io-index"', 'dependencies = ["serde_derive 1.0.200"]']);
+    assert.deepEqual([cargo.edges, cargo.nodes.get('tool').deps.map((d) => d.name), cargo.nodes.get('serde').deps.map((d) => d.name)], [true, ['serde', 'anyhow'], ['serde_derive']]);
+    const poetry = lockfileDeps('poetry.lock', ['[[package]]', 'name = "httpx"', 'version = "0.27.0"', '', '[package.dependencies]', 'anyio = ">=4"', 'h2 = {version = ">=3", optional = true}', '', '[package.extras]', 'http2 = ["h2"]']);
+    assert.deepEqual(poetry.nodes.get('httpx').deps.map((d) => [d.name, d.kind]), [['anyio', 'prod'], ['h2', 'optional']]);
+    const comp = lockfileDeps('composer.lock', [JSON.stringify({ packages: [{ name: 'monolog/monolog', version: '3.5.0', require: { php: '>=8', 'ext-json': '*', 'psr/log': '^3' } }] })]);
+    assert.deepEqual(comp.nodes.get('monolog/monolog').deps.map((d) => d.name), ['psr/log']);
+  });
+
+  it('lockfileChains walks every chain from the root to the package, nested copies resolved the way npm does, heads named', () => {
+    const lf = lockfileDeps('package-lock.json', lockV3);
+    const golf = lockfileChains(lf, 'golf');
+    assert.deepEqual([golf.installed, golf.version, golf.direct, golf.edges], [true, '2.2.0', false, true]);
+    assert.deepEqual(golf.chains.map((c) => c.map((h) => `${h.name}@${h.version}:${h.kind}`)),
+      [['alpha@1.2.3:prod', 'foxtrot@1.5.0:optional', 'golf@2.2.0:prod'], ['echo@2.0.0:prod', 'foxtrot@1.5.0:prod', 'golf@2.2.0:prod']]);
+    assert.deepEqual(golf.heads, ['alpha', 'echo']);
+    const delta = lockfileChains(lf, 'delta');
+    assert.deepEqual(delta.chains.map((c) => c.map((h) => `${h.name}@${h.version}`)), [['alpha@1.2.3', 'delta@4.0.0']], "alpha's delta is the nested 4.0.0 copy, not the top-level 1.0.0");
+    const alpha = lockfileChains(lf, 'alpha');
+    assert.deepEqual([alpha.direct, alpha.chains], [true, [[{ name: 'alpha', version: '1.2.3', kind: 'prod' }]]]);
+    assert.deepEqual([lockfileChains(lf, 'zulu').installed, lockfileChains(lf, 'zulu').chains], [false, []]);
+    const gosum = lockfileChains(lockfileDeps('go.sum', ['github.com/stretchr/testify v1.9.0 h1:abc=']), 'github.com/stretchr/testify');
+    assert.deepEqual([gosum.installed, gosum.edges, gosum.chains], [true, false, []]);
+    assert.equal(lockfileChains(lf, 'golf', { max: 1 }).truncated, true);
+  });
+
+  it('whyPackage joins the chains to the import sites of each head, names the lockfiles without edges, and says when there is no call graph', () => {
+    const w = whyPackage(whyIndex(), 'golf');
+    const npm = w.lockfiles.find((l) => l.kind === 'npm');
+    assert.equal(npm.chains.length, 2);
+    assert.deepEqual(w.heads.map((h) => [h.name, h.sites.map((s) => `${s.file}:${s.line}`)]),
+      [['alpha', ['src/main.js:1', 'src/other.js:1']], ['echo', ['src/main.js:2']]]);
+    assert.deepEqual(w.heads[0].sites.map((s) => s.bindings), [['a'], ['a2']]);
+    assert.deepEqual(w.heads[1].sites[0].bindings, ['e']);
+    assert.equal(w.lockfiles.find((l) => l.kind === 'go').edges, false);
+    assert.equal(w.callGraph, false, 'a bare fileLines index has no function index');
+    const direct = whyPackage(whyIndex(), 'alpha');
+    assert.deepEqual([direct.lockfiles[0].direct, direct.heads.map((h) => h.name), direct.declared], [true, ['alpha'], [{ file: 'package.json', kind: 'runtime' }]]);
+    const none = whyPackage(whyIndex(), 'zulu');
+    assert.deepEqual([none.lockfiles.every((l) => !l.installed), none.heads.map((h) => [h.name, h.sites.length, h.mentionsTotal])], [true, [['zulu', 0, 0]]]);
+  });
+
+  it('a head no file imports falls back to the places that name it, with the manifest kind', () => {
+    const w = whyPackage(whyIndex(), 'bravo');
+    assert.deepEqual(w.declared, [{ file: 'package.json', kind: 'dev' }]);
+    assert.deepEqual(w.heads.map((h) => [h.name, h.sites.length, h.mentionsTotal, h.mentions.map((m) => `${m.file}:${m.line}`)]), [['bravo', 0, 1, ['src/build.js:1']]],
+      'the manifest and the lockfile name it too, but a declaration is not a use');
+    const out = capture(() => doWhy(whyIndex(), { why_depends: 'bravo' }));
+    assert.match(out, /^Summary/m);
+    assert.match(out, /bravo 3\.0\.1: a direct dependency \(dev\)/);
+    assert.match(out, /imported by no indexed file; named in 1 place/);
+    assert.match(out, /src\/build\.js:1  const GRAMMAR/);
+  });
+
+  it('doWhy prints a summary, the three sections, the no-edges and not-installed cases, and the caveat on every run', () => {
+    const out = capture(() => doWhy(whyIndex(), { why_depends: 'golf', depth: 3 }));
+    assert.match(out, /^Summary\n  golf 2\.2\.0: a transitive dependency reached through alpha, echo \(2 chains\), per package-lock\.json\./m);
+    assert.match(out, /^  alpha: imported in 2 files \(2 sites\)\./m);
+    assert.match(out, /Package to package/);
+    assert.match(out, /alpha 1\.2\.3 \(prod\) -> foxtrot 1\.5\.0 \(optional\) -> golf 2\.2\.0 \(prod\)/);
+    assert.match(out, /heads?: alpha, echo/);
+    assert.match(out, /Package to code/);
+    assert.match(out, /src\/main\.js:1/);
+    assert.match(out, /go\/go\.sum.*no dependency edges/);
+    assert.match(out, /Code to operation/);
+    assert.match(out, /Not shown to execute/);
+    assert.match(out, /^Caveat:/m);
+    const none = capture(() => doWhy(whyIndex(), { why_depends: 'zulu' }));
+    assert.match(none, /^  zulu: not installed by any indexed lockfile\./m);
+    assert.match(none, /not installed by any indexed lockfile; --bom lists what is/);
+    assert.match(none, /not a package this index declares.*--referenced-resources.*--search zulu/);
+    assert.match(none, /named nowhere in the index/);
+    const bare = capture(() => doWhy({ indexPath: '.bare', fileLines: new Map([['src/a.js', ["const w = spawn('whisper');"]]]), skippedExtensions: {} }, { why_depends: 'whisper' }));
+    assert.match(bare, /No manifest or lockfile is indexed/);
+    assert.match(bare, /named in 1 place/);
+  });
+
+  it('on a built index, the operations step finds the functions that use the binding, their callers to --depth, and the catalogued operation', async () => {
+    const dir = _whyPath.join(_whyOs.tmpdir(), 'code_exam_why_src');
+    const idxDir = _whyPath.join(_whyOs.tmpdir(), 'code_exam_why_idx');
+    _whyFs.rmSync(dir, { recursive: true, force: true });
+    _whyFs.rmSync(idxDir, { recursive: true, force: true });
+    _whyFs.mkdirSync(_whyPath.join(dir, 'src'), { recursive: true });
+    _whyFs.writeFileSync(_whyPath.join(dir, 'package.json'), JSON.stringify({ dependencies: { alpha: '^1.0.0' } }));
+    _whyFs.writeFileSync(_whyPath.join(dir, 'package-lock.json'), JSON.stringify({ lockfileVersion: 3, packages: {
+      '': { dependencies: { alpha: '^1.0.0' } },
+      'node_modules/alpha': { version: '1.0.0', resolved: 'https://registry.npmjs.org/alpha/-/alpha-1.0.0.tgz', dependencies: { golf: '^2' } },
+      'node_modules/golf': { version: '2.0.0', resolved: 'https://registry.npmjs.org/golf/-/golf-2.0.0.tgz' },
+    } }));
+    _whyFs.writeFileSync(_whyPath.join(dir, 'src/lib.js'), [
+      "import alpha from 'alpha';", '', 'export function loadAlphaThing(x) {', '  return alpha.load(x);', '}', '',
+      'export function unrelatedHelper(y) {', '  return y + 1;', '}', ''].join('\n'));
+    // A decorated Python function that uses the same package: an entry point by
+    // attribute, which has no in-tree caller and must not read as a dead end.
+    _whyFs.writeFileSync(_whyPath.join(dir, 'src/app.py'), [
+      'import alpha', '', "@app.route('/x')", 'def serve_x():', '    return alpha.go()', ''].join('\n'));
+    _whyFs.writeFileSync(_whyPath.join(dir, 'src/cli.js'), [
+      "import { loadAlphaThing } from './lib.js';", '', "const SPEC = [['do_thing', 'flag', ['--do-thing']]];", '',
+      // The catalog ignores a dispatch within five lines of the option's own
+      // definition in the same file, so keep the handler well below the spec.
+      '// filler 1', '// filler 2', '// filler 3', '// filler 4', '// filler 5', '// filler 6', '',
+      'export function runDoThing(args) {', '  if (args.do_thing) return loadAlphaThing(args.x);', '  return null;', '}', ''].join('\n'));
+    try {
+      const idx = new _WhyIndex({ indexPath: idxDir });
+      await idx.buildIndex(dir, { showProgress: false });
+      const w = whyPackage(idx, 'golf', { depth: 3 });
+      assert.equal(w.callGraph, true);
+      assert.deepEqual(w.heads.map((h) => h.name), ['alpha']);
+      const site = w.heads[0].sites.find((s) => /lib\.js$/.test(s.file));
+      assert.ok(site, JSON.stringify(w.heads[0].sites.map((s) => s.file)));
+      assert.deepEqual(site.users.map((u) => u.func), ['loadAlphaThing'], 'the function that uses the binding, not the unrelated one');
+      assert.deepEqual(w.heads[0].users.map((u) => [u.func, u.sites]).sort(), [['loadAlphaThing', [1]], ['serve_x', [1]]], 'one distinct using function per head and file, with the sites it covers');
+      const served = w.heads[0].users.find((u) => u.func === 'serve_x');
+      assert.deepEqual(served.attrs, ["@app.route('/x')"], 'the decorator above the function');
+      assert.deepEqual(served.paths.map((p) => [p.hops.length, p.top]), [[0, true]], 'no in-tree caller');
+      const user = w.heads[0].users.find((u) => u.func === 'loadAlphaThing');
+      assert.deepEqual(user.paths.map((p) => [p.hops.map((h) => h.func), p.top]), [[['runDoThing'], true]], 'one caller, which nobody calls: the top of the chain');
+      assert.deepEqual(user.operations.map((o) => [o.kind, o.label, o.via, o.dispatch]), [['CLI option', '--do-thing', 'handler', 'inner']], 'the flag whose handler reads args.do_thing is on the chain, read inside runDoThing');
+      const out = capture(() => doWhy(idx, { why_depends: 'golf', depth: 3 }));
+      assert.match(out, /^  Operations above it: flags read on the way --do-thing\./m);
+      assert.match(out, /loadAlphaThing/);
+      assert.match(out, /runDoThing/);
+      assert.match(out, /CLI flags read inside a handler on this chain: --do-thing/);
+      assert.match(out, /serve_x @app\.route\('\/x'\)/);
+      assert.match(out, /an entry point by attribute, reached by name/);
+    } finally {
+      _whyFs.rmSync(dir, { recursive: true, force: true });
+      _whyFs.rmSync(idxDir, { recursive: true, force: true });
+    }
   });
 });

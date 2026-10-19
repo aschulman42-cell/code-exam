@@ -63,6 +63,7 @@ import { doCensusImports, doCensusImportsMulti } from './commands/census.js';
 import { doExports, doEmitCatalog, doEmitCatalogMulti } from './commands/exports.js';
 import { doImportsFrom } from './commands/imports-from.js';
 import { doImports, doBom } from './commands/imports.js';
+import { doWhy } from './commands/why.js';
 import { doCopyrights } from './commands/copyrights.js';
 import { doInfrastructure } from './commands/infrastructure.js';
 import { doSaveFingerprints } from './commands/fingerprint.js';
@@ -137,7 +138,7 @@ const _QUERY_COMMAND_KEYS = [
   'string_call_dupes', 'string_call_diff_all', 'cmp_string_call_dupes', 'notable_funcstr_matches', 'funcstr_hashes', 'funcstr_corpus', 'build_fp_renames',
   'save_fingerprints',
   'command_catalog', 'string_table', 'breadcrumbs', 'prompt_catalog', 'file_bookends', 'bundle_seams', 'digest',
-  'comments_only', 'emit_harness', 'list_harnessable', 'census_imports', 'bom', 'copyrights', 'exports', 'imports_from', 'imports', 'infrastructure',
+  'comments_only', 'emit_harness', 'list_harnessable', 'census_imports', 'bom', 'why_depends', 'copyrights', 'exports', 'imports_from', 'imports', 'infrastructure',
 ];
 
 // #249: index-MUTATING commands. They ARE real commands (so a no-index run must
@@ -1032,6 +1033,7 @@ if (args.emit_harness)                      doEmitHarness(index, args);
 if (args.list_harnessable)                  doListHarnessable(index, args);
 if (args.census_imports)                    doCensusImports(index, args);
 if (args.bom)                               doBom(index, args);
+if (args.why_depends)                       doWhy(index, args);
 if (args.copyrights)                        doCopyrights(index, args);
 if (args._explicit.has('exports')) {
   if (args.emit_catalog) doEmitCatalog(index, args);   // --emit-catalog diverts to file
