@@ -699,6 +699,39 @@ export function ggufContextOptions(contextSize, flashAttention = false) {
   return { contextSize, ...(flashAttention ? { flashAttention: true } : {}) };
 }
 
+// #231: node-llama-cpp's getLlama() defaults to build "auto". When no prebuilt
+// llama.cpp binary loads on the machine, "auto" downloads the llama.cpp source
+// from GitHub and compiles it: a network fetch at first use, which fails in a
+// sealed review room at the moment the feature is needed and is an outbound
+// connection on a machine that was supposed to be offline. Every getLlama()
+// call in CodeExam passes these options (test_llama_init_options.js scans for
+// it). "never" forbids BUILDING, not loading: a binary built from source while
+// online (`npx node-llama-cpp source download --gpu <type>`) is tried before
+// the prebuilt ones, exactly as under "auto". With nothing to load, getLlama()
+// throws NoBinaryFoundError, which the call sites turn into NO_BINARY_MESSAGE.
+export function llamaInitOptions({ cpu = false } = {}) {
+  return cpu ? { gpu: false, build: 'never' } : { build: 'never' };
+}
+
+export const NO_BINARY_MESSAGE = 'node-llama-cpp has no llama.cpp binary that loads on this machine, and CodeExam does not download or build one at run time (#231). While online, before the machine is sealed: run `npm install`, then one local-model operation; if that reports this message, build a binary with `npx --yes node-llama-cpp source download --gpu <cuda|vulkan|metal|false>` (docs/cloud-gpu-chat-testing.md) and run the operation again.';
+
+// node-llama-cpp's NoBinaryFoundError sets no .name, so match the class name
+// where it survives and the class's default message where it does not.
+export function isNoBinaryError(err) {
+  if (!err || typeof err !== 'object') return false;
+  if (err.constructor && err.constructor.name === 'NoBinaryFoundError') return true;
+  const msg = String(err.message || '');
+  return msg === 'NoBinaryFoundError' || /^No prebuilt binaries found/.test(msg);
+}
+
+// For a .catch() on getLlama(), or a catch block that must not retry: a
+// NoBinaryFoundError becomes NO_BINARY_MESSAGE with the original text kept in
+// parentheses; any other error passes through unchanged.
+export function rethrowNoBinary(err) {
+  if (isNoBinaryError(err)) throw new Error(`${NO_BINARY_MESSAGE} (${err.message})`);
+  throw err;
+}
+
 // ISOLATION BETWEEN TARGETS — and `resetChatHistory()` alone does not provide it.
 //
 // resetChatHistory() calls setChatHistory(), which rewrites the chat history
@@ -769,12 +802,15 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
         // model. #323.
         let m;
         try {
-          const llama = await getLlama(cpuOnly ? { gpu: false } : undefined);
+          const llama = await getLlama(llamaInitOptions({ cpu: cpuOnly }));
           // Recorded on EVERY attempt, so a chart built after a GPU->CPU fallback
           // reports the device it actually ran on rather than the one it wanted.
           await _recordEngineBuild(mod, llama);
           m = await llama.loadModel({ modelPath });
         } catch (e) {
+          // #231: no binary loads at all; the CPU retry below would ask the same
+          // question and the closing "try --cpu" advice would be wrong.
+          if (isNoBinaryError(e)) rethrowNoBinary(e);
           lastError = e;
           process.stderr.write(`  ${cpuOnly ? 'CPU' : 'GPU'} model load failed: ${e.message}\n`);
           return null;

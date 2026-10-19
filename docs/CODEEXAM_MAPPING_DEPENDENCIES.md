@@ -389,8 +389,9 @@ feature is used fails in the room, at the moment the feature is needed. For Code
 lockfile's 347 packages are the first part of that list, and `npm install` on a connected
 machine brings them in. The second part is what the install resolves lazily. `node-llama-cpp`
 chooses its prebuilt binary at install time and again at first use, and when no prebuilt
-variant matches the machine it falls back to downloading the llama.cpp source and compiling
-it; that is why `cmake-js`, and `y18n` under it, are in the tree at all. The GGUF model files
+variant matches the machine its default is to download the llama.cpp source and compile it
+(CodeExam turns that default off, #231, so the first use stops with a message instead); that
+is why `cmake-js`, and `y18n` under it, are in the tree at all. The GGUF model files
 are downloaded separately and pointed at with `--model`
 ([`LOCAL_LLM.md`](LOCAL_LLM.md)). So the setup rule is: install, then run every feature the
 examination will use once on the connected machine, before the network is cut, and keep the
@@ -465,8 +466,8 @@ manual version, and a built-in `--why <package>` that joins the lockfile's edges
 sites and the call graph is proposed as a follow-up. The same chain, read from the operation
 end, answers the review-room question above: the operations an examination will use name the
 packages that must be present and exercised before the machine is sealed, and `y18n`'s route
-through `cmake-js` is the warning that the install contains a build step that can run on
-first use.
+through `cmake-js` is the warning that the install contains a build step that could run on
+first use, which is why CodeExam pins it off (#231).
 
 ## Issue #27, then and now
 

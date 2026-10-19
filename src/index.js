@@ -313,8 +313,11 @@ if (args.gui || _wantsTour) {
   {
     const _guiGgufModelPath = args.model || args.claim_model || args.analyze_model || null;
     if (_guiGgufModelPath && !args.cpu) {
-      try { const { getLlama } = await import('node-llama-cpp'); await getLlama(); }
-      catch { /* lazy load in server still runs and reports its own errors */ }
+      try {
+        const { getLlama } = await import('node-llama-cpp');
+        const { llamaInitOptions } = await import('./core/llm-runner.js');
+        await getLlama(llamaInitOptions());
+      } catch { /* lazy load in server still runs and reports its own errors */ }
     }
   }
 
@@ -810,7 +813,8 @@ const _ggufModelPath = args.model || args.claim_model || args.analyze_model || n
 if (_ggufModelPath && !args.cpu) {
   try {
     const { getLlama } = await import('node-llama-cpp');
-    await getLlama();
+    const { llamaInitOptions } = await import('./core/llm-runner.js');
+    await getLlama(llamaInitOptions());
   } catch { /* the lazy load in llm-runner still runs, and still reports its own errors */ }
 }
 

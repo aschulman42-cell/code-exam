@@ -29,7 +29,7 @@ import { resolveProvider, PROVIDERS } from '../core/providers.js';
 import { buildProvenanceHeader } from '../core/provenance.js';
 import { toolCallFooter } from '../core/answer-disclosure.js';
 import { CE_VERSION } from '../version.js';
-import { ggufContextLadder, ggufContextOptions } from '../core/llm-runner.js';
+import { ggufContextLadder, ggufContextOptions, llamaInitOptions, rethrowNoBinary } from '../core/llm-runner.js';
 import { isAirGapped } from '../core/air-gapped.js';
 
 const CLI_AIR_GAP_HINT = 'Use --model <file.gguf> for a local engine, or restart without --air-gapped to allow cloud calls.';
@@ -62,7 +62,7 @@ export function resolveCloudKey(args, providerId) {
 export async function loadLocalHolder({ modelPath, contextSize = null, flashAttention = false, cpu = false, reproducible = false, log = () => {} }) {
   if (!fs.existsSync(modelPath)) throw new Error(`Model file not found: ${modelPath}`);
   const { getLlama, LlamaChatSession, defineChatSessionFunction } = await import('node-llama-cpp');
-  const llama = await getLlama(cpu ? { gpu: false } : undefined);
+  const llama = await getLlama(llamaInitOptions({ cpu })).catch(rethrowNoBinary);
   log(`[ask-ai] loading ${path.basename(modelPath)}${cpu ? ' (CPU)' : ''}…`);
   const model = await llama.loadModel({ modelPath });
   let context = null, achieved = 0;

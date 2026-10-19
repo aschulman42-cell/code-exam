@@ -32,7 +32,7 @@ import { resolveIndexDir } from './archive.js';
 import { groupSites, groupPipelines, reTestExamplePath, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { makeFilterMatcher } from './core/filter-match.js';
 // F58: pin `Today Date:` so the GUI's local sessions do not inherit a live clock.
-import { chatSessionOptions, ggufContextOptions, stripLocalArtifacts, draftCloud } from './core/llm-runner.js';
+import { chatSessionOptions, ggufContextOptions, stripLocalArtifacts, draftCloud, llamaInitOptions, isNoBinaryError, NO_BINARY_MESSAGE } from './core/llm-runner.js';
 import { extractExports } from './core/exports.js';
 import { extractImports, bomReport } from './core/imports.js';
 import { copyrightNotices } from './core/copyrights.js';
@@ -554,7 +554,7 @@ class ServerLLM {
     try {
       const { getLlama, LlamaChatSession, defineChatSessionFunction } = await import('node-llama-cpp');
       console.log(`  [LLM] Loading local model: ${mp}...`);
-      const llama = await getLlama();
+      const llama = await getLlama(llamaInitOptions());
       const model = await llama.loadModel({ modelPath: mp });
 
       // Context ladder: try big, fall back on allocation failure.
@@ -599,6 +599,11 @@ class ServerLLM {
     } catch (e) {
       if (e.code === 'ERR_MODULE_NOT_FOUND' || /Cannot find/.test(e.message)) {
         return { error: 'node-llama-cpp not installed. Run: npm install node-llama-cpp' };
+      }
+      if (isNoBinaryError(e)) {
+        // #231: installed, but no llama.cpp binary loads and CodeExam will not
+        // download or build one at run time.
+        return { error: `${NO_BINARY_MESSAGE} (${e.message})` };
       }
       console.error(`  [LLM] Failed to load model: ${mp}`);
       console.error(`  [LLM] Error:`, e);

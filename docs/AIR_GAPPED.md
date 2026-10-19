@@ -40,11 +40,13 @@ The local engine (`node-llama-cpp`, GGUF) reads no API key, and inference makes 
 network request. One exception, at setup rather than at inference: node-llama-cpp
 chooses its prebuilt llama.cpp binary at `npm install` and again the first time a
 local model is used, and when no prebuilt binary loads on the machine its default is
-to download the llama.cpp source from GitHub and build it. On a sealed machine that
-attempt fails, and the local-model feature fails with it. So install, then run one
-local-model operation on the connected machine before the network is cut; setting
-`NODE_LLAMA_CPP_SKIP_DOWNLOAD=true` in the room turns the attempt into a refusal.
-#231 tracks pinning the fallback off in CodeExam's own code.
+to download the llama.cpp source from GitHub and build it. CodeExam turns that
+default off at every engine load (`build: "never"`, #231): with no binary to load,
+the local-model feature stops with a message naming the fix instead of fetching. So
+install, then run one local-model operation on the connected machine before the
+network is cut; if that run reports no binary, build one while still online
+(`npx --yes node-llama-cpp source download --gpu <type>`, the recipe in
+[`cloud-gpu-chat-testing.md`](cloud-gpu-chat-testing.md)) and run it again.
 
 A localhost LLM endpoint (`CLAIM_SEARCH_API_URL=http://localhost:...`)
 is also treated as local and allowed — loopback only, judged on the real parsed
