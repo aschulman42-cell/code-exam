@@ -68,7 +68,7 @@ point is sharpest in patent litigation, where direct infringement does not turn 
 or intent: a claimed feature practiced inside a dependency that ships with the product is
 practiced by the product, whether or not anyone who wrote X knew the feature was there. An
 examiner who reads X's own source and finds nothing has established absence from X's source,
-not from the product. And most of the product is code X's authors have never read or heard
+not from the product. And much of the product is code X's authors have never read or heard
 of: the worked example below counts it for CodeExam itself (17 packages chosen, 347
 installed).
 
@@ -86,7 +86,7 @@ The difference between the two files is the recursion, written out. GitHub's dep
 graph reads the same manifests and lockfiles and, where a lockfile exists, takes the
 transitive set from it; Dependabot's alerts are that graph joined to an advisory database.
 Neither reads the code: they answer "what installs", which is the lockfile's question, not
-"what the code reaches for", which is the bill of materials'. CodeExam's `--file-tree` does
+"what the code reaches for", which is the bill of materials' question. CodeExam's `--file-tree` does
 the same walk *inside* a tree, one file's imports and their imports to a chosen depth (see
 "Internal dependencies" below).
 
@@ -96,8 +96,8 @@ Three consequences for code examination:
   production usually holds the first party's source and none of the transitive packages. The
   bill of materials says what the code reaches for and the lockfile says what installs; the
   difference is what is not in the room. "Declared but not produced" is a finding to raise with
-  the producing party, not a gap to fill from memory or from the public registry, which the
-  order may forbid bringing in.
+  the producing party, not a gap to fill from memory or from public sources, which the
+  order may forbid copying to the examination machine.
 - **Before attributing a feature, know whose code it is.** A behavior found in a vendored
   subtree, a pasted file or a copied library is the library's; the *vendored* class and the
   copyright holders say which rows belong to someone else, and the first-party presumption
@@ -137,16 +137,16 @@ couplings.
 ## Dependencies that are not packages: the services the code talks to
 
 A package is one kind of thing the code cannot run without. Two others never appear in a
-manifest and are inventoried by their own surfaces:
+manifest and are inventoried separately:
 
 - **The server behind a client, and the client in front of a server.** `--client-server` maps
-  the HTTP surface: the routes the code declares, the calls it makes, and the reconciliation
+  HTTP use: the routes the code declares, the calls it makes, and the reconciliation
   of the two by path. A client call with **no matching server route** is the "missing server
   code" signal — the produced code depends on code that was not produced (a production that
   ships the app and withholds the service), which is a dependency across a network boundary
   rather than an import. The reverse set, routes nothing calls, is the surface a client not in
   the production depends on. It is a heuristic pass, strongest on common JavaScript shapes
-  (the README says so), not a routing-graph analysis.
+  (the README says so), not a routing-graph analysis. See the --client-server command and GUI equivalent.
 - **Services, hosts and configuration.** `--referenced-resources` catalogues what the code
   points to but does not contain: the hosts and URLs it calls (a hosted API is a dependency
   with no package), the model ids it names (a hosted model likewise), the environment
@@ -175,8 +175,8 @@ What exists:
   sites resolve into its own tree. Those rows are listed, not ranked, because the external
   surface is the question the report exists for.
 
-What does not exist is the clustering #27 and #28 describe: named internal components,
-groups of files more tightly coupled to each other than to the rest. The file map is the raw
+What does not exist is the clustering [#27](https://github.com/aschulman42-cell/code-exam/issues/27) and [#28](https://github.com/aschulman42-cell/code-exam/issues/28) describe: named internal components,
+groups of files more tightly coupled to each other than to the rest (detecting loose vs. tight coupling, an issue that incidentally had antitrust implications in cases re: Microsoft Windows OTOH and bundled vs. "tightly integrated" components OTOH, such as MS-DOS, Internet Explorer, and Windows Media Player). The file map is the raw
 input for that; on a large tree the diagram is too dense to read and the textual view is not
 built.
 
@@ -530,14 +530,14 @@ with the function column and the binary side filled in. The mobile-app teardown 
 motivated #27 — an APK or IPA that ships binaries alongside or instead of source — is the far
 end of that distance.
 
-Three later issues bear on the subject without replacing #27 as its home. #312 (closed
+Three later issues bear on the subject without replacing #27 as its home. [#312](https://github.com/aschulman42-cell/code-exam/issues/312) (closed
 2026-09-06) stated the hole from the consumer side: CodeExam had no notion of what in a
 codebase came from outside it, discarded "Copyright" as a stopword, and had patched the gap
 five times at the leaf (vendored code inflating the AI/ML detectors and burying the
 vocabulary) and never at the root; the vendored class and `--copyrights` are the root fix it
-asked for. #230 records that CodeExam's own dependencies come in two tiers, the npm packages
+asked for. [#230](https://github.com/aschulman42-cell/code-exam/issues/230) records that CodeExam's own dependencies come in two tiers, the npm packages
 and what npm never installs (the vendored Mermaid, the grammars), which is why the worked
-example has a vendored row no manifest explains. #76, the quasi-source umbrella, holds the
+example has a vendored row no manifest explains. [#76](https://github.com/aschulman42-cell/code-exam/issues/76), the quasi-source umbrella, holds the
 binary-side leads, among them a Rust binary that leaks its Cargo dependency tree by file
 path, which is where phase 2 would start.
 
