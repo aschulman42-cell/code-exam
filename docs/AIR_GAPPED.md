@@ -36,8 +36,17 @@ controls:
 ce --overview-by-ai --model path/to/model.gguf --index-path .my_index --air-gapped
 ```
 
-The local engine (`node-llama-cpp`, GGUF) reads no API key and makes no network
-request. A localhost LLM endpoint (`CLAIM_SEARCH_API_URL=http://localhost:...`)
+The local engine (`node-llama-cpp`, GGUF) reads no API key, and inference makes no
+network request. One exception, at setup rather than at inference: node-llama-cpp
+chooses its prebuilt llama.cpp binary at `npm install` and again the first time a
+local model is used, and when no prebuilt binary loads on the machine its default is
+to download the llama.cpp source from GitHub and build it. On a sealed machine that
+attempt fails, and the local-model feature fails with it. So install, then run one
+local-model operation on the connected machine before the network is cut; setting
+`NODE_LLAMA_CPP_SKIP_DOWNLOAD=true` in the room turns the attempt into a refusal.
+#231 tracks pinning the fallback off in CodeExam's own code.
+
+A localhost LLM endpoint (`CLAIM_SEARCH_API_URL=http://localhost:...`)
 is also treated as local and allowed — loopback only, judged on the real parsed
 hostname (a lookalike like `localhost.evil.example` does not count).
 
