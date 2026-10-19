@@ -120,6 +120,12 @@ baked into mechanical detectors.
   including files the code references but that aren't in the index (config,
   data, keys, templates), with how often each is referenced.
   → [`CODEEXAM_BROWSING.md`](docs/CODEEXAM_BROWSING.md)
+- **Mapping what the code depends on** — `--bom` classifies every import,
+  include and run-time load as internal, standard-library, third-party or
+  vendored, each with its evidence (manifests, lockfiles, build files), and
+  `--copyrights` adds whose notices are on the files; what an SBOM is and is
+  not, and where such a list can still miss something.
+  → [`CODEEXAM_MAPPING_DEPENDENCIES.md`](docs/CODEEXAM_MAPPING_DEPENDENCIES.md)
 - **Working on technical prose, not just code** — searching and charting
   **text (such as patent claims, and portions of technical specifications)**
   against a codebase, and (work in progress) generating
@@ -218,6 +224,7 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`CODEEXAM_KEY_FEATURES.md`](docs/CODEEXAM_KEY_FEATURES.md) | Browse and search, metrics, catalogs — the overview |
 | [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md) | Literal / fast / regex search and multisect |
 | [`CODEEXAM_BROWSING.md`](docs/CODEEXAM_BROWSING.md) | Structural lists, cross-reference, and code-surfacing metrics |
+| [`CODEEXAM_MAPPING_DEPENDENCIES.md`](docs/CODEEXAM_MAPPING_DEPENDENCIES.md) | Imports, the bill of materials, and dependencies: every surface in one table, and what is not done |
 | [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md) | Vocabulary, breadcrumbs, Overview / Overview by AI |
 | [`MEASURING_IMPORTANCE.md`](docs/MEASURING_IMPORTANCE.md) | How CodeExam estimates "importance" (rareness, TF-IDF, cross-corpus down-weighting, centrality) and uses it to steer and sort |
 | [`CODEEXAM_SUMMARIZING.md`](docs/CODEEXAM_SUMMARIZING.md) | Summarizing code: overview, digest, analyze, GUI chat (outline) |

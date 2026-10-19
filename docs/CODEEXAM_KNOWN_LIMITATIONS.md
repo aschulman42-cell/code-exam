@@ -76,9 +76,23 @@ plainly:
   Find Callers still lists every same-named site. What is not done: dynamic dispatch (a vtable,
   a registry) still resolves statically or not at all; CommonJS `require` and non-ESM aliases
   give no import evidence; the digest's silent first-match pick for a bare target is unchanged.
-- **Import / BoM coverage** (#165) — import/export extraction covers Python, JS, C, Java, and
-  C#; the static-catalog path still misses dynamically-exported names (star-exports, lazy
-  registries) that the live cross-index path resolves.
+- **Import / BoM coverage** (#165) — import extraction covers Python, JS/TS, C/C++,
+  Java/Kotlin, C#, Go and Rust, plus the tags of indexed HTML and page templates; export
+  extraction is Python-only; the static-catalog path still misses dynamically-exported names
+  (star-exports, lazy registries) that the live cross-index path resolves. The full list of
+  what is not done is on [`CODEEXAM_MAPPING_DEPENDENCIES.md`](CODEEXAM_MAPPING_DEPENDENCIES.md).
+- **A detector recognizes its own vocabulary** — every pattern-based catalog (the AI/ML and
+  infrastructure detectors, breadcrumbs, referenced resources, the bill of materials'
+  dynamic-loading scan, the copyright harvest) matches its own pattern strings, help text and
+  test fixtures when run on CodeExam's tree, and the same happens on any tree that carries a
+  scanner of the same kind: a security tool, a linter, a test suite with fixture strings, a
+  page that documents the patterns. The rows are real text found, not false positives in the
+  tool's terms, and there is no general suppression, by choice (a fixture string is evidence
+  too). Read the `e.g.` sites and the "why" column before counting them. Worked cases: the
+  `Cloud: aws` entry and the breadcrumb patterns on
+  [`SOURCE_CODE_PROTECTIVE_ORDERS.md`](SOURCE_CODE_PROTECTIVE_ORDERS.md), the fixture
+  "holders" and the help-text `require(expr)` site on
+  [`CODEEXAM_MAPPING_DEPENDENCIES.md`](CODEEXAM_MAPPING_DEPENDENCIES.md).
 - **Explainability detection is Python-only and import-anchored** (#163) — XAI used without a
   recognizable import (`shap` / `lime` / `captum`), and non-Python XAI, aren't detected.
 - **GUI result caps** (#137) — some left-pane accordions cap the rows returned without always

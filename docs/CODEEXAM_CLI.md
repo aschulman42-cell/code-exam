@@ -39,8 +39,10 @@ The CLI surface groups into a handful of families, each documented in depth on i
 - **Structure & duplicates** — funcstrings, fingerprints, dupe families →
   [`STRUCTURAL_SEARCH.md`](STRUCTURAL_SEARCH.md).
 - **AI/ML detection** — the model / LLM-app catalogs → [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md).
-- **Imports / exports / BoM** — the dependency surface and cross-index catalogs →
-  [`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md).
+- **Imports / BoM / dependencies** — `--census-imports`, `--bom`, `--copyrights`: what the
+  three words mean, every related surface in one table, what is not done →
+  [`CODEEXAM_MAPPING_DEPENDENCIES.md`](CODEEXAM_MAPPING_DEPENDENCIES.md); the cross-index export catalogs
+  (`--exports`, `--imports`, `--imports-from`) → [`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md).
 - **Other surfaces** — `--gui` launches the local GUI ([`CODEEXAM_GUI.md`](CODEEXAM_GUI.md)); the
   MCP server is `node src/mcp-server.js` ([`CODEEXAM_MCP.md`](CODEEXAM_MCP.md)).
 

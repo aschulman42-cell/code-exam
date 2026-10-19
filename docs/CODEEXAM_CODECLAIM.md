@@ -135,7 +135,8 @@ A smaller vocabulary / import-frequency summary can ship even where the full cor
 CodeExam already ships one: the open-source-derived cross-corpus vocabulary catalog
 `CE_cross_corpus_vocab_catalog.json` (auto-loaded from CodeExam's `src/`; see
 [`CODEEXAM_BROWSING.md`](CODEEXAM_BROWSING.md) and [`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md)), with
-an import-frequency counterpart available through the import census (`--census-imports`, #162)
+an import-frequency counterpart available through the import census (`--census-imports`, #162;
+[`CODEEXAM_MAPPING_DEPENDENCIES.md`](CODEEXAM_MAPPING_DEPENDENCIES.md))
 [[placeholder: name the shipped import-frequency catalog + its doc/issue, if one is settled]]. Any
 such summary must be built only from publicly-accessible material and must never carry fragments of
 the proprietary/confidential code it is used to analyze.

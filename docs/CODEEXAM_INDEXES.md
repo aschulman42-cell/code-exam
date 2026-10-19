@@ -48,7 +48,9 @@ network log (#161); Fiddler `.saz` captures are planned as well.
   explicit `--extensions` list turns it off. `--bom` reads six lockfile kinds (`package-lock.json`,
   `Pipfile.lock`, `composer.lock`, `go.sum`, `Cargo.lock`, `poetry.lock`; `yarn.lock` and
   `pnpm-lock.yaml` are recognised but not read yet) and names a `package.json`, `Cargo.toml` or
-  `go.mod` that has no lockfile beside it in the tree.
+  `go.mod` that has no lockfile beside it in the tree. What the reports make of these files —
+  the classes, the joins, every related surface in one table — is on
+  [`CODEEXAM_MAPPING_DEPENDENCIES.md`](CODEEXAM_MAPPING_DEPENDENCIES.md).
 
 Indexes scale: a pure-Node streaming JSON parser handles multi-gigabyte indexes — the largest
 tested is **Chromium, ~195K files / ~5 GB**, loaded with `NODE_OPTIONS=--max-old-space-size=8192`.

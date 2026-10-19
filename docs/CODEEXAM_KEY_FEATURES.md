@@ -46,7 +46,8 @@ turns prose (a patent claim, a spec) into a multisect query. Full treatment in
 ## Browsing
 
 Survey and navigate a codebase: the structural lists (functions, files, classes, data structures),
-the catalogs (command catalog, breadcrumbs, client/server, referenced resources, imports/BoM,
+the catalogs (command catalog, breadcrumbs, client/server, referenced resources, imports/BoM
+([`CODEEXAM_MAPPING_DEPENDENCIES.md`](CODEEXAM_MAPPING_DEPENDENCIES.md)),
 distinctive strings, vocabulary), cross-reference (callers, callees, call trees, coupling maps), and
 code-surfacing metrics for finding where to start reading. CodeExam lists items within each
 category by order of importance — often based in part on how many times an item occurs and how many

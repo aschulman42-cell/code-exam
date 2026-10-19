@@ -523,7 +523,10 @@ up where the bill of materials, which sees foreign code only under `vendor/`-nam
 cannot. The first party is a presumption from counts, marked as such on every line: on CodeExam's
 tree one holder on 226 files, a sample program's fictional company on 15 (presumptively third-party),
 Apache-2.0 on 228 headers, and the `LICENSE`, `NOTICE` and `THIRD-PARTY-NOTICES.md` documents
-listed apart. Issue #27 tracks the bill-of-materials feature. The run also turned up a declared-but-unused pair: `express` and
+listed apart. Issue #27 tracks the bill-of-materials feature;
+[`CODEEXAM_MAPPING_DEPENDENCIES.md`](CODEEXAM_MAPPING_DEPENDENCIES.md) draws the distinctions among imports, the
+bill of materials and dependencies, puts every related surface in one table, and says what is
+not done. The run also turned up a declared-but-unused pair: `express` and
 `zod` were in `package.json` but imported nowhere by CodeExam's code (the GUI server is Node's
 own `http`), and both arrive anyway as dependencies of the MCP SDK. The catalog was right and
 two of CodeExam's own pages were wrong, which is the point of running it; the two declarations

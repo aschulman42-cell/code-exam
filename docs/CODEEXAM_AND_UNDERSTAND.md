@@ -156,7 +156,8 @@ line is the workflow and the questions asked, not who owns the code.
   configuration, and model ids, each ranked by reference count with file and line sites), the
   HTTP surface (`--client-server`: routes declared,
   client calls made, and calls with no matching route), the telemetry and trace markers in
-  the code (`--breadcrumbs`), and the imports and bill of materials (`--bom`). Whether
+  the code (`--breadcrumbs`), and the imports and bill of materials (`--bom`;
+  [`CODEEXAM_MAPPING_DEPENDENCIES.md`](CODEEXAM_MAPPING_DEPENDENCIES.md)). Whether
   Understand has equivalents was not checked.
 - **The claims track.** Claim-oriented evidence discovery and mapping
   ([`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md),

@@ -86,7 +86,8 @@ model IDs), the **command catalog** (the target's own user-facing commands), tel
 **breadcrumbs**, **imports**, the **bill of materials** (the sections `--bom` prints: the class
 rollup, the ranked external surface with each row's reason, vendored subtrees, run-time dynamic
 loads, manifests and lockfiles, the declared/imported/locked joins, coverage), **copyright holders** (the in-tree half,
-with the first-versus-third presumption marked on every row and the license documents apart), and
+with the first-versus-third presumption marked on every row and the license documents apart; the
+two together, with every related surface, on [`CODEEXAM_MAPPING_DEPENDENCIES.md`](CODEEXAM_MAPPING_DEPENDENCIES.md)), and
 **prompts** — each row linking to its `file:line` sites —
 and the **duplicate** families (exact, near, structural, and fingerprint; see
 [`STRUCTURAL_SEARCH.md`](STRUCTURAL_SEARCH.md)).
