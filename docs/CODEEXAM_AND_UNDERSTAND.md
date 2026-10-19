@@ -16,7 +16,9 @@ and probably the one most often named in source-code protective orders as a perm
 CodeExam is not a replacement for it. It is an **examination layer**: a deterministic engine
 that indexes a codebase (including code that is not source) and answers the questions an
 examiner brings to a review, with an optional AI layer that runs locally or on a cloud engine
-and says, in its own voice, what each AI answer rested on. This page is about comparing the
+and says, in its own voice, what each AI answer rested on.
+
+This page is about comparing the
 two, and possibly using them side by side. CodeExam does not require Understand, nor vice
 versa, and CodeExam is usable without any knowledge of Understand. If you are not familiar
 with Understand and you do code examinations, it is certainly worth looking at:
@@ -69,20 +71,25 @@ the workflows built around it, the artifacts each tool can analyze, and how resu
 recorded and reviewed. What follows is what differs.
 
 Nor is Understand the only neighbour with a local model. [**Ghost Architect Local**](https://ghostarchitect.dev/), whose
-scans of CodeExam are the subject of issue #344, describes itself as "codebase intelligence on
+scans of CodeExam are the subject of issue [#344](https://github.com/aschulman42-cell/code-exam/issues/344), describes itself as "codebase intelligence on
 your own hardware, inside your network", runs its rule-based scans against a model server you
 own (Ollama, vLLM, LM Studio or any OpenAI-compatible endpoint) and says "air-gapped if that
 is how you work", one activation call to its site excepted; the #344 reports came from two
 small Qwen models through Ollama. Three more, chosen as the nearest in shape (documentation
-read 2026-10-17): **SonarQube Server** (Enterprise and Data Center editions) pairs its
-deterministic analyzer with AI CodeFix, which can use a self-hosted LLM gateway (Ollama,
-LiteLLM or vLLM behind an OpenAI-compatible API) and "is designed to operate without outbound
-internet access"; **Tabby**, an open-source self-hosted coding assistant, parses repositories
-into an index and answers questions over a selected repository from it, running models itself
-through a llama.cpp subprocess or through Ollama, vLLM or an OpenAI-compatible endpoint;
-**Aider**, an open-source command-line pair programmer and so the furthest of the three from an
-examiner's tool, builds a ranked map of each repository's symbols and definitions, sends it to
-the model within a token budget, and runs against local Ollama models. The pattern they share
+read 2026-10-17):
+
+- **SonarQube Server** (Enterprise and Data Center editions) pairs its
+  deterministic analyzer with AI CodeFix, which can use a self-hosted LLM gateway (Ollama,
+  LiteLLM or vLLM behind an OpenAI-compatible API) and "is designed to operate without outbound
+  internet access"; 
+- **Tabby**, an open-source self-hosted coding assistant, parses repositories
+  into an index and answers questions over a selected repository from it, running models itself
+  through a llama.cpp subprocess or through Ollama, vLLM or an OpenAI-compatible endpoint;
+- **Aider**, an open-source command-line pair programmer and so the furthest of the three from an
+  examiner's tool, builds a ranked map of each repository's symbols and definitions, sends it to
+  the model within a token budget, and runs against local Ollama models. 
+  
+The pattern they share
 is CodeExam's: something deterministic reaches into the code, and a local model reads what it
 is handed.
 
@@ -97,7 +104,7 @@ file and select **Analyze with LLM** from the pop-up menu.
 |---|---|---|---|
 | **Unit** | one entity at a time: a function, class or file | one function or file | the whole codebase |
 | **Method** | describe the code in front of the model | describe the clicked, named entity (analyzing a selected range of code rather than a named entity is planned; no issue yet) | an agent drives CodeExam's own tools (overview, vocabulary, digest, models used, …), then writes an orientation to the codebase as a whole |
-| **Generation** | on demand per entity, or pre-generated in bulk (`und ai`, or in the background on a capable machine) | on demand, per click | on demand, per index; an `--overnight` pass is contemplated (see #207 and #322, both open as of 2026-10-16) |
+| **Generation** | on demand per entity, or pre-generated in bulk (`und ai`, or in the background on a capable machine) | on demand, per click | on demand, per index; an `--overnight` pass is contemplated (see [#207](https://github.com/aschulman42-cell/code-exam/issues/207) and [#322](https://github.com/aschulman42-cell/code-exam/issues/322), both open as of 2026-10-16) |
 | **Time, as documented or observed** (not measured here; hardware, model, project size and context all move it) | "seconds" per entity in its documentation; "hours to days" is its documentation's phrase for pre-generating a large project | seconds, observed | minutes, observed with Gemma 4 on a 16 GB GPU and with a cloud engine |
 | **Where the text lives** | written to `ann_AI Overview` inside the project, so it can be committed and shared with machines that cannot run a model | the Analysis pane, until saved | the GUI page, for the loaded index, so reopening the pop-up does not re-run it; kept for the life of the browser tab, not written to disk, so a reload shows it again and closing the tab discards it (#207, open, is the issue on caching it with the index); printed by the CLI |
 | **Record of basis** | its documentation describes the overview as a description of the entity; no documented per-answer record of what a description was based on was found | none | a footer, written by CodeExam after the model finishes, listing which CodeExam tools the model called and how often, and notes where the answer's AI/ML sentence disagrees with CodeExam's own `models_used` result ([`CODEEXAM_NOTATION.md`](CODEEXAM_NOTATION.md)). It records tool names and counts, not the arguments passed or the evidence returned, and it checks only the AI/ML sentence, not every statement in the answer |
