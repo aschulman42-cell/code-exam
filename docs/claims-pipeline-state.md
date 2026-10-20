@@ -221,6 +221,23 @@ loop to convergence.** Andrew's original intent — iterate until pseudo-claims 
 their code references converge — is the unbuilt half, and is what would drive
 HOF-a.
 
+**Frame tables (2026-10-19, #322 stage 1).** `scripts/build-claim-frame-tables.mjs`
+writes `src/core/claim-frame-tables.json`: the words real litigated claims put
+AROUND the invention, with counts — the preamble class (the 2026-09-01 rule that
+split the fixture for the `litigated-system` profile, now a function), openers,
+skeletons (`a method for ..., the method comprising the steps of`), transitions,
+element openers per class and, from the 385 families, dependent reference
+phrases, openers, subjects and contributions by depth (§6 has the figures). The
+shape profiles say how MANY elements and dependents a claim 1 carries; these say
+which WORDS carry them. They feed the next item, `issue-322-claim-schema-drafting`:
+a claim *object* schema whose enums come from the tables and whose counts come
+from the profiles, rendered to claim text by CE on every engine (a JSON-schema
+grammar locally, structured output in the cloud), so the HOF pair — claim
+element, anchored function — exists at drafting time instead of being
+recovered by a second pass. A rebuild is a script run; the claim-1 half rebuilds
+from the in-repo fixture and is tested, the dependent half needs the local
+corpus and the JSON says which inputs it saw.
+
 ## 5. Known broken
 
 | what | where |
@@ -260,6 +277,11 @@ HOF-a.
 | `--claim-locate` variance | `.demo` | qwen3-14B Q4_K_M | 5 | 08-12 | 4 of 4 byte-identical to run 1 — **determinism is greedy decoding, not one model** |
 | element-10 words | `.demo` | gemma Q4_K_M | 5 | 08-12 | `[data, encrypt, channel]` → 11 candidates, identical ×5. Picked `channel` (7%) not `session` (14%); 3 words, fewest of any engine |
 | vocabulary step, local builds | `.demo` | 3 builds | 1 | 08-12 | gemma Q4_K_M **works** 11/11; gemma qat-Q4_0 **0/7** (words good, no numbering, F75); qwen3-14B **empty reply**. Qwen prompt-fit untuned — not a capability verdict |
+| frame tables: preamble class | 380-row structure fixture | deterministic | 380 | 10-19 | method 187 / system 70 / crm 15 / jepson 35 / other 73 — reproduces the 2026-09-01 split; 2 of the 15 crm are system by their preamble row (the rule reads the first 120 characters of the claim, and their first element names a medium); `other` head nouns: system 12, method 9, device 5 — the rule's narrowness, not a sixth class |
+| frame tables: transitions | same | deterministic | 378 | 10-19 | `comprising` 369 (97.6%), `including` 5, `comprises` 2; 2 rows with none (one typo, `comprsing`); tail `the steps of` 81 (21%), `the computer-implemented steps of` 8 |
+| frame tables: method skeletons | same, 187 method claim 1s | deterministic | 187 | 10-19 | 38 distinct; `a method for ... comprising` 24, `a method comprising` 20, `a method for ... comprising the steps of` 20, `a method of ... comprising` 20, `a method for ..., the method comprising` 13, `a method of ..., the method comprising` 13 |
+| frame tables: element openers | same, attorney rows beyond the preamble | deterministic | 956 method / 360 system / 93 crm rows | 10-19 | method rows open with a gerund 80.8% (`receiving` 90, `determining` 58, `providing` 56, `generating` / `storing` / `transmitting` 26); system rows with a noun phrase 71.9% (`means for` on 89 rows, `configured to` on 65); crm rows gerund 54.8%; rows per claim median 4 (p10 3, p90 8) |
+| frame tables: dependents | 385 litigated families | deterministic | 3,293 | 10-19 | reference `of claim` 72.8%, `as recited in claim` 7.7%, `according to claim` 6.5%, `as in claim` 6.4%, 36 with none; opener `wherein` 76.6%, `further comprising` 17.2%; contribution MODIFICATION 66.9% / ADDITION 17.4% / UNDETERMINED 15.7%; per family median 7 dependents (p10 2, p90 17, max 45), max depth median 2 (p10 1, p90 4, deepest 9) — the profile's `dependents` and `depth` axes re-measured unchanged; dep-claim-rules parent = office parent on 3,289, 0 disagreements, 4 unresolvable from the text |
 
 **Corpus caveat.** `.demo` / `.demo_code_only` is contrived — Claude wrote the code
 and the claim around each other. It flatters the tool three ways: vocabulary

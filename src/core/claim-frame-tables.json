@@ -1,0 +1,8894 @@
+{
+ "builtAt": "2026-10-19",
+ "note": "frame words of litigated software claims, with counts; see scripts/build-claim-frame-tables.mjs (#322)",
+ "minCount": 2,
+ "rules": {
+  "preambleClass": "the 2026-09-01 rule, verbatim in preambleClass(): jepson = opens \"In a\"; crm = computer-readable/usable, storage medium or program product in the first 120 characters; method = \"[a|an] [computer-implemented] method\" head; system = [a|an] + up to two modifiers + system|apparatus|device|server|terminal|controller|circuit; other = the rest",
+  "transition": "the LAST transition word in the attorney’s preamble row; the text after it is the tail (\"the steps of\")",
+  "opener": "the leading noun phrase up to the first purpose or body word (for / of / to / configured / having / storing / comprising ...); over eight words is no opener",
+  "skeleton": "opener, the connector that introduces the purpose, the purpose as \"...\", a closing re-mention of the head noun (\", the method\") when present, the transition, and a \"the steps of\" tail",
+  "template": "opener kept; after it only frame tokens are kept, in order, an article only before a head word, every other run of words collapsed to \"...\"; the transition closes it",
+  "frameTokens": [
+   "for",
+   "of",
+   "to",
+   "in",
+   "on",
+   "by",
+   "with",
+   "that",
+   "which",
+   "when",
+   "executed",
+   "executing",
+   "storing",
+   "stored",
+   "thereon",
+   "therein",
+   "embodying",
+   "embodied",
+   "encoded",
+   "containing",
+   "instructions",
+   "program",
+   "code",
+   "programs",
+   "operations",
+   "steps",
+   "perform",
+   "performing",
+   "cause",
+   "causes",
+   "causing",
+   "configured",
+   "operable",
+   "adapted",
+   "arranged",
+   "programmed",
+   "use",
+   "using",
+   "comprising",
+   "comprises",
+   "including",
+   "includes",
+   "having",
+   "wherein",
+   "processor",
+   "processors",
+   "computer",
+   "computers",
+   "memory",
+   "method",
+   "process",
+   "system",
+   "device",
+   "apparatus",
+   "medium",
+   "media",
+   "product",
+   "machine",
+   "circuit",
+   "server",
+   "network",
+   "controller",
+   "terminal"
+  ]
+ },
+ "inputs": {
+  "fixture": {
+   "path": "test/fixtures/litigated-claim1-structure.jsonl",
+   "rows": 380,
+   "note": "claim 1 only; lines = the attorney’s own element rows, preamble first"
+  },
+  "litigated": {
+   "path": "litig_claims_gp/litigated_claims.jsonl",
+   "families": 385,
+   "dependentsOfClaim1": 3293,
+   "claims": 10346,
+   "note": "not in the repo; litigated-claims-fetch.mjs output"
+  }
+ },
+ "claim1": {
+  "rows": 380,
+  "classes": {
+   "total": 380,
+   "distinct": 5,
+   "rows": [
+    {
+     "value": "method",
+     "count": 187,
+     "share": 0.492
+    },
+    {
+     "value": "other",
+     "count": 73,
+     "share": 0.192
+    },
+    {
+     "value": "system",
+     "count": 70,
+     "share": 0.184
+    },
+    {
+     "value": "jepson",
+     "count": 35,
+     "share": 0.092
+    },
+    {
+     "value": "crm",
+     "count": 15,
+     "share": 0.039
+    }
+   ]
+  },
+  "preambles": {
+   "openers": {
+    "all": {
+     "total": 376,
+     "distinct": 131,
+     "rows": [
+      {
+       "value": "a method",
+       "count": 167,
+       "share": 0.444
+      },
+      {
+       "value": "a computer-implemented method",
+       "count": 16,
+       "share": 0.043
+      },
+      {
+       "value": "in a computer system",
+       "count": 14,
+       "share": 0.037
+      },
+      {
+       "value": "a system",
+       "count": 13,
+       "share": 0.035
+      },
+      {
+       "value": "an apparatus",
+       "count": 8,
+       "share": 0.021
+      },
+      {
+       "value": "a computer system",
+       "count": 5,
+       "share": 0.013
+      },
+      {
+       "value": "a computer-readable medium",
+       "count": 5,
+       "share": 0.013
+      },
+      {
+       "value": "a computerized method",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a playback device",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a cluster multiprocessing system",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a computer program product",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a computer-implemented process",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a computer-implemented system",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a computerized system",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a computing device",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a direct access storage device",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a machine implemented method",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method performed",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a peripheral device connectable",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a user interface system",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a vehicle computer system",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "an input device",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "an interactive user interface and audio-visual",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "for use",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "in a computer network",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "in a method",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "in a system",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "in a wireless communication system",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "in an interactive viewing system",
+       "count": 2,
+       "share": 0.005
+      }
+     ]
+    },
+    "method": {
+     "total": 187,
+     "distinct": 5,
+     "rows": [
+      {
+       "value": "a method",
+       "count": 167,
+       "share": 0.893
+      },
+      {
+       "value": "a computer-implemented method",
+       "count": 16,
+       "share": 0.086
+      },
+      {
+       "value": "a method performed",
+       "count": 2,
+       "share": 0.011
+      }
+     ]
+    },
+    "system": {
+     "total": 70,
+     "distinct": 39,
+     "rows": [
+      {
+       "value": "a system",
+       "count": 13,
+       "share": 0.186
+      },
+      {
+       "value": "an apparatus",
+       "count": 8,
+       "share": 0.114
+      },
+      {
+       "value": "a computer system",
+       "count": 5,
+       "share": 0.071
+      },
+      {
+       "value": "a playback device",
+       "count": 3,
+       "share": 0.043
+      },
+      {
+       "value": "a cluster multiprocessing system",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "a computer-implemented system",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "a peripheral device connectable",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "a user interface system",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "a vehicle computer system",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "an input device",
+       "count": 2,
+       "share": 0.029
+      }
+     ]
+    },
+    "crm": {
+     "total": 15,
+     "distinct": 10,
+     "rows": [
+      {
+       "value": "a computer-readable medium",
+       "count": 5,
+       "share": 0.333
+      },
+      {
+       "value": "a computer program product",
+       "count": 2,
+       "share": 0.133
+      }
+     ]
+    },
+    "jepson": {
+     "total": 34,
+     "distinct": 17,
+     "rows": [
+      {
+       "value": "in a computer system",
+       "count": 14,
+       "share": 0.412
+      },
+      {
+       "value": "in a computer network",
+       "count": 2,
+       "share": 0.059
+      },
+      {
+       "value": "in a method",
+       "count": 2,
+       "share": 0.059
+      },
+      {
+       "value": "in a system",
+       "count": 2,
+       "share": 0.059
+      },
+      {
+       "value": "in a wireless communication system",
+       "count": 2,
+       "share": 0.059
+      }
+     ]
+    },
+    "other": {
+     "total": 70,
+     "distinct": 62,
+     "rows": [
+      {
+       "value": "a computerized method",
+       "count": 3,
+       "share": 0.043
+      },
+      {
+       "value": "a computer-implemented process",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "a direct access storage device",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "a machine implemented method",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "an interactive user interface and audio-visual",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "for use",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "in an interactive viewing system",
+       "count": 2,
+       "share": 0.029
+      }
+     ]
+    }
+   },
+   "headNouns": {
+    "all": {
+     "total": 376,
+     "distinct": 49,
+     "rows": [
+      {
+       "value": "method",
+       "count": 194,
+       "share": 0.516
+      },
+      {
+       "value": "system",
+       "count": 80,
+       "share": 0.213
+      },
+      {
+       "value": "device",
+       "count": 23,
+       "share": 0.061
+      },
+      {
+       "value": "apparatus",
+       "count": 12,
+       "share": 0.032
+      },
+      {
+       "value": "medium",
+       "count": 6,
+       "share": 0.016
+      },
+      {
+       "value": "network",
+       "count": 6,
+       "share": 0.016
+      },
+      {
+       "value": "interface",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "process",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "audio-visual",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "capable",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "connectable",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "connector",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "panel",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "performed",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "product",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "use",
+       "count": 2,
+       "share": 0.005
+      }
+     ]
+    },
+    "method": {
+     "total": 187,
+     "distinct": 4,
+     "rows": [
+      {
+       "value": "method",
+       "count": 183,
+       "share": 0.979
+      },
+      {
+       "value": "performed",
+       "count": 2,
+       "share": 0.011
+      }
+     ]
+    },
+    "system": {
+     "total": 70,
+     "distinct": 6,
+     "rows": [
+      {
+       "value": "system",
+       "count": 41,
+       "share": 0.586
+      },
+      {
+       "value": "device",
+       "count": 14,
+       "share": 0.2
+      },
+      {
+       "value": "apparatus",
+       "count": 10,
+       "share": 0.143
+      },
+      {
+       "value": "capable",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "connectable",
+       "count": 2,
+       "share": 0.029
+      }
+     ]
+    },
+    "crm": {
+     "total": 15,
+     "distinct": 7,
+     "rows": [
+      {
+       "value": "medium",
+       "count": 6,
+       "share": 0.4
+      },
+      {
+       "value": "device",
+       "count": 3,
+       "share": 0.2
+      },
+      {
+       "value": "product",
+       "count": 2,
+       "share": 0.133
+      }
+     ]
+    },
+    "jepson": {
+     "total": 34,
+     "distinct": 5,
+     "rows": [
+      {
+       "value": "system",
+       "count": 26,
+       "share": 0.765
+      },
+      {
+       "value": "network",
+       "count": 4,
+       "share": 0.118
+      },
+      {
+       "value": "method",
+       "count": 2,
+       "share": 0.059
+      }
+     ]
+    },
+    "other": {
+     "total": 70,
+     "distinct": 37,
+     "rows": [
+      {
+       "value": "system",
+       "count": 12,
+       "share": 0.171
+      },
+      {
+       "value": "method",
+       "count": 9,
+       "share": 0.129
+      },
+      {
+       "value": "device",
+       "count": 5,
+       "share": 0.071
+      },
+      {
+       "value": "interface",
+       "count": 3,
+       "share": 0.043
+      },
+      {
+       "value": "process",
+       "count": 3,
+       "share": 0.043
+      },
+      {
+       "value": "apparatus",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "audio-visual",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "connector",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "network",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "panel",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "use",
+       "count": 2,
+       "share": 0.029
+      }
+     ]
+    }
+   },
+   "skeletons": {
+    "all": {
+     "total": 380,
+     "distinct": 203,
+     "rows": [
+      {
+       "value": "a method for ... comprising",
+       "count": 24,
+       "share": 0.063
+      },
+      {
+       "value": "a method comprising",
+       "count": 20,
+       "share": 0.053
+      },
+      {
+       "value": "a method for ... comprising the steps of",
+       "count": 20,
+       "share": 0.053
+      },
+      {
+       "value": "a method of ... comprising",
+       "count": 20,
+       "share": 0.053
+      },
+      {
+       "value": "a method for ..., the method comprising",
+       "count": 13,
+       "share": 0.034
+      },
+      {
+       "value": "a method of ..., the method comprising",
+       "count": 13,
+       "share": 0.034
+      },
+      {
+       "value": "a method for ..., the method comprising the steps of",
+       "count": 11,
+       "share": 0.029
+      },
+      {
+       "value": "a system for ... comprising",
+       "count": 9,
+       "share": 0.024
+      },
+      {
+       "value": "a method for ..., said method comprising the steps of",
+       "count": 7,
+       "share": 0.018
+      },
+      {
+       "value": "a method of ... comprising the steps of",
+       "count": 6,
+       "share": 0.016
+      },
+      {
+       "value": "a method of ..., the method comprising the steps of",
+       "count": 6,
+       "share": 0.016
+      },
+      {
+       "value": "a computer system comprising",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "a computer-implemented method comprising",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "a method in ..., the method comprising",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "a computer-implemented method for ... comprising",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a computer-implemented method for ..., the method comprising",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a method for ..., the method comprising the computer-implemented steps",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "an apparatus comprising",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "an apparatus for ... comprising",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a cluster multiprocessing system comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a computer-implemented method for ... comprising the steps of",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a computer-readable medium having ... comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a computing device comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a direct access storage device for ... comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method ..., the method comprising the steps of",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method for ..., said method comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method of ..., said method comprising the steps of",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method of ..., the method comprising the following steps",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method performed by ... comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method to ..., the method comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a peripheral device connectable to ..., the peripheral device comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a user interface system for ... comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a vehicle computer system comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "an input device for ..., said device comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "an interactive user interface and audio-visual ... comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "in a computer system having ... comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "in a computer system having ... comprising the computer-implemented steps",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "in a computer system having ... comprising the steps of",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "in an interactive viewing system having ..., the method comprising the steps of",
+       "count": 2,
+       "share": 0.005
+      }
+     ]
+    },
+    "method": {
+     "total": 187,
+     "distinct": 38,
+     "rows": [
+      {
+       "value": "a method for ... comprising",
+       "count": 24,
+       "share": 0.128
+      },
+      {
+       "value": "a method comprising",
+       "count": 20,
+       "share": 0.107
+      },
+      {
+       "value": "a method for ... comprising the steps of",
+       "count": 20,
+       "share": 0.107
+      },
+      {
+       "value": "a method of ... comprising",
+       "count": 20,
+       "share": 0.107
+      },
+      {
+       "value": "a method for ..., the method comprising",
+       "count": 13,
+       "share": 0.07
+      },
+      {
+       "value": "a method of ..., the method comprising",
+       "count": 13,
+       "share": 0.07
+      },
+      {
+       "value": "a method for ..., the method comprising the steps of",
+       "count": 11,
+       "share": 0.059
+      },
+      {
+       "value": "a method for ..., said method comprising the steps of",
+       "count": 7,
+       "share": 0.037
+      },
+      {
+       "value": "a method of ... comprising the steps of",
+       "count": 6,
+       "share": 0.032
+      },
+      {
+       "value": "a method of ..., the method comprising the steps of",
+       "count": 6,
+       "share": 0.032
+      },
+      {
+       "value": "a computer-implemented method comprising",
+       "count": 4,
+       "share": 0.021
+      },
+      {
+       "value": "a method in ..., the method comprising",
+       "count": 4,
+       "share": 0.021
+      },
+      {
+       "value": "a computer-implemented method for ... comprising",
+       "count": 3,
+       "share": 0.016
+      },
+      {
+       "value": "a computer-implemented method for ..., the method comprising",
+       "count": 3,
+       "share": 0.016
+      },
+      {
+       "value": "a method for ..., the method comprising the computer-implemented steps",
+       "count": 3,
+       "share": 0.016
+      },
+      {
+       "value": "a computer-implemented method for ... comprising the steps of",
+       "count": 2,
+       "share": 0.011
+      },
+      {
+       "value": "a method ..., the method comprising the steps of",
+       "count": 2,
+       "share": 0.011
+      },
+      {
+       "value": "a method for ..., said method comprising",
+       "count": 2,
+       "share": 0.011
+      },
+      {
+       "value": "a method of ..., said method comprising the steps of",
+       "count": 2,
+       "share": 0.011
+      },
+      {
+       "value": "a method of ..., the method comprising the following steps",
+       "count": 2,
+       "share": 0.011
+      },
+      {
+       "value": "a method performed by ... comprising",
+       "count": 2,
+       "share": 0.011
+      },
+      {
+       "value": "a method to ..., the method comprising",
+       "count": 2,
+       "share": 0.011
+      }
+     ]
+    },
+    "system": {
+     "total": 70,
+     "distinct": 50,
+     "rows": [
+      {
+       "value": "a system for ... comprising",
+       "count": 9,
+       "share": 0.129
+      },
+      {
+       "value": "a computer system comprising",
+       "count": 4,
+       "share": 0.057
+      },
+      {
+       "value": "an apparatus comprising",
+       "count": 3,
+       "share": 0.043
+      },
+      {
+       "value": "an apparatus for ... comprising",
+       "count": 3,
+       "share": 0.043
+      },
+      {
+       "value": "a cluster multiprocessing system comprising",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "a peripheral device connectable to ..., the peripheral device comprising",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "a user interface system for ... comprising",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "a vehicle computer system comprising",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "an input device for ..., said device comprising",
+       "count": 2,
+       "share": 0.029
+      }
+     ]
+    },
+    "crm": {
+     "total": 15,
+     "distinct": 14,
+     "rows": [
+      {
+       "value": "a computer-readable medium having ... comprising",
+       "count": 2,
+       "share": 0.133
+      }
+     ]
+    },
+    "jepson": {
+     "total": 35,
+     "distinct": 32,
+     "rows": [
+      {
+       "value": "in a computer system having ... comprising",
+       "count": 2,
+       "share": 0.057
+      },
+      {
+       "value": "in a computer system having ... comprising the computer-implemented steps",
+       "count": 2,
+       "share": 0.057
+      },
+      {
+       "value": "in a computer system having ... comprising the steps of",
+       "count": 2,
+       "share": 0.057
+      }
+     ]
+    },
+    "other": {
+     "total": 73,
+     "distinct": 70,
+     "rows": [
+      {
+       "value": "a direct access storage device for ... comprising",
+       "count": 2,
+       "share": 0.027
+      },
+      {
+       "value": "an interactive user interface and audio-visual ... comprising",
+       "count": 2,
+       "share": 0.027
+      },
+      {
+       "value": "in an interactive viewing system having ..., the method comprising the steps of",
+       "count": 2,
+       "share": 0.027
+      }
+     ]
+    }
+   },
+   "templates": {
+    "all": {
+     "total": 380,
+     "distinct": 322,
+     "rows": [
+      {
+       "value": "a method comprising",
+       "count": 20,
+       "share": 0.053
+      },
+      {
+       "value": "a method for ... comprising",
+       "count": 7,
+       "share": 0.018
+      },
+      {
+       "value": "a computer system comprising",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "a computer-implemented method comprising",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "a method of ... comprising",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "a method for ... in ... comprising",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a method for ... to ... comprising",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a method for ..., the method comprising",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a system for ... comprising",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "an apparatus comprising",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a cluster multiprocessing system comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a computing device comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method for ... a computer system to ... in ... comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method for ... in a network comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method for ... of ..., the method comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method for ... system comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method for ... that ... encoded in ... for ..., wherein ... includes ... of ..., in ... of ... to ... in ..., the method comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method for ... to ..., the method comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method for ... with ..., the method comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method of ... of ..., the method comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a method performed by ... apparatus comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a system for ... of ... comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "a vehicle computer system comprising",
+       "count": 2,
+       "share": 0.005
+      },
+      {
+       "value": "an interactive user interface and audio-visual ... system comprising",
+       "count": 2,
+       "share": 0.005
+      }
+     ]
+    },
+    "method": {
+     "total": 187,
+     "distinct": 141,
+     "rows": [
+      {
+       "value": "a method comprising",
+       "count": 20,
+       "share": 0.107
+      },
+      {
+       "value": "a method for ... comprising",
+       "count": 7,
+       "share": 0.037
+      },
+      {
+       "value": "a computer-implemented method comprising",
+       "count": 4,
+       "share": 0.021
+      },
+      {
+       "value": "a method of ... comprising",
+       "count": 4,
+       "share": 0.021
+      },
+      {
+       "value": "a method for ... in ... comprising",
+       "count": 3,
+       "share": 0.016
+      },
+      {
+       "value": "a method for ... to ... comprising",
+       "count": 3,
+       "share": 0.016
+      },
+      {
+       "value": "a method for ..., the method comprising",
+       "count": 3,
+       "share": 0.016
+      },
+      {
+       "value": "a method for ... a computer system to ... in ... comprising",
+       "count": 2,
+       "share": 0.011
+      },
+      {
+       "value": "a method for ... in a network comprising",
+       "count": 2,
+       "share": 0.011
+      },
+      {
+       "value": "a method for ... of ..., the method comprising",
+       "count": 2,
+       "share": 0.011
+      },
+      {
+       "value": "a method for ... system comprising",
+       "count": 2,
+       "share": 0.011
+      },
+      {
+       "value": "a method for ... that ... encoded in ... for ..., wherein ... includes ... of ..., in ... of ... to ... in ..., the method comprising",
+       "count": 2,
+       "share": 0.011
+      },
+      {
+       "value": "a method for ... to ..., the method comprising",
+       "count": 2,
+       "share": 0.011
+      },
+      {
+       "value": "a method for ... with ..., the method comprising",
+       "count": 2,
+       "share": 0.011
+      },
+      {
+       "value": "a method of ... of ..., the method comprising",
+       "count": 2,
+       "share": 0.011
+      },
+      {
+       "value": "a method performed by ... apparatus comprising",
+       "count": 2,
+       "share": 0.011
+      }
+     ]
+    },
+    "system": {
+     "total": 70,
+     "distinct": 60,
+     "rows": [
+      {
+       "value": "a computer system comprising",
+       "count": 4,
+       "share": 0.057
+      },
+      {
+       "value": "a system for ... comprising",
+       "count": 3,
+       "share": 0.043
+      },
+      {
+       "value": "an apparatus comprising",
+       "count": 3,
+       "share": 0.043
+      },
+      {
+       "value": "a cluster multiprocessing system comprising",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "a system for ... of ... comprising",
+       "count": 2,
+       "share": 0.029
+      },
+      {
+       "value": "a vehicle computer system comprising",
+       "count": 2,
+       "share": 0.029
+      }
+     ]
+    },
+    "crm": {
+     "total": 15,
+     "distinct": 15,
+     "rows": []
+    },
+    "jepson": {
+     "total": 35,
+     "distinct": 35,
+     "rows": []
+    },
+    "other": {
+     "total": 73,
+     "distinct": 72,
+     "rows": [
+      {
+       "value": "an interactive user interface and audio-visual ... system comprising",
+       "count": 2,
+       "share": 0.027
+      }
+     ]
+    }
+   },
+   "withoutTransition": [
+    {
+     "patent": "7702352",
+     "row": "A method comprsing"
+    },
+    {
+     "patent": "6453182",
+     "row": "A wireless telephone ("
+    }
+   ],
+   "withoutOpener": [
+    {
+     "patent": "6212575",
+     "cls": "other",
+     "row": "An extensible and replaceable layered component computing arrangement residing o"
+    },
+    {
+     "patent": "4500750",
+     "cls": "jepson",
+     "row": "In a system providing data communication between a terminal at which data is ent"
+    },
+    {
+     "patent": "6421439",
+     "cls": "other",
+     "row": "In an environment where subscribers call a user over a telephone network, wherei"
+    },
+    {
+     "patent": "5873040",
+     "cls": "other",
+     "row": "For a communication network handling voice communication between wireless mobile"
+    }
+   ]
+  },
+  "transitions": {
+   "all": {
+    "total": 378,
+    "distinct": 5,
+    "rows": [
+     {
+      "value": "comprising",
+      "count": 369,
+      "share": 0.976
+     },
+     {
+      "value": "including",
+      "count": 5,
+      "share": 0.013
+     },
+     {
+      "value": "comprises",
+      "count": 2,
+      "share": 0.005
+     },
+     {
+      "value": "having",
+      "count": 1,
+      "share": 0.003
+     },
+     {
+      "value": "includes",
+      "count": 1,
+      "share": 0.003
+     }
+    ]
+   },
+   "method": {
+    "total": 186,
+    "distinct": 3,
+    "rows": [
+     {
+      "value": "comprising",
+      "count": 183,
+      "share": 0.984
+     },
+     {
+      "value": "including",
+      "count": 2,
+      "share": 0.011
+     },
+     {
+      "value": "includes",
+      "count": 1,
+      "share": 0.005
+     }
+    ]
+   },
+   "system": {
+    "total": 70,
+    "distinct": 2,
+    "rows": [
+     {
+      "value": "comprising",
+      "count": 69,
+      "share": 0.986
+     },
+     {
+      "value": "including",
+      "count": 1,
+      "share": 0.014
+     }
+    ]
+   },
+   "crm": {
+    "total": 15,
+    "distinct": 2,
+    "rows": [
+     {
+      "value": "comprising",
+      "count": 14,
+      "share": 0.933
+     },
+     {
+      "value": "including",
+      "count": 1,
+      "share": 0.067
+     }
+    ]
+   },
+   "jepson": {
+    "total": 35,
+    "distinct": 3,
+    "rows": [
+     {
+      "value": "comprising",
+      "count": 33,
+      "share": 0.943
+     },
+     {
+      "value": "having",
+      "count": 1,
+      "share": 0.029
+     },
+     {
+      "value": "including",
+      "count": 1,
+      "share": 0.029
+     }
+    ]
+   },
+   "other": {
+    "total": 72,
+    "distinct": 2,
+    "rows": [
+     {
+      "value": "comprising",
+      "count": 70,
+      "share": 0.972
+     },
+     {
+      "value": "comprises",
+      "count": 2,
+      "share": 0.028
+     }
+    ]
+   }
+  },
+  "transitionTails": {
+   "all": {
+    "total": 380,
+    "distinct": 23,
+    "rows": [
+     {
+      "value": "(none)",
+      "count": 263,
+      "share": 0.692
+     },
+     {
+      "value": "the steps of",
+      "count": 81,
+      "share": 0.213
+     },
+     {
+      "value": "the computer-implemented steps of",
+      "count": 8,
+      "share": 0.021
+     },
+     {
+      "value": ";",
+      "count": 5,
+      "share": 0.013
+     },
+     {
+      "value": "the following steps",
+      "count": 4,
+      "share": 0.011
+     },
+     {
+      "value": "the following",
+      "count": 2,
+      "share": 0.005
+     }
+    ]
+   },
+   "method": {
+    "total": 187,
+    "distinct": 13,
+    "rows": [
+     {
+      "value": "(none)",
+      "count": 109,
+      "share": 0.583
+     },
+     {
+      "value": "the steps of",
+      "count": 61,
+      "share": 0.326
+     },
+     {
+      "value": "the computer-implemented steps of",
+      "count": 4,
+      "share": 0.021
+     },
+     {
+      "value": "the following steps",
+      "count": 3,
+      "share": 0.016
+     },
+     {
+      "value": ";",
+      "count": 2,
+      "share": 0.011
+     }
+    ]
+   },
+   "system": {
+    "total": 70,
+    "distinct": 2,
+    "rows": [
+     {
+      "value": "(none)",
+      "count": 69,
+      "share": 0.986
+     }
+    ]
+   },
+   "crm": {
+    "total": 15,
+    "distinct": 5,
+    "rows": [
+     {
+      "value": "(none)",
+      "count": 11,
+      "share": 0.733
+     }
+    ]
+   },
+   "jepson": {
+    "total": 35,
+    "distinct": 8,
+    "rows": [
+     {
+      "value": "(none)",
+      "count": 15,
+      "share": 0.429
+     },
+     {
+      "value": "the steps of",
+      "count": 10,
+      "share": 0.286
+     },
+     {
+      "value": "the computer-implemented steps of",
+      "count": 4,
+      "share": 0.114
+     },
+     {
+      "value": "the following",
+      "count": 2,
+      "share": 0.057
+     }
+    ]
+   },
+   "other": {
+    "total": 73,
+    "distinct": 4,
+    "rows": [
+     {
+      "value": "(none)",
+      "count": 59,
+      "share": 0.808
+     },
+     {
+      "value": "the steps of",
+      "count": 10,
+      "share": 0.137
+     },
+     {
+      "value": ";",
+      "count": 3,
+      "share": 0.041
+     }
+    ]
+   }
+  },
+  "elements": {
+   "rowsPerClaim": {
+    "n": 380,
+    "median": 4,
+    "p10": 3,
+    "p90": 8,
+    "max": 31
+   },
+   "firstWord": {
+    "all": {
+     "total": 1914,
+     "distinct": 296,
+     "rows": [
+      {
+       "value": "a",
+       "count": 332,
+       "share": 0.173
+      },
+      {
+       "value": "receiving",
+       "count": 115,
+       "share": 0.06
+      },
+      {
+       "value": "wherein",
+       "count": 84,
+       "share": 0.044
+      },
+      {
+       "value": "determining",
+       "count": 80,
+       "share": 0.042
+      },
+      {
+       "value": "an",
+       "count": 63,
+       "share": 0.033
+      },
+      {
+       "value": "providing",
+       "count": 62,
+       "share": 0.032
+      },
+      {
+       "value": "means",
+       "count": 57,
+       "share": 0.03
+      },
+      {
+       "value": "the",
+       "count": 44,
+       "share": 0.023
+      },
+      {
+       "value": "displaying",
+       "count": 43,
+       "share": 0.022
+      },
+      {
+       "value": "in",
+       "count": 40,
+       "share": 0.021
+      },
+      {
+       "value": "storing",
+       "count": 37,
+       "share": 0.019
+      },
+      {
+       "value": "at",
+       "count": 36,
+       "share": 0.019
+      },
+      {
+       "value": "generating",
+       "count": 36,
+       "share": 0.019
+      },
+      {
+       "value": "transmitting",
+       "count": 34,
+       "share": 0.018
+      },
+      {
+       "value": "if",
+       "count": 29,
+       "share": 0.015
+      },
+      {
+       "value": "identifying",
+       "count": 28,
+       "share": 0.015
+      },
+      {
+       "value": "said",
+       "count": 26,
+       "share": 0.014
+      },
+      {
+       "value": "selecting",
+       "count": 20,
+       "share": 0.01
+      },
+      {
+       "value": "establishing",
+       "count": 18,
+       "share": 0.009
+      },
+      {
+       "value": "detecting",
+       "count": 17,
+       "share": 0.009
+      },
+      {
+       "value": "creating",
+       "count": 16,
+       "share": 0.008
+      },
+      {
+       "value": "executing",
+       "count": 15,
+       "share": 0.008
+      },
+      {
+       "value": "sending",
+       "count": 14,
+       "share": 0.007
+      },
+      {
+       "value": "comparing",
+       "count": 13,
+       "share": 0.007
+      },
+      {
+       "value": "performing",
+       "count": 13,
+       "share": 0.007
+      },
+      {
+       "value": "retrieving",
+       "count": 13,
+       "share": 0.007
+      },
+      {
+       "value": "using",
+       "count": 13,
+       "share": 0.007
+      },
+      {
+       "value": "calculating",
+       "count": 11,
+       "share": 0.006
+      },
+      {
+       "value": "obtaining",
+       "count": 11,
+       "share": 0.006
+      },
+      {
+       "value": "presenting",
+       "count": 11,
+       "share": 0.006
+      },
+      {
+       "value": "processing",
+       "count": 11,
+       "share": 0.006
+      },
+      {
+       "value": "after",
+       "count": 10,
+       "share": 0.005
+      },
+      {
+       "value": "based",
+       "count": 10,
+       "share": 0.005
+      },
+      {
+       "value": "defining",
+       "count": 10,
+       "share": 0.005
+      },
+      {
+       "value": "modifying",
+       "count": 10,
+       "share": 0.005
+      },
+      {
+       "value": "one",
+       "count": 10,
+       "share": 0.005
+      },
+      {
+       "value": "upon",
+       "count": 10,
+       "share": 0.005
+      },
+      {
+       "value": "whereby",
+       "count": 8,
+       "share": 0.004
+      },
+      {
+       "value": "accessing",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "causing",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "monitoring",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "reading",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "responsive",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "while",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "configuring",
+       "count": 6,
+       "share": 0.003
+      },
+      {
+       "value": "for",
+       "count": 6,
+       "share": 0.003
+      },
+      {
+       "value": "making",
+       "count": 6,
+       "share": 0.003
+      },
+      {
+       "value": "requesting",
+       "count": 6,
+       "share": 0.003
+      },
+      {
+       "value": "updating",
+       "count": 6,
+       "share": 0.003
+      },
+      {
+       "value": "adjusting",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "assigning",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "attaching",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "building",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "combining",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "communicating",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "constructing",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "initiating",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "instructions",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "maintaining",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "associating",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "automatically",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "controlling",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "deriving",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "during",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "encoding",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "installing",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "outputting",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "rendering",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "structuring",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "applying",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "assembling",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "changing",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "decoding",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "delivering",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "determine",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "dynamically",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "enabling",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "extracting",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "first",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "following",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "immediately",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "invoking",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "iv",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "loading",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "measuring",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "memory",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "multiple",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "organizing",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "replacing",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "respective",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "responding",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "saving",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "setting",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "specifying",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "transacting",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "under",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "validating",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "when",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "writing",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "accept",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "accepting",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "adding",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "allocating",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "analog",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "analyzing",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "attempting",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "blocking",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "bypassing",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "collecting",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "computing",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "control",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "copying",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "deactivating",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "digital",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "distributing",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "document",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "downloading",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "each",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "else",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "encrypting",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "ground",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "grouping",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "initializing",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "instantiating",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "issuing",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "leaving",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "matching",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "opening",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "parsing",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "preparing",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "producing",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "recovering",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "repeating",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "replicating",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "reserving",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "resetting",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "resizing",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "retransmitting",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "searching",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "second",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "selectively",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "serial",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "serializing",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "shaping",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "starting",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "temporarily",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "tracking",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "transferring",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "transforming",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "translating",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "transporting",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "undoing",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "user",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "waiting",
+       "count": 2,
+       "share": 0.001
+      }
+     ]
+    },
+    "method": {
+     "total": 956,
+     "distinct": 220,
+     "rows": [
+      {
+       "value": "receiving",
+       "count": 90,
+       "share": 0.094
+      },
+      {
+       "value": "determining",
+       "count": 58,
+       "share": 0.061
+      },
+      {
+       "value": "providing",
+       "count": 56,
+       "share": 0.059
+      },
+      {
+       "value": "in",
+       "count": 29,
+       "share": 0.03
+      },
+      {
+       "value": "generating",
+       "count": 26,
+       "share": 0.027
+      },
+      {
+       "value": "storing",
+       "count": 26,
+       "share": 0.027
+      },
+      {
+       "value": "transmitting",
+       "count": 26,
+       "share": 0.027
+      },
+      {
+       "value": "displaying",
+       "count": 24,
+       "share": 0.025
+      },
+      {
+       "value": "wherein",
+       "count": 22,
+       "share": 0.023
+      },
+      {
+       "value": "identifying",
+       "count": 19,
+       "share": 0.02
+      },
+      {
+       "value": "establishing",
+       "count": 18,
+       "share": 0.019
+      },
+      {
+       "value": "selecting",
+       "count": 17,
+       "share": 0.018
+      },
+      {
+       "value": "if",
+       "count": 16,
+       "share": 0.017
+      },
+      {
+       "value": "detecting",
+       "count": 14,
+       "share": 0.015
+      },
+      {
+       "value": "creating",
+       "count": 13,
+       "share": 0.014
+      },
+      {
+       "value": "sending",
+       "count": 13,
+       "share": 0.014
+      },
+      {
+       "value": "a",
+       "count": 12,
+       "share": 0.013
+      },
+      {
+       "value": "calculating",
+       "count": 11,
+       "share": 0.012
+      },
+      {
+       "value": "performing",
+       "count": 11,
+       "share": 0.012
+      },
+      {
+       "value": "obtaining",
+       "count": 10,
+       "share": 0.01
+      },
+      {
+       "value": "after",
+       "count": 9,
+       "share": 0.009
+      },
+      {
+       "value": "executing",
+       "count": 9,
+       "share": 0.009
+      },
+      {
+       "value": "upon",
+       "count": 9,
+       "share": 0.009
+      },
+      {
+       "value": "at",
+       "count": 8,
+       "share": 0.008
+      },
+      {
+       "value": "defining",
+       "count": 8,
+       "share": 0.008
+      },
+      {
+       "value": "processing",
+       "count": 8,
+       "share": 0.008
+      },
+      {
+       "value": "causing",
+       "count": 7,
+       "share": 0.007
+      },
+      {
+       "value": "presenting",
+       "count": 7,
+       "share": 0.007
+      },
+      {
+       "value": "reading",
+       "count": 7,
+       "share": 0.007
+      },
+      {
+       "value": "responsive",
+       "count": 7,
+       "share": 0.007
+      },
+      {
+       "value": "the",
+       "count": 7,
+       "share": 0.007
+      },
+      {
+       "value": "whereby",
+       "count": 7,
+       "share": 0.007
+      },
+      {
+       "value": "comparing",
+       "count": 6,
+       "share": 0.006
+      },
+      {
+       "value": "configuring",
+       "count": 6,
+       "share": 0.006
+      },
+      {
+       "value": "modifying",
+       "count": 6,
+       "share": 0.006
+      },
+      {
+       "value": "requesting",
+       "count": 6,
+       "share": 0.006
+      },
+      {
+       "value": "retrieving",
+       "count": 6,
+       "share": 0.006
+      },
+      {
+       "value": "accessing",
+       "count": 5,
+       "share": 0.005
+      },
+      {
+       "value": "adjusting",
+       "count": 5,
+       "share": 0.005
+      },
+      {
+       "value": "assigning",
+       "count": 5,
+       "share": 0.005
+      },
+      {
+       "value": "attaching",
+       "count": 5,
+       "share": 0.005
+      },
+      {
+       "value": "constructing",
+       "count": 5,
+       "share": 0.005
+      },
+      {
+       "value": "making",
+       "count": 5,
+       "share": 0.005
+      },
+      {
+       "value": "associating",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "automatically",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "based",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "controlling",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "deriving",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "during",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "initiating",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "maintaining",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "monitoring",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "structuring",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "updating",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "while",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "applying",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "combining",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "communicating",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "decoding",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "dynamically",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "enabling",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "following",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "for",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "immediately",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "installing",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "iv",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "organizing",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "said",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "saving",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "setting",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "specifying",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "transacting",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "under",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "validating",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "writing",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "allocating",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "analyzing",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "assembling",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "blocking",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "building",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "changing",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "copying",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "deactivating",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "delivering",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "distributing",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "document",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "downloading",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "encoding",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "extracting",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "grouping",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "invoking",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "leaving",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "matching",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "opening",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "parsing",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "producing",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "recovering",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "replacing",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "reserving",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "resetting",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "resizing",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "retransmitting",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "searching",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "selectively",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "serializing",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "shaping",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "starting",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "temporarily",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "tracking",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "transferring",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "translating",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "transporting",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "using",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "when",
+       "count": 2,
+       "share": 0.002
+      }
+     ]
+    },
+    "system": {
+     "total": 360,
+     "distinct": 47,
+     "rows": [
+      {
+       "value": "a",
+       "count": 173,
+       "share": 0.481
+      },
+      {
+       "value": "an",
+       "count": 32,
+       "share": 0.089
+      },
+      {
+       "value": "wherein",
+       "count": 30,
+       "share": 0.083
+      },
+      {
+       "value": "means",
+       "count": 22,
+       "share": 0.061
+      },
+      {
+       "value": "the",
+       "count": 20,
+       "share": 0.056
+      },
+      {
+       "value": "said",
+       "count": 14,
+       "share": 0.039
+      },
+      {
+       "value": "at",
+       "count": 13,
+       "share": 0.036
+      },
+      {
+       "value": "one",
+       "count": 7,
+       "share": 0.019
+      },
+      {
+       "value": "determine",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "instructions",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "memory",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "accept",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "based",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "first",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "in",
+       "count": 2,
+       "share": 0.006
+      }
+     ]
+    },
+    "crm": {
+     "total": 93,
+     "distinct": 37,
+     "rows": [
+      {
+       "value": "a",
+       "count": 17,
+       "share": 0.183
+      },
+      {
+       "value": "displaying",
+       "count": 8,
+       "share": 0.086
+      },
+      {
+       "value": "if",
+       "count": 7,
+       "share": 0.075
+      },
+      {
+       "value": "wherein",
+       "count": 7,
+       "share": 0.075
+      },
+      {
+       "value": "receiving",
+       "count": 6,
+       "share": 0.065
+      },
+      {
+       "value": "using",
+       "count": 4,
+       "share": 0.043
+      },
+      {
+       "value": "determining",
+       "count": 3,
+       "share": 0.032
+      },
+      {
+       "value": "rendering",
+       "count": 3,
+       "share": 0.032
+      },
+      {
+       "value": "retrieving",
+       "count": 3,
+       "share": 0.032
+      },
+      {
+       "value": "defining",
+       "count": 2,
+       "share": 0.022
+      },
+      {
+       "value": "detecting",
+       "count": 2,
+       "share": 0.022
+      },
+      {
+       "value": "else",
+       "count": 2,
+       "share": 0.022
+      },
+      {
+       "value": "generating",
+       "count": 2,
+       "share": 0.022
+      },
+      {
+       "value": "modifying",
+       "count": 2,
+       "share": 0.022
+      },
+      {
+       "value": "updating",
+       "count": 2,
+       "share": 0.022
+      },
+      {
+       "value": "while",
+       "count": 2,
+       "share": 0.022
+      }
+     ]
+    },
+    "jepson": {
+     "total": 153,
+     "distinct": 61,
+     "rows": [
+      {
+       "value": "receiving",
+       "count": 11,
+       "share": 0.072
+      },
+      {
+       "value": "at",
+       "count": 9,
+       "share": 0.059
+      },
+      {
+       "value": "storing",
+       "count": 9,
+       "share": 0.059
+      },
+      {
+       "value": "transmitting",
+       "count": 8,
+       "share": 0.052
+      },
+      {
+       "value": "an",
+       "count": 7,
+       "share": 0.046
+      },
+      {
+       "value": "using",
+       "count": 7,
+       "share": 0.046
+      },
+      {
+       "value": "a",
+       "count": 5,
+       "share": 0.033
+      },
+      {
+       "value": "determining",
+       "count": 5,
+       "share": 0.033
+      },
+      {
+       "value": "generating",
+       "count": 5,
+       "share": 0.033
+      },
+      {
+       "value": "means",
+       "count": 5,
+       "share": 0.033
+      },
+      {
+       "value": "providing",
+       "count": 5,
+       "share": 0.033
+      },
+      {
+       "value": "identifying",
+       "count": 4,
+       "share": 0.026
+      },
+      {
+       "value": "in",
+       "count": 4,
+       "share": 0.026
+      },
+      {
+       "value": "said",
+       "count": 4,
+       "share": 0.026
+      },
+      {
+       "value": "comparing",
+       "count": 3,
+       "share": 0.02
+      },
+      {
+       "value": "displaying",
+       "count": 3,
+       "share": 0.02
+      },
+      {
+       "value": "retrieving",
+       "count": 3,
+       "share": 0.02
+      },
+      {
+       "value": "based",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "combining",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "creating",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "for",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "if",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "loading",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "measuring",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "outputting",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "presenting",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "the",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "waiting",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "wherein",
+       "count": 2,
+       "share": 0.013
+      }
+     ]
+    },
+    "other": {
+     "total": 352,
+     "distinct": 70,
+     "rows": [
+      {
+       "value": "a",
+       "count": 125,
+       "share": 0.355
+      },
+      {
+       "value": "means",
+       "count": 30,
+       "share": 0.085
+      },
+      {
+       "value": "an",
+       "count": 23,
+       "share": 0.065
+      },
+      {
+       "value": "wherein",
+       "count": 23,
+       "share": 0.065
+      },
+      {
+       "value": "the",
+       "count": 15,
+       "share": 0.043
+      },
+      {
+       "value": "determining",
+       "count": 14,
+       "share": 0.04
+      },
+      {
+       "value": "displaying",
+       "count": 8,
+       "share": 0.023
+      },
+      {
+       "value": "receiving",
+       "count": 8,
+       "share": 0.023
+      },
+      {
+       "value": "at",
+       "count": 5,
+       "share": 0.014
+      },
+      {
+       "value": "executing",
+       "count": 5,
+       "share": 0.014
+      },
+      {
+       "value": "in",
+       "count": 5,
+       "share": 0.014
+      },
+      {
+       "value": "said",
+       "count": 5,
+       "share": 0.014
+      },
+      {
+       "value": "comparing",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "if",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "building",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "generating",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "identifying",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "one",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "respective",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "analog",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "attempting",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "communicating",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "control",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "digital",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "ground",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "monitoring",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "multiple",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "responding",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "serial",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "storing",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "undoing",
+       "count": 2,
+       "share": 0.006
+      }
+     ]
+    }
+   },
+   "firstTwoWords": {
+    "all": {
+     "total": 1914,
+     "distinct": 891,
+     "rows": [
+      {
+       "value": "wherein the",
+       "count": 41,
+       "share": 0.021
+      },
+      {
+       "value": "means for",
+       "count": 40,
+       "share": 0.021
+      },
+      {
+       "value": "in response",
+       "count": 35,
+       "share": 0.018
+      },
+      {
+       "value": "providing a",
+       "count": 34,
+       "share": 0.018
+      },
+      {
+       "value": "receiving a",
+       "count": 34,
+       "share": 0.018
+      },
+      {
+       "value": "determining a",
+       "count": 31,
+       "share": 0.016
+      },
+      {
+       "value": "at least",
+       "count": 24,
+       "share": 0.013
+      },
+      {
+       "value": "a plurality",
+       "count": 23,
+       "share": 0.012
+      },
+      {
+       "value": "generating a",
+       "count": 21,
+       "share": 0.011
+      },
+      {
+       "value": "if the",
+       "count": 18,
+       "share": 0.009
+      },
+      {
+       "value": "receiving at",
+       "count": 18,
+       "share": 0.009
+      },
+      {
+       "value": "a first",
+       "count": 17,
+       "share": 0.009
+      },
+      {
+       "value": "displaying a",
+       "count": 15,
+       "share": 0.008
+      },
+      {
+       "value": "wherein said",
+       "count": 15,
+       "share": 0.008
+      },
+      {
+       "value": "a second",
+       "count": 14,
+       "share": 0.007
+      },
+      {
+       "value": "identifying a",
+       "count": 14,
+       "share": 0.007
+      },
+      {
+       "value": "determining whether",
+       "count": 13,
+       "share": 0.007
+      },
+      {
+       "value": "creating a",
+       "count": 11,
+       "share": 0.006
+      },
+      {
+       "value": "receiving the",
+       "count": 11,
+       "share": 0.006
+      },
+      {
+       "value": "storing the",
+       "count": 11,
+       "share": 0.006
+      },
+      {
+       "value": "a computer",
+       "count": 10,
+       "share": 0.005
+      },
+      {
+       "value": "based on",
+       "count": 10,
+       "share": 0.005
+      },
+      {
+       "value": "displaying the",
+       "count": 10,
+       "share": 0.005
+      },
+      {
+       "value": "one or",
+       "count": 10,
+       "share": 0.005
+      },
+      {
+       "value": "a housing",
+       "count": 9,
+       "share": 0.005
+      },
+      {
+       "value": "a new",
+       "count": 9,
+       "share": 0.005
+      },
+      {
+       "value": "providing an",
+       "count": 9,
+       "share": 0.005
+      },
+      {
+       "value": "receiving an",
+       "count": 9,
+       "share": 0.005
+      },
+      {
+       "value": "selecting a",
+       "count": 9,
+       "share": 0.005
+      },
+      {
+       "value": "using the",
+       "count": 9,
+       "share": 0.005
+      },
+      {
+       "value": "a data",
+       "count": 8,
+       "share": 0.004
+      },
+      {
+       "value": "a network",
+       "count": 8,
+       "share": 0.004
+      },
+      {
+       "value": "a processor",
+       "count": 8,
+       "share": 0.004
+      },
+      {
+       "value": "comparing the",
+       "count": 8,
+       "share": 0.004
+      },
+      {
+       "value": "establishing a",
+       "count": 8,
+       "share": 0.004
+      },
+      {
+       "value": "sending the",
+       "count": 8,
+       "share": 0.004
+      },
+      {
+       "value": "transmitting a",
+       "count": 8,
+       "share": 0.004
+      },
+      {
+       "value": "a controller",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "a system",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "an act",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "executing the",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "performing a",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "receiving by",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "responsive to",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "retrieving a",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "transmitting said",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "upon receiving",
+       "count": 7,
+       "share": 0.004
+      },
+      {
+       "value": "determining by",
+       "count": 6,
+       "share": 0.003
+      },
+      {
+       "value": "determining if",
+       "count": 6,
+       "share": 0.003
+      },
+      {
+       "value": "determining the",
+       "count": 6,
+       "share": 0.003
+      },
+      {
+       "value": "processing the",
+       "count": 6,
+       "share": 0.003
+      },
+      {
+       "value": "whereby the",
+       "count": 6,
+       "share": 0.003
+      },
+      {
+       "value": "a memory",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "a storage",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "a third",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "a user",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "an output",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "at a",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "at the",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "attaching a",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "calculating a",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "defining a",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "detecting a",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "displaying in",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "for each",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "means at",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "means to",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "modifying the",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "storing a",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "wherein each",
+       "count": 5,
+       "share": 0.003
+      },
+      {
+       "value": "a control",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "a server",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "a tag",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "a video",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "an input",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "an interface",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "combining the",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "constructing a",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "if said",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "making a",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "means responsive",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "presenting the",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "receiving from",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "receiving said",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "receiving user",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "storing in",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "storing said",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "the area",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "the core",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "the wireless",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "transmitting the",
+       "count": 4,
+       "share": 0.002
+      },
+      {
+       "value": "a bookmark",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "a central",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "a display",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "a logical",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "a means",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "a non-transitory",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "a processing",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "a short",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "a touch",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "a transceiver",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "a wireless",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "adjusting the",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "after receiving",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "an operating",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "associating a",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "calculating by",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "configuring a",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "creating an",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "decoding the",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "delivering the",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "deriving a",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "detecting when",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "determining an",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "determining when",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "displaying information",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "enabling the",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "executing a",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "generating an",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "generating the",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "identifying an",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "immediately in",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "in a",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "instructions for",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "maintaining the",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "obtaining a",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "presenting a",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "processing a",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "providing to",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "reading a",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "receiving first",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "rendering information",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "replacing the",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "respective first",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "responding to",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "retrieving the",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "said first",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "selecting an",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "setting a",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "storing at",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "transmitting by",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "transmitting from",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "under control",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "updating the",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "using a",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "validating the",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "when the",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "wherein",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "wherein in",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "wherein when",
+       "count": 3,
+       "share": 0.002
+      },
+      {
+       "value": "a bus",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a common",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a communication",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a communications",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a configuration",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a continuation",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a core",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a cpu",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a finger-engagable",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a host",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a receiver",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a rotation",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a single",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a speaker",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a spindle",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a state",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a subsystem",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a super",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a switch",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a thread",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "a tilt",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "accept via",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "accepting the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "accessing a",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "adjusting a",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "after detecting",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "allocating a",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "an accessory",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "an address",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "an adjunct",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "an analyzer",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "an area",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "an encoder",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "an open",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "analog contact",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "applying the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "assembling a",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "assigning and",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "at said",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "attempting to",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "building a",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "calculating an",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "causing the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "causing via",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "changing the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "communicating a",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "communicating with",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "computing a",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "control means",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "controlling signal",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "copying the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "defining by",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "defining configuration",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "detecting the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "determining at",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "determining for",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "determining that",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "determining z",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "digital contact",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "displaying an",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "document to",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "executing at",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "executing said",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "extracting a",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "first and",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "following a",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "generating at",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "ground contact",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "grouping the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "identifying by",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "if a",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "in the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "initiating a",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "initiating the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "installing an",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "leaving the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "loading the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "measuring a",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "memory means",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "modifying interactions",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "monitoring by",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "monitoring the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "opening the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "organizing the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "outputting the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "parsing the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "performing said",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "providing at",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "providing by",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "providing data",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "providing said",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "providing the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "reading by",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "receiving cryptographic",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "receiving data",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "receiving one",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "receiving with",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "replicating the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "requesting over",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "requesting the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "reserving said",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "resetting the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "retransmitting with",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "said computer",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "said control",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "said encoder",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "said operating",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "said second",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "said server",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "selecting at",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "selecting the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "sending a",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "sending an",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "serial protocol",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "serializing the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "shaping sound",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "structuring the",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "the clock",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "the container",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "the dequantizer",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "the processor",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "the run-length",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "tracking how",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "transmitting an",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "transmitting through",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "transmitting to",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "transporting for",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "undoing a",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "wherein upon",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "while operating",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "while said",
+       "count": 2,
+       "share": 0.001
+      },
+      {
+       "value": "writing the",
+       "count": 2,
+       "share": 0.001
+      }
+     ]
+    },
+    "method": {
+     "total": 956,
+     "distinct": 496,
+     "rows": [
+      {
+       "value": "providing a",
+       "count": 29,
+       "share": 0.03
+      },
+      {
+       "value": "in response",
+       "count": 26,
+       "share": 0.027
+      },
+      {
+       "value": "determining a",
+       "count": 22,
+       "share": 0.023
+      },
+      {
+       "value": "receiving a",
+       "count": 20,
+       "share": 0.021
+      },
+      {
+       "value": "generating a",
+       "count": 14,
+       "share": 0.015
+      },
+      {
+       "value": "receiving at",
+       "count": 13,
+       "share": 0.014
+      },
+      {
+       "value": "wherein the",
+       "count": 13,
+       "share": 0.014
+      },
+      {
+       "value": "if the",
+       "count": 11,
+       "share": 0.012
+      },
+      {
+       "value": "receiving the",
+       "count": 11,
+       "share": 0.012
+      },
+      {
+       "value": "determining whether",
+       "count": 10,
+       "share": 0.01
+      },
+      {
+       "value": "creating a",
+       "count": 9,
+       "share": 0.009
+      },
+      {
+       "value": "providing an",
+       "count": 9,
+       "share": 0.009
+      },
+      {
+       "value": "storing the",
+       "count": 9,
+       "share": 0.009
+      },
+      {
+       "value": "displaying a",
+       "count": 8,
+       "share": 0.008
+      },
+      {
+       "value": "establishing a",
+       "count": 8,
+       "share": 0.008
+      },
+      {
+       "value": "identifying a",
+       "count": 8,
+       "share": 0.008
+      },
+      {
+       "value": "receiving an",
+       "count": 8,
+       "share": 0.008
+      },
+      {
+       "value": "selecting a",
+       "count": 8,
+       "share": 0.008
+      },
+      {
+       "value": "responsive to",
+       "count": 7,
+       "share": 0.007
+      },
+      {
+       "value": "sending the",
+       "count": 7,
+       "share": 0.007
+      },
+      {
+       "value": "transmitting a",
+       "count": 7,
+       "share": 0.007
+      },
+      {
+       "value": "upon receiving",
+       "count": 7,
+       "share": 0.007
+      },
+      {
+       "value": "determining by",
+       "count": 6,
+       "share": 0.006
+      },
+      {
+       "value": "performing a",
+       "count": 6,
+       "share": 0.006
+      },
+      {
+       "value": "receiving by",
+       "count": 6,
+       "share": 0.006
+      },
+      {
+       "value": "whereby the",
+       "count": 6,
+       "share": 0.006
+      },
+      {
+       "value": "at a",
+       "count": 5,
+       "share": 0.005
+      },
+      {
+       "value": "attaching a",
+       "count": 5,
+       "share": 0.005
+      },
+      {
+       "value": "calculating a",
+       "count": 5,
+       "share": 0.005
+      },
+      {
+       "value": "detecting a",
+       "count": 5,
+       "share": 0.005
+      },
+      {
+       "value": "executing the",
+       "count": 5,
+       "share": 0.005
+      },
+      {
+       "value": "processing the",
+       "count": 5,
+       "share": 0.005
+      },
+      {
+       "value": "based on",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "constructing a",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "defining a",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "determining the",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "if said",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "making a",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "modifying the",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "receiving from",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "receiving user",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "storing said",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "transmitting said",
+       "count": 4,
+       "share": 0.004
+      },
+      {
+       "value": "a new",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "adjusting the",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "after receiving",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "associating a",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "calculating by",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "configuring a",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "decoding the",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "deriving a",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "determining an",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "determining if",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "determining when",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "displaying information",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "enabling the",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "generating an",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "identifying an",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "immediately in",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "in a",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "maintaining the",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "obtaining a",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "presenting a",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "presenting the",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "providing to",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "reading a",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "receiving first",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "selecting an",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "setting a",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "storing a",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "storing at",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "transmitting the",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "under control",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "validating the",
+       "count": 3,
+       "share": 0.003
+      },
+      {
+       "value": "a first",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "a server",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "accessing a",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "adjusting a",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "allocating a",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "applying the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "assembling a",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "assigning and",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "at said",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "calculating an",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "causing the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "causing via",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "combining the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "communicating with",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "comparing the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "controlling signal",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "copying the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "creating an",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "defining by",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "delivering the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "detecting the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "determining z",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "displaying an",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "displaying in",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "displaying the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "document to",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "executing a",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "following a",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "for each",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "generating at",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "grouping the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "initiating a",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "leaving the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "modifying interactions",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "monitoring by",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "opening the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "organizing the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "parsing the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "processing a",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "providing at",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "providing by",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "providing data",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "providing said",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "providing the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "reading by",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "receiving cryptographic",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "receiving data",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "receiving one",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "receiving said",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "receiving with",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "replacing the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "requesting over",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "requesting the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "reserving said",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "resetting the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "retransmitting with",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "retrieving a",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "retrieving the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "said server",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "selecting at",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "selecting the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "sending a",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "sending an",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "serializing the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "shaping sound",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "structuring the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "the container",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "tracking how",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "transmitting an",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "transmitting by",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "transmitting through",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "transmitting to",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "transporting for",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "using the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "when the",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "wherein said",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "wherein when",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "while said",
+       "count": 2,
+       "share": 0.002
+      },
+      {
+       "value": "writing the",
+       "count": 2,
+       "share": 0.002
+      }
+     ]
+    },
+    "system": {
+     "total": 360,
+     "distinct": 195,
+     "rows": [
+      {
+       "value": "means for",
+       "count": 20,
+       "share": 0.056
+      },
+      {
+       "value": "a plurality",
+       "count": 18,
+       "share": 0.05
+      },
+      {
+       "value": "at least",
+       "count": 13,
+       "share": 0.036
+      },
+      {
+       "value": "wherein the",
+       "count": 10,
+       "share": 0.028
+      },
+      {
+       "value": "a network",
+       "count": 7,
+       "share": 0.019
+      },
+      {
+       "value": "a system",
+       "count": 7,
+       "share": 0.019
+      },
+      {
+       "value": "one or",
+       "count": 7,
+       "share": 0.019
+      },
+      {
+       "value": "wherein said",
+       "count": 6,
+       "share": 0.017
+      },
+      {
+       "value": "a computer",
+       "count": 5,
+       "share": 0.014
+      },
+      {
+       "value": "a housing",
+       "count": 5,
+       "share": 0.014
+      },
+      {
+       "value": "a processor",
+       "count": 5,
+       "share": 0.014
+      },
+      {
+       "value": "a control",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "a controller",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "a memory",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "the area",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "the core",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "a bookmark",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a central",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a data",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a first",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a processing",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a short",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a storage",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a user",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a wireless",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "instructions for",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "wherein",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "wherein in",
+       "count": 3,
+       "share": 0.008
+      },
+      {
+       "value": "a bus",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a communication",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a communications",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a core",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a cpu",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a finger-engagable",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a host",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a logical",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a rotation",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a second",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a server",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a subsystem",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a switch",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a tilt",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a video",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "accept via",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "an adjunct",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "an analyzer",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "an area",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "an input",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "an interface",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "an open",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "an operating",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "an output",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "based on",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "first and",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "in response",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "memory means",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "said control",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "said operating",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "the clock",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "the wireless",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "wherein each",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "wherein upon",
+       "count": 2,
+       "share": 0.006
+      }
+     ]
+    },
+    "crm": {
+     "total": 93,
+     "distinct": 68,
+     "rows": [
+      {
+       "value": "receiving a",
+       "count": 4,
+       "share": 0.043
+      },
+      {
+       "value": "wherein the",
+       "count": 4,
+       "share": 0.043
+      },
+      {
+       "value": "a new",
+       "count": 3,
+       "share": 0.032
+      },
+      {
+       "value": "displaying in",
+       "count": 3,
+       "share": 0.032
+      },
+      {
+       "value": "displaying the",
+       "count": 3,
+       "share": 0.032
+      },
+      {
+       "value": "if the",
+       "count": 3,
+       "share": 0.032
+      },
+      {
+       "value": "rendering information",
+       "count": 3,
+       "share": 0.032
+      },
+      {
+       "value": "retrieving a",
+       "count": 3,
+       "share": 0.032
+      },
+      {
+       "value": "a non-transitory",
+       "count": 2,
+       "share": 0.022
+      },
+      {
+       "value": "determining if",
+       "count": 2,
+       "share": 0.022
+      },
+      {
+       "value": "displaying a",
+       "count": 2,
+       "share": 0.022
+      },
+      {
+       "value": "if a",
+       "count": 2,
+       "share": 0.022
+      },
+      {
+       "value": "updating the",
+       "count": 2,
+       "share": 0.022
+      },
+      {
+       "value": "using a",
+       "count": 2,
+       "share": 0.022
+      },
+      {
+       "value": "using the",
+       "count": 2,
+       "share": 0.022
+      }
+     ]
+    },
+    "jepson": {
+     "total": 153,
+     "distinct": 97,
+     "rows": [
+      {
+       "value": "an act",
+       "count": 7,
+       "share": 0.046
+      },
+      {
+       "value": "receiving a",
+       "count": 6,
+       "share": 0.039
+      },
+      {
+       "value": "at least",
+       "count": 5,
+       "share": 0.033
+      },
+      {
+       "value": "generating a",
+       "count": 5,
+       "share": 0.033
+      },
+      {
+       "value": "using the",
+       "count": 5,
+       "share": 0.033
+      },
+      {
+       "value": "at the",
+       "count": 4,
+       "share": 0.026
+      },
+      {
+       "value": "in response",
+       "count": 4,
+       "share": 0.026
+      },
+      {
+       "value": "providing a",
+       "count": 4,
+       "share": 0.026
+      },
+      {
+       "value": "storing in",
+       "count": 4,
+       "share": 0.026
+      },
+      {
+       "value": "a means",
+       "count": 3,
+       "share": 0.02
+      },
+      {
+       "value": "identifying a",
+       "count": 3,
+       "share": 0.02
+      },
+      {
+       "value": "means for",
+       "count": 3,
+       "share": 0.02
+      },
+      {
+       "value": "transmitting said",
+       "count": 3,
+       "share": 0.02
+      },
+      {
+       "value": "based on",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "combining the",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "comparing the",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "creating a",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "for each",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "means responsive",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "measuring a",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "receiving at",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "receiving said",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "retrieving a",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "storing a",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "storing the",
+       "count": 2,
+       "share": 0.013
+      },
+      {
+       "value": "transmitting from",
+       "count": 2,
+       "share": 0.013
+      }
+     ]
+    },
+    "other": {
+     "total": 352,
+     "distinct": 193,
+     "rows": [
+      {
+       "value": "means for",
+       "count": 17,
+       "share": 0.048
+      },
+      {
+       "value": "wherein the",
+       "count": 13,
+       "share": 0.037
+      },
+      {
+       "value": "a first",
+       "count": 11,
+       "share": 0.031
+      },
+      {
+       "value": "a second",
+       "count": 10,
+       "share": 0.028
+      },
+      {
+       "value": "determining a",
+       "count": 7,
+       "share": 0.02
+      },
+      {
+       "value": "wherein said",
+       "count": 6,
+       "share": 0.017
+      },
+      {
+       "value": "at least",
+       "count": 5,
+       "share": 0.014
+      },
+      {
+       "value": "means at",
+       "count": 5,
+       "share": 0.014
+      },
+      {
+       "value": "means to",
+       "count": 5,
+       "share": 0.014
+      },
+      {
+       "value": "a data",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "a housing",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "a plurality",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "a tag",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "a third",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "comparing the",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "displaying a",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "displaying the",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "receiving a",
+       "count": 4,
+       "share": 0.011
+      },
+      {
+       "value": "a computer",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "a controller",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "a new",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "a processor",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "an output",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "determining whether",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "identifying a",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "if the",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "in response",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "one or",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "receiving at",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "respective first",
+       "count": 3,
+       "share": 0.009
+      },
+      {
+       "value": "a display",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a spindle",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a state",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a storage",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a super",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a thread",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a touch",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a transceiver",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a user",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "a video",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "an accessory",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "an address",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "an input",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "an interface",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "analog contact",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "attempting to",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "building a",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "control means",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "determining for",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "determining the",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "digital contact",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "executing at",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "executing the",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "generating a",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "ground contact",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "in the",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "means responsive",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "monitoring the",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "responding to",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "said computer",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "said encoder",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "serial protocol",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "the dequantizer",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "the processor",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "the run-length",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "the wireless",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "undoing a",
+       "count": 2,
+       "share": 0.006
+      },
+      {
+       "value": "wherein each",
+       "count": 2,
+       "share": 0.006
+      }
+     ]
+    }
+   },
+   "openerKinds": {
+    "all": {
+     "total": 1914,
+     "distinct": 5,
+     "rows": [
+      {
+       "value": "gerund",
+       "count": 1012,
+       "share": 0.529
+      },
+      {
+       "value": "noun-phrase",
+       "count": 513,
+       "share": 0.268
+      },
+      {
+       "value": "other",
+       "count": 239,
+       "share": 0.125
+      },
+      {
+       "value": "wherein",
+       "count": 93,
+       "share": 0.049
+      },
+      {
+       "value": "means",
+       "count": 57,
+       "share": 0.03
+      }
+     ]
+    },
+    "method": {
+     "total": 956,
+     "distinct": 4,
+     "rows": [
+      {
+       "value": "gerund",
+       "count": 772,
+       "share": 0.808
+      },
+      {
+       "value": "other",
+       "count": 124,
+       "share": 0.13
+      },
+      {
+       "value": "noun-phrase",
+       "count": 31,
+       "share": 0.032
+      },
+      {
+       "value": "wherein",
+       "count": 29,
+       "share": 0.03
+      }
+     ]
+    },
+    "system": {
+     "total": 360,
+     "distinct": 5,
+     "rows": [
+      {
+       "value": "noun-phrase",
+       "count": 259,
+       "share": 0.719
+      },
+      {
+       "value": "other",
+       "count": 41,
+       "share": 0.114
+      },
+      {
+       "value": "wherein",
+       "count": 31,
+       "share": 0.086
+      },
+      {
+       "value": "means",
+       "count": 22,
+       "share": 0.061
+      },
+      {
+       "value": "gerund",
+       "count": 7,
+       "share": 0.019
+      }
+     ]
+    },
+    "crm": {
+     "total": 93,
+     "distinct": 4,
+     "rows": [
+      {
+       "value": "gerund",
+       "count": 51,
+       "share": 0.548
+      },
+      {
+       "value": "noun-phrase",
+       "count": 19,
+       "share": 0.204
+      },
+      {
+       "value": "other",
+       "count": 16,
+       "share": 0.172
+      },
+      {
+       "value": "wherein",
+       "count": 7,
+       "share": 0.075
+      }
+     ]
+    },
+    "jepson": {
+     "total": 153,
+     "distinct": 5,
+     "rows": [
+      {
+       "value": "gerund",
+       "count": 104,
+       "share": 0.68
+      },
+      {
+       "value": "noun-phrase",
+       "count": 28,
+       "share": 0.183
+      },
+      {
+       "value": "other",
+       "count": 14,
+       "share": 0.092
+      },
+      {
+       "value": "means",
+       "count": 5,
+       "share": 0.033
+      },
+      {
+       "value": "wherein",
+       "count": 2,
+       "share": 0.013
+      }
+     ]
+    },
+    "other": {
+     "total": 352,
+     "distinct": 5,
+     "rows": [
+      {
+       "value": "noun-phrase",
+       "count": 176,
+       "share": 0.5
+      },
+      {
+       "value": "gerund",
+       "count": 78,
+       "share": 0.222
+      },
+      {
+       "value": "other",
+       "count": 44,
+       "share": 0.125
+      },
+      {
+       "value": "means",
+       "count": 30,
+       "share": 0.085
+      },
+      {
+       "value": "wherein",
+       "count": 24,
+       "share": 0.068
+      }
+     ]
+    }
+   },
+   "apparatusForms": {
+    "all": {
+     "total": 184,
+     "distinct": 9,
+     "rows": [
+      {
+       "value": "means for",
+       "count": 89,
+       "share": 0.484
+      },
+      {
+       "value": "configured to",
+       "count": 65,
+       "share": 0.353
+      },
+      {
+       "value": "cause the",
+       "count": 5,
+       "share": 0.027
+      },
+      {
+       "value": "causes the",
+       "count": 5,
+       "share": 0.027
+      },
+      {
+       "value": "causing the",
+       "count": 5,
+       "share": 0.027
+      },
+      {
+       "value": "adapted to",
+       "count": 4,
+       "share": 0.022
+      },
+      {
+       "value": "operable to",
+       "count": 4,
+       "share": 0.022
+      },
+      {
+       "value": "when executed",
+       "count": 4,
+       "share": 0.022
+      },
+      {
+       "value": "executable by",
+       "count": 3,
+       "share": 0.016
+      }
+     ]
+    },
+    "method": {
+     "total": 16,
+     "distinct": 5,
+     "rows": [
+      {
+       "value": "configured to",
+       "count": 9,
+       "share": 0.563
+      },
+      {
+       "value": "causing the",
+       "count": 4,
+       "share": 0.25
+      }
+     ]
+    },
+    "system": {
+     "total": 99,
+     "distinct": 9,
+     "rows": [
+      {
+       "value": "means for",
+       "count": 45,
+       "share": 0.455
+      },
+      {
+       "value": "configured to",
+       "count": 38,
+       "share": 0.384
+      },
+      {
+       "value": "causes the",
+       "count": 4,
+       "share": 0.04
+      },
+      {
+       "value": "operable to",
+       "count": 4,
+       "share": 0.04
+      },
+      {
+       "value": "cause the",
+       "count": 3,
+       "share": 0.03
+      },
+      {
+       "value": "executable by",
+       "count": 2,
+       "share": 0.02
+      }
+     ]
+    },
+    "crm": {
+     "total": 4,
+     "distinct": 3,
+     "rows": [
+      {
+       "value": "when executed",
+       "count": 2,
+       "share": 0.5
+      }
+     ]
+    },
+    "jepson": {
+     "total": 14,
+     "distinct": 3,
+     "rows": [
+      {
+       "value": "means for",
+       "count": 10,
+       "share": 0.714
+      },
+      {
+       "value": "configured to",
+       "count": 3,
+       "share": 0.214
+      }
+     ]
+    },
+    "other": {
+     "total": 51,
+     "distinct": 5,
+     "rows": [
+      {
+       "value": "means for",
+       "count": 33,
+       "share": 0.647
+      },
+      {
+       "value": "configured to",
+       "count": 14,
+       "share": 0.275
+      },
+      {
+       "value": "adapted to",
+       "count": 2,
+       "share": 0.039
+      }
+     ]
+    }
+   }
+  }
+ },
+ "dependents": {
+  "families": 385,
+  "dependents": 3293,
+  "classesOfClaim1": {
+   "total": 385,
+   "distinct": 5,
+   "rows": [
+    {
+     "value": "method",
+     "count": 188,
+     "share": 0.488
+    },
+    {
+     "value": "other",
+     "count": 74,
+     "share": 0.192
+    },
+    {
+     "value": "system",
+     "count": 71,
+     "share": 0.184
+    },
+    {
+     "value": "jepson",
+     "count": 36,
+     "share": 0.094
+    },
+    {
+     "value": "crm",
+     "count": 16,
+     "share": 0.042
+    }
+   ]
+  },
+  "referencePhrases": {
+   "all": {
+    "total": 3257,
+    "distinct": 10,
+    "rows": [
+     {
+      "value": "of claim",
+      "count": 2371,
+      "share": 0.728
+     },
+     {
+      "value": "as recited in claim",
+      "count": 252,
+      "share": 0.077
+     },
+     {
+      "value": "according to claim",
+      "count": 211,
+      "share": 0.065
+     },
+     {
+      "value": "as in claim",
+      "count": 207,
+      "share": 0.064
+     },
+     {
+      "value": "as set forth in claim",
+      "count": 79,
+      "share": 0.024
+     },
+     {
+      "value": "as claimed in claim",
+      "count": 40,
+      "share": 0.012
+     },
+     {
+      "value": "as described in claim",
+      "count": 38,
+      "share": 0.012
+     },
+     {
+      "value": "as defined in claim",
+      "count": 22,
+      "share": 0.007
+     },
+     {
+      "value": "recited in claim",
+      "count": 22,
+      "share": 0.007
+     },
+     {
+      "value": "in claim",
+      "count": 15,
+      "share": 0.005
+     }
+    ]
+   },
+   "method": {
+    "total": 1702,
+    "distinct": 9,
+    "rows": [
+     {
+      "value": "of claim",
+      "count": 1303,
+      "share": 0.766
+     },
+     {
+      "value": "according to claim",
+      "count": 149,
+      "share": 0.088
+     },
+     {
+      "value": "as recited in claim",
+      "count": 92,
+      "share": 0.054
+     },
+     {
+      "value": "as in claim",
+      "count": 79,
+      "share": 0.046
+     },
+     {
+      "value": "as set forth in claim",
+      "count": 31,
+      "share": 0.018
+     },
+     {
+      "value": "as described in claim",
+      "count": 18,
+      "share": 0.011
+     },
+     {
+      "value": "as defined in claim",
+      "count": 16,
+      "share": 0.009
+     },
+     {
+      "value": "recited in claim",
+      "count": 10,
+      "share": 0.006
+     },
+     {
+      "value": "as claimed in claim",
+      "count": 4,
+      "share": 0.002
+     }
+    ]
+   },
+   "system": {
+    "total": 624,
+    "distinct": 9,
+    "rows": [
+     {
+      "value": "of claim",
+      "count": 424,
+      "share": 0.679
+     },
+     {
+      "value": "as recited in claim",
+      "count": 88,
+      "share": 0.141
+     },
+     {
+      "value": "as in claim",
+      "count": 47,
+      "share": 0.075
+     },
+     {
+      "value": "according to claim",
+      "count": 38,
+      "share": 0.061
+     },
+     {
+      "value": "recited in claim",
+      "count": 11,
+      "share": 0.018
+     },
+     {
+      "value": "as claimed in claim",
+      "count": 6,
+      "share": 0.01
+     },
+     {
+      "value": "as described in claim",
+      "count": 6,
+      "share": 0.01
+     },
+     {
+      "value": "as set forth in claim",
+      "count": 3,
+      "share": 0.005
+     }
+    ]
+   },
+   "crm": {
+    "total": 165,
+    "distinct": 4,
+    "rows": [
+     {
+      "value": "of claim",
+      "count": 102,
+      "share": 0.618
+     },
+     {
+      "value": "as set forth in claim",
+      "count": 45,
+      "share": 0.273
+     },
+     {
+      "value": "as recited in claim",
+      "count": 14,
+      "share": 0.085
+     },
+     {
+      "value": "as in claim",
+      "count": 4,
+      "share": 0.024
+     }
+    ]
+   },
+   "jepson": {
+    "total": 219,
+    "distinct": 7,
+    "rows": [
+     {
+      "value": "of claim",
+      "count": 170,
+      "share": 0.776
+     },
+     {
+      "value": "as recited in claim",
+      "count": 24,
+      "share": 0.11
+     },
+     {
+      "value": "according to claim",
+      "count": 8,
+      "share": 0.037
+     },
+     {
+      "value": "as defined in claim",
+      "count": 6,
+      "share": 0.027
+     },
+     {
+      "value": "as in claim",
+      "count": 6,
+      "share": 0.027
+     },
+     {
+      "value": "as described in claim",
+      "count": 4,
+      "share": 0.018
+     }
+    ]
+   },
+   "other": {
+    "total": 547,
+    "distinct": 7,
+    "rows": [
+     {
+      "value": "of claim",
+      "count": 372,
+      "share": 0.68
+     },
+     {
+      "value": "as in claim",
+      "count": 71,
+      "share": 0.13
+     },
+     {
+      "value": "as recited in claim",
+      "count": 34,
+      "share": 0.062
+     },
+     {
+      "value": "as claimed in claim",
+      "count": 30,
+      "share": 0.055
+     },
+     {
+      "value": "according to claim",
+      "count": 16,
+      "share": 0.029
+     },
+     {
+      "value": "in claim",
+      "count": 14,
+      "share": 0.026
+     },
+     {
+      "value": "as described in claim",
+      "count": 10,
+      "share": 0.018
+     }
+    ]
+   }
+  },
+  "withoutReference": 36,
+  "subjects": {
+   "all": {
+    "total": 3257,
+    "distinct": 109,
+    "rows": [
+     {
+      "value": "the method",
+      "count": 1662,
+      "share": 0.51
+     },
+     {
+      "value": "a method",
+      "count": 244,
+      "share": 0.075
+     },
+     {
+      "value": "the system",
+      "count": 226,
+      "share": 0.069
+     },
+     {
+      "value": "the computer-implemented method",
+      "count": 59,
+      "share": 0.018
+     },
+     {
+      "value": "the apparatus",
+      "count": 50,
+      "share": 0.015
+     },
+     {
+      "value": "a computer-readable medium",
+      "count": 49,
+      "share": 0.015
+     },
+     {
+      "value": "the device",
+      "count": 45,
+      "share": 0.014
+     },
+     {
+      "value": "the communications device",
+      "count": 37,
+      "share": 0.011
+     },
+     {
+      "value": "the computer-readable medium",
+      "count": 31,
+      "share": 0.01
+     },
+     {
+      "value": "the playback device",
+      "count": 31,
+      "share": 0.01
+     },
+     {
+      "value": "a precise positioning apparatus",
+      "count": 29,
+      "share": 0.009
+     },
+     {
+      "value": "a circuit",
+      "count": 28,
+      "share": 0.009
+     },
+     {
+      "value": "the coupling assembly",
+      "count": 27,
+      "share": 0.008
+     },
+     {
+      "value": "a system",
+      "count": 26,
+      "share": 0.008
+     },
+     {
+      "value": "the adapter",
+      "count": 26,
+      "share": 0.008
+     },
+     {
+      "value": "the network-based system",
+      "count": 26,
+      "share": 0.008
+     },
+     {
+      "value": "the computer system",
+      "count": 24,
+      "share": 0.007
+     },
+     {
+      "value": "a user interface system",
+      "count": 23,
+      "share": 0.007
+     },
+     {
+      "value": "the tangible computer-readable storage memory device",
+      "count": 22,
+      "share": 0.007
+     },
+     {
+      "value": "the wireless device",
+      "count": 22,
+      "share": 0.007
+     },
+     {
+      "value": "the computing device",
+      "count": 20,
+      "share": 0.006
+     },
+     {
+      "value": "the peripheral device",
+      "count": 19,
+      "share": 0.006
+     },
+     {
+      "value": "a device",
+      "count": 17,
+      "share": 0.005
+     },
+     {
+      "value": "the computer program product",
+      "count": 16,
+      "share": 0.005
+     },
+     {
+      "value": "the operator input device",
+      "count": 16,
+      "share": 0.005
+     },
+     {
+      "value": "a computer-implemented method",
+      "count": 15,
+      "share": 0.005
+     },
+     {
+      "value": "a vehicle computer system",
+      "count": 13,
+      "share": 0.004
+     },
+     {
+      "value": "an apparatus",
+      "count": 13,
+      "share": 0.004
+     },
+     {
+      "value": "the graphics processor",
+      "count": 13,
+      "share": 0.004
+     },
+     {
+      "value": "apparatus",
+      "count": 12,
+      "share": 0.004
+     },
+     {
+      "value": "the display system defined",
+      "count": 12,
+      "share": 0.004
+     },
+     {
+      "value": "the pointing device",
+      "count": 12,
+      "share": 0.004
+     },
+     {
+      "value": "the processing method",
+      "count": 12,
+      "share": 0.004
+     },
+     {
+      "value": "the media player",
+      "count": 11,
+      "share": 0.003
+     },
+     {
+      "value": "the rf tag",
+      "count": 11,
+      "share": 0.003
+     },
+     {
+      "value": "a hypermedia browser",
+      "count": 10,
+      "share": 0.003
+     },
+     {
+      "value": "the process",
+      "count": 10,
+      "share": 0.003
+     },
+     {
+      "value": "the real-time priority-based communication system",
+      "count": 10,
+      "share": 0.003
+     },
+     {
+      "value": "the computer storage medium",
+      "count": 9,
+      "share": 0.003
+     },
+     {
+      "value": "the computer-method",
+      "count": 9,
+      "share": 0.003
+     },
+     {
+      "value": "the computerized system",
+      "count": 9,
+      "share": 0.003
+     },
+     {
+      "value": "the portable data processing device",
+      "count": 9,
+      "share": 0.003
+     },
+     {
+      "value": "the user interface",
+      "count": 9,
+      "share": 0.003
+     },
+     {
+      "value": "one or more computer-readable media",
+      "count": 8,
+      "share": 0.002
+     },
+     {
+      "value": "the multiple cloud-computing-facility aggregation",
+      "count": 8,
+      "share": 0.002
+     },
+     {
+      "value": "the router",
+      "count": 8,
+      "share": 0.002
+     },
+     {
+      "value": "the signal processing system",
+      "count": 8,
+      "share": 0.002
+     },
+     {
+      "value": "the storage management system",
+      "count": 8,
+      "share": 0.002
+     },
+     {
+      "value": "the touch panel",
+      "count": 8,
+      "share": 0.002
+     },
+     {
+      "value": "a video content delivery system",
+      "count": 7,
+      "share": 0.002
+     },
+     {
+      "value": "in the method",
+      "count": 7,
+      "share": 0.002
+     },
+     {
+      "value": "the article",
+      "count": 7,
+      "share": 0.002
+     },
+     {
+      "value": "the intermediate network device",
+      "count": 7,
+      "share": 0.002
+     },
+     {
+      "value": "the male plug connector",
+      "count": 7,
+      "share": 0.002
+     },
+     {
+      "value": "the mobile device",
+      "count": 7,
+      "share": 0.002
+     },
+     {
+      "value": "the san",
+      "count": 7,
+      "share": 0.002
+     },
+     {
+      "value": "the wireless mobile device",
+      "count": 7,
+      "share": 0.002
+     },
+     {
+      "value": "a microcomputer",
+      "count": 6,
+      "share": 0.002
+     },
+     {
+      "value": "a pen-based computer system",
+      "count": 6,
+      "share": 0.002
+     },
+     {
+      "value": "a portable computing device",
+      "count": 6,
+      "share": 0.002
+     },
+     {
+      "value": "in the process",
+      "count": 6,
+      "share": 0.002
+     },
+     {
+      "value": "the battery attaching mechanism",
+      "count": 6,
+      "share": 0.002
+     },
+     {
+      "value": "the capacitive touch sensor panel",
+      "count": 6,
+      "share": 0.002
+     },
+     {
+      "value": "the communication system",
+      "count": 6,
+      "share": 0.002
+     },
+     {
+      "value": "the diversity receiver",
+      "count": 6,
+      "share": 0.002
+     },
+     {
+      "value": "the female receptacle connector",
+      "count": 6,
+      "share": 0.002
+     },
+     {
+      "value": "the instruction-processing system",
+      "count": 6,
+      "share": 0.002
+     },
+     {
+      "value": "the multimedia controller",
+      "count": 6,
+      "share": 0.002
+     },
+     {
+      "value": "the user interface system",
+      "count": 6,
+      "share": 0.002
+     },
+     {
+      "value": "the abstraction layer",
+      "count": 5,
+      "share": 0.002
+     },
+     {
+      "value": "the audio data user interface",
+      "count": 5,
+      "share": 0.002
+     },
+     {
+      "value": "the cluster multiprocessing system",
+      "count": 5,
+      "share": 0.002
+     },
+     {
+      "value": "the computerized method",
+      "count": 5,
+      "share": 0.002
+     },
+     {
+      "value": "the display system",
+      "count": 5,
+      "share": 0.002
+     },
+     {
+      "value": "the distributed computing network",
+      "count": 5,
+      "share": 0.002
+     },
+     {
+      "value": "the graphical user interface",
+      "count": 5,
+      "share": 0.002
+     },
+     {
+      "value": "the pc processing card",
+      "count": 5,
+      "share": 0.002
+     },
+     {
+      "value": "the wireless telephone",
+      "count": 5,
+      "share": 0.002
+     },
+     {
+      "value": "a computer-readable storage device",
+      "count": 4,
+      "share": 0.001
+     },
+     {
+      "value": "a process",
+      "count": 4,
+      "share": 0.001
+     },
+     {
+      "value": "an electronic purchase mediating system",
+      "count": 4,
+      "share": 0.001
+     },
+     {
+      "value": "the computer system according",
+      "count": 4,
+      "share": 0.001
+     },
+     {
+      "value": "the computing arrangement",
+      "count": 4,
+      "share": 0.001
+     },
+     {
+      "value": "the power control system",
+      "count": 4,
+      "share": 0.001
+     },
+     {
+      "value": "the wristwatch apparatus",
+      "count": 4,
+      "share": 0.001
+     },
+     {
+      "value": "the cluster multiprocessor system",
+      "count": 3,
+      "share": 0.001
+     },
+     {
+      "value": "the single-instruction multiple-data architecture",
+      "count": 3,
+      "share": 0.001
+     },
+     {
+      "value": "the video accelerator",
+      "count": 3,
+      "share": 0.001
+     },
+     {
+      "value": "a computer system according",
+      "count": 2,
+      "share": 0.001
+     },
+     {
+      "value": "a video control user interface",
+      "count": 2,
+      "share": 0.001
+     },
+     {
+      "value": "the manager",
+      "count": 2,
+      "share": 0.001
+     },
+     {
+      "value": "the server",
+      "count": 2,
+      "share": 0.001
+     }
+    ]
+   },
+   "method": {
+    "total": 1702,
+    "distinct": 15,
+    "rows": [
+     {
+      "value": "the method",
+      "count": 1382,
+      "share": 0.812
+     },
+     {
+      "value": "a method",
+      "count": 221,
+      "share": 0.13
+     },
+     {
+      "value": "the computer-implemented method",
+      "count": 59,
+      "share": 0.035
+     },
+     {
+      "value": "a computer-implemented method",
+      "count": 15,
+      "share": 0.009
+     },
+     {
+      "value": "the processing method",
+      "count": 12,
+      "share": 0.007
+     },
+     {
+      "value": "a computer-readable medium",
+      "count": 2,
+      "share": 0.001
+     },
+     {
+      "value": "one or more computer-readable media",
+      "count": 2,
+      "share": 0.001
+     },
+     {
+      "value": "the system",
+      "count": 2,
+      "share": 0.001
+     }
+    ]
+   },
+   "system": {
+    "total": 624,
+    "distinct": 41,
+    "rows": [
+     {
+      "value": "the system",
+      "count": 158,
+      "share": 0.253
+     },
+     {
+      "value": "the apparatus",
+      "count": 50,
+      "share": 0.08
+     },
+     {
+      "value": "the communications device",
+      "count": 37,
+      "share": 0.059
+     },
+     {
+      "value": "the playback device",
+      "count": 31,
+      "share": 0.05
+     },
+     {
+      "value": "a precise positioning apparatus",
+      "count": 29,
+      "share": 0.046
+     },
+     {
+      "value": "the device",
+      "count": 26,
+      "share": 0.042
+     },
+     {
+      "value": "the network-based system",
+      "count": 26,
+      "share": 0.042
+     },
+     {
+      "value": "the computer system",
+      "count": 24,
+      "share": 0.038
+     },
+     {
+      "value": "a user interface system",
+      "count": 23,
+      "share": 0.037
+     },
+     {
+      "value": "the wireless device",
+      "count": 22,
+      "share": 0.035
+     },
+     {
+      "value": "the peripheral device",
+      "count": 19,
+      "share": 0.03
+     },
+     {
+      "value": "a device",
+      "count": 17,
+      "share": 0.027
+     },
+     {
+      "value": "the operator input device",
+      "count": 16,
+      "share": 0.026
+     },
+     {
+      "value": "a vehicle computer system",
+      "count": 13,
+      "share": 0.021
+     },
+     {
+      "value": "the pointing device",
+      "count": 12,
+      "share": 0.019
+     },
+     {
+      "value": "a system",
+      "count": 9,
+      "share": 0.014
+     },
+     {
+      "value": "the computing device",
+      "count": 9,
+      "share": 0.014
+     },
+     {
+      "value": "the signal processing system",
+      "count": 8,
+      "share": 0.013
+     },
+     {
+      "value": "the storage management system",
+      "count": 8,
+      "share": 0.013
+     },
+     {
+      "value": "the intermediate network device",
+      "count": 7,
+      "share": 0.011
+     },
+     {
+      "value": "the mobile device",
+      "count": 7,
+      "share": 0.011
+     },
+     {
+      "value": "the wireless mobile device",
+      "count": 7,
+      "share": 0.011
+     },
+     {
+      "value": "a pen-based computer system",
+      "count": 6,
+      "share": 0.01
+     },
+     {
+      "value": "a portable computing device",
+      "count": 6,
+      "share": 0.01
+     },
+     {
+      "value": "the communication system",
+      "count": 6,
+      "share": 0.01
+     },
+     {
+      "value": "the instruction-processing system",
+      "count": 6,
+      "share": 0.01
+     },
+     {
+      "value": "the multimedia controller",
+      "count": 6,
+      "share": 0.01
+     },
+     {
+      "value": "the user interface system",
+      "count": 6,
+      "share": 0.01
+     },
+     {
+      "value": "the cluster multiprocessing system",
+      "count": 5,
+      "share": 0.008
+     },
+     {
+      "value": "the computerized system",
+      "count": 5,
+      "share": 0.008
+     },
+     {
+      "value": "the computer system according",
+      "count": 4,
+      "share": 0.006
+     },
+     {
+      "value": "the wristwatch apparatus",
+      "count": 4,
+      "share": 0.006
+     },
+     {
+      "value": "the cluster multiprocessor system",
+      "count": 3,
+      "share": 0.005
+     },
+     {
+      "value": "a computer system according",
+      "count": 2,
+      "share": 0.003
+     }
+    ]
+   },
+   "crm": {
+    "total": 165,
+    "distinct": 11,
+    "rows": [
+     {
+      "value": "a computer-readable medium",
+      "count": 45,
+      "share": 0.273
+     },
+     {
+      "value": "the computer-readable medium",
+      "count": 31,
+      "share": 0.188
+     },
+     {
+      "value": "the tangible computer-readable storage memory device",
+      "count": 22,
+      "share": 0.133
+     },
+     {
+      "value": "the computer program product",
+      "count": 16,
+      "share": 0.097
+     },
+     {
+      "value": "the computing device",
+      "count": 11,
+      "share": 0.067
+     },
+     {
+      "value": "a hypermedia browser",
+      "count": 10,
+      "share": 0.061
+     },
+     {
+      "value": "the computer storage medium",
+      "count": 9,
+      "share": 0.055
+     },
+     {
+      "value": "the article",
+      "count": 7,
+      "share": 0.042
+     },
+     {
+      "value": "one or more computer-readable media",
+      "count": 6,
+      "share": 0.036
+     },
+     {
+      "value": "a computer-readable storage device",
+      "count": 4,
+      "share": 0.024
+     },
+     {
+      "value": "the computerized system",
+      "count": 4,
+      "share": 0.024
+     }
+    ]
+   },
+   "jepson": {
+    "total": 219,
+    "distinct": 9,
+    "rows": [
+     {
+      "value": "the method",
+      "count": 157,
+      "share": 0.717
+     },
+     {
+      "value": "the system",
+      "count": 25,
+      "share": 0.114
+     },
+     {
+      "value": "a method",
+      "count": 16,
+      "share": 0.073
+     },
+     {
+      "value": "in the method",
+      "count": 7,
+      "share": 0.032
+     },
+     {
+      "value": "in the process",
+      "count": 6,
+      "share": 0.027
+     },
+     {
+      "value": "the power control system",
+      "count": 4,
+      "share": 0.018
+     },
+     {
+      "value": "a video control user interface",
+      "count": 2,
+      "share": 0.009
+     }
+    ]
+   },
+   "other": {
+    "total": 547,
+    "distinct": 50,
+    "rows": [
+     {
+      "value": "the method",
+      "count": 122,
+      "share": 0.223
+     },
+     {
+      "value": "the system",
+      "count": 41,
+      "share": 0.075
+     },
+     {
+      "value": "a circuit",
+      "count": 28,
+      "share": 0.051
+     },
+     {
+      "value": "the coupling assembly",
+      "count": 27,
+      "share": 0.049
+     },
+     {
+      "value": "the adapter",
+      "count": 26,
+      "share": 0.048
+     },
+     {
+      "value": "the device",
+      "count": 19,
+      "share": 0.035
+     },
+     {
+      "value": "a system",
+      "count": 17,
+      "share": 0.031
+     },
+     {
+      "value": "the graphics processor",
+      "count": 13,
+      "share": 0.024
+     },
+     {
+      "value": "an apparatus",
+      "count": 12,
+      "share": 0.022
+     },
+     {
+      "value": "apparatus",
+      "count": 12,
+      "share": 0.022
+     },
+     {
+      "value": "the display system defined",
+      "count": 12,
+      "share": 0.022
+     },
+     {
+      "value": "the media player",
+      "count": 11,
+      "share": 0.02
+     },
+     {
+      "value": "the rf tag",
+      "count": 11,
+      "share": 0.02
+     },
+     {
+      "value": "the process",
+      "count": 10,
+      "share": 0.018
+     },
+     {
+      "value": "the real-time priority-based communication system",
+      "count": 10,
+      "share": 0.018
+     },
+     {
+      "value": "the computer-method",
+      "count": 9,
+      "share": 0.016
+     },
+     {
+      "value": "the portable data processing device",
+      "count": 9,
+      "share": 0.016
+     },
+     {
+      "value": "the user interface",
+      "count": 9,
+      "share": 0.016
+     },
+     {
+      "value": "the multiple cloud-computing-facility aggregation",
+      "count": 8,
+      "share": 0.015
+     },
+     {
+      "value": "the router",
+      "count": 8,
+      "share": 0.015
+     },
+     {
+      "value": "the touch panel",
+      "count": 8,
+      "share": 0.015
+     },
+     {
+      "value": "a method",
+      "count": 7,
+      "share": 0.013
+     },
+     {
+      "value": "a video content delivery system",
+      "count": 7,
+      "share": 0.013
+     },
+     {
+      "value": "the male plug connector",
+      "count": 7,
+      "share": 0.013
+     },
+     {
+      "value": "the san",
+      "count": 7,
+      "share": 0.013
+     },
+     {
+      "value": "a microcomputer",
+      "count": 6,
+      "share": 0.011
+     },
+     {
+      "value": "the battery attaching mechanism",
+      "count": 6,
+      "share": 0.011
+     },
+     {
+      "value": "the capacitive touch sensor panel",
+      "count": 6,
+      "share": 0.011
+     },
+     {
+      "value": "the diversity receiver",
+      "count": 6,
+      "share": 0.011
+     },
+     {
+      "value": "the female receptacle connector",
+      "count": 6,
+      "share": 0.011
+     },
+     {
+      "value": "the abstraction layer",
+      "count": 5,
+      "share": 0.009
+     },
+     {
+      "value": "the audio data user interface",
+      "count": 5,
+      "share": 0.009
+     },
+     {
+      "value": "the computerized method",
+      "count": 5,
+      "share": 0.009
+     },
+     {
+      "value": "the display system",
+      "count": 5,
+      "share": 0.009
+     },
+     {
+      "value": "the distributed computing network",
+      "count": 5,
+      "share": 0.009
+     },
+     {
+      "value": "the graphical user interface",
+      "count": 5,
+      "share": 0.009
+     },
+     {
+      "value": "the pc processing card",
+      "count": 5,
+      "share": 0.009
+     },
+     {
+      "value": "the wireless telephone",
+      "count": 5,
+      "share": 0.009
+     },
+     {
+      "value": "a process",
+      "count": 4,
+      "share": 0.007
+     },
+     {
+      "value": "an electronic purchase mediating system",
+      "count": 4,
+      "share": 0.007
+     },
+     {
+      "value": "the computing arrangement",
+      "count": 4,
+      "share": 0.007
+     },
+     {
+      "value": "the single-instruction multiple-data architecture",
+      "count": 3,
+      "share": 0.005
+     },
+     {
+      "value": "the video accelerator",
+      "count": 3,
+      "share": 0.005
+     },
+     {
+      "value": "the manager",
+      "count": 2,
+      "share": 0.004
+     },
+     {
+      "value": "the server",
+      "count": 2,
+      "share": 0.004
+     }
+    ]
+   }
+  },
+  "openers": {
+   "all": {
+    "total": 3210,
+    "distinct": 13,
+    "rows": [
+     {
+      "value": "wherein",
+      "count": 2460,
+      "share": 0.766
+     },
+     {
+      "value": "further comprising",
+      "count": 553,
+      "share": 0.172
+     },
+     {
+      "value": "further including",
+      "count": 42,
+      "share": 0.013
+     },
+     {
+      "value": "where",
+      "count": 42,
+      "share": 0.013
+     },
+     {
+      "value": "whereby",
+      "count": 42,
+      "share": 0.013
+     },
+     {
+      "value": "in which",
+      "count": 34,
+      "share": 0.011
+     },
+     {
+      "value": "including",
+      "count": 13,
+      "share": 0.004
+     },
+     {
+      "value": "and further comprising",
+      "count": 10,
+      "share": 0.003
+     },
+     {
+      "value": "characterized",
+      "count": 4,
+      "share": 0.001
+     },
+     {
+      "value": "comprising",
+      "count": 4,
+      "share": 0.001
+     },
+     {
+      "value": "and further including",
+      "count": 3,
+      "share": 0.001
+     },
+     {
+      "value": "further comprises",
+      "count": 2,
+      "share": 0.001
+     }
+    ]
+   },
+   "method": {
+    "total": 1654,
+    "distinct": 11,
+    "rows": [
+     {
+      "value": "wherein",
+      "count": 1174,
+      "share": 0.71
+     },
+     {
+      "value": "further comprising",
+      "count": 360,
+      "share": 0.218
+     },
+     {
+      "value": "whereby",
+      "count": 42,
+      "share": 0.025
+     },
+     {
+      "value": "further including",
+      "count": 25,
+      "share": 0.015
+     },
+     {
+      "value": "where",
+      "count": 21,
+      "share": 0.013
+     },
+     {
+      "value": "in which",
+      "count": 13,
+      "share": 0.008
+     },
+     {
+      "value": "including",
+      "count": 9,
+      "share": 0.005
+     },
+     {
+      "value": "and further comprising",
+      "count": 3,
+      "share": 0.002
+     },
+     {
+      "value": "and further including",
+      "count": 3,
+      "share": 0.002
+     },
+     {
+      "value": "comprising",
+      "count": 2,
+      "share": 0.001
+     },
+     {
+      "value": "further comprises",
+      "count": 2,
+      "share": 0.001
+     }
+    ]
+   },
+   "system": {
+    "total": 614,
+    "distinct": 8,
+    "rows": [
+     {
+      "value": "wherein",
+      "count": 551,
+      "share": 0.897
+     },
+     {
+      "value": "further comprising",
+      "count": 47,
+      "share": 0.077
+     },
+     {
+      "value": "and further comprising",
+      "count": 5,
+      "share": 0.008
+     },
+     {
+      "value": "characterized",
+      "count": 4,
+      "share": 0.007
+     },
+     {
+      "value": "including",
+      "count": 3,
+      "share": 0.005
+     },
+     {
+      "value": "where",
+      "count": 2,
+      "share": 0.003
+     }
+    ]
+   },
+   "crm": {
+    "total": 164,
+    "distinct": 3,
+    "rows": [
+     {
+      "value": "wherein",
+      "count": 139,
+      "share": 0.848
+     },
+     {
+      "value": "further comprising",
+      "count": 24,
+      "share": 0.146
+     }
+    ]
+   },
+   "jepson": {
+    "total": 232,
+    "distinct": 3,
+    "rows": [
+     {
+      "value": "wherein",
+      "count": 199,
+      "share": 0.858
+     },
+     {
+      "value": "further comprising",
+      "count": 32,
+      "share": 0.138
+     }
+    ]
+   },
+   "other": {
+    "total": 546,
+    "distinct": 9,
+    "rows": [
+     {
+      "value": "wherein",
+      "count": 397,
+      "share": 0.727
+     },
+     {
+      "value": "further comprising",
+      "count": 90,
+      "share": 0.165
+     },
+     {
+      "value": "in which",
+      "count": 21,
+      "share": 0.038
+     },
+     {
+      "value": "where",
+      "count": 19,
+      "share": 0.035
+     },
+     {
+      "value": "further including",
+      "count": 14,
+      "share": 0.026
+     },
+     {
+      "value": "and further comprising",
+      "count": 2,
+      "share": 0.004
+     }
+    ]
+   }
+  },
+  "withoutOpener": 83,
+  "openersByDepth": {
+   "1": {
+    "total": 1879,
+    "distinct": 12,
+    "rows": [
+     {
+      "value": "wherein",
+      "count": 1424,
+      "share": 0.758
+     },
+     {
+      "value": "further comprising",
+      "count": 355,
+      "share": 0.189
+     },
+     {
+      "value": "further including",
+      "count": 27,
+      "share": 0.014
+     },
+     {
+      "value": "in which",
+      "count": 16,
+      "share": 0.009
+     },
+     {
+      "value": "where",
+      "count": 16,
+      "share": 0.009
+     },
+     {
+      "value": "including",
+      "count": 13,
+      "share": 0.007
+     },
+     {
+      "value": "whereby",
+      "count": 13,
+      "share": 0.007
+     },
+     {
+      "value": "and further comprising",
+      "count": 6,
+      "share": 0.003
+     },
+     {
+      "value": "characterized",
+      "count": 4,
+      "share": 0.002
+     },
+     {
+      "value": "and further including",
+      "count": 3,
+      "share": 0.002
+     }
+    ]
+   },
+   "2": {
+    "total": 841,
+    "distinct": 9,
+    "rows": [
+     {
+      "value": "wherein",
+      "count": 654,
+      "share": 0.778
+     },
+     {
+      "value": "further comprising",
+      "count": 134,
+      "share": 0.159
+     },
+     {
+      "value": "where",
+      "count": 20,
+      "share": 0.024
+     },
+     {
+      "value": "in which",
+      "count": 10,
+      "share": 0.012
+     },
+     {
+      "value": "whereby",
+      "count": 10,
+      "share": 0.012
+     },
+     {
+      "value": "further including",
+      "count": 9,
+      "share": 0.011
+     },
+     {
+      "value": "comprising",
+      "count": 2,
+      "share": 0.002
+     }
+    ]
+   },
+   "3": {
+    "total": 315,
+    "distinct": 8,
+    "rows": [
+     {
+      "value": "wherein",
+      "count": 237,
+      "share": 0.752
+     },
+     {
+      "value": "further comprising",
+      "count": 49,
+      "share": 0.156
+     },
+     {
+      "value": "whereby",
+      "count": 16,
+      "share": 0.051
+     },
+     {
+      "value": "further including",
+      "count": 4,
+      "share": 0.013
+     },
+     {
+      "value": "where",
+      "count": 4,
+      "share": 0.013
+     },
+     {
+      "value": "in which",
+      "count": 3,
+      "share": 0.01
+     }
+    ]
+   },
+   "4": {
+    "total": 88,
+    "distinct": 7,
+    "rows": [
+     {
+      "value": "wherein",
+      "count": 74,
+      "share": 0.841
+     },
+     {
+      "value": "further comprising",
+      "count": 8,
+      "share": 0.091
+     },
+     {
+      "value": "in which",
+      "count": 2,
+      "share": 0.023
+     }
+    ]
+   },
+   "5": {
+    "total": 51,
+    "distinct": 6,
+    "rows": [
+     {
+      "value": "wherein",
+      "count": 42,
+      "share": 0.824
+     },
+     {
+      "value": "further comprising",
+      "count": 3,
+      "share": 0.059
+     },
+     {
+      "value": "in which",
+      "count": 3,
+      "share": 0.059
+     }
+    ]
+   },
+   "6": {
+    "total": 24,
+    "distinct": 4,
+    "rows": [
+     {
+      "value": "wherein",
+      "count": 19,
+      "share": 0.792
+     },
+     {
+      "value": "and further comprising",
+      "count": 2,
+      "share": 0.083
+     },
+     {
+      "value": "further comprising",
+      "count": 2,
+      "share": 0.083
+     }
+    ]
+   },
+   "7": {
+    "total": 7,
+    "distinct": 2,
+    "rows": [
+     {
+      "value": "wherein",
+      "count": 5,
+      "share": 0.714
+     },
+     {
+      "value": "further comprising",
+      "count": 2,
+      "share": 0.286
+     }
+    ]
+   },
+   "8": {
+    "total": 4,
+    "distinct": 1,
+    "rows": [
+     {
+      "value": "wherein",
+      "count": 4,
+      "share": 1
+     }
+    ]
+   },
+   "9": {
+    "total": 1,
+    "distinct": 1,
+    "rows": []
+   }
+  },
+  "contributions": {
+   "all": {
+    "total": 3293,
+    "distinct": 3,
+    "rows": [
+     {
+      "value": "MODIFICATION",
+      "count": 2204,
+      "share": 0.669
+     },
+     {
+      "value": "ADDITION",
+      "count": 573,
+      "share": 0.174
+     },
+     {
+      "value": "UNDETERMINED",
+      "count": 516,
+      "share": 0.157
+     }
+    ]
+   },
+   "method": {
+    "total": 1706,
+    "distinct": 3,
+    "rows": [
+     {
+      "value": "MODIFICATION",
+      "count": 1024,
+      "share": 0.6
+     },
+     {
+      "value": "ADDITION",
+      "count": 372,
+      "share": 0.218
+     },
+     {
+      "value": "UNDETERMINED",
+      "count": 310,
+      "share": 0.182
+     }
+    ]
+   },
+   "system": {
+    "total": 628,
+    "distinct": 3,
+    "rows": [
+     {
+      "value": "MODIFICATION",
+      "count": 503,
+      "share": 0.801
+     },
+     {
+      "value": "ADDITION",
+      "count": 65,
+      "share": 0.104
+     },
+     {
+      "value": "UNDETERMINED",
+      "count": 60,
+      "share": 0.096
+     }
+    ]
+   },
+   "crm": {
+    "total": 165,
+    "distinct": 3,
+    "rows": [
+     {
+      "value": "MODIFICATION",
+      "count": 111,
+      "share": 0.673
+     },
+     {
+      "value": "UNDETERMINED",
+      "count": 30,
+      "share": 0.182
+     },
+     {
+      "value": "ADDITION",
+      "count": 24,
+      "share": 0.145
+     }
+    ]
+   },
+   "jepson": {
+    "total": 234,
+    "distinct": 3,
+    "rows": [
+     {
+      "value": "MODIFICATION",
+      "count": 171,
+      "share": 0.731
+     },
+     {
+      "value": "UNDETERMINED",
+      "count": 34,
+      "share": 0.145
+     },
+     {
+      "value": "ADDITION",
+      "count": 29,
+      "share": 0.124
+     }
+    ]
+   },
+   "other": {
+    "total": 560,
+    "distinct": 3,
+    "rows": [
+     {
+      "value": "MODIFICATION",
+      "count": 395,
+      "share": 0.705
+     },
+     {
+      "value": "ADDITION",
+      "count": 83,
+      "share": 0.148
+     },
+     {
+      "value": "UNDETERMINED",
+      "count": 82,
+      "share": 0.146
+     }
+    ]
+   }
+  },
+  "perFamily": {
+   "dependents": {
+    "n": 385,
+    "median": 7,
+    "p10": 2,
+    "p90": 17,
+    "max": 45
+   },
+   "maxDepth": {
+    "n": 385,
+    "median": 2,
+    "p10": 1,
+    "p90": 4,
+    "max": 9
+   }
+  },
+  "depthDistribution": {
+   "total": 3293,
+   "distinct": 9,
+   "rows": [
+    {
+     "value": 1,
+     "count": 1938,
+     "share": 0.589
+    },
+    {
+     "value": 2,
+     "count": 855,
+     "share": 0.26
+    },
+    {
+     "value": 3,
+     "count": 321,
+     "share": 0.097
+    },
+    {
+     "value": 4,
+     "count": 90,
+     "share": 0.027
+    },
+    {
+     "value": 5,
+     "count": 53,
+     "share": 0.016
+    },
+    {
+     "value": 6,
+     "count": 24,
+     "share": 0.007
+    },
+    {
+     "value": 7,
+     "count": 7,
+     "share": 0.002
+    },
+    {
+     "value": 8,
+     "count": 4,
+     "share": 0.001
+    },
+    {
+     "value": 9,
+     "count": 1,
+     "share": 0
+    }
+   ]
+  },
+  "multiParent": 11,
+  "parentAgreement": {
+   "agree": 3289,
+   "disagree": 0,
+   "unresolved": 4,
+   "note": "dep-claim-rules.js parent vs the office markup parent, on dependents of claim 1 only"
+  }
+ }
+}

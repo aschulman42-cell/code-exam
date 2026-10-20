@@ -70,6 +70,26 @@ a **median 7 dependents** at **chain depth ~2**; across the grant-data dependent
 modify / 13% add** (the rest cross-class). This is the population CodeExam's drafting and splitting
 are calibrated against — not a hand-picked example.
 
+**The frame of a litigated claim 1** (first measurement, 2026-10-19). Beyond its shape, a real claim
+is built from a small vocabulary of *frame* words around the invention, and CodeExam measures those
+too (`src/core/claim-frame-tables.json`, rebuilt by a script from the same corpus; the claim-1 half
+rebuilds from the in-repo fixture and is tested). On the 380 litigated claim 1s: the preamble class
+splits **method 187 / system 70 / computer-readable medium 15 / Jepson 35 / other 73** (the "other"
+claims are mostly apparatus with an uncommon head noun — a touch panel, a transponder); the
+transition is **"comprising" 97.6%** of the time, one in five followed by "the steps of"; a method
+claim's preamble takes one of about **38 skeletons**, led by "A method for …, comprising:", "A method
+comprising:" and "A method for …, the method comprising the steps of:"; **81% of method elements
+open with a gerund** ("receiving", "determining", "providing" lead) and **72% of system elements
+with a noun phrase** ("means for" and "configured to" are the apparatus forms). Across the 3,293
+dependents under those claim 1s, the reference is **"of claim N" 73%**, the opener **"wherein" 77%**
+and **"further comprising" 17%**, and the dependency detector resolves the office's own parent on
+3,289 of them with no disagreements (4 are unresolvable from the text). These tables are what the
+pseudo-claim drafter is to draw its frame from next: a claim *object* whose permitted preambles,
+transitions, element openers and dependent kinds are enumerated from this population, whose counts
+come from the shape bands above, and which CodeExam renders to claim text itself rather than leaving
+the diction to a model — so that a generated claim reads like the population it is measured
+against. Like every figure on this page: re-measure, don't re-quote.
+
 ## Tiers of ground truth — and what each can tell you
 
 Not every claim question has the same kind of answer key. CodeExam's testing separates them (the
