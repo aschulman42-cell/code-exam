@@ -83,6 +83,11 @@ claim, so out of context it can read like an assertion about what a codebase act
 is not — it is an illustrative draft carrying fixed non-admission caveats. Keep them labeled as
 drafts, not findings.
 
+With `--claim-schema` (experimental) the drafter fills a claim *object* instead of writing text:
+its preamble forms, dependent kinds and counts are the litigated population's and CodeExam renders
+the claim, so a draft's frame reads like the claims CodeExam is tested against while its substance
+stays the model's.
+
 Pseudo-claims have their own page: see [`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md) for
 what they are and are not, how to run them (explicit anchors, the candidates arc, and the
 one-command `--filter … --llm` form), the model / air-gap requirements, and examples.

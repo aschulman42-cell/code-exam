@@ -84,11 +84,14 @@ with a noun phrase** ("means for" and "configured to" are the apparatus forms). 
 dependents under those claim 1s, the reference is **"of claim N" 73%**, the opener **"wherein" 77%**
 and **"further comprising" 17%**, and the dependency detector resolves the office's own parent on
 3,289 of them with no disagreements (4 are unresolvable from the text). These tables are what the
-pseudo-claim drafter is to draw its frame from next: a claim *object* whose permitted preambles,
-transitions, element openers and dependent kinds are enumerated from this population, whose counts
-come from the shape bands above, and which CodeExam renders to claim text itself rather than leaving
-the diction to a model — so that a generated claim reads like the population it is measured
-against. Like every figure on this page: re-measure, don't re-quote.
+pseudo-claim drafter draws its frame from under `--claim-schema` (experimental): a claim *object*
+whose permitted preamble forms and dependent kinds are enumerated from this population, whose
+element and dependent counts come from the shape bands above, and which CodeExam renders to claim
+text itself rather than leaving the frame to a model — so that a generated claim reads like the
+population it is measured against. What stays the model's is the substance of each element, and
+that is checked after drafting (a method step opens with a gerund; a dependent names claim 1 or an
+earlier dependent) and redrafted when it fails. Like every figure on this page: re-measure, don't
+re-quote.
 
 ## Tiers of ground truth — and what each can tell you
 

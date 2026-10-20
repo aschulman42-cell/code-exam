@@ -41,6 +41,7 @@ import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAn
 import { makeFilterMatcher } from '../core/filter-match.js';
 import { triageClaims, formatTriage, keepSidecar, formatKeepFile, dependentFacetCount } from '../core/pseudo-claim-triage.js';
 import { pickClaimClass } from '../core/claim-class.js';
+import { claimSchema, strictSchema, renderClaim, checkClaim, reviseLine, SCHEMA_RESAMPLE_CAP } from '../core/claim-schema.js';
 
 // --- Canonical caveat blocks -------------------------------------------------
 // Ported verbatim from pseudo_claim_selftest/CAVEAT.md so the shipped command
@@ -177,7 +178,7 @@ export const SHAPE_PROFILES = {
   },
   'litigated-system': {
     label: 'litigated software claim 1s, system/apparatus class (70 of the 380-row structure fixture, preamble-classified)',
-    source: 'test/fixtures/litigated-claim1-structure.jsonl split by preamble class 2026-09-01 (method 187, system 70, crm 15, jepson 35, other 73); dependents/modification/depth borrowed from the litigated families (class-unmeasured)',
+    source: 'test/fixtures/litigated-claim1-structure.jsonl split by preamble class 2026-09-01 (method 187, system 70, crm 15, jepson 35, other 73; the rule is preambleClass() in scripts/build-claim-frame-tables.mjs); dependents/modification/depth borrowed from the litigated families (class-unmeasured)',
     axes: {
       words:        { median: 149, p10: 82,   p90: 227 },
       coarse:       { median: 5,   p10: 3,    p90: 9 },
@@ -377,10 +378,51 @@ const PSEUDO_SYS_TAIL_SYSTEM =
 // truncation persists at 16000, the next lever is capping Gemini's thinking
 // rather than buying more of it, and the detector will say so with a count.
 /** The drafting system prompt for a shape profile (default: litigated). */
-export function buildPseudoClaimSys(profileName = DEFAULT_SHAPE_PROFILE, claimClass = 'method') {
+// #322 claim-schema: the SCHEMA-path tail. The same selection guidance, but
+// the reply is a claim OBJECT the engine's schema enforces (claim-schema.js),
+// so there is no format block: the fields are described in words, the frame
+// forms are offered by the schema itself, and CodeExam renders the text.
+const PSEUDO_SYS_TAIL_SCHEMA_HEAD =
+  'If the provided material is larger than one claim can cover, SELECT the ' +
+  'limitations that constitute the mechanism for CLAIM 1 and push the ' +
+  'specifics down into dependents; leave genuinely unrelated functions ' +
+  'uncited — do NOT enumerate every function in the material. Fewer, ' +
+  'well-chosen limitations make a better claim 1 than an exhaustive list. ' +
+  'You answer by FILLING A CLAIM OBJECT, not by writing claim text; CodeExam ' +
+  'renders the text from it. The fields: ' +
+  'preamble.skeleton — one of the offered preamble forms (the forms real ' +
+  'litigated claims use; choose the one that fits); preamble.purpose — the ' +
+  'words that replace the "..." in that form, a short noun phrase naming what ' +
+  'the claim is for (e.g. "distributing application programs to a target ' +
+  'server"), empty when the form has no "...". ' +
+  'elements — one entry per limitation of CLAIM 1, in order; each `text` is ' +
+  'ONE clause with no claim number, no leading "and" and no trailing period';
+const PSEUDO_SYS_TAIL_SCHEMA_CLASS = {
+  method: ': a STEP opening with a gerund ("receiving ...", "determining ...", "transmitting ..."). ',
+  system: ': a STRUCTURAL element opening with an article ("a memory storing ...", "a processor configured to: <operation>; <operation>"). ',
+  crm: ': an operation the stored instructions cause the processor to perform, opening with a gerund. ',
+};
+const PSEUDO_SYS_TAIL_SCHEMA_TAIL =
+  'Each element\'s `anchors` lists the code it reads on as <file>@<functionName>, ' +
+  'or <file>@L<start>-<end> for a DOCUMENTATION excerpt using the line range ' +
+  'from its header — ONLY files, functions and line ranges that appear in the ' +
+  'provided material; NEVER invent a path, a name, or a line range. ' +
+  'dependents — one entry per dependent claim: `dependsOn` is the parent ' +
+  'claim NUMBER (1 for claim 1; an earlier dependent\'s number for a deeper ' +
+  'chain — dependents are numbered 2, 3, ... in order); `kind` is "wherein" to ' +
+  'NARROW exactly one element with exactly one species, "further comprising" ' +
+  'to ADD one step, or (apparatus) "wherein the processor is further ' +
+  'configured to" to ADD one operation; `text` is the clause after those ' +
+  'words, with no claim number and no "The method of claim". Write as many ' +
+  'dependents as the material genuinely supports; none is allowed.';
+function pseudoSysTailSchema(claimClass) {
+  return PSEUDO_SYS_TAIL_SCHEMA_HEAD + (PSEUDO_SYS_TAIL_SCHEMA_CLASS[claimClass] || PSEUDO_SYS_TAIL_SCHEMA_CLASS.method) + PSEUDO_SYS_TAIL_SCHEMA_TAIL;
+}
+
+export function buildPseudoClaimSys(profileName = DEFAULT_SHAPE_PROFILE, claimClass = 'method', { schema = false } = {}) {
   const classLine = `The statutory class for THIS draft is GIVEN: ${String(claimClass).toUpperCase()}. `
     + 'Draft in that class; do not choose another. ';
-  const tail = claimClass === 'system' ? PSEUDO_SYS_TAIL_SYSTEM : PSEUDO_SYS_TAIL;
+  const tail = schema ? pseudoSysTailSchema(claimClass) : (claimClass === 'system' ? PSEUDO_SYS_TAIL_SYSTEM : PSEUDO_SYS_TAIL);
   return PSEUDO_SYS_HEAD + shapeTargetLines(profileName) + PSEUDO_SYS_DEPENDENTS + classLine + tail;
 }
 // The default-profile rendering, kept under the name every importer and the
@@ -931,7 +973,8 @@ export function groundAnchors(index, anchors) {
         dropped.push({ ...a, reason: 'cited doc line range out of bounds' });
         continue;
       }
-      grounded.push({ file: hit, func: '', start, end: Math.min(end, lines.length), element: a.element, kind: 'lines' });
+      grounded.push({ file: hit, func: '', start, end: Math.min(end, lines.length), element: a.element, kind: 'lines',
+        ...(a.elementIndex ? { elementIndex: a.elementIndex } : {}) });
       continue;
     }
     // A specific reason, not the catch-all. The old 'no function name to verify'
@@ -960,6 +1003,7 @@ export function groundAnchors(index, anchors) {
     grounded.push({
       file: m.filepath, func: m.name, start: m.start, end: m.end,
       element: a.element, ambiguous: matches.length > 1,
+      ...(a.elementIndex ? { elementIndex: a.elementIndex } : {}),
       ...(a.citedStart ? { citedStart: a.citedStart, citedEnd: a.citedEnd || a.citedStart } : {}),
       ...(rangeMismatch ? { rangeMismatch: true } : {}),
     });
@@ -1132,9 +1176,14 @@ export function buildAnchorSidecar(groups, drafts, meta = {}) {
       // population, so a scorer or the loop test can rank by it without
       // re-deriving the rule. Omitted when no report was computed.
       ...(d.shape ? { shape: d.shape } : {}),
+      // #322 claim-schema: the object the drafter filled (each element with its
+      // anchors -- the claim-to-code pair at birth), the attempts, and the
+      // post-check verdicts. Omitted on the free-text path.
+      ...(d.schemaDraft ? { schema: d.schemaDraft } : {}),
       grounded: (d.grounded || []).map((a) => ({
         file: a.file, func: a.func || '', start: a.start, end: a.end,
         kind: a.kind || 'func', element: a.element || '',
+        ...(a.elementIndex ? { elementIndex: a.elementIndex } : {}),
         ...(a.ambiguous ? { ambiguous: true } : {}),
       })),
       dropped: (d.dropped || []).map((a) => ({
@@ -1638,10 +1687,15 @@ export async function doPseudoClaims(index, args) {
     });
     const sysCls = (clsMode === 'auto' || clsMode === 'both') ? 'method' : clsMode;
     const sysProfile = sysCls === 'system' && SHAPE_PROFILES[`${spName}-system`] ? `${spName}-system` : spName;
+    const schemaShown = args.claim_schema
+      ? `\n\n[--claim-schema: the claim object schema the engine enforces, for '${sysCls}' under the ${sysProfile} profile]\n`
+        + JSON.stringify(claimSchema({ claimClass: sysCls, axes: (SHAPE_PROFILES[sysProfile] || SHAPE_PROFILES[DEFAULT_SHAPE_PROFILE]).axes }), null, 1)
+      : '';
     printShownPrompts({
-      system: buildPseudoClaimSys(sysProfile, sysCls),
+      system: buildPseudoClaimSys(sysProfile, sysCls, { schema: !!args.claim_schema }) + schemaShown,
       users,
-      note: `(one claim is drafted per group; ${users.length} group(s) shown. The system prompt is per statutory class — shown here for '${sysCls}'.)`,
+      note: `(one claim is drafted per group; ${users.length} group(s) shown. The system prompt is per statutory class — shown here for '${sysCls}'.`
+        + `${args.claim_schema ? ' Under --claim-schema the reply is the claim object above, which CodeExam renders into claim text.' : ''})`,
     });
     return;
   }
@@ -1694,10 +1748,26 @@ export async function doPseudoClaims(index, args) {
     // pseudo-claims-cost-guard: packs are already built (s.pack), so the
     // drafting projection is exact — pack + system prompt in, 900 out per
     // claim. Gate before the first API call.
-    const calls = withAnchors.map((s) => ({
-      inChars: buildPseudoClaimSys(profileName, s._class || 'method').length + 200 + (s.pack ? s.pack.length : 0),
-      outTokens: 900,
-    }));
+    // #322 claim-schema: the schema rides on EVERY call (a tool definition on
+    // Claude, a response_format on the OpenAI wire, a grammar locally), so its
+    // serialized length is input on every draft -- the first live run projected
+    // $0.12 and spent $0.25 before this was counted. Resamples (up to
+    // SCHEMA_RESAMPLE_CAP extra calls per draft) are not projected: they happen
+    // only on a failed post-check, and the actual-cost line reports them.
+    const schemaChars = new Map();
+    const calls = withAnchors.map((s) => {
+      const cls = s._class || 'method';
+      let inChars = buildPseudoClaimSys(profileName, cls, { schema: !!args.claim_schema }).length + 200 + (s.pack ? s.pack.length : 0);
+      if (args.claim_schema) {
+        if (!schemaChars.has(cls)) {
+          const clsProfile = cls === 'system' && SHAPE_PROFILES[`${profileName}-system`] ? `${profileName}-system` : profileName;
+          const axes = (SHAPE_PROFILES[clsProfile] || SHAPE_PROFILES[DEFAULT_SHAPE_PROFILE]).axes;
+          schemaChars.set(cls, JSON.stringify(strictSchema(claimSchema({ claimClass: cls, axes }))).length);
+        }
+        inChars += schemaChars.get(cls);
+      }
+      return { inChars, outTokens: 900 };
+    });
     if (!claimsCostGate(model, calls, `${withAnchors.length} drafts`, args)) return;
     resetCloudUsage();
     process.stderr.write(`Drafting ${withAnchors.length} pseudo-claim(s) via ${modelDesc}…\n`);
@@ -1716,16 +1786,51 @@ export async function doPseudoClaims(index, args) {
         const intent = mech ? `MECHANISM: ${mech}\n\n` : '';
         const cls = s._class || 'method';
         const clsProfile = cls === 'system' && SHAPE_PROFILES[`${profileName}-system`] ? `${profileName}-system` : profileName;
-        const raw = await drafter(buildPseudoClaimSys(clsProfile, cls), `${intent}CODE:\n${s.pack}`, PSEUDO_CLAIM_MAX_OUTPUT_TOKENS);
-        // Read the flag IMMEDIATELY after the await -- it carries THIS call's
-        // verdict (draftCloud clears it on entry) and drafting is sequential.
-        const truncated = wasLastDraftTruncated();
-        const { prose, dependents, anchors } = parseGeneratedClaim(raw);
+        let prose, dependents, anchors, truncated;
+        let schemaDraft = null;
+        if (args.claim_schema) {
+          // #322 claim-schema: the object path. Same selection guidance; the
+          // frame is fixed by the schema (the population's preamble forms,
+          // dependent kinds and count bands), the text is rendered here, and a
+          // hard post-check failure is answered by a resample that names it.
+          const axes = (SHAPE_PROFILES[clsProfile] || SHAPE_PROFILES[DEFAULT_SHAPE_PROFILE]).axes;
+          const schema = claimSchema({ claimClass: cls, axes });
+          const sys = buildPseudoClaimSys(clsProfile, cls, { schema: true });
+          const baseUser = `${intent}CODE:\n${s.pack}`;
+          let user = baseUser, obj = null, checks = null, attempts = 0;
+          const resampledFor = []; // the hard-failure codes each resample answered, oldest first
+          for (;;) {
+            attempts++;
+            obj = await drafter(sys, user, PSEUDO_CLAIM_MAX_OUTPUT_TOKENS, { schema });
+            truncated = wasLastDraftTruncated();
+            checks = checkClaim(obj, { claimClass: cls, axes, schema });
+            if (!checks.failures.some((f) => f.hard) || attempts > SCHEMA_RESAMPLE_CAP) break;
+            resampledFor.push(...checks.failures.filter((f) => f.hard).map((f) => f.code));
+            user = baseUser + reviseLine(checks.failures);
+          }
+          const r = renderClaim(obj, { claimClass: cls });
+          prose = r.claim;
+          dependents = r.dependents;
+          // `elementIndex` (1-based) rides through grounding to the artifact, which
+          // lists the cited anchors element by element on this path.
+          anchors = r.anchors.map((a) => {
+            const n = normalizeAnchorRef(a.ref);
+            return n.file ? { ...n, element: [a.element, n.annotation].filter(Boolean).join(' — '), elementIndex: a.n } : null;
+          }).filter(Boolean);
+          schemaDraft = { attempts, resampledFor, failures: checks.failures, notes: checks.notes, object: obj };
+        } else {
+          const raw = await drafter(buildPseudoClaimSys(clsProfile, cls), `${intent}CODE:\n${s.pack}`, PSEUDO_CLAIM_MAX_OUTPUT_TOKENS);
+          // Read the flag IMMEDIATELY after the await -- it carries THIS call's
+          // verdict (draftCloud clears it on entry) and drafting is sequential.
+          truncated = wasLastDraftTruncated();
+          ({ prose, dependents, anchors } = parseGeneratedClaim(raw));
+        }
         const { grounded, dropped } = groundAnchors(index, anchors);
         const shape = prose ? shapeReport(prose, dependents, clsProfile) : null;
-        drafts.push({ prose, dependents, grounded, dropped, truncated, shape, class: cls, classReason: s._classReason || 'default' });
+        drafts.push({ prose, dependents, grounded, dropped, truncated, shape, class: cls, classReason: s._classReason || 'default', ...(schemaDraft ? { schemaDraft } : {}) });
         process.stderr.write(`  claim ${i + 1}/${withAnchors.length}: ${grounded.length} grounded anchor(s)${dropped.length ? `, ${dropped.length} ungrounded dropped` : ''}`
-          + `${truncated ? ' - TRUNCATED by the output budget; ANCHORS block incomplete' : ''}\n`);
+          + `${truncated ? ' - TRUNCATED by the output budget; ANCHORS block incomplete' : ''}`
+          + `${schemaDraft ? ` [schema: ${schemaDraft.attempts} attempt(s)${schemaDraft.resampledFor.length ? `, resampled for ${[...new Set(schemaDraft.resampledFor)].join(', ')}` : ''}${schemaDraft.failures.some((f) => f.hard) ? ', a check still fails' : ''}]` : ''}\n`);
       } catch (e) {
         drafts.push({ error: e.message });
         process.stderr.write(`  claim ${i + 1}/${withAnchors.length}: draft failed — ${e.message}\n`);
@@ -1774,6 +1879,25 @@ export async function doPseudoClaims(index, args) {
         + ' Length is a report, not a goal: the direction of improvement is grounded mechanism elements up and specifics down into dependents._');
       out.push('');
     }
+  }
+
+  // #322 claim-schema: what the object path did, as counts on the artifact.
+  if (!dryRun && args.claim_schema) {
+    const sd = drafts.filter((d) => d && d.schemaDraft);
+    const resampled = sd.filter((d) => d.schemaDraft.attempts > 1).length;
+    const failing = sd.filter((d) => d.schemaDraft.failures.some((f) => f.hard)).length;
+    // Which checks the resamples answered, and which hard checks still fail at
+    // the cap -- the codes, so a run can say WHY it resampled, not just that it did.
+    const tally = (codes) => { const m = new Map(); for (const k of codes) m.set(k, (m.get(k) || 0) + 1); return [...m.entries()].map(([k, n]) => `${k} ${n}`).join(' · '); };
+    const why = tally(sd.flatMap((d) => d.schemaDraft.resampledFor || []));
+    const still = tally(sd.flatMap((d) => d.schemaDraft.failures.filter((f) => f.hard).map((f) => f.code)));
+    out.push(`_Claim schema (**experimental**): the drafter filled a claim object and CodeExam rendered the text;`
+      + ` the preamble forms, dependent kinds and element / dependent counts are the **${profileName}** population's.`
+      + ` ${resampled} of ${sd.length} draft(s) resampled after a failed check${why ? ` (${why})` : ''}; ${failing} still failing${still ? ` (${still})` : ''}.`
+      + (args.claims_only
+        ? ' The object, with each element\'s anchors, is in the .anchors.json sidecar._'
+        : ' Each claim\'s cited anchors are listed by the element that cited them; pass --claims-only <file> to keep the object itself in an .anchors.json sidecar (this run wrote none)._'));
+    out.push('');
   }
 
   // WHICH NOTATIONS THE ENGINE USED, as a count on the artifact.
@@ -1883,14 +2007,32 @@ export async function doPseudoClaims(index, args) {
           out.push('');
           for (const ln of formatClaimChart(d.prose, d.grounded)) out.push(ln);
         } else {
-          out.push(`### Cited anchors (${d.grounded.length} grounded${d.dropped.length ? `, ${d.dropped.length} ungrounded dropped` : ''})`);
+          // #322 claim-schema: the object pairs each element with its anchors at
+          // birth, so on that path the list reads element by element (one line
+          // per element, its anchors after it) -- an anchor cited by two elements
+          // appears under both, and an element with no grounded anchor is visible
+          // as such rather than silently absent. The free-text path keeps the
+          // flat list with the drafter's note per anchor.
+          const byElement = !!(d.schemaDraft && d.schemaDraft.object && d.grounded.every((a) => a.elementIndex));
+          out.push(`### Cited anchors (${d.grounded.length} grounded${d.dropped.length ? `, ${d.dropped.length} ungrounded dropped` : ''}${byElement ? ', by element' : ''})`);
           out.push('');
-          for (const a of d.grounded) {
-            out.push(a.kind === 'lines'
-              ? `- \`${a.file}@L${a.start}-${a.end}\` — documentation excerpt${a.element ? ` — ${a.element}` : ''}`
-              : `- \`${a.file}@${a.func}\` — L${a.start}-${a.end}${a.element ? ` — ${a.element}` : ''}`);
+          if (byElement) {
+            const cite = (a) => (a.kind === 'lines' ? `\`${a.file}@L${a.start}-${a.end}\` (documentation excerpt)` : `\`${a.file}@${a.func}\` L${a.start}-${a.end}`);
+            const els = (d.schemaDraft.object.elements || []).map((e) => String((e && e.text) || '').replace(/\s+/g, ' ').trim());
+            els.forEach((text, i) => {
+              const mine = d.grounded.filter((a) => a.elementIndex === i + 1);
+              const short = text.length > 140 ? `${text.slice(0, 139).trimEnd()}…` : text;
+              out.push(`- **${i + 1}.** ${short} — ${mine.length ? mine.map(cite).join(' · ') : '_(no grounded anchor)_'}`);
+            });
+            if (!els.length) out.push('- _(the object holds no elements)_');
+          } else {
+            for (const a of d.grounded) {
+              out.push(a.kind === 'lines'
+                ? `- \`${a.file}@L${a.start}-${a.end}\` — documentation excerpt${a.element ? ` — ${a.element}` : ''}`
+                : `- \`${a.file}@${a.func}\` — L${a.start}-${a.end}${a.element ? ` — ${a.element}` : ''}`);
+            }
+            if (!d.grounded.length) out.push('- _(no cited anchor resolved to a real function)_');
           }
-          if (!d.grounded.length) out.push('- _(no cited anchor resolved to a real function)_');
         }
         if (d.dropped.length) {
           out.push('');

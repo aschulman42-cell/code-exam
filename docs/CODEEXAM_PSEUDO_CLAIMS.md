@@ -100,6 +100,31 @@ CodeExam prints the evidence packs only. A local GGUF keeps the run air-gapped;
 see [`LOCAL_LLM.md`](LOCAL_LLM.md) and [`AIR_GAPPED.md`](AIR_GAPPED.md). A cost
 estimate is shown before any cloud spend.
 
+**Claim schema (experimental).** Add `--claim-schema` and the drafter no longer writes claim text:
+it fills a **claim object** — a preamble form, a purpose, the elements each with its code anchors,
+the dependents each with a parent number and a kind — and CodeExam renders the text. The permitted
+preamble forms ("A method for …, the method comprising the steps of:"), the dependent kinds
+("wherein", "further comprising") and the element and dependent counts are the litigated
+population's, measured in `src/core/claim-frame-tables.json` and the shape bands, so the *frame*
+of a draft reads like a real claim while the substance of each element stays the model's. Every
+engine enforces the same object: a local GGUF through a grammar compiled from the schema, Claude
+through a forced tool call, the OpenAI-style endpoints through `response_format`. What a schema
+cannot say — a method step opens with a gerund, a dependent names claim 1 or an earlier dependent —
+is checked after drafting and a failed draft is redrafted once or twice with the failure named (the
+artifact says which checks the redrafts answered). Because the object pairs each element with its
+anchors at birth, the artifact lists a claim's cited anchors element by element, and an element
+with no grounded anchor is visible as such; with `--claims-only` the object itself lands in the
+`.anchors.json` sidecar under `schema`. The schema is sent with every call, so a schema draft costs
+more input tokens than a free-text draft of the same group, and each redraft is one more call; the
+projected-cost line counts the schema but not redrafts, which the actual-cost line reports.
+`--show-prompt --claim-schema` prints the schema the engine is given. The default (no flag) is the
+free-text path, unchanged. Expect little visible change on Claude method claims: measured on
+free-text runs, Claude already writes the population's transition, preamble form and dependent
+references nearly every time. The flag shows where an engine drifts: a claim returned in the wrong
+statutory class, cited anchors lost to free-text parsing, method steps that do not open with a
+gerund, and apparatus claims (`--claim-class system`) whose elements do not open as noun phrases
+(the ledger in `claims-pipeline-state.md` §6 has the per-engine numbers).
+
 ## How candidate discovery works (and what it does not promise)
 
 The set of candidate mechanisms is produced **deterministically, with no model**:
@@ -156,6 +181,13 @@ the file.
   it reports what the model produced and, in its shape report, compares the draft
   against the litigated population's dependent-count band (median ~7). They are
   illustrative drafts under the same caveat, not charted or grounded.
+- **Frame from the population (`--claim-schema`, experimental).** On the free-text path
+  the model chooses its own preamble, transition and dependent forms. Under `--claim-schema`
+  those are enumerated from the 380 litigated claim 1s and their 3,293 dependents (see the
+  *frame* paragraph on [`litigated-claims-ground-truth.md`](litigated-claims-ground-truth.md)),
+  the dependent count is bounded above by the population's p90, and CodeExam writes the text.
+  Not yet: exemplars chosen from the population and a rerank of several samples by shape
+  distance (the grammar says what is allowed, not what to prefer), and a GUI or MCP control.
 - **Statutory class.** Pseudo-claims default to **method** claims, which is why a
   run can look all-method. Use `--claim-class system` (or `both`, or `auto` to
   pick per mechanism) for apparatus/system form. The flag affects pseudo-claims

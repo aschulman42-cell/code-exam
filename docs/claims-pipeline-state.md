@@ -229,12 +229,19 @@ skeletons (`a method for ..., the method comprising the steps of`), transitions,
 element openers per class and, from the 385 families, dependent reference
 phrases, openers, subjects and contributions by depth (§6 has the figures). The
 shape profiles say how MANY elements and dependents a claim 1 carries; these say
-which WORDS carry them. They feed the next item, `issue-322-claim-schema-drafting`:
-a claim *object* schema whose enums come from the tables and whose counts come
-from the profiles, rendered to claim text by CE on every engine (a JSON-schema
-grammar locally, structured output in the cloud), so the HOF pair — claim
-element, anchored function — exists at drafting time instead of being
-recovered by a second pass. A rebuild is a script run; the claim-1 half rebuilds
+which WORDS carry them. They feed `--claim-schema` (experimental,
+`src/core/claim-schema.js`, same day): a claim *object* schema whose preamble
+forms and dependent kinds come from the tables and whose counts come from the
+profiles, rendered to claim text by CE on every engine (a JSON-schema grammar
+locally, a forced tool call on Claude, `response_format` on the OpenAI-style
+endpoints, with a logged downgrade when an endpoint rejects the bounds), and
+post-checks the schema cannot express (a method step opens with a gerund; a
+dependent names claim 1 or an earlier dependent) that resample a failed draft
+with the failure named. The HOF pair — claim element, anchored function —
+therefore exists at drafting time, in the sidecar's `schema.object`, instead
+of being recovered by a second pass. Not yet: exemplars by population and a
+rerank by shape distance (allowed by grammar, preferred by exemplar, measured
+by the report). A rebuild is a script run; the claim-1 half rebuilds
 from the in-repo fixture and is tested, the dependent half needs the local
 corpus and the JSON says which inputs it saw.
 
@@ -281,6 +288,8 @@ corpus and the JSON says which inputs it saw.
 | frame tables: transitions | same | deterministic | 378 | 10-19 | `comprising` 369 (97.6%), `including` 5, `comprises` 2; 2 rows with none (one typo, `comprsing`); tail `the steps of` 81 (21%), `the computer-implemented steps of` 8 |
 | frame tables: method skeletons | same, 187 method claim 1s | deterministic | 187 | 10-19 | 38 distinct; `a method for ... comprising` 24, `a method comprising` 20, `a method for ... comprising the steps of` 20, `a method of ... comprising` 20, `a method for ..., the method comprising` 13, `a method of ..., the method comprising` 13 |
 | frame tables: element openers | same, attorney rows beyond the preamble | deterministic | 956 method / 360 system / 93 crm rows | 10-19 | method rows open with a gerund 80.8% (`receiving` 90, `determining` 58, `providing` 56, `generating` / `storing` / `transmitting` 26); system rows with a noun phrase 71.9% (`means for` on 89 rows, `configured to` on 65); crm rows gerund 54.8%; rows per claim median 4 (p10 3, p90 8) |
+| `--claim-schema` first live run: free text vs schema, same groups | `.CE_082526`, 4 hand-picked CE groups (`cand_edited.lst`: ranker-eval, mechanism-grouper, claims-loop, `--candidates`) | claude-sonnet-4-6 | 4 | 10-19 | both artifacts scored by `scripts/claim-frame-overlap.mjs`: overlap median 0.188 → **0.181** (mean 0.176 → 0.178); in band 2/4 → 1/4 (the axes that go out are words and rows, which the schema bounds only per element); mechanism median 7 → 8; dependents median 11 → 11; grounded 50 → 49; schema: 1 of 4 resampled, 0 still failing; cost $0.16 (4 calls, 29k tok in / 5k out) → $0.25 (5 calls, 45k in / 7k out) — the schema rides on every call. **A smoke test of the wire, not the measurement**: n = 4 of CE's own code, and the schema fixes the frame, not the diction (§8 row 4 is the diction lever). The 20-group langchain arms are still to run |
+| free-text frame conformance by engine: what `--claim-schema` would change | CodeExam self-runs, method class requested: Claude `CE082826_claims_keep` 47 / `sr_gh_SEED_claims_keep` 106 / `CodeExam_claims_v3` 41; ChatGPT `CodeExam_claims_chatgpt` 41; Gemini `CodeExam_claims_gemini_v2` 41; Claude system class `DEMO_zlib_bothways_090126` 9 | claude / chatgpt / gemini | 41–106 | 10-19 | transition `comprising` 99–100% on every engine; method preamble skeleton inside the schema's enum 99–100% Claude, 95% ChatGPT, 100% Gemini; method rows opening with a gerund **78–82% Claude, 60% ChatGPT, 71% Gemini** (population 81%); Claude dependents `of claim N` 100%, `wherein` 81–82%, `further comprising` 18–19% (population 73 / 77 / 17%; the ChatGPT and Gemini runs predate dependents). **Class drift**: Gemini returned 7 system + 1 other of 41 when asked for method; Claude and ChatGPT 0. **Anchors lost to free-text parsing**: Gemini 54 of 446 cited (`no function name to verify`) + 9 not in index; Claude 1 of 248; ChatGPT 0 of 231. **System class, Claude, 9 claims / 80 rows**: noun-phrase rows 28% against the population's 72%, `means for` 0, `configured to` 9. Read: on Claude method claims the schema has nothing to fix, which is what the 10-19 live run showed; it would show on Gemini (class, anchors), on ChatGPT (gerund steps) and on `--claim-class system` on any engine (apparatus rows). Local GGUFs: no free-text sidecar on this machine to measure |
 | frame tables: dependents | 385 litigated families | deterministic | 3,293 | 10-19 | reference `of claim` 72.8%, `as recited in claim` 7.7%, `according to claim` 6.5%, `as in claim` 6.4%, 36 with none; opener `wherein` 76.6%, `further comprising` 17.2%; contribution MODIFICATION 66.9% / ADDITION 17.4% / UNDETERMINED 15.7%; per family median 7 dependents (p10 2, p90 17, max 45), max depth median 2 (p10 1, p90 4, deepest 9) — the profile's `dependents` and `depth` axes re-measured unchanged; dep-claim-rules parent = office parent on 3,289, 0 disagreements, 4 unresolvable from the text |
 
 **Corpus caveat.** `.demo` / `.demo_code_only` is contrived — Claude wrote the code
@@ -309,6 +318,7 @@ Chosen for Andrew's stated test: **visible incremental improvement, checkable wi
 | 1 | **`--claim-analyze` uses per-element retrieval** (roadmap (a), the unfinished half) | The bottom line is charts that find the known answers. `--claim-analyze` is the command Andrew tests with and the one that reports `(e) ABSENT` on `.demo` today | Re-run `--claim-analyze` on `.demo`: element (e) should stop being ABSENT, and `SecureChannel`/`tls_send_encrypted` should appear. Gemma arm: same command, `--model` |
 | 2 | **Per-row retrieval-confidence warning** (was "cap-hit warning" — revised 08-13) | Still deterministic and threshold-free, but **must not key on cap-hit alone**: on '101 every element hit the cap and retrieval still found the crux, so a raw cap warning would flag every row of every large-index chart. Needs a relative measure — share of index matched, or whether rank scores separate | `.demo` rows flag for Claude/Gemini and not ChatGPT/Gemma, **and** '101 rows do not all flag |
 | 3 | **#309 Part A — honour the `--targets` file hint** | Charts silently cite the wrong function; the workaround (class-qualify after `@`) is undocumented and easy to miss | `--targets AdaptiveTrackSelection.java@updateSelectedTrack` resolves to the adaptive-bitrate one, no ambiguity warning |
+| 4 | **`--claim-schema`: exemplars by population and a rerank by shape distance** (#322 stage 1, second half; added 2026-10-19) | The schema fixes the frame but a grammar says what is allowed, not what to prefer: which form, which openers, how many dependents are still the model's draw. Deterministic exemplars from the litigated set (by class and CPC neighbourhood) and a rerank of n samples by `shapeReport` distance with anchor coverage as the hard constraint are the remaining cheap moves before any fine-tune | The claim-word ↔ anchored-identifier overlap and the in-band share on the same candidate groups, free-text vs schema vs schema+exemplars, in §6 |
 
 **Deliberately not first:** #309 Part B (credential mask vs `vocabulary`) is the
 security item but invisible in claim output, so it shows Andrew nothing while

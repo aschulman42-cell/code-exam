@@ -24,6 +24,7 @@ import { assertLocalOnly, isLocalApiUrl, isAirGapped } from './air-gapped.js';
 import { resolveProvider } from './providers.js';
 import { openaiCompletionBudget, openaiSupportsTemperature, openaiText, openaiUsage, openaiFinishReason } from './openai-util.js';
 import { estimateCost } from './pricing.js';
+import { strictSchema, looseSchema } from './claim-schema.js';
 
 // Resolve which model to draft with, using CE's shared provider registry so the
 // surface matches analyze/claim/overview:
@@ -184,7 +185,34 @@ function resolveCloudKey(provider, args) {
 // user message (parity with analyze/claim). The openai-compat wire uses
 // openai-util so a reasoning model (gpt-5*, o*, gemini-2.5) isn't starved of
 // output budget and doesn't 400 on an unsupported `temperature`.
-export async function draftCloud(model, sys, user, maxTokens, temperature) {
+// #322: the claim-schema wire shapes. Claude takes the object schema as a forced
+// tool call; the OpenAI-style endpoints (ChatGPT, Gemini's compatible endpoint,
+// local servers) as a response_format. Strict mode wants every property
+// required and additionalProperties false (strictSchema), and not every
+// endpoint accepts the bounding keywords (OpenAI's support for minItems /
+// maxItems changed over 2025 and Gemini's and local servers' varies), so a 400
+// that names the schema is answered by a downgrade: first the schema without
+// its bounds, then plain JSON mode with the schema in the prompt. Each
+// downgrade is logged once; the caller's post-checks enforce what the engine
+// no longer does, and validateObject reports what the engine let through.
+const _schemaDowngradeLogged = new Set();
+function _logDowngrade(label, what) {
+  const k = `${label}:${what}`;
+  if (_schemaDowngradeLogged.has(k)) return;
+  _schemaDowngradeLogged.add(k);
+  process.stderr.write(`[claim-schema] ${label}: ${what}\n`);
+}
+function _parseJsonObject(text, label) {
+  const t = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  const start = t.indexOf('{');
+  const end = t.lastIndexOf('}');
+  if (start < 0 || end < start) throw new Error(`${label} returned no claim object${_truncation.last ? ' (cut off by the output budget)' : ''}`);
+  try { return JSON.parse(t.slice(start, end + 1)); } catch (e) {
+    throw new Error(`${label} returned a claim object that does not parse${_truncation.last ? ' (cut off by the output budget)' : ''}: ${e.message}`);
+  }
+}
+
+export async function draftCloud(model, sys, user, maxTokens, temperature, { schema = null } = {}) {
   _truncation.last = false;   // this call's verdict, not the previous call's
   const prompt = `${sys}\n\n${user}`;
   if (model.wire === 'anthropic') {
@@ -196,6 +224,10 @@ export async function draftCloud(model, sys, user, maxTokens, temperature) {
         model: model.model, max_tokens: maxTokens,
         ...(useTemp ? { temperature } : {}),
         messages: [{ role: 'user', content: prompt }],
+        ...(schema ? {
+          tools: [{ name: 'draft_claim', description: 'The claim object CodeExam renders into claim text.', input_schema: strictSchema(schema) }],
+          tool_choice: { type: 'tool', name: 'draft_claim' },
+        } : {}),
       }),
     });
     if (!res.ok) throw new Error(`${model.label} HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
@@ -205,28 +237,41 @@ export async function draftCloud(model, sys, user, maxTokens, temperature) {
     // as the openai branch ignored finish_reason; Claude has not visibly
     // truncated only because its drafts run shorter.
     _recordTruncation(body.stop_reason === 'max_tokens');
+    if (schema) {
+      const tu = (body.content || []).find((b) => b.type === 'tool_use');
+      if (!tu || !tu.input) throw new Error(`${model.label} returned no claim object${_truncation.last ? ' (cut off by the output budget)' : ''}`);
+      return tu.input;
+    }
     return (body.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
   }
   const headers = { 'Content-Type': 'application/json' };
   if (model.key) headers.Authorization = `Bearer ${model.key}`;
-  const res = await fetch(model.apiUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: model.model,
-      max_completion_tokens: openaiCompletionBudget(model.model, maxTokens),
-      ...(openaiSupportsTemperature(model.model) ? { temperature } : {}),
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-  if (!res.ok) throw new Error(`${model.label} HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const body = await res.json();
+  const base = {
+    model: model.model,
+    max_completion_tokens: openaiCompletionBudget(model.model, maxTokens),
+    ...(openaiSupportsTemperature(model.model) ? { temperature } : {}),
+  };
+  const attempts = schema ? [
+    { response_format: { type: 'json_schema', json_schema: { name: 'draft_claim', strict: true, schema: strictSchema(schema) } }, messages: [{ role: 'user', content: prompt }], note: null },
+    { response_format: { type: 'json_schema', json_schema: { name: 'draft_claim', strict: true, schema: looseSchema(strictSchema(schema)) } }, messages: [{ role: 'user', content: prompt }], note: 'endpoint rejected the schema with its bounds; sent it without minItems/maxItems/minLength/maxLength (the post-checks enforce them)' },
+    { response_format: { type: 'json_object' }, messages: [{ role: 'user', content: `${prompt}\n\nAnswer with ONE JSON object and nothing else, matching this JSON schema exactly:\n${JSON.stringify(strictSchema(schema))}` }], note: 'endpoint rejected json_schema; sent plain JSON mode with the schema in the prompt (the object is validated after)' },
+  ] : [{ messages: [{ role: 'user', content: prompt }], note: null }];
+  let body = null;
+  for (let i = 0; i < attempts.length; i++) {
+    const { note, ...extra } = attempts[i];
+    if (note) _logDowngrade(model.label, note);
+    const res = await fetch(model.apiUrl, { method: 'POST', headers, body: JSON.stringify({ ...base, ...extra }) });
+    if (res.ok) { body = await res.json(); break; }
+    const text = (await res.text()).slice(0, 300);
+    const schemaRejected = schema && i < attempts.length - 1 && res.status === 400 && /response_format|json_schema|schema|strict|minItems|maxItems|minLength|maxLength|additionalProperties/i.test(text);
+    if (!schemaRejected) throw new Error(`${model.label} HTTP ${res.status}: ${text}`);
+  }
   // openaiUsage takes the USAGE object, not the whole body — passing `body`
   // silently returned zeros, so OpenAI/Gemini runs reported "0 tok, $0.00"
   // while Claude's anthropic-wire accounting worked.
   _recordUsage(openaiUsage(body.usage));
   _recordTruncation(openaiFinishReason(body) === 'length');
-  return openaiText(body);
+  return schema ? _parseJsonObject(openaiText(body), model.label) : openaiText(body);
 }
 
 // --- pseudo-claims-cost-guard: projection + consent gate + actuals ----------
@@ -777,6 +822,17 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
   // and the per-target rebuild needs it after that block has returned.
   let sequence = null;
   let ChatSession = null;
+  // The Llama handle, kept for createGrammarForJsonSchema: a draft that passes a
+  // claim schema (#322) is decoded under a grammar compiled from it, so the
+  // local engine cannot produce anything but the object. One grammar per
+  // distinct schema, compiled on first use.
+  let llama = null;
+  const grammars = new Map();
+  const grammarFor = async (schema) => {
+    const key = JSON.stringify(schema);
+    if (!grammars.has(key)) grammars.set(key, await llama.createGrammarForJsonSchema(schema));
+    return grammars.get(key);
+  };
   // A load failure is structural for the life of the process (no binding, no
   // VRAM budget, model file missing/too large): cache the first one and fail
   // fast on every later draft() instead of re-entering the load path once per
@@ -784,7 +840,7 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
   // llama.cpp diagnostics into the chart's stdout. Deliberately no
   // retry-with-backoff. #323.
   let loadFailure = null;
-  return async (sys, user, maxTokens) => {
+  return async (sys, user, maxTokens, { schema = null } = {}) => {
     if (loadFailure) throw loadFailure;
     if (!session) {
       try {
@@ -802,7 +858,7 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
         // model. #323.
         let m;
         try {
-          const llama = await getLlama(llamaInitOptions({ cpu: cpuOnly }));
+          llama = await getLlama(llamaInitOptions({ cpu: cpuOnly }));
           // Recorded on EVERY attempt, so a chart built after a GPU->CPU fallback
           // reports the device it actually ran on rather than the one it wanted.
           await _recordEngineBuild(mod, llama);
@@ -864,14 +920,25 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
     // over: a silent local truncation is exactly the Gemma failure mode this
     // item exists to make visible.
     _truncation.last = false;
+    // #322: under a claim schema the reply is decoded by a grammar compiled from
+    // it and parsed by that grammar into the object; an output cut off by the
+    // budget is not a partial object but an error that names the cause.
+    const grammar = schema ? await grammarFor(schema) : null;
+    const opts = { temperature: temperature ?? 0, maxTokens, ...(grammar ? { grammar } : {}) };
+    const finish = (text) => {
+      if (!grammar) return text;
+      try { return grammar.parse(text); } catch (e) {
+        throw new Error(`local draft did not complete a claim object${_truncation.last ? ' (cut off by the output budget or the context)' : ''}: ${e.message}`);
+      }
+    };
     if (typeof session.promptWithMeta === 'function') {
-      const r = await session.promptWithMeta(`${sys}\n\n${user}`, { temperature: temperature ?? 0, maxTokens });
+      const r = await session.promptWithMeta(`${sys}\n\n${user}`, opts);
       _recordTruncation(r && (r.stopReason === 'maxTokens' || r.stopReason === 'contextSizeExceeded'));
-      return typeof r === 'string' ? r : (r && r.responseText) || '';
+      return finish(typeof r === 'string' ? r : (r && r.responseText) || '');
     }
-    return session.prompt(`${sys}
+    return finish(await session.prompt(`${sys}
 
-${user}`, { temperature: temperature ?? 0, maxTokens });
+${user}`, opts));
   };
 }
 
@@ -891,5 +958,5 @@ export function makeDrafter(model, temperature) {
       ? `no ${p.label} key — set ${p.keyEnv}, pass ${p.keyFlag}/--api-key, or create ${p.keyFiles[0]}`
       : `no API key for ${model.apiUrl}`);
   }
-  return (sys, user, maxTokens) => draftCloud(model, sys, user, maxTokens, temperature);
+  return (sys, user, maxTokens, opts = {}) => draftCloud(model, sys, user, maxTokens, temperature, opts);
 }

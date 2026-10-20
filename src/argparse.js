@@ -403,6 +403,7 @@ export function parseArgs() {
     body_match_seed: false, // --candidates: body-containment rescue for name-match-failed cutoff tokens (#289)
     min_rank: null,       // --pseudo-claims: draft-time floor over [P..] rank tags (default P2 when tags present)
     shape_profile: 'litigated', // --pseudo-claims: which claim population the draft should resemble (litigated|ai-ml|randpat)
+    claim_schema: false,  // --pseudo-claims: draft a claim OBJECT under a schema whose frame comes from the litigated population; CE renders the text (#322, experimental)
     doc_anchors: false,   // --candidates: attach best-matching doc sections as path@L anchors (#289 enrichment)
     rank: false,
     include_evidence_pack: false,
@@ -667,6 +668,7 @@ export function parseArgs() {
     ['elements',             'value',          ['--elements']],
     ['granularity',          'value',          ['--granularity']],
     ['claim_class',          'value',          ['--claim-class']],
+    ['claim_schema',         'flag',           ['--claim-schema']],
     ['no_callees',           'flag',           ['--no-callees']],
     ['scope_note',           'value',          ['--scope-note']],
     ['targets_note',         'value',          ['--targets-note']],
@@ -1796,6 +1798,16 @@ LLM ANALYSIS:
                              in the code, reason recorded per claim), or both
                              (each group drafted twice, labelled — the
                              measurement mode)
+  --claim-schema             --pseudo-claims (EXPERIMENTAL): the drafter fills
+                             a claim OBJECT under a schema and CodeExam renders
+                             the text. The preamble forms, dependent kinds and
+                             element / dependent counts are the litigated
+                             population's (claim-frame-tables.json, shape
+                             bands); each element carries its anchors. Local
+                             GGUF: a grammar compiled from the schema; Claude:
+                             a forced tool call; OpenAI-style endpoints:
+                             response_format. Post-checks (gerund steps,
+                             parent numbers) resample a failed draft.
   --chart-html <file>        --claim-chart: also write a self-contained
                              printable HTML page (record-per-limitation,
                              verdict rail, FULL finding notes untruncated,
