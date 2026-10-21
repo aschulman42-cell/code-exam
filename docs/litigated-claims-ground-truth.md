@@ -151,7 +151,10 @@ Stating the gaps is part of the credibility:
   here:** for claim/code testing — and for the larger goal of establishing claim/code "ground truth"
   — it is useful (even if some find it regrettable) that some litigation now targets **open-source
   projects used by deep-pocketed defendants**, since those give a rare, genuinely public (claim,
-  code) pairing to measure against.
+  code) pairing to measure against. The nearest thing to such a pair is a party's own chart that
+  cites a file or function of an open-source repository; a search of public filings for those, and
+  what it found, is [`real-world-claim-charts.md`](real-world-claim-charts.md) — advocacy, not an
+  answer key, but real claims against real code.
 - **Original assignee ≠ asserting party.** The patent's *original assignee* — who drafted the
   claims — is often not who is now asserting it; for roughly **165 of the first 385**, the top
   plaintiff is a later owner. So "who drafted this claim" and "who is suing on it" must not be

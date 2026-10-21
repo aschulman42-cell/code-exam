@@ -146,10 +146,12 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 
 - `scripts/add-license-headers.js` — idempotent Apache-2.0 header inserter; reads this file for per-file descriptions
 - `scripts/anchor-recall.mjs` — scores claim-search recall against saved anchors on CE's four-rung ladder
+- `scripts/build-claim-frame-tables.mjs` — frequency tables of the FRAME words of litigated software claims: preamble classes, skeletons, transitions, element openers, dependent frames
 - `scripts/build-claim-genre-df.mjs` — builds the content-word document-frequency JSON for the genericity score
 - `scripts/build-first-run-index.mjs` — rebuilds samples/FIRST_RUN_INDEX.zip from the tracked samples/ tree: hybrid build, base path sanitized to "samples" (#237), deflate zip, verified load
 - `scripts/check-app-loads.mjs` — smoke test that evaluates app.js's module graph under DOM stubs
 - `scripts/claim-ballpark.mjs` — ranks which index best matches each claim via multisect hits; no model calls
+- `scripts/claim-frame-overlap.mjs` — the fumes number: how much of a pseudo-claim's vocabulary is the identifiers of the code it is anchored to; reads sidecars and artifacts, --frame adds the frame shares
 - `scripts/claim-locate-stability.mjs` — measures run-to-run repeatability of --claim-locate targets
 - `scripts/claim-selftest.mjs` — deterministic offline retrieval regression score against curated anchors
 - `scripts/engine-qualify.mjs` — pass/fails an engine on pinned negative+positive chart sidecars; no model calls
@@ -158,6 +160,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `scripts/litigated-claims-fetch.mjs` — fetches litigated US patents' claim 1 + dependents from Google Patents
 - `scripts/pseudo-claim-loop.mjs` — runs the pseudo-claim loop: synonymize, chart blind, score vs answer key
 - `scripts/rank-eval.mjs` — scores a candidate ordering against tiered ground truth (Spearman, recall@k, purity)
+- `scripts/recap-claim-chart-search.mjs` — find public claim charts that cite open-source code, and catalog what they cite
 - `scripts/splitter-compare.mjs` — prints CE's claim-element split beside the attorney's rows for one patent
 
 ## test — the suite (node:test, `npm test`)
@@ -177,8 +180,10 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_claim_ballpark.js` — claim-ballpark script: distinctive-term selection, row reduction, ranking
 - `test/test_claim_chart.js` — claim-chart pipeline: table structure, target budget, verdict merge, provenance, HTML
 - `test/test_claim_class.js` — pickClaimClass: the deterministic statutory-class rule, four branches with reasons
+- `test/test_claim_frame_tables.js` — the frame tables of litigated claims: class rule, openers, skeletons, element and dependent frames, the shipped JSON
 - `test/test_claim_genericity.js` — claim genericity: head verbs, IO vs mechanism cues, element-class tallies
 - `test/test_claim_locate.js` — claim-locate: symbol verify, element splitting, scavenger hunt, targets provenance
+- `test/test_claim_schema.js` — claim schema: derivation from the tables and bands, renderer, post-checks, the cloud wires on a stubbed fetch, the overlap and frame scorer
 - `test/test_claim_search.js` — --no-claim-filter: the vocab-concordance options decision at all three call sites
 - `test/test_claims_loop.js` — claims-loop: chart/lst parsing, anchoring, sponge detection, redraft, cost guard
 - `test/test_class_digest.js` — #198 class digest targets the class not its constructor; listClasses start line
@@ -238,6 +243,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_pseudo_claim_triage.js` — deterministic first cut over pseudo-claims: signals, thresholds, keep sidecar
 - `test/test_pseudo_claims.js` — --claims-only machine format, anchor sidecar, truncation detection, dependents
 - `test/test_ranker_eval.js` — ranker scoring: midranks, tie-corrected Spearman, recall@k, purity, .lst parsers
+- `test/test_recap_claim_chart_search.js` — the citation pass and the catalog renderer of scripts/recap-claim-chart-search.mjs, no network
 - `test/test_referenced_resources.js` — external surface: URLs, env vars, paths, commands, cloud and model refs
 - `test/test_retrieval_reachability.js` — retrieval acceptance: implementer reach, ratcheted high-water marks
 - `test/test_synonymize.js` — synonymizer: prompt build, marker/punctuation restore, overlap, corpus-arg guards
