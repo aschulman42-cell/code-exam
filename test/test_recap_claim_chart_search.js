@@ -15,6 +15,7 @@ import {
   parseRepoUrl, granularityOf, citationsOf, docDomains, summarizeText, functionNear, patentNear, claimNear, flatten,
   codeShapedCall, codeMentions, parseLabel, columnBoundary, chartRows, paragraphsOf, layoutOf, renderCites, patentsIn, CODE_QUOTED_MIN,
   renderCatalog, replaceSection, catalogRow, parseArgs, QUERY_SHAPES, GRANULARITY_RANK, CATALOG_START, CATALOG_END,
+  alignToClaim, preambleOf, claimClauses, applyClaims, claimBlockOf, claimSourceFor, claimShapedQuote, shortPatentsIn, resolveAcrossDocket,
 } from '../scripts/recap-claim-chart-search.mjs';
 
 const UNISWAP = 'The number of LP tokens received is equal to the number of reserve tokens deposited divided by the price of one LP token. '
@@ -308,5 +309,116 @@ describe('code quoted by name, with no link', () => {
     assert.match(cites, /## Malikie Innovations Ltd\. v\. ViaBTC Technology Ltd\.\n\ntxwd 7:26-cv-00372, document 1-7, filed 2026-09-09, patent 8,520,842, claim 1, \[pdf\][^\n]*\n\nRepository link \(document\): `bitcoin\/bips bip-0137\.mediawiki`/);
     assert.match(cites, /- \*\*no row or paragraph nearby\*\*\n  - functions: `secp256k1_ecdsa_sign_recoverable`, `secp256k1_ecdsa_sign_inner`, `secp256k1_ecdsa_recoverable_signature_save`\n  - files: `main_impl\.h` ×2, `secp256k1_recovery\.h`/);
     assert.ok(!cites.includes('document 47'), 'a document with no code by name is not listed');
+  });
+});
+
+describe('the claim text, from the patent', () => {
+  // Claims 1 and 2 of US 8,190,610 as patents.google.com serves them (fetched 2026-10-20), and the
+  // rows of R2 v. Databricks Dkt 149-2 as the chart's claim column reads them: a page-header fragment
+  // on 1[d], a claim-text page's text on 1[pre], the head of the evidence on 2[a].
+  const C1 = 'A method of processing data of a data set over a distributed system, wherein the data set comprises a plurality of data groups, the method comprising: '
+    + 'partitioning the data of each one of the data groups into a plurality of data partitions that each have a plurality of key-value pairs and providing each data partition to a selected one of a plurality of mapping functions that are each user-configurable to independently output a plurality of lists of values for each of a set of keys found in such map function\'s corresponding data partition to form corresponding intermediate data for that data group and identifiable to that data group, '
+    + 'wherein the data of a first data group has a different schema than the data of a second data group and the data of the first data group is mapped differently than the data of the second data group so that different lists of values are output for the corresponding different intermediate data, wherein the different schema and corresponding different intermediate data have a key in common; '
+    + 'and reducing the intermediate data for the data groups to at least one output data group, including processing the intermediate data for each data group in a manner that is defined to correspond to that data group, so as to result in a merging of the corresponding different intermediate data based on the key in common, wherein the mapping and reducing operations are performed by a distributed system.';
+  const C2 = 'The method of claim 1 , wherein: the at least one output data group is a plurality of output data groups.';
+  const PATENT = { source: 'patent', number: '8,190,610', title: 'x', claims: [{ n: 1, text: C1 }, { n: 2, text: C2 }] };
+  it('alignToClaim finds the span of the claim the row quotes; preambleOf stops at the transition that opens the body', () => {
+    const a = alignToClaim('wherein the mapping and reducing operations are performed by a distributed system. 7 15115 Claim Feature Evidence', C1);
+    assert.equal(a.span, 'wherein the mapping and reducing operations are performed by a distributed system.');
+    assert.ok(a.agreement >= 0.7 && a.agreement < 1, `the header fragment's words are not in the span: ${a.agreement}`);
+    const b = alignToClaim('wherein the data of a first data group has a different schema than the data of a second data group and the data of the first data group is mapped differently than the data of the second data group so that different lists of values are output for the corresponding different intermediate data, wherein the different schema and corresponding different intermediate data have a key in common; and', C1);
+    assert.ok(b.span.startsWith('wherein the data of a first data group') && b.span.endsWith('have a key in common;'), b.span);
+    assert.equal(b.agreement, 1);
+    assert.equal(preambleOf(C1), 'A method of processing data of a data set over a distributed system, wherein the data set comprises a plurality of data groups, the method comprising:');
+    assert.equal(alignToClaim('', C1), null);
+    assert.equal(claimClauses('a; b: c wherein d and wherein e').length, 5, '"and wherein" opens one clause, not two');
+  });
+  it('applyClaims: a row with claim-column text takes the aligned span and keeps the chart\'s text; a row without takes the whole claim; a "Claim N" row loses its stray column heading', () => {
+    const code = { rows: [
+      { label: '1[pre]', claim: '1', element: 'pre', limitation: 'A method of processing data of a data set over a distributed system, wherein the data set comprises a plurality of data groups, the method comprising:', source: 'claim-page', functions: ['a'], files: [] },
+      { label: '1[d]', claim: '1', element: 'd', limitation: 'wherein the mapping and reducing operations are performed by a distributed system. 7 15115 Claim Feature Evidence', source: 'left', functions: ['b'], files: [] },
+      { label: '2[a]', claim: '2', element: 'a', limitation: 'In another example, ZippedPartitionsRDD.scala reflects', source: 'head', functions: ['c'], files: [] },
+      { label: '3[a]', claim: '3', element: 'a', limitation: 'some text of a claim the fixture lacks', source: 'left', functions: ['d'], files: [] },
+      // Veritaseum v. Coinbase Dkt 1-3: a column heading's "The" fell into the claim column.
+      { label: 'claim 1', claim: '1', element: null, limitation: 'A method of processing data of a The data set over a distributed system', source: 'left', functions: ['e'], files: [] },
+    ], paragraphs: [{ n: 12, claim: '2', quote: null, functions: ['f'], files: [] }, { n: 13, claim: '9', quote: null, functions: ['g'], files: [] }], limitations: {} };
+    applyClaims(code, PATENT);
+    const by = Object.fromEntries(code.rows.map((r) => [r.label, r]));
+    assert.equal(by['1[pre]'].source, 'patent'); assert.equal(by['1[pre]'].agreement, 1); assert.ok(by['1[pre]'].limitation.endsWith('the method comprising:'));
+    assert.equal(by['1[d]'].source, 'patent'); assert.equal(by['1[d]'].limitation, 'wherein the mapping and reducing operations are performed by a distributed system.');
+    assert.ok(by['1[d]'].chartText.endsWith('Claim Feature Evidence'), 'the chart\'s own text stays beside the patent\'s');
+    assert.equal(by['2[a]'].source, 'patent-claim'); assert.equal(by['2[a]'].limitation, C2); assert.equal(by['2[a]'].chartText, undefined);
+    assert.equal(by['3[a]'].source, 'left'); assert.equal(by['3[a]'].agreement, null, 'a claim the source lacks leaves the row as it was');
+    assert.equal(by['claim 1'].source, 'patent'); assert.equal(by['claim 1'].limitation, C1); assert.ok(by['claim 1'].agreement >= 0.9);
+    assert.equal(code.paragraphs[0].source, 'patent-claim'); assert.equal(code.paragraphs[0].limitation, C2); assert.equal(code.paragraphs[1].source, undefined);
+    assert.equal(code.limitations['1[d]'], by['1[d]'].limitation); assert.equal(code.claimSource, 'patent'); assert.equal(code.claimsApplied, 5);
+    assert.equal(applyClaims(code, null), code);
+  });
+  it('a footnote digit glued to a patent number, a curly apostrophe, and a shorthand resolved across the docket', () => {
+    // Malikie v. Foundry Dkt 1-14 and 1-11: "U.S. Patent No. 8,666,0621", "8,806,1971".
+    assert.deepEqual(patentsIn('Exhibit 14: U.S. Patent No. 8,666,0621 and the ’062 Patent again'), [{ number: '8,666,062', n: 2 }]);
+    assert.equal(patentNear('the ’197 Patent reads on https://g/', 30), "'197");
+    assert.deepEqual(shortPatentsIn("the ’062 Patent, the '062 patent and the '197 Patent, see U.S. Patent No. 8,806,197"), [{ short: "'062", n: 2 }]);
+    const rows = [
+      { docketId: 7, docId: 1, code: { patent: null, patentShort: [{ short: "'062", n: 2 }], patents: [] } },
+      { docketId: 7, docId: 2, code: { patent: '7,110,538', patents: [{ number: '7,110,538', n: 3 }, { number: '8,666,062', n: 1 }] } },
+      { docketId: 8, docId: 3, code: { patent: "'062", patents: [] } },
+      // True Return v. MakerDAO Dkt 1-6 names no patent; the docket's memorandum names only 10,025,797.
+      { docketId: 9, docId: 4, code: { patent: null, patentShort: [], patents: [] } },
+      { docketId: 9, docId: 5, code: { patent: '10,025,797', patents: [{ number: '10,025,797', n: 20 }] } },
+      { docketId: 10, docId: 6, code: { patent: null, patentShort: [], patents: [] } },
+      { docketId: 10, docId: 7, code: { patent: '1,000,001', patents: [{ number: '1,000,001', n: 1 }, { number: '1,000,002', n: 1 }] } },
+    ];
+    assert.equal(resolveAcrossDocket(rows), 2);
+    assert.equal(rows[0].code.patent, '8,666,062'); assert.equal(rows[0].code.patentFrom, 'docket');
+    assert.equal(rows[2].code.patent, "'062", 'another docket does not resolve it');
+    assert.equal(rows[3].code.patent, '10,025,797'); assert.equal(rows[3].code.patentFrom, 'docket-only');
+    assert.equal(rows[5].code.patent, null, 'a docket naming two patents resolves nothing for a document naming none');
+  });
+  it('a claim the document reproduces serves where no patent resolves; a prayer for relief and a two-column patent page do not', () => {
+    const DOC = [
+      '       23. Claim 1 of the \'137 Patent recites:',
+      '       1. A system for creating interactive television applications, the system comprising:',
+      '       a template author system comprising: a display; a user interface; and',
+      '       a processor coupled to the display and the user interface, the processor comprising:',
+      '       a component for presenting a layout window on the display; and',
+      '       a component for assigning one or more display elements to the layout window.',
+      '       2. The system of claim 1, wherein the components are distributed across a network.',
+      '',
+      '       24. The Accused Products are systems for creating interactive television applications.',
+      '',
+      '                                     PRAYER FOR RELIEF',
+      '       1. A judgment in favor of Plaintiff that Defendant has infringed the \'137 Patent;',
+      '       2. A judgment and order requiring Defendant to pay Plaintiff its damages;',
+    ].join('\n');
+    const b = claimBlockOf(DOC);
+    assert.deepEqual(b.claims.map((c) => c.n), [1, 2]);
+    assert.ok(b.claims[0].text.startsWith('A system for creating interactive television applications, the system comprising:') && b.claims[0].text.endsWith('to the layout window.'), b.claims[0].text);
+    assert.equal(b.source, 'document');
+    assert.equal(claimBlockOf('       1. A judgment in favor of Plaintiff that Defendant has infringed;\n       2. A judgment and order requiring Defendant to pay;'), null);
+    // ESW v. Roku Dkt 1-2 attaches the patent: its claims page is two columns of interleaved lines.
+    assert.equal(claimBlockOf('   1. A method for providing an authoring environment for                 system can initiate the attribute change\ngenerating an attribute change, the method comprising:'), null);
+    assert.equal(claimSourceFor({ patent: null }, DOC, 'nowhere').source, 'document');
+    assert.equal(claimSourceFor({ patent: "'137" }, 'no claim here', 'nowhere'), null);
+  });
+  it('a paragraph quote is kept only when it reads like a claim and not like code', () => {
+    assert.equal(claimShapedQuote('public class @ extends LogWrapperBase {'), false);
+    assert.equal(claimShapedQuote('is defined within PrintWriter println() statements'), false);
+    assert.equal(claimShapedQuote('a large tank or tub used to hold liquid'), false);
+    assert.equal(claimShapedQuote('the step of receiving a request from a client device'), true);
+    assert.equal(claimShapedQuote(null), false);
+    const m = codeMentions('       12. The product calls initWidget() as described in "public class Widget extends Base {" and so on for the record.\n');
+    assert.equal(m.paragraphs[0].quote, null);
+  });
+  it('renderCites shows the patent tag with its agreement, the chart\'s text beneath where it differs, and a paragraph\'s claim text', () => {
+    const rows = [{ caseName: 'R2 Solutions LLC v. Databricks, Inc.', courtId: 'txed', docketNumber: '4:23-cv-01147', documentNumber: '149', attachmentNumber: 2, dateFiled: '2023-12-28', pdfUrl: null, citations: [],
+      code: { layout: 'chart', functionCount: 2, fileCount: 0, functions: [{ name: 'a', n: 1, label: '1[d]' }, { name: 'f', n: 1, label: '¶ 12' }], files: [], patents: [{ number: '8,190,610', n: 4 }], patent: '8,190,610', claim: '1', claimSource: 'patent',
+        rows: [{ label: '1[d]', claim: '1', element: 'd', limitation: 'wherein the mapping and reducing operations are performed by a distributed system.', chartText: 'wherein the mapping and reducing operations are performed by a distributed system. 7 15115 Claim Feature Evidence', source: 'patent', agreement: 0.73, functions: ['a'], files: [] }],
+        paragraphs: [{ n: 12, claim: '2', quote: 'the at least one output data group', limitation: C2, source: 'patent-claim', functions: ['f'], files: [] }], limitations: {} } }];
+    const md = renderCites(rows, { generatedAt: '2026-10-21' });
+    assert.match(md, /patent 8,190,610, claim 1, claim text from the patent\./);
+    assert.match(md, /- \*\*1\[d\]\*\* \[patent 0\.73\] "wherein the mapping and reducing operations are performed by a distributed system\."\n  - chart: "wherein the mapping[^\n]*Claim Feature Evidence"\n  - functions: `a`/);
+    assert.match(md, /- \*\*¶ 12\*\* \(claim 2\) \[patent-claim\] "The method of claim 1 , wherein: the at least one output data group is a plurality of output data groups\."\n  - quotes: "the at least one output data group"\n  - functions: `f`/);
+    assert.equal(parseArgs(['--out', 'x', '--fetch-claims']).fetchClaims, true);
   });
 });

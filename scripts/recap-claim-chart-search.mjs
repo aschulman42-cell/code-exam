@@ -24,6 +24,8 @@
 //   node scripts/recap-claim-chart-search.mjs --out <dir> --rescore            # the text passes again, no network
 //   node scripts/recap-claim-chart-search.mjs --out <dir> --render docs/real-world-claim-charts.md
 //   node scripts/recap-claim-chart-search.mjs --out <dir> --cites <file.md>    # the code each document quotes, by chart row
+//   node scripts/recap-claim-chart-search.mjs --out <dir> --fetch-claims      # the claims of every patent the catalog cites, from
+//                                                                             # patents.google.com via litigated-claims-fetch.mjs; then --rescore
 //
 // Resumable: a document already in <out>/catalog.jsonl is not fetched again. Downloaded PDFs are
 // untrusted input: they live under <out>/pdf and nothing is ever executed from there. The search
@@ -32,7 +34,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const API = 'https://www.courtlistener.com/api/rest/v4/search/';
 export const STORAGE = 'https://storage.courtlistener.com/';
@@ -135,19 +137,25 @@ const nearest = (text, index, re, window) => {
  * the one beside the code citation is the one meant. A comma number alone is not a patent (a
  * filing is full of dollar figures and line counts); it counts only beside the word.
  */
+// A number may be followed by exactly one more digit: a footnote marker glued on by pdftotext
+// ("U.S. Patent No. 8,666,0621" in Malikie v. Foundry Dkt 1-14 is 8,666,062 with footnote 1).
+const PATENT_END = String.raw`(?:\b|(?=\d\b))`;
 const PATENT_FULL = [
-  String.raw`\b(?:Pat(?:ent)?\.?\s+No\.?|U\.S\.\s*P(?:at)?\.?\s*(?:No\.?)?)\s*(\d{1,2},\d{3},\d{3})\b`,
+  String.raw`\b(?:Pat(?:ent)?\.?\s+No\.?|U\.S\.\s*P(?:at)?\.?\s*(?:No\.?)?)\s*(\d{1,2},\d{3},\d{3})${PATENT_END}`,
   String.raw`\b(\d{1,2},\d{3},\d{3})\s+(?:[Pp]atent|B[12]\b)`,
-  String.raw`(?:[Pp]atent|[Pp]atents)\s+(?:No\.?\s*)?(\d{1,2},\d{3},\d{3})\b`,
+  String.raw`(?:[Pp]atent|[Pp]atents)\s+(?:No\.?\s*)?(\d{1,2},\d{3},\d{3})${PATENT_END}`,
 ];
-const PATENT_SHORT = String.raw`('\d{3})\s+[Pp]atent`;
+// The shorthand, with the straight or the curly apostrophe pdftotext writes; reported with the straight one.
+const PATENT_SHORT = String.raw`([’‘']\d{3})\s+[Pp]atent`;
+const isShort = (s) => /^[’‘']/.test(String(s || ''));
+const straight = (s) => String(s || '').replace(/^[’‘]/, "'");
 export function patentNear(text, index, window = 2500) {
   const hit = nearest(text, index, new RegExp([...PATENT_FULL, PATENT_SHORT].join('|'), 'g'), window);
-  if (!hit || !hit.startsWith("'")) return hit;
+  if (!hit || !isShort(hit)) return hit;
   // A shorthand and a full number ending in the same three digits are one patent: say it in full.
   const seg = text.slice(Math.max(0, index - window), index + window);
-  const full = new RegExp(String.raw`\b(\d{1,2},\d{3},${hit.slice(1)})\b`).exec(seg);
-  return full ? full[1] : hit;
+  const full = new RegExp(String.raw`\b(\d{1,2},\d{3},${hit.slice(1)})${PATENT_END}`).exec(seg);
+  return full ? full[1] : straight(hit);
 }
 export function claimNear(text, index, window = 800) {
   return nearest(text, index, /\b[Cc]laim\s+(\d{1,3})\b/g, window);
@@ -167,9 +175,44 @@ export function patentsIn(text, top = 3) {
 }
 /** The nearest mention when there is one (a shorthand resolved against the document's patents), else the document's most-cited patent. */
 const resolvePatent = (near, patents) => {
-  if (near) { const full = near.startsWith("'") ? patents.find((p) => p.number.endsWith(near.slice(1))) : null; return full ? full.number : near; }
+  if (near) { const full = isShort(near) ? patents.find((p) => p.number.endsWith(near.slice(1))) : null; return full ? full.number : straight(near); }
   return patents[0] ? patents[0].number : null;
 };
+/** The shorthands a document uses with no full number of its own ending in those digits ("the '062 Patent" in an exhibit whose complaint has the number), by count. */
+export function shortPatentsIn(text, patents = patentsIn(text), top = 3) {
+  const counts = new Map();
+  for (const m of String(text || '').matchAll(new RegExp(PATENT_SHORT, 'g'))) {
+    const s = straight(m[1]);
+    if (!patents.some((p) => p.number.endsWith(s.slice(1)))) counts.set(s, (counts.get(s) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, top).map(([short, n]) => ({ short, n }));
+}
+/**
+ * A document that names its patent only in shorthand takes the full number from another document
+ * of the same docket in the catalog (the complaint names it in full, the exhibit does not), marked
+ * `patentFrom: 'docket'`; a document that names no patent at all, in a docket whose other documents
+ * name exactly one, takes that one, marked `patentFrom: 'docket-only'` (True Return v. MakerDAO's
+ * exhibit never says which patent; the docket's memorandum names only 10,025,797). Returns how
+ * many rows were resolved.
+ */
+export function resolveAcrossDocket(rows) {
+  const byDocket = new Map();
+  for (const r of rows) { if (!r.code) continue; const l = byDocket.get(r.docketId) || []; l.push(r); byDocket.set(r.docketId, l); }
+  let n = 0;
+  for (const r of rows) {
+    const c = r.code;
+    if (!c || (c.patent && !isShort(c.patent))) continue;
+    const shorts = c.patent ? [c.patent] : (c.patentShort || []).map((s) => s.short);
+    const full = new Map();
+    for (const s of byDocket.get(r.docketId) || []) if (s !== r) for (const p of s.code.patents || []) full.set(p.number, (full.get(p.number) || 0) + p.n);
+    if (!full.size) continue;
+    let hit = null;
+    for (const sh of shorts) { hit = [...full.entries()].filter(([num]) => num.endsWith(sh.slice(1))).sort((a, b) => b[1] - a[1])[0]; if (hit) break; }
+    if (hit) { c.patent = hit[0]; c.patentFrom = 'docket'; n++; }
+    else if (!shorts.length && full.size === 1) { c.patent = [...full.keys()][0]; c.patentFrom = 'docket-only'; n++; }
+  }
+  return n;
+}
 
 /** Flattens the extracted text so windows and URLs survive page breaks and hyphenated wraps. */
 export function flatten(text) {
@@ -408,6 +451,155 @@ export function layoutOf({ elementRows = 0, claimRows = 0, pagesWithColumns = 0,
   return 'other';
 }
 
+// ---- the claim's own text, from the patent --------------------------------------------------
+// A chart's claim column is the litigant's quotation of the claim, read by rule out of a two-column
+// layout, and it carries what the layout leaves in it: a page-header fragment, a stray column
+// heading ("a The transaction"), a lost number ("of claim where"). The patent has the text. Where
+// the catalog knows the patent (--fetch-claims caches each one's claims under <out>/claims/patents,
+// through litigated-claims-fetch.mjs), a row labelled N[x] takes claim N and the limitation becomes
+// the span of that claim best covering the row's own words; the chart's text stays beside it as
+// `chartText` with the share of its words found in the span as `agreement`. A row with no claim
+// text of its own takes the whole claim. Where no patent resolves, a claim the document itself
+// reproduces ("1. A method ... comprising:") serves the same way. Granularity differs by source
+// (claim 1 of US 8,190,610 is 4 lines on Google Patents, 5 chart rows, 7 heuristic elements), so
+// position is never used: the text comes from the patent, the span from the row's words.
+
+export const patentDigits = (number) => String(number || '').replace(/\D/g, '');
+
+/** The cached claims of a patent as {source: 'patent', number, title, claims: [{n, text}]}, or null when not fetched or the page had no claims. */
+export function loadPatent(outDir, number) {
+  const d = patentDigits(number);
+  if (d.length < 7) return null;
+  const f = path.join(outDir, 'claims', 'patents', `${d}.json`);
+  if (!fs.existsSync(f)) return null;
+  const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+  if (!j || j.error || !Array.isArray(j.claims) || !j.claims.length) return null;
+  return { source: 'patent', number, title: j.title || '', claims: j.claims.map((c) => ({ n: c.n, text: collapse(c.text) })) };
+}
+
+const CLAIM_START = /^[ \t]{0,20}(\d{1,3})\.[ \t]+(?=(?:A|An|The)\b)/;
+const TRANSITION = /\b(?:comprising|comprises|consisting(?: essentially)? of|including)\b/i;
+// A patent attached to a complaint prints its claims in two columns; a line with text on both sides of a wide gap is one of those pages, not a reproduced claim.
+const TWO_COL = /\S[ ]{8,}\S/;
+/**
+ * A claim the document reproduces in full ("1. A method ... comprising:" and its clauses, then
+ * the dependents numbered on from it), as {source: 'document', claims: [{n, text}]}, or null. A
+ * numbered paragraph is not a claim: the first claim must open with "A" or "An" and reach a
+ * transition within six lines (a prayer for relief's "1. A judgment ..." does not); a claim ends at
+ * two blank lines, at a numbered paragraph, at a heading in capitals, or at a sentence that opens
+ * with a capital after a blank line once the claim has ended in a period.
+ */
+export function claimBlockOf(text) {
+  const lines = String(text || '').replace(/\r/g, '').split('\n');
+  const claims = [];
+  let cur = null, blanks = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (PAGE_HEADER.test(line)) continue;
+    const m = CLAIM_START.exec(line);
+    if (m) {
+      const n = Number(m[1]), rest = line.slice(m[0].length);
+      const next = claims.length && n === claims[claims.length - 1].n + 1;
+      const ahead = lines.slice(i, i + 6);
+      if (next || (!claims.length && /^(?:A|An)\b/.test(rest) && TRANSITION.test(ahead.join(' ')) && !ahead.some((l) => TWO_COL.test(l)))) {
+        cur = { n, text: rest.trim() }; claims.push(cur); blanks = 0; continue;
+      }
+    }
+    if (!cur) continue;
+    if (!line.trim()) { blanks++; if (blanks >= 2) cur = null; continue; }
+    if (blanks && (PARA_START.test(line) || /^[ \t]*[A-Z][A-Z .,'-]{6,}$/.test(line) || (/^[ \t]*[A-Z]/.test(line) && /\.\s*$/.test(cur.text)))) { cur = null; continue; }
+    cur.text += ` ${line.trim()}`; blanks = 0;
+  }
+  const good = claims.filter((c) => c.text.split(/\s+/).length >= 8).map((c) => ({ n: c.n, text: collapse(c.text) }));
+  return good.length ? { source: 'document', claims: good } : null;
+}
+
+/** A claim's clauses: split after ";" and ":", and before "wherein" / "and wherein". */
+export function claimClauses(text) {
+  return collapse(text).split(/(?<=[;:])\s+|(?<!\band)\s+(?=(?:and\s+)?wherein\b)/i).map((s) => s.trim()).filter(Boolean);
+}
+const tokensOf = (s) => new Set(String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3));
+const containment = (a, b) => { let hit = 0; for (const w of a) if (b.has(w)) hit++; return a.size ? hit / a.size : 0; };
+
+/**
+ * The span of a claim that best covers a row's own words: the contiguous run of clauses with the
+ * best F1 between the row's word set and the run's. Returns {span, agreement, precision}, agreement
+ * being the share of the row's words found in the span; null when either side has no words.
+ */
+export function alignToClaim(rowText, claimText) {
+  const clauses = claimClauses(claimText), A = tokensOf(rowText);
+  if (!A.size || !clauses.length) return null;
+  const toks = clauses.map(tokensOf);
+  let best = null;
+  for (let i = 0; i < clauses.length; i++) {
+    const S = new Set();
+    for (let j = i; j < clauses.length; j++) {
+      for (const w of toks[j]) S.add(w);
+      const recall = containment(A, S), precision = S.size ? containment(S, A) : 0;
+      const f1 = recall + precision ? (2 * recall * precision) / (recall + precision) : 0;
+      if (!best || f1 > best.f1) best = { i, j, f1, recall, precision };
+    }
+  }
+  return { span: clauses.slice(best.i, best.j + 1).join(' '), agreement: Number(best.recall.toFixed(2)), precision: Number(best.precision.toFixed(2)) };
+}
+
+/** The preamble: the text through the transition that opens the body ("the method comprising:"); failing that, the first clause. */
+export function preambleOf(claimText) {
+  const t = collapse(claimText);
+  const m = /\b(?:comprising|consisting(?: essentially)? of|including)\s*:/i.exec(t) || /\b(?:comprising|consisting(?: essentially)? of)\b/i.exec(t);
+  return m ? t.slice(0, m.index + m[0].length) : (claimClauses(t)[0] || t);
+}
+
+const CODE_SHAPE = /[(){};=<>]|\b(?:public|private|static|class|void|int|return|null|def|import|var|const|new)\b/;
+/** A quotation is claim language when it reads like a claim and not like code: a complaint quotes code lines, definitions and titles far more often than claims. */
+export const claimShapedQuote = (q) => !!q && CLAIMISH.test(q) && !CODE_SHAPE.test(q);
+
+/**
+ * Gives a document's rows and paragraphs the claim text of their claims. A row labelled N[x] with
+ * claim-column text of its own takes the aligned span when at least `minAgreement` of its words are
+ * in it (source `patent` or `document`, the chart's text kept as `chartText`); a `[pre]` row with
+ * no text of its own takes the preamble; any other row with none, and every paragraph, takes the
+ * whole claim (source `patent-claim` / `document-claim`). A row whose claim the source lacks is
+ * left as it was, with `agreement` null. Records `claimSource` and `claimsApplied` on the code.
+ */
+export function applyClaims(code, source, { minAgreement = 0.6 } = {}) {
+  if (!code || !source || !source.claims || !source.claims.length) return code;
+  const byN = new Map(source.claims.map((c) => [String(c.n), c]));
+  const tag = source.source === 'patent' ? 'patent' : 'document';
+  const cap = (s) => String(s || '').slice(0, 2000); // a whole independent claim runs past the 600 characters a chart column was capped at
+  let applied = 0;
+  code.limitations = code.limitations || {};
+  for (const r of code.rows || []) {
+    const c = byN.get(String(r.claim));
+    if (!c) { r.agreement = null; continue; }
+    const chart = r.source && r.source !== 'head' ? r.limitation : '';
+    if (!r.element) { // a "Claim N" row: the whole claim, agreement measured against the chart's text when it has one
+      if (chart) { r.chartText = chart; r.agreement = Number(containment(tokensOf(chart), tokensOf(c.text)).toFixed(2)); } else r.agreement = null;
+      r.limitation = cap(c.text); r.source = tag; applied++;
+    } else if (!chart) {
+      r.limitation = cap(/^pre?$/i.test(r.element) ? preambleOf(c.text) : c.text); r.source = /^pre?$/i.test(r.element) ? tag : `${tag}-claim`; r.agreement = null; applied++;
+    } else {
+      const a = alignToClaim(chart, c.text);
+      if (a && a.agreement >= minAgreement) { r.chartText = chart; r.limitation = cap(a.span); r.source = tag; r.agreement = a.agreement; applied++; }
+      else r.agreement = a ? a.agreement : null;
+    }
+    if (r.source === tag || r.source === `${tag}-claim`) code.limitations[r.label] = r.limitation;
+  }
+  for (const p of code.paragraphs || []) {
+    const c = byN.get(String(p.claim));
+    if (!c) continue;
+    p.limitation = cap(c.text); p.source = `${tag}-claim`; applied++;
+  }
+  code.claimSource = source.source; code.claimsApplied = applied;
+  return code;
+}
+
+/** Where a document's claim text comes from: the cached patent when the document's patent is known in full, else a claim the document reproduces, else null. */
+export function claimSourceFor(code, text, outDir) {
+  const p = code && code.patent && !isShort(code.patent) ? loadPatent(outDir, code.patent) : null;
+  return p || claimBlockOf(text);
+}
+
 /** A document "quotes code by name" when its text mentions at least this many distinct functions written as code. */
 export const CODE_QUOTED_MIN = 3;
 
@@ -432,7 +624,7 @@ export function codeMentions(rawText, { top = 12, perRow = 24, maxRows = 40, max
     const p = paras.find((x) => m.at >= x.start && m.at < x.end);
     if (!p) continue;
     let pr = byPara.get(p.n);
-    if (!pr) { pr = { n: p.n, at: p.start, claim: claimOfParagraph(text, p), quote: quoteOf(p.body), functions: [], files: [] }; byPara.set(p.n, pr); }
+    if (!pr) { const q = quoteOf(p.body); pr = { n: p.n, at: p.start, claim: claimOfParagraph(text, p), quote: claimShapedQuote(q) ? q : null, functions: [], files: [] }; byPara.set(p.n, pr); }
     const list = pr[m.kind === 'file' ? 'files' : 'functions'];
     if (!list.includes(m.name)) list.push(m.name);
     m.paragraph = p.n;
@@ -458,7 +650,7 @@ export function codeMentions(rawText, { top = 12, perRow = 24, maxRows = 40, max
     layout, functionCount: fns.size, fileCount: files.size,
     functions: functions.slice(0, top).map(strip), files: sources.slice(0, top).map(strip),
     rows, paragraphs, limitations: Object.fromEntries(Object.entries(chart.limitations).slice(0, 40)),
-    patents, patent: resolvePatent(lead ? patentNear(text, lead.at) : null, patents),
+    patents, patent: resolvePatent(lead ? patentNear(text, lead.at) : null, patents), patentShort: shortPatentsIn(text, patents),
     claim: leadRow && leadRow.claim ? leadRow.claim : (lead ? claimNear(text, lead.at) : null),
   };
 }
@@ -565,7 +757,8 @@ export function renderCatalog(rows, { limit = 60, generatedAt = new Date().toISO
   for (const g of order) if (dist.has(g)) out.push(`| ${g} | ${dist.get(g)} |`);
   const fine = (r) => GRANULARITY_RANK[r.best || 'none'] >= GRANULARITY_RANK.file;
   const quoting = rows.filter(quotesCode), quotingCoarse = quoting.filter((r) => !fine(r));
-  out.push('', `**Code quoted by name** (at least ${CODE_QUOTED_MIN} distinct functions written as code, link or no link): ${quoting.length} document(s), ${quotingCoarse.length} without a file-level link.`, '');
+  const withClaims = quoting.filter((r) => r.code.claimSource === 'patent').length;
+  out.push('', `**Code quoted by name** (at least ${CODE_QUOTED_MIN} distinct functions written as code, link or no link): ${quoting.length} document(s), ${quotingCoarse.length} without a file-level link, ${withClaims} with the claim text of their rows taken from the patent.`, '');
   const ranked = rows.filter(fine)
     .sort((a, b) => (GRANULARITY_RANK[b.best] - GRANULARITY_RANK[a.best]) || String(b.dateFiled || '').localeCompare(String(a.dateFiled || '')));
   out.push(`**File-level or finer (${ranked.length})**`, '');
@@ -598,12 +791,12 @@ export function renderCites(rows, { generatedAt = new Date().toISOString().slice
   const docs = rows.filter((r) => r.code && (r.code.functionCount > 0 || r.code.fileCount > 0))
     .sort((a, b) => (b.code.functionCount - a.code.functionCount) || (b.code.fileCount - a.code.fileCount));
   const out = ['# Code cited by name in public patent filings', '',
-    `_Generated ${generatedAt} by \`scripts/recap-claim-chart-search.mjs --cites\` from ${rows.length} document(s), ${docs.length} of which name a function or a source file as code. A party's chart is advocacy. The row label and head are read by rule from a two-column layout: a pointer into the PDF, not a quotation of the limitation._`, ''];
+    `_Generated ${generatedAt} by \`scripts/recap-claim-chart-search.mjs --cites\` from ${rows.length} document(s), ${docs.length} of which name a function or a source file as code. A party's chart is advocacy. A row's limitation is the patent's claim text where the patent was fetched (\`[patent 0.86]\`: the span of the claim aligned to the row by its label's claim number and the row's own words, the number being the share of the chart's words found in it; \`[patent-claim]\`: the whole claim, for a row with no claim text of its own) or a claim the document itself reproduces (\`[document]\`); else the chart's own quotation read by rule from a two-column layout (\`[left]\`, \`[claim-page]\`, \`[head]\`). The chart's text is shown beneath where it differs._`, ''];
   const tick = (n) => `\`${n}\``;
   for (const r of docs) {
     const c = r.code;
     const link = (r.citations || []).slice().sort((x, y) => GRANULARITY_RANK[y.granularity] - GRANULARITY_RANK[x.granularity])[0];
-    out.push(`## ${r.caseName}`, '', `${r.courtId} ${r.docketNumber}, document ${docLabel(r)}, filed ${r.dateFiled}${c.patent ? `, patent ${c.patent}` : ''}${c.claim ? `, claim ${c.claim}` : ''}${r.pdfUrl ? `, [pdf](${r.pdfUrl})` : ''}.`);
+    out.push(`## ${r.caseName}`, '', `${r.courtId} ${r.docketNumber}, document ${docLabel(r)}, filed ${r.dateFiled}${c.patent ? `, patent ${c.patent}${c.patentFrom === 'docket' ? ' (from the docket)' : ''}` : ''}${c.claim ? `, claim ${c.claim}` : ''}${c.claimSource ? `, claim text from the ${c.claimSource}` : ''}${r.pdfUrl ? `, [pdf](${r.pdfUrl})` : ''}.`);
     if (link && link.org) out.push('', `Repository link (${link.granularity}): ${tick(`${link.org}/${link.repo}${link.path ? ` ${link.path}` : ''}`)}${link.function ? `, function ${tick(link.function)}` : ''}${link.patent ? `, patent ${link.patent}` : ''}${link.claim ? `, claim ${link.claim}` : ''}.`);
     if (c.patents && c.patents.length) out.push('', `Patents cited in the document: ${c.patents.map((p) => `${p.number} ×${p.n}`).join(', ')}.`);
     out.push('', `${c.functionCount} function(s) and ${c.fileCount} source file(s) named as code; layout: ${c.layout || 'other'}.`, '');
@@ -616,11 +809,13 @@ export function renderCites(rows, { generatedAt = new Date().toISOString().slice
     };
     for (const row of c.rows || []) {
       if (!row.functions.length && !row.files.length) continue;
-      out.push(`- **${row.label}**${row.source ? ` [${row.source}]` : ''}${row.limitation ? ` "${esc(row.limitation)}"` : ''}`);
+      out.push(`- **${row.label}**${row.source ? ` [${row.source}${row.agreement != null ? ` ${row.agreement}` : ''}]` : ''}${row.limitation ? ` "${esc(row.limitation)}"` : ''}`);
+      if (row.chartText && (row.agreement == null || row.agreement < 0.95)) out.push(`  - chart: "${esc(row.chartText)}"`);
       names(row);
     }
     for (const p of c.paragraphs || []) {
-      out.push(`- **¶ ${p.n}**${p.claim ? ` (claim ${p.claim})` : ''}${p.quote ? ` "${esc(p.quote)}"` : ''}`);
+      out.push(`- **¶ ${p.n}**${p.claim ? ` (claim ${p.claim})` : ''}${p.source ? ` [${p.source}]` : ''}${p.limitation ? ` "${esc(p.limitation)}"` : ''}`);
+      if (p.quote) out.push(`  - quotes: "${esc(p.quote)}"`);
       names(p);
     }
     const rest = (list, k) => list.filter((e) => !placed.has(`${k}:${e.name}`)).map((e) => `${tick(e.name)}${e.n > 1 ? ` ×${e.n}` : ''}`);
@@ -648,7 +843,7 @@ export function replaceSection(docText, rendered) {
 // ---- main -----------------------------------------------------------------------------------
 
 export function parseArgs(argv) {
-  const o = { out: null, shapes: null, maxDockets: 50, maxPages: 10, download: true, allSuits: false, delayMs: 1200, render: null, rescore: false, cites: null };
+  const o = { out: null, shapes: null, maxDockets: 50, maxPages: 10, download: true, allSuits: false, delayMs: 1200, render: null, rescore: false, cites: null, fetchClaims: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i], v = argv[i + 1];
     if (a === '--out') { o.out = v; i++; } else if (a === '--shapes') { o.shapes = v.split(',').map((s) => s.trim()).filter(Boolean); i++; }
@@ -656,34 +851,82 @@ export function parseArgs(argv) {
     else if (a === '--no-download') o.download = false; else if (a === '--all-suits') o.allSuits = true;
     else if (a === '--delay-ms') { o.delayMs = Number(v); i++; } else if (a === '--render') { o.render = v; i++; }
     else if (a === '--rescore') o.rescore = true; else if (a === '--cites') { o.cites = v; i++; }
+    else if (a === '--fetch-claims') o.fetchClaims = true;
     else throw new Error(`unknown argument ${a}`);
   }
   return o;
 }
 
-/** Re-runs the citation pass over the texts already extracted, for rows whose rules changed; no network. */
+const textOf = (outDir, r) => { const txt = path.join(outDir, 'txt', `${r.docId}.txt`); return fs.existsSync(txt) ? fs.readFileSync(txt, 'utf8') : null; };
+
+/** Gives every row with code its claim text (the cached patent, else a claim the document reproduces); returns {claimed, fromPatent}. */
+export function applyClaimsToRows(rows, outDir) {
+  let claimed = 0, fromPatent = 0;
+  for (const r of rows) {
+    if (!r.code) continue;
+    const text = textOf(outDir, r);
+    if (text == null) continue;
+    const src = claimSourceFor(r.code, text, outDir);
+    if (!src) continue;
+    applyClaims(r.code, src); claimed++;
+    if (src.source === 'patent') fromPatent++;
+  }
+  return { claimed, fromPatent };
+}
+
+/** Re-runs the citation pass over the texts already extracted, for rows whose rules changed, then the docket-level patent resolution and the claim text; no network. */
 export function rescore(outDir) {
   const jsonl = path.join(outDir, 'catalog.jsonl');
   const rows = readJsonl(jsonl);
   let n = 0;
   for (const r of rows) {
-    const txt = path.join(outDir, 'txt', `${r.docId}.txt`);
-    if (!fs.existsSync(txt)) continue;
-    const s = summarizeText(fs.readFileSync(txt, 'utf8'));
+    const text = textOf(outDir, r);
+    if (text == null) continue;
+    const s = summarizeText(text);
     Object.assign(r, { best: s.best, repos: s.repos, chars: s.chars, domains: s.domains, citations: s.citations.map(({ at, ...c }) => c), code: s.code });
     n++;
   }
+  const resolved = resolveAcrossDocket(rows);
+  const claims = applyClaimsToRows(rows, outDir);
   fs.writeFileSync(jsonl, rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : ''), 'utf8');
-  return { rows: rows.length, rescored: n };
+  return { rows: rows.length, rescored: n, resolved, ...claims };
+}
+
+/**
+ * Fetches the claims of every patent the catalog names, through litigated-claims-fetch.mjs (a
+ * child process: that script runs at module level), into <out>/claims/patents/<digits>.json, which
+ * loadPatent reads. Cached patents are not fetched again; the fetch is polite (two seconds apart).
+ */
+export function fetchClaims(outDir, { delayMs = 2000 } = {}) {
+  const rows = readJsonl(path.join(outDir, 'catalog.jsonl'));
+  const nums = new Set();
+  for (const r of rows) {
+    if (!r.code) continue;
+    for (const p of r.code.patents || []) { const d = patentDigits(p.number); if (d.length >= 7) nums.add(d); }
+    const d = patentDigits(r.code.patent); if (d.length >= 7) nums.add(d);
+  }
+  const dir = path.join(outDir, 'claims');
+  fs.mkdirSync(dir, { recursive: true });
+  const list = path.join(dir, 'patents.txt');
+  fs.writeFileSync(list, [...nums].sort().join('\n') + (nums.size ? '\n' : ''), 'utf8');
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'litigated-claims-fetch.mjs');
+  const r = nums.size ? spawnSync(process.execPath, [script, '--patents', list, '--out', dir, '--delay', String(Math.max(delayMs, 2000))], { stdio: 'inherit' }) : { status: 0 };
+  const cached = fs.existsSync(path.join(dir, 'patents')) ? fs.readdirSync(path.join(dir, 'patents')).filter((f) => f.endsWith('.json')).length : 0;
+  return { patents: nums.size, cached, status: r.status };
 }
 
 export async function main(argv = process.argv.slice(2)) {
   const o = parseArgs(argv);
-  if (!o.out) { console.error('usage: node scripts/recap-claim-chart-search.mjs --out <dir> [--shapes a,b] [--max-dockets N] [--max-pages N] [--no-download] [--all-suits] [--delay-ms N] [--rescore] [--render docs/real-world-claim-charts.md] [--cites <file.md>]'); process.exit(2); }
+  if (!o.out) { console.error('usage: node scripts/recap-claim-chart-search.mjs --out <dir> [--shapes a,b] [--max-dockets N] [--max-pages N] [--no-download] [--all-suits] [--delay-ms N] [--fetch-claims] [--rescore] [--render docs/real-world-claim-charts.md] [--cites <file.md>]'); process.exit(2); }
   const jsonl = path.join(o.out, 'catalog.jsonl');
+  if (o.fetchClaims) {
+    const r = fetchClaims(o.out, { delayMs: o.delayMs });
+    console.log(`claims: ${r.patents} patent(s) named by the catalog, ${r.cached} cached under ${path.join(o.out, 'claims', 'patents')}${r.status ? `; the fetch script exited ${r.status}` : ''}; run --rescore to apply them`);
+    return;
+  }
   if (o.rescore) {
     const r = rescore(o.out);
-    console.log(`rescored ${r.rescored} of ${r.rows} row(s) from the extracted texts in ${o.out}`);
+    console.log(`rescored ${r.rescored} of ${r.rows} row(s) from the extracted texts in ${o.out}; patents resolved across dockets ${r.resolved}; claim text applied to ${r.claimed} document(s), ${r.fromPatent} from the patent`);
     return;
   }
   if (o.cites) {
@@ -745,9 +988,12 @@ export async function main(argv = process.argv.slice(2)) {
     }
     } catch (e) { stats.shapesFailed.push(shape.key); log(`${shape.key}: stopped after ${n} docket(s): ${e.message}`); }
   }
-  // Rows gain shapes over a run; rewrite the JSONL once so the file reflects them.
-  fs.writeFileSync(jsonl, [...byDoc.values()].map((r) => JSON.stringify(r)).join('\n') + (byDoc.size ? '\n' : ''), 'utf8');
-  console.log(`dockets ${stats.dockets} (+${stats.skippedSuit} not patent suits), documents ${stats.docs} new / ${stats.reused} seen, downloaded ${stats.downloaded}, failed ${stats.failed}, opinions ${stats.opinions}; catalog ${jsonl} (${byDoc.size} rows)`
+  // Rows gain shapes over a run; the new ones take their claim text from the patents already cached; rewrite the JSONL once so the file reflects both.
+  const all = [...byDoc.values()];
+  resolveAcrossDocket(all);
+  const claims = applyClaimsToRows(all.filter((r) => r.code && !r.code.claimSource), o.out);
+  fs.writeFileSync(jsonl, all.map((r) => JSON.stringify(r)).join('\n') + (all.length ? '\n' : ''), 'utf8');
+  console.log(`dockets ${stats.dockets} (+${stats.skippedSuit} not patent suits), documents ${stats.docs} new / ${stats.reused} seen, downloaded ${stats.downloaded}, failed ${stats.failed}, opinions ${stats.opinions}; catalog ${jsonl} (${byDoc.size} rows); claim text applied to ${claims.claimed} document(s)`
     + (stats.shapesFailed.length ? `; shapes stopped early, re-run them: ${stats.shapesFailed.join(', ')}` : ''));
 }
 

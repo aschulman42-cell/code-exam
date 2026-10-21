@@ -76,10 +76,35 @@ or, failing both, the head of its evidence. A **narrative complaint** has number
 and no labels (VideoLabs v. Meta names `ctxIdxBlockCatOffset(ctxBlockCat)` in paragraph 205 in
 the pleader's own sentence), so there the unit is the paragraph, with the nearest claim number
 and the claim language it quotes, a weaker association than a row's. A **listing** or report
-gets neither. On the 2026-10-20 run, 47 of the 49 documents that name three or more
-functions get an association this way, 28 by chart rows and 19 by paragraphs, where 19 did by
-a row label at a line start alone; the listing marks each limitation's source. The patent
-beside a name is the nearest
+gets neither.
+
+The chart's claim column is the litigant's quotation of the claim read out of a layout, and it
+carries what the layout leaves in it: a page-header fragment, a stray column heading, a lost
+claim number. The patent has the text, so where the catalog knows the patent the limitation
+comes from there: `--fetch-claims` caches every cited patent's claims from Google Patents
+(through `litigated-claims-fetch.mjs`, which already fetched the litigated corpus), a row
+labelled `N[x]` takes claim N, and its limitation is the span of that claim that best covers the
+row's own words, with the chart's text kept beside it and the share of its words found in the
+span recorded as the row's agreement. Position is never used, because the sources split a claim
+differently: claim 1 of US 8,190,610 is 4 lines on Google Patents, 5 rows in the Databricks
+chart and 7 elements from CodeExam's heuristic splitter. A row with no claim text of its own
+takes the whole claim; a paragraph takes the whole claim its number names; a document whose
+patent never resolves uses a claim it reproduces itself, where it does. A patent number followed
+by a footnote digit (`8,666,0621`, Malikie v. Foundry) is read as the number, and an exhibit
+that names its patent only as the '062 Patent takes the full number from its docket's complaint.
+A paragraph's quotation is kept only when it reads like a claim and not like code, since a
+complaint quotes code lines, definitions and titles more often than claims.
+
+On the 2026-10-20 run, 47 of the 49 documents that name three or more functions get an
+association this way, 28 by chart rows and 19 by paragraphs, where 19 did by a row label at a
+line start alone; the listing marks each limitation's source. With the claims of the 234 patents
+the catalog names fetched on 2026-10-21 (233 pages carried claims), 39 of the 49 take their
+claim text from the patent and one from a claim it reproduces: of their 84 chart rows, 54 carry
+the aligned span (median agreement 1.00, 46 at 0.9 or above), 7 the whole claim, and 23 keep the
+chart's own text, 14 of them because the alignment fell below 0.6 on a garbled or header-filled
+column and 9 because no claim of the patent matched the label; 64 of their 149 paragraphs carry
+their claim's text, and 4 quotations survive the claim-shape test where 94 were shown before. The
+patent beside a name is the nearest
 mention; when a pasted listing sits pages from any, the document's most-cited patent number stands
 in, and the listing shows every patent the document cites with its count. A grep of the first
 run's texts for empty parentheses is what showed the link pass missing these. The catalog block
@@ -92,6 +117,7 @@ node scripts/recap-claim-chart-search.mjs --out <dir outside the repo> [--shapes
 node scripts/recap-claim-chart-search.mjs --out <dir> --rescore            # the text passes again after a rule change, no network
 node scripts/recap-claim-chart-search.mjs --out <dir> --render docs/real-world-claim-charts.md
 node scripts/recap-claim-chart-search.mjs --out <dir> --cites <file.md>    # the code each document quotes, by chart row
+node scripts/recap-claim-chart-search.mjs --out <dir> --fetch-claims      # every cited patent's claims from Google Patents, then --rescore
 ```
 
 The run is resumable (a document already catalogued is not fetched again), polite (one request a
@@ -121,7 +147,7 @@ _Generated 2026-10-21 by `scripts/recap-claim-chart-search.mjs --render` from 27
 | repo | 45 |
 | none | 104 |
 
-**Code quoted by name** (at least 3 distinct functions written as code, link or no link): 49 document(s), 33 without a file-level link.
+**Code quoted by name** (at least 3 distinct functions written as code, link or no link): 49 document(s), 33 without a file-level link, 39 with the claim text of their rows taken from the patent.
 
 **File-level or finer (42)**
 
@@ -226,13 +252,17 @@ _Generated 2026-10-21 by `scripts/recap-claim-chart-search.mjs --render` from 27
   A filing that cites two files in one sentence can put one file's call beside the other's link,
   and a declaration can name a reference patent near the asserted one; the PDF is the authority
   and the catalog row is the pointer to it.
-- **A name is a shape, and a limitation is the chart's own quotation of the claim, read by rule.**
-  The code pass keeps what is shaped like code; a product name can pass the shape test. The
-  limitation beside a row comes from the claim column, from a claim-text page, or from the head
-  of the evidence, and the listing says which (`[left]`, `[claim-page]`, `[head]`); a chart that
-  labels its rows some other way, or sets its columns at no stable offset, leaves its names under
-  "no row or paragraph nearby"; a paragraph's association is the pleader's sentence and the
-  nearest claim number, not a label. Three distinct functions is the threshold
+- **A name is a shape, and a limitation is the patent's claim aligned by rule, or the chart's
+  own quotation.** The code pass keeps what is shaped like code; a product name can pass the
+  shape test. The limitation beside a row comes from the patent's claim (`[patent 0.86]`, the
+  number being the share of the chart's words found in the aligned span; `[patent-claim]` for
+  the whole claim, where the row has no claim text of its own), from a claim the document
+  reproduces (`[document]`), from the claim column, from a claim-text page, or from the head of
+  the evidence, and the listing says which. The patent's text is the claim, but which span of it
+  a row answers is still the chart's say, read by word overlap, and a paragraph's claim text is
+  the whole claim its number names. A chart that labels its rows some other way, or sets its
+  columns at no stable offset, leaves its names under "no row or paragraph nearby"; a
+  paragraph's association is the pleader's sentence and the nearest claim number, not a label. Three distinct functions is the threshold
   for the catalog's second table, set on the first run's texts so that a complaint quoting one API
   name in passing is counted, not listed. A page whose two columns `pdftotext` interleaved letter
   by letter yields nonsense names (Golden v. Google's brief, filed four times; TwinStrand v.
