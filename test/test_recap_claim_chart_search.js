@@ -13,7 +13,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseRepoUrl, granularityOf, citationsOf, docDomains, summarizeText, functionNear, patentNear, claimNear, flatten,
-  codeShapedCall, codeMentions, limitationNear, renderCites, patentsIn, CODE_QUOTED_MIN,
+  codeShapedCall, codeMentions, parseLabel, columnBoundary, chartRows, paragraphsOf, layoutOf, renderCites, patentsIn, CODE_QUOTED_MIN,
   renderCatalog, replaceSection, catalogRow, parseArgs, QUERY_SHAPES, GRANULARITY_RANK, CATALOG_START, CATALOG_END,
 } from '../scripts/recap-claim-chart-search.mjs';
 
@@ -181,17 +181,104 @@ describe('code quoted by name, with no link', () => {
     assert.equal(codeMentions("the '610 patent reads on mint()").patent, "'610", 'a shorthand with no full number stays a shorthand');
     assert.equal(codeMentions('no patent here, just mint()').patent, null);
   });
-  it('each name is placed under the chart row it sits in; an inline "see claim 1[pre]" is not a row', () => {
+  it('each name is placed under the chart row it sits in, every occurrence; an inline "see claim 1[pre]" is not a row', () => {
     const m = codeMentions(CHART);
-    assert.equal(limitationNear(CHART, CHART.indexOf('invoking')).label, '1[c]');
-    assert.equal(limitationNear('no labels here', 5), null);
     assert.deepEqual(m.rows.map((r) => [r.label, r.claim, r.functions, r.files]), [
       ['1[b]', '1', ['secp256k1_ecdsa_recoverable_signature_save'], ['main_impl.h']],
-      ['1[c]', '1', ['secp256k1_ecdsa_sign_recoverable', 'secp256k1_ecdsa_sign_inner'], []],
+      ['1[c]', '1', ['secp256k1_ecdsa_sign_recoverable', 'secp256k1_ecdsa_sign_inner'], ['main_impl.h']],
     ]);
-    assert.equal(m.rows[0].head, 'generating, for use with said digital signature, an indicator ViaBTC generated an indicator to identify which value');
+    // The fixture has no claim column of its own, so the row's limitation is the head of its text.
+    assert.equal(m.rows[0].source, 'head');
+    assert.ok(m.rows[0].limitation.startsWith('generating, for use with said digital signature, an indicator'), m.rows[0].limitation);
     assert.equal(m.claim, '1', 'the claim comes from the lead mention\'s row label');
     assert.equal(m.functions.find((f) => f.name === 'secp256k1_ecdsa_sign_inner').label, '1[c]');
+    assert.equal(m.layout, 'chart');
+  });
+  it('row labels in their forms; a "Claim N" line is a row only when no element row is open', () => {
+    assert.deepEqual([parseLabel('1[a] partitioning').label, parseLabel('1 (b)').label, parseLabel('[1a]').label, parseLabel('1[pre]').label, parseLabel('1(a)(i)').label], ['1[a]', '1[b]', '1[a]', '1[pre]', '1[a(i)]']);
+    assert.deepEqual([parseLabel('Element 1', '3').label, parseLabel('Limitation 1[c]').label, parseLabel('1.2 wherein the').label, parseLabel('[d]', '2').label, parseLabel('Claim 16').kind], ['3[1]', '1[c]', '1.2', '2[d]', 'claim']);
+    assert.equal(parseLabel('[d]'), null, 'a bare element with no claim in context is nothing');
+    assert.equal(parseLabel('17. The Accused Products'), null, 'a numbered paragraph is not a row');
+    assert.equal(parseLabel('Claim 1[a]'), null, '"Claim 1[a]" is prose, not the Claim N header form');
+    assert.equal(parseLabel('  1[a]').len, 6, 'len covers the leading spaces');
+  });
+  it('a two-column chart: the claim column is the slice left of the page\'s dominant gap, and the limitation is read from it', () => {
+    // Malikie v. ViaBTC Dkt 1-7, page 28, as pdftotext -layout writes it: a narrow claim column that wraps.
+    const TWOCOL = [
+      'Claim No.          Case 7:26-cv-00372 Document 1-7 Filed 09/09/26 Page 28 of 47',
+      '                   Exemplary Evidence of Infringement',
+      '',
+      '1[a] by operation  ViaBTC, through the Accused Instrumentalities, generated a digital signature.',
+      'of a               For example, function secp256k1_ecdsa_sign_recoverable() is called from file main_impl.h.',
+      'cryptographic      See, e.g.:',
+      'module             Source: bitcoin/src/secp256k1/src/secp256k1.c',
+      '',
+      '1[b] generating    ViaBTC generated an indicator by invoking secp256k1_ecdsa_sign_inner().',
+      'an indicator       See claim 1[pre], supra.',
+    ].join('\n');
+    assert.equal(columnBoundary(TWOCOL.split('\n')), 19);
+    assert.equal(columnBoundary(['one column', 'of plain prose', 'with no gaps at all']), null);
+    const m = codeMentions(TWOCOL);
+    assert.deepEqual(m.rows.map((r) => [r.label, r.source, r.limitation, r.functions, r.files]), [
+      ['1[a]', 'left', 'by operation of a cryptographic module', ['secp256k1_ecdsa_sign_recoverable'], ['main_impl.h']],
+      ['1[b]', 'left', 'generating an indicator', ['secp256k1_ecdsa_sign_inner'], []],
+    ]);
+    assert.equal(m.layout, 'chart');
+  });
+  it('a claim-text page gives each label its limitation verbatim; the chart rows that follow reuse it or carry their own claim column', () => {
+    // R2 v. Databricks Dkt 149-2: page 15 lists the claim with its labels, the rows come after, across a page break.
+    const CLAIMPAGE = [
+      'Claim 1                     Case 4:23-cv-01147-ALM Document 149-2 Filed 05/08/25 Page 15 of 156 PageID #:',
+      '',
+      '1[pre]  A method of processing data of a data set over a distributed system, wherein the data set comprises a plurality of data groups,',
+      '        the method comprising:',
+      '',
+      '1[a]    partitioning the data of each one of the data groups into a plurality of data partitions that each have a plurality of key-value pairs',
+      '        and providing each data partition to a selected one of a plurality of mapping functions,',
+      '',
+      '1[b]    wherein the data of a first data group has a different schema than the data of a second data group,',
+      '\f',
+      'Claim 1                     Case 4:23-cv-01147-ALM Document 149-2 Filed 05/08/25 Page 16 of 156 PageID #:',
+      '1[a] partitioning the data of each one of    In another example, ZippedPartitionsRDD.scala reflects that RDDs are provided to mapping',
+      'the data groups into a plurality of data     functions; see rdds.map(_.partitions) in ZippedPartitionsRDD.scala.',
+      'partitions                                   The partitioning is user-configurable.',
+    ].join('\n');
+    const m = codeMentions(CLAIMPAGE);
+    assert.ok(m.limitations['1[pre]'].startsWith('A method of processing data of a data set') && m.limitations['1[pre]'].endsWith('the method comprising:'), m.limitations['1[pre]']);
+    assert.ok(m.limitations['1[b]'].startsWith('wherein the data of a first data group'), 'a label with no names still gives its limitation');
+    assert.deepEqual(m.rows.map((r) => [r.label, r.source, r.limitation, r.functions, r.files]), [
+      ['1[a]', 'left', 'partitioning the data of each one of the data groups into a plurality of data partitions', ['rdds.map'], ['ZippedPartitionsRDD.scala']],
+    ]);
+    assert.ok(m.limitations['1[a]'].startsWith('partitioning the data of each one of the data groups into a plurality of data partitions that each have'), 'the claim page wins for the limitation map');
+    assert.equal(m.claim, '1');
+    const walk = chartRows(CLAIMPAGE);
+    assert.deepEqual(walk.rows.map((r) => r.label), ['1[pre]', '1[a]', '1[b]'], 'the "Claim 1 … Page 15 of 156" line is a page header, not a row');
+    assert.equal(walk.pagesWithColumns, 2);
+  });
+  it('a narrative complaint: the unit is the numbered paragraph, with the nearest claim number and the claim language it quotes', () => {
+    // VideoLabs v. Meta Dkt 1, paragraphs 204 to 206: the code name sits in the pleader's own sentence.
+    const NARRATIVE = [
+      '       204. Claim 1 of the \'980 patent requires "switching between a plurality of probability tables based on a result of a comparison".',
+      '',
+      '       205. To effect the table switching mandated by the H.264 standard, the CABAC decoder',
+      'in the Accused Products computes index ctxIdx to access the table. Index ctxIdx is specified by the',
+      'H.264 standard to be the sum of ctxIdxOffset and ctxIdxBlockCatOffset(ctxBlockCat) and variable ctxIdxInc.',
+      '',
+      '       206. The Accused Products also decode audio data; see the step of "decoding audio data according to an input format" as claimed.',
+    ].join('\n');
+    const paras = paragraphsOf(NARRATIVE);
+    assert.deepEqual(paras.map((p) => p.n), [204, 205, 206]);
+    const m = codeMentions(NARRATIVE);
+    assert.deepEqual(m.rows, []);
+    assert.deepEqual(m.paragraphs.map((p) => [p.n, p.claim, p.quote, p.functions]), [[205, '1', null, ['ctxIdxBlockCatOffset']]]);
+    assert.equal(m.functions[0].label, '¶ 205');
+    assert.equal(m.claim, '1', 'the claim comes from the lead mention\'s paragraph');
+    assert.equal(layoutOf({ paragraphs: 12 }), 'narrative');
+    assert.equal(layoutOf({ elementRows: 2 }), 'chart');
+    assert.equal(layoutOf({ claimRows: 1, chartWords: true }), 'chart', 'a one-row-per-claim exhibit that says "Exemplary Evidence"');
+    assert.equal(layoutOf({ functionCount: 30 }), 'listing');
+    assert.equal(layoutOf({}), 'other');
+    assert.deepEqual(paragraphsOf('1. First.\n2. Second:\n   1. A list inside\n   2. Another item\n3. Third.').map((p) => p.n), [1, 2, 3], 'a list inside a paragraph does not split it');
   });
   it('summarizeText carries the code pass; the renderer shows the count on file-level rows and lists a coarse-link document that quotes code; the cites listing walks the rows', () => {
     const docket = { caseName: 'Malikie Innovations Ltd. v. ViaBTC Technology Ltd.', court: 'W.D. Tex.', court_id: 'txwd', docketNumber: '7:26-cv-00372', docket_id: 2, dateFiled: '2026-09-09', suitNature: '830 Patent' };
@@ -208,16 +295,18 @@ describe('code quoted by name, with no link', () => {
     const md = renderCatalog(rows, { generatedAt: '2026-10-20' });
     assert.match(md, /Code quoted by name\*\* \(at least 3[^\n]*: 2 document\(s\), 2 without a file-level link/);
     assert.match(md, /Code quoted without a file link \(2\)/);
-    assert.match(md, /\| 1-7 \| 2026-09-09 \| document \| 3 \| `secp256k1_ecdsa_sign_recoverable`, `secp256k1_ecdsa_sign_inner`, `secp256k1_ecdsa_recoverable_signature_save` \| `main_impl\.h`, `secp256k1_recovery\.h` \| 8,520,842 \| 1 \|/);
+    assert.match(md, /\| 1-7 \| 2026-09-09 \| document \| other \| 3 \| `secp256k1_ecdsa_sign_recoverable`, `secp256k1_ecdsa_sign_inner`, `secp256k1_ecdsa_recoverable_signature_save` \| `main_impl\.h`, `secp256k1_recovery\.h` \| 8,520,842 \| 1 \|/);
+    assert.match(md, /\| 12-3 \| 2026-09-09 \| none \| chart \| 3 \|/);
     assert.match(md, /\| mint \| 11,322,049 \| 1 \| 0 \| \[pdf\]/);
     const listed = md.split('Code quoted without a file link')[1].split('\n').filter((l) => /^\| (Malikie|Chart Co)/.test(l));
     assert.equal(listed.length, 2, 'one function in passing is counted, not listed');
     const cites = renderCites(rows, { generatedAt: '2026-10-20' });
     assert.match(cites, /from 4 document\(s\), 3 of which name a function or a source file/);
     assert.match(cites, /## Chart Co v. Row Inc\n\ntxwd 7:26-cv-00372, document 12-3, filed 2026-09-09, claim 1, \[pdf\]/);
-    assert.match(cites, /- \*\*1\[b\]\*\* "generating, for use with said digital signature[^\n]*"\n  - functions: `secp256k1_ecdsa_recoverable_signature_save`\n  - files: `main_impl\.h`\n- \*\*1\[c\]\*\* "wherein the value is recovered[^\n]*"\n  - functions: `secp256k1_ecdsa_sign_recoverable`, `secp256k1_ecdsa_sign_inner`/);
+    assert.match(cites, /named as code; layout: chart\./);
+    assert.match(cites, /- \*\*1\[b\]\*\* \[head\] "generating, for use with said digital signature[^\n]*"\n  - functions: `secp256k1_ecdsa_recoverable_signature_save`\n  - files: `main_impl\.h`\n- \*\*1\[c\]\*\* \[head\] "wherein the value is recovered[^\n]*"\n  - functions: `secp256k1_ecdsa_sign_recoverable`, `secp256k1_ecdsa_sign_inner`\n  - files: `main_impl\.h`/);
     assert.match(cites, /## Malikie Innovations Ltd\. v\. ViaBTC Technology Ltd\.\n\ntxwd 7:26-cv-00372, document 1-7, filed 2026-09-09, patent 8,520,842, claim 1, \[pdf\][^\n]*\n\nRepository link \(document\): `bitcoin\/bips bip-0137\.mediawiki`/);
-    assert.match(cites, /- \*\*no row label nearby\*\*\n  - functions: `secp256k1_ecdsa_sign_recoverable`, `secp256k1_ecdsa_sign_inner`, `secp256k1_ecdsa_recoverable_signature_save`\n  - files: `main_impl\.h` ×2, `secp256k1_recovery\.h`/);
+    assert.match(cites, /- \*\*no row or paragraph nearby\*\*\n  - functions: `secp256k1_ecdsa_sign_recoverable`, `secp256k1_ecdsa_sign_inner`, `secp256k1_ecdsa_recoverable_signature_save`\n  - files: `main_impl\.h` ×2, `secp256k1_recovery\.h`/);
     assert.ok(!cites.includes('document 47'), 'a document with no code by name is not listed');
   });
 });

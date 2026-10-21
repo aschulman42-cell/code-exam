@@ -241,65 +241,225 @@ export function codeShapedCall(name, args = '') {
   return /^\s*$/.test(args) && letters >= 3 && !NOT_A_NAME.has(name.toLowerCase()); // mint(), wait( )
 }
 
-// A chart's own row labels, at the start of a line: "1[a]", "1(b)", "[1a]", "1[pre]", "Claim 16".
-// Inline ones ("see claim 1[pre], supra") are cross-references, and are not at a line start.
-const ROW_LABEL = /^[ \t]*(?:(\d{1,3})[ \t]?[\[(](pre|p|[a-z]{1,2}|[ivx]{1,4})[\])]|\[(\d{1,3})\.?(pre|[a-z])\]|(?:Claim|CLAIM)[ \t]+(\d{1,3})\b)/gm;
+// ---- chart rows, claim pages and complaint paragraphs ----------------------------------------
+// Three shapes of document name code (measured on the 2026-10-20 run, docs/real-world-claim-charts.md):
+// a claim chart, two columns with a row label (the claim column left, the evidence right), sometimes
+// opened by a claim-text page (the label left, the limitation right); a narrative complaint,
+// numbered paragraphs and no labels; a listing or report. pdftotext -layout keeps a page's columns
+// at a stable character offset, so the claim column is the slice left of the page's dominant gap,
+// and no coordinates are needed (the bundled pdftotext is Xpdf, which has none).
+
+const PAGE_HEADER = /\bCase\s+\d+:\d{2}-[a-z]{2}-\d+.*\bDocument\s+\d+.*\bPage\s+\d+\s+of\s+\d+/i;
+const LABEL_FORMS = [
+  { re: /^(\d{1,3})[ \t]?[\[(](pre|p|[a-z]{1,2}|[ivx]{1,4})[\])](?:[ \t]?\(([ivx]{1,4}|\d)\))?/, kind: 'element' }, // 1[a] 1(b) 1[pre] 1(a)(i)
+  { re: /^\[(\d{1,3})\.?(pre|[a-z])\]/, kind: 'element' },                                                        // [1a] [1.a]
+  { re: /^(?:Limitation|Element|Step)[ \t]+(\d{1,3})(?:[ \t]?[\[(]([a-z]{1,2}|pre)[\])]|\.(\d{1,2}))?(?!\w)/i, kind: 'element', words: true }, // Element 1, Limitation 1[a], Element 1.2
+  { re: /^(\d{1,3})\.(\d{1,2})(?=[ \t]+(?:[a-z(]|A\b))/, kind: 'element', dotted: true },                        // 1.1 wherein (a paragraph is "17. The")
+  { re: /^\[([a-z])\]/, kind: 'element', bare: true },                                                            // [a], its claim from context
+  { re: /^(?:Claim|CLAIM)[ \t]+(\d{1,3})(?![\w\[(.])/, kind: 'claim' },                                           // Claim 16: a header, or a one-row-per-claim chart
+];
+
+/** A chart row label at the start of a slice of text, as {kind, claim, element, label, len}, or null. A bare [a] or "Element 1" takes its claim from context. */
+export function parseLabel(s, claimContext = null) {
+  const raw = String(s || ''), t = raw.trimStart();
+  for (const f of LABEL_FORMS) {
+    const m = f.re.exec(t);
+    if (!m) continue;
+    let claim, element;
+    if (f.kind === 'claim') { claim = m[1]; element = null; }
+    else if (f.bare) { claim = claimContext; element = m[1]; }
+    else if (f.words) { if (m[2] || m[3]) { claim = m[1]; element = m[2] || m[3]; } else { claim = claimContext; element = m[1]; } }
+    else { claim = m[1]; element = m[2] + (m[3] && !f.dotted ? `(${m[3]})` : ''); }
+    if (!claim) return null;
+    const label = f.kind === 'claim' ? `claim ${claim}` : (f.dotted ? `${claim}.${element}` : `${claim}[${element}]`);
+    return { kind: f.kind, claim, element, label, len: raw.length - t.length + m[0].length };
+  }
+  return null;
+}
+
+const EVIDENCE = /\b(?:See|For example|Exhibit|Ex\.|Accused|Source:|Infringement|evidence|Defendant|Plaintiff)\b|\bwww\./;
+const CLAIMISH = /\b(?:wherein|comprising|comprises|configured to|a method|the method|a system|the system|the step|said|at least one|apparatus|medium|plurality|each|thereof|respective|associated with|based on|corresponding|coupled|operable)\b/i;
+const CHART_WORDS = /\b(?:Exemplary Evidence|Claim Chart|Infringement Chart|Accused Instrumentalit)/i;
+const collapse = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 
 /**
- * The chart row a position sits in: the nearest preceding row label at a line start, with the head
- * of the row's text, which is the limitation as far as a two-column layout lets a rule read it
- * (pdftotext -layout interleaves the claim column and the evidence column line by line).
+ * The column where a page's right column starts: the first column with a blank channel two
+ * characters wide on at least 92% of the page's lines, text to its left on at least a fifth of
+ * them and text at or beyond it on at least half; null for a one-column page. (The mode of
+ * right-text start offsets was tried first and landed on code indentation inside the evidence
+ * column of R2 v. Databricks, leaking evidence into the limitation.)
  */
-export function limitationNear(text, index, window = 8000) {
-  const start = Math.max(0, index - window);
-  let last = null;
-  for (const m of text.slice(start, index).matchAll(ROW_LABEL)) last = m;
-  if (!last) return null;
-  const claim = last[1] || last[3] || last[5];
-  const element = last[2] || last[4] || null;
-  const end = start + last.index + last[0].length;
-  const head = text.slice(end, end + 600).split('\n').slice(0, 3).join(' ').replace(/\s+/g, ' ').trim().slice(0, 160);
-  return { label: element ? `${claim}[${element}]` : `claim ${claim}`, claim, element, head };
+export function columnBoundary(lines) {
+  const rows = lines.filter((l) => l.trim() && !PAGE_HEADER.test(l));
+  const n = rows.length;
+  if (n < 3) return null;
+  const maxLen = Math.max(...rows.map((l) => l.length));
+  const ws = (l, c) => c >= l.length || l[c] === ' ' || l[c] === '\t';
+  for (let c = 6; c < Math.min(maxLen, 120); c++) {
+    let channel = 0, leftText = 0, rightText = 0;
+    for (const l of rows) {
+      if (ws(l, c - 1) && ws(l, c - 2)) channel++;
+      if (/\S/.test(l.slice(0, c - 2))) leftText++;
+      if (/\S/.test(l.slice(c))) rightText++;
+    }
+    if (channel >= n * 0.92 && leftText >= n * 0.2 && rightText >= n * 0.5) return c;
+  }
+  return null;
+}
+// A footnote or source line spanning the page width sits in the claim column's slice without being claim text.
+const SPILL = /\b(?:Source:|See\b|For example|Exhibit\b|EXHIBIT\b|All website|Claim Chart\b|Claim Feature\b|Claim No\.|Exemplary Evidence)/;
+
+/**
+ * Walks a document page by page. A row opens at a label at the start of the claim column and runs
+ * to the next label, across page breaks; a "Claim N" line is a row of its own only when no element
+ * row is open (above a continuing element row it is a page header). Each mention lands in the row
+ * whose lines hold it, every occurrence. A row's limitation is its claim-column text; failing that,
+ * the text a claim-text page gave its label; failing that, the head of its evidence text.
+ */
+export function chartRows(text, mentions = []) {
+  const pages = String(text || '').split('\f');
+  const rows = new Map(), order = [], spans = [];
+  let cur = null, span = null, claimContext = null, pagesWithColumns = 0, off = 0;
+  const open = (lab, at) => {
+    let row = rows.get(lab.label);
+    if (!row) { row = { label: lab.label, kind: lab.kind, claim: lab.claim, element: lab.element, at, functions: [], files: [], spans: [] }; rows.set(lab.label, row); order.push(row); }
+    cur = row; span = { start: at, end: at, row, left: '', right: '', hasMentions: false }; spans.push(span); row.spans.push(span);
+  };
+  for (const page of pages) {
+    const lines = page.split('\n');
+    const B = columnBoundary(lines);
+    if (B != null) pagesWithColumns++;
+    let at = off;
+    for (const line of lines) {
+      const len = line.length + 1;
+      // A one-column page has no claim column: its text is evidence, and the limitation comes from a claim page or the head.
+      const left = B != null ? line.slice(0, B) : line, right = B != null ? line.slice(B) : '';
+      const lab = PAGE_HEADER.test(line) ? null : parseLabel(left, claimContext);
+      if (PAGE_HEADER.test(line) || (lab && lab.kind === 'claim' && cur && cur.kind !== 'claim')) { if (lab) claimContext = lab.claim; at += len; continue; }
+      if (lab) { claimContext = lab.claim; open(lab, at); }
+      if (span) {
+        const rest = lab ? left.slice(lab.len) : left;
+        if (B != null && !SPILL.test(rest)) { span.left += `${rest}\n`; span.right += `${right}\n`; } else span.right += `${rest}${right}\n`;
+        span.end = at + len;
+      }
+      at += len;
+    }
+    off += page.length + 1;
+  }
+  for (const m of mentions) {
+    const s = spans.find((x) => m.at >= x.start && m.at < x.end);
+    if (!s) continue;
+    const list = s.row[m.kind === 'file' ? 'files' : 'functions'];
+    if (!list.includes(m.name)) list.push(m.name);
+    m.row = s.row.label; s.hasMentions = true;
+  }
+  const limitations = {};
+  for (const r of order) {
+    let left = '', claimPage = null, head = null;
+    for (const s of r.spans) {
+      const l = collapse(s.left), rt = collapse(s.right);
+      if (l.length > left.length) left = l;
+      if (!claimPage && l.length < 20 && rt && !s.hasMentions && CLAIMISH.test(rt) && !EVIDENCE.test(rt)) claimPage = rt;
+      if (!head && rt) head = rt;
+    }
+    if (claimPage) limitations[r.label] = claimPage.slice(0, 600);
+    if (left.length >= 20) { r.limitation = left.slice(0, 600); r.source = 'left'; if (!limitations[r.label]) limitations[r.label] = r.limitation; }
+    else if (claimPage) { r.limitation = claimPage.slice(0, 600); r.source = 'claim-page'; }
+    else { r.limitation = (head || '').slice(0, 160); r.source = 'head'; }
+    delete r.spans;
+  }
+  const elementRows = order.filter((r) => r.kind === 'element').length;
+  return { rows: order, limitations, pages: pages.length, pagesWithColumns, elementRows, claimRows: order.length - elementRows };
+}
+
+const PARA_START = /^[ \t]{0,12}(\d{1,3})\.[ \t]+(?=[A-Z"“(])/;
+/** The numbered paragraphs of a pleading or declaration, in order, as {n, start, end, body}; the numbering must rise, so a list inside a paragraph does not split it. */
+export function paragraphsOf(text) {
+  const out = [];
+  let cur = null, at = 0, prev = 0;
+  for (const line of String(text || '').split('\n')) {
+    const len = line.length + 1;
+    const m = PARA_START.exec(line);
+    const n = m ? Number(m[1]) : 0;
+    // The first paragraph may carry any number (an excerpt, an exhibit); after that the numbering rises by at most 50.
+    if (m && n > prev && (prev === 0 || n <= prev + 50)) { if (cur) cur.end = at; cur = { n, start: at, end: at + len, body: '' }; out.push(cur); prev = n; }
+    if (cur && !PAGE_HEADER.test(line)) { cur.body += `${line}\n`; cur.end = at + len; }
+    at += len;
+  }
+  return out;
+}
+const claimOfParagraph = (text, p) => {
+  const inBody = /\b[Cc]laims?\s+(\d{1,3})\b/.exec(p.body);
+  if (inBody) return inBody[1];
+  const back = [...text.slice(Math.max(0, p.start - 3000), p.start).matchAll(/\b[Cc]laims?\s+(\d{1,3})\b/g)];
+  return back.length ? back[back.length - 1][1] : null;
+};
+const quoteOf = (body) => {
+  for (const m of body.matchAll(/["“]([^"”]{30,300})["”]/g)) if (m[1].trim().split(/\s+/).length >= 6) return collapse(m[1]);
+  const p = /\b(?:the step of|configured to|comprising|wherein)\b[^.;]{10,200}/i.exec(body);
+  return p ? collapse(p[0]) : null;
+};
+
+/** The document's shape from what the walk found: chart, narrative, listing or other. */
+export function layoutOf({ elementRows = 0, claimRows = 0, pagesWithColumns = 0, pages = 1, paragraphs = 0, functionCount = 0, chartWords = false } = {}) {
+  if (elementRows >= 2 || (claimRows >= 1 && (chartWords || pagesWithColumns >= Math.max(1, pages * 0.3)))) return 'chart';
+  if (paragraphs >= 10) return 'narrative';
+  if (functionCount >= 20) return 'listing';
+  return 'other';
 }
 
 /** A document "quotes code by name" when its text mentions at least this many distinct functions written as code. */
 export const CODE_QUOTED_MIN = 3;
 
 /**
- * Functions and source files a document names as code, link or no link, with counts; each placed
- * under the chart row it sits in; the nearest patent to the lead mention, and the claim from its
- * row label or the nearest claim mention. Runs on the raw text minus URLs, so the row labels keep
- * their line starts.
+ * Functions and source files a document names as code, link or no link, with counts; every
+ * occurrence placed under the chart row it sits in, else the numbered paragraph; the limitations a
+ * claim-text page or the claim column gave each label; the document's layout; the nearest patent to
+ * the lead mention with the document's most-cited one as the fallback; the claim from the lead's
+ * row or paragraph, else the nearest claim mention. Runs on the raw text with URLs blanked to
+ * spaces of the same length, so the columns keep their offsets.
  */
-export function codeMentions(rawText, { top = 12, perRow = 24, maxRows = 24 } = {}) {
-  const text = String(rawText || '').replace(/\r/g, '').replace(/https?:\/\/\S+/g, ' ');
+export function codeMentions(rawText, { top = 12, perRow = 24, maxRows = 40, maxParagraphs = 40 } = {}) {
+  const text = String(rawText || '').replace(/\r/g, '').replace(/https?:\/\/\S+/g, (u) => ' '.repeat(u.length));
+  const mentions = [];
+  for (const m of text.matchAll(CODE_CALL)) if (codeShapedCall(m[1], m[2])) mentions.push({ name: m[1], kind: 'function', at: m.index });
+  for (const m of text.matchAll(CODE_FILE)) if (fileShaped(m[1])) mentions.push({ name: m[1], kind: 'file', at: m.index });
+  const chart = chartRows(text, mentions);
+  const paras = paragraphsOf(text);
+  const byPara = new Map();
+  for (const m of mentions) {
+    if (m.row) continue;
+    const p = paras.find((x) => m.at >= x.start && m.at < x.end);
+    if (!p) continue;
+    let pr = byPara.get(p.n);
+    if (!pr) { pr = { n: p.n, at: p.start, claim: claimOfParagraph(text, p), quote: quoteOf(p.body), functions: [], files: [] }; byPara.set(p.n, pr); }
+    const list = pr[m.kind === 'file' ? 'files' : 'functions'];
+    if (!list.includes(m.name)) list.push(m.name);
+    m.paragraph = p.n;
+  }
   const fns = new Map(), files = new Map();
-  const count = (map, name, at) => { const e = map.get(name) || { name, n: 0, at }; e.n++; map.set(name, e); };
-  for (const m of text.matchAll(CODE_CALL)) if (codeShapedCall(m[1], m[2])) count(fns, m[1], m.index);
-  for (const m of text.matchAll(CODE_FILE)) if (fileShaped(m[1])) count(files, m[1], m.index);
+  for (const m of mentions) {
+    const map = m.kind === 'file' ? files : fns;
+    const e = map.get(m.name) || { name: m.name, n: 0, at: m.at, label: m.row || (m.paragraph ? `¶ ${m.paragraph}` : null) };
+    e.n++; map.set(m.name, e);
+  }
   const rank = (a, b) => (b.n - a.n) || (a.at - b.at);
   const functions = [...fns.values()].sort(rank), sources = [...files.values()].sort(rank);
-  const rows = new Map();
-  const place = (e, kind) => {
-    const lim = limitationNear(text, e.at);
-    e.label = lim ? lim.label : null;
-    if (!lim) return;
-    const row = rows.get(lim.label) || { ...lim, at: e.at, functions: [], files: [] };
-    if (row[kind].length < perRow) row[kind].push(e.name);
-    rows.set(lim.label, row);
-  };
-  for (const e of functions) place(e, 'functions');
-  for (const e of sources) place(e, 'files');
   const lead = functions[0] || sources[0] || null;
-  const leadRow = lead && lead.label ? rows.get(lead.label) : null;
   const strip = ({ at, ...e }) => e;
   const patents = patentsIn(text);
+  const rows = chart.rows.filter((r) => r.functions.length || r.files.length).slice(0, maxRows)
+    .map((r) => ({ label: r.label, claim: r.claim, element: r.element, limitation: r.limitation, source: r.source, functions: r.functions.slice(0, perRow), files: r.files.slice(0, perRow) }));
+  const paragraphs = [...byPara.values()].sort((a, b) => a.at - b.at).slice(0, maxParagraphs)
+    .map(({ at, ...p }) => ({ ...p, functions: p.functions.slice(0, perRow), files: p.files.slice(0, perRow) }));
+  const leadRow = lead && lead.label ? (rows.find((r) => r.label === lead.label) || paragraphs.find((p) => `¶ ${p.n}` === lead.label) || null) : null;
+  const layout = layoutOf({ ...chart, paragraphs: paras.length, functionCount: fns.size, chartWords: CHART_WORDS.test(text) });
   return {
-    functionCount: fns.size, fileCount: files.size,
+    layout, functionCount: fns.size, fileCount: files.size,
     functions: functions.slice(0, top).map(strip), files: sources.slice(0, top).map(strip),
-    rows: [...rows.values()].sort((a, b) => a.at - b.at).slice(0, maxRows).map(({ at, element, ...r }) => r),
+    rows, paragraphs, limitations: Object.fromEntries(Object.entries(chart.limitations).slice(0, 40)),
     patents, patent: resolvePatent(lead ? patentNear(text, lead.at) : null, patents),
-    claim: leadRow ? leadRow.claim : (lead ? claimNear(text, lead.at) : null),
+    claim: leadRow && leadRow.claim ? leadRow.claim : (lead ? claimNear(text, lead.at) : null),
   };
 }
 
@@ -417,11 +577,11 @@ export function renderCatalog(rows, { limit = 60, generatedAt = new Date().toISO
   }
   if (ranked.length > limit) out.push('', `_${ranked.length - limit} more file-level row(s) in the JSONL._`);
   const byCount = (a, b) => (b.code.functionCount - a.code.functionCount) || String(b.dateFiled || '').localeCompare(String(a.dateFiled || ''));
-  out.push('', `**Code quoted without a file link (${quotingCoarse.length})**: the link pass put these at repository, directory, document or no link, but the text names functions and source files as code (\`code\` counts distinct functions; the first three names are shown).`);
+  out.push('', `**Code quoted without a file link (${quotingCoarse.length})**: the link pass put these at repository, directory, document or no link, but the text names functions and source files as code (\`layout\`: chart, narrative, listing or other; \`code\` counts distinct functions; the first three names are shown).`);
   if (quotingCoarse.length) {
-    out.push('', '| case | court | docket | document | filed | link | code | functions | source files | patent | claim | PDF |', '|---|---|---|---|---|---|---:|---|---|---|---|---|');
+    out.push('', '| case | court | docket | document | filed | link | layout | code | functions | source files | patent | claim | PDF |', '|---|---|---|---|---|---|---|---:|---|---|---|---|---|');
     for (const r of quotingCoarse.slice().sort(byCount).slice(0, limit)) {
-      out.push(`| ${esc(short(r.caseName, 48))} | ${esc(r.courtId)} | ${esc(r.docketNumber)} | ${esc(docLabel(r))} | ${esc(r.dateFiled)} | ${esc(r.best)} | ${r.code.functionCount} | ${esc(names(r.code.functions))} | ${esc(names(r.code.files))} | ${esc(r.code.patent || '')} | ${esc(r.code.claim || '')} | ${r.pdfUrl ? `[pdf](${r.pdfUrl})` : ''} |`);
+      out.push(`| ${esc(short(r.caseName, 48))} | ${esc(r.courtId)} | ${esc(r.docketNumber)} | ${esc(docLabel(r))} | ${esc(r.dateFiled)} | ${esc(r.best)} | ${esc(r.code.layout || '')} | ${r.code.functionCount} | ${esc(names(r.code.functions))} | ${esc(names(r.code.files))} | ${esc(r.code.patent || '')} | ${esc(r.code.claim || '')} | ${r.pdfUrl ? `[pdf](${r.pdfUrl})` : ''} |`);
     }
   }
   const coarse = rows.length - ranked.length;
@@ -446,20 +606,27 @@ export function renderCites(rows, { generatedAt = new Date().toISOString().slice
     out.push(`## ${r.caseName}`, '', `${r.courtId} ${r.docketNumber}, document ${docLabel(r)}, filed ${r.dateFiled}${c.patent ? `, patent ${c.patent}` : ''}${c.claim ? `, claim ${c.claim}` : ''}${r.pdfUrl ? `, [pdf](${r.pdfUrl})` : ''}.`);
     if (link && link.org) out.push('', `Repository link (${link.granularity}): ${tick(`${link.org}/${link.repo}${link.path ? ` ${link.path}` : ''}`)}${link.function ? `, function ${tick(link.function)}` : ''}${link.patent ? `, patent ${link.patent}` : ''}${link.claim ? `, claim ${link.claim}` : ''}.`);
     if (c.patents && c.patents.length) out.push('', `Patents cited in the document: ${c.patents.map((p) => `${p.number} ×${p.n}`).join(', ')}.`);
-    out.push('', `${c.functionCount} function(s) and ${c.fileCount} source file(s) named as code.`, '');
+    out.push('', `${c.functionCount} function(s) and ${c.fileCount} source file(s) named as code; layout: ${c.layout || 'other'}.`, '');
     const placed = new Set();
+    const names = (unit) => {
+      for (const n of unit.functions) placed.add(`f:${n}`);
+      for (const n of unit.files) placed.add(`s:${n}`);
+      if (unit.functions.length) out.push(`  - functions: ${unit.functions.map(tick).join(', ')}`);
+      if (unit.files.length) out.push(`  - files: ${unit.files.map(tick).join(', ')}`);
+    };
     for (const row of c.rows || []) {
       if (!row.functions.length && !row.files.length) continue;
-      for (const n of row.functions) placed.add(`f:${n}`);
-      for (const n of row.files) placed.add(`s:${n}`);
-      out.push(`- **${row.label}**${row.head ? ` "${esc(row.head)}"` : ''}`);
-      if (row.functions.length) out.push(`  - functions: ${row.functions.map(tick).join(', ')}`);
-      if (row.files.length) out.push(`  - files: ${row.files.map(tick).join(', ')}`);
+      out.push(`- **${row.label}**${row.source ? ` [${row.source}]` : ''}${row.limitation ? ` "${esc(row.limitation)}"` : ''}`);
+      names(row);
+    }
+    for (const p of c.paragraphs || []) {
+      out.push(`- **¶ ${p.n}**${p.claim ? ` (claim ${p.claim})` : ''}${p.quote ? ` "${esc(p.quote)}"` : ''}`);
+      names(p);
     }
     const rest = (list, k) => list.filter((e) => !placed.has(`${k}:${e.name}`)).map((e) => `${tick(e.name)}${e.n > 1 ? ` ×${e.n}` : ''}`);
     const restF = rest(c.functions, 'f'), restS = rest(c.files, 's');
     if (restF.length || restS.length) {
-      out.push('- **no row label nearby**');
+      out.push('- **no row or paragraph nearby**');
       if (restF.length) out.push(`  - functions: ${restF.join(', ')}`);
       if (restS.length) out.push(`  - files: ${restS.join(', ')}`);
     }
