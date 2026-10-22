@@ -36,7 +36,7 @@ import { maskCredentials } from './core/credential-mask.js';
 import { displayName, parseFuncSpec } from './utils.js';
 import { doCallTree } from './commands/graph.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
-import { splitClaimElements, isPreambleRow, isJepsonPreamble, parseElementWords, candidatesForElement, directionOf, isTestSymbol } from './commands/claim-locate.js';
+import { splitClaimElements, isPreambleRow, isJepsonPreamble, parseElementWords, candidatesForElement, directionOf } from './commands/claim-locate.js';
 import { buildSymbolTable } from './core/symbol-verify.js';
 import { detectSponges, LOOP_DEFAULTS } from './commands/claims-loop.js';
 import { isPseudoSource } from './binstrings.js';
@@ -421,7 +421,7 @@ const TOOLS = [
         words: { type: 'string', description: 'One line per element, numbered as claim_elements numbers them, words comma-separated: "2: init, crypto, context". 3-6 words each, letters and digits only.' },
         max_per_element: { type: 'number', description: 'Candidates per element (default 8, max 50)' },
         granularity: { type: 'string', description: 'As for claim_elements; must match the numbering you used' },
-        include_tests: { type: 'boolean', description: 'Admit test/mock symbols (held back by default)' },
+        include_tests: { type: 'boolean', description: 'Admit test, mock, benchmark and example symbols (held back by default, by directory, file name or symbol name)' },
         include_op: { type: 'boolean', description: 'Admit binary string-table pseudo-source (held back by default)' },
       },
     },
@@ -595,11 +595,11 @@ function _claimCandidatesText(index, claimText, args) {
     const limText = elements[ws.element - 1];
     const r = candidatesForElement({ index, pool, limText, words: ws.words,
       opts: { candidatesPerElement: maxPer, includeTests, includeOp } });
-    // The name arm excludes test symbols before matching and does not count
-    // them; count them here so "held back" states what stood between the
-    // caller and its candidates, as the content arm already does.
-    const nameTests = includeTests ? 0
-      : pool.filter((s) => isTestSymbol(s) && ws.words.some((w) => s.name.toLowerCase().includes(w))).length;
+    // The name arm counts the test, mock, bench and example symbols it held
+    // back that matched a word (`heldTests` on its result), so "held back"
+    // states what stood between the caller and its candidates, as the
+    // content arm already does.
+    const nameTests = includeTests ? 0 : (r.hits.heldTests?.total ?? 0);
     // The CLI's policy, kept: name matches first, exactly ONE body-only match
     // promoted to the reserved slot; the rest of the body search ranks below
     // every name match and is counted, not listed. Read as a user on CE's own
@@ -643,7 +643,7 @@ function _claimCandidatesText(index, claimText, args) {
       if (pe.hiddenContent) L.push(`  (+${pe.hiddenContent} more body-only match(es) not listed: they rank below every name match)`);
     }
     const tests = pe.nameTests + pe.contentTests;
-    if (tests) L.push(`  (${tests} test/mock symbol(s) that matched held back; include_tests: true to admit)`);
+    if (tests) L.push(`  (${tests} test, mock, bench or example symbol(s) that would have been offered held back; include_tests: true to admit)`);
     if (pe.armError) L.push(`  ⚠ body search errored and contributed nothing: ${pe.armError.message}`);
     L.push('');
   }

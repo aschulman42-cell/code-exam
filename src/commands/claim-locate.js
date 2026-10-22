@@ -42,8 +42,9 @@ import { claimGenericity } from '../core/claim-genericity.js';
 import { wasLastDraftTruncated, resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine, printShownPrompts } from '../core/llm-runner.js';
 import {
   buildSymbolTable, verifySymbol, isFound, nearbySymbols, navigateFrom,
-  parseProposedSymbols,
+  parseProposedSymbols, symbolTokens,
 } from '../core/symbol-verify.js';
+import { contentWords, stem } from '../core/claim-terms.js';
 // The scavenger hunt reuses the local tool-loop's hard-won guards rather than
 // reinventing them: budget-with-synthesize-now-stop, special-token
 // neutralization, Gemma's strict framing, and the zero-tool-call fabrication
@@ -55,7 +56,9 @@ import {
 export const LOCATE_DEFAULTS = {
   maxProposals: 24, navLimit: 8, refine: true,
   navPerSeed: 4,      // callees promoted per seed
-  maxNavRows: 24,     // total navigation-derived rows
+  maxNavRows: 24,     // navigation-derived rows at hop 1 (callees of proposals)
+  navDepth: 2,        // hops promoted: a promoted callee is navigated once more
+  maxNavRowsHop2: 12, // navigation-derived rows at hop 2 (callees of promoted callees)
   maxSeedSpan: 200,   // only FUNCTION-sized seeds navigate (lines)
   candidatesPerElement: 25,  // real symbols shown per element in the select step
   // A BOUND on the content arm, not a target. Content search is more expensive
@@ -65,6 +68,11 @@ export const LOCATE_DEFAULTS = {
   // dominant while leaving room for the case the arm exists for — a symbol
   // whose NAME says nothing, which name search cannot reach at any depth.
   contentPerElement: 8,
+  // claim-locate-pool-at-scale (2026-10-22): when an element's name search
+  // hits candidatesPerElement, the next names up to this rank are offered to
+  // the selection compactly (names only, grouped by class). Below the cap
+  // nothing changes.
+  widenOnCapTo: 60,
 };
 
 export const SPLIT_DEFAULTS = {
@@ -768,11 +776,20 @@ export function contentCandidatesForWords(index, words, opts = {}) {
 //   words    the predicted code words for this element
 //   opts     candidatesPerElement, contentPerElement, includeTests, includeOp
 export function candidatesForElement({ index, pool, limText, words, opts = {} }) {
+  const limit = opts.candidatesPerElement ?? LOCATE_DEFAULTS.candidatesPerElement;
+  const ownWords = elementOwnWords(limText || '', words);
   const hits = searchSymbolsByWords(pool, words, {
-    limit: opts.candidatesPerElement ?? LOCATE_DEFAULTS.candidatesPerElement,
+    limit,
     includeTests: !!opts.includeTests,
+    ownWords,
+    widenTo: opts.widenOnCap === false ? 0 : (opts.widenOnCapTo ?? LOCATE_DEFAULTS.widenOnCapTo),
   });
   const nameTotal = hits.total ?? hits.length;
+  // The cap: more names matched than the window shows, so ranking among the
+  // shown is a sample (claims-pipeline-state §2). Reported as `capBound`, and
+  // the next names offered compactly as `more` (claim-locate-pool-at-scale).
+  const capBound = nameTotal > limit;
+  const more = capBound ? (hits.more || []) : [];
   // Attach the direction verdict to each hit rather than recomputing it in
   // every consumer — the limitation text is here and nowhere downstream.
   let mismatches = 0;
@@ -780,7 +797,7 @@ export function candidatesForElement({ index, pool, limText, words, opts = {} })
     const mm = directionalMismatch(limText || '', h.sym?.name || '');
     if (mm) { h.directionalMismatch = mm; mismatches += 1; }
   }
-  const r = { hits, nameTotal, mismatches, contentRan: false, contentAdded: 0, promoted: null,
+  const r = { hits, nameTotal, capBound, more, ownWords, mismatches, contentRan: false, contentAdded: 0, promoted: null,
     armError: null, armNote: null, contentPseudo: 0, contentTests: 0 };
   if (!index) return r;
   // Merge the content arm AFTER scoring, de-duplicated by symbol. Each
@@ -982,14 +999,25 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
             : ''}`
           + `${contentAdded > 1 ? ` (the other ${contentAdded - 1} rank below every`
             + ` name-arm candidate and cannot reach a target)` : ''}`
-          + `${heldBack.contentTests ? ` (${heldBack.contentTests} test-file candidate(s) held back — --include-tests to admit)` : ''}`
+          + `${heldBack.contentTests ? ` (${heldBack.contentTests} test, mock, bench or example candidate(s) held back — --include-tests to admit)` : ''}`
           + `${r.armNote ? ` — ${r.armNote}` : ''}\n`);
       }
     }
     perElement.push({ element, text: limText.slice(0, 160), words, hits, mismatches, contentAdded,
+      nameTotal: r.nameTotal, capBound: r.capBound, more: r.more, ownWords: r.ownWords,
       ...(ws.depWords && ws.depWords.length ? { depWords: ws.depWords, depFrom: ws.depFrom } : {}),
       ...(ws.agreed !== undefined ? { wordRuns: { agreed: ws.agreed, single: ws.single } } : {}) });
-    opts.onElement?.({ element, words, hits, mismatches });
+    opts.onElement?.({ element, words, hits, mismatches, nameTotal: r.nameTotal, capBound: r.capBound, more: r.more });
+  }
+  // The cap, counted over the run: an element at the cap has not discriminated
+  // (claims-pipeline-state §2), so the run says how many were, and what each
+  // offers beyond the window.
+  const capped = perElement.filter((p) => p.capBound).length;
+  if (capped) {
+    const lim = opts.candidatesPerElement ?? LOCATE_DEFAULTS.candidatesPerElement;
+    process.stderr.write(`  ${capped} of ${perElement.length} element(s) at the ${lim}-candidate cap:`
+      + ` the window is a sample of what matched; each offers up to`
+      + ` ${Math.max(0, LOCATE_DEFAULTS.widenOnCapTo - lim)} more names to the selection by name\n`);
   }
   return { perElement, raw, error: null, prompt: { sys, user }, heldBack };
 }
@@ -1000,19 +1028,115 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
 // Test/mock/fake code, by symbol name OR by living under a test source root.
 // Matches "Test" at a segment END too (`DrmPlaybackTest::clearkeyPlayback_…`),
 // which an earlier segment-START-only pattern missed.
+// claim-locate-test-filter-by-filename (2026-10-22). The gate was keyed on a
+// `test/` directory or a Test|Mock|Fake|Stub token at the END of a name
+// segment, so a project that keeps its tests, benches, mocks and examples
+// beside the sources (secp256k1: src/tests.c, src/testutil.h, src/bench.c,
+// examples/examples_util.h) had them chosen as implementers (Foundry 1-11
+// blind, 2026-10-21: four of sixteen), and a marker at the START of a segment
+// passed (`FakeGroup::size`, `TestToken.sol`, 2026-10-22). Every pattern is
+// anchored at a token boundary so look-alikes stay in: attest, latest,
+// contest, testimony, benchley, mockingbird, exampleless, Testament, Fakespot.
+// `testSymbolClass` returns the class that holds a symbol back — test, bench,
+// mock or example — or null; `isTestSymbol` is the boolean every gate uses.
+const TEST_DIR_RE = {
+  test: /(?:^|[\\/!])(?:test|tests|testing|testdata|androidTest|__tests__|spec|specs)[\\/]/i,
+  bench: /(?:^|[\\/!])(?:bench|benches|benchmark|benchmarks)[\\/]/i,
+  mock: /(?:^|[\\/!])(?:mock|mocks|__mocks__|fakes|stubs)[\\/]/i,
+  example: /(?:^|[\\/!])(?:example|examples|samples)[\\/]/i,
+};
+// On the basename without its extension (`foo.test` for foo.test.js).
+const TEST_STEM_RE = {
+  test: /^(?:tests?|testutils?|testing)(?:$|[_.\-])|[_.\-](?:tests?|spec)$/i,
+  bench: /^bench(?:$|[_.\-]|marks?$)|[_.\-]bench(?:marks?)?$/i,
+  mock: /^(?:mocks?|fakes?|stubs?)(?:$|[_.\-])|[_.\-](?:mocks?|fakes?|stubs?)$/i,
+  example: /^examples?(?:$|[_.\-])/i,
+};
+const TEST_STEM_CASED_RE = /^Tests?[A-Z]|Tests?$/;       // TestToken.sol, FooTest.java
+// On each `::`-separated segment of the symbol name: a marker at the end
+// (RateChooserTest), at the start followed by a capital (FakeGroup), or as a
+// snake_case word (test_sign, run_test, bench_sign_run).
+const TEST_NAME_RE = {
+  test: /(?:^|::)(?:[A-Za-z0-9_]*Tests?|Tests?[A-Z][A-Za-z0-9_]*|tests?_[A-Za-z0-9_]*|[A-Za-z0-9_]*_tests?)(?:$|::)/,
+  bench: /(?:^|::)(?:bench_[A-Za-z0-9_]*|[A-Za-z0-9_]*_bench)(?:$|::)/,
+  mock: /(?:^|::)(?:[A-Za-z0-9_]*(?:Mock|Fake|Stub)|(?:Mock|Fake|Stub)[A-Z][A-Za-z0-9_]*|(?:mock|fake|stub)_[A-Za-z0-9_]*|[A-Za-z0-9_]*_(?:mock|fake|stub))(?:$|::)/,
+};
+export function testSymbolClass(s) {
+  const name = s.name || '';
+  for (const c of ['test', 'mock', 'bench']) if (TEST_NAME_RE[c].test(name)) return c;
+  const fp = String(s.filepath || '');
+  if (!fp) return null;
+  for (const c of ['test', 'bench', 'mock', 'example']) if (TEST_DIR_RE[c].test(fp)) return c;
+  const base = fp.split(/[\\/!]/).pop() || '';
+  const stem = base.replace(/\.[A-Za-z0-9]+$/, '');
+  if (TEST_STEM_CASED_RE.test(stem)) return 'test';
+  for (const c of ['test', 'bench', 'mock', 'example']) if (TEST_STEM_RE[c].test(stem)) return c;
+  return null;
+}
 export function isTestSymbol(s) {
-  return /(?:^|::)[A-Za-z0-9_]*(?:Test|Tests|Mock|Fake|Stub)(?:$|::)/.test(s.name || '')
-    || /(?:^|[\\/])(?:test|tests|androidTest)[\\/]/i.test(s.filepath || '');
+  return testSymbolClass(s) !== null;
+}
+
+// claim-locate-stem-bridge (2026-10-22). A predicted word is matched as a raw
+// substring of the lowercased name, so a word in one inflection cannot reach a
+// name in another: `reduction` found nothing on secp256k1 while the chart
+// cited secp256k1_scalar_reduce_512 (Coinbase 1-10). The bridge is ADDITIVE:
+// a word also matches when a token of the name shares its first five letters
+// (reduction / reduce, modular / modulus, verification / verify), or when the
+// word begins with a whole token of four letters or more (signing / sign).
+// Substring matching stays as it was, so suffix matches (`rate` in `bitrate`)
+// are untouched. Neither claim-terms.js's stem (reduction -> reduct, reduce ->
+// reduce) nor a Porter stemmer (reduct / reduc) bridges the pairs that matter,
+// which is why this is a prefix rule and not a stemmer. Rarity counts bridged
+// matches the same way as raw ones, so a word that now reaches thousands of
+// names is weighted down, not up. Each hit discloses which of its words came
+// through the bridge (`bridged`), and the per-element log line counts them.
+export const STEM_BRIDGE_PREFIX = 5;
+export const STEM_BRIDGE_MIN_TOKEN = 4;
+export function bridgedByStem(word, tokens) {
+  const w = String(word || '').toLowerCase();
+  if (w.length < STEM_BRIDGE_MIN_TOKEN) return false;
+  const head = w.length >= STEM_BRIDGE_PREFIX ? w.slice(0, STEM_BRIDGE_PREFIX) : null;
+  for (const t of tokens || []) {
+    if (head && t.length >= STEM_BRIDGE_PREFIX && t.startsWith(head)) return true;
+    if (t.length >= STEM_BRIDGE_MIN_TOKEN && w.length > t.length && w.startsWith(t)) return true;
+  }
+  return false;
+}
+const tokensOf = (s) => (Array.isArray(s.tokens) && s.tokens.length ? s.tokens : symbolTokens(s.name));
+
+// claim-locate-pool-at-scale (2026-10-22). The element's OWN content words,
+// for the tie-break in searchSymbolsByWords: the selection list is built from
+// the model's predicted words alone, so on a large index the top 25 under
+// `join` is a sample of hundreds of join methods, and the chart's
+// SortMergeJoinExec::findNextInnerJoinRows (Databricks 149-2) was never
+// offered while the claim's own words (rows, inner, next) name it. Content
+// words only (claim-terms' STOP drops the claim boilerplate), four letters or
+// more, de-duplicated by stem, minus the predicted words. Never a match on
+// their own: a symbol must match a predicted word to be a candidate at all.
+export function elementOwnWords(limText, predicted = [], max = 12) {
+  const pred = new Set((predicted || []).map((w) => stem(String(w).toLowerCase())));
+  const out = [];
+  const seen = new Set();
+  for (const w of contentWords(limText)) {
+    const s = stem(w);
+    if (seen.has(s) || pred.has(s)) continue;
+    seen.add(s);
+    out.push(w);
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 export function searchSymbolsByWords(symbols, words, opts = {}) {
   const limit = opts.limit ?? 25;
   if (!words || !words.length) return [];
-  const lowered = symbols.map((s) => ({ s, low: s.name.toLowerCase() }));
+  const lowered = symbols.map((s) => ({ s, low: s.name.toLowerCase(), tokens: tokensOf(s) }));
+  const ownWords = (opts.ownWords || []).filter((w) => !words.includes(w));
 
-  const freq = new Map(words.map((w) => [w, 0]));
-  for (const { low } of lowered) {
-    for (const w of words) if (low.includes(w)) freq.set(w, freq.get(w) + 1);
+  const freq = new Map([...words, ...ownWords].map((w) => [w, 0]));
+  for (const { low, tokens } of lowered) {
+    for (const w of freq.keys()) if (low.includes(w) || bridgedByStem(w, tokens)) freq.set(w, freq.get(w) + 1);
   }
   const total = Math.max(1, symbols.length);
   const rarity = (w) => {
@@ -1039,16 +1163,37 @@ export function searchSymbolsByWords(symbols, words, opts = {}) {
   // keep only the longer (more specific) one.
   const collapse = (matched) => matched.filter((w) =>
     !matched.some((o) => o !== w && o.includes(w) && o.length > w.length));
+  // What the test gate held back, by class. Scored like everything else and
+  // counted below only when the symbol would have been OFFERED (it scores at
+  // or above the last candidate in the window): "16,077 test symbols matched
+  // a word" on Spark describes the corpus; what stood between the caller and
+  // its 25 is the number a reader can use. Rides on the result as `heldTests`
+  // so the per-element log line and the MCP tool can say so.
+  const heldTests = { total: 0, test: 0, mock: 0, bench: 0, example: 0 };
+  const heldScored = [];
   const hits = [];
-  for (const { s, low } of lowered) {
-    if (!opts.includeTests && isTestSymbol(s)) continue;
+  for (const { s, low, tokens } of lowered) {
     const raw = words.filter((w) => low.includes(w));
-    if (!raw.length) continue;
-    const matched = collapse(raw);
+    const viaStem = words.filter((w) => !raw.includes(w) && bridgedByStem(w, tokens));
+    if (!raw.length && !viaStem.length) continue;
+    const matched = collapse(raw.concat(viaStem));
+    // Tie-break by the element's own words at half weight: among candidates
+    // with equal predicted-word evidence, the one the claim's own words also
+    // name ranks first; it does not outrank stronger predicted-word evidence.
+    const own = ownWords.filter((w) => low.includes(w) || bridgedByStem(w, tokens));
     const score = matched.reduce((n, w) => n + rarity(w), 0)
       + Math.log(1 + matched.length)      // breadth still helps, sub-linearly
-      - Math.log(Math.max(8, s.name.length)) / 2;
-    hits.push({ sym: s, matched, score });
+      - Math.log(Math.max(8, s.name.length)) / 2
+      + own.reduce((n, w) => n + rarity(w), 0) / 2;
+    if (!opts.includeTests) {
+      const cls = testSymbolClass(s);
+      if (cls) { heldScored.push({ score, cls }); continue; }
+    }
+    const hit = { sym: s, matched, score };
+    const bridged = viaStem.filter((w) => matched.includes(w));
+    if (bridged.length) hit.bridged = bridged;
+    if (own.length) hit.ownMatched = own;
+    hits.push(hit);
   }
   hits.sort((a, b) => b.score - a.score);
   // De-duplicate by NAME: interfaces and their implementations share method
@@ -1071,16 +1216,42 @@ export function searchSymbolsByWords(symbols, words, opts = {}) {
   // tool) can state its population, per the #306 rule that a ranked head
   // without its population is uninterpretable.
   const all = [...byBare.values()];
-  return Object.assign(all.slice(0, limit), { total: all.length });
+  const floor = all.length >= limit ? all[limit - 1].score : -Infinity;
+  for (const h of heldScored) if (h.score >= floor) { heldTests.total += 1; heldTests[h.cls] += 1; }
+  // Beyond the cap, compactly: when the window is full and the caller asked
+  // (`widenTo`), the next names up to that rank ride on the result as `more`
+  // for the selection prompt to offer by name. Empty below the cap.
+  const widenTo = Number(opts.widenTo) || 0;
+  const more = widenTo > limit && all.length > limit ? all.slice(limit, widenTo) : [];
+  return Object.assign(all.slice(0, limit), { total: all.length, heldTests, more });
 }
 
 // Round 2: choose from candidates that EXIST. Blind mode hides file paths so a
 // run can prove discovery rather than recall.
+// claim-locate-pool-at-scale: the names beyond a full window, one line per
+// class (full names, so "copy EXACTLY as shown" still holds), classless
+// functions grouped by file when paths are shown and together when blind.
+function compactNameList(hits, blind) {
+  const groups = new Map();
+  for (const h of hits) {
+    const name = h.sym.name;
+    const key = name.includes('::') ? name.replace(/::[^:]*$/, '')
+      : (blind ? '(functions)' : String(h.sym.filepath || '').split('!').pop().split('/').pop());
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(name);
+  }
+  return [...groups].map(([k, names]) => `  ${k}: ${names.join(', ')}`).join('\n');
+}
+
 export function buildSelectPrompt(perElement, opts = {}) {
   const blind = !!opts.blind;
-  const blocks = perElement.map(({ element, text, hits }) => {
+  const blocks = perElement.map(({ element, text, hits, more, nameTotal }) => {
     const lines = hits.map((h, i) => `  ${i + 1}. ${h.sym.name}${blind ? '' : `   [${h.sym.filepath.split('!').pop()}]`}`);
-    return `ELEMENT ${element}: ${text}\nCandidates found in the codebase:\n${lines.join('\n') || '  (none found)'}`;
+    const extra = more && more.length
+      ? `\nAlso matching (${nameTotal} names matched; the ${hits.length} above rank highest;`
+        + ` the next ${more.length}, names only):\n${compactNameList(more, blind)}`
+      : '';
+    return `ELEMENT ${element}: ${text}\nCandidates found in the codebase:\n${lines.join('\n') || '  (none found)'}${extra}`;
   });
   return `For each claim element below you are shown REAL symbols from the codebase \
 under examination, found by searching its symbol table.
@@ -1482,6 +1653,9 @@ export function formatLocateReport(rows, opts = {}) {
     if (r.ambiguous > 1) {
       out.push(`      AMBIGUOUS: ${r.ambiguous} symbols match this name — first shown; verify manually`);
     }
+    if (r.testExcluded) {
+      out.push(`      ${r.testExcluded} test-code definition(s) of this name set aside (--include-tests to consider them)`);
+    }
     if (r.nav && (r.nav.callers.length || r.nav.callees.length)) {
       if (r.nav.callees.length) out.push(`      calls: ${r.nav.callees.slice(0, 6).join(', ')}`);
       if (r.nav.callers.length) out.push(`      called by: ${r.nav.callers.slice(0, 6).join(', ')}`);
@@ -1616,7 +1790,8 @@ export function attributeTargets(found, discovery) {
       mine.push(spec);
     }
     groups.push({ element: p.element, text: String(p.text || ''), words: p.words || [],
-      candidates: (p.hits || []).length, targets: mine });
+      candidates: (p.hits || []).length, matched: p.nameTotal, capBound: !!p.capBound,
+      more: (p.more || []).length, targets: mine });
   }
   // A target no element claims must still ship. Silently dropping one would
   // make the file disagree with the run that produced it.
@@ -1663,6 +1838,9 @@ export function buildTargetsFileBody({ provenance = [], found, discovery, mode =
     out.push(`# Element ${g.element}: ${g.text.replace(/\s+/g, ' ').slice(0, 160)}`);
     out.push(`# Element-words: ${g.words.join(', ')}`);
     out.push(`# Element-candidates: ${g.candidates}`);
+    // Only when the cap bound: the window was a sample of what matched. A
+    // separate line, so claim-chart's `Element-candidates` parse is untouched.
+    if (g.capBound) out.push(`# Element-matched: ${g.matched} (at the cap; ${g.more} more offered by name)`);
     for (const s of g.targets) {
       const also = shared.get(s);
       if (also && also.length) out.push(`# Element-shared: ${s} also retrieved for element(s) ${also.join(', ')}`);
@@ -2063,8 +2241,18 @@ export async function doClaimLocate(index, args, opts = {}) {
         draft, elements, symbols,
         opts: {
           includeTests: !!args.include_tests,
-          onElement: ({ element, words, hits }) =>
-            console.log(`  element ${element}: words [${words.join(', ')}] -> ${hits.length} candidate(s)`),
+          onElement: ({ element, words, hits, nameTotal, capBound, more }) => {
+            const viaStem = hits.filter((h) => h.bridged && h.bridged.length).length;
+            const held = hits.heldTests;
+            const heldNote = held && held.total
+              ? ` (${held.total} held back: ${['test', 'mock', 'bench', 'example']
+                .filter((c) => held[c]).map((c) => `${held[c]} ${c}`).join(', ')})`
+              : '';
+            const capNote = capBound
+              ? ` (cap: ${nameTotal} matched, ${(more || []).length} more offered by name)` : '';
+            console.log(`  element ${element}: words [${words.join(', ')}] -> ${hits.length} candidate(s)`
+              + capNote + (viaStem ? ` (${viaStem} by stem)` : '') + heldNote);
+          },
         },
       });
       if (disc.error) {
@@ -2223,11 +2411,26 @@ export async function doClaimLocate(index, args, opts = {}) {
     for (const p of list) {
       if (seen.has(p.candidate)) continue;
       seen.add(p.candidate);
-      const v = verifySymbol(symbols, p.candidate);
+      let v = verifySymbol(symbols, p.candidate);
+      // --include-tests must mean the SAME thing on every path. A proposal
+      // that resolves to several definitions took matches[0] whatever it was:
+      // on Securitize (blind, 2026-10-22) bare `transfer` and `transferFrom`
+      // resolved to contracts/mocks/TestToken.sol after the test gate had held
+      // that contract out of every candidate list. When tests are excluded,
+      // the test-class definitions leave the match list first; if only tests
+      // define the name, the list stands and AMBIGUOUS says so.
+      let testExcluded = 0;
+      if (!args.include_tests && v.matches && v.matches.length > 1) {
+        const kept = v.matches.filter((m) => !isTestSymbol(m));
+        if (kept.length && kept.length < v.matches.length) {
+          testExcluded = v.matches.length - kept.length;
+          v = { ...v, matches: kept, ambiguous: kept.length > 1 ? kept.length : 0 };
+        }
+      }
       const ok = isFound(v);
       rows.push({
         candidate: p.candidate, element: p.element, round,
-        verified: ok, status: v.status, ambiguous: v.ambiguous || 0,
+        verified: ok, status: v.status, ambiguous: v.ambiguous || 0, testExcluded,
         match: ok ? v.matches[0] : null,
         nav: ok ? navigateFrom(index, v.matches[0], { limit: LOCATE_DEFAULTS.navLimit }) : null,
         // How many runs proposed this candidate. Undefined on the hunt and
@@ -2252,7 +2455,6 @@ export async function doClaimLocate(index, args, opts = {}) {
     // function are where decision logic lives (determineIdealSelectedIndex is
     // a callee of the 50-line updateSelectedTrack); a class's callees are its
     // members, which say nothing about the claim.
-    let promoted = 0;
     let navTestsSkipped = 0;
     // A promoted callee carries an ASSERTED call edge ("reached by navigation
     // from X") into the targets file and thence into the chart's citations. The
@@ -2264,18 +2466,34 @@ export async function doClaimLocate(index, args, opts = {}) {
     // Observed live on 2026-08-07 in BOTH engines' target lists.
     let navAmbiguousSkipped = 0;
     const navAmbiguousNames = [];
-    const navSeeds = rows.filter((r) => r.verified && r.nav
-      && r.match.start != null && (r.match.end - r.match.start) <= LOCATE_DEFAULTS.maxSeedSpan);
-    for (const seed of navSeeds) {
-      if (promoted >= LOCATE_DEFAULTS.maxNavRows) break;
+    // Resolve a bare callee of a seed, each tier unambiguous on its own:
+    //   1. the seed's own class (`CKey::Check` for seed `CKey::MakeNewKey`) —
+    //      index-wide `Check` has several definitions and the file-local
+    //      lookup misses a method the class defines in another file; this is
+    //      the navigation half of #343's name-only resolution;
+    //   2. the seed's own file — a bare callee name is ambiguous index-wide
+    //      (8 symbols are named `updateSelectedTrack`);
+    //   3. index-wide.
+    const resolveCallee = (seed, name) => {
+      const bare = name.replace(/^.*::/, '');
+      const cls = seed.match.name.includes('::') ? seed.match.name.replace(/::[^:]*$/, '') : null;
+      if (cls && !name.includes('::')) {
+        const same = symbols.filter((s) => s.name === `${cls}::${bare}`);
+        if (same.length) return { status: 'exact', matches: same, ambiguous: same.length > 1 ? same.length : 0 };
+      }
+      const local = symbols.filter((s) => s.filepath === seed.match.filepath && s.bare === bare);
+      if (local.length) return { status: 'exact', matches: local, ambiguous: local.length > 1 ? local.length : 0 };
+      return verifySymbol(symbols, name);
+    };
+    // Promote one seed's callees at one hop under a budget; returns the rows
+    // it added. Hop-1 rows carry their own callees so hop 2 can read them;
+    // hop-2 rows carry none, so there is no third hop.
+    const promoteFrom = (seed, hop, budget) => {
+      const added = [];
       for (const name of seed.nav.callees.slice(0, LOCATE_DEFAULTS.navPerSeed)) {
-        if (promoted >= LOCATE_DEFAULTS.maxNavRows) break;
+        if (budget.used >= budget.max) break;
         if (seen.has(name)) continue;
-        // Resolve within the SEED'S OWN FILE first — a bare callee name is
-        // ambiguous index-wide (8 symbols are named `updateSelectedTrack`).
-        const local = symbols.filter((s) => s.filepath === seed.match.filepath && s.bare === name.replace(/^.*::/, ''));
-        const v = local.length ? { status: 'exact', matches: local, ambiguous: local.length > 1 ? local.length : 0 }
-          : verifySymbol(symbols, name);
+        const v = resolveCallee(seed, name);
         // Deliberately NOT applied to model-PROPOSED symbols: those carry the
         // model's own qualifier and are reported with an AMBIGUOUS warning for
         // the operator to adjudicate. This gate is narrow to navigation, where
@@ -2297,13 +2515,48 @@ export async function doClaimLocate(index, args, opts = {}) {
         // reason any appeared.
         if (!args.include_tests && isTestSymbol(v.matches[0])) { navTestsSkipped++; continue; }
         seen.add(name);
-        promoted++;
-        rows.push({
+        budget.used++;
+        const row = {
           candidate: name, element: seed.element, round: 1,
           verified: true, status: v.status, ambiguous: v.ambiguous,
-          match: v.matches[0], nav: null,
-          viaNavigation: seed.match.name,
-        });
+          match: v.matches[0],
+          nav: hop < LOCATE_DEFAULTS.navDepth
+            ? navigateFrom(index, v.matches[0], { limit: LOCATE_DEFAULTS.navLimit }) : null,
+          // Provenance carries the chain: "GenerateRandomKey via CKey::MakeNewKey".
+          viaNavigation: hop === 1 ? seed.match.name : `${seed.viaNavigation} via ${seed.match.name}`,
+          navHop: hop,
+        };
+        rows.push(row);
+        added.push(row);
+      }
+      return added;
+    };
+    const navSeeds = rows.filter((r) => r.verified && r.nav
+      && r.match.start != null && (r.match.end - r.match.start) <= LOCATE_DEFAULTS.maxSeedSpan);
+    const hop1 = { used: 0, max: LOCATE_DEFAULTS.maxNavRows };
+    const hop1Rows = [];
+    for (const seed of navSeeds) {
+      if (hop1.used >= hop1.max) break;
+      hop1Rows.push(...promoteFrom(seed, 1, hop1));
+    }
+    // claim-locate-second-hop-navigation (2026-10-22). A promoted row was never
+    // itself navigated, so nothing two calls below a proposal could be offered:
+    // on MARA 1-11 (blind, 2026-10-21) navigation reached CKey::MakeNewKey from
+    // the proposed GenerateRandomKey, and MakeNewKey's own callees — CKey::Check,
+    // the accept-if-below-the-order test the claim turns on, and MakeKeyData —
+    // were never offered. One bounded second hop from function-sized hop-1
+    // rows, under its own budget so hop 1 is not starved; no third.
+    if (LOCATE_DEFAULTS.navDepth >= 2) {
+      const hop2 = { used: 0, max: LOCATE_DEFAULTS.maxNavRowsHop2 };
+      const seeds2 = hop1Rows.filter((r) => r.nav
+        && r.match.start != null && (r.match.end - r.match.start) <= LOCATE_DEFAULTS.maxSeedSpan);
+      for (const seed of seeds2) {
+        if (hop2.used >= hop2.max) break;
+        promoteFrom(seed, 2, hop2);
+      }
+      if (hop2.used) {
+        console.log(`  ${hop2.used} symbol(s) reached at the second hop (callees of promoted callees`
+          + `${hop2.used >= hop2.max ? `; BUDGET-LIMITED at ${hop2.max}` : ''}).`);
       }
     }
     // Never lose a symbol silently. An operator examining a test suite as the

@@ -52,7 +52,7 @@
   "ratchet": {
     "_rule": "REPORT + RATCHET: the test reports N-of-M reachable per set and FAILS only when a count falls below its floor. Floors are the recorded high-water marks — raise them (in this file, with a dated note) when a retrieval change legitimately lifts a count; never lower them without a population-justified, disclosed reason. A floor rise accompanied by a re-pin of element_words measures VOCABULARY, not search — the pinned words hold vocabulary constant within the test, so repinning them to a better temp-0 draw can raise every count with no search-mechanism change (asus-CC, #311). Re-pins must add their own dated history entry with a fresh words_pinned_at, so the diff shows the words moved.",
     "floors": {
-      "union": 2,
+      "union": 3,
       "chatgpt-external": 2,
       "independent-intersection": 0
     },
@@ -64,6 +64,14 @@
         "chatgpt-external": 2,
         "independent-intersection": 0,
         "note": "Initial baseline at a80c6b1, measured through the full default selection stack (per-element round-robin depth 3 + content-arm promoted slot + concentration + drilldown + whole-claim arm). One family reached: AdaptiveTrackSelection + updateSelectedTrack, via the content arm's promoted slot on element 6. Agrees with asus-CC's independent ad-hoc measurement (1 family of 14, #311)."
+      },
+      {
+        "date": "2026-10-22",
+        "words_pinned_at": "2026-09-04",
+        "union": 3,
+        "chatgpt-external": 2,
+        "independent-intersection": 0,
+        "note": "Raised with claim-locate-pool-at-scale (the element's own content words as a half-weight tie-break in the name search, and the next 35 names offered beyond the 25 cap): MediaCodecRenderer newly reached, asus-reading 1 of 14 (reported, no floor), 30 selected targets. Measured on the working tree that also carries the day's stem bridge, widened test filter and second navigation hop, none of which moved a count on this fixture on its own (each was run here first: union 2, 30 targets). Not tuned on this claim: the pool change was designed on the fourteen real-world filings (Databricks 149-2 x Spark), and this fixture moved as a side effect."
       }
     ]
   },

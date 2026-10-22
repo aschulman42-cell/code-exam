@@ -1932,9 +1932,10 @@ LLM ANALYSIS:
   --claim-locate <claim>     Locate the code implementing a claim by asking the
                               model to NAME the classes/methods it expects, then
                               VERIFYING each name against the index and
-                              NAVIGATING one hop of callers/callees. Every
-                              proposal is reported verified (with file@symbol and
-                              line range) or NOT FOUND. Symbol names come from the
+                              NAVIGATING callers/callees, promoting callees up
+                              to two hops down (bounded). Every proposal is
+                              reported verified (with file@symbol and line
+                              range) or NOT FOUND. Symbol names come from the
                               model's domain knowledge; existence and location
                               come from the index. Takes @file.txt or inline text.
   --no-refine                --claim-locate: skip the one refine round that feeds
@@ -2012,9 +2013,10 @@ LLM ANALYSIS:
                              caps, command, checksum) that --claim-chart reports.
   --hunt-rounds <n>          --claim-locate: max model turns in the hunt (default 8).
   --hunt-calls <n>           --claim-locate: max tool calls in the hunt (default 24).
-  --include-tests            --claim-locate: allow test/mock symbols as candidates
-                              (excluded by default; a test exercising an element
-                              is not the code implementing it).
+  --include-tests            --claim-locate: allow test, mock, benchmark and example
+                              symbols as candidates, by directory, file name or
+                              symbol name (excluded by default; a test exercising
+                              an element is not the code implementing it).
   --claim-analyze <claim>    End-to-end patent claim analysis: extract terms, search,
                               analyze top matches. Takes @file.txt or inline text.
                               Direct-target mode: pass a FUNCTION (or FILE@FUNCTION)

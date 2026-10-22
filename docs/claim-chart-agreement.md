@@ -224,44 +224,49 @@ pipeline runs `--claim-chart` on the targets `--claim-locate` wrote; the harness
 and that configuration, tier 1's targets with the judge's labels as the score, is the next run.
 
 <!-- agreement:start -->
-_Generated 2026-10-21 by `scripts/recap-chart-agreement.mjs --render` from 98 record(s); edit the script, not this block._
+_Generated 2026-10-22 by `scripts/recap-chart-agreement.mjs --render` from 114 record(s); edit the script, not this block._
 
 | candidate | repository @ ref | index symbols | functions reachable / cited | files reachable / cited | absent names |
 |---|---|---:|---|---|---|
-| foundry-1-11 | bitcoin-core/secp256k1 @ b6c2a3c | 950 | 11 / 12 | 8 / 8 | SECP256K1_ARG_NONNULL |
-| mara-1-11 | bitcoin/bitcoin @ 8673e8f | 19051 | 13 / 13 | 1 / 1 |  |
-| securitize-15-9 | securitize-io/dstoken @ 3f4074b | 747 | 3 / 3 | 1 / 1 |  |
 | databricks-149-2 | apache/spark @ af8228c | 83593 | 39 / 49 | 7 / 8 | oos.defaultWriteObject, IndexedSeq, joinRow, boundCondition, resultProj, eagerCleanupResources, … |
 | veritaseum-1-3 | solana-labs/solana @ eaa4787 | 17579 | 3 / 25 | 5 / 7 | is_proposer, get_current_epoch, web3.eth.signTransaction, tokenURI, get_deposit_root, get_committee_assignment, … |
 | veritaseum-1-3 | ethereum/consensus-specs @ fdb5c7d | 1389 | 2 / 25 | 0 / 7 | is_proposer, get_current_epoch, web3.eth.signTransaction, web3.eth.sendTransaction, tokenURI, get_deposit_root, … |
+| foundry-1-11 | bitcoin-core/secp256k1 @ b6c2a3c | 950 | 11 / 12 | 8 / 8 | SECP256K1_ARG_NONNULL |
 | foundry-1-14 | bitcoin-core/secp256k1 @ ad60ef7 | 900 | 8 / 8 | 3 / 6 |  |
 | viabtc-1-6 | bitcoin/bitcoin @ b3a9b84 | 21517 | 13 / 14 | 1 / 1 | SECP256K1_ARG_NONNULL |
+| mara-1-11 | bitcoin/bitcoin @ 8673e8f | 19051 | 13 / 13 | 1 / 1 |  |
 | coinbase-1-8 | bitcoin-core/secp256k1 @ 4187a46 | 898 | 8 / 8 | 0 / 2 |  |
 | coinbase-1-10 | bitcoin-core/secp256k1 @ 4187a46 | 898 | 6 / 7 | 1 / 1 | secp256k1_u128_to_u64 |
-| friendliai-26-1 | huggingface/text-generation-inference @ bd3a9d8 | 849 | 2 / 3 | 8 / 10 | SortByArrivalTime |
-| sookbox-1 | xbmc/xbmc @ cf5e540 | 53788 | 7 / 7 | 0 / 0 |  |
-| progme-1-1 | Comcast/cmb @ 3dea798 | 2765 | 58 / 112 | 14 / 20 | println, print, getProperties, getPropertyValue, getProperty, printMsg, … |
 | vm-innovations-1-23 | coinbase/coinbase-sdk-nodejs @ 31b3dfe | 1058 | 6 / 6 | 2 / 5 |  |
 | vm-innovations-1-23 | circlefin/evm-cctp-contracts @ 4061786 | 453 | 0 / 6 | 2 / 5 | wait, depositTx.wait, receiveMessageTx.wait, bridgeUSDC, fetchWalletAndLoadSeed, approveTx.wait |
 | vm-innovations-1-23 | ethereum/go-ethereum @ 341647f | 17335 | 4 / 6 | 1 / 5 | bridgeUSDC, fetchWalletAndLoadSeed |
+| friendliai-26-1 | huggingface/text-generation-inference @ bd3a9d8 | 849 | 2 / 3 | 8 / 10 | SortByArrivalTime |
+| securitize-15-9 | securitize-io/dstoken @ 3f4074b | 747 | 3 / 3 | 1 / 1 |  |
 | true-return-1-6 | makerdao/dss @ fa4f663 | 157 | 6 / 17 | 12 / 12 | End.cage, cage, Vat.Frob, thaw, mint, openLockGemAndDraw, … |
+| sookbox-1 | xbmc/xbmc @ cf5e540 | 53788 | 7 / 7 | 0 / 0 |  |
+| progme-1-1 | Comcast/cmb @ 3dea798 | 2765 | 58 / 112 | 14 / 20 | println, print, getProperties, getPropertyValue, getProperty, printMsg, … |
 | veritaseum-1-3 | all repositories | 18968 | 3 / 25 | 5 / 7 | is_proposer, get_current_epoch, web3.eth.signTransaction, tokenURI, get_deposit_root, get_committee_assignment, … |
 | vm-innovations-1-23 | all repositories | 18846 | 6 / 6 | 2 / 5 |  |
 
 | candidate | claim | tier | mode | CodeExam chose | litigant cited (reachable) | both | found of cited | cited of chosen | matched |
 |---|---:|---|---|---:|---:|---:|---:|---:|---|
-| foundry-1-11 | 1 | tier0 | rule | 21 | 11 | 2 | 0.18 | 0.10 | secp256k1_ecdsa_sign_recoverable, secp256k1_ecdsa_recoverable_signature_save |
-| mara-1-11 | 1 | tier0 | rule | 16 | 12 | 0 | 0.00 | 0.00 |  |
-| securitize-15-9 | 1 | tier0 | rule | 19 | 3 | 1 | 0.33 | 0.05 | recordtransfer |
-| foundry-1-11 | 1 | tier1 | blind | 16 | 11 | 4 | 0.36 | 0.25 | secp256k1_ecdsa_sig_sign, secp256k1_ecdsa_sign_recoverable, secp256k1_ecdsa_sign_inner, secp256k1_ecdsa_recoverable_signature_save |
-| foundry-1-11 | 1 | tier1 | plain | 17 | 11 | 4 | 0.36 | 0.24 | secp256k1_ecdsa_sig_sign, secp256k1_ecdsa_sign_recoverable, secp256k1_ecdsa_sign_inner, secp256k1_ecdsa_recoverable_signature_save |
-| mara-1-11 | 1 | tier1 | blind | 25 | 12 | 2 | 0.17 | 0.08 | makenewkey, mixextract |
-| mara-1-11 | 1 | tier1 | plain | 28 | 12 | 1 | 0.08 | 0.04 | makenewkey |
-| securitize-15-9 | 1 | tier1 | blind | 22 | 3 | 2 | 0.67 | 0.09 | transfer, recordtransfer |
-| securitize-15-9 | 1 | tier1 | plain | 29 | 3 | 3 | 1.00 | 0.10 | transfer, transferfrom, recordtransfer |
+| databricks-149-2 | 1 | tier2 | per-element | 22 | 37 | 0 | 0.00 | 0.00 |  |
+| veritaseum-1-3 | 1 | tier2 | per-element | 40 | 3 | 0 | 0.00 | 0.00 |  |
+| veritaseum-1-3 | 1 | tier2 | per-element | 19 | 2 | 0 | 0.00 | 0.00 |  |
 | foundry-1-11 | 1 | tier2 | per-element | 21 | 11 | 1 | 0.09 | 0.05 | secp256k1_ecdsa_recoverable_signature_save |
+| foundry-1-14 | 1 | tier2 | per-element | 24 | 8 | 1 | 0.13 | 0.04 | secp256k1_ecmult_gen |
+| viabtc-1-6 | 1 | tier2 | per-element | 23 | 13 | 0 | 0.00 | 0.00 |  |
 | mara-1-11 | 1 | tier2 | per-element | 33 | 12 | 0 | 0.00 | 0.00 |  |
+| coinbase-1-8 | 3 | tier2 | per-element | 24 | 8 | 1 | 0.13 | 0.04 | secp256k1_ecmult_gen |
+| coinbase-1-10 | 1 | tier2 | per-element | 17 | 6 | 1 | 0.17 | 0.06 | secp256k1_scalar_reduce_512 |
+| vm-innovations-1-23 | 1 | tier2 | per-element | 34 | 3 | 0 | 0.00 | 0.00 |  |
+| vm-innovations-1-23 | 1 | tier2 | per-element | 33 | 0 | 0 | — | 0.00 |  |
+| vm-innovations-1-23 | 1 | tier2 | per-element | 38 | 1 | 0 | 0.00 | 0.00 |  |
+| friendliai-26-1 | 10 | tier2 | per-element | 22 | 2 | 1 | 0.50 | 0.05 | generate_token |
 | securitize-15-9 | 1 | tier2 | per-element | 35 | 3 | 1 | 0.33 | 0.03 | recordtransfer |
+| true-return-1-6 | 1 | tier2 | per-element | 9 | 4 | 2 | 0.50 | 0.22 | transferfrom, transfer |
+| sookbox-1 | 1 | tier2 | per-element | 28 | 7 | 0 | 0.00 | 0.00 |  |
+| progme-1-1 | 1 | tier2 | per-element | 24 | 33 | 1 | 0.03 | 0.04 | tostring |
 | databricks-149-2 | 1 | tier0 | rule | 22 | 37 | 0 | 0.00 | 0.00 |  |
 | databricks-149-2 | 2 | tier0 | rule | 10 | 37 | 0 | 0.00 | 0.00 |  |
 | databricks-149-2 | 5 | tier0 | rule | 21 | 37 | 0 | 0.00 | 0.00 |  |
@@ -280,55 +285,66 @@ _Generated 2026-10-21 by `scripts/recap-chart-agreement.mjs --render` from 98 re
 | veritaseum-1-3 | 3 | tier0 | rule | 24 | 2 | 0 | 0.00 | 0.00 |  |
 | veritaseum-1-3 | 7 | tier0 | rule | 24 | 2 | 0 | 0.00 | 0.00 |  |
 | veritaseum-1-3 | 8 | tier0 | rule | 24 | 2 | 0 | 0.00 | 0.00 |  |
+| foundry-1-11 | 1 | tier0 | rule | 21 | 11 | 2 | 0.18 | 0.10 | secp256k1_ecdsa_sign_recoverable, secp256k1_ecdsa_recoverable_signature_save |
 | foundry-1-14 | 1 | tier0 | rule | 21 | 8 | 0 | 0.00 | 0.00 |  |
 | viabtc-1-6 | 1 | tier0 | rule | 19 | 13 | 0 | 0.00 | 0.00 |  |
+| mara-1-11 | 1 | tier0 | rule | 16 | 12 | 0 | 0.00 | 0.00 |  |
 | coinbase-1-8 | 3 | tier0 | rule | 22 | 8 | 0 | 0.00 | 0.00 |  |
 | coinbase-1-10 | 1 | tier0 | rule | 24 | 6 | 0 | 0.00 | 0.00 |  |
-| friendliai-26-1 | 10 | tier0 | rule | 20 | 2 | 1 | 0.50 | 0.05 | generate_token |
-| sookbox-1 | 1 | tier0 | rule | 21 | 7 | 0 | 0.00 | 0.00 |  |
-| progme-1-1 | 1 | tier0 | rule | 18 | 33 | 1 | 0.03 | 0.06 | tostring |
-| databricks-149-2 | 1 | tier1 | blind | 16 | 37 | 1 | 0.03 | 0.06 | longmetric |
-| databricks-149-2 | 1 | tier1 | plain | 17 | 37 | 1 | 0.03 | 0.06 | longmetric |
-| veritaseum-1-3 | 1 | tier1 | blind | 45 | 3 | 0 | 0.00 | 0.00 |  |
-| veritaseum-1-3 | 1 | tier1 | plain | 21 | 3 | 0 | 0.00 | 0.00 |  |
-| veritaseum-1-3 | 1 | tier1 | blind | 9 | 2 | 0 | 0.00 | 0.00 |  |
-| veritaseum-1-3 | 1 | tier1 | plain | 4 | 2 | 0 | 0.00 | 0.00 |  |
-| foundry-1-14 | 1 | tier1 | blind | 13 | 8 | 0 | 0.00 | 0.00 |  |
-| foundry-1-14 | 1 | tier1 | plain | 9 | 8 | 0 | 0.00 | 0.00 |  |
-| viabtc-1-6 | 1 | tier1 | blind | 26 | 13 | 4 | 0.31 | 0.15 | secp256k1_ecdsa_recoverable_signature_load, secp256k1_ecdsa_sig_recover, secp256k1_pubkey_save, secp256k1_fe_set_b32_limit |
-| viabtc-1-6 | 1 | tier1 | plain | 28 | 13 | 4 | 0.31 | 0.14 | secp256k1_ecdsa_recoverable_signature_load, secp256k1_ecdsa_sig_recover, secp256k1_pubkey_save, secp256k1_fe_set_b32_limit |
-| coinbase-1-8 | 3 | tier1 | blind | 19 | 8 | 0 | 0.00 | 0.00 |  |
-| coinbase-1-8 | 3 | tier1 | plain | 6 | 8 | 0 | 0.00 | 0.00 |  |
-| coinbase-1-10 | 1 | tier1 | blind | 7 | 6 | 0 | 0.00 | 0.00 |  |
-| coinbase-1-10 | 1 | tier1 | plain | 7 | 6 | 0 | 0.00 | 0.00 |  |
-| friendliai-26-1 | 10 | tier1 | blind | 32 | 2 | 1 | 0.50 | 0.03 | generate_token |
-| friendliai-26-1 | 10 | tier1 | plain | 19 | 2 | 1 | 0.50 | 0.05 | generate_token |
-| sookbox-1 | 1 | tier1 | blind | 8 | 7 | 0 | 0.00 | 0.00 |  |
-| sookbox-1 | 1 | tier1 | plain | 3 | 7 | 0 | 0.00 | 0.00 |  |
-| progme-1-1 | 1 | tier1 | blind | 36 | 33 | 0 | 0.00 | 0.00 |  |
-| progme-1-1 | 1 | tier1 | plain | 31 | 33 | 0 | 0.00 | 0.00 |  |
 | vm-innovations-1-23 | 1 | tier0 | rule | 22 | 3 | 0 | 0.00 | 0.00 |  |
 | vm-innovations-1-23 | 1 | tier0 | rule | 22 | 0 | 0 | — | 0.00 |  |
 | vm-innovations-1-23 | 1 | tier0 | rule | 23 | 1 | 0 | 0.00 | 0.00 |  |
+| friendliai-26-1 | 10 | tier0 | rule | 20 | 2 | 1 | 0.50 | 0.05 | generate_token |
+| securitize-15-9 | 1 | tier0 | rule | 19 | 3 | 1 | 0.33 | 0.05 | recordtransfer |
 | true-return-1-6 | 1 | tier0 | rule | 2 | 4 | 0 | 0.00 | 0.00 |  |
-| vm-innovations-1-23 | 1 | tier1 | blind | 47 | 3 | 0 | 0.00 | 0.00 |  |
-| vm-innovations-1-23 | 1 | tier1 | plain | 45 | 3 | 1 | 0.33 | 0.02 | wait |
-| vm-innovations-1-23 | 1 | tier1 | blind | 17 | 0 | 0 | — | 0.00 |  |
-| vm-innovations-1-23 | 1 | tier1 | plain | 15 | 0 | 0 | — | 0.00 |  |
-| vm-innovations-1-23 | 1 | tier1 | blind | 44 | 1 | 0 | 0.00 | 0.00 |  |
-| vm-innovations-1-23 | 1 | tier1 | plain | 43 | 1 | 0 | 0.00 | 0.00 |  |
-| true-return-1-6 | 1 | tier1 | blind | 1 | 4 | 0 | 0.00 | 0.00 |  |
-| true-return-1-6 | 1 | tier1 | plain | exit 1 (see log) | 4 | 0 | 0.00 | — |  |
+| sookbox-1 | 1 | tier0 | rule | 21 | 7 | 0 | 0.00 | 0.00 |  |
+| progme-1-1 | 1 | tier0 | rule | 18 | 33 | 1 | 0.03 | 0.06 | tostring |
+| databricks-149-2 | 1 | tier1 | blind | 27 | 37 | 2 | 0.05 | 0.07 | doexecute, longmetric |
+| databricks-149-2 | 1 | tier1 | plain | 15 | 37 | 1 | 0.03 | 0.07 | longmetric |
+| veritaseum-1-3 | 1 | tier1 | blind | 34 | 3 | 0 | 0.00 | 0.00 |  |
+| veritaseum-1-3 | 1 | tier1 | plain | 32 | 3 | 0 | 0.00 | 0.00 |  |
+| veritaseum-1-3 | 1 | tier1 | blind | 3 | 2 | 0 | 0.00 | 0.00 |  |
+| veritaseum-1-3 | 1 | tier1 | plain | 2 | 2 | 0 | 0.00 | 0.00 |  |
+| foundry-1-11 | 1 | tier1 | blind | 20 | 11 | 8 | 0.73 | 0.40 | secp256k1_ecdsa_sig_sign, secp256k1_ecdsa_sign_recoverable, secp256k1_ecdsa_sign_inner, secp256k1_ecdsa_recoverable_signature_save, secp256k1_ecmult_gen, secp256k1_ge_set_gej, secp256k1_fe_normalize, secp256k1_fe_get_b32 |
+| foundry-1-11 | 1 | tier1 | plain | 19 | 11 | 8 | 0.73 | 0.42 | secp256k1_ecdsa_sig_sign, secp256k1_ecdsa_sign_recoverable, secp256k1_ecdsa_sign_inner, secp256k1_ecdsa_recoverable_signature_save, secp256k1_ecmult_gen, secp256k1_ge_set_gej, secp256k1_fe_normalize, secp256k1_fe_get_b32 |
+| foundry-1-14 | 1 | tier1 | blind | 21 | 8 | 1 | 0.13 | 0.05 | secp256k1_fe_normalize |
+| foundry-1-14 | 1 | tier1 | plain | 2 | 8 | 0 | 0.00 | 0.00 |  |
+| viabtc-1-6 | 1 | tier1 | blind | 28 | 13 | 4 | 0.31 | 0.14 | secp256k1_ecdsa_recoverable_signature_load, secp256k1_ecdsa_sig_recover, secp256k1_pubkey_save, secp256k1_fe_set_b32_limit |
+| viabtc-1-6 | 1 | tier1 | plain | 27 | 13 | 4 | 0.31 | 0.15 | secp256k1_ecdsa_recoverable_signature_load, secp256k1_ecdsa_sig_recover, secp256k1_pubkey_save, secp256k1_fe_set_b32_limit |
+| mara-1-11 | 1 | tier1 | blind | 36 | 12 | 5 | 0.42 | 0.14 | check, getstrongrandbytes, makenewkey, makekeydata, data |
+| mara-1-11 | 1 | tier1 | plain | 8 | 12 | 5 | 0.42 | 0.63 | check, getstrongrandbytes, makenewkey, makekeydata, data |
+| coinbase-1-8 | 3 | tier1 | blind | 26 | 8 | 0 | 0.00 | 0.00 |  |
+| coinbase-1-8 | 3 | tier1 | plain | 26 | 8 | 1 | 0.13 | 0.04 | secp256k1_fe_is_odd |
+| coinbase-1-10 | 1 | tier1 | blind | 2 | 6 | 1 | 0.17 | 0.50 | secp256k1_scalar_reduce_512 |
+| coinbase-1-10 | 1 | tier1 | plain | 1 | 6 | 1 | 0.17 | 1.00 | secp256k1_scalar_reduce_512 |
+| vm-innovations-1-23 | 1 | tier1 | blind | 55 | 3 | 0 | 0.00 | 0.00 |  |
+| vm-innovations-1-23 | 1 | tier1 | plain | 51 | 3 | 0 | 0.00 | 0.00 |  |
+| vm-innovations-1-23 | 1 | tier1 | blind | 9 | 0 | 0 | — | 0.00 |  |
+| vm-innovations-1-23 | 1 | tier1 | plain | 11 | 0 | 0 | — | 0.00 |  |
+| vm-innovations-1-23 | 1 | tier1 | blind | 57 | 1 | 0 | 0.00 | 0.00 |  |
+| vm-innovations-1-23 | 1 | tier1 | plain | 56 | 1 | 0 | 0.00 | 0.00 |  |
+| friendliai-26-1 | 10 | tier1 | blind | 31 | 2 | 1 | 0.50 | 0.03 | generate_token |
+| friendliai-26-1 | 10 | tier1 | plain | 36 | 2 | 1 | 0.50 | 0.03 | generate_token |
+| securitize-15-9 | 1 | tier1 | blind | 35 | 3 | 3 | 1.00 | 0.09 | transfer, transferfrom, recordtransfer |
+| securitize-15-9 | 1 | tier1 | plain | 28 | 3 | 3 | 1.00 | 0.11 | transfer, transferfrom, recordtransfer |
+| true-return-1-6 | 1 | tier1 | blind | 7 | 4 | 2 | 0.50 | 0.29 | transferfrom, transfer |
+| true-return-1-6 | 1 | tier1 | plain | 6 | 4 | 2 | 0.50 | 0.33 | transferfrom, transfer |
+| sookbox-1 | 1 | tier1 | blind | 6 | 7 | 0 | 0.00 | 0.00 |  |
+| sookbox-1 | 1 | tier1 | plain | 2 | 7 | 0 | 0.00 | 0.00 |  |
+| progme-1-1 | 1 | tier1 | blind | 30 | 33 | 0 | 0.00 | 0.00 |  |
+| progme-1-1 | 1 | tier1 | plain | 25 | 33 | 0 | 0.00 | 0.00 |  |
+| veritaseum-1-3 | 1 | tier2 | per-element | 58 | 3 | 0 | 0.00 | 0.00 |  |
 | veritaseum-1-3 | 1 | tier0 | rule | 45 | 3 | 0 | 0.00 | 0.00 |  |
 | veritaseum-1-3 | 2 | tier0 | rule | 38 | 3 | 0 | 0.00 | 0.00 |  |
 | veritaseum-1-3 | 3 | tier0 | rule | 46 | 3 | 0 | 0.00 | 0.00 |  |
 | veritaseum-1-3 | 7 | tier0 | rule | 45 | 3 | 0 | 0.00 | 0.00 |  |
 | veritaseum-1-3 | 8 | tier0 | rule | 47 | 3 | 0 | 0.00 | 0.00 |  |
-| veritaseum-1-3 | 1 | tier1 | blind | 48 | 3 | 0 | 0.00 | 0.00 |  |
-| veritaseum-1-3 | 1 | tier1 | plain | 25 | 3 | 0 | 0.00 | 0.00 |  |
+| veritaseum-1-3 | 1 | tier1 | blind | 37 | 3 | 0 | 0.00 | 0.00 |  |
+| veritaseum-1-3 | 1 | tier1 | plain | 34 | 3 | 0 | 0.00 | 0.00 |  |
+| vm-innovations-1-23 | 1 | tier2 | per-element | 105 | 3 | 0 | 0.00 | 0.00 |  |
 | vm-innovations-1-23 | 1 | tier0 | rule | 67 | 3 | 0 | 0.00 | 0.00 |  |
-| vm-innovations-1-23 | 1 | tier1 | blind | 94 | 3 | 0 | 0.00 | 0.00 |  |
-| vm-innovations-1-23 | 1 | tier1 | plain | 92 | 3 | 1 | 0.33 | 0.01 | wait |
+| vm-innovations-1-23 | 1 | tier1 | blind | 89 | 3 | 0 | 0.00 | 0.00 |  |
+| vm-innovations-1-23 | 1 | tier1 | plain | 88 | 3 | 0 | 0.00 | 0.00 |  |
 <!-- agreement:end -->
 
 ## Caveats

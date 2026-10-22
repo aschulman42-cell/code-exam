@@ -208,7 +208,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `src/core/rename.js` — persists and applies the display-name rename map, and infers names for opaque minified identifiers
 - `src/core/stack-detectors.js` — detects the ops stack (Containers, Kubernetes, IaC, Cloud, CI/CD), tagging hits mechanical or heuristic
 - `src/core/structural-fingerprint.js` — normalizes function bodies to funcstrings, hashes them exact/tight, and diffs near-dupes by word holes
-- `src/core/symbol-verify.js` — verifies a model's proposed symbol names against the index and navigates one hop from survivors
+- `src/core/symbol-verify.js` — verifies a model's proposed symbol names against the index and navigates one hop from survivors (`claim-locate` takes a bounded second hop from the callees it promotes, resolving a bare callee to its seed's class first)
 - `src/core/vocabulary.js` — TF-IDF vocabulary discovery with noise-doc exclusion, concept extraction, and LLM-prompt formatting
 
 ### `public/` — the GUI client

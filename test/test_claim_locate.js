@@ -28,7 +28,7 @@ import {
   buildProposePrompt, buildIndexProfile, formatLocateReport,
   doClaimLocate, buildDiscoverPrompt, parseElementWords, searchSymbolsByWords,
   contentCandidatesForWords,
-  buildSelectPrompt, isTestSymbol,
+  buildSelectPrompt, isTestSymbol, candidatesForElement,
   buildHuntPrompt, parseHuntActions, makeHuntTools, runSymbolHunt, HUNT_DEFAULTS,
   transcriptSymbols, selectionSeen, partitionSelections,
   buildTargetsProvenance, targetsChecksum, targetSpecs,
@@ -214,8 +214,13 @@ describe('discovery path (default)', () => {
     const hits = searchSymbolsByWords(syms, ['bitrate', 'choose', 'quality']);
     assert.equal(hits.length, 1, 'test symbol excluded');
     assert.equal(hits[0].sym.name, 'RateChooser::chooseBitrate');
+    // The held-back count is what WOULD HAVE BEEN OFFERED (scores within the
+    // window), by class, so a log line can say what stood between the caller
+    // and its candidates rather than how many test symbols the corpus holds.
+    assert.deepEqual(hits.heldTests, { total: 1, test: 1, mock: 0, bench: 0, example: 0 });
     const withTests = searchSymbolsByWords(syms, ['bitrate', 'choose', 'quality'], { includeTests: true });
     assert.equal(withTests.length, 2);
+    assert.equal(withTests.heldTests.total, 0, 'nothing held when tests are admitted');
   });
   it('de-duplicates candidates by name', () => {
     const syms = [
@@ -224,10 +229,137 @@ describe('discovery path (default)', () => {
     ];
     assert.equal(searchSymbolsByWords(syms, ['buffer', 'duration']).length, 1);
   });
+  it('bridges inflections between a predicted word and a name token (stem bridge)', () => {
+    // claim-locate-stem-bridge: a word in one inflection must reach a name in
+    // another when they share a prefix of five letters and neither contains
+    // the other. Substring matching stays as it was. Measured on the
+    // Coinbase 1-10 miss (`reduction` found nothing; the chart cites
+    // secp256k1_scalar_reduce_512), calibrated on the fixture and the fourteen.
+    const syms = [
+      { filepath: 'src/scalar_8x32_impl.h', name: 'secp256k1_scalar_reduce_512', bare: 'secp256k1_scalar_reduce_512', start: 1, end: 40, tokens: [] },
+      { filepath: 'src/field.h', name: 'secp256k1_fe_normalize', bare: 'secp256k1_fe_normalize', start: 1, end: 10, tokens: [] },
+      { filepath: 'src/ecdsa.c', name: 'verify_signature', bare: 'verify_signature', start: 1, end: 10, tokens: [] },
+      { filepath: 'src/scalar.h', name: 'scalar_modulus_check', bare: 'scalar_modulus_check', start: 1, end: 10, tokens: [] },
+      { filepath: 'src/util.c', name: 'irate_handler', bare: 'irate_handler', start: 1, end: 10, tokens: [] },
+    ];
+    const names = (hits) => hits.map((h) => h.sym.name);
+    assert.ok(names(searchSymbolsByWords(syms, ['reduction'])).includes('secp256k1_scalar_reduce_512'), 'reduction reaches reduce_512');
+    assert.ok(names(searchSymbolsByWords(syms, ['normalization'])).includes('secp256k1_fe_normalize'), 'normalization reaches normalize');
+    assert.ok(names(searchSymbolsByWords(syms, ['verification'])).includes('verify_signature'), 'verification reaches verify');
+    assert.ok(names(searchSymbolsByWords(syms, ['modular'])).includes('scalar_modulus_check'), 'modular reaches modulus');
+    assert.equal(searchSymbolsByWords(syms, ['redundant']).length, 0, 'a four-letter shared prefix (redu) bridges nothing');
+    assert.deepEqual(names(searchSymbolsByWords(syms, ['rate'])), ['irate_handler'], 'substring matching is kept as it was');
+    const hit = searchSymbolsByWords(syms, ['reduction'])[0];
+    assert.ok(hit.matched.includes('reduction'), 'a bridged word counts as matched for scoring');
+    assert.deepEqual(hit.bridged, ['reduction'], 'a bridged match is disclosed on the hit');
+    const raw = searchSymbolsByWords(syms, ['rate'])[0];
+    assert.deepEqual(raw.bridged || [], [], 'a raw match discloses nothing');
+  });
   it('identifies test symbols by segment-END name too', () => {
     assert.equal(isTestSymbol({ name: 'DrmPlaybackTest::clearkeyPlayback_x', filepath: 'a.java' }), true);
     assert.equal(isTestSymbol({ name: 'Foo::bar', filepath: 'src/test/java/Foo.java' }), true);
     assert.equal(isTestSymbol({ name: 'DefaultLoadControl::shouldStartPlayback', filepath: 'src/main/java/X.java' }), false);
+  });
+  it('holds back tests, benches, mocks and examples kept beside the sources (test filter by filename)', () => {
+    // claim-locate-test-filter-by-filename: secp256k1 keeps src/tests.c,
+    // src/testutil.h, src/modules/*/tests_impl.h, src/bench*.c and
+    // examples/examples_util.h next to the code, and Foundry 1-11's blind run
+    // selected four such symbols as implementers (2026-10-21). Patterns are
+    // anchored at token boundaries so look-alikes stay in.
+    const held = [
+      'src/tests.c', 'src/testutil.h', 'src/modules/recovery/tests_impl.h', 'src/tests_exhaustive.c',
+      'repo.zip!src/tests.c', 't/test_foo.py', 'pkg/foo_test.go', 'lib/foo.test.js', 'lib/foo.spec.ts',
+      'src/bench_ecmult.c', 'src/bench.c', 'bench/bench_sign.c', 'benchmarks/run.py',
+      'mocks/mock_index.js', 'src/foo_mock.c', 'examples/examples_util.h', 'example/demo.c',
+      // 2026-10-22, stem-bridge run: Securitize blind matched `transferFrom` in
+      // contracts/TestToken.sol, a test contract beside the token.
+      'contracts/TestToken.sol',
+    ];
+    const kept = [
+      'src/attest.c', 'include/latest.h', 'src/contest.py', 'src/protest_handler.c', 'src/testimony.c',
+      'src/benchley.c', 'src/exampleless.c', 'src/main/java/X.java', 'src/field_impl.h', 'src/mockingbird.c',
+      'contracts/Testament.sol',
+    ];
+    for (const f of held) assert.equal(isTestSymbol({ name: 'fn', filepath: f }), true, `${f} is held back`);
+    for (const f of kept) assert.equal(isTestSymbol({ name: 'fn', filepath: f }), false, `${f} stays`);
+    // By name: the segment regex matches Test|Mock|Fake|Stub only at the END of
+    // a segment, so FriendliAI plain matched `size` on `FakeGroup::size`
+    // (dist.py, 2026-10-22). A capitalized word after the marker is a test
+    // name too; a lowercase run after it (Fakespot, Testament) is not.
+    const heldNames = ['FakeGroup::size', 'MockIndex::get', 'StubServer::start', 'TestToken::transferFrom',
+      'test_sign_verify', 'run_test', 'bench_sign_run', 'Ecdsa::test_recover', 'fake_clock'];
+    const keptNames = ['Fakespot::load', 'Testament::sign', 'Mockingbird::sing', 'Stubborn::retry',
+      'latest_value', 'contest_rank', 'attest', 'protest_handler', 'benchley_sort'];
+    for (const n of heldNames) assert.equal(isTestSymbol({ name: n, filepath: 'src/x.py' }), true, `${n} is held back`);
+    for (const n of keptNames) assert.equal(isTestSymbol({ name: n, filepath: 'src/x.py' }), false, `${n} stays`);
+  });
+  it('resolves an ambiguous proposal away from test-class definitions when tests are excluded', async () => {
+    // Securitize 15-9, blind, 2026-10-22: the model proposed bare `transfer`
+    // and `transferFrom`; three definitions matched each and verifySymbol took
+    // the first, contracts/mocks/TestToken.sol's, after the test gate had held
+    // that contract out of every candidate list. --include-tests must mean the
+    // same thing on the proposal path as on retrieval and navigation.
+    const fnIndex = {
+      'contracts/mocks/TestToken.sol': { transfer: { start: 1, end: 5 } },
+      'contracts/token/DSToken.sol': { transfer: { start: 10, end: 20 } },
+    };
+    const index = { functionIndex: fnIndex, _ensureFunctionIndex() {}, findCallers: () => [], findCallees: () => [] };
+    const draft = async () => 'ELEMENT 1: transfer';
+    const args = { claim_locate: 'A method, comprising: transferring a token.', model: 'fake.gguf', temperature: 0, no_refine: true, propose_from_priors: true, no_navigate: true };
+    const res = await doClaimLocate(index, args, { draft });
+    const row = res.rows.find((r) => r.candidate === 'transfer');
+    assert.ok(row && row.verified, 'the proposal resolves');
+    assert.equal(row.match.filepath, 'contracts/token/DSToken.sol', 'the token, not the mock');
+    assert.equal(row.ambiguous, 0, 'one non-test definition is not a coin flip');
+    assert.equal(row.testExcluded, 1, 'the exclusion is reported');
+    const admitted = await doClaimLocate(index, { ...args, include_tests: true }, { draft });
+    const row2 = admitted.rows.find((r) => r.candidate === 'transfer');
+    assert.equal(row2.ambiguous, 2, 'with tests admitted the ambiguity stands');
+    assert.equal(row2.testExcluded, 0);
+    // The admitted branch is the old path: first shown, whatever it is. This
+    // is what the fixture discriminates against.
+    assert.equal(row2.match.filepath, 'contracts/mocks/TestToken.sol', 'first shown was the mock');
+  });
+  it('reports the candidate cap, widens compactly on it, and tie-breaks by the element\'s own words (pool at scale)', () => {
+    // claim-locate-pool-at-scale: Databricks 149-2 (2026-10-21), 93,776 symbols,
+    // every element at the 25-candidate cap, and the chart's
+    // SortMergeJoinExec::findNextInnerJoinRows never offered. Here it matches
+    // one predicted word with a long name and ranks 41st of 41 on the predicted
+    // words alone: the cap is reported with the matched count, widening offers
+    // it as a name beyond the window, and the element's own words (find, next,
+    // inner, rows) lift it into the window. An element below the cap is
+    // unchanged, prompt included.
+    const syms = [];
+    for (let i = 1; i <= 20; i++) syms.push({ filepath: 'x/Join.scala', name: `JoinOp::joinThing${i}`, bare: `joinThing${i}`, start: 1, end: 5, tokens: [] });
+    for (let i = 1; i <= 20; i++) syms.push({ filepath: 'x/Part.scala', name: `PartOp::partitionThing${i}`, bare: `partitionThing${i}`, start: 1, end: 5, tokens: [] });
+    syms.push({ filepath: 'x/SMJ.scala', name: 'SortMergeJoinExec::findNextInnerJoinRows', bare: 'findNextInnerJoinRows', start: 1, end: 50, tokens: [] });
+    const words = ['join', 'partition'];
+    const wanted = (hits) => hits.some((h) => h.sym.bare === 'findNextInnerJoinRows');
+    const plain = searchSymbolsByWords(syms, words);
+    assert.equal(plain.length, 25);
+    assert.equal(plain.total, 41);
+    assert.equal(wanted(plain), false, 'outside the window on the predicted words alone');
+    const widened = searchSymbolsByWords(syms, words, { widenTo: 60 });
+    assert.equal(widened.length, 25, 'the window itself is unchanged');
+    assert.equal(wanted(widened.more), true, 'offered beyond the cap');
+    const lifted = searchSymbolsByWords(syms, words, { ownWords: ['find', 'next', 'inner', 'rows'] });
+    assert.equal(wanted(lifted), true, 'the element\'s own words lift it into the window');
+    // Through candidatesForElement: the cap is reported with the matched
+    // count, the own words come from the limitation text, and the select
+    // prompt carries the compact list under its own heading.
+    const r = candidatesForElement({ index: null, pool: syms, limText: 'finding the next inner join rows of the sorted partitions', words });
+    assert.equal(r.capBound, true);
+    assert.equal(r.nameTotal, 41);
+    assert.equal(wanted(r.hits), true);
+    const prompt = buildSelectPrompt([{ element: 1, text: 'e', hits: r.hits, more: r.more, capBound: r.capBound, nameTotal: r.nameTotal }], { blind: true });
+    assert.match(prompt, /Also matching/);
+    assert.match(prompt, /JoinOp::joinThing/);
+    const few = syms.slice(0, 10);
+    const r2 = candidatesForElement({ index: null, pool: few, limText: 'joining', words });
+    assert.equal(r2.capBound, false);
+    assert.deepEqual(r2.more, []);
+    const p2 = buildSelectPrompt([{ element: 1, text: 'e', hits: r2.hits, more: r2.more, capBound: false }], { blind: true });
+    assert.doesNotMatch(p2, /Also matching/);
   });
   it('blind mode hides file paths from the select prompt', () => {
     const per = [{ element: 1, text: 'an element', hits: [{ sym: { name: 'Foo::bar', filepath: 'zip!secret/pkg/Foo.java' }, matched: ['bar'] }] }];
@@ -454,6 +586,49 @@ describe('doClaimLocate end-to-end (mock drafter, stub index)', () => {
     assert.ok(navRow.verified);
     assert.equal(navRow.viaNavigation, 'AdaptiveTrackSelection::updateSelectedTrack');
     assert.equal(navRow.match.start, 599);
+  });
+
+  it('navigates a bounded second hop from promoted callees, resolving a bare callee to the seed\'s class first', async () => {
+    // claim-locate-second-hop-navigation: on MARA 1-11 (2026-10-21) navigation
+    // reached CKey::MakeNewKey from the proposed GenerateRandomKey, but
+    // MakeNewKey's own callees (CKey::Check, the accept-if-below-the-order
+    // test the claim turns on) were never navigated and never offered. A
+    // promoted row is navigated once more, bounded; a bare callee of a
+    // qualified seed resolves to the seed's class before the index-wide
+    // lookup, so a second class with the same method name does not make it
+    // ambiguous; a third hop is not taken.
+    const fnIndex = {
+      'x/key.cpp': {
+        GenerateRandomKey: { start: 10, end: 20 },
+        'CKey::MakeNewKey': { start: 161, end: 167 },
+        'CKey::Check': { start: 150, end: 155 },
+        'CKey::MakeKeyData': { start: 170, end: 180 },
+      },
+      'x/other.cpp': { 'Other::Check': { start: 1, end: 5 }, deeper: { start: 30, end: 40 } },
+      'x/secp.c': { secp256k1_ec_seckey_verify: { start: 1, end: 9 } },
+    };
+    const callees = {
+      GenerateRandomKey: ['MakeNewKey'], MakeNewKey: ['Check', 'MakeKeyData'],
+      Check: ['secp256k1_ec_seckey_verify'], secp256k1_ec_seckey_verify: ['deeper'],
+    };
+    const index = {
+      functionIndex: fnIndex,
+      _ensureFunctionIndex() {},
+      findCallers: () => [],
+      findCallees: (bare) => (callees[bare] || []).map((n) => ({ callee_function: n })),
+    };
+    const draft = async () => 'ELEMENT 1: GenerateRandomKey';
+    const res = await doClaimLocate(index,
+      { claim_locate: 'A method, comprising: generating a seed; accepting the output if it is below the order.', model: 'fake.gguf', temperature: 0, no_refine: true, propose_from_priors: true },
+      { draft });
+    const row = (n) => res.rows.find((r) => r.candidate === n);
+    assert.ok(row('MakeNewKey'), 'hop 1: callee of the proposal');
+    const check = row('Check');
+    assert.ok(check, 'hop 2: callee of a promoted callee is offered');
+    assert.equal(check.match.name, 'CKey::Check', 'resolved to the seed\'s class, not Other::Check, and not skipped as ambiguous');
+    assert.equal(check.viaNavigation, 'GenerateRandomKey via CKey::MakeNewKey', 'provenance carries the chain');
+    assert.ok(row('MakeKeyData'), 'hop 2: a second callee of the same seed');
+    assert.equal(row('secp256k1_ec_seckey_verify'), undefined, 'a third hop is not taken');
   });
 
   it('--no-navigate suppresses promotion', async () => {
