@@ -130,7 +130,9 @@ baked into mechanical detectors.
   **text (such as patent claims, and portions of technical specifications)**
   against a codebase, and (work in progress) generating
   **"pseudo-claims" from code**: claim-shaped descriptions of what the code
-  does. → [`CODEEXAM_PATENT_CLAIMS.md`](docs/CODEEXAM_PATENT_CLAIMS.md)
+  does. → [`CODEEXAM_PATENT_CLAIMS.md`](docs/CODEEXAM_PATENT_CLAIMS.md);
+  what claim charting can do today, how it is tested against real-world
+  filings, and where it is going → [`CODEEXAM_CLAIM_CHARTS.md`](docs/CODEEXAM_CLAIM_CHARTS.md)
 - **Multisect search** — narrowing a multi-term search to the smallest scope
   in which all the terms co-occur, from file, to function, to the specific
   lines. → [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md)
@@ -234,6 +236,7 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`CODEEXAM_COMPARING.md`](docs/CODEEXAM_COMPARING.md) | Comparing code: near/structural duplicates, struct-diff, external diff tools (outline) |
 | [`AI_ASSISTED_CODE_EXAM.md`](docs/AI_ASSISTED_CODE_EXAM.md) | Optional LLM assistance (`--analyze`, claim search, input masking) |
 | [`CODEEXAM_PATENT_CLAIMS.md`](docs/CODEEXAM_PATENT_CLAIMS.md) | Searching and charting patent claims against a codebase |
+| [`CODEEXAM_CLAIM_CHARTS.md`](docs/CODEEXAM_CLAIM_CHARTS.md) | Claim charts: what CodeExam can do today, the real-world filings it is tested against, the air-gapped goal and the plan |
 | [`CODEEXAM_PSEUDO_CLAIMS.md`](docs/CODEEXAM_PSEUDO_CLAIMS.md) | Drafting illustrative "pseudo-claims" from code — anchors, candidates, `--filter` |
 | [`LOCAL_LLM.md`](docs/LOCAL_LLM.md) | Local GGUF models |
 | [`AIR_GAPPED.md`](docs/AIR_GAPPED.md) | Enforced no-cloud operation |

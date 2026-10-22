@@ -16,7 +16,9 @@ valid, or correct. Plaintiff and defendant can chart the same claim against the 
 different results, and both charts can be internally sound: they encode different contentions, not
 different facts. CodeExam is a tool for building and pressure-testing those contentions and surfacing
 candidate matches, not an oracle that settles them. Treat every verdict as "this code is a candidate
-match for a stated reading," and keep the reading visible.
+match for a stated reading," and keep the reading visible. How that ability is grounded and tested
+against real-world data, including charts that parties filed against open-source code, is in
+[`CODEEXAM_CLAIM_CHARTS.md`](CODEEXAM_CLAIM_CHARTS.md), sections 3 to 5.
 
 ## From a claim to the code
 
@@ -160,6 +162,8 @@ counts look.
 
 ## Related
 
+- [`CODEEXAM_CLAIM_CHARTS.md`](CODEEXAM_CLAIM_CHARTS.md) — what claim charting can do today, the
+  real-world filings it is tested against, the air-gapped goal and the plan.
 - [`CODEEXAM_SEARCHING.md`](CODEEXAM_SEARCHING.md) — multisect and `--claim-search`, the search
   layer under claim charting.
 - [`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md) — the verdict labels, `--mask-all`, and the
