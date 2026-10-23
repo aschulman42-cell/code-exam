@@ -260,6 +260,24 @@ describe('the emitted artifact', () => {
     assert.match(out, /--extract/, 'tells the reader how to verify a citation');
   });
 
+  it('supplied targets never read as "not examined" (#349)', () => {
+    // asus-CC, 2026-10-22: a hand-curated --targets file printed "N of N
+    // element(s) produced no candidate ... Those rows were not examined"
+    // above a Coverage line proving every row was examined. Three states:
+    // retrieval ran and found nothing (the warning stays), retrieval ran and
+    // found candidates (the table), targets supplied (says so, never "not
+    // examined").
+    const blind = [{ element: 1, text: 'one', words: [], hits: [] }, { element: 2, text: 'two', words: [], hits: [] }];
+    const ran = formatChart({ ...base(), fills: [], retrieval: blind });
+    assert.match(ran, /Those rows were not examined/, 'retrieval that ran and found nothing keeps its warning');
+    const supplied = formatChart({ ...base(), fills: [], retrieval: blind, retrievalRan: false });
+    assert.doesNotMatch(supplied, /not examined/);
+    assert.match(supplied, /targets were supplied/i);
+    assert.match(supplied, /every supplied target was examined/i);
+    const bare = formatChart({ ...base(), fills: [], retrieval: null, retrievalRan: false });
+    assert.match(bare, /Retrieval by element/);
+    assert.match(bare, /per-element retrieval was not run/i);
+  });
   it('includes a scope note only when one was supplied', () => {
     assert.ok(!formatChart({ ...base(), fills: [] }).includes('## Scope'));
     const withNote = formatChart({ ...base(), fills: [], scopeNote: 'Index is one component.' });

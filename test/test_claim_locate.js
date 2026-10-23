@@ -35,6 +35,9 @@ import {
   normalizeTargetSpec, dedupeTargets, classifyNavCallee,
 } from '../src/commands/claim-locate.js';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
+import path from 'node:path';
+import { parseTargets } from '../src/commands/claim-chart.js';
 // Fixtures resolve from THIS FILE, never from the working directory. A bare
 // readFileSync('name.txt') resolves against cwd, which is what made these
 // files' absence invisible to anyone running npm test from the repo root
@@ -319,6 +322,40 @@ describe('discovery path (default)', () => {
     // The admitted branch is the old path: first shown, whatever it is. This
     // is what the fixture discriminates against.
     assert.equal(row2.match.filepath, 'contracts/mocks/TestToken.sol', 'first shown was the mock');
+  });
+  it('a targets file CodeExam writes verifies against its own stamp (writer-to-reader round trip, #349)', () => {
+    // asus-CC, 2026-10-22: every chart on the documented --targets-out ->
+    // --targets path read "MODIFIED after generation" on a file no human
+    // touched. The stamp hashed targetSpecs(found), which drops a class whose
+    // methods are also targeted; the body listed every attributed row. The
+    // two halves were each tested against hand-built inputs; nothing fed the
+    // writer's bytes to the reader. This does.
+    const found = [
+      { candidate: 'Cls', element: 1, verified: true, match: { filepath: 'src/A.java', name: 'Cls', start: 1, end: 90 } },
+      { candidate: 'Cls::m', element: 1, verified: true, match: { filepath: 'src/A.java', name: 'Cls::m', start: 10, end: 20 } },
+      { candidate: 'other', element: 2, verified: true, match: { filepath: 'src/B.java', name: 'other', start: 1, end: 5 } },
+    ];
+    const discovery = [
+      { element: 1, text: 'one', words: ['one'], hits: found.slice(0, 2).map((r) => ({ sym: r.match })) },
+      { element: 2, text: 'two', words: ['two'], hits: [{ sym: found[2].match }, { sym: found[1].match }] },
+    ];
+    const provenance = buildTargetsProvenance({
+      ceVersion: 'test', engine: 'stub', mode: 'symbol-table discovery', indexPath: 'x', indexFiles: 1,
+      indexSymbols: 3, claimSource: 'inline', claimChars: 10, elements: 2, argv: 'ce --claim-locate',
+      generatedAt: 'now', targets: targetSpecs(found),
+    });
+    const body = buildTargetsFileBody({ provenance, found, discovery });
+    const file = path.join(os.tmpdir(), `ce-roundtrip-${process.pid}.targets.txt`);
+    fs.writeFileSync(file, body);
+    let parsed;
+    try { parsed = parseTargets(`@${file}`); } finally { fs.unlinkSync(file); }
+    assert.equal(parsed.integrity, 'unmodified', 'the stamp covers the lines the body carries');
+    assert.equal(parsed.targets.length, 2, 'the reader still sets the class aside when its method is targeted');
+    // What the fixture discriminates against: the old stamp, computed over
+    // targetSpecs(found), is not the stamp the body now carries.
+    const stamped = /^# Targets-checksum: ([0-9a-f]+)$/m.exec(body)[1];
+    assert.notEqual(targetsChecksum(targetSpecs(found)), stamped, 'the old computation would have failed this file');
+    assert.match(body, /^src\/A\.java@Cls$|^A\.java@Cls$/m, 'the body still lists the class row');
   });
   it('reports the candidate cap, widens compactly on it, and tie-breaks by the element\'s own words (pool at scale)', () => {
     // claim-locate-pool-at-scale: Databricks 149-2 (2026-10-21), 93,776 symbols,

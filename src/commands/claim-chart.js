@@ -1115,6 +1115,9 @@ export function formatNotesSection(notes) {
 export function formatChart({
   claimText, table, fills, targets, engineLabel, elements, scopeNote, provenance,
   dropped, retrieval, connectivity, sideScope, otherSideElements, citedDupes,
+  // issue-349: false when --targets supplied the list, so the per-element
+  // block can say "not run" rather than "not examined" (asus-CC, #349).
+  retrievalRan = true,
 }) {
   const filled = fillChartRows(table, fills);
   const out = [];
@@ -1226,14 +1229,31 @@ export function formatChart({
   // PER-ELEMENT RETRIEVAL PROVENANCE. Without it an ABSENT row is ambiguous:
   // "CE examined this element and found nothing" and "CE had nothing to examine"
   // render identically, and only the first is defensible in front of a client.
+  //
+  // Three states, each said in its own words (issue-349): retrieval ran and
+  // found nothing (the warning below); retrieval ran and found candidates (the
+  // table); no retrieval ran because --targets supplied the list, which is a
+  // statement about where the targets came from, never about rows going
+  // unexamined — every supplied target was analysed, and Coverage says so.
+  if (retrievalRan === false && !(retrieval && retrieval.length)) {
+    out.push('## Retrieval by element');
+    out.push('');
+    out.push('Targets were supplied, so per-element retrieval was not run and no element shows'
+      + ' candidates here. Every supplied target was examined: see Coverage.');
+    out.push('');
+  }
   if (retrieval && retrieval.length) {
     const perElementOnly = retrieval.filter((p) => p.element !== 0);
     const blind = perElementOnly.filter((p) => !(p.hits || []).length);
     out.push('## Retrieval by element');
     out.push('');
-    out.push('Each element was searched with its OWN predicted vocabulary, ranked by term'
-      + ' rarity, with no quorum. An element with 0 candidates was never examined — that'
-      + ' row reports what CE could not look at, not a finding about the code.');
+    out.push(retrievalRan === false
+      ? 'Targets were supplied; this attribution is carried from the targets file and describes'
+        + ' how that list was made. An element with 0 candidates here had none when the list was'
+        + ' made; its rows were still examined against every supplied target.'
+      : 'Each element was searched with its OWN predicted vocabulary, ranked by term'
+        + ' rarity, with no quorum. An element with 0 candidates was never examined — that'
+        + ' row reports what CE could not look at, not a finding about the code.');
     out.push('');
     // The ARM column, because a candidate found only by CONTENT search is a
     // different kind of evidence from one whose NAME matches. A reader deciding
@@ -1261,8 +1281,12 @@ export function formatChart({
     }
     out.push('');
     if (blind.length) {
-      out.push(`⚠ ${blind.length} of ${perElementOnly.length} element(s) produced no candidate: `
-        + `${blind.map((p) => p.element).join(', ')}. Those rows were not examined.`);
+      out.push(retrievalRan === false
+        ? `${blind.length} of ${perElementOnly.length} element(s) show no candidate because targets`
+          + ` were supplied and per-element retrieval was not run for them: `
+          + `${blind.map((p) => p.element).join(', ')}. Every supplied target was examined (see Coverage).`
+        : `⚠ ${blind.length} of ${perElementOnly.length} element(s) produced no candidate: `
+          + `${blind.map((p) => p.element).join(', ')}. Those rows were not examined.`);
       out.push('');
     }
     // What the pseudo-source gate held back (op-pseudo-source-kind-gate). A
@@ -2392,6 +2416,7 @@ Per-target verdicts written to ${args.verdicts_out}`
     claimText, table, fills, elements, engineLabel, scopeNote, provenance,
     targets: perTarget.map((p) => p.target),
     dropped, retrieval, connectivity, sideScope, otherSideElements, citedDupes,
+    retrievalRan: !args.targets,
   }) + (family ? formatFamilySection(family) + '\n' : '')
     + (chartNotes ? '\n' + formatNotesSection(chartNotes) + '\n' : ''));
 

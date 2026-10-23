@@ -1803,6 +1803,27 @@ export function attributeTargets(found, discovery) {
 // construction: parseTargets already treats every `#` line as provenance, so an
 // older reader ingests these as prose rather than choking, and the checksum is
 // computed over targets only.
+// issue-349-targets-provenance-round-trip (2026-10-23). The stamp covers the
+// exact target lines the body carries. The provenance block arrives with a
+// checksum over targetSpecs(found), which drops a class whose methods are also
+// targeted, while the body lists every attributed row, class included; so a
+// file CodeExam had just written read "MODIFIED after generation" on every
+// honest run with such a class (asus-CC, Gemma 4; the Surface, Claude, the
+// same day). One source of truth: the lines below, hashed the way
+// claim-chart's parseTargets hashes them (non-# lines, split on `;`, trimmed,
+// before any de-duplication).
+function stampTargetsChecksum(out) {
+  const emitted = [];
+  for (const l of out) {
+    const t = l.trim();
+    if (!t || t.startsWith('#')) continue;
+    for (const part of t.split(';')) { const p = part.trim(); if (p) emitted.push(p); }
+  }
+  const i = out.findIndex((l) => /^# Targets-checksum:/.test(l));
+  if (i >= 0) out[i] = `# Targets-checksum: ${targetsChecksum(emitted)}`;
+  return out;
+}
+
 export function buildTargetsFileBody({ provenance = [], found, discovery, mode = 'discovery', runs = 1 }) {
   const specs = targetSpecs(found);
   // spec -> how many runs proposed it, so the union can state its own firmness.
@@ -1829,7 +1850,7 @@ export function buildTargetsFileBody({ provenance = [], found, discovery, mode =
     out.push(`# Attribution: none — produced by ${mode} mode, which does not retrieve per element`);
     for (const s of specs) emit(out, s);
     out.push('');
-    return out.join('\n');
+    return stampTargetsChecksum(out).join('\n');
   }
   const { groups, orphans, shared } = attributeTargets(found, discovery);
   out.push(`# Attribution: per-element retrieval, ${groups.length} element(s)`);
@@ -1853,7 +1874,7 @@ export function buildTargetsFileBody({ provenance = [], found, discovery, mode =
     for (const s of orphans) emit(out, s);
   }
   out.push('');
-  return out.join('\n');
+  return stampTargetsChecksum(out).join('\n');
 }
 
 // Identity key for a target spec. `File.java@Class::method` and
