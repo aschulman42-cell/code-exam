@@ -866,6 +866,59 @@ export function mergeBestPerElement(perTarget, { nominators = null } = {}) {
 // and the VERDICT contract already carries the element number, so row targeting
 // is exact rather than inferred. Its `(loop: X)` marker would also mislabel the
 // provenance.
+// claim-chart-md-output (2026-10-23). The agreement tag after a verdict: "(1 of 34; 33 ABSENT)"
+// tells the reader a lone PRESENT was promoted over 33 dissents, which deserves scrutiny, while
+// "(30 of 34)" does not. Shared by the table cell and the stacked layout.
+function agreementTag(f, { italic = true } = {}) {
+  const a = f.agreement;
+  if (!a || !(a.total > 1)) return '';
+  const mine = a[f.label] || 0;
+  const others = Object.entries(a)
+    .filter(([k, n]) => k !== 'total' && k !== f.label && n > 0)
+    .map(([k, n]) => `${n} ${k}`)
+    .join(', ');
+  const body = `(${mine} of ${a.total}${others ? `; ${others}` : ''})`;
+  return italic ? ` _${body}_` : ` ${body}`;
+}
+
+// Wrap Markdown prose at `width` columns for a file that is read in a viewer that does not
+// wrap or on paper. Fenced blocks, table rows, headings, comments and blockquotes pass through;
+// list items wrap with a hanging indent; a code span, a link and a word are never broken, so a
+// lone long token may exceed the width on its own line.
+export function wrapMarkdown(text, width = 100) {
+  const unbalanced = (s) => ((s.match(/`/g) || []).length % 2 === 1) || /\[[^\]]*$/.test(s) || /\]\([^)]*$/.test(s);
+  const tokens = (body) => {
+    const merged = [];
+    let buf = null;
+    for (const w of body.split(/\s+/).filter(Boolean)) {
+      if (buf != null) { buf += ` ${w}`; if (!unbalanced(buf)) { merged.push(buf); buf = null; } }
+      else if (unbalanced(w)) buf = w;
+      else merged.push(w);
+    }
+    if (buf != null) merged.push(buf);
+    return merged;
+  };
+  const out = [];
+  let fenced = false;
+  for (const line of String(text).split('\n')) {
+    if (/^\s*```/.test(line)) { fenced = !fenced; out.push(line); continue; }
+    const lead = line.trimStart();
+    if (fenced || !lead || line.length <= width || /^(\||#|<!--|>)/.test(lead)) { out.push(line); continue; }
+    const m = /^(\s*(?:[-*+]|\d+\.)\s+)/.exec(line);
+    const first = m ? m[1] : (line.match(/^\s*/) || [''])[0];
+    const indent = m ? ' '.repeat(first.length) : first;
+    let cur = first;
+    let empty = true;
+    for (const t of tokens(line.slice(first.length))) {
+      if (empty) { cur += t; empty = false; }
+      else if (cur.length + 1 + t.length <= width) cur += ` ${t}`;
+      else { out.push(cur); cur = indent + t; }
+    }
+    out.push(cur);
+  }
+  return out.join('\n');
+}
+
 export function fillChartRows(table, fills) {
   const lines = table.split('\n');
   const byNum = new Map(fills.filter((f) => f.element != null).map((f) => [f.element, f]));
@@ -884,19 +937,8 @@ export function fillChartRows(table, fills) {
     const note = noteBase + (f.unshown && f.unshown.length
       ? ` _(not shown in citation: ${f.unshown.slice(0, 6).join(', ')}${f.unshown.length > 6 ? ', …' : ''})_`
       : '');
-    // How lonely is this finding? "(1 of 34; 33 ABSENT)" tells the reader that
-    // a lone PRESENT was promoted over 33 dissents — which deserves scrutiny —
-    // while "(30 of 34)" does not.
-    const a = f.agreement;
-    let agree = '';
-    if (a && a.total > 1) {
-      const mine = a[f.label] || 0;
-      const others = Object.entries(a)
-        .filter(([k, n]) => k !== 'total' && k !== f.label && n > 0)
-        .map(([k, n]) => `${n} ${k}`)
-        .join(', ');
-      agree = ` _(${mine} of ${a.total}${others ? `; ${others}` : ''})_`;
-    }
+    // How lonely is this finding? See agreementTag.
+    const agree = agreementTag(f);
     lines[i] = `| ${m[1]} | ${m[2]} | **${f.label}**${agree}${note} | ${cite} |`;
   }
   let out = lines.join('\n');
@@ -1118,18 +1160,42 @@ export function formatChart({
   // issue-349: false when --targets supplied the list, so the per-element
   // block can say "not run" rather than "not examined" (asus-CC, #349).
   retrievalRan = true,
+  // claim-chart-md-output: 'table' is stdout's layout (one row per element);
+  // 'stacked' is the file form --chart-md writes, a section per element with
+  // the FULL finding, wrapped at `width`, no table, so it reads anywhere and
+  // prints. Same verdicts, same disclosures, different shape.
+  layout = 'table', width = 100,
+  // Stacked only: the file's heading (--chart-title, or the page's derived
+  // default) and an optional subtitle line; the claim itself follows in full,
+  // so no subtitle is derived from it as the page does.
+  title = null, subtitle = null,
+  // Table layout, file only: wrap the claim's lines at this width inside its
+  // fenced block. A one-line claim file (MARA's is 780 characters) otherwise
+  // sets the page width, since no viewer wraps a fence (Andrew, 2026-10-23:
+  // "the Chart runs way off the edge"). Stdout passes null and prints the
+  // file's lines as they are.
+  claimWidth = null,
 }) {
-  const filled = fillChartRows(table, fills);
+  const stacked = layout === 'stacked';
+  const filled = stacked ? '' : fillChartRows(table, fills);
   const out = [];
-  out.push('# Claim chart');
+  out.push(stacked && title ? `# ${String(title).replace(/\s+/g, ' ').trim()}` : '# Claim chart');
   out.push('');
+  if (stacked && subtitle) { out.push(`_${String(subtitle).replace(/\s+/g, ' ').trim()}_`); out.push(''); }
   if (provenance) { out.push(provenance); out.push(''); }
   else { out.push(`_Generated by CodeExam. Engine: ${engineLabel}. ${targets.length} analysed target(s)._`); out.push(''); }
   out.push('## Claim');
   out.push('');
-  out.push('```');
-  out.push(String(claimText).trim());
-  out.push('```');
+  if (stacked) {
+    // One paragraph per source line, so the elements stay apart when a
+    // renderer merges lines; a leading "1." is escaped so it is not a list.
+    out.push(String(claimText).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+      .map((l) => l.replace(/^(\d+)\.(\s)/, '$1\\.$2')).join('\n\n'));
+  } else {
+    out.push('```');
+    out.push(claimWidth ? wrapMarkdown(String(claimText).trim(), claimWidth) : String(claimText).trim());
+    out.push('```');
+  }
   out.push('');
   if (scopeNote || sideScope) {
     out.push('## Scope'); out.push('');
@@ -1158,8 +1224,43 @@ export function formatChart({
     out.push('not a verdict._');
     out.push('');
   }
-  out.push(filled);
-  out.push('');
+  if (stacked) {
+    // One section per element: the heading carries the element (cut at 80
+    // characters, the full text in italics below when cut), then the verdict
+    // with its agreement tag, the finding in full (the table cell cuts it at
+    // 160 characters; the file does not), the not-shown note, the citation.
+    const byNum = new Map((fills || []).filter((f) => f.element != null).map((f) => [f.element, f]));
+    (elements || []).forEach((e, i) => {
+      const n = i + 1;
+      // The preamble element carries the claim's own number ("1. A method…");
+      // under a numbered heading that read "### 1. 1. A method…" (MARA,
+      // 2026-10-23). The claim above shows the number; the section does not.
+      const text = String(e).replace(/\s+/g, ' ').trim().replace(/^\d+\.\s+/, '');
+      const cut = text.length > 80;
+      out.push(`### ${n}. ${cut ? `${text.slice(0, 80).replace(/\s+\S*$/, '')}…` : text}`);
+      out.push('');
+      if (cut) { out.push(`_${text}_`); out.push(''); }
+      const f = byNum.get(n);
+      if (!f) { out.push('_No finding for this element._'); out.push(''); return; }
+      out.push(`**${f.label}**${agreementTag(f, { italic: false })}`);
+      out.push('');
+      if (f.note) { out.push(String(f.note).trim()); out.push(''); }
+      if (f.unshown && f.unshown.length) {
+        out.push(`_(not shown in citation: ${f.unshown.slice(0, 6).join(', ')}${f.unshown.length > 6 ? ', …' : ''})_`);
+        out.push('');
+      }
+      out.push(`Cited: ${f.target ? `${f.closest ? 'closest examined: ' : ''}\`${f.target}\`${pseudoTag(f.target)}` : '—'}`);
+      out.push('');
+    });
+    const unplaced = (fills || []).filter((f) => f.element == null);
+    if (unplaced.length) {
+      out.push(`_Finding(s) not matched to a numbered element: ${unplaced.map((f) => `${f.label} (\`${f.target}\`)`).join(', ')}._`);
+      out.push('');
+    }
+  } else {
+    out.push(filled);
+    out.push('');
+  }
   // Negative rows get a gloss, because a legend is not enough where the word
   // inverts: a reader seeing ABSENT on a row whose limitation requires X to be
   // absent will read it as "X is absent", which would mean the limitation IS
@@ -1235,6 +1336,16 @@ export function formatChart({
   // table); no retrieval ran because --targets supplied the list, which is a
   // statement about where the targets came from, never about rows going
   // unexamined — every supplied target was analysed, and Coverage says so.
+  // A fourth, for a re-rendering from a verdicts sidecar (claim-chart-md-output):
+  // the sidecar does not record retrieval, and the file says so rather than
+  // showing nothing.
+  if (retrievalRan === 'unrecorded') {
+    out.push('## Retrieval by element');
+    out.push('');
+    out.push('Per-element retrieval is not recorded in the verdicts sidecar, so this re-rendering'
+      + ' cannot show which candidates each element drew; the original run\'s chart has it.');
+    out.push('');
+  }
   if (retrievalRan === false && !(retrieval && retrieval.length)) {
     out.push('## Retrieval by element');
     out.push('');
@@ -1259,8 +1370,10 @@ export function formatChart({
     // different kind of evidence from one whose NAME matches. A reader deciding
     // whether to trust a citation should see which search surfaced it.
     const anyContent = retrieval.some((p) => p.contentAdded);
-    out.push(`| element | predicted words | candidates |${anyContent ? ' via content |' : ''}`);
-    out.push(`|---|---|---|${anyContent ? '---|' : ''}`);
+    if (!stacked) {
+      out.push(`| element | predicted words | candidates |${anyContent ? ' via content |' : ''}`);
+      out.push(`|---|---|---|${anyContent ? '---|' : ''}`);
+    }
     for (const p of retrieval) {
       // Element 0 entries are the extra arms: the whole-claim arm (the
       // claim's own words) and concentration (a file 2+ elements point at).
@@ -1270,8 +1383,13 @@ export function formatChart({
       const wordsCell = p.arm === 'drilldown'
         ? `_scoped to ${String(p.file || '').split('/').pop().split('!').pop()}_`
         : `${(p.words || []).map((w) => (p.wordRuns && p.wordRuns.single && p.wordRuns.single.includes(w) ? `${w}?` : w)).join(', ').replace(/\|/g, '\\|')}${depMark}`;
-      out.push(`| ${label} | ${wordsCell} `
-        + `| ${(p.hits || []).length} |${anyContent ? ` ${p.contentAdded || 0} |` : ''}`);
+      if (stacked) {
+        out.push(`- element ${label}: ${wordsCell.replace(/\\\|/g, '|') || '(no words)'}; ${(p.hits || []).length} candidate(s)`
+          + `${anyContent ? `, ${p.contentAdded || 0} via content` : ''}`);
+      } else {
+        out.push(`| ${label} | ${wordsCell} `
+          + `| ${(p.hits || []).length} |${anyContent ? ` ${p.contentAdded || 0} |` : ''}`);
+      }
     }
     if (anyContent) {
       out.push('');
@@ -1323,7 +1441,18 @@ export function formatChart({
   out.push('It is not legal advice and is not an infringement opinion. Every citation should');
   out.push('be verified against the source — each is reproducible with_ `ce --index-path <idx>');
   out.push('--extract <file>@<function>`_._');
-  return out.join('\n');
+  return stacked ? wrapMarkdown(out.join('\n'), width) : out.join('\n');
+}
+
+// claim-chart-md-output: the whole --chart-md file — the stacked chart, the
+// family section in the same stacked form, the notes appendix — wrapped as one
+// document. Shared by the live run and the sidecar replay so both files have
+// one shape.
+export function chartMarkdownFile({ family = null, notes = null, width = 100, ...chart }) {
+  const body = formatChart({ ...chart, layout: 'stacked', width })
+    + (family ? formatFamilySection(family, { layout: 'stacked' }) + '\n' : '')
+    + (notes ? '\n' + formatNotesSection(notes) + '\n' : '');
+  return wrapMarkdown(body, width);
 }
 
 // ============================================================================
@@ -1496,8 +1625,15 @@ export const DEP_KIND_LEGEND = 'Every dependent claim further limits its parent'
   + ' NARROWS A LIMITATION already recited (that row re-evaluated against the'
   + ' dependent’s own language).';
 
-export function formatFamilySection(fam) {
-  const esc = (s) => String(s == null ? '' : s).replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
+// claim-chart-md-output: `layout: 'stacked'` is the --chart-md form — a
+// sub-section per row with the FULL note (the table cuts it at 160) and no
+// pipe escaping; the table is stdout's.
+export function formatFamilySection(fam, { layout = 'table' } = {}) {
+  const stacked = layout === 'stacked';
+  const esc = (s) => {
+    const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+    return stacked ? t : t.replace(/\|/g, '\\|');
+  };
   const out = [];
   out.push('', `## Dependent claims (family of claim ${fam.root})`, '');
   out.push(`_${fam.members.length} dependent claim(s). ${DEP_KIND_LEGEND}`);
@@ -1509,13 +1645,40 @@ export function formatFamilySection(fam) {
   for (const dep of fam.members) {
     const kind = depKindLabel(dep.kind) + (dep.cue ? ` ("${dep.cue}")` : '');
     out.push('', `### Claim ${dep.n} (${dep.depthLabel || 'D'}) — ${kind}`, '');
-    out.push('```', `${dep.n}. ${dep.text}`, '```', '');
+    if (stacked) out.push(`${dep.n}\\. ${dep.text}`, '');
+    else out.push('```', `${dep.n}. ${dep.text}`, '```', '');
     if (dep.parentChoice) out.push(`_Multi-parent reference: charted under claim ${dep.parent} by ${dep.parentChoice.policy} (alternatives ${dep.parentChoice.alternatives.join(', ')})._`, '');
     out.push(`**Verdict:** ${dep.verdictLine}`, '');
+    const cite = (r) => (r.target ? `${r.label === 'ABSENT' ? 'closest examined: ' : ''}\`${r.target}\`` : '—');
+    if (stacked) {
+      for (const r of dep.effective) {
+        if (r.origin === 'inherited') {
+          out.push(`- **${r.designation}** inherited from claim ${r.from}; see ${r.parentDesignation}:`
+            + ` **${r.label}** (carried). Cited: ${cite(r)}`);
+          continue;
+        }
+        if (out[out.length - 1] !== '') out.push('');
+        if (r.origin === 'narrowed') {
+          out.push(`#### ${r.designation} narrows ${r.narrows}`, '');
+          if (r.own) {
+            out.push(`_${esc(r.text.split(' — as narrowed by')[0])}_`, '');
+            out.push(`**as narrowed by claim ${String(r.designation).replace(/\D/g, '')}:** _${esc(r.own)}_`, '');
+          } else out.push(esc(r.text), '');
+          out.push(`**${r.label}**${r.parentLabel ? ` (was ${r.parentLabel} on ${r.narrows})` : ''}`, '');
+        } else {
+          out.push(`#### ${r.designation}`, '');
+          out.push(`${esc(r.text)}${r.ambiguous ? ` _(${esc(r.ambiguous)})_` : ''}`, '');
+          out.push(`**${r.label}**`, '');
+        }
+        if (r.note) out.push(String(r.note).trim(), '');
+        out.push(`Cited: ${cite(r)}`);
+      }
+      if (out[out.length - 1] !== '') out.push('');
+    } else {
     out.push('| # | Claim element | CE finding — is the limitation met? | Cited code |', '|---|---|---|---|');
     for (const r of dep.effective) {
       if (r.origin === 'inherited') {
-        out.push(`| ${r.designation} | _inherited from claim ${r.from}; see ${r.parentDesignation}_ | **${r.label}** _(carried)_ | ${r.target ? `${r.label === 'ABSENT' ? 'closest examined: ' : ''}\`${r.target}\`` : '—'} |`);
+        out.push(`| ${r.designation} | _inherited from claim ${r.from}; see ${r.parentDesignation}_ | **${r.label}** _(carried)_ | ${cite(r)} |`);
       } else if (r.origin === 'narrowed') {
         const was = r.parentLabel ? ` _(was ${r.parentLabel} on ${r.narrows})_` : '';
         // chart-voice-demarcation (Andrew, #311 2026-09-03): the narrowed
@@ -1526,15 +1689,20 @@ export function formatFamilySection(fam) {
         const cell = r.origin === 'narrowed' && r.own
           ? `_${esc(r.text.split(' — as narrowed by')[0])}_<br>**as narrowed by claim ${String(r.designation).replace(/\D/g, '')}:**<br>_${esc(r.own)}_`
           : esc(r.text);
-        out.push(`| ${r.designation} narrows ${r.narrows} | ${cell} | **${r.label}**${was}${r.note ? ' ' + esc(r.note).slice(0, 160) : ''} | ${r.target ? `${r.label === 'ABSENT' ? 'closest examined: ' : ''}\`${r.target}\`` : '—'} |`);
+        out.push(`| ${r.designation} narrows ${r.narrows} | ${cell} | **${r.label}**${was}${r.note ? ' ' + esc(r.note).slice(0, 160) : ''} | ${cite(r)} |`);
       } else {
         const amb = r.ambiguous ? ` _(${esc(r.ambiguous)})_` : '';
-        out.push(`| ${r.designation} | ${esc(r.text)}${amb} | **${r.label}**${r.note ? ' ' + esc(r.note).slice(0, 160) : ''} | ${r.target ? `${r.label === 'ABSENT' ? 'closest examined: ' : ''}\`${r.target}\`` : '—'} |`);
+        out.push(`| ${r.designation} | ${esc(r.text)}${amb} | **${r.label}**${r.note ? ' ' + esc(r.note).slice(0, 160) : ''} | ${cite(r)} |`);
       }
     }
-    const judgedOn = dep.analysed.map((a) => `\`${a.target}\``).join(', ');
-    out.push('', `_Re-evaluated / new rows judged on ${dep.analysed.length} target(s)${judgedOn ? `: ${judgedOn}` : ''}`
-      + `${dep.dropped.length ? `; ${dep.dropped.length} dropped (${dep.dropped.map((d) => d.reason).join('; ')})` : ''}._`);
+    }
+    // A replayed member (replayChartData) carries what the sidecar recorded;
+    // an older sidecar may lack these lists.
+    const analysedList = Array.isArray(dep.analysed) ? dep.analysed : [];
+    const droppedList = Array.isArray(dep.dropped) ? dep.dropped : [];
+    const judgedOn = analysedList.map((a) => `\`${a.target}\``).join(', ');
+    out.push('', `_Re-evaluated / new rows judged on ${analysedList.length} target(s)${judgedOn ? `: ${judgedOn}` : ''}`
+      + `${droppedList.length ? `; ${droppedList.length} dropped (${droppedList.map((d) => d.reason).join('; ')})` : ''}._`);
   }
   return out.join('\n');
 }
@@ -1731,6 +1899,7 @@ export async function doClaimChart(index, args, opts = {}) {
   // page write happens at the end of an expensive run, and discovering the
   // typo there would waste the whole run.
   if (args.chart_html && !chartFormatFrom(args)) { process.exitCode = 1; return; }
+  if (args.chart_md && !chartMdLayoutFrom(args)) { process.exitCode = 1; return; }
   const spec = args.claim_chart;
   let claimText = spec;
   if (typeof spec === 'string' && spec.startsWith('@')) {
@@ -2412,13 +2581,16 @@ Per-target verdicts written to ${args.verdicts_out}`
     }
   }
 
-  console.log(formatChart({
+  // The stdout chart; --chart-md-layout table writes the same, with the claim
+  // block wrapped so the file prints.
+  const tableChart = (extra = {}) => formatChart({
     claimText, table, fills, elements, engineLabel, scopeNote, provenance,
     targets: perTarget.map((p) => p.target),
     dropped, retrieval, connectivity, sideScope, otherSideElements, citedDupes,
-    retrievalRan: !args.targets,
+    retrievalRan: !args.targets, ...extra,
   }) + (family ? formatFamilySection(family) + '\n' : '')
-    + (chartNotes ? '\n' + formatNotesSection(chartNotes) + '\n' : ''));
+    + (chartNotes ? '\n' + formatNotesSection(chartNotes) + '\n' : '');
+  console.log(tableChart());
 
   // chart-printable-render: the same data, as a self-contained printable page.
   if (args.chart_html) {
@@ -2453,6 +2625,25 @@ Per-target verdicts written to ${args.verdicts_out}`
       }), 'utf8');
       process.stderr.write(`[claim-chart] printable page written to ${args.chart_html}\n`);
     } catch (e) { console.error(`--chart-html: cannot write ${args.chart_html}: ${e.message}`); }
+  }
+
+  // claim-chart-md-output: the same data as stdout, in the stacked file form
+  // (default) or as the table stdout printed (--chart-md-layout table).
+  if (args.chart_md) {
+    try {
+      const mdLayout = chartMdLayoutFrom(args) || 'stacked';
+      const body = mdLayout === 'table' ? tableChart({ claimWidth: 100 }) : chartMarkdownFile({
+        claimText, fills, elements, engineLabel, scopeNote, provenance,
+        targets: perTarget.map((p) => p.target),
+        dropped, retrieval, connectivity, sideScope, otherSideElements, citedDupes,
+        retrievalRan: !args.targets, family, notes: chartNotes,
+        // The page's title rule, so the two artifacts of one run agree.
+        title: args.chart_title || `Claim chart — ${String(args.index_path || 'index').replace(/^\.+/, '')}`,
+        subtitle: args.chart_subtitle || null,
+      });
+      fs.writeFileSync(args.chart_md, body.endsWith('\n') ? body : `${body}\n`, 'utf8');
+      process.stderr.write(`[claim-chart] Markdown chart (${mdLayout}) written to ${args.chart_md}\n`);
+    } catch (e) { console.error(`--chart-md: cannot write ${args.chart_md}: ${e.message}`); }
   }
 
   // The sidecar's family block: per dependent, every row with its origin and
@@ -2542,8 +2733,9 @@ export function sideScopeFromRecorded(claimSides, indexSide) {
 // --chart-notes appendix -- without paying for run N+1 whose verdicts the
 // pre-written note could not describe. The page carries a re-rendered marker:
 // a replayed page must never impersonate a live one.
-export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claimTextOverride = null,
-  title = null, subtitle = null, format = 'full' }) {
+// claim-chart-md-output: the reconstruction is shared by the page and the
+// Markdown re-rendering (replayChartMarkdown), so both read one merge.
+export function replayChartData({ sidecar, sidecarPath = '', claimTextOverride = null }) {
   const analysed = Array.isArray(sidecar.analysed) ? sidecar.analysed : [];
   if (!analysed.length) throw new Error('sidecar has no analysed targets — nothing to replay');
   const bounds = [];
@@ -2605,7 +2797,14 @@ export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claim
       root: sidecar.family.root,
       members: sidecar.family.members.map((m) => ({
         n: m.n,
-        kind: [m.depth, m.kind].filter(Boolean).join(' — '),
+        // The page shows depth and kind as one label; the Markdown form reads
+        // them apart (claim-chart-md-output), so both are carried, with the
+        // recorded lists the Markdown footer names.
+        kind: m.kind || '', depthLabel: m.depth || 'D', cue: m.cue || null,
+        kindLabel: [m.depth, m.kind].filter(Boolean).join(' — '),
+        parent: m.parent, parentChoice: m.parentChoice || null,
+        analysed: Array.isArray(m.analysed) ? m.analysed : [],
+        dropped: Array.isArray(m.dropped) ? m.dropped : [],
         text: textOf ? textOf(m.n) : '',
         verdictLine: m.verdict || '',
         effective: m.rows || [],
@@ -2620,7 +2819,13 @@ export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claim
     `Original run: ${sidecar.generatedAt || 'time unrecorded'}${sidecar.argv ? ` — \`${sidecar.argv}\`` : ''}`,
     ...bounds.map((b) => `Replay bound: ${b}.`),
   ].join('\n');
+  return { analysed, elements, claimText, fills, sideScope, otherSideElements, family, provenance, bounds };
+}
 
+export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claimTextOverride = null,
+  title = null, subtitle = null, format = 'full' }) {
+  const { analysed, elements, claimText, fills, sideScope, otherSideElements, family, provenance } =
+    replayChartData({ sidecar, sidecarPath, claimTextOverride });
   const firstLine = String(claimText).split('\n').map((s) => s.trim()).find(Boolean) || '';
   return renderChartHtml({
     claimText, fills, elements, engineLabel: sidecar.engine || 'unrecorded engine',
@@ -2649,6 +2854,50 @@ export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claim
   });
 }
 
+// claim-chart-md-output: the Markdown re-rendering of a sidecar. Retrieval is
+// not in the sidecar, so the file says so instead of showing an empty table.
+export function replayChartMarkdown({ sidecar, sidecarPath = '', notes = null, claimTextOverride = null, width = 100,
+  title = null, subtitle = null, layout = 'stacked' }) {
+  const { analysed, elements, claimText, fills, sideScope, otherSideElements, family, bounds } =
+    replayChartData({ sidecar, sidecarPath, claimTextOverride });
+  // The page's provenance holds the original command in one code span; the
+  // file, in either layout, puts it in a fenced block, one argument per line,
+  // so it carries no unbreakable 500-column line.
+  const provenance = [
+    `RE-RENDERED from \`${sidecarPath || 'sidecar'}\` on ${new Date().toISOString()} — no model calls; verdicts, citations and notes are the original run's.`,
+    `Original run: ${sidecar.generatedAt || 'time unrecorded'}${sidecar.argv ? ', by the command below' : ''}.`,
+    ...bounds.map((b) => `Replay bound: ${b}.`),
+    ...(sidecar.argv
+      ? ['', '```', ...String(sidecar.argv).trim().split(/\s+(?=--)/).map((p, i) => (i ? `  ${p}` : p)), '```']
+      : []),
+  ].join('\n');
+  if (layout === 'table') {
+    // --chart-md-layout table: the Markdown stdout would have printed, its
+    // table rebuilt from the replayed elements with the other-side tags the
+    // live run applies, the claim block wrapped so the file prints.
+    const sideTags = elements.map((_, i) => otherSideElements.has(i + 1));
+    const { table } = buildChartTable(claimText, { elements, sideTags });
+    return formatChart({
+      claimText, table, fills, elements, engineLabel: sidecar.engine || 'unrecorded engine',
+      scopeNote: null, provenance, targets: analysed.map((a) => a.target),
+      dropped: Array.isArray(sidecar.dropped) ? sidecar.dropped : [],
+      retrieval: null, connectivity: null, sideScope, otherSideElements, citedDupes: null,
+      retrievalRan: 'unrecorded', claimWidth: width,
+    }) + (family ? formatFamilySection(family) + '\n' : '')
+      + (notes ? '\n' + formatNotesSection(notes) + '\n' : '');
+  }
+  return chartMarkdownFile({
+    claimText, fills, elements, engineLabel: sidecar.engine || 'unrecorded engine',
+    scopeNote: null, provenance, targets: analysed.map((a) => a.target),
+    dropped: Array.isArray(sidecar.dropped) ? sidecar.dropped : [],
+    retrieval: null, connectivity: null, sideScope, otherSideElements, citedDupes: null,
+    retrievalRan: 'unrecorded', family, notes, width,
+    // The page's derived default, so a page and a file from one sidecar agree.
+    title: title || `Claim chart — ${String(sidecar.index || 'index').replace(/^.*[\\/]/, '').replace(/^\.+/, '')}`,
+    subtitle: subtitle || null,
+  });
+}
+
 // The CLI face of the replay: --chart-html-from <verdicts.json> --chart-html
 // <out.html> [--chart-notes <file>]. Needs neither an index nor a model, so
 // index.js dispatches it before the index opens (the --triage precedent).
@@ -2662,9 +2911,20 @@ export function chartFormatFrom(args) {
   return null;
 }
 
+// claim-chart-md-output (Andrew, 2026-10-23: "I think that is what I will
+// usually want, so make that the default"): the --chart-md file's layout.
+// `stacked` is the wrapped section-per-element form; `table` is the Markdown
+// stdout prints. Validated before any model call, like --chart-format.
+export function chartMdLayoutFrom(args) {
+  const l = args.chart_md_layout == null ? 'stacked' : String(args.chart_md_layout);
+  if (l === 'stacked' || l === 'table') return l;
+  console.error(`--chart-md-layout: unknown layout "${l}" — use stacked (the wrapped default) or table (what stdout prints).`);
+  return null;
+}
+
 export function doChartHtmlFrom(args) {
-  if (!args.chart_html) {
-    console.error('--chart-html-from needs --chart-html <out.html> for the page it writes.');
+  if (!args.chart_html && !args.chart_md) {
+    console.error('--chart-html-from needs --chart-html <out.html>, --chart-md <out.md>, or both, for what it writes.');
     process.exitCode = 1; return;
   }
   let sidecar;
@@ -2680,14 +2940,29 @@ export function doChartHtmlFrom(args) {
   }
   const format = chartFormatFrom(args);
   if (!format) { process.exitCode = 1; return; }
-  let html;
-  try { html = replayChartHtml({ sidecar, sidecarPath, notes, format,
-    title: args.chart_title || null, subtitle: args.chart_subtitle || null }); }
-  catch (e) { console.error(`--chart-html-from: ${e.message}`); process.exitCode = 1; return; }
-  try { fs.writeFileSync(args.chart_html, html, 'utf8'); }
-  catch (e) { console.error(`--chart-html-from: cannot write ${args.chart_html}: ${e.message}`); process.exitCode = 1; return; }
-  process.stderr.write(`[claim-chart] page re-rendered from ${sidecarPath} to ${args.chart_html}`
-    + `${notes ? ' (examiner notes attached)' : ''}\n`);
+  const mdLayout = args.chart_md ? chartMdLayoutFrom(args) : 'stacked';
+  if (!mdLayout) { process.exitCode = 1; return; }
+  if (args.chart_html) {
+    let html;
+    try { html = replayChartHtml({ sidecar, sidecarPath, notes, format,
+      title: args.chart_title || null, subtitle: args.chart_subtitle || null }); }
+    catch (e) { console.error(`--chart-html-from: ${e.message}`); process.exitCode = 1; return; }
+    try { fs.writeFileSync(args.chart_html, html, 'utf8'); }
+    catch (e) { console.error(`--chart-html-from: cannot write ${args.chart_html}: ${e.message}`); process.exitCode = 1; return; }
+    process.stderr.write(`[claim-chart] page re-rendered from ${sidecarPath} to ${args.chart_html}`
+      + `${notes ? ' (examiner notes attached)' : ''}\n`);
+  }
+  // claim-chart-md-output: the same replay, as the stacked Markdown file.
+  if (args.chart_md) {
+    let md;
+    try { md = replayChartMarkdown({ sidecar, sidecarPath, notes, layout: mdLayout,
+      title: args.chart_title || null, subtitle: args.chart_subtitle || null }); }
+    catch (e) { console.error(`--chart-html-from: ${e.message}`); process.exitCode = 1; return; }
+    try { fs.writeFileSync(args.chart_md, md.endsWith('\n') ? md : `${md}\n`, 'utf8'); }
+    catch (e) { console.error(`--chart-html-from: cannot write ${args.chart_md}: ${e.message}`); process.exitCode = 1; return; }
+    process.stderr.write(`[claim-chart] Markdown chart (${mdLayout}) re-rendered from ${sidecarPath} to ${args.chart_md}`
+      + `${notes ? ' (examiner notes attached)' : ''}\n`);
+  }
 }
 
 // chart-html-provenance-header: the customer-page format Andrew adopted as
@@ -2793,7 +3068,7 @@ footer.doc{margin-top:32px;padding-top:12px;border-top:1px solid #DEE1E8;font-si
   // above IS the evidence, and repeating it would misread as new support.
   if (family && family.members) {
     for (const dep of family.members) {
-      out.push(`<tr class="sect"><td colspan="2"><b>Claim ${hesc(dep.n)}</b> &mdash; ${hesc(depKindLabel(dep.kind))}${dep.verdictLine ? ` &mdash; <span class="meta">${hesc(dep.verdictLine)}</span>` : ''}</td></tr>`);
+      out.push(`<tr class="sect"><td colspan="2"><b>Claim ${hesc(dep.n)}</b> &mdash; ${hesc(depKindLabel(dep.kindLabel || dep.kind))}${dep.verdictLine ? ` &mdash; <span class="meta">${hesc(dep.verdictLine)}</span>` : ''}</td></tr>`);
       for (const r of dep.effective || []) {
         if (r.origin === 'inherited') {
           out.push(`<tr><td class="el meta">inherited from claim ${hesc(String(r.from))}; see ${hesc(String(r.designation || r.parentDesignation || ''))}</td>`
@@ -2950,7 +3225,7 @@ h1,h2{font-weight:600}
     out.push(`<h2>Dependent claims (family of claim ${hesc(family.root)})</h2>`);
     out.push(`<p class="meta">${hesc(DEP_KIND_LEGEND)}</p>`);
     for (const dep of family.members) {
-      out.push(`<h3>Claim ${hesc(dep.n)} — ${hesc(depKindLabel(dep.kind))}</h3>`);
+      out.push(`<h3>Claim ${hesc(dep.n)} — ${hesc(depKindLabel(dep.kindLabel || dep.kind))}</h3>`);
       out.push(`<pre class="claim" style="white-space:pre-wrap">${hesc(dep.text)}</pre>`);
       if (dep.verdictLine) out.push(`<p class="meta">${hesc(dep.verdictLine)}</p>`);
       for (const r of dep.effective || []) {

@@ -21,7 +21,7 @@ import {
   coverageLine, formatChart, doClaimChart, CHART_DEFAULTS, nominationIndex, targetSpec,
   parseChartVerdicts, fillChartRows, buildChartAnalysisPrompt, buildProvenanceHeader,
   perElementTargets, normalizeVerdictLine, perElementTargetsWithStats, resolveTargetBudget,
-  filterMatchesByFile,
+  filterMatchesByFile, replayChartMarkdown,
 } from '../src/commands/claim-chart.js';
 import { targetsChecksum } from '../src/commands/claim-locate.js';
 import { engineBuildLine, getEngineBuild, formatEngineBuild } from '../src/core/llm-runner.js';
@@ -277,6 +277,37 @@ describe('the emitted artifact', () => {
     const bare = formatChart({ ...base(), fills: [], retrieval: null, retrievalRan: false });
     assert.match(bare, /Retrieval by element/);
     assert.match(bare, /per-element retrieval was not run/i);
+  });
+  it('a stacked Markdown layout wraps at 100 columns and carries no table (claim-chart-md-output)', () => {
+    // Andrew, 2026-10-23: the table rows run to hundreds of characters, which
+    // no viewer wraps inside a cell and no printer fits. The file form stacks a
+    // section per element and wraps prose; code spans and links are never
+    // broken, so a lone long identifier may stand on its own line.
+    const longNote = 'Lines 107-110 invoke `cipherNegotiator.selectCipherSuites(...)` and apply the results via `socket.setEnabledCipherSuites(ciphers)` which is how the negotiation of cipher parameters between the client device and the server device is performed before the handshake proceeds, with the minimum key length enforced by the negotiator; ' + 'words '.repeat(40);
+    const fills = [
+      { element: 1, label: 'PRESENT', note: longNote, target: 'NetworkManager.java@NetworkManager::sendSecureData', agreement: { total: 30, PARTIAL: 5, ABSENT: 19 }, closest: false },
+      { element: 2, label: 'ABSENT', note: 'no line — nothing negotiates', target: 'A.java@one', agreement: { total: 30, ABSENT: 30 }, closest: true },
+    ];
+    const out = formatChart({ ...base(), fills, layout: 'stacked' });
+    assert.ok(!/^\| # \| Claim element/m.test(out), 'no chart table in the stacked layout');
+    assert.match(out, /^### 1\. /m, 'a heading per element');
+    assert.match(out, /^\*\*PRESENT\*\* \(/m, 'the verdict line');
+    assert.match(out, /^Cited: `NetworkManager\.java@NetworkManager::sendSecureData`/m, 'the citation on its own line');
+    assert.match(out, /^\*\*ABSENT\*\*/m);
+    const long = out.split('\n').filter((l) => l.length > 100 && /\s/.test(l.trim()));
+    assert.deepEqual(long, [], 'no multi-word line over 100 columns');
+    assert.ok(out.includes('`cipherNegotiator.selectCipherSuites(...)`'), 'a code span survives wrapping intact');
+  });
+  it('wrapMarkdown wraps prose and never breaks a code span, a link or a word', async () => {
+    const mod = await import('../src/commands/claim-chart.js');
+    assert.equal(typeof mod.wrapMarkdown, 'function', 'wrapMarkdown is exported');
+    const text = 'alpha '.repeat(30) + '`a very long code span that must stay whole even past the width limit of the line` ' + 'beta '.repeat(20) + '[a link text](https://example.org/a/very/long/path/that/must/not/break) end.';
+    const wrapped = mod.wrapMarkdown(text, 60);
+    for (const l of wrapped.split('\n')) if (/\s/.test(l.trim())) assert.ok(l.length <= 60 || /`[^`]*`|\]\(/.test(l), `line within width or carrying an unbreakable span: ${l.length}`);
+    assert.ok(wrapped.includes('`a very long code span that must stay whole even past the width limit of the line`'));
+    assert.ok(wrapped.includes('[a link text](https://example.org/a/very/long/path/that/must/not/break)'));
+    assert.equal(mod.wrapMarkdown('- item one\n- item two', 60), '- item one\n- item two', 'short list items untouched');
+    assert.equal(mod.wrapMarkdown('| a | b |', 60), '| a | b |', 'table rows untouched');
   });
   it('includes a scope note only when one was supplied', () => {
     assert.ok(!formatChart({ ...base(), fills: [] }).includes('## Scope'));
@@ -1686,6 +1717,54 @@ describe('dependent claims: scope and --claim-family (issue-311-dep-claim-chart)
     assert.match(three.chart, /3\. The method of claim 1, wherein computing/);
   });
 
+  // claim-chart-md-output: the live writer. stdout keeps its table; the file
+  // is the stacked form, family included, wrapped at 100.
+  it('--chart-md writes the stacked file beside the stdout table: sections, stacked family, wrapped', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-chart-md-'));
+    const mdPath = path.join(dir, 'chart.md');
+    try {
+      const { res, chart } = await run({ claim_chart: FAMILY, claim_family: true, chart_md: mdPath,
+        chart_title: 'US 0,000,000 claim 1 x fixture', chart_subtitle: 'a subtitle' });
+      assert.ok(res && res.family === 5, JSON.stringify(res));
+      assert.match(chart, /^\| # \| Claim element/m, 'stdout keeps the table');
+      assert.match(chart, /^# Claim chart$/m, 'stdout keeps its heading');
+      const md = fs.readFileSync(mdPath, 'utf8');
+      assert.match(md, /^# US 0,000,000 claim 1 x fixture\n\n_a subtitle_\n/m, '--chart-title / --chart-subtitle head the file');
+      assert.ok(!/^\| # \| Claim element/m.test(md), 'the file has no element table');
+      assert.match(md, /^### 1\. /m, 'a section per element');
+      assert.match(md, /^1\\\. A method of rating a stream/m, 'the claim is a paragraph, its number escaped from list syntax');
+      assert.match(md, /^## Dependent claims \(family of claim 1\)/m);
+      assert.match(md, /^### Claim 2 \(D\) — ADDS A LIMITATION/m, 'the family heading reads as stdout does');
+      assert.match(md, /^#### \[\d[a-z]?\]/m, 'a judged family row is a sub-section, not a table row');
+      assert.match(md, /^- \*\*\[1[a-z]\]\*\* inherited from claim 1; see \[1[a-z]\]:/m, 'inherited rows are one-line bullets');
+      assert.match(md, /^## Retrieval by element/m);
+      const long = md.split('\n').filter((l) => [...l].length > 100 && /\S\s+\S/.test(l) && !/^\s*\|/.test(l));
+      assert.deepEqual(long, [], 'no multi-word prose line over 100 columns');
+      // --chart-md-layout table: the file is the Markdown stdout printed.
+      const tablePath = path.join(dir, 'chart-table.md');
+      const second = await run({ claim_chart: FAMILY, claim_family: true, chart_md: tablePath, chart_md_layout: 'table' });
+      const table = fs.readFileSync(tablePath, 'utf8');
+      assert.match(table, /^\| # \| Claim element/m, 'the table form carries the element table');
+      assert.match(table, /^# Claim chart$/m, 'and stdout\'s heading');
+      const rowsOf = (s) => s.split('\n').filter((l) => /^\|/.test(l));
+      assert.deepEqual(rowsOf(table), rowsOf(second.chart), 'the file\'s table rows are stdout\'s');
+      // The claim block is wrapped in the file (a one-line claim file sets a
+      // viewer's page width otherwise); stdout prints the file's lines as they are.
+      const fence = (s) => { const m = /^## Claim\n\n```\n([\s\S]*?)\n```/m.exec(s); return m ? m[1].split('\n') : null; };
+      assert.ok(fence(table) && fence(table).every((l) => [...l].length <= 100), 'claim block lines wrapped at 100');
+      assert.equal(fence(table).join(' ').replace(/\s+/g, ' '), fence(second.chart).join(' ').replace(/\s+/g, ' '), 'same claim text');
+      // An unknown layout fails before any work, like --chart-format.
+      const errs = [];
+      const origErr = console.error; console.error = (s) => errs.push(String(s));
+      let bad;
+      try { bad = await run({ claim_chart: FAMILY, chart_md: path.join(dir, 'never.md'), chart_md_layout: 'wide' }); }
+      finally { console.error = origErr; process.exitCode = 0; }
+      assert.equal(bad.res, undefined, 'no chart is built on a bad --chart-md-layout');
+      assert.ok(errs.some((e) => /--chart-md-layout: unknown layout "wide"/.test(e)), 'the error names the flag and the choices');
+      assert.ok(!fs.existsSync(path.join(dir, 'never.md')), 'nothing written');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
   it('--claim-family charts each dependent as inherited rows plus its contribution, with the sidecar family block', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-family-'));
     const sidecarPath = path.join(dir, 'verdicts.json');
@@ -2361,6 +2440,32 @@ describe('chart html replay (chart-html-replay)', () => {
 
   it('refuses a sidecar with nothing to replay', () => {
     assert.throws(() => replayChartHtml({ sidecar: { analysed: [] } }), /nothing to replay/);
+  });
+
+  // claim-chart-md-output: the same replay as the stacked Markdown file.
+  it('re-renders the sidecar as the stacked Markdown chart: sections, family, notes, replay marker', () => {
+    const md = replayChartMarkdown({ sidecar: SIDECAR, sidecarPath: 'y.json', notes: 'Across N runs, row 2 wobbled.' });
+    assert.ok(md.includes('RE-RENDERED from `y.json`'), 're-rendered marker present');
+    assert.match(md, /^# Claim chart — /m, 'the heading takes the page\'s derived default title');
+    assert.match(replayChartMarkdown({ sidecar: SIDECAR, title: 'T', subtitle: 'S' }), /^# T\n\n_S_\n/m, 'explicit title and subtitle');
+    // layout: 'table' re-renders the Markdown stdout would have printed.
+    const table = replayChartMarkdown({ sidecar: SIDECAR, sidecarPath: 'y.json', layout: 'table' });
+    assert.match(table, /^\| # \| Claim element/m, 'the table form carries the element table');
+    assert.match(table, /^\| 2 \| second element about reproducing _\[mechanism\]_ \| \*\*PARTIAL\*\*/m, 'rows filled from the replayed merge');
+    assert.ok(table.includes('RE-RENDERED from `y.json`'), 'and the replay marker');
+    assert.ok(!/^\| # \| Claim element/m.test(md), 'no element table: one section per element');
+    assert.match(md, /^### 2\. /m, 'numbered element sections');
+    assert.ok(md.includes('second element about reproducing'), 'element text recovered from analysed rows');
+    assert.match(md, /^\*\*PARTIAL\*\*/m, 'merged verdict on its own line');
+    assert.ok(md.includes('Two-sided claim: transmission device / reception device'), 'side scope rebuilt');
+    assert.ok(md.includes('Dependent claims (family of claim 1)'), 'family section rendered');
+    assert.ok(md.includes('not recorded in the verdicts sidecar'), 'retrieval stated as unrecorded, not shown empty');
+    // The standing label is a long sentence; the file wraps it, the words are intact.
+    assert.ok(md.replace(/\s+/g, ' ').includes(CHART_NOTES_LABEL), 'notes label present (wrapped)');
+    assert.ok(md.includes('> Across N runs, row 2 wobbled.'), 'notes text quoted, not wrapped');
+    const long = md.split('\n').filter((l) => l.length > 100 && /\s/.test(l.trim()) && !/^\s*\|/.test(l));
+    assert.deepEqual(long, [], 'no multi-word prose line over 100 columns');
+    assert.throws(() => replayChartMarkdown({ sidecar: { analysed: [] } }), /nothing to replay/);
   });
 
   it('sideScopeFromRecorded reproduces the live paragraph from recorded halves', () => {

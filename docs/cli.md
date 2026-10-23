@@ -760,6 +760,14 @@ Deprecated alias for `--model`. Continues to work; sets `args.claim_model` and (
 - **Naming**: noun-verb.
 - **Verified against**: `src/argparse.js:293`
 
+#### `--claim-chart <claim>`
+
+- **Does**: Build one claim chart: a row per claim element with a PRESENT / PARTIAL / ASSUMED / ABSENT finding and the cited code, from `--targets` or its own per-element retrieval. The chart prints as Markdown; `--chart-html <file>` writes the self-contained printable page, `--chart-md <file>` the chart as a Markdown file (one section per element, wrapped, no wide table; `--chart-md-layout table` writes the stdout table instead), `--verdicts-out <file>` the per-target verdicts either form re-renders from with `--chart-html-from <sidecar>` and no model.
+- **Good for**: Reading a claim against a codebase element by element, with a citation per row a reader can check with `--extract`.
+- **Couples with**: `--targets`, `--elements`, `--claim-family`, `--chart-notes`, `--chart-title`, `--chart-subtitle`, `--chart-format`, `--chart-md-layout`, `--include-tests`, `--include-op`, all LLM flags.
+- **Naming**: noun-noun.
+- **Verified against**: `src/argparse.js:666`
+
 #### `--multisect-analyze <terms>`
 
 - **Does**: Search for functions matching multisect terms, analyze top hits with LLM.

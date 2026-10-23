@@ -106,9 +106,12 @@ alternative step 2 over file bodies; pseudo-claims run the arrow backwards.
 **Output and formatting:**
 
 - `--verdicts-out` writes the per-target verdicts as JSON, the merge's input and the sidecar every
-  replay reads. `--chart-html` writes a self-contained printable page, `--chart-format brief` the
-  traditional two-column layout, `--chart-html-from <sidecar>` re-renders without a model, and
-  `--chart-notes`, `--chart-title` and `--chart-subtitle` dress it.
+  replay reads. `--chart-html` writes a self-contained printable page and `--chart-md` the chart
+  as a Markdown file, one section per element and wrapped at 100 columns, so it reads and prints
+  without a wide table (stdout keeps the table, and `--chart-md-layout table` writes that table
+  to the file instead); `--chart-format brief` is the page's traditional two-column layout;
+  `--chart-html-from <sidecar>` re-renders either file without a model; and `--chart-notes`,
+  `--chart-title` and `--chart-subtitle` dress them.
 
 **Whole-claim search** (claim to code, one search for the entire claim):
 
@@ -148,10 +151,11 @@ deterministic half of `--claim-locate`'s retrieval; the audited chart stays on t
 ([`CODEEXAM_MCP.md`](CODEEXAM_MCP.md)).
 
 **Documentation note** (checked 2026-10-21 against `docs/*.md` and the README).
-[`cli.md`](cli.md) calls itself the canonical reference for every flag and carries eleven of
-this family: `--claim-locate`, `--claim-chart`, `--claim-search`, `--claim-analyze`,
-`--claims-loop`, `--pseudo-claims`, `--synonymize`, `--claim-file`, `--claim-text`,
-`--min-terms` and `--air-gapped`.
+[`cli.md`](cli.md) calls itself the canonical reference for every flag and names eleven of
+this family: entries for `--claim-search`, `--claim-analyze`, `--claim-file`, `--claim-text`
+and `--min-terms`, and `--claim-locate`, `--claim-chart`, `--claims-loop`, `--pseudo-claims`,
+`--synonymize` and `--air-gapped` only in passing, in other entries' "couples with" lines
+(checked 2026-10-23; `--claim-chart` gains an entry with its output flags the same day).
 Thirty of the family's flags above appeared in no documentation page before this one, and still
 appear in none other, `cli.md` included, which calls itself the canonical reference; `--help`
 documents them:

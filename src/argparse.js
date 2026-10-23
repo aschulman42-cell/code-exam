@@ -601,6 +601,10 @@ export function parseArgs() {
     // issue-311-dep-claim-chart: chart claim 1 and every dependent beneath it.
     ['claim_family',         'flag',           ['--claim-family']],
     ['chart_html',           'value',          ['--chart-html']],
+    // claim-chart-md-output: the chart as a Markdown file, one section per element.
+    ['chart_md',             'value',          ['--chart-md']],
+    // The file's layout: stacked (default, wrapped) or table (what stdout prints).
+    ['chart_md_layout',      'value',          ['--chart-md-layout']],
     // chart-html-notes-appendix: analyst commentary appended as a labeled section.
     ['chart_notes',          'value',          ['--chart-notes']],
     // chart-html-replay: re-render the printable page from a verdicts sidecar.
@@ -1812,16 +1816,29 @@ LLM ANALYSIS:
                              printable HTML page (record-per-limitation,
                              verdict rail, FULL finding notes untruncated,
                              print CSS; no external assets — air-gap safe)
+  --chart-md <file>          --claim-chart: also write the chart as a Markdown
+                             file: a section per claim element with the FULL
+                             finding (stdout's table cuts a finding at 160
+                             characters), prose wrapped at 100 columns, so it
+                             reads in any viewer, diffs, and prints. Same
+                             verdicts and disclosures as stdout
+  --chart-md-layout <l>      layout of the --chart-md file: "stacked" (default,
+                             the wrapped form above, the one that prints) or
+                             "table" (the table --claim-chart prints to stdout,
+                             one row per element, its claim block wrapped at
+                             100 columns; rows wrap only where the viewer
+                             wraps table cells)
   --chart-notes <file>       --claim-chart: append the file's text as an
                              "Examiner's notes" appendix — labeled analyst
                              commentary, visually distinct, never interleaved
                              with chart rows. Verdicts and coverage unchanged
   --chart-html-from <sidecar>  re-render the printable page from a --verdicts-out
                              sidecar: no model calls, no index, no re-rolled
-                             verdicts. Needs --chart-html <out.html>; composes
-                             with --chart-notes for post-hoc commentary. The
-                             page carries a RE-RENDERED marker and states what
-                             the sidecar did not record
+                             verdicts. Needs --chart-html <out.html>, --chart-md
+                             <out.md>, or both; composes with --chart-notes for
+                             post-hoc commentary. The output carries a
+                             RE-RENDERED marker and states what the sidecar did
+                             not record
   --chart-format <fmt>       page layout for --chart-html / --chart-html-from:
                              "full" (default — the evidentiary page above) or
                              "brief" (traditional two-column claim chart,

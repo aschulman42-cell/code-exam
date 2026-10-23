@@ -64,8 +64,9 @@ take at face value:
   side, and the provenance header that records engine/model/build, are in
   [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md).
 
-`--chart-html` renders the chart for reading, and `--chart-notes` attaches annotations from a file
-you provide.
+`--chart-html` renders the chart as a printable page and `--chart-md` as a Markdown file that wraps
+and prints (one section per element, no wide table; `--chart-md-layout table` writes the table the
+command prints instead); `--chart-notes` attaches annotations from a file you provide to either.
 
 ## Dependent claims
 
