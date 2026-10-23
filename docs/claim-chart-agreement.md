@@ -55,8 +55,8 @@ The litigant's cited set is read from the catalog at prepare time into the work 
 | 4 | Malikie v. Foundry 1-14 (2025-12-12), chart | 8,666,062; 1 | `bitcoin-core/secp256k1` @ `ad60ef7` | `secp256k1_fe_normalize`, `secp256k1_ecmult_gen`; `field_5x52.h`, `int128.h` |
 | 5 | Malikie v. ViaBTC 1-6 (2026-09-09), chart | 8,788,827; 1 | `bitcoin/bitcoin`, master at date | `secp256k1_scalar_mul`, `secp256k1_ecdsa_recoverable_signature_load`; `secp256k1_recovery.h` |
 | 6 | Malikie v. MARA 1-11 (2025-05-12), chart | 7,372,961; 1 | `bitcoin/bitcoin`, master at date | `CKey::MakeNewKey`, `GetStrongRandBytes`, `secp256k1_ec_seckey_verify`; `key.cpp` |
-| 7 | Malikie v. Coinbase 1-8 (2025-05-12), chart | 7,372,960; 3 | `bitcoin-core/secp256k1`, master at date | `secp256k1_fe_normalize`, `secp256k1_ecmult_gen`; `field_5x52.h` |
-| 8 | Malikie v. Coinbase 1-10 (2025-05-12), chart | 8,532,286; 1 | `bitcoin-core/secp256k1`, master at date | `secp256k1_scalar_mul`, `secp256k1_scalar_reduce_512` |
+| 7 | Malikie v. Core Scientific 1-8 (2025-05-12), chart | 7,372,960; 3 | `bitcoin-core/secp256k1`, master at date | `secp256k1_fe_normalize`, `secp256k1_ecmult_gen`; `field_5x52.h` |
+| 8 | Malikie v. Core Scientific 1-10 (2025-05-12), chart | 8,532,286; 1 | `bitcoin-core/secp256k1`, master at date | `secp256k1_scalar_mul`, `secp256k1_scalar_reduce_512` |
 | 9 | VM Innovations v. Coinbase 1-23 (2026-05-07), chart | 12,093,999; 1 | `coinbase/coinbase-sdk-nodejs` @ `31b3dfe`, `circlefin/evm-cctp-contracts`, `ethereum/go-ethereum` @ `341647f` | `bridgeUSDC`, `depositTx.wait`; `bridge-usdc.js`, `TokenMessenger.sol`, `broadcast.go` |
 | 10 | FriendliAI v. Hugging Face 26-1 (2023-07-28), chart | 11,442,775; 10, 35 | `huggingface/text-generation-inference` @ `bd3a9d8` | 23 line-range links (`router/src/server.rs#L33-L78`, `router/src/infer.rs#L239-L348`); `generate_token` |
 | 11 | Securitize v. tZERO 15-9 (2026-06-22), chart | 12,099,996; 1 | `securitize-io/dstoken`, master at date | `transfer`, `transferFrom`, `recordTransfer`; `ComplianceServiceWhitelisted.sol` |
@@ -157,8 +157,8 @@ reachable names, per repository:
 | Databricks 149-2 | Spark | 37 | 1 | 1 |
 | VM Innovations 1-23 | Coinbase SDK / Circle / go-ethereum | 3 / 0 / 1 | 0 / – / 0 | 1 / – / 0 |
 | Foundry 1-14 | secp256k1 | 8 | 0 | 0 |
-| Coinbase 1-8, claim 3 | secp256k1 | 8 | 0 | 0 |
-| Coinbase 1-10 | secp256k1 | 6 | 0 | 0 |
+| Core Scientific 1-8, claim 3 | secp256k1 | 8 | 0 | 0 |
+| Core Scientific 1-10 | secp256k1 | 6 | 0 | 0 |
 | Sookbox 1 | Kodi | 7 | 0 | 0 |
 | PROGME 1-1 | cmb | 33 | 0 | 0 |
 | True Return 1-6 | dss | 4 | 0 | unparsed |
@@ -178,12 +178,12 @@ patterns:
   (`batching_task`, `prefill`, `decode`, `Queue::next_batch`, `filter_batch`) maps the batching
   mechanism more fully than the chart's two names do.
 - **Where the chart walks arithmetic, claim-locate stops at the API.** The three Malikie
-  patents on finite-field operations and Montgomery reduction (Foundry 1-14, Coinbase 1-8 and
+  patents on finite-field operations and Montgomery reduction (Foundry 1-14, Core Scientific 1-8 and
   1-10) score zero. The charts cite `secp256k1_fe_normalize`, `secp256k1_u128_mul`,
   `secp256k1_scalar_mul_512` and their kin; CodeExam chose field tests,
   `secp256k1_ge_set_gej_var` (the chart's `secp256k1_ge_set_gej` with a suffix), scalar
   reduction, and for the Montgomery claim the `_load` functions its "obtaining an operand"
-  words suggested. Two of those charts, Foundry 1-14 and Coinbase 1-8, cite the same eight
+  words suggested. Two of those charts, Foundry 1-14 and Core Scientific 1-8, cite the same eight
   functions for two patents of one family. The name match is strict: a `_var` or `_impl`
   variant of a cited function is a miss.
 - **Where the key is a complaint's pasted code or a different reading, zero overlap says
@@ -224,7 +224,7 @@ pipeline runs `--claim-chart` on the targets `--claim-locate` wrote; the harness
 and that configuration, tier 1's targets with the judge's labels as the score, is the next run.
 
 <!-- agreement:start -->
-_Generated 2026-10-22 by `scripts/recap-chart-agreement.mjs --render` from 114 record(s); edit the script, not this block._
+_Generated 2026-10-23 by `scripts/recap-chart-agreement.mjs --render` from 114 record(s); edit the script, not this block._
 
 | candidate | repository @ ref | index symbols | functions reachable / cited | files reachable / cited | absent names |
 |---|---|---:|---|---|---|
@@ -235,8 +235,8 @@ _Generated 2026-10-22 by `scripts/recap-chart-agreement.mjs --render` from 114 r
 | foundry-1-14 | bitcoin-core/secp256k1 @ ad60ef7 | 900 | 8 / 8 | 3 / 6 |  |
 | viabtc-1-6 | bitcoin/bitcoin @ b3a9b84 | 21517 | 13 / 14 | 1 / 1 | SECP256K1_ARG_NONNULL |
 | mara-1-11 | bitcoin/bitcoin @ 8673e8f | 19051 | 13 / 13 | 1 / 1 |  |
-| coinbase-1-8 | bitcoin-core/secp256k1 @ 4187a46 | 898 | 8 / 8 | 0 / 2 |  |
-| coinbase-1-10 | bitcoin-core/secp256k1 @ 4187a46 | 898 | 6 / 7 | 1 / 1 | secp256k1_u128_to_u64 |
+| core-scientific-1-8 | bitcoin-core/secp256k1 @ 4187a46 | 898 | 8 / 8 | 0 / 2 |  |
+| core-scientific-1-10 | bitcoin-core/secp256k1 @ 4187a46 | 898 | 6 / 7 | 1 / 1 | secp256k1_u128_to_u64 |
 | vm-innovations-1-23 | coinbase/coinbase-sdk-nodejs @ 31b3dfe | 1058 | 6 / 6 | 2 / 5 |  |
 | vm-innovations-1-23 | circlefin/evm-cctp-contracts @ 4061786 | 453 | 0 / 6 | 2 / 5 | wait, depositTx.wait, receiveMessageTx.wait, bridgeUSDC, fetchWalletAndLoadSeed, approveTx.wait |
 | vm-innovations-1-23 | ethereum/go-ethereum @ 341647f | 17335 | 4 / 6 | 1 / 5 | bridgeUSDC, fetchWalletAndLoadSeed |
@@ -257,8 +257,8 @@ _Generated 2026-10-22 by `scripts/recap-chart-agreement.mjs --render` from 114 r
 | foundry-1-14 | 1 | tier2 | per-element | 24 | 8 | 1 | 0.13 | 0.04 | secp256k1_ecmult_gen |
 | viabtc-1-6 | 1 | tier2 | per-element | 23 | 13 | 0 | 0.00 | 0.00 |  |
 | mara-1-11 | 1 | tier2 | per-element | 33 | 12 | 0 | 0.00 | 0.00 |  |
-| coinbase-1-8 | 3 | tier2 | per-element | 24 | 8 | 1 | 0.13 | 0.04 | secp256k1_ecmult_gen |
-| coinbase-1-10 | 1 | tier2 | per-element | 17 | 6 | 1 | 0.17 | 0.06 | secp256k1_scalar_reduce_512 |
+| core-scientific-1-8 | 3 | tier2 | per-element | 24 | 8 | 1 | 0.13 | 0.04 | secp256k1_ecmult_gen |
+| core-scientific-1-10 | 1 | tier2 | per-element | 17 | 6 | 1 | 0.17 | 0.06 | secp256k1_scalar_reduce_512 |
 | vm-innovations-1-23 | 1 | tier2 | per-element | 34 | 3 | 0 | 0.00 | 0.00 |  |
 | vm-innovations-1-23 | 1 | tier2 | per-element | 33 | 0 | 0 | — | 0.00 |  |
 | vm-innovations-1-23 | 1 | tier2 | per-element | 38 | 1 | 0 | 0.00 | 0.00 |  |
@@ -289,8 +289,8 @@ _Generated 2026-10-22 by `scripts/recap-chart-agreement.mjs --render` from 114 r
 | foundry-1-14 | 1 | tier0 | rule | 21 | 8 | 0 | 0.00 | 0.00 |  |
 | viabtc-1-6 | 1 | tier0 | rule | 19 | 13 | 0 | 0.00 | 0.00 |  |
 | mara-1-11 | 1 | tier0 | rule | 16 | 12 | 0 | 0.00 | 0.00 |  |
-| coinbase-1-8 | 3 | tier0 | rule | 22 | 8 | 0 | 0.00 | 0.00 |  |
-| coinbase-1-10 | 1 | tier0 | rule | 24 | 6 | 0 | 0.00 | 0.00 |  |
+| core-scientific-1-8 | 3 | tier0 | rule | 22 | 8 | 0 | 0.00 | 0.00 |  |
+| core-scientific-1-10 | 1 | tier0 | rule | 24 | 6 | 0 | 0.00 | 0.00 |  |
 | vm-innovations-1-23 | 1 | tier0 | rule | 22 | 3 | 0 | 0.00 | 0.00 |  |
 | vm-innovations-1-23 | 1 | tier0 | rule | 22 | 0 | 0 | — | 0.00 |  |
 | vm-innovations-1-23 | 1 | tier0 | rule | 23 | 1 | 0 | 0.00 | 0.00 |  |
@@ -313,10 +313,10 @@ _Generated 2026-10-22 by `scripts/recap-chart-agreement.mjs --render` from 114 r
 | viabtc-1-6 | 1 | tier1 | plain | 27 | 13 | 4 | 0.31 | 0.15 | secp256k1_ecdsa_recoverable_signature_load, secp256k1_ecdsa_sig_recover, secp256k1_pubkey_save, secp256k1_fe_set_b32_limit |
 | mara-1-11 | 1 | tier1 | blind | 36 | 12 | 5 | 0.42 | 0.14 | check, getstrongrandbytes, makenewkey, makekeydata, data |
 | mara-1-11 | 1 | tier1 | plain | 8 | 12 | 5 | 0.42 | 0.63 | check, getstrongrandbytes, makenewkey, makekeydata, data |
-| coinbase-1-8 | 3 | tier1 | blind | 26 | 8 | 0 | 0.00 | 0.00 |  |
-| coinbase-1-8 | 3 | tier1 | plain | 26 | 8 | 1 | 0.13 | 0.04 | secp256k1_fe_is_odd |
-| coinbase-1-10 | 1 | tier1 | blind | 2 | 6 | 1 | 0.17 | 0.50 | secp256k1_scalar_reduce_512 |
-| coinbase-1-10 | 1 | tier1 | plain | 1 | 6 | 1 | 0.17 | 1.00 | secp256k1_scalar_reduce_512 |
+| core-scientific-1-8 | 3 | tier1 | blind | 26 | 8 | 0 | 0.00 | 0.00 |  |
+| core-scientific-1-8 | 3 | tier1 | plain | 26 | 8 | 1 | 0.13 | 0.04 | secp256k1_fe_is_odd |
+| core-scientific-1-10 | 1 | tier1 | blind | 2 | 6 | 1 | 0.17 | 0.50 | secp256k1_scalar_reduce_512 |
+| core-scientific-1-10 | 1 | tier1 | plain | 1 | 6 | 1 | 0.17 | 1.00 | secp256k1_scalar_reduce_512 |
 | vm-innovations-1-23 | 1 | tier1 | blind | 55 | 3 | 0 | 0.00 | 0.00 |  |
 | vm-innovations-1-23 | 1 | tier1 | plain | 51 | 3 | 0 | 0.00 | 0.00 |  |
 | vm-innovations-1-23 | 1 | tier1 | blind | 9 | 0 | 0 | — | 0.00 |  |

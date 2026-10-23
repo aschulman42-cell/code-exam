@@ -318,33 +318,37 @@ cites, chosen by hand as the names its chart rows turn on. The names column coun
 list, which keeps at most twelve names per document; section 5's table counts the names the
 harness read from the full text and found in the index (Databricks cites 49 names, PROGME 112).
 One row per document, under short party names, a plaintiff's documents adjacent: Malikie's six
-documents against four defendants assert six patents, and Foundry 1-14 and Coinbase 1-8 cite the
-same eight names under two of them. The document label links to the filing's PDF and the court
-and docket to its CourtListener docket.
+documents against four defendants assert six patents, and Foundry 1-14 and Core Scientific 1-8
+cite the same eight names under two of them. The document label links to the filing's PDF and
+the court and docket to its CourtListener docket. Corrected 2026-10-23 (#348): four filings'
+court and docket labels, and the two documents this page called Coinbase 1-8 and 1-10, which
+are Malikie v. Core Scientific's, now carry what the catalog records for them; every
+measurement was made on the right documents and repositories throughout.
 
 | case, document (court, docket) | filed, patent, claims | repository @ ref | names cited |
 |---|---|---|---|
 | R2 Solutions v. Databricks<br>[149-2](https://storage.courtlistener.com/recap/gov.uscourts.txed.226994/gov.uscourts.txed.226994.149.2.pdf) ([txed 4:23-cv-01147](https://www.courtlistener.com/docket/68122000/r2-solutions-llc-v-databricks-inc/)) | 2023-12-28<br>US 8,190,610, claims 1, 2, 5, 17, 18, 19, 20, 21 | apache/spark<br>e.g. `smjScanner.findNextInnerJoinRows`,<br>`createLeftKeyGenerator` | 12 functions, 6 files |
 | Veritaseum Capital v. Coinbase<br>[1-3](https://storage.courtlistener.com/recap/gov.uscourts.ded.80126/gov.uscourts.ded.80126.1.3_2.pdf) ([ded 1:22-cv-01232](https://www.courtlistener.com/docket/65368876/veritaseum-capital-llc-v-coinbase-global-inc/)) | 2022-09-22<br>US 11,196,566, claims 1, 2, 3, 7, 8 | solana-labs/solana<br>ethereum/consensus-specs<br>e.g. `get_committee_assignment`,<br>`web3.eth.sendTransaction` | 12 functions, 2 files |
-| Malikie Innovations v. Foundry<br>[1-11](https://storage.courtlistener.com/recap/gov.uscourts.txwd.1172879815/gov.uscourts.txwd.1172879815.1.11.pdf) ([txwd 6:25-cv-01467](https://www.courtlistener.com/docket/72028096/malikie-innovations-ltd-v-foundry-digital-llc/)) | 2025-12-12<br>US 8,806,197, claim 1 | bitcoin-core/secp256k1 @ b6c2a3cd77<br>e.g. `secp256k1_ecdsa_sig_sign`,<br>`secp256k1_scalar_cond_negate` | 12 functions, 4 files |
-| Malikie Innovations v. Foundry<br>[1-14](https://storage.courtlistener.com/recap/gov.uscourts.txwd.1172879815/gov.uscourts.txwd.1172879815.1.14.pdf) ([txwd 6:25-cv-01467](https://www.courtlistener.com/docket/72028096/malikie-innovations-ltd-v-foundry-digital-llc/)) | 2025-12-12<br>US 8,666,062, claim 1 | bitcoin-core/secp256k1 @ ad60ef7ea7<br>e.g. `secp256k1_fe_normalize`,<br>`secp256k1_fe_impl_normalize` | 8 functions, 2 files |
+| Malikie Innovations v. Foundry<br>[1-11](https://storage.courtlistener.com/recap/gov.uscourts.txwd.1172879815/gov.uscourts.txwd.1172879815.1.11.pdf) ([txwd 7:25-cv-00567](https://www.courtlistener.com/docket/72028096/malikie-innovations-ltd-v-foundry-digital-llc/)) | 2025-12-12<br>US 8,806,197, claim 1 | bitcoin-core/secp256k1 @ b6c2a3cd77<br>e.g. `secp256k1_ecdsa_sig_sign`,<br>`secp256k1_scalar_cond_negate` | 12 functions, 4 files |
+| Malikie Innovations v. Foundry<br>[1-14](https://storage.courtlistener.com/recap/gov.uscourts.txwd.1172879815/gov.uscourts.txwd.1172879815.1.14.pdf) ([txwd 7:25-cv-00567](https://www.courtlistener.com/docket/72028096/malikie-innovations-ltd-v-foundry-digital-llc/)) | 2025-12-12<br>US 8,666,062, claim 1 | bitcoin-core/secp256k1 @ ad60ef7ea7<br>e.g. `secp256k1_fe_normalize`,<br>`secp256k1_fe_impl_normalize` | 8 functions, 2 files |
 | Malikie Innovations v. ViaBTC<br>[1-6](https://storage.courtlistener.com/recap/gov.uscourts.txwd.1172932894/gov.uscourts.txwd.1172932894.1.6.pdf) ([txwd 7:26-cv-00372](https://www.courtlistener.com/docket/74769793/malikie-innovations-ltd-v-viabtc-technology-limited/)) | 2026-09-09<br>US 8,788,827, claim 1 | bitcoin/bitcoin<br>e.g. `secp256k1_ecdsa_sig_recover`,<br>`secp256k1_ge_set_xo_var` | 12 functions, 1 file |
 | Malikie Innovations v. MARA<br>[1-11](https://storage.courtlistener.com/recap/gov.uscourts.txwd.1172841950/gov.uscourts.txwd.1172841950.1.11.pdf) ([txwd 6:25-cv-00701](https://www.courtlistener.com/docket/70243940/malikie-innovations-ltd-v-mara-holdings-inc-fka-marathon-digital/)) | 2025-05-12<br>US 7,372,961, claim 1 | bitcoin/bitcoin<br>e.g. `CKey::MakeNewKey`,<br>`secp256k1_ec_seckey_verify` | 12 functions, 1 file |
-| Malikie Innovations v. Coinbase<br>[1-8](https://storage.courtlistener.com/recap/gov.uscourts.txed.237820/gov.uscourts.txed.237820.1.8.pdf) ([txwd 6:25-cv-00700](https://www.courtlistener.com/docket/70244989/malikie-innovations-ltd-v-core-scientific-inc/)) | 2025-05-12<br>US 7,372,960, claim 3 | bitcoin-core/secp256k1<br>e.g. `secp256k1_fe_normalize`,<br>`secp256k1_fe_impl_normalize` | 8 functions, 2 files |
-| Malikie Innovations v. Coinbase<br>[1-10](https://storage.courtlistener.com/recap/gov.uscourts.txed.237820/gov.uscourts.txed.237820.1.10.pdf) ([txwd 6:25-cv-00700](https://www.courtlistener.com/docket/70244989/malikie-innovations-ltd-v-core-scientific-inc/)) | 2025-05-12<br>US 8,532,286, claim 1 | bitcoin-core/secp256k1<br>e.g. `secp256k1_scalar_reduce_512`,<br>`secp256k1_scalar_mul_512` | 7 functions, 1 file |
-| VM Innovations v. Coinbase<br>[1-23](https://storage.courtlistener.com/recap/gov.uscourts.txnd.419280/gov.uscourts.txnd.419280.1.23.pdf) ([txwd 6:26-cv-00493](https://www.courtlistener.com/docket/73312846/vm-innovations-i-llc-v-coinbase-global-inc/)) | 2026-05-07<br>US 12,093,999, claim 1 | coinbase/coinbase-sdk-nodejs @ 31b3dfe36d<br>circlefin/evm-cctp-contracts<br>ethereum/go-ethereum @ 341647f186<br>e.g. `bridgeUSDC`,<br>`fetchWalletAndLoadSeed` | 6 functions, 1 file |
+| Malikie Innovations v. Core Scientific<br>[1-8](https://storage.courtlistener.com/recap/gov.uscourts.txed.237820/gov.uscourts.txed.237820.1.8.pdf) ([txed 2:25-cv-00519](https://www.courtlistener.com/docket/70244989/malikie-innovations-ltd-v-core-scientific-inc/)) | 2025-05-12<br>US 7,372,960, claim 3 | bitcoin-core/secp256k1<br>e.g. `secp256k1_fe_normalize`,<br>`secp256k1_fe_impl_normalize` | 8 functions, 2 files |
+| Malikie Innovations v. Core Scientific<br>[1-10](https://storage.courtlistener.com/recap/gov.uscourts.txed.237820/gov.uscourts.txed.237820.1.10.pdf) ([txed 2:25-cv-00519](https://www.courtlistener.com/docket/70244989/malikie-innovations-ltd-v-core-scientific-inc/)) | 2025-05-12<br>US 8,532,286, claim 1 | bitcoin-core/secp256k1<br>e.g. `secp256k1_scalar_reduce_512`,<br>`secp256k1_scalar_mul_512` | 7 functions, 1 file |
+| VM Innovations v. Coinbase<br>[1-23](https://storage.courtlistener.com/recap/gov.uscourts.txnd.419280/gov.uscourts.txnd.419280.1.23.pdf) ([txnd 7:26-cv-00051](https://www.courtlistener.com/docket/73312846/vm-innovations-i-llc-v-coinbase-global-inc/)) | 2026-05-07<br>US 12,093,999, claim 1 | coinbase/coinbase-sdk-nodejs @ 31b3dfe36d<br>circlefin/evm-cctp-contracts<br>ethereum/go-ethereum @ 341647f186<br>e.g. `bridgeUSDC`,<br>`fetchWalletAndLoadSeed` | 6 functions, 1 file |
 | FriendliAI v. Hugging Face<br>[26-1](https://storage.courtlistener.com/recap/gov.uscourts.ded.83165/gov.uscourts.ded.83165.26.1.pdf) ([ded 1:23-cv-00816](https://www.courtlistener.com/docket/67645671/friendliai-inc-v-hugging-face-inc/)) | 2023-07-28<br>US 11,442,775, claims 10, 35 | huggingface/text-generation-inference @ bd3a9d8e85<br>e.g. `generate_token`,<br>`SortByArrivalTime` | 3 functions, 2 files |
 | Securitize v. tZERO Group<br>[15-9](https://storage.courtlistener.com/recap/gov.uscourts.ded.93554/gov.uscourts.ded.93554.15.9.pdf) ([ded 1:26-cv-00722](https://www.courtlistener.com/docket/73511778/securitize-i-inc-v-tzero-group-inc/)) | 2026-06-22<br>US 12,099,996, claim 1 | securitize-io/dstoken<br>e.g. `recordTransfer`,<br>`transferFrom` | 3 functions, 1 file |
 | True Return Systems v. MakerDAO<br>[1-6](https://storage.courtlistener.com/recap/gov.uscourts.nysd.587363/gov.uscourts.nysd.587363.1.6.pdf) ([nysd 1:22-cv-08478](https://www.courtlistener.com/docket/65402527/true-return-systems-llc-v-makerdao/)) | 2022-10-05<br>US 10,025,797, claim 1 (assumed) | makerdao/dss<br>e.g. `Pot.drip`,<br>`End.cage` | 12 functions, 0 files |
 | Sookbox Development v. Fry's<br>[1](https://storage.courtlistener.com/recap/gov.uscourts.txed.183297/gov.uscourts.txed.183297.1.0.pdf) ([txed 6:18-cv-00331](https://www.courtlistener.com/docket/7370189/sookbox-development-llc-v-frys-electronics-inc/)) | 2018-07-06<br>US 9,497,137, claim 1 (assumed) | xbmc/xbmc<br>e.g. `CGUIPassword::LockSources`,<br>`CMediaSourceSettings::GetInstance` | 7 functions, 0 files |
-| PROGME v. Comcast<br>[1-1](https://storage.courtlistener.com/recap/gov.uscourts.paed.528848.1.1.pdf) ([txed 2:17-cv-00237](https://www.courtlistener.com/docket/5106518/progme-corporation-v-comcast-cable-communications-llc/)) | 2017-03-29<br>US 8,713,425, claim 1 | Comcast/cmb<br>e.g. `XmlUtil.getCurrentLevelTextValue`,<br>`getPropertyValue` | 12 functions, 12 files |
+| PROGME v. Comcast<br>[1-1](https://storage.courtlistener.com/recap/gov.uscourts.paed.528848.1.1.pdf) ([paed 2:17-cv-01488](https://www.courtlistener.com/docket/5106518/progme-corporation-v-comcast-cable-communications-llc/)) | 2017-03-29<br>US 8,713,425, claim 1 | Comcast/cmb<br>e.g. `XmlUtil.getCurrentLevelTextValue`,<br>`getPropertyValue` | 12 functions, 12 files |
 
 **Table B. Further filings that name code, a repository and a patent**, outside the fourteen
 (from the same catalog, three or more functions and a patent number the text yields; the
-non-GitHub finds at the end). Read with care. Two rows are further documents of dockets in
-Table A (ViaBTC, FriendliAI), and six more are the same plaintiff's chart against the same code
-in another docket (Malikie against Foris DAX, Antpool and a second Foundry docket; Sookbox
-against Walmart; PROGME's second case, two documents). Two cite repositories that are not the
+non-GitHub finds at the end). Read with care. Five rows are further documents of dockets in
+Table A (ViaBTC's 1-7, Foundry's 1-12, FriendliAI's 27-1, PROGME's 1-13 and 1-41, the last two
+the same docket as Table A's 1-1 once its docket number was corrected), and three more are the
+same plaintiff's chart against the same code in another docket (Malikie against Foris DAX and
+Antpool; Sookbox against Walmart). Two cite repositories that are not the
 accused code (ESW v. Roku citing documentation repositories; Masimo citing a statistics
 library). The substantive new pairs are Health Discovery v. Intel on scikit-learn-intelex,
 TwinStrand v. Guardant on Duplex-Sequencing, Streamscale v. Cloudera on isa-l and VirtaMove v.
@@ -365,7 +369,7 @@ PROGME's two, Interactive Games' two and Cellspin's three.
 | Malikie Innovations v. Foris DAX<br>[1-5](https://storage.courtlistener.com/recap/gov.uscourts.txed.249528/gov.uscourts.txed.249528.1.5.pdf) ([txed 2:26-cv-00864](https://www.courtlistener.com/docket/74834086/malikie-innovations-ltd-v-foris-dax-inc-dba-cryptocom/)) | 2026-09-22<br>US 8,806,197 | bitcoin/bitcoin<br>bitcoin/bips<br>ethereum/go-ethereum<br>e.g. `secp256k1_ecdsa_sig_sign`,<br>`secp256k1_scalar_cond_negate` | 12 functions, 4 files |
 | Malikie Innovations v. ViaBTC<br>[1-7](https://storage.courtlistener.com/recap/gov.uscourts.txwd.1172932894/gov.uscourts.txwd.1172932894.1.7.pdf) ([txwd 7:26-cv-00372](https://www.courtlistener.com/docket/74769793/malikie-innovations-ltd-v-viabtc-technology-limited/)) | 2026-09-09<br>US 8,806,197 | bitcoin/bitcoin<br>zcash/zcash<br>bitcoin/bips<br>… 1 more<br>e.g. `secp256k1_ecdsa_sig_sign`,<br>`secp256k1_scalar_cond_negate` | 12 functions, 4 files<br>same docket as Table A |
 | Malikie Innovations v. Antpool<br>[1-5](https://storage.courtlistener.com/recap/gov.uscourts.txwd.1172932738/gov.uscourts.txwd.1172932738.1.5.pdf) ([txwd 7:26-cv-00371](https://www.courtlistener.com/docket/74768897/malikie-innovations-ltd-v-antpool-technologies-limited/)) | 2026-09-09<br>US 8,788,827 | bitcoin/bitcoin<br>zcash/zcash<br>bitcoin/bips<br>e.g. `secp256k1_ecdsa_sig_recover`,<br>`secp256k1_ge_set_xo_var` | 12 functions, 1 file |
-| Malikie Innovations v. Foundry<br>[1-12](https://storage.courtlistener.com/recap/gov.uscourts.txwd.1172879815/gov.uscourts.txwd.1172879815.1.12.pdf) ([txwd 7:25-cv-00567](https://www.courtlistener.com/docket/72028096/malikie-innovations-ltd-v-foundry-digital-llc/)) | 2025-12-12<br>US 8,806,197 | bitcoin/bitcoin<br>bitcoin-core/secp256k1<br>e.g. `secp256k1_ecdsa_sig_sign`,<br>`secp256k1_scalar_cond_negate` | 12 functions, 4 files |
+| Malikie Innovations v. Foundry<br>[1-12](https://storage.courtlistener.com/recap/gov.uscourts.txwd.1172879815/gov.uscourts.txwd.1172879815.1.12.pdf) ([txwd 7:25-cv-00567](https://www.courtlistener.com/docket/72028096/malikie-innovations-ltd-v-foundry-digital-llc/)) | 2025-12-12<br>US 8,806,197 | bitcoin/bitcoin<br>bitcoin-core/secp256k1<br>e.g. `secp256k1_ecdsa_sig_sign`,<br>`secp256k1_scalar_cond_negate` | 12 functions, 4 files<br>same docket as Table A |
 | FriendliAI v. Hugging Face<br>[27-1](https://storage.courtlistener.com/recap/gov.uscourts.ded.83165/gov.uscourts.ded.83165.27.1.pdf) ([ded 1:23-cv-00816](https://www.courtlistener.com/docket/67645671/friendliai-inc-v-hugging-face-inc/)) | 2023-07-28<br>US 11,442,775 | huggingface/text-generation-inference<br>huggingface/text-generation-<br>huggingface/text-generation-least<br>… 5 more<br>e.g. `generate_token`,<br>`SortByArrivalTime` | 3 functions, 2 files<br>same docket as Table A |
 | Health Discovery v. Intel<br>[17-11](https://storage.courtlistener.com/recap/gov.uscourts.txwd.1167837/gov.uscourts.txwd.1167837.17.11.pdf) ([txwd 6:22-cv-00356](https://www.courtlistener.com/docket/63213055/health-discovery-corporation-v-intel-corporation/)) | 2022-04-04<br>US 7,117,188 | intel/scikit-learn-intelex<br>e.g. `ExtraTreesClassifier`;<br>the other names are garbled | 8 functions, 1 file |
 | TwinStrand Biosciences v. Guardant Health<br>[30](https://storage.courtlistener.com/recap/gov.uscourts.ded.76216/gov.uscourts.ded.76216.30.0_1.pdf) ([ded 1:21-cv-01126](https://www.courtlistener.com/docket/60105487/twinstrand-biosciences-inc-v-guardant-health-inc/)) | 2021-08-03<br>US 10,801,063 | loeblab/Duplex-Sequencing<br>loeblab/Duplex-<br>names garbled;<br>files `ConsensusMaker.py`,<br>`DuplexMaker.py` | 12 functions, 6 files |
@@ -374,8 +378,8 @@ PROGME's two, Interactive Games' two and Cellspin's three.
 | ESW Holdings v. Roku<br>[1-2](https://storage.courtlistener.com/recap/gov.uscourts.txwd.1003897/gov.uscourts.txwd.1003897.1.2.pdf) ([txwd 6:19-cv-00044](https://www.courtlistener.com/docket/14546481/esw-holdings-inc-v-roku-inc/)) | 2019-02-08<br>US 8,682,945 | rokudev/feed-specifications<br>rokudev/docs<br>rokudev/sublimetext-package<br>… 9 more<br>e.g. `GetAdvertisingId`,<br>`stitchedAdHandledEvent` | 12 functions, 0 files |
 | Masimo v. True Wearables<br>[373](https://storage.courtlistener.com/recap/gov.uscourts.cacd.728271/gov.uscourts.cacd.728271.373.0.pdf) ([cacd 8:18-cv-02001](https://www.courtlistener.com/docket/8345399/masimo-corporation-v-true-wearables-inc/)) | 2018-11-08<br>US 8,886,271 | GRousselet/matlab_stats<br>names garbled, no files | 3 functions, 0 files |
 | Sookbox Development v. Walmart<br>[1](https://storage.courtlistener.com/recap/gov.uscourts.txed.183296/gov.uscourts.txed.183296.1.0.pdf) ([txed 6:18-cv-00330](https://www.courtlistener.com/docket/7370102/sookbox-development-llc-v-walmart-inc/)) | 2018-07-06<br>US 9,497,137 | xbmc/xbmc<br>e.g. `CGUIPassword::LockSources`,<br>`CMediaSourceSettings::GetInstance` | 7 functions, 0 files |
-| PROGME v. Comcast<br>[1-13](https://storage.courtlistener.com/recap/gov.uscourts.paed.528848.1.13.pdf) ([paed 2:17-cv-01488](https://www.courtlistener.com/docket/5106518/progme-corporation-v-comcast-cable-communications-llc/)) | 2017-03-29<br>US 8,713,425 | Comcast/cmb<br>cybergarage/cybergarage-upnp<br>e.g. `getPropertyValue`,<br>`getProperties` | 12 functions, 12 files |
-| PROGME v. Comcast<br>[1-41](https://storage.courtlistener.com/recap/gov.uscourts.paed.528848/gov.uscourts.paed.528848.1.41.pdf) ([paed 2:17-cv-01488](https://www.courtlistener.com/docket/5106518/progme-corporation-v-comcast-cable-communications-llc/)) | 2017-03-29<br>US 8,713,425 | Comcast/cmb<br>cybergarage/cybergarage-upnp<br>e.g. `getPropertyValue`,<br>`getProperties` | 12 functions, 12 files |
+| PROGME v. Comcast<br>[1-13](https://storage.courtlistener.com/recap/gov.uscourts.paed.528848.1.13.pdf) ([paed 2:17-cv-01488](https://www.courtlistener.com/docket/5106518/progme-corporation-v-comcast-cable-communications-llc/)) | 2017-03-29<br>US 8,713,425 | Comcast/cmb<br>cybergarage/cybergarage-upnp<br>e.g. `getPropertyValue`,<br>`getProperties` | 12 functions, 12 files<br>same docket as Table A |
+| PROGME v. Comcast<br>[1-41](https://storage.courtlistener.com/recap/gov.uscourts.paed.528848/gov.uscourts.paed.528848.1.41.pdf) ([paed 2:17-cv-01488](https://www.courtlistener.com/docket/5106518/progme-corporation-v-comcast-cable-communications-llc/)) | 2017-03-29<br>US 8,713,425 | Comcast/cmb<br>cybergarage/cybergarage-upnp<br>e.g. `getPropertyValue`,<br>`getProperties` | 12 functions, 12 files<br>same docket as Table A |
 | INTERACTIVE GAMES v. FanDuel<br>[1-2](https://storage.courtlistener.com/recap/gov.uscourts.njd.594996/gov.uscourts.njd.594996.1.2.pdf) ([njd 1:26-cv-03514](https://www.courtlistener.com/docket/73133584/interactive-games-llc-v-fanduel-inc/)) | 2026-04-01<br>US 12,420,181 | none linked<br>e.g. `WifiManager.isWifiEnabled`,<br>`setMinUpdateIntervalMillis` | 6 functions, 0 files<br>non-GitHub sweep |
 | INTERACTIVE GAMES v. FanDuel<br>[1-2](https://storage.courtlistener.com/recap/gov.uscourts.njd.594983/gov.uscourts.njd.594983.1.2.pdf) ([njd 2:26-cv-03514](https://www.courtlistener.com/docket/73132809/interactive-games-llc-v-fanduel-inc/)) | 2026-04-01<br>US 12,420,181 | none linked<br>e.g. `WifiManager.isWifiEnabled`,<br>`setMinUpdateIntervalMillis` | 6 functions, 0 files<br>non-GitHub sweep |
 | Dolby Video Compression v. Snap<br>[21](https://storage.courtlistener.com/recap/gov.uscourts.ded.92505/gov.uscourts.ded.92505.21.0.pdf) ([ded 1:26-cv-00317](https://www.courtlistener.com/docket/72582162/dolby-video-compression-llc-v-snap-inc/)) | 2026-03-23<br>US 10,404,272 | none linked<br>e.g. `deblock_edge_luma_c`,<br>`pelFilterLuma` | 6 functions, 12 files<br>non-GitHub sweep |
@@ -444,7 +448,7 @@ after the second hop as well, and after the pool changes as well.
 | FriendliAI 26-1 | text-generation-inference | 2 | 1 / 1 | 1 / 2 | 1 / 1 | 1 / 1 | 1 / 1 |
 | Databricks 149-2 | Spark | 37 | 1 / 1 | 1 / 1 | 1 / 1 | 2 / 1 | 2 / 1 |
 | VM Innovations 1-23 | three repositories | 4 | 0 / 1 | 0 | 0 / 1 | 0 | 0 |
-| Foundry 1-14, Coinbase 1-8, Coinbase 1-10 | secp256k1 | 8, 8, 6 | 0 | 0, 0, 1 / 1 | 0, 0, 1 / 1 | 1 / 0, 0 / 1, 1 / 1 | 1 / 0, 0 / 1, 1 / 1 |
+| Foundry 1-14, Core Scientific 1-8, Core Scientific 1-10 | secp256k1 | 8, 8, 6 | 0 | 0, 0, 1 / 1 | 0, 0, 1 / 1 | 1 / 0, 0 / 1, 1 / 1 | 1 / 0, 0 / 1, 1 / 1 |
 | Sookbox 1, PROGME 1-1 | Kodi, cmb | 7, 33 | 0 | 1 / 0, 0 | 0 | 0 | 0 |
 | True Return 1-6 | dss | 4 | 0 / unparsed | 2 / unparsed | 2 / unparsed | 2 / unparsed | 2 / 2 |
 | Veritaseum 1-3 | Solana, consensus-specs | 3, 2 | 0 | 0 | 0 | 0 | 0 |
@@ -493,7 +497,8 @@ with what the chart cites and what `--claim-locate` chose (blind, 2026-10-21):
   two of twelve names, the function that holds the loop reached, the accept test one call below
   it never offered, and the list padded with hashing and nonce functions
   (`secp256k1_sha256_write`, `nonce_function_rfc6979`).
-- **Worst, Coinbase 1-10** (US 8,532,286, Montgomery reduction, secp256k1). The chart reads (b),
+- **Worst, Core Scientific 1-10** (US 8,532,286, Montgomery reduction, secp256k1). The chart
+  reads (b),
   "computing a modified operand using a reduction value, instead of a modulus used in performing
   a standard Montgomery reduction, to perform a replacement of a least significant word of the
   operand", onto `secp256k1_scalar_set_int`, and (c), "outputting the modified operand", onto
@@ -503,7 +508,7 @@ with what the chart cites and what `--claim-locate` chose (blind, 2026-10-21):
   `secp256k1_fe_is_zero`, `secp256k1_declassify`): none of six names, and the word `reduction`
   matched no symbol at all. PROGME and True Return also scored zero, but their keys are a
   complaint's pasted servlet code and a differences layer with no vocabulary in common with the
-  claim; Coinbase 1-10 is the worst because the chart's association is at least arguable and
+  claim; Core Scientific 1-10 is the worst because the chart's association is at least arguable and
   CodeExam's list has nothing to do with it.
 
 **Reading the misses.** Judged by reading the code behind the litigant's rows and CodeExam's
@@ -534,7 +539,7 @@ table above, last column); blind and plain agree at eleven pairs, differ by one 
 and by more at three. One sample per row, so most of the movement is sampling: Foundry 1-11's
 four new names are the callees of a seed whose predicted words also changed between the runs,
 promoted by the existing one-hop navigation; ViaBTC blind lost two names the plain run kept;
-VM Innovations plain lost its one. What the bridge itself did is in the logs: Coinbase 1-10's
+VM Innovations plain lost its one. What the bridge itself did is in the logs: Core Scientific 1-10's
 first element went from zero candidates to 25, twenty of them by stem, and both modes chose
 `secp256k1_scalar_reduce_512`, the chart's own name. Three of the new agreements are
 agreement by name only: `transferFrom` in Securitize's `TestToken.sol` and `size` on
@@ -561,7 +566,7 @@ test-filter run: 20 and 21); blind and plain agree at twelve pairs, differ by on
 by more at one. This time the gains carry their own provenance. MARA 1-11 gained `Check`,
 `GetStrongRandBytes` and `MakeKeyData` in both modes, each row reading "reached by navigation
 from GenerateRandomKey via CKey::MakeNewKey": the chain the mechanism bullet above names, with
-`Check` resolved to `CKey::Check` through the seed's class. Coinbase 1-8 plain gained
+`Check` resolved to `CKey::Check` through the seed's class. Core Scientific 1-8 plain gained
 `fe_is_odd` (via `schnorrsig_sign_internal`), Foundry 1-14 blind `fe_normalize` (via
 `ge_to_storage`) and ViaBTC blind regained `recoverable_signature_load` and `pubkey_save` (via
 `ecdsa_recover`), all second-hop rows; Databricks blind's `doExecute` is a first-hop row
@@ -599,13 +604,14 @@ blind gain of 13 splits as follows:
 | source of the gain | names | filings |
 |---|---|---|
 | second navigation hop | 4 | MARA's `Check`, `GetStrongRandBytes`,<br>`MakeKeyData`; Foundry 1-14's `fe_normalize` |
-| stem bridge | 1 | Coinbase 1-10's `secp256k1_scalar_reduce_512` |
+| stem bridge | 1 | Core Scientific 1-10's `secp256k1_scalar_reduce_512` |
 | first-hop navigation,<br>class-first resolution | 1 | Databricks' `doExecute` |
 | sampling, or a call that parsed<br>where the earlier one had not | 7 | Foundry 1-11's four, True Return's two,<br>Securitize's one |
 
-Plain gained 11, of which 5 trace to a mechanism (MARA's three by the second hop, Coinbase 1-8's
-`fe_is_odd` by the second hop, Coinbase 1-10's by the bridge) and 6 are sampling (Foundry 1-11's
-four, True Return's two, MARA's `data`, less VM Innovations' `wait`). The test filter's
+Plain gained 11, of which 5 trace to a mechanism (MARA's three by the second hop, Core
+Scientific 1-8's `fe_is_odd` by the second hop, Core Scientific 1-10's by the bridge) and 6 are
+sampling (Foundry 1-11's four, True Return's two, MARA's `data`, less VM Innovations' `wait`).
+The test filter's
 contribution is of another kind: 38 test, mock, bench and example symbols left the chosen
 targets, among them two agreements that had been by name only (a mock's `size`, a test contract's
 `transferFrom`). The pool changes added no cited name: the model used the compact list 22 times
