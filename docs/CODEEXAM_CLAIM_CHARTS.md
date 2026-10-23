@@ -152,7 +152,9 @@ deterministic half of `--claim-locate`'s retrieval; the audited chart stays on t
 this family: `--claim-locate`, `--claim-chart`, `--claim-search`, `--claim-analyze`,
 `--claims-loop`, `--pseudo-claims`, `--synonymize`, `--claim-file`, `--claim-text`,
 `--min-terms` and `--air-gapped`.
-Thirty of the flags above appear in no documentation page at all, only in `--help`:
+Thirty of the family's flags above appeared in no documentation page before this one, and still
+appear in none other, `cli.md` included, which calls itself the canonical reference; `--help`
+documents them:
 `--chart-html-from`, `--chart-format`, `--chart-title`, `--chart-subtitle`, `--targets-out`,
 `--targets-per-element`, `--per-element-select`, `--claim-number`, `--dep-synonyms`,
 `--no-dep-synonyms`, `--whole-claim-targets`, `--concentration-targets`,
@@ -229,20 +231,24 @@ repository; what it derives from them is: the frame counts for 841 AI/ML claim 1
 in `src/core/claim-frame-tables.json`, the shape bands `--shape-profile ai-ml` draws on in
 `src/commands/pseudo-claims.js`, and the vocabulary profile in `src/core/claim-genre-df.json`.
 
-**The measured shape of a litigated claim 1** (frame tables, deterministic, 2026-10-19). Of 380
-structure rows: method 187, system 70, computer-readable medium 15, Jepson 35, other 73. The
-transition is `comprising` in 97.6% of 378 (`the steps of` tail in 21%). Of 956 method-claim
-rows beyond the preamble, 80.8% open with a gerund (`receiving`, `determining`, `providing`,
-`generating`). Of 3,293 dependents across the 385 families, 72.8% reference `of claim`, 76.6%
-open with `wherein`, 17% with `further comprising`. These tables,
+**The measured shape of a litigated claim 1** (frame tables, deterministic, 2026-10-19). 380 of
+the 385 families yield a parseable claim-1 structure; each count below excludes the rows where
+its feature is absent and names its own denominator. Of 380 structure rows: method 187, system
+70, computer-readable medium 15, Jepson 35, other 73. The transition is `comprising` in 97.6% of
+378 (`the steps of` tail in 21%). Of 956 method-claim rows beyond the preamble, 80.8% open with
+a gerund (`receiving`, `determining`, `providing`, `generating`). Of the 3,257 dependents that
+carry a reference phrase (36 do not), 72.8% use `of claim`; of the 3,210 that carry an opener (83
+do not), 76.6% open with `wherein` and 17.2% with `further comprising`. These tables,
 `src/core/claim-frame-tables.json`, are what `--claim-schema` enforces on a drafted pseudo-claim's
 frame through `src/core/claim-schema.js`, which renders the claim object the drafter fills.
 
 **Three tiers of test**, by what kind of answer exists:
 
 - **Structural, no model.** Does CodeExam's own element-splitter and dependency-detector
-  reproduce the patent office's markup? The dependency detector reproduces the office's parents
-  at about 99.95%; the element-splitter agrees less often and is being calibrated.
+  reproduce the patent office's markup? The dependency detector disagrees with the PTO's
+  parent on none of the 3,293 dependents of claim 1, with 4 unresolved
+  (`claim-frame-tables.json`, `parentAgreement`); the element-splitter agrees less often and is
+  being calibrated.
 - **Negative controls.** Truth is `ABSENT` by construction; any `PRESENT` is a false finding.
   First chart 4 of 4 `ABSENT`.
 - **Positive screening.** Retrieval only: where a patent's assignee also publishes open source,
@@ -584,11 +590,11 @@ fixture the pool changes are the first of the four to move a count: union 3 of 2
 raised from 2, with a dated entry), `MediaCodecRenderer` newly reached, asus-reading 1 of 14;
 the change was designed on the fourteen, and the fixture moved as a side effect.
 
-**The day's result (2026-10-22).** The four changes added names the litigants cited. Agreement
-with the litigants' charts, which is what the table's columns count, went from 14 blind and 15
-plain of 153 cited names on 2026-10-21 to 27 and 26, with one sample per row throughout. The
-blind gain of 13 splits as follows, each mechanism's share read from the rows' own provenance
-lines and logs:
+**The day's result (2026-10-22).** The four changes added six blind and five plain agreements
+traceable to a mechanism by the rows' own provenance lines and logs; total agreement with the
+litigants' charts, which is what the table's columns count, moved from 14 blind and 15 plain of
+153 cited names on 2026-10-21 to 27 and 26, the remainder sampling at one sample per row. The
+blind gain of 13 splits as follows:
 
 | source of the gain | names | filings |
 |---|---|---|
@@ -626,7 +632,7 @@ citation can exist without saying what the cell claims. The aim is a draft close
 contentions and expert reports contain that the examiner's work starts from it, never one used
 as-is.
 
-## 7. CodeExam's distance from that goal (on 2026-10-21)
+## 7. CodeExam's distance from that goal (as of 2026-10-22)
 
 - **Local engines.** The model-support matrix (2026-09-08) marks claim charts, `--claim-locate`
   and `--claims-loop` `SUPPORTED` on Qwen3.5-27B, which needs a 24 GB-class card, and `DEGRADED`
@@ -664,7 +670,9 @@ as-is.
   23 blind of 153, one of them the bridge's own; after the test filter as well: 20 and 21, with
   the test symbols among the chosen down from 45 to 3; after the second navigation hop as well:
   24 and 28, the MARA chain among them; after the pool changes as well: 26 and 27, every call
-  parsed, and the '101 fixture's first moved count (section 5). The charts CodeExam can defend
+  parsed, and the '101 fixture's first moved count. Of the day's gains, six blind and five plain
+  trace to a mechanism; the rest is sampling at one sample per row (section 5). The charts
+  CodeExam can defend
   today are cloud-engine charts with targets from `--claim-locate` or by hand.
 
 ## 8. Getting to the goal
