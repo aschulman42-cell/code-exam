@@ -5,11 +5,11 @@ number of runs behind it; most are one sample. The measured blocks are regenerat
 scripts named beside them; the prose is revised by hand.*
 
 **What a claim chart is, and why this page makes a fuss of it.** A claim chart sets a patent
-claim against a product, or against prior art, one row per limitation of the claim (a discrete
-element or component of an invention, including a step in a process or method), with the
-evidence that the limitation is or is not met. In litigation it is the instrument that turns
-"does this infringe" into findings a reader can check one limitation at a time; its forms, uses
-and pitfalls are the subject of the project author's book,
+claim against a product, or against prior art, one row for each limitation (a discrete element
+or component of an invention, including a step in a process or method) that makes up the claim,
+with the evidence that the limitation is or is not met. In litigation it is the instrument that
+turns "does this infringe" into findings a reader can check one limitation at a time; its forms,
+uses and pitfalls are the subject of the project author's book,
 [Claim Charts](https://www.softwarelitigationconsulting.com/claim-charts-book/), which stands in
 here for a fuller account. Why a code-examination tool concerns itself with patent claims at all
 is answered in [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md); this page is about
