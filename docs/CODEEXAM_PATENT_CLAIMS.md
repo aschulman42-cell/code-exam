@@ -42,27 +42,36 @@ PTO examination), and the codebase names things its own way. Bridging that gap i
 **`--claim-chart`** produces the core deliverable: a table with **one row per claim element**. The
 division of labor is deliberate — **CodeExam's deterministic code owns the structure** (it splits
 the claim into elements and builds the rows deterministically) and the **model (an LLM suitably
-prompted by CodeExam) fills the cells** (the per-element verdict and its evidence). With
+prompted by CodeExam) supplies the search words and the candidate picks, and fills the cells**
+(the per-element verdict and its evidence). With
 **`--targets`** you can point one chart at a specific set of candidate implementations at once — say
 three functions that each might implement a limitation, or two versions of a codebase — and CodeExam
 charts every element against all of them and merges the results into one table, so you see how each
 element fares across the candidates side by side.
 
-Each element gets a verdict — `PRESENT`, `PARTIAL`, `ASSUMED`, or `ABSENT` — with supporting
-citations and a confidence level. A couple of features make a chart easier to scrutinize rather than
-take at face value:
+Each element gets a verdict with its citation: `PRESENT`, the function plainly implements the
+element and a line from it is quoted; `ASSUMED`, a called function's name suggests it and the
+implementation is not visible; `PARTIAL`, the code configures, prepares or partially addresses
+it, with the gap stated; `ABSENT`, nothing in the function implements or references it. The
+guidance the analysis model receives is quoted on
+[`CODEEXAM_CLAIM_CHARTS.md`](CODEEXAM_CLAIM_CHARTS.md). A couple of features make a chart easier
+to scrutinize rather than take at face value:
 
-- **Support-count disclosure.** `--verdicts-out` writes a **sidecar** — a JSON file saved alongside
+- **Support-count disclosure.** `--verdicts-out` writes a **verdicts file** — JSON saved alongside
   the chart — recording, for each element, the evidence behind its verdict: which code sites were
   cited, and how many of the examined sites supported the verdict versus went against it. This is
   where a **lone-support row** shows up — a `PRESENT` resting on a single supporting site when many
   were examined. Such a verdict isn't necessarily wrong, but a claim of presence backed by one site
   out of many is among the most worth checking by hand: a weak, uncorroborated match is likelier to
   be an over-reach than one that many sites agree on.
-- **Determinism around the model.** The chart's retrieval and merge machinery is deterministic;
-  only the per-cell verdict comes from the model. The reproducibility controls that pin the model
-  side, and the provenance header that records engine/model/build, are in
-  [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md).
+- **Where the model is.** Three steps are the model's: predicting, per element, the words an
+  implementer's identifiers would carry (`--claim-locate`, and a chart run without `--targets`);
+  choosing implementers among the real symbols the search returned (`--claim-locate`); and
+  judging each target against every element (the cells). The symbol search, its caps and gates,
+  the navigation hop, the merge of verdicts into rows and every count are deterministic. Two
+  engines, or one cloud engine run twice, can examine different code before any verdict
+  differs. The reproducibility controls that pin the model side, and the provenance header that
+  records engine/model/build, are in [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md).
 
 `--chart-html` renders the chart as a printable page and `--chart-md` as a Markdown file that wraps
 and prints (one section per element, no wide table; `--chart-md-layout table` writes the table the
