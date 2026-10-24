@@ -6,6 +6,8 @@ element against a codebase, handling dependent claims, and the methodology that 
 defensible. The same machinery works on any structured technical prose — a specification, a
 requirements list — but patent claims are the demanding case it was designed for.
 
+The most important part of a patent is its "claims." These are one-sentence descriptions of the technology. Each claim contains "limitations." These are components or elements of the claimed invention, and can include steps in a process or method. Software of course has components such as functions, classes, methods, data structures, etc. When software runs, it executes steps in a process or method.
+
 ## A chart is a candidate match, not ground truth
 
 Read this first, because everything below depends on it. A CodeExam claim chart records whether some
