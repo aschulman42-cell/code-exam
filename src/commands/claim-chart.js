@@ -140,8 +140,13 @@ export function nominationIndex(retrieval) {
   const out = new Map();
   for (const pe of (Array.isArray(retrieval) ? retrieval : [])) {
     (pe.hits || []).forEach((h, rank) => {
-      if (!h || !h.sym) return;
-      const k = targetSpec(h.sym);
+      // A live hit carries the symbol; a hit read from a targets file carries
+      // the spec the file listed (absent-rows-cite-nominees).
+      if (!h || (!h.sym && !h.spec)) return;
+      // A spec is keyed as targetSpec keys a symbol: the file's basename and
+      // the name, so `x/A.java@A::one` in a file meets `A.java@A::one` analysed.
+      const specKey = (s) => { const at = s.lastIndexOf('@'); return at < 0 ? s : `${s.slice(0, at).split(/[\\/]/).pop()}@${s.slice(at + 1)}`; };
+      const k = h.sym ? targetSpec(h.sym) : specKey(String(h.spec).trim());
       if (!out.has(k)) out.set(k, []);
       // `arm` rides along so the renderers can tell the whole-claim arm from
       // concentration (both use element 0) without a second index.
@@ -620,7 +625,12 @@ export function parseTargets(spec) {
       // an older file, or a hand-written one, parses unchanged.
       const el = /^Element\s+(\d+):\s*(.*)$/i.exec(body);
       if (el) {
-        curEl = { element: Number(el[1]), text: el[2], words: [], candidates: 0 };
+        // `nominees`: the targets listed under this block, in the file's
+        // order, which is the element's retrieval rank (absent-rows-cite-
+        // nominees). They become ranked hits so the merge's nearest-miss
+        // rule can fire on a --targets chart; until 2026-10-23 the block
+        // was read as a count and every ABSENT tie fell to file order.
+        curEl = { element: Number(el[1]), text: el[2], words: [], candidates: 0, nominees: [] };
         elementMap.push(curEl);
         continue;
       }
@@ -634,7 +644,7 @@ export function parseTargets(spec) {
     }
     for (const part of t.split(';')) {
       const p = part.trim();
-      if (p) targets.push(p);
+      if (p) { targets.push(p); if (curEl) curEl.nominees.push(p); }
     }
   }
   // Curating a target list is a legitimate operator action — CE reports it, it
@@ -654,9 +664,13 @@ export function parseTargets(spec) {
   // `Retrieval by element` renderer consumes it without knowing which path
   // produced it. `hits` is a length-only stand-in: the file records how many
   // candidates an element had, which is what that table reports.
+  // The listed targets are the ranked hits; nulls pad to the block's candidate
+  // count so the `Retrieval by element` table keeps reporting what the file
+  // recorded.
   const retrieval = elementMap.length
     ? elementMap.map((e) => ({ element: e.element, text: e.text, words: e.words,
-      hits: new Array(e.candidates).fill(null),
+      hits: [...e.nominees.map((spec) => ({ spec })),
+        ...new Array(Math.max(0, e.candidates - e.nominees.length)).fill(null)],
       ...(e.matched != null ? { matched: e.matched, more: e.more } : {}) }))
     : null;
   return { targets: unique, provenance, source, integrity, duplicates, containers, retrieval, origin };
@@ -961,6 +975,47 @@ export function mergeBestPerElement(perTarget, { nominators = null } = {}) {
     v.agreement = tally.get(key) || null;
     v.closest = v.label === 'ABSENT';
   }
+  // absent-rows-cite-nominees (Andrew, 2026-10-23: "I would have wanted to
+  // see a chart that listed it, and said why it was wrong"): an ABSENT row
+  // carries the element's nominees in its retrieval order, up to three, each
+  // with that target's reason. The first is the closest-examined citation.
+  const noteOf = new Map();
+  for (const p of perTarget) for (const e of p.elements || []) if (e.element != null) noteOf.set(`${p.target}|${e.element}`, e);
+  for (const [, v] of best) {
+    const ranked = [];
+    for (const [t, list] of (nominators || new Map())) {
+      for (const n of list) if (n.element === v.element && noteOf.has(`${t}|${v.element}`)) ranked.push({ target: t, rank: n.rank });
+    }
+    ranked.sort((a, b) => a.rank - b.rank);
+    const judged = (t) => noteOf.get(`${t}|${v.element}`) || {};
+    if (v.label === 'ABSENT') {
+      const seen = new Set([v.target]);
+      v.rejected = [{ target: v.target, note: v.note }];
+      for (const r of ranked) {
+        if (seen.has(r.target)) continue;
+        seen.add(r.target);
+        v.rejected.push({ target: r.target, note: judged(r.target).note || '' });
+        if (v.rejected.length >= 3) break;
+      }
+    } else {
+      // A cited row says which candidates the element's own retrieval ranked
+      // above the cited one and the judge rated lower, with the reason: the
+      // '101 re-run of 2026-10-23 cited a lone PARTIAL on row 6 while the
+      // element's rank-one nominee sat ABSENT with the clearest reason in
+      // the chart, unseen.
+      const mine = nomRank(v.target, v.element);
+      const seen = new Set([v.target]);
+      v.outranked = [];
+      for (const r of ranked) {
+        if (r.rank >= mine || seen.has(r.target)) continue;
+        seen.add(r.target);
+        const j = judged(r.target);
+        v.outranked.push({ target: r.target, label: j.label || 'ABSENT', note: j.note || '' });
+        if (v.outranked.length >= 3) break;
+      }
+      if (!v.outranked.length) delete v.outranked;
+    }
+  }
   return [...best.values()];
 }
 
@@ -1034,8 +1089,16 @@ export function fillChartRows(table, fills) {
     if (!f) continue;
     // An ABSENT row's citation is the closest candidate examined, not a
     // finding, and says so (chart-cite-nearest-miss).
+    // absent-rows-cite-nominees: the other examined nominees ride in the cell.
+    const brief = (s) => String(s || '').replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim().slice(0, 120) || 'no reason recorded';
+    const also = (f.closest && Array.isArray(f.rejected) ? f.rejected.slice(1) : [])
+      .map((r) => `<br>also examined: \`${r.target}\`${pseudoTag(r.target)} — ${brief(r.note)}`)
+      .join('')
+      + (Array.isArray(f.outranked) ? f.outranked : [])
+        .map((r) => `<br>ranked above by retrieval, rated ${r.label}: \`${r.target}\`${pseudoTag(r.target)} — ${brief(r.note)}`)
+        .join('');
     const cite = f.target
-      ? `${f.closest ? 'closest examined: ' : ''}\`${f.target}\`${pseudoTag(f.target)}`
+      ? `${f.closest ? 'closest examined: ' : ''}\`${f.target}\`${pseudoTag(f.target)}${also}`
       : '—';
     const noteBase = f.note ? ` ${String(f.note).replace(/\|/g, '\\|').slice(0, 160)}` : '';
     const note = noteBase + (f.unshown && f.unshown.length
@@ -1360,6 +1423,19 @@ export function formatChart({
       }
       out.push(`Cited: ${f.target ? `${f.closest ? 'closest examined: ' : ''}\`${f.target}\`${pseudoTag(f.target)}` : '—'}`);
       out.push('');
+      // absent-rows-cite-nominees: the other examined nominees, with reasons.
+      if (f.closest && Array.isArray(f.rejected) && f.rejected.length > 1) {
+        out.push('Also examined for this element, in its retrieval order, and rejected:');
+        out.push('');
+        for (const r of f.rejected.slice(1)) out.push(`- \`${r.target}\`${pseudoTag(r.target)} — ${String(r.note || '').replace(/\s+/g, ' ').trim() || 'no reason recorded'}`);
+        out.push('');
+      }
+      if (Array.isArray(f.outranked) && f.outranked.length) {
+        out.push('Ranked above the cited target by this element\'s retrieval, and rated lower:');
+        out.push('');
+        for (const r of f.outranked) out.push(`- \`${r.target}\`${pseudoTag(r.target)} — ${r.label}: ${String(r.note || '').replace(/\s+/g, ' ').trim() || 'no reason recorded'}`);
+        out.push('');
+      }
     });
     const unplaced = (fills || []).filter((f) => f.element == null);
     if (unplaced.length) {
@@ -3210,6 +3286,13 @@ footer.doc{margin-top:32px;padding-top:12px;border-top:1px solid #DEE1E8;font-si
     if (f && f.unshown && f.unshown.length) bits.push(`<div class="meta">not shown in citation: ${hesc(f.unshown.join(', '))}</div>`);
     if (f && f.target) {
       if (f.closest) bits.push('<div class="closest">Closest candidate examined — not a finding</div>');
+      // absent-rows-cite-nominees: the other examined nominees, with reasons.
+      for (const r of (f.closest && Array.isArray(f.rejected) ? f.rejected.slice(1) : [])) {
+        bits.push(`<div class="closest">Also examined: <code>${hesc(r.target)}</code> — ${hesc(String(r.note || '').replace(/\s+/g, ' ').trim() || 'no reason recorded')}</div>`);
+      }
+      for (const r of (Array.isArray(f.outranked) ? f.outranked : [])) {
+        bits.push(`<div class="closest">Ranked above by retrieval, rated ${hesc(r.label)}: <code>${hesc(r.target)}</code> — ${hesc(String(r.note || '').replace(/\s+/g, ' ').trim() || 'no reason recorded')}</div>`);
+      }
       bits.push(`<span class="cite">${hesc(f.target)}</span>`);
     }
     return `<td class="ev" style="border-left-color:${RAIL[label] || '#ccc'}">${bits.join('')}</td>`;
@@ -3368,6 +3451,13 @@ h1,h2{font-weight:600}
     if (f && f.unshown && f.unshown.length) out.push(`<div class="meta">not shown in citation: ${hesc(f.unshown.join(', '))}</div>`);
     if (f && f.target) {
       if (f.closest) out.push('<div class="closest">Closest candidate examined — not a finding</div>');
+      // absent-rows-cite-nominees: the other examined nominees, with reasons.
+      for (const r of (f.closest && Array.isArray(f.rejected) ? f.rejected.slice(1) : [])) {
+        out.push(`<div class="closest">Also examined: <code>${hesc(r.target)}</code> — ${hesc(String(r.note || '').replace(/\s+/g, ' ').trim() || 'no reason recorded')}</div>`);
+      }
+      for (const r of (Array.isArray(f.outranked) ? f.outranked : [])) {
+        out.push(`<div class="closest">Ranked above by retrieval, rated ${hesc(r.label)}: <code>${hesc(r.target)}</code> — ${hesc(String(r.note || '').replace(/\s+/g, ' ').trim() || 'no reason recorded')}</div>`);
+      }
       out.push(`<span class="cite">${hesc(f.target)}</span>`);
     }
     out.push('</div>');

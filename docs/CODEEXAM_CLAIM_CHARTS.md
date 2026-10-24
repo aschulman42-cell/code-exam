@@ -23,9 +23,13 @@ A CodeExam claim chart records, for each element of a patent claim and each code
 the model found code that plausibly meets one reading of that element, with the lines it relied
 on. A `PRESENT` cell is a **candidate match for a stated reading**, a lead to verify by reading
 the cited lines. It is not a finding that the limitation is met, and it says nothing about
-validity or infringement. When a CodeExam chart is compared with a chart a party filed in court,
-a match is **agreement with that party**: plaintiff and defendant chart the same claim against
-the same code and reach different results, and both can be internally sound, because they encode
+validity or infringement. An `ABSENT` cell's citation is the element's nearest miss: the
+candidate its own retrieval ranked first, followed by the other candidates examined for the
+element and the reason each was rejected; it is not a finding either. A cited cell also names
+any candidate the element's retrieval ranked above the cited one that the model rated lower,
+with its reason. When a CodeExam chart is compared with a chart a party filed in court, a match
+is **agreement with that party**: plaintiff and defendant chart the same claim against the same
+code and reach different results, and both can be internally sound, because they encode
 different contentions. CodeExam is a tool for building and pressure-testing contentions and for
 surfacing *candidates*, not an oracle that settles them. The verdict labels and the methodology are
 in [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md); read its first section before

@@ -617,6 +617,69 @@ describe('targets origin: parsed from the file header, compared with this run', 
     assert.equal(compareTargetsOrigin(null, {}), null);
   });
 
+  // absent-rows-cite-nominees: the file's per-element lists are ranked hits,
+  // so the merge's nearest-miss rule fires on a --targets chart.
+  it('a targets file\'s element block nominates its listed targets, and an ABSENT tie cites the nominee, not the first in file order', () => {
+    const r = parseTargets(HEADER);
+    assert.equal(r.retrieval[0].hits.length, 2, 'the candidate count is the block\'s');
+    assert.deepEqual(r.retrieval[0].hits.map((h) => (h ? h.spec : null)), ['key.cpp@GenerateRandomKey', 'random.cpp@SeedFast']);
+    const noms = nominationIndex(r.retrieval);
+    assert.deepEqual(noms.get('key.cpp@GenerateRandomKey'), [{ element: 1, rank: 0 }]);
+    assert.deepEqual(noms.get('random.cpp@SeedFast'), [{ element: 1, rank: 1 }]);
+    // Analysis order puts SeedFast first; the element's own nominee is GenerateRandomKey.
+    const perTarget = [
+      { target: 'random.cpp@SeedFast', elements: [{ element: 1, label: 'ABSENT', note: 'seeds a hasher' }] },
+      { target: 'key.cpp@GenerateRandomKey', elements: [{ element: 1, label: 'ABSENT', note: 'generates a key, no hash' }] },
+    ];
+    const withFile = mergeBestPerElement(perTarget, { nominators: noms });
+    assert.equal(withFile[0].target, 'key.cpp@GenerateRandomKey', 'the nearest miss by the element\'s rank');
+    assert.equal(withFile[0].closest, true);
+    const without = mergeBestPerElement(perTarget);
+    assert.equal(without[0].target, 'random.cpp@SeedFast', 'without nominators the tie falls to file order (the defect)');
+    // Part B: the ABSENT row carries the examined nominees with their reasons, closest first.
+    assert.deepEqual(withFile[0].rejected, [
+      { target: 'key.cpp@GenerateRandomKey', note: 'generates a key, no hash' },
+      { target: 'random.cpp@SeedFast', note: 'seeds a hasher' },
+    ]);
+    const many = Array.from({ length: 5 }, (_, i) => ({ target: `f${i}.c@g${i}`, elements: [{ element: 1, label: 'ABSENT', note: `r${i}` }] }));
+    const manyNoms = new Map(many.map((p, i) => [p.target, [{ element: 1, rank: 4 - i }]]));
+    const capped = mergeBestPerElement(many, { nominators: manyNoms })[0];
+    assert.deepEqual(capped.rejected.map((r) => r.target), ['f4.c@g4', 'f3.c@g3', 'f2.c@g2'], 'rank order, capped at three');
+    assert.equal(mergeBestPerElement([{ target: 'a@b', elements: [{ element: 1, label: 'PRESENT', note: 'x' }] }])[0].rejected, undefined, 'only ABSENT rows');
+    // The three renderings, through the replay path from recorded nominators.
+    const sidecar = { analysed: [
+      { target: 'random.cpp@SeedFast', nominatedBy: [{ element: 1, rank: 1 }], elements: [{ element: 1, text: 'generating a seed', label: 'ABSENT', note: 'seeds a hasher' }] },
+      { target: 'key.cpp@GenerateRandomKey', nominatedBy: [{ element: 1, rank: 0 }], elements: [{ element: 1, text: 'generating a seed', label: 'ABSENT', note: 'generates a key, no hash' }] },
+    ], claimSource: '(inline)', targetsFile: null, targetsIntegrity: 'not-supplied' };
+    const table = replayChartMarkdown({ sidecar, sidecarPath: 'y.json', layout: 'table' });
+    assert.match(table, /closest examined: `key\.cpp@GenerateRandomKey`<br>also examined: `random\.cpp@SeedFast` — seeds a hasher \|/, 'the table cell');
+    const stacked = replayChartMarkdown({ sidecar, sidecarPath: 'y.json' });
+    assert.match(stacked, /^Cited: closest examined: `key\.cpp@GenerateRandomKey`\n\nAlso examined for this element, in its retrieval order, and rejected:\n\n- `random\.cpp@SeedFast` — seeds a hasher$/m, 'the stacked list');
+    const html = replayChartHtml({ sidecar, sidecarPath: 'y.json' });
+    assert.ok(html.includes('Also examined: <code>random.cpp@SeedFast</code> — seeds a hasher'), 'the page');
+    // A cited row names the higher-ranked nominee the judge rated lower (the '101 row 6 case).
+    const partial = [
+      { target: 'a.java@determineIdeal', elements: [{ element: 1, label: 'ABSENT', note: 'selection is based on bandwidth' }] },
+      { target: 'b.java@getAvailable', elements: [{ element: 1, label: 'PARTIAL', note: 'computes available duration' }] },
+    ];
+    const pn = new Map([['a.java@determineIdeal', [{ element: 1, rank: 0 }]], ['b.java@getAvailable', [{ element: 1, rank: 3 }]]]);
+    const row = mergeBestPerElement(partial, { nominators: pn })[0];
+    assert.equal(row.target, 'b.java@getAvailable');
+    assert.deepEqual(row.outranked, [{ target: 'a.java@determineIdeal', label: 'ABSENT', note: 'selection is based on bandwidth' }]);
+    assert.equal(row.rejected, undefined);
+    const sc2 = { analysed: partial.map((p) => ({ ...p, nominatedBy: pn.get(p.target) })), claimSource: '(inline)', targetsFile: null, targetsIntegrity: 'not-supplied' };
+    assert.match(replayChartMarkdown({ sidecar: sc2, sidecarPath: 'y.json', layout: 'table' }), /`b\.java@getAvailable`<br>ranked above by retrieval, rated ABSENT: `a\.java@determineIdeal` — selection is based on bandwidth \|/);
+    assert.match(replayChartMarkdown({ sidecar: sc2, sidecarPath: 'y.json' }), /^Ranked above the cited target by this element's retrieval, and rated lower:\n\n- `a\.java@determineIdeal` — ABSENT: selection is based on bandwidth$/m);
+    assert.ok(replayChartHtml({ sidecar: sc2, sidecarPath: 'y.json' }).includes('Ranked above by retrieval, rated ABSENT: <code>a.java@determineIdeal</code> — selection is based on bandwidth'));
+    // Nothing is listed when the cited target is itself the top nominee.
+    const topCited = mergeBestPerElement(partial, { nominators: new Map([['b.java@getAvailable', [{ element: 1, rank: 0 }]]]) })[0];
+    assert.equal(topCited.outranked, undefined);
+    // Padding keeps the count when fewer targets are listed than candidates.
+    const padded = parseTargets(['# Produced by CodeExam --claim-locate', '# Element 2: x', '# Element-candidates: 5', 'a@b'].join('\n'));
+    assert.equal(padded.retrieval[0].hits.length, 5);
+    assert.equal(padded.retrieval[0].hits.filter(Boolean).length, 1);
+  });
+
   it('formatTargetsOrigin renders the three shapes', () => {
     const { origin } = parseTargets(HEADER);
     const o = compareTargetsOrigin(origin, {
@@ -1885,6 +1948,9 @@ describe('dependent claims: scope and --claim-family (issue-311-dep-claim-chart)
       assert.equal(j.targetsOrigin.claim.verdict, 'same');
       assert.equal(j.targetsOrigin.index.verdict, 'same-name');
       assert.ok(j.targetsProvenance.some((l) => /^Command:/.test(l)), 'the header lines are recorded verbatim');
+      // absent-rows-cite-nominees: the file's attribution reaches the sidecar.
+      assert.deepEqual(j.analysed.find((a) => a.target === 'A.java@A::one').nominatedBy, [{ element: 1, rank: 0 }],
+        'a --targets run records who nominated each target (the file said x/A.java@A::one; the key is the basename form)');
       // Re-rendered from that sidecar: the same lines, no file read.
       const md = replayChartMarkdown({ sidecar: j, sidecarPath: 'v.json', layout: 'table' });
       assert.match(md, /^- \*\*Targets:\*\* 1 analysed, from `.*locate\.targets\.txt` — unmodified since generation$/m);
@@ -2011,7 +2077,8 @@ describe('nearest-miss citation on ties (chart-cite-nearest-miss)', () => {
     const table = buildChartTable('x', { elements: ['receiving a packet', 'routing the packet by its header'] });
     const fills = mergeBestPerElement(perTarget, { nominators }).map((f) => ({ ...f }));
     const filled = fillChartRows(table.table, fills);
-    assert.match(filled, /\| 1 \| .*\*\*ABSENT\*\*.*\| closest examined: `c\/Near\.java@near` \|/);
+    // absent-rows-cite-nominees: the cell now also lists the other examined nominee with its reason.
+    assert.match(filled, /\| 1 \| .*\*\*ABSENT\*\*.*\| closest examined: `c\/Near\.java@near`<br>also examined: `b\/Other\.java@other` — other \|/);
     assert.match(filled, /\| 2 \| .*\*\*PARTIAL\*\*.*\| `b\/Other\.java@other` \|/);
     const cov = coverageLine(fills, table.elements.length, table.elements);
     assert.match(cov, /1 ABSENT row\(s\) cite the closest candidate examined, not a finding/);
