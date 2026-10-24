@@ -255,6 +255,14 @@ Agreement means the claim captured the *mechanism*, not just echoed its names.
 [`litigated-claims-ground-truth.md`](litigated-claims-ground-truth.md) (the HOF
 section; #310).
 
+**The real-world yardstick (2026-10-23).** The self-test above manufactures its claims. A second
+test seeds the drafter with the functions fourteen litigants cited in public claim charts, nothing
+else, and compares each drafted claim element by element to the asserted claim, with a floor (a
+draft from an unrelated group of the same codebase) and a control (the same draft against another
+filing's claim of the same art). It measures the drafter's ceiling on real claims: whether, given
+a party's own code, the drafter writes that party's claim. Method, caveats and results on
+[`claim-chart-drafter-ceiling.md`](claim-chart-drafter-ceiling.md).
+
 ## See also
 
 - [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md) — searching and charting

@@ -370,3 +370,5 @@ _Generated 2026-10-23 by `scripts/recap-chart-agreement.mjs --render` from 114 r
 
 - [`real-world-claim-charts.md`](real-world-claim-charts.md) — how the pairs were found, and the catalog.
 - [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md) — the commands the tiers run.
+- [`claim-chart-drafter-ceiling.md`](claim-chart-drafter-ceiling.md) — the other half of the
+  distance: the drafter seeded with the litigants' cited functions, compared to the asserted claims.

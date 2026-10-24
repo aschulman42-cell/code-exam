@@ -160,6 +160,8 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `scripts/litigated-claims-fetch.mjs` — fetches litigated US patents' claim 1 + dependents from Google Patents
 - `scripts/pseudo-claim-loop.mjs` — runs the pseudo-claim loop: synonymize, chart blind, score vs answer key
 - `scripts/rank-eval.mjs` — scores a candidate ordering against tiered ground truth (Spearman, recall@k, purity)
+- `scripts/recap-chart-agreement.mjs` — the agreement harness: clones, indexes and scores the code fourteen litigants' claim charts cite against what --claim-locate and --claim-chart find; the reach and rule tiers run with no model
+- `scripts/recap-chart-drafter-ceiling.mjs` — the drafter's ceiling on real claims: seeds --pseudo-claims with the litigants' cited functions and compares the drafted claim to the asserted one element by element, with a floor and a control
 - `scripts/recap-claim-chart-search.mjs` — find public claim charts that cite open-source code, and catalog what they cite
 - `scripts/splitter-compare.mjs` — prints CE's claim-element split beside the attorney's rows for one patent
 
