@@ -2814,12 +2814,20 @@ export function replayChartData({ sidecar, sidecarPath = '', claimTextOverride =
   }
 
   bounds.push('not re-rendered (not recorded in the sidecar): connectivity, duplicate-surface notes, not-shown-in-citation annotations');
+  // chart-replay-marker-wording (Andrew, 2026-10-23: "'no model calls' in the
+  // top line is confusing, because clearly model calls were used to generate
+  // the chart"): the zero is the re-rendering's, and the sentence says so of
+  // itself, after the date and the file. Shared by the page and the Markdown.
+  const marker = `RE-RENDERED on ${new Date().toISOString()} from \`${sidecarPath || 'sidecar'}\`.`
+    + ' This rendering made no model call of its own: the verdicts, citations and notes below are'
+    + ` the original run's, of ${sidecar.generatedAt || 'an unrecorded time'}, as that file recorded them.`;
+  const boundLines = bounds.map((b) => `Replay bound: ${b}.`);
   const provenance = [
-    `RE-RENDERED from \`${sidecarPath || 'sidecar'}\` on ${new Date().toISOString()} — no model calls; verdicts, citations and notes are the original run's.`,
-    `Original run: ${sidecar.generatedAt || 'time unrecorded'}${sidecar.argv ? ` — \`${sidecar.argv}\`` : ''}`,
-    ...bounds.map((b) => `Replay bound: ${b}.`),
+    marker,
+    sidecar.argv ? `Original command: \`${sidecar.argv}\`` : 'Original command: unrecorded.',
+    ...boundLines,
   ].join('\n');
-  return { analysed, elements, claimText, fills, sideScope, otherSideElements, family, provenance, bounds };
+  return { analysed, elements, claimText, fills, sideScope, otherSideElements, family, provenance, bounds, marker, boundLines };
 }
 
 export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claimTextOverride = null,
@@ -2858,18 +2866,19 @@ export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claim
 // not in the sidecar, so the file says so instead of showing an empty table.
 export function replayChartMarkdown({ sidecar, sidecarPath = '', notes = null, claimTextOverride = null, width = 100,
   title = null, subtitle = null, layout = 'stacked' }) {
-  const { analysed, elements, claimText, fills, sideScope, otherSideElements, family, bounds } =
+  const { analysed, elements, claimText, fills, sideScope, otherSideElements, family, marker, boundLines } =
     replayChartData({ sidecar, sidecarPath, claimTextOverride });
   // The page's provenance holds the original command in one code span; the
   // file, in either layout, puts it in a fenced block, one argument per line,
-  // so it carries no unbreakable 500-column line.
+  // so it carries no unbreakable 500-column line. The marker sentence is the
+  // page's.
   const provenance = [
-    `RE-RENDERED from \`${sidecarPath || 'sidecar'}\` on ${new Date().toISOString()} — no model calls; verdicts, citations and notes are the original run's.`,
-    `Original run: ${sidecar.generatedAt || 'time unrecorded'}${sidecar.argv ? ', by the command below' : ''}.`,
-    ...bounds.map((b) => `Replay bound: ${b}.`),
+    marker,
+    ...boundLines,
     ...(sidecar.argv
-      ? ['', '```', ...String(sidecar.argv).trim().split(/\s+(?=--)/).map((p, i) => (i ? `  ${p}` : p)), '```']
-      : []),
+      ? ['Original command, one argument per line:', '', '```',
+        ...String(sidecar.argv).trim().split(/\s+(?=--)/).map((p, i) => (i ? `  ${p}` : p)), '```']
+      : ['Original command: unrecorded.']),
   ].join('\n');
   if (layout === 'table') {
     // --chart-md-layout table: the Markdown stdout would have printed, its

@@ -2419,7 +2419,10 @@ describe('chart html replay (chart-html-replay)', () => {
 
   it('replays the merge and renders rows, family, scope, and the re-rendered marker', () => {
     const html = replayChartHtml({ sidecar: SIDECAR, sidecarPath: 'y.json' });
-    assert.ok(html.includes('RE-RENDERED from `y.json`'), 're-rendered marker present');
+    // chart-replay-marker-wording: the zero call count is said of the rendering, not the chart.
+    assert.match(html, /RE-RENDERED on \S+ from `y\.json`\. This rendering made no model call of its own: the verdicts, citations and notes below are the original run's, of 2026-09-04T00:00:00\.000Z, as that file recorded them\./,
+      're-rendered marker present, worded of the rendering');
+    assert.ok(!html.includes('no model calls;'), 'the old clause is gone');
     assert.ok(html.includes('second element about reproducing'), 'element text recovered from analysed rows');
     assert.match(html, /PARTIAL/, 'merged verdict rendered (strongest label wins)');
     assert.ok(html.includes('Two-sided claim: transmission device / reception device'),
@@ -2445,14 +2448,15 @@ describe('chart html replay (chart-html-replay)', () => {
   // claim-chart-md-output: the same replay as the stacked Markdown file.
   it('re-renders the sidecar as the stacked Markdown chart: sections, family, notes, replay marker', () => {
     const md = replayChartMarkdown({ sidecar: SIDECAR, sidecarPath: 'y.json', notes: 'Across N runs, row 2 wobbled.' });
-    assert.ok(md.includes('RE-RENDERED from `y.json`'), 're-rendered marker present');
+    assert.match(md.replace(/\s+/g, ' '), /RE-RENDERED on \S+ from `y\.json`\. This rendering made no model call of its own/, 're-rendered marker present (wrapped)');
+    assert.match(md, /^Original command, one argument per line:\n\n```\n/m, 'the command block follows the bounds');
     assert.match(md, /^# Claim chart — /m, 'the heading takes the page\'s derived default title');
     assert.match(replayChartMarkdown({ sidecar: SIDECAR, title: 'T', subtitle: 'S' }), /^# T\n\n_S_\n/m, 'explicit title and subtitle');
     // layout: 'table' re-renders the Markdown stdout would have printed.
     const table = replayChartMarkdown({ sidecar: SIDECAR, sidecarPath: 'y.json', layout: 'table' });
     assert.match(table, /^\| # \| Claim element/m, 'the table form carries the element table');
     assert.match(table, /^\| 2 \| second element about reproducing _\[mechanism\]_ \| \*\*PARTIAL\*\*/m, 'rows filled from the replayed merge');
-    assert.ok(table.includes('RE-RENDERED from `y.json`'), 'and the replay marker');
+    assert.match(table, /RE-RENDERED on \S+ from `y\.json`\. This rendering made no model call of its own/, 'and the replay marker');
     assert.ok(!/^\| # \| Claim element/m.test(md), 'no element table: one section per element');
     assert.match(md, /^### 2\. /m, 'numbered element sections');
     assert.ok(md.includes('second element about reproducing'), 'element text recovered from analysed rows');
