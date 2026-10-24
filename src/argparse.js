@@ -2026,8 +2026,10 @@ LLM ANALYSIS:
                              element with no implementer analyzed is an element
                              reported ABSENT. 0 disables the arm.
   --targets-out <file>       --claim-locate: write the located targets to <file>, with a
-                             '#' provenance block (engine, model, index, claim, hunt
-                             caps, command, checksum) that --claim-chart reports.
+                             '#' provenance block (engine, model, index, claim and a
+                             checksum of its text, hunt caps, command, targets
+                             checksum) that --claim-chart reports, saying whether
+                             the file came from this run's index and claim.
   --hunt-rounds <n>          --claim-locate: max model turns in the hunt (default 8).
   --hunt-calls <n>           --claim-locate: max tool calls in the hunt (default 24).
   --include-tests            --claim-locate: allow test, mock, benchmark and example

@@ -31,7 +31,7 @@ import {
   buildSelectPrompt, isTestSymbol, candidatesForElement,
   buildHuntPrompt, parseHuntActions, makeHuntTools, runSymbolHunt, HUNT_DEFAULTS,
   transcriptSymbols, selectionSeen, partitionSelections,
-  buildTargetsProvenance, targetsChecksum, targetSpecs,
+  buildTargetsProvenance, targetsChecksum, targetSpecs, claimTextDigest,
   normalizeTargetSpec, dedupeTargets, classifyNavCallee,
 } from '../src/commands/claim-locate.js';
 import { fileURLToPath } from 'node:url';
@@ -1857,6 +1857,22 @@ describe('the targets file says what kind of sample it is', () => {
     // And it is absent when nothing was passed, rather than rendering blank.
     const none = buildTargetsProvenance({ mode: 'm', targets: ['a@b'], generatedAt: 'now' });
     assert.ok(!none.some((l) => /^Sampling:/.test(l)));
+  });
+
+  // chart-targets-origin-provenance: the claim's identity travels by content.
+  it('writes Claim-sha256 from the claim text, stable across re-flowed whitespace, absent without text', () => {
+    const text = '1. A method of rating a stream, comprising:\nreceiving the stream; and\ncomputing a rate.';
+    const lines = buildTargetsProvenance({ mode: 'm', targets: ['a@b'], generatedAt: 'now', claimText: text, claimChars: text.length });
+    const line = lines.find((l) => /^Claim-sha256:/.test(l));
+    assert.ok(line, 'the line is written');
+    assert.match(line, /^Claim-sha256: [0-9a-f]{16}$/);
+    assert.equal(line, `Claim-sha256: ${claimTextDigest(text)}`);
+    assert.equal(claimTextDigest(text.replace(/\n/g, ' ')), claimTextDigest(text), 'whitespace folded before hashing');
+    assert.notEqual(claimTextDigest(`${text} and logging`), claimTextDigest(text), 'a different claim hashes differently');
+    const idx = lines.findIndex((l) => /^Claim:/.test(l));
+    assert.equal(lines.indexOf(line), idx + 1, 'directly under the Claim: line');
+    const none = buildTargetsProvenance({ mode: 'm', targets: ['a@b'], generatedAt: 'now' });
+    assert.ok(!none.some((l) => /^Claim-sha256:/.test(l)), 'no line without claim text');
   });
 });
 

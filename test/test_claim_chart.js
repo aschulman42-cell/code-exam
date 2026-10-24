@@ -21,9 +21,9 @@ import {
   coverageLine, formatChart, doClaimChart, CHART_DEFAULTS, nominationIndex, targetSpec,
   parseChartVerdicts, fillChartRows, buildChartAnalysisPrompt, buildProvenanceHeader,
   perElementTargets, normalizeVerdictLine, perElementTargetsWithStats, resolveTargetBudget,
-  filterMatchesByFile, replayChartMarkdown,
+  filterMatchesByFile, replayChartMarkdown, compareTargetsOrigin, formatTargetsOrigin,
 } from '../src/commands/claim-chart.js';
-import { targetsChecksum } from '../src/commands/claim-locate.js';
+import { targetsChecksum, buildTargetsProvenance, claimTextDigest } from '../src/commands/claim-locate.js';
 import { engineBuildLine, getEngineBuild, formatEngineBuild } from '../src/core/llm-runner.js';
 import { createRequire } from 'node:module';
 import { readClaimFile, addLineNumbers, SimpleMasker, detectLanguage } from '../src/commands/analyze.js';
@@ -543,6 +543,100 @@ describe('citations must be file-absolute (the smoke-run defect)', () => {
     assert.match(p, /OWN file line numbers/);
     assert.match(p, /Do not count lines/);
     assert.match(p, /do not renumber from 1/i);
+  });
+});
+
+// chart-targets-origin-provenance (Andrew, 2026-10-23): a chart fed a targets
+// file states, mechanically, whether --claim-locate wrote it on this run's
+// index and claim, and the Element-matched lines stop repeating as noise.
+describe('targets origin: parsed from the file header, compared with this run', () => {
+  const HEADER = [
+    '# Produced by CodeExam v0.5.0 --claim-locate --blind',
+    '# Mode: symbol-table discovery — BLIND',
+    '# Engine: Claude API — claude-sonnet-4-6 (cloud LLM)',
+    '# Index: C:\\work\\indexes\\bitcoin__bitcoin__8673e8f (2467 files, 20541 symbols)',
+    '# Claim: /tmp/scratch/mara/claim-1.txt (780 chars, 9 elements)',
+    `# Claim-sha256: ${claimTextDigest('A method of generating a key k')}`,
+    '# Command: src/index.js --index-path idx --claim-locate @claim-1.txt --blind',
+    '# Generated: 2026-10-22T22:23:27.247Z',
+    '# Attribution: per-element retrieval, 1 element(s)',
+    '',
+    '# Element 1: generating a key',
+    '# Element-words: generate, key',
+    '# Element-candidates: 2',
+    '# Element-matched: 550 (at the cap; 35 more offered by name)',
+    'key.cpp@GenerateRandomKey',
+    'random.cpp@SeedFast',
+  ].join('\n');
+
+  it('parseTargets returns the origin fields and consumes Element-matched into the attribution', () => {
+    const r = parseTargets(HEADER);
+    assert.equal(r.origin.locate, true);
+    assert.equal(r.origin.blind, true);
+    assert.equal(r.origin.engine, 'Claude API — claude-sonnet-4-6 (cloud LLM)');
+    assert.deepEqual(r.origin.index, { path: 'C:\\work\\indexes\\bitcoin__bitcoin__8673e8f', files: 2467, symbols: 20541 });
+    assert.equal(r.origin.claim.chars, 780);
+    assert.equal(r.origin.claim.elements, 9);
+    assert.equal(r.origin.claim.sha, claimTextDigest('A method of generating a key k'));
+    assert.match(r.origin.command, /--claim-locate @claim-1\.txt --blind$/);
+    assert.equal(r.origin.generated, '2026-10-22T22:23:27.247Z');
+    assert.ok(!r.provenance.some((l) => /Element-matched/.test(l)), 'not echoed as provenance');
+    assert.ok(r.provenance.some((l) => /^Command:/.test(l)), 'the other header lines still travel verbatim');
+    assert.equal(r.retrieval[0].matched, 550);
+    assert.equal(r.retrieval[0].more, 35);
+    assert.equal(r.retrieval[0].hits.length, 2);
+    assert.equal(parseTargets('# produced by hand\na@b').origin, null, 'no CodeExam header, no origin');
+  });
+
+  it('compareTargetsOrigin judges the index by name and counts, the claim by checksum, then by length', () => {
+    const { origin } = parseTargets(HEADER);
+    const same = compareTargetsOrigin(origin, {
+      indexPath: '/elsewhere/indexes/bitcoin__bitcoin__8673e8f', indexFiles: 2467, indexSymbols: 20541,
+      claimText: 'A method of generating a key k', engineLabel: 'Claude API — claude-sonnet-4-6 (cloud LLM)',
+    });
+    assert.equal(same.index.verdict, 'same');
+    assert.equal(same.claim.verdict, 'same');
+    assert.equal(same.engineDiffers, false);
+    const diff = compareTargetsOrigin(origin, {
+      indexPath: 'C:/idx/bitcoin__bitcoin__b3a9b84', indexFiles: 2400, indexSymbols: 20000,
+      claimText: 'A different claim', engineLabel: 'local GGUF — gemma-4-12b-it-Q4_K_M.gguf',
+    });
+    assert.equal(diff.index.verdict, 'different');
+    assert.match(diff.index.why, /bitcoin__bitcoin__8673e8f \(2467 files, 20541 symbols\) there; bitcoin__bitcoin__b3a9b84 \(2400 files, 20000 symbols\) here/);
+    assert.equal(diff.claim.verdict, 'different');
+    assert.equal(diff.engineDiffers, true);
+    // Counts unknown on this side: the name alone is not "different".
+    const byName = compareTargetsOrigin(origin, { indexPath: 'bitcoin__bitcoin__8673e8f', claimText: 'A method of generating a key k' });
+    assert.equal(byName.index.verdict, 'same-name');
+    // An older file without Claim-sha256 falls back to the length and says so.
+    const older = parseTargets(HEADER.split('\n').filter((l) => !/^# Claim-sha256/.test(l)).join('\n')).origin;
+    const byLen = compareTargetsOrigin(older, { indexPath: 'x', claimText: 'x'.repeat(781) });
+    assert.equal(byLen.claim.verdict, 'same-length');
+    assert.match(byLen.claim.why, /predates the checksum line/);
+    assert.equal(compareTargetsOrigin(older, { indexPath: 'x', claimText: 'short' }).claim.verdict, 'different');
+    assert.equal(compareTargetsOrigin(null, {}), null);
+  });
+
+  it('formatTargetsOrigin renders the three shapes', () => {
+    const { origin } = parseTargets(HEADER);
+    const o = compareTargetsOrigin(origin, {
+      indexPath: 'bitcoin__bitcoin__8673e8f', indexFiles: 2467, indexSymbols: 20541,
+      claimText: 'A method of generating a key k', engineLabel: 'local GGUF — g.gguf',
+    });
+    const line = formatTargetsOrigin(o);
+    assert.match(line, /^written by `--claim-locate --blind` on 2026-10-22T22:23:27\.247Z by Claude API — claude-sonnet-4-6 \(cloud LLM\); index: \*\*same as this run\*\* \(bitcoin__bitcoin__8673e8f, 2467 files and 20541 symbols match\); claim: \*\*same text as this run\*\* \(checksum [0-9a-f]{16} matches\); the targets were chosen by one engine and the verdicts below come from another$/);
+    assert.ok(!formatTargetsOrigin(o, { markdown: false }).includes('**'), 'plain text for the page');
+    assert.match(formatTargetsOrigin(null), /^not recorded — the file carries no CodeExam `Produced by` header/);
+  });
+
+  it('the live header carries the line only when targets were supplied', () => {
+    const base = {
+      claimText: '1. A thing.', claimSource: '`c.txt`', indexPath: '.Idx', indexFiles: 1, indexSymbols: 1,
+      engineLabel: 'e', argv: 'x', targets: 1, targetSource: '`t.txt`', ceVersion: 'v', generatedAt: 'now',
+      targetProvenance: [],
+    };
+    assert.match(buildProvenanceHeader({ ...base, targetOrigin: null }), /^- \*\*Targets origin:\*\* not recorded/m);
+    assert.ok(!/Targets origin/.test(buildProvenanceHeader({ ...base })), 'absent for per-element retrieval');
   });
 });
 
@@ -1765,6 +1859,46 @@ describe('dependent claims: scope and --claim-family (issue-311-dep-claim-chart)
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 
+  // chart-targets-origin-provenance: a CE-written targets file fed to the
+  // chart states its origin against this run, and the sidecar records it.
+  it('a supplied targets file gets a Targets origin line, the matched count, and sidecar fields', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-origin-'));
+    const tPath = path.join(dir, 'locate.targets.txt');
+    const sidecarPath = path.join(dir, 'verdicts.json');
+    try {
+      const claim1 = chartScope(FAMILY, {}).text;
+      const header = buildTargetsProvenance({
+        ceVersion: 'v0.5.0', engine: 'test-locate-engine', blind: true, mode: 'symbol-table discovery',
+        indexPath: 'C:/elsewhere/.Idx', claimSource: 'claims.txt', claimChars: claim1.length, claimText: claim1,
+        elements: 3, argv: 'src/index.js --claim-locate @claims.txt --blind', generatedAt: '2026-10-23T00:00:00.000Z',
+        targets: ['x/A.java@A::one'],
+      });
+      fs.writeFileSync(tPath, [...header.map((l) => `# ${l}`), '# Attribution: per-element retrieval, 1 element(s)', '',
+        '# Element 1: first element', '# Element-words: rate', '# Element-candidates: 1',
+        '# Element-matched: 550 (at the cap; 35 more offered by name)', 'x/A.java@A::one', ''].join('\n'));
+      const { chart } = await run({ claim_chart: FAMILY, targets: `@${tPath}`, index_path: '.Idx', verdicts_out: sidecarPath });
+      assert.match(chart, /^- \*\*Targets origin:\*\* written by `--claim-locate --blind` on 2026-10-23T00:00:00\.000Z by test-locate-engine; index: \*\*same name\*\* \(\.Idx both; file or symbol counts not recorded on one side\); claim: \*\*same text as this run\*\* \(checksum [0-9a-f]{16} matches\); the targets were chosen by one engine and the verdicts below come from another$/m);
+      assert.ok(!/^  - Element-matched/m.test(chart), 'no Element-matched noise in the provenance list');
+      assert.match(chart, /\| 1 \| rate \| 1 \(550 matched, at the cap\) \|/, 'the matched count joins the retrieval table');
+      const j = JSON.parse(fs.readFileSync(sidecarPath, 'utf8'));
+      assert.equal(j.targetsFile, tPath);
+      assert.equal(j.targetsOrigin.claim.verdict, 'same');
+      assert.equal(j.targetsOrigin.index.verdict, 'same-name');
+      assert.ok(j.targetsProvenance.some((l) => /^Command:/.test(l)), 'the header lines are recorded verbatim');
+      // Re-rendered from that sidecar: the same lines, no file read.
+      const md = replayChartMarkdown({ sidecar: j, sidecarPath: 'v.json', layout: 'table' });
+      assert.match(md, /^- \*\*Targets:\*\* 1 analysed, from `.*locate\.targets\.txt` — unmodified since generation$/m);
+      assert.match(md, /^- \*\*Targets origin:\*\* written by `--claim-locate --blind`/m);
+      assert.match(md, /^- \*\*Target provenance:\*\*\n  - Produced by CodeExam v0\.5\.0 --claim-locate --blind/m);
+      assert.ok(!/targets origin not recorded/.test(md), 'no bound line when the sidecar carries the fields');
+      const html = replayChartHtml({ sidecar: j, sidecarPath: 'v.json' });
+      assert.ok(html.includes('Targets origin: written by `--claim-locate --blind`'), 'the page states it in plain text');
+      // A sidecar without --targets at all says nothing about origin.
+      const none = replayChartMarkdown({ sidecar: { ...j, targetsFile: null, targetsIntegrity: 'not-supplied' }, sidecarPath: 'v.json' });
+      assert.ok(!/Targets origin/.test(none) && !/targets origin not recorded/.test(none));
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
   it('--claim-family charts each dependent as inherited rows plus its contribution, with the sidecar family block', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-family-'));
     const sidecarPath = path.join(dir, 'verdicts.json');
@@ -2450,6 +2584,8 @@ describe('chart html replay (chart-html-replay)', () => {
     const md = replayChartMarkdown({ sidecar: SIDECAR, sidecarPath: 'y.json', notes: 'Across N runs, row 2 wobbled.' });
     assert.match(md.replace(/\s+/g, ' '), /RE-RENDERED on \S+ from `y\.json`\. This rendering made no model call of its own/, 're-rendered marker present (wrapped)');
     assert.match(md, /^Original command, one argument per line:\n\n```\n/m, 'the command block follows the bounds');
+    // chart-targets-origin-provenance: this fixture predates the sidecar fields.
+    assert.match(md, /^Replay bound: targets origin not recorded \(sidecar written before the origin line existed\)\.$/m);
     assert.match(md, /^# Claim chart — /m, 'the heading takes the page\'s derived default title');
     assert.match(replayChartMarkdown({ sidecar: SIDECAR, title: 'T', subtitle: 'S' }), /^# T\n\n_S_\n/m, 'explicit title and subtitle');
     // layout: 'table' re-renders the Markdown stdout would have printed.

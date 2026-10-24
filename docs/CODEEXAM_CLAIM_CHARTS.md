@@ -92,8 +92,10 @@ alternative step 2 over file bodies; pseudo-claims run the arrow backwards.
 
 - `--claim-chart <claim>` returns, per target and element, `PRESENT`, `PARTIAL`, `ASSUMED` or
   `ABSENT` with line citations, a coverage line per element and a provenance header naming the
-  engine, the build and the targets checksum. Targets come from `--targets` (a list, or the file
-  `--claim-locate` wrote) or, with none given, from per-element retrieval.
+  engine, the build, the targets checksum and, for a supplied targets file, its origin: whether
+  `--claim-locate` wrote it, on this run's index and this run's claim text or on others. Targets
+  come from `--targets` (a list, or the file `--claim-locate` wrote) or, with none given, from
+  per-element retrieval.
 - Per-element retrieval is sized by four flags: `--targets-per-element` (candidates analysed
   per element, default 3), `--max-retrieved-targets` (the cost ceiling on the total, default
   30), `--whole-claim-targets` (targets from the claim's own words, default 5) and

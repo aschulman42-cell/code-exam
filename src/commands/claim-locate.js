@@ -2010,9 +2010,20 @@ export function samplingLine(model, runs = 1) {
 
 // Mode flags print from the PARSED ARGS, not from a re-render of argv, so a
 // truncated or reconstructed command line cannot misreport the mode that ran.
+// chart-targets-origin-provenance: the claim's identity by CONTENT. A chart
+// fed this file compares the hash with its own claim text, so "same claim as
+// this run" is a statement about the text, not about a path that differs
+// across copies and machines (the MARA file named a scratchpad path; the chart
+// read the same text from %LOCALAPPDATA%). First 16 hex of SHA-256 over the
+// claim text with whitespace folded, so a re-flowed copy still matches.
+export function claimTextDigest(text) {
+  return crypto.createHash('sha256').update(String(text == null ? '' : text).replace(/\s+/g, ' ').trim(), 'utf8')
+    .digest('hex').slice(0, 16);
+}
+
 export function buildTargetsProvenance({
   ceVersion, engine, blind, hunt, mode, indexPath, indexFiles, indexSymbols,
-  claimSource, claimChars, elements, argv, generatedAt, targets,
+  claimSource, claimChars, claimText = null, elements, argv, generatedAt, targets,
   perElementSelect, selectionCalls, sampling,
 }) {
   const flags = [hunt ? '--hunt' : null, blind ? '--blind' : null,
@@ -2049,6 +2060,7 @@ export function buildTargetsProvenance({
     indexSymbols != null ? `${indexFiles != null ? ', ' : ' ('}${indexSymbols} symbols)` : (indexFiles != null ? ')' : '')}`);
   lines.push(`Claim: ${claimSource || 'inline text'}${claimChars != null ? ` (${claimChars} chars` : ''}${
     elements != null ? `, ${elements} element${elements === 1 ? '' : 's'})` : (claimChars != null ? ')' : '')}`);
+  if (claimText != null && String(claimText).trim()) lines.push(`Claim-sha256: ${claimTextDigest(claimText)}`);
   if (hunt) {
     lines.push(`Hunt: ${hunt.toolCalls} tool call(s) over ${hunt.rounds} round(s), `
       + `caps ${hunt.maxCalls}/${hunt.maxRounds}; ended: ${hunt.stopped}`);
@@ -2627,6 +2639,7 @@ export async function doClaimLocate(index, args, opts = {}) {
     indexSymbols: symbols.length,
     claimSource: typeof spec === 'string' && spec.startsWith('@') ? spec.slice(1) : null,
     claimChars: claimText.length,
+    claimText,
     elements: elements.length,
     argv: process.argv.slice(1).join(' '),
     generatedAt: new Date().toISOString(),

@@ -49,7 +49,7 @@ const pseudoTag = (spec) => (isPseudoSource(String(spec || '').split('@')[0]) ? 
 // input without saying so is how the next version of this bug hides.
 const _noteComments = (n, f) => process.stderr.write(
   `  Claim file ${f}: ignored ${n} '#' comment line(s) (provenance, not claim text).\n`);
-import { splitClaimElements, targetsChecksum, dedupeTargets, parseElementsFile, retrievePerElement, isPreambleRow, limitationTag, classifyLimitation, searchSymbolsByWords, contentCandidatesForWords, isTestSymbol, targetConnectivity, indexCallNeighbors, detectClaimSides } from './claim-locate.js';
+import { splitClaimElements, targetsChecksum, claimTextDigest, dedupeTargets, parseElementsFile, retrievePerElement, isPreambleRow, limitationTag, classifyLimitation, searchSymbolsByWords, contentCandidatesForWords, isTestSymbol, targetConnectivity, indexCallNeighbors, detectClaimSides } from './claim-locate.js';
 import { readCeVersion } from '../utils.js';
 import { buildSymbolTable, verifySymbol, isFound, navigateFrom } from '../core/symbol-verify.js';
 import { parseAnalysisLabels, lexicalGate } from './claims-loop.js';
@@ -570,6 +570,17 @@ export function parseTargets(spec) {
   // Element attribution, in file order. Empty for a file that carries none.
   const elementMap = [];
   let curEl = null;
+  // chart-targets-origin-provenance: the header's facts, parsed as well as
+  // carried, so the chart can state mechanically whether the list came from
+  // --claim-locate on this run's index and claim (Andrew, 2026-10-23). Null
+  // for a file without CodeExam's `Produced by` line (a hand-written list).
+  let origin = null;
+  const originOf = () => origin || (origin = {
+    producedBy: null, locate: false, blind: false, engine: null,
+    index: { path: null, files: null, symbols: null },
+    claim: { path: null, chars: null, elements: null, sha: null },
+    command: null, generated: null,
+  });
   for (const line of raw.split(/\r?\n/)) {
     const t = line.trim();
     if (!t) continue;
@@ -577,6 +588,29 @@ export function parseTargets(spec) {
       const body = t.replace(/^#+\s*/, '');
       const m = /^Targets-checksum:\s*([0-9a-f]+)$/i.exec(body);
       if (m) { claimed = m[1].toLowerCase(); continue; }
+      let h;
+      if ((h = /^Produced by CodeExam\b(.*)$/i.exec(body))) {
+        const o = originOf();
+        o.producedBy = body; o.locate = /--claim-locate\b/.test(h[1]); o.blind = /--blind\b/.test(h[1]);
+      } else if (origin && (h = /^Engine:\s*(.+)$/i.exec(body))) {
+        origin.engine = h[1].trim();
+      } else if (origin && (h = /^Index:\s*(.*?)\s*(?:\((?:(\d+) files)?(?:,\s*)?(?:(\d+) symbols)?\))?$/i.exec(body))) {
+        origin.index = { path: h[1] || null, files: h[2] != null ? Number(h[2]) : null, symbols: h[3] != null ? Number(h[3]) : null };
+      } else if (origin && (h = /^Claim:\s*(.*?)\s*(?:\((?:(\d+) chars)?(?:,\s*)?(?:(\d+) elements?)?\))?$/i.exec(body))) {
+        origin.claim = { ...origin.claim, path: h[1] || null, chars: h[2] != null ? Number(h[2]) : null, elements: h[3] != null ? Number(h[3]) : null };
+      } else if (origin && (h = /^Claim-sha256:\s*([0-9a-f]+)$/i.exec(body))) {
+        origin.claim.sha = h[1].toLowerCase();
+      } else if (origin && (h = /^Command:\s*(.+)$/i.exec(body))) {
+        origin.command = h[1].trim();
+      } else if (origin && (h = /^Generated:\s*(.+)$/i.exec(body))) {
+        origin.generated = h[1].trim();
+      }
+      // `Element-matched: N (at the cap; M more offered by name)` belongs to
+      // the element above it, not to the provenance list, where it repeated
+      // once per element with no element number (eight lines in the MARA
+      // header, 2026-10-23). It joins the attribution instead.
+      const em = /^Element-matched:\s*(\d+)\s*\(at the cap;\s*(\d+) more offered by name\)/i.exec(body);
+      if (em && curEl) { curEl.matched = Number(em[1]); curEl.more = Number(em[2]); continue; }
       // Per-element attribution written by --targets-out. Recognised here so a
       // chart fed a locate file renders the same `Retrieval by element` table
       // it renders when it retrieved for itself — the table that distinguishes
@@ -622,9 +656,79 @@ export function parseTargets(spec) {
   // candidates an element had, which is what that table reports.
   const retrieval = elementMap.length
     ? elementMap.map((e) => ({ element: e.element, text: e.text, words: e.words,
-      hits: new Array(e.candidates).fill(null) }))
+      hits: new Array(e.candidates).fill(null),
+      ...(e.matched != null ? { matched: e.matched, more: e.more } : {}) }))
     : null;
-  return { targets: unique, provenance, source, integrity, duplicates, containers, retrieval };
+  return { targets: unique, provenance, source, integrity, duplicates, containers, retrieval, origin };
+}
+
+// chart-targets-origin-provenance: the comparison the reader could not do by
+// eye. Index by basename plus file and symbol counts, because paths differ
+// across copies and machines while the trees are the same; claim by the
+// content checksum `--targets-out` writes, with the character count as the
+// stated fallback for a file that predates it. Returns null for null origin.
+export function compareTargetsOrigin(origin, { indexPath, indexFiles, indexSymbols, claimText, engineLabel } = {}) {
+  if (!origin) return null;
+  const base = (p) => String(p || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+  const ix = origin.index || {};
+  const nameThere = base(ix.path);
+  const nameHere = base(indexPath);
+  const sameName = !!nameThere && !!nameHere && nameThere === nameHere;
+  const sameCounts = ix.files != null && indexFiles != null && ix.files === indexFiles
+    && ix.symbols != null && indexSymbols != null && ix.symbols === indexSymbols;
+  const countsKnown = ix.files != null && ix.symbols != null && indexFiles != null && indexSymbols != null;
+  let index;
+  if (!ix.path) index = { verdict: 'unknown', why: 'the targets file names no index' };
+  else if (sameName && sameCounts) index = { verdict: 'same', why: `${nameHere}, ${indexFiles} files and ${indexSymbols} symbols match` };
+  else if (sameName && !countsKnown) index = { verdict: 'same-name', why: `${nameHere} both; file or symbol counts not recorded on one side` };
+  else if (sameCounts) index = { verdict: 'same-counts', why: `named ${nameThere} there and ${nameHere} here; ${indexFiles} files and ${indexSymbols} symbols match` };
+  else index = { verdict: 'different', why: `${nameThere} (${ix.files ?? '?'} files, ${ix.symbols ?? '?'} symbols) there; ${nameHere || '(unknown)'} (${indexFiles ?? '?'} files, ${indexSymbols ?? '?'} symbols) here` };
+  const cl = origin.claim || {};
+  const hereSha = claimTextDigest(claimText);
+  const hereChars = String(claimText == null ? '' : claimText).length;
+  let claim;
+  if (cl.sha) {
+    claim = cl.sha === hereSha
+      ? { verdict: 'same', why: `checksum ${hereSha} matches` }
+      : { verdict: 'different', why: `checksum ${cl.sha} there, ${hereSha} here` };
+  } else if (cl.chars != null) {
+    claim = Math.abs(cl.chars - hereChars) <= 2
+      ? { verdict: 'same-length', why: `${cl.chars} characters there and ${hereChars} here; the file predates the checksum line, so only the length is compared` }
+      : { verdict: 'different', why: `${cl.chars} characters there, ${hereChars} here` };
+  } else claim = { verdict: 'unknown', why: 'the targets file records no claim length or checksum' };
+  const engine = origin.engine || null;
+  return {
+    locate: !!origin.locate, blind: !!origin.blind, engine, generated: origin.generated || null,
+    command: origin.command || null, index, claim,
+    engineDiffers: !!(engine && engineLabel && engine !== engineLabel),
+  };
+}
+
+// The one line the header prints for a supplied targets file. `null` is a file
+// with no CodeExam header; bold only in Markdown.
+export function formatTargetsOrigin(o, { markdown = true } = {}) {
+  const b = (s) => (markdown ? `**${s}**` : s);
+  if (!o) {
+    return 'not recorded — the file carries no CodeExam `Produced by` header, so how the list was'
+      + ' made is not known to CodeExam';
+  }
+  const ixText = {
+    same: `${b('same as this run')} (${o.index.why})`,
+    'same-name': `${b('same name')} (${o.index.why})`,
+    'same-counts': `${b('same by counts')} (${o.index.why})`,
+    different: `${b('different')} (${o.index.why})`,
+    unknown: `unknown (${o.index.why})`,
+  }[o.index.verdict];
+  const clText = {
+    same: `${b('same text as this run')} (${o.claim.why})`,
+    'same-length': `${b('same length')} (${o.claim.why})`,
+    different: `${b('differs')} (${o.claim.why})`,
+    unknown: `unknown (${o.claim.why})`,
+  }[o.claim.verdict];
+  return `written by \`--claim-locate${o.blind ? ' --blind' : ''}\``
+    + `${o.generated ? ` on ${o.generated}` : ''}${o.engine ? ` by ${o.engine}` : ''};`
+    + ` index: ${ixText}; claim: ${clText}`
+    + (o.engineDiffers ? '; the targets were chosen by one engine and the verdicts below come from another' : '');
 }
 
 // Depth-1 callee BODIES for the analysed function.
@@ -1044,6 +1148,10 @@ export function buildProvenanceHeader({
   argv, targets, targetSource, targetProvenance, targetIntegrity, ceVersion, generatedAt,
   targetDuplicates, targetContainers, targetUnresolved, targetAmbiguous,
   targetsSupplied, targetsPartial, elementsSource, elementComments,
+  // chart-targets-origin-provenance: undefined when no --targets was supplied
+  // (the line is omitted); null for a file without a CodeExam header; else
+  // compareTargetsOrigin's result.
+  targetOrigin,
 }) {
   const firstLine = String(claimText || '').split('\n').map((s) => s.trim()).find(Boolean) || '';
   const rows = [];
@@ -1115,6 +1223,7 @@ export function buildProvenanceHeader({
       + ` elements: ${targetsPartial.join(', ')}`);
   }
   for (const d of drops) rows.push(`  - ${d}`);
+  if (targetOrigin !== undefined) rows.push(`- **Targets origin:** ${formatTargetsOrigin(targetOrigin)}`);
   if (targetProvenance && targetProvenance.length) {
     rows.push('- **Target provenance:**');
     for (const l of targetProvenance) rows.push(`  - ${l}`);
@@ -1383,12 +1492,14 @@ export function formatChart({
       const wordsCell = p.arm === 'drilldown'
         ? `_scoped to ${String(p.file || '').split('/').pop().split('!').pop()}_`
         : `${(p.words || []).map((w) => (p.wordRuns && p.wordRuns.single && p.wordRuns.single.includes(w) ? `${w}?` : w)).join(', ').replace(/\|/g, '\\|')}${depMark}`;
+      // A capped element says how many names matched (chart-targets-origin-provenance).
+      const cand = `${(p.hits || []).length}${p.matched != null ? ` (${p.matched} matched, at the cap)` : ''}`;
       if (stacked) {
-        out.push(`- element ${label}: ${wordsCell.replace(/\\\|/g, '|') || '(no words)'}; ${(p.hits || []).length} candidate(s)`
+        out.push(`- element ${label}: ${wordsCell.replace(/\\\|/g, '|') || '(no words)'}; ${cand} candidate(s)`
           + `${anyContent ? `, ${p.contentAdded || 0} via content` : ''}`);
       } else {
         out.push(`| ${label} | ${wordsCell} `
-          + `| ${(p.hits || []).length} |${anyContent ? ` ${p.contentAdded || 0} |` : ''}`);
+          + `| ${cand} |${anyContent ? ` ${p.contentAdded || 0} |` : ''}`);
       }
     }
     if (anyContent) {
@@ -2062,11 +2173,20 @@ export async function doClaimChart(index, args, opts = {}) {
   let targets, targetProvenance = [], targetSource = null, targetIntegrity = null;
   let targetDuplicates = null, targetContainers = null;
   let retrieval = null;
+  // chart-targets-origin-provenance: undefined = no --targets; null = a file
+  // without CodeExam's header; else the comparison with this run's inputs.
+  let targetOrigin;
   if (args.targets) {
+    let targetOriginRaw = null;
     try { ({ targets, provenance: targetProvenance, source: targetSource, integrity: targetIntegrity,
-      duplicates: targetDuplicates, containers: targetContainers, retrieval } = parseTargets(args.targets)); }
+      duplicates: targetDuplicates, containers: targetContainers, retrieval, origin: targetOriginRaw } = parseTargets(args.targets)); }
     catch (e) { console.error(e.message); process.exitCode = 1; return; }
     if (!targets.length) { console.error('No targets parsed.'); process.exitCode = 1; return; }
+    targetOrigin = compareTargetsOrigin(targetOriginRaw, {
+      indexPath: args.index_path || null,
+      indexFiles: index.files ? (index.files.size ?? index.files.length ?? null) : null,
+      indexSymbols: symbols.length, claimText, engineLabel,
+    });
     // A locate file that carries attribution restores the `Retrieval by element`
     // table to the locate->chart path. Without it the two paths produced
     // artifacts of different evidentiary quality from the same work.
@@ -2459,6 +2579,14 @@ export async function doClaimChart(index, args, opts = {}) {
       // have silently recorded undefined in the one field meant to bind this
       // file to its chart.
       targetsIntegrity: targetIntegrity || 'not-supplied',
+      // chart-targets-origin-provenance: the file, its header lines verbatim
+      // and the origin comparison as computed at run time, so a re-rendering
+      // states them without re-reading a file that may have moved or changed.
+      // targetsFile is null when no --targets was supplied; a sidecar without
+      // the key predates this and replays with a stated bound.
+      targetsFile: args.targets ? (String(args.targets).startsWith('@') ? String(args.targets).slice(1) : '(inline --targets list)') : null,
+      targetsProvenance: args.targets ? targetProvenance : null,
+      targetsOrigin: targetOrigin ?? null,
       argv: process.argv.slice(1).join(' '),
       generatedAt: new Date().toISOString(),
       analysed: perTarget.map((p) => ({
@@ -2550,7 +2678,7 @@ Per-target verdicts written to ${args.verdicts_out}`
     engineBuild: engineBuildLine(),
     argv: process.argv.slice(1).join(' '),
     targets: perTarget.length,
-    targetSource, targetProvenance, targetIntegrity,
+    targetSource, targetProvenance, targetIntegrity, targetOrigin,
     targetDuplicates, targetContainers,
     targetUnresolved: unresolved, targetAmbiguous: ambiguous,
     targetsSupplied: targets.length, targetsPartial: partial,
@@ -2821,13 +2949,36 @@ export function replayChartData({ sidecar, sidecarPath = '', claimTextOverride =
   const marker = `RE-RENDERED on ${new Date().toISOString()} from \`${sidecarPath || 'sidecar'}\`.`
     + ' This rendering made no model call of its own: the verdicts, citations and notes below are'
     + ` the original run's, of ${sidecar.generatedAt || 'an unrecorded time'}, as that file recorded them.`;
+  // chart-targets-origin-provenance: the targets file, its origin and its
+  // header, from the sidecar. A sidecar without `targetsFile` predates the
+  // fields; one with it null ran per-element retrieval, nothing to say.
+  if (sidecar.targetsFile === undefined) {
+    bounds.push('targets origin not recorded (sidecar written before the origin line existed)');
+  }
+  const targetsLines = (markdown) => {
+    if (!sidecar.targetsFile) return [];
+    const b = (s) => (markdown ? `**${s}**` : s);
+    const integrity = sidecar.targetsIntegrity === 'unmodified' ? ' — unmodified since generation'
+      : sidecar.targetsIntegrity === 'modified' ? ' — ⚠ MODIFIED after generation' : '';
+    const lines = [
+      `${markdown ? '- ' : ''}${b('Targets:')} ${analysed.length} analysed, from \`${sidecar.targetsFile}\`${integrity}`,
+      `${markdown ? '- ' : ''}${b('Targets origin:')} ${formatTargetsOrigin(sidecar.targetsOrigin ?? null, { markdown })}`,
+    ];
+    if (Array.isArray(sidecar.targetsProvenance) && sidecar.targetsProvenance.length) {
+      lines.push(`${markdown ? '- ' : ''}${b('Target provenance:')}`);
+      for (const l of sidecar.targetsProvenance) lines.push(`${markdown ? '  - ' : '    '}${l}`);
+    }
+    return lines;
+  };
   const boundLines = bounds.map((b) => `Replay bound: ${b}.`);
   const provenance = [
     marker,
     sidecar.argv ? `Original command: \`${sidecar.argv}\`` : 'Original command: unrecorded.',
     ...boundLines,
+    ...targetsLines(false),
   ].join('\n');
-  return { analysed, elements, claimText, fills, sideScope, otherSideElements, family, provenance, bounds, marker, boundLines };
+  return { analysed, elements, claimText, fills, sideScope, otherSideElements, family, provenance, bounds, marker, boundLines,
+    targetsLines: targetsLines(true) };
 }
 
 export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claimTextOverride = null,
@@ -2866,7 +3017,7 @@ export function replayChartHtml({ sidecar, sidecarPath = '', notes = null, claim
 // not in the sidecar, so the file says so instead of showing an empty table.
 export function replayChartMarkdown({ sidecar, sidecarPath = '', notes = null, claimTextOverride = null, width = 100,
   title = null, subtitle = null, layout = 'stacked' }) {
-  const { analysed, elements, claimText, fills, sideScope, otherSideElements, family, marker, boundLines } =
+  const { analysed, elements, claimText, fills, sideScope, otherSideElements, family, marker, boundLines, targetsLines } =
     replayChartData({ sidecar, sidecarPath, claimTextOverride });
   // The page's provenance holds the original command in one code span; the
   // file, in either layout, puts it in a fenced block, one argument per line,
@@ -2875,6 +3026,7 @@ export function replayChartMarkdown({ sidecar, sidecarPath = '', notes = null, c
   const provenance = [
     marker,
     ...boundLines,
+    ...targetsLines,
     ...(sidecar.argv
       ? ['Original command, one argument per line:', '', '```',
         ...String(sidecar.argv).trim().split(/\s+(?=--)/).map((p, i) => (i ? `  ${p}` : p)), '```']
