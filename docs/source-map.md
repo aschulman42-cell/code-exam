@@ -162,6 +162,8 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `scripts/rank-eval.mjs` — scores a candidate ordering against tiered ground truth (Spearman, recall@k, purity)
 - `scripts/recap-chart-agreement.mjs` — the agreement harness: clones, indexes and scores the code fourteen litigants' claim charts cite against what --claim-locate and --claim-chart find; the reach and rule tiers run with no model
 - `scripts/recap-chart-drafter-ceiling.mjs` — the drafter's ceiling on real claims: seeds --pseudo-claims with the litigants' cited functions and compares the drafted claim to the asserted one element by element, with a floor and a control
+- `scripts/embed-reach.py` — embeds claim elements and index symbols with CodeBERT and UniXcoder (Python, torch) for the #322 reach measurement; resumable, logs device and time
+- `scripts/embed-reach-score.mjs` — scores those vectors with no model: a cited name's best rank across elements, hits within 25 and 60, CodeExam's name search and a shuffled control as comparators; renders docs/embedding-reach.md
 - `scripts/recap-claim-chart-search.mjs` — find public claim charts that cite open-source code, and catalog what they cite
 - `scripts/splitter-compare.mjs` — prints CE's claim-element split beside the attorney's rows for one patent
 
@@ -199,6 +201,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_dep_claim_rules.js` — dependent-claim malformation rules over real USPTO specimens: parents, taxonomy
 - `test/test_dep_claims.js` — dep-claims chains: parent/root/depth on a real 26-claim family, contribution kinds
 - `test/test_disambiguation.js` — callee name resolution: self/this, explicit qualification, same-class, inheritance
+- `test/test_embed_reach_score.js` — embed-reach scorer: .npy reading, cosine ranks with ties, best rank across elements, hits within k, the shuffled control pairing, rollup, render and splice
 - `test/test_engine_qualify.js` — engine-qualify scorer: negative/positive pass rules, strongest-per-element rows
 - `test/test_explainability.js` — explainability cell: import gating, kinds, variants, data/prose file skip
 - `test/test_extract_roundtrip.js` — #241 parse safety: emitted file@func copy-targets round-trip through doExtract

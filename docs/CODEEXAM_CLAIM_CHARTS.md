@@ -848,7 +848,9 @@ In order, each step measured on the fourteen by the agreement harness before the
 Also being considered as a step toward claim/code alignment is semantic searching; see
 [#322](https://github.com/aschulman42-cell/code-exam/issues/322) for why this is not as easy a
 step as might appear (e.g., it may require placing patent-claim text on the one hand and source
-code on the other into the same embedding space).
+code on the other into the same embedding space). The measurement that tests it, CodeBERT and
+UniXcoder against the fourteen filings' cited functions beside CodeExam's name search on the
+same names, is on [`embedding-reach.md`](embedding-reach.md), with its results as they land.
 
 ## 9. Some clarifications
 
