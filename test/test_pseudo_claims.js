@@ -1037,3 +1037,38 @@ describe('the evidence pack budget: even fill and first fill', () => {
     assert.equal(_pd({ resolved: many(3, 1000), ..._bp(many(3, 1000)) }), '', 'a pack that fit says nothing');
   });
 });
+
+// pseudo-claims-anchor-notation-count (2026-10-25): normalizeAnchorRef labels
+// every parsed ref with its notation shape, but groundAnchors rebuilt each
+// grounded record from named fields and lost it, so the artifact's "Anchor
+// notations seen" line read "unknown N" on every run and the reader learned
+// to skip the one line whose job is to be noticed.
+describe('grounded anchors keep their notation shape', () => {
+  const idx = {
+    findFunctionMatches: () => [{ filepath: 'src/a.js', name: 'fn', start: 10, end: 20 }],
+    fileLines: new Map([['docs/x.md', ['a', 'b', 'c', 'd', 'e']]]),
+  };
+  const tally = (grounded, dropped) => {
+    const m = new Map();
+    for (const a of [...grounded, ...dropped]) { const k = a.shape || 'unknown'; m.set(k, (m.get(k) || 0) + 1); }
+    return Object.fromEntries(m);
+  };
+  it('a function cite and a doc-range cite carry their shape into the grounded record', () => {
+    const { grounded, dropped } = groundAnchors(idx, [
+      { file: 'src/a.js', func: 'fn', element: 'e1', shape: 'at-paren-range' },
+      { file: 'docs/x.md', func: 'L2-4', element: 'e2', shape: 'doc-range' },
+    ]);
+    assert.equal(grounded.length, 2);
+    assert.equal(grounded[0].shape, 'at-paren-range');
+    assert.equal(grounded[1].shape, 'doc-range');
+    assert.deepEqual(tally(grounded, dropped), { 'at-paren-range': 1, 'doc-range': 1 }, 'no "unknown" for a grounded anchor');
+  });
+  it('a dropped anchor keeps its shape as before, and a ref without one counts as unknown', () => {
+    const { grounded, dropped } = groundAnchors(idx, [
+      { file: 'src/a.js', func: '', element: 'e', shape: 'file-only' },
+      { file: 'src/a.js', func: 'fn', element: 'e' },
+    ]);
+    assert.equal(dropped[0].shape, 'file-only');
+    assert.deepEqual(tally(grounded, dropped), { 'file-only': 1, unknown: 1 });
+  });
+});

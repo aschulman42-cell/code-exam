@@ -1034,7 +1034,8 @@ export function groundAnchors(index, anchors) {
         continue;
       }
       grounded.push({ file: hit, func: '', start, end: Math.min(end, lines.length), element: a.element, kind: 'lines',
-        ...(a.elementIndex ? { elementIndex: a.elementIndex } : {}) });
+        ...(a.elementIndex ? { elementIndex: a.elementIndex } : {}),
+        ...(a.shape ? { shape: a.shape } : {}) });
       continue;
     }
     // A specific reason, not the catch-all. The old 'no function name to verify'
@@ -1066,6 +1067,11 @@ export function groundAnchors(index, anchors) {
       ...(a.elementIndex ? { elementIndex: a.elementIndex } : {}),
       ...(a.citedStart ? { citedStart: a.citedStart, citedEnd: a.citedEnd || a.citedStart } : {}),
       ...(rangeMismatch ? { rangeMismatch: true } : {}),
+      // pseudo-claims-anchor-notation-count: the parser's notation shape rides
+      // into the grounded record as citedStart does, so the artifact's "Anchor
+      // notations seen" line counts shapes instead of reading "unknown N" on
+      // every run (dropped records kept it; grounded ones were rebuilt without it).
+      ...(a.shape ? { shape: a.shape } : {}),
     });
   }
   return { grounded, dropped };
