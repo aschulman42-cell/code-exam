@@ -161,7 +161,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `scripts/pseudo-claim-loop.mjs` — runs the pseudo-claim loop: synonymize, chart blind, score vs answer key
 - `scripts/rank-eval.mjs` — scores a candidate ordering against tiered ground truth (Spearman, recall@k, purity)
 - `scripts/recap-chart-agreement.mjs` — the agreement harness: clones, indexes and scores the code fourteen litigants' claim charts cite against what --claim-locate and --claim-chart find; the reach and rule tiers run with no model
-- `scripts/recap-chart-drafter-ceiling.mjs` — the drafter's ceiling on real claims: seeds --pseudo-claims with the litigants' cited functions and compares the drafted claim to the asserted one element by element, with a floor and a control
+- `scripts/recap-chart-drafter-ceiling.mjs` — the drafter's ceiling on real claims: seeds --pseudo-claims with the litigants' cited functions and, in the ce-seeded step, with CodeExam's own top-ranked candidate groups (--candidates --rank), and compares each drafted claim to the asserted one element by element, with a floor and a control
 - `scripts/embed-reach.py` — embeds claim elements and index symbols with CodeBERT and UniXcoder (Python, torch) for the #322 reach measurement; resumable, logs device and time
 - `scripts/embed-reach-score.mjs` — scores those vectors with no model: a cited name's best rank across elements, hits within 25 and 60, CodeExam's name search and a shuffled control as comparators; renders docs/embedding-reach.md
 - `scripts/recap-claim-chart-search.mjs` — find public claim charts that cite open-source code, and catalog what they cite

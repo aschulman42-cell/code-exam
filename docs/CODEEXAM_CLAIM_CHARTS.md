@@ -837,9 +837,11 @@ In order, each step measured on the fourteen by the agreement harness before the
    well, population-wide.
 2. The targets-fed `--claim-chart` step in the harness, scored by the model's labels, as the
    second tier.
-3. The litigant-seeded drafter test (`recap-chart-drafter-ceiling`): pseudo-claims drafted
-   from the functions a party cited, compared element by element to the asserted claim with a
-   floor and a control, to learn whether the drafter can express the party's theory at all.
+3. The drafter test (`recap-chart-drafter-ceiling`), two halves: pseudo-claims drafted from
+   the functions a party cited, compared element by element to the asserted claim with a floor
+   and a control, to learn whether the drafter can express the party's theory at all; and, from
+   2026-10-24, the same comparison for CodeExam's own top-ranked candidate groups (the
+   `ce-seeded` step), to learn whether the tool reaches that theory unaided.
 4. The next cohort: the substantive pairs of Table B, once their garbled text is re-extracted
    (Table B's note), then the two non-GitHub cases with hand-set public repositories.
 5. Per-element retrieval everywhere (a), then local-model target generation (d), one pipeline

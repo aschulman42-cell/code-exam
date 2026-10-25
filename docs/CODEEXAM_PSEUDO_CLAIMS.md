@@ -260,7 +260,11 @@ test seeds the drafter with the functions fourteen litigants cited in public cla
 else, and compares each drafted claim element by element to the asserted claim, with a floor (a
 draft from an unrelated group of the same codebase) and a control (the same draft against another
 filing's claim of the same art). It measures the drafter's ceiling on real claims: whether, given
-a party's own code, the drafter writes that party's claim. Method, caveats and results on
+a party's own code, the drafter writes that party's claim. Its other half (2026-10-24) seeds the
+drafter with CodeExam's own top-ranked candidate groups instead (`--pseudo-claims --candidates
+--rank`, the top three per repository) and judges them the same way: pseudo-claims as a test bed
+for claim charts, with the public filings as the answer key, which is agreement with a party,
+never correctness. Method, caveats and results on
 [`claim-chart-drafter-ceiling.md`](claim-chart-drafter-ceiling.md).
 
 ## See also

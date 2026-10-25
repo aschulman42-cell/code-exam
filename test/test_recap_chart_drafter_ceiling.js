@@ -11,7 +11,8 @@ import assert from 'node:assert/strict';
 import {
   resolveAnchors, formatAnchorsList, pickFloorGroup, controlPairs, buildComparePrompt,
   parseCompareResponse, scoreComparison, readMeasure, renderCeiling, replaceCeilingSection,
-  CEILING_START, CEILING_END,
+  pickCeSeededGroups, recordKey, renderCeSeeded, replaceBetweenMarkers, rankedListIsForIndex,
+  CEILING_START, CEILING_END, CE_SEEDED_START, CE_SEEDED_END, DEFAULTS,
 } from '../scripts/recap-chart-drafter-ceiling.mjs';
 
 describe('anchors: the litigant\'s cited functions as file@symbol', () => {
@@ -162,5 +163,111 @@ describe('the page block', () => {
     const out = replaceCeilingSection(page, rendered);
     assert.ok(out.includes('intro') && out.includes('after') && !out.includes('\nold\n'));
     assert.throws(() => replaceCeilingSection('no markers', rendered), /markers/);
+  });
+});
+
+// The ce-seeded half: CodeExam's own ranked candidate groups as the seed. The list below is in
+// the shape `--pseudo-claims --candidates <file> --rank` writes: the caveat block, the ranker
+// header, the echo lines, then groups whose headers carry `(N fns)` and a `[P<n> signal/fold —
+// note]` tag (or `[unscored]`), highest priority first.
+describe('ce-seeded selection', () => {
+  const ranked = [
+    '# ILLUSTRATIVE claim-candidate ranking — a FAST, SURFACE heuristic to suggest where to',
+    '# look FIRST, NOT legal analysis and NOT a judgment of novelty, importance, or worth.',
+    '#',
+    '# mechanism-ranker  index=x__y__abc1234  group-by=multi  5 groups — RANKED by claude-sonnet-4-6 (observe-only; anchors unchanged)',
+    '# echo pairs (1): groups sharing a dominant file -- the smaller is likely the same',
+    '#   a ~ b (src/a.c)',
+    '',
+    '# ecdsa (secp256k1_ecdsa_sig_sign)  (4 fns)  [P3 codebase-specific/keep — nonce and recovery id]  — ECDSA signing',
+    'src/ecdsa_impl.h@secp256k1_ecdsa_sig_sign',
+    'src/ecdsa_impl.h@secp256k1_ecdsa_sig_verify',
+    'src/ecdsa_impl.h@secp256k1_ecdsa_sig_parse',
+    'src/ecdsa_impl.h@secp256k1_ecdsa_sig_serialize',
+    '',
+    '# tiny  (2 fns)  [P3 codebase-specific/keep]',
+    'src/t.c@one',
+    'src/t.c@two',
+    '',
+    '# scalar (secp256k1_scalar_get_b32)  (4 fns)  [P1 standard-pattern/keep — field arithmetic]',
+    'src/scalar.h@secp256k1_scalar_set_b32',
+    'src/scalar_low.h@secp256k1_scalar_set_b32',
+    'src/scalar.h@secp256k1_scalar_add',
+    'src/scalar.h@secp256k1_scalar_mul',
+    '',
+    '# [file] util.h  (3 fns)  [unscored]',
+    'src/util.h@a', 'src/util.h@b', 'src/util.h@c',
+    '',
+    '# bench  (3 fns)  [P2 standard-pattern/keep]',
+    'src/bench.c@bench_a', 'src/bench.c@bench_b', 'src/bench.c@bench_c',
+    '',
+  ].join('\n');
+  const litigant = ['src/ecdsa_impl.h@secp256k1_ecdsa_sig_sign', 'src/scalar_4x64_impl.h@secp256k1_scalar_set_b32', 'src/x.c@other'];
+  it('takes the top N by the ranker\'s priority, skips groups under the size floor and the meta headers, and records the overlap with the cited functions by name', () => {
+    const sel = pickCeSeededGroups(ranked, litigant, { topN: 3 });
+    assert.equal(sel.ranked, true);
+    assert.equal(sel.considered, 4, 'the two-function group is not a candidate; the caveat, ranker and echo headers are not groups');
+    assert.deepEqual(sel.groups.map((g) => [g.rank, g.label, g.priority]), [
+      [1, 'ecdsa (secp256k1_ecdsa_sig_sign)', 3], [2, 'bench', 2], [3, 'scalar (secp256k1_scalar_get_b32)', 1],
+    ], 'priority order; the unscored group sorts last and is not picked at N=3');
+    assert.deepEqual(sel.groups[0].overlap, { count: 1, of: 4, names: ['secp256k1_ecdsa_sig_sign'] });
+    assert.deepEqual(sel.groups[1].overlap, { count: 0, of: 3, names: [] });
+    assert.deepEqual(sel.groups[2].overlap, { count: 2, of: 4, names: ['secp256k1_scalar_set_b32'] }, 'overlap is by symbol name, whichever file defines it: two definitions, one distinct name');
+    assert.equal(sel.groups[0].purpose, 'ECDSA signing', 'the header\'s purpose survives; the count and the tag are stripped from the label');
+    assert.equal(sel.groups[0].anchors.length, 4);
+  });
+  it('an unranked list (the grouper\'s draft, no tag anywhere) is taken in list order and says so', () => {
+    const plain = ranked.split('\n').map((l) => l.replace(/\s+\[P\d[^\]]*\]/, '').replace(/\s+\[unscored\]/, '')).join('\n');
+    const sel = pickCeSeededGroups(plain, litigant, { topN: 2 });
+    assert.equal(sel.ranked, false);
+    assert.deepEqual(sel.groups.map((g) => [g.rank, g.label, g.priority]), [[1, 'ecdsa (secp256k1_ecdsa_sig_sign)', null], [2, 'scalar (secp256k1_scalar_get_b32)', null]]);
+  });
+  it('caps a group\'s anchors as the litigant\'s are capped, and says so', () => {
+    const big = ['# big  (30 fns)  [P3 codebase-specific/keep]', ...Array.from({ length: 30 }, (_, i) => `a.c@f${i}`)].join('\n');
+    const sel = pickCeSeededGroups(big, [], { topN: 1 });
+    assert.equal(sel.groups[0].size, DEFAULTS.maxAnchors);
+    assert.equal(sel.groups[0].total, 30);
+    assert.equal(sel.groups[0].capped, true);
+    assert.equal(sel.groups[0].anchors.length, DEFAULTS.maxAnchors);
+  });
+  it('an empty or group-less list selects nothing', () => {
+    assert.deepEqual(pickCeSeededGroups('# mechanism-grouper  index=x  0 groups\n', litigant).groups, []);
+    assert.deepEqual(pickCeSeededGroups('', litigant).groups, []);
+  });
+  it('a ranked list is reused across pairs only for the index its header names', () => {
+    assert.equal(rankedListIsForIndex(ranked, 'x__y__abc1234'), true);
+    assert.equal(rankedListIsForIndex(ranked, 'x__y__abc1235'), false, 'another ref of the same repository is another index');
+    assert.equal(rankedListIsForIndex('# mechanism-grouper  index=x__y__abc1234  57 groups\n', 'x__y__abc1234'), false, 'the unranked draft is not a ranked list');
+    assert.equal(rankedListIsForIndex('', 'x__y__abc1234'), false);
+  });
+});
+
+describe('ce-seeded records and the page block', () => {
+  const s = (met, of, strict) => ({ mechanism: { met, of }, mechanismStrict: { met: strict, of } });
+  it('keys litigant-seeded and ce-seeded records of one pair apart, and the groups apart', () => {
+    assert.equal(recordKey({ id: 'a', repo: 'o/r' }), 'a|o/r|litigant|0');
+    assert.equal(recordKey({ id: 'a', repo: 'o/r', seed: 'codeexam', group: { rank: 2 } }), 'a|o/r|codeexam|2');
+    assert.equal(recordKey({ id: 'a', repo: 'o/r', seed: 'codeexam', group: null }), 'a|o/r|codeexam|0', 'a not-run record has one slot');
+    assert.notEqual(recordKey({ id: 'a', repo: 'o/r' }), recordKey({ id: 'a', repo: 'o/r', seed: 'codeexam', group: { rank: 1 } }));
+  });
+  it('renders one row per group with the litigant measure and floor beside it, a not-run row that says why, and keeps ce-seeded records out of the litigant table', () => {
+    const records = [
+      { id: 'f11', repo: 'o/secp', engine: 'e', measure: s(2, 2, 1), floor: s(0, 2, 0), control: s(2, 2, 0), read: 'indistinguishable from the control', readStrict: 'finding', bOnly: 13 },
+      { id: 'f11', repo: 'o/secp', seed: 'codeexam', group: { rank: 1, label: 'ecdsa (sig_sign)', priority: 3, size: 24, total: 30, capped: true, overlap: { count: 1, of: 30, names: ['x'] } }, measure: s(1, 2, 0), control: s(0, 2, 0), read: 'finding', readStrict: 'indistinguishable from the control', bOnly: 4 },
+      { id: 'f11', repo: 'o/secp', seed: 'codeexam', group: { rank: 2, label: 'bench', priority: null, size: 3, total: 3, capped: false, overlap: { count: 0, of: 3, names: [] } }, measure: s(0, 2, 0), control: s(0, 2, 0), read: 'indistinguishable from the control', readStrict: 'indistinguishable from the control', bOnly: 2 },
+      { id: 'spark', repo: 'apache/spark', seed: 'codeexam', group: null, reason: 'ranking refused or failed (exit 1); see ce-seeded/rank.log', projected: 'projected cost: ~$9.80 (rank 4000 candidates)' },
+    ];
+    const rendered = renderCeSeeded(records, { generatedAt: '2026-10-24' });
+    assert.ok(rendered.startsWith(CE_SEEDED_START) && rendered.endsWith(CE_SEEDED_END));
+    assert.match(rendered, /from 3 record\(s\)/);
+    assert.match(rendered, /\| f11 \| o\/secp \| 1: ecdsa \(sig_sign\) \[P3\] \(24 of 30 fns\) \| 1 \/ 30 \| 1 \/ 2; 0 \| 0 \/ 2; 0 \| 2 \/ 2; 1 \| 0 \/ 2; 0 \| finding \| indistinguishable from the control \| 4 \|/);
+    assert.match(rendered, /\| f11 \| o\/secp \| 2: bench \[unscored\] \(3 fns\) \| 0 \/ 3 \|/);
+    assert.match(rendered, /\| spark \| apache\/spark \| not run: ranking refused or failed \(exit 1\); see ce-seeded\/rank\.log \(projected cost: ~\$9\.80 \(rank 4000 candidates\)\) \| — \| — \| — \| — \| — \| not run \| not run \| — \|/);
+    const lit = renderCeiling(records, { generatedAt: '2026-10-24' });
+    assert.match(lit, /from 1 record\(s\)/, 'the litigant table has the litigant record only');
+    assert.ok(!lit.includes('codeexam') && !lit.includes('bench'));
+    const page = `intro\n${CEILING_START}\nold\n${CEILING_END}\nmid\n${CE_SEEDED_START}\nold2\n${CE_SEEDED_END}\nafter\n`;
+    const out = replaceBetweenMarkers(page, CE_SEEDED_START, CE_SEEDED_END, rendered);
+    assert.ok(out.includes('\nold\n') && !out.includes('old2') && out.includes('mid') && out.includes('after'), 'only the ce-seeded block is replaced');
   });
 });

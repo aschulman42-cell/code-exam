@@ -26,12 +26,21 @@
 //             candidate's claim of the same art (the CONTROL)
 //   score     mechanism elements met or partial over mechanism elements (headline), all elements,
 //             the reverse count; the measure is a finding only where it exceeds both controls
+//   ce-seeded the other half (2026-10-24): CodeExam's own top-ranked candidate groups
+//             (`--pseudo-claims --candidates --rank`, the top N by the ranker's priority) drafted
+//             through the same drafter and judged against the asserted claim and the control by
+//             the same call; one record per group under `seed: "codeexam"`, with the group's
+//             overlap with the litigant's anchors; outputs under <work>/ceiling/<id>/<repo>/ce-seeded/
 //
 // Usage:
 //   node scripts/recap-chart-drafter-ceiling.mjs --work <dir> [--only id,id] [--llm claude | --model <gguf>]
-//        [--steps anchors,draft,compare,score] [--render docs/claim-chart-drafter-ceiling.md] [--runs N]
+//        [--steps anchors,draft,compare,score,ce-seeded] [--top N] [--force]
+//        [--render docs/claim-chart-drafter-ceiling.md] [--runs N]
 //
 // --only limits the CANDIDATES RUN; records of other candidates are kept (unlike the harness's --only).
+// --steps ce-seeded is opt-in (the default steps are the litigant-seeded four). --force passes
+// through to the ranker's cost guard; without it a repository whose ranking the guard refuses is
+// recorded as not run, with the guard's projection.
 // Every CodeExam call is logged beside its output under <work>/ceiling/<id>/.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,13 +48,16 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { lastSegment, nameKey, replaceSection as replaceBetween } from './recap-chart-agreement.mjs';
 import { parseElementsFile, isPreambleRow } from '../src/commands/claim-locate.js';
+import { parseAnchorGroupsText } from '../src/commands/pseudo-claims.js';
 import { elementClasses } from '../src/core/claim-genericity.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, describeEngine } from '../src/core/llm-runner.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CEILING_START = '<!-- ceiling:start -->';
 export const CEILING_END = '<!-- ceiling:end -->';
-export const DEFAULTS = { maxAnchors: 24, maxPerName: 3, maxCompareTokens: 1400 };
+export const CE_SEEDED_START = '<!-- ce-seeded:start -->';
+export const CE_SEEDED_END = '<!-- ce-seeded:end -->';
+export const DEFAULTS = { maxAnchors: 24, maxPerName: 3, maxCompareTokens: 1400, ceSeededTopN: 3, ceSeededMinSize: 3 };
 
 const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const writeJson = (f, o) => fs.writeFileSync(f, JSON.stringify(o, null, 2));
@@ -138,6 +150,70 @@ export function pickFloorGroup(candidatesText, litigantAnchors, size) {
     return { label: `floor: ${label}`, anchors: g.anchors.slice(0, size) };
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// ce-seeded — CodeExam's own top-ranked candidate groups as the drafter's seed
+// ---------------------------------------------------------------------------------------------
+// The other half of the question: seeded with what CodeExam finds on its own rather than with
+// what a litigant cited, does the drafter write the asserted claim? `--pseudo-claims --candidates
+// <file> --rank` writes the grouper's groups with the ranker's `[P0..3]` tag in each header,
+// highest first; parseAnchorGroupsText (the emit's inverse) strips the tag into `priority`. The
+// top N by priority, ties in list order; groups under `minSize` members skipped; a list with no
+// tag anywhere (the grouper's unranked draft) is taken in list order and says so. Each group
+// records its overlap with the litigant's anchors by symbol name: a group that happens to hold
+// the cited functions is the litigant-seeded measure under another name, and zero overlap is the
+// honest expectation on most pairs. Anchors are capped as the litigant's are, for parity.
+export function pickCeSeededGroups(candidatesText, litigantAnchors, opts = {}) {
+  const topN = opts.topN ?? DEFAULTS.ceSeededTopN;
+  const minSize = opts.minSize ?? DEFAULTS.ceSeededMinSize;
+  const maxAnchors = opts.maxAnchors ?? DEFAULTS.maxAnchors;
+  const cited = new Set((litigantAnchors || []).map((a) => nameKey(a.split('@').pop())));
+  const groups = parseAnchorGroupsText(String(candidatesText || '')).filter((g) => g.specs.length >= minSize);
+  const ranked = groups.some((g) => g.priority != null);
+  const order = groups.map((g, i) => ({ g, i })).sort((a, b) => ((b.g.priority ?? -1) - (a.g.priority ?? -1)) || (a.i - b.i));
+  const picked = order.slice(0, topN).map(({ g }, k) => {
+    // `count` is definitions (secp256k1 defines `scalar_cond_negate` in three backend files);
+    // `names` is the distinct cited names among them.
+    const names = g.specs.filter((s) => cited.has(nameKey(s.split('@').pop()))).map((s) => s.split('@').pop());
+    return {
+      rank: k + 1, label: g.label || '(unlabeled)', priority: g.priority ?? null, purpose: g.purpose || '',
+      size: Math.min(g.specs.length, maxAnchors), total: g.specs.length, capped: g.specs.length > maxAnchors,
+      anchors: g.specs.slice(0, maxAnchors), overlap: { count: names.length, of: g.specs.length, names: [...new Set(names)] },
+    };
+  });
+  return { ranked, considered: groups.length, groups: picked };
+}
+
+// Pairs on one index share one ranked list: the grouper is deterministic and the ranking is one
+// comparative pass, so the four secp256k1 pairs read the same ranking and pay for it once. The
+// ranked emit names its index in its header; a list is reused only when that name matches.
+export function rankedListIsForIndex(text, indexBase) {
+  const head = String(text || '').split('\n').find((l) => l.startsWith('# mechanism-ranker')) || '';
+  const m = /index=(\S+)/.exec(head);
+  return !!m && m[1] === indexBase;
+}
+
+function findSiblingRanked(work, indexBase, except) {
+  const ceiling = path.join(work, 'ceiling');
+  if (!fs.existsSync(ceiling)) return null;
+  for (const id of fs.readdirSync(ceiling)) {
+    const idDir = path.join(ceiling, id);
+    if (!fs.statSync(idDir).isDirectory()) continue;
+    for (const repoDir of fs.readdirSync(idDir)) {
+      const f = path.join(idDir, repoDir, 'ce-seeded', 'candidates-ranked.lst');
+      if (f === except || !fs.existsSync(f)) continue;
+      if (rankedListIsForIndex(fs.readFileSync(f, 'utf8'), indexBase)) return { id, file: f };
+    }
+  }
+  return null;
+}
+
+// One record per (candidate, repository, seed, group): the litigant-seeded records carry no
+// `seed` and no `group`; a ce-seeded record carries `seed: "codeexam"` and its group's rank, or
+// `group: null` with a `reason` where the repository was not run.
+export function recordKey(r) {
+  return `${r.id}|${r.repo}|${r.seed || 'litigant'}|${r.group ? r.group.rank : 0}`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -245,33 +321,64 @@ export function readMeasure(measure, floor, control, key = 'mechanism') {
   return 'finding';
 }
 
+const scoreCell = (s) => (s && s.mechanism && s.mechanism.of != null
+  ? `${s.mechanism.met} / ${s.mechanism.of}; ${s.mechanismStrict ? s.mechanismStrict.met : '?'}` : '—');
+
 export function renderCeiling(records, { generatedAt = new Date().toISOString().slice(0, 10) } = {}) {
+  const rows = records.filter((r) => r.seed !== 'codeexam');
   const out = [CEILING_START, '', `_Generated ${generatedAt} by \`scripts/recap-chart-drafter-ceiling.mjs --render\``,
-    `from ${records.length} record(s); edit the script, not this block._`, ''];
+    `from ${rows.length} record(s); edit the script, not this block._`, ''];
   out.push('| candidate | repository | engine | measure (mechanism, MET+PARTIAL; MET) | floor | control | read | strict read | B-only |');
   out.push('|---|---|---|---|---|---|---|---|---|');
-  const cell = (s) => (s && s.mechanism && s.mechanism.of != null
-    ? `${s.mechanism.met} / ${s.mechanism.of}; ${s.mechanismStrict ? s.mechanismStrict.met : '?'}` : '—');
-  for (const r of records) {
-    out.push(`| ${r.id} | ${r.repo} | ${r.engine || ''} | ${cell(r.measure)} | ${cell(r.floor)} | ${cell(r.control)} | ${r.read || ''} | ${r.readStrict || ''} | ${r.bOnly != null ? r.bOnly : '—'} |`);
+  for (const r of rows) {
+    out.push(`| ${r.id} | ${r.repo} | ${r.engine || ''} | ${scoreCell(r.measure)} | ${scoreCell(r.floor)} | ${scoreCell(r.control)} | ${r.read || ''} | ${r.readStrict || ''} | ${r.bOnly != null ? r.bOnly : '—'} |`);
   }
   out.push('');
   out.push(CEILING_END);
   return out.join('\n');
 }
 
+// The ce-seeded table: one row per group, with the litigant-seeded measure and floor of the same
+// pair beside it so the reader compares on one line; a repository not run is one row that says why.
+export function renderCeSeeded(records, { generatedAt = new Date().toISOString().slice(0, 10) } = {}) {
+  const rows = records.filter((r) => r.seed === 'codeexam');
+  const litigant = (r) => records.find((x) => x.id === r.id && x.repo === r.repo && x.seed !== 'codeexam') || {};
+  const out = [CE_SEEDED_START, '', `_Generated ${generatedAt} by \`scripts/recap-chart-drafter-ceiling.mjs --steps ce-seeded --render\``,
+    `from ${rows.length} record(s); edit the script, not this block._`, ''];
+  out.push('| candidate | repository | group (rank: label [priority]) | overlap with cited | measure (mechanism, MET+PARTIAL; MET) | control | litigant measure | floor | read | strict read | B-only |');
+  out.push('|---|---|---|---|---|---|---|---|---|---|---|');
+  for (const r of rows) {
+    const l = litigant(r);
+    if (!r.group) {
+      out.push(`| ${r.id} | ${r.repo} | not run: ${r.reason || ''}${r.projected ? ` (${r.projected})` : ''} | — | — | — | ${scoreCell(l.measure)} | ${scoreCell(l.floor)} | not run | not run | — |`);
+      continue;
+    }
+    const g = r.group;
+    const tag = g.priority != null ? `[P${g.priority}]` : '[unscored]';
+    const size = `${g.size}${g.capped ? ` of ${g.total}` : ''} fns`;
+    out.push(`| ${r.id} | ${r.repo} | ${g.rank}: ${g.label} ${tag} (${size}) | ${g.overlap ? `${g.overlap.count} / ${g.overlap.of}` : '—'} | ${scoreCell(r.measure)} | ${scoreCell(r.control)} | ${scoreCell(l.measure)} | ${scoreCell(l.floor)} | ${r.read || ''} | ${r.readStrict || ''} | ${r.bOnly != null ? r.bOnly : '—'} |`);
+  }
+  out.push('');
+  out.push(CE_SEEDED_END);
+  return out.join('\n');
+}
+
+export function replaceBetweenMarkers(docText, start, end, rendered) {
+  const s = docText.indexOf(start);
+  const e = docText.indexOf(end);
+  if (s < 0 || e < 0) throw new Error(`markers ${start} / ${end} not found in the page`);
+  return docText.slice(0, s) + rendered + docText.slice(e + end.length);
+}
+
 export function replaceCeilingSection(docText, rendered) {
-  const s = docText.indexOf(CEILING_START);
-  const e = docText.indexOf(CEILING_END);
-  if (s < 0 || e < 0) throw new Error('ceiling markers not found in the page');
-  return docText.slice(0, s) + rendered + docText.slice(e + CEILING_END.length);
+  return replaceBetweenMarkers(docText, CEILING_START, CEILING_END, rendered);
 }
 
 // ---------------------------------------------------------------------------------------------
 // the run
 // ---------------------------------------------------------------------------------------------
 function parseArgs(argv) {
-  const o = { steps: ['anchors', 'draft', 'compare', 'score'], only: null, render: null, runs: 1, llm: null, model: null, work: null };
+  const o = { steps: ['anchors', 'draft', 'compare', 'score'], only: null, render: null, runs: 1, llm: null, model: null, work: null, topN: DEFAULTS.ceSeededTopN, force: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const v = () => argv[++i];
@@ -280,6 +387,8 @@ function parseArgs(argv) {
     else if (a === '--steps') o.steps = v().split(',').map((s) => s.trim()).filter(Boolean);
     else if (a === '--render') o.render = v();
     else if (a === '--runs') o.runs = Number(v()) || 1;
+    else if (a === '--top') o.topN = Number(v()) || DEFAULTS.ceSeededTopN;
+    else if (a === '--force') o.force = true;
     else if (a === '--llm') o.llm = v();
     else if (a === '--model') o.model = v();
     else throw new Error(`unknown argument ${a}`);
@@ -319,6 +428,40 @@ function claimClassOf(elements) {
   return /\b(system|apparatus|device|medium|computer)\b/.test(pre) && !/\bmethod\b/.test(pre) ? 'system' : 'method';
 }
 
+// The draft of the asserted claim's class (method or system) from a --claims-only sidecar.
+function pickClaim(claims, cls) { return claims.find((x) => x.cls.startsWith(cls)) || claims[0] || null; }
+
+// One judge per output directory: the compare prompt, the strict parse with one re-ask, three
+// tries on a transient failure (`fetch failed` killed the first run mid-way), and each pair's
+// parsed answer persisted as compare-<label>.json so a re-run resumes. Shared by the
+// litigant-seeded comparisons and the ce-seeded ones.
+function makeJudge(model, dir) {
+  const draft = makeDrafter(model, 0);
+  const callDraft = async (sys, user) => {
+    let err;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { return await draft(sys, user, DEFAULTS.maxCompareTokens); }
+      catch (e) { err = e; log(`compare call failed (${e.message}); retry ${attempt + 1}`); await new Promise((res) => setTimeout(res, 5000 * (attempt + 1))); }
+    }
+    throw err;
+  };
+  return async (aElements, pc, label) => {
+    if (!pc) return null;
+    const done = path.join(dir, `compare-${label}.json`);
+    if (fs.existsSync(done)) return readJson(done);
+    const bText = [pc.text, ...pc.dependents].join('\n');
+    const { sys, user } = buildComparePrompt(aElements, bText);
+    if (!claimsCostGate(model, [{ inChars: sys.length + user.length, outTokens: DEFAULTS.maxCompareTokens }], `ceiling compare ${label}`, {})) return null;
+    let raw = await callDraft(sys, user);
+    let parsed = parseCompareResponse(raw, aElements.length);
+    if (!parsed.complete) { raw = await callDraft(sys, `${user}\n\nYour previous answer did not follow the format. Answer again, one line per A element, then the B-ONLY line.`); parsed = parseCompareResponse(raw, aElements.length); }
+    fs.writeFileSync(path.join(dir, `compare-${label}.txt`), `${sys}\n\n---\n${user}\n\n=== answer ===\n${raw}`);
+    const result = { verdicts: parsed.verdicts, bOnly: parsed.bOnly, complete: parsed.complete };
+    writeJson(done, result);
+    return result;
+  };
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const o = parseArgs(argv);
   const work = path.resolve(o.work);
@@ -326,11 +469,11 @@ export async function main(argv = process.argv.slice(2)) {
   let cands = man.candidates.filter((c) => c.key && c.claimFiles);
   const recFile = path.join(work, 'ceiling.jsonl');
   const records = fs.existsSync(recFile) ? fs.readFileSync(recFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
-  const upsert = (rec) => { const i = records.findIndex((r) => r.id === rec.id && r.repo === rec.repo); if (i >= 0) records[i] = rec; else records.push(rec); };
+  const upsert = (rec) => { const i = records.findIndex((r) => recordKey(r) === recordKey(rec)); if (i >= 0) records[i] = rec; else records.push(rec); };
   const save = () => fs.writeFileSync(recFile, records.map((r) => JSON.stringify(r)).join('\n') + (records.length ? '\n' : ''));
   const pairs = controlPairs(cands);
   if (o.only) cands = cands.filter((c) => o.only.includes(c.id));
-  const model = (o.steps.includes('compare')) ? resolveModel({ llm: o.llm || (o.model ? null : 'claude'), model: o.model }) : null;
+  const model = (o.steps.includes('compare') || o.steps.includes('ce-seeded')) ? resolveModel({ llm: o.llm || (o.model ? null : 'claude'), model: o.model }) : null;
 
   for (const c of cands) {
     const n = c.claims[0];
@@ -346,7 +489,7 @@ export async function main(argv = process.argv.slice(2)) {
       const repo = `${r.org}/${r.repo}`;
       const dir = path.join(work, 'ceiling', c.id, `${r.org}__${r.repo}`);
       fs.mkdirSync(dir, { recursive: true });
-      const rec = records.find((x) => x.id === c.id && x.repo === repo) || { id: c.id, repo, patent: c.patent, claim: n, elements: elements.length, classes };
+      const rec = records.find((x) => recordKey(x) === recordKey({ id: c.id, repo })) || { id: c.id, repo, patent: c.patent, claim: n, elements: elements.length, classes };
       rec.engine = model ? describeEngine(model) : rec.engine;
 
       if (o.steps.includes('anchors')) {
@@ -384,40 +527,16 @@ export async function main(argv = process.argv.slice(2)) {
         } else rec.floorDraft = { ok: false, reason: 'no disjoint candidate group' };
       }
 
+      const ctrlId = pairs.get(c.id);
+      const ctrl = ctrlId ? man.candidates.find((x) => x.id === ctrlId) : null;
+      const ctrlElements = ctrl && ctrl.claimFiles ? parseElementsFile(fs.readFileSync(ctrl.claimFiles[ctrl.claims[0]].elements, 'utf8')).elements : null;
+      const ctrlClasses = ctrlElements ? elementClasses(ctrlElements, { isPreambleRow }) : null;
+
       if (o.steps.includes('compare') && model) {
         const cls = claimClassOf(elements);
-        const pick = (sidecar) => { const cs = readPseudo(sidecar); return cs.find((x) => x.cls.startsWith(cls)) || cs[0] || null; };
-        const pseudo = pick(path.join(dir, 'pseudo.txt.anchors.json'));
-        const floorP = pick(path.join(dir, 'floor-pseudo.txt.anchors.json'));
-        const ctrlId = pairs.get(c.id);
-        const ctrl = ctrlId ? man.candidates.find((x) => x.id === ctrlId) : null;
-        const ctrlElements = ctrl && ctrl.claimFiles ? parseElementsFile(fs.readFileSync(ctrl.claimFiles[ctrl.claims[0]].elements, 'utf8')).elements : null;
-        const draft = makeDrafter(model, 0);
-        // A transient network failure (`fetch failed`) killed the first run mid-way; retry the
-        // call twice with a pause, and persist each pair's parsed answer so a re-run resumes.
-        const callDraft = async (sys, user) => {
-          let err;
-          for (let attempt = 0; attempt < 3; attempt++) {
-            try { return await draft(sys, user, DEFAULTS.maxCompareTokens); }
-            catch (e) { err = e; log(`compare call failed (${e.message}); retry ${attempt + 1}`); await new Promise((res) => setTimeout(res, 5000 * (attempt + 1))); }
-          }
-          throw err;
-        };
-        const judge = async (aElements, pc, label) => {
-          if (!pc) return null;
-          const done = path.join(dir, `compare-${label}.json`);
-          if (fs.existsSync(done)) return readJson(done);
-          const bText = [pc.text, ...pc.dependents].join('\n');
-          const { sys, user } = buildComparePrompt(aElements, bText);
-          if (!claimsCostGate(model, [{ inChars: sys.length + user.length, outTokens: DEFAULTS.maxCompareTokens }], `ceiling compare ${label}`, {})) return null;
-          let raw = await callDraft(sys, user);
-          let parsed = parseCompareResponse(raw, aElements.length);
-          if (!parsed.complete) { raw = await callDraft(sys, `${user}\n\nYour previous answer did not follow the format. Answer again, one line per A element, then the B-ONLY line.`); parsed = parseCompareResponse(raw, aElements.length); }
-          fs.writeFileSync(path.join(dir, `compare-${label}.txt`), `${sys}\n\n---\n${user}\n\n=== answer ===\n${raw}`);
-          const result = { verdicts: parsed.verdicts, bOnly: parsed.bOnly, complete: parsed.complete };
-          writeJson(done, result);
-          return result;
-        };
+        const pseudo = pickClaim(readPseudo(path.join(dir, 'pseudo.txt.anchors.json')), cls);
+        const floorP = pickClaim(readPseudo(path.join(dir, 'floor-pseudo.txt.anchors.json')), cls);
+        const judge = makeJudge(model, dir);
         const m = await judge(elements, pseudo, 'measure');
         const f = await judge(elements, floorP, 'floor');
         const k = ctrlElements ? await judge(ctrlElements, pseudo, 'control') : null;
@@ -426,23 +545,102 @@ export async function main(argv = process.argv.slice(2)) {
       }
 
       if (o.steps.includes('score') && rec.compare) {
-        const ctrl = rec.compare.controlId ? man.candidates.find((x) => x.id === rec.compare.controlId) : null;
-        const ctrlClasses = ctrl && ctrl.claimFiles ? elementClasses(parseElementsFile(fs.readFileSync(ctrl.claimFiles[ctrl.claims[0]].elements, 'utf8')).elements, { isPreambleRow }) : null;
+        // The control's classes come from the control recorded with the comparison, which may
+        // differ from today's pairing if the candidate list changed.
+        const recCtrl = rec.compare.controlId ? man.candidates.find((x) => x.id === rec.compare.controlId) : null;
+        const recCtrlClasses = recCtrl && recCtrl.claimFiles ? elementClasses(parseElementsFile(fs.readFileSync(recCtrl.claimFiles[recCtrl.claims[0]].elements, 'utf8')).elements, { isPreambleRow }) : null;
         rec.measure = rec.compare.measure ? scoreComparison(rec.compare.measure.verdicts, classes) : null;
         rec.floor = rec.compare.floor ? scoreComparison(rec.compare.floor.verdicts, classes) : null;
-        rec.control = rec.compare.control && ctrlClasses ? scoreComparison(rec.compare.control.verdicts, ctrlClasses) : null;
+        rec.control = rec.compare.control && recCtrlClasses ? scoreComparison(rec.compare.control.verdicts, recCtrlClasses) : null;
         rec.bOnly = rec.compare.measure ? rec.compare.measure.bOnly.length : null;
         rec.read = readMeasure(rec.measure, rec.floor, rec.control);
         rec.readStrict = readMeasure(rec.measure, rec.floor, rec.control, 'mechanismStrict');
       }
-      upsert(rec);
-      save();
+      if (o.steps.some((s) => ['anchors', 'draft', 'compare', 'score'].includes(s))) { upsert(rec); save(); }
+
+      if (o.steps.includes('ce-seeded') && model) {
+        const ceDir = path.join(dir, 'ce-seeded');
+        fs.mkdirSync(ceDir, { recursive: true });
+        const anchorsFile = path.join(dir, 'anchors.lst');
+        const litAnchors = fs.existsSync(anchorsFile) ? fs.readFileSync(anchorsFile, 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#')) : [];
+        const rankedFile = path.join(ceDir, 'candidates-ranked.lst');
+        const rankLog = path.join(ceDir, 'rank.log');
+        let reason = null;
+        let rankedFrom = null;
+        if (!fs.existsSync(rankedFile)) {
+          const sibling = findSiblingRanked(work, path.basename(idx), rankedFile);
+          if (sibling) {
+            fs.copyFileSync(sibling.file, rankedFile);
+            rankedFrom = sibling.id;
+            log(`${c.id} ${repo}: ranked list shared from ${sibling.id} (same index)`);
+          } else {
+            // The product's own path: the grouper again, then the ranker's comparative pass under
+            // CodeExam's cost guard. A refusal leaves no list and the pair is recorded as not run
+            // with the guard's projection, which is what ranking that repository would cost.
+            const st = ce(['--index-path', idx, '--pseudo-claims', '--candidates', rankedFile, '--rank', ...engineArgs(o), ...(o.force ? ['--force'] : [])], ROOT, rankLog);
+            if (!(st.ok && fs.existsSync(rankedFile))) reason = `ranking refused or failed (exit ${st.status}); see ce-seeded/rank.log`;
+          }
+        }
+        const base = { id: c.id, repo, patent: c.patent, claim: n, elements: elements.length, classes, seed: 'codeexam', engine: describeEngine(model), topN: o.topN, rankedFrom };
+        const dropOld = (pred) => { for (let i = records.length - 1; i >= 0; i--) if (records[i].id === c.id && records[i].repo === repo && records[i].seed === 'codeexam' && pred(records[i])) records.splice(i, 1); };
+        if (reason) {
+          const projected = fs.existsSync(rankLog) ? fs.readFileSync(rankLog, 'utf8').split('\n').find((l) => l.includes('projected cost')) : null;
+          dropOld(() => true);
+          records.push({ ...base, group: null, reason, projected: projected ? projected.replace('# ', '').trim() : null });
+          log(`${c.id} ${repo}: ce-seeded ${reason}${projected ? ` (${projected.trim()})` : ''}`);
+        } else {
+          const sel = pickCeSeededGroups(fs.readFileSync(rankedFile, 'utf8'), litAnchors, { topN: o.topN });
+          writeJson(path.join(ceDir, 'selection.json'), sel);
+          dropOld((r) => !r.group || r.group.rank > sel.groups.length);
+          if (!sel.groups.length) records.push({ ...base, group: null, reason: `no candidate group of ${DEFAULTS.ceSeededMinSize} or more functions` });
+          const judge = makeJudge(model, ceDir);
+          const cls = claimClassOf(elements);
+          for (const g of sel.groups) {
+            const gFile = path.join(ceDir, `group-${g.rank}.lst`);
+            fs.writeFileSync(gFile, formatAnchorsList([{ label: `codeexam ${g.rank}: ${g.label}`, anchors: g.anchors }]));
+            const pseudo = path.join(ceDir, `group-${g.rank}-pseudo.txt`);
+            const prev = records.find((r) => recordKey(r) === recordKey({ id: c.id, repo, seed: 'codeexam', group: { rank: g.rank } })) || {};
+            const grec = { ...prev, ...base, ranked: sel.ranked, considered: sel.considered,
+              group: { rank: g.rank, label: g.label, priority: g.priority, size: g.size, total: g.total, capped: g.capped, overlap: g.overlap } };
+            if (!fs.existsSync(`${pseudo}.anchors.json`)) {
+              const st = ce(['--index-path', idx, '--pseudo-claims', `@${gFile}`, '--claim-schema', '--claim-class', 'both', '--claims-only', pseudo, ...engineArgs(o)], ROOT, path.join(ceDir, `group-${g.rank}-draft.log`));
+              grec.draft = { ok: st.ok };
+            }
+            const pc = pickClaim(readPseudo(`${pseudo}.anchors.json`), cls);
+            const m = await judge(elements, pc, `group-${g.rank}-measure`);
+            const k = ctrlElements ? await judge(ctrlElements, pc, `group-${g.rank}-control`) : null;
+            grec.compare = { measure: m, control: k, controlId: ctrlId, pseudoClass: pc ? pc.cls : null };
+            grec.measure = m ? scoreComparison(m.verdicts, classes) : null;
+            grec.control = k && ctrlClasses ? scoreComparison(k.verdicts, ctrlClasses) : null;
+            grec.bOnly = m ? m.bOnly.length : null;
+            // No floor of its own: the group IS a CodeExam group. The read is against the control;
+            // the page sets the litigant-seeded measure and floor beside it.
+            grec.read = readMeasure(grec.measure, null, grec.control);
+            grec.readStrict = readMeasure(grec.measure, null, grec.control, 'mechanismStrict');
+            grec.cost = actualCostLine(model);
+            upsert(grec);
+            save();
+            log(`${c.id} ${repo}: ce-seeded group ${g.rank} (${g.label}${g.priority != null ? `, P${g.priority}` : ''}, ${g.size} fns, overlap ${g.overlap.count}): ${grec.read}; strict ${grec.readStrict}`);
+          }
+        }
+        save();
+      }
     }
   }
   const rendered = renderCeiling(records);
   fs.writeFileSync(path.join(work, 'ceiling.md'), rendered + '\n');
-  if (o.render) { fs.writeFileSync(o.render, replaceCeilingSection(fs.readFileSync(o.render, 'utf8'), rendered)); log(`rendered into ${o.render}`); }
-  log(`${records.length} record(s); ${records.filter((r) => r.read === 'finding').length} finding(s)`);
+  const renderedCe = renderCeSeeded(records);
+  fs.writeFileSync(path.join(work, 'ceiling-ce-seeded.md'), renderedCe + '\n');
+  if (o.render) {
+    let doc = replaceCeilingSection(fs.readFileSync(o.render, 'utf8'), rendered);
+    if (doc.includes(CE_SEEDED_START)) doc = replaceBetweenMarkers(doc, CE_SEEDED_START, CE_SEEDED_END, renderedCe);
+    else log(`${o.render} has no ${CE_SEEDED_START} block; the ce-seeded table is in ${path.join(work, 'ceiling-ce-seeded.md')} only`);
+    fs.writeFileSync(o.render, doc);
+    log(`rendered into ${o.render}`);
+  }
+  const lit = records.filter((r) => r.seed !== 'codeexam');
+  const ceR = records.filter((r) => r.seed === 'codeexam' && r.group);
+  log(`${lit.length} litigant-seeded record(s), ${lit.filter((r) => r.read === 'finding').length} finding(s); ${ceR.length} ce-seeded group record(s), ${ceR.filter((r) => r.read === 'finding').length} above the control`);
 }
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
