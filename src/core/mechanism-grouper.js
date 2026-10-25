@@ -643,6 +643,7 @@ function multiSeedGroups(index, funcs, o) {
   // rejected, every skip counted. 'all' is the old size-gated behaviour.
   const fileSeedMode = o.fileSeed === true ? 'all' : (o.fileSeed || false);
   let fileSeeded = 0, fileResidue = 0, fileNoHeader = 0, fileLicenseOnly = 0, fileTooBig = 0;
+  const fileResidueInfo = new Map(); // '[file] X / rest' -> { file, total, taken }, so the purpose can say what it is
   if (fileSeedMode) {
     const byFileU = new Map();
     for (const f of funcs) { const e = byFileU.get(f.file) || byFileU.set(f.file, { total: 0, un: [] }).get(f.file); e.total++; if (!assigned.has(f.id)) e.un.push(f.id); }
@@ -674,7 +675,7 @@ function multiSeedGroups(index, funcs, o) {
       const residue = fileSeedMode !== 'all' && e.un.length < e.total;
       const lbl = residue ? `[file] ${base(file)} / rest` : `[file] ${base(file)}`;
       for (const id of e.un) assigned.set(id, lbl);
-      if (residue) fileResidue++; else fileSeeded++;
+      if (residue) { fileResidue++; fileResidueInfo.set(lbl, { file, total: e.total, taken: e.total - e.un.length }); } else fileSeeded++;
     }
   }
 
@@ -688,7 +689,7 @@ function multiSeedGroups(index, funcs, o) {
   // BECAUSE the large-command-surface corpora (.langchain 98M, .CC_cli_js_3
   // 84M) both blew a 10-minute grouping budget and went unsampled.
   return {
-    groups: [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([lbl, ids]) => ({ label: lbl, ids, ...(catalogAliases.has(lbl) ? { aliases: catalogAliases.get(lbl) } : {}), ...(catalogInfo.has(lbl) ? { catalog: catalogInfo.get(lbl) } : {}) })),
+    groups: [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([lbl, ids]) => ({ label: lbl, ids, ...(catalogAliases.has(lbl) ? { aliases: catalogAliases.get(lbl) } : {}), ...(catalogInfo.has(lbl) ? { catalog: catalogInfo.get(lbl) } : {}), ...(fileResidueInfo.has(lbl) ? { residue: fileResidueInfo.get(lbl) } : {}) })),
     stats: { catalogMade, catalogCapped, catalogDepth: o.catalogDepth, catalogClosureMax: o.catalogClosureMax, catalogTaken, fileSeedMode, fileSeeded, fileResidue, fileNoHeader, fileLicenseOnly, fileTooBig },
   };
 }
@@ -893,6 +894,7 @@ export function splitOversizedGroup(index, group, byId, o, depth = 1) {
       ids: new Set(g.members.map((m) => m.id)),
       members: g.members,
       ...(group.aliases ? { aliases: group.aliases } : {}),
+      ...(group.residue ? { residue: group.residue } : {}),
     }))
     .filter((g) => g.members.length > 0);
 
@@ -943,7 +945,7 @@ export function groupMechanisms(index, opts = {}) {
       // Filter junk members, then rebuild ids from the survivors so emit,
       // members, and ids (the scoring path) stay consistent.
       const members = filterMembers(index, [...g.ids].map((id) => byId.get(id)).filter(Boolean));
-      return { label: g.label, ids: new Set(members.map((m) => m.id)), members, ...(g.aliases ? { aliases: g.aliases } : {}), ...(g.catalog ? { catalog: g.catalog } : {}) };
+      return { label: g.label, ids: new Set(members.map((m) => m.id)), members, ...(g.aliases ? { aliases: g.aliases } : {}), ...(g.catalog ? { catalog: g.catalog } : {}), ...(g.residue ? { residue: g.residue } : {}) };
     })
     .filter((g) => g.members.length > 0); // a group whose anchors were all junk is dropped
 
@@ -1172,7 +1174,7 @@ export function formatAnchors(result, meta = {}) {
     }
   }
   for (const g of groups) {
-    const purpose = purposeWithAliases(g, meta.purposeFor ? meta.purposeFor(g.label, g.members) : '');
+    const purpose = purposeWithAliases(g, meta.purposeFor ? meta.purposeFor(g.label, g.members, g) : '');
     out.push('', `# ${g.label}  (${g.members.length} fns)${purpose ? '  — ' + purpose : ''}`);
     // issue-289-doc-anchor-enrichment: doc anchors emit FIRST — the evidence
     // pack fills in member order, so top placement survives the budget.

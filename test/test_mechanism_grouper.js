@@ -1209,3 +1209,37 @@ describe('catalog seed: callee depth, the closure cap, taken count, no split', (
     assert.ok(!cmd(r));
   });
 });
+
+// residue-mechanism-hint (2026-10-25): a residue group carries what it is, so
+// the purpose harvester can describe the remainder rather than the module.
+describe('residue groups carry what they are', () => {
+  const fn = (s) => ({ type: 'function', start: s, end: s + 9 });
+  const DOC = '/** residue-fixture.js -- a module whose header states its purpose at length so the doc-header gate admits it. */';
+  const mkIndex = () => ({
+    _ensureFunctionIndex() {},
+    functionIndex: { 'src/res.js': { Zorb: { type: 'class', start: 1, end: 48 }, 'Zorb::alpha': fn(2), 'Zorb::bravo': fn(14), 'Zorb::charlie': fn(26), 'Zorb::delta': fn(38), kiloNarg: fn(50), limaPlonk: fn(62), mikeGrup: fn(74) } },
+    fileLines: new Map([['src/res.js', [DOC, ...Array(90).fill('x;')]]]),
+  });
+  it('a "/ rest" group records its file, its candidate count and how many other seeds took', () => {
+    const r = groupMechanisms(mkIndex(), { catalogSeed: false });
+    const g = r.groups.find((x) => x.label === '[file] res.js / rest');
+    assert.ok(g, r.groups.map((x) => x.label).join(' | '));
+    assert.deepEqual(g.residue, { file: 'src/res.js', total: 7, taken: 4 });
+    assert.equal(r.groups.find((x) => x.label.startsWith('[class] Zorb')).residue, undefined);
+  });
+  it('the record survives a sub-token split', () => {
+    const m = (name) => ({ id: 'a.js@' + name, file: 'a.js', name, bare: name, start: 1, end: 12 });
+    const members = ['build_a', 'build_b', 'build_c', 'save_x', 'save_y', 'save_z'].map(m);
+    const group = { label: '[file] a.js / rest', ids: new Set(members.map((x) => x.id)), members, residue: { file: 'a.js', total: 9, taken: 3 } };
+    const r = splitOversizedGroup(null, group, new Map(), { ...GROUPER_DEFAULTS, groupMax: 3, minComm: 3 });
+    assert.ok(r.groups.length >= 2, 'split happened: ' + r.groups.map((x) => x.label).join(' | '));
+    for (const sg of r.groups) assert.deepEqual(sg.residue, { file: 'a.js', total: 9, taken: 3 }, sg.label);
+  });
+  it('formatAnchors hands the group itself to purposeFor', () => {
+    const m = (name) => ({ id: 'a.js@' + name, file: 'a.js', name, bare: name, start: 1, end: 5 });
+    const r = { mode: 'multi', noiseFiles: 0, noiseFns: 0, splits: [], groups: [{ label: '[file] a.js / rest', ids: new Set(['a.js@x', 'a.js@y', 'a.js@z']), members: [m('x'), m('y'), m('z')], residue: { file: 'a.js', total: 5, taken: 2 } }] };
+    let seen = null;
+    formatAnchors(r, { indexName: 'x', purposeFor: (label, members, g) => { seen = g; return ''; } });
+    assert.deepEqual(seen && seen.residue, { file: 'a.js', total: 5, taken: 2 });
+  });
+});

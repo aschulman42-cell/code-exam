@@ -539,7 +539,7 @@ export function computeCandidateGroups(index, args) {
   if (args.filter && !args.ground_truth) {
     const match = makeFilterMatcher(args.filter);
     const total = result.groups.length;
-    const kept = result.groups.filter((g) => match(g.label || '', purposeWithAliases(g, harvestPurpose(index, g.label, g.members))));
+    const kept = result.groups.filter((g) => match(g.label || '', purposeWithAliases(g, harvestPurpose(index, g.label, g.members, g.residue))));
     if (kept.length === 0) {
       // "Try a broader term" is wrong advice when every function was excluded:
       // say what was excluded and the flag that lifts it.
@@ -565,7 +565,7 @@ function renderCandidates(index, args, result) {
   return withEchoBlock(formatAnchors(result, {
     indexName,
     minComm: GROUPER_DEFAULTS.minComm,
-    purposeFor: (label, members) => harvestPurpose(index, label, members),
+    purposeFor: (label, members, g) => harvestPurpose(index, label, members, g && g.residue),
     ...(args.doc_anchors ? { docAnchorsFor: (label, members) => docAnchorsForGroup(index, label, members) } : {}),
   }), result.groups);
 }
@@ -679,7 +679,15 @@ function resolveGroup(index, group) {
 // `.lst` header at `--candidates` emit time so it is visible/prunable and travels
 // with the group into drafting (where the label becomes the MECHANISM: hint).
 const HARVEST_CAP = 700;
-function harvestPurpose(index, label, members) {
+// residue-mechanism-hint (2026-10-25): a `/ rest` group is what the other seeds
+// left of a documented file, not the module. Handed the file header as its
+// purpose, the drafter wrote the module (four claims of the 2026-10-25 run
+// opened "A method for drafting illustrative pseudo-patent claims" over
+// pseudo-claims.js utilities). A residue's purpose is built from its own
+// members and their comments, and says so, so the MECHANISM line the drafter
+// sees (label + purpose, through the .lst header) describes those functions.
+export const isResidueLabel = (label) => /\/\s*rest(\s*\/|\s*$)/.test(String(label || ''));
+export function harvestPurpose(index, label, members, residue = null) {
   const commentsOf = (target) => {
     try {
       const d = index.buildDigest(target, { maxCallers: 0, maxCallees: 0, maxStrings: 0 });
@@ -700,6 +708,15 @@ function harvestPurpose(index, label, members) {
     if (tok) { const hit = files.find((f) => f.replace(/^.*\//, '').toLowerCase().includes(tok.toLowerCase())); if (hit) return hit; }
     return files.slice().sort((a, b) => members.filter((m) => m.file === b).length - members.filter((m) => m.file === a).length)[0] || null;
   };
+  if (isResidueLabel(label)) {
+    const file = (residue && residue.file) || primaryFile(null) || '';
+    const base = String(file).replace(/^.*[\\/]/, '') || 'the file';
+    const names = (members || []).map((m) => m.bare || m.name).filter(Boolean).slice(0, 6);
+    const took = residue && residue.total ? `took ${residue.taken} of its ${residue.total} functions` : 'took part of it';
+    const head = `the remainder of ${base} after other seeds ${took} (draft what these functions do; the module's purpose belongs to its other groups): ${names.join(', ')}`;
+    const own = join((members || []).flatMap((m) => commentsOf(m.bare || m.name)));
+    return (own ? `${head}. ${own}` : head).slice(0, HARVEST_CAP);
+  }
   let purpose = '';
   const classM = (label || '').match(/^\[class\]\s+(\S+)/);
   if (classM) {
@@ -1391,7 +1408,7 @@ export async function doEmitCandidates(index, args) {
     for (const g of sorted) {
       const v = vByLabel.get(g.label);
       const tag = v ? `  [P${v.priority} ${v.signal}/${v.fold}${v.note ? ' — ' + v.note : ''}]` : '  [unscored]';
-      const purpose = purposeWithAliases(g, harvestPurpose(index, g.label, g.members));
+      const purpose = purposeWithAliases(g, harvestPurpose(index, g.label, g.members, g.residue));
       lines.push('', `# ${g.label}  (${g.members.length} fns)${tag}${purpose ? '  — ' + purpose : ''}`);
       // issue-289-doc-anchor-enrichment: doc anchors first (budget-first placement).
       if (args.doc_anchors) for (const d of docAnchorsForGroup(index, g.label, g.members)) lines.push(d);
@@ -1412,7 +1429,7 @@ export async function doEmitCandidates(index, args) {
   const text = withEchoBlock(formatAnchors(result, {
     indexName,
     minComm: GROUPER_DEFAULTS.minComm,
-    purposeFor: (label, members) => harvestPurpose(index, label, members),
+    purposeFor: (label, members, g) => harvestPurpose(index, label, members, g && g.residue),
     ...(args.doc_anchors ? { docAnchorsFor: (label, members) => docAnchorsForGroup(index, label, members) } : {}),
   }), result.groups);
   if (outPath) {

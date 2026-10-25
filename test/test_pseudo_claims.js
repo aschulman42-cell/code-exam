@@ -952,3 +952,37 @@ describe('pseudo-claims-statutory-class: prompt and profile', () => {
     assert.equal(p.axes.wherein.median, 1, 'system claims carry a wherein at median, unlike method (0)');
   });
 });
+
+// residue-mechanism-hint (2026-10-25): a residue's purpose is built from its
+// own members, and tells the drafter so, instead of carrying the file header
+// that made four residue claims open on "drafting pseudo-claims".
+import { harvestPurpose as _hp } from '../src/commands/pseudo-claims.js';
+describe('harvestPurpose on a residue group', () => {
+  const comments = {
+    'src/x.js': [{ line: 1, text: 'x.js -- the module header: drafts illustrative claims from evidence packs.' }],
+    alphaThing: [{ line: 12, text: 'normalizes an anchor reference' }],
+    betaThing: [{ line: 30, text: 'resolves an indexed file by suffix' }],
+  };
+  const index = { buildDigest: (target) => ({ comments: comments[target] || [] }) };
+  const members = [
+    { file: 'src/x.js', name: 'alphaThing', bare: 'alphaThing' },
+    { file: 'src/x.js', name: 'betaThing', bare: 'betaThing' },
+    { file: 'src/x.js', name: 'gammaThing', bare: 'gammaThing' },
+  ];
+  it('a whole-file label keeps the file header', () => {
+    assert.match(_hp(index, '[file] x.js', members), /the module header/);
+  });
+  it('a "/ rest" label gets a hint built from its members, not the file header', () => {
+    const p = _hp(index, '[file] x.js / rest', members, { file: 'src/x.js', total: 10, taken: 7 });
+    assert.match(p, /^the remainder of x\.js after other seeds took 7 of its 10 functions/);
+    assert.match(p, /draft what these functions do/);
+    assert.match(p, /alphaThing, betaThing, gammaThing/);
+    assert.match(p, /normalizes an anchor reference/);
+    assert.doesNotMatch(p, /the module header/);
+  });
+  it('a split of a residue is a residue, and without the record it still says it is a remainder', () => {
+    const p = _hp(index, '[file] x.js / rest / other', members);
+    assert.match(p, /^the remainder of x\.js after other seeds took part of it/);
+    assert.doesNotMatch(p, /the module header/);
+  });
+});

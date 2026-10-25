@@ -133,7 +133,10 @@ tag, then an em dash and the purpose harvested from the module's leading comment
 The tag is `[P0]` to `[P3]` with the ranker's signal (`codebase-specific`,
 `standard-pattern`, `library-wrapper`, `third-party`, `generated`), its fold verdict
 (`keep`, `merge`, `split`) and a short note, or `[unscored]` where the ranker gave
-none. The `# ` lines a written list opens with (`# mechanism-grouper ...`,
+none. A `[file] X / rest` group, the remainder of a documented file after other seeds took
+part of it, carries a purpose built from its own functions and their comments rather than the
+file's header, and says so, because the purpose is the drafter's cue to what the mechanism is
+(2026-10-25). The `# ` lines a written list opens with (`# mechanism-grouper ...`,
 `# coverage:`, `# split:`, `# echo pairs`) are notes about the run, not groups.
 `--filter` matches the header, label and purpose together.
 
