@@ -8,6 +8,8 @@ requirements list — but patent claims are the demanding case it was designed f
 
 The most important part of a patent is its "claims." These are one-sentence descriptions of the technology. Each claim contains "limitations." These are components or elements of the claimed invention, and can include steps in a process or method. Software of course has components such as functions, classes, methods, data structures, etc. When software runs, it executes steps in a process or method.
 
+Even for a reader with no interest in IP, the one-sentence form is a useful discipline: it forces a piece of technology to be stated as a set of named components or steps and the relations among them, with nothing left implicit. A developer can use it to say what a module actually does; a reviewer, to check that a design document and the code describe the same mechanism; an acquirer or an auditor, to compare two codebases at the level of mechanisms rather than files. And because real patent claims are written in the same form, a claim-style sentence drafted from code is the thing most directly comparable to a claim that a patent holder might one day assert against that code. Drafting such sentences from code is what [`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md) does.
+
 ## A chart is a candidate match, not ground truth
 
 Read this first, because everything below depends on it. A CodeExam claim chart records whether some
