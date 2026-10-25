@@ -350,9 +350,12 @@ the reading are in *The real-world yardstick* below and on
   labelled `[file] X / rest`, under the three-function gate alone; the
   candidates header counts residues apart from whole-file seeds, and the triage
   reads `/ rest` as a split residue);
-  `catalog-seed-handler-flag-label` (when several command-line options resolve
-  to one handler, label the catalog-seeded group by the option that best matches
-  the handler's name); `grouper-vendored-root-single-top-folder` (landed
+  `catalog-seed-handler-flag-label` (landed 2026-10-25: when several
+  command-line options resolve to one handler, the catalog-seeded group is
+  labelled by the option whose words best match the handler's name, and the
+  other options ride in the purpose as `(also ...)`: `[cmd] --pseudo-claims`
+  rather than `[cmd] --candidates` for the drafting handler);
+  `grouper-vendored-root-single-top-folder` (landed
   2026-10-25: an index whose whole tree sits under one manifest directory is
   the project itself, not a vendored subtree to be excluded, as a zip or
   parent-folder index was being read, and a `--filter` run that matches nothing

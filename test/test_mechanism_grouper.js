@@ -19,6 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, splitDocSections, docAnchorsForGroup, formatAnchors, dominantFile, echoPairs, GROUPER_DEFAULTS, subTokens, subTokenPartition, splitOversizedGroup, detectVendoredSubtrees, copyrightHolder, isUnderVendored, docHeaderOf } from '../src/core/mechanism-grouper.js';
 import { vendoredExclusionLines } from '../src/core/mechanism-grouper.js';
+import { catalogLabelFlag, purposeWithAliases } from '../src/core/mechanism-grouper.js';
 import { collectAnchorGroups, parseMinRank, filterGroupsByMinRank, packDisclosure, parseLineAnchor, groundAnchors, formatClaimChart, claimPreambleSnippet, formatChartToc } from '../src/commands/pseudo-claims.js';
 
 // grouper-echo-flag-fold Phase 1: dominant-file detection + echo pairing +
@@ -1079,5 +1080,57 @@ describe('file seed residues: a doc-headed file other seeds partly claimed', () 
     assert.equal(r.fileSeeded, 1);
     assert.equal(r.fileResidue, 1);
     assert.match(formatAnchors(r, { indexName: 'x' }), /2 group\(s\) from files whose leading comment describes the module, 1 of them residues/);
+  });
+});
+
+// catalog-seed-handler-flag-label (2026-10-25): when several options dispatch
+// to one handler, the group used to take the alphabetically first flag
+// ("[cmd] --candidates" for doPseudoClaims, which --candidates,
+// --pseudo-claims, --rank and --ground-truth all reach), and the label is the
+// drafter's mechanism hint. The label flag is now the one whose tokens best
+// match the handler's name; the others ride in the purpose as aliases.
+describe('catalog seed: the label flag follows the handler name when options share a handler', () => {
+  it('picks the flag with the most tokens in common with the handler name', () => {
+    const r = catalogLabelFlag(['--candidates', '--pseudo-claims', '--rank', '--ground-truth'], 'doPseudoClaims');
+    assert.equal(r.flag, '--pseudo-claims');
+    assert.deepEqual(r.aliases, ['--candidates', '--ground-truth', '--rank'], 'aliases are the rest, sorted');
+  });
+  it('splits the handler name on case and underscores, case-insensitively', () => {
+    assert.equal(catalogLabelFlag(['--emit-harness', '--harness'], 'emit_harness_files').flag, '--emit-harness');
+    assert.equal(catalogLabelFlag(['--claim-chart', '--chart'], 'doClaimChart').flag, '--claim-chart');
+  });
+  it('ties fall back to the alphabetical rule, so runs stay deterministic', () => {
+    const r = catalogLabelFlag(['--zeta', '--alpha'], 'doSomethingElse');
+    assert.equal(r.flag, '--alpha');
+    assert.deepEqual(r.aliases, ['--zeta']);
+  });
+  it('a single option is unchanged and carries no aliases', () => {
+    const r = catalogLabelFlag(['--candidates'], 'doPseudoClaims');
+    assert.equal(r.flag, '--candidates');
+    assert.deepEqual(r.aliases, []);
+  });
+  it('the aliases reach the purpose, after the harvested text, and a group without them is untouched', () => {
+    assert.equal(purposeWithAliases({ aliases: ['--candidates', '--rank'] }, 'drafts illustrative claims'), 'drafts illustrative claims (also --candidates, --rank)');
+    assert.equal(purposeWithAliases({ aliases: ['--candidates'] }, ''), '(also --candidates)');
+    assert.equal(purposeWithAliases({}, 'drafts'), 'drafts');
+    assert.equal(purposeWithAliases({ aliases: [] }, 'drafts'), 'drafts');
+  });
+  it('formatAnchors writes the aliases into the header, on the group and on its split sub-groups', () => {
+    const m = (name) => ({ id: 'a.js@' + name, file: 'a.js', name, bare: name, start: 1, end: 5 });
+    const r = {
+      mode: 'multi', noiseFiles: 0, noiseFns: 0, splits: [],
+      groups: [
+        { label: '[cmd] --pseudo-claims', ids: new Set(['a.js@x', 'a.js@y', 'a.js@z']), members: [m('x'), m('y'), m('z')], aliases: ['--candidates', '--rank'] },
+        { label: '[cmd] --pseudo-claims / other', ids: new Set(['a.js@q', 'a.js@r', 'a.js@s']), members: [m('q'), m('r'), m('s')], aliases: ['--candidates', '--rank'] },
+        { label: '[cmd] --digest', ids: new Set(['a.js@d', 'a.js@e', 'a.js@f']), members: [m('d'), m('e'), m('f')] },
+      ],
+    };
+    const out = formatAnchors(r, { indexName: 'x', purposeFor: (label) => (label.startsWith('[cmd] --pseudo') ? 'drafts claims' : '') });
+    assert.match(out, /^# \[cmd\] --pseudo-claims  \(3 fns\)  — drafts claims \(also --candidates, --rank\)$/m);
+    assert.match(out, /^# \[cmd\] --pseudo-claims \/ other  \(3 fns\)  — drafts claims \(also --candidates, --rank\)$/m);
+    assert.match(out, /^# \[cmd\] --digest  \(3 fns\)$/m);
+    const h = parseAnchorHeader('# [cmd] --pseudo-claims  (3 fns)  — drafts claims (also --candidates, --rank)');
+    assert.equal(h.label, '[cmd] --pseudo-claims');
+    assert.match(h.purpose, /also --candidates, --rank/);
   });
 });

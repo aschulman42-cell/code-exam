@@ -345,6 +345,35 @@ export function isOverBroadNamespace(size, cap, fileCount, spreadCap) {
   return size > cap && fileCount > spreadCap;
 }
 
+// catalog-seed-handler-flag-label (2026-10-25): when several options dispatch
+// to one handler (on CodeExam --candidates, --pseudo-claims, --rank and
+// --ground-truth all reach doPseudoClaims), the group used to take the
+// alphabetically first flag, and the label is the drafter's MECHANISM hint
+// (collectAnchorGroups builds it from label + purpose), so the draft opened on
+// "generating mechanism-candidate anchor groups" for a handler whose
+// mechanism is drafting claims. The label flag is the one whose tokens best
+// match the handler's own name; ties keep the alphabetical rule so two runs
+// stay byte-identical; the other flags ride in the purpose as aliases so a
+// reader (and --filter) still finds the group by any of them.
+const flagTokens = (s) => String(s || '').replace(/^-+/, '').split(/[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])/).map((x) => x.toLowerCase()).filter(Boolean);
+export function catalogLabelFlag(flags, handlerName) {
+  const list = [...new Set((flags || []).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  if (list.length <= 1) return { flag: list[0] || null, aliases: [] };
+  const h = new Set(flagTokens(handlerName));
+  const score = (f) => flagTokens(f).filter((tok) => h.has(tok)).length;
+  let best = list[0], bestScore = score(list[0]);
+  for (const f of list.slice(1)) { const s = score(f); if (s > bestScore) { best = f; bestScore = s; } }
+  return { flag: best, aliases: list.filter((f) => f !== best) };
+}
+
+// The aliases belong in the purpose, after the harvested text, at every emit:
+// the candidates file, the ranked list, and the --filter match.
+export function purposeWithAliases(group, purpose) {
+  const al = (group && group.aliases) || [];
+  if (!al.length) return purpose || '';
+  return `${purpose ? purpose + ' ' : ''}(also ${al.join(', ')})`;
+}
+
 function multiSeedGroups(index, funcs, o) {
   const idxName = String(o.indexName || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
   const cap = Math.max(o.minComm, Math.floor((funcs.length || 1) * o.overbroadPct));
@@ -419,6 +448,7 @@ function multiSeedGroups(index, funcs, o) {
   // Fail-open like the token seed: a stub index without fileLines just
   // contributes no catalog groups.
   let catalogCapped = 0, catalogMade = 0;
+  const catalogAliases = new Map(); // '[cmd] <flag>' -> the other flags on the same handler
   if (o.catalogSeed) {
     let cliOptions = [];
     try { cliOptions = (extractCommandCatalog(index, false) || {}).cliOptions || []; } catch { /* */ }
@@ -431,14 +461,24 @@ function multiSeedGroups(index, funcs, o) {
         || String((a.opt.flags || [])[0] || a.opt.name).localeCompare(String((b.opt.flags || [])[0] || b.opt.name)))
       .map((x) => x.opt);
     catalogMade = 0;
+    // Options sharing a resolved handler are one mechanism: gather them first
+    // (in ranked order, so the biggest-first and tiebreak rules still decide
+    // which handler is tried first), then label by the handler's name.
+    const primaryFlag = (opt) => (opt.flags || []).find((f) => f.startsWith('--')) || `--${opt.name}`;
+    const byHandler = new Map();
     for (const opt of ranked) {
-      if (o.catalogMax && catalogMade >= o.catalogMax) { catalogCapped += 1; continue; }
       const hname = opt.handler && opt.handler.handlerFunc;
       if (!hname) continue;
       let hm = [];
       try { hm = index.findFunctionMatches(hname) || []; } catch { /* */ }
       if (hm.length !== 1) continue;
       const h = hm[0];
+      const key = `${h.filepath}@${h.name}`;
+      (byHandler.get(key) || byHandler.set(key, { h, flags: [] }).get(key)).flags.push(primaryFlag(opt));
+    }
+    for (const [, entry] of byHandler) {
+      if (o.catalogMax && catalogMade >= o.catalogMax) { catalogCapped += 1; continue; }
+      const { h } = entry;
       const memberIds = new Set();
       const tryAdd = (fid) => { if (fid && fileOf.has(fid) && !assigned.has(fid)) memberIds.add(fid); };
       tryAdd(`${h.filepath}@${h.name}`);
@@ -450,8 +490,9 @@ function multiSeedGroups(index, funcs, o) {
         tryAdd(`${def.filepath}@${def.name || c.name}`);
       }
       if (memberIds.size < o.minComm) continue;
-      const flag = (opt.flags || []).find((f) => f.startsWith('--')) || `--${opt.name}`;
+      const { flag, aliases } = catalogLabelFlag(entry.flags, h.name);
       for (const fid of memberIds) assigned.set(fid, `[cmd] ${flag}`);
+      if (aliases.length) catalogAliases.set(`[cmd] ${flag}`, aliases);
       catalogMade += 1;
     }
   }
@@ -613,7 +654,7 @@ function multiSeedGroups(index, funcs, o) {
   // BECAUSE the large-command-surface corpora (.langchain 98M, .CC_cli_js_3
   // 84M) both blew a 10-minute grouping budget and went unsampled.
   return {
-    groups: [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([lbl, ids]) => ({ label: lbl, ids })),
+    groups: [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([lbl, ids]) => ({ label: lbl, ids, ...(catalogAliases.has(lbl) ? { aliases: catalogAliases.get(lbl) } : {}) })),
     stats: { catalogMade, catalogCapped, fileSeedMode, fileSeeded, fileResidue, fileNoHeader, fileLicenseOnly, fileTooBig },
   };
 }
@@ -817,6 +858,7 @@ export function splitOversizedGroup(index, group, byId, o, depth = 1) {
       label: `${group.label} / ${g.label}`,
       ids: new Set(g.members.map((m) => m.id)),
       members: g.members,
+      ...(group.aliases ? { aliases: group.aliases } : {}),
     }))
     .filter((g) => g.members.length > 0);
 
@@ -867,7 +909,7 @@ export function groupMechanisms(index, opts = {}) {
       // Filter junk members, then rebuild ids from the survivors so emit,
       // members, and ids (the scoring path) stay consistent.
       const members = filterMembers(index, [...g.ids].map((id) => byId.get(id)).filter(Boolean));
-      return { label: g.label, ids: new Set(members.map((m) => m.id)), members };
+      return { label: g.label, ids: new Set(members.map((m) => m.id)), members, ...(g.aliases ? { aliases: g.aliases } : {}) };
     })
     .filter((g) => g.members.length > 0); // a group whose anchors were all junk is dropped
 
@@ -1088,7 +1130,7 @@ export function formatAnchors(result, meta = {}) {
     }
   }
   for (const g of groups) {
-    const purpose = meta.purposeFor ? meta.purposeFor(g.label, g.members) : '';
+    const purpose = purposeWithAliases(g, meta.purposeFor ? meta.purposeFor(g.label, g.members) : '');
     out.push('', `# ${g.label}  (${g.members.length} fns)${purpose ? '  — ' + purpose : ''}`);
     // issue-289-doc-anchor-enrichment: doc anchors emit FIRST — the evidence
     // pack fills in member order, so top placement survives the budget.

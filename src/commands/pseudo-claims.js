@@ -37,7 +37,7 @@ import { claimGenericity, elementClasses } from '../core/claim-genericity.js';
 import { analyzeClaimSet, classifyContribution } from '../core/dep-claims.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, wasLastDraftTruncated, truncationCount, truncationLine, printShownPrompts } from '../core/llm-runner.js';
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
-import { vendoredExclusionLines } from '../core/mechanism-grouper.js';
+import { vendoredExclusionLines, purposeWithAliases } from '../core/mechanism-grouper.js';
 import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, echoPairs, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
 import { triageClaims, formatTriage, keepSidecar, formatKeepFile, dependentFacetCount } from '../core/pseudo-claim-triage.js';
@@ -539,7 +539,7 @@ export function computeCandidateGroups(index, args) {
   if (args.filter && !args.ground_truth) {
     const match = makeFilterMatcher(args.filter);
     const total = result.groups.length;
-    const kept = result.groups.filter((g) => match(g.label || '', harvestPurpose(index, g.label, g.members)));
+    const kept = result.groups.filter((g) => match(g.label || '', purposeWithAliases(g, harvestPurpose(index, g.label, g.members))));
     if (kept.length === 0) {
       // "Try a broader term" is wrong advice when every function was excluded:
       // say what was excluded and the flag that lifts it.
@@ -1391,7 +1391,7 @@ export async function doEmitCandidates(index, args) {
     for (const g of sorted) {
       const v = vByLabel.get(g.label);
       const tag = v ? `  [P${v.priority} ${v.signal}/${v.fold}${v.note ? ' — ' + v.note : ''}]` : '  [unscored]';
-      const purpose = harvestPurpose(index, g.label, g.members);
+      const purpose = purposeWithAliases(g, harvestPurpose(index, g.label, g.members));
       lines.push('', `# ${g.label}  (${g.members.length} fns)${tag}${purpose ? '  — ' + purpose : ''}`);
       // issue-289-doc-anchor-enrichment: doc anchors first (budget-first placement).
       if (args.doc_anchors) for (const d of docAnchorsForGroup(index, g.label, g.members)) lines.push(d);
