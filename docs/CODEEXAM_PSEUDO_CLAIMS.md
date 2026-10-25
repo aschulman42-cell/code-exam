@@ -202,6 +202,10 @@ the file.
   higher-confidence) and **BROAD** (wider, merged) term sets to steer search
   (`--vocab-tight`), and the same broad/tight steering could drive two drafts of
   one mechanism. Described here for now rather than filed.
+- **Other ways of ranking.** The **--rank** option surfaces what it was built to surface 
+  (where to look first in unfamiliar codebase); others ways of ranking could try to
+  prioritize some notion of "litigatable" code. See initial discussion in
+  [`claim-chart-drafter-ceiling.md`](claim-chart-drafter-ceiling.md).     
 - **Comparing / merging models.** Drafting the same candidate list under several
   models and synthesizing the results is the `--chorus` / merge-multiple-AIs idea
   (#278). Until then, run twice and compare by hand.
