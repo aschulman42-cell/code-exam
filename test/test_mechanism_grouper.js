@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, splitDocSections, docAnchorsForGroup, formatAnchors, dominantFile, echoPairs, GROUPER_DEFAULTS, subTokens, subTokenPartition, splitOversizedGroup, detectVendoredSubtrees, copyrightHolder, isUnderVendored, docHeaderOf } from '../src/core/mechanism-grouper.js';
+import { vendoredExclusionLines } from '../src/core/mechanism-grouper.js';
 import { collectAnchorGroups, parseMinRank, filterGroupsByMinRank, packDisclosure, parseLineAnchor, groundAnchors, formatClaimChart, claimPreambleSnippet, formatChartToc } from '../src/commands/pseudo-claims.js';
 
 // grouper-echo-flag-fold Phase 1: dominant-file detection + echo pairing +
@@ -760,6 +761,45 @@ describe('third-party subtree detection', () => {
     assert.deepEqual(v, []);
   });
 
+  // grouper-vendored-root-single-top-folder (2026-10-19, .CE101826): in a zip
+  // index every path sits under the archive's top folder, so the root
+  // manifest has a slash, the whole project became a "nested" package root
+  // with one holder (the file-headers sweep), and the grouper had nothing to
+  // group. A manifest directory that holds EVERY indexed file is the project,
+  // zip or parent-folder index alike; manifests nested under it are judged as
+  // before.
+  it('does NOT flag a zip-prefixed single top folder holding every file — that IS the project', () => {
+    const v = detectVendoredSubtrees(idx({
+      'code-exam-main.zip!code-exam-main/package.json': ['{"name":"code-exam"}'],
+      'code-exam-main.zip!code-exam-main/src/a.js': CR('Andrew Schulman'),
+      'code-exam-main.zip!code-exam-main/src/b.js': CR('Andrew Schulman'),
+      'code-exam-main.zip!code-exam-main/src/c.js': CR('Andrew Schulman'),
+      'code-exam-main.zip!code-exam-main/test/d.js': CR('Andrew Schulman'),
+    }));
+    assert.deepEqual(v, []);
+  });
+
+  it('does NOT flag a plain single top folder holding every file (a parent-folder index)', () => {
+    const v = detectVendoredSubtrees(idx({
+      'proj/setup.py': CR('Acme Inc'), 'proj/a.py': CR('Acme Inc'), 'proj/b.py': CR('Acme Inc'), 'proj/c.py': CR('Acme Inc'),
+    }));
+    assert.deepEqual(v, []);
+  });
+
+  it('under a single top folder, a nested manifest with its own holder is still flagged — and only it', () => {
+    const v = detectVendoredSubtrees(idx({
+      'proj/setup.py': CR('Acme Inc'),
+      'proj/src/main.py': CR('Acme Inc'),
+      'proj/src/util.py': CR('Acme Inc'),
+      'proj/src/cli.py': CR('Acme Inc'),
+      'proj/train/setup.py': CR('Bytedance Ltd'),
+      'proj/train/verl/a.py': CR('Bytedance Ltd'),
+      'proj/train/verl/b.py': CR('Bytedance Ltd'),
+      'proj/train/verl/c.py': CR('Bytedance Ltd'),
+    }));
+    assert.deepEqual(v.map((x) => x.root), ['proj/train']);
+  });
+
   it('does NOT flag a subtree with no dominant holder', () => {
     const v = detectVendoredSubtrees(idx({
       'proj/x/setup.py': CR('One Corp'), 'proj/x/a.py': CR('Two Corp'),
@@ -771,7 +811,9 @@ describe('third-party subtree detection', () => {
   it('computes the share over HEADERED files, not all files', () => {
     // .sr_gh: 866 files under train/, only 449 headered. Dividing by 866 puts a
     // genuine 85% detection at 44% and misses it entirely.
-    const files = { 'p/t/setup.py': CR('Vendor Co') };
+    // One project file outside the subtree: a manifest directory holding every
+    // indexed file is the project itself (grouper-vendored-root-single-top-folder).
+    const files = { 'p/main.py': ['def main(): pass'], 'p/t/setup.py': CR('Vendor Co') };
     for (let i = 0; i < 3; i += 1) files[`p/t/h${i}.py`] = CR('Vendor Co');
     for (let i = 0; i < 40; i += 1) files[`p/t/plain${i}.py`] = ['x = 1'];
     const v = detectVendoredSubtrees(idx(files));
@@ -804,6 +846,18 @@ describe('third-party subtree detection', () => {
   it('a malformed index does not throw — detection fails open', () => {
     assert.deepEqual(detectVendoredSubtrees({}), []);
     assert.deepEqual(detectVendoredSubtrees({ fileLines: null }), []);
+  });
+
+  it('the exclusion lines are one source for the candidates file and the --filter path', () => {
+    assert.deepEqual(vendoredExclusionLines({ groups: [] }), []);
+    assert.deepEqual(vendoredExclusionLines({ vendored: [] }), []);
+    const lines = vendoredExclusionLines({
+      vendored: [{ root: 'proj/train', holder: 'Bytedance Ltd', holderFiles: 381, headered: 449, files: 866 }],
+      vendorFiles: 866, vendorFns: 2667,
+    });
+    assert.equal(lines.length, 2);
+    assert.match(lines[0], /^# excluded \(third-party\): proj\/train  866 files  \[Bytedance Ltd, 381\/449 headered\]  --include-vendored to keep$/);
+    assert.match(lines[1], /^# 2667 function\(s\) in 866 file\(s\) excluded from candidate discovery/);
   });
 });
 

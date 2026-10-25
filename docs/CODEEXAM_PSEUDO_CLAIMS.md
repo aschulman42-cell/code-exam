@@ -344,19 +344,21 @@ the reading are in *The real-world yardstick* below and on
 - **Pseudo-claims generation on air-gapped local models.** More testing is
   required with `--pseudo-claims` on local GGUF models such as Gemma 4 and
   Qwen 3.x.
-- **Proposed grouper and drafter work (on the worklist 2026-10-25, not yet
-  landed).** Four items await their turn: `file-seed-residue-groups` (when other
+- **Grouper and drafter work on the worklist (2026-10-25), in sequence.**
+  `file-seed-residue-groups` (when other
   seeds have taken some of a documented file's functions, the remainder should
   still form its own group under the commonality gate);
   `catalog-seed-handler-flag-label` (when several command-line options resolve
   to one handler, label the catalog-seeded group by the option that best matches
-  the handler's name); `grouper-vendored-root-single-top-folder` (an index whose
-  whole tree sits under one manifest directory is the project itself, not a
-  vendored subtree to be excluded, as a zip or parent-folder index was being
-  read); `pseudo-claims-anchor-notation-count` (grounded anchor records carry
+  the handler's name); `grouper-vendored-root-single-top-folder` (landed
+  2026-10-25: an index whose whole tree sits under one manifest directory is
+  the project itself, not a vendored subtree to be excluded, as a zip or
+  parent-folder index was being read, and a `--filter` run that matches nothing
+  because everything was excluded now says so instead of advising a broader
+  term); `pseudo-claims-anchor-notation-count` (grounded anchor records carry
   the notation shape of each reference, so the output can count them by form).
   Each is a correction to candidate discovery or to the anchor record, not a
-  change to drafting; the page will say when they land.
+  change to drafting; the page says when each lands.
 
 Sections still to write (TODO):
 

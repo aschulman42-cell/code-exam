@@ -225,6 +225,14 @@ export function detectVendoredSubtrees(index, o = {}) {
   for (const root of roots) {
     const under = files.filter((f) => norm(f).startsWith(root + '/'));
     if (!under.length) continue;
+    // A manifest directory that holds EVERY indexed file is the project root,
+    // by the same reasoning as the no-slash guard above: a zip index puts the
+    // whole project under the archive's top folder, a parent-folder index
+    // under one checkout, and the file-headers sweep then supplies the one
+    // dominant holder, so the whole project was excluded and the grouper had
+    // nothing to group (.CE101826, 2026-10-19). Manifests nested under it are
+    // judged below as before (grouper-vendored-root-single-top-folder).
+    if (under.length === files.length) continue;
     const holders = new Map();
     for (const f of under) {
       const h = copyrightHolder(index.fileLines.get(f));
@@ -971,15 +979,13 @@ export function docAnchorsForGroup(index, label, members, o = {}) {
   return picked.map((c) => `${c.file}@L${c.start}-${c.end}`);
 }
 
-// Render grouping output as a draft anchors.lst (the grammar --pseudo-claims parses).
-export function formatAnchors(result, meta = {}) {
-  const { groups, noiseFiles, noiseFns } = result;
-  const minComm = meta.minComm ?? GROUPER_DEFAULTS.minComm;
-  const out = [`# mechanism-grouper  index=${meta.indexName || '?'}  group-by=${result.mode}  ${groups.length} groups (>= ${minComm} fns), ${noiseFiles} noise files (${noiseFns} fns) pre-filtered — UNRANKED draft; hand-select the claim-worthy`];
-  // EXCLUSIONS ARE NAMED, never silent. A user whose own vendored-then-modified
-  // fork was quietly dropped would never learn why their code produced no
-  // claims -- and on .sr_gh this removes 866 of 1,490 files, which is not a
-  // detail to leave to inference.
+// EXCLUSIONS ARE NAMED, never silent. A user whose own vendored-then-modified
+// fork was quietly dropped would never learn why their code produced no
+// claims -- and on .sr_gh this removes 866 of 1,490 files, which is not a
+// detail to leave to inference. One source for the lines: the candidates
+// file carries them, and the in-memory --filter path prints them to stderr.
+export function vendoredExclusionLines(result) {
+  const out = [];
   for (const v of result.vendored || []) {
     out.push(`# excluded (third-party): ${v.root}  ${v.files} files  `
       + `[${v.holder}, ${v.holderFiles}/${v.headered} headered]  --include-vendored to keep`);
@@ -988,6 +994,15 @@ export function formatAnchors(result, meta = {}) {
     out.push(`# ${result.vendorFns} function(s) in ${result.vendorFiles} file(s) excluded from candidate discovery `
       + `(the index is untouched -- search/digest still see them)`);
   }
+  return out;
+}
+
+// Render grouping output as a draft anchors.lst (the grammar --pseudo-claims parses).
+export function formatAnchors(result, meta = {}) {
+  const { groups, noiseFiles, noiseFns } = result;
+  const minComm = meta.minComm ?? GROUPER_DEFAULTS.minComm;
+  const out = [`# mechanism-grouper  index=${meta.indexName || '?'}  group-by=${result.mode}  ${groups.length} groups (>= ${minComm} fns), ${noiseFiles} noise files (${noiseFns} fns) pre-filtered — UNRANKED draft; hand-select the claim-worthy`];
+  out.push(...vendoredExclusionLines(result));
   // THE CAP REPORTS WHAT IT DROPPED, and only when it dropped something.
   // A line reading "0 dropped" on every run trains the reader to skip it, and
   // this one has to be noticed the first time it appears -- same rule as

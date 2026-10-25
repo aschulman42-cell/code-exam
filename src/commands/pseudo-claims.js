@@ -37,6 +37,7 @@ import { claimGenericity, elementClasses } from '../core/claim-genericity.js';
 import { analyzeClaimSet, classifyContribution } from '../core/dep-claims.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, wasLastDraftTruncated, truncationCount, truncationLine, printShownPrompts } from '../core/llm-runner.js';
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
+import { vendoredExclusionLines } from '../core/mechanism-grouper.js';
 import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, echoPairs, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
 import { triageClaims, formatTriage, keepSidecar, formatKeepFile, dependentFacetCount } from '../core/pseudo-claim-triage.js';
@@ -526,6 +527,11 @@ export function computeCandidateGroups(index, args) {
     process.exitCode = 1;
     return null;
   }
+  // EXCLUSIONS ARE NAMED on this path too: the --candidates file carries the
+  // grouper's `# excluded (third-party)` lines, but a --filter run with no
+  // interim file would otherwise hide the reason a codebase yields no groups
+  // (grouper-vendored-root-single-top-folder, 2026-10-25).
+  for (const line of vendoredExclusionLines(result)) console.error(line);
   // --filter: keep only candidate groups whose header text (label + purpose,
   // the same string a reader scans in the .lst) matches, with CE's shared
   // substring / `/regex/` contract. --ground-truth is a dev scoring path with
@@ -535,7 +541,13 @@ export function computeCandidateGroups(index, args) {
     const total = result.groups.length;
     const kept = result.groups.filter((g) => match(g.label || '', harvestPurpose(index, g.label, g.members)));
     if (kept.length === 0) {
-      console.error(`--pseudo-claims --filter '${args.filter}': matched 0 of ${total} candidate group(s). Try a broader term, or run without --filter to list every group.`);
+      // "Try a broader term" is wrong advice when every function was excluded:
+      // say what was excluded and the flag that lifts it.
+      const v = (result.vendored || [])[0];
+      const why = (total === 0 && result.vendorFns > 0 && v)
+        ? `: ${result.vendorFns} function(s) in ${result.vendorFiles} file(s) were excluded as third-party (${v.root}, holder ${v.holder}); --include-vendored keeps them.`
+        : '. Try a broader term, or run without --filter to list every group.';
+      console.error(`--pseudo-claims --filter '${args.filter}': matched 0 of ${total} candidate group(s)${why}`);
       process.exitCode = 1;
       return null;
     }
