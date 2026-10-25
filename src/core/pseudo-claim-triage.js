@@ -135,7 +135,10 @@ export function dependentSignal(claimOneStems, dep) {
 }
 
 const keyOf = (c) => c.label || `#${c.n}`;
-const isSplitResidue = (key) => /\/\s*other\s*$/i.test(String(key));
+// `/ other` is a split's leftover; `/ rest` is a doc-headed file's leftover
+// after other seeds took part of it (file-seed-residue-groups). Same reason,
+// same points: the members no sub-group or other seed claimed.
+const isSplitResidue = (key) => /\/\s*(other|rest)\s*$/i.test(String(key));
 
 /**
  * Triage a claims sidecar (`<claims>.txt.anchors.json`, buildAnchorSidecar's
@@ -242,7 +245,7 @@ export function triageClaims(sidecar, { shapeReport = null, thresholds = {} } = 
       if (s.hostSim != null && s.hostSim >= T.echoHostSim) { score += 3; reasons.push(`echo of ${s.echoOf}, and reads like it (similarity ${s.hostSim})`); }
       else { score += 2; reasons.push(`echo of ${s.echoOf}: a smaller cut of the same dominant file`); }
     }
-    if (s.splitResidue) { score += 2; reasons.push('split residue ("/ other"): the members no sub-group claimed'); }
+    if (s.splitResidue) { score += 2; reasons.push('split residue ("/ other" or "/ rest"): the members no sub-group or other seed claimed'); }
     if (s.distinct <= T.distinctLow) { score += 2; reasons.push(`vocabulary generic within this run (${pct(s.distinct)} rare stems; population p10 is ${pct(T.distinctLow)})`); }
     else if (s.distinct <= T.distinctLowish) { score += 1; reasons.push(`vocabulary mostly shared with the run (${pct(s.distinct)} rare stems)`); }
     else if (s.distinct >= T.distinctHigh) { score -= 1; reasons.push(`distinctive vocabulary: ${s.rare.join(', ')}`); }

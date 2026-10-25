@@ -567,23 +567,39 @@ function multiSeedGroups(index, funcs, o) {
   // 'doc-header' mode: any size, doc-headed files only, license-only headers
   // rejected, every skip counted. 'all' is the old size-gated behaviour.
   const fileSeedMode = o.fileSeed === true ? 'all' : (o.fileSeed || false);
-  let fileSeeded = 0, fileNoHeader = 0, fileLicenseOnly = 0, fileTooBig = 0;
+  let fileSeeded = 0, fileResidue = 0, fileNoHeader = 0, fileLicenseOnly = 0, fileTooBig = 0;
   if (fileSeedMode) {
     const byFileU = new Map();
     for (const f of funcs) { const e = byFileU.get(f.file) || byFileU.set(f.file, { total: 0, un: [] }).get(f.file); e.total++; if (!assigned.has(f.id)) e.un.push(f.id); }
     const base = (fp) => { const s = String(fp).replace(/\\/g, '/'); return s.slice(s.lastIndexOf('/') + 1); };
     const linesOf = (file) => (index && index.fileLines && typeof index.fileLines.get === 'function') ? index.fileLines.get(file) : null;
     for (const [file, e] of byFileU) {
-      if (!(e.un.length >= o.minComm && e.un.length * 2 >= e.total)) continue;
+      if (e.un.length < o.minComm) continue;
       if (fileSeedMode === 'all') {
+        // 'all' keeps the majority rule it was built on: a SMALL file whose
+        // leftover functions are its MAJORITY is one cohesive mechanism.
+        if (e.un.length * 2 < e.total) continue;
         if (e.total > o.fileMax) { fileTooBig++; continue; }
       } else {
+        // 'doc-header' does not: the header already says the file is a
+        // module, and the majority rule refused exactly the big modules the
+        // other seeds had half-claimed, leaving the rest of the module in no
+        // group (.CE_082826: pseudo-claims.js, 11 of 29 unassigned, no [file]
+        // group; thirteen doc-headed files blocked). file-seed-residue-groups.
         const h = docHeaderOf(linesOf(file), { min: o.docHeaderMin });
         if (h.kind === 'license') { fileLicenseOnly++; continue; }
         if (h.kind !== 'doc') { fileNoHeader++; continue; }
       }
-      for (const id of e.un) assigned.set(id, `[file] ${base(file)}`);
-      fileSeeded++;
+      // A RESIDUE -- a doc-headed file some of whose functions other seeds
+      // already took -- is not the module, it is what the other seeds left.
+      // It seeds under a label that says so (`/ rest`, which the triage's
+      // split-residue rule reads like `/ other`) and is counted apart from
+      // whole-file seeds, so a reader knows to look at the module's other
+      // groups. Oversized residues split like any other group.
+      const residue = fileSeedMode !== 'all' && e.un.length < e.total;
+      const lbl = residue ? `[file] ${base(file)} / rest` : `[file] ${base(file)}`;
+      for (const id of e.un) assigned.set(id, lbl);
+      if (residue) fileResidue++; else fileSeeded++;
     }
   }
 
@@ -598,7 +614,7 @@ function multiSeedGroups(index, funcs, o) {
   // 84M) both blew a 10-minute grouping budget and went unsampled.
   return {
     groups: [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([lbl, ids]) => ({ label: lbl, ids })),
-    stats: { catalogMade, catalogCapped, fileSeedMode, fileSeeded, fileNoHeader, fileLicenseOnly, fileTooBig },
+    stats: { catalogMade, catalogCapped, fileSeedMode, fileSeeded, fileResidue, fileNoHeader, fileLicenseOnly, fileTooBig },
   };
 }
 
@@ -1020,7 +1036,9 @@ export function formatAnchors(result, meta = {}) {
   // the doc-header gate finds nothing must say so, or "no [file] groups" reads
   // as "no modules" instead of "no headers".
   if (result.fileSeedMode === 'doc-header') {
-    out.push(`# file seed (doc-header): ${result.fileSeeded || 0} group(s) from files whose leading comment describes the module; `
+    const residues = result.fileResidue || 0;
+    out.push(`# file seed (doc-header): ${(result.fileSeeded || 0) + residues} group(s) from files whose leading comment describes the module`
+      + (residues ? `, ${residues} of them residues (/ rest) of files other seeds partly claimed` : '') + `; `
       + `${result.fileNoHeader || 0} file(s) skipped (no such header), ${result.fileLicenseOnly || 0} license-only header(s) rejected. `
       + `--file-seed seeds every file under the size cap; --no-file-seed turns the seed off.`);
   } else if (result.fileSeedMode === 'all') {

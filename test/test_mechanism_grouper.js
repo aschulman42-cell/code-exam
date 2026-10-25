@@ -1028,3 +1028,56 @@ describe('file seed modes: doc-header (default), all, off', () => {
     assert.deepEqual(fileGroups(groupMechanisms(bare, { catalogSeed: false })), []);
   });
 });
+
+// file-seed-residue-groups (2026-10-25): in doc-header mode the majority rule
+// refused exactly the big modules other seeds had half-claimed, so the rest of
+// the module landed in no group (on .CE_082826, pseudo-claims.js: 11 of 29
+// left unassigned, no [file] group). The header already says the file is a
+// module; a residue that reaches minComm seeds under a label that says it is
+// a residue. 'all' mode keeps the majority rule (small cohesive files, opt-in).
+describe('file seed residues: a doc-headed file other seeds partly claimed', () => {
+  const fn = (s) => ({ type: 'function', start: s, end: s + 9 });
+  const DOC = '/** residue-fixture.js -- a module whose header states its purpose at length so the doc-header gate admits it. */';
+  // res.js: a class Zorb with four methods (the class seed takes them) and
+  // three plain functions (the residue). res2.js: the same with a two-function
+  // residue, below minComm. (A stub index has no vocabulary, so the token seed
+  // cannot play the earlier seed here; the class seed can.)
+  const mkIndex = () => ({
+    _ensureFunctionIndex() {},
+    functionIndex: {
+      'src/res.js': { Zorb: { type: 'class', start: 1, end: 48 }, 'Zorb::alpha': fn(2), 'Zorb::bravo': fn(14), 'Zorb::charlie': fn(26), 'Zorb::delta': fn(38), kiloNarg: fn(50), limaPlonk: fn(62), mikeGrup: fn(74) },
+      'src/res2.js': { Quxx: { type: 'class', start: 1, end: 48 }, 'Quxx::alpha': fn(2), 'Quxx::bravo': fn(14), 'Quxx::charlie': fn(26), 'Quxx::delta': fn(38), novemberFrob: fn(50), oscarSnarf: fn(62) },
+    },
+    fileLines: new Map([
+      ['src/res.js', [DOC, ...Array(90).fill('x;')]],
+      ['src/res2.js', [DOC, ...Array(80).fill('x;')]],
+    ]),
+  });
+  const labels = (r) => r.groups.map((g) => g.label).sort();
+  const members = (r, label) => { const g = r.groups.find((x) => x.label === label); return g ? g.members.map((m) => m.name).sort() : null; };
+  it('doc-header: the residue seeds as "[file] X / rest", counted apart from whole-file seeds, and the header says so', () => {
+    const r = groupMechanisms(mkIndex(), { catalogSeed: false });
+    assert.ok(labels(r).some((l) => /^\[class\] Zorb/.test(l)), 'the class seed claimed the four Zorb methods: ' + labels(r).join(' | '));
+    assert.deepEqual(members(r, '[file] res.js / rest'), ['kiloNarg', 'limaPlonk', 'mikeGrup']);
+    assert.equal(r.fileResidue, 1);
+    assert.equal(r.fileSeeded, 0, 'no whole-file seed here');
+    assert.ok(!labels(r).some((l) => l.startsWith('[file] res2.js')), 'a two-function residue is below minComm and does not seed');
+    const out = formatAnchors(r, { indexName: 'x' });
+    assert.match(out, /# file seed \(doc-header\): 1 group\(s\) from files whose leading comment describes the module, 1 of them residues \(\/ rest\) of files other seeds partly claimed; /);
+  });
+  it('all (--file-seed): the majority rule stays, so the three-of-seven residue does not seed', () => {
+    const r = groupMechanisms(mkIndex(), { catalogSeed: false, fileSeed: 'all' });
+    assert.ok(!labels(r).some((l) => l.startsWith('[file] res.js')), labels(r).join(' | '));
+    assert.equal(r.fileResidue || 0, 0);
+  });
+  it('a doc-headed file nothing else claimed still seeds whole, under the plain label', () => {
+    const idx = mkIndex();
+    idx.functionIndex['src/whole.js'] = { papaWibble: fn(2), quebecZorp: fn(14), romeoQuux: fn(26) };
+    idx.fileLines.set('src/whole.js', [DOC, ...Array(40).fill('x;')]);
+    const r = groupMechanisms(idx, { catalogSeed: false });
+    assert.deepEqual(members(r, '[file] whole.js'), ['papaWibble', 'quebecZorp', 'romeoQuux']);
+    assert.equal(r.fileSeeded, 1);
+    assert.equal(r.fileResidue, 1);
+    assert.match(formatAnchors(r, { indexName: 'x' }), /2 group\(s\) from files whose leading comment describes the module, 1 of them residues/);
+  });
+});

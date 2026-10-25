@@ -253,3 +253,27 @@ describe('pseudo-dep-tightening: clause-level facet count', () => {
     assert.ok(sig.facets > 1);
   });
 });
+
+// file-seed-residue-groups: a doc-headed file's leftover after other seeds took
+// part of it is labelled "[file] X / rest" by the grouper; the triage reads it
+// as a split residue, same reason and points as "/ other".
+describe('"/ rest" residues read as split residues', () => {
+  const long = 'A method for rendering a call graph, comprising: traversing the graph from a root node depth-first; collapsing cycles into a single node labelled with the cycle members; laying out the nodes in ranks by depth; and emitting the ranked layout as an image.';
+  const run = {
+    format: 'ce-pseudo-claim-anchors', version: 1, note: 'fixture', claims: [
+      { n: 1, label: 'graph (layoutGraph)', claim: long, grounded: [anchor('src/graph.js', 'layoutGraph'), anchor('src/graph.js', 'collapseCycles')], dropped: [] },
+      { n: 2, label: '[file] shard.js / rest', claim: 'A method for weighting identifiers, comprising: counting the files each identifier appears in; assigning a rarity weight inversely proportional to the count; and storing the weights in a table.', grounded: [anchor('src/shard.js', 'rarityWeight'), anchor('src/shard.js', 'storeWeights')], dropped: [] },
+      { n: 3, label: 'shard (partitionShards) / other', claim: 'A method for merging shards, comprising: reading each shard in turn; appending its entries to a merged table; and writing the merged table.', grounded: [anchor('src/merge.js', 'mergeShards')], dropped: [] },
+    ],
+  };
+  const r = triageClaims(run);
+  it('a "/ rest" label sets the split-residue signal and reason, as "/ other" does', () => {
+    assert.equal(byN(r, 2).signals.splitResidue, true);
+    assert.equal(byN(r, 3).signals.splitResidue, true);
+    assert.ok(byN(r, 2).reasons.some((x) => /split residue/.test(x) && /\/ rest/.test(x)), byN(r, 2).reasons.join('; '));
+  });
+  it('a plain label does not', () => {
+    assert.equal(byN(r, 1).signals.splitResidue, false);
+    assert.ok(!byN(r, 1).reasons.some((x) => /split residue/.test(x)));
+  });
+});

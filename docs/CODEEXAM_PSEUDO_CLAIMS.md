@@ -345,9 +345,11 @@ the reading are in *The real-world yardstick* below and on
   required with `--pseudo-claims` on local GGUF models such as Gemma 4 and
   Qwen 3.x.
 - **Grouper and drafter work on the worklist (2026-10-25), in sequence.**
-  `file-seed-residue-groups` (when other
-  seeds have taken some of a documented file's functions, the remainder should
-  still form its own group under the commonality gate);
+  `file-seed-residue-groups` (landed 2026-10-25: when other seeds have taken
+  some of a documented file's functions, the remainder forms its own group,
+  labelled `[file] X / rest`, under the three-function gate alone; the
+  candidates header counts residues apart from whole-file seeds, and the triage
+  reads `/ rest` as a split residue);
   `catalog-seed-handler-flag-label` (when several command-line options resolve
   to one handler, label the catalog-seeded group by the option that best matches
   the handler's name); `grouper-vendored-root-single-top-folder` (landed
