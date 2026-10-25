@@ -217,7 +217,11 @@ The set of candidate mechanisms is produced **deterministically, with no model**
 the grouper (`--pseudo-claims --candidates`) clusters the index's functions by
 signals like shared name-tokens, membership in the same class, a module's leading
 doc comment, and the command/handler catalog, then emits each cluster as a
-`# Label` + `file@func` group. Because this step is model-free, **different LLMs
+`# Label` + `file@func` group. A command's group is its handler and the functions the
+handler reaches through two levels of calls, up to forty, and it is never split into
+sub-groups: one command, one mechanism (the `# catalog closure:` line of a candidates file
+reports the depth, the cap, and how many reachable functions earlier seeds had already
+taken; 2026-10-25). Because this step is model-free, **different LLMs
 drafting from the same candidate list draft claims for the same set of
 mechanisms** — the models change the *wording* of each claim, not *which*
 mechanisms exist. In other words, the auto-discovery of candidate "inventions"

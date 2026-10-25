@@ -64,6 +64,13 @@ export const GROUPER_DEFAULTS = {
   // blocks defaulting this on. Commands are taken biggest-mechanism-first, so
   // the cap drops the thinnest ones.
   catalogMax: 24,
+  // catalog-seed-call-depth (2026-10-25): a handler plus its DIRECT callees
+  // never held a feature whole ("[cmd] --pseudo-claims" reached 22 functions
+  // in three split sub-groups and not the grouper), so no draft could recite
+  // the mechanism end to end. The seed now walks callees to catalogDepth
+  // under a member cap; depth 1 reproduces the old membership.
+  catalogDepth: 2,
+  catalogClosureMax: 40, // members per command group: handler, then depth 1, then depth 2, in callee order
   literalSeed: false,   // --literal-seed (#289): rare-shared-literal seed on the residue
   minLitLen: 8,         // literal seed: minimum literal length considered
   maxLitSpread: 10,     // literal seed: a literal in more containing functions than this is too common to seed
@@ -449,9 +456,12 @@ function multiSeedGroups(index, funcs, o) {
   // contributes no catalog groups.
   let catalogCapped = 0, catalogMade = 0;
   const catalogAliases = new Map(); // '[cmd] <flag>' -> the other flags on the same handler
+  const catalogInfo = new Map();    // '[cmd] <flag>' -> { reached, taken } from the callee walk
+  let catalogTaken = 0;
   if (o.catalogSeed) {
-    let cliOptions = [];
-    try { cliOptions = (extractCommandCatalog(index, false) || {}).cliOptions || []; } catch { /* */ }
+    let cliOptions = Array.isArray(o.catalogOptions) ? o.catalogOptions : []; // injectable for tests (conceptsList precedent)
+    if (!cliOptions.length) { try { cliOptions = (extractCommandCatalog(index, false) || {}).cliOptions || []; } catch { /* */ } }
+    const calleesOf = typeof o.calleesOf === 'function' ? o.calleesOf : (name, file) => findCallees(index, name, file);
     // Biggest mechanism first, so a cap drops the thinnest commands rather than
     // whichever happened to appear last in the catalog. Deterministic tiebreak
     // on the flag: two runs of --candidates must produce the same file.
@@ -479,20 +489,44 @@ function multiSeedGroups(index, funcs, o) {
     for (const [, entry] of byHandler) {
       if (o.catalogMax && catalogMade >= o.catalogMax) { catalogCapped += 1; continue; }
       const { h } = entry;
+      // Breadth-first over callees to catalogDepth, ambiguous callees skipped as
+      // before, only unassigned functions join (assigned ones do not conduct,
+      // as in every other seed), the cap filling handler first, then depth 1,
+      // then depth 2 in callee order. `reached` counts every function the walk
+      // saw within the depth; `taken` the ones an earlier seed already owned,
+      // which is the number that says whether seed order is the next question.
       const memberIds = new Set();
-      const tryAdd = (fid) => { if (fid && fileOf.has(fid) && !assigned.has(fid)) memberIds.add(fid); };
-      tryAdd(`${h.filepath}@${h.name}`);
-      let callees = [];
-      try { callees = findCallees(index, h.name, h.filepath) || []; } catch { /* */ }
-      for (const c of callees) {
-        const def = c.resolved_def;
-        if (!def || c.ambiguous) continue;
-        tryAdd(`${def.filepath}@${def.name || c.name}`);
+      const seen = new Set();
+      let reached = 0, taken = 0;
+      const consider = (fid) => {
+        if (!fid || seen.has(fid) || !fileOf.has(fid)) return false;
+        seen.add(fid); reached++;
+        if (assigned.has(fid)) { taken++; return false; }
+        if (memberIds.size >= o.catalogClosureMax) return false;
+        memberIds.add(fid); return true;
+      };
+      consider(`${h.filepath}@${h.name}`);
+      let frontier = [{ name: h.name, file: h.filepath }];
+      for (let depth = 1; depth <= (o.catalogDepth || 1) && frontier.length; depth++) {
+        const next = [];
+        for (const node of frontier) {
+          let callees = [];
+          try { callees = calleesOf(node.name, node.file) || []; } catch { /* */ }
+          for (const c of callees) {
+            const def = c.resolved_def;
+            if (!def || c.ambiguous) continue;
+            const cname = def.name || c.name;
+            if (consider(`${def.filepath}@${cname}`)) next.push({ name: cname, file: def.filepath });
+          }
+        }
+        frontier = next;
       }
       if (memberIds.size < o.minComm) continue;
       const { flag, aliases } = catalogLabelFlag(entry.flags, h.name);
       for (const fid of memberIds) assigned.set(fid, `[cmd] ${flag}`);
       if (aliases.length) catalogAliases.set(`[cmd] ${flag}`, aliases);
+      catalogInfo.set(`[cmd] ${flag}`, { reached, taken });
+      catalogTaken += taken;
       catalogMade += 1;
     }
   }
@@ -654,8 +688,8 @@ function multiSeedGroups(index, funcs, o) {
   // BECAUSE the large-command-surface corpora (.langchain 98M, .CC_cli_js_3
   // 84M) both blew a 10-minute grouping budget and went unsampled.
   return {
-    groups: [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([lbl, ids]) => ({ label: lbl, ids, ...(catalogAliases.has(lbl) ? { aliases: catalogAliases.get(lbl) } : {}) })),
-    stats: { catalogMade, catalogCapped, fileSeedMode, fileSeeded, fileResidue, fileNoHeader, fileLicenseOnly, fileTooBig },
+    groups: [...groups.entries()].filter(([, ids]) => ids.size >= o.minComm).map(([lbl, ids]) => ({ label: lbl, ids, ...(catalogAliases.has(lbl) ? { aliases: catalogAliases.get(lbl) } : {}), ...(catalogInfo.has(lbl) ? { catalog: catalogInfo.get(lbl) } : {}) })),
+    stats: { catalogMade, catalogCapped, catalogDepth: o.catalogDepth, catalogClosureMax: o.catalogClosureMax, catalogTaken, fileSeedMode, fileSeeded, fileResidue, fileNoHeader, fileLicenseOnly, fileTooBig },
   };
 }
 
@@ -909,13 +943,16 @@ export function groupMechanisms(index, opts = {}) {
       // Filter junk members, then rebuild ids from the survivors so emit,
       // members, and ids (the scoring path) stay consistent.
       const members = filterMembers(index, [...g.ids].map((id) => byId.get(id)).filter(Boolean));
-      return { label: g.label, ids: new Set(members.map((m) => m.id)), members, ...(g.aliases ? { aliases: g.aliases } : {}) };
+      return { label: g.label, ids: new Set(members.map((m) => m.id)), members, ...(g.aliases ? { aliases: g.aliases } : {}), ...(g.catalog ? { catalog: g.catalog } : {}) };
     })
     .filter((g) => g.members.length > 0); // a group whose anchors were all junk is dropped
 
   const groups = [], splits = [];
   for (const g of built) {
-    const r = splitOversizedGroup(index, g, byId, o);
+    // A command group is one mechanism by construction (catalog-seed-call-depth):
+    // the sub-token split that undoes over-broad token blobs would undo the
+    // feature again. The evidence pack's budgets bound what the drafter sees.
+    const r = g.label.startsWith('[cmd] ') ? { groups: [g], split: null } : splitOversizedGroup(index, g, byId, o);
     groups.push(...r.groups);
     if (r.split) splits.push(r.split);
   }
@@ -1067,6 +1104,11 @@ export function formatAnchors(result, meta = {}) {
   // `# Repaired:` in the synonymize provenance. It goes in the ARTIFACT, not
   // stderr: the candidates file is what someone hand-prunes later, possibly on
   // another machine, by which time stderr is gone.
+  if (result.catalogMade > 0 && result.catalogDepth != null) {
+    out.push(`# catalog closure: ${result.catalogMade} command group(s) (callees to depth ${result.catalogDepth}, closure cap ${result.catalogClosureMax}); `
+      + `${result.catalogTaken || 0} reachable function(s) already taken by earlier seeds`);
+    for (const g of result.groups || []) if (g.catalog && g.catalog.taken) out.push(`#   ${g.label}: ${g.catalog.reached} reachable, ${g.catalog.taken} already taken`);
+  }
   if (result.catalogCapped) {
     out.push(`# catalog seed: ${result.catalogMade} command group(s) formed; cap reached, `
       + `${result.catalogCapped} further command(s) NOT EVALUATED`);

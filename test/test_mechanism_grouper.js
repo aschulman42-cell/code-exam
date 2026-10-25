@@ -1134,3 +1134,78 @@ describe('catalog seed: the label flag follows the handler name when options sha
     assert.match(h.purpose, /also --candidates, --rank/);
   });
 });
+
+// catalog-seed-call-depth (2026-10-25): the catalog seed took a handler plus
+// its DIRECT callees, so "[cmd] --pseudo-claims" never held the grouper or the
+// pack builder's internals and no draft could recite the mechanism whole. The
+// seed now walks callees to a bounded depth under a member cap, counts the
+// reachable functions an earlier seed already took, and [cmd] groups are not
+// split by sub-token. A stub index has no command catalog or call graph, so
+// both are injectable for tests (the conceptsList precedent).
+describe('catalog seed: callee depth, the closure cap, taken count, no split', () => {
+  const fn = (s) => ({ type: 'function', start: s, end: s + 9 });
+  const CALLS = {
+    doPseudoClaims: ['computeCandidateGroups', 'buildPack'],
+    computeCandidateGroups: ['groupMechanisms'],
+    buildPack: ['fenceFor'],
+    groupMechanisms: ['enumerateFuncs'],
+  };
+  const FILE = { doPseudoClaims: 'src/index.js', computeCandidateGroups: 'src/pc.js', buildPack: 'src/pc.js', fenceFor: 'src/pc.js', fenceOpen: 'src/pc.js', fenceClose: 'src/pc.js', groupMechanisms: 'src/grouper.js', enumerateFuncs: 'src/grouper.js', unrelatedAlpha: 'src/other.js' };
+  const mkIndex = () => {
+    const functionIndex = {};
+    let s = 2;
+    for (const [name, file] of Object.entries(FILE)) { (functionIndex[file] = functionIndex[file] || {})[name] = fn(s); s += 12; }
+    return {
+      _ensureFunctionIndex() {},
+      functionIndex,
+      fileLines: new Map(Object.keys(functionIndex).map((file) => [file, ['const x = 1;', ...Array(200).fill('x;')]])),
+      findFunctionMatches(name) { return FILE[name] ? [{ filepath: FILE[name], name, start: 1, end: 9 }] : []; },
+    };
+  };
+  const catalog = [{ name: 'pseudo-claims', flags: ['--pseudo-claims'], handler: { handlerFunc: 'doPseudoClaims', callees: CALLS.doPseudoClaims } }];
+  const calleesOf = (name) => (CALLS[name] || []).map((c) => ({ name: c, resolved_def: { filepath: FILE[c], name: c }, ambiguous: false }));
+  const opts = (extra = {}) => ({ fileSeed: false, catalogSeed: true, catalogOptions: catalog, calleesOf, ...extra });
+  const cmd = (r) => r.groups.find((g) => g.label === '[cmd] --pseudo-claims');
+  const names = (g) => g.members.map((m) => m.name).sort();
+  it('depth 1 is the old membership: the handler and its direct callees', () => {
+    const g = cmd(groupMechanisms(mkIndex(), opts({ catalogDepth: 1 })));
+    assert.ok(g, 'a [cmd] group formed');
+    assert.deepEqual(names(g), ['buildPack', 'computeCandidateGroups', 'doPseudoClaims']);
+  });
+  it('depth 2 (the default) adds the callees of the callees and stops there', () => {
+    const r = groupMechanisms(mkIndex(), opts());
+    assert.equal(GROUPER_DEFAULTS.catalogDepth, 2);
+    assert.deepEqual(names(cmd(r)), ['buildPack', 'computeCandidateGroups', 'doPseudoClaims', 'fenceFor', 'groupMechanisms']);
+    assert.ok(!names(cmd(r)).includes('enumerateFuncs'), 'depth 3 is not reached');
+    assert.equal(r.catalogDepth, 2);
+    assert.equal(cmd(r).catalog.reached, 5);
+    assert.equal(cmd(r).catalog.taken, 0);
+  });
+  it('the closure cap holds, keeping the handler and its direct callees first', () => {
+    const g = cmd(groupMechanisms(mkIndex(), opts({ catalogClosureMax: 4 })));
+    assert.equal(g.members.length, 4);
+    assert.deepEqual(names(g), ['buildPack', 'computeCandidateGroups', 'doPseudoClaims', 'groupMechanisms'], 'depth-2 members join in callee order until the cap');
+  });
+  it('a reachable function an earlier seed took is counted, not re-grouped', () => {
+    // A concept token "fence" groups fenceFor, fenceOpen, fenceClose before the catalog seed runs.
+    const r = groupMechanisms(mkIndex(), opts({ conceptsList: [{ concept: 'fence' }] }));
+    assert.ok(r.groups.some((g) => /^fence/.test(g.label) && g.members.some((m) => m.name === 'fenceFor')), 'the token seed took fenceFor: ' + r.groups.map((g) => g.label).join(' | '));
+    const g = cmd(r);
+    assert.ok(!names(g).includes('fenceFor'));
+    assert.equal(g.catalog.taken, 1);
+    assert.equal(r.catalogTaken, 1);
+  });
+  it('a [cmd] group over groupMax is not split; the header says what the seed did', () => {
+    const r = groupMechanisms(mkIndex(), opts({ groupMax: 2 }));
+    const g = cmd(r);
+    assert.ok(g && g.members.length === 5, 'whole: ' + r.groups.map((x) => x.label + ':' + x.members.length).join(' | '));
+    assert.ok(!r.groups.some((x) => x.label.startsWith('[cmd] --pseudo-claims /')), 'no sub-token split of a command group');
+    const out = formatAnchors(r, { indexName: 'x' });
+    assert.match(out, /^# catalog closure: 1 command group\(s\) \(callees to depth 2, closure cap 40\); 0 reachable function\(s\) already taken by earlier seeds$/m);
+    assert.doesNotMatch(out, /^# split: \[cmd\]/m);
+  });
+  it('a stub without a catalog or callees still fails open', () => {
+    const r = groupMechanisms(mkIndex(), { fileSeed: false, catalogSeed: true });
+    assert.ok(!cmd(r));
+  });
+});
