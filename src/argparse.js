@@ -402,6 +402,7 @@ export function parseArgs() {
     literal_seed: false,  // --candidates: seed groups from rare shared string literals (#289)
     body_match_seed: false, // --candidates: body-containment rescue for name-match-failed cutoff tokens (#289)
     min_rank: null,       // --pseudo-claims: draft-time floor over [P..] rank tags (default P2 when tags present)
+    pack_fill: 'even',    // --pack-fill even|first: how an evidence pack spends its budget when the anchors do not fit (pack-budget-command-groups)
     shape_profile: 'litigated', // --pseudo-claims: which claim population the draft should resemble (litigated|ai-ml|randpat)
     claim_schema: false,  // --pseudo-claims: draft a claim OBJECT under a schema whose frame comes from the litigated population; CE renders the text (#322, experimental)
     doc_anchors: false,   // --candidates: attach best-matching doc sections as path@L anchors (#289 enrichment)
@@ -632,6 +633,7 @@ export function parseArgs() {
     ['literal_seed',         'flag',           ['--literal-seed']],
     ['body_match_seed',      'flag',           ['--body-match-seed']],
     ['min_rank',             'value',          ['--min-rank']],
+    ['pack_fill',            'value',          ['--pack-fill']],
     ['shape_profile',        'value',          ['--shape-profile']],
     ['doc_anchors',          'flag',           ['--doc-anchors']],
     ['rank',                 'flag',           ['--rank']],
@@ -1044,6 +1046,10 @@ export function parseArgs() {
   // default: a chart's row structure is the one thing two charts are compared on.
   if (!['method', 'system', 'auto', 'both'].includes(args.claim_class)) {
     console.error(`--claim-class must be auto, method, system, or both (got "${args.claim_class}").`);
+    process.exit(2);
+  }
+  if (!['even', 'first'].includes(args.pack_fill)) {
+    console.error(`--pack-fill must be even or first (got "${args.pack_fill}").`);
     process.exit(2);
   }
   if (args.granularity !== 'fine' && args.granularity !== 'coarse') {
@@ -1721,6 +1727,18 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
   --body-match-seed          With --candidates: rescue concept tokens whose
                              name-match failed by matching function BODIES
                              (identifiers, call sites, strings; opt-in).
+  --pack-fill <even|first>   With --pseudo-claims: how a group's evidence pack
+                             spends its 24,000-character budget when the
+                             anchors do not fit at full length. even (default):
+                             every anchor gets the same share, the budget
+                             divided by the member count and never under 600
+                             characters, so a 40-function command group shows
+                             the drafter all 40 openings. first: the anchors in
+                             group order at up to 8,000 each until the budget
+                             is spent, the rest omitted -- the better rule when
+                             the mechanism lives in one long function's body.
+                             A pack that fits is the same under both; the pack
+                             line under each draft says which applied.
   --min-rank <0-3|P0-P3>     With --pseudo-claims @ranked.lst: draft only groups
                              at or above this floor. Default P2 when the list
                              carries [P..] tags; unranked lists draft all

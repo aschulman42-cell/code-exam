@@ -986,3 +986,54 @@ describe('harvestPurpose on a residue group', () => {
     assert.doesNotMatch(p, /the module header/);
   });
 });
+
+// pack-budget-command-groups (2026-10-25): a group whose anchors do not fit
+// the 24,000-character pack at full length used to draft from its first few
+// members at 8,000 each and none of the rest ("packed 9 of 40; 31 omitted" on
+// [cmd] --pseudo-claims after the depth-two closure). --pack-fill even (the
+// default) spends the budget evenly; --pack-fill first is the old rule.
+import { buildPack as _bp, packDisclosure as _pd, PACK_TOTAL_CHARS as _ptc, PACK_PER_ANCHOR_CHARS as _ppa, PACK_MIN_ANCHOR_CHARS as _pma } from '../src/commands/pseudo-claims.js';
+describe('the evidence pack budget: even fill and first fill', () => {
+  const anchor = (i, chars) => ({ spec: `a.js@f${i}`, filepath: 'a.js', name: `f${i}`, start: 1, end: 9, kind: 'func', source: 'x'.repeat(chars) });
+  const many = (n, chars) => Array.from({ length: n }, (_, i) => anchor(i, chars));
+  it('a group that fits is packed as before, whole, with nothing shortened', () => {
+    const r = _bp(many(3, 1000));
+    assert.equal(r.mode, 'full');
+    assert.equal(r.droppedForBudget, 0);
+    assert.deepEqual(r.truncatedAnchors, []);
+    assert.equal(r.shortened, 0);
+    assert.equal((r.pack.match(/a\.js@f\d/g) || []).length, 3);
+  });
+  it('even: anchors that do not fit are all packed, each cut to the same allowance', () => {
+    const r = _bp(many(10, 5000));
+    assert.equal(r.mode, 'evened');
+    assert.equal(r.allowance, Math.floor(_ptc / 10));
+    assert.equal(r.droppedForBudget, 0, 'none omitted');
+    assert.equal(r.shortened, 10);
+    assert.equal(r.truncatedAnchors.length, 10);
+    assert.equal((r.pack.match(/a\.js@f\d/g) || []).length, 10);
+    assert.ok(!r.pack.includes('x'.repeat(r.allowance + 1)), 'no body longer than the allowance');
+  });
+  it('even: the floor holds at many members, and only then does the tail drop', () => {
+    const r = _bp(many(60, 1000));
+    assert.equal(r.mode, 'evened');
+    assert.equal(r.allowance, _pma);
+    assert.equal(r.droppedForBudget, 60 - Math.floor(_ptc / _pma), 'the tail past the total drops at the floor');
+    assert.ok(r.allowance < _ppa);
+  });
+  it('first: the old rule, first anchors at full length and the rest omitted', () => {
+    const r = _bp(many(10, 5000), { fill: 'first' });
+    assert.equal(r.mode, 'first');
+    assert.equal(r.droppedForBudget, 5);
+    assert.deepEqual(r.truncatedAnchors, [], 'nothing over the 8,000 cap here');
+    assert.equal((r.pack.match(/a\.js@f\d/g) || []).length, 5);
+  });
+  it('the pack line says which rule applied and what it cost', () => {
+    const ev = _bp(many(10, 5000));
+    const line = _pd({ resolved: many(10, 5000), ...ev });
+    assert.match(line, /packed 10 of 10 resolved anchor\(s\); evened to 2,400 characters each, 10 shortened/);
+    const fi = _bp(many(10, 5000), { fill: 'first' });
+    assert.match(_pd({ resolved: many(10, 5000), ...fi }), /packed 5 of 10 resolved anchor\(s\); 5 omitted for the pack budget/);
+    assert.equal(_pd({ resolved: many(3, 1000), ..._bp(many(3, 1000)) }), '', 'a pack that fit says nothing');
+  });
+});

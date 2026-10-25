@@ -436,6 +436,14 @@ export const PSEUDO_CLAIM_MAX_OUTPUT_TOKENS = 16000;
 // dry-run is exactly what the model receives).
 export const PACK_PER_ANCHOR_CHARS = 8000;
 export const PACK_TOTAL_CHARS = 24000;
+// pack-budget-command-groups (2026-10-25): when a group's anchors do not fit
+// the pack at full length, the budget is spread evenly (--pack-fill even, the
+// default) rather than spent on the first anchors in group order with the rest
+// omitted (--pack-fill first, the old rule). After the catalog seed's depth-two
+// closure, "[cmd] --pseudo-claims" held 40 functions and the pack took the
+// handler and eight direct callees, omitting the 31 that carried the mechanism.
+// The floor keeps an anchor's signature, comment and opening in view.
+export const PACK_MIN_ANCHOR_CHARS = 600;
 
 // A fence longer than the longest backtick run in `body` — CE's own source is
 // full of backtick template literals, so a fixed ``` fence would break out of
@@ -583,9 +591,16 @@ export function packDisclosure(s) {
   const truncated = (s.truncatedAnchors || []).length;
   if (!dropped && !truncated) return '';
   const total = (s.resolved || []).length;
+  const mode = s.packMode || s.mode || 'first';
   const bits = [`packed ${total - dropped} of ${total} resolved anchor(s)`];
-  if (dropped) bits.push(`${dropped} omitted for the pack budget`);
-  if (truncated) bits.push(`${truncated} truncated`);
+  if (mode === 'evened') {
+    const allowance = s.packAllowance ?? s.allowance;
+    bits.push(`evened to ${Number(allowance).toLocaleString('en-US')} characters each, ${s.packShortened ?? s.shortened ?? 0} shortened`);
+    if (dropped) bits.push(`${dropped} omitted past the pack budget even so`);
+  } else {
+    if (dropped) bits.push(`${dropped} omitted for the pack budget`);
+    if (truncated) bits.push(`${truncated} truncated`);
+  }
   return `_Evidence pack: ${bits.join('; ')}._`;
 }
 
@@ -787,27 +802,43 @@ export function formatChartToc(rows) {
   return out;
 }
 
-// Assemble a bounded evidence pack from a group's resolved anchors.
-function buildPack(resolved) {
+// Assemble a bounded evidence pack from a group's resolved anchors. Returns
+// the pack and what it did: mode 'full' (everything fit), 'evened' (the budget
+// spread over every anchor) or 'first' (the old rule, first-come). Only the
+// source slices count toward the total, not the cut markers.
+export function buildPack(resolved, { fill = 'even' } = {}) {
   const packParts = [];
   let used = 0;
   let droppedForBudget = 0;
+  let shortened = 0;
   const truncatedAnchors = [];
+  const needed = resolved.reduce((n, r) => n + Math.min(String(r.source || '').length, PACK_PER_ANCHOR_CHARS), 0);
+  let mode = 'full';
+  let allowance = PACK_PER_ANCHOR_CHARS;
+  if (needed > PACK_TOTAL_CHARS) {
+    if (fill === 'first') mode = 'first';
+    else { mode = 'evened'; allowance = Math.min(PACK_PER_ANCHOR_CHARS, Math.max(PACK_MIN_ANCHOR_CHARS, Math.floor(PACK_TOTAL_CHARS / Math.max(1, resolved.length)))); }
+  }
   for (const r of resolved) {
     if (used >= PACK_TOTAL_CHARS) { droppedForBudget++; continue; }
     let body = r.source;
-    if (body.length > PACK_PER_ANCHOR_CHARS) {
-      body = body.slice(0, PACK_PER_ANCHOR_CHARS) + '\n// … [truncated for evidence-pack budget]';
+    let counted = body.length;
+    if (body.length > allowance) {
+      counted = allowance;
+      body = body.slice(0, allowance) + (mode === 'evened'
+        ? `\n// … [cut at ${allowance} chars; ${body.length - allowance} more]`
+        : '\n// … [truncated for evidence-pack budget]');
       truncatedAnchors.push(r.spec);
+      if (mode === 'evened') shortened++;
     }
     const header = r.kind === 'lines'
       ? `${r.filepath}@L${r.start}-${r.end}  (documentation excerpt)`
       : `${r.filepath}@${r.name}  (L${r.start}-${r.end})`;
     const fence = fenceFor(body);
     packParts.push(`// ${header}\n${fence}\n${body}\n${fence}`);
-    used += body.length;
+    used += counted;
   }
-  return { pack: packParts.join('\n\n'), truncatedAnchors, droppedForBudget };
+  return { pack: packParts.join('\n\n'), truncatedAnchors, droppedForBudget, mode, allowance, shortened };
 }
 
 // --- Model drafting (the one non-deterministic step) -------------------------
@@ -1677,8 +1708,8 @@ export async function doPseudoClaims(index, args) {
   let totalProblems = 0;
   groups.forEach((g, gi) => {
     const { resolved, problems } = resolveGroup(index, g);
-    const { pack, truncatedAnchors, droppedForBudget } = buildPack(resolved);
-    sections.push({ label: g.label, purpose: g.purpose || '', fold: g.fold || null, priority: g.priority ?? null, groupNum: gi + 1, resolved, problems, pack, truncatedAnchors, droppedForBudget });
+    const { pack, truncatedAnchors, droppedForBudget, mode: packMode, allowance: packAllowance, shortened: packShortened } = buildPack(resolved, { fill: args.pack_fill || 'even' });
+    sections.push({ label: g.label, purpose: g.purpose || '', fold: g.fold || null, priority: g.priority ?? null, groupNum: gi + 1, resolved, problems, pack, truncatedAnchors, droppedForBudget, packMode, packAllowance, packShortened });
     totalResolved += resolved.length;
     totalProblems += problems.length;
   });
@@ -2088,7 +2119,9 @@ export async function doPseudoClaims(index, args) {
     if (showPack) {
       out.push('');
       if (s.truncatedAnchors.length) {
-        out.push(`_Truncated to the ${PACK_PER_ANCHOR_CHARS}-char per-anchor cap: ${s.truncatedAnchors.map((x) => `\`${x}\``).join(', ')}._`);
+        out.push(s.packMode === 'evened'
+          ? `_Shortened to ${s.packAllowance} chars each (the ${PACK_TOTAL_CHARS}-char pack budget spread over ${s.resolved.length} anchors; --pack-fill first packs the first anchors whole instead): ${s.truncatedAnchors.map((x) => `\`${x}\``).join(', ')}._`
+          : `_Truncated to the ${PACK_PER_ANCHOR_CHARS}-char per-anchor cap: ${s.truncatedAnchors.map((x) => `\`${x}\``).join(', ')}._`);
         out.push('');
       }
       if (s.droppedForBudget) {

@@ -171,6 +171,14 @@ CodeExam prints the evidence packs only. A local GGUF keeps the run air-gapped;
 see [`LOCAL_LLM.md`](LOCAL_LLM.md) and [`AIR_GAPPED.md`](AIR_GAPPED.md). A cost
 estimate is shown before any cloud spend.
 
+**The pack budget.** An evidence pack is 24,000 characters, at most 8,000 per anchor. When a
+group's anchors do not fit, `--pack-fill even` (the default since 2026-10-25) gives every anchor
+the same share, never under 600 characters, so a 40-function command group shows the drafter all
+forty openings; `--pack-fill first` packs the anchors in group order at full length until the
+budget is spent and omits the rest, the better rule when the mechanism lives in one long
+function's body. A pack that fits is the same under both. The pack line under each draft says
+which applied and what it cost.
+
 **Claim schema (`--claim-schema`, experimental).** Three terms first. A **claim
 object** is a claim as structured data rather than text: a preamble form, a
 purpose, the elements each with the code anchors it rests on, and the dependents
