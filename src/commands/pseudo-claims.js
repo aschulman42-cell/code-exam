@@ -42,7 +42,7 @@ import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAn
 import { makeFilterMatcher } from '../core/filter-match.js';
 import { triageClaims, formatTriage, keepSidecar, formatKeepFile, dependentFacetCount } from '../core/pseudo-claim-triage.js';
 import { pickClaimClass } from '../core/claim-class.js';
-import { claimSchema, strictSchema, renderClaim, checkClaim, reviseLine, SCHEMA_RESAMPLE_CAP } from '../core/claim-schema.js';
+import { claimSchema, strictSchema, renderClaim, checkClaim, reviseLine, SCHEMA_RESAMPLE_CAP, populationClassMix } from '../core/claim-schema.js';
 
 // --- Canonical caveat blocks -------------------------------------------------
 // Ported verbatim from pseudo_claim_selftest/CAVEAT.md so the shipped command
@@ -398,9 +398,72 @@ const PSEUDO_SYS_TAIL_SCHEMA_HEAD =
   'server"), empty when the form has no "...". ' +
   'elements — one entry per limitation of CLAIM 1, in order; each `text` is ' +
   'ONE clause with no claim number, no leading "and" and no trailing period';
+// pseudo-claim-class-apparatus: the APPARATUS tail -- a thing by its parts, each
+// component named for what it does, not one processor with the operations hung
+// on it -- and the CRM tail, the computer-readable-medium mirror.
+const PSEUDO_SYS_TAIL_APPARATUS =
+  'If the provided material is larger than one claim can cover, SELECT the ' +
+  'limitations that constitute the mechanism for CLAIM 1 and push the ' +
+  'specifics down into dependents; leave genuinely unrelated functions ' +
+  'uncited — do NOT enumerate every function in the material. Fewer, ' +
+  'well-chosen limitations make a better claim 1 than an exhaustive list. ' +
+  'Output EXACTLY this ' +
+  'format and nothing else:\n' +
+  'CLAIM: <one self-contained paragraph in APPARATUS form: a preamble ending ' +
+  'in "comprising:", then the structural COMPONENTS of the thing, each named ' +
+  'for what it does and the operation it is configured to perform — e.g. "An ' +
+  'apparatus for X, comprising: a receiving unit configured to <operation>; ' +
+  'a <noun> module coupled to the receiving unit and configured to ' +
+  '<operation>; and an output interface configured to <operation>." Do NOT ' +
+  'write "a processor configured to" as the one element; name the parts.>\n' +
+  'DEPENDENT CLAIMS:\n' +
+  '2. The apparatus of claim 1, wherein the <unit> is further configured to ' +
+  '<added operation>.\n' +
+  '3. The apparatus of claim 1, further comprising: a <component> configured ' +
+  'to <operation>.\n' +
+  '(number consecutively from 2; OMIT THIS SECTION ENTIRELY if the material ' +
+  'supports no dependent claims. Dependents are part of the same illustrative ' +
+  'exercise and carry the same caveat as claim 1.)\n' +
+  'ANCHORS:\n' +
+  '- <file>@<functionName> — <the claim element it implements>\n' +
+  '(one line per distinct element). For a DOCUMENTATION excerpt shown in the ' +
+  'provided material, cite it as <file>@L<start>-<end> using the line range ' +
+  'from its header. Cite ONLY files, functions, and line ranges that appear ' +
+  'in the provided material. NEVER invent a path, a name, or a line range.';
+
+const PSEUDO_SYS_TAIL_CRM =
+  'If the provided material is larger than one claim can cover, SELECT the ' +
+  'limitations that constitute the mechanism for CLAIM 1 and push the ' +
+  'specifics down into dependents; leave genuinely unrelated functions ' +
+  'uncited — do NOT enumerate every function in the material. Fewer, ' +
+  'well-chosen limitations make a better claim 1 than an exhaustive list. ' +
+  'Output EXACTLY this ' +
+  'format and nothing else:\n' +
+  'CLAIM: <one self-contained paragraph in COMPUTER-READABLE-MEDIUM form: "A ' +
+  'non-transitory computer-readable medium storing instructions that, when ' +
+  'executed by one or more processors, cause the one or more processors to: ' +
+  '<operation>; <operation>; and <operation>." — each operation opening with ' +
+  'a verb.>\n' +
+  'DEPENDENT CLAIMS:\n' +
+  '2. The computer-readable medium of claim 1, wherein the instructions ' +
+  'further cause the one or more processors to <added operation>.\n' +
+  '3. The computer-readable medium of claim 1, wherein <narrowing>.\n' +
+  '(number consecutively from 2; OMIT THIS SECTION ENTIRELY if the material ' +
+  'supports no dependent claims. Dependents are part of the same illustrative ' +
+  'exercise and carry the same caveat as claim 1.)\n' +
+  'ANCHORS:\n' +
+  '- <file>@<functionName> — <the claim element it implements>\n' +
+  '(one line per distinct element). For a DOCUMENTATION excerpt shown in the ' +
+  'provided material, cite it as <file>@L<start>-<end> using the line range ' +
+  'from its header. Cite ONLY files, functions, and line ranges that appear ' +
+  'in the provided material. NEVER invent a path, a name, or a line range.';
+
+const PSEUDO_SYS_TAIL_BY_CLASS = { system: PSEUDO_SYS_TAIL_SYSTEM, apparatus: PSEUDO_SYS_TAIL_APPARATUS, crm: PSEUDO_SYS_TAIL_CRM };
+
 const PSEUDO_SYS_TAIL_SCHEMA_CLASS = {
   method: ': a STEP opening with a gerund ("receiving ...", "determining ...", "transmitting ..."). ',
   system: ': a STRUCTURAL element opening with an article ("a memory storing ...", "a processor configured to: <operation>; <operation>"). ',
+  apparatus: ': a STRUCTURAL COMPONENT of the thing, named for what it does, opening with an article ("a receiving unit configured to ...", "a controller coupled to the sensor and configured to ..."); not one processor with every operation hung on it. ',
   crm: ': an operation the stored instructions cause the processor to perform, opening with a gerund. ',
 };
 const PSEUDO_SYS_TAIL_SCHEMA_TAIL =
@@ -420,10 +483,37 @@ function pseudoSysTailSchema(claimClass) {
   return PSEUDO_SYS_TAIL_SCHEMA_HEAD + (PSEUDO_SYS_TAIL_SCHEMA_CLASS[claimClass] || PSEUDO_SYS_TAIL_SCHEMA_CLASS.method) + PSEUDO_SYS_TAIL_SCHEMA_TAIL;
 }
 
+// The machine classes (system, apparatus) draft under the population's machine-class shape
+// profile when one exists; crm's operations read like method steps and keep the base profile.
+export function classProfile(profileName, cls) {
+  return (cls === 'system' || cls === 'apparatus') && SHAPE_PROFILES[`${profileName}-system`] ? `${profileName}-system` : profileName;
+}
+
+// What --claim-class <mode> drafts for one group: one class, or several labelled ones.
+// `both` is method + system (the measurement mode, unchanged); `all` is the mirror set real
+// software patents carry (55% have a method and a machine-class independent claim, 31% the
+// method + machine + CRM set, 2026-10-25): method, the machine form the rule would choose
+// (system unless it says apparatus), and crm. `auto` applies the rule alone.
+export function classesForMode(mode, section) {
+  const m = mode || 'method';
+  if (m === 'both') return [{ class: 'method', reason: 'both mode', suffix: 'method' }, { class: 'system', reason: 'both mode', suffix: 'system' }];
+  if (m === 'all') {
+    const pick = pickClaimClass(section);
+    const machine = pick.class === 'apparatus' ? 'apparatus' : 'system';
+    return [
+      { class: 'method', reason: 'all mode', suffix: 'method' },
+      { class: machine, reason: `all mode; machine form by rule: ${pick.reason}`, suffix: machine },
+      { class: 'crm', reason: 'all mode', suffix: 'crm' },
+    ];
+  }
+  if (m === 'auto') { const pick = pickClaimClass(section); return [{ class: pick.class, reason: pick.reason, suffix: null }]; }
+  return [{ class: m, reason: `--claim-class ${m}`, suffix: null }];
+}
+
 export function buildPseudoClaimSys(profileName = DEFAULT_SHAPE_PROFILE, claimClass = 'method', { schema = false } = {}) {
   const classLine = `The statutory class for THIS draft is GIVEN: ${String(claimClass).toUpperCase()}. `
     + 'Draft in that class; do not choose another. ';
-  const tail = schema ? pseudoSysTailSchema(claimClass) : (claimClass === 'system' ? PSEUDO_SYS_TAIL_SYSTEM : PSEUDO_SYS_TAIL);
+  const tail = schema ? pseudoSysTailSchema(claimClass) : (PSEUDO_SYS_TAIL_BY_CLASS[claimClass] || PSEUDO_SYS_TAIL);
   return PSEUDO_SYS_HEAD + shapeTargetLines(profileName) + PSEUDO_SYS_DEPENDENTS + classLine + tail;
 }
 // The default-profile rendering, kept under the name every importer and the
@@ -1746,13 +1836,13 @@ export async function doPseudoClaims(index, args) {
     const spName = args.shape_profile || DEFAULT_SHAPE_PROFILE;
     const clsMode = args.claim_class || 'method';
     const users = withAnchors.map((s) => {
-      const cls = clsMode === 'auto' ? pickClaimClass(s).class : (clsMode === 'both' ? 'method' : clsMode);
+      const cls = clsMode === 'auto' ? pickClaimClass(s).class : ((clsMode === 'both' || clsMode === 'all') ? 'method' : clsMode);
       const mech = s.label ? `${s.label}${s.purpose ? ' — ' + s.purpose : ''}` : '';
       const intent = mech ? `MECHANISM: ${mech}\n\n` : '';
       return { label: `${s.label || 'group'} [${cls}]`, text: `${intent}CODE:\n${s.pack}` };
     });
-    const sysCls = (clsMode === 'auto' || clsMode === 'both') ? 'method' : clsMode;
-    const sysProfile = sysCls === 'system' && SHAPE_PROFILES[`${spName}-system`] ? `${spName}-system` : spName;
+    const sysCls = (clsMode === 'auto' || clsMode === 'both' || clsMode === 'all') ? 'method' : clsMode;
+    const sysProfile = classProfile(spName, sysCls);
     const schemaShown = args.claim_schema
       ? `\n\n[--claim-schema: the claim object schema the engine enforces, for '${sysCls}' under the ${sysProfile} profile]\n`
         + JSON.stringify(claimSchema({ claimClass: sysCls, axes: (SHAPE_PROFILES[sysProfile] || SHAPE_PROFILES[DEFAULT_SHAPE_PROFILE]).axes }), null, 1)
@@ -1773,6 +1863,7 @@ export async function doPseudoClaims(index, args) {
     return;
   }
   const dryRun = !!args.dry_run || !model;
+  let clsModeForFooter = args.claim_class || 'method';
   // Evidence pack in the OUTPUT artifact: absent by default (keeps --pseudo-claims
   // lean); shown on --dry-run (the pack IS that mode's deliverable) or with
   // --include-evidence-pack. The model ALWAYS receives the pack as INPUT
@@ -1797,19 +1888,14 @@ export async function doPseudoClaims(index, args) {
     // cost gate -- 'both' doubles the drafting spend and the gate must see
     // it. Default 'method': no run changes until the second both-ways read.
     const clsMode = args.claim_class || 'method';
-    if (clsMode === 'both') {
-      const expanded = withAnchors.flatMap((s) => ([
-        { ...s, _class: 'method', _classReason: 'both mode', label: s.label ? `${s.label} [method]` : '[method]' },
-        { ...s, _class: 'system', _classReason: 'both mode', label: s.label ? `${s.label} [system]` : '[system]' },
-      ]));
+    clsModeForFooter = clsMode;
+    {
+      const expanded = withAnchors.flatMap((s) => classesForMode(clsMode, s).map((p) => ({
+        ...s, _class: p.class, _classReason: p.reason,
+        ...(p.suffix ? { label: s.label ? `${s.label} [${p.suffix}]` : `[${p.suffix}]` } : {}),
+      })));
       withAnchors.length = 0;
       withAnchors.push(...expanded);
-    } else {
-      withAnchors.forEach((s) => {
-        const pick = clsMode === 'auto' ? pickClaimClass(s) : { class: clsMode, reason: `--claim-class ${clsMode}` };
-        s._class = pick.class;
-        s._classReason = pick.reason;
-      });
     }
     // pseudo-claims-cost-guard: packs are already built (s.pack), so the
     // drafting projection is exact — pack + system prompt in, 900 out per
@@ -1826,7 +1912,7 @@ export async function doPseudoClaims(index, args) {
       let inChars = buildPseudoClaimSys(profileName, cls, { schema: !!args.claim_schema }).length + 200 + (s.pack ? s.pack.length : 0);
       if (args.claim_schema) {
         if (!schemaChars.has(cls)) {
-          const clsProfile = cls === 'system' && SHAPE_PROFILES[`${profileName}-system`] ? `${profileName}-system` : profileName;
+          const clsProfile = classProfile(profileName, cls);
           const axes = (SHAPE_PROFILES[clsProfile] || SHAPE_PROFILES[DEFAULT_SHAPE_PROFILE]).axes;
           schemaChars.set(cls, JSON.stringify(strictSchema(claimSchema({ claimClass: cls, axes }))).length);
         }
@@ -1851,7 +1937,7 @@ export async function doPseudoClaims(index, args) {
         const mech = s.label ? `${s.label}${s.purpose ? ' — ' + s.purpose : ''}` : '';
         const intent = mech ? `MECHANISM: ${mech}\n\n` : '';
         const cls = s._class || 'method';
-        const clsProfile = cls === 'system' && SHAPE_PROFILES[`${profileName}-system`] ? `${profileName}-system` : profileName;
+        const clsProfile = classProfile(profileName, cls);
         let prose, dependents, anchors, truncated;
         let schemaDraft = null;
         if (args.claim_schema) {
@@ -1928,6 +2014,16 @@ export async function doPseudoClaims(index, args) {
     out.push(`_Drafted from ${withAnchors.length} evidence pack(s) via ${modelDesc}.${selNote} Each claim's cited anchors are **grounded** — verified to resolve to a real function in the index; ungrounded citations are dropped.${showPack ? ' The evidence pack the draft was grounded in follows each claim.' : ' Pass --include-evidence-pack to append each claim\'s evidence pack.'}_`);
   }
   out.push('');
+  // pseudo-claim-class-apparatus: the class mix beside the litigated population's, so a run
+  // far from it is visible; a measurement, not a quota -- no group gets its class by lottery.
+  if (!dryRun && drafts.length > 1) {
+    const mix = new Map();
+    for (const d of drafts) { const k = (d && d.class) || 'method'; mix.set(k, (mix.get(k) || 0) + 1); }
+    const pop = populationClassMix();
+    const pct = (k) => (pop[k] != null ? `${Math.round(100 * pop[k])}%` : 'n/a');
+    out.push(`_Statutory classes drafted: ${[...mix.entries()].map(([k, n]) => `${k} ${n}`).join(', ')} (--claim-class ${clsModeForFooter}). The litigated claim 1s are method ${pct('method')}, machine-class ${pct('system')} (system, apparatus and device claims, which the population files together), computer-readable medium ${pct('crm')}, Jepson ${pct('jepson')}, other ${pct('other')}; a run far from that mix is worth a second look, not a correction._`);
+    out.push('');
+  }
 
   // pseudo-claims-shape-profile: the run's shape summary, so a reader sees at
   // once how many drafts sit inside the population's bands on every axis and
@@ -2007,7 +2103,7 @@ export async function doPseudoClaims(index, args) {
     const rows = withAnchors.map((s, i) => ({
       n: i + 1,
       label: (s.label || '') + (!dryRun && drafts[i] && drafts[i].class && drafts[i].class !== 'method'
-        && !/\[(?:method|system)\]$/.test(s.label || '') ? ` [${drafts[i].class}]` : ''),
+        && !/\[(?:method|system|apparatus|crm)\]$/.test(s.label || '') ? ` [${drafts[i].class}]` : ''),
       priority: s.priority,
       preamble: !dryRun && drafts[i] && drafts[i].prose ? claimPreambleSnippet(drafts[i].prose) : '',
       echoOf: echoByIdx.get(i) || null,

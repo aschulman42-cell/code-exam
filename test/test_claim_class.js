@@ -38,3 +38,30 @@ describe('pickClaimClass: four branches, first match wins, reasons named', () =>
     assert.equal(pickClaimClass(g).class, pickClaimClass(g).class);
   });
 });
+
+// pseudo-claim-class-apparatus (2026-10-25): an apparatus is a thing by its
+// parts; the rule says so for several classes with roles or for hardware and
+// I/O vocabulary, and still says system for one class whose methods are what it
+// is configured to do.
+import { APPARATUS_WORDS } from '../src/core/claim-class.js';
+describe('pickClaimClass: apparatus', () => {
+  const m = (names) => ({ label: 'rig (Sensor::read)', members: names.map((name) => ({ name })) });
+  it('two or more classes each with roles, most of the group -> apparatus, with the parts named', () => {
+    const r = pickClaimClass(m(['Sensor::read', 'Sensor::calibrate', 'Controller::drive', 'Controller::stop', 'helper']));
+    assert.equal(r.class, 'apparatus');
+    assert.match(r.reason, /components: 2 classes with roles/);
+    assert.match(r.reason, /Sensor 2, Controller 2/);
+  });
+  it('one dominant class stays system', () => {
+    const r = pickClaimClass({ label: 'index (Index::build)', members: ['Index::build', 'Index::save', 'Index::load', 'free'].map((name) => ({ name })) });
+    assert.equal(r.class, 'system');
+  });
+  it('hardware and I/O vocabulary over process vocabulary -> apparatus', () => {
+    const r = pickClaimClass({ label: 'serial (openPort)', purpose: 'talks to the device over a serial port through a driver', members: ['openPort', 'readSensor', 'closePort'].map((name) => ({ name })) });
+    assert.equal(r.class, 'apparatus');
+    assert.match(r.reason, /hardware\/IO vocabulary/);
+  });
+  it('the vocabulary is stated and exported', () => {
+    assert.ok(Array.isArray(APPARATUS_WORDS) && APPARATUS_WORDS.includes('sensor') && APPARATUS_WORDS.includes('driver'));
+  });
+});

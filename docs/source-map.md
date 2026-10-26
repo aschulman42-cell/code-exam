@@ -81,7 +81,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/core/bundle-seam-detection.js` — detects esbuild module-wrapper seams in minified bundles and recovers per-module names and previews
 - `src/core/calls.js` — call-graph engine: resolves callees, finds callers, builds call inventories and per-name call counts
 - `src/core/canonical-funcs.js` — groups identical function hashes and picks a canonical representative (shortest path) per group
-- `src/core/claim-class.js` — picks a pseudo-claim's statutory class (method vs system) by a stated word-list rule, with its reason
+- `src/core/claim-class.js` — picks a pseudo-claim's statutory class (method, system or apparatus) by a stated word-list rule, with its reason
 - `src/core/claim-genericity.js` — scores a claim element generic-bookend vs mechanism via I/O-verb shape and corpus word frequency
 - `src/core/claim-terms.js` — shared claim tokenizer: stop list, acronym rule, stemmer, and TF-IDF pick of distinctive claim words
 - `src/core/client-server.js` — detects declared HTTP routes and client calls, then reconciles them to flag missing server code
@@ -183,7 +183,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_claim_analyze.js` — claim-analyze: claim scope, term probes, multisect scope ladder, per-element arm
 - `test/test_claim_ballpark.js` — claim-ballpark script: distinctive-term selection, row reduction, ranking
 - `test/test_claim_chart.js` — claim-chart pipeline: table structure, target budget, verdict merge, provenance, HTML
-- `test/test_claim_class.js` — pickClaimClass: the deterministic statutory-class rule, four branches with reasons
+- `test/test_claim_class.js` — pickClaimClass: the deterministic statutory-class rule, its branches with reasons, apparatus among them
 - `test/test_claim_frame_tables.js` — the frame tables of litigated claims: class rule, openers, skeletons, element and dependent frames, the shipped JSON
 - `test/test_claim_genericity.js` — claim genericity: head verbs, IO vs mechanism cues, element-class tallies
 - `test/test_claim_locate.js` — claim-locate: symbol verify, element splitting, scavenger hunt, targets provenance

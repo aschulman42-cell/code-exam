@@ -37,8 +37,13 @@ export function frameTables() {
   return _tables;
 }
 
-/** The classes the schema drafts in. `crm` is accepted from a caller; --claim-class offers method and system. */
-export const SCHEMA_CLASSES = ['method', 'system', 'crm'];
+/** The classes the schema drafts in. pseudo-claim-class-apparatus (2026-10-25): `apparatus` is a
+ * claim to a thing by its parts ("an apparatus comprising: a receiving unit configured to ..."),
+ * distinct from `system` ("a system comprising: a memory ...; a processor configured to ...");
+ * the population files both under one class, so apparatus draws its skeletons from the system
+ * rows whose head is apparatus or device. `crm` is the computer-readable-medium claim. */
+export const SCHEMA_CLASSES = ['method', 'system', 'apparatus', 'crm'];
+const APPARATUS_HEADS = new Set(['apparatus', 'device']);
 /** Resamples after a failed post-check, per claim: cheap, and a third attempt rarely differs. */
 export const SCHEMA_RESAMPLE_CAP = 2;
 
@@ -47,9 +52,10 @@ export const SCHEMA_RESAMPLE_CAP = 2;
 const DEP_KINDS = {
   method: ['wherein', 'further comprising'],
   system: ['wherein', 'further comprising', 'wherein the processor is further configured to'],
+  apparatus: ['wherein', 'further comprising'],
   crm: ['wherein', 'further comprising', 'wherein the instructions further cause the processor to'],
 };
-const CLASS_HEAD = { method: 'method', system: 'system', crm: 'computer-readable medium' };
+const CLASS_HEAD = { method: 'method', system: 'system', apparatus: 'apparatus', crm: 'computer-readable medium' };
 
 // The words that end a preamble's opener (the noun phrase a dependent's subject echoes): the first
 // purpose or body word. "a peripheral device connectable to ..., the peripheral device comprising"
@@ -74,20 +80,31 @@ export function skeletonHead(skeleton) {
  * hand. Each row carries the head noun it implies.
  */
 export function skeletonsFor(claimClass, { tables = frameTables(), minCount = 2 } = {}) {
-  const t = tables?.claim1?.preambles?.skeletons?.[claimClass];
-  const rows = ((t && t.rows) || []).filter((r) => r.count >= minCount)
+  // The population's class rule files apparatus and device heads under `system`; the apparatus
+  // class is that subset, derived at run time rather than by rebuilding a dated table.
+  const srcClass = claimClass === 'apparatus' ? 'system' : claimClass;
+  const keep = claimClass === 'apparatus' ? (form) => APPARATUS_HEADS.has(skeletonHead(form)) : () => true;
+  const t = tables?.claim1?.preambles?.skeletons?.[srcClass];
+  const rows = ((t && t.rows) || []).filter((r) => r.count >= minCount && keep(r.value))
     .map((r) => ({ skeleton: r.value, count: r.count, head: skeletonHead(r.value) || CLASS_HEAD[claimClass] }));
   if (rows.length < 5) {
     const seen = new Set(rows.map((r) => r.skeleton));
-    for (const o of (tables?.claim1?.preambles?.openers?.[claimClass]?.rows || [])) {
+    for (const o of (tables?.claim1?.preambles?.openers?.[srcClass]?.rows || [])) {
       for (const form of [`${o.value} comprising`, `${o.value} ... comprising`]) {
-        if (seen.has(form)) continue;
+        if (seen.has(form) || !keep(form)) continue;
         seen.add(form);
         rows.push({ skeleton: form, count: 0, head: skeletonHead(form) || CLASS_HEAD[claimClass], supplementary: true });
       }
     }
   }
   return rows;
+}
+
+/** The litigated population's claim-1 class mix, for the run footer: { method: 0.49, system: 0.18, ... }. */
+export function populationClassMix(tables = frameTables()) {
+  const out = {};
+  for (const r of (tables?.claim1?.classes?.rows || [])) out[r.value] = r.share;
+  return out;
 }
 
 /**
@@ -285,7 +302,7 @@ export function checkClaim(obj, { claimClass = 'method', axes = {}, tables = fra
     const first = w[0] || '';
     if (cls === 'method') {
       if (!(GERUND.test(first) || methodOpeners.has(first))) offenders.push(`${i + 1}: "${first}"`);
-    } else if (cls === 'system') {
+    } else if (cls === 'system' || cls === 'apparatus') {
       if (!NOUN_OPENER.test(first)) offenders.push(`${i + 1}: "${first}"`);
     } else if (!(GERUND.test(first) || NOUN_OPENER.test(first) || methodOpeners.has(first))) offenders.push(`${i + 1}: "${first}"`);
   });

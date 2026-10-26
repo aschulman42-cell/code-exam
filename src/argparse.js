@@ -309,7 +309,7 @@ export function parseArgs() {
     targets: null,
     elements: null,
     granularity: 'fine',     // --granularity coarse|fine: how --claim-* commands split a claim into rows (A14)
-    claim_class: 'method',   // --claim-class auto|method|system|both (pseudo-claims-statutory-class); default unchanged until the second both-ways read
+    claim_class: 'method',   // --claim-class method|system|apparatus|crm|auto|both|all (pseudo-claims-statutory-class; apparatus, crm and all added 2026-10-25)
     no_callees: false,
     scope_note: null,
     targets_note: null,
@@ -1044,8 +1044,8 @@ export function parseArgs() {
 
   // --granularity is an enumeration, and a typo must not silently become the
   // default: a chart's row structure is the one thing two charts are compared on.
-  if (!['method', 'system', 'auto', 'both'].includes(args.claim_class)) {
-    console.error(`--claim-class must be auto, method, system, or both (got "${args.claim_class}").`);
+  if (!['method', 'system', 'apparatus', 'crm', 'auto', 'both', 'all'].includes(args.claim_class)) {
+    console.error(`--claim-class must be method, system, apparatus, crm, auto, both, or all (got "${args.claim_class}").`);
     process.exit(2);
   }
   if (!['even', 'first'].includes(args.pack_fill)) {
@@ -1814,12 +1814,22 @@ LLM ANALYSIS:
                               callee BODIES are included by default so the crux
                               element is not judged on an inference. Takes
                               @file.txt or inline text.
-  --claim-class <c>          --pseudo-claims: statutory class of the drafts —
-                             method (default), system, auto (a stated
-                             deterministic rule keyed on the mechanism's shape
-                             in the code, reason recorded per claim), or both
-                             (each group drafted twice, labelled — the
-                             measurement mode)
+  --claim-class <c>          --pseudo-claims: statutory class of the drafts.
+                             method (default); system ("a system comprising:
+                             a memory ...; a processor configured to ...");
+                             apparatus (a thing by its parts: "an apparatus
+                             comprising: a receiving unit configured to ...;
+                             a controller coupled to ..."); crm (a computer-
+                             readable medium storing instructions); auto (a
+                             stated deterministic rule keyed on the
+                             mechanism's shape in the code picks method,
+                             system or apparatus, reason recorded per claim);
+                             both (method and system, labelled -- the
+                             measurement mode); all (the mirror set real
+                             software patents carry: method, the machine form
+                             auto would choose, and crm, labelled). The run
+                             footer prints the class mix beside the litigated
+                             population's.
   --claim-schema             --pseudo-claims (EXPERIMENTAL): the drafter fills
                              a claim OBJECT under a schema and CodeExam renders
                              the text. The preamble forms, dependent kinds and

@@ -21,12 +21,22 @@
  * twice.
  */
 export const STRUCTURE_WORDS = ['index', 'schema', 'format', 'table', 'record', 'layout', 'sidecar', 'serialize', 'deserialize', 'store', 'cache'];
+// pseudo-claim-class-apparatus (2026-10-25): an APPARATUS is a thing by its
+// parts -- several collaborating components each with a role, or hardware and
+// I/O vocabulary -- as distinct from a SYSTEM, one class whose methods are what
+// it is configured to do. Stated like the lists above; nothing learned. In the
+// litigated population apparatus and device claim 1s are a minority of the
+// machine class (apparatus/device-headed 8% of independent claims against
+// system-headed 14%, 2026-10-25), which is why the rule asks for more than one
+// component before it says apparatus.
+export const APPARATUS_WORDS = ['device', 'driver', 'port', 'sensor', 'controller', 'bus', 'socket', 'pin', 'gpio', 'firmware', 'adapter', 'peripheral', 'hardware', 'actuator'];
+const APPARATUS_MIN = 2;
 export const PROCESS_WORDS = ['run', 'build', 'scan', 'extract', 'resolve', 'draft', 'pipeline'];
 const STRUCTURE_MIN = 2;
 
 /**
  * @param {object} group  a drafting pack: { label, purpose?, docHeader?, resolved|members: [{ name }] }
- * @returns {{ class: 'method'|'system', reason: string, signals: object }}
+ * @returns {{ class: 'method'|'system'|'apparatus', reason: string, signals: object }}
  */
 export function pickClaimClass(group = {}) {
   const label = String(group.label || '');
@@ -44,14 +54,33 @@ export function pickClaimClass(group = {}) {
   if (/^\[class\]/i.test(label)) {
     return { class: 'system', reason: 'component: [class] seed', signals: { domClass: dom ? dom.k : null } };
   }
+  // 1b. Apparatus: two or more classes each contributing two or more methods,
+  //     together most of the group -- components with roles, not one component.
+  {
+    const c = new Map();
+    for (const p of prefixes) c.set(p, (c.get(p) || 0) + 1);
+    const parts = [...c.entries()].filter(([, v]) => v >= 2);
+    const covered = parts.reduce((n, [, v]) => n + v, 0);
+    if (names.length && parts.length >= 2 && covered / names.length >= 0.6) {
+      return { class: 'apparatus', reason: `components: ${parts.length} classes with roles (${parts.map(([k, v]) => `${k} ${v}`).join(', ')}) are ${Math.round(100 * covered / names.length)}% of members`, signals: { components: parts.length, covered } };
+    }
+  }
   if (names.length && dom && dom.v / names.length >= 0.6) {
     return { class: 'system', reason: `component: ${Math.round(100 * dom.v / names.length)}% of members are ${dom.k} methods`, signals: { domClass: dom.k } };
   }
-  // 2. Structure vocabulary over process vocabulary.
+  // 2. Structure vocabulary over process vocabulary; hardware and I/O vocabulary first.
   const hay = `${label} ${String(group.purpose || '')} ${String(group.docHeader || '')} ${names.join(' ')}`.toLowerCase();
   const count = (ws) => ws.reduce((n, w) => n + (hay.split(w).length - 1), 0);
   const sN = count(STRUCTURE_WORDS);
   const pN = count(PROCESS_WORDS);
+  // Whole words only: the structure and process lists tolerate substrings, but
+  // "port" inside imports, exports and report made list-renderers.js and --bom
+  // apparatus on the first mix (21 of 182 groups, every one by this branch).
+  const countWords = (ws) => ws.reduce((n, w) => n + (hay.match(new RegExp('\\b' + w + 's?\\b', 'g')) || []).length, 0);
+  const hN = countWords(APPARATUS_WORDS);
+  if (hN >= APPARATUS_MIN && hN > pN) {
+    return { class: 'apparatus', reason: `hardware/IO vocabulary ${hN} vs process ${pN}`, signals: { hardware: hN, process: pN, structure: sN } };
+  }
   if (sN > pN && sN >= STRUCTURE_MIN) {
     return { class: 'system', reason: `structure vocabulary ${sN} vs process ${pN}`, signals: { structure: sN, process: pN } };
   }

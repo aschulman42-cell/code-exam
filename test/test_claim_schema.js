@@ -374,3 +374,48 @@ describe('the drafter wiring', () => {
     } finally { globalThis.fetch = realFetch; }
   });
 });
+
+// pseudo-claim-class-apparatus (2026-10-25): the apparatus class draws its
+// skeletons from the population's system rows whose head is apparatus or
+// device (the tables file both under one class), renders "The apparatus of
+// claim N", and keeps the machine-class opener check.
+import { populationClassMix as _pcm } from '../src/core/claim-schema.js';
+describe('the apparatus class', () => {
+  const saxes = SHAPE_PROFILES['litigated-system'].axes;
+  it('is a schema class, and its skeletons are the apparatus- and device-headed forms only', () => {
+    assert.ok(SCHEMA_CLASSES.includes('apparatus'));
+    const rows = skeletonsFor('apparatus');
+    assert.ok(rows.length >= 4, 'rows: ' + rows.map((r) => r.skeleton).join(' | '));
+    for (const r of rows) assert.ok(['apparatus', 'device'].includes(r.head), r.skeleton + ' -> ' + r.head);
+    const forms = rows.map((r) => r.skeleton);
+    assert.ok(forms.includes('an apparatus comprising') && forms.includes('an apparatus for ... comprising'));
+    assert.ok(!forms.includes('a system for ... comprising') && !forms.includes('a computer system comprising'));
+    assert.ok(rows.some((r) => r.supplementary), 'a thin class is filled from its own openers, marked supplementary');
+  });
+  it('builds a schema with the class fixed and the two dependent kinds', () => {
+    const s = claimSchema({ claimClass: 'apparatus', axes: saxes });
+    assert.deepEqual(s.properties.class.enum, ['apparatus']);
+    assert.deepEqual(s.properties.dependents.items.properties.kind.enum, ['wherein', 'further comprising']);
+    assert.ok(s.properties.preamble.properties.skeleton.enum.includes('an apparatus comprising'));
+  });
+  it('renders the apparatus head on dependents', () => {
+    const o = { class: 'apparatus', preamble: { skeleton: 'an apparatus for ... comprising', purpose: 'reading a sensor' },
+      elements: [{ text: 'a sensor interface configured to sample a signal', anchors: [] }, { text: 'a controller coupled to the sensor interface and configured to threshold the signal', anchors: [] }],
+      dependents: [{ dependsOn: 1, kind: 'further comprising', text: 'an output port configured to report the thresholded signal' }] };
+    const r = renderClaim(o);
+    assert.ok(r.claim.startsWith('An apparatus for reading a sensor comprising: a sensor interface'), r.claim);
+    assert.equal(r.dependents[0].text, 'The apparatus of claim 1, further comprising: an output port configured to report the thresholded signal.');
+  });
+  it('checks that apparatus elements open as components, not as steps', () => {
+    const s = claimSchema({ claimClass: 'apparatus', axes: saxes });
+    const o = { class: 'apparatus', preamble: { skeleton: 'an apparatus comprising', purpose: '' },
+      elements: [{ text: 'a sensor interface configured to sample a signal', anchors: [] }, { text: 'thresholding the signal', anchors: [] }], dependents: [] };
+    const codes = checkClaim(o, { claimClass: 'apparatus', axes: saxes, schema: s }).failures.map((x) => x.code);
+    assert.ok(codes.includes('apparatus-element-opener'), codes.join(','));
+  });
+  it('the population class mix is read from the tables', () => {
+    const mix = _pcm();
+    assert.ok(mix.method > 0.4 && mix.method < 0.6, JSON.stringify(mix));
+    assert.ok(mix.system > 0.1 && mix.crm > 0 && mix.crm < 0.1);
+  });
+});

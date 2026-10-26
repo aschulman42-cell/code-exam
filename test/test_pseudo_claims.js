@@ -1072,3 +1072,42 @@ describe('grounded anchors keep their notation shape', () => {
     assert.deepEqual(tally(grounded, dropped), { 'file-only': 1, unknown: 1 });
   });
 });
+
+// pseudo-claim-class-apparatus (2026-10-25): the apparatus and crm tails, the
+// schema class text, and what each --claim-class mode drafts for a group.
+import { classesForMode as _cfm, classProfile as _cpf } from '../src/commands/pseudo-claims.js';
+describe('--claim-class apparatus, crm and all', () => {
+  it('the free-text tails: apparatus names the parts, crm is the medium form, system is unchanged', () => {
+    const ap = _bpcs('litigated', 'apparatus');
+    assert.match(ap, /APPARATUS form/);
+    assert.match(ap, /An apparatus for X, comprising: a receiving unit configured to/);
+    assert.match(ap, /The apparatus of claim 1, wherein the <unit> is further configured to/);
+    assert.match(ap, /The statutory class for THIS draft is GIVEN: APPARATUS/);
+    const crm = _bpcs('litigated', 'crm');
+    assert.match(crm, /non-transitory computer-readable medium storing instructions/);
+    assert.match(crm, /The computer-readable medium of claim 1, wherein the instructions/);
+    assert.match(_bpcs('litigated', 'system'), /A system comprising: a memory storing/);
+  });
+  it('the schema tail names a structural component for apparatus', () => {
+    assert.match(_bpcs('litigated', 'apparatus', { schema: true }), /STRUCTURAL COMPONENT of the thing/);
+    assert.match(_bpcs('litigated', 'crm', { schema: true }), /instructions cause the processor to perform/);
+  });
+  it('system and apparatus draft under the machine-class profile; crm keeps the base profile', () => {
+    assert.equal(_cpf('litigated', 'system'), 'litigated-system');
+    assert.equal(_cpf('litigated', 'apparatus'), 'litigated-system');
+    assert.equal(_cpf('litigated', 'crm'), 'litigated');
+    assert.equal(_cpf('litigated', 'method'), 'litigated');
+  });
+  it('classesForMode: one class, both, auto, and the mirror set', () => {
+    const oneClass = { label: 'index (Index::build)', members: ['Index::build', 'Index::save', 'Index::load'].map((name) => ({ name })) };
+    const twoClass = { label: 'rig (Sensor::read)', members: ['Sensor::read', 'Sensor::calibrate', 'Controller::drive', 'Controller::stop'].map((name) => ({ name })) };
+    assert.deepEqual(_cfm('apparatus', oneClass).map((p) => [p.class, p.suffix]), [['apparatus', null]]);
+    assert.deepEqual(_cfm('both', oneClass).map((p) => [p.class, p.suffix]), [['method', 'method'], ['system', 'system']]);
+    assert.deepEqual(_cfm('auto', oneClass).map((p) => p.class), ['system']);
+    assert.deepEqual(_cfm('auto', twoClass).map((p) => p.class), ['apparatus']);
+    assert.deepEqual(_cfm('all', oneClass).map((p) => [p.class, p.suffix]), [['method', 'method'], ['system', 'system'], ['crm', 'crm']]);
+    assert.deepEqual(_cfm('all', twoClass).map((p) => p.class), ['method', 'apparatus', 'crm']);
+    assert.match(_cfm('all', twoClass)[1].reason, /machine form by rule: components/);
+    assert.deepEqual(_cfm(undefined, oneClass).map((p) => p.class), ['method'], 'the default is method');
+  });
+});

@@ -217,8 +217,8 @@ visible change on Claude method claims: measured on free-text runs, Claude alrea
 writes the population's transition, preamble form and dependent references nearly
 every time. The flag shows where an engine drifts: a claim returned in the wrong
 statutory class, cited anchors lost to free-text parsing, method steps that do not
-open with a gerund, and system claims (`--claim-class system`) whose elements do
-not open as noun phrases (the ledger in
+open with a gerund, and system or apparatus claims (`--claim-class system`,
+`apparatus`) whose elements do not open as noun phrases (the ledger in
 [`claims-pipeline-state.md`](claims-pipeline-state.md) §6 has the per-engine
 numbers).
 
@@ -329,15 +329,25 @@ the reading are in *The real-world yardstick* below and on
   chosen from the population and a rerank of several samples by shape distance
   (the grammar says what is allowed, not what to prefer), and a GUI or MCP control.
 - **Statutory class.** Pseudo-claims default to **method** claims, which is why a
-  run can look all-method. Use `--claim-class system` (or `both`, or `auto` to
-  pick per mechanism) for a **system** claim, and that is the form the drafts take:
-  "A system comprising: a memory storing …; a processor configured to …". A device
-  or apparatus claim in the narrower sense — a housing, a sensor, a circuit, the
-  parts of a thing — is a different form that the flag does not offer; a distinct
-  class for it would be a code change, not yet proposed. The flag affects
-  pseudo-claims only — not the `--claim-*` search/chart commands — and renaming it
-  to `--pseudo-claim-class` for clarity is under consideration (the current name
-  would remain as an alias).
+  run can look all-method. `--claim-class` takes the class, or a mode (2026-10-25):
+  `system` writes "A system comprising: a memory storing …; a processor configured
+  to …"; `apparatus` writes a thing by its parts, "An apparatus for …, comprising:
+  a receiving unit configured to …; a controller coupled to … and configured to
+  …", drawing its preamble forms from the apparatus- and device-headed claims of
+  the litigated population; `crm` writes the computer-readable-medium form. `auto`
+  picks per mechanism by a stated rule keyed on the code's shape, reason recorded
+  per claim: several classes with roles or hardware and I/O vocabulary say
+  apparatus, one class whose methods are what it does says system, handlers and
+  free functions say method. `both` drafts method and system (the measurement
+  mode); `all` drafts the mirror set real software patents carry, method, the
+  machine form `auto` would choose, and crm, labelled. The run footer prints the
+  class mix beside the litigated claim 1s' (method 49%, machine-class 18%, where
+  the population files system, apparatus and device claims together; medium 4%),
+  a measurement rather than a quota: in those filings apparatus
+  and device claims are a minority, a third the size of system claims, and only
+  5% of patents are method-only. The flag affects pseudo-claims only — not the
+  `--claim-*` search/chart commands — and renaming it to `--pseudo-claim-class`
+  for clarity is under consideration (the current name would remain as an alias).
 - **Broad vs. tight drafting (idea).** The most useful claim steers between the
   *broadest* language that still captures infringement and the *narrowest* that
   avoids prior art. CodeExam does not yet draft a broad and a tight version of the
