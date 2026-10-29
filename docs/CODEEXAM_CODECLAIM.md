@@ -1,9 +1,9 @@
 # CodeClaim
 
 CodeClaim will be CodeExam pointed directly at patents. CodeExam already works with patent claims as
-one key feature (see [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md)). CodeClaim will share
+several key feature (see [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md), [`CODEEXAM_CLAIM_CHARTS.md`](CODEEXAM_CLAIM_CHARTS.md), [`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md)). CodeClaim will share
 the CodeExam engine — the same indexing, extraction, and claim↔code machinery documented across
-these pages — and further apply it to patent litigation and analysis. This page is more
+these pages — and apply it further to patent litigation and analysis. This page is more
 forward-looking than the rest of the CodeExam docs: some of what follows ships today, and some is
 further direction.
 
