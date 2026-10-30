@@ -179,6 +179,29 @@ budget is spent and omits the rest, the better rule when the mechanism lives in 
 function's body. A pack that fits is the same under both. The pack line under each draft says
 which applied and what it cost.
 
+**What a pack holds besides code (since 2026-10-30).** A function's mechanism often lives in
+a module-level constant it names rather than in its own body: a prompt, a stop list, a tool
+menu, a regex table, a catalog. Those are data, not functions, so no seed finds them and no
+pack held them, and a drafter shown the three-line function that assembles a prompt wrote
+about the loop that sends it. Now the constants a group's functions name in their own file
+join the pack after the code, as `file@L<start>-<end>` anchors headed
+`(constant NAME, referenced by f, g)`, at most six per group, ranked by how many of the group's
+functions name each; the drafter cites them the way it cites a documentation excerpt, and a
+cited range that overlaps a packed constant is reported as that constant by name.
+`--no-pack-constants` leaves them out, for a before-and-after on the same groups. Documentation
+excerpts (`--doc-anchors`) are packed last and headed `(documentation: prose, not code)`; a claim
+element whose every cited anchor is a documentation excerpt is marked *prose-backed only* in the
+anchor list and *documentation only* in the chart, so a documented step is not read as an
+implemented one. Three lines under a draft report all this: the pack line names the constants
+and says where the documentation went; a *Spines* line counts the call-connected components
+among the pack's functions and says which of them claim 1's anchors fall in, since a pack that
+holds two unconnected mechanisms leaves the choice between them to the drafter; and when a draft
+cites no grounded anchor the anchor list says which of three things happened (no `ANCHORS` block
+parsed from the reply, a block with no line that parsed as an anchor, or every citation dropped
+at grounding) and keeps the last 400 characters of the reply under it, so a notation CodeExam
+did not recognize can be read from the artifact rather than guessed at. The run header counts
+the anchor-less drafts by cause.
+
 **Claim schema (`--claim-schema`, experimental).** Three terms first. A **claim
 object** is a claim as structured data rather than text: a preamble form, a
 purpose, the elements each with the code anchors it rests on, and the dependents

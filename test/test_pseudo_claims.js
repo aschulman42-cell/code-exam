@@ -22,7 +22,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   buildAnchorSidecar, writeClaimsOnly, claimToLine, parseGeneratedClaim, groundAnchors,
-  normalizeAnchorRef,
+  normalizeAnchorRef, anchorlessReason, truncationNote, replyTailBlock, REPLY_TAIL_CHARS,
+  packOrder as _po, packKindsLine as _pkl, callComponents as _cc, spineLine as _sl, citeAnchor as _ca,
+  attachCitesToElements as _ace, proseBackedElements as _pbe, formatClaimChart as _fcc,
   SHAPE_PROFILES, DEFAULT_SHAPE_PROFILE, shapeTargetLines, buildPseudoClaimSys, PSEUDO_CLAIM_GENERATE_SYS,
   shapeReport, shapeLine, groupGenericity,
   echoBlock, withEchoBlock, candidatesSummary, candidatesWroteLine, reportEchoes, collectAnchorGroups,
@@ -1109,5 +1111,193 @@ describe('--claim-class apparatus, crm and all', () => {
     assert.deepEqual(_cfm('all', twoClass).map((p) => p.class), ['method', 'apparatus', 'crm']);
     assert.match(_cfm('all', twoClass)[1].reason, /machine form by rule: components/);
     assert.deepEqual(_cfm(undefined, oneClass).map((p) => p.class), ['method'], 'the default is method');
+  });
+});
+
+// pseudo-claims-pack-constants-components-anchors, part (c): the parser says
+// WHY an anchor list is empty, and the artifact keeps enough of the reply to
+// read a notation it did not recognise. Gemma 4, 2026-10-29: 23 of 41 claims
+// printed "(no cited anchor resolved to a real function)" while the run header
+// counted only 8 dropped citations, so the 23 replies had no parsed anchor
+// line at all -- a parser verdict the artifact could not state.
+describe('anchor-parse disclosure: why an anchor list is empty (part (c), 2026-10-30)', () => {
+  const body = 'CLAIM: A method for X, comprising: a step; and another step.\n'
+    + 'DEPENDENT CLAIMS:\n2. The method of claim 1, wherein the step is fast.\n';
+
+  it('a colon-less ANCHORS header on its own line opens the block, and the anchors stay out of the dependents', () => {
+    const r = parseGeneratedClaim(`${body}ANCHORS\n- src/a.js@fn — the step\n- src/b.js@g — another step\n`);
+    assert.equal(r.anchorBlockSeen, true);
+    assert.equal(r.anchors.length, 2);
+    assert.equal(r.dependents.length, 1);
+    assert.ok(!r.dependents[0].text.includes('@'),
+      'with only `ANCHORS:` recognised, the anchor lines were glued onto the last dependent');
+  });
+
+  it('bold and heading headers, with or without the colon, are headers', () => {
+    for (const h of ['**ANCHORS:**', '**ANCHORS**', '## ANCHORS', '### Anchors:']) {
+      const r = parseGeneratedClaim(`${body}${h}\n- src/a.js@fn — the step\n`);
+      assert.equal(r.anchors.length, 1, h);
+      assert.equal(r.dependents.length, 1, h);
+    }
+  });
+
+  it('numbered anchor lines parse, as bulleted ones do', () => {
+    const r = parseGeneratedClaim(`${body}ANCHORS:\n1. src/a.js@fn — the step\n2) src/b.js@g — another step\n`);
+    assert.equal(r.anchors.length, 2);
+    assert.equal(r.anchors[1].func, 'g');
+  });
+
+  it('a bare line parses only when it carries an @; the echoed parenthetical is counted as skipped', () => {
+    const r = parseGeneratedClaim(`${body}ANCHORS:\n(one line per distinct element)\nsrc/a.js@fn — the step\n`);
+    assert.equal(r.anchorBlockSeen, true);
+    assert.equal(r.anchors.length, 1);
+    assert.equal(r.anchorLinesUnparsed, 1);
+  });
+
+  it('the word "anchors" inside prose does not open a block', () => {
+    const r = parseGeneratedClaim('CLAIM: A method for scoring a chart against drafted anchors, comprising: a step.\n');
+    assert.equal(r.anchorBlockSeen, false);
+    assert.equal(r.anchors.length, 0);
+    assert.match(r.prose, /drafted anchors/);
+  });
+
+  it('the header mid-line still opens the block, as it always did', () => {
+    const r = parseGeneratedClaim('CLAIM: A method, comprising: a step. ANCHORS: - src/a.js@fn — the step');
+    assert.equal(r.anchorBlockSeen, true);
+    assert.equal(r.anchors.length, 1);
+  });
+
+  it('the three reasons are told apart, and the schema path keeps the old wording', () => {
+    assert.equal(anchorlessReason({ dropped: [], anchorBlockSeen: false }),
+      'no ANCHORS block parsed from the reply');
+    assert.match(anchorlessReason({ dropped: [], anchorBlockSeen: true, anchorLinesUnparsed: 2 }),
+      /present but no line in it parsed as an anchor \(2 line\(s\) skipped\)/);
+    assert.match(anchorlessReason({ dropped: [{}, {}] }), /^2 cited, every one dropped/);
+    assert.equal(anchorlessReason({ dropped: [] }), 'no cited anchor resolved to a real function');
+  });
+
+  it('the truncation note counts what survived instead of saying the block was never emitted', () => {
+    assert.match(truncationNote({ grounded: [{}, {}], dropped: [{}] }),
+      /cut after 2 grounded and 1 dropped citation\(s\), so the cited-anchor list below is incomplete/);
+    assert.match(truncationNote({ grounded: [], dropped: [] }), /before any anchor was written/);
+    assert.ok(!truncationNote({ grounded: [{}] }).includes('never emitted'));
+  });
+
+  it('the reply tail is fenced past any fence the reply itself contains', () => {
+    const b = replyTailBlock('text\n```js\ncode\n```\nANCHORS\n- a@b');
+    const lines = b.split('\n');
+    assert.match(lines[0], new RegExp(`last ${REPLY_TAIL_CHARS} characters`));
+    const open = lines[2];
+    assert.ok(open.startsWith('````'), `a fence longer than the reply's own: ${open}`);
+    assert.equal(lines[lines.length - 1], open.replace(/text$/, ''));
+  });
+
+  it('the sidecar carries the parser verdict only when there is one to carry (part (c))', () => {
+    const draft = (extra) => ({ prose: 'A method for X, comprising: a step.', grounded: [], dropped: [], ...extra });
+    const side = buildAnchorSidecar([{ label: 'g' }, { label: 'h' }, { label: 'k' }], [
+      draft({ anchorBlockSeen: false }),
+      draft({ anchorBlockSeen: true, anchorLinesUnparsed: 3 }),
+      draft({ grounded: [{ file: 'a.js', func: 'f', start: 1, end: 2 }] }),
+    ]);
+    assert.equal(side.claims[0].anchorBlockParsed, false);
+    assert.equal(side.claims[1].anchorLinesUnparsed, 3);
+    assert.ok(!('anchorBlockParsed' in side.claims[1]));
+    assert.ok(!('anchorBlockParsed' in side.claims[2]) && !('anchorLinesUnparsed' in side.claims[2]),
+      'a grounded claim is byte-identical to before');
+  });
+});
+
+// pseudo-claims-pack-constants-components-anchors, parts (a), (b), (d): the
+// constants a group's code names join the pack after the code, documentation
+// goes last and is headed as prose, a cited range that overlaps a packed
+// constant grounds as that constant, an element resting on documentation
+// alone is marked, and the pack's call-connected components are counted.
+describe('constants, documentation and spines in the pack (parts (a), (b), (d), 2026-10-30)', () => {
+  const fn = (name, src, start = 1, end = 5) => ({ spec: `src/a.js@${name}`, filepath: 'src/a.js', name, start, end, source: src });
+  const c = { spec: 'src/a.js@L10-14', filepath: 'src/a.js', name: 'L10-14', start: 10, end: 14, source: 'const P = `x`;', kind: 'constant', constName: 'P', referencedBy: ['f'] };
+  const doc = { spec: 'docs/x.md@L1-3', filepath: 'docs/x.md', name: 'L1-3', start: 1, end: 3, source: 'prose', kind: 'lines' };
+
+  it('packs code first, constants next, documentation last, whatever the spec order', () => {
+    assert.deepEqual(_po([doc, c, fn('f', 'f(){P}')]).map((r) => r.kind || 'func'), ['func', 'constant', 'lines']);
+    const { pack } = _bp([doc, c, fn('f', 'f(){P}')]);
+    const iF = pack.indexOf('src/a.js@f'), iC = pack.indexOf('(constant P, referenced by f)'), iD = pack.indexOf('docs/x.md@L1-3');
+    assert.ok(iF >= 0 && iC > iF && iD > iC, `order in pack: f ${iF}, P ${iC}, doc ${iD}`);
+    assert.match(pack, /\(documentation: prose, not code\)/);
+  });
+
+  it('a constant that does not fit is cut in the middle, keeping its head and its tail; code keeps its head', () => {
+    const big = (name) => fn(name, `function ${name}() { ${'x'.repeat(8200)} }`);
+    const prompt = { ...c, source: `const P = \`HEAD-OF-PROMPT ${'p'.repeat(9000)} OUTPUT: the two lists TAIL-OF-PROMPT\`;` };
+    const { pack, mode, truncatedAnchors } = _bp([big('a'), big('b'), big('c'), prompt]);
+    assert.equal(mode, 'evened');
+    assert.ok(truncatedAnchors.includes(prompt.spec));
+    assert.match(pack, /HEAD-OF-PROMPT/);
+    assert.match(pack, /TAIL-OF-PROMPT/);
+    assert.match(pack, /middle cut: \d+ chars omitted; a constant keeps its head and its tail/);
+    assert.match(pack, /function a\(\)/);
+    assert.match(pack, /cut at \d+ chars; \d+ more/, 'code is still cut at the end');
+  });
+
+  it('the kinds line names the constants and says where the docs went; silent for a code-only pack', () => {
+    assert.equal(_pkl({ resolved: [fn('f', 'x')] }), '');
+    assert.match(_pkl({ resolved: [fn('f', 'x'), c, doc] }),
+      /1 function; 1 constant the code names \(`P`; packed after the code\); 1 documentation excerpt \(packed last, headed as prose\)/);
+  });
+
+  it('a cited line range that overlaps a packed constant grounds as that constant; any other range is documentation', () => {
+    const idx = { findFunctionMatches: () => [], fileLines: new Map([['src/a.js', Array.from({ length: 20 }, (_, i) => `line ${i + 1}`)]]) };
+    const hit = groundAnchors(idx, [{ file: 'src/a.js', func: 'L11-12', element: 'e', shape: 'doc-range' }], { resolved: [c] }).grounded[0];
+    assert.equal(hit.kind, 'constant');
+    assert.equal(hit.constName, 'P');
+    const plain = groundAnchors(idx, [{ file: 'src/a.js', func: 'L1-2', element: 'e' }], { resolved: [c] }).grounded[0];
+    assert.equal(plain.kind, 'lines');
+    assert.equal(groundAnchors(idx, [{ file: 'src/a.js', func: 'L11-12', element: 'e' }]).grounded[0].kind, 'lines', 'no pack, no constant');
+  });
+
+  it('cites read by kind, short for the chart and long for the list', () => {
+    const k = { kind: 'constant', file: 'src/a.js', start: 10, end: 14, constName: 'P' };
+    assert.equal(_ca(k), '`src/a.js@L10-14` (constant P)');
+    assert.equal(_ca(k, { long: true }), '`src/a.js@L10-14` — constant P');
+    assert.equal(_ca({ kind: 'lines', file: 'd.md', start: 1, end: 3 }, { long: true }), '`d.md@L1-3` — documentation excerpt');
+    assert.equal(_ca({ file: 'src/a.js', func: 'f', start: 1, end: 5 }, { long: true }), '`src/a.js@f` — L1-5');
+  });
+
+  it('an element resting on documentation alone is marked in the chart and listed by number', () => {
+    const prose = 'A method, comprising: receiving a widget; validating the widget signature; and storing the widget.';
+    const grounded = [
+      { file: 'src/a.js', func: 'recv', start: 1, end: 5, element: 'receiving a widget', kind: 'func' },
+      { file: 'docs/x.md', start: 1, end: 3, element: 'validating the widget signature', kind: 'lines' },
+    ];
+    const chart = _fcc(prose, grounded).join('\n');
+    assert.match(chart, /validating the widget signature \| `docs\/x\.md@L1-3` \(doc\) _\(documentation only\)_ \|/);
+    assert.ok(!/receiving a widget \|[^\n]*documentation only/.test(chart), 'a code-backed element carries no mark');
+    assert.deepEqual(_pbe(_ace(prose, grounded).elemAnchors), [2]);
+  });
+
+  it('call components: two unlinked mechanisms in one pack count two, and the spine line says which was claimed', () => {
+    const r = [
+      fn('extract', 'function extract() { return label(x); }'), fn('label', 'function label() {}'),
+      fn('isRandom', 'function isRandom() {}'), fn('isBlob', 'function isBlob() { return isRandom(t); }'),
+    ];
+    const comps = _cc(r);
+    assert.equal(comps.count, 2);
+    assert.equal(comps.functions, 4);
+    const line = _sl(comps, [{ file: 'src/a.js', func: 'extract' }]);
+    assert.match(line, /4 functions form 2 call-connected components \(sizes 2, 2; roots: extract \| isBlob\)/);
+    assert.match(line, /fall in component 1 of 2; the other component\(s\) are not claimed/);
+    assert.deepEqual(comps.components.map((c) => c.roots), [['extract'], ['isBlob']], 'a root is a member nothing else in the pack names');
+    assert.match(_sl(_cc([fn('a', 'b()'), fn('b', '')]), []), /one call-connected component rooted at a\._/);
+    // One component, several roots: the vocabulary.js / rest shape, where the
+    // concepts extractor calls the filters -- connected, yet more than one way in.
+    const shared = _cc([fn('extract', 'isRandom(t)'), fn('vocab', 'isRandom(t)'), fn('isRandom', '')]);
+    assert.equal(shared.count, 1);
+    assert.match(_sl(shared, []), /one call-connected component with 2 roots \(extract, vocab\): more than one way in/);
+    // A comment that mentions a function is not a call: the index prepends doc
+    // comments to a function's source, and that was hiding roots.
+    const commented = _cc([fn('extract', '/** see also isRandom and vocab */\nfunction extract() {}'), fn('vocab', '// extract is the caller\nfunction vocab() {}'), fn('isRandom', '')]);
+    assert.equal(commented.count, 3, 'three functions, no code-level reference between them');
+    assert.deepEqual(commented.components.map((c) => c.roots).flat().sort(), ['extract', 'isRandom', 'vocab']);
+    assert.equal(_sl(_cc([fn('a', '')]), []), '', 'a one-function pack has no spine line');
+    assert.equal(_sl(_cc([c, doc]), []), '', 'constants and docs are not members');
   });
 });

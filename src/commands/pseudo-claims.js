@@ -38,6 +38,7 @@ import { analyzeClaimSet, classifyContribution } from '../core/dep-claims.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, wasLastDraftTruncated, truncationCount, truncationLine, printShownPrompts } from '../core/llm-runner.js';
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
 import { vendoredExclusionLines, purposeWithAliases } from '../core/mechanism-grouper.js';
+import { constantsReferencedBy } from '../core/declarations.js';
 import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, echoPairs, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
 import { triageClaims, formatTriage, keepSidecar, formatKeepFile, dependentFacetCount } from '../core/pseudo-claim-triage.js';
@@ -306,9 +307,9 @@ const PSEUDO_SYS_TAIL =
   'exercise and carry the same caveat as claim 1.)\n' +
   'ANCHORS:\n' +
   '- <file>@<functionName> — <the claim element it implements>\n' +
-  '(one line per distinct element). For a DOCUMENTATION excerpt shown in the ' +
-  'provided material, cite it as <file>@L<start>-<end> using the line range ' +
-  'from its header. Cite ONLY files, functions, and line ranges that appear ' +
+  '(one line per distinct element). For a DOCUMENTATION excerpt or a CONSTANT shown in ' +
+  'the provided material, cite it as <file>@L<start>-<end> using the line ' +
+  'range from its header. Cite ONLY files, functions, and line ranges that appear ' +
   'in the provided material. NEVER invent a path, a name, or a line range.';
 
 // pseudo-claims-statutory-class: the SYSTEM-class tail -- same contract, the
@@ -338,9 +339,9 @@ const PSEUDO_SYS_TAIL_SYSTEM =
   'exercise and carry the same caveat as claim 1.)\n' +
   'ANCHORS:\n' +
   '- <file>@<functionName> — <the claim element it implements>\n' +
-  '(one line per distinct element). For a DOCUMENTATION excerpt shown in the ' +
-  'provided material, cite it as <file>@L<start>-<end> using the line range ' +
-  'from its header. Cite ONLY files, functions, and line ranges that appear ' +
+  '(one line per distinct element). For a DOCUMENTATION excerpt or a CONSTANT shown in ' +
+  'the provided material, cite it as <file>@L<start>-<end> using the line ' +
+  'range from its header. Cite ONLY files, functions, and line ranges that appear ' +
   'in the provided material. NEVER invent a path, a name, or a line range.';
 
 // OUTPUT BUDGET for one drafted claim + its ANCHORS block.
@@ -426,9 +427,9 @@ const PSEUDO_SYS_TAIL_APPARATUS =
   'exercise and carry the same caveat as claim 1.)\n' +
   'ANCHORS:\n' +
   '- <file>@<functionName> — <the claim element it implements>\n' +
-  '(one line per distinct element). For a DOCUMENTATION excerpt shown in the ' +
-  'provided material, cite it as <file>@L<start>-<end> using the line range ' +
-  'from its header. Cite ONLY files, functions, and line ranges that appear ' +
+  '(one line per distinct element). For a DOCUMENTATION excerpt or a CONSTANT shown in ' +
+  'the provided material, cite it as <file>@L<start>-<end> using the line ' +
+  'range from its header. Cite ONLY files, functions, and line ranges that appear ' +
   'in the provided material. NEVER invent a path, a name, or a line range.';
 
 const PSEUDO_SYS_TAIL_CRM =
@@ -453,9 +454,9 @@ const PSEUDO_SYS_TAIL_CRM =
   'exercise and carry the same caveat as claim 1.)\n' +
   'ANCHORS:\n' +
   '- <file>@<functionName> — <the claim element it implements>\n' +
-  '(one line per distinct element). For a DOCUMENTATION excerpt shown in the ' +
-  'provided material, cite it as <file>@L<start>-<end> using the line range ' +
-  'from its header. Cite ONLY files, functions, and line ranges that appear ' +
+  '(one line per distinct element). For a DOCUMENTATION excerpt or a CONSTANT shown in ' +
+  'the provided material, cite it as <file>@L<start>-<end> using the line ' +
+  'range from its header. Cite ONLY files, functions, and line ranges that appear ' +
   'in the provided material. NEVER invent a path, a name, or a line range.';
 
 const PSEUDO_SYS_TAIL_BY_CLASS = { system: PSEUDO_SYS_TAIL_SYSTEM, apparatus: PSEUDO_SYS_TAIL_APPARATUS, crm: PSEUDO_SYS_TAIL_CRM };
@@ -468,7 +469,7 @@ const PSEUDO_SYS_TAIL_SCHEMA_CLASS = {
 };
 const PSEUDO_SYS_TAIL_SCHEMA_TAIL =
   'Each element\'s `anchors` lists the code it reads on as <file>@<functionName>, ' +
-  'or <file>@L<start>-<end> for a DOCUMENTATION excerpt using the line range ' +
+  'or <file>@L<start>-<end> for a DOCUMENTATION excerpt or a CONSTANT using the line range ' +
   'from its header — ONLY files, functions and line ranges that appear in the ' +
   'provided material; NEVER invent a path, a name, or a line range. ' +
   'dependents — one entry per dependent claim: `dependsOn` is the parent ' +
@@ -694,6 +695,21 @@ export function packDisclosure(s) {
   return `_Evidence pack: ${bits.join('; ')}._`;
 }
 
+// What KINDS the pack holds, when it holds more than code: the constants by
+// name (packed after the code) and the documentation excerpts (packed last).
+// '' for a code-only pack, so existing artifacts do not change.
+export function packKindsLine(s) {
+  const list = (s && s.resolved) || [];
+  const funcs = list.filter((r) => r.kind !== 'lines' && r.kind !== 'constant').length;
+  const consts = list.filter((r) => r.kind === 'constant');
+  const docs = list.filter((r) => r.kind === 'lines').length;
+  if (!consts.length && !docs) return '';
+  const bits = [`${funcs} function${funcs === 1 ? '' : 's'}`];
+  if (consts.length) bits.push(`${consts.length} constant${consts.length === 1 ? '' : 's'} the code names (${consts.map((c) => `\`${c.constName}\``).join(', ')}; packed after the code)`);
+  if (docs) bits.push(`${docs} documentation excerpt${docs === 1 ? '' : 's'} (packed last, headed as prose)`);
+  return `_Evidence pack holds ${bits.join('; ')}._`;
+}
+
 // issue-286-doc-line-anchors: `path@L<start>[-<end>]` is a LINE-RANGE anchor,
 // valid on ANY indexed file — which is what lets DOCUMENTATION be cited as
 // evidence (patent practice cites manuals and printed publications alongside
@@ -732,7 +748,7 @@ function resolveIndexedFile(index, p) {
 // file-level prototype lacked — it cited fragments like strRe.exec(body)) —
 // or, for `path@L<start>-<end>` specs, to line-range excerpts of any indexed
 // file (issue-286-doc-line-anchors).
-function resolveGroup(index, group) {
+function resolveGroup(index, group, { constants = true } = {}) {
   const resolved = [];
   const problems = [];
   for (const a of group.specs) {
@@ -774,7 +790,127 @@ function resolveGroup(index, group) {
     }
     resolved.push({ spec: a, filepath: m.filepath, name: m.name, start: m.start, end: m.end, source });
   }
+  // pseudo-claims-pack-constants-components-anchors (a): the module-level
+  // constants the group's functions NAME (prompts, rule lists, menus, stop
+  // lists, regex tables) join the pack as line-range anchors, kind `constant`,
+  // so the drafter sees the data that is the mechanism and can cite it as
+  // `file@L<start>-<end>` -- the #286 plumbing, one more kind. Same file only;
+  // capped per group inside constantsReferencedBy; a range the group already
+  // holds as a doc anchor is not added twice. `--no-pack-constants` turns it off
+  // for a before/after measurement on the same groups.
+  if (constants) {
+    const funcs = resolved.filter((r) => r.kind !== 'lines');
+    for (const c of constantsReferencedBy(index, funcs)) {
+      const dup = resolved.some((r) => r.filepath === c.filepath && r.start <= c.start && r.end >= c.end);
+      if (dup) continue;
+      resolved.push({ spec: `${c.filepath}@L${c.start}-${c.end}`, filepath: c.filepath, name: `L${c.start}-${c.end}`,
+        start: c.start, end: c.end, source: c.source, kind: 'constant', constName: c.name, constKind: c.kind,
+        referencedBy: c.referencedBy.slice() });
+    }
+  }
   return { resolved, problems };
+}
+
+// Source without its comments, for name matching: `/* … */` blocks, `//`
+// lines and `#` lines (Python, Ruby, shell). Crude on purpose: a `//` inside a
+// string literal also ends that line's accounting, which can only lose an
+// edge, never invent one.
+export function stripCodeComments(source) {
+  return String(source || '')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .split('\n')
+    .map((l) => l.replace(/\/\/.*$/, '').replace(/^\s*#.*$/, ''))
+    .join('\n');
+}
+
+// pseudo-claims-pack-constants-components-anchors (b): the call-connected
+// components among a pack's FUNCTIONS. An edge joins two functions when one
+// names the other in its source (a call, or a bare reference such as a
+// callback). Why: a residue pack can hold several mechanisms, and which one the
+// drafter writes about is then the model's choice -- `[file] vocabulary.js /
+// rest` drafted as the noise filter (Claude), everything (ChatGPT) and the
+// concepts extractor (Gemma 4) from one pack (2026-10-27 to 10-29). The count
+// makes the multi-spine pack visible; splitting on it is a later decision.
+// Union-find over the group; constants and doc excerpts are not members.
+export function callComponents(resolved) {
+  const funcs = (resolved || []).filter((r) => r && r.kind !== 'lines' && r.kind !== 'constant' && r.name);
+  const n = funcs.length;
+  const parent = funcs.map((_, i) => i);
+  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[rb] = ra; };
+  const nameRe = funcs.map((f) => new RegExp(`\\b${String(f.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`));
+  // Code only: the index prepends a function's doc comment to its source, and
+  // a comment that MENTIONS a function is not a call. Measured 2026-10-30 on
+  // `vocabulary.js / rest`: with comments counted, `extractConcepts` was not a
+  // root of its own component because a neighbour's comment named it.
+  const code = funcs.map((f) => stripCodeComments(f.source));
+  for (let i = 0; i < n; i++) {
+    const src = code[i];
+    for (let j = 0; j < n; j++) {
+      if (i === j || funcs[i].name === funcs[j].name) continue;
+      if (nameRe[j].test(src)) union(i, j);
+    }
+  }
+  // Within a component, a ROOT is a member no other member names: a way in.
+  // Measured on the 2026-10-27 groups (CodeExam, 18 packs): `[file]
+  // vocabulary.js / rest` is ONE component of nine, because the concepts
+  // extractor calls the noise filters it shares with the vocabulary -- so
+  // connectivity alone undercounts mechanisms when one calls another, and the
+  // roots are what name them (extractConcepts, isNoiseDocument, ...).
+  const referenced = new Set();
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      if (i === j || funcs[i].name === funcs[j].name) continue;
+      if (nameRe[j].test(code[i])) referenced.add(j);
+    }
+  }
+  const groups = new Map();
+  funcs.forEach((f, i) => {
+    const r = find(i);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push({ f, i });
+  });
+  const components = [...groups.values()].sort((a, b) => b.length - a.length)
+    .map((members) => ({
+      members: members.map(({ f }) => ({ filepath: f.filepath, name: f.name })),
+      roots: members.filter(({ i }) => !referenced.has(i)).map(({ f }) => f.name),
+    }));
+  const byKey = new Map();
+  components.forEach((c, ci) => { for (const m of c.members) byKey.set(`${m.filepath}\u0000${m.name}`, ci + 1); });
+  return { count: components.length, functions: n, components, byKey };
+}
+
+// The artifact's one line on the pack's spines: how many call-connected
+// components the functions form, each component's roots (the functions
+// nothing else in the pack calls), and which components claim 1's grounded
+// anchors fall in. Printed for packs of two or more functions.
+export function spineLine(comps, grounded = null) {
+  if (!comps || comps.functions < 2) return '';
+  const rootsOf = (c) => (c.roots && c.roots.length ? c.roots.slice(0, 4).join(', ') + (c.roots.length > 4 ? `, +${c.roots.length - 4}` : '') : '(cycle, no root)');
+  const sizes = comps.components.map((c) => c.members.length).join(', ');
+  const roots = comps.components.map(rootsOf).join(' | ');
+  let where = '';
+  if (grounded && grounded.length) {
+    const hit = new Set();
+    for (const a of grounded) {
+      const k = comps.byKey.get(`${a.file}\u0000${a.func}`);
+      if (k) hit.add(k);
+    }
+    if (hit.size) {
+      const list = [...hit].sort((a, b) => a - b).join(', ');
+      where = comps.count > 1
+        ? ` Claim 1's grounded anchors fall in component${hit.size > 1 ? 's' : ''} ${list} of ${comps.count}${hit.size < comps.count ? '; the other component(s) are not claimed' : ''}.`
+        : '';
+    }
+  }
+  if (comps.count === 1) {
+    const c = comps.components[0];
+    const nRoots = (c.roots || []).length;
+    return nRoots > 1
+      ? `_Spines: the pack's ${comps.functions} functions form one call-connected component with ${nRoots} roots (${rootsOf(c)}): more than one way in, which can mean more than one mechanism that happens to share helpers._`
+      : `_Spines: the pack's ${comps.functions} functions form one call-connected component${nRoots === 1 ? ` rooted at ${c.roots[0]}` : ''}._`;
+  }
+  return `_Spines: the pack's ${comps.functions} functions form ${comps.count} call-connected components (sizes ${sizes}; roots: ${roots}), so the pack holds more than one mechanism and the drafter chose among them.${where}_`;
 }
 
 // Path A (pseudo-claims-purpose-harvest): mechanically harvest a group's PURPOSE
@@ -896,7 +1032,18 @@ export function formatChartToc(rows) {
 // the pack and what it did: mode 'full' (everything fit), 'evened' (the budget
 // spread over every anchor) or 'first' (the old rule, first-come). Only the
 // source slices count toward the total, not the cut markers.
-export function buildPack(resolved, { fill = 'even' } = {}) {
+// Pack order by kind (part (d)): code first, the constants the code names next,
+// documentation last. A doc excerpt packed first set the drafter's framing and
+// was cited as if it were code (#353 (d)); packed last and headed as prose it
+// is still evidence, in its place. Stable within a kind, so group order holds.
+const PACK_KIND_ORDER = { func: 0, constant: 1, lines: 2 };
+export function packOrder(resolved) {
+  const rank = (r) => PACK_KIND_ORDER[r.kind || 'func'] ?? 0;
+  return [...(resolved || [])].sort((a, b) => rank(a) - rank(b));
+}
+
+export function buildPack(resolvedIn, { fill = 'even' } = {}) {
+  const resolved = packOrder(resolvedIn);
   const packParts = [];
   let used = 0;
   let droppedForBudget = 0;
@@ -915,15 +1062,29 @@ export function buildPack(resolved, { fill = 'even' } = {}) {
     let counted = body.length;
     if (body.length > allowance) {
       counted = allowance;
-      body = body.slice(0, allowance) + (mode === 'evened'
-        ? `\n// … [cut at ${allowance} chars; ${body.length - allowance} more]`
-        : '\n// … [truncated for evidence-pack budget]');
+      if (r.kind === 'constant') {
+        // A constant is cut in the MIDDLE, keeping its head and its tail. A
+        // prompt states its output at the end (the overview prompt's two lists
+        // are its last five lines), a stop list's shape is at both ends, and a
+        // tail-cut dropped exactly the part a rubric needs (measured 2026-10-30:
+        // AI_OVERVIEW_PROMPT at 4,637 chars evened to 2,000 lost its OUTPUT
+        // section). Code keeps its head: the signature and the opening logic.
+        const head = Math.floor(allowance * 0.6);
+        const tail = allowance - head;
+        body = `${body.slice(0, head)}\n// … [middle cut: ${body.length - allowance} chars omitted; a constant keeps its head and its tail]\n${body.slice(body.length - tail)}`;
+      } else {
+        body = body.slice(0, allowance) + (mode === 'evened'
+          ? `\n// … [cut at ${allowance} chars; ${body.length - allowance} more]`
+          : '\n// … [truncated for evidence-pack budget]');
+      }
       truncatedAnchors.push(r.spec);
       if (mode === 'evened') shortened++;
     }
     const header = r.kind === 'lines'
-      ? `${r.filepath}@L${r.start}-${r.end}  (documentation excerpt)`
-      : `${r.filepath}@${r.name}  (L${r.start}-${r.end})`;
+      ? `${r.filepath}@L${r.start}-${r.end}  (documentation: prose, not code)`
+      : r.kind === 'constant'
+        ? `${r.filepath}@L${r.start}-${r.end}  (constant ${r.constName}${r.referencedBy && r.referencedBy.length ? `, referenced by ${r.referencedBy.join(', ')}` : ''})`
+        : `${r.filepath}@${r.name}  (L${r.start}-${r.end})`;
     const fence = fenceFor(body);
     packParts.push(`// ${header}\n${fence}\n${body}\n${fence}`);
     used += counted;
@@ -1068,21 +1229,61 @@ export function parseDependentClaims(block) {
     .filter((d) => d.text);
 }
 
+// The ANCHORS header, in the shapes seen or expected: `ANCHORS:` on a line (the
+// prompt's form, and the only one the parser knew until 2026-10-30), or the
+// word alone on its own line, bold or as a heading, with or without the colon.
+// Gemma 4's run of 2026-10-29 left 23 of 41 claims with no parsed anchor AND
+// no dropped citation, which is the signature of a block the parser never
+// found, and a colon-less or decorated header is the first candidate. The
+// colon-less form must END its line, so the word "anchors" inside prose never
+// opens a block. A header found mid-line (`… ANCHORS: - a@b`) still works
+// through the fallback below, as it always did.
+const ANCHORS_HEADER = String.raw`[ \t]*(?:\*\*|#{1,6}[ \t]*)?ANCHORS(?:\*\*)?[ \t]*(?::(?:\*\*)?|(?=\r?\n|$))`;
+const ANCHORS_HEADER_RE = new RegExp(`^${ANCHORS_HEADER}`, 'im');
+// An anchor line: a bullet, a number, or (as before) leading whitespace. The
+// numbered form (`1. file@func — element`) is the other shape a drafter that
+// numbers everything else is likely to use.
+const ANCHOR_LINE_RE = /^(?:[\s\-*•]+|\s*\d+[.)]\s+)(.+)$/;
+// A bare line at column 0 is an anchor only when it carries an `@`: the
+// prompt's own parenthetical guidance, echoed back, starts with `(` and has
+// none, and a stray prose line with an `@` drops at grounding, counted.
+const ANCHOR_BARE_RE = /^(?=[^\s(])(.+@.+)$/;
+
 export function parseGeneratedClaim(text) {
   const t = String(text || '');
-  // CLAIM: ends at DEPENDENT CLAIMS: or ANCHORS:, whichever comes first.
-  // `/CLAIM:/i` cannot match inside "DEPENDENT CLAIMS:" -- that reads CLAIMS:,
-  // with an S before the colon -- so the first match is the real one.
-  const claimM = t.match(/CLAIM:\s*([\s\S]*?)(?:\n\s*DEPENDENT CLAIMS:|\n\s*ANCHORS:|$)/i);
-  const fallback = t.split(/\n\s*DEPENDENT CLAIMS:|ANCHORS:/i)[0];
+  // CLAIM: ends at DEPENDENT CLAIMS: or the ANCHORS header, whichever comes
+  // first. `/CLAIM:/i` cannot match inside "DEPENDENT CLAIMS:" -- that reads
+  // CLAIMS:, with an S before the colon -- so the first match is the real one.
+  const claimM = t.match(new RegExp(String.raw`CLAIM:\s*([\s\S]*?)(?:\n\s*DEPENDENT CLAIMS:|\n${ANCHORS_HEADER}|$)`, 'i'));
+  const fallback = t.split(new RegExp(String.raw`\n\s*DEPENDENT CLAIMS:|ANCHORS:`, 'i'))[0];
   const prose = (claimM ? claimM[1] : fallback).trim().replace(/\s+/g, ' ');
-  const depM = t.match(/DEPENDENT CLAIMS:\s*([\s\S]*?)(?:\n\s*ANCHORS:|$)/i);
+  // The dependents block ends at the ANCHORS header in ANY of its shapes. With
+  // only `ANCHORS:` recognised here, a colon-less header left every anchor
+  // line inside the dependents block, where parseDependentClaims appends an
+  // unnumbered line to the previous dependent -- the anchors would have been
+  // glued onto the last dependent's text and reported nowhere.
+  const depM = t.match(new RegExp(String.raw`DEPENDENT CLAIMS:\s*([\s\S]*?)(?:\n${ANCHORS_HEADER}|$)`, 'i'));
   const dependents = parseDependentClaims(depM ? depM[1] : '');
-  const anchorsBlock = t.split(/ANCHORS:/i)[1] || '';
+  // The block, and whether one was found at all. `anchorBlockSeen` is the
+  // parser's own verdict, kept apart from the grounding pass's: "no block"
+  // and "every citation dropped" are different failures with different owners.
+  let anchorBlockSeen = false;
+  let anchorsBlock = '';
+  const hdr = t.match(ANCHORS_HEADER_RE);
+  if (hdr) {
+    anchorBlockSeen = true;
+    anchorsBlock = t.slice(hdr.index + hdr[0].length);
+  } else {
+    const at = t.search(/ANCHORS:/i);
+    if (at >= 0) { anchorBlockSeen = true; anchorsBlock = t.slice(at + 'ANCHORS:'.length); }
+  }
   const anchors = [];
+  let anchorLinesUnparsed = 0;
   for (const ln of anchorsBlock.split(/\r?\n/)) {
-    const m = ln.match(/^[\s\-*]+(.+)$/);
-    if (!m) continue;
+    if (!ln.trim()) continue;
+    const m = ln.match(ANCHOR_LINE_RE) || ln.match(ANCHOR_BARE_RE);
+    // A line of markers alone (`**`, `---`) is layout, not a citation.
+    if (!m || !/[A-Za-z0-9]/.test(m[1])) { anchorLinesUnparsed++; continue; }
     const parts = m[1].trim().split(/\s[—–-]\s|\s--\s/);
     const ref = (parts[0] || '').trim().replace(/[`'"]/g, '');
     const element = (parts.slice(1).join(' ') || '').trim();
@@ -1093,7 +1294,55 @@ export function parseGeneratedClaim(text) {
     const note = [element, norm.annotation].filter(Boolean).join(' — ');
     if (file) anchors.push({ file, func, line, element: note, citedStart, citedEnd, shape });
   }
-  return { prose, dependents, anchors };
+  return { prose, dependents, anchors, anchorBlockSeen, anchorLinesUnparsed };
+}
+
+// How much of a reply the artifact keeps when its anchor list is empty or cut:
+// the tail is where the ANCHORS block lives, and it is the one thing Gemma 4's
+// run left nothing of. Enough for a header and a few lines; not a transcript.
+export const REPLY_TAIL_CHARS = 400;
+
+// Why a draft has no grounded anchor, in words that separate the parser's
+// failure from the model's. "(no cited anchor resolved to a real function)"
+// used to cover all three cases; on Gemma 4's run of 2026-10-29 it stood under
+// 23 claims whose replies had no parsed anchor line at all, and #321's lesson
+// is that a model-sounding reason for a parser defect sends the reader the
+// wrong way. Takes a draft (or anything carrying `dropped`, `anchorBlockSeen`,
+// `anchorLinesUnparsed`); the schema path sets no `anchorBlockSeen` and keeps
+// the old wording.
+export function anchorlessReason(d) {
+  const dropped = ((d && d.dropped) || []).length;
+  if (dropped) return `${dropped} cited, every one dropped: none resolved to a function in the index`;
+  if (d && d.anchorBlockSeen === false) return 'no ANCHORS block parsed from the reply';
+  if (d && d.anchorBlockSeen === true) {
+    const n = d.anchorLinesUnparsed || 0;
+    return `an ANCHORS block was present but no line in it parsed as an anchor${n ? ` (${n} line(s) skipped)` : ''}`;
+  }
+  return 'no cited anchor resolved to a real function';
+}
+
+// The artifact's truncation note. Counts what survived instead of asserting
+// that the block "was never emitted": Gemma 4's claim 41 (2026-10-29) was cut
+// INSIDE its block after 17 grounded anchors, and the old wording was false.
+export function truncationNote(d) {
+  const g = ((d && d.grounded) || []).length;
+  const dr = ((d && d.dropped) || []).length;
+  const anchorsPart = (g || dr)
+    ? `Its ANCHORS block was cut after ${g} grounded${dr ? ` and ${dr} dropped` : ''} citation(s), so the cited-anchor list below is incomplete.`
+    : 'The budget ran out before any anchor was written, so the cited-anchor list below is empty.';
+  return `_**TRUNCATED** - this draft hit the output budget and stops mid-text. ${anchorsPart} This is a CE budget limit, not a finding about the code._`;
+}
+
+// The reply tail as a fenced block for the artifact, so a new notation can be
+// read from the file alone (the #314 and #321 shapes were each found by
+// reading a reply; this run kept none).
+export function replyTailBlock(tail) {
+  const body = String(tail || '');
+  const fence = fenceFor(body);
+  return [
+    `_Reply tail (the last ${REPLY_TAIL_CHARS} characters of the drafter's reply, kept so the anchor notation can be read from the artifact):_`,
+    '', `${fence}text`, body, fence,
+  ].join('\n');
 }
 
 // Grounding pass: keep only cited anchors whose function resolves to a real
@@ -1101,9 +1350,14 @@ export function parseGeneratedClaim(text) {
 // the caveat governs how cited code is characterized; grounding governs whether
 // the citation exists). The kept anchor carries the index's resolved path/lines,
 // not the model's (possibly hallucinated) spelling.
-export function groundAnchors(index, anchors) {
+export function groundAnchors(index, anchors, { resolved = null } = {}) {
   const grounded = [];
   const dropped = [];
+  // A line-range cite that overlaps a constant the pack holds is a CONSTANT
+  // cite, labelled by the constant's name; any other line range stays a
+  // documentation cite. The pack is the only place that knows which is which.
+  const constantAt = (file, start, end) => (resolved || []).find((r) => r.kind === 'constant'
+    && r.filepath === file && r.start <= end && r.end >= start) || null;
   for (const a of anchors || []) {
     // issue-286: a documentation line-range cite (`file@L<start>-<end>`)
     // grounds iff the file resolves to exactly one indexed file and the range
@@ -1123,7 +1377,9 @@ export function groundAnchors(index, anchors) {
         dropped.push({ ...a, reason: 'cited doc line range out of bounds' });
         continue;
       }
-      grounded.push({ file: hit, func: '', start, end: Math.min(end, lines.length), element: a.element, kind: 'lines',
+      const c = constantAt(hit, start, Math.min(end, lines.length));
+      grounded.push({ file: hit, func: '', start, end: Math.min(end, lines.length), element: a.element,
+        kind: c ? 'constant' : 'lines', ...(c ? { constName: c.constName } : {}),
         ...(a.elementIndex ? { elementIndex: a.elementIndex } : {}),
         ...(a.shape ? { shape: a.shape } : {}) });
       continue;
@@ -1313,6 +1569,10 @@ export function buildAnchorSidecar(groups, drafts, meta = {}) {
       // Carried so a downstream consumer (HOF-c scoring, --claims-loop) cannot
       // mistake a severed anchor list for "the drafter cited nothing".
       ...(d.truncated ? { truncated: true } : {}),
+      // The parser's verdict on an empty anchor list, so a scorer can set those
+      // claims aside instead of scoring them as "the drafter cited nothing".
+      ...(d.anchorBlockSeen === false ? { anchorBlockParsed: false } : {}),
+      ...(d.anchorLinesUnparsed ? { anchorLinesUnparsed: d.anchorLinesUnparsed } : {}),
       // pseudo-claims-statutory-class: which class the rule/flag chose, why.
       ...(d.class ? { class: d.class, classReason: d.classReason || '' } : {}),
       // Recorded so a scorer can refuse to compare a rewritten claim whose
@@ -1339,6 +1599,7 @@ export function buildAnchorSidecar(groups, drafts, meta = {}) {
       grounded: (d.grounded || []).map((a) => ({
         file: a.file, func: a.func || '', start: a.start, end: a.end,
         kind: a.kind || 'func', element: a.element || '',
+        ...(a.constName ? { constName: a.constName } : {}),
         ...(a.elementIndex ? { elementIndex: a.elementIndex } : {}),
         ...(a.ambiguous ? { ambiguous: true } : {}),
       })),
@@ -1413,11 +1674,24 @@ export function writeClaimsOnly(fpath, groups, drafts, meta = {}) {
   };
 }
 
-export function formatClaimChart(prose, grounded) {
-  const esc = (s) => String(s).replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
-  const cite = (a) => a.kind === 'lines'
-    ? `\`${a.file}@L${a.start}-${a.end}\` (doc)`
+// A grounded anchor as a short cite, by kind: a function, a constant by name,
+// or a documentation excerpt marked as such.
+export function citeAnchor(a, { long = false } = {}) {
+  const sep = long ? ' — ' : ' ';
+  if (a.kind === 'lines') return `\`${a.file}@L${a.start}-${a.end}\`${sep}${long ? 'documentation excerpt' : '(doc)'}`;
+  if (a.kind === 'constant') {
+    const name = a.constName ? ` ${a.constName}` : '';
+    return `\`${a.file}@L${a.start}-${a.end}\`${sep}${long ? `constant${name}` : `(constant${name})`}`;
+  }
+  return long
+    ? `\`${a.file}@${a.func}\` — L${a.start}-${a.end}`
     : `\`${a.file}@${a.func}\`${a.start ? ` (L${a.start}-${a.end})` : ''}`;
+}
+
+// Attach each grounded anchor to the claim element its note most overlaps
+// (the free-text path's best effort; the schema path pairs them at birth).
+// Shared by the chart and the artifact's element summary so the two agree.
+export function attachCitesToElements(prose, grounded) {
   const kw = (s) => new Set(String(s).toLowerCase().match(/[a-z][a-z0-9_]{3,}/g) || []);
   // Parse claim prose: preamble = text through the first ':'; elements = the
   // remainder split on ';' (standard method-claim form).
@@ -1426,9 +1700,8 @@ export function formatClaimChart(prose, grounded) {
   const preamble = ci >= 0 ? text.slice(0, ci + 1).trim() : '';
   const body = ci >= 0 ? text.slice(ci + 1) : text;
   const elements = body.split(';').map((e) => e.trim().replace(/[.\s]+$/, '')).filter(Boolean);
-  // Best-effort: attach each grounded cite to the element it most overlaps.
   const elemKw = elements.map(kw);
-  const elemCites = elements.map(() => []);
+  const elemAnchors = elements.map(() => []);
   const unmatched = [];
   for (const a of grounded || []) {
     const aw = kw(a.element || '');
@@ -1437,19 +1710,41 @@ export function formatClaimChart(prose, grounded) {
       let s = 0; for (const w of aw) if (elemKw[i].has(w)) s += 1;
       if (s > score) { score = s; best = i; }
     }
-    const c = cite(a);
-    if (best >= 0 && score >= 1) { if (!elemCites[best].includes(c)) elemCites[best].push(c); }
-    else unmatched.push(c);
+    if (best >= 0 && score >= 1) elemAnchors[best].push(a);
+    else unmatched.push(a);
   }
+  return { preamble, elements, elemAnchors, unmatched };
+}
+
+// Elements whose every attached anchor is a documentation excerpt: a
+// documented step, not an implemented one (#353 (d)). 1-based element numbers.
+export function proseBackedElements(elemAnchors) {
+  const out = [];
+  (elemAnchors || []).forEach((list, i) => {
+    if (list.length && list.every((a) => a.kind === 'lines')) out.push(i + 1);
+  });
+  return out;
+}
+
+export function formatClaimChart(prose, grounded) {
+  const esc = (s) => String(s).replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
+  const { preamble, elements, elemAnchors, unmatched } = attachCitesToElements(prose, grounded);
   const lines = ['| # | Claim element / step | Cited code |', '|---|---|---|'];
   let n = 0;
   if (preamble) { n += 1; lines.push(`| ${n} | ${esc(preamble)} | _Preamble_ |`); }
   for (let i = 0; i < elements.length; i += 1) {
     n += 1;
-    lines.push(`| ${n} | ${esc(elements[i])} | ${elemCites[i].join('<br>')} |`);
+    const cites = [];
+    for (const a of elemAnchors[i]) { const c = citeAnchor(a); if (!cites.includes(c)) cites.push(c); }
+    const docOnly = elemAnchors[i].length && elemAnchors[i].every((a) => a.kind === 'lines') ? ' _(documentation only)_' : '';
+    lines.push(`| ${n} | ${esc(elements[i])} | ${cites.join('<br>')}${docOnly} |`);
   }
   if (!preamble && !elements.length) lines.push('| — | _(no claim text to chart)_ | — |');
-  if (unmatched.length) lines.push('', `_Grounded cite(s) not matched to a specific element: ${unmatched.join(', ')}._`);
+  if (unmatched.length) {
+    const cites = [];
+    for (const a of unmatched) { const c = citeAnchor(a); if (!cites.includes(c)) cites.push(c); }
+    lines.push('', `_Grounded cite(s) not matched to a specific element: ${cites.join(', ')}._`);
+  }
   return lines;
 }
 
@@ -1803,9 +2098,10 @@ export async function doPseudoClaims(index, args) {
   let totalResolved = 0;
   let totalProblems = 0;
   groups.forEach((g, gi) => {
-    const { resolved, problems } = resolveGroup(index, g);
+    const { resolved, problems } = resolveGroup(index, g, { constants: !args.no_pack_constants });
     const { pack, truncatedAnchors, droppedForBudget, mode: packMode, allowance: packAllowance, shortened: packShortened } = buildPack(resolved, { fill: args.pack_fill || 'even' });
-    sections.push({ label: g.label, purpose: g.purpose || '', fold: g.fold || null, priority: g.priority ?? null, groupNum: gi + 1, resolved, problems, pack, truncatedAnchors, droppedForBudget, packMode, packAllowance, packShortened });
+    sections.push({ label: g.label, purpose: g.purpose || '', fold: g.fold || null, priority: g.priority ?? null, groupNum: gi + 1, resolved, problems, pack, truncatedAnchors, droppedForBudget, packMode, packAllowance, packShortened,
+      components: callComponents(resolved) });
     totalResolved += resolved.length;
     totalProblems += problems.length;
   });
@@ -1938,7 +2234,7 @@ export async function doPseudoClaims(index, args) {
         const intent = mech ? `MECHANISM: ${mech}\n\n` : '';
         const cls = s._class || 'method';
         const clsProfile = classProfile(profileName, cls);
-        let prose, dependents, anchors, truncated;
+        let prose, dependents, anchors, truncated, anchorBlockSeen, anchorLinesUnparsed = 0, replyTail;
         let schemaDraft = null;
         if (args.claim_schema) {
           // #322 claim-schema: the object path. Same selection guidance; the
@@ -1975,13 +2271,20 @@ export async function doPseudoClaims(index, args) {
           // Read the flag IMMEDIATELY after the await -- it carries THIS call's
           // verdict (draftCloud clears it on entry) and drafting is sequential.
           truncated = wasLastDraftTruncated();
-          ({ prose, dependents, anchors } = parseGeneratedClaim(raw));
+          ({ prose, dependents, anchors, anchorBlockSeen, anchorLinesUnparsed } = parseGeneratedClaim(raw));
+          // Kept only when it explains an empty or cut anchor list.
+          if (!anchors.length || truncated) replyTail = String(raw || '').slice(-REPLY_TAIL_CHARS);
         }
-        const { grounded, dropped } = groundAnchors(index, anchors);
+        const { grounded, dropped } = groundAnchors(index, anchors, { resolved: s.resolved });
         const shape = prose ? shapeReport(prose, dependents, clsProfile) : null;
-        drafts.push({ prose, dependents, grounded, dropped, truncated, shape, class: cls, classReason: s._classReason || 'default', ...(schemaDraft ? { schemaDraft } : {}) });
-        process.stderr.write(`  claim ${i + 1}/${withAnchors.length}: ${grounded.length} grounded anchor(s)${dropped.length ? `, ${dropped.length} ungrounded dropped` : ''}`
-          + `${truncated ? ' - TRUNCATED by the output budget; ANCHORS block incomplete' : ''}`
+        drafts.push({ prose, dependents, grounded, dropped, truncated, shape, class: cls, classReason: s._classReason || 'default',
+          anchorBlockSeen, anchorLinesUnparsed, ...(replyTail ? { replyTail } : {}),
+          ...(schemaDraft ? { schemaDraft } : {}) });
+        const basis = (grounded.length || dropped.length)
+          ? `${grounded.length} grounded anchor(s)${dropped.length ? `, ${dropped.length} ungrounded dropped` : ''}`
+          : `0 grounded anchor(s): ${anchorlessReason({ dropped, anchorBlockSeen, anchorLinesUnparsed })}`;
+        process.stderr.write(`  claim ${i + 1}/${withAnchors.length}: ${basis}`
+          + `${truncated ? ` - TRUNCATED by the output budget; ${(grounded.length || dropped.length) ? 'ANCHORS block cut' : 'no anchor reached'}` : ''}`
           + `${schemaDraft ? ` [schema: ${schemaDraft.attempts} attempt(s)${schemaDraft.resampledFor.length ? `, resampled for ${[...new Set(schemaDraft.resampledFor)].join(', ')}` : ''}${schemaDraft.failures.some((f) => f.hard) ? ', a check still fails' : ''}]` : ''}\n`);
       } catch (e) {
         drafts.push({ error: e.message });
@@ -2085,6 +2388,28 @@ export async function doPseudoClaims(index, args) {
     }
   }
 
+  // ZERO-ANCHOR DRAFTS BY CAUSE, at the top of the run. Gemma 4's run of
+  // 2026-10-29 had 23 of 41, and the header's notation count (147 seen, 139
+  // grounded) was the only clue that the parser, not the model, was the place
+  // to look. Said here so the reader does not have to infer it.
+  {
+    const live = drafts.filter((d) => d && !d.error && d.prose);
+    const none = (d) => !(d.grounded || []).length;
+    const noBlock = live.filter((d) => none(d) && !(d.dropped || []).length && d.anchorBlockSeen === false).length;
+    const emptyBlock = live.filter((d) => none(d) && !(d.dropped || []).length && d.anchorBlockSeen === true).length;
+    const allDropped = live.filter((d) => none(d) && (d.dropped || []).length).length;
+    const n = noBlock + emptyBlock + allDropped;
+    if (n) {
+      const parts = [];
+      if (noBlock) parts.push(`${noBlock} with no ANCHORS block parsed from the reply`);
+      if (emptyBlock) parts.push(`${emptyBlock} with a block but no line that parsed as an anchor`);
+      if (allDropped) parts.push(`${allDropped} with every citation dropped at grounding`);
+      out.push(`_Anchor-less drafts: ${n} of ${live.length} cite no grounded anchor (${parts.join('; ')}).`
+        + `${(noBlock || emptyBlock) ? ' A draft with no parsed anchor prints the tail of its reply under its anchor list, so the notation can be read without rerunning.' : ''}_`);
+      out.push('');
+    }
+  }
+
   // grouper-echo-flag-fold Phase 1: detect echo pairs across the chart's
   // groups by shared dominant file (resolved anchors carry filepath; doc
   // anchors never count). echoByIdx: section index -> {hostN, hostLabel, file}
@@ -2159,9 +2484,7 @@ export async function doPseudoClaims(index, args) {
         // the file, which is how 16 anchor-less claims passed for ordinary output.
         if (d.truncated) {
           out.push('');
-          out.push('_**TRUNCATED** - this draft hit the output budget and stops mid-text.'
-            + ' Its `ANCHORS:` block was never emitted, so the cited-anchor list below is'
-            + ' incomplete or empty. This is a CE budget limit, not a finding about the code._');
+          out.push(truncationNote(d));
         }
         out.push('');
         if (chartMode) {
@@ -2179,22 +2502,35 @@ export async function doPseudoClaims(index, args) {
           out.push(`### Cited anchors (${d.grounded.length} grounded${d.dropped.length ? `, ${d.dropped.length} ungrounded dropped` : ''}${byElement ? ', by element' : ''})`);
           out.push('');
           if (byElement) {
-            const cite = (a) => (a.kind === 'lines' ? `\`${a.file}@L${a.start}-${a.end}\` (documentation excerpt)` : `\`${a.file}@${a.func}\` L${a.start}-${a.end}`);
+            const cite = (a) => citeAnchor(a, { long: true });
             const els = (d.schemaDraft.object.elements || []).map((e) => String((e && e.text) || '').replace(/\s+/g, ' ').trim());
             els.forEach((text, i) => {
               const mine = d.grounded.filter((a) => a.elementIndex === i + 1);
               const short = text.length > 140 ? `${text.slice(0, 139).trimEnd()}…` : text;
-              out.push(`- **${i + 1}.** ${short} — ${mine.length ? mine.map(cite).join(' · ') : '_(no grounded anchor)_'}`);
+              // #353 (d): an element resting on documentation alone says so.
+              const docOnly = mine.length && mine.every((a) => a.kind === 'lines') ? ' _(prose-backed only)_' : '';
+              out.push(`- **${i + 1}.** ${short} — ${mine.length ? mine.map(cite).join(' · ') : '_(no grounded anchor)_'}${docOnly}`);
             });
             if (!els.length) out.push('- _(the object holds no elements)_');
           } else {
             for (const a of d.grounded) {
-              out.push(a.kind === 'lines'
-                ? `- \`${a.file}@L${a.start}-${a.end}\` — documentation excerpt${a.element ? ` — ${a.element}` : ''}`
-                : `- \`${a.file}@${a.func}\` — L${a.start}-${a.end}${a.element ? ` — ${a.element}` : ''}`);
+              out.push(`- ${citeAnchor(a, { long: true })}${a.element ? ` — ${a.element}` : ''}`);
             }
-            if (!d.grounded.length) out.push('- _(no cited anchor resolved to a real function)_');
+            if (!d.grounded.length) out.push(`- _(${anchorlessReason(d)})_`);
+            // #353 (d), free-text path: the elements whose every attached
+            // anchor is a documentation excerpt, by number, so a reader can
+            // tell a documented step from an implemented one without the chart.
+            if (d.grounded.some((a) => a.kind === 'lines')) {
+              const pb = proseBackedElements(attachCitesToElements(d.prose, d.grounded).elemAnchors);
+              if (pb.length) out.push(`- _Prose-backed only: element${pb.length > 1 ? 's' : ''} ${pb.join(', ')} rest${pb.length > 1 ? '' : 's'} on documentation excerpts alone, with no function behind ${pb.length > 1 ? 'them' : 'it'}._`);
+            }
           }
+        }
+        // The reply's tail under an empty or cut anchor list, so the next
+        // unknown notation is read from the artifact rather than guessed at.
+        if (d.replyTail && ((!d.grounded.length && !d.dropped.length) || d.truncated)) {
+          out.push('');
+          out.push(replyTailBlock(d.replyTail));
         }
         if (d.dropped.length) {
           out.push('');
@@ -2206,14 +2542,30 @@ export async function doPseudoClaims(index, args) {
         const disc = packDisclosure(s);
         if (disc) { out.push(disc); out.push(''); }
       }
+      // What the pack held beyond code, and how many spines it had (parts (a),
+      // (b), (d)): one line each, only when there is something to say.
+      {
+        const kinds = packKindsLine(s);
+        if (kinds) { out.push(kinds); out.push(''); }
+        const spine = spineLine(s.components, d.grounded);
+        if (spine) { out.push(spine); out.push(''); }
+      }
       if (showPack) out.push('### Evidence pack (the code this draft was grounded in)');
     } else {
       out.push(`### Anchors (${s.resolved.length})`);
       out.push('');
-      for (const a of s.resolved) {
+      for (const a of packOrder(s.resolved)) {
+        const n = a.end - a.start + 1;
+        const ln = `${n} line${n === 1 ? '' : 's'}`;
         out.push(a.kind === 'lines'
-          ? `- \`${a.filepath}@L${a.start}-${a.end}\` — documentation excerpt (${a.end - a.start + 1} lines)`
-          : `- \`${a.filepath}@${a.name}\` — L${a.start}-${a.end} (${a.end - a.start + 1} lines)`);
+          ? `- \`${a.filepath}@L${a.start}-${a.end}\` — documentation excerpt (${ln}; packed last, headed as prose)`
+          : a.kind === 'constant'
+            ? `- \`${a.filepath}@L${a.start}-${a.end}\` — constant \`${a.constName}\` (${ln}; referenced by ${(a.referencedBy || []).join(', ')})`
+            : `- \`${a.filepath}@${a.name}\` — L${a.start}-${a.end} (${ln})`);
+      }
+      {
+        const spine = spineLine(s.components, null);
+        if (spine) { out.push(''); out.push(spine); }
       }
       if (showPack) out.push('', '### Evidence pack');
     }

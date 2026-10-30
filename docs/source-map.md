@@ -89,6 +89,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/core/copyrights.js` — copyright/license notice harvest: holders normalized and counted, a first-vs-third presumption from counts, license documents apart
 - `src/core/credential-mask.js` — masks credential values in tool output while keeping file, line and identifier visible
 - `src/core/data-structs.js` — finds struct/enum/union/typedef/interface/record definitions per language and ranks them by references
+- `src/core/declarations.js` — finds module-level data declarations (prompts, rule lists, menus, regex tables) by line range and joins them to the functions that name them, for evidence packs
 - `src/core/dep-claim-rules.js` — 13 awk-derived plus 5 new named patterns that read one claim's dependency and parent number
 - `src/core/dep-claims.js` — resolves a claim set's dependency graph: depth, parent policy, contribution kind, and a residue report
 - `src/core/distance-helpers.js` — name-token, Jaccard, directory-prefix and file-extension distance functions for dupe/peer scoring

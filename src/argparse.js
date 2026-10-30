@@ -403,6 +403,7 @@ export function parseArgs() {
     body_match_seed: false, // --candidates: body-containment rescue for name-match-failed cutoff tokens (#289)
     min_rank: null,       // --pseudo-claims: draft-time floor over [P..] rank tags (default P2 when tags present)
     pack_fill: 'even',    // --pack-fill even|first: how an evidence pack spends its budget when the anchors do not fit (pack-budget-command-groups)
+    no_pack_constants: false, // --no-pack-constants: leave the module-level constants a group's functions name out of its evidence pack (pseudo-claims-pack-constants-components-anchors)
     shape_profile: 'litigated', // --pseudo-claims: which claim population the draft should resemble (litigated|ai-ml|randpat)
     claim_schema: false,  // --pseudo-claims: draft a claim OBJECT under a schema whose frame comes from the litigated population; CE renders the text (#322, experimental)
     doc_anchors: false,   // --candidates: attach best-matching doc sections as path@L anchors (#289 enrichment)
@@ -634,6 +635,7 @@ export function parseArgs() {
     ['body_match_seed',      'flag',           ['--body-match-seed']],
     ['min_rank',             'value',          ['--min-rank']],
     ['pack_fill',            'value',          ['--pack-fill']],
+    ['no_pack_constants',    'flag',           ['--no-pack-constants']],
     ['shape_profile',        'value',          ['--shape-profile']],
     ['doc_anchors',          'flag',           ['--doc-anchors']],
     ['rank',                 'flag',           ['--rank']],
@@ -1739,6 +1741,13 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              the mechanism lives in one long function's body.
                              A pack that fits is the same under both; the pack
                              line under each draft says which applied.
+  --no-pack-constants        With --pseudo-claims: leave out of each evidence
+                             pack the module-level constants its functions
+                             name (prompts, rule lists, tool menus, stop lists,
+                             regex tables). By default those join the pack as
+                             file@L<start>-<end> anchors after the code, so
+                             the drafter sees the data that is the mechanism;
+                             the pack line under each draft names them.
   --min-rank <0-3|P0-P3>     With --pseudo-claims @ranked.lst: draft only groups
                              at or above this floor. Default P2 when the list
                              carries [P..] tags; unranked lists draft all
