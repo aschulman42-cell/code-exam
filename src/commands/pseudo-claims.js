@@ -600,6 +600,10 @@ export function parseAnchorGroupsText(text) {
 // and setting exitCode) on a grouping failure or a filter that matches nothing.
 export function computeCandidateGroups(index, args) {
   const indexName = String(args.index_path || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '?';
+  // Timed by part under --verbose, so the next slow corpus says which part it
+  // is without a profiler: on CodeExam's own index the grouper was under two
+  // seconds of a 176-second run (grouper-performance-large-repos, 2026-10-30).
+  const t0 = Date.now();
   let result;
   try {
     result = groupMechanisms(index, {
@@ -631,6 +635,9 @@ export function computeCandidateGroups(index, args) {
   // interim file would otherwise hide the reason a codebase yields no groups
   // (grouper-vendored-root-single-top-folder, 2026-10-25).
   for (const line of vendoredExclusionLines(result)) console.error(line);
+  const tGrouper = Date.now() - t0;
+  const readsBefore = harvestStats().reads;
+  let tPurposes = 0;
   // --filter: keep only candidate groups whose header text (label + purpose,
   // the same string a reader scans in the .lst) matches, with CE's shared
   // substring / `/regex/` contract. --ground-truth is a dev scoring path with
@@ -638,7 +645,9 @@ export function computeCandidateGroups(index, args) {
   if (args.filter && !args.ground_truth) {
     const match = makeFilterMatcher(args.filter);
     const total = result.groups.length;
+    const t1 = Date.now();
     const kept = result.groups.filter((g) => match(g.label || '', purposeWithAliases(g, harvestPurpose(index, g.label, g.members, g.residue))));
+    tPurposes = Date.now() - t1;
     if (kept.length === 0) {
       // "Try a broader term" is wrong advice when every function was excluded:
       // say what was excluded and the flag that lifts it.
@@ -651,6 +660,10 @@ export function computeCandidateGroups(index, args) {
       return null;
     }
     result = { ...result, groups: kept };
+  }
+  if (args.verbose) {
+    const s = (ms) => (ms / 1000).toFixed(1);
+    console.error(`# candidates: grouper ${s(tGrouper)} s · purposes ${s(tPurposes)} s (${harvestStats().reads - readsBefore} comment reads${args.filter ? ', the filter pass' : ''})`);
   }
   return result;
 }
@@ -928,14 +941,40 @@ const HARVEST_CAP = 700;
 // members and their comments, and says so, so the MECHANISM line the drafter
 // sees (label + purpose, through the .lst header) describes those functions.
 export const isResidueLabel = (label) => /\/\s*rest(\s*\/|\s*$)/.test(String(label || ''));
+// The comment reads are memoized per index for the life of the process: the
+// --filter path harvests every group to match the filter, the render path
+// harvests the kept ones again, and a file header is read once per group that
+// shares the file. `commentsFor` (CodeSearchIndex) resolves the target as a
+// digest would and returns the digest's comments without the callers walk,
+// the breadcrumb scan or the AI/ML signal, which were 75% of a filtered run
+// (grouper-performance-large-repos, 2026-10-30: 176 s, the grouper under two);
+// an index-like object without it (the tests' fakes) is read through
+// buildDigest as before. The sorted array is shared, and only ever read.
+const _commentsMemo = new WeakMap();
+let _commentReads = 0;
+/** How many comment reads reached the index (memo misses); `reset` zeroes it. */
+export function harvestStats({ reset = false } = {}) {
+  const out = { reads: _commentReads };
+  if (reset) _commentReads = 0;
+  return out;
+}
+function _readComments(index, target) {
+  let memo = _commentsMemo.get(index);
+  if (!memo) { memo = new Map(); _commentsMemo.set(index, memo); }
+  if (memo.has(target)) return memo.get(target);
+  let out = [];
+  try {
+    _commentReads++;
+    const cs = typeof index.commentsFor === 'function'
+      ? index.commentsFor(target)
+      : (index.buildDigest(target, { maxCallers: 0, maxCallees: 0, maxStrings: 0 }) || {}).comments;
+    if (cs && cs.length) out = [...cs].sort((a, b) => a.line - b.line);
+  } catch (_) { /* target didn't resolve */ }
+  memo.set(target, out);
+  return out;
+}
 export function harvestPurpose(index, label, members, residue = null) {
-  const commentsOf = (target) => {
-    try {
-      const d = index.buildDigest(target, { maxCallers: 0, maxCallees: 0, maxStrings: 0 });
-      if (d && d.comments && d.comments.length) return [...d.comments].sort((a, b) => a.line - b.line);
-    } catch (_) { /* target didn't resolve */ }
-    return [];
-  };
+  const commentsOf = (target) => _readComments(index, target);
   const join = (cs) => cs.map((c) => c.text).join(' ').replace(/\s+/g, ' ').trim();
   // A file's LEADING comment block = its purpose header (catches // banners too).
   // Empty when nothing sits near the top (big multi-purpose files) -> caller falls back.

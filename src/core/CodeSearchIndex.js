@@ -471,8 +471,27 @@ export class CodeSearchIndex {
     const digest = this._buildDigestCore(target, opts);
     // digest-aiml-tip: conditional AI/ML signal for the digest's file/range,
     // so formatters can show a named Tip only when there is a connection.
-    if (digest) digest.aiml = this._aimlSignalFor(digest);
+    // Under `commentsOnly` (commentsFor, below) the signal is skipped: the
+    // caller reads `comments` and nothing else.
+    if (digest) digest.aiml = opts.commentsOnly ? [] : this._aimlSignalFor(digest);
     return digest;
+  }
+
+  /**
+   * The comments a digest of `target` would carry (`buildDigest(target).comments`),
+   * resolved the same way, with the callers walk, the callees, the strings
+   * table, the breadcrumb filter and the AI/ML signal skipped. The pseudo-claims
+   * purpose harvester reads comments for every member of every candidate
+   * group, and each read built a full digest: the callers walk (the whole
+   * inverted index) and the breadcrumb scan (the whole index) were 75% of a
+   * `--pseudo-claims --filter` run on CodeExam's own index, 176 s of which the
+   * grouper was under two (grouper-performance-large-repos, 2026-10-30). Same
+   * resolution, same comment scanner; the result is the digest's `comments`
+   * array, no more. `[]` when the target does not resolve.
+   */
+  commentsFor(target) {
+    const d = this._buildDigestCore(target, { maxCallers: 0, maxCallees: 0, maxStrings: 0, commentsOnly: true });
+    return d && Array.isArray(d.comments) ? d.comments : [];
   }
 
   /**
@@ -720,6 +739,9 @@ export class CodeSearchIndex {
       maxCallees = 10,
       maxStrings = 15,
       minRepeatCount = 3,
+      // commentsFor: skip the instantiation-site walk, the per-method callees,
+      // the strings table and the breadcrumb filter; the comments are the same.
+      commentsOnly = false,
     } = opts;
 
     const filepath = fn.filepath;
@@ -881,7 +903,7 @@ export class CodeSearchIndex {
     // --- Instantiation sites (uses findCallers on the class name) ---
     let rawCallers = [];
     try {
-      rawCallers = this.findCallers(fn.name, 500, { fileHint: fn.filepath });
+      rawCallers = commentsOnly ? [] : this.findCallers(fn.name, 500, { fileHint: fn.filepath });
     } catch (e) {
       if (e.code === 'SHORT_NAME_BAILOUT') {
         rawCallers = this._findCallersByExactRegex(fn.name, 500);
@@ -916,7 +938,7 @@ export class CodeSearchIndex {
     // --- External calls (aggregated across all methods of the class) ---
     // Walk each method, collect callees, dedup across the class.
     const classWideCalleeTally = new Map();
-    for (const me of methodEntries) {
+    for (const me of (commentsOnly ? [] : methodEntries)) {
       try {
         const rawCallees = this.findCallees(me.name, me.filepath);
         for (const ce of rawCallees) {
@@ -954,7 +976,7 @@ export class CodeSearchIndex {
     }
     let strTableMap = null;
     try {
-      const strTable = this.ensureStringTable ? this.ensureStringTable(2, false) : null;
+      const strTable = (!commentsOnly && this.ensureStringTable) ? this.ensureStringTable(2, false) : null;
       if (Array.isArray(strTable)) {
         strTableMap = new Map();
         for (const entry of strTable) {
@@ -985,7 +1007,7 @@ export class CodeSearchIndex {
     // --- Breadcrumbs (flat across class body) ---
     const markersByLine = new Map();
     try {
-      const bc = this.extractBreadcrumbs ? this.extractBreadcrumbs(false) : null;
+      const bc = commentsOnly ? null : this._breadcrumbsCached();
       if (bc && bc.markers) {
         for (const m of bc.markers) {
           if (m.filepath !== filepath || m.line < fn.start || m.line > fn.end) continue;
@@ -1357,6 +1379,8 @@ export class CodeSearchIndex {
     const {
       maxStrings = 15,
       minRepeatCount = 3,
+      // commentsFor: skip the strings table and the breadcrumb filter.
+      commentsOnly = false,
     } = opts;
 
     // Ensure function_index is loaded — the CLI path doesn't always lazy-load
@@ -1543,7 +1567,7 @@ export class CodeSearchIndex {
     }
     let strTableMap = null;
     try {
-      const strTable = this.ensureStringTable ? this.ensureStringTable(2, false) : null;
+      const strTable = (!commentsOnly && this.ensureStringTable) ? this.ensureStringTable(2, false) : null;
       if (Array.isArray(strTable)) {
         strTableMap = new Map();
         for (const entry of strTable) {
@@ -1574,7 +1598,7 @@ export class CodeSearchIndex {
     // --- Breadcrumbs (flat across whole file) ---
     const markersByLine = new Map();
     try {
-      const bc = this.extractBreadcrumbs ? this.extractBreadcrumbs(false) : null;
+      const bc = commentsOnly ? null : this._breadcrumbsCached();
       if (bc && bc.markers) {
         for (const m of bc.markers) {
           if (m.filepath !== filepath) continue;
@@ -1726,6 +1750,10 @@ export class CodeSearchIndex {
       maxCallees = 10,
       maxStrings = 15,
       minRepeatCount = 3,
+      // commentsFor: skip the callers walk, the callees, the strings table,
+      // the breadcrumb filter and the dupes scan; the comments are the same.
+      // `maxCallers: 0` alone never skipped the walk, only its printing.
+      commentsOnly = false,
     } = opts;
 
     // --- Resolve function ---
@@ -1802,7 +1830,7 @@ export class CodeSearchIndex {
     let rawCallers;
     let callersSkipped = null;
     try {
-      rawCallers = this.findCallers(fn.name, 500, { fileHint: fn.filepath });
+      rawCallers = commentsOnly ? [] : this.findCallers(fn.name, 500, { fileHint: fn.filepath });
     } catch (e) {
       if (e.code === 'SHORT_NAME_BAILOUT') {
         // Inverted-index path bailed out (short names match too many lines).
@@ -1847,7 +1875,7 @@ export class CodeSearchIndex {
     };
 
     // --- Callees ---
-    const rawCallees = this.findCallees(fn.name, pathHint);
+    const rawCallees = commentsOnly ? [] : this.findCallees(fn.name, pathHint);
     // Tally (name -> count) using the call_sites array if provided, else 1 each
     const calleeTally = new Map();
     for (const ce of rawCallees) {
@@ -1891,7 +1919,7 @@ export class CodeSearchIndex {
     // Build a value→count Map once for O(1) lookup instead of per-string linear scan.
     let strTableMap = null;
     try {
-      const strTable = this.ensureStringTable ? this.ensureStringTable(2, false) : null;
+      const strTable = (!commentsOnly && this.ensureStringTable) ? this.ensureStringTable(2, false) : null;
       if (Array.isArray(strTable)) {
         strTableMap = new Map();
         for (const entry of strTable) {
@@ -1937,7 +1965,7 @@ export class CodeSearchIndex {
     // rather than just `)`.
     const markersByLine = new Map();
     try {
-      const bc = this.extractBreadcrumbs ? this.extractBreadcrumbs(false) : null;
+      const bc = commentsOnly ? null : this._breadcrumbsCached();
       if (bc && bc.markers) {
         for (const m of bc.markers) {
           if (m.filepath !== filepath || m.line < fn.start || m.line > fn.end) continue;
@@ -2069,7 +2097,7 @@ export class CodeSearchIndex {
     // --- Dupes ---
     let dupesSection = { exactSiblings: [], nearSiblings: [], structSiblings: [] };
     try {
-      const hashes = this.ensureFuncHashes ? this.ensureFuncHashes(3, false) : null;
+      const hashes = (!commentsOnly && this.ensureFuncHashes) ? this.ensureFuncHashes(3, false) : null;
       if (hashes) {
         const myKey = `${filepath}|||${fn.name}`;
         const myHash = hashes.get(myKey);
@@ -2331,6 +2359,18 @@ export class CodeSearchIndex {
   // ============================================================================
   extractBreadcrumbs(...args) { return _extractBreadcrumbs(this, ...args); }
   extractCommandCatalog(...args) { return _extractCommandCatalog(this, ...args); }
+  // ONE breadcrumb scan per index instance for the digest builders. The scan
+  // reads only the index, which does not change after load, and the three
+  // builders only read the result (filtering markers and events to their
+  // range); before this each function, file or class digest re-ran it, which
+  // was 48% of a `--pseudo-claims --filter` run on CodeExam's own index
+  // (grouper-performance-large-repos, 2026-10-30). The public method above is
+  // unchanged, so /api/breadcrumbs, which rewrites `func` on the object it
+  // gets, keeps its own copy.
+  _breadcrumbsCached() {
+    if (!this._breadcrumbsCache) this._breadcrumbsCache = _extractBreadcrumbs(this, false);
+    return this._breadcrumbsCache;
+  }
 
 
   // Save / Load literal index

@@ -1434,3 +1434,52 @@ describe('repetition guard: a looping local drafter (local-drafter-loop-guard-an
     assert.equal(_lsn({ CE_LOCAL_DRY_PENALTY: '1' }), 'DRY repeat penalty 0.8 (CE_LOCAL_DRY_PENALTY=1)');
   });
 });
+
+import { harvestStats as _hs } from '../src/commands/pseudo-claims.js';
+
+// grouper-performance-large-repos (2026-10-30): the --filter path harvests
+// every group's purpose to match the filter, then the render path harvests the
+// kept ones again; each comment read used to build a full digest. The reads
+// now go through the index's commentsFor and are memoized per index.
+describe('harvestPurpose memoizes comment reads per index', () => {
+  it('reads each target once across repeated harvests, through commentsFor when the index has it', () => {
+    const calls = [];
+    const index = {
+      commentsFor: (t) => { calls.push(t); return t === 'src/y.js' ? [{ line: 1, text: 'y.js -- the header' }] : [{ line: 5, text: `about ${t}` }]; },
+    };
+    const members = [{ file: 'src/y.js', name: 'one', bare: 'one' }, { file: 'src/y.js', name: 'two', bare: 'two' }];
+    const before = _hs().reads;
+    const p1 = _hp(index, '[file] y.js', members);
+    assert.match(p1, /the header/);
+    const after1 = _hs().reads;
+    assert.ok(after1 > before, 'the first harvest read the index');
+    assert.equal(_hp(index, '[file] y.js', members), p1);
+    assert.equal(_hs().reads, after1, 'the second harvest read nothing new');
+    assert.equal(new Set(calls).size, calls.length, 'no target was read twice');
+    const residue = { file: 'src/y.js', total: 3, taken: 1 };
+    const r1 = _hp(index, '[file] y.js / rest', members, residue);
+    assert.match(r1, /about one/);
+    const after2 = _hs().reads;
+    assert.equal(_hp(index, '[file] y.js / rest', members, residue), r1);
+    assert.equal(_hs().reads, after2, 'the residue harvest is memoized too');
+  });
+
+  it('an index without commentsFor is read through buildDigest, as before, and memoized the same', () => {
+    let n = 0;
+    const index = { buildDigest: (t) => { n++; return { comments: [{ line: 2, text: `digest of ${t}` }] }; } };
+    const members = [{ file: 'src/z.js', name: 'fnA', bare: 'fnA' }];
+    assert.match(_hp(index, 'tok (fnA) something', members), /digest of/);
+    const n1 = n;
+    _hp(index, 'tok (fnA) something', members);
+    assert.equal(n, n1, 'memoized on the buildDigest path too');
+    assert.ok(n1 >= 1);
+  });
+
+  it('harvestStats reports and resets the read count', () => {
+    const index = { commentsFor: () => [{ line: 1, text: 'h' }] };
+    _hs({ reset: true });
+    assert.equal(_hs().reads, 0);
+    _hp(index, '[file] w.js', [{ file: 'src/w.js', name: 'f', bare: 'f' }]);
+    assert.ok(_hs().reads >= 1);
+  });
+});

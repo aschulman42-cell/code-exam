@@ -158,7 +158,14 @@ what the floor exists to say. True Return has no floor: dss's 262 symbols yield 
 group disjoint from the cited set, so its row is read against the control alone. Every
 comparison parsed on the first call. Cost: 29 drafts at $2.81 and 52 comparisons at $0.53, $3.34
 for the fourteen. The floor's deterministic grouper (`--pseudo-claims --candidates`) took 52 minutes on
-Spark's 93,776 symbols and 91 on xbmc's 57,568, a cost of its own worth an issue.
+Spark's 93,776 symbols and 91 on xbmc's 57,568, a cost of its own worth an issue. Profiled on
+2026-10-30 on CodeExam's own index (`.CE_102726`, 1,772 candidate functions), the grouper itself
+took under two seconds of a 176-second filtered run; the rest was the purpose harvester building
+a full digest per group member to read its comments, each digest rescanning the whole index for
+breadcrumbs and walking the whole inverted index for callers. With one breadcrumb scan per index
+and a comments-only read (`grouper-performance-large-repos`), the same run takes 4 seconds and
+the full candidates list 4 seconds where it took 137, both byte-identical to before. The Spark and
+xbmc figures above are the before; the same path ran there, and the after is a rerun away.
 
 ## The other half: CodeExam's own groups as the seed
 
