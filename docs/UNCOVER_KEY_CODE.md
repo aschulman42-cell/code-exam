@@ -24,9 +24,9 @@ On zlib, for instance, it reports:
 
 - **Shape** — size (files, functions, lines), the language mix, the common path
   prefix, and the top-level directories with file counts.
-- **Potentially important concepts** — the distinctive term-clusters the codebase is
-  organized around, each anchored to an example symbol so a concept is more than a
-  bare word: `inflate` (→ `inflateSetDictionary`), `deflate` (→
+- **Potentially important concepts** — the distinctive roots of its identifiers, each
+  anchored to an example symbol so a concept is more than a bare word: `inflate` (→
+  `inflateSetDictionary`), `deflate` (→
   `deflateSetDictionary`), `crc32` (→ `crc32_combine_gen64`), `unz` / `zip` (the
   minizip contrib). These are ranked to favor what is distinctive to *this* code, not
   just what is frequent (see **Vocabulary** below for how).

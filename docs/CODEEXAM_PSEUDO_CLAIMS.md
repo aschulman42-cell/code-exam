@@ -26,8 +26,17 @@ method). As to why someone not involved or interested in intellectual property (
 might be interested in patent claims, or find them useful for some non-IP purposes,
 see [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md).
 
+At the level a first reader needs: a pseudo-claim is one answer to the question "how is
+this visible feature implemented?", written as a claim rather than as a walkthrough. The
+answer is held to a grounding contract that a chat answer is not: every element cites a
+function or a line range from the evidence pack the drafter was shown, every citation is
+checked against the index and dropped with its reason when it does not resolve, and the
+artifact says so beside each claim. Under a different system prompt the same pipeline
+(candidates, pack, draft, grounding) is a code-documentation generator; the claim form and
+the contract are what make its output a pseudo-claim (2026-10-30).
+
 CodeExam's "pseudo claims" do **not** identify "the invention": it runs no prior-art
-search and makes no novelty judgment. What it *does* auto-discover — when you don't
+search and makes no novelty judgment. What it *does* identify on its own — when you don't
 hand it an explicit function set — is a collection of **candidate mechanisms**:
 pieces of technology in the codebase, each statable in a single sentence, that may
 be worth considering as *possibly* embodying or practicing an invention. Whether
@@ -69,11 +78,34 @@ So there are two ways in:
 - **You already know the functions** that embody a mechanism → supply them as
   anchors to `--pseudo-claims` on the command line.
 - **You don't** → let CodeExam enumerate candidate mechanisms for you
-  (deterministically — see *How candidate discovery works*), then prune — use the
+  (deterministically — see *How candidates are identified*), then prune — use the
   `--candidates` option along with `--pseudo-claims`. At a small time and token
   cost, you can also use the `--rank` option to have an AI model try to prioritize
   among multiple candidate pseudo-claims (see *`--rank`: one model pass to order
   the list*, below).
+
+**Terms used on this page**, as the code uses them (2026-10-30):
+
+| term | meaning here |
+|---|---|
+| anchor | a `file@func` or `file@L<start>-<end>` reference: a specification on input, a citation on output |
+| mechanism | a small group of functions that jointly embody one piece of technology; what one claim is drafted about |
+| group, candidate | the grouper's unit, a `# Label` header plus its anchors; a candidate is a group not yet pruned or drafted |
+| label | the group's header (`cipher (negotiate_cipher)`, `[file] x.js`, `[cmd] --foo`), the name the TOC uses |
+| purpose line | the sentence after the label, harvested from the group's own comments, sent to the drafter as the MECHANISM hint |
+| evidence pack | the fenced, size-capped bodies of a group's resolved anchors, with the constants they name and any documentation excerpts; all the drafter sees |
+| grounding, grounded | the check that a cited anchor resolves to a function or line range in the index; a citation that does not is dropped with its reason |
+| sidecar | `<claims-only>.anchors.json`: the grounded anchors, class and element count per claim; the HOF answer key |
+| residue (`/ rest`) | the functions of a documented file left after other seeds took theirs, drafted as a group of their own |
+| echo | two groups sharing a dominant file, probably one mechanism reached from two seeds; flagged, never merged |
+| seed | a rule the grouper starts a group from: a shared name token, a class, a file's leading doc comment, a command's handler and its callees |
+| grouper | `mechanism-grouper.js`, the deterministic clusterer behind `--candidates` |
+| triage | the deterministic KEEP / REVIEW / DROP cut over a run's sidecar |
+| shape profile | the claim population (litigated by default) whose length, element and dependent bands the shape line measures a draft against |
+| genericity | a score of how claim-generic a group's words are; drafting goes mechanism-specific vocabulary first |
+| notation | the shape a drafter wrote an anchor in (`file@func`, `file@func@L1-9`, `file:12-40`); the known shapes are normalized and the unknown ones counted |
+| pack fill | how a pack spends its budget when its anchors do not fit: `even` (the default) or `first` |
+| claim schema, claim object | the opt-in path where the drafter fills a structured object under a population-derived schema and CodeExam renders the text |
 
 ## A quick example (illustrative)
 
@@ -275,7 +307,7 @@ open with a gerund, and system or apparatus claims (`--claim-class system`,
 [`claims-pipeline-state.md`](claims-pipeline-state.md) §6 has the per-engine
 numbers).
 
-## How candidate discovery works (and what it does not promise)
+## How candidates are identified (and what it does not promise)
 
 The set of candidate mechanisms is produced **deterministically, with no model**:
 the grouper (`--pseudo-claims --candidates`) clusters the index's functions by
@@ -288,9 +320,9 @@ reports the depth, the cap, and how many reachable functions earlier seeds had a
 taken; 2026-10-25). Because this step is model-free, **different LLMs
 drafting from the same candidate list draft claims for the same set of
 mechanisms** — the models change the *wording* of each claim, not *which*
-mechanisms exist. In other words, the auto-discovery of candidate "inventions"
+mechanisms exist. In other words, the identification of candidate mechanisms
 lives entirely in the deterministic candidate selection; the model is a drafter,
-not a discoverer.
+not the one that picks the mechanisms.
 
 **`--rank`: one model pass to order the list.** The grouper's list can run to
 hundreds of groups (57 on secp256k1, 959 on Bitcoin Core, 3,465 on Spark,
@@ -351,13 +383,13 @@ label, and the first words of the drafted preamble; with `--rank` each line carr
 the `(P<n>)` tag and the claims come in priority order, and a group the ranker
 marked `split` is flagged as over-broad above its claim.
 
-**What the real-world test says about discovery (2026-10-24).** On fourteen
+**What the real-world test says about candidate identification (2026-10-24).** On fourteen
 litigated filings, CodeExam's three top-ranked groups per repository, drafted and
 compared with the asserted claims, came as close as the litigants' own cited
 functions on six of twelve pairs and closer on two; on the four pairs whose claim
 turns on one specific mechanism they wrote nothing of it, and the cited code sat
-low in the ranking. Discovery finds what is distinctive in a codebase; what a
-patent reads on is often a standard mechanism, or a vendored one. The numbers and
+low in the ranking. Candidate identification finds what is distinctive in a codebase;
+what a patent reads on is often a standard mechanism, or a vendored one. The numbers and
 the reading are in *The real-world yardstick* below and on
 [`claim-chart-drafter-ceiling.md`](claim-chart-drafter-ceiling.md).
 
@@ -440,7 +472,7 @@ the reading are in *The real-world yardstick* below and on
   because everything was excluded now says so instead of advising a broader
   term); `pseudo-claims-anchor-notation-count` (grounded anchor records carry
   the notation shape of each reference, so the output can count them by form).
-  Each is a correction to candidate discovery or to the anchor record, not a
+  Each is a correction to candidate identification or to the anchor record, not a
   change to drafting; the page says when each lands.
 
 Sections still to write (TODO):
