@@ -1,0 +1,38 @@
+# PSEUDO-CLAIMS — illustrative drafting exercise, NOT legal analysis
+
+_Drafted from 2 evidence pack(s) via fixture (none). Each claim's cited anchors are **grounded**._
+
+## Pseudo-claim 1 — filter (discardHeavy)
+
+**[PSEUDO-CLAIM — illustrative only; not a legal opinion or admission that any code practices this. `file:line` = orientation pointer, not a finding.]**
+
+A method of filtering a catalog of widgets, comprising: receiving a catalog of widgets each having a name and a weight; discarding each widget whose weight exceeds a threshold weight read from a configuration file; sorting the remaining widgets by the length of the name; and emitting a report of the ten longest names together with a timestamp of the run.
+
+**Dependent claims (3)** — same illustrative exercise as claim 1, and subject to the same caveat above. NOT charted, NOT grounded, and deliberately absent from the claims-only file (#311).
+
+2. The method of claim 1, wherein the threshold weight defaults to forty when the configuration file names no threshold.
+3. The method of claim 1, wherein the report is written in JSON.
+4. The method of claim 1, wherein the catalog is read from a compressed archive.
+
+_Shape vs litigated: 60 words (146, band 85-257) · 5 rows (6, band 4-11) · mechanism 3 / generic 1 (4, band 2-7) · 3 dependent(s), 3 MODIFICATION (7, band 2-17) — distance 0.40._
+
+### Cited anchors (4 grounded)
+
+- `fixture.zip!proj/src/widgets/filter.js@loadCatalog` — L10-24 — receiving a catalog of widgets each having a name and a weight
+- `fixture.zip!proj/src/widgets/filter.js@discardHeavy` — L30-48 — discarding each widget whose weight exceeds a threshold weight
+- `fixture.zip!proj/src/widgets/filter.js@rankByName` — L50-70 — sorting the remaining widgets by the length of the name
+- `fixture.zip!proj/src/config.js@L5-9` — constant DEFAULT_THRESHOLD — the threshold weight defaults to forty
+
+_Evidence pack: packed 4 of 4 resolved anchor(s)._
+
+## Pseudo-claim 2 — [file] mailer.js
+
+**[PSEUDO-CLAIM — illustrative only; not a legal opinion or admission that any code practices this. `file:line` = orientation pointer, not a finding.]**
+
+A method of sending mail, comprising: composing a message; and delivering the message over a network.
+
+### Cited anchors (1 grounded)
+
+- `fixture.zip!proj/src/mailer.js@send` — L1-30 — delivering the message over a network
+
+_Pseudo-claims: illustrative LLM drafting, not legal advice, not admissions; pointers orient, they don't assert implementation._

@@ -1,0 +1,32 @@
+{
+  "format": "ce-pseudo-claim-anchors",
+  "version": 1,
+  "claims": [
+    {
+      "n": 1,
+      "groupN": 1,
+      "label": "filter (discardHeavy)",
+      "claim": "A method of filtering a catalog of widgets, comprising: receiving a catalog of widgets each having a name and a weight; discarding each widget whose weight exceeds a threshold weight read from a configuration file; sorting the remaining widgets by the length of the name; and emitting a report of the ten longest names together with a timestamp of the run.",
+      "dependents": [
+        { "n": 2, "text": "The method of claim 1, wherein the threshold weight defaults to forty when the configuration file names no threshold." },
+        { "n": 3, "text": "The method of claim 1, wherein the report is written in JSON." },
+        { "n": 4, "text": "The method of claim 1, wherein the catalog is read from a compressed archive." }
+      ],
+      "grounded": [
+        { "file": "fixture.zip!proj/src/widgets/filter.js", "func": "loadCatalog", "start": 10, "end": 24, "kind": "func", "element": "receiving a catalog of widgets each having a name and a weight" },
+        { "file": "fixture.zip!proj/src/widgets/filter.js", "func": "discardHeavy", "start": 30, "end": 48, "kind": "func", "element": "discarding each widget whose weight exceeds a threshold weight" },
+        { "file": "fixture.zip!proj/src/widgets/filter.js", "func": "rankByName", "start": 50, "end": 70, "kind": "func", "element": "sorting the remaining widgets by the length of the name" },
+        { "file": "fixture.zip!proj/src/config.js", "func": "", "start": 5, "end": 9, "kind": "constant", "element": "the threshold weight defaults to forty" }
+      ]
+    },
+    {
+      "n": 2,
+      "groupN": 2,
+      "label": "[file] mailer.js",
+      "claim": "A method of sending mail, comprising: composing a message; and delivering the message over a network.",
+      "grounded": [
+        { "file": "fixture.zip!proj/src/mailer.js", "func": "send", "start": 1, "end": 30, "kind": "func", "element": "delivering the message over a network" }
+      ]
+    }
+  ]
+}

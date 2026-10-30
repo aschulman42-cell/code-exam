@@ -264,6 +264,20 @@ second call recovered, so a run reports the omission rate and the recovery rate 
 `--no-anchors-reask` restores the single call. The cost projection does not count the second
 calls; the actual-cost line does.
 
+**The rubric gate (since 2026-10-30).** Five hand rubrics, one per CodeExam feature, live under
+`docs/pseudo-claim-rubrics/` (Overview by AI, vocabulary, concepts, the Overview, multisect
+search): each a claim 1 with lettered elements and a wherein, numbered dependents, and a
+citations table tying every row to file lines. `node scripts/pseudo-claim-rubric-score.mjs
+--rubric <page> --run <artifact>` scores a run against one: a row is addressed by the run claim's
+anchors that match the row's cites (file and lines, or the named function); MET is a cite match
+with half the row's content words present in the claim's elements, dependents or anchor notes,
+PARTIAL a cite match with a quarter or the words without the cite, ABSENT neither; the run's
+elements that reach no row are the surplus, binned grounded-substantive, grounded-trivial and
+ungrounded. The overlap is a keyword proxy printed beside every verdict, so the reading, which
+stays the human's, can check it. The five pages carry the scores of the six runs in hand as of
+2026-10-30, the before for the drafting changes of #353 (a) to (d); a change to the prompt or
+the packing is measured on the same rows and the same corpus.
+
 **Claim schema (`--claim-schema`, experimental).** Three terms first. A **claim
 object** is a claim as structured data rather than text: a preamble form, a
 purpose, the elements each with the code anchors it rests on, and the dependents

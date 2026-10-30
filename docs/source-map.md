@@ -104,6 +104,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/core/index-manager.js` — holds the GUI server's named indexes; replace() releases the old one, forces a GC when one is available, and logs process memory per stage
 - `src/core/llm-runner.js` — resolves cloud/GGUF model descriptors and runs the calls, with cost gates, truncation tracking and provenance
 - `src/core/loop-score.js` — scores a blind claim chart against drafted anchors: recall, mechanism PRESENT, control FPs, dependent grades
+- `src/core/rubric-score.js` — scores a pseudo-claims run against a hand rubric page: MET / PARTIAL / ABSENT per row, surplus binned
 - `src/core/mechanism-grouper.js` — clusters index functions into candidate mechanism groups from token, class, file and command seeds
 - `src/core/mechanism-ranker.js` — one comparative LLM pass assigning each candidate group a bounded exploration-priority verdict
 - `src/core/multisect.js` — two-phase multi-term intersection search, with per-term file counts and comment-vs-code match weighting
@@ -160,6 +161,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `scripts/hunt-repeat.mjs` — reruns one --claim-locate --hunt command N times and reports the distribution
 - `scripts/litigated-claims-fetch.mjs` — fetches litigated US patents' claim 1 + dependents from Google Patents
 - `scripts/pseudo-claim-loop.mjs` — runs the pseudo-claim loop: synonymize, chart blind, score vs answer key
+- `scripts/pseudo-claim-rubric-score.mjs` — scores --pseudo-claims runs against a hand rubric page: MET / PARTIAL / ABSENT per row, surplus binned
 - `scripts/rank-eval.mjs` — scores a candidate ordering against tiered ground truth (Spearman, recall@k, purity)
 - `scripts/recap-chart-agreement.mjs` — the agreement harness: clones, indexes and scores the code fourteen litigants' claim charts cite against what --claim-locate and --claim-chart find; the reach and rule tiers run with no model
 - `scripts/recap-chart-drafter-ceiling.mjs` — the drafter's ceiling on real claims: seeds --pseudo-claims with the litigants' cited functions and, in the ce-seeded step, with CodeExam's own top-ranked candidate groups (--candidates --rank), and compares each drafted claim to the asserted one element by element, with a floor and a control
@@ -223,6 +225,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_linkify_selection.js` — #275 source viewer: which identifiers become clickable, knowledge vs shape mode
 - `test/test_llm_calls_local.js` — listLlmCalls tier C: Ollama endpoints (port unconditional, /api/* paths gated on a file-level Ollama marker) (#345)
 - `test/test_loop_score.js` — loop-score: target keys, answer-key anchors, chart/control scoring, dependent grades
+- `test/test_rubric_score.js` — rubric-score: the page and artifact parsers, cite matching, MET/PARTIAL/ABSENT, surplus bins, the sidecar read
 - `test/test_mcp_tools.js` — MCP handleTool: digest, call_tree, command_catalog, models_used, absence disclosure
 - `test/test_mechanism_grouper.js` — #284 candidate emitter: seeds, group splitting, vendored-subtree exclusion
 - `test/test_mechanism_ranker.js` — #284 ranker: tolerant verdict parsing, priors, chunked batches with a P3 playoff
