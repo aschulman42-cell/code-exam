@@ -263,7 +263,12 @@ makes a local run reproducible in the first place (next section).
 Two things about the engine's output. Its loader notes (`load: control-looking token: …` and the
 like, written while a model file is read) go to **stderr** with CodeExam's own progress lines since
 2026-10-30; before that node-llama-cpp sent them to stdout, so every `ce … > chart.md` capture of
-a local run opened with them above the artifact's header. And a local drafter can loop (one
+a local run opened with them above the artifact's header. That holds because CodeExam creates one
+engine instance per process and every surface shares it: node-llama-cpp 3.22.1 stops calling the
+logger after a second instance is created (withcatai/node-llama-cpp#684), and the lines fall back
+to stdout. The one case that still makes a second instance is a GPU load that fails and is retried
+on the CPU; CodeExam says so on stderr at that point, and the lines may reach stdout from then on.
+And a local drafter can loop (one
 Gemma 4 draft of 2026-10-29 repeated a clause until its output budget ended): the pseudo-claims
 parser now drops and discloses the repetition (`docs/CODEEXAM_PSEUDO_CLAIMS.md`), and the
 engine's DRY ("Don't Repeat Yourself") repeat penalty can be switched on for the GGUF drafter with

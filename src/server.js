@@ -32,7 +32,7 @@ import { resolveIndexDir } from './archive.js';
 import { groupSites, groupPipelines, reTestExamplePath, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from './core/ai-ml-detectors.js';
 import { makeFilterMatcher } from './core/filter-match.js';
 // F58: pin `Today Date:` so the GUI's local sessions do not inherit a live clock.
-import { chatSessionOptions, ggufContextOptions, stripLocalArtifacts, draftCloud, llamaInitOptions, isNoBinaryError, NO_BINARY_MESSAGE } from './core/llm-runner.js';
+import { chatSessionOptions, ggufContextOptions, stripLocalArtifacts, draftCloud, getLlamaShared, isNoBinaryError, NO_BINARY_MESSAGE } from './core/llm-runner.js';
 import { extractExports } from './core/exports.js';
 import { extractImports, bomReport } from './core/imports.js';
 import { copyrightNotices } from './core/copyrights.js';
@@ -552,9 +552,11 @@ class ServerLLM {
       return { error: `Model file not found: ${mp}` };
     }
     try {
-      const { getLlama, LlamaChatSession, defineChatSessionFunction } = await import('node-llama-cpp');
+      const { LlamaChatSession, defineChatSessionFunction } = await import('node-llama-cpp');
       console.log(`  [LLM] Loading local model: ${mp}...`);
-      const llama = await getLlama(llamaInitOptions());
+      // The process's one engine instance (shared with the late-init touch in
+      // index.js): a second getLlama() silences the logger, upstream #684.
+      const llama = await getLlamaShared();
       const model = await llama.loadModel({ modelPath: mp });
 
       // Context ladder: try big, fall back on allocation failure.

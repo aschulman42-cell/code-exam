@@ -315,9 +315,11 @@ if (args.gui || _wantsTour) {
     const _guiGgufModelPath = args.model || args.claim_model || args.analyze_model || null;
     if (_guiGgufModelPath && !args.cpu) {
       try {
-        const { getLlama } = await import('node-llama-cpp');
-        const { llamaInitOptions } = await import('./core/llm-runner.js');
-        await getLlama(llamaInitOptions());
+        // Through the shared getter, so the server's own load reuses this
+        // instance instead of making a second one (local-llama-one-instance-
+        // per-process: a second getLlama() silences the logger, upstream #684).
+        const { getLlamaShared } = await import('./core/llm-runner.js');
+        await getLlamaShared();
       } catch { /* lazy load in server still runs and reports its own errors */ }
     }
   }
@@ -813,9 +815,11 @@ if (!args._explicit.has('index_path') && !args.build_index && !fs.existsSync(arg
 const _ggufModelPath = args.model || args.claim_model || args.analyze_model || null;
 if (_ggufModelPath && !args.cpu) {
   try {
-    const { getLlama } = await import('node-llama-cpp');
-    const { llamaInitOptions } = await import('./core/llm-runner.js');
-    await getLlama(llamaInitOptions());
+    // Through the shared getter, so the drafter's lazy load reuses this
+    // instance instead of making a second one (local-llama-one-instance-per-
+    // process: a second getLlama() silences the logger, upstream #684).
+    const { getLlamaShared } = await import('./core/llm-runner.js');
+    await getLlamaShared();
   } catch { /* the lazy load in llm-runner still runs, and still reports its own errors */ }
 }
 

@@ -26,7 +26,7 @@
 import { CodeSearchIndex } from './CodeSearchIndex.js';
 import { handleTool, TOOLS, setIndex } from '../mcp-server.js';
 import { AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './ai-overview.js';
-import { ggufContextOptions, chatSessionOptions, stripLocalArtifacts, llamaInitOptions, rethrowNoBinary } from './llm-runner.js';
+import { ggufContextOptions, chatSessionOptions, stripLocalArtifacts, getLlamaShared, rethrowNoBinary } from './llm-runner.js';
 import { aimlVerificationNote, unsupportedModelNames, aimlConverseNote, toolCallFooter } from './answer-disclosure.js';
 
 // The CE tool names the overview may call (same allow-list as the claude
@@ -557,9 +557,9 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     if (index.files.size === 0) throw new Error(`No files in index at ${indexPath}`);
     setIndex(index);
 
-    let getLlama, LlamaChatSession, defineChatSessionFunction;
+    let LlamaChatSession, defineChatSessionFunction;
     try {
-      ({ getLlama, LlamaChatSession, defineChatSessionFunction } = await import('node-llama-cpp'));
+      ({ LlamaChatSession, defineChatSessionFunction } = await import('node-llama-cpp'));
     } catch (e) {
       throw new Error(`node-llama-cpp not available: ${e.message}`);
     }
@@ -575,7 +575,9 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
     // {m, ctx} on success or null when no context size fits (disposing the
     // model it loaded, so the caller can retry on CPU without a leak).
     const tryLoad = async (cpuOnly) => {
-      const llama = await getLlama(llamaInitOptions({ cpu: cpuOnly })).catch(rethrowNoBinary);
+      // The process's one engine instance per option set (a second getLlama()
+      // silences the logger, upstream #684); the CPU retry is the one second.
+      const llama = await getLlamaShared({ cpu: cpuOnly }).catch(rethrowNoBinary);
       const m = await llama.loadModel({ modelPath });
       let ctx;
       for (const sz of sizes) {

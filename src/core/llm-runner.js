@@ -778,6 +778,39 @@ export function llamaInitOptions({ cpu = false } = {}) {
     : { build: 'never', logger: llamaLogToStderr };
 }
 
+// ONE Llama instance per process, per option set. node-llama-cpp 3.22.1 loses
+// the JavaScript `logger` after a second getLlama() in the same process: every
+// Llama constructor re-registers the native log callback, and after the second
+// registration neither instance's logger is called again; the addon's own sink
+// prints instead, warnings on stdout (upstream withcatai/node-llama-cpp#684;
+// measured 2026-10-30: one call, 138 loader lines through the logger; two
+// calls, 0, with the first instance kept referenced or disposed alike).
+// CodeExam called twice on every local GPU run (the early CUDA touch in
+// index.js for #323, then the lazy load here), which is why 940dfbb's stderr
+// routing held in a one-call test and not in the CLI. Every site now asks
+// here, and the early touch and the lazy load share the instance.
+//
+// The GPU-to-CPU fallback after a failed load still makes a second instance,
+// since { gpu: false } is a different option set; the note below says so on
+// stderr rather than pretending the lines moved. `loader` and `instances` are
+// injectable for the tests. A rejected creation is not cached, so each site's
+// own error handling (rethrowNoBinary, the early touch's swallow) is unchanged.
+const _llamaInstances = new Map();
+export async function getLlamaShared({ cpu = false } = {}, { loader = null, instances = _llamaInstances } = {}) {
+  const key = cpu ? 'cpu' : 'gpu';
+  if (instances.has(key)) return instances.get(key);
+  if (instances.size) {
+    process.stderr.write(`  second engine instance (${key}): llama.cpp's own log lines may reach stdout from here on`
+      + ' (node-llama-cpp 3.22.1; withcatai/node-llama-cpp#684)\n');
+  }
+  const create = loader || (async (opts) => (await import('node-llama-cpp')).getLlama(opts));
+  const p = Promise.resolve().then(() => create(llamaInitOptions({ cpu })));
+  instances.set(key, p);
+  try { return await p; } catch (e) { instances.delete(key); throw e; }
+}
+/** Test-only: forget the shared instances (does not dispose them). */
+export function _resetLlamaShared(instances = _llamaInstances) { instances.clear(); }
+
 export const NO_BINARY_MESSAGE = 'node-llama-cpp has no llama.cpp binary that loads on this machine, and CodeExam does not download or build one at run time (#231). While online, before the machine is sealed: run `npm install`, then one local-model operation; if that reports this message, build a binary with `npx --yes node-llama-cpp source download --gpu <cuda|vulkan|metal|false>` (docs/cloud-gpu-chat-testing.md) and run the operation again.';
 
 // node-llama-cpp's NoBinaryFoundError sets no .name, so match the class name
@@ -890,7 +923,7 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
       let mod;
       try { mod = await import('node-llama-cpp'); }
       catch (e) { throw new Error(`local GGUF needs node-llama-cpp (npm install node-llama-cpp): ${e.message}`); }
-      const { getLlama, LlamaChatSession } = mod;
+      const { LlamaChatSession } = mod;
       ChatSession = LlamaChatSession;
       let lastError = null;
       const tryLoad = async (cpuOnly) => {
@@ -901,7 +934,7 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
         // model. #323.
         let m;
         try {
-          llama = await getLlama(llamaInitOptions({ cpu: cpuOnly }));
+          llama = await getLlamaShared({ cpu: cpuOnly });
           // Recorded on EVERY attempt, so a chart built after a GPU->CPU fallback
           // reports the device it actually ran on rather than the one it wanted.
           await _recordEngineBuild(mod, llama);
