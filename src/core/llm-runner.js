@@ -754,8 +754,28 @@ export function ggufContextOptions(contextSize, flashAttention = false) {
 // online (`npx node-llama-cpp source download --gpu <type>`) is tried before
 // the prebuilt ones, exactly as under "auto". With nothing to load, getLlama()
 // throws NoBinaryFoundError, which the call sites turn into NO_BINARY_MESSAGE.
+//
+// Where llama.cpp's own messages go. node-llama-cpp's default logger
+// (Llama.defaultConsoleLogger) sends `warn` and above to console.warn and
+// `info`, `log` and `debug` to console.info, which is STDOUT, and the loader's
+// per-model notes (`load: control-looking token: …`, `load: special_eog_ids …`)
+// arrive below `warn`. So every `ce … > chart.md` capture of a local run opened
+// with loader lines above the artifact's own header: #325 on the Gemma 3 chart
+// (2026-09), the Gemma 4 run of 2026-10-29 again (four lines). The messages are
+// kept -- they say something about the model file -- and routed to stderr with
+// CodeExam's own progress lines, where a stdout redirect does not collect them.
+// The level threshold is untouched: the same messages, the other stream.
+// Exported so the routing is testable without a binary.
+export function llamaLogToStderr(level, message) {
+  if (level === 'disabled') return;
+  const text = String(message ?? '');
+  if (!text) return;
+  process.stderr.write(text.endsWith('\n') ? text : `${text}\n`);
+}
 export function llamaInitOptions({ cpu = false } = {}) {
-  return cpu ? { gpu: false, build: 'never' } : { build: 'never' };
+  return cpu
+    ? { gpu: false, build: 'never', logger: llamaLogToStderr }
+    : { build: 'never', logger: llamaLogToStderr };
 }
 
 export const NO_BINARY_MESSAGE = 'node-llama-cpp has no llama.cpp binary that loads on this machine, and CodeExam does not download or build one at run time (#231). While online, before the machine is sealed: run `npm install`, then one local-model operation; if that reports this message, build a binary with `npx --yes node-llama-cpp source download --gpu <cuda|vulkan|metal|false>` (docs/cloud-gpu-chat-testing.md) and run the operation again.';
@@ -812,6 +832,29 @@ export async function isolateLocalSession({ session, sequence, ChatSession, sess
   }
   try { await sequence.clearHistory(); } catch { /* older builds: best effort */ }
   return new ChatSession(await sessionOptions(sequence));
+}
+
+// A DRY ("Don't Repeat Yourself") repeat penalty for the GGUF drafter, behind
+// an environment gate. Gemma 4's run of 2026-10-29 (claim 41, parseMultisectTerms)
+// wrote three dependents as the previous one plus a clause, then repeated a
+// twenty-token clause inside the last cited element until the 16,000-token
+// budget ended. node-llama-cpp's default repeat penalty (1.1 over the last 64
+// tokens) barely touches a phrase that long; DRY penalizes a token that would
+// extend a sequence the output already contains, harder the longer the match,
+// which is the loop's shape. OFF unless CE_LOCAL_DRY_PENALTY=1, so a run is
+// byte-identical to before this change by default and asus-CC can measure the
+// lever on the same groups before any default moves. Local only: the cloud
+// wires have no such knob. Strength 0.8 is node-llama-cpp's recommended value;
+// base, allowed length and sequence breakers are its defaults. It rescales
+// logits and adds no sampling, so at temperature 0 the run stays deterministic
+// and --reproducible still holds with the gate set.
+export function localSamplerOptions(env = process.env) {
+  return env && env.CE_LOCAL_DRY_PENALTY === '1' ? { dryRepeatPenalty: { strength: 0.8 } } : {};
+}
+/** What the artifact says about the local sampler: '' when nothing is set. */
+export function localSamplerNote(env = process.env) {
+  const o = localSamplerOptions(env);
+  return o.dryRepeatPenalty ? `DRY repeat penalty ${o.dryRepeatPenalty.strength} (CE_LOCAL_DRY_PENALTY=1)` : '';
 }
 
 function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, flashAttention = false, liveTodayDate = false) {
@@ -924,7 +967,7 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
     // it and parsed by that grammar into the object; an output cut off by the
     // budget is not a partial object but an error that names the cause.
     const grammar = schema ? await grammarFor(schema) : null;
-    const opts = { temperature: temperature ?? 0, maxTokens, ...(grammar ? { grammar } : {}) };
+    const opts = { temperature: temperature ?? 0, maxTokens, ...localSamplerOptions(), ...(grammar ? { grammar } : {}) };
     const finish = (text) => {
       if (!grammar) return text;
       try { return grammar.parse(text); } catch (e) {

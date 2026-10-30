@@ -260,6 +260,17 @@ inference numerics: an open range could change
 the engine underneath a result with no CodeExam change at all. That pin is what
 makes a local run reproducible in the first place (next section).
 
+Two things about the engine's output. Its loader notes (`load: control-looking token: …` and the
+like, written while a model file is read) go to **stderr** with CodeExam's own progress lines since
+2026-10-30; before that node-llama-cpp sent them to stdout, so every `ce … > chart.md` capture of
+a local run opened with them above the artifact's header. And a local drafter can loop (one
+Gemma 4 draft of 2026-10-29 repeated a clause until its output budget ended): the pseudo-claims
+parser now drops and discloses the repetition (`docs/CODEEXAM_PSEUDO_CLAIMS.md`), and the
+engine's DRY ("Don't Repeat Yourself") repeat penalty can be switched on for the GGUF drafter with
+`CE_LOCAL_DRY_PENALTY=1` (strength 0.8, node-llama-cpp's recommended value). It is off by default,
+so a run is the same as before; it rescales logits and adds no sampling, so `--reproducible` still
+holds with it set. Measure it on the same groups before relying on it.
+
 ## Pinning a run for a repeatable answer
 
 By default a local model's answers vary run to run — sampling is on, which is

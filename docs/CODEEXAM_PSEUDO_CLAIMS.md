@@ -202,6 +202,21 @@ at grounding) and keeps the last 400 characters of the reply under it, so a nota
 did not recognize can be read from the artifact rather than guessed at. The run header counts
 the anchor-less drafts by cause.
 
+**Repetition guard (since 2026-10-30).** A local drafter can loop. Gemma 4's run of 2026-10-29
+wrote three dependents of one claim as the previous dependent plus a clause each, then repeated a
+twenty-token clause inside the last cited element until the 16,000-token output budget ended, and
+the artifact printed the 78,834-character element in full. Now a dependent whose text begins with
+the whole text of an earlier dependent (a duplicate, or an earlier dependent with a clause added)
+is dropped, and a cited element longer than 800 characters is cut with a marker that says how long
+it ran; the stderr line, a line under the claim and the run header say what was dropped and cut,
+and the sidecar carries the counts. Dependents that only share a stem ("wherein parsing the string
+includes …") are kept: that is how dependents are written. The cap comes from the runs in hand,
+where the longest element a non-looping drafter wrote is 736 characters. The guard describes; it
+never rewrites a kept text, and the kept dependents keep their numbers. A sampler-side lever for
+the GGUF drafter, node-llama-cpp's DRY repeat penalty, is behind `CE_LOCAL_DRY_PENALTY=1` (see
+`docs/LOCAL_LLM.md`) so it can be measured on the same groups before any default moves; a run
+without it is byte-identical to before, and the artifact's model line names it when it is on.
+
 **Claim schema (`--claim-schema`, experimental).** Three terms first. A **claim
 object** is a claim as structured data rather than text: a preamble form, a
 purpose, the elements each with the code anchors it rests on, and the dependents

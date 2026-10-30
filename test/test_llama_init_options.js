@@ -24,7 +24,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { llamaInitOptions, isNoBinaryError, NO_BINARY_MESSAGE } from '../src/core/llm-runner.js';
+import { llamaInitOptions, llamaLogToStderr, isNoBinaryError, NO_BINARY_MESSAGE } from '../src/core/llm-runner.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SKIP_DIRS = new Set(['node_modules', 'vendor']);
@@ -40,13 +40,51 @@ function walk(dir, out = []) {
   return out;
 }
 
-test('llamaInitOptions pins build to "never" and sets gpu only when CPU is forced', () => {
-  assert.deepStrictEqual(llamaInitOptions(), { build: 'never' });
-  assert.deepStrictEqual(llamaInitOptions({}), { build: 'never' });
-  assert.deepStrictEqual(llamaInitOptions({ cpu: false }), { build: 'never' });
-  assert.deepStrictEqual(llamaInitOptions({ cpu: true }), { gpu: false, build: 'never' });
+test('llamaInitOptions pins build to "never", routes llama.cpp logs to stderr, and sets gpu only when CPU is forced', () => {
+  for (const o of [llamaInitOptions(), llamaInitOptions({}), llamaInitOptions({ cpu: false })]) {
+    assert.deepStrictEqual(Object.keys(o).sort(), ['build', 'logger']);
+    assert.strictEqual(o.build, 'never');
+    assert.strictEqual(o.logger, llamaLogToStderr);
+  }
+  const cpu = llamaInitOptions({ cpu: true });
+  assert.deepStrictEqual(Object.keys(cpu).sort(), ['build', 'gpu', 'logger']);
+  assert.strictEqual(cpu.gpu, false);
+  assert.strictEqual(cpu.build, 'never');
+  assert.strictEqual(cpu.logger, llamaLogToStderr);
   // No gpu key unless CPU is forced: node-llama-cpp's own GPU detection decides.
   assert.ok(!('gpu' in llamaInitOptions()));
+  // No logLevel key: the threshold stays node-llama-cpp's, only the stream moves.
+  assert.ok(!('logLevel' in llamaInitOptions()));
+});
+
+// The loader's notes (`load: control-looking token: …`) arrive below `warn`, and
+// node-llama-cpp's default logger prints those levels with console.info, which is
+// stdout -- so a `ce … > chart.md` capture of a local run opened with them (#325
+// on the Gemma 3 chart; four lines on the Gemma 4 run of 2026-10-29). Every level
+// goes to stderr now, with a newline each, and nothing touches stdout.
+test('llamaLogToStderr writes every level to stderr and nothing to stdout', () => {
+  const out = [];
+  const err = [];
+  const so = process.stdout.write;
+  const se = process.stderr.write;
+  process.stdout.write = (s) => { out.push(String(s)); return true; };
+  process.stderr.write = (s) => { err.push(String(s)); return true; };
+  try {
+    llamaLogToStderr('info', "load: control-looking token:      1 '<eos>' was not control-type; this is probably a bug in the model. its type will be overridden");
+    llamaLogToStderr('warn', "load: special_eog_ids contains '<|tool_response>', removing '</s>' token from EOG list\n");
+    llamaLogToStderr('debug', '');
+    llamaLogToStderr('disabled', 'never shown');
+    llamaLogToStderr('log', 'two\nlines');
+  } finally {
+    process.stdout.write = so;
+    process.stderr.write = se;
+  }
+  assert.deepStrictEqual(out, []);
+  assert.deepStrictEqual(err, [
+    "load: control-looking token:      1 '<eos>' was not control-type; this is probably a bug in the model. its type will be overridden\n",
+    "load: special_eog_ids contains '<|tool_response>', removing '</s>' token from EOG list\n",
+    'two\nlines\n',
+  ]);
 });
 
 test('isNoBinaryError recognizes NoBinaryFoundError by class name or message, nothing else', () => {

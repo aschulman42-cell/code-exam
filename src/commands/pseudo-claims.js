@@ -35,7 +35,7 @@ import { parseFuncSpec, readCeVersion } from '../utils.js';
 import { splitClaimElements, isPreambleRow } from './claim-locate.js';
 import { claimGenericity, elementClasses } from '../core/claim-genericity.js';
 import { analyzeClaimSet, classifyContribution } from '../core/dep-claims.js';
-import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, wasLastDraftTruncated, truncationCount, truncationLine, printShownPrompts } from '../core/llm-runner.js';
+import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, wasLastDraftTruncated, truncationCount, truncationLine, printShownPrompts, localSamplerNote } from '../core/llm-runner.js';
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
 import { vendoredExclusionLines, purposeWithAliases } from '../core/mechanism-grouper.js';
 import { constantsReferencedBy } from '../core/declarations.js';
@@ -1229,6 +1229,74 @@ export function parseDependentClaims(block) {
     .filter((d) => d.text);
 }
 
+// REPETITION GUARD, at parse time. Gemma 4's claim 41 (multisect /
+// parseMultisectTerms, 2026-10-29) wrote dependents 15, 16 and 17 as the
+// previous dependent plus one clause each, then repeated the seventeenth
+// anchor's last clause until the 16,000-token budget ended; the artifact
+// printed the 78,834-character element in full and the shape line counted the
+// three dependents as mechanism. The guard is deterministic and drafter-neutral:
+// it says what it dropped and never rewrites what it kept.
+//
+// A dependent is dropped when its text, normalized (lower-cased, whitespace
+// collapsed, end punctuation off), begins with the WHOLE text of an earlier
+// dependent of at least DEPENDENT_PREFIX_MIN_CHARS: a duplicate, or an earlier
+// dependent with a clause added. Dependents 11 to 14 of that claim share a stem
+// (`… a report of "dead terms" that …`) and each goes on differently; a shared
+// stem is how dependents are written (2 to 5 of the same claim share "wherein
+// parsing the semicolon-separated string includes"), so they are kept. The
+// kept dependents keep their numbers, so the gaps show.
+export const DEPENDENT_PREFIX_MIN_CHARS = 40;
+export function dropRepeatedDependents(deps) {
+  const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').replace(/[\s.;,]+$/, '').trim();
+  const seen = [];
+  const kept = [];
+  const dropped = [];
+  for (const d of deps || []) {
+    const t = norm(d.text);
+    const repeats = seen.some((p) => p.length >= DEPENDENT_PREFIX_MIN_CHARS && t.startsWith(p));
+    if (repeats) dropped.push(d.n); else kept.push(d);
+    seen.push(t);
+  }
+  return { kept, dropped };
+}
+
+// A cited element longer than this is cut, with a marker that says how long it
+// ran. Calibrated on the runs in hand, not on the loop alone: the longest
+// element a non-looping drafter wrote across the Claude and ChatGPT runs of
+// 2026-10-27 and the Claude run of 2026-10-30 is 736 characters (ChatGPT), so
+// the 300 first proposed would have cut six real elements; 800 cuts none of
+// them and cuts the loop. Grounding and the element match (keyword overlap)
+// see the cut text, which holds every keyword the full one did.
+export const ANCHOR_ELEMENT_MAX_CHARS = 800;
+export function capAnchorElement(element) {
+  const text = String(element || '');
+  if (text.length <= ANCHOR_ELEMENT_MAX_CHARS) return { text, cut: false, ran: text.length };
+  const head = text.slice(0, ANCHOR_ELEMENT_MAX_CHARS).trimEnd();
+  return {
+    text: `${head} […element cut at ${ANCHOR_ELEMENT_MAX_CHARS} characters; it ran ${text.length.toLocaleString('en-US')}]`,
+    cut: true, ran: text.length,
+  };
+}
+
+// Whether the guard touched a draft, and the artifact's line when it did.
+export function repetitionTouched(d) {
+  const r = d && d.repetition;
+  return !!(r && ((r.dependentsDropped || []).length || r.elementsCut));
+}
+export function repetitionNote(d) {
+  if (!repetitionTouched(d)) return '';
+  const dd = d.repetition.dependentsDropped || [];
+  const ec = d.repetition.elementsCut || 0;
+  const parts = [];
+  if (dd.length) {
+    parts.push(`dependent${dd.length > 1 ? 's' : ''} ${dd.join(', ')} dropped (${dd.length > 1 ? 'each repeats' : 'it repeats'}`
+      + ' an earlier dependent whole, with or without a clause added)');
+  }
+  if (ec) parts.push(`${ec} cited element${ec > 1 ? 's' : ''} cut at ${ANCHOR_ELEMENT_MAX_CHARS} characters`);
+  return `_Repetition guard: ${parts.join('; ')}. The drafter looped; what remains is what it wrote before`
+    + ' the loop, and the dependent numbering keeps its gaps._';
+}
+
 // The ANCHORS header, in the shapes seen or expected: `ANCHORS:` on a line (the
 // prompt's form, and the only one the parser knew until 2026-10-30), or the
 // word alone on its own line, bold or as a heading, with or without the colon.
@@ -1263,7 +1331,8 @@ export function parseGeneratedClaim(text) {
   // unnumbered line to the previous dependent -- the anchors would have been
   // glued onto the last dependent's text and reported nowhere.
   const depM = t.match(new RegExp(String.raw`DEPENDENT CLAIMS:\s*([\s\S]*?)(?:\n${ANCHORS_HEADER}|$)`, 'i'));
-  const dependents = parseDependentClaims(depM ? depM[1] : '');
+  const depGuard = dropRepeatedDependents(parseDependentClaims(depM ? depM[1] : ''));
+  const dependents = depGuard.kept;
   // The block, and whether one was found at all. `anchorBlockSeen` is the
   // parser's own verdict, kept apart from the grounding pass's: "no block"
   // and "every citation dropped" are different failures with different owners.
@@ -1279,6 +1348,7 @@ export function parseGeneratedClaim(text) {
   }
   const anchors = [];
   let anchorLinesUnparsed = 0;
+  let elementsCut = 0;
   for (const ln of anchorsBlock.split(/\r?\n/)) {
     if (!ln.trim()) continue;
     const m = ln.match(ANCHOR_LINE_RE) || ln.match(ANCHOR_BARE_RE);
@@ -1286,15 +1356,22 @@ export function parseGeneratedClaim(text) {
     if (!m || !/[A-Za-z0-9]/.test(m[1])) { anchorLinesUnparsed++; continue; }
     const parts = m[1].trim().split(/\s[—–-]\s|\s--\s/);
     const ref = (parts[0] || '').trim().replace(/[`'"]/g, '');
-    const element = (parts.slice(1).join(' ') || '').trim();
+    const capped = capAnchorElement((parts.slice(1).join(' ') || '').trim());
+    const element = capped.text;
     const norm = normalizeAnchorRef(ref);
     const { file, func, line, citedStart, citedEnd, shape } = norm;
     // #321: a stripped element annotation joins the dash-separated element as
     // the anchor's note (both may exist; neither is discarded).
     const note = [element, norm.annotation].filter(Boolean).join(' — ');
-    if (file) anchors.push({ file, func, line, element: note, citedStart, citedEnd, shape });
+    if (file) {
+      anchors.push({ file, func, line, element: note, citedStart, citedEnd, shape });
+      if (capped.cut) elementsCut++;
+    }
   }
-  return { prose, dependents, anchors, anchorBlockSeen, anchorLinesUnparsed };
+  return {
+    prose, dependents, anchors, anchorBlockSeen, anchorLinesUnparsed,
+    repetition: { dependentsDropped: depGuard.dropped, elementsCut },
+  };
 }
 
 // How much of a reply the artifact keeps when its anchor list is empty or cut:
@@ -1573,6 +1650,11 @@ export function buildAnchorSidecar(groups, drafts, meta = {}) {
       // claims aside instead of scoring them as "the drafter cited nothing".
       ...(d.anchorBlockSeen === false ? { anchorBlockParsed: false } : {}),
       ...(d.anchorLinesUnparsed ? { anchorLinesUnparsed: d.anchorLinesUnparsed } : {}),
+      // The repetition guard's record, so a scorer sees a looped draft as one
+      // and does not score the dropped dependents as absent mechanism.
+      ...(repetitionTouched(d)
+        ? { repetition: { dependentsDropped: d.repetition.dependentsDropped || [], elementsCut: d.repetition.elementsCut || 0 } }
+        : {}),
       // pseudo-claims-statutory-class: which class the rule/flag chose, why.
       ...(d.class ? { class: d.class, classReason: d.classReason || '' } : {}),
       // Recorded so a scorer can refuse to compare a rewritten claim whose
@@ -2167,7 +2249,12 @@ export async function doPseudoClaims(index, args) {
   const showPack = dryRun || !!args.include_evidence_pack;
   const chartMode = !dryRun && !!args.pseudo_claims_chart;
   const temperature = args.temperature ?? 0;
-  const modelDesc = !model ? '' : model.kind === 'gguf' ? `local GGUF ${model.modelPath}` : `${model.label} (${model.model})`;
+  // A sampler lever set by environment is named beside the model, so a run
+  // under CE_LOCAL_DRY_PENALTY=1 is distinguishable in the artifact.
+  const samplerNote = model && model.kind === 'gguf' ? localSamplerNote() : '';
+  const modelDesc = !model ? '' : model.kind === 'gguf'
+    ? `local GGUF ${model.modelPath}${samplerNote ? `, ${samplerNote}` : ''}`
+    : `${model.label} (${model.model})`;
 
   // If drafting, build the drafter up front (the air-gap gate + key check may
   // throw here).
@@ -2235,6 +2322,7 @@ export async function doPseudoClaims(index, args) {
         const cls = s._class || 'method';
         const clsProfile = classProfile(profileName, cls);
         let prose, dependents, anchors, truncated, anchorBlockSeen, anchorLinesUnparsed = 0, replyTail;
+        let repetition = null;
         let schemaDraft = null;
         if (args.claim_schema) {
           // #322 claim-schema: the object path. Same selection guidance; the
@@ -2258,7 +2346,11 @@ export async function doPseudoClaims(index, args) {
           }
           const r = renderClaim(obj, { claimClass: cls });
           prose = r.claim;
-          dependents = r.dependents;
+          // The object's dependents pass the same repetition guard as the text
+          // path's; its elements are the object's own and are not capped here.
+          const depGuard = dropRepeatedDependents(r.dependents);
+          dependents = depGuard.kept;
+          repetition = { dependentsDropped: depGuard.dropped, elementsCut: 0 };
           // `elementIndex` (1-based) rides through grounding to the artifact, which
           // lists the cited anchors element by element on this path.
           anchors = r.anchors.map((a) => {
@@ -2271,7 +2363,7 @@ export async function doPseudoClaims(index, args) {
           // Read the flag IMMEDIATELY after the await -- it carries THIS call's
           // verdict (draftCloud clears it on entry) and drafting is sequential.
           truncated = wasLastDraftTruncated();
-          ({ prose, dependents, anchors, anchorBlockSeen, anchorLinesUnparsed } = parseGeneratedClaim(raw));
+          ({ prose, dependents, anchors, anchorBlockSeen, anchorLinesUnparsed, repetition } = parseGeneratedClaim(raw));
           // Kept only when it explains an empty or cut anchor list.
           if (!anchors.length || truncated) replyTail = String(raw || '').slice(-REPLY_TAIL_CHARS);
         }
@@ -2279,11 +2371,15 @@ export async function doPseudoClaims(index, args) {
         const shape = prose ? shapeReport(prose, dependents, clsProfile) : null;
         drafts.push({ prose, dependents, grounded, dropped, truncated, shape, class: cls, classReason: s._classReason || 'default',
           anchorBlockSeen, anchorLinesUnparsed, ...(replyTail ? { replyTail } : {}),
+          ...(repetition ? { repetition } : {}),
           ...(schemaDraft ? { schemaDraft } : {}) });
         const basis = (grounded.length || dropped.length)
           ? `${grounded.length} grounded anchor(s)${dropped.length ? `, ${dropped.length} ungrounded dropped` : ''}`
           : `0 grounded anchor(s): ${anchorlessReason({ dropped, anchorBlockSeen, anchorLinesUnparsed })}`;
-        process.stderr.write(`  claim ${i + 1}/${withAnchors.length}: ${basis}`
+        const looped = repetitionTouched({ repetition })
+          ? `; repetition guard: ${repetition.dependentsDropped.length} dependent(s) dropped, ${repetition.elementsCut} element(s) cut`
+          : '';
+        process.stderr.write(`  claim ${i + 1}/${withAnchors.length}: ${basis}${looped}`
           + `${truncated ? ` - TRUNCATED by the output budget; ${(grounded.length || dropped.length) ? 'ANCHORS block cut' : 'no anchor reached'}` : ''}`
           + `${schemaDraft ? ` [schema: ${schemaDraft.attempts} attempt(s)${schemaDraft.resampledFor.length ? `, resampled for ${[...new Set(schemaDraft.resampledFor)].join(', ')}` : ''}${schemaDraft.failures.some((f) => f.hard) ? ', a check still fails' : ''}]` : ''}\n`);
       } catch (e) {
@@ -2408,6 +2504,16 @@ export async function doPseudoClaims(index, args) {
         + `${(noBlock || emptyBlock) ? ' A draft with no parsed anchor prints the tail of its reply under its anchor list, so the notation can be read without rerunning.' : ''}_`);
       out.push('');
     }
+    // The repetition guard's tally for the run, beside the anchor-less count:
+    // a looped draft is a drafter defect the reader should weigh the run by.
+    const looped = live.filter(repetitionTouched);
+    if (looped.length) {
+      const dd = looped.reduce((acc, d) => acc + (d.repetition.dependentsDropped || []).length, 0);
+      const ec = looped.reduce((acc, d) => acc + (d.repetition.elementsCut || 0), 0);
+      out.push(`_Repetition guard: ${looped.length} of ${live.length} draft(s) looped; ${dd} dependent(s) dropped and`
+        + ` ${ec} cited element(s) cut at ${ANCHOR_ELEMENT_MAX_CHARS} characters, each said under its claim._`);
+      out.push('');
+    }
   }
 
   // grouper-echo-flag-fold Phase 1: detect echo pairs across the chart's
@@ -2478,6 +2584,13 @@ export async function doPseudoClaims(index, args) {
         if (d.shape) {
           out.push('');
           out.push(shapeLine(d.shape));
+        }
+        // What the repetition guard dropped or cut, beside the shape line it
+        // changed: the dependents counted above are the kept ones.
+        const rnote = repetitionNote(d);
+        if (rnote) {
+          out.push('');
+          out.push(rnote);
         }
         // A truncated draft must not read as a finished claim. The mark goes in
         // the ARTIFACT, not just stderr: stderr is gone by the time anyone reads

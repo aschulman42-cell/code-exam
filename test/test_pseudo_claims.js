@@ -1301,3 +1301,136 @@ describe('constants, documentation and spines in the pack (parts (a), (b), (d), 
     assert.equal(_sl(_cc([c, doc]), []), '', 'constants and docs are not members');
   });
 });
+
+import {
+  dropRepeatedDependents as _drd, capAnchorElement as _cae, ANCHOR_ELEMENT_MAX_CHARS as _aemc,
+  DEPENDENT_PREFIX_MIN_CHARS as _dpmc, repetitionNote as _rn, repetitionTouched as _rt,
+} from '../src/commands/pseudo-claims.js';
+import { localSamplerOptions as _lso, localSamplerNote as _lsn } from '../src/core/llm-runner.js';
+
+describe('repetition guard: a looping local drafter (local-drafter-loop-guard-and-loader-logs, 2026-10-30)', () => {
+  // Gemma 4's claim 41 (multisect / parseMultisectTerms; gemma4_CE_pseudo_claims_102926.txt,
+  // 2026-10-29): dependents 2 to 17 verbatim, the anchors as the reply wrote them (the
+  // artifact's line ranges are grounding's), the seventeenth element regrown to its loop.
+  const DEPS = [
+    '2. The method of claim 1, wherein parsing the semicolon-separated string includes replacing a literal semicolon with a placeholder to allow for the inclusion of literal semicolons within a term.',
+    '3. The method of claim 1, wherein parsing the semicolon-separated string includes identifying a term as a regular expression if the display string is enclosed in forward slashes.',
+    '4. The method of claim 1, wherein parsing the semicolon-separated string includes identifying a term as soft-required if the term is prefixed with a question mark.',
+    '5. The method of claim 1, wherein parsing the semicolon-separated string includes identifying a term as negated if the term is prefixed with "NOT " or "!".',
+    '6. The method of claim 1, wherein calculating a minimum required match count sets the minimum count to the total number of hard-required positive terms if no specific minimum is provided.',
+    '7. The method of claim 1, wherein ranking the identified code locations by an Inverse Document Frequency (IDF) score utilizes a total file count to compute the score.',
+    '8. The method of claim 1, further comprising: filtering the search results to exclude code locations that contain any of the hard-excluded negative terms.',
+    '9. The method of claim 1, further comprising: rendering the search results into a user interface where each term is displayed as a chip with a distinct style if the term is negated.',
+    '10. The method of claim 1, wherein the search results include a selectivity report indicating the number of hits for each term.',
+    '11. The method of claim 1, wherein the search results include a report of "dead terms" that have zero hits across the entire index.',
+    '12. The method of claim 1, wherein the search results include a report of "dead terms" that do not contribute to the minimum required match count.',
+    '13. The method of claim 1, wherein the search results include a report of "dead terms" that are disclosed to the user despite having zero hits.',
+    '14. The method of claim 1, wherein the search results include a report of "dead terms" that are disclosed to the user as having zero hits anywhere in the index.',
+    '15. The method of claim 1, wherein the search results include a report of "dead terms" that are disclosed to the user as having zero hits anywhere in the index, and where the match requirement counts only the live terms.',
+    '16. The method of claim 1, wherein the search results include a report of "dead terms" that are disclosed to the user as having zero hits anywhere in the index, and where the match requirement counts only the live terms, and where the report lists the names of the dead terms.',
+    '17. The method of claim 1, wherein the search results include a report of "dead terms" that are disclosed to the user as having zero hits anywhere in the index, and where the match requirement counts only the live terms, and where the report lists the names of the dead terms, and where the report specifies the number of dead terms relative to the number of positive terms.',
+  ].join('\n');
+  const LOOP_CLAUSE = ', and where the report specifies the number of dead terms relative to the number of positive terms';
+  const SIXTEENTH = 'including a report of "dead terms" that are disclosed to the user despite having zero hits, and where the match requirement counts only the live terms, and where the report lists the names of the dead terms';
+  const ANCHORS = [
+    '- src/commands/multisect.js@parseMultisectTerms — parsing a semicolon-separated string of search terms into a collection of term objects',
+    '- src/commands/multisect.js@parseMultisectTerms — identifying a term as soft-required if the term is prefixed with a question mark',
+    '- src/commands/multisect.js@parseMultisectTerms — identifying a term as negated if the term is prefixed with "NOT " or "!"',
+    '- src/commands/multisect.js@parseMultisectTerms — replacing a literal semicolon with a placeholder to allow for the inclusion of literal semicolons within a term',
+    '- src/commands/multisect.js@parseMultisectTerms — identifying a term as a regular expression if the display string is enclosed in forward slashes',
+    '- src/core/multisect.js@multisectSearch — categorizing the collection of term objects into four buckets based on the negation flag and the hardness flag',
+    '- src/core/multisect.js@multisectSearch — calculating a minimum required match count based on the number of hard-required positive terms',
+    '- src/core/multisect.js@multisectSearch — calculating a minimum required match count sets the minimum count to the total number of hard-required positive terms if no specific minimum is provided',
+    '- src/core/multisect.js@multisectSearch — performing a search across function, class, file, and folder scopes to identify code locations containing the required terms',
+    '- src/commands/multisect.js@prepareMultisectViews — ranking the identified code locations by an Inverse Document Frequency (IDF) score',
+    '- src/commands/multisect.js@prepareMultisectViews — ranking the identified code locations by an Inverse Document Frequency (IDF) score utilizes a total file count to compute the score',
+    '- src/commands/multisect.js@prepareMultisectViews — outputting a set of results for each scope, where the results are capped by a maximum number of entries per scope',
+    '- src/commands/multisect.js@displayMultisectResults — including a report of "dead terms" that are disclosed to the user despite having zero hits',
+    '- src/commands/multisect.js@displayMultisectResults — including a report of "dead terms" that are disclosed to the user despite having zero hits, and where the match requirement counts only the live terms',
+    `- src/commands/multisect.js@displayMultisectResults — ${SIXTEENTH}`,
+    `- src/commands/multisect.js@displayMultisectResults — ${SIXTEENTH}${LOOP_CLAUSE}`,
+    `- src/commands/multisect.js@displayMultisectResults — ${SIXTEENTH}${LOOP_CLAUSE.repeat(100)}`,
+  ].join('\n');
+  const CLAIM = 'CLAIM: A method for performing a multi-term intersection search across code scopes, comprising: parsing a semicolon-separated string of search terms into a collection of term objects; and outputting a set of results for each scope.';
+  const REPLY = `${CLAIM}\n\nDEPENDENT CLAIMS:\n${DEPS}\n\nANCHORS:\n${ANCHORS}\n`;
+
+  it('drops the dependents that repeat an earlier one whole and keeps the ones that share a stem', () => {
+    const r = parseGeneratedClaim(REPLY);
+    assert.deepEqual(r.dependents.map((d) => d.n), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14], 'the kept dependents keep their numbers');
+    assert.deepEqual(r.repetition.dependentsDropped, [15, 16, 17]);
+    // 11 to 14 share "… a report of \"dead terms\" that" and go on differently: kept.
+    assert.ok(r.dependents.some((d) => d.n === 14 && /anywhere in the index\.$/.test(d.text)));
+  });
+
+  it('cuts the runaway element at the cap, counts it, and leaves the other sixteen alone', () => {
+    const r = parseGeneratedClaim(REPLY);
+    assert.equal(r.anchors.length, 17);
+    assert.equal(r.repetition.elementsCut, 1);
+    const last = r.anchors[16].element;
+    assert.ok(last.startsWith(SIXTEENTH), 'the head of the element is kept verbatim');
+    assert.match(last, /\[…element cut at 800 characters; it ran 10,\d{3}\]$/);
+    assert.ok(last.length < _aemc + 80, `cut element is ${last.length} characters`);
+    assert.equal(r.anchors[15].element, `${SIXTEENTH}${LOOP_CLAUSE}`, 'a 403-character element is under the cap');
+    assert.ok(r.anchors.slice(0, 16).every((a) => !a.element.includes('[…element cut')));
+  });
+
+  it('leaves a clean reply untouched and says nothing about it', () => {
+    const r = parseGeneratedClaim(`${CLAIM}\n\nDEPENDENT CLAIMS:\n${DEPS.split('\n').slice(0, 13).join('\n')}\n\nANCHORS:\n${ANCHORS.split('\n').slice(0, 16).join('\n')}\n`);
+    assert.deepEqual(r.repetition, { dependentsDropped: [], elementsCut: 0 });
+    assert.equal(r.dependents.length, 13);
+    assert.equal(r.anchors.length, 16);
+    assert.equal(_rt(r), false);
+    assert.equal(_rn(r), '');
+  });
+
+  it('dropRepeatedDependents: duplicates and extensions go, stems and short prefixes stay', () => {
+    const dep = (n, text) => ({ n, text });
+    const base = 'The method of claim 1, wherein the parser strips a trailing newline from each line.';
+    assert.deepEqual(_drd([dep(2, base), dep(3, base)]).dropped, [3], 'a duplicate');
+    assert.deepEqual(_drd([dep(2, base), dep(3, `${base.slice(0, -1)}, and where the line is trimmed.`)]).dropped, [3], 'an extension');
+    assert.deepEqual(_drd([dep(2, base), dep(3, `THE  method of claim 1, wherein the parser strips a trailing newline from each line, and more.`)]).dropped, [3], 'case and whitespace do not hide it');
+    const stems = _drd([dep(2, 'The method of claim 1, wherein parsing includes A.'), dep(3, 'The method of claim 1, wherein parsing includes B.')]);
+    assert.deepEqual(stems.dropped, [], 'a shared stem is how dependents are written');
+    assert.equal(stems.kept.length, 2);
+    assert.ok(_dpmc >= 40);
+    assert.deepEqual(_drd([dep(2, 'A method of claim 1.'), dep(3, 'A method of claim 1, wherein X.')]).dropped, [], 'a prefix shorter than the floor does not count');
+    assert.deepEqual(_drd([dep(2, `${base.slice(0, -1)}, and more.`), dep(3, base)]).dropped, [], 'a later, shorter dependent is not an extension');
+    assert.deepEqual(_drd([]), { kept: [], dropped: [] });
+  });
+
+  it('capAnchorElement: at the cap untouched, one over cut with the length named', () => {
+    const at = _cae('a'.repeat(_aemc));
+    assert.deepEqual(at, { text: 'a'.repeat(_aemc), cut: false, ran: _aemc });
+    const over = _cae(`${'b'.repeat(_aemc)} tail that goes on`);
+    assert.equal(over.cut, true);
+    assert.equal(over.ran, _aemc + 18);
+    assert.equal(over.text, `${'b'.repeat(_aemc)} […element cut at ${_aemc} characters; it ran 818]`);
+    assert.deepEqual(_cae(''), { text: '', cut: false, ran: 0 });
+  });
+
+  it('repetitionNote names what was dropped and cut, in the plural it needs', () => {
+    assert.match(_rn({ repetition: { dependentsDropped: [15, 16, 17], elementsCut: 1 } }),
+      /^_Repetition guard: dependents 15, 16, 17 dropped \(each repeats an earlier dependent whole, with or without a clause added\); 1 cited element cut at 800 characters\. The drafter looped/);
+    assert.match(_rn({ repetition: { dependentsDropped: [9], elementsCut: 0 } }), /^_Repetition guard: dependent 9 dropped \(it repeats an earlier dependent whole/);
+    assert.match(_rn({ repetition: { dependentsDropped: [], elementsCut: 2 } }), /^_Repetition guard: 2 cited elements cut at 800 characters\./);
+    assert.equal(_rn({}), '');
+    assert.equal(_rn(null), '');
+  });
+
+  it('the sidecar carries the guard\'s record, and omits it for a draft the guard did not touch', () => {
+    const draft = (repetition) => ({ prose: 'A method comprising: a step.', dependents: [], grounded: [], dropped: [], repetition });
+    const side = buildAnchorSidecar([{ label: 'g' }, { label: 'h' }],
+      [draft({ dependentsDropped: [15, 16, 17], elementsCut: 1 }), draft({ dependentsDropped: [], elementsCut: 0 })], {});
+    assert.deepEqual(side.claims[0].repetition, { dependentsDropped: [15, 16, 17], elementsCut: 1 });
+    assert.ok(!('repetition' in side.claims[1]), 'byte-identical sidecar for an untouched draft');
+  });
+
+  it('the DRY repeat penalty is off unless CE_LOCAL_DRY_PENALTY=1, and the artifact names it when on', () => {
+    assert.deepEqual(_lso({}), {});
+    assert.deepEqual(_lso({ CE_LOCAL_DRY_PENALTY: '0' }), {});
+    assert.deepEqual(_lso({ CE_LOCAL_DRY_PENALTY: 'yes' }), {}, 'only the literal 1 switches it on');
+    assert.deepEqual(_lso({ CE_LOCAL_DRY_PENALTY: '1' }), { dryRepeatPenalty: { strength: 0.8 } });
+    assert.equal(_lsn({}), '');
+    assert.equal(_lsn({ CE_LOCAL_DRY_PENALTY: '1' }), 'DRY repeat penalty 0.8 (CE_LOCAL_DRY_PENALTY=1)');
+  });
+});
