@@ -162,7 +162,9 @@ ce --index-path IDX --pseudo-claims --filter <topic> --llm claude
 (label + purpose) matches — the same filter contract as every other CodeExam
 listing. With a model it drafts straight from the matches, with no interim file;
 add `--candidates out.lst` to also save the filtered list. With no model it prints
-the filtered candidates and says they are candidates, not claims.
+the filtered candidates and says they are candidates, not claims. On Git Bash, a
+`/regex/` filter's leading slash is rewritten to a Windows path unless
+`MSYS_NO_PATHCONV=1` is set, which matched 0 groups on one run (2026-10-30).
 
 **Models.** Draft with a cloud provider — `--llm claude | openai | gemini` (keys
 from `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY`) — or a local GGUF:
@@ -216,6 +218,19 @@ never rewrites a kept text, and the kept dependents keep their numbers. A sample
 the GGUF drafter, node-llama-cpp's DRY repeat penalty, is behind `CE_LOCAL_DRY_PENALTY=1` (see
 `docs/LOCAL_LLM.md`) so it can be measured on the same groups before any default moves; a run
 without it is byte-identical to before, and the artifact's model line names it when it is on.
+
+**A second call for the anchors (since 2026-10-30).** A local drafter can finish a reply without
+its `ANCHORS` block: 13 of 41 Gemma 4 claims on 2026-10-30 came back complete, dependents and
+all, with no block and nothing truncated. No parser change recovers a block that was never
+written, and every drafter call is stateless, so when a complete reply has no block CodeExam
+sends one more call with the same pack and the draft, asking for the block alone, and takes its
+anchors; the first reply's claim and dependents stand. A truncated reply is not re-asked (the
+budget ended it), nor is a block whose lines the parser could not read (the reply tail is the
+evidence for that). The stderr line, the anchor list and the sidecar say when the anchors came
+from the second call, and the run header counts the drafts that lacked a block beside those the
+second call recovered, so a run reports the omission rate and the recovery rate together.
+`--no-anchors-reask` restores the single call. The cost projection does not count the second
+calls; the actual-cost line does.
 
 **Claim schema (`--claim-schema`, experimental).** Three terms first. A **claim
 object** is a claim as structured data rather than text: a preamble form, a

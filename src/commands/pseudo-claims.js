@@ -1426,10 +1426,23 @@ export const REPLY_TAIL_CHARS = 400;
 // wrong way. Takes a draft (or anything carrying `dropped`, `anchorBlockSeen`,
 // `anchorLinesUnparsed`); the schema path sets no `anchorBlockSeen` and keeps
 // the old wording.
+// What a second call for the block alone came back with, when it did not
+// recover one; '' when none was made or it recovered.
+function reaskSuffix(d) {
+  const r = d && d.reask;
+  if (!r || !r.asked || r.recovered) return '';
+  if (r.error) return `, and a second call for the block alone failed (${r.error})`;
+  if (r.blockSeen) {
+    return ', and a second call for the block alone returned a block with no line that parsed as an anchor'
+      + `${r.linesUnparsed ? ` (${r.linesUnparsed} line(s) skipped)` : ''}`;
+  }
+  return ', nor from a second call for the block alone';
+}
 export function anchorlessReason(d) {
   const dropped = ((d && d.dropped) || []).length;
-  if (dropped) return `${dropped} cited, every one dropped: none resolved to a function in the index`;
-  if (d && d.anchorBlockSeen === false) return 'no ANCHORS block parsed from the reply';
+  const viaReask = d && d.reask && d.reask.recovered ? ' on a second call for the block alone' : '';
+  if (dropped) return `${dropped} cited${viaReask}, every one dropped: none resolved to a function in the index`;
+  if (d && d.anchorBlockSeen === false) return `no ANCHORS block parsed from the reply${reaskSuffix(d)}`;
   if (d && d.anchorBlockSeen === true) {
     const n = d.anchorLinesUnparsed || 0;
     return `an ANCHORS block was present but no line in it parsed as an anchor${n ? ` (${n} line(s) skipped)` : ''}`;
@@ -1459,6 +1472,74 @@ export function replyTailBlock(tail) {
     `_Reply tail (the last ${REPLY_TAIL_CHARS} characters of the drafter's reply, kept so the anchor notation can be read from the artifact):_`,
     '', `${fence}text`, body, fence,
   ].join('\n');
+}
+
+// A SECOND CALL FOR THE ANCHORS BLOCK ALONE, when a complete reply has none.
+// asus-CC's rerun of 2026-10-30 (#353) on 940dfbb: 13 of 41 Gemma 4 claims came
+// back complete, dependents and all, with no ANCHORS block and nothing
+// truncated; the `openai` group's reply ended on a finished dependent 7. The
+// model stops after the dependents, and no parser change recovers a block
+// that was never written. Every drafter call is stateless by design (the cloud
+// wire builds a fresh request; the GGUF drafter rebuilds its session per call,
+// the #325 isolation contract), so the follow-up resends the pack and the
+// draft and asks for the block alone. The first reply's claim and dependents
+// stand; the second supplies the anchors. One extra call per anchor-less
+// draft, the same input and a short output; --no-anchors-reask restores the
+// single call, so a run can report the first-reply omission rate beside the
+// recovery rate. Rejected: a format reminder in the first prompt (a prompt
+// change for every drafter to fix one model's omission, which is #353's
+// rubric-gated work), a conversational "continue" (no drafter has memory
+// across calls), and redrafting the whole group (double the cost for a draft
+// that is usually fine but for the block).
+export const ANCHORS_REASK_MAX_OUTPUT_TOKENS = 1200;
+export function anchorsReaskUser(user, firstReply) {
+  return `${user}\n\nYOUR DRAFT (keep it; do not rewrite it):\n${firstReply}\n\n`
+    + 'The draft has no ANCHORS block. Write ONLY the ANCHORS: block for it, in the format given, '
+    + 'one line per element: - <file>@<functionName> — <the claim element it implements>. '
+    + 'Cite only files, functions and line ranges that appear in the material above.';
+}
+
+// The free-text draft of one group: the first call, the parse, and the second
+// call for the block when the rule says so. Exported so a fake drafter can
+// exercise the rule without a model or an index; the loop calls it. Returns
+// what the loop destructures (`prose`, `dependents`, `anchors`, `truncated`,
+// `anchorBlockSeen`, `anchorLinesUnparsed`, `repetition`, `replyTail`) plus
+// `reask: { asked, recovered, blockSeen?, linesUnparsed?, truncated?, error? }`.
+export async function draftGroupText(drafter, { sys, user, maxTokens = PSEUDO_CLAIM_MAX_OUTPUT_TOKENS, reask = true } = {}) {
+  const raw = await drafter(sys, user, maxTokens);
+  // Read the flag IMMEDIATELY after the await -- it carries THIS call's
+  // verdict (draftCloud clears it on entry) and drafting is sequential.
+  const truncated = wasLastDraftTruncated();
+  const first = parseGeneratedClaim(raw);
+  const out = { ...first, truncated, reask: { asked: false, recovered: false } };
+  // A complete reply with no block: ask once more for the block alone. A
+  // truncated reply is not re-asked (the budget ended it; truncationNote
+  // covers it), nor is a block with no parseable line (a notation the parser
+  // does not know, for which the reply tail is the evidence).
+  if (reask && first.anchorBlockSeen === false && !truncated) {
+    out.reask.asked = true;
+    try {
+      const again = await drafter(sys, anchorsReaskUser(user, String(raw || '')), ANCHORS_REASK_MAX_OUTPUT_TOKENS);
+      out.reask.truncated = wasLastDraftTruncated();
+      const second = parseGeneratedClaim(again);
+      out.reask.blockSeen = second.anchorBlockSeen;
+      out.reask.linesUnparsed = second.anchorLinesUnparsed;
+      if (second.anchors.length) {
+        out.anchors = second.anchors;
+        out.anchorBlockSeen = true;
+        out.anchorLinesUnparsed = second.anchorLinesUnparsed;
+        out.reask.recovered = true;
+      } else if (second.anchorBlockSeen) {
+        // The second reply's block is the notation evidence now.
+        out.replyTail = String(again || '').slice(-REPLY_TAIL_CHARS);
+      }
+    } catch (e) {
+      out.reask.error = e.message;
+    }
+  }
+  // Kept only when it explains an empty or cut anchor list.
+  if (!out.replyTail && (!out.anchors.length || truncated)) out.replyTail = String(raw || '').slice(-REPLY_TAIL_CHARS);
+  return out;
 }
 
 // Grounding pass: keep only cited anchors whose function resolves to a real
@@ -1689,6 +1770,9 @@ export function buildAnchorSidecar(groups, drafts, meta = {}) {
       // claims aside instead of scoring them as "the drafter cited nothing".
       ...(d.anchorBlockSeen === false ? { anchorBlockParsed: false } : {}),
       ...(d.anchorLinesUnparsed ? { anchorLinesUnparsed: d.anchorLinesUnparsed } : {}),
+      // Whether the anchors came from a second call for the block alone, so a
+      // scorer can tell a first-reply citation from a recovered one.
+      ...(d.reask && d.reask.asked ? { anchorsReasked: true, anchorsRecovered: !!d.reask.recovered } : {}),
       // The repetition guard's record, so a scorer sees a looped draft as one
       // and does not score the dropped dependents as absent mechanism.
       ...(repetitionTouched(d)
@@ -2362,6 +2446,7 @@ export async function doPseudoClaims(index, args) {
         const clsProfile = classProfile(profileName, cls);
         let prose, dependents, anchors, truncated, anchorBlockSeen, anchorLinesUnparsed = 0, replyTail;
         let repetition = null;
+        let reask = null;
         let schemaDraft = null;
         if (args.claim_schema) {
           // #322 claim-schema: the object path. Same selection guidance; the
@@ -2398,23 +2483,25 @@ export async function doPseudoClaims(index, args) {
           }).filter(Boolean);
           schemaDraft = { attempts, resampledFor, failures: checks.failures, notes: checks.notes, object: obj };
         } else {
-          const raw = await drafter(buildPseudoClaimSys(clsProfile, cls), `${intent}CODE:\n${s.pack}`, PSEUDO_CLAIM_MAX_OUTPUT_TOKENS);
-          // Read the flag IMMEDIATELY after the await -- it carries THIS call's
-          // verdict (draftCloud clears it on entry) and drafting is sequential.
-          truncated = wasLastDraftTruncated();
-          ({ prose, dependents, anchors, anchorBlockSeen, anchorLinesUnparsed, repetition } = parseGeneratedClaim(raw));
-          // Kept only when it explains an empty or cut anchor list.
-          if (!anchors.length || truncated) replyTail = String(raw || '').slice(-REPLY_TAIL_CHARS);
+          // The first call, the parse, and the second call for the block when
+          // a complete reply has none (draftGroupText; --no-anchors-reask off).
+          const r = await draftGroupText(drafter, {
+            sys: buildPseudoClaimSys(clsProfile, cls), user: `${intent}CODE:\n${s.pack}`, reask: !args.no_anchors_reask,
+          });
+          ({ prose, dependents, anchors, truncated, anchorBlockSeen, anchorLinesUnparsed, repetition, replyTail } = r);
+          reask = r.reask;
         }
         const { grounded, dropped } = groundAnchors(index, anchors, { resolved: s.resolved });
         const shape = prose ? shapeReport(prose, dependents, clsProfile) : null;
         drafts.push({ prose, dependents, grounded, dropped, truncated, shape, class: cls, classReason: s._classReason || 'default',
           anchorBlockSeen, anchorLinesUnparsed, ...(replyTail ? { replyTail } : {}),
           ...(repetition ? { repetition } : {}),
+          ...(reask && reask.asked ? { reask } : {}),
           ...(schemaDraft ? { schemaDraft } : {}) });
+        const viaReask = reask && reask.recovered ? ' (from a second call for the block alone; the first reply had none)' : '';
         const basis = (grounded.length || dropped.length)
-          ? `${grounded.length} grounded anchor(s)${dropped.length ? `, ${dropped.length} ungrounded dropped` : ''}`
-          : `0 grounded anchor(s): ${anchorlessReason({ dropped, anchorBlockSeen, anchorLinesUnparsed })}`;
+          ? `${grounded.length} grounded anchor(s)${dropped.length ? `, ${dropped.length} ungrounded dropped` : ''}${viaReask}`
+          : `0 grounded anchor(s): ${anchorlessReason({ dropped, anchorBlockSeen, anchorLinesUnparsed, reask })}`;
         const looped = repetitionTouched({ repetition })
           ? `; repetition guard: ${repetition.dependentsDropped.length} dependent(s) dropped, ${repetition.elementsCut} element(s) cut`
           : '';
@@ -2543,6 +2630,18 @@ export async function doPseudoClaims(index, args) {
         + `${(noBlock || emptyBlock) ? ' A draft with no parsed anchor prints the tail of its reply under its anchor list, so the notation can be read without rerunning.' : ''}_`);
       out.push('');
     }
+    // The second calls for the block, beside the anchor-less count: the drafts
+    // whose first reply had no block (the omission rate) and how many a second
+    // call recovered (the recovery rate). With --no-anchors-reask neither is
+    // asked, and the anchor-less count above is the omission rate alone.
+    const asked = live.filter((d) => d.reask && d.reask.asked);
+    if (asked.length) {
+      const rec = asked.filter((d) => d.reask.recovered).length;
+      out.push(`_Anchors re-asked: ${asked.length} of ${live.length} draft(s) had no ANCHORS block in the first reply; ${rec} recovered`
+        + ` one on a second call for the block alone${rec < asked.length ? `, ${asked.length - rec} did not` : ''}`
+        + ' (--no-anchors-reask turns the second call off)._');
+      out.push('');
+    }
     // The repetition guard's tally for the run, beside the anchor-less count:
     // a looped draft is a drafter defect the reader should weigh the run by.
     const looped = live.filter(repetitionTouched);
@@ -2669,6 +2768,12 @@ export async function doPseudoClaims(index, args) {
               out.push(`- ${citeAnchor(a, { long: true })}${a.element ? ` — ${a.element}` : ''}`);
             }
             if (!d.grounded.length) out.push(`- _(${anchorlessReason(d)})_`);
+            // Anchors that came from the second call say so, with what grounded.
+            if (d.reask && d.reask.recovered) {
+              out.push('- _Anchors from a second call: the first reply had no ANCHORS block; CodeExam asked once more for the'
+                + ` block alone${d.reask.truncated ? ', and that reply was cut by its budget' : ''}; ${d.grounded.length} of its`
+                + ` ${d.grounded.length + d.dropped.length} line(s) grounded._`);
+            }
             // #353 (d), free-text path: the elements whose every attached
             // anchor is a documentation excerpt, by number, so a reader can
             // tell a documented step from an implemented one without the chart.

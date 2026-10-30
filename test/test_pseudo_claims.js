@@ -1483,3 +1483,109 @@ describe('harvestPurpose memoizes comment reads per index', () => {
     assert.ok(_hs().reads >= 1);
   });
 });
+
+import { draftGroupText as _dgt, anchorsReaskUser as _aru, ANCHORS_REASK_MAX_OUTPUT_TOKENS as _armt } from '../src/commands/pseudo-claims.js';
+
+// pseudo-claims-anchors-reask (2026-10-30): asus-CC's rerun on 940dfbb had 13 of
+// 41 Gemma 4 claims complete, dependents and all, with no ANCHORS block and
+// nothing truncated. One more call, the pack and the draft resent, for the
+// block alone; the first reply's claim and dependents stand.
+describe('a second call for the ANCHORS block when a complete reply has none', () => {
+  const FIRST = 'CLAIM: A method comprising: parsing a term; and ranking a result.\n\nDEPENDENT CLAIMS:\n2. The method of claim 1, wherein the term is trimmed.\n';
+  const BLOCK = 'ANCHORS:\n- src/a.js@parse — parsing a term\n- src/b.js@rank — ranking a result\n';
+  const fake = (replies) => {
+    const calls = [];
+    const d = async (sys, user, max) => { calls.push({ sys, user, max }); return replies[Math.min(calls.length - 1, replies.length - 1)]; };
+    d.calls = calls;
+    return d;
+  };
+  // The truncation flag is the last real call's; the fakes make none.
+  resetCloudUsage();
+
+  it('asks once more when the first reply is complete and blockless, and takes the second reply\'s anchors', async () => {
+    const d = fake([FIRST, BLOCK]);
+    const r = await _dgt(d, { sys: 'SYS', user: 'CODE:\npack text' });
+    assert.equal(d.calls.length, 2);
+    assert.equal(d.calls[0].max, PSEUDO_CLAIM_MAX_OUTPUT_TOKENS);
+    assert.equal(d.calls[1].sys, 'SYS', 'the same system prompt, so the cite rules travel');
+    assert.equal(d.calls[1].max, _armt);
+    assert.match(d.calls[1].user, /^CODE:\npack text\n\nYOUR DRAFT \(keep it; do not rewrite it\):\nCLAIM: A method comprising/);
+    assert.match(d.calls[1].user, /Write ONLY the ANCHORS: block/);
+    assert.deepEqual(r.anchors.map((a) => a.func), ['parse', 'rank']);
+    assert.equal(r.anchorBlockSeen, true);
+    assert.match(r.prose, /^A method comprising/);
+    assert.equal(r.dependents.length, 1, 'the first reply\'s dependents stand');
+    assert.equal(r.truncated, false);
+    assert.deepEqual({ asked: r.reask.asked, recovered: r.reask.recovered }, { asked: true, recovered: true });
+    assert.equal(r.replyTail, undefined, 'a recovered list needs no tail');
+    assert.equal(anchorlessReason({ dropped: [{}, {}], reask: r.reask }), '2 cited on a second call for the block alone, every one dropped: none resolved to a function in the index');
+  });
+
+  it('a second reply with no block either: two calls, no anchors, and the reason names the second call', async () => {
+    const d = fake([FIRST, 'Sorry, nothing more to add.']);
+    const r = await _dgt(d, { sys: 'S', user: 'U' });
+    assert.equal(d.calls.length, 2);
+    assert.equal(r.anchors.length, 0);
+    assert.equal(r.anchorBlockSeen, false);
+    assert.deepEqual({ asked: r.reask.asked, recovered: r.reask.recovered, blockSeen: r.reask.blockSeen }, { asked: true, recovered: false, blockSeen: false });
+    assert.equal(anchorlessReason(r), 'no ANCHORS block parsed from the reply, nor from a second call for the block alone');
+    assert.match(r.replyTail, /wherein the term is trimmed/, 'the first reply\'s tail is kept');
+  });
+
+  it('a second reply whose block has no parseable line says so, and that reply\'s tail is the evidence', async () => {
+    const d = fake([FIRST, 'ANCHORS:\n(none that I can name)\n']);
+    const r = await _dgt(d, { sys: 'S', user: 'U' });
+    assert.equal(r.reask.recovered, false);
+    assert.equal(r.reask.blockSeen, true);
+    assert.equal(r.reask.linesUnparsed, 1);
+    assert.match(anchorlessReason(r), /second call for the block alone returned a block with no line that parsed as an anchor \(1 line\(s\) skipped\)/);
+    assert.match(r.replyTail, /none that I can name/);
+  });
+
+  it('a failed second call keeps the first result and records the error', async () => {
+    let n = 0;
+    const d = async () => { n++; if (n === 2) throw new Error('wire down'); return FIRST; };
+    const r = await _dgt(d, { sys: 'S', user: 'U' });
+    assert.equal(n, 2);
+    assert.equal(r.reask.error, 'wire down');
+    assert.match(r.prose, /^A method comprising/);
+    assert.match(anchorlessReason(r), /no ANCHORS block parsed from the reply, and a second call for the block alone failed \(wire down\)/);
+  });
+
+  it('one call when the first reply has a block, when its block has no readable line, or when reask is off', async () => {
+    const withBlock = fake([`${FIRST}\n${BLOCK}`]);
+    const r1 = await _dgt(withBlock, { sys: 'S', user: 'U' });
+    assert.equal(withBlock.calls.length, 1);
+    assert.equal(r1.reask.asked, false);
+    assert.equal(r1.anchors.length, 2);
+    const unreadable = fake([`${FIRST}\nANCHORS:\n(no citation format I know)\n`, BLOCK]);
+    const r3 = await _dgt(unreadable, { sys: 'S', user: 'U' });
+    assert.equal(unreadable.calls.length, 1, 'a block the parser could not read is not re-asked');
+    assert.equal(r3.anchorBlockSeen, true);
+    assert.equal(r3.reask.asked, false);
+    const off = fake([FIRST, BLOCK]);
+    const r2 = await _dgt(off, { sys: 'S', user: 'U', reask: false });
+    assert.equal(off.calls.length, 1);
+    assert.equal(r2.reask.asked, false);
+    assert.equal(r2.anchors.length, 0);
+    assert.equal(anchorlessReason(r2), 'no ANCHORS block parsed from the reply');
+  });
+
+  it('anchorsReaskUser carries the pack and the draft and asks for the block alone', () => {
+    const u = _aru('CODE:\nthe pack', 'CLAIM: x\n\nDEPENDENT CLAIMS:\n2. y');
+    assert.ok(u.startsWith('CODE:\nthe pack\n\nYOUR DRAFT (keep it; do not rewrite it):\nCLAIM: x\n\nDEPENDENT CLAIMS:\n2. y\n\n'));
+    assert.match(u, /Write ONLY the ANCHORS: block for it, in the format given, one line per element: - <file>@<functionName> — <the claim element it implements>\. Cite only files, functions and line ranges that appear in the material above\.$/);
+  });
+
+  it('the sidecar says whether the anchors were re-asked and recovered', () => {
+    const base = { prose: 'A method comprising: a step.', dependents: [], grounded: [], dropped: [] };
+    const side = buildAnchorSidecar([{ label: 'g' }, { label: 'h' }, { label: 'i' }], [
+      { ...base, anchorBlockSeen: true, reask: { asked: true, recovered: true } },
+      { ...base, anchorBlockSeen: false, reask: { asked: true, recovered: false } },
+      { ...base, anchorBlockSeen: true, reask: { asked: false, recovered: false } },
+    ], {});
+    assert.deepEqual([side.claims[0].anchorsReasked, side.claims[0].anchorsRecovered], [true, true]);
+    assert.deepEqual([side.claims[1].anchorsReasked, side.claims[1].anchorsRecovered, side.claims[1].anchorBlockParsed], [true, false, false]);
+    assert.ok(!('anchorsReasked' in side.claims[2]), 'omitted when no second call was made');
+  });
+});
