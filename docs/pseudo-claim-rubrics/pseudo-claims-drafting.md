@@ -175,13 +175,16 @@ of claim 1 of the candidates page (`pseudo-claims-candidates.md`).
 
 ## Citations and provenance
 
-Lines in the table are keyed to the working tree of 2026-10-27, commit `7c93118`, and are
-carried here as written (2026-10-31). `src/commands/pseudo-claims.js` has grown by about 500
-lines since (`f87ec14`, `940dfbb`, `82ee8a1`, `66cf85a`), so its `pc:` ranges, the
-`src/argparse.js` range and the `docs/CODEEXAM_PSEUDO_CLAIMS.md` range point to where the code
-was; the grouper, ranker, schema, triage, genericity and class files are unchanged since, so
-every range into them holds. Function names hold throughout. Re-keying is the follow-up item
-`rubric-pages-pseudo-claims-rekey-and-scores`.
+Lines in the table were keyed to the working tree of 2026-10-27, commit `7c93118`, and carried
+here as written on 2026-10-31. The same day, every range into `src/commands/pseudo-claims.js`
+(grown by about 600 lines since: `f87ec14`, `940dfbb`, `82ee8a1`, `66cf85a`), the
+`src/argparse.js` range and the `docs/CODEEXAM_PSEUDO_CLAIMS.md` ranges were re-keyed to the
+tree at `1c05834` (the doc after this page's own commit edited its rubric-gate paragraph,
+which sits above the cited lines) by locating the `7c93118` text of each range's first and
+last lines in the current file and, where the cite names a function, taking the function's
+current extent; those rows say "re-keyed 2026-10-31" in the provenance column. The grouper,
+ranker, schema, triage, genericity and class files are unchanged since 2026-10-27, so every
+range into them holds as written. Function names hold throughout.
 
 Provenance: six of the thirty rows, P1(a) to P1(f), trace to the drafter's claim 29 and were
 verified against the code (`D→C`); the preamble is Andrew's and the rest is from the code.
@@ -194,38 +197,38 @@ accordingly (2026-10-31).
 | claim | where | provenance |
 |---|---|---|
 | P1 preamble | Andrew, 2026-10-25 sketch | A |
-| P1(a) | `pc:548-600` (groups, `# Label`), `pc:705-716` (line anchors), `mg:1204` (header parse) | D→C |
-| P1(b) | `pc:735-786` (`resolveGroup`), `pc:1813-1830` (stderr report) | D→C |
-| P1(c) | `pc:899-964` (`buildPack`), `pc:527-536` (budgets), `pc:679` (disclosure) | D→C |
-| P1(d) | `pc:1928-1940` (one request per group, label + purpose), `pc:795-849` (`harvestPurpose`), `pc:252-290` (`shapeTargetLines`, "NO length target" at 258), `pc:289-480` (tails), `pc:513-521` | D→C; content C |
-| P1(e) | `pc:1071` (`parseGeneratedClaim`), `pc:1048`, `pc:965-1047` (`normalizeAnchorRef`, shape recorded) | D→C |
-| P1(f) | `pc:1104-1182` (`groundAnchors`) | D→C |
-| P1(g) | `pc:54-110` (caveats), `pc:1999-2270` (artifact), `pc:1304` (sidecar), `pc:1363` (claims-only) | C |
-| P2 | `pc:548-600`, `pc:705`, help `src/argparse.js:1628-1640` | C |
-| P3 | `pc:527-536`, cut marker `pc:~930` | C |
-| P4 | `--pack-fill`, `pc:899-964` | C |
-| P5 | `pc:1867-1870`, `pc:2001-2004` | C |
-| P6 | `pc:795-849` (`HARVEST_CAP` 700; header within 8 lines, first 30 lines) | C |
-| P7 | `src/core/claim-class.js`; `pc:488-511`; `pc:2017-2027` | C |
-| P8 | `classesForMode('all')`, `pc:497` | C |
-| P9 | `pc:164-222` (`SHAPE_PROFILES`) | C |
-| P10 | `pc:1215-1273` (`shapeReport`) | C |
+| P1(a) | `pc:549-601` (groups, `# Label`), `pc:734-745` (line anchors), `mg:1204` (header parse) | D→C; re-keyed 2026-10-31 |
+| P1(b) | `pc:764-825` (`resolveGroup`), `pc:2314-2331` (stderr report) | D→C; re-keyed 2026-10-31 |
+| P1(c) | `pc:1084-1132` (`buildPack`), `pc:528-537` (budgets), `pc:693` (disclosure) | D→C; re-keyed 2026-10-31 |
+| P1(d) | `pc:2434-2446` (one request per group, label + purpose), `pc:976-1024` (`harvestPurpose`), `pc:253-291` (`shapeTargetLines`, "NO length target" at 259), `pc:290-481` (tails), `pc:514-522` | D→C; content C; re-keyed 2026-10-31 |
+| P1(e) | `pc:1359` (`parseGeneratedClaim`), `pc:1248`, `pc:1165-1247` (`normalizeAnchorRef`, shape recorded) | D→C; re-keyed 2026-10-31 |
+| P1(f) | `pc:1550-1621` (`groundAnchors`) | D→C; re-keyed 2026-10-31 |
+| P1(g) | `pc:55-111` (caveats), `pc:2524-2879` (artifact), `pc:1757` (sidecar), `pc:1829` (claims-only) | C; re-keyed 2026-10-31 |
+| P2 | `pc:549-601`, `pc:734`, help `src/argparse.js:1632-1644` | C; re-keyed 2026-10-31 |
+| P3 | `pc:528-537`, cut marker `pc:1116` | C; re-keyed 2026-10-31 |
+| P4 | `--pack-fill`, `pc:1084-1132` | C; re-keyed 2026-10-31 |
+| P5 | `pc:2368-2371`, `pc:2526-2529` | C; re-keyed 2026-10-31 |
+| P6 | `pc:976-1024` (`HARVEST_CAP` 700 at 935; header within 8 lines, first 30 lines) | C; re-keyed 2026-10-31 |
+| P7 | `src/core/claim-class.js`; `pc:489-512`; `pc:2542-2552` | C; re-keyed 2026-10-31 |
+| P8 | `classesForMode('all')`, `pc:498` | C; re-keyed 2026-10-31 |
+| P9 | `pc:165-223` (`SHAPE_PROFILES`) | C; re-keyed 2026-10-31 |
+| P10 | `pc:1668-1726` (`shapeReport`) | C; re-keyed 2026-10-31 |
 | P11 | `src/core/claim-genericity.js` header | C |
-| P12 | `pc:1900-1908` | C |
-| P13 | `pc:1876-1886`, `src/core/llm-runner.js` (air-gap gate) | C |
-| P14 | `pc:1832-1866` (`--show-prompt`) | C |
-| P15 | `pc:2157-2160` | C |
-| P16 | `pc:1104-1182` (doc cites) | C |
-| P17 | `pc:1784-1800` (genericity order), `pc:2100-2118` (contents table) | C |
-| P18 | `pc:2088-2099`, `mg:1244-1284` (`dominantFile`, `echoPairs`) | C |
-| P19 | `pc:2065-2087` | C |
-| P20 | `src/core/claim-schema.js`; `pc:1944-1970`; `SCHEMA_RESAMPLE_CAP` 2 | C |
-| P21 | `pc:1666` (`doTriage`), `src/core/pseudo-claim-triage.js` | C |
+| P12 | `pc:2406-2414` | C; re-keyed 2026-10-31 |
+| P13 | `pc:2382-2392`, `src/core/llm-runner.js` (air-gap gate) | C; re-keyed 2026-10-31 |
+| P14 | `pc:2333-2367` (`--show-prompt`) | C; re-keyed 2026-10-31 |
+| P15 | `pc:2733-2736` | C; re-keyed 2026-10-31 |
+| P16 | `pc:1550-1621` (doc cites, the branch at 1559-1575) | C; re-keyed 2026-10-31 |
+| P17 | `pc:2284-2300` (genericity order), `pc:2669-2681` (contents table) | C; re-keyed 2026-10-31 |
+| P18 | `pc:2657-2667`, `mg:1244-1284` (`dominantFile`, `echoPairs`) | C; re-keyed 2026-10-31 |
+| P19 | `pc:2590-2611` | C; re-keyed 2026-10-31 |
+| P20 | `src/core/claim-schema.js`; `pc:2452-2482`; `SCHEMA_RESAMPLE_CAP` 2 | C; re-keyed 2026-10-31 |
+| P21 | `pc:2166` (`doTriage`), `src/core/pseudo-claim-triage.js` | C; re-keyed 2026-10-31 |
 | P22 | `scripts/pseudo-claim-loop.mjs`, `src/core/loop-score.js` | C |
 
 Not claimed, because the code does not do it: a broad and a tight draft of one mechanism
-(`docs/CODEEXAM_PSEUDO_CLAIMS.md`, "idea", lines 351-358 at `7c93118`); any test-file or
-doc-file weighting of references.
+(`docs/CODEEXAM_PSEUDO_CLAIMS.md`, "idea", lines 464-471; 351-358 at `7c93118`, re-keyed
+2026-10-31); any test-file or doc-file weighting of references.
 
 An apparatus rendering of this set is mechanical: each step becomes a unit configured to
 perform it, and the data between steps (the resolved references, the pack, the response, the
@@ -233,8 +236,29 @@ verified references) is the connective tissue. Not written out here.
 
 ---
 
-## Scores
+## Scores (2026-10-31)
 
-Not yet scored (2026-10-31): the table's ranges into `src/commands/pseudo-claims.js` are keyed
-to `7c93118`, and a scorecard against stale ranges would mislead on the rows cited by range
-alone. The follow-up item re-keys the table and adds the ten-run table the other pages carry.
+Scored with `node scripts/pseudo-claim-rubric-score.mjs`
+`--rubric docs/pseudo-claim-rubrics/pseudo-claims-drafting.md --run <file>` for each run below:
+the best run claim per run (MET counted twice, PARTIAL once)
+among the claims with an anchor that matches a row's cite. MET is a cite match with half the
+row's content words present, PARTIAL a cite match with a quarter or the words without the cite;
+the overlap is a keyword proxy printed beside every verdict, and the reading stays the human's.
+The runs are files in the project root of this checkout, not in the repository; "none" means no
+claim in that run meets or partly meets a row. The first six runs are the five pages' baselines;
+the four of 2026-10-25 were run with `--filter pseudo`, so they reach this feature's own groups.
+The 10/25 7:20pm run's best claim is claim 29, the one six rows of Set P trace to (`D→C`
+above), and the two runs with no claim citing the drafting file score "none".
+
+| run | best claim | MET | PARTIAL | ABSENT | surplus (substantive / trivial / ungrounded) | claims considered |
+|---|---|---|---|---|---|---|
+| CE_pseudo_claim_test_102526_720pm_norank.txt (10/25 7:20pm, Claude, 41 claims) | 29 ([cmd] --pseudo-claims) | 2 | 6 | 22 | 17 / 0 / 2 | 5 |
+| CE_pseudo_claims_vocab_concept_overview_Claude.txt (10/27, Claude, 18 claims) | 13 ([file] mechanism-grouper.js / rest) | 1 | 0 | 29 | 22 / 1 / 2 | 1 |
+| CE_pseudo_claims_vocab_concept_overview_ChatGPT.txt (10/27, ChatGPT, 18 claims) | none | — | — | — | — | 0 |
+| gemma4_CE_pseudo_claims_102926.txt (10/29, Gemma 4 on the Asus, 41 claims) | 33 ([cmd] --pseudo-claims) | 0 | 2 | 28 | 8 / 1 / 3 | 3 |
+| CE_pseudo_concept_overview_103026.txt (10/30, Claude, 12 claims) | 9 ([file] mechanism-grouper.js / rest) | 0 | 1 | 29 | 21 / 1 / 3 | 1 |
+| CE_pseudo_vocab_103026.txt (10/30, Claude, 9 claims) | none | — | — | — | — | 0 |
+| CE_pseudo_claims_CE_pseudo_102526_210pm.txt (10/25 2:10pm, Claude, `--filter pseudo`, 18 claims) | 11 ([cmd] --pseudo-claims / other) | 1 | 6 | 23 | 13 / 2 / 2 | 10 |
+| CE_pseudo_claims_CE_pseudo_102526_250pm.txt (10/25 2:50pm, Claude, `--filter pseudo`, 12 claims) | 12 ([cmd] --pseudo-claims) | 1 | 5 | 24 | 13 / 0 / 5 | 6 |
+| CE_pseudo_claims_CE_pseudo_102526_405pm.txt (10/25 4:05pm, Claude, `--filter pseudo`, 9 claims) | 7 ([cmd] --pseudo-claims) | 2 | 7 | 21 | 20 / 1 / 0 | 5 |
+| CE_pseudo_claims_CE_pseudo_102526_525pm.txt (10/25 5:25pm, Claude, `--filter pseudo --claim-class all`, 27 claims) | 19 ([cmd] --pseudo-claims [method]) | 2 | 6 | 22 | 14 / 1 / 2 | 15 |

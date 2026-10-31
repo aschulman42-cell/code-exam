@@ -140,13 +140,16 @@ module.
 
 ## Citations and provenance
 
-Lines in the table are keyed to the working tree of 2026-10-27, commit `7c93118`, and are
-carried here as written (2026-10-31). `src/commands/pseudo-claims.js` has grown by about 500
-lines since (`f87ec14`, `940dfbb`, `82ee8a1`, `66cf85a`), so its `pc:` ranges, the
-`src/argparse.js` range and the `docs/CODEEXAM_PSEUDO_CLAIMS.md` range point to where the code
-was; the grouper, ranker, schema, triage, genericity and class files are unchanged since, so
-every range into them holds. Function names hold throughout. Re-keying is the follow-up item
-`rubric-pages-pseudo-claims-rekey-and-scores`.
+Lines in the table were keyed to the working tree of 2026-10-27, commit `7c93118`, and carried
+here as written on 2026-10-31. The same day, the four ranges into `src/commands/pseudo-claims.js`
+(grown by about 600 lines since: `f87ec14`, `940dfbb`, `82ee8a1`, `66cf85a`) and the two into
+`docs/CODEEXAM_PSEUDO_CLAIMS.md` were re-keyed to the tree at `1c05834` (the doc after this
+page's own commit edited its rubric-gate paragraph, which sits above the cited lines) by
+locating the `7c93118` text of each range's first and last lines in the current file and,
+where the cite names a function, taking the function's current extent; those rows say
+"re-keyed 2026-10-31" in the provenance column. The grouper, ranker, schema, triage,
+genericity and class files are unchanged since 2026-10-27, so every range into them holds as
+written. Function names hold throughout.
 
 `pc` = `src/commands/pseudo-claims.js`, `mg` = `src/core/mechanism-grouper.js`,
 `mr` = `src/core/mechanism-ranker.js`.
@@ -160,9 +163,9 @@ every range into them holds. Function names hold throughout. Re-keying is the fo
 | D1(d) | `mg:384-705`: token `392-417`, class `418-443`, command `444-533`, file `632-696`; `isOverBroadNamespace` `351-365` | A→C |
 | D1(e) | `mg:773`, `mg:756`, `minComm` 3 | C |
 | D1(f) | `mg:883-937`, `mg:821-882`; command groups exempt `mg:955-957` | A→C |
-| D1(g) | `mg:366`, `mg:378`, `mg:708-743`; `pc:795-849` | A→C |
+| D1(g) | `mg:366`, `mg:378`, `mg:708-743`; `pc:976-1024` (`harvestPurpose`) | A→C; `pc` re-keyed 2026-10-31 |
 | D1(h) | `mg:1098-1203`, `mg:1084`, `mg:1261` | C |
-| D1 wherein | `docs/CODEEXAM_PSEUDO_CLAIMS.md:236-240` | C (doc) |
+| D1 wherein | `docs/CODEEXAM_PSEUDO_CLAIMS.md:348-353` | C (doc); re-keyed 2026-10-31 |
 | D2 | `mg:25-99` (`GROUPER_DEFAULTS`) | C |
 | D3 | `mg:418-443` (class seed over indexed classes only), `mg:71-74` (catalog seed no-op without a command surface) | C |
 | D4 | `mg:142-157` | C |
@@ -172,15 +175,15 @@ every range into them holds. Function names hold throughout. Re-keying is the fo
 | D8 | `--use-docs`; `mg:1035-1083` (`docAnchorsForGroup`) | C |
 | D9 | `--include-vendored`, `mg:218-270` | C |
 | D10 | `mr` header and `mr:61-105`, `mr:194-230` (playoff) | C |
-| D11 | `--min-rank`, `pc:850-868` | C |
-| D12 | `pc:1717-1734` | C |
+| D11 | `--min-rank`, `pc:1025-1043` (`parseMinRank`) | C; re-keyed 2026-10-31 |
+| D12 | `pc:2217-2234` | C; re-keyed 2026-10-31 |
 | D13 | `mg:1285-1323` | C |
-| D14 | `pc:786-826` | C |
+| D14 | `pc:935-943` (`HARVEST_CAP`, `isResidueLabel`), `pc:991-999` (the remainder branch of `harvestPurpose`) | C; re-keyed 2026-10-31 |
 
 Not claimed, because the code does not do it: graph decomposition of the call graph
 (`mg:16-19` records the failed prototype); any seed beyond the command seed using call or
-import edges; completeness of coverage (`docs/CODEEXAM_PSEUDO_CLAIMS.md`, lines 241-262 at
-`7c93118`).
+import edges; completeness of coverage (`docs/CODEEXAM_PSEUDO_CLAIMS.md`, the "It samples; it
+does not survey" paragraph, lines 373-391; 241-262 at `7c93118`, re-keyed 2026-10-31).
 
 An apparatus rendering of this set is mechanical: each step becomes a unit configured to
 perform it, and the data between steps (the candidate list, the concept tokens, the
@@ -188,8 +191,30 @@ assignments, the groups) is the connective tissue. Not written out here.
 
 ---
 
-## Scores
+## Scores (2026-10-31)
 
-Not yet scored (2026-10-31): the table's ranges into `src/commands/pseudo-claims.js` are keyed
-to `7c93118`, and a scorecard against stale ranges would mislead on the rows cited by range
-alone. The follow-up item re-keys the table and adds the ten-run table the other pages carry.
+Scored with `node scripts/pseudo-claim-rubric-score.mjs`
+`--rubric docs/pseudo-claim-rubrics/pseudo-claims-candidates.md --run <file>` for each run below:
+the best run claim per run (MET counted twice, PARTIAL once)
+among the claims with an anchor that matches a row's cite. MET is a cite match with half the
+row's content words present, PARTIAL a cite match with a quarter or the words without the cite;
+the overlap is a keyword proxy printed beside every verdict, and the reading stays the human's.
+The runs are files in the project root of this checkout, not in the repository; "none" means no
+claim in that run meets or partly meets a row. The first six runs are the five pages' baselines;
+the four of 2026-10-25 were run with `--filter pseudo`, so they reach this feature's own groups.
+The Gemma 4 row's claim 25 is the one read by hand on 2026-10-31 (element (d), the seeds,
+missing; the pack had shown `multiSeedGroups` at 960 characters), and its 22 surplus lines
+binned grounded-substantive are where that reading credited more than the scorer does.
+
+| run | best claim | MET | PARTIAL | ABSENT | surplus (substantive / trivial / ungrounded) | claims considered |
+|---|---|---|---|---|---|---|
+| CE_pseudo_claim_test_102526_720pm_norank.txt (10/25 7:20pm, Claude, 41 claims) | 29 ([cmd] --pseudo-claims) | 1 | 0 | 22 | 16 / 1 / 2 | 2 |
+| CE_pseudo_claims_vocab_concept_overview_Claude.txt (10/27, Claude, 18 claims) | 13 ([file] mechanism-grouper.js / rest) | 2 | 9 | 12 | 19 / 1 / 2 | 3 |
+| CE_pseudo_claims_vocab_concept_overview_ChatGPT.txt (10/27, ChatGPT, 18 claims) | 13 ([file] mechanism-grouper.js / rest) | 2 | 6 | 15 | 14 / 0 / 0 | 4 |
+| gemma4_CE_pseudo_claims_102926.txt (10/29, Gemma 4 on the Asus, 41 claims) | 25 ([file] mechanism-grouper.js / rest) | 1 | 4 | 18 | 22 / 1 / 1 | 3 |
+| CE_pseudo_concept_overview_103026.txt (10/30, Claude, 12 claims) | 9 ([file] mechanism-grouper.js / rest) | 1 | 6 | 16 | 20 / 1 / 3 | 2 |
+| CE_pseudo_vocab_103026.txt (10/30, Claude, 9 claims) | 1 ([file] vocabulary.js / rest) | 0 | 2 | 21 | 12 / 2 / 7 | 2 |
+| CE_pseudo_claims_CE_pseudo_102526_210pm.txt (10/25 2:10pm, Claude, `--filter pseudo`, 18 claims) | 17 ([file] mechanism-grouper.js / rest) | 2 | 11 | 10 | 12 / 1 / 3 | 4 |
+| CE_pseudo_claims_CE_pseudo_102526_250pm.txt (10/25 2:50pm, Claude, `--filter pseudo`, 12 claims) | 8 ([file] mechanism-grouper.js / rest) | 2 | 10 | 11 | 10 / 0 / 7 | 3 |
+| CE_pseudo_claims_CE_pseudo_102526_405pm.txt (10/25 4:05pm, Claude, `--filter pseudo`, 9 claims) | 7 ([cmd] --pseudo-claims) | 1 | 0 | 22 | 18 / 2 / 0 | 2 |
+| CE_pseudo_claims_CE_pseudo_102526_525pm.txt (10/25 5:25pm, Claude, `--filter pseudo --claim-class all`, 27 claims) | 20 ([cmd] --pseudo-claims [system]) | 1 | 2 | 20 | 16 / 0 / 4 | 6 |

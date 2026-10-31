@@ -274,9 +274,10 @@ second call recovered, so a run reports the omission rate and the recovery rate 
 `--no-anchors-reask` restores the single call. The cost projection does not count the second
 calls; the actual-cost line does.
 
-**The rubric gate (since 2026-10-30).** Five hand rubrics, one per CodeExam feature, live under
-`docs/pseudo-claim-rubrics/` (Overview by AI, vocabulary, concepts, the Overview, multisect
-search): each a claim 1 with lettered elements and a wherein, numbered dependents, and a
+**The rubric gate (since 2026-10-30).** Seven hand rubric pages for six CodeExam features live
+under `docs/pseudo-claim-rubrics/` (Overview by AI, vocabulary, concepts, the Overview,
+multisect search, and two for pseudo-claims itself, candidate identification and the drafting
+pipeline): each a claim 1 with lettered elements and a wherein, numbered dependents, and a
 citations table tying every row to file lines. `node scripts/pseudo-claim-rubric-score.mjs
 --rubric <page> --run <artifact>` scores a run against one: a row is addressed by the run claim's
 anchors that match the row's cites (file and lines, or the named function); MET is a cite match
@@ -286,10 +287,10 @@ elements that reach no row are the surplus, binned grounded-substantive, grounde
 ungrounded. The overlap is a keyword proxy printed beside every verdict, so the reading, which
 stays the human's, can check it. The five pages carry the scores of the six runs in hand as of
 2026-10-30, the before for the drafting changes of #353 (a) to (d); a change to the prompt or
-the packing is measured on the same rows and the same corpus. Two more pages, for the
-pseudo-claims feature itself (`pseudo-claims-drafting.md`, `pseudo-claims-candidates.md`), carry
-its two claim sets with citations keyed to commit `7c93118` and no scores yet (2026-10-31); the
-re-keying and the scorecards are a follow-up.
+the packing is measured on the same rows and the same corpus. The two pseudo-claims pages
+(`pseudo-claims-drafting.md`, `pseudo-claims-candidates.md`) carry ten runs as of 2026-10-31,
+those six and the four `--filter pseudo` runs of 2026-10-25, with citations re-keyed that day
+to `1c05834`.
 
 **Claim schema (`--claim-schema`, experimental).** Three terms first. A **claim
 object** is a claim as structured data rather than text: a preamble form, a
