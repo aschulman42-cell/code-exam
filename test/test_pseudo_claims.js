@@ -994,7 +994,7 @@ describe('harvestPurpose on a residue group', () => {
 // members at 8,000 each and none of the rest ("packed 9 of 40; 31 omitted" on
 // [cmd] --pseudo-claims after the depth-two closure). --pack-fill even (the
 // default) spends the budget evenly; --pack-fill first is the old rule.
-import { buildPack as _bp, packDisclosure as _pd, PACK_TOTAL_CHARS as _ptc, PACK_PER_ANCHOR_CHARS as _ppa, PACK_MIN_ANCHOR_CHARS as _pma } from '../src/commands/pseudo-claims.js';
+import { buildPack as _bp, packDisclosure as _pd, packBudgetFromArgs as _pbfa, PACK_TOTAL_CHARS as _ptc, PACK_PER_ANCHOR_CHARS as _ppa, PACK_MIN_ANCHOR_CHARS as _pma } from '../src/commands/pseudo-claims.js';
 describe('the evidence pack budget: even fill and first fill', () => {
   const anchor = (i, chars) => ({ spec: `a.js@f${i}`, filepath: 'a.js', name: `f${i}`, start: 1, end: 9, kind: 'func', source: 'x'.repeat(chars) });
   const many = (n, chars) => Array.from({ length: n }, (_, i) => anchor(i, chars));
@@ -1037,6 +1037,48 @@ describe('the evidence pack budget: even fill and first fill', () => {
     const fi = _bp(many(10, 5000), { fill: 'first' });
     assert.match(_pd({ resolved: many(10, 5000), ...fi }), /packed 5 of 10 resolved anchor\(s\); 5 omitted for the pack budget/);
     assert.equal(_pd({ resolved: many(3, 1000), ..._bp(many(3, 1000)) }), '', 'a pack that fit says nothing');
+  });
+  // pseudo-claims-pack-budget-flag (2026-10-31): the two bounds are a flag
+  // pair (--pack-budget, --pack-anchor) with the constants as defaults.
+  it('without the options the pack is built on the constants, and the result names them', () => {
+    const r = _bp(many(10, 5000));
+    assert.equal(r.total, _ptc);
+    assert.equal(r.perAnchor, _ppa);
+  });
+  it('even fill honors a custom budget: the allowance is the total over the members, capped per anchor', () => {
+    assert.equal(_bp(many(10, 5000), { total: 60000, perAnchor: 12000 }).mode, 'full', 'ten 5,000-char anchors fit 60,000');
+    const e = _bp(many(10, 5000), { total: 30000, perAnchor: 12000 });
+    assert.equal(e.mode, 'evened');
+    assert.equal(e.allowance, 3000);
+    assert.equal(e.shortened, 10);
+    const c = _bp(many(3, 20000), { total: 30000, perAnchor: 9000 });
+    assert.equal(c.allowance, 9000, 'the per-anchor cap binds before the even share (10,000)');
+    assert.equal(c.total, 30000);
+    assert.equal(c.perAnchor, 9000);
+  });
+  it('a larger per-anchor cap lets a long member through whole', () => {
+    const d = _bp([anchor(0, 10000)]);
+    assert.deepEqual(d.truncatedAnchors, ['a.js@f0'], 'the default cap cuts a 10,000-char member');
+    const r = _bp([anchor(0, 10000)], { total: 24000, perAnchor: 12000 });
+    assert.equal(r.mode, 'full');
+    assert.deepEqual(r.truncatedAnchors, []);
+    assert.ok(r.pack.includes('x'.repeat(10000)), 'the whole body is in the pack');
+  });
+  it('first fill spends a custom total and omits the rest', () => {
+    const r = _bp(many(10, 5000), { fill: 'first', total: 12000, perAnchor: 8000 });
+    assert.equal(r.mode, 'first');
+    assert.equal((r.pack.match(/a\.js@f\d/g) || []).length, 3, 'the third anchor starts under the total and is packed whole');
+    assert.equal(r.droppedForBudget, 7);
+  });
+  it('packBudgetFromArgs: the constants without the options, the options when given, two errors naming both', () => {
+    assert.deepEqual(_pbfa({}), { total: _ptc, perAnchor: _ppa });
+    assert.deepEqual(_pbfa({ pack_budget: null, pack_anchor: null }), { total: _ptc, perAnchor: _ppa });
+    assert.deepEqual(_pbfa({ pack_budget: 48000, pack_anchor: 16000 }), { total: 48000, perAnchor: 16000 });
+    assert.deepEqual(_pbfa({ pack_budget: '48000' }), { total: 48000, perAnchor: _ppa }, 'a string from the parser is accepted');
+    assert.throws(() => _pbfa({ pack_budget: 0 }), /--pack-budget must be a positive integer.*--pack-anchor the per-anchor cap/);
+    assert.throws(() => _pbfa({ pack_anchor: -5 }), /--pack-anchor must be a positive integer/);
+    assert.throws(() => _pbfa({ pack_anchor: 2.5 }), /--pack-anchor must be a positive integer/);
+    assert.throws(() => _pbfa({ pack_budget: 4000 }), /--pack-anchor \(8,000\) must not exceed --pack-budget \(4,000\)/);
   });
 });
 

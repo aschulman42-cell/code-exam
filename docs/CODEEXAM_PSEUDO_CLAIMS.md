@@ -215,13 +215,21 @@ CodeExam prints the evidence packs only. A local GGUF keeps the run air-gapped;
 see [`LOCAL_LLM.md`](LOCAL_LLM.md) and [`AIR_GAPPED.md`](AIR_GAPPED.md). A cost
 estimate is shown before any cloud spend.
 
-**The pack budget.** An evidence pack is 24,000 characters, at most 8,000 per anchor. When a
-group's anchors do not fit, `--pack-fill even` (the default since 2026-10-25) gives every anchor
-the same share, never under 600 characters, so a 40-function command group shows the drafter all
-forty openings; `--pack-fill first` packs the anchors in group order at full length until the
-budget is spent and omits the rest, the better rule when the mechanism lives in one long
-function's body. A pack that fits is the same under both. The pack line under each draft says
-which applied and what it cost.
+**The pack budget.** An evidence pack is 24,000 characters, at most 8,000 per anchor, by
+default; `--pack-budget <chars>` sets the per-group total and `--pack-anchor <chars>` the
+per-anchor cap (since 2026-10-31; the cap may not exceed the budget, and the 600-character floor
+below is fixed). The defaults are sized for a local model; a cloud engine with a large context
+can be given more, though whether a larger pack drafts a better claim is not yet measured. When
+a group's anchors do not fit, `--pack-fill even` (the default since 2026-10-25) gives every
+anchor the same share, never under 600 characters, so a 40-function command group shows the
+drafter all forty openings; `--pack-fill first` packs the anchors in group order at full length
+until the budget is spent and omits the rest, the better rule when the mechanism lives in one
+long function's body. A pack that fits is the same under both. The pack line under each draft
+says which applied and what it cost, and a dry run's lead line states the budget in force. A
+census over the 183-group candidates list of CodeExam's own code (no-model dry run,
+2026-10-31): 39 of 183 packs evened; 432 of 1,755 members cut; 64 members in 37 groups over the
+8,000 cap, so never whole at the defaults; and in 28 of the 39 evened packs the largest member
+shown at under a quarter of its length.
 
 **What a pack holds besides code (since 2026-10-30).** A function's mechanism often lives in
 a module-level constant it names rather than in its own body: a prompt, a stop list, a tool

@@ -536,6 +536,27 @@ export const PACK_TOTAL_CHARS = 24000;
 // The floor keeps an anchor's signature, comment and opening in view.
 export const PACK_MIN_ANCHOR_CHARS = 600;
 
+// pseudo-claims-pack-budget-flag (2026-10-31): the two bounds above were the
+// same for a 12B GGUF on a laptop and for a cloud engine with a 200,000-token
+// context. --pack-budget <chars> sets the per-group total and --pack-anchor
+// <chars> the per-anchor cap; the defaults are the constants, the floor is
+// fixed. Census over the 183-group CE_102726 list (no-model dry run,
+// 2026-10-31): 39 of 183 packs evened, 432 of 1,755 members cut, 64 members in
+// 37 groups over the 8,000 cap and so never whole at the defaults; in 28 of the
+// 39 evened packs the largest member is shown at under a quarter of its length.
+export function packBudgetFromArgs(args = {}) {
+  const pick = (v, dflt, flag) => {
+    if (v == null || v === '') return dflt;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n <= 0) throw new Error(`${flag} must be a positive integer number of characters (got "${v}"); --pack-budget is the per-group total, --pack-anchor the per-anchor cap`);
+    return n;
+  };
+  const total = pick(args.pack_budget, PACK_TOTAL_CHARS, '--pack-budget');
+  const perAnchor = pick(args.pack_anchor, PACK_PER_ANCHOR_CHARS, '--pack-anchor');
+  if (perAnchor > total) throw new Error(`--pack-anchor (${perAnchor.toLocaleString('en-US')}) must not exceed --pack-budget (${total.toLocaleString('en-US')}): one anchor cannot take more than the whole pack`);
+  return { total, perAnchor };
+}
+
 // A fence longer than the longest backtick run in `body` — CE's own source is
 // full of backtick template literals, so a fixed ``` fence would break out of
 // the block mid-body.
@@ -1081,22 +1102,26 @@ export function packOrder(resolved) {
   return [...(resolved || [])].sort((a, b) => rank(a) - rank(b));
 }
 
-export function buildPack(resolvedIn, { fill = 'even' } = {}) {
+// `total` and `perAnchor` default to the constants, so every caller that passes
+// neither packs as before; --pack-budget / --pack-anchor reach here from
+// doPseudoClaims through packBudgetFromArgs. The result carries both, so the
+// artifact's pack lines state the budget that was in force, not the constant.
+export function buildPack(resolvedIn, { fill = 'even', total = PACK_TOTAL_CHARS, perAnchor = PACK_PER_ANCHOR_CHARS } = {}) {
   const resolved = packOrder(resolvedIn);
   const packParts = [];
   let used = 0;
   let droppedForBudget = 0;
   let shortened = 0;
   const truncatedAnchors = [];
-  const needed = resolved.reduce((n, r) => n + Math.min(String(r.source || '').length, PACK_PER_ANCHOR_CHARS), 0);
+  const needed = resolved.reduce((n, r) => n + Math.min(String(r.source || '').length, perAnchor), 0);
   let mode = 'full';
-  let allowance = PACK_PER_ANCHOR_CHARS;
-  if (needed > PACK_TOTAL_CHARS) {
+  let allowance = perAnchor;
+  if (needed > total) {
     if (fill === 'first') mode = 'first';
-    else { mode = 'evened'; allowance = Math.min(PACK_PER_ANCHOR_CHARS, Math.max(PACK_MIN_ANCHOR_CHARS, Math.floor(PACK_TOTAL_CHARS / Math.max(1, resolved.length)))); }
+    else { mode = 'evened'; allowance = Math.min(perAnchor, Math.max(PACK_MIN_ANCHOR_CHARS, Math.floor(total / Math.max(1, resolved.length)))); }
   }
   for (const r of resolved) {
-    if (used >= PACK_TOTAL_CHARS) { droppedForBudget++; continue; }
+    if (used >= total) { droppedForBudget++; continue; }
     let body = r.source;
     let counted = body.length;
     if (body.length > allowance) {
@@ -1128,7 +1153,7 @@ export function buildPack(resolvedIn, { fill = 'even' } = {}) {
     packParts.push(`// ${header}\n${fence}\n${body}\n${fence}`);
     used += counted;
   }
-  return { pack: packParts.join('\n\n'), truncatedAnchors, droppedForBudget, mode, allowance, shortened };
+  return { pack: packParts.join('\n\n'), truncatedAnchors, droppedForBudget, mode, allowance, shortened, total, perAnchor };
 }
 
 // --- Model drafting (the one non-deterministic step) -------------------------
@@ -2206,6 +2231,14 @@ export async function doTriage(args) {
  * one grounded pseudo-claim per pack. Sets process.exitCode on error.
  */
 export async function doPseudoClaims(index, args) {
+  // pseudo-claims-pack-budget-flag: a bad --pack-budget / --pack-anchor is
+  // refused before any work, with a message naming both flags.
+  let packBudget;
+  try { packBudget = packBudgetFromArgs(args); } catch (e) {
+    console.error(`--pseudo-claims: ${e.message}`);
+    process.exitCode = 1;
+    return;
+  }
   // --ground-truth and --rank are emit/analysis-only dev paths; never draft.
   if (args.ground_truth || args.rank) { await doEmitCandidates(index, args); return; }
 
@@ -2304,8 +2337,8 @@ export async function doPseudoClaims(index, args) {
   let totalProblems = 0;
   groups.forEach((g, gi) => {
     const { resolved, problems } = resolveGroup(index, g, { constants: !args.no_pack_constants });
-    const { pack, truncatedAnchors, droppedForBudget, mode: packMode, allowance: packAllowance, shortened: packShortened } = buildPack(resolved, { fill: args.pack_fill || 'even' });
-    sections.push({ label: g.label, purpose: g.purpose || '', fold: g.fold || null, priority: g.priority ?? null, groupNum: gi + 1, resolved, problems, pack, truncatedAnchors, droppedForBudget, packMode, packAllowance, packShortened,
+    const { pack, truncatedAnchors, droppedForBudget, mode: packMode, allowance: packAllowance, shortened: packShortened, total: packTotal, perAnchor: packPerAnchor } = buildPack(resolved, { fill: args.pack_fill || 'even', ...packBudget });
+    sections.push({ label: g.label, purpose: g.purpose || '', fold: g.fold || null, priority: g.priority ?? null, groupNum: gi + 1, resolved, problems, pack, truncatedAnchors, droppedForBudget, packMode, packAllowance, packShortened, packTotal, packPerAnchor,
       components: callComponents(resolved) });
     totalResolved += resolved.length;
     totalProblems += problems.length;
@@ -2530,13 +2563,19 @@ export async function doPseudoClaims(index, args) {
   out.push(dryRun ? PSEUDO_CLAIM_CAVEAT_A_PACK : PSEUDO_CLAIM_CAVEAT_A);
   out.push('');
   if (dryRun) {
+    const capNote = `, capped at ${packBudget.total.toLocaleString('en-US')} characters per group and ${packBudget.perAnchor.toLocaleString('en-US')} per anchor (--pack-budget, --pack-anchor)`;
     const lead = args.dry_run
-      ? '_Deterministic scaffold (**--dry-run**): the exact, size-capped evidence pack a model would be handed'
-      : '_**No model configured** — showing EVIDENCE PACKS only; **no claims were drafted**. Below is the exact, size-capped evidence pack a model would be handed';
+      ? `_Deterministic scaffold (**--dry-run**): the exact evidence pack a model would be handed${capNote}`
+      : `_**No model configured** — showing EVIDENCE PACKS only; **no claims were drafted**. Below is the exact evidence pack a model would be handed${capNote}`;
     const draftHow = `To draft real pseudo-claims, pass \`--llm claude|openai|gemini\` (key via ANTHROPIC_API_KEY / OPENAI_API_KEY / …) or \`--model <gguf>\`${args.dry_run ? ' and drop `--dry-run`' : ''}.`;
     out.push(`${lead} — one per pseudo-claim (${withAnchors.length}).${selNote} ${draftHow}_`);
   } else {
     out.push(`_Drafted from ${withAnchors.length} evidence pack(s) via ${modelDesc}.${selNote} Each claim's cited anchors are **grounded** — verified to resolve to a real function in the index; ungrounded citations are dropped.${showPack ? ' The evidence pack the draft was grounded in follows each claim.' : ' Pass --include-evidence-pack to append each claim\'s evidence pack.'}_`);
+  }
+  // A drafted run says when its packs were built on a budget other than the
+  // defaults; at the defaults the per-claim pack lines are enough.
+  if (!dryRun && (packBudget.total !== PACK_TOTAL_CHARS || packBudget.perAnchor !== PACK_PER_ANCHOR_CHARS)) {
+    out.push(`_Pack budget ${packBudget.total.toLocaleString('en-US')} characters per group, ${packBudget.perAnchor.toLocaleString('en-US')} per anchor (--pack-budget, --pack-anchor)._`);
   }
   out.push('');
   // pseudo-claim-class-apparatus: the class mix beside the litigated population's, so a run
@@ -2831,12 +2870,12 @@ export async function doPseudoClaims(index, args) {
       out.push('');
       if (s.truncatedAnchors.length) {
         out.push(s.packMode === 'evened'
-          ? `_Shortened to ${s.packAllowance} chars each (the ${PACK_TOTAL_CHARS}-char pack budget spread over ${s.resolved.length} anchors; --pack-fill first packs the first anchors whole instead): ${s.truncatedAnchors.map((x) => `\`${x}\``).join(', ')}._`
-          : `_Truncated to the ${PACK_PER_ANCHOR_CHARS}-char per-anchor cap: ${s.truncatedAnchors.map((x) => `\`${x}\``).join(', ')}._`);
+          ? `_Shortened to ${s.packAllowance} chars each (the ${s.packTotal ?? PACK_TOTAL_CHARS}-char pack budget spread over ${s.resolved.length} anchors; --pack-fill first packs the first anchors whole instead, --pack-budget and --pack-anchor resize the budget): ${s.truncatedAnchors.map((x) => `\`${x}\``).join(', ')}._`
+          : `_Truncated to the ${s.packPerAnchor ?? PACK_PER_ANCHOR_CHARS}-char per-anchor cap (--pack-anchor): ${s.truncatedAnchors.map((x) => `\`${x}\``).join(', ')}._`);
         out.push('');
       }
       if (s.droppedForBudget) {
-        out.push(`_${s.droppedForBudget} anchor(s) omitted after the ${PACK_TOTAL_CHARS}-char per-claim pack budget was reached._`);
+        out.push(`_${s.droppedForBudget} anchor(s) omitted after the ${s.packTotal ?? PACK_TOTAL_CHARS}-char per-claim pack budget (--pack-budget) was reached._`);
         out.push('');
       }
       out.push(s.pack);

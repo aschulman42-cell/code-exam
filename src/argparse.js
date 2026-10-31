@@ -403,6 +403,8 @@ export function parseArgs() {
     body_match_seed: false, // --candidates: body-containment rescue for name-match-failed cutoff tokens (#289)
     min_rank: null,       // --pseudo-claims: draft-time floor over [P..] rank tags (default P2 when tags present)
     pack_fill: 'even',    // --pack-fill even|first: how an evidence pack spends its budget when the anchors do not fit (pack-budget-command-groups)
+    pack_budget: null,    // --pack-budget <chars>: the per-group evidence-pack total; null = PACK_TOTAL_CHARS, 24,000 (pseudo-claims-pack-budget-flag)
+    pack_anchor: null,    // --pack-anchor <chars>: the per-anchor cap; null = PACK_PER_ANCHOR_CHARS, 8,000; validated together in packBudgetFromArgs
     no_pack_constants: false, // --no-pack-constants: leave the module-level constants a group's functions name out of its evidence pack (pseudo-claims-pack-constants-components-anchors)
     no_anchors_reask: false, // --no-anchors-reask: do not ask the drafter once more for the ANCHORS block when a complete reply has none (pseudo-claims-anchors-reask)
     shape_profile: 'litigated', // --pseudo-claims: which claim population the draft should resemble (litigated|ai-ml|randpat)
@@ -636,6 +638,8 @@ export function parseArgs() {
     ['body_match_seed',      'flag',           ['--body-match-seed']],
     ['min_rank',             'value',          ['--min-rank']],
     ['pack_fill',            'value',          ['--pack-fill']],
+    ['pack_budget',          'int',            ['--pack-budget']],
+    ['pack_anchor',          'int',            ['--pack-anchor']],
     ['no_pack_constants',    'flag',           ['--no-pack-constants']],
     ['no_anchors_reask',     'flag',           ['--no-anchors-reask']],
     ['shape_profile',        'value',          ['--shape-profile']],
@@ -1732,17 +1736,26 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              name-match failed by matching function BODIES
                              (identifiers, call sites, strings; opt-in).
   --pack-fill <even|first>   With --pseudo-claims: how a group's evidence pack
-                             spends its 24,000-character budget when the
-                             anchors do not fit at full length. even (default):
-                             every anchor gets the same share, the budget
-                             divided by the member count and never under 600
-                             characters, so a 40-function command group shows
-                             the drafter all 40 openings. first: the anchors in
-                             group order at up to 8,000 each until the budget
-                             is spent, the rest omitted -- the better rule when
-                             the mechanism lives in one long function's body.
-                             A pack that fits is the same under both; the pack
-                             line under each draft says which applied.
+                             spends its budget (24,000 characters unless
+                             --pack-budget says otherwise) when the anchors do
+                             not fit at full length. even (default): every
+                             anchor gets the same share, the budget divided by
+                             the member count and never under 600 characters,
+                             so a 40-function command group shows the drafter
+                             all 40 openings. first: the anchors in group order
+                             at up to 8,000 each (--pack-anchor) until the
+                             budget is spent, the rest omitted -- the better
+                             rule when the mechanism lives in one long
+                             function's body. A pack that fits is the same
+                             under both; the pack line under each draft says
+                             which applied.
+  --pack-budget <chars>      With --pseudo-claims: the per-group evidence-pack
+                             budget --pack-fill spends (default 24,000). The
+                             default is sized for a local model; a cloud engine
+                             with a large context can be given more.
+  --pack-anchor <chars>      With --pseudo-claims: the most one anchor may take
+                             of the pack (default 8,000; at most the budget).
+                             The 600-character floor of even fill is fixed.
   --no-pack-constants        With --pseudo-claims: leave out of each evidence
                              pack the module-level constants its functions
                              name (prompts, rule lists, tool menus, stop lists,

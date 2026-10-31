@@ -149,7 +149,9 @@ locating the `7c93118` text of each range's first and last lines in the current 
 where the cite names a function, taking the function's current extent; those rows say
 "re-keyed 2026-10-31" in the provenance column. The grouper, ranker, schema, triage,
 genericity and class files are unchanged since 2026-10-27, so every range into them holds as
-written. Function names hold throughout.
+written. Function names hold throughout. The two doc cites moved by eight lines later the same
+day, when `pseudo-claims-pack-budget-flag` grew the doc's pack-budget paragraph; they are keyed
+to that commit.
 
 `pc` = `src/commands/pseudo-claims.js`, `mg` = `src/core/mechanism-grouper.js`,
 `mr` = `src/core/mechanism-ranker.js`.
@@ -165,7 +167,7 @@ written. Function names hold throughout.
 | D1(f) | `mg:883-937`, `mg:821-882`; command groups exempt `mg:955-957` | A→C |
 | D1(g) | `mg:366`, `mg:378`, `mg:708-743`; `pc:976-1024` (`harvestPurpose`) | A→C; `pc` re-keyed 2026-10-31 |
 | D1(h) | `mg:1098-1203`, `mg:1084`, `mg:1261` | C |
-| D1 wherein | `docs/CODEEXAM_PSEUDO_CLAIMS.md:348-353` | C (doc); re-keyed 2026-10-31 |
+| D1 wherein | `docs/CODEEXAM_PSEUDO_CLAIMS.md:356-361` | C (doc); re-keyed 2026-10-31 |
 | D2 | `mg:25-99` (`GROUPER_DEFAULTS`) | C |
 | D3 | `mg:418-443` (class seed over indexed classes only), `mg:71-74` (catalog seed no-op without a command surface) | C |
 | D4 | `mg:142-157` | C |
@@ -183,7 +185,7 @@ written. Function names hold throughout.
 Not claimed, because the code does not do it: graph decomposition of the call graph
 (`mg:16-19` records the failed prototype); any seed beyond the command seed using call or
 import edges; completeness of coverage (`docs/CODEEXAM_PSEUDO_CLAIMS.md`, the "It samples; it
-does not survey" paragraph, lines 373-391; 241-262 at `7c93118`, re-keyed 2026-10-31).
+does not survey" paragraph, lines 381-399; 241-262 at `7c93118`, re-keyed 2026-10-31).
 
 An apparatus rendering of this set is mechanical: each step becomes a unit configured to
 perform it, and the data between steps (the candidate list, the concept tokens, the
