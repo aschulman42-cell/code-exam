@@ -226,10 +226,13 @@ drafter all forty openings; `--pack-fill first` packs the anchors in group order
 until the budget is spent and omits the rest, the better rule when the mechanism lives in one
 long function's body. A pack that fits is the same under both. The pack line under each draft
 says which applied and what it cost, and a dry run's lead line states the budget in force. A
-census over the 183-group candidates list of CodeExam's own code (no-model dry run,
-2026-10-31): 39 of 183 packs evened; 432 of 1,755 members cut; 64 members in 37 groups over the
-8,000 cap, so never whole at the defaults; and in 28 of the 39 evened packs the largest member
-shown at under a quarter of its length.
+cut code member's marker goes on to outline the part not shown, from the function's own
+section comments, one entry per comment block with its line number, paid for from the head
+(since 2026-10-31; the form is in [`CODEEXAM_NOTATION.md`](CODEEXAM_NOTATION.md)). A census
+over the 183-group candidates list of CodeExam's own code (no-model dry run, 2026-10-31): 39 of
+183 packs evened; 432 of 1,755 members cut; 64 members in 37 groups over the 8,000 cap, so never
+whole at the defaults; in 28 of the 39 evened packs the largest member shown at under a quarter
+of its length; and 189 of the 416 cut code members carry an outline.
 
 **What a pack holds besides code (since 2026-10-30).** A function's mechanism often lives in
 a module-level constant it names rather than in its own body: a prompt, a stop list, a tool

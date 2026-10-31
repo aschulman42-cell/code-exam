@@ -185,8 +185,9 @@ last lines in the current file and, where the cite names a function, taking the 
 current extent; those rows say "re-keyed 2026-10-31" in the provenance column. The grouper,
 ranker, schema, triage, genericity and class files are unchanged since 2026-10-27, so every
 range into them holds as written. Function names hold throughout. The doc cite below moved by
-eight lines later the same day, when `pseudo-claims-pack-budget-flag` grew the doc's
-pack-budget paragraph; it is keyed to that commit.
+eight lines later the same day with `pseudo-claims-pack-budget-flag` and by three more with
+`pseudo-claims-pack-cut-outline`, both growing the doc's pack-budget paragraph; it is keyed to
+the latter's commit.
 
 Provenance: six of the thirty rows, P1(a) to P1(f), trace to the drafter's claim 29 and were
 verified against the code (`D→C`); the preamble is Andrew's and the rest is from the code.
@@ -229,7 +230,7 @@ accordingly (2026-10-31).
 | P22 | `scripts/pseudo-claim-loop.mjs`, `src/core/loop-score.js` | C |
 
 Not claimed, because the code does not do it: a broad and a tight draft of one mechanism
-(`docs/CODEEXAM_PSEUDO_CLAIMS.md`, "idea", lines 472-479; 351-358 at `7c93118`, re-keyed
+(`docs/CODEEXAM_PSEUDO_CLAIMS.md`, "idea", lines 475-482; 351-358 at `7c93118`, re-keyed
 2026-10-31); any test-file or doc-file weighting of references.
 
 An apparatus rendering of this set is mechanical: each step becomes a unit configured to

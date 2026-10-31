@@ -23,6 +23,7 @@ in the AI/ML cells — see [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md) — and th
 | `(file scope)` | a call site at module level, inside no function | Called By: `(file scope)`; `--call-tree`: `(file scope) (2x)` |
 | `[unresolved]` / `unresolved` badge | a call with no definition reachable from its site | `push [unresolved] (13 definitions)` |
 | `[ambiguous]` / `ambiguous` badge / dashed edge / `name ?` | several reachable definitions; the closest pick is shown, not expanded | `[ambiguous: 2 definitions]`; Mermaid `-.->` to `fmt ?` |
+| `// … [cut at N chars; M more. Later in this function: …]` | a `--pseudo-claims` evidence-pack member cut to its head, with an outline of the rest from its own section comments | `L418 2) CLASS seeds…; L444 3) CATALOG seed…` |
 
 The sections below explain each, with a concrete example on the CLI and in the GUI.
 
@@ -177,6 +178,41 @@ same way; the AI/ML notes are the overview's.
 
 The `<models_used>` block under a note is the tool's own text, reproduced so the reader can judge
 for themselves; nothing in a note was read out of the index.
+
+## `// … [cut at …]` — evidence-pack cut markers
+
+An evidence pack (the code a `--pseudo-claims` run hands the drafter for one group; see
+[`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md), "The pack budget") marks every member it
+could not show whole, inside the member's fenced body, as a comment line beginning `// …`:
+
+| Marker | Means |
+|---|---|
+| `// … [cut at N chars; M more]` | the budget was evened across the group's members; this one shows its first N characters and M are not shown |
+| `// … [truncated for evidence-pack budget]` | the member ran past the per-anchor cap, or past the budget under `--pack-fill first`, and shows its head |
+| `// … [middle cut: N chars omitted; a constant keeps its head and its tail]` | a constant (a prompt, a table) keeps both ends, since a prompt's output section sits at its end |
+
+Since 2026-10-31 a cut **code** member's marker goes on with an outline of the part not shown,
+taken from the function's own section comments: `Later in this function:` then one entry per
+comment block, `L<line> <the block's first line>`, clipped, at most eight, the whole within 400
+characters and a third of the member's allowance, and paid for from the head so the pack stays
+within budget. Only full-line comments at the body's own indentation count: a comment nested in
+a block is not a heading, and a `// ----` rule has no words. The entries are shortened when more
+blocks are waiting, so a tight allowance lists more parts with less of each. Line numbers are
+the file's, counted from the first line of the packed text (which starts above the function's
+recorded line by its doc comment). A function with no such comments beyond the cut keeps the
+plain marker. The grouper's seed function evened to 960 characters, in the dry run of
+2026-10-31:
+
+```
+// … [cut at 651 chars; 19447 more. Later in this function: L404 Rescue bookkeeping
+// (--body-match-…; L418 2) CLASS seeds for the unassigned…; L444 3) CATALOG seed
+// (OPT-IN --catalog…; L534 4) LITERAL seed (OPT-IN --literal…; L588 5) BODY-MATCH
+// rescue (OPT-IN --bo…; L632 6) FILE seed (OPT-IN) — a SMALL f…; L684 RETURN STATS
+// ALONGSIDE THE GROUPS…]
+```
+
+Measured on the 183-group candidates list of CodeExam's own code that day: 189 of the 416 cut
+code members carry an outline.
 
 ## Related
 

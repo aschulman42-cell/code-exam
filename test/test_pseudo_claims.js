@@ -994,7 +994,7 @@ describe('harvestPurpose on a residue group', () => {
 // members at 8,000 each and none of the rest ("packed 9 of 40; 31 omitted" on
 // [cmd] --pseudo-claims after the depth-two closure). --pack-fill even (the
 // default) spends the budget evenly; --pack-fill first is the old rule.
-import { buildPack as _bp, packDisclosure as _pd, packBudgetFromArgs as _pbfa, PACK_TOTAL_CHARS as _ptc, PACK_PER_ANCHOR_CHARS as _ppa, PACK_MIN_ANCHOR_CHARS as _pma } from '../src/commands/pseudo-claims.js';
+import { buildPack as _bp, packDisclosure as _pd, packBudgetFromArgs as _pbfa, cutOutline as _co, wrapMarker as _wm, PACK_TOTAL_CHARS as _ptc, PACK_PER_ANCHOR_CHARS as _ppa, PACK_MIN_ANCHOR_CHARS as _pma } from '../src/commands/pseudo-claims.js';
 describe('the evidence pack budget: even fill and first fill', () => {
   const anchor = (i, chars) => ({ spec: `a.js@f${i}`, filepath: 'a.js', name: `f${i}`, start: 1, end: 9, kind: 'func', source: 'x'.repeat(chars) });
   const many = (n, chars) => Array.from({ length: n }, (_, i) => anchor(i, chars));
@@ -1079,6 +1079,86 @@ describe('the evidence pack budget: even fill and first fill', () => {
     assert.throws(() => _pbfa({ pack_anchor: -5 }), /--pack-anchor must be a positive integer/);
     assert.throws(() => _pbfa({ pack_anchor: 2.5 }), /--pack-anchor must be a positive integer/);
     assert.throws(() => _pbfa({ pack_budget: 4000 }), /--pack-anchor \(8,000\) must not exceed --pack-budget \(4,000\)/);
+  });
+});
+
+// pseudo-claims-pack-cut-outline (2026-10-31): a cut code member's marker goes
+// on to outline the part not shown from the function's own section comments,
+// one entry per comment block at the body's indentation, paid for from the head.
+describe('the cut marker outlines the part not shown', () => {
+  // A function with headings at the body's indentation, a continuation line,
+  // a nested comment, a rule with no words, and a doc comment above the def.
+  const fn = [
+    '// doc comment above the definition',
+    'export function big(a) {',
+    '  const x = 1;',
+    '  // 1) FIRST part — the opening',
+    '  // continues the first note',
+    '  doThing(x);',
+    '  if (a) {',
+    '    // nested: not a heading',
+    '    more();',
+    '  }',
+    '  // ----------',
+    '  // 2) SECOND part',
+    '  evenMore();',
+    '  // 3) THIRD part',
+    '  return x;',
+    '}',
+  ].join('\n');
+  it('one entry per block at the body indentation, numbered from startLine; nested comments, continuations and rules skipped', () => {
+    const o = _co(fn, 60, { startLine: 10 });
+    assert.equal(o.text, 'Later in this function: L13 1) FIRST part — the opening; L21 2) SECOND part; L23 3) THIRD part');
+    assert.equal(o.blocks, 3);
+    assert.equal(o.found, 3);
+  });
+  it('a block shown before the cut is not listed; nothing beyond the cut gives no outline', () => {
+    assert.equal(_co(fn, 200, { startLine: 10 }).text, 'Later in this function: L21 2) SECOND part; L23 3) THIRD part');
+    assert.deepEqual(_co(fn, 5000), { text: '', blocks: 0, found: 0 });
+    assert.deepEqual(_co('x'.repeat(5000), 100), { text: '', blocks: 0, found: 0 }, 'no definition, no body');
+  });
+  it('a tight budget shortens each entry so more blocks fit, and never passes maxChars', () => {
+    const wide = _co(fn, 60, { maxChars: 400 });
+    const tight = _co(fn, 60, { maxChars: 80 });
+    assert.ok(tight.text.length <= 80, tight.text);
+    assert.ok(tight.blocks >= 2, `at 80 chars two shortened entries fit: ${tight.text}`);
+    assert.match(tight.text, /L4 1\) FIRST part[^;]*…; L12 2\) SECOND part/);
+    assert.equal(wide.blocks, 3);
+  });
+  it('in the pack, the outline is paid for from the head: head + outline = allowance, the marker says so, and a plain function keeps the plain marker', () => {
+    const big = fn.replace('  const x = 1;', `  const x = 1;\n${'  pad();\n'.repeat(60)}`);
+    const a = { spec: 'a.js@big', filepath: 'a.js', name: 'big', start: 100, end: 160, sourceStart: 99, kind: 'func', source: big };
+    const r = _bp([a], { total: 300, perAnchor: 300 });
+    assert.equal(r.mode, 'full');
+    assert.deepEqual(r.truncatedAnchors, ['a.js@big']);
+    const body = r.pack.split('\n').slice(2).join('\n');          // after the header and the fence
+    const headText = body.slice(0, body.indexOf('\n// …'));
+    const outline = _co(big, 300, { startLine: 99, maxChars: 100 });
+    assert.ok(outline.text, 'the fixture has headings beyond the cut');
+    assert.equal(headText.length + outline.text.length, 300, 'the outline is counted against the allowance');
+    assert.match(r.pack, /\[truncated for evidence-pack budget\. Later in this function: L\d+ /);
+    const firstIdx = big.split('\n').findIndex((l) => l.includes('1) FIRST part'));
+    assert.match(r.pack, new RegExp(`L${99 + firstIdx} 1\\) FIRST part`), 'numbered from sourceStart (99), not the symbol start (100)');
+    const plain = _bp([{ ...a, source: 'x'.repeat(5000) }], { total: 300, perAnchor: 300 });
+    assert.match(plain.pack, /\/\/ … \[truncated for evidence-pack budget\]$/m);
+  });
+  it('evened mode: cut at (allowance − outline) chars with the remainder counted, then the outline', () => {
+    const big = fn.replace('  const x = 1;', `  const x = 1;\n${'  pad();\n'.repeat(400)}`);
+    const anchors = Array.from({ length: 10 }, (_, i) => ({ spec: `a.js@f${i}`, filepath: 'a.js', name: `f${i}`, start: 1, end: 9, kind: 'func', source: big }));
+    const r = _bp(anchors);
+    assert.equal(r.mode, 'evened');
+    assert.equal(r.allowance, 2400);
+    const m = r.pack.match(/\[cut at (\d+) chars; (\d+) more\. Later in this function: /);
+    assert.ok(m, 'the evened marker carries the outline');
+    assert.equal(Number(m[1]) + Number(m[2]), big.length);
+    assert.ok(Number(m[1]) < 2400 && Number(m[1]) >= 2400 - 400);
+  });
+  it('wrapMarker folds a long marker into // lines under the width', () => {
+    const w = _wm(`[cut at 702 chars; 19396 more. ${'word '.repeat(60)}]`);
+    const ls = w.split('\n');
+    assert.ok(ls.length > 2);
+    assert.ok(ls.every((l) => l.startsWith('// ') && l.length <= 88), ls.join('|'));
+    assert.ok(ls[0].startsWith('// … [cut at'));
   });
 });
 

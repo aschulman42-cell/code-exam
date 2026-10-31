@@ -557,6 +557,92 @@ export function packBudgetFromArgs(args = {}) {
   return { total, perAnchor };
 }
 
+// pseudo-claims-pack-cut-outline (2026-10-31): a cut code member's marker goes
+// on to outline the part not shown, from the function's own section comments,
+// so the drafter at least knows how many parts the mechanism has and what they
+// are called. The case: Gemma 4's grouper claim of 10/29 missed the four seeds
+// because multiSeedGroups (20,098 chars) was evened to 960, the token seed's
+// opening, and the marker said only "19138 more". Measured before writing (dry
+// run over the 183-group CE_102726 list): 156 of the 398 cut code members
+// (39%) carry a full-line comment at the body's own indentation beyond the
+// cut. Counted by LINE the outline fills on multi-line notes (that function's
+// first eight were a five-line bookkeeping note and three lines of the next
+// heading); counted by BLOCK, a run of consecutive comment lines giving its
+// first line, its 7 blocks are exactly the seed headings. So: one line per
+// block, clipped; at most PACK_OUTLINE_BLOCKS; the whole within
+// PACK_OUTLINE_CHARS and a third of the allowance; paid for from the head, so
+// the pack stays within budget. Comments nested deeper than the body are not
+// headings and are skipped; a line with no letters (a `// ----` rule) too.
+// Line numbers count from the first line of the text actually packed
+// (`sourceStart`, the true start that includes a prepended doc comment, #306),
+// not from the symbol's recorded start.
+export const PACK_OUTLINE_BLOCKS = 8;
+export const PACK_OUTLINE_CHARS = 400;
+export const PACK_OUTLINE_CLIP = 72;
+const COMMENT_LEAD_RE = /^(\/\/+|#+|\/\*+|\*+|--+)\s*/;
+const indentOf = (s) => (String(s).match(/^[ \t]*/) || [''])[0].length;
+export function cutOutline(body, cutChars, { startLine = 1, maxBlocks = PACK_OUTLINE_BLOCKS, maxChars = PACK_OUTLINE_CHARS, clip = PACK_OUTLINE_CLIP } = {}) {
+  const lines = String(body || '').split('\n');
+  const isComment = (s) => COMMENT_LEAD_RE.test(s.trim());
+  // The definition line: the first non-blank line that is not a comment (the
+  // packed text may open with the function's doc comment). The body's own
+  // indentation: the smallest indentation deeper than the definition's among
+  // the non-blank lines after it (a multi-line signature indents deeper; the
+  // closing brace sits at the definition's).
+  const def = lines.findIndex((l) => l.trim() && !isComment(l));
+  if (def < 0 || def >= lines.length - 1) return { text: '', blocks: 0, found: 0 };
+  const defIndent = indentOf(lines[def]);
+  let bodyIndent = Infinity;
+  for (let i = def + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l.trim()) continue;
+    const ind = indentOf(l);
+    if (ind > defIndent && ind < bodyIndent) bodyIndent = ind;
+  }
+  if (!Number.isFinite(bodyIndent)) return { text: '', blocks: 0, found: 0 };
+  // The cut line: the one holding character `cutChars`; blocks start after it.
+  let acc = 0; let cutLine = lines.length - 1;
+  for (let i = 0; i < lines.length; i++) { acc += lines[i].length + 1; if (acc > cutChars) { cutLine = i; break; } }
+  // A comment line with no letters (a `// ----` rule) is neither a heading nor
+  // part of a block, so the heading after a rule starts its own block.
+  const heading = (i) => indentOf(lines[i]) === bodyIndent && isComment(lines[i]) && /[A-Za-z]/.test(lines[i]);
+  const found = [];
+  for (let i = cutLine + 1; i < lines.length; i++) {
+    if (!heading(i) || (i > 0 && heading(i - 1))) continue;
+    const text = lines[i].trim().replace(COMMENT_LEAD_RE, '').replace(/\s*\*\/\s*$/, '').trim();
+    found.push({ line: startLine + i, text });
+  }
+  if (!found.length) return { text: '', blocks: 0, found: 0 };
+  // Many parts beat long names: when the blocks would not all fit at the full
+  // clip, each is shortened so that up to maxBlocks of them do (never under
+  // 24 characters). At a 960 allowance the outline has 320 characters; at 72
+  // per entry three of multiSeedGroups' seven headings fit, at 34 all seven.
+  const n = Math.min(found.length, maxBlocks);
+  const fit = Math.max(24, Math.min(clip, Math.floor((maxChars - 24 - 8 * n) / n)));
+  const parts = [];
+  let text = '';
+  for (const f of found.slice(0, maxBlocks)) {
+    const label = f.text.length > fit ? `${f.text.slice(0, fit - 1).trimEnd()}…` : f.text;
+    const next = `${text ? `${text}; ` : 'Later in this function: '}L${f.line} ${label}`;
+    if (next.length > maxChars) break;
+    text = next; parts.push(f);
+  }
+  return { text, blocks: parts.length, found: found.length };
+}
+
+// A marker line wrapped as `// ` comment lines, so a long outline reads as
+// prose rather than one 400-character line.
+export function wrapMarker(text, width = 88) {
+  const out = [];
+  let line = '// … ';
+  for (const w of String(text).split(' ')) {
+    if (line.length + w.length + 1 > width && line.trim() !== '// …') { out.push(line.trimEnd()); line = '// '; }
+    line += `${w} `;
+  }
+  out.push(line.trimEnd());
+  return out.join('\n');
+}
+
 // A fence longer than the longest backtick run in `body` — CE's own source is
 // full of backtick template literals, so a fixed ``` fence would break out of
 // the block mid-body.
@@ -817,12 +903,19 @@ function resolveGroup(index, group, { constants = true } = {}) {
       continue;
     }
     const m = matches[0];
-    const source = index.getFunctionSource(m.filepath, m.name);
+    // The packed text starts above the symbol's recorded line by its doc
+    // comment (#306); `sourceStart` is the true first line of `source`, which
+    // the cut marker's outline numbers its lines from. The header keeps the
+    // symbol's own range. An index without the with-range method (the tests'
+    // fakes) falls back to the plain text and the recorded start.
+    const withRange = typeof index.getFunctionSourceWithRange === 'function' ? index.getFunctionSourceWithRange(m.filepath, m.name) : null;
+    const source = withRange ? withRange.source : index.getFunctionSource(m.filepath, m.name);
+    const sourceStart = withRange && Number.isFinite(withRange.start) ? withRange.start : m.start;
     if (!source) {
       problems.push({ spec: a, reason: 'matched, but source could not be extracted (file content not loaded in this index)' });
       continue;
     }
-    resolved.push({ spec: a, filepath: m.filepath, name: m.name, start: m.start, end: m.end, source });
+    resolved.push({ spec: a, filepath: m.filepath, name: m.name, start: m.start, end: m.end, source, sourceStart });
   }
   // pseudo-claims-pack-constants-components-anchors (a): the module-level
   // constants the group's functions NAME (prompts, rule lists, menus, stop
@@ -1137,9 +1230,16 @@ export function buildPack(resolvedIn, { fill = 'even', total = PACK_TOTAL_CHARS,
         const tail = allowance - head;
         body = `${body.slice(0, head)}\n// … [middle cut: ${body.length - allowance} chars omitted; a constant keeps its head and its tail]\n${body.slice(body.length - tail)}`;
       } else {
-        body = body.slice(0, allowance) + (mode === 'evened'
-          ? `\n// … [cut at ${allowance} chars; ${body.length - allowance} more]`
-          : '\n// … [truncated for evidence-pack budget]');
+        // Code keeps its head, and the marker outlines the rest from the
+        // function's own section comments (cutOutline above). The outline is
+        // paid for from the head, so head + outline = allowance as before.
+        const outline = cutOutline(body, allowance, { startLine: r.sourceStart || r.start || 1, maxChars: Math.min(PACK_OUTLINE_CHARS, Math.floor(allowance / 3)) });
+        const head = allowance - outline.text.length;
+        const later = outline.text ? `. ${outline.text}` : '';
+        const marker = mode === 'evened'
+          ? `[cut at ${head} chars; ${body.length - head} more${later}]`
+          : `[truncated for evidence-pack budget${later}]`;
+        body = `${body.slice(0, head)}\n${wrapMarker(marker)}`;
       }
       truncatedAnchors.push(r.spec);
       if (mode === 'evened') shortened++;
