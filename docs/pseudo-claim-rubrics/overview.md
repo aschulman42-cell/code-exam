@@ -228,7 +228,8 @@ non-function fallback). The remaining four `test_overview_*` files are the Overv
 ## Scores (2026-10-30)
 
 Scored with `node scripts/pseudo-claim-rubric-score.mjs`
-`--rubric docs/pseudo-claim-rubrics/overview.md --run <file>` for each run below: the best run claim per run (MET counted twice, PARTIAL once)
+`--rubric docs/pseudo-claim-rubrics/overview.md --run <file>` for each run below:
+the best run claim per run (MET counted twice, PARTIAL once)
 among the claims with an anchor that matches a row's cite. MET is a cite match with half the
 row's content words present, PARTIAL a cite match with a quarter or the words without the cite;
 the overlap is a keyword proxy printed beside every verdict, and the reading stays the human's.
