@@ -134,6 +134,16 @@ Ungrounded anchors are dropped and counted in the output. A list the grouper wro
 from the same index (ways 2 and 3 below) resolves in full unless it has been edited
 or the index rebuilt in between.
 
+Further example pseudo-claims, describing some of CodeExam's own core featuress, are
+being developed by hand-editing and AI-editing pseudo-claim output from CodeExam, and 
+are available in the [`docs/pseudo-claim-rubrics/`](https://github.com/aschulman42-cell/code-exam/tree/main/docs/pseudo-claim-rubrics) folder. 
+The rubrics are being developed to score automatically-generated results of the 
+--pseudo-claims feature, and to create more-realistic synthetic data for the "HOF" 
+("humming our own fumes") test of CodeExam --claim-chart/-search/-locate features (see
+[`CODEEXAM_CLAIM_CHARTS.md`](CODEEXAM_CLAIM_CHARTS.md)). See as a meta example, the current
+rubrics for the mechanism within pseudo-claims which attempts to uncover potential 
+pseudo-claims by [`identifying candidate mechanism groups in a codebase`](https://github.com/aschulman42-cell/code-exam/blob/main/docs/pseudo-claim-rubrics/pseudo-claims-candidates.md) and for the [`pseudo-claims pipeline`](https://github.com/aschulman42-cell/code-exam/blob/main/docs/pseudo-claim-rubrics/pseudo-claims-drafting.md) as a whole.
+
 ## Running it (CLI)
 
 Two ingredients: **anchors** (which `file@func`s) and a **model** (the LLM that
