@@ -276,7 +276,10 @@ elements that reach no row are the surplus, binned grounded-substantive, grounde
 ungrounded. The overlap is a keyword proxy printed beside every verdict, so the reading, which
 stays the human's, can check it. The five pages carry the scores of the six runs in hand as of
 2026-10-30, the before for the drafting changes of #353 (a) to (d); a change to the prompt or
-the packing is measured on the same rows and the same corpus.
+the packing is measured on the same rows and the same corpus. Two more pages, for the
+pseudo-claims feature itself (`pseudo-claims-drafting.md`, `pseudo-claims-candidates.md`), carry
+its two claim sets with citations keyed to commit `7c93118` and no scores yet (2026-10-31); the
+re-keying and the scorecards are a follow-up.
 
 **Claim schema (`--claim-schema`, experimental).** Three terms first. A **claim
 object** is a claim as structured data rather than text: a preamble form, a
