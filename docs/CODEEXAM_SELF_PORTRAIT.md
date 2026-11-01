@@ -9,8 +9,9 @@ This page is what CodeExam's `--pseudo-claims` feature says when pointed at Code
 A **pseudo-claim** is a patent-style claim drafted from code rather than from a prose
 invention disclosure: CodeExam groups the functions of a codebase into candidate mechanisms, packs
 each group's source as evidence, and asks an AI model to write a claim 1 with dependents whose every
-element is tied to a function in the pack. The claim is illustrative drafting, not legal
-analysis; what it is good for is saying, in the claim form's own discipline, what a body of code
+element is tied to a function in the pack (this is why some numbered dependents have been skipped over
+here, even when referenced from a later-included dependent) . The claim is illustrative drafting, not 
+legal analysis; what it is good for is saying, in the claim form's own discipline, what a body of code
 *is*. The question this page answers is how CodeExam looks when its own drafter describes its
 features, and how that compares with the rubric pages under
 [`pseudo-claim-rubrics/`](pseudo-claim-rubrics/): a claim set per feature that Andrew Schulman built by
