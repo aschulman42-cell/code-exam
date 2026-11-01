@@ -5,27 +5,27 @@
 quoted as drafted. Status as of 2026-11-01; every number on this page carries its date and its run,
 and the runs are recorded at the end.*
 
-This page is what CodeExam's `--pseudo-claims` feature says about CodeExam when it is pointed at
-CodeExam itself. A **pseudo-claim** is a patent-style claim drafted from code rather than from an
+This page is what CodeExam's `--pseudo-claims` feature says when pointed at CodeExam itself. 
+A **pseudo-claim** is a patent-style claim drafted from code rather than from a prose
 invention disclosure: CodeExam groups the functions of a codebase into candidate mechanisms, packs
-each group's source as evidence, and asks a model to write a claim 1 with dependents whose every
-limitation is tied to a function in the pack. The claim is illustrative drafting, not legal
+each group's source as evidence, and asks an AI model to write a claim 1 with dependents whose every
+element is tied to a function in the pack. The claim is illustrative drafting, not legal
 analysis; what it is good for is saying, in the claim form's own discipline, what a body of code
 *is*. The question this page answers is how CodeExam looks when its own drafter describes its
 features, and how that compares with the rubric pages under
-[`pseudo-claim-rubrics/`](pseudo-claim-rubrics/): a claim set per feature that Andrew built by
+[`pseudo-claim-rubrics/`](pseudo-claim-rubrics/): a claim set per feature that Andrew Schulman built by
 starting from `--pseudo-claims` output and editing it heavily, on his own judgment of what matters
 most in the feature (the human part), with answers from several models in CodeExam's Chat and a
 reading of the code beside him.
 
-**How to read a claim here.** Claim 1 is shown with the preamble first and each limitation on its
-own line, split by CodeExam's own rule (a break after the colon and after each semicolon); the
+**How to read a claim here.** Claim 1 is shown with the preamble first and each "limitation" (claim element) 
+on its own line, split by CodeExam's own rule (a break after the colon and after each semicolon); the
 lettering is the page's, the words are the drafter's. Under it, the dependents a rubric page
 credited (or, where no rubric exists, the first three that add a step); the full set is in the run
 artifact. The code references each claim was drafted from are summarized to one line, since on this
 page they matter less than the claim; they come into their own in the hold-out test, where a claim
-is charted against the code with its references withheld. Comments on a limitation appear in double
-brackets after it, `[[like this]]`.
+is charted against the code with its references withheld. Any comments on a limitation will appear in 
+double brackets after it, `[[like this]]`.
 
 ---
 
