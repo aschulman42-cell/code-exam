@@ -144,6 +144,9 @@ As a meta example, see the current rubrics for the mechanism within pseudo-claim
 [candidate mechanism groups in a codebase](pseudo-claim-rubrics/pseudo-claims-candidates.md),
 and for the [pseudo-claims pipeline](pseudo-claim-rubrics/pseudo-claims-drafting.md) as a whole.
 
+What the drafter itself says about CodeExam, one claim per feature quoted as drafted beside those
+rubrics, is on [`CODEEXAM_SELF_PORTRAIT.md`](CODEEXAM_SELF_PORTRAIT.md) (since 2026-11-01).
+
 ## Running it (CLI)
 
 Two ingredients: **anchors** (which `file@func`s) and a **model** (the LLM that
@@ -618,6 +621,8 @@ section; #310).
 
 ## See also
 
+- [`CODEEXAM_SELF_PORTRAIT.md`](CODEEXAM_SELF_PORTRAIT.md) — CodeExam described by its own
+  `--pseudo-claims` feature, one claim per feature beside the rubric pages.
 - [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md) — searching and charting
   *real* patent claims against code (pseudo-claims' sibling).
 - [`claim-chart-drafter-ceiling.md`](claim-chart-drafter-ceiling.md) — the
