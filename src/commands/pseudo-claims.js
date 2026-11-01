@@ -511,11 +511,137 @@ export function classesForMode(mode, section) {
   return [{ class: m, reason: `--claim-class ${m}`, suffix: null }];
 }
 
+// pseudo-claims-grounder-scorer-antecedent-preamble, Parts 3 and 4 (2026-10-31),
+// #353 (a) and (b). Andrew's reading of the drafts (2026-10-29 notes): they
+// introduce things late ("a cross-corpus weight" first appearing in the last
+// element) or never tie a later limitation to an earlier one, and they put
+// "for example" and lists of instances inside elements, which leaves an
+// element open-ended, under purpose-less preambles. Two rules, in every
+// class and in the schema form; antecedentCheck below reports the first one
+// per claim, beside the shape line, and does not rewrite.
+export const PSEUDO_SYS_FORM_RULES =
+  'ANTECEDENT BASIS: introduce each component or step ONCE with "a" or "an" ' +
+  '("a vocabulary of identifier tokens") and refer back to it afterward with ' +
+  '"the" or "said" ("the vocabulary"); never write "the X" for an X that no ' +
+  'earlier limitation introduced. The point is that the limitations tie ' +
+  'together into ONE mechanism: each later limitation builds on something an ' +
+  'earlier one introduced. ' +
+  'The PREAMBLE states what the claim is for in plain words, with no example ' +
+  'and no list. NO EXAMPLE INSIDE AN ELEMENT: "for example", "such as", "e.g." ' +
+  'and lists of instances leave an element open-ended; an element states the ' +
+  'rule, and a dependent claim carries an instance of it. ';
+
 export function buildPseudoClaimSys(profileName = DEFAULT_SHAPE_PROFILE, claimClass = 'method', { schema = false } = {}) {
   const classLine = `The statutory class for THIS draft is GIVEN: ${String(claimClass).toUpperCase()}. `
     + 'Draft in that class; do not choose another. ';
   const tail = schema ? pseudoSysTailSchema(claimClass) : (PSEUDO_SYS_TAIL_BY_CLASS[claimClass] || PSEUDO_SYS_TAIL);
-  return PSEUDO_SYS_HEAD + shapeTargetLines(profileName) + PSEUDO_SYS_DEPENDENTS + classLine + tail;
+  return PSEUDO_SYS_HEAD + shapeTargetLines(profileName) + PSEUDO_SYS_DEPENDENTS + PSEUDO_SYS_FORM_RULES + classLine + tail;
+}
+
+// The antecedent check: every "the X" or "said X" whose X no earlier text
+// introduced, and every element after the first that refers back to nothing
+// an earlier element said. A keyword proxy, like the shape report: X is the
+// words after the article up to a stop word, and it counts as introduced when
+// the earlier text carries the phrase or its head word (so "a catalog of
+// widgets" introduces "the widgets"). Generic heads ("the method of claim 1",
+// "the same", "the first") are not references to a component. Dependents are
+// checked with claim 1 as their earlier text.
+const REF_STOP = new Set(('of for to in by with from that which whose who and or as at on into under over between among ' +
+  'through against before after above below within without per via using having being wherein whereby where when ' +
+  'is are was were has have had does do did can may shall will comprises comprising includes including contains ' +
+  'defaults exceeds matches returns equals meets then each said the a an').split(' '));
+const GENERIC_HEAD = new Set(('method system apparatus medium claim claims step steps same other first second third fourth ' +
+  'plurality set number one following foregoing respective former latter').split(' '));
+// A modifier that need not have its own antecedent: a participle or an
+// ordinary qualifier ("the remaining widgets", "the resulting groups").
+const WEAK_MOD = new Set(('remaining resulting respective corresponding same such given each other first second third last ' +
+  'next previous subsequent further additional selected associated').split(' '));
+const refWord = (w) => w.toLowerCase().replace(/[^a-z0-9]/g, '');
+const headOf = (w) => { const s = refWord(w); return s.endsWith('ies') ? `${s.slice(0, -3)}y` : /[^s]s$/.test(s) ? s.slice(0, -1) : s; };
+const weakMod = (w) => { const s = refWord(w); return WEAK_MOD.has(s) || /(ing|ed)$/.test(s); };
+function references(text) {
+  // [{ phrase, head, at }] for each "the X" / "said X" in `text`
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const out = [];
+  for (let i = 0; i < words.length; i++) {
+    const w = refWord(words[i]);
+    if (w !== 'the' && w !== 'said') continue;
+    const phrase = [];
+    for (let j = i + 1; j < words.length && phrase.length < 4; j++) {
+      const t = refWord(words[j]);
+      if (!t || REF_STOP.has(t)) break;
+      phrase.push(words[j].replace(/[,;.:]+$/, ''));
+      if (/[,;.:]$/.test(words[j])) break;
+    }
+    if (!phrase.length) continue;
+    const head = headOf(phrase[phrase.length - 1]);
+    if (!head || /^\d+$/.test(head) || GENERIC_HEAD.has(head)) continue;
+    out.push({ phrase: phrase.join(' '), head, at: i });
+  }
+  return out;
+}
+// Introduced when the phrase itself was said earlier, or when some prefix of
+// it ends in a word said earlier (its head) and the words before that head
+// were each said earlier or are weak modifiers: "a catalog of widgets"
+// introduces "the widgets" and "the remaining widgets", but not "the
+// threshold weight" until a threshold is introduced.
+const introducedIn = (earlier, ref) => {
+  const e = ` ${earlier} `;
+  if (e.includes(` ${ref.phrase.toLowerCase()} `)) return true;
+  const seen = new Set(earlier.split(' ').map(headOf).filter(Boolean));
+  const words = ref.phrase.split(' ');
+  for (let k = words.length; k >= 1; k--) {
+    if (!seen.has(headOf(words[k - 1]))) continue;
+    if (words.slice(0, k - 1).every((w) => seen.has(headOf(w)) || weakMod(w))) return true;
+  }
+  return false;
+};
+const plain = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+export function antecedentCheck(prose, dependents = []) {
+  const line = claimToLine(prose);
+  const rows = splitClaimElements(line, { fine: false });
+  const unintroduced = [];
+  const disconnected = [];
+  let earlier = '';
+  rows.forEach((row, i) => {
+    const where = i === 0 ? 'preamble' : `element ${i}`;
+    const own = plain(row);
+    let backRef = false;
+    for (const ref of references(row)) {
+      const before = `${earlier} ${own.split(/\s+/).slice(0, Math.max(0, countWordsBefore(row, ref.at))).join(' ')}`;
+      if (!introducedIn(before, ref)) unintroduced.push({ phrase: `${/^said/i.test(ref.phrase) ? 'said' : 'the'} ${ref.phrase}`, where });
+      else if (introducedIn(earlier, ref)) backRef = true;
+    }
+    if (i >= 2 && !backRef) disconnected.push(where);
+    earlier = `${earlier} ${own}`;
+  });
+  const claim1 = earlier;
+  (dependents || []).forEach((d) => {
+    const text = String(d.text || '');
+    const own = plain(text);
+    for (const ref of references(text)) {
+      const before = `${claim1} ${own.split(/\s+/).slice(0, Math.max(0, countWordsBefore(text, ref.at))).join(' ')}`;
+      if (!introducedIn(before, ref)) unintroduced.push({ phrase: `the ${ref.phrase}`, where: `dependent ${d.n}` });
+    }
+  });
+  return { unintroduced, disconnected, elements: Math.max(0, rows.length - 1) };
+}
+// how many plain words precede token `at` of the raw text (the plain form drops punctuation-only tokens)
+function countWordsBefore(raw, at) {
+  return String(raw || '').split(/\s+/).filter(Boolean).slice(0, at).map(plain).filter(Boolean).length;
+}
+export function antecedentLine(prose, dependents = []) {
+  const r = antecedentCheck(prose, dependents);
+  if (!r.unintroduced.length && !r.disconnected.length) {
+    return '_Antecedent basis: clean — every "the X" has an earlier introduction, and every element after the first refers back to an earlier one._';
+  }
+  const bits = [];
+  if (r.unintroduced.length) {
+    const shown = r.unintroduced.slice(0, 4).map((u) => `"${u.phrase}" in ${u.where}`).join('; ');
+    bits.push(`${r.unintroduced.length} unintroduced (${shown}${r.unintroduced.length > 4 ? '; …' : ''})`);
+  }
+  if (r.disconnected.length) bits.push(`${r.disconnected.length} element(s) refer to nothing earlier (${r.disconnected.join(', ')})`);
+  return `_Antecedent basis: ${bits.join('; ')}. A keyword proxy; the drafter was told to introduce once and refer back._`;
 }
 // The default-profile rendering, kept under the name every importer and the
 // prompt-purity test know.
@@ -1672,6 +1798,26 @@ export async function draftGroupText(drafter, { sys, user, maxTokens = PSEUDO_CL
 // the caveat governs how cited code is characterized; grounding governs whether
 // the citation exists). The kept anchor carries the index's resolved path/lines,
 // not the model's (possibly hallucinated) spelling.
+// pseudo-claims-grounder-scorer-antecedent-preamble, Part 2 (2026-10-31): two
+// fallbacks, each counted on the run header. A cited path that resolves to
+// nothing is retried with `_` and `-` folded, and accepted only when exactly
+// one indexed file matches (Gemma wrote `pseudo_claims.js` for
+// `pseudo-claims.js` on six real names in every run since 10/30 and lost all
+// six). A `file@NAME` that names a constant the pack carried grounds to that
+// constant's range, labelled as the line-range form already is (drafters cite
+// `ai-overview.js@AI_OVERVIEW_PROMPT` six times in one run; a constant has no
+// function record, so it never grounded). Both still ground on the index's
+// bounds, never the model's: a name that is in no file stays dropped.
+const foldPath = (s) => String(s || '').toLowerCase().replace(/\\/g, '/').replace(/[_-]/g, '');
+const sameFileFolded = (indexed, cited) => {
+  const a = foldPath(indexed); const b = foldPath(cited);
+  return a === b || a.endsWith(`/${b}`) || a.split('/').pop() === b.split('/').pop();
+};
+function foldedFileMatches(index, cited) {
+  const keys = index.fileLines && typeof index.fileLines.keys === 'function' ? [...index.fileLines.keys()] : Object.keys(index.functionIndex || {});
+  return [...new Set(keys.filter((k) => sameFileFolded(k, cited)))];
+}
+
 export function groundAnchors(index, anchors, { resolved = null } = {}) {
   const grounded = [];
   const dropped = [];
@@ -1680,6 +1826,10 @@ export function groundAnchors(index, anchors, { resolved = null } = {}) {
   // documentation cite. The pack is the only place that knows which is which.
   const constantAt = (file, start, end) => (resolved || []).find((r) => r.kind === 'constant'
     && r.filepath === file && r.start <= end && r.end >= start) || null;
+  const constantNamed = (name, file) => {
+    const hits = (resolved || []).filter((r) => r.kind === 'constant' && r.constName === name && (!file || sameFileFolded(r.filepath, file)));
+    return hits.length === 1 ? hits[0] : null;
+  };
   for (const a of anchors || []) {
     // issue-286: a documentation line-range cite (`file@L<start>-<end>`)
     // grounds iff the file resolves to exactly one indexed file and the range
@@ -1716,7 +1866,31 @@ export function groundAnchors(index, anchors, { resolved = null } = {}) {
         : 'no function name to verify' });
       continue;
     }
-    const matches = index.findFunctionMatches(a.func, a.file || null);
+    let matches = index.findFunctionMatches(a.func, a.file || null);
+    let grounding = null;
+    if (!matches || matches.length === 0) {
+      // A constant the pack carried, cited by its name.
+      const c = constantNamed(a.func, a.file || null);
+      if (c) {
+        grounded.push({ file: c.filepath, func: '', start: c.start, end: c.end, element: a.element,
+          kind: 'constant', constName: c.constName, grounding: 'constant-name',
+          ...(a.elementIndex ? { elementIndex: a.elementIndex } : {}),
+          ...(a.shape ? { shape: a.shape } : {}) });
+        continue;
+      }
+      // The cited path with `_` and `-` folded, on exactly one indexed file.
+      if (a.file) {
+        const files = foldedFileMatches(index, a.file).filter((f) => f !== a.file);
+        if (files.length > 1) {
+          dropped.push({ ...a, reason: `cited file matches ${files.length} indexed files with _ and - folded` });
+          continue;
+        }
+        if (files.length === 1) {
+          matches = index.findFunctionMatches(a.func, files[0]);
+          if (matches && matches.length) grounding = 'path-folded';
+        }
+      }
+    }
     if (!matches || matches.length === 0) {
       dropped.push({ ...a, reason: 'cited function not found in index' });
       continue;
@@ -1735,6 +1909,7 @@ export function groundAnchors(index, anchors, { resolved = null } = {}) {
       ...(a.elementIndex ? { elementIndex: a.elementIndex } : {}),
       ...(a.citedStart ? { citedStart: a.citedStart, citedEnd: a.citedEnd || a.citedStart } : {}),
       ...(rangeMismatch ? { rangeMismatch: true } : {}),
+      ...(grounding ? { grounding, citedFile: a.file } : {}),
       // pseudo-claims-anchor-notation-count: the parser's notation shape rides
       // into the grounded record as citedStart does, so the artifact's "Anchor
       // notations seen" line counts shapes instead of reading "unknown N" on
@@ -2747,6 +2922,24 @@ export async function doPseudoClaims(index, args) {
         + ` notation; a shape it does not recognise is counted here rather than dropped silently._`);
       out.push('');
     }
+    // The grounder's two fallbacks, counted beside the notations so a run says
+    // how many of its anchors needed one (none at all is the usual case).
+    let folded = 0; let constNamed = 0;
+    for (const d of drafts) for (const a of (d && d.grounded) || []) { if (a.grounding === 'path-folded') folded++; else if (a.grounding === 'constant-name') constNamed++; }
+    if (folded || constNamed) {
+      const bits = [];
+      if (folded) bits.push(`${folded} cited path(s) matched an indexed file only with _ and - folded`);
+      if (constNamed) bits.push(`${constNamed} constant(s) cited by name grounded to the constant the pack carried`);
+      out.push(`_Grounding fallbacks: ${bits.join('; ')}._`, '');
+    }
+    // #353 (a): the antecedent check summed over the run, so a prompt change
+    // is measured here as well as on the rubric pages.
+    const checked = drafts.filter((d) => d && d.prose && !d.error);
+    if (checked.length) {
+      let refs = 0; let withRefs = 0; let loose = 0;
+      for (const d of checked) { const r = antecedentCheck(d.prose, d.dependents || []); refs += r.unintroduced.length; if (r.unintroduced.length) withRefs++; loose += r.disconnected.length; }
+      out.push(`_Antecedent basis across the run: ${refs} unintroduced reference(s) in ${withRefs} of ${checked.length} draft(s); ${loose} element(s) refer to nothing earlier._`, '');
+    }
   }
 
   // ZERO-ANCHOR DRAFTS BY CAUSE, at the top of the run. Gemma 4's run of
@@ -2861,6 +3054,11 @@ export async function doPseudoClaims(index, args) {
         if (d.shape) {
           out.push('');
           out.push(shapeLine(d.shape));
+        }
+        // #353 (a): the antecedent check beside the shape line, a report not a rewrite.
+        if (d.prose && !d.error) {
+          out.push('');
+          out.push(antecedentLine(d.prose, d.dependents || []));
         }
         // What the repetition guard dropped or cut, beside the shape line it
         // changed: the dependents counted above are the kept ones.

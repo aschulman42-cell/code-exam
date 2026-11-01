@@ -244,3 +244,26 @@ claim in that run meets or partly meets a row.
 | gemma4_CE_pseudo_claims_102926.txt (10/29, Gemma 4 on the Asus, 41 claims) | 29 ([file] overview.js) | 0 | 6 | 18 | 19 / 2 / 1 | 3 |
 | CE_pseudo_concept_overview_103026.txt (10/30, Claude, 12 claims) | 11 ([file] overview.js) | 2 | 15 | 7 | 10 / 0 / 6 | 2 |
 | CE_pseudo_vocab_103026.txt (10/30, Claude, 9 claims) | 7 ([file] overview.js) | 3 | 14 | 7 | 14 / 0 / 5 | 1 |
+
+## Scores under the union rule (2026-10-31)
+
+The table above was scored under the 2026-10-30 rule: a row is credited from the claim's single
+best line. Under the union rule of 2026-10-31 (`--rule union`, the default since; `--rule
+best` reproduces the table above), a row is also read from up to four of the claim's lines as
+one text, each carrying at least two of the row's words and a tenth of them, and the verdict
+takes the higher of the two readings; a line that joined a credited row's union is not surplus
+when the row covers a quarter of its words. The table above is kept as the measurement it was.
+Calibrated on every page and run in hand (1,234 rows: 923 unchanged, 307 up one step, 4 from
+ABSENT to MET, none down): on the hand-read cells of the candidates page the rule leaves the
+10/29 Gemma claim's seeds row ABSENT and reads the Claude drafts that name the seeds as PARTIAL
+and MET; the no-op row no draft states stays under MET. Same runs:
+
+| run | best claim | MET | PARTIAL | ABSENT | surplus (substantive / trivial / ungrounded) | claims considered |
+|---|---|---|---|---|---|---|
+| CE_pseudo_claim_test_102526_720pm_norank.txt (10/25 7:20pm, Claude, 41 claims) | 26 ([file] overview.js) | 9 | 11 | 4 | 1 / 0 / 1 | 4 |
+| CE_pseudo_claims_vocab_concept_overview_Claude.txt (10/27, Claude, 18 claims) | 15 ([file] overview.js) | 4 | 15 | 5 | 3 / 0 / 2 | 2 |
+| CE_pseudo_claims_vocab_concept_overview_ChatGPT.txt (10/27, ChatGPT, 18 claims) | 15 ([file] overview.js) | 11 | 9 | 4 | 0 / 0 / 7 | 3 |
+| gemma4_CE_pseudo_claims_102926.txt (10/29, Gemma 4 on the Asus, 41 claims) | 29 ([file] overview.js) | 2 | 13 | 9 | 2 / 1 / 1 | 3 |
+| CE_pseudo_concept_overview_103026.txt (10/30, Claude, 12 claims) | 11 ([file] overview.js) | 12 | 8 | 4 | 1 / 0 / 0 | 2 |
+| CE_pseudo_vocab_103026.txt (10/30, Claude, 9 claims) | 7 ([file] overview.js) | 12 | 9 | 3 | 3 / 0 / 3 | 1 |
+| CE_pseudo_rubric_features_claude_103126_rules.txt (10/31, Claude, the two prompt rules, 8 claims) | 6 ([file] overview.js) | 10 | 11 | 3 | 1 / 0 / 4 | 1 |

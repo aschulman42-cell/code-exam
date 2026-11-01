@@ -19,6 +19,9 @@
 //   --claims   score only these run claims (by number); otherwise every claim whose
 //              anchors touch a file the rubric cites, the best first
 //   --met      the overlap floor for MET (default 0.5)
+//   --rule     union (default, 2026-10-31: a row is also read from up to four of
+//              the claim's lines as one text) or best (the 2026-10-30 rule, the
+//              best line alone), so the two can be printed side by side
 //   --all      print every considered claim's rows, not only the best's
 //   --json     the raw result instead of Markdown
 //
@@ -31,7 +34,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseRubricPage, parseRunArtifact, fromSidecar, scoreRubric, formatRubricScorecard, summaryLine, SUMMARY_HEADER, RUBRIC_MET_OVERLAP, RUBRIC_PARTIAL_OVERLAP } from '../src/core/rubric-score.js';
+import { parseRubricPage, parseRunArtifact, fromSidecar, scoreRubric, formatRubricScorecard, summaryLine, SUMMARY_HEADER, RUBRIC_MET_OVERLAP, RUBRIC_PARTIAL_OVERLAP, RUBRIC_UNION_MAX_LINES } from '../src/core/rubric-score.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 import { claimGenericity } from '../src/core/claim-genericity.js';
 
@@ -57,8 +60,9 @@ if (args.help || !args.rubric || (!args.run.length && !args.sidecar)) {
 const rubric = parseRubricPage(fs.readFileSync(args.rubric, 'utf8'));
 if (!rubric.rows.length) { console.error(`--rubric ${args.rubric}: no claim rows parsed (needs a "## Set X:" heading and **1.** / (a) markers)`); process.exit(2); }
 const claims = args.claims ? String(args.claims).split(',').map((s) => Number(s.trim())).filter((n) => n > 0) : null;
+if (args.rule && !['union', 'best'].includes(args.rule)) { console.error(`--rule must be union or best (got "${args.rule}")`); process.exit(2); }
 const opts = {
-  claims, metOverlap: Number(args.met) || RUBRIC_MET_OVERLAP,
+  claims, metOverlap: Number(args.met) || RUBRIC_MET_OVERLAP, union: args.rule !== 'best',
   splitElements: (prose) => splitClaimElements(prose),
   classify: (text) => (claimGenericity(text).kind === 'generic' ? 'generic' : 'mechanism'),
 };
@@ -74,7 +78,7 @@ if (args.json) {
 } else {
   const out = [];
   out.push(`# Rubric score — ${rubric.title || `Set ${rubric.set}`}`, '');
-  out.push(`_${rubric.rows.length} rows (${rubric.rows.filter((r) => r.kind !== 'dependent').length} of claim 1, ${rubric.rows.filter((r) => r.kind === 'dependent').length} dependents); MET at overlap ${opts.metOverlap} with a cite, PARTIAL at ${RUBRIC_PARTIAL_OVERLAP} with a cite or ${opts.metOverlap} without; ${new Date().toISOString().slice(0, 10)}._`, '');
+  out.push(`_${rubric.rows.length} rows (${rubric.rows.filter((r) => r.kind !== 'dependent').length} of claim 1, ${rubric.rows.filter((r) => r.kind === 'dependent').length} dependents); MET at overlap ${opts.metOverlap} with a cite, PARTIAL at ${RUBRIC_PARTIAL_OVERLAP} with a cite or ${opts.metOverlap} without; rule: ${opts.union ? `union (the best line, or up to ${RUBRIC_UNION_MAX_LINES} lines as one text; 2026-10-31)` : 'best line (the 2026-10-30 rule)'}; ${new Date().toISOString().slice(0, 10)}._`, '');
   if (results.length > 1) { out.push(SUMMARY_HEADER); for (const r of results) out.push(summaryLine(r.name, r.result)); out.push(''); }
   for (const r of results) out.push(formatRubricScorecard(rubric, `${r.name} (${r.claims} claims)`, r.result, { all: !!args.all }));
   if (results.length === 1) { out.push(SUMMARY_HEADER, summaryLine(results[0].name, results[0].result), ''); }

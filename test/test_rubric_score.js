@@ -159,3 +159,56 @@ describe('scoreRubric: verdicts, surplus bins, the best claim', () => {
     assert.match(summaryLine('run.txt', res), /^\| run\.txt \| 1 \(filter \(discardHeavy\)\) \| 4 \| 1 \| 2 \| \d+ \/ \d+ \/ \d+ \| 1 \|$/);
   });
 });
+
+// pseudo-claims-grounder-scorer-antecedent-preamble, Part 1 (2026-10-31): a
+// row the claim spreads over several lines is read from the claim as one text.
+describe('the union rule: a row said across several lines', () => {
+  // One row naming four seeds; a claim that names them across two elements and
+  // a dependent, none of which alone reaches the MET floor.
+  const rubric = {
+    set: 'S', title: 'seeds (fixture)', legend: {}, warnings: [],
+    rows: [{ id: '1(a)', kind: 'element', text: 'assigning each candidate function by a token seed, a class seed, a command seed and a file seed',
+      cites: [{ file: 'src/g.js', base: 'g.js', start: null, end: null, func: 'multiSeed' }] }],
+  };
+  const anchor = { file: 'src/g.js', base: 'g.js', func: 'multiSeed', start: 1, end: 9, kind: 'func', element: '' };
+  const claim = {
+    n: 1, label: 'g', anchors: [anchor],
+    prose: 'A method comprising: matching function names against the token seeds; grouping the remainder by a class seed; and emitting the groups.',
+    dependents: [{ n: 2, text: 'The method of claim 1, in which a command seed and a file seed take what remains.' }],
+  };
+  it('best line alone reads PARTIAL; the union of the lines that carry the row reads MET', () => {
+    const old = scoreClaim(rubric, claim, { union: false }).verdicts[0];
+    assert.equal(old.verdict, 'PARTIAL');
+    assert.ok(old.overlap < RUBRIC_MET_OVERLAP, `best line ${old.overlap}`);
+    const now = scoreClaim(rubric, claim).verdicts[0];
+    assert.equal(now.verdict, 'MET');
+    assert.ok(now.unionOverlap >= RUBRIC_MET_OVERLAP && now.unionOverlap > now.overlap, `union ${now.unionOverlap} over best ${now.overlap}`);
+    assert.equal(now.unionOf, 3, 'two elements and the dependent joined; "emitting the groups" did not');
+    assert.equal(now.byUnion, true);
+    assert.equal(now.overlap, old.overlap, 'the best-line overlap is still reported');
+    assert.equal(now.addressedBy, old.addressedBy);
+  });
+  it('the union takes at most unionLines lines, the ones carrying the most of the row', () => {
+    const one = scoreClaim(rubric, claim, { unionLines: 1 }).verdicts[0];
+    assert.equal(one.unionOf, 0, 'one line is no union');
+    assert.equal(one.verdict, 'PARTIAL');
+    const two = scoreClaim(rubric, claim, { unionLines: 2 }).verdicts[0];
+    assert.equal(two.unionOf, 2);
+    assert.ok(two.unionOverlap < scoreClaim(rubric, claim).verdicts[0].unionOverlap, 'two lines carry less of the row than three');
+  });
+  it('a line sharing one common word does not join, so unrelated text does not inflate the union', () => {
+    const thin = { ...claim, prose: 'A method comprising: reading a seed from a file; sorting the entries; and writing the seed back.', dependents: [] };
+    const v = scoreClaim(rubric, thin).verdicts[0];
+    assert.equal(v.unionOf, 0);
+    assert.equal(v.verdict, v.overlap >= RUBRIC_MET_OVERLAP ? 'MET' : v.overlap >= 0.25 ? 'PARTIAL' : 'ABSENT');
+    assert.equal(v.byUnion, false);
+  });
+  it('a line that joined a credited row is not surplus; the scorecard shows both overlaps', () => {
+    const sc = scoreClaim(rubric, claim);
+    // elements: 1 the preamble, 2 token seeds, 3 class seed, 4 "emitting the groups"
+    assert.ok(!sc.surplus.some((s) => /element [23]|dependent 2/.test(s.source)), sc.surplus.map((s) => s.source).join('; '));
+    assert.ok(sc.surplus.some((s) => /element 4/.test(s.source)), '"emitting the groups" is surplus');
+    const md = formatRubricScorecard(rubric, 'r.txt', { considered: [1], scored: [sc], best: sc });
+    assert.match(md, /\| 1\(a\) \| MET \| \d+% → \d+% \(3\) \| g\.js@multiSeed \| claim 1 (element|dependent) \d \|/);
+  });
+});

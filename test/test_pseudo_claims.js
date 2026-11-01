@@ -994,7 +994,7 @@ describe('harvestPurpose on a residue group', () => {
 // members at 8,000 each and none of the rest ("packed 9 of 40; 31 omitted" on
 // [cmd] --pseudo-claims after the depth-two closure). --pack-fill even (the
 // default) spends the budget evenly; --pack-fill first is the old rule.
-import { buildPack as _bp, packDisclosure as _pd, packBudgetFromArgs as _pbfa, cutOutline as _co, wrapMarker as _wm, PACK_TOTAL_CHARS as _ptc, PACK_PER_ANCHOR_CHARS as _ppa, PACK_MIN_ANCHOR_CHARS as _pma } from '../src/commands/pseudo-claims.js';
+import { buildPack as _bp, packDisclosure as _pd, packBudgetFromArgs as _pbfa, cutOutline as _co, wrapMarker as _wm, antecedentCheck as _ac, antecedentLine as _al, PACK_TOTAL_CHARS as _ptc, PACK_PER_ANCHOR_CHARS as _ppa, PACK_MIN_ANCHOR_CHARS as _pma } from '../src/commands/pseudo-claims.js';
 describe('the evidence pack budget: even fill and first fill', () => {
   const anchor = (i, chars) => ({ spec: `a.js@f${i}`, filepath: 'a.js', name: `f${i}`, start: 1, end: 9, kind: 'func', source: 'x'.repeat(chars) });
   const many = (n, chars) => Array.from({ length: n }, (_, i) => anchor(i, chars));
@@ -1159,6 +1159,90 @@ describe('the cut marker outlines the part not shown', () => {
     assert.ok(ls.length > 2);
     assert.ok(ls.every((l) => l.startsWith('// ') && l.length <= 88), ls.join('|'));
     assert.ok(ls[0].startsWith('// … [cut at'));
+  });
+});
+
+// pseudo-claims-grounder-scorer-antecedent-preamble, Part 2 (2026-10-31): the
+// grounder's two fallbacks, a folded path and a constant cited by name.
+describe('grounder fallbacks: a folded path and a constant cited by name', () => {
+  const files = { 'src/commands/pseudo-claims.js': ['parseLineAnchor', 'buildAnchorSidecar'], 'src/core/ai-overview.js': ['overviewPrompt'] };
+  const matcher = (name, hint) => {
+    const out = [];
+    for (const [fp, fns] of Object.entries(files)) {
+      if (hint && !(fp === hint || fp.endsWith(`/${hint}`))) continue;
+      if (fns.includes(name)) out.push({ filepath: fp, name, start: 10, end: 20 });
+    }
+    return out;
+  };
+  const idx = { findFunctionMatches: matcher, fileLines: new Map([['src/commands/pseudo-claims.js', []], ['src/core/ai-overview.js', []], ['src/core/pseudo_claims_legacy.js', []]]) };
+  const constants = [{ kind: 'constant', filepath: 'src/core/ai-overview.js', constName: 'AI_OVERVIEW_PROMPT', start: 30, end: 60, spec: 'src/core/ai-overview.js@L30-60' }];
+  it('a cited path that resolves to nothing is retried with _ and - folded, on exactly one indexed file; a name in no file stays dropped', () => {
+    const { grounded, dropped } = groundAnchors(idx, [
+      { file: 'src/commands/pseudo_claims.js', func: 'parseLineAnchor', element: 'e1', shape: 'at-func' },
+      { file: 'pseudo_claims.js', func: 'buildAnchorSidecar', element: 'e2' },
+      { file: 'src/commands/pseudo_claims.js', func: 'fileHeader', element: 'e3' },
+    ]);
+    assert.equal(grounded.length, 2);
+    assert.equal(grounded[0].file, 'src/commands/pseudo-claims.js');
+    assert.equal(grounded[0].grounding, 'path-folded');
+    assert.equal(grounded[0].citedFile, 'src/commands/pseudo_claims.js');
+    assert.equal(grounded[0].shape, 'at-func');
+    assert.equal(grounded[1].func, 'buildAnchorSidecar');
+    assert.equal(dropped.length, 1);
+    assert.equal(dropped[0].reason, 'cited function not found in index', 'a name in no indexed file stays dropped');
+  });
+  it('a folded path matching two indexed files is dropped with the count, not guessed', () => {
+    const two = { ...idx, fileLines: new Map([...idx.fileLines, ['test/pseudo-claims.js', []]]) };
+    const { grounded, dropped } = groundAnchors(two, [{ file: 'pseudo_claims.js', func: 'parseLineAnchor', element: 'e' }]);
+    assert.equal(grounded.length, 0);
+    assert.match(dropped[0].reason, /matches 2 indexed files with _ and - folded/);
+  });
+  it('a constant cited by name grounds to the constant the pack carried, labelled as a constant; one the pack did not carry is dropped', () => {
+    const { grounded, dropped } = groundAnchors(idx, [
+      { file: 'ai-overview.js', func: 'AI_OVERVIEW_PROMPT', element: 'the prompt', shape: 'at-func' },
+      { file: 'src/core/ai-overview.js', func: 'QUESTIONS_RULE', element: 'x' },
+    ], { resolved: constants });
+    assert.equal(grounded.length, 1);
+    assert.deepEqual([grounded[0].kind, grounded[0].constName, grounded[0].start, grounded[0].end, grounded[0].grounding, grounded[0].file, grounded[0].shape],
+      ['constant', 'AI_OVERVIEW_PROMPT', 30, 60, 'constant-name', 'src/core/ai-overview.js', 'at-func']);
+    assert.equal(dropped.length, 1);
+    assert.equal(groundAnchors(idx, [{ file: 'ai-overview.js', func: 'AI_OVERVIEW_PROMPT', element: 'p' }]).grounded.length, 0, 'without the pack the name is a function that is not there');
+  });
+  it('an exact function match wins over both fallbacks and carries no grounding mark', () => {
+    const { grounded } = groundAnchors(idx, [{ file: 'src/commands/pseudo-claims.js', func: 'parseLineAnchor', element: 'e' }], { resolved: constants });
+    assert.equal(grounded.length, 1);
+    assert.equal(grounded[0].grounding, undefined);
+  });
+});
+
+// pseudo-claims-grounder-scorer-antecedent-preamble, Parts 3 and 4 (2026-10-31):
+// the two prompt rules, and the antecedent check that reports the first.
+describe('antecedent basis: the prompt rule and the check', () => {
+  it('the prompt carries both rules in every class and in the schema form', () => {
+    for (const sys of [_bpcs(), _bpcs('litigated', 'system'), _bpcs('ai-ml', 'apparatus'), _bpcs('litigated', 'method', { schema: true })]) {
+      assert.match(sys, /ANTECEDENT BASIS: introduce each component or step ONCE with "a" or "an"/);
+      assert.match(sys, /NO EXAMPLE INSIDE AN ELEMENT/);
+      assert.match(sys, /The PREAMBLE states what the claim is for in plain words/);
+    }
+  });
+  const dirty = 'A method of filtering widgets, comprising: receiving a catalog of widgets; discarding the widgets whose weight exceeds the threshold weight; and writing the ledger.';
+  const clean = 'A method of filtering widgets, comprising: receiving a catalog of widgets, each widget having a weight; reading a threshold weight for the widgets from a configuration file; discarding each widget whose weight exceeds the threshold weight; and ranking the remaining widgets by the weight.';
+  it('flags "the X" with no earlier introduction and an element that refers back to nothing', () => {
+    const r = _ac(dirty);
+    assert.deepEqual(r.unintroduced, [{ phrase: 'the threshold weight', where: 'element 2' }, { phrase: 'the ledger', where: 'element 3' }]);
+    assert.deepEqual(r.disconnected, ['element 3']);
+    assert.equal(r.elements, 3);
+  });
+  it('a claim that introduces once and refers back is clean; "a catalog of widgets" introduces "the widgets"', () => {
+    const r = _ac(clean);
+    assert.deepEqual(r.unintroduced, []);
+    assert.deepEqual(r.disconnected, []);
+    assert.match(_al(clean), /^_Antecedent basis: clean/);
+  });
+  it('dependents are checked against claim 1; "the method of claim 1" is not a reference', () => {
+    const r = _ac(clean, [{ n: 2, text: 'The method of claim 1, wherein the threshold weight defaults to forty.' }, { n: 3, text: 'The method of claim 1, wherein the cache is cleared after the ranking.' }]);
+    assert.deepEqual(r.unintroduced, [{ phrase: 'the cache', where: 'dependent 3' }]);
+    assert.match(_al(dirty), /^_Antecedent basis: 2 unintroduced \("the threshold weight" in element 2; "the ledger" in element 3\); 1 element\(s\) refer to nothing earlier \(element 3\)\./);
   });
 });
 

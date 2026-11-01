@@ -184,10 +184,9 @@ which sits above the cited lines) by locating the `7c93118` text of each range's
 last lines in the current file and, where the cite names a function, taking the function's
 current extent; those rows say "re-keyed 2026-10-31" in the provenance column. The grouper,
 ranker, schema, triage, genericity and class files are unchanged since 2026-10-27, so every
-range into them holds as written. Function names hold throughout. The doc cite below moved by
-eight lines later the same day with `pseudo-claims-pack-budget-flag` and by three more with
-`pseudo-claims-pack-cut-outline`, both growing the doc's pack-budget paragraph; it is keyed to
-the latter's commit.
+range into them holds as written. Function names hold throughout. The doc cite below moves
+whenever the doc grows above the cited lines; last re-keyed 2026-10-31 with
+`pseudo-claims-grounder-scorer-antecedent-preamble` and keyed to that commit.
 
 Provenance: six of the thirty rows, P1(a) to P1(f), trace to the drafter's claim 29 and were
 verified against the code (`D→C`); the preamble is Andrew's and the rest is from the code.
@@ -230,7 +229,7 @@ accordingly (2026-10-31).
 | P22 | `scripts/pseudo-claim-loop.mjs`, `src/core/loop-score.js` | C |
 
 Not claimed, because the code does not do it: a broad and a tight draft of one mechanism
-(`docs/CODEEXAM_PSEUDO_CLAIMS.md`, "idea", lines 475-482; 351-358 at `7c93118`, re-keyed
+(`docs/CODEEXAM_PSEUDO_CLAIMS.md`, "idea", lines 492-499; 351-358 at `7c93118`, re-keyed
 2026-10-31); any test-file or doc-file weighting of references.
 
 An apparatus rendering of this set is mechanical: each step becomes a unit configured to
@@ -265,3 +264,30 @@ above), and the two runs with no claim citing the drafting file score "none".
 | CE_pseudo_claims_CE_pseudo_102526_250pm.txt (10/25 2:50pm, Claude, `--filter pseudo`, 12 claims) | 12 ([cmd] --pseudo-claims) | 1 | 5 | 24 | 13 / 0 / 5 | 6 |
 | CE_pseudo_claims_CE_pseudo_102526_405pm.txt (10/25 4:05pm, Claude, `--filter pseudo`, 9 claims) | 7 ([cmd] --pseudo-claims) | 2 | 7 | 21 | 20 / 1 / 0 | 5 |
 | CE_pseudo_claims_CE_pseudo_102526_525pm.txt (10/25 5:25pm, Claude, `--filter pseudo --claim-class all`, 27 claims) | 19 ([cmd] --pseudo-claims [method]) | 2 | 6 | 22 | 14 / 1 / 2 | 15 |
+
+## Scores under the union rule (2026-10-31)
+
+The table above was scored under the 2026-10-30 rule: a row is credited from the claim's single
+best line. Under the union rule of 2026-10-31 (`--rule union`, the default since; `--rule
+best` reproduces the table above), a row is also read from up to four of the claim's lines as
+one text, each carrying at least two of the row's words and a tenth of them, and the verdict
+takes the higher of the two readings; a line that joined a credited row's union is not surplus
+when the row covers a quarter of its words. The table above is kept as the measurement it was.
+Calibrated on every page and run in hand (1,234 rows: 923 unchanged, 307 up one step, 4 from
+ABSENT to MET, none down): on the hand-read cells of the candidates page the rule leaves the
+10/29 Gemma claim's seeds row ABSENT and reads the Claude drafts that name the seeds as PARTIAL
+and MET; the no-op row no draft states stays under MET. Same runs:
+
+| run | best claim | MET | PARTIAL | ABSENT | surplus (substantive / trivial / ungrounded) | claims considered |
+|---|---|---|---|---|---|---|
+| CE_pseudo_claim_test_102526_720pm_norank.txt (10/25 7:20pm, Claude, 41 claims) | 29 ([cmd] --pseudo-claims) | 6 | 9 | 15 | 7 / 0 / 2 | 5 |
+| CE_pseudo_claims_vocab_concept_overview_Claude.txt (10/27, Claude, 18 claims) | 13 ([file] mechanism-grouper.js / rest) | 1 | 4 | 25 | 16 / 1 / 1 | 1 |
+| CE_pseudo_claims_vocab_concept_overview_ChatGPT.txt (10/27, ChatGPT, 18 claims) | none | — | — | — | — | 0 |
+| gemma4_CE_pseudo_claims_102926.txt (10/29, Gemma 4 on the Asus, 41 claims) | 33 ([cmd] --pseudo-claims) | 1 | 4 | 25 | 3 / 0 / 1 | 3 |
+| CE_pseudo_concept_overview_103026.txt (10/30, Claude, 12 claims) | 9 ([file] mechanism-grouper.js / rest) | 1 | 3 | 26 | 16 / 1 / 1 | 1 |
+| CE_pseudo_vocab_103026.txt (10/30, Claude, 9 claims) | none | — | — | — | — | 0 |
+| CE_pseudo_claims_CE_pseudo_102526_210pm.txt (10/25 2:10pm, Claude, `--filter pseudo`, 18 claims) | 11 ([cmd] --pseudo-claims / other) | 6 | 3 | 21 | 4 / 1 / 1 | 10 |
+| CE_pseudo_claims_CE_pseudo_102526_250pm.txt (10/25 2:50pm, Claude, `--filter pseudo`, 12 claims) | 12 ([cmd] --pseudo-claims) | 3 | 6 | 21 | 3 / 0 / 3 | 6 |
+| CE_pseudo_claims_CE_pseudo_102526_405pm.txt (10/25 4:05pm, Claude, `--filter pseudo`, 9 claims) | 7 ([cmd] --pseudo-claims) | 4 | 7 | 19 | 10 / 1 / 0 | 5 |
+| CE_pseudo_claims_CE_pseudo_102526_525pm.txt (10/25 5:25pm, Claude, `--filter pseudo --claim-class all`, 27 claims) | 19 ([cmd] --pseudo-claims [method]) | 6 | 7 | 17 | 5 / 0 / 2 | 15 |
+| CE_pseudo_rubric_features_claude_103126_rules.txt (10/31, Claude, the two prompt rules, 8 claims) | 7 ([cmd] --pseudo-claims) | 5 | 7 | 18 | 9 / 0 / 2 | 1 |

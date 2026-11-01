@@ -40,6 +40,31 @@ export const RUBRIC_MET_OVERLAP = 0.5;
 // words it did not say the thing (a long cited function matches many rows), so
 // the row is ABSENT, cite or no cite. Printed on every scorecard.
 export const RUBRIC_PARTIAL_OVERLAP = 0.25;
+// pseudo-claims-grounder-scorer-antecedent-preamble, Part 1 (2026-10-31): the
+// UNION rule. The 2026-10-30 rule credited a row from its single best
+// candidate, and a row the claim spreads over several lines read ABSENT: the
+// candidates rubric's four seeds were ABSENT at 20% on a Claude draft whose one
+// element names all six seeds and whose dependents carry their specifics, and
+// at 23% on a Gemma draft naming three (#353). Now a row is also read from the
+// claim as one text: the union of the candidates that each carry some of the
+// row's words (at least RUBRIC_UNION_MIN_STEMS of them and at least
+// RUBRIC_UNION_MIN_SHARE of the row, so a line sharing one common word does
+// not join), and the verdict takes the higher of the best line and the union.
+// The best line stays the "addressed by" source; the scorecard prints both
+// overlaps when the union made the difference. A line that joined a credited
+// row's union is not surplus when the row covers at least
+// RUBRIC_USED_MIN_COVER of the line's own words (a line lending four words to
+// a long row is still surplus). `union: false` scores under the old rule, so
+// the two can be printed side by side.
+export const RUBRIC_UNION_MIN_SHARE = 0.1;
+export const RUBRIC_UNION_MIN_STEMS = 2;
+export const RUBRIC_USED_MIN_COVER = 0.25;
+// A row answers to an element or a dependent, a few lines of a claim at most;
+// the union takes the RUBRIC_UNION_MAX_LINES lines that carry the most of the
+// row. Uncapped, a row made of the feature's common words (class, seed, group,
+// index) read MET from eleven lines none of which said it (calibration,
+// 2026-10-31, on the candidates page's dependent 3).
+export const RUBRIC_UNION_MAX_LINES = 4;
 
 // Content words: four letters or more, minus claim boilerplate (the list the
 // synonymize measure uses, kept here so the module imports nothing from
@@ -306,30 +331,43 @@ function citeMatches(cite, anchor) {
  * totals and the surplus bins. `splitElements(prose) -> string[]` and
  * `classify(text) -> 'mechanism'|'generic'` are injected.
  */
-export function scoreClaim(rubric, claim, { metOverlap = RUBRIC_MET_OVERLAP, partialOverlap = RUBRIC_PARTIAL_OVERLAP, splitElements = defaultSplit, classify = defaultClassify } = {}) {
+export function scoreClaim(rubric, claim, { metOverlap = RUBRIC_MET_OVERLAP, partialOverlap = RUBRIC_PARTIAL_OVERLAP, splitElements = defaultSplit, classify = defaultClassify, union = true, unionLines = RUBRIC_UNION_MAX_LINES } = {}) {
   const elements = (splitElements(claim.prose) || []).map((t, i) => ({ source: `claim ${claim.n} element ${i + 1}`, text: t, stems: contentStems(t) }));
   const deps = claim.dependents.map((d) => ({ source: `claim ${claim.n} dependent ${d.n}`, text: d.text, stems: contentStems(d.text) }));
   const notes = claim.anchors.filter((a) => a.element).map((a) => ({ source: `claim ${claim.n} anchor ${a.base}@${a.func || `L${a.start}-${a.end}`}`, text: a.element, stems: contentStems(a.element) }));
   const candidates = [...elements, ...deps, ...notes];
   const rowStems = rubric.rows.map((r) => contentStems(r.text));
+  const shared = (row, stems) => { let n = 0; for (const s of row) if (stems.has(s)) n++; return n; };
+  const contributors = new Set();   // candidates that joined a credited row's union
 
   const verdicts = rubric.rows.map((row, i) => {
     const hits = claim.anchors.filter((a) => row.cites.some((c) => citeMatches(c, a)));
     let best = { overlap: 0, source: null };
+    const eligible = [];
     for (const c of candidates) {
       const o = overlapRatio(rowStems[i], c.stems);
       if (o > best.overlap) best = { overlap: o, source: c.source };
+      if (union && o >= RUBRIC_UNION_MIN_SHARE && shared(rowStems[i], c.stems) >= RUBRIC_UNION_MIN_STEMS) eligible.push({ c, o });
     }
+    const joiners = eligible.sort((a, b) => b.o - a.o).slice(0, unionLines > 0 ? unionLines : eligible.length).map((e) => e.c);
+    const joined = new Set();
+    for (const c of joiners) for (const s of c.stems) joined.add(s);
+    const unionOverlap = joiners.length > 1 ? overlapRatio(rowStems[i], joined) : best.overlap;
+    const overlap = Math.max(best.overlap, unionOverlap);
     const cite = hits.length > 0;
-    const verdict = cite && best.overlap >= metOverlap ? 'MET'
-      : (cite && best.overlap >= partialOverlap) || (!cite && best.overlap >= metOverlap) ? 'PARTIAL' : 'ABSENT';
-    return { id: row.id, kind: row.kind, verdict, overlap: best.overlap, citeMatch: cite,
+    const verdict = cite && overlap >= metOverlap ? 'MET'
+      : (cite && overlap >= partialOverlap) || (!cite && overlap >= metOverlap) ? 'PARTIAL' : 'ABSENT';
+    const byUnion = verdict !== 'ABSENT' && unionOverlap > best.overlap;
+    if (byUnion) for (const c of joiners) if (c.stems.size && shared(rowStems[i], c.stems) / c.stems.size >= RUBRIC_USED_MIN_COVER) contributors.add(c.source);
+    return { id: row.id, kind: row.kind, verdict, overlap: best.overlap, unionOverlap, unionOf: joiners.length > 1 ? joiners.length : 0, byUnion, citeMatch: cite,
       citedBy: hits.map((a) => `${a.base}@${a.func || `L${a.start}-${a.end}`}`), addressedBy: best.source };
   });
 
-  // Surplus: elements and dependents that reach no row's floor.
+  // Surplus: elements and dependents that reach no row's floor on their own
+  // and joined no credited row's union.
   const surplus = [];
   for (const c of [...elements, ...deps]) {
+    if (contributors.has(c.source)) continue;
     let best = 0;
     for (const rs of rowStems) best = Math.max(best, overlapRatio(rs, c.stems));
     if (best >= metOverlap) continue;
@@ -399,8 +437,8 @@ export function formatRubricScorecard(rubric, runName, result, { all = false } =
     out.push(`### Claim ${sc.claim.n}${sc.claim.label ? ` — ${sc.claim.label}` : ''}: MET ${t.MET} · PARTIAL ${t.PARTIAL} · ABSENT ${t.ABSENT} of ${t.rows} rows`
       + ` (claim 1 ${t.claim1.MET}/${t.claim1.PARTIAL}/${t.claim1.ABSENT} of ${t.claim1.rows}; dependents ${t.dependents.MET}/${t.dependents.PARTIAL}/${t.dependents.ABSENT} of ${t.dependents.rows});`
       + ` surplus ${s.total} (${s['grounded-substantive']} grounded-substantive, ${s['grounded-trivial']} grounded-trivial, ${s.ungrounded} ungrounded)`, '');
-    out.push('| row | verdict | overlap | cite match | addressed by |', '|---|---|---|---|---|');
-    for (const v of sc.verdicts) out.push(`| ${v.id} | ${v.verdict} | ${pct(v.overlap)} | ${v.citedBy.length ? v.citedBy.slice(0, 3).join(', ') : '—'} | ${v.addressedBy || '—'} |`);
+    out.push('| row | verdict | overlap (best line → union) | cite match | addressed by |', '|---|---|---|---|---|');
+    for (const v of sc.verdicts) out.push(`| ${v.id} | ${v.verdict} | ${pct(v.overlap)}${v.unionOf && v.unionOverlap > v.overlap ? ` → ${pct(v.unionOverlap)} (${v.unionOf})` : ''} | ${v.citedBy.length ? v.citedBy.slice(0, 3).join(', ') : '—'} | ${v.addressedBy || '—'} |`);
     out.push('');
     if (sc.surplus.length) {
       out.push('Surplus (reaches no row at the floor):', '');

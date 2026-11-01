@@ -296,12 +296,29 @@ with half the row's content words present in the claim's elements, dependents or
 PARTIAL a cite match with a quarter or the words without the cite, ABSENT neither; the run's
 elements that reach no row are the surplus, binned grounded-substantive, grounded-trivial and
 ungrounded. The overlap is a keyword proxy printed beside every verdict, so the reading, which
-stays the human's, can check it. The five pages carry the scores of the six runs in hand as of
+stays the human's, can check it. Since 2026-10-31 a row is also read from up to four of the
+claim's lines as one text (the union rule, the default; `--rule best` reproduces the
+single-line reading of 2026-10-30), after the single line left a draft that names all six
+grouper seeds ABSENT on the seeds row; each page carries a table under each rule, calibrated on
+every page and run in hand. The five pages carry the scores of the six runs in hand as of
 2026-10-30, the before for the drafting changes of #353 (a) to (d); a change to the prompt or
 the packing is measured on the same rows and the same corpus. The two pseudo-claims pages
 (`pseudo-claims-drafting.md`, `pseudo-claims-candidates.md`) carry ten runs as of 2026-10-31,
 those six and the four `--filter pseudo` runs of 2026-10-25, with citations re-keyed that day
 to `1c05834`.
+
+**Two drafting rules (since 2026-10-31, #353 (a) and (b)).** The drafter is told to introduce
+each component or step once with "a" or "an" and refer back with "the" or "said", so the
+limitations tie together into one mechanism (antecedent basis); and to state the preamble's
+purpose in plain words and put no example or list of instances inside an element, a dependent
+claim carrying the instance. The artifact reports the first rule beside each claim's shape line
+("Antecedent basis: 2 unintroduced ("the cross-corpus weight" in element 5; …)"), a keyword
+check that never rewrites, and sums it on the run header. Whether the rules change the drafts is
+measured on the rubric pages: the after, one Claude run over the seven features' groups on
+2026-10-31, is the last row of each page's union-rule table. On the one exact pair, the grouper
+group drafted the same day on the old prompt, it scored 5 / 9 / 9 against 9 / 9 / 5, one draft
+each; the run's antecedent tally is 36 unintroduced references in 8 drafts, most in dependents,
+against 10 on the old prompt's grouper draft. Not yet shown to help; one sample per cell.
 
 **Claim schema (`--claim-schema`, experimental).** Three terms first. A **claim
 object** is a claim as structured data rather than text: a preamble form, a

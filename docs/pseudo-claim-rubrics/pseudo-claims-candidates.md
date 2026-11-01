@@ -149,10 +149,9 @@ locating the `7c93118` text of each range's first and last lines in the current 
 where the cite names a function, taking the function's current extent; those rows say
 "re-keyed 2026-10-31" in the provenance column. The grouper, ranker, schema, triage,
 genericity and class files are unchanged since 2026-10-27, so every range into them holds as
-written. Function names hold throughout. The two doc cites moved by eight lines later the same
-day with `pseudo-claims-pack-budget-flag` and by three more with
-`pseudo-claims-pack-cut-outline`, both growing the doc's pack-budget paragraph; they are keyed
-to the latter's commit.
+written. Function names hold throughout. The two doc cites move whenever the doc grows above
+the cited lines; last re-keyed 2026-10-31 with `pseudo-claims-grounder-scorer-antecedent-preamble`
+and keyed to that commit.
 
 `pc` = `src/commands/pseudo-claims.js`, `mg` = `src/core/mechanism-grouper.js`,
 `mr` = `src/core/mechanism-ranker.js`.
@@ -168,7 +167,7 @@ to the latter's commit.
 | D1(f) | `mg:883-937`, `mg:821-882`; command groups exempt `mg:955-957` | A→C |
 | D1(g) | `mg:366`, `mg:378`, `mg:708-743`; `pc:976-1024` (`harvestPurpose`) | A→C; `pc` re-keyed 2026-10-31 |
 | D1(h) | `mg:1098-1203`, `mg:1084`, `mg:1261` | C |
-| D1 wherein | `docs/CODEEXAM_PSEUDO_CLAIMS.md:359-364` | C (doc); re-keyed 2026-10-31 |
+| D1 wherein | `docs/CODEEXAM_PSEUDO_CLAIMS.md:376-381` | C (doc); re-keyed 2026-10-31 |
 | D2 | `mg:25-99` (`GROUPER_DEFAULTS`) | C |
 | D3 | `mg:418-443` (class seed over indexed classes only), `mg:71-74` (catalog seed no-op without a command surface) | C |
 | D4 | `mg:142-157` | C |
@@ -186,7 +185,7 @@ to the latter's commit.
 Not claimed, because the code does not do it: graph decomposition of the call graph
 (`mg:16-19` records the failed prototype); any seed beyond the command seed using call or
 import edges; completeness of coverage (`docs/CODEEXAM_PSEUDO_CLAIMS.md`, the "It samples; it
-does not survey" paragraph, lines 384-402; 241-262 at `7c93118`, re-keyed 2026-10-31).
+does not survey" paragraph, lines 401-419; 241-262 at `7c93118`, re-keyed 2026-10-31).
 
 An apparatus rendering of this set is mechanical: each step becomes a unit configured to
 perform it, and the data between steps (the candidate list, the concept tokens, the
@@ -221,3 +220,37 @@ binned grounded-substantive are where that reading credited more than the scorer
 | CE_pseudo_claims_CE_pseudo_102526_250pm.txt (10/25 2:50pm, Claude, `--filter pseudo`, 12 claims) | 8 ([file] mechanism-grouper.js / rest) | 2 | 10 | 11 | 10 / 0 / 7 | 3 |
 | CE_pseudo_claims_CE_pseudo_102526_405pm.txt (10/25 4:05pm, Claude, `--filter pseudo`, 9 claims) | 7 ([cmd] --pseudo-claims) | 1 | 0 | 22 | 18 / 2 / 0 | 2 |
 | CE_pseudo_claims_CE_pseudo_102526_525pm.txt (10/25 5:25pm, Claude, `--filter pseudo --claim-class all`, 27 claims) | 20 ([cmd] --pseudo-claims [system]) | 1 | 2 | 20 | 16 / 0 / 4 | 6 |
+
+## Scores under the union rule (2026-10-31)
+
+The table above was scored under the 2026-10-30 rule: a row is credited from the claim's single
+best line. Under the union rule of 2026-10-31 (`--rule union`, the default since; `--rule
+best` reproduces the table above), a row is also read from up to four of the claim's lines as
+one text, each carrying at least two of the row's words and a tenth of them, and the verdict
+takes the higher of the two readings; a line that joined a credited row's union is not surplus
+when the row covers a quarter of its words. The table above is kept as the measurement it was.
+Calibrated on every page and run in hand (1,234 rows: 923 unchanged, 307 up one step, 4 from
+ABSENT to MET, none down): on the hand-read cells of this page the rule leaves the 10/29 Gemma
+claim's seeds row ABSENT and reads the Claude drafts of 2026-10-31 that name the seeds as
+PARTIAL and MET; the no-op row no draft states stays under MET. Same runs:
+
+| run | best claim | MET | PARTIAL | ABSENT | surplus (substantive / trivial / ungrounded) | claims considered |
+|---|---|---|---|---|---|---|
+| CE_pseudo_claim_test_102526_720pm_norank.txt (10/25 7:20pm, Claude, 41 claims) | 29 ([cmd] --pseudo-claims) | 1 | 4 | 18 | 13 / 0 / 2 | 2 |
+| CE_pseudo_claims_vocab_concept_overview_Claude.txt (10/27, Claude, 18 claims) | 13 ([file] mechanism-grouper.js / rest) | 7 | 9 | 7 | 11 / 0 / 1 | 3 |
+| CE_pseudo_claims_vocab_concept_overview_ChatGPT.txt (10/27, ChatGPT, 18 claims) | 13 ([file] mechanism-grouper.js / rest) | 6 | 6 | 11 | 6 / 0 / 0 | 4 |
+| gemma4_CE_pseudo_claims_102926.txt (10/29, Gemma 4 on the Asus, 41 claims) | 25 ([file] mechanism-grouper.js / rest) | 2 | 7 | 14 | 10 / 1 / 1 | 3 |
+| CE_pseudo_concept_overview_103026.txt (10/30, Claude, 12 claims) | 9 ([file] mechanism-grouper.js / rest) | 4 | 6 | 13 | 10 / 1 / 1 | 2 |
+| CE_pseudo_vocab_103026.txt (10/30, Claude, 9 claims) | 1 ([file] vocabulary.js / rest) | 1 | 2 | 20 | 12 / 2 / 7 | 2 |
+| CE_pseudo_claims_CE_pseudo_102526_210pm.txt (10/25 2:10pm, Claude, `--filter pseudo`, 18 claims) | 17 ([file] mechanism-grouper.js / rest) | 7 | 6 | 10 | 6 / 0 / 2 | 4 |
+| CE_pseudo_claims_CE_pseudo_102526_250pm.txt (10/25 2:50pm, Claude, `--filter pseudo`, 12 claims) | 8 ([file] mechanism-grouper.js / rest) | 9 | 7 | 7 | 2 / 0 / 1 | 3 |
+| CE_pseudo_claims_CE_pseudo_102526_405pm.txt (10/25 4:05pm, Claude, `--filter pseudo`, 9 claims) | 7 ([cmd] --pseudo-claims) | 1 | 4 | 18 | 14 / 1 / 0 | 2 |
+| CE_pseudo_claims_CE_pseudo_102526_525pm.txt (10/25 5:25pm, Claude, `--filter pseudo --claim-class all`, 27 claims) | 20 ([cmd] --pseudo-claims [system]) | 1 | 7 | 15 | 12 / 0 / 2 | 6 |
+| CE_pseudo_rubric_features_claude_103126_rules.txt (10/31, Claude, the two prompt rules, 8 claims) | 5 ([file] mechanism-grouper.js / rest) | 5 | 9 | 9 | 6 / 0 / 1 | 4 |
+
+The last row is the after for the two drafting rules of 2026-10-31 (#353 (a) and (b)); its exact
+before is the same group drafted the same day on the old prompt at the same pack, the default
+cell of the Claude three-mode run, 9 / 9 / 5 under this rule. One draft each: the after keeps
+the seeds row and loses two MET rows the earlier draft had written as dependents (the
+vocabulary cached on first use, the ground-truth scoring), which one sample cannot tell from
+the prompt's effect.
