@@ -5,28 +5,30 @@
 quoted as drafted. Status as of 2026-11-01; every number on this page carries its date and its run,
 and the runs are recorded at the end.*
 
-This page is what CodeExam's `--pseudo-claims` feature says when pointed at CodeExam itself. 
-A **pseudo-claim** is a patent-style claim drafted from code rather than from a prose
-invention disclosure: CodeExam groups the functions of a codebase into candidate mechanisms, packs
-each group's source as evidence, and asks an AI model to write a claim 1 with dependents whose every
-element is tied to a function in the pack (this is why some numbered dependents have been skipped over
-here, even when referenced from a later-included dependent) . The claim is illustrative drafting, not 
-legal analysis; what it is good for is saying, in the claim form's own discipline, what a body of code
-*is*. The question this page answers is how CodeExam looks when its own drafter describes its
-features, and how that compares with the rubric pages under
-[`pseudo-claim-rubrics/`](pseudo-claim-rubrics/): a claim set per feature that Andrew Schulman built by
-starting from `--pseudo-claims` output and editing it heavily, on his own judgment of what matters
-most in the feature (the human part), with answers from several models in CodeExam's Chat and a
-reading of the code beside him.
+This page is what CodeExam's `--pseudo-claims` feature says when pointed at CodeExam itself. A
+**pseudo-claim** is a patent-style claim drafted from code rather than from a prose invention
+disclosure: CodeExam groups the functions of a codebase into candidate mechanisms, packs each
+group's source as evidence, and asks an AI model to write a claim 1 with dependents whose every
+element is tied to a function in the pack (this is why some numbered dependents have been skipped
+over here, even when referenced from a later-included dependent). The claim is illustrative
+drafting, not legal analysis; what it is good for is saying, in the claim form's own discipline,
+what a body of code *is*. The question this page answers is how CodeExam looks when its own
+drafter describes its features, and how that compares with the rubric pages under
+[`pseudo-claim-rubrics/`](pseudo-claim-rubrics/): a claim set per feature that Andrew Schulman
+built by starting from `--pseudo-claims` output and editing it heavily, on his own judgment of
+what matters most in the feature (the human part), with answers from several models in CodeExam's
+Chat and a reading of the code beside him.
 
-**How to read a claim here.** Claim 1 is shown with the preamble first and each "limitation" (claim element) 
-on its own line, split by CodeExam's own rule (a break after the colon and after each semicolon); the
-lettering is the page's, the words are the drafter's. Under it, the dependents a rubric page
-credited (or, where no rubric exists, the first three that add a step); the full set is in the run
-artifact. The code references each claim was drafted from are summarized to one line, since on this
-page they matter less than the claim; they come into their own in the hold-out test, where a claim
-is charted against the code with its references withheld. Any comments on a limitation will appear in 
-double brackets after it, `[[like this]]`.
+**How to read a claim here.** Claim 1 is shown with the preamble first and each "limitation"
+(claim element) on its own line, split by CodeExam's own rule (a break after the colon and after
+each semicolon); the lettering is the page's, the words are the drafter's. Under it, the dependents
+a rubric page credited (or, where no rubric exists, the first three that add a step); the full set
+is in the run artifact. The code references each claim was drafted from are summarized to one line,
+since on this page they matter less than the claim; they come into their own in the hold-out test,
+where a claim is charted against the code with its references withheld. Any comments on a
+limitation will appear in double brackets after it, `[[like this]]`; the bracketed paragraph after
+the last element of a claim 1 compares it with the rubric's claim 1, one link to the rubric page per
+feature.
 
 ---
 
@@ -61,6 +63,14 @@ identifier; and
 
 (f) merging the fast orientation record and the deep orientation record into a combined orientation
 summary.
+
+[[Against the rubric's claim 1 ([overview](pseudo-claim-rubrics/overview.md)): close. What this
+claim lacks: the entry-point definition itself, the largest functions that no call ever names, where
+the claim says only "from a call graph"; concepts as part of the deep half, reached here only in
+dependents; and the commands to run next, named in the vocabulary of the surface that asked, flags
+for a shell and tool names for an agent, which neither the claim nor its dependents mention. The
+rubric's claim 1 ends "without a language model"; no claim on this page says so, because the
+absence of a model call is not in the code's text.]]
 
 **5.** The method of claim 4, further comprising: resolving, for each extracted concept, an example
 identifier to a definition file and start line by querying the function index without a file hint,
@@ -118,6 +128,15 @@ spend ceiling; and
 (g) collect the prose orientation produced by the cloud language model upon completion of the
 agentic loop.
 
+[[The rubric linked above agrees with the comment by construction: its claim 1 is engine-neutral,
+with cloud and local as dependents and the spend ceiling in a dependent too, where this claim makes
+"cloud" and the spend cap elements of claim 1. Two things the rubric's claim 1 has that this claim
+lacks: the orientation prompt's prescribed shape (the paragraphs, the "Where to look first"
+commands, the questions list), and the check of the model's AI/ML sentence against the index
+without the model, with a note of the names no tool result contained. That check is the feature's
+own verification step; the claim has only the instruction to the model to stay grounded
+(dependent 3), a different thing.]]
+
 **3.** The system of claim 2, wherein the grounding clause instructs the cloud language model to
 base the orientation solely on tool results surfaced from the code-examination index and to refrain
 from asserting external knowledge as fact about the codebase.
@@ -170,6 +189,15 @@ in either a compact format comprising a comma-separated sub-token list or a rich
 sub-tokens with representative parent-token examples and function names with associated file
 references, for inclusion in a large-language-model prompt.
 
+[[Against the rubric ([vocabulary](pseudo-claim-rubrics/vocabulary.md)): a difference of framing
+more than a gap. This claim came from the prompt-building group, so its preamble and last element
+are about formatting a concordance for a language-model prompt; the rubric's claim 1 is the
+user-facing report of distinctive terms, with document frequency, concentration per document and
+the N highest tokens with their files, and this claim never reports the vocabulary to anyone. The
+scoring is reduced to "a TF-IDF-derived score" where the rubric has the length and parts factors
+and the cross-corpus weight on the token's own score. The rubric's "without a language model" is
+absent here too.]]
+
 **2.** The system of claim 1, wherein the processor is further configured to load the vocabulary
 from a cache file when the cache file exists, a stored version field matches a current schema
 version, and a stored file count matches a current count of files in the index, and to skip the
@@ -212,6 +240,11 @@ cross-corpus weight;
 (g) associating each top concept with a representative example identifier selected from the set of
 vocabulary entries that contain the sub-token, wherein the representative example identifier is
 selected based on a preference for identifiers that resolve to function matches.
+
+[[Against the rubric ([concepts](pseudo-claim-rubrics/concepts.md)): the steps are the rubric's,
+in its order. Missing from claim 1: the low-discrimination stoplist and the part-discard rules of
+the rubric's (c) and (d), and the catalog is used (the cross-corpus weight in (d)) without being
+introduced. The rubric's "without a language model" is absent.]]
 
 **4.** The method of claim 1, wherein calculating the cross-corpus weight comprises computing a
 value based on the logarithm of the ratio of a total index count to a token's document frequency.
@@ -263,6 +296,10 @@ string or as a base64 blob; and
 document-frequency formula against the cross-corpus catalog, floored at a minimum weight, to demote
 tokens that recur across a plurality of indexes while retaining tokens distinctive to the corpus.
 
+[[Against the same rubric: this is the token-filter mechanism, the rubric's (b) and part of (e);
+concept extraction itself, the rubric's (c) through (h), appears only in dependents 13 and 14, so
+as a concepts claim 1 it is the wrong claim, as the note below says.]]
+
 **12.** The system of claim 1, wherein the processor is further configured to, upon suppressing a
 candidate token, generate a redacted fingerprint of the suppressed token comprising the token
 length, a prefix-and-suffix hint of at most four characters, the Shannon entropy per character, the
@@ -307,6 +344,14 @@ number of files in the index in which each term matches; and
 (e) ranking and returning the candidate scopes within each scope level in order of decreasing
 inverse-document-frequency score, wherein a candidate scope at a narrower scope level suppresses a
 candidate scope at a broader scope level that is covered by the narrower scope.
+
+[[Against the rubric ([multisect](pseudo-claim-rubrics/multisect.md)): one discrepancy to check and
+two extras. This claim's scopes are function, file and folder; the rubric's claim 1 has function,
+class and file, with folder as a dependent; the code's own comment says function, file, folder, so
+one of the two is describing a class scope the other does not see. The claim carries two elements
+the rubric's claim 1 does not, the hardness flag that gates the result set and the ranking by
+inverse document frequency; the rubric has negated terms and the soft marker only in dependents 11
+to 14. Matching a term in a file's path or name, the rubric's (b), is absent here.]]
 
 **2.** The method of claim 1, wherein parsing the string further comprises replacing each occurrence
 of a doubled semicolon with a placeholder before splitting, and restoring the placeholder to a
@@ -424,6 +469,15 @@ concept token as the group label for that function record; and
 carrying the group label and a set of file-path-and-function-name anchor lines identifying the
 member function records that resolve uniquely within the function index.
 
+[[Against the rubric ([pseudo-claims-candidates](pseudo-claim-rubrics/pseudo-claims-candidates.md)):
+the largest omissions on this page. Claim 1 forms groups by one seed, matching name tokens to
+concept tokens; the rubric's (d) is four seeds applied in a fixed order, each taking only what
+earlier seeds left: token, class, command, file. Also absent: splitting an oversized group over the
+sub-terms of its members' names with a residual sub-group (the rubric's (f)), labelling each group
+by its seed kind with a purpose line harvested from comments ((g)), and excluding third-party
+subtrees by a nested package manifest or a differing copyright holder ((b)). The 10/29 Gemma 4
+draft of this group omitted the seeds the same way. "Without a language model" is absent.]]
+
 **5.** The system of claim 1, wherein the test-attribute predicate inspects a window comprising the
 declaration line of the function record and the three source lines immediately preceding that
 declaration line.
@@ -466,6 +520,14 @@ function or line range; and
 
 (h) emit a claim artifact comprising the draft claim prose, the grounded anchor citations, and a
 disclosure of any excerpts dropped or truncated during evidence-pack construction.
+
+[[Against the rubric ([pseudo-claims-drafting](pseudo-claim-rubrics/pseudo-claims-drafting.md)):
+the prompt's content is missing. The claim says the pack and the label go to a model and a claim
+comes back; the rubric's (d) says what the fixed instruction specifies: the claim form of a
+statutory class, a dependent count and composition measured from a population of litigated claims,
+the direction to select limitations and cite anchors. The output element is thinner too: no caveat,
+no measurement of the claim's shape against that population, no claims-only file and sidecar ((g)).
+The shape profile is the feature's distinctive idea and this claim never names it.]]
 
 **5.** The system of claim 1, wherein the processor is further configured to score a genericity
 measure for the anchor group by splitting member identifiers into words and comparing those words
