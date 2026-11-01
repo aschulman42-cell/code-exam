@@ -90,7 +90,10 @@ shared display prefix removed.
 shown; 7 grounded functions: `core/ai-overview.js` (7).*
 
 **1.** A system for generating a prose orientation of a codebase by driving a cloud language model
-agentically over a code-examination index, the system comprising:
+agentically over a code-examination index, the system comprising: [[Ideally, this claim would not
+be restricted to cloud LLMs. The --overview-by-AI feature works on local GGUF models too, though
+with some implementation differences in prompts, MCP tools, etc. Contrast the [rubric for
+overview-by-AI](https://github.com/aschulman42-cell/code-exam/blob/main/docs/pseudo-claim-rubrics/overview-by-ai.md).]]
 
 (a) a memory storing an orientation prompt, a permitted tool list, and a spend ceiling; and
 
