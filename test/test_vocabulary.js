@@ -298,6 +298,55 @@ test('base64 guard: recognizes image/base64 blobs, spares real identifiers', () 
   assert.ok(!looksLikeBase64Blob('iVBORw0KGgo'), 'too short to judge (< 64) — not flagged');
 });
 
+// vocab-filters-short-image-blob-and-separator-ids (2026-11-01). On Bram's
+// `docs/agent-specimens/` fixtures, indexed with `.raw` and `.jsonl` added, the
+// Overview listed `aaaeaaaabacaiaaa (iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC)`,
+// `hdx (ses_e7a249155ffevCKHdxMhUNecCx)` and `nec (…)` as concepts. The PNG blob
+// is 41 characters because the tokenizer cut it at its first `+` or `/`, and
+// the 64-character gate ran BEFORE the signature test; the session id passed
+// looksLikeRandomToken on its separator alone. Now the image signature is
+// tested first (from 24 characters, the random test's own floor), and a token
+// with a separator is judged on its longest separator-free part.
+import { looksLikeRandomToken } from '../src/core/vocabulary.js';
+
+test('base64 guard: a cut image blob under 64 characters is recognized by its signature', () => {
+  assert.ok(looksLikeBase64Blob('iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC'),
+    'the 41-char PNG prefix from the Bram specimens must be recognized');
+  assert.ok(looksLikeBase64Blob('R0lGODlhAQABAIAAAAAAAPAAAAAAAA'),
+    'a 30-char GIF prefix must be recognized');
+  assert.ok(!looksLikeBase64Blob('iVBORw0KGgo'), 'the bare 11-char signature stays unjudged');
+  assert.ok(!looksLikeBase64Blob('QWxhZGRpbjpvcGVuc2VzYW1lZm9v'),
+    'a short pure-base64 run without a signature keeps the 64-char gate');
+});
+
+test('random guard: a prefix_<base62> machine id is judged on its longest separator-free part', () => {
+  assert.ok(looksLikeRandomToken('toolu_014MQqQJTFLMxLqCH8H6sGBR'),
+    'a tool-use id from the Bram specimens must be withheld');
+  assert.ok(!looksLikeRandomToken('uqDZmUu9Dvqcve5Zc_NZdJSmhxu2oSPdJ'),
+    'parts under 24 characters are never examined');
+  assert.ok(!looksLikeRandomToken('df_claim_train_1M_pre_duplicates_removed_663'),
+    'a long snake_case identifier is untouched');
+  assert.ok(!looksLikeRandomToken('debug_combined_output_with_allcites_icl_pdpass'),
+    'a long snake_case identifier is untouched');
+});
+
+test('random guard: digits interleaved among letters at three or more points mark an encoded payload', () => {
+  // Payloads whose letters are vowel-rich or lowercase-rich enough to pass the
+  // density test: a session id, a git sha, a base64 chunk (all from the sweep
+  // of 2026-11-01).
+  assert.ok(looksLikeRandomToken('ses_e7a263769ffeAoFr5frD0w3TaC'), 'a vowel-rich session id');
+  assert.ok(looksLikeRandomToken('afb212976052ab038df25d5e871f6c049e094d3b'), 'a git sha');
+  assert.ok(looksLikeRandomToken('msg_185a3fc2b001OrPn0qSBchQYm3'), 'a message id');
+  assert.ok(looksLikeRandomToken('AAAMSExpbm8CEAAAbW50clJHQiBYWVogB84AAgAJAAYAMQAAYWNz'), 'a base64 chunk');
+  // Names attach digits to a word as a unit: two interior runs or fewer.
+  assert.ok(!looksLikeRandomToken('kCVPixelFormatType_420YpCbCr10BiPlanarFullRangeExtended'),
+    'a constant with a leading number and one interior run (vowel-rich enough for the density test)');
+  assert.ok(!looksLikeRandomToken('validateCertificateChainWithRevocationCheck2024'),
+    'a trailing year is not an interior run');
+  assert.ok(!looksLikeRandomToken('OpenSSL_add_all_algorithms'));
+  assert.ok(!looksLikeRandomToken('determineIdealSelectedIndexForTrackSelection'));
+});
+
 test('base64 guard: a matplotlib PNG blob never becomes a concept or example', () => {
   const entries = [
     { token: PNG_BLOB, score: 100000, top_files: [] },    // would dominate if not dropped

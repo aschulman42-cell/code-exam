@@ -143,11 +143,16 @@ describe('#309 vocabulary withholds random tokens the mask cannot see', () => {
     }
   });
 
-  it('a separator alone protects a token, however long and mixed', () => {
+  it('a separator protects a token unless its longest separator-free part is itself random', () => {
     // No base64/base62 payload carries one, and this is what keeps every
-    // snake_case and kebab-case identifier safe without consulting entropy.
+    // snake_case and kebab-case identifier safe without consulting entropy:
+    // the parts of these two are 17 and 15 characters, under the floor.
     assert.ok(!looksLikeRandomToken('uqDZmUu9Dvqcve5Zc_NZdJSmhxu2oSPdJ'));
     assert.ok(!looksLikeRandomToken('uqDZmUu9Dvqcve5Zc-NZdJSmhxu2oSPdJ'));
+    // But a machine id of the shape prefix_<base62> is judged on the part
+    // after its separator (vocab-filters-short-image-blob-and-separator-ids,
+    // 2026-11-01: `toolu (toolu_014MQqQJTFLMxLqCH8H6sGBR)` listed as a concept).
+    assert.ok(looksLikeRandomToken('toolu_014MQqQJTFLMxLqCH8H6sGBR'));
   });
 
   it('short tokens are never examined, so ordinary code is untouched', () => {

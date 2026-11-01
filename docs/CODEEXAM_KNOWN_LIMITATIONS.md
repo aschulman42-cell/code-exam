@@ -197,6 +197,14 @@ independently-operable panels that redesign is built toward.
   a switched-away local model's context, which cannot be disposed for some model families
   (upstream `node-llama-cpp`, #248) and so is held until exit — restart to get it back. See the
   FAQ entry *I loaded a smaller index … but memory is still high*.
+- **A machine id can still surface as a concept example** — the vocabulary withholds
+  encoded payloads by shape (random-looking letters, an image signature, digits interleaved
+  among letters at three or more points, each judged on the longest separator-free part of
+  the token), measured 2026-11-01 on 131 indexes. An id whose payload has fewer than three
+  interior digit runs and vowel-rich letters passes every test (one of 23 id-shaped tokens
+  in the Bram index's top 200), so on a tree that indexes transcripts or fixtures an
+  `id (prefix_…)` row can still appear under "Potentially important concepts". The
+  withheld tokens are reported with a redacted fingerprint; the ones that pass are not.
 - **For other limitations, see the open issues** —
   [open CodeExam issues](https://github.com/aschulman42-cell/code-exam/issues?q=is%3Aissue+state%3Aopen),
   and the consolidated GUI/engine field-test triage in

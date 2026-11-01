@@ -766,6 +766,15 @@ const _VOWELS = new Set(['a', 'e', 'i', 'o', 'u', 'A', 'E', 'I', 'O', 'U']);
  * certificate bodies, PDF stream data and base62 alphabet constants — no
  * legitimate domain term among them.
  *
+ * MEASURED AGAIN for the separator rule below (2026-11-01, 131 indexes,
+ * 1,060,429 tokens): judging a token on its longest separator-free part
+ * withheld 145 more, 100 of them inside an index's top 200: `ses_` / `toolu_`
+ * / `msg_` / `call_` / `client_` ids, Google HAR tokens including one API
+ * key, alphabet constants and 21 Itanium-mangled `_CPPv4…` symbols; two
+ * names lost, `kCVPixelFormatType_420YpCbCr10BiPlanarFullRange` (rank 4,683)
+ * and `GUID_WICPixelFormat32bppRGBA1010102` (rank 12,800), both reported by
+ * the fingerprint. Nothing previously withheld now passes.
+ *
  * Deliberately NOT the §7 query-word question, which asks which CLAIM terms
  * are too common to discriminate. This asks whether a token is RANDOM.
  */
@@ -774,17 +783,51 @@ export function looksLikeRandomToken(token) {
   // Length bounds what is examined; it decides nothing on its own, since real
   // identifiers get this long too.
   if (t.length < 24) return false;
-  // A separator means a human named it. No base64/base62 payload carries one,
-  // so this alone protects every snake_case and kebab-case identifier.
-  if (t.includes('_') || t.includes('-')) return false;
+  // A separator means a human named it — or a machine prefixed its payload:
+  // `ses_<base62>` and `toolu_<base62>` ids in Bram's agent-specimen fixtures
+  // passed on the separator alone, and their case-split fragments (`hdx`,
+  // `nec`) reached the Overview's concepts with the id printed as the example
+  // (vocab-filters-short-image-blob-and-separator-ids, 2026-11-01). So the
+  // token is judged on its longest separator-free part: every snake_case and
+  // kebab-case identifier stays safe, since its parts are short, while a
+  // payload behind a prefix is examined as the payload it is.
+  const part = (t.includes('_') || t.includes('-'))
+    ? t.split(/[_-]/).reduce((best, p) => (p.length > best.length ? p : best), '')
+    : t;
+  if (part.length < 24) return false;
+  // Digits interleaved among letters at three or more points are the shape of
+  // an encoded payload (hex, base62, base32, base64: `e7a263769ffeAoFr5frD0w3TaC`,
+  // a git sha, a certificate body), not of a name, where digits attach to a
+  // word as a unit (`420YpCbCr10BiPlanarFullRange`, `RGBA1010102`). This
+  // catches the payloads whose letters happen to be vowel-rich or
+  // lowercase-rich enough to pass the density test below. MEASURED on 132
+  // indexes, 1,068,375 tokens (2026-11-01): 1,791 withheld beyond the density
+  // test, 117 of them inside an index's top 200 (the concept pool), every one
+  // read: base64 bodies (plists, ICC profiles, notebook images, wasm),
+  // certificate and private-key material, git shas, session / message / tool
+  // ids, Google HAR tokens, doxygen hash anchors; four names lost, all below
+  // rank 4,700 in their index (`TFWav2Vec2WeightNormConv1D`,
+  // `convertUFO1OrUFO2KerningToUFO3Kerning`, two XLA / NEON kernel symbols),
+  // each reported by the fingerprint.
+  if (/[A-Za-z]/.test(part) && /\d/.test(part) && _interiorDigitRuns(part) >= 3) {
+    if (_shannonPerChar(part) >= 3.8) return true;
+  }
   let vowels = 0, upper = 0;
-  for (const c of t) {
+  for (const c of part) {
     if (_VOWELS.has(c)) vowels++;
     if (c >= 'A' && c <= 'Z') upper++;
   }
-  if (vowels / t.length >= 0.22) return false;
-  if (upper / t.length < 0.25) return false;
-  return _shannonPerChar(t) >= 4.0;
+  if (vowels / part.length >= 0.22) return false;
+  if (upper / part.length < 0.25) return false;
+  return _shannonPerChar(part) >= 4.0;
+}
+
+/** Maximal digit runs with a letter on both sides: `e7a263769ffe` has two, `RGBA1010102` none. */
+function _interiorDigitRuns(s) {
+  let n = 0;
+  const re = /[A-Za-z]\d+(?=[A-Za-z])/g;
+  while (re.exec(s)) n++;
+  return n;
 }
 
 // Image / base64 payloads — matplotlib PNGs in .ipynb cell outputs, embedded
@@ -798,9 +841,15 @@ export function looksLikeRandomToken(token) {
 const _IMG_BASE64_PREFIX = /^(?:iVBORw0KGgo|R0lGOD|PHN2Zy)/; // PNG / GIF / SVG magic, base64-encoded
 export function looksLikeBase64Blob(token) {
   const t = String(token || '');
-  if (t.length < 64) return false;            // only long runs; short tokens decided elsewhere
   if (t.includes('_') || t.includes('-')) return false; // a human named it; no payload carries a separator
-  if (_IMG_BASE64_PREFIX.test(t)) return true;          // known image signature
+  // A known image signature decides from 24 characters, the random test's own
+  // floor: the tokenizer cuts a base64 PNG at its first `+` or `/`, and a
+  // 41-character cut passed the 64-character gate below and shattered into
+  // `aaaeaaaabacaiaaa` with the blob reprinted as its example (Bram's
+  // agent-specimen fixtures, vocab-filters-short-image-blob-and-separator-ids,
+  // 2026-11-01). The bare 11-character signature alone stays unjudged.
+  if (t.length >= 24 && _IMG_BASE64_PREFIX.test(t)) return true;
+  if (t.length < 64) return false;            // only long runs; short tokens decided elsewhere
   if (t.includes('data:image/')) return true;           // an embedded data: URI that survived tokenization
   return /^[A-Za-z0-9+/]+={0,2}$/.test(t);              // pure base64 alphabet, 64+ chars, no word chars broken up
 }
