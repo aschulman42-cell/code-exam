@@ -1,0 +1,23 @@
+flowchart TD
+  query[A query]
+  literal[Literal and regex scan]
+  inverted[Inverted lookup]
+  multisect[Multisect scan]
+  calls[Call graph]
+  scopes[Function class file folder matches]
+  idf[IDF ranking]
+  result[Ranked result]
+
+  query -->|search and regex| literal
+  query -->|fast| inverted
+  query -->|multi-term| multisect
+  query -->|callers and callees| calls
+  calls -->|candidate lines| inverted
+  multisect -->|two phases| scopes
+  scopes -->|CLI and GUI rerank| idf
+  idf -->|by scope| result
+  literal -->|context lines| result
+  inverted -->|matching lines| result
+
+%% tip: Multisect scan :: Scans fileLines with regexes. It does not use the inverted index.
+%% tip: Call graph :: Callers do use the inverted index.

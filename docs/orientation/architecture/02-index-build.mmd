@@ -1,0 +1,20 @@
+flowchart TD
+  source[Source input]
+  worker[GUI build worker]
+  walk[File walk and expansion]
+  literal[(literal_index.json)]
+  inverted[(inverted_index.json)]
+  functions[(function_index.json)]
+  renames[(rename_map.json)]
+  strings[(string_table.json)]
+
+  source -.->|a person rebuilds| walk
+  worker -->|runs the same buildIndex| walk
+  walk -->|saves files and lines| literal
+  walk -->|writes lines to files| inverted
+  walk -->|tree-sitter or regex| functions
+  functions -->|infers display names| renames
+  walk -->|harvests strings| strings
+
+%% tip: a person rebuilds :: Dashed: nothing watches the source. An index stays as it was built.
+%% tip: tree-sitter or regex :: Tree-sitter is now the default; --regex-parser opts out.

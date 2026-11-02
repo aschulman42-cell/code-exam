@@ -1,0 +1,26 @@
+flowchart TD
+  browser[Browser client]
+  aiclients[AI clients]
+  cli[CLI]
+  repl[Interactive REPL]
+  gui[GUI server]
+  mcp[MCP server]
+  commands[Command modules]
+  engine[CodeSearchIndex engine]
+  store[(On-disk index)]
+  llm[LLM engines]
+
+  browser -->|calls api routes| gui
+  aiclients -->|speaks MCP over stdio| mcp
+  cli -->|dispatches one command| commands
+  repl -->|same do handlers| commands
+  gui -->|route handlers| engine
+  mcp -->|handleTool| engine
+  commands -->|query the index| engine
+  engine -->|builds saves loads| store
+  commands -->|only on AI commands| llm
+
+%% tip: CodeSearchIndex engine :: The one engine all four front-ends share.
+%% tip: On-disk index :: A directory of plain JSON files. Build once, query from any front-end.
+%% tip: LLM engines :: Optional. Claude, ChatGPT, Gemini, or a local GGUF model.
+%% tip: only on AI commands :: The core loop has no model in it.

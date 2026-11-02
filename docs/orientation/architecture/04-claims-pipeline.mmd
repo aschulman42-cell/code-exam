@@ -1,0 +1,30 @@
+flowchart TD
+  claim[Claim text]
+  search[Claim Search]
+  splitter[Element splitter]
+  vocab[Vocabulary prediction]
+  retrieval[Per-element retrieval]
+  locate[Claim Locate]
+  chart[Claim Chart]
+  verdicts[Verdicts and sidecar]
+  examiner[Human examiner]
+  pseudo[Pseudo-claims]
+  loop[Claims loop]
+  synonymize[Synonymize]
+
+  claim -->|model extracts terms| search
+  claim -->|deterministic split| splitter
+  splitter -->|model predicts words| vocab
+  vocab -->|rarity search, no quorum| retrieval
+  retrieval -->|no targets given| chart
+  retrieval -->|verify and navigate| locate
+  locate -.->|person passes targets| chart
+  chart -->|model fills cells| verdicts
+  verdicts -.->|person checks citations| examiner
+  pseudo -.->|person runs the chart| loop
+  pseudo -.->|person runs a rewrite| synonymize
+  synonymize -.->|rewritten claim re-run| claim
+
+%% tip: Claim Chart :: The core deliverable: one row per element. Run from the CLI at this commit.
+%% tip: Claim Search :: Available in the CLI and in the GUI's Claims Workspace. Whole-claim, so it has the quorum problem.
+%% tip: person passes targets :: Dashed: --targets-out writes a file; a person hands it to --targets.

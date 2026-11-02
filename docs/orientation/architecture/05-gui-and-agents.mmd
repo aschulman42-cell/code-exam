@@ -1,0 +1,22 @@
+flowchart TD
+  modules[Browser modules]
+  routes[Route table]
+  manager[IndexManager]
+  runner[Chat runner]
+  llm[LLM engines]
+  handle[handleTool]
+  tools[TOOLS table]
+  external[External MCP clients]
+
+  modules -->|fetch api endpoints| routes
+  routes -->|gets the active index| manager
+  routes -->|chat routes| runner
+  runner -->|model turns| llm
+  runner -->|tool calls in-process| handle
+  external -->|stdio child process| handle
+  tools -->|one registration| runner
+  tools -->|one registration| external
+  handle -->|masked results from| manager
+
+%% tip: TOOLS table :: The only registration of what a model can call.
+%% tip: handleTool :: One router for every path, in-process or over stdio.

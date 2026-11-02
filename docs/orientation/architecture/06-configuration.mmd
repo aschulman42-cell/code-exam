@@ -1,0 +1,22 @@
+flowchart TD
+  flags[Command-line flags]
+  env[Environment and key files]
+  providers[Provider registry]
+  gguf[Local GGUF model]
+  runner[LLM runner]
+  cloud[Cloud endpoints]
+  air[Air-gapped guard]
+  bind[GUI bind address]
+
+  flags -->|names a model| runner
+  env -->|supplies API keys| providers
+  providers -->|cloud descriptor| runner
+  gguf -->|path from flags| runner
+  runner -->|cloud calls| cloud
+  air -->|blocks before the network| runner
+  air -->|deletes keys| env
+  flags -->|host flag| bind
+  air -->|refuses non-loopback| bind
+
+%% tip: Air-gapped guard :: Two layers: keys scrubbed at startup, every cloud call site guarded.
+%% tip: GUI bind address :: Loopback by default, and unauthenticated if you change it.
