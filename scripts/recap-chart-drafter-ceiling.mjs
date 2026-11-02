@@ -35,7 +35,14 @@
 // Usage:
 //   node scripts/recap-chart-drafter-ceiling.mjs --work <dir> [--only id,id] [--llm claude | --model <gguf>]
 //        [--steps anchors,draft,compare,score,ce-seeded] [--top N] [--force]
-//        [--render docs/claim-chart-drafter-ceiling.md] [--runs N]
+//        [--render docs/claim-chart-drafter-ceiling.md] [--runs N] [--tag <name>]
+//
+// --tag names a second ce-seeded pass (another prompt, another day): its drafts, compares and
+// logs go under <work>/ceiling/<id>/<repo>/ce-seeded-<tag>/, its records carry `tag`, and
+// --render writes them between `<!-- ce-seeded:<tag>:start -->` / `:end -->` on the page,
+// leaving the untagged block (the baseline) and the litigant table as they are. The ranking is
+// read from the untagged ce-seeded/ directory, so both passes draft the same groups and the
+// second pays no ranking (ceiling-rerun-purpose-preamble-whereby, 2026-11-01).
 //
 // --only limits the CANDIDATES RUN; records of other candidates are kept (unlike the harness's --only).
 // --steps ce-seeded is opt-in (the default steps are the litigant-seeded four). --force passes
@@ -57,6 +64,11 @@ export const CEILING_START = '<!-- ceiling:start -->';
 export const CEILING_END = '<!-- ceiling:end -->';
 export const CE_SEEDED_START = '<!-- ce-seeded:start -->';
 export const CE_SEEDED_END = '<!-- ce-seeded:end -->';
+// A tagged ce-seeded run (--tag) renders between its own markers, so a page holds the baseline
+// run and a later one side by side; no tag is the original block.
+export function ceSeededMarkers(tag) {
+  return tag ? { start: `<!-- ce-seeded:${tag}:start -->`, end: `<!-- ce-seeded:${tag}:end -->` } : { start: CE_SEEDED_START, end: CE_SEEDED_END };
+}
 export const DEFAULTS = { maxAnchors: 24, maxPerName: 3, maxCompareTokens: 1400, ceSeededTopN: 3, ceSeededMinSize: 3 };
 
 const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
@@ -211,9 +223,10 @@ function findSiblingRanked(work, indexBase, except) {
 
 // One record per (candidate, repository, seed, group): the litigant-seeded records carry no
 // `seed` and no `group`; a ce-seeded record carries `seed: "codeexam"` and its group's rank, or
-// `group: null` with a `reason` where the repository was not run.
+// `group: null` with a `reason` where the repository was not run. A tagged ce-seeded record keys
+// apart from the untagged one of the same group; an untagged key is unchanged.
 export function recordKey(r) {
-  return `${r.id}|${r.repo}|${r.seed || 'litigant'}|${r.group ? r.group.rank : 0}`;
+  return `${r.id}|${r.repo}|${r.seed || 'litigant'}|${r.group ? r.group.rank : 0}${r.tag ? `|${r.tag}` : ''}`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -340,10 +353,11 @@ export function renderCeiling(records, { generatedAt = new Date().toISOString().
 
 // The ce-seeded table: one row per group, with the litigant-seeded measure and floor of the same
 // pair beside it so the reader compares on one line; a repository not run is one row that says why.
-export function renderCeSeeded(records, { generatedAt = new Date().toISOString().slice(0, 10) } = {}) {
-  const rows = records.filter((r) => r.seed === 'codeexam');
+export function renderCeSeeded(records, { generatedAt = new Date().toISOString().slice(0, 10), tag = null } = {}) {
+  const rows = records.filter((r) => r.seed === 'codeexam' && (r.tag || null) === (tag || null));
   const litigant = (r) => records.find((x) => x.id === r.id && x.repo === r.repo && x.seed !== 'codeexam') || {};
-  const out = [CE_SEEDED_START, '', `_Generated ${generatedAt} by \`scripts/recap-chart-drafter-ceiling.mjs --steps ce-seeded --render\``,
+  const marks = ceSeededMarkers(tag);
+  const out = [marks.start, '', `_Generated ${generatedAt} by \`scripts/recap-chart-drafter-ceiling.mjs --steps ce-seeded${tag ? ` --tag ${tag}` : ''} --render\``,
     `from ${rows.length} record(s); edit the script, not this block._`, ''];
   out.push('| candidate | repository | group (rank: label [priority]) | overlap with cited | measure (mechanism, MET+PARTIAL; MET) | control | litigant measure | floor | read | strict read | B-only |');
   out.push('|---|---|---|---|---|---|---|---|---|---|---|');
@@ -359,7 +373,7 @@ export function renderCeSeeded(records, { generatedAt = new Date().toISOString()
     out.push(`| ${r.id} | ${r.repo} | ${g.rank}: ${g.label} ${tag} (${size}) | ${g.overlap ? `${g.overlap.count} / ${g.overlap.of}` : '—'} | ${scoreCell(r.measure)} | ${scoreCell(r.control)} | ${scoreCell(l.measure)} | ${scoreCell(l.floor)} | ${r.read || ''} | ${r.readStrict || ''} | ${r.bOnly != null ? r.bOnly : '—'} |`);
   }
   out.push('');
-  out.push(CE_SEEDED_END);
+  out.push(marks.end);
   return out.join('\n');
 }
 
@@ -374,11 +388,28 @@ export function replaceCeilingSection(docText, rendered) {
   return replaceBetweenMarkers(docText, CEILING_START, CEILING_END, rendered);
 }
 
+// The agreement harness's manifest records the claim files by absolute path, so a work directory
+// that has moved (the 2026-10 one was built in a session scratchpad and now lives under
+// AppData) names files that no longer exist. A path that is missing is re-based on the current
+// work directory by the part after its `out/` segment; a path that exists is used as it is.
+export function rebaseWorkPath(work, p, id = null) {
+  if (!p) return p;
+  if (fs.existsSync(p)) return p;
+  const parts = String(p).split(/[\\/]+/);
+  // The candidate's own out/<id>/ first: ids were corrected on 2026-10-23 (#348) and the
+  // directories renamed with them, while the manifest's paths kept the old id.
+  if (id) { const byId = path.join(work, 'out', id, parts[parts.length - 1]); if (fs.existsSync(byId)) return byId; }
+  const i = parts.lastIndexOf('out');
+  if (i < 0) return p;
+  const moved = path.join(work, 'out', ...parts.slice(i + 1));
+  return fs.existsSync(moved) ? moved : p;
+}
+
 // ---------------------------------------------------------------------------------------------
 // the run
 // ---------------------------------------------------------------------------------------------
 function parseArgs(argv) {
-  const o = { steps: ['anchors', 'draft', 'compare', 'score'], only: null, render: null, runs: 1, llm: null, model: null, work: null, topN: DEFAULTS.ceSeededTopN, force: false };
+  const o = { steps: ['anchors', 'draft', 'compare', 'score'], only: null, render: null, runs: 1, llm: null, model: null, work: null, topN: DEFAULTS.ceSeededTopN, force: false, tag: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const v = () => argv[++i];
@@ -391,9 +422,11 @@ function parseArgs(argv) {
     else if (a === '--force') o.force = true;
     else if (a === '--llm') o.llm = v();
     else if (a === '--model') o.model = v();
+    else if (a === '--tag') o.tag = v();
     else throw new Error(`unknown argument ${a}`);
   }
   if (!o.work) throw new Error('--work <agreement work dir> is required');
+  if (o.tag && !/^[a-z0-9][a-z0-9-]*$/.test(o.tag)) throw new Error('--tag: lowercase letters, digits and hyphens, starting with a letter or digit');
   return o;
 }
 
@@ -478,9 +511,12 @@ export async function main(argv = process.argv.slice(2)) {
   for (const c of cands) {
     const n = c.claims[0];
     const cf = c.claimFiles[n];
-    const claimText = fs.readFileSync(cf.text, 'utf8');
+    const claimTextPath = rebaseWorkPath(work, cf.text, c.id);
+    const elementsPath = rebaseWorkPath(work, cf.elements, c.id);
+    if (!fs.existsSync(claimTextPath) || !fs.existsSync(elementsPath)) throw new Error(`${c.id}: the manifest's claim files are missing (${cf.text}); re-run the agreement harness's claims step in ${work}`);
+    const claimText = fs.readFileSync(claimTextPath, 'utf8');
     // parseElementsFile returns { elements, comments }; the comments are the file's header.
-    const { elements } = parseElementsFile(fs.readFileSync(cf.elements, 'utf8'));
+    const { elements } = parseElementsFile(fs.readFileSync(elementsPath, 'utf8'));
     const classes = elementClasses(elements, { isPreambleRow });
     for (const r of c.repos) {
       const idx = indexDirOf(work, r);
@@ -529,7 +565,7 @@ export async function main(argv = process.argv.slice(2)) {
 
       const ctrlId = pairs.get(c.id);
       const ctrl = ctrlId ? man.candidates.find((x) => x.id === ctrlId) : null;
-      const ctrlElements = ctrl && ctrl.claimFiles ? parseElementsFile(fs.readFileSync(ctrl.claimFiles[ctrl.claims[0]].elements, 'utf8')).elements : null;
+      const ctrlElements = ctrl && ctrl.claimFiles ? parseElementsFile(fs.readFileSync(rebaseWorkPath(work, ctrl.claimFiles[ctrl.claims[0]].elements, ctrl.id), 'utf8')).elements : null;
       const ctrlClasses = ctrlElements ? elementClasses(ctrlElements, { isPreambleRow }) : null;
 
       if (o.steps.includes('compare') && model) {
@@ -548,7 +584,7 @@ export async function main(argv = process.argv.slice(2)) {
         // The control's classes come from the control recorded with the comparison, which may
         // differ from today's pairing if the candidate list changed.
         const recCtrl = rec.compare.controlId ? man.candidates.find((x) => x.id === rec.compare.controlId) : null;
-        const recCtrlClasses = recCtrl && recCtrl.claimFiles ? elementClasses(parseElementsFile(fs.readFileSync(recCtrl.claimFiles[recCtrl.claims[0]].elements, 'utf8')).elements, { isPreambleRow }) : null;
+        const recCtrlClasses = recCtrl && recCtrl.claimFiles ? elementClasses(parseElementsFile(fs.readFileSync(rebaseWorkPath(work, recCtrl.claimFiles[recCtrl.claims[0]].elements, recCtrl.id), 'utf8')).elements, { isPreambleRow }) : null;
         rec.measure = rec.compare.measure ? scoreComparison(rec.compare.measure.verdicts, classes) : null;
         rec.floor = rec.compare.floor ? scoreComparison(rec.compare.floor.verdicts, classes) : null;
         rec.control = rec.compare.control && recCtrlClasses ? scoreComparison(rec.compare.control.verdicts, recCtrlClasses) : null;
@@ -559,12 +595,16 @@ export async function main(argv = process.argv.slice(2)) {
       if (o.steps.some((s) => ['anchors', 'draft', 'compare', 'score'].includes(s))) { upsert(rec); save(); }
 
       if (o.steps.includes('ce-seeded') && model) {
-        const ceDir = path.join(dir, 'ce-seeded');
+        // --tag: a later pass writes under ce-seeded-<tag>/ and keys its records by the tag; the
+        // ranking stays in the untagged directory so every pass drafts the same groups.
+        const rankDir = path.join(dir, 'ce-seeded');
+        const ceDir = o.tag ? path.join(dir, `ce-seeded-${o.tag}`) : rankDir;
+        fs.mkdirSync(rankDir, { recursive: true });
         fs.mkdirSync(ceDir, { recursive: true });
         const anchorsFile = path.join(dir, 'anchors.lst');
         const litAnchors = fs.existsSync(anchorsFile) ? fs.readFileSync(anchorsFile, 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#')) : [];
-        const rankedFile = path.join(ceDir, 'candidates-ranked.lst');
-        const rankLog = path.join(ceDir, 'rank.log');
+        const rankedFile = path.join(rankDir, 'candidates-ranked.lst');
+        const rankLog = path.join(rankDir, 'rank.log');
         let reason = null;
         let rankedFrom = null;
         if (!fs.existsSync(rankedFile)) {
@@ -581,8 +621,8 @@ export async function main(argv = process.argv.slice(2)) {
             if (!(st.ok && fs.existsSync(rankedFile))) reason = `ranking refused or failed (exit ${st.status}); see ce-seeded/rank.log`;
           }
         }
-        const base = { id: c.id, repo, patent: c.patent, claim: n, elements: elements.length, classes, seed: 'codeexam', engine: describeEngine(model), topN: o.topN, rankedFrom };
-        const dropOld = (pred) => { for (let i = records.length - 1; i >= 0; i--) if (records[i].id === c.id && records[i].repo === repo && records[i].seed === 'codeexam' && pred(records[i])) records.splice(i, 1); };
+        const base = { id: c.id, repo, patent: c.patent, claim: n, elements: elements.length, classes, seed: 'codeexam', engine: describeEngine(model), topN: o.topN, rankedFrom, ...(o.tag ? { tag: o.tag } : {}) };
+        const dropOld = (pred) => { for (let i = records.length - 1; i >= 0; i--) if (records[i].id === c.id && records[i].repo === repo && records[i].seed === 'codeexam' && (records[i].tag || null) === (o.tag || null) && pred(records[i])) records.splice(i, 1); };
         if (reason) {
           const projected = fs.existsSync(rankLog) ? fs.readFileSync(rankLog, 'utf8').split('\n').find((l) => l.includes('projected cost')) : null;
           dropOld(() => true);
@@ -599,7 +639,7 @@ export async function main(argv = process.argv.slice(2)) {
             const gFile = path.join(ceDir, `group-${g.rank}.lst`);
             fs.writeFileSync(gFile, formatAnchorsList([{ label: `codeexam ${g.rank}: ${g.label}`, anchors: g.anchors }]));
             const pseudo = path.join(ceDir, `group-${g.rank}-pseudo.txt`);
-            const prev = records.find((r) => recordKey(r) === recordKey({ id: c.id, repo, seed: 'codeexam', group: { rank: g.rank } })) || {};
+            const prev = records.find((r) => recordKey(r) === recordKey({ id: c.id, repo, seed: 'codeexam', group: { rank: g.rank }, tag: o.tag })) || {};
             const grec = { ...prev, ...base, ranked: sel.ranked, considered: sel.considered,
               group: { rank: g.rank, label: g.label, priority: g.priority, size: g.size, total: g.total, capped: g.capped, overlap: g.overlap } };
             if (!fs.existsSync(`${pseudo}.anchors.json`)) {
@@ -629,17 +669,22 @@ export async function main(argv = process.argv.slice(2)) {
   }
   const rendered = renderCeiling(records);
   fs.writeFileSync(path.join(work, 'ceiling.md'), rendered + '\n');
-  const renderedCe = renderCeSeeded(records);
-  fs.writeFileSync(path.join(work, 'ceiling-ce-seeded.md'), renderedCe + '\n');
+  const renderedCe = renderCeSeeded(records, { tag: o.tag });
+  const ceFile = path.join(work, `ceiling-ce-seeded${o.tag ? `-${o.tag}` : ''}.md`);
+  fs.writeFileSync(ceFile, renderedCe + '\n');
+  const marks = ceSeededMarkers(o.tag);
   if (o.render) {
-    let doc = replaceCeilingSection(fs.readFileSync(o.render, 'utf8'), rendered);
-    if (doc.includes(CE_SEEDED_START)) doc = replaceBetweenMarkers(doc, CE_SEEDED_START, CE_SEEDED_END, renderedCe);
-    else log(`${o.render} has no ${CE_SEEDED_START} block; the ce-seeded table is in ${path.join(work, 'ceiling-ce-seeded.md')} only`);
+    // A tagged run touches only its own block: the litigant table and the untagged ce-seeded
+    // block are the baseline and keep their generated dates.
+    let doc = fs.readFileSync(o.render, 'utf8');
+    if (!o.tag) doc = replaceCeilingSection(doc, rendered);
+    if (doc.includes(marks.start)) doc = replaceBetweenMarkers(doc, marks.start, marks.end, renderedCe);
+    else log(`${o.render} has no ${marks.start} block; the ce-seeded table is in ${ceFile} only`);
     fs.writeFileSync(o.render, doc);
     log(`rendered into ${o.render}`);
   }
   const lit = records.filter((r) => r.seed !== 'codeexam');
-  const ceR = records.filter((r) => r.seed === 'codeexam' && r.group);
+  const ceR = records.filter((r) => r.seed === 'codeexam' && r.group && (r.tag || null) === (o.tag || null));
   log(`${lit.length} litigant-seeded record(s), ${lit.filter((r) => r.read === 'finding').length} finding(s); ${ceR.length} ce-seeded group record(s), ${ceR.filter((r) => r.read === 'finding').length} above the control`);
 }
 

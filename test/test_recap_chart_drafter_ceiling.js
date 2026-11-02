@@ -8,10 +8,13 @@
 // compare) are exercised by running the script; what they produced is recorded on the page.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   resolveAnchors, formatAnchorsList, pickFloorGroup, controlPairs, buildComparePrompt,
   parseCompareResponse, scoreComparison, readMeasure, renderCeiling, replaceCeilingSection,
-  pickCeSeededGroups, recordKey, renderCeSeeded, replaceBetweenMarkers, rankedListIsForIndex,
+  pickCeSeededGroups, recordKey, renderCeSeeded, replaceBetweenMarkers, rankedListIsForIndex, ceSeededMarkers, rebaseWorkPath,
   CEILING_START, CEILING_END, CE_SEEDED_START, CE_SEEDED_END, DEFAULTS,
 } from '../scripts/recap-chart-drafter-ceiling.mjs';
 
@@ -249,6 +252,45 @@ describe('ce-seeded records and the page block', () => {
     assert.equal(recordKey({ id: 'a', repo: 'o/r', seed: 'codeexam', group: { rank: 2 } }), 'a|o/r|codeexam|2');
     assert.equal(recordKey({ id: 'a', repo: 'o/r', seed: 'codeexam', group: null }), 'a|o/r|codeexam|0', 'a not-run record has one slot');
     assert.notEqual(recordKey({ id: 'a', repo: 'o/r' }), recordKey({ id: 'a', repo: 'o/r', seed: 'codeexam', group: { rank: 1 } }));
+  });
+  // ceiling-rerun-purpose-preamble-whereby (2026-11-01): a second ce-seeded pass under --tag
+  // keys and renders beside the first, never over it.
+  it('a tagged record keys apart from the untagged one of the same group; the untagged key is unchanged', () => {
+    assert.equal(recordKey({ id: 'a', repo: 'o/r', seed: 'codeexam', group: { rank: 1 }, tag: 'whereby' }), 'a|o/r|codeexam|1|whereby');
+    assert.notEqual(recordKey({ id: 'a', repo: 'o/r', seed: 'codeexam', group: { rank: 1 }, tag: 'whereby' }), recordKey({ id: 'a', repo: 'o/r', seed: 'codeexam', group: { rank: 1 } }));
+    assert.deepEqual(ceSeededMarkers(null), { start: CE_SEEDED_START, end: CE_SEEDED_END });
+    assert.deepEqual(ceSeededMarkers('whereby'), { start: '<!-- ce-seeded:whereby:start -->', end: '<!-- ce-seeded:whereby:end -->' });
+  });
+  it('a tagged render takes only its tag\'s records between its own markers, and the untagged render leaves them out', () => {
+    const lit = { id: 'a', repo: 'o/r', measure: null, floor: null };
+    const g = (tag) => ({ id: 'a', repo: 'o/r', seed: 'codeexam', group: { rank: 1, label: 'g', priority: 3, size: 4, total: 4, capped: false, overlap: { count: 0, of: 4 } },
+      measure: null, control: null, read: tag ? 'finding' : 'indistinguishable from the control', readStrict: 'x', bOnly: 2, ...(tag ? { tag } : {}) });
+    const records = [lit, g(null), g('whereby')];
+    const tagged = renderCeSeeded(records, { generatedAt: '2026-11-01', tag: 'whereby' });
+    assert.ok(tagged.startsWith('<!-- ce-seeded:whereby:start -->') && tagged.endsWith('<!-- ce-seeded:whereby:end -->'));
+    assert.equal((tagged.match(/^\| a \| o\/r \| 1: g /gm) || []).length, 1, 'one row, the tagged one');
+    assert.match(tagged, /--steps ce-seeded --tag whereby --render/);
+    assert.match(tagged, /\| finding \|/);
+    const plain = renderCeSeeded(records, { generatedAt: '2026-11-01' });
+    assert.ok(plain.startsWith(CE_SEEDED_START) && plain.endsWith(CE_SEEDED_END));
+    assert.equal((plain.match(/^\| a \| o\/r \| 1: g /gm) || []).length, 1, 'one row, the untagged one');
+    assert.ok(!/--tag/.test(plain) && !/\| finding \|/.test(plain));
+    const page = `x\n${CE_SEEDED_START}\nold\n${CE_SEEDED_END}\ny\n<!-- ce-seeded:whereby:start -->\nz\n<!-- ce-seeded:whereby:end -->\n`;
+    const spliced = replaceBetweenMarkers(page, ceSeededMarkers('whereby').start, ceSeededMarkers('whereby').end, tagged);
+    assert.ok(spliced.includes('\nold\n') && spliced.includes(tagged) && !spliced.includes('\nz\n'), 'the baseline block is untouched');
+  });
+  it('a manifest path from a moved work directory is re-based on the current one by its out/ segment; an existing path is kept', () => {
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), 'ceiling-rebase-'));
+    fs.mkdirSync(path.join(work, 'out', 'x-1'), { recursive: true });
+    const here = path.join(work, 'out', 'x-1', 'claim-1.txt');
+    fs.writeFileSync(here, 'A method.');
+    const stale = 'C:\\gone\\scratchpad\\agreement_work\\out\\x-1\\claim-1.txt';
+    assert.equal(rebaseWorkPath(work, stale), here);
+    assert.equal(rebaseWorkPath(work, here), here);
+    assert.equal(rebaseWorkPath(work, 'C:\\gone\\no-out-segment\\claim-1.txt'), 'C:\\gone\\no-out-segment\\claim-1.txt', 'nothing to re-base on');
+    assert.equal(rebaseWorkPath(work, 'C:\\gone\\out\\x-9\\claim-1.txt'), 'C:\\gone\\out\\x-9\\claim-1.txt', 'a re-based path that does not exist either is left as given');
+    assert.equal(rebaseWorkPath(work, 'C:\\gone\\out\\old-id-1\\claim-1.txt', 'x-1'), here, 'a path under a corrected id is found by the candidate id first');
+    fs.rmSync(work, { recursive: true, force: true });
   });
   it('renders one row per group with the litigant measure and floor beside it, a not-run row that says why, and keeps ce-seeded records out of the litigant table', () => {
     const records = [

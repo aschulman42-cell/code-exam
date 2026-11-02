@@ -336,6 +336,25 @@ group drafted the same day on the old prompt, it scored 5 / 9 / 9 against 9 / 9 
 each; the run's antecedent tally is 36 unintroduced references in 8 drafts, most in dependents,
 against 10 on the old prompt's grouper draft. Not yet shown to help; one sample per cell.
 
+**Read the closing clause as an assertion, not a citation (2026-11-02).** Every element of
+claim 1 is grounded to code and charted; the "whereby" clause is not. It has no anchor of its
+own, the chart folds it into the last element's citations, and the only check on it is a note
+when it opens like a step or a component. It is the one place in the claim where the drafter
+states what the code achieves rather than what the code does, and it can state more than the
+code delivers. On the real-world re-run of 2026-11-02, 4 of the 25 clauses did: both
+coin-selection drafts close on "the lowest achievable total weight among all input sets",
+where Bitcoin Core's `coinselection.cpp` says the solution "is not guaranteed to be optimal"
+once the search hits its tries limit; the CCTP v2 draft closes on "delivered to its recipient
+exactly once" where the body establishes at most once; the CMB draft on "preserves insertion
+order across concurrent writers", a guarantee the body does not establish. A trained reader
+takes the clause as non-limiting; the claim is still wrong about the code, and no scorer sees
+it: the judge reads elements, the anchor tests read citations, and a word-overlap check would
+pass the coin-selection clauses, whose every word is in the body. Read each clause against the
+cited code before using the claim, and cut it where the elements already say what it says. The
+milder case is a purpose preamble that enumerates the body ("by checking pause state, balance
+sufficiency, blacklist status, and time-based lockup before allowing a transfer"): four of 42
+on that run.
+
 **Claim schema (`--claim-schema`, experimental).** Three terms first. A **claim
 object** is a claim as structured data rather than text: a preamble form, a
 purpose, the elements each with the code anchors it rests on, a closing result
@@ -464,7 +483,13 @@ turns on one specific mechanism they wrote nothing of it, and the cited code sat
 low in the ranking. Candidate identification finds what is distinctive in a codebase;
 what a patent reads on is often a standard mechanism, or a vendored one. The numbers and
 the reading are in *The real-world yardstick* below and on
-[`claim-chart-drafter-ceiling.md`](claim-chart-drafter-ceiling.md).
+[`claim-chart-drafter-ceiling.md`](claim-chart-drafter-ceiling.md). Run again on 2026-11-02
+after the purpose-preamble and whereby rules, same groups, judge and controls (twelve of the
+fourteen; the two refused by the cost guard stay unrun): the plain read unchanged, twelve
+findings of 42 with three up and three down; the strict read's MET count doubled, 10 to 20,
+and strict findings 2 to 4, all on the finite-field pairs; the preamble median 12 to 17 words
+against attorneys' preambles that are mostly bare; the closing clause on 25 of 42 drafts, the
+same overshoot as the free-text samples. One sample per cell; the page carries the table.
 
 ## Notes, roadmap, and related issues
 
