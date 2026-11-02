@@ -330,3 +330,5 @@ and MET; the no-op row no draft states stays under MET. Same runs:
 | CE_pseudo_concept_overview_103026.txt (10/30, Claude, 12 claims) | none | — | — | — | — | 0 |
 | CE_pseudo_vocab_103026.txt (10/30, Claude, 9 claims) | none | — | — | — | — | 0 |
 | CE_pseudo_rubric_features_claude_103126_rules.txt (10/31, Claude, the two prompt rules, 8 claims) | 8 (multisect (parseMultisectTerms)) | 4 | 23 | 11 | 2 / 0 / 3 | 1 |
+| CE_pseudo_rubric_features_claude_110126_whereby.txt (11/01, Claude, the purpose-preamble and whereby rules, 16 claims, both classes) | 16 (multisect (parseMultisectTerms) [system]) | 7 | 27 | 4 | 3 / 0 / 3 | 2 |
+| CE_pseudo_rubric_features_claude_110126_whereby.txt (11/01, the same run, its method claim only: `--claims 15`) | 15 (multisect (parseMultisectTerms) [method]) | 7 | 25 | 6 | 1 / 0 / 4 | 1 |

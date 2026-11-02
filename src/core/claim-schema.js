@@ -147,6 +147,10 @@ export function claimSchema({ claimClass = 'method', axes = {}, tables = frameTa
           },
         },
       },
+      // pseudo-claims-purpose-preamble-and-whereby: the closing result clause of claim 1, the words
+      // after "whereby"; empty when the claim ends on its last element (most do). A string every
+      // strict copy requires, so the drafter decides explicitly; renderClaim appends it.
+      whereby: { type: 'string', maxLength: 240 },
       dependents: {
         type: 'array', maxItems: maxDependents,
         items: {
@@ -251,7 +255,9 @@ export function renderClaim(obj, { claimClass = null } = {}) {
   pre = pre.charAt(0).toUpperCase() + pre.slice(1);
   const els = ((obj && obj.elements) || []).map((e) => clean(e && e.text)).filter(Boolean);
   const body = els.length <= 1 ? els.join('') : `${els.slice(0, -1).join('; ')}; and ${els[els.length - 1]}`;
-  const claim = `${pre}: ${body}.`;
+  // The closing result clause when the drafter chose one; a leading "whereby" in the field is not doubled.
+  const whereby = clean(obj && obj.whereby).replace(/^whereby\s+/i, '');
+  const claim = `${pre}: ${body}${whereby ? `, whereby ${whereby}` : ''}.`;
   const head = skeletonHead(skeleton) || CLASS_HEAD[cls] || 'method';
   const dependents = ((obj && obj.dependents) || []).map((d, i) => {
     const n = i + 2;
@@ -316,6 +322,12 @@ export function checkClaim(obj, { claimClass = 'method', axes = {}, tables = fra
   if (new Set(texts).size !== texts.length) fail('duplicate-element', 'two elements have the same text', false);
   const unanchored = els.map((e, i) => ((e && e.anchors) || []).length ? null : i + 1).filter(Boolean);
   if (unanchored.length) notes.push(`element(s) ${unanchored.join(', ')} carry no anchor`);
+  // The whereby clause states a result; one that opens like a step or a component is noted, never failed.
+  const wb = clean(obj.whereby).replace(/^whereby\s+/i, '');
+  if (wb) {
+    const w0 = firstWords(wb)[0] || '';
+    if (GERUND.test(w0) || /^(?:a|an)$/.test(w0)) notes.push(`the whereby clause opens with "${w0}", a step or component dressed as a result; it should state what the elements bring about`);
+  }
   const deps = Array.isArray(obj.dependents) ? obj.dependents : [];
   const badRef = [];
   const depth = new Map();

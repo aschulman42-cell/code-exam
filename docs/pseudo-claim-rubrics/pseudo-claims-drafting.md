@@ -291,3 +291,4 @@ and MET; the no-op row no draft states stays under MET. Same runs:
 | CE_pseudo_claims_CE_pseudo_102526_405pm.txt (10/25 4:05pm, Claude, `--filter pseudo`, 9 claims) | 7 ([cmd] --pseudo-claims) | 4 | 7 | 19 | 10 / 1 / 0 | 5 |
 | CE_pseudo_claims_CE_pseudo_102526_525pm.txt (10/25 5:25pm, Claude, `--filter pseudo --claim-class all`, 27 claims) | 19 ([cmd] --pseudo-claims [method]) | 6 | 7 | 17 | 5 / 0 / 2 | 15 |
 | CE_pseudo_rubric_features_claude_103126_rules.txt (10/31, Claude, the two prompt rules, 8 claims) | 7 ([cmd] --pseudo-claims) | 5 | 7 | 18 | 9 / 0 / 2 | 1 |
+| CE_pseudo_rubric_features_claude_110126_whereby.txt (11/01, Claude, the purpose-preamble and whereby rules, 16 claims, both classes) | 13 ([cmd] --pseudo-claims [method]) | 5 | 9 | 16 | 8 / 1 / 2 | 3 |

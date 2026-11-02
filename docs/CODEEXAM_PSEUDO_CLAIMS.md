@@ -310,13 +310,26 @@ the packing is measured on the same rows and the same corpus. The two pseudo-cla
 those six and the four `--filter pseudo` runs of 2026-10-25, with citations re-keyed that day
 to `1c05834`.
 
-**Two drafting rules (since 2026-10-31, #353 (a) and (b)).** The drafter is told to introduce
-each component or step once with "a" or "an" and refer back with "the" or "said", so the
-limitations tie together into one mechanism (antecedent basis); and to state the preamble's
-purpose in plain words and put no example or list of instances inside an element, a dependent
-claim carrying the instance. The artifact reports the first rule beside each claim's shape line
-("Antecedent basis: 2 unintroduced ("the cross-corpus weight" in element 5; …)"), a keyword
-check that never rewrites, and sums it on the run header. Whether the rules change the drafts is
+**Four drafting rules (two since 2026-10-31, #353 (a) and (b), two since 2026-11-01).** The
+drafter is told to introduce each component or step once with "a" or "an" and refer back with
+"the" or "said", so the limitations tie together into one mechanism (antecedent basis); to put
+no example or list of instances inside an element, a dependent claim carrying the instance; to
+state in the preamble the purpose of the mechanism, what it does for the system or its operator
+and under what constraint, never the code's activity restated as a gerund; and to end claim 1
+on a "whereby" clause only where the elements bring about a result the preamble does not state,
+about one claim in six. That rate is a choice, not the population's habit: of the 380 litigated
+claim 1s, 28 (7%) close on a result clause and 13 carry "whereby" at all (measured 2026-11-01);
+the Bram drafts of 2026-11-01, before the rule, closed on one in 10 of 150. The artifact reports
+the antecedent rule beside each claim's shape line ("Antecedent basis: 2 unintroduced ("the
+cross-corpus weight" in element 5; …)") and the result clause beside it ("Result clause
+(non-limiting): …", or "none"), keyword checks that never rewrite, and sums both on the run
+header, the result clause beside the population's rate. Two samples of the two new rules on
+2026-11-01, 14 Bram groups ($1.01) and CodeExam's eight feature groups ($0.68), both classes:
+the clause closed 16 of 28 and 10 of 16 drafts, well above the prior; the preamble median went
+from 14 words to 21 on Bram and from 12 to 22 on CodeExam, against the population's 12 and the
+rubric pages' own 17; on the rubric pages the scorer moved on multisect (MET 4 to 7, ABSENT 11
+to 6 on the method claim) and little elsewhere, one sample per cell. The wording of both rules
+is still open. Whether the rules change the drafts is
 measured on the rubric pages: the after, one Claude run over the seven features' groups on
 2026-10-31, is the last row of each page's union-rule table. On the one exact pair, the grouper
 group drafted the same day on the old prompt, it scored 5 / 9 / 9 against 9 / 9 / 5, one draft
@@ -325,8 +338,9 @@ against 10 on the old prompt's grouper draft. Not yet shown to help; one sample 
 
 **Claim schema (`--claim-schema`, experimental).** Three terms first. A **claim
 object** is a claim as structured data rather than text: a preamble form, a
-purpose, the elements each with the code anchors it rests on, and the dependents
-each with a parent number and a kind. The **frame** of a claim is its shape apart
+purpose, the elements each with the code anchors it rests on, a closing result
+clause when the drafter chose one, and the dependents each with a parent number
+and a kind. The **frame** of a claim is its shape apart
 from its substance: the preamble form ("A method for …, the method comprising the
 steps of:"), the transition, the dependent kinds ("wherein", "further comprising"),
 and how many elements and dependents it has. The **litigated population** is the

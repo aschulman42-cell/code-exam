@@ -994,7 +994,7 @@ describe('harvestPurpose on a residue group', () => {
 // members at 8,000 each and none of the rest ("packed 9 of 40; 31 omitted" on
 // [cmd] --pseudo-claims after the depth-two closure). --pack-fill even (the
 // default) spends the budget evenly; --pack-fill first is the old rule.
-import { buildPack as _bp, packDisclosure as _pd, packBudgetFromArgs as _pbfa, cutOutline as _co, wrapMarker as _wm, antecedentCheck as _ac, antecedentLine as _al, PACK_TOTAL_CHARS as _ptc, PACK_PER_ANCHOR_CHARS as _ppa, PACK_MIN_ANCHOR_CHARS as _pma } from '../src/commands/pseudo-claims.js';
+import { buildPack as _bp, packDisclosure as _pd, packBudgetFromArgs as _pbfa, cutOutline as _co, wrapMarker as _wm, antecedentCheck as _ac, antecedentLine as _al, resultClause as _rc, resultClauseLine as _rcl, resultClauseRunLine as _rcr, PACK_TOTAL_CHARS as _ptc, PACK_PER_ANCHOR_CHARS as _ppa, PACK_MIN_ANCHOR_CHARS as _pma } from '../src/commands/pseudo-claims.js';
 describe('the evidence pack budget: even fill and first fill', () => {
   const anchor = (i, chars) => ({ spec: `a.js@f${i}`, filepath: 'a.js', name: `f${i}`, start: 1, end: 9, kind: 'func', source: 'x'.repeat(chars) });
   const many = (n, chars) => Array.from({ length: n }, (_, i) => anchor(i, chars));
@@ -1222,7 +1222,7 @@ describe('antecedent basis: the prompt rule and the check', () => {
     for (const sys of [_bpcs(), _bpcs('litigated', 'system'), _bpcs('ai-ml', 'apparatus'), _bpcs('litigated', 'method', { schema: true })]) {
       assert.match(sys, /ANTECEDENT BASIS: introduce each component or step ONCE with "a" or "an"/);
       assert.match(sys, /NO EXAMPLE INSIDE AN ELEMENT/);
-      assert.match(sys, /The PREAMBLE states what the claim is for in plain words/);
+      assert.match(sys, /The PREAMBLE states the PURPOSE of the mechanism in plain words/);
     }
   });
   const dirty = 'A method of filtering widgets, comprising: receiving a catalog of widgets; discarding the widgets whose weight exceeds the threshold weight; and writing the ledger.';
@@ -1243,6 +1243,34 @@ describe('antecedent basis: the prompt rule and the check', () => {
     const r = _ac(clean, [{ n: 2, text: 'The method of claim 1, wherein the threshold weight defaults to forty.' }, { n: 3, text: 'The method of claim 1, wherein the cache is cleared after the ranking.' }]);
     assert.deepEqual(r.unintroduced, [{ phrase: 'the cache', where: 'dependent 3' }]);
     assert.match(_al(dirty), /^_Antecedent basis: 2 unintroduced \("the threshold weight" in element 2; "the ledger" in element 3\); 1 element\(s\) refer to nothing earlier \(element 3\)\./);
+  });
+});
+
+// pseudo-claims-purpose-preamble-and-whereby (2026-11-01): the purpose preamble
+// and the optional closing "whereby" clause as prompt rules, the clause shown in
+// every format line, and the report line that counts it against the population.
+describe('purpose preamble and the whereby clause: the prompt rules and the report', () => {
+  it('every class and the schema form carry both rules; the format lines show the optional clause', () => {
+    for (const sys of [_bpcs(), _bpcs('litigated', 'system'), _bpcs('ai-ml', 'apparatus'), _bpcs('litigated', 'crm'), _bpcs('litigated', 'method', { schema: true })]) {
+      assert.match(sys, /never the code's activity restated as a gerund/);
+      assert.match(sys, /WHEREBY: when the recited elements together bring about a result/);
+      assert.match(sys, /about one claim 1 in six/);
+    }
+    for (const cls of ['method', 'system', 'apparatus', 'crm']) assert.match(_bpcs('litigated', cls), /\[, whereby <result>\]/);
+    assert.match(_bpcs('litigated', 'method', { schema: true }), /whereby — the closing result clause of CLAIM 1/);
+  });
+  const closed = 'A method of keeping two replicas consistent while one is unreachable, comprising: receiving a log entry; appending the log entry to a queue; and replaying the queue when the replica returns, whereby no log entry is lost while the replica is unreachable.';
+  const open = 'A method of keeping two replicas consistent, comprising: receiving a log entry such that it is timestamped; appending the log entry to a queue; and replaying the queue.';
+  it('resultClause reads the clause that closes claim 1, and nothing from an earlier element', () => {
+    assert.deepEqual(_rc(closed), { kind: 'whereby', text: 'whereby no log entry is lost while the replica is unreachable' });
+    assert.equal(_rc(open), null, 'a "such that" inside an earlier element is not a closing clause');
+    assert.match(_rcl(closed), /^_Result clause \(non-limiting\): "whereby no log entry is lost/);
+    assert.match(_rcl(open), /^_Result clause: none/);
+  });
+  it('the run line states the drafts’ rate beside the population’s, dated', () => {
+    const line = _rcr(3, 2, 20);
+    assert.match(line, /3 of 20 draft\(s\) close claim 1 on one \("whereby" in 2\)/);
+    assert.match(line, /380 litigated claim 1s close on one in 7% \(28 of 380, "whereby" itself in 13\), measured 2026-11-01/);
   });
 });
 

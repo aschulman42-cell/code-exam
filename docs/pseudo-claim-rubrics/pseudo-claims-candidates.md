@@ -247,6 +247,8 @@ PARTIAL and MET; the no-op row no draft states stays under MET. Same runs:
 | CE_pseudo_claims_CE_pseudo_102526_405pm.txt (10/25 4:05pm, Claude, `--filter pseudo`, 9 claims) | 7 ([cmd] --pseudo-claims) | 1 | 4 | 18 | 14 / 1 / 0 | 2 |
 | CE_pseudo_claims_CE_pseudo_102526_525pm.txt (10/25 5:25pm, Claude, `--filter pseudo --claim-class all`, 27 claims) | 20 ([cmd] --pseudo-claims [system]) | 1 | 7 | 15 | 12 / 0 / 2 | 6 |
 | CE_pseudo_rubric_features_claude_103126_rules.txt (10/31, Claude, the two prompt rules, 8 claims) | 5 ([file] mechanism-grouper.js / rest) | 5 | 9 | 9 | 6 / 0 / 1 | 4 |
+| CE_pseudo_rubric_features_claude_110126_whereby.txt (11/01, Claude, the purpose-preamble and whereby rules, 16 claims, both classes) | 10 ([file] mechanism-grouper.js / rest [system]) | 10 | 6 | 7 | 9 / 0 / 1 | 9 |
+| CE_pseudo_rubric_features_claude_110126_whereby.txt (11/01, the same run, its method claim only: `--claims 9`) | 9 ([file] mechanism-grouper.js / rest [method]) | 6 | 6 | 11 | 7 / 0 / 0 | 1 |
 
 The last row is the after for the two drafting rules of 2026-10-31 (#353 (a) and (b)); its exact
 before is the same group drafted the same day on the old prompt at the same pack, the default

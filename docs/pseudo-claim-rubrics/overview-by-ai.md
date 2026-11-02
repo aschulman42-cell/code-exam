@@ -326,3 +326,4 @@ and MET; the no-op row no draft states stays under MET. Same runs:
 | CE_pseudo_concept_overview_103026.txt (10/30, Claude, 12 claims) | 6 ([file] ai-overview.js) | 2 | 9 | 18 | 3 / 2 / 3 | 4 |
 | CE_pseudo_vocab_103026.txt (10/30, Claude, 9 claims) | none | — | — | — | — | 0 |
 | CE_pseudo_rubric_features_claude_103126_rules.txt (10/31, Claude, the two prompt rules, 8 claims) | 4 ([file] ai-overview.js) | 3 | 11 | 15 | 4 / 1 / 5 | 1 |
+| CE_pseudo_rubric_features_claude_110126_whereby.txt (11/01, Claude, the purpose-preamble and whereby rules, 16 claims, both classes) | 7 ([file] ai-overview.js [method]) | 4 | 10 | 15 | 5 / 1 / 3 | 2 |

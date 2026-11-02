@@ -239,3 +239,4 @@ and MET; the no-op row no draft states stays under MET. Same runs:
 | CE_pseudo_concept_overview_103026.txt (10/30, Claude, 12 claims) | 3 (vocab (buildLocalExtractionPromptWithVocab) / vocabulary) | 1 | 3 | 19 | 10 / 0 / 10 | 4 |
 | CE_pseudo_vocab_103026.txt (10/30, Claude, 9 claims) | 1 ([file] vocabulary.js / rest) | 4 | 10 | 9 | 5 / 0 / 4 | 3 |
 | CE_pseudo_rubric_features_claude_103126_rules.txt (10/31, Claude, the two prompt rules, 8 claims) | 1 ([file] vocabulary.js / rest) | 3 | 8 | 12 | 13 / 0 / 4 | 4 |
+| CE_pseudo_rubric_features_claude_110126_whereby.txt (11/01, Claude, the purpose-preamble and whereby rules, 16 claims, both classes) | 1 ([file] vocabulary.js / rest [method]) | 3 | 9 | 11 | 9 / 0 / 7 | 9 |

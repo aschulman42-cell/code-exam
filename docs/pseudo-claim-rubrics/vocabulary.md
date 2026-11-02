@@ -316,3 +316,5 @@ and MET; the no-op row no draft states stays under MET. Same runs:
 | CE_pseudo_concept_overview_103026.txt (10/30, Claude, 12 claims) | 3 (vocab (buildLocalExtractionPromptWithVocab) / vocabulary) | 3 | 18 | 11 | 1 / 0 / 6 | 3 |
 | CE_pseudo_vocab_103026.txt (10/30, Claude, 9 claims) | 3 (vocab (buildLocalExtractionPromptWithVocab) / vocabulary) | 2 | 16 | 14 | 4 / 0 / 4 | 4 |
 | CE_pseudo_rubric_features_claude_103126_rules.txt (10/31, Claude, the two prompt rules, 8 claims) | 3 (vocab (buildLocalExtractionPromptWithVocab) / vocabulary) | 5 | 16 | 11 | 2 / 0 / 0 | 4 |
+| CE_pseudo_rubric_features_claude_110126_whereby.txt (11/01, Claude, the purpose-preamble and whereby rules, 16 claims, both classes) | 6 (vocab (buildLocalExtractionPromptWithVocab) / vocabulary [system]) | 7 | 14 | 11 | 3 / 0 / 5 | 9 |
+| CE_pseudo_rubric_features_claude_110126_whereby.txt (11/01, the same run, its method claim only: `--claims 5`) | 5 (vocab (buildLocalExtractionPromptWithVocab) / vocabulary [method]) | 4 | 16 | 12 | 4 / 1 / 0 | 1 |

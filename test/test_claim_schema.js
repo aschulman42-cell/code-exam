@@ -32,6 +32,7 @@ const sample = () => ({
     { text: 'walking the edges from a root package to a target package', anchors: ['src/core/imports.js@lockfileChains'] },
     { text: 'reporting each chain with its head', anchors: [] },
   ],
+  whereby: '',
   dependents: [
     { dependsOn: 1, kind: 'wherein', text: 'the lockfile is a package-lock.json file' },
     { dependsOn: 2, kind: 'further comprising', text: 'pruning a chain that cannot reach the target' },
@@ -70,7 +71,7 @@ describe('claim schema: built from the frame tables and the shape bands', () => 
   it('strictSchema requires every property and forbids extras at every level; looseSchema drops the bounds', () => {
     const s = claimSchema({ claimClass: 'method', axes });
     const strict = strictSchema(s);
-    assert.deepEqual(strict.required, ['class', 'preamble', 'elements', 'dependents']);
+    assert.deepEqual(strict.required, ['class', 'preamble', 'elements', 'whereby', 'dependents']);
     assert.equal(strict.additionalProperties, false);
     assert.deepEqual(strict.properties.elements.items.required, ['text', 'anchors']);
     assert.equal(strict.properties.dependents.items.additionalProperties, false);
@@ -145,6 +146,31 @@ describe('renderClaim: the text CodeExam writes from the object', () => {
     const r = renderClaim(sys);
     assert.equal(r.claim, 'An apparatus comprising: a memory storing an index; and a processor configured to: read the index.');
     assert.equal(r.dependents[0].text, 'The apparatus of claim 1, wherein the processor is further configured to prune the index.');
+  });
+});
+
+// pseudo-claims-purpose-preamble-and-whereby (2026-11-01): the closing result clause as a slot
+// the renderer appends and the checker reads; a note at most, never a hard failure.
+describe('the whereby slot: rendered last, noted when it reads like a step', () => {
+  const s = claimSchema({ claimClass: 'method', axes });
+  it('the schema carries it as a string every strict copy requires; empty passes', () => {
+    assert.deepEqual(s.properties.whereby, { type: 'string', maxLength: 240 });
+    assert.ok(strictSchema(s).required.includes('whereby'));
+    assert.deepEqual(validateObject(sample(), s), []);
+  });
+  it('renderClaim appends ", whereby <result>" before the period and does not double a leading "whereby"', () => {
+    const o = sample();
+    o.whereby = 'whereby every chain from the root to the target is reported exactly once';
+    assert.ok(renderClaim(o).claim.endsWith('; and reporting each chain with its head, whereby every chain from the root to the target is reported exactly once.'), renderClaim(o).claim);
+    assert.ok(renderClaim(sample()).claim.endsWith('; and reporting each chain with its head.'));
+  });
+  it('checkClaim notes a whereby that opens with a gerund or an article, and nothing about one that states a result', () => {
+    const o = sample(); o.whereby = 'pruning every chain that cannot reach the target';
+    const c = checkClaim(o, { claimClass: 'method', axes, schema: s });
+    assert.deepEqual(c.failures, []);
+    assert.ok(c.notes.some((n) => /whereby clause opens with "pruning"/.test(n)), c.notes.join(' | '));
+    const ok = sample(); ok.whereby = 'the chains reported are exactly those the lockfile supports';
+    assert.ok(!checkClaim(ok, { claimClass: 'method', axes, schema: s }).notes.some((n) => /whereby/.test(n)));
   });
 });
 
@@ -231,7 +257,7 @@ describe('the drafter wiring', () => {
       assert.equal(calls.length, 1);
       assert.equal(calls[0].tools[0].name, 'draft_claim');
       assert.deepEqual(calls[0].tool_choice, { type: 'tool', name: 'draft_claim' });
-      assert.deepEqual(calls[0].tools[0].input_schema.required, ['class', 'preamble', 'elements', 'dependents']);
+      assert.deepEqual(calls[0].tools[0].input_schema.required, ['class', 'preamble', 'elements', 'whereby', 'dependents']);
       const plain = await draftCloud(model, 'sys', 'user', 100, 0);
       assert.equal(typeof plain, 'string', 'without a schema the wire still returns text');
       assert.ok(!('tools' in calls[1]));

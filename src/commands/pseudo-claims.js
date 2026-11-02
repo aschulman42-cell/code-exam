@@ -297,7 +297,8 @@ const PSEUDO_SYS_TAIL =
   'format and nothing else:\n' +
   'CLAIM: <one self-contained paragraph in standard method/apparatus form: a ' +
   'preamble ending in a colon, then each element/step as a SEMICOLON-delimited ' +
-  'clause — e.g. "A method for X, comprising: <step>; <step>; and <step>.">\n' +
+  'clause — e.g. "A method for X, comprising: <step>; <step>; and <step>[, whereby <result>]." ' +
+  '(the bracketed clause only when the WHEREBY rule calls for it)>\n' +
   'DEPENDENT CLAIMS:\n' +
   '2. The <same statutory class as claim 1> of claim 1, wherein <narrowing>.\n' +
   '3. The <same statutory class as claim 1> of claim 1, further comprising: ' +
@@ -328,7 +329,8 @@ const PSEUDO_SYS_TAIL_SYSTEM =
   'ending in "comprising:", then the structural elements and the operations ' +
   'the processor is configured to perform — e.g. "A system comprising: a ' +
   'memory storing an index comprising <structure>; and a processor ' +
-  'configured to: <operation>; <operation>; and <operation>.">\n' +
+  'configured to: <operation>; <operation>; and <operation>[, whereby <result>]." ' +
+  '(the bracketed clause only when the WHEREBY rule calls for it)>\n' +
   'DEPENDENT CLAIMS:\n' +
   '2. The system of claim 1, wherein the processor is further configured to ' +
   '<added operation>.\n' +
@@ -394,9 +396,9 @@ const PSEUDO_SYS_TAIL_SCHEMA_HEAD =
   'renders the text from it. The fields: ' +
   'preamble.skeleton — one of the offered preamble forms (the forms real ' +
   'litigated claims use; choose the one that fits); preamble.purpose — the ' +
-  'words that replace the "..." in that form, a short noun phrase naming what ' +
-  'the claim is for (e.g. "distributing application programs to a target ' +
-  'server"), empty when the form has no "...". ' +
+  'words that replace the "..." in that form, a short phrase naming the PURPOSE ' +
+  'of the mechanism, what it does for the system or its operator and under what ' +
+  'constraint (as the PREAMBLE rule says), empty when the form has no "...". ' +
   'elements — one entry per limitation of CLAIM 1, in order; each `text` is ' +
   'ONE clause with no claim number, no leading "and" and no trailing period';
 // pseudo-claim-class-apparatus: the APPARATUS tail -- a thing by its parts, each
@@ -415,7 +417,8 @@ const PSEUDO_SYS_TAIL_APPARATUS =
   'for what it does and the operation it is configured to perform — e.g. "An ' +
   'apparatus for X, comprising: a receiving unit configured to <operation>; ' +
   'a <noun> module coupled to the receiving unit and configured to ' +
-  '<operation>; and an output interface configured to <operation>." Do NOT ' +
+  '<operation>; and an output interface configured to <operation>[, whereby ' +
+  '<result>]." (the bracketed clause only when the WHEREBY rule calls for it) Do NOT ' +
   'write "a processor configured to" as the one element; name the parts.>\n' +
   'DEPENDENT CLAIMS:\n' +
   '2. The apparatus of claim 1, wherein the <unit> is further configured to ' +
@@ -443,8 +446,8 @@ const PSEUDO_SYS_TAIL_CRM =
   'CLAIM: <one self-contained paragraph in COMPUTER-READABLE-MEDIUM form: "A ' +
   'non-transitory computer-readable medium storing instructions that, when ' +
   'executed by one or more processors, cause the one or more processors to: ' +
-  '<operation>; <operation>; and <operation>." — each operation opening with ' +
-  'a verb.>\n' +
+  '<operation>; <operation>; and <operation>[, whereby <result>]." — each operation ' +
+  'opening with a verb; the bracketed clause only when the WHEREBY rule calls for it.>\n' +
   'DEPENDENT CLAIMS:\n' +
   '2. The computer-readable medium of claim 1, wherein the instructions ' +
   'further cause the one or more processors to <added operation>.\n' +
@@ -479,7 +482,9 @@ const PSEUDO_SYS_TAIL_SCHEMA_TAIL =
   'to ADD one step, or (apparatus) "wherein the processor is further ' +
   'configured to" to ADD one operation; `text` is the clause after those ' +
   'words, with no claim number and no "The method of claim". Write as many ' +
-  'dependents as the material genuinely supports; none is allowed.';
+  'dependents as the material genuinely supports; none is allowed. ' +
+  'whereby — the closing result clause of CLAIM 1, the words after "whereby", ' +
+  'ONLY where the WHEREBY rule calls for one; otherwise an empty string (most claims).';
 function pseudoSysTailSchema(claimClass) {
   return PSEUDO_SYS_TAIL_SCHEMA_HEAD + (PSEUDO_SYS_TAIL_SCHEMA_CLASS[claimClass] || PSEUDO_SYS_TAIL_SCHEMA_CLASS.method) + PSEUDO_SYS_TAIL_SCHEMA_TAIL;
 }
@@ -526,10 +531,31 @@ export const PSEUDO_SYS_FORM_RULES =
   'earlier limitation introduced. The point is that the limitations tie ' +
   'together into ONE mechanism: each later limitation builds on something an ' +
   'earlier one introduced. ' +
-  'The PREAMBLE states what the claim is for in plain words, with no example ' +
-  'and no list. NO EXAMPLE INSIDE AN ELEMENT: "for example", "such as", "e.g." ' +
+  // pseudo-claims-purpose-preamble-and-whereby (2026-11-01), Andrew after the
+  // Bram run: the preamble names the purpose of the mechanism, as the rubric
+  // pages' own claim 1s do ("orienting a reader to a body of source code from
+  // an index of it"), not the code's activity ("managing a pseudo-terminal
+  // session"); and claim 1 may close on a non-limiting "whereby" clause. The
+  // clause is a judgment with a stated prior, about one claim in six, between
+  // the litigated population's habit (28 of 380 claim 1s close on a result
+  // clause, 7%, measured 2026-11-01) and the every-claim style of a July
+  // hand-drafted set; the artifact reports the rate beside the population's.
+  'The PREAMBLE states the PURPOSE of the mechanism in plain words: what it ' +
+  'does for the system or its operator and under what constraint, as a reader ' +
+  'would say it ("a method of keeping two replicas consistent while one is ' +
+  'unreachable"), never the code\'s activity restated as a gerund ("a method ' +
+  'for processing replica log entries"); take it from the MECHANISM line and ' +
+  'the code\'s own comments; no example and no list. ' +
+  'NO EXAMPLE INSIDE AN ELEMENT: "for example", "such as", "e.g." ' +
   'and lists of instances leave an element open-ended; an element states the ' +
-  'rule, and a dependent claim carries an instance of it. ';
+  'rule, and a dependent claim carries an instance of it. ' +
+  'WHEREBY: when the recited elements together bring about a result that the ' +
+  'preamble does not already state, END claim 1 with ONE clause beginning ' +
+  '"whereby" that states that result as a consequence, in the claim\'s own ' +
+  'vocabulary; it adds no step, component or condition, and no dependent ' +
+  'refers to it. Most claims need none: about one claim 1 in six closes on ' +
+  'such a clause, so add it only where the result is real and unstated, and ' +
+  'otherwise end on the last element. ';
 
 export function buildPseudoClaimSys(profileName = DEFAULT_SHAPE_PROFILE, claimClass = 'method', { schema = false } = {}) {
   const classLine = `The statutory class for THIS draft is GIVEN: ${String(claimClass).toUpperCase()}. `
@@ -642,6 +668,37 @@ export function antecedentLine(prose, dependents = []) {
   }
   if (r.disconnected.length) bits.push(`${r.disconnected.length} element(s) refer to nothing earlier (${r.disconnected.join(', ')})`);
   return `_Antecedent basis: ${bits.join('; ')}. A keyword proxy; the drafter was told to introduce once and refer back._`;
+}
+
+// pseudo-claims-purpose-preamble-and-whereby (2026-11-01): the closing result
+// clause of claim 1, reported beside the shape line and summed on the run
+// header beside the population's rate, never rewritten. The population numbers
+// are a measurement of test/fixtures/litigated-claim1-structure.jsonl with the
+// same regex (whereby / thereby / such that / so that / so as to in the clause
+// after the last semicolon), dated; a re-measurement replaces them, a later
+// drafting rule does not.
+export const RESULT_CLAUSE_POPULATION = { label: '380 litigated claim 1s', n: 380, closing: 28, whereby: 13, anywhere: 58, measured: '2026-11-01' };
+const RESULT_CLAUSE_RE = /,?\s*\b(whereby|thereby|such that|so that|so as to)\b/i;
+/** The clause that closes claim 1 when it states a result: `{kind, text}`, or null when claim 1 ends on its last element. */
+export function resultClause(prose) {
+  const line = claimToLine(prose).replace(/\s+/g, ' ').trim();
+  const lastSemi = line.lastIndexOf(';');
+  const tail = lastSemi >= 0 ? line.slice(lastSemi + 1) : line;
+  const m = tail.match(RESULT_CLAUSE_RE);
+  if (!m) return null;
+  const text = tail.slice(m.index).replace(/^[,\s]+/, '').replace(/[.\s]+$/, '');
+  return { kind: m[1].toLowerCase(), text };
+}
+export function resultClauseLine(prose) {
+  const r = resultClause(prose);
+  if (!r) return '_Result clause: none — claim 1 ends on its last element._';
+  return `_Result clause (non-limiting): "${r.text}"._`;
+}
+export function resultClauseRunLine(closing, whereby, n) {
+  const P = RESULT_CLAUSE_POPULATION;
+  return `_Result clause across the run: ${closing} of ${n} draft(s) close claim 1 on one ("whereby" in ${whereby}); `
+    + `the ${P.label} close on one in ${Math.round(100 * P.closing / P.n)}% (${P.closing} of ${P.n}, "whereby" itself in ${P.whereby}), measured ${P.measured}; `
+    + 'the drafter was told to add one only where the elements bring about a result the preamble does not state, about one claim in six._';
 }
 // The default-profile rendering, kept under the name every importer and the
 // prompt-purity test know.
@@ -2939,6 +2996,12 @@ export async function doPseudoClaims(index, args) {
       let refs = 0; let withRefs = 0; let loose = 0;
       for (const d of checked) { const r = antecedentCheck(d.prose, d.dependents || []); refs += r.unintroduced.length; if (r.unintroduced.length) withRefs++; loose += r.disconnected.length; }
       out.push(`_Antecedent basis across the run: ${refs} unintroduced reference(s) in ${withRefs} of ${checked.length} draft(s); ${loose} element(s) refer to nothing earlier._`, '');
+      // pseudo-claims-purpose-preamble-and-whereby: the closing result clause
+      // summed over the run beside the population's rate, since the rule is a
+      // choice against that population's habit and the reader should see both.
+      let closing = 0; let whereby = 0;
+      for (const d of checked) { const r = resultClause(d.prose); if (r) { closing++; if (r.kind === 'whereby') whereby++; } }
+      out.push(resultClauseRunLine(closing, whereby, checked.length), '');
     }
   }
 
@@ -3059,6 +3122,7 @@ export async function doPseudoClaims(index, args) {
         if (d.prose && !d.error) {
           out.push('');
           out.push(antecedentLine(d.prose, d.dependents || []));
+          out.push(resultClauseLine(d.prose));
         }
         // What the repetition guard dropped or cut, beside the shape line it
         // changed: the dependents counted above are the kept ones.
