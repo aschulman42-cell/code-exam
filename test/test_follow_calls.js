@@ -11,6 +11,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 import { doExtract } from '../src/commands/browse.js';
+import { findCallersMany } from '../src/core/calls.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -121,6 +122,24 @@ describe('--follow-calls', () => {
     setupTestFiles();
     index = new CodeSearchIndex({ indexPath: INDEX_DIR });
     await index.buildIndex(TEST_DIR, { showProgress: false });
+  });
+
+  // findcallers-one-pass-per-name-on-disk-index: the batched lookup must return
+  // exactly what the one-name lookup returns, name by name, on a real index,
+  // and make one pass over the inverted index for all of them.
+  it('findCallersMany equals findCallers per name on a real index, in one pass', () => {
+    const names = ['validate_input', 'transform_data', 'compute_score', 'run_pipeline'];
+    const single = Object.fromEntries(names.map((n) => [n, index.findCallers(n, 500)]));
+    const orig = index.forEachInvertedEntry.bind(index);
+    let passes = 0;
+    index.forEachInvertedEntry = (...a) => { passes++; return orig(...a); };
+    let many;
+    try { many = findCallersMany(index, names, 500); } finally { index.forEachInvertedEntry = orig; }
+    assert.equal(passes, 1);
+    assert.equal(many.passes, 1);
+    assert.deepEqual(many.skipped, []);
+    for (const n of names) assert.deepEqual(many.byName.get(n), single[n], n);
+    assert.ok(single.validate_input.some((r) => r.caller_function === 'run_pipeline'), 'the fixture has a real caller');
   });
 
   it('extracts root function normally without --follow-calls', () => {

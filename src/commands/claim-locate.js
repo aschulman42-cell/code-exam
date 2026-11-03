@@ -41,9 +41,10 @@ import { isPseudoSource } from '../binstrings.js';
 import { claimGenericity } from '../core/claim-genericity.js';
 import { wasLastDraftTruncated, resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, describeEngine, printShownPrompts } from '../core/llm-runner.js';
 import {
-  buildSymbolTable, verifySymbol, isFound, nearbySymbols, navigateFrom,
+  buildSymbolTable, verifySymbol, isFound, nearbySymbols, navigateFrom, navigateFromMany,
   parseProposedSymbols, symbolTokens,
 } from '../core/symbol-verify.js';
+import { findCallersMany, invertedScanStats } from '../core/calls.js';
 import { contentWords, stem } from '../core/claim-terms.js';
 // The scavenger hunt reuses the local tool-loop's hard-won guards rather than
 // reinventing them: budget-with-synthesize-now-stop, special-token
@@ -2440,6 +2441,18 @@ export async function doClaimLocate(index, args, opts = {}) {
 
   const rows = [];
   const seen = new Set();
+  const scansBefore = invertedScanStats.passes;
+  // Navigation one pass per batch (findcallers-one-pass-per-name-on-disk-index):
+  // on an on-disk inverted index every callers lookup is a full pass over the
+  // file (11 s on .Py314_site_pkg), so the rows of a verify round, and later
+  // of a hop, are navigated together rather than one by one.
+  const navigateRows = (list) => {
+    const pending = list.filter((r) => r.navPending);
+    for (const r of list) delete r.navPending;
+    if (!pending.length) return;
+    const navs = navigateFromMany(index, pending.map((r) => r.match), { limit: LOCATE_DEFAULTS.navLimit });
+    pending.forEach((r, i) => { r.nav = navs[i]; });
+  };
   const verifyInto = (list, round) => {
     for (const p of list) {
       if (seen.has(p.candidate)) continue;
@@ -2465,7 +2478,7 @@ export async function doClaimLocate(index, args, opts = {}) {
         candidate: p.candidate, element: p.element, round,
         verified: ok, status: v.status, ambiguous: v.ambiguous || 0, testExcluded,
         match: ok ? v.matches[0] : null,
-        nav: ok ? navigateFrom(index, v.matches[0], { limit: LOCATE_DEFAULTS.navLimit }) : null,
+        nav: null, navPending: ok,
         // How many runs proposed this candidate. Undefined on the hunt and
         // propose paths, which refuse --runs and so have nothing to report.
         runsFound: p.runsFound,
@@ -2473,6 +2486,7 @@ export async function doClaimLocate(index, args, opts = {}) {
     }
   };
   verifyInto(proposals, 1);
+  navigateRows(rows);
 
   // Promote NAVIGATION results to first-class verified rows. The one-hop
   // callees of a correctly-resolved symbol are where the decision logic
@@ -2553,8 +2567,7 @@ export async function doClaimLocate(index, args, opts = {}) {
           candidate: name, element: seed.element, round: 1,
           verified: true, status: v.status, ambiguous: v.ambiguous,
           match: v.matches[0],
-          nav: hop < LOCATE_DEFAULTS.navDepth
-            ? navigateFrom(index, v.matches[0], { limit: LOCATE_DEFAULTS.navLimit }) : null,
+          nav: null, navPending: hop < LOCATE_DEFAULTS.navDepth,
           // Provenance carries the chain: "GenerateRandomKey via CKey::MakeNewKey".
           viaNavigation: hop === 1 ? seed.match.name : `${seed.viaNavigation} via ${seed.match.name}`,
           navHop: hop,
@@ -2572,6 +2585,7 @@ export async function doClaimLocate(index, args, opts = {}) {
       if (hop1.used >= hop1.max) break;
       hop1Rows.push(...promoteFrom(seed, 1, hop1));
     }
+    navigateRows(hop1Rows); // the whole hop in one callers pass
     // claim-locate-second-hop-navigation (2026-10-22). A promoted row was never
     // itself navigated, so nothing two calls below a proposal could be offered:
     // on MARA 1-11 (blind, 2026-10-21) navigation reached CKey::MakeNewKey from
@@ -2619,6 +2633,7 @@ export async function doClaimLocate(index, args, opts = {}) {
     try {
       const raw2 = await draft(rp, `PATENT CLAIM:\n${claimText}`, 600);
       verifyInto(parseProposedSymbols(raw2 || ''), 2);
+      navigateRows(rows);
     } catch (e) {
       process.stderr.write(`  refine round failed: ${e.message}\n`);
     }
@@ -2650,8 +2665,12 @@ export async function doClaimLocate(index, args, opts = {}) {
   let locConnectivity = null;
   try {
     const locSpecs = targetSpecs(found);
-    if (locSpecs.length >= 2) locConnectivity = targetConnectivity({ targets: locSpecs, neighbors: indexCallNeighbors(index) });
+    if (locSpecs.length >= 2) locConnectivity = targetConnectivity({ targets: locSpecs, neighbors: indexCallNeighbors(index), neighborsMany: indexCallNeighborsMany(index) });
   } catch { locConnectivity = null; }
+  if (index && index._invertedOnDisk) {
+    process.stderr.write(`  inverted index on disk: ${invertedScanStats.passes - scansBefore} pass(es) over`
+      + ` ${invertedScanStats.entries} entries for navigation and connectivity\n`);
+  }
   for (const ln of formatLocateReport(rows, {
     targetsLine: true, hunt, unseen: huntUnseen, provenance, connectivity: locConnectivity,
   })) console.log(ln);
@@ -2693,7 +2712,7 @@ export const CONNECTIVITY_DEPTH = 3;
 const CONNECTIVITY_FRONTIER_CAP = 40;   // neighbors kept per node per hop
 const CONNECTIVITY_TOTAL_CAP = 400;     // visited nodes per cited target
 
-export function targetConnectivity({ targets, neighbors, depth = CONNECTIVITY_DEPTH }) {
+export function targetConnectivity({ targets, neighbors, neighborsMany = null, depth = CONNECTIVITY_DEPTH }) {
   const specs = [...new Set(targets || [])];
   if (specs.length < 2) return null;
   const fileKey = (spec) => String(spec).slice(0, Math.max(0, String(spec).indexOf('@'))).split('!').pop().split('/').pop().toLowerCase();
@@ -2722,7 +2741,36 @@ export function targetConnectivity({ targets, neighbors, depth = CONNECTIVITY_DE
     }
     return seen;
   };
-  const sets = specs.map((s) => reach(s));
+  // The same walk for every target at once, one neighbours lookup per depth
+  // over the union of the frontiers (findcallers-one-pass-per-name-on-disk-index):
+  // each target keeps its own seen set and caps, so the result equals reach()
+  // target by target; what changes is that an on-disk inverted index is
+  // passed `depth` times instead of once per visited node.
+  const reachAll = () => {
+    const states = specs.map((s) => ({ seen: new Set([nodeKey(s)]), frontier: [s] }));
+    for (let d = 0; d < depth; d++) {
+      const want = [...new Set(states.flatMap((st) => st.frontier))];
+      if (!want.length) break;
+      const nb = neighborsMany(want) || new Map();
+      for (const st of states) {
+        const next = [];
+        for (const s of st.frontier) {
+          let n = 0;
+          for (const x of nb.get(s) || []) {
+            if (n >= CONNECTIVITY_FRONTIER_CAP || st.seen.size >= CONNECTIVITY_TOTAL_CAP) break;
+            const k = nodeKey(x);
+            if (st.seen.has(k)) continue;
+            st.seen.add(k);
+            next.push(x);
+            n++;
+          }
+        }
+        st.frontier = next;
+      }
+    }
+    return states.map((st) => st.seen);
+  };
+  const sets = neighborsMany ? reachAll() : specs.map((s) => reach(s));
   const parent = specs.map((_, i) => i);
   const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
   const union = (i, j) => { parent[find(j)] = find(i); };
@@ -2738,24 +2786,60 @@ export function targetConnectivity({ targets, neighbors, depth = CONNECTIVITY_DE
   return { targets: specs.length, depth, groups };
 }
 
+const parseNeighborSpec = (spec) => {
+  const at = String(spec).indexOf('@');
+  return { file: String(spec).slice(0, at), bare: String(spec).slice(at + 1).replace(/@\d+$/, '').split('::').pop() };
+};
+const calleeNeighbors = (index, file, bare) => {
+  const out = [];
+  try {
+    for (const c of index.findCallees(bare, file) || []) {
+      if (c && c.name) out.push(`${String(c.filepath || file).split('!').pop()}@${c.name}`);
+    }
+  } catch { /* reported-only instrument: a resolution failure is silence, not a crash */ }
+  return out;
+};
+const callerNeighbors = (rows) => {
+  const out = [];
+  for (const c of rows || []) {
+    const nm = c && (c.name || c.function);
+    if (nm) out.push(`${String(c.filepath || c.file || '').split('!').pop()}@${nm}`);
+  }
+  return out;
+};
+
 /** Call-graph neighbor function over a live index, for targetConnectivity. */
 export function indexCallNeighbors(index) {
   return (spec) => {
-    const at = String(spec).indexOf('@');
-    const file = String(spec).slice(0, at);
-    const bare = String(spec).slice(at + 1).replace(/@\d+$/, '').split('::').pop();
-    const out = [];
+    const { file, bare } = parseNeighborSpec(spec);
+    const out = calleeNeighbors(index, file, bare);
     try {
-      for (const c of index.findCallees(bare, file) || []) {
-        if (c && c.name) out.push(`${String(c.filepath || file).split('!').pop()}@${c.name}`);
-      }
-    } catch { /* reported-only instrument: a resolution failure is silence, not a crash */ }
-    try {
-      for (const c of index.findCallers(bare, 50) || []) {
-        const nm = c && (c.name || c.function);
-        if (nm) out.push(`${String(c.filepath || c.file || '').split('!').pop()}@${nm}`);
-      }
+      out.push(...callerNeighbors(index.findCallers(bare, 50)));
     } catch { /* ditto */ }
+    return out;
+  };
+}
+
+/**
+ * The batched form for targetConnectivity's neighborsMany: one callers pass
+ * for every spec of a frontier (findCallersMany), callees per spec as before.
+ * Returns Map<spec, neighbours>, each entry what indexCallNeighbors returns
+ * for that spec.
+ */
+export function indexCallNeighborsMany(index) {
+  return (specs) => {
+    const list = [...new Set(specs || [])];
+    const parsed = list.map(parseNeighborSpec);
+    let callers = new Map();
+    try { callers = findCallersMany(index, parsed.map((p) => p.bare), 50).byName; } catch { callers = new Map(); }
+    const out = new Map();
+    list.forEach((spec, i) => {
+      const { file, bare } = parsed[i];
+      const rows = calleeNeighbors(index, file, bare);
+      const c = callers.get(bare);
+      rows.push(...callerNeighbors(Array.isArray(c) ? c : (c?.callers || c?.matches || [])));
+      out.set(spec, rows);
+    });
     return out;
   };
 }

@@ -24,6 +24,8 @@
 // cannot contain.
 
 // Split an identifier into lowercase tokens: camelCase, snake_case, ::, dots.
+import { findCallersMany } from './calls.js';
+
 export function symbolTokens(name) {
   return String(name || '')
     .replace(/[:.]+/g, ' ')
@@ -137,42 +139,63 @@ export function nearbySymbols(table, candidate, limit = 8) {
   return scored.slice(0, limit).map((x) => x.s);
 }
 
+// findCallers rows are keyed `caller_function` (findCallees `callee`/`name`).
+// Guessing these field names wrong printed "[object Object]" in the first
+// live run — read the shape, do not assume it.
+const navNameOf = (r) => (typeof r === 'string' ? r
+  : r?.caller_function || r?.callee_function || r?.callee || r?.function || r?.name || null);
+const navRowsOf = (c, key) => (Array.isArray(c) ? c : (c?.[key] || c?.matches || []));
+function cleanNav(sym, rows, limit) {
+  const seen = new Set();
+  const out = [];
+  for (const r of rows || []) {
+    const n = navNameOf(r);
+    if (!n) continue;
+    // Drop self-references: the declaration line matches the callee scan, so
+    // `updateSelectedTrack` was listing itself under "calls".
+    if (n === sym.name || n.replace(/^.*::/, '') === sym.bare) continue;
+    if (seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 // One hop out from a verified symbol. This is where the crux function arrives
 // for free: determineIdealSelectedIndex is a callee of updateSelectedTrack,
 // and callee bodies were exactly what the analyses were blind to (#303).
 export function navigateFrom(index, sym, opts = {}) {
   const limit = opts.limit ?? 10;
   const out = { callers: [], callees: [] };
-  // findCallers rows are keyed `caller_function` (findCallees `callee`/`name`).
-  // Guessing these field names wrong printed "[object Object]" in the first
-  // live run — read the shape, do not assume it.
-  const nameOf = (r) => (typeof r === 'string' ? r
-    : r?.caller_function || r?.callee_function || r?.callee || r?.function || r?.name || null);
-  const clean = (rows) => {
-    const seen = new Set();
-    const out2 = [];
-    for (const r of rows || []) {
-      const n = nameOf(r);
-      if (!n) continue;
-      // Drop self-references: the declaration line matches the callee scan, so
-      // `updateSelectedTrack` was listing itself under "calls".
-      if (n === sym.name || n.replace(/^.*::/, '') === sym.bare) continue;
-      if (seen.has(n)) continue;
-      seen.add(n);
-      out2.push(n);
-      if (out2.length >= limit) break;
-    }
-    return out2;
-  };
   try {
-    const c = index.findCallers?.(sym.bare, 200);
-    out.callers = clean(Array.isArray(c) ? c : (c?.callers || c?.matches || []));
+    out.callers = cleanNav(sym, navRowsOf(index.findCallers?.(sym.bare, 200), 'callers'), limit);
   } catch { /* navigation is best-effort */ }
   try {
-    const c = index.findCallees?.(sym.bare, sym.filepath);
-    out.callees = clean(Array.isArray(c) ? c : (c?.callees || c?.matches || []));
+    out.callees = cleanNav(sym, navRowsOf(index.findCallees?.(sym.bare, sym.filepath), 'callees'), limit);
   } catch { /* best-effort */ }
   return out;
+}
+
+// The same hop for MANY symbols with ONE callers pass over the inverted index
+// (findcallers-one-pass-per-name-on-disk-index): --claim-locate navigates a
+// verify round or a hop as a batch. Returns one { callers, callees } per
+// symbol, in order, each exactly what navigateFrom would return.
+export function navigateFromMany(index, syms, opts = {}) {
+  const limit = opts.limit ?? 10;
+  const list = syms || [];
+  let byName = new Map();
+  try {
+    byName = findCallersMany(index, list.map((s) => s.bare), 200).byName;
+  } catch { byName = new Map(); /* navigation is best-effort */ }
+  return list.map((sym) => {
+    const out = { callers: [], callees: [] };
+    out.callers = cleanNav(sym, navRowsOf(byName.get(sym.bare), 'callers'), limit);
+    try {
+      out.callees = cleanNav(sym, navRowsOf(index.findCallees?.(sym.bare, sym.filepath), 'callees'), limit);
+    } catch { /* best-effort */ }
+    return out;
+  });
 }
 
 // Parse the propose-step reply. Expected line shape:

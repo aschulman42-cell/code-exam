@@ -49,7 +49,7 @@ const pseudoTag = (spec) => (isPseudoSource(String(spec || '').split('@')[0]) ? 
 // input without saying so is how the next version of this bug hides.
 const _noteComments = (n, f) => process.stderr.write(
   `  Claim file ${f}: ignored ${n} '#' comment line(s) (provenance, not claim text).\n`);
-import { splitClaimElements, targetsChecksum, claimTextDigest, dedupeTargets, parseElementsFile, retrievePerElement, isPreambleRow, limitationTag, classifyLimitation, searchSymbolsByWords, contentCandidatesForWords, isTestSymbol, targetConnectivity, indexCallNeighbors, detectClaimSides } from './claim-locate.js';
+import { splitClaimElements, targetsChecksum, claimTextDigest, dedupeTargets, parseElementsFile, retrievePerElement, isPreambleRow, limitationTag, classifyLimitation, searchSymbolsByWords, contentCandidatesForWords, isTestSymbol, targetConnectivity, indexCallNeighbors, indexCallNeighborsMany, detectClaimSides } from './claim-locate.js';
 import { readCeVersion } from '../utils.js';
 import { buildSymbolTable, verifySymbol, isFound, navigateFrom } from '../core/symbol-verify.js';
 import { parseAnalysisLabels, lexicalGate } from './claims-loop.js';
@@ -2692,7 +2692,7 @@ Per-target verdicts written to ${args.verdicts_out}`
   {
     const cited = [...new Set(fills.filter((f) => f.target && (f.label === 'PRESENT' || f.label === 'PARTIAL')).map((f) => f.target))];
     if (cited.length >= 2) {
-      try { connectivity = targetConnectivity({ targets: cited, neighbors: indexCallNeighbors(index) }); }
+      try { connectivity = targetConnectivity({ targets: cited, neighbors: indexCallNeighbors(index), neighborsMany: indexCallNeighborsMany(index) }); }
       catch { connectivity = null; }
     }
   }

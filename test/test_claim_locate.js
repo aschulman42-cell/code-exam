@@ -15,8 +15,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   symbolTokens, buildSymbolTable, verifySymbol, isFound, nearbySymbols,
-  parseProposedSymbols,
+  parseProposedSymbols, navigateFrom, navigateFromMany,
 } from '../src/core/symbol-verify.js';
+import { findCallers, findCallersMany, invertedScanStats } from '../src/core/calls.js';
 import fs from 'node:fs';
 import {
   splitClaimElements, subdivideElement, parseElementsFile, retrievePerElement,
@@ -33,6 +34,7 @@ import {
   transcriptSymbols, selectionSeen, partitionSelections,
   buildTargetsProvenance, targetsChecksum, targetSpecs, claimTextDigest,
   normalizeTargetSpec, dedupeTargets, classifyNavCallee,
+  targetConnectivity, indexCallNeighbors, indexCallNeighborsMany,
 } from '../src/commands/claim-locate.js';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
@@ -2876,5 +2878,133 @@ describe('chart-retrieval-multi-run-merge: two vocabulary runs, unioned', () => 
     const draft = async () => { calls++; if (calls === 2) throw new Error('boom'); return 'ELEMENT 1: alpha'; };
     const r = await retrievePerElement({ draft, elements: ['one'], symbols: [], opts: { vocabRuns: 2 } });
     assert.deepEqual(r.perElement[0].words, ['alpha']);
+  });
+});
+
+// findcallers-one-pass-per-name-on-disk-index (2026-11-03). On .Py314_site_pkg
+// (inverted index 405 MB, streamed from disk, 11 s a pass) one --claim-locate
+// asked for a pass per navigated row and per connectivity node: thousands a
+// claim. The fake here counts passes; the equalities say the batched forms
+// return what the one-name forms return.
+describe('findcallers-one-pass-per-name: batched callers, navigation and connectivity', () => {
+  const ENTRIES = [
+    ['  x = alphaFn(1);', [['src/a.c', [10]]]],
+    // `y = betaFn(2);`, not a bare `betaFn(2);`: findCallers's declaration rule
+    // reads an indented bare call statement as `type name(args);` with
+    // whitespace for the type and drops it (pre-existing; noted in the item).
+    ['  y = betaFn(2);', [['src/b.c', [20]], ['src/c.c', [30]]]],
+    ['  return gammaFn(alphaFn(3));', [['src/a.c', [40]]]],
+    ['int alphaFn(int a);', [['src/a.h', [5]]]],
+    ['  // alphaFn(0) in a comment', [['src/a.c', [1]]]],
+    ['  cb = &deltaFn;', [['src/d.c', [50]]]],
+  ];
+  const fakeIndex = ({ onDisk = false } = {}) => {
+    const idx = {
+      _invertedOnDisk: onDisk, scans: 0,
+      functionIndex: {}, fileLines: new Map(),
+      _ensureInvertedAvailable() { return true; },
+      _ensureFunctionIndex() {},
+      _getKnownFunctions() { return {}; },
+      _findContainingFunctionFromIndex(filepath, line) { return `${filepath.split('/').pop().replace('.c', '')}_fn${line}`; },
+      forEachInvertedEntry(cb) { idx.scans++; for (const [line, locs] of ENTRIES) if (cb(line, locs) === false) return; },
+      findCallees(bare) { return bare === 'alphaFn' ? [{ name: 'gammaFn', callee_function: 'gammaFn', filepath: 'src/a.c' }] : []; },
+    };
+    idx.findCallers = (n, m, o) => findCallers(idx, n, m, o);
+    return idx;
+  };
+
+  it('findCallersMany returns what findCallers returns, name by name, in one pass', () => {
+    const idx = fakeIndex();
+    const names = ['alphaFn', 'betaFn', 'gammaFn', 'deltaFn', 'noSuchFn'];
+    const single = Object.fromEntries(names.map((n) => [n, findCallers(idx, n, 500)]));
+    assert.equal(idx.scans, names.length);
+    assert.equal(single.alphaFn.length, 2, 'two call sites; the declaration and the comment are skipped');
+    assert.equal(single.deltaFn[0].call_type, 'reference');
+    idx.scans = 0;
+    const many = findCallersMany(idx, names, 500);
+    assert.equal(idx.scans, 1);
+    assert.equal(many.passes, 1);
+    assert.deepEqual(many.skipped, []);
+    for (const n of names) assert.deepEqual(many.byName.get(n), single[n], n);
+  });
+  it('a short name is skipped in the batch and still thrown by the one-name search', () => {
+    const idx = fakeIndex();
+    assert.throws(() => findCallers(idx, 'ab'), (e) => e.code === 'SHORT_NAME_BAILOUT');
+    const many = findCallersMany(idx, ['ab', 'alphaFn']);
+    assert.deepEqual(many.skipped, ['ab']);
+    assert.deepEqual(many.byName.get('ab'), []);
+    assert.equal(many.byName.get('alphaFn').length, 2);
+  });
+  it('maxResults stops each name on its own inside the batch', () => {
+    const idx = fakeIndex();
+    const many = findCallersMany(idx, ['alphaFn', 'betaFn'], 1);
+    assert.equal(many.byName.get('alphaFn').length, 1);
+    assert.equal(many.byName.get('betaFn').length, 1);
+    assert.deepEqual(many.byName.get('betaFn'), findCallers(idx, 'betaFn', 1));
+  });
+  it('an index that cannot scan is served per name (the test fakes)', () => {
+    const plain = { findCallers: (n) => (n === 'x' ? [{ caller_function: 'y' }] : []) };
+    const many = findCallersMany(plain, ['x', 'z']);
+    assert.equal(many.passes, 0);
+    assert.deepEqual(many.byName.get('x'), [{ caller_function: 'y' }]);
+    assert.deepEqual(many.byName.get('z'), []);
+  });
+  it('passes over an ON-DISK index are counted; an in-memory one is not', () => {
+    const before = invertedScanStats.passes;
+    findCallersMany(fakeIndex(), ['alphaFn', 'betaFn']);
+    assert.equal(invertedScanStats.passes, before);
+    findCallersMany(fakeIndex({ onDisk: true }), ['alphaFn', 'betaFn']);
+    findCallers(fakeIndex({ onDisk: true }), 'alphaFn');
+    assert.equal(invertedScanStats.passes, before + 2);
+    assert.equal(invertedScanStats.entries, ENTRIES.length);
+  });
+  it('navigateFromMany navigates forty symbols in one pass and equals navigateFrom each', () => {
+    const idx = fakeIndex();
+    const syms = [];
+    for (let i = 0; i < 40; i++) {
+      const bare = ['alphaFn', 'betaFn', 'gammaFn', 'deltaFn'][i % 4];
+      syms.push({ name: i % 2 ? `Cls${i}::${bare}` : bare, bare, filepath: `src/f${i}.c` });
+    }
+    const singles = syms.map((s) => navigateFrom(idx, s, { limit: 8 }));
+    assert.equal(idx.scans, 40);
+    idx.scans = 0;
+    const many = navigateFromMany(idx, syms, { limit: 8 });
+    assert.equal(idx.scans, 1);
+    assert.deepEqual(many, singles);
+    assert.deepEqual(many[0].callers, ['a_fn10', 'a_fn40']);
+    assert.deepEqual(many[0].callees, ['gammaFn']);
+  });
+  it('targetConnectivity with neighborsMany equals the per-node walk and looks up once per depth', () => {
+    // A synthetic graph: 40 targets in chains and a hub, callers and callees mixed.
+    const graph = new Map();
+    const edge = (a, b) => { if (!graph.has(a)) graph.set(a, []); graph.get(a).push(b); };
+    for (let i = 0; i < 40; i++) {
+      edge(`f${i}.c@t${i}`, `f${i}.c@h${i}`);
+      edge(`f${i}.c@h${i}`, `g${i % 5}.c@k${i % 5}`);
+      edge(`f${i}.c@h${i}`, `f${(i + 1) % 40}.c@t${(i + 1) % 40}`); // each helper calls the next target: one chain
+      if (i % 3 === 0) edge(`g${i % 5}.c@k${i % 5}`, `hub.c@main`);
+    }
+    for (let j = 0; j < 60; j++) edge(`g0.c@k0`, `leaf${j}.c@l${j}`); // more neighbours than the per-node cap
+    let single = 0, batched = 0;
+    const neighbors = (s) => { single++; return graph.get(s) || []; };
+    const neighborsMany = (specs) => { batched++; return new Map(specs.map((s) => [s, graph.get(s) || []])); };
+    const targets = [...Array(40).keys()].map((i) => `f${i}.c@t${i}`);
+    const a = targetConnectivity({ targets, neighbors });
+    const b = targetConnectivity({ targets, neighbors, neighborsMany });
+    assert.deepEqual(b, a);
+    assert.ok(single > 40, `per-node walk made ${single} lookups`);
+    assert.ok(batched <= 3, `batched walk made ${batched} lookups`);
+    assert.equal(a.groups.length, 1, 'each target reaches the next within depth 2, so one component');
+  });
+  it('indexCallNeighborsMany returns, spec by spec, what indexCallNeighbors returns', () => {
+    const idx = fakeIndex();
+    const specs = ['src/a.c@alphaFn', 'src/b.c@betaFn', 'src/x.c@Cls::alphaFn'];
+    const one = indexCallNeighbors(idx);
+    const expected = new Map(specs.map((s) => [s, one(s)]));
+    idx.scans = 0;
+    const got = indexCallNeighborsMany(idx)(specs);
+    assert.equal(idx.scans, 1);
+    assert.deepEqual(got, expected);
+    assert.deepEqual(got.get('src/a.c@alphaFn'), ['src/a.c@gammaFn'], 'the callee arm; findCallers rows carry caller_function, which this instrument does not read (recorded in the item draft)');
   });
 });

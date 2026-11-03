@@ -332,7 +332,116 @@ export function findCallers(idx, functionName, maxResults = 500, opts = {}) {
     return [];
   }
   idx._ensureFunctionIndex();
+  const job = prepareCallerJob(idx, functionName, maxResults, opts);
+  scanCallerJobs(idx, [job]);
+  return job.results;
+}
 
+/**
+ * Callers of MANY names in ONE pass over the inverted index
+ * (findcallers-one-pass-per-name-on-disk-index, 2026-11-03). findCallers
+ * answers one name with one full pass; on an on-disk inverted index
+ * (.Py314_site_pkg: 405 MB, 4.06 M entries, 11 s a pass) --claim-locate's
+ * navigation and connectivity asked for one pass per node, thousands a claim.
+ * Here every entry is handed to a job only when its bare name occurs as a
+ * token, which every pattern of a job requires, and the job's own patterns
+ * then decide exactly as in the one-name search.
+ *
+ * Returns { byName: Map<name, rows>, skipped: [names], passes }. A 1-2
+ * character name is SKIPPED (listed, empty rows) rather than thrown: one
+ * short name must not void the batch. findCallers keeps its throw. An index
+ * that cannot scan (a test fake exposing findCallers only) is served per name.
+ */
+export function findCallersMany(idx, names, maxResults = 500, opts = {}) {
+  const byName = new Map();
+  const skipped = [];
+  const uniq = [...new Set((names || []).map((n) => String(n || '')).filter(Boolean))];
+  const perName = (n) => (typeof idx.findCallers === 'function' ? idx.findCallers(n, maxResults, opts) : findCallers(idx, n, maxResults, opts));
+  if (typeof idx.forEachInvertedEntry !== 'function') {
+    for (const n of uniq) {
+      try { byName.set(n, perName(n) || []); } catch (e) {
+        if (e && e.code === 'SHORT_NAME_BAILOUT') { skipped.push(n); byName.set(n, []); } else throw e;
+      }
+    }
+    return { byName, skipped, passes: 0 };
+  }
+  if (!idx._ensureInvertedAvailable()) {
+    console.log('No inverted index. Build index first.');
+    for (const n of uniq) byName.set(n, []);
+    return { byName, skipped, passes: 0 };
+  }
+  idx._ensureFunctionIndex();
+  const jobs = [];
+  for (const n of uniq) {
+    try { jobs.push(prepareCallerJob(idx, n, maxResults, opts)); } catch (e) {
+      if (e && e.code === 'SHORT_NAME_BAILOUT') { skipped.push(n); byName.set(n, []); } else throw e;
+    }
+  }
+  scanCallerJobs(idx, jobs);
+  for (const j of jobs) byName.set(j.functionName, j.results);
+  return { byName, skipped, passes: jobs.length ? 1 : 0 };
+}
+
+/**
+ * Passes over an ON-DISK inverted index (the streaming path) and the entries
+ * each pass walks, counted here so --claim-locate can print what a run cost.
+ * An in-memory index iterates an object and is not counted.
+ */
+export const invertedScanStats = { passes: 0, entries: 0 };
+
+/** The matched pattern type of a line for a job, or null. */
+function matchCallerLine(job, line) {
+  for (const [patType, pattern] of job.callPatterns) {
+    if (pattern.test(line)) return patType;
+  }
+  return null;
+}
+
+/** One pass over the inverted index for one or more prepared jobs. */
+function scanCallerJobs(idx, jobs) {
+  if (!jobs.length) return;
+  let entries = 0;
+  if (jobs.length === 1) {
+    const job = jobs[0];
+    idx.forEachInvertedEntry((line, locations) => {
+      entries++;
+      const matchedType = matchCallerLine(job, line);
+      if (!matchedType) return;
+      collectCallerLine(idx, job, matchedType, line, locations);
+      if (job.done) return false; // early stop
+    });
+  } else {
+    // A line reaches a job only when the job's bare name occurs as a token.
+    // Every pattern (direct, qualified, indirect, reference) requires that,
+    // with the same lookbehind; the prefilter is case-insensitive and the
+    // job's own patterns, with their own case rule, decide.
+    const pre = new RegExp('(?<![a-zA-Z_])(?:' + jobs.map((j) => j.bareEsc).join('|') + ')(?![a-zA-Z0-9_])', 'i');
+    let open = jobs.length;
+    idx.forEachInvertedEntry((line, locations) => {
+      entries++;
+      if (!pre.test(line)) return;
+      for (const job of jobs) {
+        if (job.done) continue;
+        const matchedType = matchCallerLine(job, line);
+        if (!matchedType) continue;
+        collectCallerLine(idx, job, matchedType, line, locations);
+        if (job.done && --open === 0) return false;
+      }
+    });
+  }
+  if (idx._invertedOnDisk) {
+    invertedScanStats.passes++;
+    invertedScanStats.entries = Math.max(invertedScanStats.entries, entries);
+  }
+}
+
+/**
+ * One caller search prepared for a scan: the call patterns, the definition
+ * lines to exclude, the target definition (#343) and the result buffers.
+ * Throws SHORT_NAME_BAILOUT for a 1-2 character bare name unless
+ * opts.allowShortName.
+ */
+export function prepareCallerJob(idx, functionName, maxResults = 500, opts = {}) {
   // Extract bare name
   let bareName = functionName.includes('::') ? functionName.split('::').pop() : functionName;
   bareName = bareName.includes('.') ? bareName.split('.').pop() : bareName;
@@ -407,8 +516,6 @@ export function findCallers(idx, functionName, maxResults = 500, opts = {}) {
     }
   }
 
-  const results = [];
-  const seen = new Set();
   const bareEsc = escapeRegex(bareName);
 
   // Target-aware filtering (#343 ★A, "Find Callers merges same-named
@@ -435,106 +542,109 @@ export function findCallers(idx, functionName, maxResults = 500, opts = {}) {
     }
   }
 
-  idx.forEachInvertedEntry((line, locations) => {
-    // Check patterns
-    let matchedType = null;
-    for (const [patType, pattern] of callPatterns) {
-      if (pattern.test(line)) {
-        matchedType = patType;
-        break;
-      }
+  return {
+    functionName, bareName, bareEsc, callPatterns, definitionLocations, targetDef,
+    maxResults, results: [], seen: new Set(), done: false,
+  };
+}
+
+// A leading statement keyword means call, whatever the rest of the line
+// looks like (`return foo(a);` has the shape of a declaration).
+const STMT_KW_RE = /^\s*(?:return|await|yield|throw|case|new|delete|typeof|else|do|if|elif|while|for|switch|and|or|not|in|is|assert|print|co_return|co_yield|co_await)\b/;
+
+/**
+ * One inverted-index entry whose pattern matched a job: the declaration,
+ * definition and comment skips, then every location becomes a result row
+ * unless it is the definition itself, already seen, or (with a target, #343)
+ * unable to reach it. Sets job.done at maxResults.
+ */
+function collectCallerLine(idx, job, matchedType, line, locations) {
+  const { bareName, bareEsc, definitionLocations, targetDef, seen, results, maxResults } = job;
+  const isReference = matchedType === 'reference';
+
+  if (!isReference) {
+    const stripped = line.trimEnd();
+    const stmtKw = STMT_KW_RE;
+    // Skip declarations
+    if (stripped.endsWith(';') && !line.includes('{')) {
+      // `int foo(int a);` is a declaration; `return foo(a);` is a call that
+      // the same shape would swallow (every `return f(...)` site was being
+      // dropped from caller lists).
+      // `[\s*&]+` before the name: `tls_connection_t *tls_connect(...);` is
+      // a declaration too (the pointer written on the name).
+      const declRe = new RegExp('^\\s*[\\w\\s*&]+[\\s*&]+' + bareEsc + '\\s*\\([^)]*\\)\\s*;$');
+      if (declRe.test(line) && !stmtKw.test(line)) return;
     }
-    if (!matchedType) return;
-
-    const isReference = matchedType === 'reference';
-
-    if (!isReference) {
-      const stripped = line.trimEnd();
-      // A leading statement keyword means call, whatever the rest of the line
-      // looks like (`return foo(a);` has the shape of a declaration).
-      const stmtKw = /^\s*(?:return|await|yield|throw|case|new|delete|typeof|else|do|if|elif|while|for|switch|and|or|not|in|is|assert|print|co_return|co_yield|co_await)\b/;
-      // Skip declarations
-      if (stripped.endsWith(';') && !line.includes('{')) {
-        // `int foo(int a);` is a declaration; `return foo(a);` is a call that
-        // the same shape would swallow (every `return f(...)` site was being
-        // dropped from caller lists).
-        // `[\s*&]+` before the name: `tls_connection_t *tls_connect(...);` is
-        // a declaration too (the pointer written on the name).
-        const declRe = new RegExp('^\\s*[\\w\\s*&]+[\\s*&]+' + bareEsc + '\\s*\\([^)]*\\)\\s*;$');
-        if (declRe.test(line) && !stmtKw.test(line)) return;
-      }
-      // Skip a header whose parameter list continues on the next line:
-      // `tls_connection_t *tls_connect(const char *hostname, int port,` is a
-      // declaration or a definition, never a call (a call never starts with a
-      // type). The shipped demo's tls_handler.h:46 was listed as a
-      // `(file scope)` caller of tls_connect because of this.
-      if (!stripped.includes(')') && !stripped.includes(';') && !stripped.includes('=')) {
-        const headRe = new RegExp('^\\s*[\\w\\s*&:~<>,]+[\\s*&]+' + bareEsc + '\\s*\\([^)]*$');
-        if (headRe.test(stripped) && !stmtKw.test(stripped)) return;
-      }
-      // Skip definitions
-      if (stripped.endsWith('{')) {
-        const defRe = new RegExp('^\\s*[\\w\\s*&:~]+[\\s*&]+' + bareEsc + '\\s*\\([^)]*\\)\\s*(?:const\\s*)?(?:override\\s*)?(?:final\\s*)?\\{$');
-        if (defRe.test(stripped)) return;
-      }
-      // Skip inline constructors/destructors
-      if (stripped.endsWith('};') || stripped.endsWith('}')) {
-        const inlineRe = new RegExp('^\\s*~?' + bareEsc + '\\s*\\([^)]*\\)\\s*(?:const\\s*)?(?::\\s*[\\w()\\s,]+)?\\{.*\\}\\s*;?\\s*$');
-        if (inlineRe.test(stripped)) return;
-      }
-      // Skip copy/move constructors
-      const ctorRe = new RegExp('^\\s*' + bareEsc + '\\s*\\(\\s*(?:const\\s+)?' + bareEsc + '[\\s&*]*\\w*\\s*\\)\\s*\\{?\\s*$');
-      if (ctorRe.test(stripped)) return;
-      // Skip forward declarations
-      if (new RegExp('^\\s*(?:class|struct|enum|union)\\s+' + bareEsc + '\\s*;').test(stripped)) return;
+    // Skip a header whose parameter list continues on the next line:
+    // `tls_connection_t *tls_connect(const char *hostname, int port,` is a
+    // declaration or a definition, never a call (a call never starts with a
+    // type). The shipped demo's tls_handler.h:46 was listed as a
+    // `(file scope)` caller of tls_connect because of this.
+    if (!stripped.includes(')') && !stripped.includes(';') && !stripped.includes('=')) {
+      const headRe = new RegExp('^\\s*[\\w\\s*&:~<>,]+[\\s*&]+' + bareEsc + '\\s*\\([^)]*$');
+      if (headRe.test(stripped) && !stmtKw.test(stripped)) return;
     }
-
-    // Skip comments
-    const strippedForComment = line.trimStart();
-    if (strippedForComment.startsWith('//') || strippedForComment.startsWith('*') || strippedForComment.startsWith('/*')) return;
-
-    // Process each location
-    for (const [filepath, lineNumbers] of locations) {
-      for (const lineNum of lineNumbers) {
-        if (definitionLocations.has(`${filepath}:${lineNum}`)) continue;
-        const key = `${filepath}:${lineNum}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-
-        const callerFunc = idx._findContainingFunctionFromIndex(filepath, lineNum);
-        if (targetDef) {
-          const info = callerFunc && idx.functionIndex && idx.functionIndex[filepath]
-            ? idx.functionIndex[filepath][callerFunc] : null;
-          const siteSpan = info ? { start: info.start, end: info.end } : { start: lineNum, end: lineNum };
-          if (!_reachable(idx, targetDef, filepath, siteSpan)) continue;
-        }
-
-        // Determine call type
-        let callType;
-        if (matchedType === 'indirect' || matchedType === 'reference') {
-          callType = matchedType;
-        } else if (line.includes('->' + bareName)) {
-          callType = 'method_ptr';
-        } else if (line.includes('.' + bareName)) {
-          callType = 'method_dot';
-        } else if (line.includes('::' + bareName)) {
-          callType = 'qualified';
-        } else {
-          callType = 'direct';
-        }
-
-        results.push({
-          filepath, line_number: lineNum,
-          line_text: line.trim(),
-          caller_function: callerFunc,
-          call_type: callType,
-        });
-
-        if (results.length >= maxResults) return false; // early stop
-      }
+    // Skip definitions
+    if (stripped.endsWith('{')) {
+      const defRe = new RegExp('^\\s*[\\w\\s*&:~]+[\\s*&]+' + bareEsc + '\\s*\\([^)]*\\)\\s*(?:const\\s*)?(?:override\\s*)?(?:final\\s*)?\\{$');
+      if (defRe.test(stripped)) return;
     }
-  });
-  return results;
+    // Skip inline constructors/destructors
+    if (stripped.endsWith('};') || stripped.endsWith('}')) {
+      const inlineRe = new RegExp('^\\s*~?' + bareEsc + '\\s*\\([^)]*\\)\\s*(?:const\\s*)?(?::\\s*[\\w()\\s,]+)?\\{.*\\}\\s*;?\\s*$');
+      if (inlineRe.test(stripped)) return;
+    }
+    // Skip copy/move constructors
+    const ctorRe = new RegExp('^\\s*' + bareEsc + '\\s*\\(\\s*(?:const\\s+)?' + bareEsc + '[\\s&*]*\\w*\\s*\\)\\s*\\{?\\s*$');
+    if (ctorRe.test(stripped)) return;
+    // Skip forward declarations
+    if (new RegExp('^\\s*(?:class|struct|enum|union)\\s+' + bareEsc + '\\s*;').test(stripped)) return;
+  }
+
+  // Skip comments
+  const strippedForComment = line.trimStart();
+  if (strippedForComment.startsWith('//') || strippedForComment.startsWith('*') || strippedForComment.startsWith('/*')) return;
+
+  // Process each location
+  for (const [filepath, lineNumbers] of locations) {
+    for (const lineNum of lineNumbers) {
+      if (definitionLocations.has(`${filepath}:${lineNum}`)) continue;
+      const key = `${filepath}:${lineNum}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const callerFunc = idx._findContainingFunctionFromIndex(filepath, lineNum);
+      if (targetDef) {
+        const info = callerFunc && idx.functionIndex && idx.functionIndex[filepath]
+          ? idx.functionIndex[filepath][callerFunc] : null;
+        const siteSpan = info ? { start: info.start, end: info.end } : { start: lineNum, end: lineNum };
+        if (!_reachable(idx, targetDef, filepath, siteSpan)) continue;
+      }
+
+      // Determine call type
+      let callType;
+      if (matchedType === 'indirect' || matchedType === 'reference') {
+        callType = matchedType;
+      } else if (line.includes('->' + bareName)) {
+        callType = 'method_ptr';
+      } else if (line.includes('.' + bareName)) {
+        callType = 'method_dot';
+      } else if (line.includes('::' + bareName)) {
+        callType = 'qualified';
+      } else {
+        callType = 'direct';
+      }
+
+      results.push({
+        filepath, line_number: lineNum,
+        line_text: line.trim(),
+        caller_function: callerFunc,
+        call_type: callType,
+      });
+
+      if (results.length >= maxResults) { job.done = true; return; } // early stop
+    }
+  }
 }
 
 
