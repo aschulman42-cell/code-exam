@@ -1,22 +1,40 @@
 flowchart TD
   modules[Browser modules]
+  askchat[Ask in Chat link]
   routes[Route table]
+  exec[Exec route]
+  handlers[REPL command handlers]
   manager[IndexManager]
   runner[Chat runner]
-  llm[LLM engines]
+  askai[ask-ai command]
+  overview[Overview by AI]
   handle[handleTool]
   tools[TOOLS table]
+  mcpproc[MCP server process]
   external[External MCP clients]
+  llm[LLM engines]
 
   modules -->|fetch api endpoints| routes
+  askchat -->|prefills; a person sends| modules
+  modules -->|Console tab| exec
+  exec -->|not through handleTool| handlers
   routes -->|gets the active index| manager
+  manager -->|setIndex pushes the index| handle
   routes -->|chat routes| runner
-  runner -->|model turns| llm
+  askai -->|same loops| runner
+  routes -->|Overview by AI route| overview
   runner -->|tool calls in-process| handle
-  external -->|stdio child process| handle
-  tools -->|one registration| runner
-  tools -->|one registration| external
-  handle -->|masked results from| manager
+  overview -->|local: in-process| handle
+  overview -->|cloud: stdio child| mcpproc
+  external -->|stdio child process| mcpproc
+  mcpproc -->|loads its own index| handle
+  runner -->|model turns| llm
+  overview -->|model turns| llm
+  tools -->|all, or 8 for local| runner
+  tools -->|16 tools| overview
+  tools -->|all tools| mcpproc
 
-%% tip: TOOLS table :: The only registration of what a model can call.
-%% tip: handleTool :: One router for every path, in-process or over stdio.
+%% tip: TOOLS table :: One table, three menus: all tools, 16 for the overview, 8 for a local model.
+%% tip: handleTool :: One router for model tool calls. The Console's exec route does not use it.
+%% tip: Ask in Chat link :: Only fills in the Chat box. A person still presses Enter.
+%% tip: Chat runner :: On a local model it adds GGUF-specific handling: see its detail.

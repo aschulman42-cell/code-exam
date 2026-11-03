@@ -1,34 +1,47 @@
 flowchart TD
   claim[Claim text]
   search[Claim Search]
+  analyze[Claim Analyze]
   splitter[Element splitter]
   vocab[Vocabulary prediction]
   retrieval[Per-element retrieval]
   locate[Claim Locate]
+  owntargets[Your own targets]
+  mcptools[MCP claim tools]
   chart[Claim Chart]
   verdicts[Verdicts and sidecar]
   examiner[Human examiner]
+  anchors[Anchors or candidates]
   pseudo[Pseudo-claims]
-  loop[Claims loop]
+  loopscript[Pseudo-claim loop script]
   synonymize[Synonymize]
+  score[Loop score]
+  claimsloop[Claims loop]
 
   claim -->|model extracts terms| search
+  claim -->|search, then analyze| analyze
   claim -->|deterministic split| splitter
+  claim -->|agent supplies words| mcptools
   splitter -->|model predicts words| vocab
   vocab -->|rarity search, no quorum| retrieval
   retrieval -->|no targets given| chart
-  retrieval -->|verify and navigate| locate
-  locate -->|person passes targets| chart
+  retrieval -->|per-element arm, CLI only| analyze
+  retrieval -->|model selects, verify, navigate| locate
+  locate -->|a person passes targets| chart
+  owntargets -->|targets flag| chart
   chart -->|model fills cells| verdicts
-  verdicts -->|person checks citations| examiner
-  pseudo -->|person runs the chart| loop
-  pseudo -->|person runs a rewrite| synonymize
-  synonymize -->|rewritten claim re-run| claim
+  verdicts -->|a person checks citations| examiner
+  anchors -->|drafted from| pseudo
+  pseudo -->|claims-only file| loopscript
+  loopscript -->|rewrites wording| synonymize
+  synonymize -->|blind chart| chart
+  loopscript -->|blind chart| chart
+  chart -->|sidecar vs anchors| score
+  pseudo -->|pseudo chart plus ranked list| claimsloop
 
-%% tip: Claim Chart :: The core deliverable: one row per element. Run from the CLI at this commit.
-%% tip: Claim Search :: Available in the CLI and in the GUI's Claims Workspace. Whole-claim, so it has the quorum problem.
-%% tip: person passes targets :: Depends on a person: --targets-out writes a file, and someone hands it to --targets.
-%% tip: person checks citations :: Depends on a person: the chart asks for every citation to be verified.
-%% tip: person runs the chart :: Depends on a person running --claims-loop.
-%% tip: person runs a rewrite :: Depends on a person running --synonymize.
-%% tip: rewritten claim re-run :: Depends on a person or a script feeding the rewritten claim back in.
+%% tip: Claim Chart :: The core deliverable: one row per element. CLI only at this commit.
+%% tip: Claim Analyze :: CLI: whole-claim search plus a per-element arm. GUI: analyzes one top function.
+%% tip: Pseudo-claims :: A drafting and self-test feature, not the front end of the pipeline. A real claim enters at Claim text.
+%% tip: Claims loop :: Fills pseudo-claim chart cells and writes a _looped.md file. It does not run Claim Chart.
+%% tip: a person passes targets :: Depends on a person: --targets-out writes a file, and someone hands it to --targets.
+%% tip: a person checks citations :: Depends on a person: the chart asks for every citation to be verified.

@@ -1,22 +1,37 @@
 flowchart TD
   flags[Command-line flags]
-  env[Environment and key files]
+  env[Environment variables]
+  keyfiles[Key files]
+  air[Air-gapped guard]
+  probe[Connectivity probe]
   providers[Provider registry]
   gguf[Local GGUF model]
-  runner[LLM runner]
+  llmrunner[LLM runner]
+  runners[Chat and Overview runners]
+  serverllm[GUI server's own client]
   cloud[Cloud endpoints]
-  air[Air-gapped guard]
   bind[GUI bind address]
+  outside[Outside the guard]
 
-  flags -->|names a model| runner
-  env -->|supplies API keys| providers
-  providers -->|cloud descriptor| runner
-  gguf -->|path from flags| runner
-  runner -->|cloud calls| cloud
-  air -->|blocks before the network| runner
-  air -->|deletes keys| env
-  flags -->|host flag| bind
+  flags -->|air-gapped flag, opt-in| air
+  air -->|deletes env keys only| env
+  air -->|startup check| probe
+  env -->|API keys| providers
+  keyfiles -->|API keys, not scrubbed| providers
+  providers -->|cloud descriptor| llmrunner
+  flags -->|names a model| llmrunner
+  gguf -->|path from flags| llmrunner
+  llmrunner -->|cloud calls| cloud
+  runners -->|cloud calls| cloud
+  serverllm -->|cloud calls| cloud
+  air -->|guards each caller| llmrunner
+  air -->|guards each caller| runners
+  air -->|guards each caller| serverllm
+  flags -->|host flag, server.js only| bind
   air -->|refuses non-loopback| bind
+  air -->|does not reach| outside
 
-%% tip: Air-gapped guard :: Two layers: keys scrubbed at startup, every cloud call site guarded.
-%% tip: GUI bind address :: Loopback by default, and unauthenticated if you change it.
+%% tip: Air-gapped guard :: Opt-in. Blocks CodeExam's own cloud AI calls. It is not a network sandbox.
+%% tip: air-gapped flag, opt-in :: Nothing is guarded unless the flag is given. Typed with an underscore to node src/server.js directly, it is silently ignored.
+%% tip: Connectivity probe :: One TCP connect to api.anthropic.com at startup. A clean result does not prove isolation.
+%% tip: Outside the guard :: The standalone MCP server, images in rendered chat answers, and what you save.

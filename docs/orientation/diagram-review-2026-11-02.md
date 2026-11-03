@@ -4,9 +4,20 @@ A review of the six diagrams in this site, as committed at `0554d49`, against th
 `98abef1`. Six read-only subagents each reviewed one diagram and its detail file. They ran nothing:
 every finding comes from reading code and docs. Written by Claude Opus 5.5 in Bram 0.8.2.
 
-**None of these findings has been applied to the site yet.** Until they are, the diagrams still
-contain the errors listed here. The reports are model output, so check a finding against the code
-before relying on it. In the combined report, ✓ marks findings the main session verified against the
+**Status, 2026-11-03.** The diagram findings below have been applied: all six diagrams were redrawn
+at pin `f9756fe` on the principle "show every route into a box, and make 'one of several' visible".
+Before drawing, each claim was checked against the code. What was not applied:
+
+- **The possible CodeExam bugs** are in CodeExam's code, not the site, so they're still open. The
+  site's Configuration diagram now describes the `--air_gapped` behavior and the parts outside the
+  guard.
+- **Two queue notes were outside the review's scope** and are still open: a Glossary tab, and
+  comparing this site with CE's own Overview and Overview by AI.
+- **Some findings were judged too fine-grained to draw.** They're left in the reports below, for
+  example the reviewer's exact phase ordering of prettify and dedup, which the diagram combines into
+  one box.
+
+The reports are model output, so check a finding against the code before relying on it. In the combined report, ✓ marks findings the main session verified against the
 code. Everything else is a reviewer's report that the main session did not separately verify. Paths
 are relative to the repo root.
 

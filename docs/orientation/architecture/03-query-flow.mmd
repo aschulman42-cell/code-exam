@@ -1,23 +1,31 @@
 flowchart TD
   query[A query]
+  hybrid[Hybrid search]
   literal[Literal and regex scan]
-  inverted[Inverted lookup]
+  inverted[Inverted line-key scan]
   multisect[Multisect scan]
-  calls[Call graph]
-  scopes[Function class file folder matches]
-  idf[IDF ranking]
-  result[Ranked result]
+  scopes[Scope matches]
+  idf[IDF and density rerank]
+  callers[Callers]
+  callees[Callees]
+  result[Result]
 
-  query -->|search and regex| literal
-  query -->|fast| inverted
+  query -->|literal and regex, CLI and MCP| literal
+  query -->|search flag| hybrid
+  hybrid -->|literal path| literal
+  query -->|fast, and GUI regex| inverted
   query -->|multi-term| multisect
-  query -->|callers and callees| calls
-  calls -->|candidate lines| inverted
+  query -->|callers| callers
+  query -->|callees| callees
+  callers -->|scans keys for call patterns| inverted
+  callees -->|reads the function body| result
   multisect -->|two phases| scopes
-  scopes -->|CLI and GUI rerank| idf
-  idf -->|by scope| result
-  literal -->|context lines| result
-  inverted -->|matching lines| result
+  scopes -->|CLI and GUI| idf
+  scopes -->|MCP, no rerank| result
+  idf -->|ranked scopes| result
+  literal -->|unscored, file order| result
+  inverted -->|unscored, skips common lines| result
 
-%% tip: Multisect scan :: Scans fileLines with regexes. It does not use the inverted index.
-%% tip: Call graph :: Callers do use the inverted index.
+%% tip: Inverted line-key scan :: Tests every stored line against the pattern. Lines in more than 50 files were never stored.
+%% tip: Multisect scan :: Scans file lines directly. It does not use the inverted index.
+%% tip: IDF and density rerank :: Only multisect results are ranked; literal and inverted results carry a score of 0.

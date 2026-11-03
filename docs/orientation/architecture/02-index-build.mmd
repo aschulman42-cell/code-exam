@@ -1,20 +1,35 @@
 flowchart TD
-  source[Source input]
-  worker[GUI build worker]
-  walk[File walk and expansion]
+  request[A person starts a build]
+  triage[Triage by file type]
+  archives[Archive expansion]
+  binaries[Binary strings]
+  skipped[Skipped and census]
+  dedup[SHA1 dedup and prettify]
+  lines[In-memory file lines]
   literal[(literal_index.json)]
   inverted[(inverted_index.json)]
   functions[(function_index.json)]
   renames[(rename_map.json)]
   strings[(string_table.json)]
+  lazy[(Lazy caches)]
+  zip[Index zip]
 
-  source -->|a person rebuilds| walk
-  worker -->|runs the same buildIndex| walk
-  walk -->|saves files and lines| literal
-  walk -->|writes lines to files| inverted
-  walk -->|tree-sitter or regex| functions
+  request -->|CLI or Build dialog| triage
+  triage -->|source files| dedup
+  triage -->|zip tar gz har| archives
+  triage -->|executables| binaries
+  triage -->|media and unknown| skipped
+  archives -->|entries, nested to depth 5| dedup
+  binaries -->|pseudo-source| dedup
+  dedup -->|unique files| lines
+  lines -->|saved first| literal
+  lines -->|line to files, skips common| inverted
+  lines -->|tree-sitter plus regex| functions
   functions -->|infers display names| renames
-  walk -->|harvests strings| strings
+  functions -->|string bounds| strings
+  functions -->|built later, on demand| lazy
+  zip -->|loaded instead of built| literal
 
-%% tip: a person rebuilds :: Depends on a person: nothing watches the source, so an index stays as it was built.
-%% tip: tree-sitter or regex :: Tree-sitter is now the default; --regex-parser opts out.
+%% tip: A person starts a build :: Nothing watches the source. An index stays as it was built until someone rebuilds it.
+%% tip: line to files, skips common :: Lines under 4 characters, or found in more than 50 files, are not indexed. Searches that use this index can miss them.
+%% tip: tree-sitter plus regex :: Per file, not either/or: regex runs too, and the results are merged.

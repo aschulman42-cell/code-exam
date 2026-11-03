@@ -67,4 +67,4 @@ Real, but they can wait.
 
 ### This map's limits
 
-It was written from the source and docs, and nothing was run. Line-level facts are checked, but they are "as of" `f9756fe`. A six-diagram review found errors and omissions not yet fixed; see [`diagram-review-2026-11-02.md`](https://github.com/aschulman42-cell/code-exam/blob/f9756feb01d1b952606991d214098dfe16b16f79/docs/orientation/diagram-review-2026-11-02.md). Issue statuses were read on 2026-11-02. Local files outside git (`.bram.json`, `.mcp.json`, `start.sh`) are not part of the project and are not described.
+It was written from the source and docs, and nothing was run. Line-level facts are checked, but they are "as of" `f9756fe`. A six-diagram review found errors and omissions, and the diagrams were redrawn to address them; the review, with what was applied, is in [`diagram-review-2026-11-02.md`](https://github.com/aschulman42-cell/code-exam/blob/f9756feb01d1b952606991d214098dfe16b16f79/docs/orientation/diagram-review-2026-11-02.md). Issue statuses were read on 2026-11-02. Local files outside git (`.bram.json`, `.mcp.json`, `start.sh`) are not part of the project and are not described.

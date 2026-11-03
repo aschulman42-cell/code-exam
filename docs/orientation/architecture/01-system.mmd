@@ -5,6 +5,8 @@ flowchart TD
   repl[Interactive REPL]
   gui[GUI server]
   mcp[MCP server]
+  router[Tool router]
+  runners[AI runners]
   commands[Command modules]
   engine[CodeSearchIndex engine]
   store[(On-disk index)]
@@ -12,15 +14,24 @@ flowchart TD
 
   browser -->|calls api routes| gui
   aiclients -->|speaks MCP over stdio| mcp
-  cli -->|dispatches one command| commands
+  cli -->|if-chain dispatch| commands
+  cli -->|build and inline commands| engine
   repl -->|same do handlers| commands
   gui -->|route handlers| engine
-  mcp -->|handleTool| engine
+  gui -->|exec route and shared helpers| commands
+  mcp -->|handleTool| router
+  router -->|query the index| engine
   commands -->|query the index| engine
+  cli -->|ask-ai and Overview by AI| runners
+  gui -->|Chat and Overview by AI| runners
+  runners -->|tool calls in-process| router
+  runners -->|model calls| llm
+  commands -->|analyze and claim drafting| llm
+  gui -->|its own model calls| llm
   engine -->|builds saves loads| store
-  commands -->|only on AI commands| llm
 
+%% tip: Tool router :: The TOOLS table and handleTool. Used by external MCP clients and, in-process, by CodeExam itself.
+%% tip: AI runners :: Chat loops, Overview by AI, and the LLM runner. Several paths, not one.
+%% tip: LLM engines :: Optional. Reached from three places, each guarded under --air-gapped.
 %% tip: CodeSearchIndex engine :: The one engine all four front-ends share.
-%% tip: On-disk index :: A directory of plain JSON files. Build once, query from any front-end.
-%% tip: LLM engines :: Optional. Claude, ChatGPT, Gemini, or a local GGUF model.
-%% tip: only on AI commands :: The core loop has no model in it.
+%% tip: On-disk index :: A directory of plain JSON files, or a .zip holding one.

@@ -26,17 +26,17 @@
   };
   const ARCHITECTURE = [
     {file: "01-system.mmd", title: "System at a glance",
-      note: "The four front-ends, the one engine, and where state lives. Click a box or arrow for detail."},
+      note: "The four front-ends, the one engine, and where state lives. Several paths reach the engine and the models: click a box or arrow for detail."},
     {file: "02-index-build.mmd", title: "Index build",
-      note: "What --build-index produces. Nothing rebuilds an index unless a person does: see the a person rebuilds arrow."},
+      note: "What --build-index does, one box per decision that changes what lands in the index. Nothing rebuilds an index unless a person does."},
     {file: "03-query-flow.mmd", title: "Query flow",
-      note: "How queries reach the data. Note that multisect does not use the inverted index."},
+      note: "How each kind of query reaches the data. Different front-ends take different routes, and only multisect results are ranked."},
     {file: "04-claims-pipeline.mmd", title: "Claims pipeline",
-      note: "From claim text to a chart. The arrows starting with person are hand-offs a person makes; their tips say so."},
+      note: "From a claim to a chart, with the self-test path drawn separately. Arrows that start with “a person” are hand-offs; their tips say so."},
     {file: "05-gui-and-agents.mmd", title: "GUI and agents",
-      note: "The browser, the routes, and the one tool table every model-facing surface shares."},
+      note: "Every route into Chat, Overview by AI and the tool router, and the one tool table with three menus."},
     {file: "06-configuration.mmd", title: "Configuration and environment",
-      note: "Which engine runs, what keys it uses, and what --air-gapped blocks."},
+      note: "Which engine runs, what keys it uses, and what --air-gapped does and does not guard."},
   ];
   // ------------------------------------------------------------------------
 
