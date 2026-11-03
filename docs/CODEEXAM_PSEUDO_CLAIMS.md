@@ -678,7 +678,11 @@ drafts can be located with a second model; `--dry-run` runs the grouper only and
 rest with the cost figures. Every step is a `ce` command, echoed, and the report
 (`hof_report.md`, `.json`) lands under `%LOCALAPPDATA%\CodeExam\hof\`. Without the
 synonymize step the drafter's own vocabulary goes back in, so the result is a floor; the
-ladder, not a single number, is what to read.
+ladder, not a single number, is what to read. `scripts/hof-stage1.mjs` reads the same run
+directories and asks a different question, with no model: scored by the text a grouper
+group already carries (label, purpose, member and file names), where does the group a claim
+was drafted from rank among all the groups of its index? It is the feasibility check for
+retrieving from a mechanisms index instead of the symbol table (issue #359).
 
 ## See also
 

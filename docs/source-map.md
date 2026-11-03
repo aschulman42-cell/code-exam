@@ -159,6 +159,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `scripts/engine-qualify.mjs` — pass/fails an engine on pinned negative+positive chart sidecars; no model calls
 - `scripts/field-note.mjs` — turns an annotated CE transcript's [[comments]] into a post-ready markdown checklist
 - `scripts/hof.mjs` — runs the HOF test from one index name: draft pseudo-claims, locate each with --claim-locate, score the drafter's anchors against the located targets on the ladder
+- `scripts/hof-stage1.mjs` — scores every HOF claim against every grouper group of its index by tier-0 text (BM25, no model): where does the drafted group rank?
 - `scripts/hunt-repeat.mjs` — reruns one --claim-locate --hunt command N times and reports the distribution
 - `scripts/litigated-claims-fetch.mjs` — fetches litigated US patents' claim 1 + dependents from Google Patents
 - `scripts/pseudo-claim-loop.mjs` — runs the pseudo-claim loop: synonymize, chart blind, score vs answer key
@@ -218,6 +219,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_help_filter.js` — filterHelp: entry blocks and continuation lines, section headers, no-match report
 - `test/test_help_flags.js` — help discoverability: --gui/--port/--load-index in --help; --load-index synonym
 - `test/test_hof.js` — hof script: candidates and targets parsing, the ladder scoring, the command builder, the rank join
+- `test/test_hof_stage1.js` — hof-stage1 script: group records from cand.lst, BM25 and overlap ranking, the control, the report, unreadable runs reported not thrown
 - `test/test_hotspots.js` — #187: hotspots and entry_points skip vendored/minified files that stay indexed
 - `test/test_hunt_repeat.js` — hunt-repeat harness: the run-report parser behind every reported distribution
 - `test/test_imports.js` — BoM tier 1: JS/C/Java/C# extractors, resolver classes, platform lists, residue; HTML and template tags; lockfiles and the joins
