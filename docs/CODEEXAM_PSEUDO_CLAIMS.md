@@ -144,7 +144,7 @@ Further example pseudo-claims, describing some of CodeExam's own core features, 
 developed by hand-editing and AI-editing pseudo-claim output from CodeExam, and are available
 in the [`docs/pseudo-claim-rubrics/`](pseudo-claim-rubrics/) folder. The rubrics are being
 developed to score automatically-generated results of the --pseudo-claims feature, and to
-create more-realistic synthetic data for the "HOF" ("humming our own fumes") test of CodeExam
+create more-realistic synthetic data for the "HOF" ("huffing our own fumes") test of CodeExam
 --claim-chart/-search/-locate features (see [`CODEEXAM_CLAIM_CHARTS.md`](CODEEXAM_CLAIM_CHARTS.md)).
 As a meta example, see the current rubrics for the mechanism within pseudo-claims that identifies
 [candidate mechanism groups in a codebase](pseudo-claim-rubrics/pseudo-claims-candidates.md),
