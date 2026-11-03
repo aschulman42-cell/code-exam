@@ -408,6 +408,7 @@ export function parseArgs() {
     no_pack_constants: false, // --no-pack-constants: leave the module-level constants a group's functions name out of its evidence pack (pseudo-claims-pack-constants-components-anchors)
     no_anchors_reask: false, // --no-anchors-reask: do not ask the drafter once more for the ANCHORS block when a complete reply has none (pseudo-claims-anchors-reask)
     shape_profile: 'litigated', // --pseudo-claims: which claim population the draft should resemble (litigated|ai-ml|randpat)
+    form_rules: 'current', // --pseudo-claims: which drafting rules the prompt carries; 2026-10 = before the purpose-preamble and whereby rules of 2026-11-01 (hof-one-command)
     claim_schema: false,  // --pseudo-claims: draft a claim OBJECT under a schema whose frame comes from the litigated population; CE renders the text (#322, experimental)
     doc_anchors: false,   // --candidates: attach best-matching doc sections as path@L anchors (#289 enrichment)
     rank: false,
@@ -643,6 +644,7 @@ export function parseArgs() {
     ['no_pack_constants',    'flag',           ['--no-pack-constants']],
     ['no_anchors_reask',     'flag',           ['--no-anchors-reask']],
     ['shape_profile',        'value',          ['--shape-profile']],
+    ['form_rules',           'value',          ['--form-rules']],
     ['doc_anchors',          'flag',           ['--doc-anchors']],
     ['rank',                 'flag',           ['--rank']],
     ['include_evidence_pack', 'flag',          ['--include-evidence-pack']],
@@ -1071,6 +1073,11 @@ export function parseArgs() {
   // --shape-profile is an enumeration; a typo must not silently become the default population.
   if (!['litigated', 'ai-ml', 'randpat'].includes(String(args.shape_profile))) {
     console.error(`--shape-profile must be "litigated", "ai-ml" or "randpat", got "${args.shape_profile}".`);
+    process.exit(2);
+  }
+  // --form-rules is an enumeration too; a typo must not silently draft on today's rules.
+  if (!['current', '2026-10'].includes(String(args.form_rules))) {
+    console.error(`--form-rules must be "current" or "2026-10", got "${args.form_rules}".`);
     process.exit(2);
   }
   // --local-reasoning <on|off> is the CLI front-door for the local thinking-model
@@ -1784,6 +1791,16 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              profile (words, rows, mechanism elements,
                              dependents and their kind) in the artifact and
                              the sidecar. Length is a report, not a goal.
+  --form-rules <mode>        --pseudo-claims: which drafting rules the prompt
+                             carries. current (default): antecedent basis, the
+                             purpose preamble, no example inside an element,
+                             and the optional closing "whereby" clause.
+                             2026-10: the prompt as it stood before 2026-11-01,
+                             antecedent basis and no-example only, so the same
+                             groups can be drafted before and after the two
+                             newer rules (scripts/hof.mjs passes it through).
+                             The artifact still reports the result-clause
+                             rate; it reads the drafts.
   --doc-anchors              With --candidates: attach each group's best-
                              matching documentation sections as path@L<a>-<b>
                              anchors (docs cited as evidence in packs and

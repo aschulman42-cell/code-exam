@@ -482,11 +482,18 @@ const PSEUDO_SYS_TAIL_SCHEMA_TAIL =
   'to ADD one step, or (apparatus) "wherein the processor is further ' +
   'configured to" to ADD one operation; `text` is the clause after those ' +
   'words, with no claim number and no "The method of claim". Write as many ' +
-  'dependents as the material genuinely supports; none is allowed. ' +
+  'dependents as the material genuinely supports; none is allowed. ';
+const PSEUDO_SYS_TAIL_SCHEMA_WHEREBY =
   'whereby — the closing result clause of CLAIM 1, the words after "whereby", ' +
   'ONLY where the WHEREBY rule calls for one; otherwise an empty string (most claims).';
-function pseudoSysTailSchema(claimClass) {
-  return PSEUDO_SYS_TAIL_SCHEMA_HEAD + (PSEUDO_SYS_TAIL_SCHEMA_CLASS[claimClass] || PSEUDO_SYS_TAIL_SCHEMA_CLASS.method) + PSEUDO_SYS_TAIL_SCHEMA_TAIL;
+// Under --form-rules 2026-10 the `whereby` field stays in the schema (strict
+// copies require it) and the instruction to fill it is replaced by this, so it
+// comes back empty and the draft ends on its last element.
+const PSEUDO_SYS_TAIL_SCHEMA_NO_WHEREBY =
+  'whereby — an empty string; this draft ends on its last element.';
+function pseudoSysTailSchema(claimClass, { whereby = true } = {}) {
+  return PSEUDO_SYS_TAIL_SCHEMA_HEAD + (PSEUDO_SYS_TAIL_SCHEMA_CLASS[claimClass] || PSEUDO_SYS_TAIL_SCHEMA_CLASS.method)
+    + PSEUDO_SYS_TAIL_SCHEMA_TAIL + (whereby ? PSEUDO_SYS_TAIL_SCHEMA_WHEREBY : PSEUDO_SYS_TAIL_SCHEMA_NO_WHEREBY);
 }
 
 // The machine classes (system, apparatus) draft under the population's machine-class shape
@@ -524,31 +531,34 @@ export function classesForMode(mode, section) {
 // element open-ended, under purpose-less preambles. Two rules, in every
 // class and in the schema form; antecedentCheck below reports the first one
 // per claim, beside the shape line, and does not rewrite.
-export const PSEUDO_SYS_FORM_RULES =
+const RULE_ANTECEDENT =
   'ANTECEDENT BASIS: introduce each component or step ONCE with "a" or "an" ' +
   '("a vocabulary of identifier tokens") and refer back to it afterward with ' +
   '"the" or "said" ("the vocabulary"); never write "the X" for an X that no ' +
   'earlier limitation introduced. The point is that the limitations tie ' +
   'together into ONE mechanism: each later limitation builds on something an ' +
-  'earlier one introduced. ' +
-  // pseudo-claims-purpose-preamble-and-whereby (2026-11-01), Andrew after the
-  // Bram run: the preamble names the purpose of the mechanism, as the rubric
-  // pages' own claim 1s do ("orienting a reader to a body of source code from
-  // an index of it"), not the code's activity ("managing a pseudo-terminal
-  // session"); and claim 1 may close on a non-limiting "whereby" clause. The
-  // clause is a judgment with a stated prior, about one claim in six, between
-  // the litigated population's habit (28 of 380 claim 1s close on a result
-  // clause, 7%, measured 2026-11-01) and the every-claim style of a July
-  // hand-drafted set; the artifact reports the rate beside the population's.
+  'earlier one introduced. ';
+// pseudo-claims-purpose-preamble-and-whereby (2026-11-01), Andrew after the
+// Bram run: the preamble names the purpose of the mechanism, as the rubric
+// pages' own claim 1s do ("orienting a reader to a body of source code from
+// an index of it"), not the code's activity ("managing a pseudo-terminal
+// session"); and claim 1 may close on a non-limiting "whereby" clause. The
+// clause is a judgment with a stated prior, about one claim in six, between
+// the litigated population's habit (28 of 380 claim 1s close on a result
+// clause, 7%, measured 2026-11-01) and the every-claim style of a July
+// hand-drafted set; the artifact reports the rate beside the population's.
+const RULE_PREAMBLE =
   'The PREAMBLE states the PURPOSE of the mechanism in plain words: what it ' +
   'does for the system or its operator and under what constraint, as a reader ' +
   'would say it ("a method of keeping two replicas consistent while one is ' +
   'unreachable"), never the code\'s activity restated as a gerund ("a method ' +
   'for processing replica log entries"); take it from the MECHANISM line and ' +
-  'the code\'s own comments; no example and no list. ' +
+  'the code\'s own comments; no example and no list. ';
+const RULE_NO_EXAMPLE =
   'NO EXAMPLE INSIDE AN ELEMENT: "for example", "such as", "e.g." ' +
   'and lists of instances leave an element open-ended; an element states the ' +
-  'rule, and a dependent claim carries an instance of it. ' +
+  'rule, and a dependent claim carries an instance of it. ';
+const RULE_WHEREBY =
   'WHEREBY: when the recited elements together bring about a result that the ' +
   'preamble does not already state, END claim 1 with ONE clause beginning ' +
   '"whereby" that states that result as a consequence, in the claim\'s own ' +
@@ -557,11 +567,30 @@ export const PSEUDO_SYS_FORM_RULES =
   'such a clause, so add it only where the result is real and unstated, and ' +
   'otherwise end on the last element. ';
 
-export function buildPseudoClaimSys(profileName = DEFAULT_SHAPE_PROFILE, claimClass = 'method', { schema = false } = {}) {
+// hof-one-command (2026-11-03): `--form-rules <current|2026-10>` chooses which
+// rules the drafter is given. `current` is all four in the order they were
+// added to the prompt (the rendering every run since d3716a9 has used, kept
+// byte-identical); `2026-10` is the prompt as it stood before d3716a9 on
+// 2026-11-01: antecedent basis and no-example only, no purpose preamble, no
+// whereby clause, and no optional "[, whereby <result>]" in the format lines
+// or whereby instruction in the schema tail. A flag rather than an environment
+// variable so the choice prints in the command line the artifact and the
+// sidecar record. Unknown modes are refused by argparse; here they render as
+// `current` so an importer cannot draft on a silently emptied rule set.
+export const FORM_RULES_MODES = ['current', '2026-10'];
+export function formRulesText(mode = 'current') {
+  if (mode === '2026-10') return RULE_ANTECEDENT + RULE_NO_EXAMPLE;
+  return RULE_ANTECEDENT + RULE_PREAMBLE + RULE_NO_EXAMPLE + RULE_WHEREBY;
+}
+export const PSEUDO_SYS_FORM_RULES = formRulesText('current');
+
+export function buildPseudoClaimSys(profileName = DEFAULT_SHAPE_PROFILE, claimClass = 'method', { schema = false, formRules = 'current' } = {}) {
   const classLine = `The statutory class for THIS draft is GIVEN: ${String(claimClass).toUpperCase()}. `
     + 'Draft in that class; do not choose another. ';
-  const tail = schema ? pseudoSysTailSchema(claimClass) : (PSEUDO_SYS_TAIL_BY_CLASS[claimClass] || PSEUDO_SYS_TAIL);
-  return PSEUDO_SYS_HEAD + shapeTargetLines(profileName) + PSEUDO_SYS_DEPENDENTS + PSEUDO_SYS_FORM_RULES + classLine + tail;
+  const whereby = formRules !== '2026-10';
+  let tail = schema ? pseudoSysTailSchema(claimClass, { whereby }) : (PSEUDO_SYS_TAIL_BY_CLASS[claimClass] || PSEUDO_SYS_TAIL);
+  if (!whereby) tail = tail.replace(/\[, whereby <result>\]/g, '');
+  return PSEUDO_SYS_HEAD + shapeTargetLines(profileName) + PSEUDO_SYS_DEPENDENTS + formRulesText(formRules) + classLine + tail;
 }
 
 // The antecedent check: every "the X" or "said X" whose X no earlier text
@@ -844,8 +873,9 @@ function fenceFor(body) {
 // `[P…]` priority tag, and ranker note are stripped rather than riding into
 // the MECHANISM hint and the output heading. The hint itself is KEPT (label +
 // purpose); only the triage annotations are removed. Priority never reaches
-// the drafter — its one consumer is the --min-rank draft filter. Exported for
-// tests.
+// the drafter — its consumers are the --min-rank draft filter, the artifact's
+// contents table and headings, and the --claims-only sidecar record. Exported
+// for tests.
 export function collectAnchorGroups(spec) {
   if (!spec || !spec.startsWith('@')) {
     const specs = String(spec || '').split(';').map((s) => s.trim()).filter(Boolean);
@@ -2119,6 +2149,11 @@ export function buildAnchorSidecar(groups, drafts, meta = {}) {
       n: claims.length + 1,
       groupN: i + 1,
       label: groups[i] ? groups[i].label || '' : '',
+      // hof-one-command (2026-11-03): the group's [P..] rank tag, when the list
+      // carried one, so a report can join rank to claim without re-parsing the
+      // candidates list. Omitted for an untagged group, so an unranked run's
+      // sidecar is byte-identical to before.
+      ...(groups[i] && groups[i].priority != null ? { priority: groups[i].priority } : {}),
       claim: claimToLine(d.prose),
       // Carried so a downstream consumer (HOF-c scoring, --claims-loop) cannot
       // mistake a severed anchor list for "the drafter cited nothing".
@@ -2714,7 +2749,7 @@ export async function doPseudoClaims(index, args) {
         + JSON.stringify(claimSchema({ claimClass: sysCls, axes: (SHAPE_PROFILES[sysProfile] || SHAPE_PROFILES[DEFAULT_SHAPE_PROFILE]).axes }), null, 1)
       : '';
     printShownPrompts({
-      system: buildPseudoClaimSys(sysProfile, sysCls, { schema: !!args.claim_schema }) + schemaShown,
+      system: buildPseudoClaimSys(sysProfile, sysCls, { schema: !!args.claim_schema, formRules: args.form_rules }) + schemaShown,
       users,
       note: `(one claim is drafted per group; ${users.length} group(s) shown. The system prompt is per statutory class — shown here for '${sysCls}'.`
         + `${args.claim_schema ? ' Under --claim-schema the reply is the claim object above, which CodeExam renders into claim text.' : ''})`,
@@ -2780,7 +2815,7 @@ export async function doPseudoClaims(index, args) {
     const schemaChars = new Map();
     const calls = withAnchors.map((s) => {
       const cls = s._class || 'method';
-      let inChars = buildPseudoClaimSys(profileName, cls, { schema: !!args.claim_schema }).length + 200 + (s.pack ? s.pack.length : 0);
+      let inChars = buildPseudoClaimSys(profileName, cls, { schema: !!args.claim_schema, formRules: args.form_rules }).length + 200 + (s.pack ? s.pack.length : 0);
       if (args.claim_schema) {
         if (!schemaChars.has(cls)) {
           const clsProfile = classProfile(profileName, cls);
@@ -2820,7 +2855,7 @@ export async function doPseudoClaims(index, args) {
           // hard post-check failure is answered by a resample that names it.
           const axes = (SHAPE_PROFILES[clsProfile] || SHAPE_PROFILES[DEFAULT_SHAPE_PROFILE]).axes;
           const schema = claimSchema({ claimClass: cls, axes });
-          const sys = buildPseudoClaimSys(clsProfile, cls, { schema: true });
+          const sys = buildPseudoClaimSys(clsProfile, cls, { schema: true, formRules: args.form_rules });
           const baseUser = `${intent}CODE:\n${s.pack}`;
           let user = baseUser, obj = null, checks = null, attempts = 0;
           const resampledFor = []; // the hard-failure codes each resample answered, oldest first
@@ -2851,7 +2886,7 @@ export async function doPseudoClaims(index, args) {
           // The first call, the parse, and the second call for the block when
           // a complete reply has none (draftGroupText; --no-anchors-reask off).
           const r = await draftGroupText(drafter, {
-            sys: buildPseudoClaimSys(clsProfile, cls), user: `${intent}CODE:\n${s.pack}`, reask: !args.no_anchors_reask,
+            sys: buildPseudoClaimSys(clsProfile, cls, { formRules: args.form_rules }), user: `${intent}CODE:\n${s.pack}`, reask: !args.no_anchors_reask,
           });
           ({ prose, dependents, anchors, truncated, anchorBlockSeen, anchorLinesUnparsed, repetition, replyTail } = r);
           reask = r.reask;

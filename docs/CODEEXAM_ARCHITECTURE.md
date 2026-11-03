@@ -253,6 +253,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `scripts/claim-selftest.mjs` — deterministic offline retrieval regression score against curated anchors
 - `scripts/engine-qualify.mjs` — pass/fails an engine on pinned negative+positive chart sidecars; no model calls
 - `scripts/field-note.mjs` — turns an annotated CE transcript's `[[comments]]` into a post-ready markdown checklist
+- `scripts/hof.mjs` — runs the HOF test from one index name: draft pseudo-claims, locate each with `--claim-locate`, score the drafter's anchors against the located targets on the ladder
 - `scripts/hunt-repeat.mjs` — reruns one `--claim-locate --hunt` command N times and reports the distribution
 - `scripts/litigated-claims-fetch.mjs` — fetches litigated US patents' claim 1 + dependents from Google Patents
 - `scripts/pseudo-claim-loop.mjs` — runs the pseudo-claim loop: synonymize, chart blind, score vs answer key
@@ -297,6 +298,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `test/test_har.js` — #161 `.har` expansion: text/base64 bodies, mime inference, URL dedupe, malformed input
 - `test/test_help_filter.js` — `filterHelp`: entry blocks and continuation lines, section headers, no-match report
 - `test/test_help_flags.js` — help discoverability: `--gui`/`--port`/`--load-index` in `--help`; `--load-index` synonym
+- `test/test_hof.js` — hof script: candidates and targets parsing, the ladder scoring, the command builder, the rank join
 - `test/test_hotspots.js` — #187: hotspots and entry_points skip vendored/minified files that stay indexed
 - `test/test_hunt_repeat.js` — hunt-repeat harness: the run-report parser behind every reported distribution
 - `test/test_imports.js` — BoM tier 1: JS/C/Java/C# extractors, resolver classes, platform lists, residue

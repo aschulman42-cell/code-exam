@@ -414,7 +414,10 @@ confirms a floor of capability, not claim-to-code skill against an outside key. 
 (2026-08-19, two corpora, `scripts/anchor-recall.mjs`): the single number is the wrong number.
 Scored on the granularity ladder, "100% reached" was overwhelmingly the right class or the right
 file; function-level recall was 5 to 8%, and for a chart a class is not a citation, because the
-limitation is implemented by the method. The write-ups are
+limitation is implemented by the method. Since 2026-11-03 `scripts/hof.mjs` runs the test
+from one index name: it drafts, locates each draft with `--claim-locate`, and scores the
+drafter's anchors against the located targets on that ladder, rank reported and never a
+floor. The write-ups are
 [`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md)'s HOF section,
 [`claims-pipeline-state.md`](claims-pipeline-state.md) §4 and §9, and
 [`litigated-claims-ground-truth.md`](litigated-claims-ground-truth.md); the issue was #310.

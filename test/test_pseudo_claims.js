@@ -155,6 +155,16 @@ describe('--claims-only: the anchors sidecar is the answer key', () => {
     assert.ok(Number.isInteger(a.start) && Number.isInteger(a.end));
   });
 
+  // hof-one-command (2026-11-03): the [P..] tag rides into the sidecar record.
+  it('carries the group\'s priority when the list was ranked, and no key at all when it was not', () => {
+    const ranked = [{ label: 'address book view controllers', priority: 3 }, { label: 'media playback', priority: 0 }, { label: 'failed one', priority: 1 }];
+    const side = buildAnchorSidecar(ranked, DRAFTS, META);
+    assert.equal(side.claims[0].priority, 3);
+    assert.equal(side.claims[1].priority, 0, 'P0 is a rank, not an absence');
+    const plain = buildAnchorSidecar(GROUPS, DRAFTS, META);
+    assert.ok(!('priority' in plain.claims[0]), 'an unranked run\'s sidecar is byte-identical to before');
+  });
+
   it('flags an AMBIGUOUS anchor rather than presenting it as certain', () => {
     const side = buildAnchorSidecar(GROUPS, DRAFTS, META);
     assert.equal(side.claims[0].grounded[1].ambiguous, true);
@@ -934,7 +944,7 @@ describe('pseudo-dep-tightening: the drafter instruction', () => {
   });
 });
 
-import { buildPseudoClaimSys as _bpcs, SHAPE_PROFILES as _shp } from '../src/commands/pseudo-claims.js';
+import { buildPseudoClaimSys as _bpcs, SHAPE_PROFILES as _shp, formRulesText as _fr, FORM_RULES_MODES as _frm } from '../src/commands/pseudo-claims.js';
 
 describe('pseudo-claims-statutory-class: prompt and profile', () => {
   it('the system-class prompt carries the apparatus example and the class-given line', () => {
@@ -1258,6 +1268,27 @@ describe('purpose preamble and the whereby clause: the prompt rules and the repo
     }
     for (const cls of ['method', 'system', 'apparatus', 'crm']) assert.match(_bpcs('litigated', cls), /\[, whereby <result>\]/);
     assert.match(_bpcs('litigated', 'method', { schema: true }), /whereby — the closing result clause of CLAIM 1/);
+  });
+  // hof-one-command (2026-11-03): --form-rules 2026-10 is the prompt before d3716a9.
+  it('--form-rules 2026-10 drops the purpose preamble and the whereby rule in every class and the schema form; the default is byte-identical to before', () => {
+    for (const cls of ['method', 'system', 'apparatus', 'crm']) {
+      const old = _bpcs('litigated', cls, { formRules: '2026-10' });
+      assert.match(old, /ANTECEDENT BASIS: introduce each component or step ONCE/);
+      assert.match(old, /NO EXAMPLE INSIDE AN ELEMENT/);
+      assert.doesNotMatch(old, /PREAMBLE states the PURPOSE/);
+      assert.doesNotMatch(old, /WHEREBY:/);
+      assert.doesNotMatch(old, /\[, whereby <result>\]/, 'the format line shows no optional clause either');
+      assert.notEqual(old, _bpcs('litigated', cls));
+    }
+    const oldSchema = _bpcs('litigated', 'method', { schema: true, formRules: '2026-10' });
+    assert.doesNotMatch(oldSchema, /WHEREBY:|PREAMBLE states the PURPOSE/);
+    assert.match(oldSchema, /whereby — an empty string; this draft ends on its last element/, 'the field stays in the schema; the instruction to fill it is gone');
+    assert.doesNotMatch(oldSchema, /whereby — the closing result clause/);
+    assert.equal(_bpcs('litigated', 'method', { formRules: 'current' }), _bpcs(), 'current is the default');
+    assert.equal(_bpcs('litigated', 'method', { formRules: 'nonsense' }), _bpcs(), 'an unknown mode renders the current rules, never an emptied set');
+    assert.equal(_fr('current'), _fr(), 'the exported constant is the current rendering');
+    assert.ok(_fr('current').startsWith(_fr('2026-10').slice(0, 60)), 'both begin with the antecedent rule');
+    assert.deepEqual(_frm, ['current', '2026-10']);
   });
   const closed = 'A method of keeping two replicas consistent while one is unreachable, comprising: receiving a log entry; appending the log entry to a queue; and replaying the queue when the replica returns, whereby no log entry is lost while the replica is unreachable.';
   const open = 'A method of keeping two replicas consistent, comprising: receiving a log entry such that it is timestamped; appending the log entry to a queue; and replaying the queue.';

@@ -335,7 +335,9 @@ the clause closed 16 of 28 and 10 of 16 drafts, well above the prior; the preamb
 from 14 words to 21 on Bram and from 12 to 22 on CodeExam, against the population's 12 and the
 rubric pages' own 17; on the rubric pages the scorer moved on multisect (MET 4 to 7, ABSENT 11
 to 6 on the method claim) and little elsewhere, one sample per cell. The wording of both rules
-is still open. Whether the rules change the drafts is
+is still open; `--form-rules 2026-10` drafts on the first two rules alone, the prompt as it
+stood before 2026-11-01, so the same groups can be drafted under both on one flag
+(`scripts/hof.mjs` passes it through). Whether the rules change the drafts is
 measured on the rubric pages: the after, one Claude run over the seven features' groups on
 2026-10-31, is the last row of each page's union-rule table. On the one exact pair, the grouper
 group drafted the same day on the old prompt, it scored 5 / 9 / 9 against 9 / 9 / 5, one draft
@@ -663,6 +665,20 @@ Agreement means the claim captured the *mechanism*, not just echoed its names.
 (§4 / §9 / §10) and
 [`litigated-claims-ground-truth.md`](litigated-claims-ground-truth.md) (the HOF
 section; #310).
+
+**One command (2026-11-03).** `scripts/hof.mjs` runs the test from an index name, with
+`--claim-locate` as the retrieval step and no synonymize step: it drafts every candidate
+group (`--pseudo-claims --candidates`, then `--claims-only` with `--min-rank 0`, so a
+`--rank` tag is reported and never a floor), locates each draft (`--claim-locate
+--targets-out`), and scores the drafter's grounded anchors against the located targets on
+the ladder of `scripts/anchor-recall.mjs`: function, class, file or miss per anchor, and
+exact, near or elsewhere per target. `--form-rules 2026-10` drafts on the rules as they
+stood before 2026-11-01; `--claims <file>` locates an existing claims file, so the same
+drafts can be located with a second model; `--dry-run` runs the grouper only and prints the
+rest with the cost figures. Every step is a `ce` command, echoed, and the report
+(`hof_report.md`, `.json`) lands under `%LOCALAPPDATA%\CodeExam\hof\`. Without the
+synonymize step the drafter's own vocabulary goes back in, so the result is a floor; the
+ladder, not a single number, is what to read.
 
 ## See also
 
