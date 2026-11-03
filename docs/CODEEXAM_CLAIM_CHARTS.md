@@ -418,6 +418,42 @@ limitation is implemented by the method. The write-ups are
 [`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md)'s HOF section,
 [`claims-pipeline-state.md`](claims-pipeline-state.md) §4 and §9, and
 [`litigated-claims-ground-truth.md`](litigated-claims-ground-truth.md); the issue was #310.
+The loop runs on the drafter ceiling's real-code drafts through `scripts/ceiling-to-loop.mjs`,
+which merges a repository's chosen ce-seeded groups into the loop's inputs, renumbered with
+their anchors as the answer key, and carries the ceiling's control pairing over as the loop's
+control index (a filing paired within the same repository gets a named fallback or no control).
+Run that way on 2026-11-02 over the twelve groups the ceiling's judge read as findings, seven
+repositories, the asserted claim's class, ChatGPT synonymizing and Claude Sonnet 4.6 charting
+(36 charts, $22.77 with the synonymize calls, above the $10 to $15 projected because these
+claims carry 3 to 16 mechanism rows): recall on the original wording mean 0.49, median 0.5, at
+or above 0.5 on 8 of 12 and zero on the two secp256k1 field-normalization claims; synonymized
+mean 0.46, median 0.4, below the original on 5 claims, equal on 5, above on 2; false PRESENT on
+the controls 2 of 96 mechanism rows. Against the August floor on CodeExam's own index (1.0,
+0.75, 0.25 original; 1.0, 0.5, 0.13 synonymized) the real-code drafts sit in the lower half with
+a smaller drop under rewording. Four of the twelve close on a "whereby" clause; their last rows
+scored no worse than the other eight's, too few to say more. One sample per cell; the per-claim
+table is a working file outside the repository (`hof_loop_whereby_reading_110226.md`).
+
+**Nomination against judgment (2026-11-02).** The loop's recall is a nomination rate: the share
+of drafted anchors that entered the chart's analysis set at all. Over both wordings 42% of the
+anchors were nominated and 27% were judged PRESENT on themselves; the two field claims nominated
+nothing, every element sent to the scalar module, whose limb, reduce and overflow vocabulary
+collides with the field module's. Judgment is the stronger half. Of the 125 PRESENT verdicts on
+mechanism rows, 58 sit on the drafted function, 36 one call edge from one (the contract entry
+point and the library it delegates to, the pool's validate and the validator it calls, shred
+verify and the Merkle recovery), 17 on the class that holds the drafted methods, 12 in the same
+file or directory, 2 unrelated: a PRESENT lands on the inspiring function, one call edge from it
+or on its class 89% of the time, and within its directory 98%, consistent with the control's 2%
+false PRESENT (`hof_neighborhood_110226.mjs`, beside the reading). So the floor holds at the
+verdict and gives way at nomination, which is where a litigated claim's wording, farther from
+the code than the drafter's, will cost more. A file-level pointer is in reach on precision but
+not yet shown to be earned: ten of the twelve claims carry a token of their anchor file's name
+on both wordings ("scalar", "field", "token", "shred", "wallet address"), and ranking the
+index's files by claim words in their paths alone puts the anchor file first, alone or in a tie
+of at most five, on 5 of 12. Where that trivial rank fails (DSToken 10th, shred 7th, legacypool
+323rd, T5Attention unranked) the chart nominated the file anyway; where it succeeds (the two
+field files, a four-way tie) the chart did not. The litigated charts of §4 are the material on
+which a pointer can be shown to beat the file name.
 
 ## 4. Real-world claim charts that cite code
 
