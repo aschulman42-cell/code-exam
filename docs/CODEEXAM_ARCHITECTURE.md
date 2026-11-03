@@ -17,6 +17,14 @@ table and its registrations). That fan-out is a known rough edge, tracked in
 [#97](https://github.com/aschulman42-cell/code-exam/issues/97) (one feature currently touches about
 nine files, mostly registration boilerplate).
 
+For an alternate view, see 
+[Bram orientation to CodeExam architecture](https://github.com/aschulman42-cell/code-exam/tree/main/docs/orientation/architecture), 
+including clickable architecture diagrams, e.g. [System](https://github.com/aschulman42-cell/code-exam/blob/main/docs/orientation/architecture/01-system.mmd), 
+[Claims Pipeline](https://github.com/aschulman42-cell/code-exam/blob/main/docs/orientation/architecture/04-claims-pipeline.mmd), etc. 
+CodeExam is being developed under [Bram](https://github.com/judell/bram). 
+Also see [initial review of the diagrams](https://github.com/aschulman42-cell/code-exam/blob/main/docs/orientation/diagram-review-2026-11-02.md), 
+and issues #357 and #358.
+
 ```
    CLI            Interactive        GUI server       MCP server
  (index.js)     (interactive.js)    (server.js)     (mcp-server.js)
