@@ -17,18 +17,22 @@
   // the page.
   const SITE = {
     name: "CodeExam",
-    commit: "98abef1",
+    commit: "f9756fe",
     date: "2026-11-02",
+    signature: "Jon's Claude (Bram 0.8.3, Claude Opus 5.5, macOS) speaking from the CodeExam project (github.com/aschulman42-cell/code-exam):",
+    // The forge the citations point at, for reading docs at the pin.
+    repo: "aschulman42-cell/code-exam",
+    commitFull: "f9756feb01d1b952606991d214098dfe16b16f79",
   };
   const ARCHITECTURE = [
     {file: "01-system.mmd", title: "System at a glance",
       note: "The four front-ends, the one engine, and where state lives. Click a box or arrow for detail."},
     {file: "02-index-build.mmd", title: "Index build",
-      note: "What --build-index produces. Dashed: nothing rebuilds an index unless a person does."},
+      note: "What --build-index produces. Nothing rebuilds an index unless a person does: see the a person rebuilds arrow."},
     {file: "03-query-flow.mmd", title: "Query flow",
       note: "How queries reach the data. Note that multisect does not use the inverted index."},
     {file: "04-claims-pipeline.mmd", title: "Claims pipeline",
-      note: "From claim text to a chart. Dashed arrows are hand-offs a person makes."},
+      note: "From claim text to a chart. The arrows starting with person are hand-offs a person makes; their tips say so."},
     {file: "05-gui-and-agents.mmd", title: "GUI and agents",
       note: "The browser, the routes, and the one tool table every model-facing surface shares."},
     {file: "06-configuration.mmd", title: "Configuration and environment",
@@ -82,6 +86,75 @@
   // Click-through detail: {label: markdown} from the companion .md file.
   // Missing file = no clickable items; the mismatch check reports every
   // label. Text above the first "## " heading is ignored.
+
+  // ---- Reading the real doc -------------------------------------------------
+  // A section may open with directive lines `<!-- read: <path>#<heading> -->`
+  // (heading optional). The dialog shows a link line per directive and
+  // nothing is fetched up front; "Read here" opens the doc's section in a
+  // reader dialog, fetched from the forge at the pinned commit (Main.xmlui's
+  // DataSource on Arch.rawUrl, rendered through Arch.section), and the link
+  // opens the rendered page in a new tab. The site never copies a doc's
+  // text. The forge forbids framing, so the reader renders the Markdown
+  // itself. Rule: when a human-readable doc explains the thing, link it
+  // here and keep the code citations as the "where it lives" footnote.
+  const READ_RE = /^<!--\s*read:\s*([^#\s]+)(?:#(.+?))?\s*-->\s*$/;
+  const forgeBase = () => "https://" + (SITE.forgeHost || "github.com") + "/" + SITE.repo;
+  const rawUrl = (path) => (SITE.forgeHost || "github.com") === "github.com"
+    ? "https://raw.githubusercontent.com/" + SITE.repo + "/" + SITE.commitFull + "/" + path
+    : forgeBase() + "/-/raw/" + SITE.commitFull + "/" + path;
+  const blobUrl = (path) => (SITE.forgeHost || "github.com") === "github.com"
+    ? forgeBase() + "/blob/" + SITE.commitFull + "/" + path
+    : forgeBase() + "/-/blob/" + SITE.commitFull + "/" + path;
+  const anchorOf = (heading) => heading.toLowerCase().replace(/[`*_]/g, "").replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-");
+  // The lines under `heading` (any level) up to the next heading of the same
+  // or a higher level; the whole file when no heading is given.
+  function sectionOf(text, heading) {
+    const lines = text.split("\n");
+    if (!heading) return lines;
+    const want = norm(heading);
+    let level = 0, start = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const m = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(lines[i]);
+      if (!m) continue;
+      if (start < 0) { if (norm(m[2]) === want) { level = m[1].length; start = i + 1; } continue; }
+      if (m[1].length <= level) return lines.slice(start, i);
+    }
+    return start < 0 ? null : lines.slice(start);
+  }
+  // Rewrite the doc's own links so they still work from here: relative paths
+  // become rendered URLs at the pin; bare anchors point into the rendered doc.
+  function rewriteLinks(md, path) {
+    const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
+    return md.replace(/\]\(([^)\s]+)\)/g, (whole, target) => {
+      if (/^(https?:|mailto:)/.test(target)) return whole;
+      if (target.startsWith("#")) return "](" + blobUrl(path) + target + ")";
+      const resolved = new URL(target, "https://x/" + dir).pathname.replace(/^\//, "");
+      return "](" + blobUrl(resolved) + ")";
+    });
+  }
+  // For the reader dialog: the Markdown of one doc section, from the fetched
+  // text. A missing heading says so rather than showing nothing.
+  function section(text, heading, path) {
+    if (text == null) return "";
+    const raw = typeof text === "string" ? text : String(text);
+    const lines = sectionOf(raw, heading);
+    if (lines == null) return "*No heading \"" + heading + "\" in " + path + " at this site's pin.*";
+    const head = heading ? "## " + heading + "\n\n" : "";
+    return head + rewriteLinks(lines.join("\n").trim(), path);
+  }
+  // Split a section body into its directives and the prose that follows.
+  function splitReads(body) {
+    const lines = body.split("\n");
+    const reads = [];
+    while (lines.length && READ_RE.test(lines[0].trim())) {
+      const m = READ_RE.exec(lines.shift().trim());
+      const path = m[1], heading = m[2] ? m[2].trim() : "";
+      reads.push({path, heading, label: path + (heading ? " § " + heading : ""),
+        link: blobUrl(path) + (heading ? "#" + anchorOf(heading) : "")});
+    }
+    return {reads, prose: lines.join("\n").trim()};
+  }
+
   const DETAILS = {};
   async function loadDetails(path) {
     const response = await fetch(path, {cache: "no-store"});
@@ -99,7 +172,9 @@
   // For the modal: {title, body} for a clicked box or arrow, or null.
   function detail(diagram, key) {
     const body = (DETAILS[diagram] || {})[key];
-    return body == null ? null : {title: key, body};
+    if (body == null) return null;
+    const {reads, prose} = splitReads(body);
+    return {title: key, body: prose, reads};
   }
 
   function parseTips(source) {
@@ -116,7 +191,11 @@
   // collect every label drawn, and add headroom so a raised label can't be
   // clipped.
   function decorate(svg, tips, details, labels) {
-    const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+    // Mermaid draws a box with line breaks as HTML in a foreignObject, and
+    // HTML's <br> is not closed; the XML parser below rejects it ("Unexpected
+    // closing tag"). Close it before parsing. Other void tags don't occur in
+    // labels.
+    const doc = new DOMParser().parseFromString(svg.replace(/<br\s*>/gi, "<br/>"), "image/svg+xml");
     const svgRoot = doc.documentElement;
     const num = "(-?[\\d.]+)";
     const translate = new RegExp("translate\\(\\s*" + num + "[ ,]+" + num + "\\s*\\)");
@@ -140,6 +219,11 @@
       }
       if (details[text] != null) {
         el.setAttribute("data-key", text);
+        // Keyboard reach: a focusable button that Enter and Space activate
+        // (see diagramDocument). aria-label names the item for screen readers.
+        el.setAttribute("tabindex", "0");
+        el.setAttribute("role", "button");
+        el.setAttribute("aria-label", text);
         el.setAttribute("class", el.getAttribute("class") + " has-detail");
       }
     };
@@ -168,8 +252,9 @@
     return new XMLSerializer().serializeToString(svgRoot);
   }
 
-  // The iframe's whole document. A click on an item with detail posts
-  // {type: 'arch-detail', diagram, key} to the app's MessageListener.
+  // The iframe's whole document. A click, or Enter or Space on a focused item
+  // with detail, posts {type: 'arch-detail', diagram, key} to the app's
+  // MessageListener. Key events reach this document when the frame has focus.
   const diagramDocument = (svg, diagram) =>
     "<!doctype html><html><head><meta charset='utf-8'><style>"
     + "html,body{margin:0;background:transparent;font-family:system-ui,sans-serif}"
@@ -179,11 +264,19 @@
     + "g.has-detail{cursor:pointer}"
     + "g.node.has-detail:hover rect,g.node.has-detail:hover path,g.node.has-detail:hover polygon{stroke-width:2.5px}"
     + "g.edgeLabel.has-detail:hover text{text-decoration:underline}"
+    + "g.has-detail:focus{outline:none}"
+    + "g.has-detail:focus-visible{outline:2px solid #2f5d8a;outline-offset:2px}"
+    + "g.node.has-detail:focus-visible rect,g.node.has-detail:focus-visible path,g.node.has-detail:focus-visible polygon{stroke:#2f5d8a;stroke-width:3px}"
+    + "g.edgeLabel.has-detail:focus-visible text{text-decoration:underline}"
+    + "g.edgeLabel.has-detail:focus-visible rect{stroke:#2f5d8a;stroke-width:2px}"
     + "</style></head><body>" + svg
-    + "<script>document.addEventListener('click',function(e){"
+    + "<script>function openDetail(g){parent.postMessage({type:'arch-detail',diagram:" + JSON.stringify(diagram)
+    + ",key:g.getAttribute('data-key')},'*');}"
+    + "document.addEventListener('click',function(e){"
+    + "var g=e.target.closest&&e.target.closest('[data-key]');if(g)openDetail(g);});"
+    + "document.addEventListener('keydown',function(e){"
     + "var g=e.target.closest&&e.target.closest('[data-key]');"
-    + "if(g)parent.postMessage({type:'arch-detail',diagram:" + JSON.stringify(diagram)
-    + ",key:g.getAttribute('data-key')},'*');});</script>"
+    + "if(g&&(e.key==='Enter'||e.key===' ')){e.preventDefault();openDetail(g);}});</script>"
     + "</body></html>";
 
   // Mermaid emits width="100%" and no height; give the SVG its real size from
@@ -210,7 +303,17 @@
 
   const caption = "The big picture of " + SITE.name + " as of commit " + SITE.commit
     + " (" + SITE.date + "). Each diagram is a file in architecture/. Hover a box or"
-    + " arrow for a tip; click it for detail that cites the code.";
+    + " arrow for a tip; click it, or Tab to it and press Enter, for detail that cites the code.";
 
-  root.Arch = {site: SITE, caption, sections: VISIBLE, diagrams, detail};
+  // The site is three plain pages, the web's own mechanism, no router: the
+  // folder root is Start, and diagrams/ and overview/ hold a copied
+  // index.html with <base href="../">. Each index.html names its page in
+  // window.ORIENTATION_PAGE and carries the nav as plain HTML; Main.xmlui
+  // renders the section for Arch.page.
+  const page = root.ORIENTATION_PAGE || "start";
+
+    // "GitHub" or the forge host, for the "Read on …" line under a detail.
+  const forgeLabel = (SITE.forgeHost || "github.com") === "github.com" ? "GitHub" : SITE.forgeHost;
+
+  root.Arch = {site: SITE, caption, sections: VISIBLE, diagrams, detail, page, rawUrl, section, forgeLabel};
 })(globalThis);

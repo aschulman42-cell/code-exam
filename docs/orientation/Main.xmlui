@@ -2,15 +2,35 @@
      From Bram's orientation template, first built for tau-hub,
      together-groups-beta and pwkm. Content lives in OVERVIEW.md and
      architecture/; the diagram list and caption in arch.js's SITE block.
-     Tabs/TabItem: https://www.xmlui.org/docs/reference/components/Tabs
      Markdown file via DataSource -> content: https://www.xmlui.org/docs/howto/render-markdown-content-as-a-page -->
-<App>
-  <Tabs>
-    <TabItem label="Overview">
-      <DataSource id="overview" url="OVERVIEW.md" />
-      <Markdown when="{overview.loaded}" content="{overview.value}" />
-    </TabItem>
-    <TabItem label="Architecture">
+<Theme
+  backgroundColor="#fbfaf7"
+  backgroundColor-content-App="#fbfaf7"
+  textColor="#1d1d1b"
+  textColor-secondary="#5f5e58"
+  borderColor="#e3e0d8"
+  color-primary="#2f5d8a"
+  backgroundColor-primary="#ffffff">
+<App defaultTone="light">
+  <!-- One calm light palette, shared with the project homepage; the site
+       doesn't follow the OS color scheme (defaultTone):
+       https://www.xmlui.org/docs/howto/implement-a-dark-mode-toggle
+       https://www.xmlui.org/docs/howto/create-a-custom-color-theme -->
+  <!-- Browser tab title; without it XMLUI shows "XMLUI app":
+       https://www.xmlui.org/docs/howto/set-the-page-title-dynamically -->
+  <PageMetaTitle value="CodeExam orientation" noSuffix="{true}" />
+  <!-- Three pages, three real URLs (the folder root, diagrams/, overview/):
+       the web's own mechanism, no router. The nav is plain HTML in each
+       index.html, outside this root; arch.js names the current page
+       (Arch.page) and this file renders that page's section. -->
+  <VStack gap="$space-4">
+    <VStack when="{Arch.page === 'start'}">
+      <!-- The owner's own words, from START.md. The agent never writes or
+           edits this file; everything after this tab is the agent's. -->
+      <DataSource id="start" url="START.md" />
+      <Markdown when="{start.loaded}" content="{start.value}" openLinkInNewTab="{true}" />
+    </VStack>
+    <VStack when="{Arch.page === 'diagrams'}">
       <!-- Mermaid diagrams from architecture/*.mmd, rendered once on mount:
            https://www.xmlui.org/docs/howto/run-a-one-time-action-on-page-load
            Each renders as live SVG in an IFrame so labels can carry hover text:
@@ -28,10 +48,42 @@
             if (d) { detail = d; detailDialog.open(); } }" />
         <ModalDialog id="detailDialog" width="70vw" maxWidth="70vw" title="{detail?.title}">
           <VStack gap="$space-3" padding="$space-2" paddingTop="0">
-            <Markdown content="{detail?.body || ''}" />
+            <Markdown content="{detail?.body || ''}" openLinkInNewTab="{true}" />
+            <!-- The docs a section reads (arch.js: read directives), after the
+                 prose, one line each: "Read <doc> here or on GitHub", the forge
+                 link in a new tab, "here" the reader below, fetched at the pin. -->
+            <Items items="{detail?.reads || []}">
+              <HStack gap="$space-1" verticalAlignment="baseline" wrapContent="{true}">
+                <Text>Read {$item.label}</Text>
+                <!-- Text has no click event; a Stack does (Stack#click), so the
+                     link-styled word sits in one. The dialog receives $item as
+                     $param: https://www.xmlui.org/docs/howto/pass-data-to-a-modal-dialog -->
+                <HStack cursor="pointer" onClick="readerDialog.open($item)">
+                  <Text color="$color-primary-500" textDecorationLine="underline">here</Text>
+                </HStack>
+                <Text>or on</Text>
+                <Link to="{$item.link}" target="_blank">{Arch.forgeLabel}</Link>
+                <Text>.</Text>
+              </HStack>
+            </Items>
             <HStack><Button label="Close" onClick="detailDialog.close()" /></HStack>
           </VStack>
         </ModalDialog>
+        <!-- The reader: one doc section, fetched from the forge at the pin
+             (the forge forbids framing, so the Markdown renders here).
+             DataSource -> Markdown: https://www.xmlui.org/docs/howto/render-markdown-content-as-a-page -->
+        <ModalDialog id="readerDialog" width="70vw" maxWidth="70vw" title="{$param?.label}">
+          <VStack gap="$space-3" padding="$space-2" paddingTop="0">
+            <DataSource id="readerDoc" when="{$param}" url="{$param ? Arch.rawUrl($param.path) : ''}" />
+            <Text when="{$param &amp;&amp; !readerDoc.loaded}" variant="caption">Fetching from the repo at this site's pin…</Text>
+            <Markdown when="{readerDoc.loaded}" content="{Arch.section(readerDoc.value, $param.heading, $param.path)}" openLinkInNewTab="{true}" />
+            <HStack gap="$space-3">
+              <Link when="{$param}" to="{$param.link}" target="_blank">Open on {Arch.forgeLabel}</Link>
+              <Button label="Close" onClick="readerDialog.close()" />
+            </HStack>
+          </VStack>
+        </ModalDialog>
+        <Text when="{Arch.site.signature}">{Arch.site.signature}</Text>
         <Text variant="caption">{Arch.caption}</Text>
         <Text when="{!svgs}" variant="caption">Rendering diagrams…</Text>
         <Items items="{Arch.sections}">
@@ -53,6 +105,11 @@
           </VStack>
         </Items>
       </VStack>
-    </TabItem>
-  </Tabs>
+    </VStack>
+    <VStack when="{Arch.page === 'overview'}">
+      <DataSource id="overview" url="OVERVIEW.md" />
+      <Markdown when="{overview.loaded}" content="{overview.value}" openLinkInNewTab="{true}" />
+    </VStack>
+  </VStack>
 </App>
+</Theme>
