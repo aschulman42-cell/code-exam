@@ -162,6 +162,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `src/commands/infrastructure.js` — `--infrastructure`: prints detected Containers/Kubernetes/IaC/CI-CD artifacts, marking heuristic hits
 - `src/commands/inspect_binary.js` — terse per-binary report of format, signing, framework, and embedded source hints before deeper extraction
 - `src/commands/interactive.js` — REPL that keeps the index resident and dispatches slash-commands to the same `do*()` handlers as the CLI
+- `src/commands/mechanisms.js` — `--build-mechanisms` writes `<index>/mechanisms.json` (the grouper in cover mode, optional `--describe` sentences); `--mechanisms` lists it
 - `src/commands/metrics.js` — discovery metrics plus the AI/ML inventory family: hotspots, entry points, gaps, classes, vocabulary, models
 - `src/commands/multisect.js` — multi-term intersection search: parses term syntax, scores by IDF, ranks function/file/folder scopes
 - `src/commands/prompts.js` — `--prompt-catalog`: finds LLM prompt strings by confidence-ranked heuristics and emits them untruncated
@@ -204,6 +205,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `src/core/loop-score.js` — scores a blind claim chart against drafted anchors: recall, mechanism PRESENT, control FPs, dependent grades
 - `src/core/mechanism-grouper.js` — clusters index functions into candidate mechanism groups from token, class, file and command seeds
 - `src/core/mechanism-ranker.js` — one comparative LLM pass assigning each candidate group a bounded exploration-priority verdict
+- `src/core/mechanisms-index.js` — builds, saves and loads `<index>/mechanisms.json`, the persisted cover of an index's functions by mechanism record
 - `src/core/multisect.js` — two-phase multi-term intersection search, with per-term file counts and comment-vs-code match weighting
 - `src/core/openai-util.js` — OpenAI-shape helpers: reasoning budget floor, temperature gating, usage/text/finish-reason readers
 - `src/core/overview.js` — builds and renders the fast+deep orientation summary: counts, structure, vocabulary, key files, entry points
@@ -311,7 +313,8 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `test/test_llm_calls_local.js` — `listLlmCalls` tier C: Ollama endpoints (port unconditional, `/api/*` paths gated on a file-level Ollama marker) (#345)
 - `test/test_loop_score.js` — loop-score: target keys, answer-key anchors, chart/control scoring, dependent grades
 - `test/test_mcp_tools.js` — MCP `handleTool`: digest, call_tree, command_catalog, models_used, absence disclosure
-- `test/test_mechanism_grouper.js` — #284 candidate emitter: seeds, group splitting, vendored-subtree exclusion
+- `test/test_mechanism_grouper.js` — #284 candidate emitter: seeds, group splitting, vendored-subtree exclusion; cover mode and the doc readers
+- `test/test_mechanisms_index.js` — the mechanisms index: the cover build (every function in a record, overlap, tags, labels), the harvester's doc readers on real files, save/load, `--build-mechanisms` and `--mechanisms` through the CLI, the `list_mechanisms` tool, `--describe` on a stub drafter
 - `test/test_mechanism_ranker.js` — #284 ranker: tolerant verdict parsing, priors, chunked batches with a P3 playoff
 - `test/test_metrics.js` — vocab-density key files: score x concentration ranking, doc-id folding, term counts
 - `test/test_minified.js` — `isMinified` gate: `.min.*` shortcut, eligible extensions, the maxLine clause for bundles
@@ -334,7 +337,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `test/test_prompt_purity.js` — CI guard: shipped prompt templates carry no domain vocabulary or corpus symbols
 - `test/test_prompts.js` — #169 LLM-prompt detector: reject code/markup/identifier lists, dedupe bundle copies
 - `test/test_pseudo_claim_triage.js` — deterministic first cut over pseudo-claims: signals, thresholds, keep sidecar
-- `test/test_pseudo_claims.js` — `--claims-only` machine format, anchor sidecar, truncation detection, dependents
+- `test/test_pseudo_claims.js` — `--claims-only` machine format, anchor sidecar, truncation detection, dependents, the purpose harvester's doc readers
 - `test/test_ranker_eval.js` — ranker scoring: midranks, tie-corrected Spearman, recall@k, purity, `.lst` parsers
 - `test/test_referenced_resources.js` — external surface: URLs, env vars, paths, commands, cloud and model refs
 - `test/test_retrieval_reachability.js` — retrieval acceptance: implementer reach, ratcheted high-water marks

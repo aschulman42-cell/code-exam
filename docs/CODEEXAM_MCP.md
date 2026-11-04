@@ -22,7 +22,7 @@ speak the MCP protocol to reach them.
 | Overview by AI, cloud engine | the overview menu: `AI_OVERVIEW_TOOL_NAMES` in `src/core/ai-overview.js`, sixteen orientation tools | the cloud engine spawns `src/mcp-server.js` itself and calls over STDIO |
 | Overview by AI, local model (CLI and GUI) | the same overview menu | in-process node-llama-cpp function calling: no subprocess, no stdio, no JSON-RPC |
 | GUI Chat and `--ask-ai`, cloud engine | every registered tool | the provider's own tool-use API, each call answered in-process by `handleTool` |
-| GUI Chat and `--ask-ai`, local model | the curated core: `CURATED_LOCAL_CHAT_TOOLS` in `src/core/local-chat-tools.js`, eight tools; `CE_LOCAL_CHAT_TOOLS` changes it for one launch | in-process node-llama-cpp function calling |
+| GUI Chat and `--ask-ai`, local model | the curated core: `CURATED_LOCAL_CHAT_TOOLS` in `src/core/local-chat-tools.js`, nine tools (`list_mechanisms` joined the measured eight on 2026-11-03, unmeasured); `CE_LOCAL_CHAT_TOOLS` changes it for one launch | in-process node-llama-cpp function calling |
 
 The counts are the live ones at this writing; the table in the next section is the authoritative
 list, and no total is written here because it changes with every tool added. `CE_LOCAL_CHAT_TOOLS`
@@ -61,6 +61,7 @@ GUI use, and document it here if so.]]
 | `list_files` | List indexed files (optional path-substring filter). |
 | `list_functions` | List functions — name, file, line count (optional name/path filter). |
 | `list_classes` | List classes/structs with method counts. |
+| `list_mechanisms` | The mechanism records `ce --build-mechanisms` wrote beside the index — one per file, class, command or shared name token, every function in at least one — with member and file counts, tags, and a purpose read from the code's doc text (or a model's description). Answers "not built" with the command to run when the index has no `mechanisms.json`; never builds. |
 | `data_structures` | Structs/enums/unions/typedefs/traits/interfaces/records, ranked so the central types surface first. |
 | **Search** | |
 | `search` | Literal-string search; matching lines with file, line, and function context. |

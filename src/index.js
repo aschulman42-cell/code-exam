@@ -71,6 +71,7 @@ import { doInteractive } from './commands/interactive.js';
 import { doMultisect } from './commands/multisect.js';
 import { doClaimSearch } from './commands/claim.js';
 import { doPseudoClaims, doTriage } from './commands/pseudo-claims.js';
+import { doBuildMechanisms, doMechanisms } from './commands/mechanisms.js';
 import {
   doAnalyze, doClaimAnalyze, doMultisectAnalyze, doFileAnalyze,
 } from './commands/analyze.js';
@@ -139,6 +140,7 @@ const _QUERY_COMMAND_KEYS = [
   'save_fingerprints',
   'command_catalog', 'string_table', 'breadcrumbs', 'prompt_catalog', 'file_bookends', 'bundle_seams', 'digest',
   'comments_only', 'emit_harness', 'list_harnessable', 'census_imports', 'bom', 'why_depends', 'copyrights', 'exports', 'imports_from', 'imports', 'infrastructure',
+  'mechanisms',
 ];
 
 // #249: index-MUTATING commands. They ARE real commands (so a no-index run must
@@ -146,7 +148,7 @@ const _QUERY_COMMAND_KEYS = [
 // NOT auto-run against the bundled demo — they fall through to their handler,
 // which errors on a missing index. Kept separate from _QUERY_COMMAND_KEYS,
 // which drives the demo autoload.
-const _MUTATING_COMMAND_KEYS = ['rebuild_functions', 'build_rename_map'];
+const _MUTATING_COMMAND_KEYS = ['rebuild_functions', 'build_rename_map', 'build_mechanisms', 'describe'];
 
 // #252: the "did the user ALSO ask for something?" gates after --build-index
 // and --build-rename-map used to carry two hand-copied snapshots of
@@ -999,6 +1001,17 @@ if (args.build_rename_map) {
 
 
 // ========================================================================
+// Build the mechanisms index for an existing index (no full rebuild)
+// ========================================================================
+
+// mechanisms-index-prebuild-cli-gui: the grouper in cover mode, once, written
+// to <index>/mechanisms.json; --describe adds one model sentence per record.
+if (args.build_mechanisms || args.describe) {
+  await doBuildMechanisms(index, args, { exe: exeBase() });
+}
+
+
+// ========================================================================
 // Dispatch commands
 // ========================================================================
 
@@ -1073,6 +1086,7 @@ if (args.entry_points)                      doEntryPoints(index, args);
 if (args._explicit.has('gaps'))             doGaps(index, args);
 if (args.domain_fns)                        doDomainFns(index, args);
 if (args.list_classes)                      doListClasses(index, args);
+if (args._explicit.has('mechanisms'))       doMechanisms(index, args, { exe: exeBase() });
 if (args.data_structs)                      doDataStructs(index, args);
 if (args.client_server)                     doClientServer(index, args);
 if (args.referenced_resources) {

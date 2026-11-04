@@ -35,6 +35,7 @@ import { makeFilterMatcher } from './core/filter-match.js';
 import { chatSessionOptions, ggufContextOptions, stripLocalArtifacts, draftCloud, getLlamaShared, isNoBinaryError, NO_BINARY_MESSAGE } from './core/llm-runner.js';
 import { extractExports } from './core/exports.js';
 import { extractImports, bomReport } from './core/imports.js';
+import { loadMechanismsIndex, filterRecords, notBuiltLine } from './core/mechanisms-index.js';
 import { copyrightNotices } from './core/copyrights.js';
 import { extractConcepts, INTRINSIC_NAMES, isIntrinsicName } from './core/vocabulary.js';
 import { buildOverviewFast, buildOverviewDeep } from './core/overview.js';
@@ -2990,6 +2991,40 @@ routes['/api/list-classes'] = (req, res) => {
   jsonResponse(res, {
     total: classes.length,
     classes: classes.slice(0, max).map(c => ({ name: c.name, filepath: c.filepath, start: c.start, end: c.end, methods: c.method_count, total_lines: c.total_method_lines, inferred: c.inferred || false })),
+  });
+};
+
+// mechanisms-index-prebuild-cli-gui: the records `--build-mechanisms` wrote,
+// read through the same loader the CLI and the MCP tool use (cached on the
+// index by the file's mtime). The GUI never builds: a missing file answers
+// `built: false` with the one not-built line, which the pane shows as the
+// whole list, instead of hanging on a grouping that takes minutes.
+routes['/api/list-mechanisms'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  let data = null;
+  try { data = loadMechanismsIndex(index); } catch (e) { return errorResponse(res, `mechanisms.json could not be read: ${e.message}`, 500); }
+  if (!data) return jsonResponse(res, { built: false, message: notBuiltLine(index), total: 0, total_all: 0, records: [] });
+  const records = q.filter ? filterRecords(data.records, q.filter) : data.records;
+  const max = safeMax(q.max, 300);
+  const dn = (n) => (typeof index.getDisplayName === 'function' ? index.getDisplayName(n) : n);
+  jsonResponse(res, {
+    built: true,
+    generated: data.generated,
+    coverage: data.coverage,
+    described: data.described || null,
+    total: records.length,
+    total_all: data.records.length,
+    records: records.slice(0, max).map((r) => ({
+      id: r.id, label: r.label, kind: r.kind, purpose: r.purpose || '', description: r.description || null,
+      tags: r.tags || [], calls: r.calls || [], files: (r.files || []).length,
+      members_total: (r.members || []).length,
+      members: (r.members || []).slice(0, 200).map((m) => ({
+        name: m.name, display_name: dn(m.name), filepath: m.file, start: m.start, end: m.end,
+        lines: (m.end || m.start || 0) - (m.start || 0) + 1,
+      })),
+    })),
   });
 };
 

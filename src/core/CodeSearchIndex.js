@@ -224,6 +224,7 @@ export class CodeSearchIndex {
   _funcHashesPath()    { return path.join(this.indexPath, 'func_hashes.json'); }
   _renameMapPath()     { return path.join(this.indexPath, 'rename_map.json'); }
   _stringTablePath()   { return path.join(this.indexPath, 'string_table.json'); }
+  _mechanismsPath()    { return path.join(this.indexPath, 'mechanisms.json'); }   // --build-mechanisms (core/mechanisms-index.js)
 
 
   // ========================================================================

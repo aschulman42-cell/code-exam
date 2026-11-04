@@ -8,8 +8,11 @@
 // docs/cloud-gpu-chat-testing.md, First-run findings + Cross-model matrix:
 // 8B/14B collapse to zero calls or garbage args at the full menu; even 32B
 // args degrade). This core is the menu measured to work; it is the product.
+// list_mechanisms joined on 2026-11-03 (mechanisms-index-prebuild-cli-gui):
+// a file read, cheap for a local model, but the nine-tool menu is unmeasured
+// against the eight-tool core the matrix was run on.
 export const CURATED_LOCAL_CHAT_TOOLS = ['search', 'extract', 'show_file', 'callers',
-  'callees', 'digest', 'overview', 'list_functions'];
+  'callees', 'digest', 'overview', 'list_functions', 'list_mechanisms'];
 
 /**
  * Resolve the tool names the local Chat exposes.

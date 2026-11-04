@@ -790,6 +790,76 @@ export async function loadClassMethods(className, container) {
 
 
 // ============================================================================
+// Mechanisms list — the records `--build-mechanisms` wrote (mechanisms-index-
+// prebuild-cli-gui). A row is one record: label, member and file counts, tags,
+// and its description (a model's sentence) or purpose (the harvested doc text)
+// on a second line; it expands to its members, and a member click opens the
+// source viewer as a function row does. When the index has no mechanisms.json
+// the route says so with the command to run, and that line is the whole list.
+// Giant and indivisible records carry their size and tag so they read as
+// files, not mechanisms.
+// ============================================================================
+
+export function renderMechanismList(container, data) {
+  container.innerHTML = '';
+  if (!data || !data.built) {
+    container.innerHTML = `<div class="list-placeholder">${escHtml((data && data.message) || 'Mechanisms index not built')}</div>`;
+    return;
+  }
+  const records = data.records || [];
+  if (!records.length) { container.innerHTML = '<div class="list-placeholder">No mechanisms match</div>'; return; }
+  for (const r of records) {
+    const subContent = h('div', { className: 'sub-accordion-content' });
+    const tags = (r.tags || []).join(', ');
+    const text = r.description || r.purpose || '';
+    const nFn = r.members_total || (r.members || []).length;
+    const subHeader = h('div', {
+      className: 'sub-accordion-header',
+      title: `${r.label}\n${nFn} function${nFn === 1 ? '' : 's'}, ${r.files} file${r.files === 1 ? '' : 's'}${tags ? `\n[${tags}]` : ''}${text ? `\n${text}` : ''}`,
+    }, [
+      h('span', { className: 'sub-accordion-toggle', text: '▸' }),
+      h('span', { className: 'name', text: r.label, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
+      h('span', { className: 'metric', text: `${nFn}f` }),
+      h('span', { className: 'metric', text: `${r.files} file${r.files === 1 ? '' : 's'}`, style: 'white-space:nowrap' }),
+      tags ? h('span', { className: 'metric muted', text: `[${tags}]`, style: 'white-space:nowrap' }) : null,
+    ].filter(Boolean));
+    const textRow = text
+      ? h('div', { className: 'filepath', text, title: text, style: 'padding:0 10px 3px 26px;font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap' })
+      : null;
+    const sub = h('div', { className: 'sub-accordion', 'data-mechanism': r.id }, [subHeader, textRow, subContent].filter(Boolean));
+    subHeader.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wasOpen = sub.classList.contains('open');
+      sub.classList.toggle('open');
+      if (!wasOpen && subContent.children.length === 0) renderMechanismMembers(r, subContent);
+      const parentSection = sub.closest('.accordion-section');
+      if (parentSection) setTimeout(() => _updateOverflowHint(parentSection), 50);
+    });
+    container.appendChild(sub);
+  }
+  if (data.total > records.length) container.appendChild(h('div', { className: 'list-placeholder', text: `${records.length} of ${data.total} shown` }));
+}
+
+function renderMechanismMembers(r, container) {
+  container.innerHTML = '';
+  const members = r.members || [];
+  if (!members.length) { container.innerHTML = '<div class="list-placeholder" style="padding:4px 10px;font-size:11px">No members</div>'; return; }
+  for (const m of members) {
+    const info = { name: m.name, display_name: m.display_name || m.name, filepath: m.filepath, lines: m.lines, start: m.start, end: m.end };
+    const item = h('div', { className: 'list-item', title: `${m.filepath}\nLine ${m.start}–${m.end} (${m.lines} lines)` }, [
+      h('span', { className: 'metric', text: `${m.lines}`, style: 'min-width:24px' }),
+      h('span', { className: 'name clickable', html: displayNameHtml(info.display_name) }),
+      h('span', { className: 'filepath', text: m.filepath?.replace(/\\/g, '/') || '' }),
+    ]);
+    item.addEventListener('click', (e) => { e.stopPropagation(); onFunctionClick(info); });
+    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, info); });
+    container.appendChild(item);
+  }
+  if ((r.members_total || 0) > members.length) container.appendChild(h('div', { className: 'list-placeholder', text: `${members.length} of ${r.members_total} members shown`, style: 'padding:4px 10px;font-size:11px' }));
+}
+
+
+// ============================================================================
 // Models list (AI/ML #84) — classes whose inheritance reaches a model base
 // ============================================================================
 

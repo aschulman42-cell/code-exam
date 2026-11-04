@@ -1854,3 +1854,61 @@ describe('a second call for the ANCHORS block when a complete reply has none', (
     assert.ok(!('anchorsReasked' in side.claims[2]), 'omitted when no second call was made');
   });
 });
+
+// mechanisms-index-prebuild-cli-gui, Part A (2026-11-03): the harvester reads
+// the stored lines -- module, class and function docstrings, the comment above
+// a declaration -- before the digest's comments, so a Python corpus, whose
+// docs the comment scanner never sees, gets a purpose on every row.
+import { harvestPurpose as _hp2, firstSentence as _fs2 } from '../src/commands/pseudo-claims.js';
+describe('harvestPurpose reads the stored lines: module and class docstrings, member docs, the calls line', () => {
+  const PY = [
+    '"""mod.py -- turns a ledger of entries into one statement per account, so the day closes with every balance stated."""',
+    'import os',
+    '',
+    'class Ledger:',
+    '    """Holds the entries of one day."""',
+    '    def post_entry(self, amount):',
+    '        self.entries.append(amount)',
+    '        self.total += amount',
+    '        return self.total',
+    '',
+    'def statement(ledger):',
+    '    """One line per entry and the total. Then more."""',
+    '    lines = []',
+    '    return lines',
+    '',
+    'def plain(x):',
+    '    y = x',
+    '    return y',
+  ];
+  const fn = (s, e) => ({ type: 'function', start: s, end: e });
+  const mk = (lines) => ({
+    _ensureFunctionIndex() {},
+    functionIndex: { 'src/mod.py': { Ledger: { type: 'class', start: 4, end: 9 }, 'Ledger::post_entry': { type: 'method', start: 6, end: 9, base_name: 'post_entry' }, statement: fn(11, 14), plain: fn(16, 18) } },
+    fileLines: new Map([['src/mod.py', lines]]),
+    commentsFor: () => [],
+  });
+  const index = mk(PY);
+  const noHeader = mk(['import os', ...PY.slice(1)]);
+  const m = (name, start, end) => ({ file: 'src/mod.py', name, bare: name.split('::').pop(), start, end });
+  const post = m('Ledger::post_entry', 6, 9), stmt = m('statement', 11, 14), plain = m('plain', 16, 18);
+  it('a file group and a split sub-group carry the module docstring', () => {
+    assert.match(_hp2(index, '[file] mod.py', [stmt, plain]), /^mod\.py -- turns a ledger of entries/);
+    assert.match(_hp2(index, '[file] mod.py / state', [stmt]), /^mod\.py -- turns a ledger/);
+  });
+  it('a class group carries the class docstring, ahead of the file header', () => {
+    assert.equal(_hp2(index, '[class] Ledger', [post]), 'Holds the entries of one day.');
+  });
+  it('a token group reads its namesake\'s docstring when the file has no header', () => {
+    assert.equal(_hp2(noHeader, 'state (statement)', [stmt, plain]), 'One line per entry and the total. Then more.');
+  });
+  it('with nothing of its own, a group takes the first sentence of its dominant members\' docs; a residue still lists its members', () => {
+    assert.equal(_hp2(noHeader, '[file] mod.py', [plain, stmt]), 'One line per entry and the total.');
+    assert.match(_hp2(noHeader, '[file] mod.py / rest', [plain], { file: 'src/mod.py', total: 3, taken: 2 }), /^the remainder of mod\.py after other seeds took 2 of its 3 functions/);
+    assert.equal(_fs2('--- Step 1: do it --- Then more.'), 'Step 1: do it --- Then more.');
+  });
+  it('a stub without a resolver gets no calls line, and calls: false never asks', () => {
+    assert.equal(_hp2(noHeader, '[file] mod.py', [plain]), '');
+    assert.equal(_hp2(noHeader, '[file] mod.py', [plain], null, { calls: false }), '');
+  });
+});

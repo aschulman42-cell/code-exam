@@ -422,7 +422,22 @@ drafting from the same candidate list draft claims for the same set of
 mechanisms** — the models change the *wording* of each claim, not *which*
 mechanisms exist. In other words, the identification of candidate mechanisms
 lives entirely in the deterministic candidate selection; the model is a drafter,
-not the one that picks the mechanisms.
+not the one that picks the mechanisms. The same grouper, run in *cover* mode by
+`--build-mechanisms`, writes a persisted record of every function in the index
+(`--mechanisms`, the GUI's Mechanisms list and the `list_mechanisms` tool read
+it; [`cli.md`](cli.md) has the commands); the drafting list is the sample, the
+mechanisms index the cover, and the next paragraphs say what that difference means.
+
+Every group's header carries a purpose read from the code's own doc text, in this
+order until one yields: the file's leading comment or docstring for a file group and
+the sub-groups the splitter cut from it; the class's own doc comment or docstring for
+a class group; the command handler's doc for a command group; the first sentence of
+up to three of the largest members' docs; and last a mechanical `calls: a, b, c` line
+naming what the group calls outside itself. Before 2026-11-03 the harvester read a
+file's leading *comments* only, so a Python corpus — whose module, class and function
+docs are docstrings — drafted from blank headers (AI_Manning 106 of 182 rows blank,
+sr_gh 73 of 90, Py314_site_pkg 1,739 of 4,257); the regenerated lists of that day
+carry a purpose on every row.
 
 **`--rank`: one model pass to order the list.** The grouper's list can run to
 hundreds of groups (57 on secp256k1, 959 on Bitcoin Core, 3,465 on Spark,
@@ -466,7 +481,16 @@ guarantee of completeness** in the drafting list. Much of the value is precisely
 number of auto-generated pseudo-claims as coverage. Claim-guided gathering, to steer
 the sample toward a known claim's concepts, is proposed in issue #302 (and richer
 seeds in #289); coverage as the foundation for `--claim-locate` is the subject of
-issue #359.
+issue #359. The drafting list is a *sample* by design; the *cover* is a separate
+artifact: `ce --index-path <X> --build-mechanisms` runs the same grouper with every
+file seeding whole, every class a record, the command seed uncapped, records of one or
+two kept, test and third-party code kept and tagged, and records allowed to overlap,
+then writes `<index>/mechanisms.json` with every candidate function in at least one
+record (100% on every index measured 2026-11-03, against the 22% to 95% of the
+drafting sample above). `--mechanisms` lists it; the GUI and the MCP tool read the
+same file. It is a listing, not a drafting list: a cover record is a file or a class
+as often as a mechanism, and a `giant` or `indivisible` tag says when it is one the
+splitter could not break.
 
 A candidates contents table reads roughly like this (from the bundled `.demo`, a
 TLS/crypto corpus — trimmed):

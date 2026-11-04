@@ -56,6 +56,23 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Naming**: `--rename-min-lines` matches the implementation field name (`rename_min_lines`); kebab-case in user-facing form.
 - **Verified against**: `src/argparse.js:203`
 
+#### `--build-mechanisms`
+
+- **Does**: Runs the mechanism grouper over an existing index in *cover* mode — every file seeds a record with all of its functions, every class is a record, every command's handler-and-callees is a record, name-token groups as for drafting; records of one or two functions are kept, test, noise and third-party functions are kept and tagged, records may overlap — and writes `<index>/mechanisms.json`: one record per line with its label, kind, members (file, name, line range), files, a purpose read from the code's own doc text (module header or docstring, class doc, member docs, else the outbound calls), its outbound calls, and tags (`test`, `noise`, `vendored`, `giant`, `indivisible`). The coverage line it prints is the contract: every candidate function in at least one record.
+- **Good for**: Building, once, the file that `--mechanisms`, the GUI's **Mechanisms** list and the MCP `list_mechanisms` tool all read, instead of each recomputing a grouping that takes minutes on a large index. Measured 2026-11-04: 4 s on CodeExam's own index (2,987 functions, 390 records), 2 s on AI_Manning (1,622; 263), 14 s on sr_gh (6,368; 1,298), minutes on WinAPI_Classic (74,061 functions); the not-built line each consumer prints estimates from the function count.
+- **Couples with**: `--index-path`; `--describe` adds a model sentence per record. Does not run inside `--build-index` (it would add its minutes to every big build) and is never run lazily by the GUI (it would hang). The drafting list (`--pseudo-claims --candidates`) is a *sample* of the same grouper, untouched by this.
+- **Naming**: the `--build-*` family of explicit post-build steps, beside `--build-rename-map`.
+- **Verified against**: `src/argparse.js` (`build_mechanisms`), `src/commands/mechanisms.js`, `src/core/mechanisms-index.js`
+
+#### `--describe`
+
+- **Does**: Asks a model (`--llm <provider>` or `--model <gguf>`) for one plain sentence per record, from a pack of the record's label, purpose, calls, member names and the first lines of up to three members, and stores it as the record's `description`. Three scopes: with `--build-mechanisms`, every record just built; with `--mechanisms <filter>` (or `--filter`), only the matching records of the existing `mechanisms.json`, the other records keeping whatever they had; alone, every record of the existing file. A cloud run is projected and gated by the claims cost guard first (`--force` / `CE_CLAIMS_COST_GUARD` as for drafting; one call per record, so a whole file of a thousand records projects past the $2 default and a filtered dozen does not). When nothing is written the command says so on stdout: `No descriptions written: <reason>`.
+- **Good for**: Readable rows where the code carries no doc text, or where a file header describes the module and not the sub-group; describing the handful of records you are reading rather than the file. `--mechanisms`, the GUI and the tool show the description ahead of the harvested purpose when one exists, and the listing's header says how many records carry one.
+- **A sentence is paid for once.** Descriptions live in `mechanisms.json`. A run skips records that already carry one (so a filtered run today and an unfiltered run later add up, and a run with nothing left asks no model); `--redescribe` rewrites them. A `--build-mechanisms` rebuild carries descriptions over to every record whose label and member set are unchanged and reports the count; a record the regrouping changed starts over.
+- **Couples with**: `--build-mechanisms`, `--mechanisms <filter>` / `--filter`, `--redescribe`, `--llm` / `--model`, `--force`, `--verbose` (progress every twenty records).
+- **Naming**: a modifier verb, like `--rank` on `--candidates`.
+- **Verified against**: `src/commands/mechanisms.js` (`describeMechanisms`, `DESCRIBE_SYS`)
+
 #### `--no-rename`
 
 - **Does**: Disables display-time renames for this run; output uses raw obfuscated names.
@@ -447,6 +464,14 @@ Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior a
 - **Couples with**: `--filter`, `--max-results`, `--include-path`, `--exclude-path`.
 - **Naming**: target-type-first. Post-CLI-normalization, this completes the symmetric noun-only set with `--functions`, `--files`, `--indexes`.
 - **Verified against**: `src/argparse.js:271`
+
+#### `--mechanisms [filter]`
+
+- **Does**: Lists the records `--build-mechanisms` wrote: a header with the cover (how many of the index's functions and files the records hold, when the file was built, which engine described it), then per record its id (`m1`, `m2`, …), label, function and file counts, tags, its description or harvested purpose, and its member names (`-v` lists every member as `file@name`). When the index has no `mechanisms.json` it prints one line — `not built: run ce --index-path <X> --build-mechanisms (about N minutes on an index this size)` — and nothing else.
+- **Good for**: Reading what a codebase is made of at a grain between a function and a file, with every function somewhere in the list; finding the record for a class, a command or a module by name, by a word of its purpose, or by a member's name.
+- **Couples with**: `--filter` (the same substring / `/regex/` contract as every listing, over id, label, purpose, description, tags, files and member names; the optional value is the same filter), `--max-results` (default 100; `0` lists all), `-v`.
+- **Naming**: target-type-first noun, beside `--functions`, `--files`, `--classes`.
+- **Verified against**: `src/argparse.js` (`mechanisms`), `src/commands/mechanisms.js` (`doMechanisms`)
 
 #### `--class-hotspots <n>`
 

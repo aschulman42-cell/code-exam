@@ -128,6 +128,12 @@ export function parseArgs() {
     build_index: null,
     rebuild_functions: false,
     build_rename_map: false,
+    // mechanisms-index-prebuild-cli-gui: --build-mechanisms [--describe] writes
+    // <index>/mechanisms.json; --mechanisms [filter] lists it.
+    build_mechanisms: false,
+    describe: false,
+    redescribe: false,
+    mechanisms: null,
     rename_min_lines: 0,
     file_bookends: null,
     bundle_seams: null,
@@ -453,6 +459,9 @@ export function parseArgs() {
     ['build_index',          'value',          ['--build-index']],
     ['rebuild_functions',    'flag',           ['--rebuild-functions']],
     ['build_rename_map',     'flag',           ['--build-rename-map']],
+    ['build_mechanisms',     'flag',           ['--build-mechanisms']],
+    ['describe',             'flag',           ['--describe']],
+    ['redescribe',           'flag',           ['--redescribe']],
     // #247/#249: recognized so the pre-parse GUI launch path can validate flags
     // and distinguish `--tour` used as a flag from `--tour` used as a value.
     ['gui',                  'flag',           ['--gui']],
@@ -572,6 +581,7 @@ export function parseArgs() {
     ['gaps',                 'optional_value', ['--gaps']],
     ['domain_fns',           'optional_value', ['--domain-fns']],
     ['list_classes',         'flag',           ['--classes'], ['--list-classes']],
+    ['mechanisms',           'optional_value', ['--mechanisms']],
     ['data_structs',         'flag',           ['--data-structs'], ['--structs']],
     ['client_server',        'flag',           ['--client-server'], ['--routes']],
     ['referenced_resources', 'optional_value', ['--referenced-resources', '--resources']],
@@ -1165,6 +1175,26 @@ INDEX MANAGEMENT:
                              lineCount <= n. 0 = no threshold (default), useful
                              for tuning rename coverage vs noise on short
                              functions. Pair with --build-rename-map.
+  --build-mechanisms         Group every function of an existing index into
+                             mechanism records (file, class, command and
+                             name-token seeds; every function in at least one
+                             record; records may overlap) and write
+                             <index>/mechanisms.json. Minutes on a large index;
+                             run once, then --mechanisms, the GUI's Mechanisms
+                             list and the list_mechanisms tool read the file.
+  --describe                 One model sentence per mechanism record (--llm
+                             <provider> or --model <gguf>), under the claims
+                             cost guard: with --build-mechanisms, every record
+                             just built; with --mechanisms <filter> (or
+                             --filter), only the matching records of the
+                             existing file, which is the cheap way; alone,
+                             every record of the existing file. Records that
+                             already carry a description are skipped, and a
+                             rebuild carries descriptions over when a record's
+                             label and members are unchanged, so a paid
+                             sentence is never paid for twice.
+  --redescribe               With --describe: rewrite records that already
+                             carry a description too.
   --no-rename                Disable display-time renames for this run
                              (output uses raw obfuscated names)
   --index-path <path>        Load an existing index (alias: --load-index).
@@ -1533,6 +1563,12 @@ GRAPH:
 METRICS / DISCOVERY:
   --classes                  List all classes with method counts/sizes
                              (deprecated alias: --list-classes)
+  --mechanisms [filter]      List the mechanism records --build-mechanisms
+                             wrote: label, members, files, purpose or
+                             description, tags. The filter matches label,
+                             purpose, member and file names; --max-results
+                             caps the list (default 100, 0 = all); -v lists
+                             every member as file@name.
   --data-structs             List data structures (struct/enum/union/typedef/
                              trait/interface/record) ranked by reference count
                              (alias: --structs)

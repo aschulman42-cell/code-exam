@@ -57,6 +57,7 @@ export const api = {
   stats:           (p) => api.get('stats', p),
   listFiles:       (p) => api.get('list-files', p),
   listFunctions:   (p) => api.get('list-functions', p),
+  listMechanisms:  (p) => api.get('list-mechanisms', p),   // mechanisms-index-prebuild-cli-gui: the records --build-mechanisms wrote
   fileFunctions:   (p) => api.get('file-functions', p),
   extract:         (p) => api.get('extract', p),
   showFile:        (p) => api.get('show-file', p),

@@ -60,9 +60,16 @@ their own threads. That redesign, and the open questions behind it, are tracked 
 
 The left pane is where you orient yourself in an unfamiliar codebase. Under an **Orient** heading
 sits **Overview** (the one-shot "what is this codebase" summary); under **Browse** sit the
-structural lists — **Functions**, **Files**, **Classes**, **Class Inheritance**, **Data
-Structures**, plus **Bundle Seams** and the extension census. Clicking a row loads it into the
-middle panes.
+structural lists — **Functions**, **Files**, **Classes**, **Mechanisms**, **Class Inheritance**,
+**Data Structures**, plus **Bundle Seams** and the extension census. Clicking a row loads it into the
+middle panes. **Mechanisms** is the one list the GUI does not compute: it reads the records
+`ce --index-path <X> --build-mechanisms` wrote beside the index (one per file, class, command or
+shared name token, every function in at least one, records overlapping), each row carrying its
+member and file counts, tags (`test`, `vendored`, `giant` for a record the splitter could not
+break), and its purpose read from the code's own doc text or a model's one-sentence description;
+a row expands to its members, and a member opens the source viewer as a function row does. Until
+the file exists the list is one line saying which command builds it and roughly how long that
+takes; the build is minutes on a large index, which is why the pane never runs it itself.
 
 The Overview surface ends with the opt-in **✨ Overview by AI** button, and the same surface is
 available as a pop-up (the **⧉ Open Overview pop-up** button in the Overview's button row). The two are one view: the

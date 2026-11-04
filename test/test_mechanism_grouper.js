@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { groupMechanisms, isOverBroadNamespace, parseAnchorHeader, enumerateFuncs, splitDocSections, docAnchorsForGroup, formatAnchors, dominantFile, echoPairs, GROUPER_DEFAULTS, subTokens, subTokenPartition, splitOversizedGroup, detectVendoredSubtrees, copyrightHolder, isUnderVendored, docHeaderOf } from '../src/core/mechanism-grouper.js';
-import { vendoredExclusionLines } from '../src/core/mechanism-grouper.js';
+import { vendoredExclusionLines, coverFileLabels, docCommentOf, outboundCalls } from '../src/core/mechanism-grouper.js';
 import { catalogLabelFlag, purposeWithAliases } from '../src/core/mechanism-grouper.js';
 import { collectAnchorGroups, parseMinRank, filterGroupsByMinRank, packDisclosure, parseLineAnchor, groundAnchors, formatClaimChart, claimPreambleSnippet, formatChartToc } from '../src/commands/pseudo-claims.js';
 
@@ -1241,5 +1241,107 @@ describe('residue groups carry what they are', () => {
     let seen = null;
     formatAnchors(r, { indexName: 'x', purposeFor: (label, members, g) => { seen = g; return ''; } });
     assert.deepEqual(seen && seen.residue, { file: 'a.js', total: 5, taken: 2 });
+  });
+});
+
+// mechanisms-index-prebuild-cli-gui (2026-11-03): cover mode is the grouper
+// as a persisted index of every function; drafting modes are untouched.
+describe('cover mode: every function in at least one record, records overlap, labels, tags', () => {
+  const fn = (s) => ({ type: 'function', start: s, end: s + 9 });
+  const DOC = '/** cover-fixture.js -- a module whose header states its purpose at length so the doc-header gate admits it. */';
+  const LIC = '/* Copyright (c) 2020 Someone. Licensed under the Apache License, Version 2.0. All rights reserved. */';
+  const mkIndex = () => ({
+    _ensureFunctionIndex() {},
+    functionIndex: {
+      'src/doc.js':   { alphaQuux: fn(2), bravoZorp: fn(14), charlieWibble: fn(26) },
+      'src/lic.js':   { deltaFrob: fn(2), echoSnarf: fn(14), foxtrotBlim: fn(26) },
+      'src/one.js':   { golfNarg: fn(2) },
+      'src/res.js':   { Zorb: { type: 'class', start: 1, end: 48 }, 'Zorb::alpha': fn(2), 'Zorb::bravo': fn(14), 'Zorb::charlie': fn(26), 'Zorb::delta': fn(38), kiloNarg: fn(50), limaPlonk: fn(62), mikeGrup: fn(74) },
+      'pkg/__init__.py':   { oneInit: fn(2) },
+      'other/__init__.py': { twoInit: fn(2) },
+      'test/x_test.js':    { testThing: fn(2), testOther: fn(14) },
+      'src/big.js':   Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`juliet${i}Vex${i}`, fn(2 + 12 * i)])),
+    },
+    fileLines: new Map([
+      ['src/doc.js', [DOC, ...Array(40).fill('x;')]],
+      ['src/lic.js', [LIC, ...Array(40).fill('x;')]],
+      ['src/one.js', ['const y = 1;', ...Array(12).fill('x;')]],
+      ['src/res.js', [DOC, ...Array(90).fill('x;')]],
+      ['pkg/__init__.py', Array(12).fill('x = 1')],
+      ['other/__init__.py', Array(12).fill('x = 1')],
+      ['test/x_test.js', Array(30).fill('x;')],
+      ['src/big.js', ['const z = 1;', ...Array(320).fill('x;')]],
+    ]),
+  });
+  const labels = (r) => r.groups.map((g) => g.label).sort();
+  const members = (r, label) => { const g = r.groups.find((x) => x.label === label); return g ? g.members.map((m) => m.name).sort() : null; };
+  it('every candidate function is in at least one group; files seed whole, header or not, any size, one function or many', () => {
+    const r = groupMechanisms(mkIndex(), { mode: 'cover', catalogSeed: false });
+    assert.equal(r.mode, 'cover');
+    const covered = new Set(r.groups.flatMap((g) => [...g.ids]));
+    assert.equal(covered.size, r.funcs.length, 'coverage 100%');
+    assert.ok(r.funcs.length >= 40, String(r.funcs.length));
+    for (const l of ['[file] doc.js', '[file] lic.js', '[file] one.js', '[file] res.js', '[file] x_test.js']) assert.ok(labels(r).includes(l), l + ' in ' + labels(r).join(' | '));
+    assert.deepEqual(members(r, '[file] one.js'), ['golfNarg']);
+    assert.ok(!labels(r).some((l) => / \/ rest/.test(l)), 'no residues in a cover');
+  });
+  it('records overlap: the class record holds every method and the file record holds the whole file', () => {
+    const r = groupMechanisms(mkIndex(), { mode: 'cover', catalogSeed: false });
+    assert.deepEqual(members(r, '[class] Zorb'), ['Zorb::alpha', 'Zorb::bravo', 'Zorb::charlie', 'Zorb::delta']);
+    assert.deepEqual(members(r, '[file] res.js'), ['Zorb::alpha', 'Zorb::bravo', 'Zorb::charlie', 'Zorb::delta', 'kiloNarg', 'limaPlonk', 'mikeGrup']);
+  });
+  it('same-basename files get distinct labels; the drafting modes keep the bare basename', () => {
+    const r = groupMechanisms(mkIndex(), { mode: 'cover', catalogSeed: false });
+    assert.deepEqual(members(r, '[file] pkg/__init__.py'), ['oneInit']);
+    assert.deepEqual(members(r, '[file] other/__init__.py'), ['twoInit']);
+    const m = coverFileLabels(['a/x.js', 'b/x.js', 'c/y.js', 'd/e/z.js', 'f/e/z.js', 'g/e/z.js']);
+    assert.deepEqual([...m.entries()], [['a/x.js', 'a/x.js'], ['b/x.js', 'b/x.js'], ['c/y.js', 'y.js'], ['d/e/z.js', 'd/e/z.js'], ['f/e/z.js', 'f/e/z.js'], ['g/e/z.js', 'g/e/z.js']]);
+    const d = groupMechanisms(mkIndex(), { catalogSeed: false, fileSeed: 'all' });
+    assert.ok(!labels(d).some((l) => l.includes('/__init__')), labels(d).join(' | '));
+  });
+  it('tags: a test file\'s record is test, an unsplittable oversized file is giant and indivisible, the project\'s own records carry none', () => {
+    const r = groupMechanisms(mkIndex(), { mode: 'cover', catalogSeed: false });
+    const tag = (l) => r.groups.find((g) => g.label === l).tags;
+    assert.deepEqual(tag('[file] x_test.js'), ['test']);
+    assert.deepEqual(tag('[file] doc.js'), []);
+    const big = r.groups.find((g) => g.label.startsWith('[file] big.js'));
+    assert.ok(big, labels(r).join(' | '));
+    assert.equal(big.members.length, 25, 'kept intact: no three names share a sub-token, so a split would shatter it into singletons');
+    assert.deepEqual(big.tags, ['giant', 'indivisible']);
+  });
+  it('drafting mode is byte-identical to before: the partition, the residue, the caps', () => {
+    const r = groupMechanisms(mkIndex(), { catalogSeed: false });
+    assert.equal(r.mode, 'multi');
+    assert.deepEqual(members(r, '[file] res.js / rest'), ['kiloNarg', 'limaPlonk', 'mikeGrup']);
+    assert.equal(members(r, '[file] one.js'), null, 'below minComm');
+    assert.equal(members(r, '[file] x_test.js'), null, 'a noise file is out');
+    const ids = r.groups.flatMap((g) => [...g.ids]);
+    assert.equal(new Set(ids).size, ids.length, 'a partition');
+    assert.ok(r.groups.every((g) => g.tags === undefined));
+  });
+});
+
+describe('the doc readers: descriptive header text and a symbol\'s own doc', () => {
+  it('descriptive drops license sentences, rule lines, bare URLs, author lines and doc-tool tags', () => {
+    const h = docHeaderOf(['/**', ' * foo.js — does the thing at length so the gate admits it, which needs eighty characters.', ' * https://example.org/x', ' * Co-authored with Someone.', ' * Copyright (c) 2020 Someone. Licensed under the MIT License.', ' * ====', ' * @module foo', ' */', 'x;']);
+    assert.equal(h.kind, 'doc');
+    assert.equal(h.descriptive, 'foo.js — does the thing at length so the gate admits it, which needs eighty characters.');
+    assert.match(h.text, /Copyright/);
+    assert.equal(docHeaderOf(['x;']).descriptive, '');
+  });
+  it('reads the JSDoc above, a /// run through attributes, and a Python docstring after a multi-line signature; a one-line def never borrows the next docstring', () => {
+    const js = ['/**', ' * Adds two numbers.', ' * @param a', ' */', 'function add(a, b) {', '  return a + b;', '}'];
+    assert.deepEqual(docCommentOf(js, 5, 7), { kind: 'comment', text: 'Adds two numbers.' });
+    const rs = ['#[derive(Debug)]', '/// Parses a frame.', '#[inline]', 'fn parse() {}'];
+    assert.deepEqual(docCommentOf(rs, 4), { kind: 'comment', text: 'Parses a frame.' });
+    const py = ['x = 1', '', 'def f(', '    a: int,', ') -> int:', '    """Multi-line signature,', '    docstring after."""', '    return a', '', 'def g(x): return x', 'def h():', '    """H doc."""', '    pass'];
+    assert.deepEqual(docCommentOf(py, 3, 8), { kind: 'docstring', text: 'Multi-line signature, docstring after.' });
+    assert.deepEqual(docCommentOf(py, 10, 10), { kind: 'none', text: '' });
+    assert.deepEqual(docCommentOf(py, 11, 13), { kind: 'docstring', text: 'H doc.' });
+    assert.deepEqual(docCommentOf(null, 1), { kind: 'none', text: '' });
+    assert.deepEqual(docCommentOf(['// Copyright (c) 2020 X. All rights reserved.', 'function a() {}'], 2), { kind: 'none', text: '' }, 'a license line alone is no doc');
+  });
+  it('outboundCalls fails open on a stub index', () => {
+    assert.deepEqual(outboundCalls({}, [{ file: 'a.js', name: 'f', bare: 'f' }]), []);
   });
 });

@@ -32,6 +32,7 @@ import { extractReferencedResources } from './core/referenced-resources.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { modelsUsedNegative } from './commands/metrics.js';
 import { filteredEmptyNotice } from './core/filter-match.js';
+import { loadMechanismsIndex, filterRecords, notBuiltLine, coverageLine } from './core/mechanisms-index.js';
 import { maskCredentials } from './core/credential-mask.js';
 import { displayName, parseFuncSpec } from './utils.js';
 import { doCallTree } from './commands/graph.js';
@@ -279,6 +280,17 @@ const TOOLS = [
       type: 'object',
       properties: {
         filter: { type: 'string', description: 'Filter by class name substring' },
+      },
+    },
+  },
+  {
+    name: 'list_mechanisms',
+    description: 'List the mechanism records of the index: one record per file, class, command or shared name token, with its member functions, files, a purpose read from the code\'s own doc text (or a model\'s one-sentence description), and tags (test, vendored, giant). The unit of "what is this codebase made of" between a function and a file; every function sits in at least one record, and records overlap. Built once by `ce --build-mechanisms`; when the index has no mechanisms.json the reply says so with the command to run. Capped; a cap is not absence.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filter: { type: 'string', description: 'Filter by label, purpose, member or file name substring (or /regex/)' },
+        max: { type: 'number', description: 'Max records (default 50)' },
       },
     },
   },
@@ -674,7 +686,7 @@ function _capabilitiesText() {
   return [
     'CodeExam examines an indexed codebase deterministically; you supply the judgment. Which tool to reach for:',
     '',
-    '- Orientation: overview (start here), stats, vocabulary, list_files, list_functions, list_classes, data_structures, command_catalog, models_used, client_server, referenced_resources; list_indexes / load_index to switch indexes.',
+    '- Orientation: overview (start here), stats, vocabulary, list_files, list_functions, list_classes, list_mechanisms (what the codebase is made of, between a function and a file; built once by --build-mechanisms), data_structures, command_catalog, models_used, client_server, referenced_resources; list_indexes / load_index to switch indexes.',
     '- Find code: search (literal text), regex_search, multisect_search (functions holding ALL of several terms).',
     '- Read code: extract <file@func>, show_file, digest (callers, callees, strings and structure in one view).',
     '- Cross-reference: callers, callees, call_tree, most_called, hotspots, entry_points, struct_dupes.',
@@ -1086,6 +1098,29 @@ function handleToolRaw(name, args) {
         lines.push(`  ${c.name}  (${c.methods.length} methods, ${c.filepath})`);
       }
       return lines.join('\n');
+    }
+
+    case 'list_mechanisms': {
+      // mechanisms-index-prebuild-cli-gui, Part D: the same file the CLI and
+      // the GUI read, through the same loader; never built here.
+      let data = null;
+      try { data = loadMechanismsIndex(index); } catch (e) { return `mechanisms.json could not be read: ${e.message}`; }
+      if (!data) return `${notBuiltLine(index)}. The index itself is loaded: list_functions, list_classes and list_files answer without it.`;
+      const max = args.max || 50;
+      const all = data.records;
+      const filtered = args.filter ? filterRecords(all, args.filter) : all;
+      if (!filtered.length) return (args.filter && all.length) ? filteredEmptyNotice('mechanisms', all.length, args.filter) : 'No mechanisms recorded';
+      const lines = [`${filtered.length} mechanism record(s)${args.filter ? ` matching "${args.filter}"` : ''} (showing ${Math.min(max, filtered.length)}): ${coverageLine(data)}`];
+      const dn = (n) => (typeof index.getDisplayName === 'function' ? index.getDisplayName(n) : n);
+      for (const r of filtered.slice(0, max)) {
+        const tags = r.tags && r.tags.length ? `  [${r.tags.join(', ')}]` : '';
+        const text = r.description || r.purpose || '';
+        const nf = r.files.length;
+        lines.push(`  ${r.id}  ${r.label}  (${r.members.length} fns, ${nf} file${nf === 1 ? '' : 's'})${tags}${text ? '  — ' + (text.length > 200 ? text.slice(0, 199) + '…' : text) : ''}`);
+        const names = r.members.slice(0, 8).map((m) => dn(m.name));
+        lines.push(`      ${names.join(', ')}${r.members.length > 8 ? ` (+${r.members.length - 8} more; extract <file@name> reads one)` : ''}`);
+      }
+      return lines.join('\n') + _capFooter(Math.min(max, filtered.length), filtered.length, false, 'Raise "max" or use a filter.');
     }
 
     case 'data_structures': {

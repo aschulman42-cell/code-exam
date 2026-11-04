@@ -268,30 +268,50 @@ export function isUnderVendored(file, vendored) {
 // class-declaration entries, intrinsics, sub-MIN_LINES one-liners, and
 // test-attributed inline test functions (#291 Part A). Returns the candidate
 // list + a byId map + the noise-file/function counts (+ testFns dropped).
+//
+// COVER mode (`cover: true`, mechanisms-index-prebuild-cli-gui): nothing is
+// dropped for being noise, test or third-party code -- the mechanisms index
+// is a cover of EVERY function, and a reader looking for "the test harness"
+// or "the vendored codec" must find a record for it -- so those functions are
+// kept and TAGGED (`test`, `noise`, `vendored: <root>`) and the counters count
+// the tagged files instead of excluded ones. Intrinsics and one-liners stay
+// out: they are not functions a mechanism record would name.
 export function enumerateFuncs(index, opts = {}) {
   const o = { ...GROUPER_DEFAULTS, ...opts };
   index._ensureFunctionIndex?.();
   const funcs = [];
   const byId = new Map();
   let noiseFiles = 0, noiseFns = 0, testFns = 0, vendorFiles = 0, vendorFns = 0;
+  const cover = !!o.cover;
   // Third-party subtrees are excluded from CANDIDATE DISCOVERY, not from the
   // index -- search, digest and every other command still see them. Only the
   // question "what might be claim-worthy here" is scoped to the project's own
-  // code, and `--include-vendored` puts them back.
-  const vendored = o.includeVendored ? [] : detectVendoredSubtrees(index, o);
+  // code, and `--include-vendored` puts them back. The cover detects them to
+  // tag them.
+  const vendored = (o.includeVendored && !cover) ? [] : detectVendoredSubtrees(index, o);
+  const isTestFile = (file) => /(?:^|[/\\._-])(?:(?:unit|browser|api)?tests?|specs?)(?:[/\\._-]|$)/i.test(String(file));
   for (const [file, fns] of Object.entries(index.functionIndex || {})) {
-    if (isUnderVendored(file, vendored)) { vendorFiles++; vendorFns += Object.keys(fns).length; continue; }
-    if (isNoiseFile(file)) { noiseFiles++; noiseFns += Object.keys(fns).length; continue; }
+    const v = isUnderVendored(file, vendored);
+    if (v) { vendorFiles++; vendorFns += Object.keys(fns).length; if (!cover) continue; }
+    const noise = isNoiseFile(file);
+    if (noise) { noiseFiles++; noiseFns += Object.keys(fns).length; if (!cover) continue; }
     const fileLines = (index.fileLines && typeof index.fileLines.get === 'function') ? index.fileLines.get(file) : null;
+    const fileIsTest = noise && isTestFile(file);
     for (const [full, info] of Object.entries(fns)) {
       if ((info.type || 'function') === 'class') continue;
       const bare = (info.base_name || full.split('::').pop() || '').split('@')[0];
       if (!bare || isIntrinsicName(bare)) continue;
       const lines = (info.end || 0) - (info.start || 0) + 1;
       if (lines < o.minLines) continue;
-      if (Array.isArray(fileLines) && isTestAttributedFunction(fileLines, info.start || 0)) { testFns++; continue; }
+      const testAttr = Array.isArray(fileLines) && isTestAttributedFunction(fileLines, info.start || 0);
+      if (testAttr) { testFns++; if (!cover) continue; }
       const id = `${file}@${full}`;
       const f = { id, file, name: full, bare, start: info.start, end: info.end, lines };
+      if (cover) {
+        if (fileIsTest || testAttr) f.test = true;
+        else if (noise) f.noise = true;
+        if (v) f.vendored = v.root;
+      }
       funcs.push(f); byId.set(id, f);
     }
   }
@@ -381,13 +401,48 @@ export function purposeWithAliases(group, purpose) {
   return `${purpose ? purpose + ' ' : ''}(also ${al.join(', ')})`;
 }
 
+// Cover-mode file labels: the basename when it is unique in the index, the
+// last two path segments when two files share a basename (`pkg/__init__.py`,
+// `other/__init__.py`), the whole path when even those collide. Exported for
+// tests. Drafting modes keep the bare basename and its merge, byte for byte.
+export function coverFileLabels(files) {
+  const norm = (f) => String(f).replace(/\\/g, '/');
+  const byBase = new Map();
+  for (const f of files) { const n = norm(f); const b = n.slice(n.lastIndexOf('/') + 1); (byBase.get(b) || byBase.set(b, []).get(b)).push(f); }
+  const out = new Map();
+  for (const [b, group] of byBase) {
+    if (group.length === 1) { out.set(group[0], b); continue; }
+    const two = (f) => norm(f).split('/').slice(-2).join('/');
+    const seen = new Map();
+    for (const f of group) seen.set(two(f), (seen.get(two(f)) || 0) + 1);
+    for (const f of group) out.set(f, seen.get(two(f)) === 1 ? two(f) : norm(f));
+  }
+  return out;
+}
+
 function multiSeedGroups(index, funcs, o) {
   const idxName = String(o.indexName || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
   const cap = Math.max(o.minComm, Math.floor((funcs.length || 1) * o.overbroadPct));
   const totalFiles = new Set(funcs.map((f) => f.file)).size || 1;
   const spreadCap = Math.max(3, Math.ceil(totalFiles * o.overbroadFileFrac)); // a namespace cross-cuts many files
   const fileOf = new Map(funcs.map((f) => [f.id, f.file]));
-  const assigned = new Map(); // funcId -> label
+  // Drafting mode emits a PARTITION: `assigned` (funcId -> label) is the
+  // record of which seed took a function, and a later seed sees only the
+  // unassigned residue. COVER mode (mechanisms-index-prebuild-cli-gui) emits
+  // every seed's FULL membership and lets records overlap -- a method sits in
+  // its class's record and in its file's -- so no seed consults `assigned`
+  // and `memberships` (label -> ids) is the only product. Both modes write
+  // through `join`; a drafting-mode re-assignment (the body-match rescue
+  // reclaiming a token's orphans) moves the id, keeping the partition exact.
+  const cover = !!o.cover;
+  const assigned = new Map(); // funcId -> label (drafting mode only)
+  const memberships = new Map(); // label -> Set(funcId)
+  const isTaken = (id) => !cover && assigned.has(id);
+  const join = (id, lbl) => {
+    if (!cover && assigned.has(id) && assigned.get(id) !== lbl) memberships.get(assigned.get(id))?.delete(id);
+    (memberships.get(lbl) || memberships.set(lbl, new Set()).get(lbl)).add(id);
+    if (!cover) assigned.set(id, lbl);
+  };
 
   // 1) TOKEN seeds — reject corpus-name and over-broad namespace concepts.
   const concepts = gatherConcepts(index, o);
@@ -412,7 +467,7 @@ function multiSeedGroups(index, funcs, o) {
     const fileCount = new Set([...ids].map((id) => fileOf.get(id))).size;
     if (isOverBroadNamespace(ids.size, cap, fileCount, spreadCap)) { overBroad.add(t); continue; } // namespace/prefix -> funcs fall through
     tokenNameMembers.set(t, ids);
-    for (const id of ids) assigned.set(id, tlabel.get(t));
+    for (const id of ids) join(id, tlabel.get(t));
   }
 
   // 2) CLASS seeds for the unassigned — methods of an indexed class only, so a
@@ -426,7 +481,7 @@ function multiSeedGroups(index, funcs, o) {
   for (const fns of Object.values(index.functionIndex || {})) for (const [full, info] of Object.entries(fns)) if (info && info.type === 'class') classNames.add((info.base_name || full.split('::').pop() || full).split('@')[0]);
   const leafParents = new Map(); const recs = [];
   for (const f of funcs) {
-    if (assigned.has(f.id)) continue;
+    if (isTaken(f.id)) continue;
     const ix = f.name.lastIndexOf('::'); if (ix <= 0) continue;
     const segs = f.name.slice(0, ix).split('::');
     const leaf = segs[segs.length - 1], parent = segs.length >= 2 ? segs[segs.length - 2] : '';
@@ -439,7 +494,10 @@ function multiSeedGroups(index, funcs, o) {
     const key = ((leafParents.get(r.leaf)?.size || 0) >= 2 && r.parent) ? `${r.parent}::${r.leaf}` : r.leaf;
     (classMethods.get(key) || classMethods.set(key, []).get(key)).push(r.id);
   }
-  for (const [cls, ids] of [...classMethods.entries()].filter(([, m]) => m.length >= o.minComm).sort((a, b) => b[1].length - a[1].length).slice(0, o.classes)) for (const id of ids) assigned.set(id, `[class] ${cls}`);
+  // The cover records EVERY class (no top-N): a reader asking "what is class X"
+  // must find X, however small, and the cap existed to keep a codec's data
+  // classes out of a drafting list, not out of a cover.
+  for (const [cls, ids] of [...classMethods.entries()].filter(([, m]) => m.length >= o.minComm).sort((a, b) => b[1].length - a[1].length).slice(0, cover ? Infinity : o.classes)) for (const id of ids) join(id, `[class] ${cls}`);
 
   // 3) CATALOG seed (OPT-IN --catalog-seed, #284 signal-rich gather) — each
   // command-catalog CLI option with a resolved handler join seeds
@@ -501,7 +559,7 @@ function multiSeedGroups(index, funcs, o) {
       const consider = (fid) => {
         if (!fid || seen.has(fid) || !fileOf.has(fid)) return false;
         seen.add(fid); reached++;
-        if (assigned.has(fid)) { taken++; return false; }
+        if (isTaken(fid)) { taken++; return false; }
         if (memberIds.size >= o.catalogClosureMax) return false;
         memberIds.add(fid); return true;
       };
@@ -523,7 +581,7 @@ function multiSeedGroups(index, funcs, o) {
       }
       if (memberIds.size < o.minComm) continue;
       const { flag, aliases } = catalogLabelFlag(entry.flags, h.name);
-      for (const fid of memberIds) assigned.set(fid, `[cmd] ${flag}`);
+      for (const fid of memberIds) join(fid, `[cmd] ${flag}`);
       if (aliases.length) catalogAliases.set(`[cmd] ${flag}`, aliases);
       catalogInfo.set(`[cmd] ${flag}`, { reached, taken });
       catalogTaken += taken;
@@ -558,7 +616,7 @@ function multiSeedGroups(index, funcs, o) {
       const members = new Set();
       for (const loc of e.locations) { const f = containingFunc(ranges, loc.filepath, loc.line); if (f) members.add(f.id); }
       if (members.size < 2 || members.size > o.maxLitSpread) continue;
-      const un = [...members].filter((id) => !assigned.has(id));
+      const un = [...members].filter((id) => !isTaken(id));
       if (un.length >= 2) seedLits.push({ val, ids: un, spread: members.size });
     }
     // Union-find over unassigned members; a component >= minComm becomes a group.
@@ -581,7 +639,7 @@ function multiSeedGroups(index, funcs, o) {
       const best = c.lits.sort((a, b) => a.spread - b.spread || b.val.length - a.val.length)[0];
       const short = best.val.replace(/\s+/g, ' ').trim().slice(0, 40);
       const lbl = `[lit] "${short}${best.val.length > 40 ? '…' : ''}"`;
-      for (const id of c.ids) assigned.set(id, lbl);
+      for (const id of c.ids) join(id, lbl);
     }
   }
 
@@ -622,9 +680,9 @@ function multiSeedGroups(index, funcs, o) {
         const all = hits.get(t);
         if (!all || all.size > o.maxBodySpread) continue; // too common in bodies -> reject, don't truncate
         const own = tokenNameMembers.get(t) || new Set();
-        const members = [...all].filter((id) => !assigned.has(id) || own.has(id));
+        const members = [...all].filter((id) => !isTaken(id) || own.has(id));
         if (members.length < o.minComm) continue;
-        for (const id of members) assigned.set(id, `[body] ${tlabel.get(t) || t}`);
+        for (const id of members) join(id, `[body] ${tlabel.get(t) || t}`);
       }
     }
   }
@@ -641,16 +699,28 @@ function multiSeedGroups(index, funcs, o) {
   // whether the file opens with a comment saying what the module is for --
   // 'doc-header' mode: any size, doc-headed files only, license-only headers
   // rejected, every skip counted. 'all' is the old size-gated behaviour.
+  // 'cover' (the mechanisms index) seeds EVERY file with ALL of its candidate
+  // functions, header or not, any size: the file record is what guarantees
+  // that every function sits in at least one record (the splitter still
+  // breaks a big file by name token). Same-basename files, which the drafting
+  // modes merge under one `[file] base` label, get distinct labels here.
   const fileSeedMode = o.fileSeed === true ? 'all' : (o.fileSeed || false);
   let fileSeeded = 0, fileResidue = 0, fileNoHeader = 0, fileLicenseOnly = 0, fileTooBig = 0;
   const fileResidueInfo = new Map(); // '[file] X / rest' -> { file, total, taken }, so the purpose can say what it is
   if (fileSeedMode) {
     const byFileU = new Map();
-    for (const f of funcs) { const e = byFileU.get(f.file) || byFileU.set(f.file, { total: 0, un: [] }).get(f.file); e.total++; if (!assigned.has(f.id)) e.un.push(f.id); }
+    for (const f of funcs) { const e = byFileU.get(f.file) || byFileU.set(f.file, { total: 0, un: [] }).get(f.file); e.total++; if (!isTaken(f.id)) e.un.push(f.id); }
     const base = (fp) => { const s = String(fp).replace(/\\/g, '/'); return s.slice(s.lastIndexOf('/') + 1); };
     const linesOf = (file) => (index && index.fileLines && typeof index.fileLines.get === 'function') ? index.fileLines.get(file) : null;
+    const fileLabel = fileSeedMode === 'cover' ? coverFileLabels([...byFileU.keys()]) : null;
     for (const [file, e] of byFileU) {
       if (e.un.length < o.minComm) continue;
+      if (fileSeedMode === 'cover') {
+        const lbl = `[file] ${fileLabel.get(file) || base(file)}`;
+        for (const id of e.un) join(id, lbl);
+        fileSeeded++;
+        continue;
+      }
       if (fileSeedMode === 'all') {
         // 'all' keeps the majority rule it was built on: a SMALL file whose
         // leftover functions are its MAJORITY is one cohesive mechanism.
@@ -674,13 +744,12 @@ function multiSeedGroups(index, funcs, o) {
       // groups. Oversized residues split like any other group.
       const residue = fileSeedMode !== 'all' && e.un.length < e.total;
       const lbl = residue ? `[file] ${base(file)} / rest` : `[file] ${base(file)}`;
-      for (const id of e.un) assigned.set(id, lbl);
+      for (const id of e.un) join(id, lbl);
       if (residue) { fileResidue++; fileResidueInfo.set(lbl, { file, total: e.total, taken: e.total - e.un.length }); } else fileSeeded++;
     }
   }
 
-  const groups = new Map();
-  for (const [id, lbl] of assigned) (groups.get(lbl) || groups.set(lbl, new Set()).get(lbl)).add(id);
+  const groups = memberships;
   // RETURN STATS ALONGSIDE THE GROUPS. `catalogCapped` was previously
   // incremented and never read -- a dead store, because this returned a bare
   // array and the count could not reach groupMechanisms or formatAnchors. The
@@ -703,14 +772,23 @@ function multiSeedGroups(index, funcs, o) {
 // count them apart from "no header at all" -- a license block is the most
 // common leading comment in third-party code and says nothing about the
 // module. Shebangs, encoding lines and `'use strict'` are skipped first.
-const LICENSE_RE = /\b(copyright|\(c\)\s*\d{4}|licen[cs]ed? (?:under|to)|apache license|mit license|gnu (?:general|lesser)|spdx-license|all rights reserved|permission is hereby granted|redistribution and use|warranty|as-is)\b/i;
+export const LICENSE_RE = /\b(copyright|\(c\)\s*\d{4}|licen[cs]ed? (?:under|to)|apache license|mit license|gnu (?:general|lesser)|spdx-license|all rights reserved|permission is hereby granted|redistribution and use|warranty|as-is)\b/i;
+// Header lines that describe the file's provenance, not the module: a bare
+// URL, an author or co-author line, a doc-tool tag (`@param`, `@returns`).
+// Out of the descriptive text and the doc text alike.
+const BOILERPLATE_RE = /^(https?:\/\/\S+\s*$|co-?authored(?:-by)?\b|authors?\s*:|@author\b|maintainers?\s*:|@\w+\b)/i;
+const isBoilerplateLine = (s) => LICENSE_RE.test(s) || BOILERPLATE_RE.test(s.trim()) || /^[\s=\-#*~_]+$/.test(s);
 
+// Returns { kind, text, chars, descriptive }: `text` is the whole header,
+// `descriptive` the same with the license sentences and rule lines out, which
+// is what a purpose should carry (the WinAPI `wnd` group once harvested the
+// Microsoft warranty paragraph).
 export function docHeaderOf(lines, { min = GROUPER_DEFAULTS.docHeaderMin } = {}) {
-  if (!Array.isArray(lines) || !lines.length) return { kind: 'none', text: '', chars: 0 };
+  if (!Array.isArray(lines) || !lines.length) return { kind: 'none', text: '', chars: 0, descriptive: '' };
   let i = 0;
   const skip = (l) => /^\s*$/.test(l) || /^#!/.test(l) || /^\s*#\s*-\*-.*-\*-\s*$/.test(l) || /^\s*['"]use strict['"];?\s*$/.test(l);
   while (i < lines.length && skip(lines[i])) i++;
-  if (i >= lines.length) return { kind: 'none', text: '', chars: 0 };
+  if (i >= lines.length) return { kind: 'none', text: '', chars: 0, descriptive: '' };
   const first = String(lines[i]);
   const body = [];
   if (/^\s*\/\*/.test(first)) {                                  // block comment
@@ -726,14 +804,112 @@ export function docHeaderOf(lines, { min = GROUPER_DEFAULTS.docHeaderMin } = {})
     const mark = first.match(/^\s*(\/\/|#|--)/)[1];
     for (; i < lines.length; i++) { const l = String(lines[i]); if (!new RegExp('^\\s*' + mark.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(l)) break; body.push(l.replace(new RegExp('^\\s*' + mark.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s?'), '')); }
   } else {
-    return { kind: 'none', text: '', chars: 0 };
+    return { kind: 'none', text: '', chars: 0, descriptive: '' };
   }
   const text = body.map((s) => s.replace(/^[\s=\-#*]+$/, '').trim()).filter(Boolean).join(' ');
   const licenseLines = body.filter((s) => LICENSE_RE.test(s)).length;
-  const descriptive = body.filter((s) => s.trim() && !LICENSE_RE.test(s) && !/^[\s=\-#*]+$/.test(s)).join(' ').trim();
-  if (descriptive.length >= min) return { kind: 'doc', text, chars: descriptive.length };
-  if (licenseLines) return { kind: 'license', text, chars: descriptive.length };
-  return { kind: 'none', text, chars: descriptive.length };
+  // The GATE counts the license-free text, as it did when the file seed was
+  // calibrated (a header's URL and co-author lines count toward the eighty
+  // characters, and taking them out of the gate dropped one CodeExam file
+  // from the drafting list, 2026-11-03); the RETURNED `descriptive` leaves
+  // them out, since a purpose is not provenance.
+  const gated = body.filter((s) => s.trim() && !LICENSE_RE.test(s) && !/^[\s=\-#*]+$/.test(s)).join(' ').trim();
+  const descriptive = body.filter((s) => s.trim() && !isBoilerplateLine(s)).map((s) => s.trim()).join(' ').replace(/\s+/g, ' ').replace(/^[\s=\-#*+]+/, '').trim();
+  if (gated.length >= min) return { kind: 'doc', text, chars: gated.length, descriptive };
+  if (licenseLines) return { kind: 'license', text, chars: gated.length, descriptive };
+  return { kind: 'none', text, chars: gated.length, descriptive };
+}
+
+// The doc text of ONE symbol declared at 1-based line `start` (a function, a
+// method, a class): the comment block directly above its declaration
+// (JSDoc, `///`, a `#` or `//` run, decorators and attributes in between
+// allowed, one blank line allowed), else the docstring right after its
+// signature (Python, and any language whose first statement is a
+// triple-quoted string). `end` bounds the docstring search to the symbol's
+// own range so a one-line `def f(x): return` never borrows the next
+// function's docstring. Returns { kind: 'comment' | 'docstring' | 'none',
+// text } with license sentences and rule lines out. Fail-open: no lines, no
+// start -> 'none'. The harvester (pseudo-claims.js) reads members, classes
+// and command handlers through this, which is how a Python corpus -- whose
+// module, class and function docs are all docstrings, invisible to the
+// digest's comment scanner -- gets a purpose on every row
+// (mechanisms-index-prebuild-cli-gui, 2026-11-03: AI_Manning 106 of 146
+// rows blank, sr_gh 73 of 83, all docstring corpora).
+export function docCommentOf(lines, start, end = null) {
+  if (!Array.isArray(lines) || !(start >= 1)) return { kind: 'none', text: '' };
+  const clean = (parts) => parts
+    .map((s) => s.replace(/^\s*(\/\*\*?|\*\/|\*|\/\/\/?!?|#|--|<!--|-->)\s?/, '').replace(/\*\/\s*$/, '').trim())
+    .filter((s) => s && !isBoilerplateLine(s))
+    .join(' ').replace(/\s+/g, ' ').trim();
+  const isComment = (t) => /^(\/\/|#(?!\[)|\*|\/\*|\*\/|--|<!--)/.test(t) || /\*\/$/.test(t);
+  const isAttr = (t) => /^@\w/.test(t) || /^#\[/.test(t);
+  // 1) the block directly above
+  const above = [];
+  let i = start - 2, blanks = 0;
+  while (i >= 0) {
+    const t = String(lines[i] ?? '').trim();
+    if (!t) { if (++blanks > 1) break; i--; continue; }
+    if (isAttr(t)) { blanks = 0; i--; continue; }
+    if (isComment(t)) { blanks = 0; above.unshift(t); i--; continue; }
+    break;
+  }
+  const aboveText = clean(above);
+  if (aboveText) return { kind: 'comment', text: aboveText };
+  // 2) the docstring after the signature: the signature ends at the first
+  // line (within the symbol) whose code part ends with a colon.
+  const last = (end && end >= start) ? Math.min(lines.length, end) : Math.min(lines.length, start + 11);
+  let sig = -1;
+  for (let k = start - 1; k < last; k++) {
+    const code = String(lines[k] ?? '').replace(/\s#.*$/, '').trimEnd();
+    if (/:\s*$/.test(code)) { sig = k; break; }
+    if (k > start - 1 && /^\s*(def|class|if|for|while|return|with|try)\b/.test(code)) break;
+  }
+  if (sig >= 0) {
+    let j = sig + 1;
+    while (j < last && !String(lines[j] ?? '').trim()) j++;
+    const t = String(lines[j] ?? '').trim();
+    const m = t.match(/^[rRuUbBfF]{0,2}("""|''')/);
+    if (m) {
+      const q = m[1];
+      const body = [];
+      let l = t.slice(m[0].length);
+      let closed = l.includes(q);
+      body.push(closed ? l.slice(0, l.indexOf(q)) : l);
+      for (j++; !closed && j < Math.max(last, sig + 60) && j < lines.length; j++) { l = String(lines[j]); closed = l.includes(q); body.push(closed ? l.slice(0, l.indexOf(q)) : l); }
+      const text = clean(body);
+      if (text) return { kind: 'docstring', text };
+    }
+  }
+  return { kind: 'none', text: '' };
+}
+
+// The distinct functions a group's members call that are NOT in the group:
+// the mechanical last line of a purpose (`calls: a, b, c`) when no doc text
+// exists anywhere, and the `calls` field of a mechanisms record. Up to
+// `maxMembers` members are walked (findCallees reads one body each, the
+// masked file cached per index); intrinsics and the group's own names are
+// out; most-called first, ties by name. Fail-open on an index without a
+// resolver (the tests' fakes): [].
+export function outboundCalls(index, members, { maxMembers = 8, max = 6 } = {}) {
+  if (!index || typeof index.findFunctionMatches !== 'function' || !index.fileLines) return [];
+  const ms = members || [];
+  const own = new Set(ms.map((m) => `${m.file}@${m.name}`));
+  const bare = new Set(ms.map((m) => m.bare || m.name));
+  const counts = new Map();
+  for (const m of ms.slice(0, maxMembers)) {
+    let cs = [];
+    try { cs = findCallees(index, anchorSpec(m), m.file) || []; } catch { cs = []; }
+    for (const c of cs) {
+      const def = c.resolved_def;
+      if (def && own.has(`${def.filepath}@${def.name}`)) continue;
+      const name = (def && def.name) || c.name;
+      if (!name) continue;
+      const leaf = String(name).split('::').pop();
+      if (bare.has(leaf) || isIntrinsicName(leaf)) continue;
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, max).map(([n]) => n);
 }
 
 // Emit-faithful anchor spec for a member: exactly the `file@<spec>` tail
@@ -769,15 +945,22 @@ function memberResolvesUniquely(index, f) {
 
 // Filter a group's materialized members: dedupe members that emit the same
 // `file@spec` anchor (the x11/x8 collapse), then drop any that don't resolve
-// uniquely. Order preserved.
-function filterMembers(index, members) {
+// uniquely. Order preserved. The cover skips the resolution check
+// (`resolve: false`): its records are read by file and line range, never
+// re-resolved from an anchor line, and one findFunctionMatches per member
+// is the cost that made the drafting grouper take an hour on a 150,000-
+// function index.
+function filterMembers(index, members, { resolve = true } = {}) {
   const seen = new Set();
   const kept = [];
   for (const f of members) {
-    const line = `${f.file}@${anchorSpec(f)}`;
+    // The cover keeps same-named functions apart (`reComment@227` and
+    // `reComment@301` are two records' members, told apart by line range);
+    // the drafting list collapses them to the one anchor line it can emit.
+    const line = resolve ? `${f.file}@${anchorSpec(f)}` : f.id;
     if (seen.has(line)) continue;
     seen.add(line);
-    if (memberResolvesUniquely(index, f)) kept.push(f);
+    if (!resolve || memberResolvesUniquely(index, f)) kept.push(f);
   }
   return kept;
 }
@@ -820,6 +1003,11 @@ const SUBTOKEN_STOP = new Set(['get', 'set', 'the', 'for', 'and', 'not', 'self',
 // is emitted INTACT.
 export function subTokenPartition(group, o) {
   const members = group.members;
+  // A sub-group must still be a group: the cover keeps records of one or
+  // two, but a split that shattered a 300-function file into singletons
+  // would be no cover at all, so `splitMinComm` (the drafting minimum in
+  // cover mode) governs the seeds, not the record minimum.
+  const minComm = o.splitMinComm ?? o.minComm;
   const freq = new Map();
   const memberToks = new Map();
   for (const m of members) {
@@ -829,9 +1017,9 @@ export function subTokenPartition(group, o) {
   }
   // A token in nearly every member does not discriminate (it is what makes this
   // one group); a token in fewer than minComm cannot carry a group of its own.
-  const ceiling = Math.max(o.minComm, Math.floor(members.length * 0.9));
+  const ceiling = Math.max(minComm, Math.floor(members.length * 0.9));
   const seeds = [...freq.entries()]
-    .filter(([, n]) => n >= o.minComm && n < ceiling)
+    .filter(([, n]) => n >= minComm && n < ceiling)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   if (!seeds.length) return [];
 
@@ -847,7 +1035,7 @@ export function subTokenPartition(group, o) {
     bySeed.get(hit[0]).push(m);
   }
   const out = [...bySeed.entries()]
-    .filter(([, ms]) => ms.length >= o.minComm)
+    .filter(([, ms]) => ms.length >= minComm)
     .map(([t, ms]) => ({ label: t, members: ms }))
     .sort((a, b) => b.members.length - a.members.length);
   if (!out.length) return [];
@@ -863,7 +1051,7 @@ export function subTokenPartition(group, o) {
   // reader hand-pruning the candidates should be able to see that and delete it.
   const claimed = new Set(out.flatMap((g) => g.members.map((m) => m.id)));
   const rest = members.filter((m) => !claimed.has(m.id));
-  if (rest.length >= o.minComm) {
+  if (rest.length >= minComm) {
     out.push({ label: 'other', members: rest });
   } else if (rest.length) {
     // TOO FEW ORPHANS TO FORM A GROUP, so they join the smallest sub-group
@@ -933,10 +1121,23 @@ export function splitOversizedGroup(index, group, byId, o, depth = 1) {
   };
 }
 
+// COVER mode (`mode: 'cover'`, mechanisms-index-prebuild-cli-gui): the
+// grouper as a persisted index of EVERY function, not a drafting sample.
+// Every file seeds with all of its functions, every class is a record, the
+// command seed is uncapped, records of one or two functions are kept, noise
+// and test and third-party functions are kept and tagged, and records
+// overlap. The drafting modes ('multi', 'concept') are untouched. The
+// coverage line is the test: every candidate function in at least one record.
+export const COVER_DEFAULTS = {
+  minComm: 1, splitMinComm: GROUPER_DEFAULTS.minComm, classes: Infinity, catalogMax: Infinity, fileSeed: 'cover',
+  literalSeed: false, bodyMatchSeed: false, cover: true,
+};
+
 // Group an index's functions into candidate mechanism groups. Returns
-// { groups: [{label, ids:Set, members:[func]}], funcs, byId, noiseFiles, noiseFns, mode, splits }.
+// { groups: [{label, ids:Set, members:[func], tags?}], funcs, byId, noiseFiles, noiseFns, mode, splits }.
 export function groupMechanisms(index, opts = {}) {
-  const o = { ...GROUPER_DEFAULTS, ...opts };
+  const cover = opts.mode === 'cover';
+  const o = { ...GROUPER_DEFAULTS, ...(cover ? COVER_DEFAULTS : {}), ...opts, cover };
   const { funcs, byId, noiseFiles, noiseFns, vendored, vendorFiles, vendorFns } = enumerateFuncs(index, o);
   const seeded = o.mode === 'concept' ? conceptSeededGroups(index, funcs, o) : multiSeedGroups(index, funcs, o);
   const raw = seeded.groups;
@@ -944,7 +1145,7 @@ export function groupMechanisms(index, opts = {}) {
     .map((g) => {
       // Filter junk members, then rebuild ids from the survivors so emit,
       // members, and ids (the scoring path) stay consistent.
-      const members = filterMembers(index, [...g.ids].map((id) => byId.get(id)).filter(Boolean));
+      const members = filterMembers(index, [...g.ids].map((id) => byId.get(id)).filter(Boolean), { resolve: !cover });
       return { label: g.label, ids: new Set(members.map((m) => m.id)), members, ...(g.aliases ? { aliases: g.aliases } : {}), ...(g.catalog ? { catalog: g.catalog } : {}), ...(g.residue ? { residue: g.residue } : {}) };
     })
     .filter((g) => g.members.length > 0); // a group whose anchors were all junk is dropped
@@ -959,6 +1160,29 @@ export function groupMechanisms(index, opts = {}) {
     if (r.split) splits.push(r.split);
   }
   groups.sort((a, b) => b.ids.size - a.ids.size);
+  if (cover) {
+    // Record tags, so a consumer can render a test harness, a vendored tree
+    // or an unsplittable 300-function file as what it is: `test` / `noise` /
+    // `vendored` when EVERY member carries the flag (a mixed record is the
+    // project's), `giant` when the record is still over the split cap,
+    // `indivisible` when the splitter tried and reported why it could not.
+    const unsplit = new Map();
+    for (const s of splits) {
+      if (!s.into) unsplit.set(s.label, s.reason);
+      for (const n of s.nested || []) if (!n.into) unsplit.set(n.label, n.reason);
+    }
+    for (const g of groups) {
+      const tags = [];
+      const ms = g.members;
+      if (ms.every((m) => m.test)) tags.push('test');
+      if (ms.every((m) => m.noise)) tags.push('noise');
+      if (ms.every((m) => m.vendored)) tags.push('vendored');
+      if (Number.isFinite(o.groupMax) && o.groupMax > 0 && ms.length > o.groupMax) tags.push('giant');
+      const why = unsplit.get(g.label);
+      if (why === 'indivisible' || why === 'no-reduction') tags.push('indivisible');
+      g.tags = tags;
+    }
+  }
   return { groups, funcs, byId, noiseFiles, noiseFns, mode: o.mode, splits, vendored, vendorFiles, vendorFns, ...seeded.stats };
 }
 

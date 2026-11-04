@@ -37,7 +37,7 @@ import { claimGenericity, elementClasses } from '../core/claim-genericity.js';
 import { analyzeClaimSet, classifyContribution } from '../core/dep-claims.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, wasLastDraftTruncated, truncationCount, truncationLine, printShownPrompts, localSamplerNote } from '../core/llm-runner.js';
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
-import { vendoredExclusionLines, purposeWithAliases } from '../core/mechanism-grouper.js';
+import { vendoredExclusionLines, purposeWithAliases, docHeaderOf, docCommentOf, outboundCalls, LICENSE_RE } from '../core/mechanism-grouper.js';
 import { constantsReferencedBy } from '../core/declarations.js';
 import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, echoPairs, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
@@ -1300,16 +1300,96 @@ function _readComments(index, target) {
   memo.set(target, out);
   return out;
 }
-export function harvestPurpose(index, label, members, residue = null) {
+// mechanisms-index-prebuild-cli-gui, Part A (2026-11-03): every row readable.
+// The harvester read a file's leading COMMENTS through the digest, while the
+// doc-header file seed that admitted the file read its leading DOCSTRING too;
+// on a Python corpus the header is the docstring, so the seed said
+// "doc-headed" and the harvester found nothing (AI_Manning: 106 of 146 rows
+// blank, the whole-file rows and the splitter's sub-groups alike; sr_gh 73 of
+// 83; Py314 1,741 of 3,574; CodeExam, a JS corpus, 0 of 189). Class groups
+// fell through the same way (a Python class's doc is its docstring). The
+// readers below go to the stored lines first -- docHeaderOf, the seed's own
+// reader, for a file; docCommentOf (the comment above a declaration, else the
+// docstring after its signature) for a class or a member -- and keep the
+// digest's comments as the fallback an index without lines (the tests'
+// fakes) still answers through. Per-index memo, like the comment reads.
+const _docMemo = new WeakMap(); // index -> { headers: Map(file -> text), classes: Map(name -> [{file,start,end}]) | null }
+function _docState(index) { let s = _docMemo.get(index); if (!s) { s = { headers: new Map(), classes: null }; _docMemo.set(index, s); } return s; }
+function _linesOf(index, file) { const fl = index && index.fileLines; return (fl && typeof fl.get === 'function') ? fl.get(file) : null; }
+function _fileDocHeader(index, file) {
+  const s = _docState(index);
+  if (s.headers.has(file)) return s.headers.get(file);
+  let text = '';
+  const lines = _linesOf(index, file);
+  // `descriptive` is license-free by construction, so a license-kind header
+  // (a Microsoft banner whose "Module Name / Abstract" lines fall under the
+  // seed's eighty characters) still yields its few words of substance.
+  if (Array.isArray(lines)) text = docHeaderOf(lines).descriptive || '';
+  s.headers.set(file, text);
+  return text;
+}
+// The class declaration a `[class] X` label names: X as the grouper keyed it
+// (the leaf, or `Parent::Leaf` when the leaf is ambiguous), the group's
+// dominant file preferred when a name is declared in several.
+function _classEntry(index, cls, preferFile) {
+  const s = _docState(index);
+  if (!s.classes) {
+    s.classes = new Map();
+    try { index._ensureFunctionIndex?.(); } catch { /* a fake */ }
+    for (const [file, fns] of Object.entries((index && index.functionIndex) || {})) {
+      for (const [full, info] of Object.entries(fns || {})) {
+        if (!info || info.type !== 'class') continue;
+        const leaf = (info.base_name || full.split('::').pop() || full).split('@')[0];
+        for (const key of new Set([full.split('@')[0], leaf])) (s.classes.get(key) || s.classes.set(key, []).get(key)).push({ file, start: info.start, end: info.end });
+      }
+    }
+  }
+  const hits = s.classes.get(cls) || s.classes.get(String(cls).split('::').pop()) || [];
+  return hits.find((h) => h.file === preferFile) || hits[0] || null;
+}
+function _symbolDoc(index, file, start, end) {
+  const lines = _linesOf(index, file);
+  if (!Array.isArray(lines) || !start) return '';
+  return docCommentOf(lines, start, end).text;
+}
+/** The first sentence of a doc text (rule characters around it off), capped; the whole text when it has no sentence end. */
+export function firstSentence(text, cap = 200) {
+  const s = String(text || '').replace(/\s+/g, ' ').replace(/^[\s=\-#*~_]+|[\s=\-#*~_]+$/g, '').trim();
+  const m = s.match(/^.*?[.!?](?=\s|$)/);
+  const out = (m ? m[0] : s).replace(/^[\s=\-#*~_]+|[\s=\-#*~_]+$/g, '');
+  return out.length > cap ? out.slice(0, cap - 1) + '…' : out;
+}
+
+// In order until one yields text: the file's header (file groups and their
+// split sub-groups); the class's own doc, then its file's header ([class]
+// groups); the handler's doc ([cmd] groups); the namesake-token file's header,
+// then the namesake's doc (token groups); the first sentence of up to three
+// dominant members' docs; then the mechanical last line `calls: a, b, c`
+// (`calls: false` leaves that line to the caller, which the mechanisms index
+// builder does because it computes the calls for the record anyway).
+export function harvestPurpose(index, label, members, residue = null, { calls = true } = {}) {
   const commentsOf = (target) => _readComments(index, target);
-  const join = (cs) => cs.map((c) => c.text).join(' ').replace(/\s+/g, ' ').trim();
-  // A file's LEADING comment block = its purpose header (catches // banners too).
-  // Empty when nothing sits near the top (big multi-purpose files) -> caller falls back.
+  // Doc-tool tag lines (`@param`, `@returns`) describe a signature, not a
+  // purpose; license sentences describe ownership; a stray leading `*` or
+  // `-` is the comment's own marker.
+  const join = (cs) => cs.map((c) => String(c.text || '').replace(/^[\s*\-]+/, '').trim()).filter((t) => t && !/^@\w+/.test(t) && !LICENSE_RE.test(t)).join(' ').replace(/\s+/g, ' ').trim();
+  // A file's LEADING doc block = its purpose header: the stored lines first
+  // (docstrings included, license lines out), the digest's comments when the
+  // index carries no lines (catches // banners too). Empty when nothing sits
+  // near the top (big multi-purpose files) -> caller falls back.
   const fileHeader = (file) => {
+    const doc = _fileDocHeader(index, file);
+    if (doc) return doc;
     const cs = commentsOf(file);
     if (!cs.length || cs[0].line > 8) return '';
     return join(cs.filter((c) => c.line <= 30));
   };
+  // A member's own doc: the comment above or the docstring after its
+  // declaration. `memberAny` adds the comments the digest reads inside it
+  // (the read every path made before 2026-11-03), for the last resorts only:
+  // a handler's step banners are not what its command is for.
+  const memberDoc = (m) => _symbolDoc(index, m.file, m.start, m.end);
+  const memberAny = (m) => memberDoc(m) || join(commentsOf(m.bare || m.name));
   const files = [...new Set((members || []).map((m) => m.file).filter(Boolean))];
   const primaryFile = (tok) => {
     if (tok) { const hit = files.find((f) => f.replace(/^.*\//, '').toLowerCase().includes(tok.toLowerCase())); if (hit) return hit; }
@@ -1321,22 +1401,41 @@ export function harvestPurpose(index, label, members, residue = null) {
     const names = (members || []).map((m) => m.bare || m.name).filter(Boolean).slice(0, 6);
     const took = residue && residue.total ? `took ${residue.taken} of its ${residue.total} functions` : 'took part of it';
     const head = `the remainder of ${base} after other seeds ${took} (draft what these functions do; the module's purpose belongs to its other groups): ${names.join(', ')}`;
-    const own = join((members || []).flatMap((m) => commentsOf(m.bare || m.name)));
+    const own = (members || []).map(memberAny).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
     return (own ? `${head}. ${own}` : head).slice(0, HARVEST_CAP);
   }
   let purpose = '';
-  const classM = (label || '').match(/^\[class\]\s+(\S+)/);
-  if (classM) {
-    const f = primaryFile(null);                        // the class's file -> its header
-    purpose = (f && fileHeader(f)) || join(commentsOf(classM[1])); // else class-scope comments
+  const lbl = String(label || '');
+  const classM = lbl.match(/^\[class\]\s+(\S+)/);
+  if (/^\[file\]\s/.test(lbl)) {
+    const f = primaryFile(null);                        // the file; a split's sub-groups share it
+    purpose = f ? fileHeader(f) : '';
+  } else if (classM) {
+    const f = primaryFile(null);
+    const ce = _classEntry(index, classM[1], f);        // the class's own doc comment or docstring
+    purpose = (ce && _symbolDoc(index, ce.file, ce.start, ce.end)) || join(commentsOf(classM[1])) || (f ? fileHeader(f) : '');
+  } else if (/^\[cmd\]\s/.test(lbl)) {
+    purpose = members && members.length ? memberDoc(members[0]) : '';   // the handler is the first member
   } else {
-    const tokenM = (label || '').match(/^(\S+)\s*\(([^)]+)\)/);    // "token (namesakeFn) …"
+    const tokenM = lbl.match(/^(\S+)\s*\(([^)]+)\)/);    // "token (namesakeFn) …"
     const token = tokenM ? tokenM[1] : '';
     const namesake = tokenM ? tokenM[2] : '';
     const f = primaryFile(token);                       // namesake-token file -> its header
-    purpose = (f && fileHeader(f)) || (namesake ? join(commentsOf(namesake)) : '');
+    const ns = namesake ? (members || []).find((m) => (m.bare || m.name) === namesake) : null;
+    purpose = (f && fileHeader(f)) || (ns ? memberDoc(ns) : (namesake ? join(commentsOf(namesake)) : ''));
   }
-  if (!purpose && members && members.length) purpose = join(commentsOf(members[0].bare || members[0].name));
+  if (!purpose && members && members.length) {
+    // The first sentence of up to three dominant (largest) members' docs.
+    const size = (m) => m.lines || ((m.end || 0) - (m.start || 0) + 1);
+    const dominant = [...members].sort((a, b) => size(b) - size(a)).slice(0, 3);
+    const seen = [];
+    for (const m of dominant) { const s = firstSentence(memberAny(m)); if (s && !seen.includes(s)) seen.push(s); }
+    purpose = seen.join(' ');
+  }
+  if (!purpose && calls && members && members.length) {
+    const out = outboundCalls(index, members);
+    if (out.length) purpose = `calls: ${out.join(', ')}`;
+  }
   return purpose ? purpose.slice(0, HARVEST_CAP) : '';
 }
 
