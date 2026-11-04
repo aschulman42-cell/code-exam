@@ -442,25 +442,31 @@ the litigants' claims read on sat at P1 and P2 in the rankings ("standard-patter
 distinctive arithmetic. Cost: $0.12 for 57 groups, $1.62 for 959 (Claude Sonnet
 4.6, 2026-10-24).
 
-**It samples; it does not survey — so it can miss the mechanism you care about.**
-By default the grouper covers only a small fraction of a codebase's functions
-(measured at ~8% on one large corpus — issue #302): it lands where its own signals
-point — shared name tokens, one class, a documented module, the command catalog —
-not necessarily where a particular invention lives. (These signals are the
-grouper's, deterministic and generic. They are not the importance estimate of
-[`MEASURING_IMPORTANCE.md`](MEASURING_IMPORTANCE.md), which ranks terms, functions
-and files for search and the Overview, though the two share one ingredient: the
-grouper down-weights name tokens that are common across codebases, using the same
+**The candidate list samples; it does not survey — so it can miss the mechanism you
+care about.** The grouper's default seeds are tuned for drafting, and they land where
+the grouper's own signals point — shared name tokens, one class, a documented module,
+the command catalog — not necessarily where a particular invention lives. Coverage is
+printed on every run (`# coverage: N/M candidate function(s) in a group`): with the
+2026-11-03 defaults it ranged from 22% (Py314_site_pkg, a site-packages tree of
+150,000 candidate functions) and 41% (sr_gh, where most files have no leading doc
+comment) to 95% (CodeExam) of candidate functions across ten indexes, and was measured
+at ~8% of all indexed functions on ExoPlayer3 on 2026-08-02, before the command-catalog
+seed and the doc-header file seed became defaults later that month (issue #302). (These
+signals are the grouper's, deterministic and generic. They are not the importance
+estimate of [`MEASURING_IMPORTANCE.md`](MEASURING_IMPORTANCE.md), which ranks terms,
+functions and files for search and the Overview, though the two share one ingredient:
+the grouper down-weights name tokens that are common across codebases, using the same
 cross-corpus vocabulary.) A mechanism whose functions don't share the grouper's
 signals (no common name-tokens, not one class, spread across files, below the
 size/commonality thresholds, or in excluded/vendored code) may form no candidate
 group at all. So although a candidate list and a pseudo-claims contents table can
 look exhaustive — "the invention must be in here somewhere" — there is **no
-guarantee of completeness**. Much of the value is precisely in *eyeballing* those
-lists for mechanisms you hadn't named; just don't read a large number of
-auto-generated pseudo-claims as coverage. Claim-guided gathering, to steer the
-sample toward a known claim's concepts, is proposed in issue #302 (and richer seeds
-in #289).
+guarantee of completeness** in the drafting list. Much of the value is precisely in
+*eyeballing* those lists for mechanisms you hadn't named; just don't read a large
+number of auto-generated pseudo-claims as coverage. Claim-guided gathering, to steer
+the sample toward a known claim's concepts, is proposed in issue #302 (and richer
+seeds in #289); coverage as the foundation for `--claim-locate` is the subject of
+issue #359.
 
 A candidates contents table reads roughly like this (from the bundled `.demo`, a
 TLS/crypto corpus — trimmed):
