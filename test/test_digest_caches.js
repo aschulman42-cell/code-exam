@@ -86,6 +86,17 @@ export function main() {
     assert.deepEqual(index.commentsFor('noSuchThing'), []);
   });
 
+  it('a comments-only digest skips the duplicate-name walk over the function index and reports null for it (build-mechanisms-reads-by-span)', () => {
+    const full = index.buildDigest('helper', { maxCallers: 0, maxCallees: 0, maxStrings: 0 });
+    assert.equal(full.identity.bareDuplicateCount, 1);
+    const only = index.buildDigest('helper', { commentsOnly: true });
+    assert.equal(only.identity.bareDuplicateCount, null, 'not computed: that walk is the cost of a comments read on a large index');
+    assert.deepEqual(only.comments, full.comments);
+    const cls = index.buildDigest('Widget', { commentsOnly: true });
+    assert.equal(cls.identity.bareDuplicateCount, null);
+    assert.deepEqual(cls.comments, index.buildDigest('Widget').comments);
+  });
+
   it('a comments-only read makes no callers or callees walk and no AI/ML pass', () => {
     const full = index.buildDigest('helper', { maxCallers: 0, maxCallees: 0, maxStrings: 0 }).comments;
     const widget = index.buildDigest('Widget').comments;

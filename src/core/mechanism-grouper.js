@@ -898,7 +898,10 @@ export function outboundCalls(index, members, { maxMembers = 8, max = 6 } = {}) 
   const counts = new Map();
   for (const m of ms.slice(0, maxMembers)) {
     let cs = [];
-    try { cs = findCallees(index, anchorSpec(m), m.file) || []; } catch { cs = []; }
+    // By span: the member's own line range, never a name resolved against the
+    // whole function index (build-mechanisms-reads-by-span).
+    const target = (m.file && m.start && m.end) ? { filepath: m.file, name: m.name, start: m.start, end: m.end } : null;
+    try { cs = findCallees(index, anchorSpec(m), m.file, { target }) || []; } catch { cs = []; }
     for (const c of cs) {
       const def = c.resolved_def;
       if (def && own.has(`${def.filepath}@${def.name}`)) continue;
@@ -949,7 +952,9 @@ function memberResolvesUniquely(index, f) {
 // (`resolve: false`): its records are read by file and line range, never
 // re-resolved from an anchor line, and one findFunctionMatches per member
 // is the cost that made the drafting grouper take an hour on a 150,000-
-// function index.
+// function index (and, until build-mechanisms-reads-by-span, findCallees
+// made the same call per member for the outbound calls; it reads the
+// member's span now).
 function filterMembers(index, members, { resolve = true } = {}) {
   const seen = new Set();
   const kept = [];

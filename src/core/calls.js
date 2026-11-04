@@ -742,13 +742,21 @@ function collectCallerLine(idx, job, matchedType, line, locations) {
  * @param {string|null} [fileHint]
  * @returns {Array<{name, display_name, definitions, resolved_def, line_number, call_type, ambiguous}>}
  */
-export function findCallees(idx, functionName, fileHint = null) {
+export function findCallees(idx, functionName, fileHint = null, { target: given = null } = {}) {
   idx._ensureFunctionIndex();
 
-  const matches = idx.findFunctionMatches(functionName, fileHint);
-  if (matches.length === 0) return [];
-
-  const target = matches[0];
+  // build-mechanisms-reads-by-span: a caller that already holds the
+  // function's span ({ filepath, name, start, end }: a mechanism record's
+  // member) passes it and skips the name resolution, which walks every file
+  // entry of the function index per call (50-170 ms hinted on a 378,000-
+  // function index) and lands on the first same-named function in filepath
+  // order, the wrong body for the second `walk` in a file.
+  let target = (given && given.filepath && given.start) ? given : null;
+  if (!target) {
+    const matches = idx.findFunctionMatches(functionName, fileHint);
+    if (matches.length === 0) return [];
+    target = matches[0];
+  }
   const targetFilepath = target.filepath;
   const targetStart = target.start;
   const targetEnd = target.end;

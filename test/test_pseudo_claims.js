@@ -1907,6 +1907,20 @@ describe('harvestPurpose reads the stored lines: module and class docstrings, me
     assert.match(_hp2(noHeader, '[file] mod.py / rest', [plain], { file: 'src/mod.py', total: 3, taken: 2 }), /^the remainder of mod\.py after other seeds took 2 of its 3 functions/);
     assert.equal(_fs2('--- Step 1: do it --- Then more.'), 'Step 1: do it --- Then more.');
   });
+  it('a member with no doc of its own is read by span for its body comments, never by name; without stored lines the digest read stands (build-mechanisms-reads-by-span)', () => {
+    // Ten blank lines first, so the file's leading comments (line 12) fall
+    // past the header window and the member path is what answers.
+    const JS = [...Array(10).fill(''), 'function plain(x) {', '  // totals the chunks', '  return x;', '}', '', 'function other(y) {', '  // another body', '  return y;', '}'];
+    const calls = [];
+    const commentsFor = (t) => { calls.push(t); return t === 'plain' ? [{ line: 12, text: 'via digest' }] : []; };
+    const js = { _ensureFunctionIndex() {}, functionIndex: { 'src/m.js': { plain: fn(11, 14), other: fn(16, 19) } }, fileLines: new Map([['src/m.js', JS]]), commentsFor };
+    const mem = { file: 'src/m.js', name: 'plain', bare: 'plain', start: 11, end: 14 };
+    assert.equal(_hp2(js, '[file] m.js', [mem], null, { calls: false }), 'totals the chunks');
+    assert.deepEqual(calls, [], 'no digest read by name when the lines are there');
+    const noLines = { ...js, fileLines: new Map() };
+    assert.equal(_hp2(noLines, '[file] m.js', [mem], null, { calls: false }), 'via digest', 'a fake without lines still reads through the digest');
+    assert.ok(calls.includes('plain'), `the digest was asked for the member: ${calls.join(', ')}`);
+  });
   it('a stub without a resolver gets no calls line, and calls: false never asks', () => {
     assert.equal(_hp2(noHeader, '[file] mod.py', [plain]), '');
     assert.equal(_hp2(noHeader, '[file] mod.py', [plain], null, { calls: false }), '');

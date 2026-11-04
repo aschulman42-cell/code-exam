@@ -433,7 +433,10 @@ order until one yields: the file's leading comment or docstring for a file group
 the sub-groups the splitter cut from it; the class's own doc comment or docstring for
 a class group; the command handler's doc for a command group; the first sentence of
 up to three of the largest members' docs; and last a mechanical `calls: a, b, c` line
-naming what the group calls outside itself. Before 2026-11-03 the harvester read a
+naming what the group calls outside itself. Every read is by line range, the file's
+leading lines or the class's or member's own span, never by resolving a name the
+harvester already has a span for; so is the outbound-call read
+(build-mechanisms-reads-by-span, 2026-11-04). Before 2026-11-03 the harvester read a
 file's leading *comments* only, so a Python corpus — whose module, class and function
 docs are docstrings — drafted from blank headers (AI_Manning 106 of 182 rows blank,
 sr_gh 73 of 90, Py314_site_pkg 1,739 of 4,257); the regenerated lists of that day

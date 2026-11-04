@@ -22,6 +22,8 @@ import { harvestPurpose, firstSentence } from '../src/commands/pseudo-claims.js'
 import { describeMechanisms, describePack, cleanDescription } from '../src/commands/mechanisms.js';
 import { handleTool, TOOLS, setIndex } from '../src/mcp-server.js';
 import { CURATED_LOCAL_CHAT_TOOLS } from '../src/core/local-chat-tools.js';
+import { outboundCalls } from '../src/core/mechanism-grouper.js';
+import { findCallees } from '../src/core/calls.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'src', 'index.js');
@@ -154,6 +156,29 @@ const FILES = {
     '}',
     '',
   ].join('\n'),
+  // build-mechanisms-reads-by-span: two nested functions share a name; the
+  // second calls a different helper, so a read by name (the first `walk` in
+  // the file) and a read by span (its own range) disagree.
+  'lib/dupe.js': [
+    '// dupe.js -- two outer functions each define a walk of their own.',
+    'function helperA() { return 1; }',
+    'function helperB() { return 2; }',
+    'export function outerOne() {',
+    '  function walk(n) {',
+    '    // walks one',
+    '    return helperA() + n;',
+    '  }',
+    '  return walk(1);',
+    '}',
+    'export function outerTwo() {',
+    '  function walk(n) {',
+    '    // walks two',
+    '    return helperB() + n;',
+    '  }',
+    '  return walk(2);',
+    '}',
+    '',
+  ].join('\n'),
   'tests/test_parser.py': [
     'from pkg.parser import Tokenizer',
     '',
@@ -277,7 +302,8 @@ describe('the mechanisms index', () => {
       assert.equal(firstSentence('--- Step 1: do it --- Then more.'), 'Step 1: do it --- Then more.');
       assert.equal(firstSentence('No end here'), 'No end here');
       assert.equal(estimateBuildMinutes(100), 1);
-      assert.ok(estimateBuildMinutes(74061) >= 5);
+      assert.ok(estimateBuildMinutes(74061) >= 2, 'WinAPI_Classic: measured 208 s after build-mechanisms-reads-by-span');
+      assert.ok(estimateBuildMinutes(378225) >= 10, 'Py314_site_pkg: measured 520 s');
     });
 
     it('save and load round-trip, one record per line; absent is null; a foreign file throws; the loader caches by mtime', () => {
@@ -311,6 +337,28 @@ describe('the mechanisms index', () => {
       assert.match(t, /test_tokenize, test_tally/);
       const v = formatMechanismsList(data, [byLabel(data, '[file] test_parser.py')], { verbose: true }).lines.join('\n');
       assert.match(v, /test_parser\.py@test_tokenize/);
+    });
+
+    it('outboundCalls reads a member by its own span: the second same-named function in a file yields its own callees (build-mechanisms-reads-by-span)', () => {
+      idx._ensureFunctionIndex();
+      const key = Object.keys(idx.functionIndex).find((f) => f.replace(/\\/g, '/').endsWith('lib/dupe.js'));
+      const fns = idx.functionIndex[key];
+      const walks = Object.entries(fns).filter(([n]) => n === 'walk' || n.startsWith('walk@'))
+        .map(([n, i]) => ({ id: `${key}@${n}`, file: key, name: n, bare: 'walk', start: i.start, end: i.end }))
+        .sort((a, b) => a.start - b.start);
+      assert.equal(walks.length, 2, `two walks indexed; keys: ${Object.keys(fns).join(', ')}`);
+      assert.deepEqual(outboundCalls(idx, [walks[0]]), ['helperA']);
+      assert.deepEqual(outboundCalls(idx, [walks[1]]), ['helperB'], 'the second walk reads its own body, not the first one\'s');
+      // The name-and-hint resolution lands on the first walk for both; the
+      // span is what makes the second right, and it skips the resolution.
+      assert.deepEqual(findCallees(idx, 'walk', key).map((c) => c.name), ['helperA']);
+      const second = findCallees(idx, 'walk', key, { target: { filepath: key, name: walks[1].name, start: walks[1].start, end: walks[1].end } });
+      assert.deepEqual(second.map((c) => c.name), ['helperB']);
+      const spy = idx.findFunctionMatches;
+      try {
+        idx.findFunctionMatches = () => { throw new Error('findFunctionMatches ran with a target given'); };
+        assert.deepEqual(outboundCalls(idx, walks), ['helperA', 'helperB'], 'both walks read by their spans, and no resolution ran');
+      } finally { idx.findFunctionMatches = spy; }
     });
 
     it('a described record leads with its sentence and the label follows; an undescribed one leads with its label; -v lifts the cut', () => {

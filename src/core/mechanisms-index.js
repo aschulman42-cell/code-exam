@@ -61,15 +61,17 @@ export function candidateCount(index) {
   return n;
 }
 
-// Functions grouped per minute of build, from the 2026-11-04 apply
-// measurements: .CE_103126 2,987 functions in 4.1 s, .AI_Manning_recent
-// 1,622 in 1.8 s, .sr_gh 6,368 in 14.0 s, .WinAPI_Classic 74,061 in about
-// eight minutes (the grouping is a third of it; the rest is purposes and
-// outbound calls, one findCallees per member walked). Small indexes run
-// far faster than this rate; the estimate is for the not-built line, so
-// "about N minutes" is a reader's order of magnitude on a large index, not
-// a promise.
-export const FUNCTIONS_PER_MINUTE = 9000;
+// Functions (the index's count, candidates or not) per minute of build,
+// from the 2026-11-04 rebuilds after build-mechanisms-reads-by-span:
+// .Py314_site_pkg 378,225 functions (229,665 candidates, 51,194 records) in
+// 520 s, 13 s of it the grouping; .WinAPI_Classic 74,061 (60,991; 13,078) in
+// 208 s, 182 s of it the grouping; .sr_gh 6,368 in 14 s; .CE_103126 2,987
+// in 4 s. Before that item the per-record reads resolved names against the
+// whole function index and Py314 projected to a day (the rate was 9,000 and
+// said 42 minutes). The estimate is for the not-built line, so "about N
+// minutes" is a reader's order of magnitude on a large index, not a
+// promise; 25,000 puts Py314 at about 15 and WinAPI at about 3.
+export const FUNCTIONS_PER_MINUTE = 25000;
 export function estimateBuildMinutes(functionCount) {
   return Math.max(1, Math.round((Number(functionCount) || 0) / FUNCTIONS_PER_MINUTE));
 }

@@ -38,6 +38,7 @@ import { analyzeClaimSet, classifyContribution } from '../core/dep-claims.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, wasLastDraftTruncated, truncationCount, truncationLine, printShownPrompts, localSamplerNote } from '../core/llm-runner.js';
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
 import { vendoredExclusionLines, purposeWithAliases, docHeaderOf, docCommentOf, outboundCalls, LICENSE_RE } from '../core/mechanism-grouper.js';
+import { commentsInLines } from '../core/CodeSearchIndex.js';
 import { constantsReferencedBy } from '../core/declarations.js';
 import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, echoPairs, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
@@ -1352,6 +1353,20 @@ function _symbolDoc(index, file, start, end) {
   if (!Array.isArray(lines) || !start) return '';
   return docCommentOf(lines, start, end).text;
 }
+// build-mechanisms-reads-by-span (2026-11-04): the comments inside a span,
+// read from the stored lines with the digests' own extractor, so the last
+// resorts never resolve a name the harvester already has a span for. The
+// digest read by bare name was an unhinted findFunctionMatches plus the
+// digest's walk over every function per call (1.0-1.3 s each on
+// .Py314_site_pkg, up to three per record; the build's hours) and, when the
+// name repeats, the first same-named function in filepath order, not this
+// one. Null when the index holds no lines for the file (the tests' fakes), so
+// the caller falls back to the digest read.
+function _commentsIn(index, file, start, end) {
+  const lines = _linesOf(index, file);
+  if (!Array.isArray(lines) || !start) return null;
+  return commentsInLines(lines.slice(start - 1, end || lines.length), start).comments;
+}
 /** The first sentence of a doc text (rule characters around it off), capped; the whole text when it has no sentence end. */
 export function firstSentence(text, cap = 200) {
   const s = String(text || '').replace(/\s+/g, ' ').replace(/^[\s=\-#*~_]+|[\s=\-#*~_]+$/g, '').trim();
@@ -1374,22 +1389,24 @@ export function harvestPurpose(index, label, members, residue = null, { calls = 
   // `-` is the comment's own marker.
   const join = (cs) => cs.map((c) => String(c.text || '').replace(/^[\s*\-]+/, '').trim()).filter((t) => t && !/^@\w+/.test(t) && !LICENSE_RE.test(t)).join(' ').replace(/\s+/g, ' ').trim();
   // A file's LEADING doc block = its purpose header: the stored lines first
-  // (docstrings included, license lines out), the digest's comments when the
-  // index carries no lines (catches // banners too). Empty when nothing sits
-  // near the top (big multi-purpose files) -> caller falls back.
+  // (docstrings included, license lines out), then the comments of its first
+  // thirty lines (catches // banners too), read from the stored lines by
+  // range, or through the digest when the index carries no lines. Empty when
+  // nothing sits near the top (big multi-purpose files) -> caller falls back.
   const fileHeader = (file) => {
     const doc = _fileDocHeader(index, file);
     if (doc) return doc;
-    const cs = commentsOf(file);
+    const cs = _commentsIn(index, file, 1, 30) || commentsOf(file);
     if (!cs.length || cs[0].line > 8) return '';
     return join(cs.filter((c) => c.line <= 30));
   };
   // A member's own doc: the comment above or the docstring after its
-  // declaration. `memberAny` adds the comments the digest reads inside it
-  // (the read every path made before 2026-11-03), for the last resorts only:
-  // a handler's step banners are not what its command is for.
+  // declaration. `memberAny` adds the comments inside its span (the read
+  // every path made before 2026-11-03, then through a digest by name; by
+  // line range since build-mechanisms-reads-by-span), for the last resorts
+  // only: a handler's step banners are not what its command is for.
   const memberDoc = (m) => _symbolDoc(index, m.file, m.start, m.end);
-  const memberAny = (m) => memberDoc(m) || join(commentsOf(m.bare || m.name));
+  const memberAny = (m) => memberDoc(m) || join(_commentsIn(index, m.file, m.start, m.end) || commentsOf(m.bare || m.name));
   const files = [...new Set((members || []).map((m) => m.file).filter(Boolean))];
   const primaryFile = (tok) => {
     if (tok) { const hit = files.find((f) => f.replace(/^.*\//, '').toLowerCase().includes(tok.toLowerCase())); if (hit) return hit; }
@@ -1413,7 +1430,7 @@ export function harvestPurpose(index, label, members, residue = null, { calls = 
   } else if (classM) {
     const f = primaryFile(null);
     const ce = _classEntry(index, classM[1], f);        // the class's own doc comment or docstring
-    purpose = (ce && _symbolDoc(index, ce.file, ce.start, ce.end)) || join(commentsOf(classM[1])) || (f ? fileHeader(f) : '');
+    purpose = (ce && _symbolDoc(index, ce.file, ce.start, ce.end)) || join((ce && _commentsIn(index, ce.file, ce.start, ce.end)) || commentsOf(classM[1])) || (f ? fileHeader(f) : '');
   } else if (/^\[cmd\]\s/.test(lbl)) {
     purpose = members && members.length ? memberDoc(members[0]) : '';   // the handler is the first member
   } else {
