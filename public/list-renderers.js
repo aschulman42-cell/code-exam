@@ -811,20 +811,27 @@ export function renderMechanismList(container, data) {
   for (const r of records) {
     const subContent = h('div', { className: 'sub-accordion-content' });
     const tags = (r.tags || []).join(', ');
-    const text = r.description || r.purpose || '';
     const nFn = r.members_total || (r.members || []).length;
+    const counts = `${nFn} function${nFn === 1 ? '' : 's'}, ${r.files} file${r.files === 1 ? '' : 's'}${tags ? `\n[${tags}]` : ''}`;
+    // mechanisms-description-leads: a described record leads with the model's
+    // sentence (its title) and the label moves to the muted row beneath, with
+    // the record id; an undescribed record leads with its label over the
+    // harvested purpose, a doc fragment or a `calls:` line, not a title.
+    const desc = r.description || '';
+    const headline = desc || r.label;
+    const subline = desc ? `${r.id}  ${r.label}` : (r.purpose || '');
     const subHeader = h('div', {
       className: 'sub-accordion-header',
-      title: `${r.label}\n${nFn} function${nFn === 1 ? '' : 's'}, ${r.files} file${r.files === 1 ? '' : 's'}${tags ? `\n[${tags}]` : ''}${text ? `\n${text}` : ''}`,
+      title: desc ? `${desc}\n${r.label}\n${counts}` : `${r.label}\n${counts}${subline ? `\n${subline}` : ''}`,
     }, [
       h('span', { className: 'sub-accordion-toggle', text: '▸' }),
-      h('span', { className: 'name', text: r.label, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
+      h('span', { className: 'name', text: headline, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
       h('span', { className: 'metric', text: `${nFn}f` }),
       h('span', { className: 'metric', text: `${r.files} file${r.files === 1 ? '' : 's'}`, style: 'white-space:nowrap' }),
       tags ? h('span', { className: 'metric muted', text: `[${tags}]`, style: 'white-space:nowrap' }) : null,
     ].filter(Boolean));
-    const textRow = text
-      ? h('div', { className: 'filepath', text, title: text, style: 'padding:0 10px 3px 26px;font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap' })
+    const textRow = subline
+      ? h('div', { className: 'filepath', text: subline, title: subline, style: 'padding:0 10px 3px 26px;font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap' })
       : null;
     const sub = h('div', { className: 'sub-accordion', 'data-mechanism': r.id }, [subHeader, textRow, subContent].filter(Boolean));
     subHeader.addEventListener('click', (e) => {

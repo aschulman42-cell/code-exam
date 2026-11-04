@@ -196,23 +196,32 @@ export function coverageLine(data) {
 }
 
 /**
- * The CLI rendering of a record list: a header, then per record its id,
- * label, counts and tags, the description (when a model wrote one) or the
- * purpose, and the member names (every member as `file@name` under
- * `verbose`). Returns { lines, shown, total }.
+ * The CLI rendering of a record list (the MCP list_mechanisms tool prints
+ * the same lines): a header, then per record its id and, when a model wrote
+ * one, its description first with the label, counts and tags on the next
+ * line (mechanisms-description-leads: the sentence is the record's title;
+ * the harvested purpose is a doc fragment or a `calls:` line, so it stays
+ * under the label), else the label line and the purpose beneath it; then
+ * the member names (every member as `file@name` under `verbose`, which also
+ * lifts the 240-character cut on the text). Returns { lines, shown, total }.
  */
-export function formatMechanismsList(data, records, { filter = null, max = 100, verbose = false, displayName = null } = {}) {
+export function formatMechanismsList(data, records, { filter = null, max = 100, verbose = false, displayName = null, exe = process.env.CODEEXAM_INVOKED_AS || 'ce', describeHint = true } = {}) {
   const dn = typeof displayName === 'function' ? displayName : (n) => n;
   const total = records.length;
   const shown = Math.min(total, Number.isFinite(max) ? max : total);
+  const cut = (text) => (!verbose && text.length > 240) ? text.slice(0, 239) + '…' : text;
   const lines = [];
   lines.push(`${nf(total)} mechanism record${total === 1 ? '' : 's'}${filter ? ` matching '${filter}'` : ''}${shown < total ? ` (showing ${nf(shown)})` : ''}: ${coverageLine(data)}`);
   for (const r of records.slice(0, shown)) {
     const files = r.files ? r.files.length : 0;
     const tags = r.tags && r.tags.length ? `  [${r.tags.join(', ')}]` : '';
-    lines.push('', `${r.id.padEnd(6)}${r.label}  (${nf(r.members.length)} fn${r.members.length === 1 ? '' : 's'}, ${nf(files)} file${files === 1 ? '' : 's'})${tags}`);
-    const text = r.description || r.purpose || '';
-    if (text) lines.push(`      ${(!verbose && text.length > 240) ? text.slice(0, 239) + '…' : text}`);
+    const labelLine = `${r.label}  (${nf(r.members.length)} fn${r.members.length === 1 ? '' : 's'}, ${nf(files)} file${files === 1 ? '' : 's'})${tags}`;
+    if (r.description) {
+      lines.push('', `${r.id.padEnd(6)}${cut(r.description)}`, `      ${labelLine}`);
+    } else {
+      lines.push('', `${r.id.padEnd(6)}${labelLine}`);
+      if (r.purpose) lines.push(`      ${cut(r.purpose)}`);
+    }
     if (verbose) {
       for (const m of r.members) lines.push(`      ${m.file}@${dn(m.name)}`);
     } else {
@@ -221,6 +230,17 @@ export function formatMechanismsList(data, records, { filter = null, max = 100, 
       lines.push(`      ${names.join(', ')}${more}`);
     }
   }
-  if (shown < total) lines.push('', `${nf(shown)} of ${nf(total)} shown; --max-results 0 shows all, --mechanisms <filter> narrows.`);
+  if (shown < total) lines.push('', `${nf(shown)} of ${nf(total)} shown; --all-results or --max-results 0 shows all, --mechanisms <filter> narrows.`);
+  // A file nobody has described yet ends by saying how to get descriptions,
+  // with the active filter in the command because describing the listed
+  // records is the cheap way (Andrew's first Bram listing, 2026-11-04, asked
+  // exactly this); at the bottom, where a reader of a long listing looks.
+  // Once any record is described the header's "described by" line and its
+  // "N of M" count carry the state instead; a --describe in the same command
+  // reports its own outcome there and turns the line off.
+  if (describeHint && total && !(data && data.described)) {
+    const ip = quotePathIfNeeded(String((data && data.index) || '<index>'));
+    lines.push('', `No model descriptions yet: ${exe} --index-path ${ip} --mechanisms${filter ? ` ${quotePathIfNeeded(String(filter))}` : ''} --describe --llm claude writes one sentence per listed record (about $0.003 each on Claude; above the $2 claims guard add --force).`);
+  }
   return { lines, shown, total };
 }

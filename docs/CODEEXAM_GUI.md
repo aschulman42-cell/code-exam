@@ -64,10 +64,12 @@ structural lists — **Functions**, **Files**, **Classes**, **Mechanisms**, **Cl
 **Data Structures**, plus **Bundle Seams** and the extension census. Clicking a row loads it into the
 middle panes. **Mechanisms** is the one list the GUI does not compute: it reads the records
 `ce --index-path <X> --build-mechanisms` wrote beside the index (one per file, class, command or
-shared name token, every function in at least one, records overlapping), each row carrying its
-member and file counts, tags (`test`, `vendored`, `giant` for a record the splitter could not
-break), and its purpose read from the code's own doc text or a model's one-sentence description;
-a row expands to its members, and a member opens the source viewer as a function row does. Until
+shared name token, every function in at least one, records overlapping). A row leads with the
+model's one-sentence description when `--describe` wrote one, the label then sitting beneath it
+with the record id; otherwise it leads with the label, over the purpose read from the code's own
+doc text. Beside either sit its member and file counts and tags (`test`, `vendored`, `giant` for
+a record the splitter could not break); a row expands to its members, and a member opens the
+source viewer as a function row does. Until
 the file exists the list is one line saying which command builds it and roughly how long that
 takes; the build is minutes on a large index, which is why the pane never runs it itself.
 

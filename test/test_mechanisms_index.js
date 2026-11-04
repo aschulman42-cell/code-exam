@@ -174,7 +174,7 @@ const FILES = {
 
 function runCLI(indexDir, args) {
   const r = spawnSync(process.execPath, [CLI, '--index-path', indexDir, ...args], { cwd: ROOT, encoding: 'utf8', timeout: 120000 });
-  return { out: (r.stdout || '') + (r.stderr || ''), code: r.status };
+  return { out: (r.stdout || '') + (r.stderr || ''), stdout: r.stdout || '', code: r.status };
 }
 
 let idx = null;
@@ -305,12 +305,41 @@ describe('the mechanisms index', () => {
       assert.equal(shown, 2); assert.equal(total, data.records.length);
       assert.match(lines[0], /^\d+ mechanism records \(showing 2\): a cover of \d+ of \d+ functions \(100%\)/);
       assert.match(lines.join('\n'), /^m1\s+\[/m);
-      assert.match(lines[lines.length - 1], /2 of \d+ shown; --max-results 0 shows all/);
+      assert.match(lines[lines.length - 3], /2 of \d+ shown; --all-results or --max-results 0 shows all/, 'the cap footer, before the how-to line that ends an undescribed file');
       const t = formatMechanismsList(data, [byLabel(data, '[file] test_parser.py')], {}).lines.join('\n');
       assert.match(t, /\[file\] test_parser\.py  \(2 fns, 1 file\)  \[test\]/);
       assert.match(t, /test_tokenize, test_tally/);
       const v = formatMechanismsList(data, [byLabel(data, '[file] test_parser.py')], { verbose: true }).lines.join('\n');
       assert.match(v, /test_parser\.py@test_tokenize/);
+    });
+
+    it('a described record leads with its sentence and the label follows; an undescribed one leads with its label; -v lifts the cut', () => {
+      // mechanisms-description-leads: the model's sentence is the record's title.
+      const rec = byLabel(data, '[file] test_parser.py');
+      const long = 'Tests the tokenizer. ' + 'x'.repeat(260);
+      rec.description = long;
+      const first = (ls) => ls.findIndex((l) => /^m\d+\s/.test(l));
+      try {
+        const d = formatMechanismsList(data, [rec], {}).lines; const i = first(d);
+        assert.match(d[i], /^m\d+\s+Tests the tokenizer\. x+…$/, 'first line: the id, then the description, cut at 240');
+        assert.equal(d[i].length, 6 + 240, 'the cut applies to the description line');
+        assert.equal(d[i + 1], '      [file] test_parser.py  (2 fns, 1 file)  [test]', 'second line: the label, counts and tags');
+        assert.equal(d[i + 2], '      test_tokenize, test_tally', 'then the members');
+        const dv = formatMechanismsList(data, [rec], { verbose: true }).lines; const j = first(dv);
+        assert.equal(dv[j], `${rec.id.padEnd(6)}${long}`, '-v lifts the cut');
+        assert.match(dv[j + 1], /^      \[file\] test_parser\.py  \(2 fns/);
+      } finally { rec.description = null; }
+      const u = formatMechanismsList(data, [byLabel(data, '[class] Reader')], { filter: 'Reader', exe: 'ce' }).lines; const k = first(u);
+      assert.match(u[k], /^m\d+\s+\[class\] Reader  \(\d+ fns?, 1 file\)/, 'an undescribed record still leads with its label');
+      assert.match(u[k + 1], /yields values/, 'and its purpose stays beneath the label');
+      assert.match(u[u.length - 1], /^No model descriptions yet: ce --index-path \S+ --mechanisms Reader --describe --llm claude writes one sentence per listed record \(about \$0\.003 each on Claude; above the \$2 claims guard add --force\)\.$/, 'a file nobody has described ends by saying how, with the filter in the command');
+      assert.ok(!formatMechanismsList(data, [rec], { describeHint: false }).lines.some((l) => /^No model descriptions yet/.test(l)), 'describeHint: false turns the line off (a --describe in the same command reports instead)');
+      const capped = formatMechanismsList(data, data.records, { max: 1 }).lines;
+      assert.match(capped[capped.length - 3], /^1 of \d+ shown; --all-results or --max-results 0 shows all/, 'the cap footer names --all-results and comes before the how-to line');
+      data.described = { engine: 'stub', generated: 'now', records: 1, failed: 0, filter: null };
+      try {
+        assert.ok(!formatMechanismsList(data, [rec], {}).lines.some((l) => /^No model descriptions yet/.test(l)), 'no hint once anything is described');
+      } finally { delete data.described; }
     });
   });
 
@@ -390,7 +419,7 @@ describe('the mechanisms index', () => {
       saveMechanismsIndex(idx2, data);
       const l = runCLI(IDX2, ['--mechanisms', 'Tokenizer']);
       assert.match(l.out, /described by stub/);
-      assert.match(l.out, /\[class\] Tokenizer reads things\./);
+      assert.match(l.out, /^m\d+\s+\[class\] Tokenizer reads things\.\n      \[class\] Tokenizer  \(\d+ fns?, 1 file\)/m, 'a described record leads with its sentence; the label line follows');
       assert.doesNotMatch(l.out.split('[class] Tokenizer  (')[1] || '', /^\s*Splits claim text/m, 'the description replaces the purpose in the listing');
     });
 
@@ -406,6 +435,39 @@ describe('the mechanisms index', () => {
       assert.match(r.out, /^No descriptions written: --describe needs a model/m, r.out);
       assert.doesNotMatch(r.out, /lists them; the GUI/, 'no success hint after a refusal');
       assert.equal(fs.readFileSync(path.join(IDX2, 'mechanisms.json'), 'utf8'), before);
+      // With --mechanisms in the same command the outcome is the listing's last
+      // line, where a reader of a long list looks, and the how-to line yields.
+      const both = runCLI(IDX2, ['--mechanisms', '--describe']);
+      assert.match(both.stdout.trim().split('\n').pop(), /^No descriptions written: --describe needs a model/, both.stdout);
+      assert.match(both.stdout, /^m1\s/m, 'the listing still prints');
+      assert.doesNotMatch(both.stdout, /^No model descriptions yet/m, 'the how-to line yields to the outcome');
+      // --all-results lifts the cap, as on every listing; the footer names it.
+      const all = runCLI(IDX2, ['--mechanisms', '--all-results']);
+      assert.doesNotMatch(all.stdout, /of \d+ shown;/, '--all-results lifts the cap');
+      assert.match(all.stdout.trim().split('\n').pop(), /^No model descriptions yet: /, 'an undescribed file ends with the how-to line');
+      const one = runCLI(IDX2, ['--mechanisms', '--max-results', '1']);
+      assert.match(one.stdout, /^1 of \d+ shown; --all-results or --max-results 0 shows all/m, one.stdout);
+    });
+
+    it('a describe run stops after five failures in a row, keeps what it got and says how to resume; one that wrote nothing is a refusal', async () => {
+      const data = loadMechanismsIndex(idx2, { cache: false });
+      assert.ok(data.records.length > 5, 'the stub has more records than the streak');
+      for (const rec of data.records) rec.description = null;
+      delete data.described;
+      let calls = 0;
+      const flaky = async (sys, user) => { calls++; if (calls <= 2) throw new Error('fetch failed'); return `${user.split('\n')[0].replace('MECHANISM: ', '')} works.`; };
+      const partial = await describeMechanisms(idx2, data, {}, { drafter: flaky });
+      assert.deepEqual([partial.ok, partial.done, partial.failed, partial.stopped, partial.lastError], [true, data.records.length - 2, 2, 0, 'fetch failed'], 'two failures do not stop the run; the rest are written');
+      assert.equal(data.described.failed, 2);
+      for (const rec of data.records) rec.description = null;
+      delete data.described;
+      let dead = 0;
+      const down = async () => { dead++; throw new Error('fetch failed'); };
+      const r = await describeMechanisms(idx2, data, {}, { drafter: down });
+      assert.equal(dead, 5, 'stops at the streak, not at the end of the file');
+      assert.deepEqual([r.ok, r.done, r.failed, r.stopped], [false, 0, 5, 5]);
+      assert.equal(r.reason, 'every call failed (fetch failed); stopped after 5 failures in a row; nothing written. Rerun the same command when the model is reachable.');
+      assert.equal(data.described, undefined, 'a run that wrote nothing leaves the described block alone');
     });
 
     it('--mechanisms <filter> --describe describes the matching records only, keeps the others, and the header counts them', async () => {

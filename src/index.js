@@ -1006,8 +1006,10 @@ if (args.build_rename_map) {
 
 // mechanisms-index-prebuild-cli-gui: the grouper in cover mode, once, written
 // to <index>/mechanisms.json; --describe adds one model sentence per record.
+let mechanismsDescribe = null;
 if (args.build_mechanisms || args.describe) {
-  await doBuildMechanisms(index, args, { exe: exeBase() });
+  const built = await doBuildMechanisms(index, args, { exe: exeBase() });
+  mechanismsDescribe = (built && built.describe) || null;
 }
 
 
@@ -1086,7 +1088,7 @@ if (args.entry_points)                      doEntryPoints(index, args);
 if (args._explicit.has('gaps'))             doGaps(index, args);
 if (args.domain_fns)                        doDomainFns(index, args);
 if (args.list_classes)                      doListClasses(index, args);
-if (args._explicit.has('mechanisms'))       doMechanisms(index, args, { exe: exeBase() });
+if (args._explicit.has('mechanisms'))       doMechanisms(index, args, { exe: exeBase(), describe: mechanismsDescribe });
 if (args.data_structs)                      doDataStructs(index, args);
 if (args.client_server)                     doClientServer(index, args);
 if (args.referenced_resources) {

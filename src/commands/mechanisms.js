@@ -12,7 +12,8 @@
 
 import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, formatMechanismsList, notBuiltLine, candidateCount, estimateBuildMinutes, carryDescriptions } from '../core/mechanisms-index.js';
 import { harvestPurpose } from './pseudo-claims.js';
-import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage } from '../core/llm-runner.js';
+import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, projectCloudCost, CLAIMS_COST_GUARD_USD } from '../core/llm-runner.js';
+import { effectiveMaxResults } from '../argparse.js';
 import { filteredEmptyNotice } from '../core/filter-match.js';
 
 const nf = (x) => Number(x || 0).toLocaleString('en-US');
@@ -56,6 +57,10 @@ export async function doBuildMechanisms(index, args, { exe = 'ce', drafter = nul
     try { data = loadMechanismsIndex(index, { cache: false }); } catch (e) { console.error(`--describe: ${e.message}`); process.exitCode = 1; return; }
     if (!data) { console.log(notBuiltLine(index, { exe, indexPath: args.index_path })); process.exitCode = 1; return; }
   }
+  // Returned so a `--mechanisms` listing in the same command can repeat the
+  // outcome at its bottom (mechanisms-description-leads, Andrew's Bram run:
+  // the refusal line at the top had scrolled off under a hundred records).
+  let describe = null;
   if (args.describe) {
     // `--mechanisms <filter> --describe` (or `--filter`) describes the matching
     // records only, so a reader pays for the dozen rows of interest rather than
@@ -64,22 +69,32 @@ export async function doBuildMechanisms(index, args, { exe = 'ce', drafter = nul
     const filter = describeFilter(args);
     const subset = filter ? filterRecords(data.records, filter) : data.records;
     if (filter && !subset.length) {
-      console.log(`No descriptions written: ${filteredEmptyNotice('mechanisms', data.records.length, filter)}`);
-      return;
-    }
-    const r = await describeMechanisms(index, data, args, { drafter, records: subset, filter, redo: !!args.redescribe });
-    if (r.ok) {
-      saveMechanismsIndex(index, data);
-      const scope = filter ? ` matching '${filter}'` : '';
-      const skipped = r.skipped ? ` (${nf(r.skipped)} already described, skipped; --redescribe rewrites them)` : '';
-      console.log(`Described ${nf(r.done)} of ${nf(subset.length)} record(s)${scope}${skipped} via ${data.described.engine}; ${nf(data.described.records)} of ${nf(data.records.length)} now carry a description; written to ${mechanismsPath(index)}`);
+      describe = { ok: false, done: 0, failed: 0, outcome: `No descriptions written: ${filteredEmptyNotice('mechanisms', data.records.length, filter)}` };
     } else {
-      // Say so where a reader looks: the refusal itself went to stderr.
-      console.log(`No descriptions written: ${r.reason}`);
-      return;
+      const r = await describeMechanisms(index, data, args, { drafter, records: subset, filter, redo: !!args.redescribe });
+      if (r.ok) {
+        saveMechanismsIndex(index, data);
+        const scope = filter ? ` matching '${filter}'` : '';
+        const skipped = r.skipped ? ` (${nf(r.skipped)} already described, skipped; --redescribe rewrites them)` : '';
+        // A run the model calls cut short (the network dropped, a key expired)
+        // keeps what it got and says how to resume: the same command again,
+        // which skips the described records.
+        const failed = r.failed
+          ? `; ${nf(r.failed)} got no description${r.lastError ? ` (${r.lastError})` : ''}${r.stopped ? `, and the run stopped after ${nf(r.stopped)} failures in a row` : ''}; rerun the same command to resume (described records are skipped)`
+          : '';
+        describe = { ...r, outcome: `Described ${nf(r.done)} of ${nf(subset.length)} record(s)${scope}${skipped} via ${data.described.engine}; ${nf(data.described.records)} of ${nf(data.records.length)} now carry a description; written to ${mechanismsPath(index)}${failed}` };
+      } else {
+        // Say so where a reader looks: the refusal itself went to stderr.
+        describe = { ...r, outcome: `No descriptions written: ${r.reason}` };
+      }
     }
+    console.log(describe.outcome);
+    if (!describe.ok) return { describe };
   }
-  console.log(`  ${exe} --index-path ${args.index_path} --mechanisms [filter]   lists them; the GUI's Mechanisms list and the list_mechanisms tool read the same file.`);
+  if (!(args._explicit && args._explicit.has('mechanisms'))) {
+    console.log(`  ${exe} --index-path ${args.index_path} --mechanisms [filter]   lists them; the GUI's Mechanisms list and the list_mechanisms tool read the same file.`);
+  }
+  return { describe };
 }
 
 /** The filter a `--describe` run narrows to: the `--mechanisms` value, else `--filter`, else null. */
@@ -88,8 +103,13 @@ export function describeFilter(args) {
   return args.filter || null;
 }
 
-/** `--mechanisms [filter]`: the records of the file, or the one not-built line. */
-export function doMechanisms(index, args, { exe = 'ce' } = {}) {
+/**
+ * `--mechanisms [filter]`: the records of the file, or the one not-built line.
+ * `describe` is the outcome a `--describe` in the same command returned; it is
+ * repeated after the listing, where a reader of a long list looks, in place
+ * of the formatter's own how-to-describe line.
+ */
+export function doMechanisms(index, args, { exe = 'ce', describe = null } = {}) {
   let data;
   try { data = loadMechanismsIndex(index); } catch (e) { console.error(`--mechanisms: ${e.message}`); process.exitCode = 1; return; }
   if (!data) { console.log(notBuiltLine(index, { exe, indexPath: args.index_path })); return; }
@@ -100,13 +120,16 @@ export function doMechanisms(index, args, { exe = 'ce' } = {}) {
     console.log(filter && all.length ? filteredEmptyNotice('mechanisms', all.length, filter) : 'No mechanisms recorded.');
     return;
   }
-  const explicitMax = (args._explicit && args._explicit.has('max_results')) ? (Number(args.max_results) || 0) : null;
-  const max = explicitMax == null ? 100 : (explicitMax === 0 ? Infinity : explicitMax);
+  // The shared cap contract: 100 by default, --max-results N, and
+  // --all-results or --max-results 0 for every record.
+  const max = effectiveMaxResults(args, 100);
   const { lines } = formatMechanismsList(data, kept, {
-    filter, max, verbose: !!args.verbose,
+    filter, max, verbose: !!args.verbose, exe,
     displayName: typeof index.getDisplayName === 'function' ? (n) => index.getDisplayName(n) : null,
+    describeHint: !describe,
   });
   console.log(lines.join('\n'));
+  if (describe && describe.outcome) console.log(`\n${describe.outcome}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +137,8 @@ export function doMechanisms(index, args, { exe = 'ce' } = {}) {
 // ---------------------------------------------------------------------------
 
 export const DESCRIBE_MAX_TOKENS = 120;
+/** Model-call failures in a row after which a describe run stops and keeps what it has. */
+export const DESCRIBE_MAX_STREAK = 5;
 export const DESCRIBE_SYS = [
   'You write one-sentence descriptions of code mechanisms for a reader orienting in an unfamiliar codebase.',
   'Reply with ONE plain sentence of at most 35 words saying what the functions of this group do together, in the codebase\'s own terms.',
@@ -185,27 +210,44 @@ export async function describeMechanisms(index, data, args, { drafter = null, re
     const calls = packs.map((p) => ({ inChars: (DESCRIBE_SYS.length + p.user.length) * 1.1, outTokens: DESCRIBE_MAX_TOKENS }));
     const scope = filter ? ` matching '${filter}'` : '';
     if (!claimsCostGate(model, calls, `describe ${nf(packs.length)} mechanism record(s)${scope}`, args)) {
-      return { ok: false, done: 0, failed: 0, skipped, reason: `the projected cost exceeds the claims cost guard (the projection is above; --force to proceed, or narrow with --mechanisms <filter>)` };
+      // The reason stands on its own on stdout: the projection went to stderr,
+      // which a redirected run never shows.
+      const { usd } = projectCloudCost(model, calls);
+      const env = parseFloat(process.env.CE_CLAIMS_COST_GUARD);
+      const guard = Number.isFinite(env) ? env : CLAIMS_COST_GUARD_USD;
+      return { ok: false, done: 0, failed: 0, skipped, reason: `projected ~$${usd.toFixed(2)} for ${nf(packs.length)} record(s)${scope} exceeds the $${guard.toFixed(2)} claims cost guard; --force proceeds, --mechanisms <filter> narrows, CE_CLAIMS_COST_GUARD (USD) raises the guard` };
     }
     resetCloudUsage();
   }
   const engine = model ? (model.label || model.model || 'model') : 'stub';
   console.error(`# describe: ${nf(packs.length)} record(s) via ${engine}…`);
-  let done = 0, failed = 0;
+  let done = 0, failed = 0, streak = 0, stopped = 0, lastError = null;
   for (const p of packs) {
     let text = '';
     try { text = String(await drafter(DESCRIBE_SYS, p.user, DESCRIBE_MAX_TOKENS) || ''); } catch (e) {
-      failed++;
+      failed++; streak++; lastError = e.message;
       if (failed <= 3) console.error(`# describe: ${p.r.label}: ${e.message}`);
+      // Failures in a row are the network or the key, not the records (Andrew,
+      // in transit, 2026-11-04: `fetch failed` on record after record): stop,
+      // keep what succeeded, and let the same command resume.
+      if (streak >= DESCRIBE_MAX_STREAK) {
+        stopped = streak;
+        console.error(`# describe: stopping after ${nf(streak)} failures in a row (${e.message}); ${nf(packs.length - done - failed)} record(s) not attempted`);
+        break;
+      }
       continue;
     }
+    streak = 0;
     const d = cleanDescription(text);
     if (d) { p.r.description = d; done++; } else failed++;
     if (args.verbose && (done + failed) % 20 === 0) console.error(`# describe: ${nf(done + failed)}/${nf(packs.length)}`);
   }
-  const carrying = data.records.filter((r) => r.description).length;
-  data.described = { engine, generated: new Date().toISOString(), records: carrying, failed, filter: filter || null };
   if (model) { const line = actualCostLine(model); if (line) console.error(line); }
   if (failed) console.error(`# describe: ${nf(failed)} record(s) got no description${failed > 3 ? ' (first three errors shown)' : ''}.`);
-  return { ok: true, done, failed, skipped, reason: null };
+  if (!done) {
+    return { ok: false, done, failed, skipped, stopped, lastError, reason: `every call failed${lastError ? ` (${lastError})` : ''}${stopped ? `; stopped after ${nf(stopped)} failures in a row` : ''}; nothing written. Rerun the same command when the model is reachable.` };
+  }
+  const carrying = data.records.filter((r) => r.description).length;
+  data.described = { engine, generated: new Date().toISOString(), records: carrying, failed, filter: filter || null };
+  return { ok: true, done, failed, skipped, stopped, lastError, reason: null };
 }
