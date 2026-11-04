@@ -193,8 +193,8 @@ describe('hof: the commands it builds', () => {
     assert.ok(c.locate(2).includes('--targets-out') && c.locate(2).includes(P.locate(2)));
     assert.ok(!c.locate(2).includes('--blind') && !c.locate(2).includes('--runs'));
   });
-  it('passes --rank, --form-rules, --claim-class, --filter, --blind, --runs and --force to the step each belongs to', () => {
-    const o = parseOwnArgs(['--index-path', '.demo', '--llm', 'chatgpt', '--rank', '--form-rules', '2026-10', '--claim-class', 'both', '--filter', 'tls', '--blind', '--runs', '3', '--force']);
+  it('passes --rank, --form-rules, --claim-class, --filter, --blind, --runs, --include-tests and --force to the step each belongs to', () => {
+    const o = parseOwnArgs(['--index-path', '.demo', '--llm', 'chatgpt', '--rank', '--form-rules', '2026-10', '--claim-class', 'both', '--filter', 'tls', '--blind', '--runs', '3', '--force', '--include-tests']);
     const c = buildCommands(o, P);
     assert.ok(c.candidates.includes('--rank') && c.candidates.includes('--llm') && c.candidates.includes('--force'));
     assert.ok(c.candidates.includes('--filter') && c.candidates[c.candidates.indexOf('--filter') + 1] === 'tls');
@@ -205,6 +205,10 @@ describe('hof: the commands it builds', () => {
     const l = c.locate(1);
     assert.ok(l.includes('--blind') && l[l.indexOf('--runs') + 1] === '3' && l.includes('--force'));
     assert.ok(!l.includes('--form-rules') && !l.includes('--claim-class'));
+    // --include-tests is locate-only (claim-locate-test-gate-off-on-all-samples-corpus).
+    assert.ok(l.includes('--include-tests'));
+    assert.ok(!c.draft.includes('--include-tests') && !c.candidates.includes('--include-tests'));
+    assert.equal(parseOwnArgs(['--index-path', '.demo', '--llm', 'claude']).includeTests, false);
   });
   it('--model <gguf> replaces --llm on every model-bearing step; --limit drafts from the trimmed list', () => {
     const o = parseOwnArgs(['--index-path', '.demo', '--model', 'q.gguf', '--limit', '2']);

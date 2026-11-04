@@ -22,7 +22,7 @@
  *   2. --pseudo-claims @<out>/cand.lst --llm X --claims-only <out>/claims.txt
  *      --min-rank 0 --form-rules <mode> [--claim-class <c>]
  *   3. per claim n: --claim-locate @<out>/claim_N.txt --llm X
- *      --targets-out <out>/locate_N.txt [--blind] [--runs n]
+ *      --targets-out <out>/locate_N.txt [--blind] [--runs n] [--include-tests]
  *   4. the comparison, no model: the sidecar's grounded anchors (file@func,
  *      what the drafter was shown) against the targets file's file@symbol
  *      lines (what the locator named and CodeExam verified in the index).
@@ -50,9 +50,13 @@
  *   node scripts/hof.mjs --index-path <dir> (--llm claude|chatgpt|gemini | --model <gguf>)
  *        [--out <dir>] [--rank] [--form-rules current|2026-10]
  *        [--claim-class method|system|both|apparatus|crm|auto|all]
- *        [--limit N] [--filter <text>] [--blind] [--runs n]
+ *        [--limit N] [--filter <text>] [--blind] [--runs n] [--include-tests]
  *        [--claims <claims.txt>] [--dry-run] [--force]
  *
+ *   --include-tests        passed to the locate step only: admit test, mock, bench
+ *                          and example symbols as candidates. The locator turns
+ *                          its gate off by itself on an index that is nearly all
+ *                          such code (a samples corpus); this is the explicit form.
  *   --claims <claims.txt>  skip steps 1 and 2: locate an existing claims file
  *                          (its .anchors.json sidecar beside it), so the same
  *                          drafts can be located with a second model and the
@@ -82,7 +86,7 @@ export const USAGE = [
   'usage: node scripts/hof.mjs --index-path <dir> (--llm claude|chatgpt|gemini | --model <gguf>)',
   '            [--out <dir>] [--rank] [--form-rules current|2026-10]',
   '            [--claim-class method|system|both|apparatus|crm|auto|all]',
-  '            [--limit N] [--filter <text>] [--blind] [--runs n]',
+  '            [--limit N] [--filter <text>] [--blind] [--runs n] [--include-tests]',
   '            [--claims <claims.txt>] [--dry-run] [--force]',
   '',
   '  Draft pseudo-claims from the index, locate each with --claim-locate, and score the',
@@ -102,6 +106,7 @@ export function parseOwnArgs(argv) {
   const o = {
     indexPath: null, llm: null, model: null, out: null, rank: false, formRules: 'current',
     claimClass: null, limit: null, filter: null, blind: false, runs: null, claims: null,
+    includeTests: false,
     dryRun: false, force: false, node: process.execPath, cli: DEFAULT_CLI, help: false,
   };
   const need = (i, flag) => {
@@ -125,6 +130,7 @@ export function parseOwnArgs(argv) {
     else if (a === '--claims') o.claims = need(i++, a);
     else if (a === '--dry-run') o.dryRun = true;
     else if (a === '--force') o.force = true;
+    else if (a === '--include-tests') o.includeTests = true;
     else if (a === '--node') o.node = need(i++, a);
     else if (a === '--cli') o.cli = need(i++, a);
     else throw new Error(`unknown option: ${a}`);
@@ -166,6 +172,7 @@ export function buildCommands(o, paths) {
     '--targets-out', paths.locate(n),
     ...(o.blind ? ['--blind'] : []),
     ...(o.runs ? ['--runs', String(o.runs)] : []),
+    ...(o.includeTests ? ['--include-tests'] : []),
     ...force,
   ];
   return { candidates, draft, locate };
@@ -392,7 +399,7 @@ export function renderMarkdown(report) {
   out.push(`- index: \`${report.indexPath}\``);
   out.push(`- model: ${o.llm ? `--llm ${o.llm}` : `--model ${o.model}`}`);
   out.push(`- drafting: --form-rules ${o.formRules}${o.claimClass ? `, --claim-class ${o.claimClass}` : ''}, --min-rank 0${o.rank ? ', --rank (reported, not a floor)' : ''}${o.limit ? `, --limit ${o.limit}` : ''}${o.filter ? `, --filter ${JSON.stringify(o.filter)}` : ''}`);
-  out.push(`- locating: --claim-locate${o.blind ? ' --blind' : ''}${o.runs ? ` --runs ${o.runs}` : ''}`);
+  out.push(`- locating: --claim-locate${o.blind ? ' --blind' : ''}${o.runs ? ` --runs ${o.runs}` : ''}${o.includeTests ? ' --include-tests' : ''}`);
   if (o.claims) out.push(`- claims: \`${o.claims}\` (drafting skipped)`);
   out.push('');
   out.push('## Commands', '');
@@ -560,7 +567,7 @@ export async function main(argv = process.argv.slice(2)) {
   const report = {
     format: 'ce-hof-report', version: 1, generated: new Date().toISOString(),
     ce: sidecar.ce || '', index: path.basename(path.resolve(o.indexPath)), indexPath: path.resolve(o.indexPath),
-    options: { llm: o.llm, model: o.model, formRules: o.formRules, claimClass: o.claimClass, rank: o.rank, limit: o.limit, filter: o.filter, blind: o.blind, runs: o.runs, claims: o.claims, force: o.force },
+    options: { llm: o.llm, model: o.model, formRules: o.formRules, claimClass: o.claimClass, rank: o.rank, limit: o.limit, filter: o.filter, blind: o.blind, runs: o.runs, includeTests: o.includeTests, claims: o.claims, force: o.force },
     steps,
     claims: rows.map((r) => ({ n: r.n, groupN: r.groupN, label: r.label, priority: r.priority, rankFrom: r.rankFrom, claim: r.claim, truncated: r.truncated, error: r.error, anchors: r.anchors, targets: r.targets, rungs: r.rungs, where: r.where })),
     totals: totalsOf(tableRows),

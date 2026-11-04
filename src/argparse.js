@@ -2111,7 +2111,9 @@ LLM ANALYSIS:
   --include-tests            --claim-locate: allow test, mock, benchmark and example
                               symbols as candidates, by directory, file name or
                               symbol name (excluded by default; a test exercising
-                              an element is not the code implementing it).
+                              an element is not the code implementing it). On an
+                              index that is nearly all such code, a samples
+                              corpus, the gate turns itself off and says so.
   --claim-analyze <claim>    End-to-end patent claim analysis: extract terms, search,
                               analyze top matches. Takes @file.txt or inline text.
                               Direct-target mode: pass a FUNCTION (or FILE@FUNCTION)

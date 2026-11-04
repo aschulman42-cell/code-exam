@@ -35,6 +35,7 @@ import {
   buildTargetsProvenance, targetsChecksum, targetSpecs, claimTextDigest,
   normalizeTargetSpec, dedupeTargets, classifyNavCallee,
   targetConnectivity, indexCallNeighbors, indexCallNeighborsMany,
+  testGateDecision, testGateNote, noMatchLine,
 } from '../src/commands/claim-locate.js';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
@@ -3006,5 +3007,57 @@ describe('findcallers-one-pass-per-name: batched callers, navigation and connect
     assert.equal(idx.scans, 1);
     assert.deepEqual(got, expected);
     assert.deepEqual(got.get('src/a.c@alphaFn'), ['src/a.c@gammaFn'], 'the callee arm; findCallers rows carry caller_function, which this instrument does not read (recorded in the item draft)');
+  });
+});
+
+// claim-locate-test-gate-off-on-all-samples-corpus (2026-11-03). On
+// .WinAPI_Classic every path is under Samples/, the gate held back every match
+// of every element, and the run closed with "No symbol in this index matches".
+// Measured share of the pool the gate would hold back, 2026-11-03: WinAPI 1.00,
+// ExoPlayer3 0.38, Py314 0.30, sr_gh 0.21, CodeExam 0.16, the rest under 0.10;
+// the threshold 0.9 sits far above every ordinary corpus.
+describe('claim-locate-test-gate-off-on-all-samples-corpus: the gate decides once per run', () => {
+  const sample = (n) => ({ filepath: `Samples/${n}/${n}.cpp`, name: `${n}Init`, bare: `${n}Init`, start: 1, end: 9, tokens: [n, 'init'] });
+  const prod = (n) => ({ filepath: `src/${n}.cpp`, name: `${n}Init`, bare: `${n}Init`, start: 1, end: 9, tokens: [n, 'init'] });
+  it('turns itself off at or above the share, stays on below it, and never overrides an explicit --include-tests', () => {
+    const all = [sample('a'), sample('b'), sample('c'), sample('d'), sample('e'), sample('f'), sample('g'), sample('h'), sample('i'), sample('j')];
+    const off = testGateDecision(all);
+    assert.equal(off.autoOff, true);
+    assert.equal(off.includeTests, true);
+    assert.equal(off.held, 10);
+    assert.equal(off.total, 10);
+    const mixed = testGateDecision([...all.slice(0, 8), prod('x'), prod('y')]);
+    assert.equal(mixed.autoOff, false, '80% is below the 90% threshold');
+    assert.equal(mixed.includeTests, false);
+    assert.equal(mixed.share, 0.8);
+    const nine = testGateDecision([...all.slice(0, 9), prod('x')]);
+    assert.equal(nine.autoOff, true, '90% is at the threshold');
+    const explicit = testGateDecision(all, { includeTests: true });
+    assert.equal(explicit.includeTests, true);
+    assert.equal(explicit.autoOff, false, 'an explicit flag is not an auto-off');
+    assert.equal(testGateDecision([]).autoOff, false, 'an empty pool decides nothing');
+    assert.equal(testGateDecision(all, { share: 1.01 }).autoOff, false);
+  });
+  it('the note names the share, the counts and the flag that would do the same', () => {
+    const note = testGateNote(testGateDecision([sample('a'), sample('b')]));
+    assert.match(note, /^test gate off: 100% of this index's symbols \(2 of 2\) are under test, mock, bench or example paths or names; --include-tests would do the same$/);
+    assert.match(testGateNote(testGateDecision([sample('a')]), 'include_tests: true'), /include_tests: true would do the same$/);
+  });
+  it('retrieval on an all-samples pool keeps its candidates and reports the decision; a mixed pool holds the samples back', async () => {
+    const draft = async () => 'ELEMENT 1: rate; init';
+    const samples = [sample('rate'), sample('bitrate'), sample('ratio')];
+    const r = await retrievePerElement({ draft, elements: ['initialising the rate'], symbols: samples });
+    assert.equal(r.testGate.autoOff, true);
+    assert.ok(r.perElement[0].hits.length >= 1, 'the samples are candidates when the gate is off');
+    const mixed = await retrievePerElement({ draft, elements: ['initialising the rate'], symbols: [sample('rate'), prod('rate'), prod('bitrate'), prod('ratio'), prod('other')] });
+    assert.equal(mixed.testGate.autoOff, false);
+    assert.ok(!mixed.perElement[0].hits.some((h) => h.sym.filepath.startsWith('Samples/')), 'the sample is held back when the gate is on');
+    assert.ok((mixed.perElement[0].hits.heldTests?.total ?? 0) >= 1, 'and counted');
+  });
+  it('the closing line tells the truth: all held back is not "no symbol matches"', () => {
+    const held = [{ hits: Object.assign([], { heldTests: { total: 8023 } }) }, { hits: Object.assign([], { heldTests: { total: 5538 } }) }];
+    assert.equal(noMatchLine(held), '13561 symbol(s) matched the predicted words; all were held back as test, mock, bench or example code; --include-tests admits them.');
+    assert.equal(noMatchLine([{ hits: [] }, { hits: Object.assign([], { heldTests: { total: 0 } }) }]), 'No symbol in this index matches any predicted code word.');
+    assert.equal(noMatchLine([]), 'No symbol in this index matches any predicted code word.');
   });
 });

@@ -61,6 +61,11 @@ export const LOCATE_DEFAULTS = {
   navDepth: 2,        // hops promoted: a promoted callee is navigated once more
   maxNavRowsHop2: 12, // navigation-derived rows at hop 2 (callees of promoted callees)
   maxSeedSpan: 200,   // only FUNCTION-sized seeds navigate (lines)
+  // claim-locate-test-gate-off-on-all-samples-corpus: at or above this share
+  // of the pool held back as test, mock, bench or example code, the gate is
+  // off for the run. Measured 2026-11-03 over the project's indexes: see the
+  // commit; .WinAPI_Classic (every path under Samples/) sits at about 1.0.
+  testGateAutoOffShare: 0.9,
   candidatesPerElement: 25,  // real symbols shown per element in the select step
   // A BOUND on the content arm, not a target. Content search is more expensive
   // than a symbol-table scan and its hits are a different kind of evidence, so
@@ -868,6 +873,44 @@ export function candidatesForElement({ index, pool, limText, words, opts = {} })
   return r;
 }
 
+/**
+ * claim-locate-test-gate-off-on-all-samples-corpus (2026-11-03). The test
+ * gate prefers production code over the tests, mocks, benchmarks and samples
+ * beside it. On an index that is nearly all such code there is nothing to
+ * prefer, and holding everything back inverted the gate's purpose: on
+ * .WinAPI_Classic (every path under Samples/) every element of every claim
+ * lost every candidate and the run said nothing matched. Decided ONCE per run
+ * over the pool, before retrieval: at or above `share` the gate is off, as
+ * --include-tests would set it. Pure; the caller prints testGateNote.
+ */
+export function testGateDecision(pool, { includeTests = false, share = LOCATE_DEFAULTS.testGateAutoOffShare } = {}) {
+  const total = (pool || []).length;
+  let held = 0;
+  for (const s of pool || []) if (isTestSymbol(s)) held++;
+  const frac = total ? held / total : 0;
+  const autoOff = !includeTests && total > 0 && frac >= share;
+  return { includeTests: includeTests || autoOff, autoOff, held, total, share: frac };
+}
+
+export function testGateNote(gate, flag = '--include-tests') {
+  return `test gate off: ${Math.round(gate.share * 100)}% of this index's symbols (${gate.held} of ${gate.total})`
+    + ` are under test, mock, bench or example paths or names; ${flag} would do the same`;
+}
+
+/**
+ * The line for a run in which no element kept a candidate: the truth about
+ * why. Before this the run said "No symbol in this index matches" when 8,023
+ * symbols had matched element 1 and the gate had held back every one.
+ */
+export function noMatchLine(perElement) {
+  const held = (perElement || []).reduce((a, p) => a + (p.hits?.heldTests?.total || 0), 0);
+  if (held) {
+    return `${held} symbol(s) matched the predicted words; all were held back as test, mock, bench`
+      + ' or example code; --include-tests admits them.';
+  }
+  return 'No symbol in this index matches any predicted code word.';
+}
+
 export async function retrievePerElement({ draft, elements, symbols, opts = {} }) {
   const sys = buildDiscoverPrompt();
   const user = `CLAIM ELEMENTS:\n` + elements.map((e, i) => `${i + 1}. ${e}`).join('\n');
@@ -967,6 +1010,8 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
     process.stderr.write(`  ${heldBack.symbols} pseudo-source (.op) symbol(s) held back from`
       + ` retrieval — --include-op to admit them\n`);
   }
+  const gate = testGateDecision(pool, { includeTests: !!opts.includeTests });
+  if (gate.autoOff) process.stderr.write(`  ${testGateNote(gate)}\n`);
   const perElement = [];
   for (const ws of wordSets) {
     const { element, words } = ws;
@@ -976,7 +1021,7 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
     // loop keeps the CLI's stderr narration, printed from what it returns.
     const r = candidatesForElement({ index: opts.index, pool, limText, words, opts: {
       candidatesPerElement: opts.candidatesPerElement, contentPerElement: opts.contentPerElement,
-      includeTests: !!opts.includeTests, includeOp } });
+      includeTests: gate.includeTests, includeOp } });
     const { hits, mismatches, contentAdded, promoted } = r;
     if (mismatches) {
       process.stderr.write(`    ⚠ element ${element}: ${mismatches} candidate(s) point the`
@@ -1020,7 +1065,7 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
       + ` the window is a sample of what matched; each offers up to`
       + ` ${Math.max(0, LOCATE_DEFAULTS.widenOnCapTo - lim)} more names to the selection by name\n`);
   }
-  return { perElement, raw, error: null, prompt: { sys, user }, heldBack };
+  return { perElement, raw, error: null, prompt: { sys, user }, heldBack, testGate: gate };
 }
 
 // Grep the symbol table for model-supplied words. Ranked by how many DISTINCT
@@ -2322,10 +2367,10 @@ export async function doClaimLocate(index, args, opts = {}) {
       const withHits = perElement.filter((p) => p.hits.length);
       if (!withHits.length) {
         if (runs === 1) {
-          console.log('\nNo symbol in this index matches any predicted code word.');
+          console.log(`\n${noMatchLine(perElement)}`);
           return;
         }
-        process.stderr.write(`  run ${run} of ${runs}: no symbol matched any predicted code word.\n`);
+        process.stderr.write(`  run ${run} of ${runs}: ${noMatchLine(perElement)}\n`);
         completed++;
         continue;
       }

@@ -123,7 +123,9 @@ alternative step 2 over file bodies; pseudo-claims run the arrow backwards.
   `--hunt-calls`; `--no-hunt` forces it off. `--propose-from-priors` is the legacy path, names
   from the model's own knowledge, useless on confidential code. `--include-tests` admits test,
   mock, benchmark and example symbols as candidates (held back by directory, file name or
-  symbol name since 2026-10-22); `--no-navigate` skips the hop (absent from `--help`).
+  symbol name since 2026-10-22; on an index that is nearly all such code, a samples corpus,
+  the gate turns itself off and the run says so, since 2026-11-03); `--no-navigate` skips the
+  hop (absent from `--help`).
 **Chart generation:**
 
 - `--claim-chart <claim>` returns, per target and element, `PRESENT`, `PARTIAL`, `ASSUMED` or
@@ -275,7 +277,9 @@ Everything else is deterministic code, the same answer every time from the same 
 - the **candidate caps**: at most 25 matched names per element go forward to the model, with up
   to 35 more offered by name alone (2026-10-22);
 - the **test gate**: test, mock, benchmark and example code is held back from the candidates
-  unless `--include-tests` admits it;
+  unless `--include-tests` admits it, or the index is nearly all such code, when the gate
+  turns itself off and the run says so; a run in which every match was held back says that,
+  not "no symbol matches";
 - the **navigation hop**: from each matched name, one step along the call graph to the functions
   it calls and the functions that call it, so a well-named wrapper leads to the code that does
   the work;

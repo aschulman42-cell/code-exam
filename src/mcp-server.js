@@ -36,7 +36,7 @@ import { maskCredentials } from './core/credential-mask.js';
 import { displayName, parseFuncSpec } from './utils.js';
 import { doCallTree } from './commands/graph.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
-import { splitClaimElements, isPreambleRow, isJepsonPreamble, parseElementWords, candidatesForElement, directionOf } from './commands/claim-locate.js';
+import { splitClaimElements, isPreambleRow, isJepsonPreamble, parseElementWords, candidatesForElement, directionOf, testGateDecision, testGateNote } from './commands/claim-locate.js';
 import { buildSymbolTable } from './core/symbol-verify.js';
 import { detectSponges, LOOP_DEFAULTS } from './commands/claims-loop.js';
 import { isPseudoSource } from './binstrings.js';
@@ -421,7 +421,7 @@ const TOOLS = [
         words: { type: 'string', description: 'One line per element, numbered as claim_elements numbers them, words comma-separated: "2: init, crypto, context". 3-6 words each, letters and digits only.' },
         max_per_element: { type: 'number', description: 'Candidates per element (default 8, max 50)' },
         granularity: { type: 'string', description: 'As for claim_elements; must match the numbering you used' },
-        include_tests: { type: 'boolean', description: 'Admit test, mock, benchmark and example symbols (held back by default, by directory, file name or symbol name)' },
+        include_tests: { type: 'boolean', description: 'Admit test, mock, benchmark and example symbols (held back by default, by directory, file name or symbol name; on an index that is nearly all such code the gate turns itself off and the result says so)' },
         include_op: { type: 'boolean', description: 'Admit binary string-table pseudo-source (held back by default)' },
       },
     },
@@ -580,12 +580,15 @@ function _claimCandidatesText(index, claimText, args) {
       + 'Words are 3-24 letters or digits. Run claim_elements first to see the numbering.';
   }
   const maxPer = Math.min(50, Math.max(1, Number(args.max_per_element) || 8));
-  const includeTests = !!args.include_tests;
   const includeOp = !!args.include_op;
   const symbols = buildSymbolTable(index);
   if (!symbols.length) return 'The index has no function or class symbols to rank; build it from source first.';
   const pool = includeOp ? symbols : symbols.filter((s) => !isPseudoSource(s.filepath));
   const opPseudo = symbols.length - pool.length;
+  // claim-locate-test-gate-off-on-all-samples-corpus: the CLI's decision, once
+  // per call over the same pool, so the tool cannot drift from --claim-locate.
+  const gate = testGateDecision(pool, { includeTests: !!args.include_tests });
+  const includeTests = gate.includeTests;
 
   const perElement = [];
   const hitsPerElement = new Map();
@@ -618,6 +621,7 @@ function _claimCandidatesText(index, claimText, args) {
 
   const L = [];
   const fp = (s) => String(s.filepath || '').split('!').pop();
+  if (gate.autoOff) L.push(testGateNote(gate, 'include_tests: true'), '');
   for (const pe of perElement) {
     L.push(`Element ${pe.element}: ${pe.limText.slice(0, 160)}`);
     L.push(`  words: ${pe.words.join(', ')}`);

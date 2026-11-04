@@ -674,8 +674,8 @@ group (`--pseudo-claims --candidates`, then `--claims-only` with `--min-rank 0`,
 the ladder of `scripts/anchor-recall.mjs`: function, class, file or miss per anchor, and
 exact, near or elsewhere per target. `--form-rules 2026-10` drafts on the rules as they
 stood before 2026-11-01; `--claims <file>` locates an existing claims file, so the same
-drafts can be located with a second model; `--dry-run` runs the grouper only and prints the
-rest with the cost figures. Every step is a `ce` command, echoed, and the report
+drafts can be located with a second model; `--include-tests` goes to the locate step only;
+`--dry-run` runs the grouper only and prints the rest with the cost figures. Every step is a `ce` command, echoed, and the report
 (`hof_report.md`, `.json`) lands under `%LOCALAPPDATA%\CodeExam\hof\`. Without the
 synonymize step the drafter's own vocabulary goes back in, so the result is a floor; the
 ladder, not a single number, is what to read. `scripts/hof-stage1.mjs` reads the same run
