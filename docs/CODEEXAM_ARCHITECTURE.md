@@ -340,6 +340,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `test/test_retrieval_reachability.js` — retrieval acceptance: implementer reach, ratcheted high-water marks
 - `test/test_synonymize.js` — synonymizer: prompt build, marker/punctuation restore, overlap, corpus-arg guards
 - `test/test_third_party_notices.js` — every shipped third-party file (`grammars/*.wasm`, `public/vendor/*`) has a row in `THIRD-PARTY-NOTICES.md` naming the installed version
+- `test/test_treesitter_c_names.js` — a C/C++ function's name never carries the token before it (CALLBACK, APIENTRY, a type the grammar could not place), on tree-sitter and the regex fallback
 - `test/test_vocab_extract.js` — vocabulary-guided terms: `splitCompoundToken`, prompt concordance, claim keywords
 - `test/test_vocabulary.js` — vocabulary corpus: noise-doc exclusion, cross-corpus weights, claim-filter guards
 - `test/test_whousedby.js` — catalog v2 `annotateUsedBy`: named imports credited per library, self-imports excluded

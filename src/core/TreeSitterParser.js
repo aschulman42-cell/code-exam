@@ -485,7 +485,25 @@ export class TreeSitterParser {
     return result;
   }
 
+  // c-parser-macro-token-in-function-name (2026-11-03). When the grammar
+  // cannot place the token before a name (`LRESULT CALLBACK WndProc(...)`,
+  // `LRESULT APIENTRY` over `BarWndProc(...)`, `DWORD WINAPI
+  // CControl::ThreadFunction(...)`), its error recovery leaves the token
+  // inside the declarator node, whose text then spans both, and the index
+  // stored `CALLBACK WndProc`, `APIENTRY` + newline + `BarWndProc`. A name
+  // never contains whitespace: the last whitespace-separated token is the
+  // name (a qualified one keeps its `::`). Normalized once here, at the one
+  // return point, whatever node type produced the text. Counted in the HOF
+  // candidate lists: 1,408 space-bearing and 516 newline-bearing names of
+  // 56,540 lines on .WinAPI_Classic, 68 on .ffmpeg, 10 on .x264.
   _extractCFuncName(declarator) {
+    const raw = this._extractCFuncNameRaw(declarator);
+    if (!raw || !/\s/.test(raw)) return raw;
+    const parts = raw.trim().split(/\s+/);
+    return parts[parts.length - 1] || null;
+  }
+
+  _extractCFuncNameRaw(declarator) {
     if (!declarator) return null;
     // Handle qualified_identifier (Class::method)
     if (declarator.type === 'qualified_identifier') {
@@ -494,19 +512,19 @@ export class TreeSitterParser {
     // Handle function_declarator -> declarator
     if (declarator.type === 'function_declarator') {
       const inner = declarator.childForFieldName('declarator');
-      return this._extractCFuncName(inner);
+      return this._extractCFuncNameRaw(inner);
     }
     // Handle pointer_declarator
     if (declarator.type === 'pointer_declarator') {
       const inner = declarator.childForFieldName('declarator');
-      return this._extractCFuncName(inner);
+      return this._extractCFuncNameRaw(inner);
     }
     // Handle reference_declarator
     if (declarator.type === 'reference_declarator') {
       for (let i = 0; i < declarator.childCount; i++) {
         const c = declarator.child(i);
         if (c.type !== '&' && c.type !== '&&') {
-          return this._extractCFuncName(c);
+          return this._extractCFuncNameRaw(c);
         }
       }
     }
