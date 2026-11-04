@@ -795,19 +795,20 @@ export async function loadClassMethods(className, container) {
 // and its description (a model's sentence) or purpose (the harvested doc text)
 // on a second line; it expands to its members, and a member click opens the
 // source viewer as a function row does. When the index has no mechanisms.json
-// the route says so with the command to run, and that line is the whole list.
-// Giant and indivisible records carry their size and tag so they read as
-// files, not mechanisms.
+// the route says so with the command to run, and that line, with a Build
+// button beside it, is the whole list. Giant and indivisible records carry
+// their size and tag so they read as files, not mechanisms.
 // ============================================================================
 
 export function renderMechanismList(container, data) {
   container.innerHTML = '';
   if (!data || !data.built) {
-    container.innerHTML = `<div class="list-placeholder">${escHtml((data && data.message) || 'Mechanisms index not built')}</div>`;
+    container.appendChild(renderBuildBar(container, data));
     return;
   }
   const records = data.records || [];
   if (!records.length) { container.innerHTML = '<div class="list-placeholder">No mechanisms match</div>'; return; }
+  container.appendChild(renderDescribeBar(container, data));
   for (const r of records) {
     const subContent = h('div', { className: 'sub-accordion-content' });
     const tags = (r.tags || []).join(', ');
@@ -845,6 +846,130 @@ export function renderMechanismList(container, data) {
     container.appendChild(sub);
   }
   if (data.total > records.length) container.appendChild(h('div', { className: 'list-placeholder', text: `${records.length} of ${data.total} shown` }));
+}
+
+// gui-mechanisms-describe-button, Andrew's feedback (2026-11-04): a Build
+// button where the not-built line was, so a reader who first meets
+// mechanisms here does not leave for a terminal. The line stays the one every
+// consumer prints (the CLI command and the estimate); the button runs the
+// same build in a server worker thread (/api/build-mechanisms, the Build
+// Index pattern), so the pane keeps answering; the phase shows beside the
+// button (loading the index, grouping, then records), and when the build
+// ends the list re-fetches, the badge takes the count and the Describe bar
+// reports the outcome. No model is involved, so no engine or air-gap gating.
+function renderBuildBar(container, data) {
+  const message = (data && data.message) || 'Mechanisms index not built';
+  const filterBox = $('#left-filter');
+  const filter = (filterBox && filterBox.value.trim()) || '';
+  const minutes = (data && data.minutes) || 0;
+  const estimate = (m) => (m ? `about ${m} minute${m === 1 ? '' : 's'} on an index this size` : 'minutes on a large index');
+  const btn = h('button', { className: 'pane-action', text: 'Build', style: 'font-size:11px;padding:1px 8px' });
+  btn.title = `Build the mechanisms index here: every function grouped into file, class, command and token records, with purposes read from the code's own doc text; no model, ${estimate(minutes)}. The pane keeps working; the list fills in when it ends.`;
+  const note = h('span', { className: 'muted', text: message, title: message, style: 'font-size:10px;margin-left:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' });
+  const say = (text) => { note.textContent = text; note.title = text; };
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    btn.disabled = true;
+    try {
+      const start = await api.buildMechanisms({});
+      say(`Building: loading the index… (${estimate(start.minutes || minutes)})`);
+      const poll = async () => {
+        let s;
+        try { s = await api.buildMechanismsStatus({ jobId: start.jobId }); } catch (err) { say(`Build: ${err.message}`); btn.disabled = false; return; }
+        if (s.status === 'running') {
+          say(s.phase === 'records' ? `Building: ${Number(s.done).toLocaleString()} of ${Number(s.total).toLocaleString()} records…`
+            : s.phase === 'grouping' ? `Building: grouping ${Number(s.functions || 0).toLocaleString()} functions…`
+            : 'Building: loading the index…');
+          setTimeout(poll, 1000);
+          return;
+        }
+        if (s.status !== 'done') { say(`Build failed: ${s.error}`); btn.disabled = false; return; }
+        const fresh = await api.listMechanisms({ filter, max: 300 });
+        if (state.sectionData) state.sectionData.mechanisms = fresh.records;
+        renderMechanismList(container, fresh);
+        const section = container.closest('.accordion-section');
+        const badge = section && section.querySelector('.accordion-badge');
+        if (badge) badge.textContent = fresh.built ? fresh.total : '';
+        const bar = container.querySelector('.describe-bar .muted');
+        if (bar) { bar.textContent = s.outcome; bar.title = s.outcome; }
+      };
+      setTimeout(poll, 1000);
+    } catch (err) {
+      say(`Build: ${err.message}`);
+      btn.disabled = false;
+    }
+  });
+  return h('div', { className: 'list-placeholder build-bar', style: 'display:flex;align-items:center;padding:3px 10px;font-size:11px;min-width:0' }, [btn, note]);
+}
+
+// gui-mechanisms-describe-button: the Describe control at the top of the
+// list. Scope = the records the pane is showing (the filter box's filter),
+// skipping described ones, so the spend is the rows a reader is looking at,
+// never the file unless the list is the file. Muted until the Workspace
+// engine is available (the Overview-by-AI pattern; under --air-gapped only
+// Local); a dry run shows the count and, for a cloud engine, the projected
+// cost in the confirm dialog; on yes the run starts, progress shows beside
+// the button, and the list re-fetches when it ends. Once every listed record
+// is described the button reads Redescribe and rewrites them. Rendered here,
+// at the top of the list rather than in the section header, so the row can
+// carry the projection and the outcome text beside the button.
+function renderDescribeBar(container, data) {
+  const records = data.records || [];
+  const filterBox = $('#left-filter');
+  const filter = (filterBox && filterBox.value.trim()) || '';
+  const engineSel = $('#ws-engine');
+  const engine = (engineSel && engineSel.value) || 'claude';
+  const st = state.llmStatus;
+  const info = st && st[engine];
+  const blocked = !!(st && st.airGapped && engine !== 'local');
+  const available = !st || (!!(info && info.available) && !blocked);
+  const engineName = (info && info.name) || engine;
+  const redo = records.every((r) => r.description);
+  const listed = data.total || records.length;
+  const btn = h('button', { className: 'pane-action', text: redo ? 'Redescribe' : 'Describe', style: 'font-size:11px;padding:1px 8px' });
+  const note = h('span', { className: 'muted', text: '', style: 'font-size:10px;margin-left:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' });
+  if (!available) {
+    btn.disabled = true;
+    btn.title = blocked ? 'Blocked by --air-gapped: set the Workspace engine to Local' : `${engineName}: not available (no key, or no model loaded); pick an engine in the Workspace menu`;
+  } else {
+    btn.title = redo
+      ? `Every listed record is described; rewrite the ${listed} listed via ${engineName}`
+      : `Describe the ${listed} listed record${listed === 1 ? '' : 's'} via ${engineName}, skipping described ones; a dialog shows the count and cost first`;
+  }
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    btn.disabled = true;
+    note.textContent = 'Projecting…';
+    note.title = '';
+    try {
+      const p = await api.describeMechanisms({ filter, redo, engine, dryRun: true });
+      if (!p.todo || p.reason) { note.textContent = p.reason || 'Nothing to describe.'; note.title = note.textContent; btn.disabled = false; return; }
+      const cost = p.cloud ? ` about $${p.usd.toFixed(2)}` : ' free, on the local model';
+      const ok = await showConfirmDialog(`${redo ? 'Redescribe' : 'Describe'} ${p.todo} record${p.todo === 1 ? '' : 's'}${filter ? ` matching "${filter}"` : ''} via ${p.model}:${cost}?${p.skipped ? ` (${p.skipped} already described, skipped)` : ''}`);
+      if (!ok) { note.textContent = ''; btn.disabled = false; return; }
+      const start = await api.describeMechanisms({ filter, redo, engine });
+      note.textContent = `Describing 0 of ${start.total}…`;
+      const poll = async () => {
+        let s;
+        try { s = await api.describeMechanismsStatus({ jobId: start.jobId }); } catch (err) { note.textContent = `Describe: ${err.message}`; btn.disabled = false; return; }
+        if (s.status === 'running') { note.textContent = `Describing ${s.done + s.failed} of ${s.total}…`; setTimeout(poll, 1000); return; }
+        note.textContent = s.status === 'done' ? s.outcome : `No descriptions written: ${s.error}`;
+        note.title = note.textContent;
+        if (s.status !== 'done') { btn.disabled = false; return; }
+        const fresh = await api.listMechanisms({ filter, max: 300 });
+        if (state.sectionData) state.sectionData.mechanisms = fresh.records;
+        renderMechanismList(container, fresh);
+        const bar = container.querySelector('.describe-bar .muted');
+        if (bar) { bar.textContent = s.outcome; bar.title = s.outcome; }
+      };
+      setTimeout(poll, 1000);
+    } catch (err) {
+      note.textContent = `Describe: ${err.message}`;
+      note.title = note.textContent;
+      btn.disabled = false;
+    }
+  });
+  return h('div', { className: 'list-placeholder describe-bar', style: 'display:flex;align-items:center;padding:3px 10px;font-size:11px;min-width:0' }, [btn, note]);
 }
 
 function renderMechanismMembers(r, container) {

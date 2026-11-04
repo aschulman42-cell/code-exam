@@ -30,6 +30,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/archive.js` — expands ZIP/TAR/GZIP/HAR archives in memory (nested, depth-capped) for --build-index; zip-bomb guards
 - `src/binstrings.js` — extracts printable strings from binaries into indexable .op pseudo-source; C++ demangling optional
 - `src/build-worker.js` — worker thread that runs CodeSearchIndex.buildIndex off the main loop, streaming progress to the parent
+- `src/mechanisms-build-worker.js` — worker thread that runs the mechanisms build (the grouper and the purpose harvester, `buildMechanismsFile`) off the main loop for the GUI's Build button, posting the phase and the outcome to the parent
 - `src/glob.js` — zero-dep glob expander over Node fs supporting `*`, `**`, and `?` for file discovery
 - `src/json-stream.js` — streaming byte-level JSON object parser that reads >2GB index files via chunked fd reads
 - `src/utils.js` — shared SearchResult class, path/name display helpers, and the extension sets that gate indexing
@@ -109,6 +110,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/core/mechanism-grouper.js` — clusters index functions into candidate mechanism groups from token, class, file and command seeds
 - `src/core/mechanism-ranker.js` — one comparative LLM pass assigning each candidate group a bounded exploration-priority verdict
 - `src/core/mechanisms-index.js` — builds, saves and loads <index>/mechanisms.json, the persisted cover of an index's functions by mechanism record
+- `src/core/mechanisms-describe.js` — one model sentence per mechanism record: the pack, the prompt, the cleaner, the pass with its cost gate and its failure stop; the CLI's --describe and the GUI's Describe button both run it
 - `src/core/multisect.js` — two-phase multi-term intersection search, with per-term file counts and comment-vs-code match weighting
 - `src/core/openai-util.js` — OpenAI-shape helpers: reasoning budget floor, temperature gating, usage/text/finish-reason readers
 - `src/core/overview.js` — builds and renders the fast+deep orientation summary: counts, structure, vocabulary, key files, entry points

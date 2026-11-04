@@ -62,16 +62,29 @@ The left pane is where you orient yourself in an unfamiliar codebase. Under an *
 sits **Overview** (the one-shot "what is this codebase" summary); under **Browse** sit the
 structural lists — **Functions**, **Files**, **Classes**, **Mechanisms**, **Class Inheritance**,
 **Data Structures**, plus **Bundle Seams** and the extension census. Clicking a row loads it into the
-middle panes. **Mechanisms** is the one list the GUI does not compute: it reads the records
-`ce --index-path <X> --build-mechanisms` wrote beside the index (one per file, class, command or
-shared name token, every function in at least one, records overlapping). A row leads with the
+middle panes. **Mechanisms** is the one list the GUI does not compute on each open: it reads the
+records `ce --index-path <X> --build-mechanisms`, or the pane's own **Build** button, wrote beside
+the index (one per file, class, command or shared name token, every function in at least one,
+records overlapping). A row leads with the
 model's one-sentence description when `--describe` wrote one, the label then sitting beneath it
 with the record id; otherwise it leads with the label, over the purpose read from the code's own
 doc text. Beside either sit its member and file counts and tags (`test`, `vendored`, `giant` for
 a record the splitter could not break); a row expands to its members, and a member opens the
-source viewer as a function row does. Until
+source viewer as a function row does. A **Describe** button at the top of the list asks the
+Workspace engine for a one-sentence description of each listed record that has none, the same
+sentence `--describe` writes from the same pack: the filter box sets the scope, so a run costs the
+rows being read, not the file; a dry run first shows the count and, for a cloud engine, the
+projected cost in a confirm dialog; a cloud run above the claims cost guard is refused with the
+CLI command that `--force` would allow, since the GUI has no override; under `--air-gapped` only
+the local model runs. Progress shows beside the button, the list re-fetches when the run ends,
+and once every listed record is described the button reads **Redescribe**. Until
 the file exists the list is one line saying which command builds it and roughly how long that
-takes; the build is minutes on a large index, which is why the pane never runs it itself.
+takes, with a **Build** button beside it: the button runs the same build in a server worker
+thread (the Build Index pattern), so the pane keeps answering while a large index groups; the
+phase shows beside the button (loading the index, grouping, then records), the list fills in when
+it ends, and the Describe bar reports the outcome. No model is involved, so the button needs no
+engine. The build is about a minute per 25,000 functions (seconds on CodeExam's own index, nine
+minutes on Py314's 378,000), and the CLI command in the line does the same from a terminal.
 
 The Overview surface ends with the opt-in **✨ Overview by AI** button, and the same surface is
 available as a pop-up (the **⧉ Open Overview pop-up** button in the Overview's button row). The two are one view: the

@@ -1,4 +1,4 @@
-// test_gui_mechanisms_route.js — /api/list-mechanisms answers the not-built line before --build-mechanisms and the records, with members a click can open, after it
+// test_gui_mechanisms_route.js — /api/list-mechanisms answers the not-built line before the build and the records, with members a click can open, after it; the Build and Describe buttons' routes run their jobs
 // Copyright (c) 2026 Andrew Schulman
 // https://github.com/aschulman42-cell/code-exam
 // Co-authored with Claude (Claude Code).
@@ -84,7 +84,9 @@ describe('/api/list-mechanisms', () => {
     const idx = new CodeSearchIndex({ indexPath });
     await idx.buildIndex(src, { showProgress: false });
     port = await freePort();
-    server = spawn(process.execPath, ['src/server.js', '--port', String(port), '--index-path', indexPath], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    // CE_MECHANISMS_DESCRIBE_STUB: the Describe route runs a stub drafter, so
+    // the start / poll / re-fetch cycle is exercised without a model.
+    server = spawn(process.execPath, ['src/server.js', '--port', String(port), '--index-path', indexPath], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CE_MECHANISMS_DESCRIBE_STUB: '1' } });
     server.stdout.on('data', (d) => { log += d; });
     server.stderr.on('data', (d) => { log += d; });
     const deadline = Date.now() + 60000;
@@ -108,6 +110,37 @@ describe('/api/list-mechanisms', () => {
     assert.equal(body.total, 0);
     assert.deepEqual(body.records, []);
     assert.match(body.message, /^not built: run .*--index-path .* --build-mechanisms \(about \d+ minutes? on an index this size\)$/, body.message);
+  });
+
+  // gui-mechanisms-describe-button, Andrew's feedback: the Build button's
+  // routes. The worker-thread build on the tiny index is the real build (the
+  // grouper and the harvester), so the records it leaves are the ones the
+  // next test's CLI rebuild reproduces. Not tested: the 409s while a build or
+  // a describe run is in progress (racy on an index this small).
+  it('Build: the not-built answer carries the estimate, the build starts in a worker, is polled to done, and the list then has the records', async () => {
+    const before = await (await fetch(q())).json();
+    assert.equal(before.built, false);
+    assert.ok(before.functions >= 3 && before.minutes >= 1, JSON.stringify({ functions: before.functions, minutes: before.minutes }));
+    const url = `http://127.0.0.1:${port}/api/build-mechanisms`;
+    assert.equal((await fetch(url)).status, 405, 'GET is refused');
+    const start = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ index: path.basename(indexPath) }) })).json();
+    assert.ok(start.jobId >= 1, JSON.stringify(start));
+    assert.deepEqual([start.functions, start.minutes], [before.functions, before.minutes]);
+    let s = null;
+    for (let i = 0; i < 600; i++) {
+      s = await (await fetch(`${url}-status?jobId=${start.jobId}`)).json();
+      if (s.status !== 'running') break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.equal(s.status, 'done', JSON.stringify(s) + '\n' + log.slice(-1500));
+    assert.match(s.outcome, /^Built \d+ record\(s\) covering (\d+) of \1 functions \(100%\), \d+ of \d+ files in [\d.]+ s(; \d+ records? with no purpose text)?\.$/, s.outcome);
+    assert.ok(s.done >= 3 && s.done === s.total, JSON.stringify(s));
+    assert.equal((await fetch(`${url}-status?jobId=${start.jobId}`)).status, 404, 'a delivered job is forgotten');
+    assert.ok(fs.existsSync(path.join(indexPath, 'mechanisms.json')), 'the worker wrote the file beside the index');
+    const body = await (await fetch(q())).json();
+    assert.equal(body.built, true, JSON.stringify(body).slice(0, 300));
+    assert.ok(body.total >= 3 && body.total === body.total_all && body.records.some((r) => r.label === '[class] Ledger'), body.records.map((r) => r.label).join(' | '));
+    assert.equal(body.described, null);
   });
 
   it('after the CLI build: the records, each with counts, text, tags and members a click can open; the filter and the cap work', async () => {
@@ -144,5 +177,40 @@ describe('/api/list-mechanisms', () => {
     assert.equal(none.built, true); assert.equal(none.total, 0); assert.deepEqual(none.records, []);
     const capped = await (await fetch(q('&max=1'))).json();
     assert.equal(capped.records.length, 1); assert.equal(capped.total, body.total);
+  });
+
+  // gui-mechanisms-describe-button: the pane's Describe button, at its routes.
+  it('Describe: a dry run projects the listed records, the run starts, is polled to done, writes the file, and the next dry run has nothing left until redo', async () => {
+    const post = (b) => fetch(`http://127.0.0.1:${port}/api/describe-mechanisms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ index: path.basename(indexPath), ...b }) });
+    const none = await (await post({ filter: 'zzz-nothing', dryRun: true })).json();
+    assert.equal(none.ok, false); assert.equal(none.todo, 0); assert.match(none.reason, /^No mechanisms match filter "zzz-nothing"/);
+    const dry = await (await post({ filter: 'Ledger', dryRun: true })).json();
+    assert.equal(dry.dryRun, true, JSON.stringify(dry));
+    assert.equal(dry.engine, 'stub');
+    assert.ok(dry.todo >= 1, JSON.stringify(dry));
+    assert.deepEqual([dry.skipped, dry.cloud, dry.usd, dry.overGuard, dry.reason], [0, false, 0, false, null]);
+    const start = await (await post({ filter: 'Ledger' })).json();
+    assert.ok(start.jobId >= 1 && start.total === dry.todo, JSON.stringify(start));
+    let s = null;
+    for (let i = 0; i < 200; i++) {
+      s = await (await fetch(`http://127.0.0.1:${port}/api/describe-mechanisms-status?jobId=${start.jobId}`)).json();
+      if (s.status !== 'running') break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.equal(s.status, 'done', JSON.stringify(s) + '\n' + log.slice(-1500));
+    assert.equal(s.done, dry.todo); assert.equal(s.failed, 0);
+    assert.match(s.outcome, new RegExp(`^Described ${dry.todo} of ${dry.todo} record\\(s\\) matching 'Ledger' via stub; ${dry.todo} of \\d+ now carry a description\\.$`), s.outcome);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/api/describe-mechanisms-status?jobId=${start.jobId}`)).status, 404, 'a delivered job is forgotten');
+    const body = await (await fetch(q('&filter=Ledger'))).json();
+    assert.ok(body.records.length >= 1 && body.records.every((r) => /does its part\.$/.test(r.description || '')), body.records.map((r) => `${r.label}: ${r.description}`).join(' | '));
+    assert.equal(body.described.records, dry.todo, JSON.stringify(body.described));
+    const again = await (await post({ filter: 'Ledger', dryRun: true })).json();
+    assert.equal(again.todo, 0); assert.equal(again.skipped, dry.todo);
+    const startNone = await (await post({ filter: 'Ledger' })).json();
+    assert.equal(startNone.ok, false); assert.match(startNone.reason, /already carry a description \(Redescribe rewrites them\)\.$/);
+    const redo = await (await post({ filter: 'Ledger', redo: true, dryRun: true })).json();
+    assert.equal(redo.todo, dry.todo);
+    const bad = await fetch(`http://127.0.0.1:${port}/api/describe-mechanisms`);
+    assert.equal(bad.status, 405, 'GET is refused');
   });
 });

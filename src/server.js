@@ -35,7 +35,8 @@ import { makeFilterMatcher } from './core/filter-match.js';
 import { chatSessionOptions, ggufContextOptions, stripLocalArtifacts, draftCloud, getLlamaShared, isNoBinaryError, NO_BINARY_MESSAGE } from './core/llm-runner.js';
 import { extractExports } from './core/exports.js';
 import { extractImports, bomReport } from './core/imports.js';
-import { loadMechanismsIndex, filterRecords, notBuiltLine } from './core/mechanisms-index.js';
+import { loadMechanismsIndex, saveMechanismsIndex, filterRecords, notBuiltLine, candidateCount, estimateBuildMinutes } from './core/mechanisms-index.js';
+import { describeMechanisms, describeProjection } from './core/mechanisms-describe.js';
 import { copyrightNotices } from './core/copyrights.js';
 import { extractConcepts, INTRINSIC_NAMES, isIntrinsicName } from './core/vocabulary.js';
 import { buildOverviewFast, buildOverviewDeep } from './core/overview.js';
@@ -2996,16 +2997,202 @@ routes['/api/list-classes'] = (req, res) => {
 
 // mechanisms-index-prebuild-cli-gui: the records `--build-mechanisms` wrote,
 // read through the same loader the CLI and the MCP tool use (cached on the
-// index by the file's mtime). The GUI never builds: a missing file answers
-// `built: false` with the one not-built line, which the pane shows as the
-// whole list, instead of hanging on a grouping that takes minutes.
+// index by the file's mtime). A GET never builds: a missing file answers
+// `built: false` with the one not-built line (and the function count and
+// estimate the pane's Build button shows), instead of hanging on a grouping
+// that takes minutes; the build is a job of its own, below.
+// gui-mechanisms-describe-button: the Mechanisms pane's Describe button.
+// POST /api/describe-mechanisms { index, filter, redo, engine, dryRun }:
+// dryRun answers the projection (records to describe, tokens and USD for a
+// cloud engine, free for a local one) and whether the claims cost guard
+// would refuse; without dryRun it starts the pass and answers { jobId,
+// total }, polled on /api/describe-mechanisms-status until done, the
+// /api/build-index pattern. The engine resolves as the questions route
+// resolves it: a cloud provider through draftCloud with the server's key,
+// the local GGUF on the shared llama session under the local lock,
+// air-gapped local only. One job at a time (a second start is 409), the
+// file written once at the end through saveMechanismsIndex (the loader's
+// cache drops, so the next list read sees the sentences). The GUI has no
+// --force: a cloud run above the guard is refused with the CLI command that
+// would allow it. CE_MECHANISMS_DESCRIBE_STUB=1, read once at startup like
+// CE_LOCAL_CHAT_TOOLS, swaps a stub drafter in so the route tests exercise
+// the start / poll / re-fetch cycle without a model.
+const DESCRIBE_STUB = process.env.CE_MECHANISMS_DESCRIBE_STUB === '1';
+const describeJobs = new Map();
+let describeJobSeq = 0;
+let describeRunning = null;
+let buildMechRunning = null;   // the Build button's job (below): no describe run while the file is being rewritten
+
+/** The engine the Describe button runs on: { engine, label, model, drafter } or { error, status }. */
+function describeEngineFor(engineRaw) {
+  const engine = engineRaw === 'local' ? 'local' : (engineRaw === 'openai' || engineRaw === 'gemini') ? engineRaw : 'claude';
+  if (DESCRIBE_STUB) {
+    return { engine: 'stub', label: 'stub', model: null, drafter: async (sys, user) => `${String(user).split('\n')[0].replace('MECHANISM: ', '')} does its part.` };
+  }
+  if (engine === 'local') {
+    if (!serverLLM.defaultModelPath) return { error: 'Local GGUF: no model loaded; pick one in the Workspace engine menu, or launch with --model <gguf>.', status: 400 };
+    const label = `Local: ${path.basename(serverLLM.defaultModelPath)}`;
+    const drafter = (sys, user, maxTokens) => withLocalLock(async () => {
+      const loaded = await serverLLM.ensureLocalModel();
+      if (loaded.error) throw new Error(loaded.error);
+      const lm = serverLLM._localModel;
+      const sequence = await serverLLM.acquireSharedSequence();
+      const session = new lm.LlamaChatSession(await chatSessionOptions(sequence));
+      const wrapperName = session.chatWrapper && session.chatWrapper.wrapperName;
+      const raw = await session.prompt(strictInstructionsFor(wrapperName, `${sys}\n\n${user}`), { maxTokens, temperature: 0.2 });
+      return stripLocalArtifacts(raw);
+    });
+    return { engine: 'local', label, model: { kind: 'local', label }, drafter };
+  }
+  if (isAirGapped()) return { error: '--air-gapped: describing over a cloud engine is blocked. Set the Workspace engine to Local.', status: 403 };
+  const prov = PROVIDERS[engine];
+  const key = engine === 'openai' ? serverLLM.defaultOpenAIKey : engine === 'gemini' ? serverLLM.defaultGeminiKey : serverLLM.defaultApiKey;
+  if (!key) return { error: `${prov.label}: no API key configured (set ${prov.keyEnv}).`, status: 400 };
+  const modelId = engine === 'openai' ? serverLLM.defaultOpenAIModel
+    : engine === 'gemini' ? serverLLM.defaultGeminiModel
+    : (process.env.CE_AI_OVERVIEW_MODEL || prov.defaultModel);
+  const descriptor = prov.wire === 'anthropic'
+    ? { wire: 'anthropic', apiUrl: process.env.CLAIM_SEARCH_API_URL || 'https://api.anthropic.com/v1/messages', key, model: modelId, label: prov.label }
+    : { wire: prov.wire, apiUrl: `${prov.baseUrl}/chat/completions`, key, model: modelId, label: prov.label };
+  return { engine, label: `${prov.label} (${modelId})`, model: { ...descriptor, kind: 'cloud' }, drafter: (sys, user, maxTokens) => draftCloud(descriptor, sys, user, maxTokens, 0.2) };
+}
+
+routes['/api/describe-mechanisms'] = (req, res) => {
+  if (req.method !== 'POST') return errorResponse(res, 'POST required', 405);
+  let body = '';
+  req.on('data', (chunk) => { body += chunk; });
+  req.on('end', () => {
+    let params;
+    try { params = JSON.parse(body || '{}'); } catch { return errorResponse(res, 'Invalid JSON body'); }
+    const index = mgr.get(params.index);
+    if (!index) return errorResponse(res, 'No index loaded', 404);
+    // A private copy of the file: the pass writes descriptions into it record
+    // by record, and the list route keeps serving the cached file until the
+    // save at the end drops the cache.
+    let data = null;
+    try { data = loadMechanismsIndex(index, { cache: false }); } catch (e) { return errorResponse(res, `mechanisms.json could not be read: ${e.message}`, 500); }
+    if (!data) return errorResponse(res, notBuiltLine(index), 404);
+    const filter = params.filter ? String(params.filter) : null;
+    const redo = !!params.redo;
+    const subset = filter ? filterRecords(data.records, filter) : data.records;
+    if (filter && !subset.length) return jsonResponse(res, { ok: false, todo: 0, reason: `No mechanisms match filter "${filter}" among the ${data.records.length} records.` });
+    const eng = describeEngineFor(params.engine);
+    if (eng.error) return errorResponse(res, eng.error, eng.status || 400);
+    const proj = describeProjection(index, data, { records: subset, filter, redo, model: eng.model });
+    const scope = filter ? ` matching '${filter}'` : '';
+    const guardNote = proj.overGuard
+      ? `projected ~$${proj.usd.toFixed(2)} for ${proj.todo} record(s)${scope} exceeds the $${proj.guard.toFixed(2)} claims cost guard, and the GUI has no override: narrow the filter, or run the CLI with --force (ce --index-path <X> --mechanisms${filter ? ` ${JSON.stringify(filter)}` : ''} --describe --llm ${eng.engine} --force).`
+      : null;
+    if (params.dryRun) return jsonResponse(res, { dryRun: true, engine: eng.engine, model: eng.label, ...proj, reason: guardNote });
+    if (!proj.todo) return jsonResponse(res, { ok: false, todo: 0, reason: `all ${proj.wanted} ${filter ? 'matching ' : ''}record(s) already carry a description (Redescribe rewrites them).` });
+    if (proj.overGuard) return errorResponse(res, guardNote, 400);
+    if (describeRunning) return errorResponse(res, `A describe run is already in progress (job ${describeRunning}); wait for it to finish.`, 409);
+    if (buildMechRunning) return errorResponse(res, `A mechanisms build is in progress (job ${buildMechRunning}); wait for it to finish, then describe the new records.`, 409);
+    const id = ++describeJobSeq;
+    const job = { id, status: 'running', done: 0, failed: 0, total: proj.todo, engine: eng.engine, model: eng.label, outcome: null, error: null };
+    describeJobs.set(id, job);
+    describeRunning = id;
+    jsonResponse(res, { jobId: id, total: proj.todo, engine: eng.engine, model: eng.label });
+    console.log(`  [describe] ${proj.todo} record(s)${scope} via ${eng.label} …`);
+    describeMechanisms(index, data, {}, { drafter: eng.drafter, model: eng.model, records: subset, filter, redo, onProgress: (done, failed) => { job.done = done; job.failed = failed; } })
+      .then((r) => {
+        if (!r.ok) { job.status = 'error'; job.error = r.reason; return; }
+        saveMechanismsIndex(index, data);
+        job.status = 'done'; job.done = r.done; job.failed = r.failed;
+        const failed = r.failed
+          ? `; ${r.failed} got no description${r.lastError ? ` (${r.lastError})` : ''}${r.stopped ? `, and the run stopped after ${r.stopped} failures in a row` : ''}; click Describe again to resume (described records are skipped)`
+          : '';
+        job.outcome = `Described ${r.done} of ${proj.todo} record(s)${scope} via ${eng.label}; ${data.described.records} of ${data.records.length} now carry a description${failed}.`;
+      })
+      .catch((e) => { job.status = 'error'; job.error = (e && e.message) ? e.message : String(e); })
+      .finally(() => { describeRunning = null; console.log(`  [describe] ${job.status}: ${job.outcome || job.error}`); });
+  });
+};
+
+routes['/api/describe-mechanisms-status'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const jobId = parseInt(q.jobId, 10);
+  if (!jobId || !describeJobs.has(jobId)) return errorResponse(res, 'Unknown jobId', 404);
+  const job = describeJobs.get(jobId);
+  jsonResponse(res, { status: job.status, done: job.done, failed: job.failed, total: job.total, engine: job.engine, model: job.model, outcome: job.outcome, error: job.error });
+  if (job.status === 'done' || job.status === 'error') describeJobs.delete(jobId);
+};
+
+// gui-mechanisms-describe-button, Andrew's feedback (2026-11-04: "I thought
+// that there was going to be a button in GUI under Mechanisms, if the
+// mechanisms json hadn't been built"): a Build button beside the not-built
+// line. POST /api/build-mechanisms { index } runs --build-mechanisms's own
+// build (buildMechanismsFile) in a worker thread, the /api/build-index
+// pattern, so the server keeps answering while a large index groups; the
+// worker loads its own copy of the index (a second copy in memory for the
+// duration, as a CLI build beside the GUI is). One build at a time, and no
+// build during a describe run or describe run during a build: the build
+// carries the previous file's descriptions from what it read at its start,
+// and the describe pass writes the file it read. Polled on
+// /api/build-mechanisms-status until done; the loader's cache is keyed on
+// the file's mtime and size, so the next list read sees the new file.
+const buildMechJobs = new Map();
+let buildMechSeq = 0;
+
+routes['/api/build-mechanisms'] = (req, res) => {
+  if (req.method !== 'POST') return errorResponse(res, 'POST required', 405);
+  let body = '';
+  req.on('data', (chunk) => { body += chunk; });
+  req.on('end', () => {
+    let params;
+    try { params = JSON.parse(body || '{}'); } catch { return errorResponse(res, 'Invalid JSON body'); }
+    const index = mgr.get(params.index);
+    if (!index) return errorResponse(res, 'No index loaded', 404);
+    if (buildMechRunning) return errorResponse(res, `A mechanisms build is already in progress (job ${buildMechRunning}); wait for it to finish.`, 409);
+    if (describeRunning) return errorResponse(res, `A describe run is in progress (job ${describeRunning}); wait for it to finish before rebuilding.`, 409);
+    const functions = candidateCount(index);
+    const minutes = estimateBuildMinutes(functions);
+    const indexName = path.basename(String(index.indexPath || '')) || params.index || mgr.activeIndex || '?';
+    const id = ++buildMechSeq;
+    const job = { id, status: 'running', phase: 'loading', done: 0, total: 0, functions, minutes, outcome: null, error: null };
+    buildMechJobs.set(id, job);
+    buildMechRunning = id;
+    jsonResponse(res, { jobId: id, functions, minutes });
+    console.log(`  [build-mechanisms] ${indexName}: ${functions} functions, about ${minutes} minute${minutes === 1 ? '' : 's'} …`);
+    const worker = new Worker(path.join(__dirname, 'mechanisms-build-worker.js'), { workerData: { indexPath: index.indexPath, indexName } });
+    worker.on('message', (msg) => {
+      if (msg.type === 'progress') {
+        job.phase = msg.phase;
+        if (msg.phase === 'records') { job.done = msg.done; job.total = msg.total; }
+      } else if (msg.type === 'done') {
+        job.status = 'done'; job.outcome = msg.outcome; job.done = msg.records; job.total = msg.records;
+      } else if (msg.type === 'error') {
+        job.status = 'error'; job.error = msg.error;
+      }
+    });
+    worker.on('error', (err) => { job.status = 'error'; job.error = err.message; });
+    worker.on('exit', (code) => {
+      if (job.status === 'running') { job.status = 'error'; job.error = `the build worker exited with code ${code} before it finished`; }
+      buildMechRunning = null;
+      console.log(`  [build-mechanisms] ${job.status}: ${job.outcome || job.error}`);
+    });
+  });
+};
+
+routes['/api/build-mechanisms-status'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const jobId = parseInt(q.jobId, 10);
+  if (!jobId || !buildMechJobs.has(jobId)) return errorResponse(res, 'Unknown jobId', 404);
+  const job = buildMechJobs.get(jobId);
+  jsonResponse(res, { status: job.status, phase: job.phase, done: job.done, total: job.total, functions: job.functions, minutes: job.minutes, outcome: job.outcome, error: job.error });
+  if (job.status === 'done' || job.status === 'error') buildMechJobs.delete(jobId);
+};
+
 routes['/api/list-mechanisms'] = (req, res) => {
   const q = parseQuery(req.url);
   const index = mgr.get(q.index);
   if (!index) return errorResponse(res, 'No index loaded', 404);
   let data = null;
   try { data = loadMechanismsIndex(index); } catch (e) { return errorResponse(res, `mechanisms.json could not be read: ${e.message}`, 500); }
-  if (!data) return jsonResponse(res, { built: false, message: notBuiltLine(index), total: 0, total_all: 0, records: [] });
+  if (!data) {
+    const functions = candidateCount(index);
+    return jsonResponse(res, { built: false, message: notBuiltLine(index), functions, minutes: estimateBuildMinutes(functions), total: 0, total_all: 0, records: [] });
+  }
   const records = q.filter ? filterRecords(data.records, q.filter) : data.records;
   const max = safeMax(q.max, 300);
   const dn = (n) => (typeof index.getDisplayName === 'function' ? index.getDisplayName(n) : n);
