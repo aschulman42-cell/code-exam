@@ -70,6 +70,24 @@ const FILES = {
   's.c': ['static int helper(void) {', '  return 1;', '}', 'int run_s(void) {', '  return helper();', '}'],
   't.c': ['int helper(void) {', '  return 2;', '}', 'int run_t(void) {', '  return helper();', '}'],
   'u.c': ['int run_u(void) {', '  return helper();', '}'],
+  // findcallers-header-statics-and-connectivity-callers-arm: a `static inline`
+  // in a header is reachable from the files that include the header, not
+  // from one that includes something else, and not from one with no
+  // #include at all (u.c above must still not see s.c's static).
+  'bitstream.h': ['static inline int bs_init(int n) {', '  return n + 1;', '}'],
+  'enc1.c': ['#include "bitstream.h"', 'int run_e1(void) {', '  bs_init(1);', '  return 0;', '}'],
+  'enc2.c': ['#include <stdio.h>', '#include "../include/bitstream.h"', 'int run_e2(void) {', '  return bs_init(2);', '}'],
+  'enc3.c': ['#include "other.h"', 'int run_e3(void) {', '  return bs_init(3);', '}'],
+  'enc4.c': ['int run_e4(void) {', '  return bs_init(4);', '}'],
+  // The umbrella shape (x264: every .c includes common/common.h, which
+  // includes bitstream.h): the include is transitive through indexed headers.
+  'umbrella.h': ['#include <stdlib.h>', '#include "bitstream.h"'],
+  'enc5.c': ['#include "umbrella.h"', 'int run_e5(void) {', '  return bs_init(5);', '}'],
+  // A .c file included textually (x264's rdo.c: `#include "cabac.c"`): its
+  // statics reach the includer and no one else.
+  'inc.c': ['static int inc_helper(void) {', '  return 7;', '}'],
+  'enc6.c': ['#include "inc.c"', 'int run_e6(void) {', '  return inc_helper();', '}'],
+  'enc7.c': ['#include "umbrella.h"', 'int run_e7(void) {', '  return inc_helper();', '}'],
 };
 
 function writeFixture() {
@@ -199,6 +217,23 @@ describe('bare-name resolution precision', () => {
         assert.equal(callee(idx(), 'run_t', 'helper').resolved_def.filepath, 't.c');
         const fromU = callee(idx(), 'run_u', 'helper');
         assert.deepEqual([fromU.resolved_def.filepath, fromU.ambiguous], ['t.c', false]);
+      });
+
+      it('C: a static inline in a header is reachable from its includers, not from a file that includes something else', () => {
+        if (skip()) return;
+        const callers = idx().findCallers('bs_init', 500).map((r) => r.caller_function).sort();
+        assert.deepEqual(callers, ['run_e1', 'run_e2', 'run_e5'], 'enc3.c includes other.h and enc4.c includes nothing: both dropped; enc5.c reaches the header through umbrella.h');
+        const fromE5 = callee(idx(), 'run_e5', 'bs_init');
+        assert.deepEqual([fromE5.resolved_def.filepath, fromE5.ambiguous], ['bitstream.h', false]);
+        const incCallers = idx().findCallers('inc_helper', 500).map((r) => r.caller_function).sort();
+        assert.deepEqual(incCallers, ['run_e6'], 'a static in an included .c reaches its includer only');
+        assert.equal(callee(idx(), 'run_e6', 'inc_helper').resolved_def.filepath, 'inc.c');
+        const fromE1 = callee(idx(), 'run_e1', 'bs_init');
+        assert.deepEqual([fromE1.resolved_def.filepath, fromE1.ambiguous], ['bitstream.h', false]);
+        const fromE2 = callee(idx(), 'run_e2', 'bs_init');
+        assert.equal(fromE2.resolved_def.filepath, 'bitstream.h', 'a path-qualified #include still names the header by basename');
+        const e3 = idx().findCallees('run_e3').find((c) => c.name === 'bs_init');
+        assert.ok(!e3 || !e3.resolved_def || e3.resolved_def.filepath !== 'bitstream.h', 'no include of the header: not resolved to it');
       });
 
       it('CLI: the call tree labels nothing as a subtree it cannot justify', () => {

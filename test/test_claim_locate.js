@@ -2890,9 +2890,10 @@ describe('chart-retrieval-multi-run-merge: two vocabulary runs, unioned', () => 
 describe('findcallers-one-pass-per-name: batched callers, navigation and connectivity', () => {
   const ENTRIES = [
     ['  x = alphaFn(1);', [['src/a.c', [10]]]],
-    // `y = betaFn(2);`, not a bare `betaFn(2);`: findCallers's declaration rule
-    // reads an indented bare call statement as `type name(args);` with
-    // whitespace for the type and drops it (pre-existing; noted in the item).
+    // Keys of a real inverted index are whitespace-normalized and trimmed, so
+    // a bare call statement is keyed `betaFn(2);` and findCallers's declaration
+    // rule never fires on it; this fixture carries leading spaces for the
+    // other skips, so the call is written as an assignment to stay a call.
     ['  y = betaFn(2);', [['src/b.c', [20]], ['src/c.c', [30]]]],
     ['  return gammaFn(alphaFn(3));', [['src/a.c', [40]]]],
     ['int alphaFn(int a);', [['src/a.h', [5]]]],
@@ -3006,7 +3007,11 @@ describe('findcallers-one-pass-per-name: batched callers, navigation and connect
     const got = indexCallNeighborsMany(idx)(specs);
     assert.equal(idx.scans, 1);
     assert.deepEqual(got, expected);
-    assert.deepEqual(got.get('src/a.c@alphaFn'), ['src/a.c@gammaFn'], 'the callee arm; findCallers rows carry caller_function, which this instrument does not read (recorded in the item draft)');
+    // Callees first, then the callers read from rows keyed `caller_function`
+    // (findcallers-header-statics-and-connectivity-callers-arm: the arm had
+    // read only `name` and `function`, the fakes' keys, and was empty on every
+    // real index).
+    assert.deepEqual(got.get('src/a.c@alphaFn'), ['src/a.c@gammaFn', 'src/a.c@a_fn10', 'src/a.c@a_fn40']);
   });
 });
 

@@ -2847,7 +2847,11 @@ const calleeNeighbors = (index, file, bare) => {
 const callerNeighbors = (rows) => {
   const out = [];
   for (const c of rows || []) {
-    const nm = c && (c.name || c.function);
+    // findCallers rows are keyed `caller_function` (null at file scope); the
+    // other two keys are what test fakes return. Reading only those two had
+    // left this arm empty on every real index since the instrument landed
+    // (findcallers-header-statics-and-connectivity-callers-arm, 2026-11-03).
+    const nm = c && (c.caller_function || c.name || c.function);
     if (nm) out.push(`${String(c.filepath || c.file || '').split('!').pop()}@${nm}`);
   }
   return out;

@@ -229,6 +229,78 @@ function _langFamily(filepath) {
   return m ? (_EXT_FAMILY.get(m[0]) || null) : null;
 }
 
+// A `static` definition in a file another file `#include`s is textually
+// included there, so it is not file-local the way an un-included .c file's
+// `static` is (findcallers-header-statics-and-connectivity-callers-arm,
+// 2026-11-03: on .x264, 322 of 1,801 bare call statements and every caller
+// of bs_init, bs_realign and bs_write32 were dropped because bitstream.h's
+// `static inline` functions were held to their own file).
+const _basenameLower = (p) => String(p).replace(/\\/g, '/').split('/').pop().toLowerCase();
+
+// The basenames a file's `#include` lines name, as a Set; null when the file
+// has no `#include` line at all (no evidence either way). Memoized per file
+// on the index, the same way _fileVisibility caches its result.
+function _includeBasenames(idx, filepath) {
+  if (!idx._includeBasenamesCache) idx._includeBasenamesCache = new Map();
+  if (idx._includeBasenamesCache.has(filepath)) return idx._includeBasenamesCache.get(filepath);
+  const lines = (idx.fileLines && idx.fileLines.get(filepath)) || [];
+  const re = /^\s*#\s*include\s*[<"]([^>"]+)[>"]/;
+  let set = null;
+  for (const line of lines) {
+    const m = line.match(re);
+    if (!m) continue;
+    if (!set) set = new Set();
+    set.add(_basenameLower(m[1]));
+  }
+  idx._includeBasenamesCache.set(filepath, set);
+  return set;
+}
+
+// Indexed C-family files by basename, once per index: what an `#include`
+// line can resolve to. Headers mostly, and the .c files some projects
+// include textually (x264's rdo.c does `#include "cabac.c"`).
+function _cFilesByBasename(idx) {
+  if (idx._cFilesByBasenameCache) return idx._cFilesByBasenameCache;
+  const map = new Map();
+  for (const fp of (idx.fileLines ? idx.fileLines.keys() : [])) {
+    if (_langFamily(fp) !== 'c') continue;
+    const b = _basenameLower(fp);
+    if (!map.has(b)) map.set(b, []);
+    map.get(b).push(fp);
+  }
+  idx._cFilesByBasenameCache = map;
+  return map;
+}
+
+// The basenames of the files a file includes, TRANSITIVELY through the
+// files the index holds: x264's .c files include common/common.h, which
+// includes bitstream.h, and a direct-include rule dropped 317 of 322 sites
+// still. Resolved by basename (two indexed files sharing one both count),
+// bounded, cycle-safe, memoized per file. Null when the file itself has no
+// `#include` line, which for a C `static` means nothing is included.
+const _INCLUDE_CLOSURE_CAP = 4000;
+function _includeClosure(idx, filepath) {
+  if (!idx._includeClosureCache) idx._includeClosureCache = new Map();
+  if (idx._includeClosureCache.has(filepath)) return idx._includeClosureCache.get(filepath);
+  const direct = _includeBasenames(idx, filepath);
+  let closure = null;
+  if (direct) {
+    closure = new Set(direct);
+    const queue = [...direct];
+    const files = _cFilesByBasename(idx);
+    while (queue.length && closure.size < _INCLUDE_CLOSURE_CAP) {
+      const base = queue.shift();
+      for (const h of files.get(base) || []) {
+        for (const b of _includeBasenames(idx, h) || []) {
+          if (!closure.has(b)) { closure.add(b); queue.push(b); }
+        }
+      }
+    }
+  }
+  idx._includeClosureCache.set(filepath, closure);
+  return closure;
+}
+
 // Can `callerFilepath` (at `callerSpan`, when known) reach definition `d`?
 function _reachable(idx, d, callerFilepath, callerSpan) {
   // The bare-name table spans languages; a JS caller does not call a C
@@ -246,7 +318,17 @@ function _reachable(idx, d, callerFilepath, callerSpan) {
   const vis = idx._fileVisibility ? idx._fileVisibility(d.filepath) : null;
   if (!vis) return true;
   if (vis.kind === 'js') return !vis.explicit || vis.exported.has(d.base_name);
-  if (vis.kind === 'c') return !(idx._isStaticDef && idx._isStaticDef(d));
+  if (vis.kind === 'c') {
+    if (!(idx._isStaticDef && idx._isStaticDef(d))) return true;
+    // A `static` is file-local unless the caller's file textually includes
+    // the defining file, directly or through another indexed file (by
+    // basename): a header's `static inline`, or a .c file a project includes
+    // as x264's rdo.c includes cabac.c. No `#include` line is no inclusion
+    // (unlike the JS rule's fail-open without import evidence: C has no
+    // other way in).
+    const includes = _includeClosure(idx, callerFilepath);
+    return !!includes && includes.has(_basenameLower(d.filepath));
+  }
   return true;
 }
 

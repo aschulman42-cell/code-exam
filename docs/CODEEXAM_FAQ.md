@@ -248,7 +248,10 @@ retyping a target — but a result you reached by clicking can't always be
 expressed as a CLI argument; use the CLI escape hatches above when scripting.
 A click sends the file-qualified name (`file@func`), so the function you reach
 by clicking is the one you clicked, and its **Called By** lists only the sites
-that can reach that definition. What can still land on a same-named sibling:
+that can reach that definition (a C `static`: its own file, and any file that
+`#include`s the defining file, directly or through another file in the index,
+by basename, so a header's `static inline` reaches every includer, since
+2026-11-03). What can still land on a same-named sibling:
 the digest's title for a *bare* target, and a method dispatched dynamically at
 run time (see [`CODEEXAM_KNOWN_LIMITATIONS.md`](./CODEEXAM_KNOWN_LIMITATIONS.md),
 #85 / #148).

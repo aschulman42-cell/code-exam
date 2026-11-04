@@ -73,7 +73,11 @@ plainly:
   imports wins; otherwise the same-file or closest-directory pick is kept and marked
   `[ambiguous]` (dashed in diagrams), and trees do not descend into it. A file-qualified
   Find Callers (`FILE@func`) lists only the sites that can reach that definition; a bare-name
-  Find Callers still lists every same-named site. What is not done: dynamic dispatch (a vtable,
+  Find Callers still lists every same-named site. A C `static` is reachable from its own file and
+  from any file that `#include`s the defining file, directly or through another file the index
+  holds (by basename), so a header's `static inline`
+  reaches every includer (2026-11-03; before that, every caller of a header's
+  `static inline` was dropped: 322 call sites on x264). What is not done: dynamic dispatch (a vtable,
   a registry) still resolves statically or not at all; CommonJS `require` and non-ESM aliases
   give no import evidence; the digest's silent first-match pick for a bare target is unchanged.
 - **Import / BoM coverage** (#165) — import extraction covers Python, JS/TS, C/C++,
