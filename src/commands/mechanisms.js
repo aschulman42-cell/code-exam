@@ -112,7 +112,7 @@ export async function doBuildMechanisms(index, args, { exe = 'ce', drafter = nul
         const carrying = `${nf((data.described && data.described.records) || 0)} of ${nf(data.records.length)} records now carry a description`;
         describe = { ...r, outcome: r.done
           ? `Described ${nf(r.done)} of ${nf(r.wanted)} mechanism(s)${scope}${skipped} via ${data.described.engine}; ${carrying}${unified}; written to ${mechanismsPath(index)}${failed}`
-          : `No new descriptions: all ${nf(r.wanted)} mechanism(s)${scope} already carry one${unified}; ${carrying}; written to ${mechanismsPath(index)}` };
+          : `Unified ${nf(r.unified)} record(s) to the sentence of the record with the same functions, no model call needed; all ${nf(r.wanted)} mechanism(s)${scope} already carry one; ${carrying}; written to ${mechanismsPath(index)}` };
       } else {
         // Say so where a reader looks: the refusal itself went to stderr.
         describe = { ...r, outcome: `No descriptions written: ${r.reason}` };

@@ -732,7 +732,7 @@ describe('the mechanisms index', () => {
       file.description = 'A second wording of the same functions.';
       saveMechanismsIndex(idx2, data);
       const out = runCLI(IDX2, ['--describe', '--llm', 'claude']);
-      assert.match(out.out, /^No new descriptions: all \d+ mechanism\(s\) already carry one; 1 record\(s\) took the sentence of the record with the same functions; \d+ of \d+ records now carry a description; written to /m, out.out);
+      assert.match(out.out, /^Unified 1 record\(s\) to the sentence of the record with the same functions, no model call needed; all \d+ mechanism\(s\) already carry one; \d+ of \d+ records now carry a description; written to /m, out.out);
       assert.doesNotMatch(out.out, /projected cost|needs a model/, 'no model is resolved for a free write');
       const after = loadMechanismsIndex(idx2, { cache: false });
       assert.equal(byLabel(after, '[file] vault.py').description, byLabel(after, '[class] Vault').description, 'the file converged');

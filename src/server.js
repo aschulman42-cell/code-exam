@@ -3108,7 +3108,7 @@ routes['/api/describe-mechanisms'] = (req, res) => {
         const carrying = `${(data.described && data.described.records) || 0} of ${data.records.length} records now carry a description`;
         job.outcome = r.done
           ? `Described ${r.done} of ${proj.todo} mechanism(s)${scope} via ${eng.label}; ${carrying}${unified}${failed}.`
-          : `No new descriptions: all ${r.wanted} mechanism(s)${scope} already carry one${unified}; ${carrying}.`;
+          : `Unified ${r.unified} record(s) to the sentence of the record with the same functions, no model call needed; all ${r.wanted} mechanism(s)${scope} already carry one; ${carrying}.`;
       })
       .catch((e) => { job.status = 'error'; job.error = (e && e.message) ? e.message : String(e); })
       .finally(() => { describeRunning = null; console.log(`  [describe] ${job.status}: ${job.outcome || job.error}`); });

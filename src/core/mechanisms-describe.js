@@ -148,7 +148,7 @@ export async function describeMechanisms(index, data, args, { drafter = null, re
     const unified = unifyUnits(units);
     const reason = unified ? null : `all ${nf(wanted)} ${filter ? 'matching ' : ''}mechanism(s) already carry a description (--redescribe rewrites them)`;
     if (reason) console.error(`# describe: ${reason}`);
-    else console.error(`# describe: nothing to call; ${nf(unified)} record(s) took the sentence of the record with the same functions`);
+    else console.error(`# describe: unified ${nf(unified)} record(s) to the sentence of the record with the same functions; nothing to call`);
     return { ok: unified > 0, done: 0, failed: 0, skipped, wanted, unified, reason };
   }
   if (!drafter) {
