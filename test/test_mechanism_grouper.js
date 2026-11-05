@@ -606,6 +606,40 @@ describe('sub-token splitting of oversized groups', () => {
     assert.equal(parts.reduce((n, p) => n + p.members.length, 0), 6, 'every member placed');
   });
 
+  // mechanisms-record-quality, Part A (Bram's cover, 2026-11-04: `[file]
+  // lib.rs / only / other`, `/ with`, `/ are`, `/ from`, twelve records named
+  // by an English function word; sr_gh `/ should`, `/ with`). Function words
+  // and id-shaped tokens never seed a sub-group; verbs and nouns that can be
+  // the substance of a limitation (run, load, init, test) still do.
+  it('English function words never name a sub-group: a group whose only shared tokens are only/with is indivisible', () => {
+    assert.deepEqual(subTokens('alpha_only'), ['alpha']);
+    assert.deepEqual(subTokens('run_with_care'), ['run', 'care']);
+    assert.deepEqual(subTokens('should_retry_when_busy'), ['retry', 'busy']);
+    const g = mk('[file] lib.rs', ['alpha_only', 'beta_only', 'gamma_only', 'delta_with', 'eps_with', 'zeta_with']);
+    assert.deepEqual(subTokenPartition(g, { ...O, minComm: 3 }), []);
+  });
+
+  it('an id-shaped token (a hex run, a digit string) never names a sub-group; a word with a digit in it still can', () => {
+    assert.deepEqual(subTokens('ses_e7a003fefffec_a'), ['ses']);
+    assert.deepEqual(subTokens('step_2026_run'), ['step', 'run']);
+    assert.deepEqual(subTokens('quantize_int8_path'), ['quantize', 'int8', 'path']);
+    const g = mk('C', ['ses_e7a003fefffec_a', 'ses_e7a003fefffec_b', 'ses_e7a003fefffec_c', 'build_x', 'build_y', 'build_z']);
+    const labels = subTokenPartition(g, { ...O, minComm: 3 }).map((p) => p.label);
+    assert.ok(labels.includes('build') && !labels.includes('e7a003fefffec'), labels.join(', '));
+  });
+
+  // Part B: the harvester gives a split file's header to one piece, the first
+  // sub-group, through nested splits; the grouper marks it so the harvester
+  // needs no state of its own.
+  it('the first sub-group of a split is marked the file header\'s bearer, through a nested split; its siblings are not', () => {
+    const g = mk('[file] big.js', ['build_run_a', 'build_run_b', 'build_run_c', 'build_load_x', 'build_load_y', 'build_load_z', 'save_p', 'save_q', 'save_r']);
+    const r = splitOversizedGroup(null, g, new Map(), { ...O, groupMax: 5 });
+    // Equal-sized pieces keep the order their first member set, so `run`
+    // (build_run_a is the first member) precedes `load`.
+    assert.deepEqual(r.groups.map((s) => s.label), ['[file] big.js / build / run', '[file] big.js / build / load', '[file] big.js / save']);
+    assert.deepEqual(r.groups.map((s) => !!s.splitFirst), [true, false, false]);
+  });
+
   it('a token in nearly every member does not discriminate, so it is not a seed', () => {
     // It is what makes this ONE group; seeding on it would reproduce the parent.
     const g = mk('C', ['do_thing_a', 'do_thing_b', 'do_thing_c', 'do_thing_d']);

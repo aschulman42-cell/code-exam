@@ -85,9 +85,11 @@ export function notBuiltLine(index, { exe = process.env.CODEEXAM_INVOKED_AS || '
 
 /**
  * Build the records: the grouper in cover mode, one record per group, with
- * the purpose text `purposeFor(label, members, group)` yields (the
+ * the purpose text `purposeFor(label, members, group, calls)` yields (the
  * pseudo-claims harvester, passed in by the command so core does not import
- * a command module) and the outbound calls as the last-resort purpose.
+ * a command module; the calls go along so the harvester knows the builder
+ * has a `calls:` line to write before its own last resort) and the outbound
+ * calls as the purpose when the harvester yields nothing.
  */
 export function buildMechanismsIndex(index, { indexName = '', purposeFor = null, groupMax = GROUPER_DEFAULTS.groupMax, onProgress = null } = {}) {
   const t0 = Date.now();
@@ -101,7 +103,7 @@ export function buildMechanismsIndex(index, { indexName = '', purposeFor = null,
     const files = [...new Set(members.map((m) => m.file))];
     const calls = outboundCalls(index, g.members);
     let purpose = '';
-    if (purposeFor) { try { purpose = String(purposeFor(g.label, g.members, g) || ''); } catch { purpose = ''; } }
+    if (purposeFor) { try { purpose = String(purposeFor(g.label, g.members, g, calls) || ''); } catch { purpose = ''; } }
     if (!purpose && calls.length) purpose = `calls: ${calls.join(', ')}`;
     records.push({ id: `m${n}`, label: g.label, kind: kindOf(g.label), members, files, purpose, calls, priority: null, description: null, tags: g.tags || [] });
     if (onProgress && n % 200 === 0) onProgress(n, result.groups.length);

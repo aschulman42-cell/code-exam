@@ -1892,15 +1892,43 @@ describe('harvestPurpose reads the stored lines: module and class docstrings, me
   const noHeader = mk(['import os', ...PY.slice(1)]);
   const m = (name, start, end) => ({ file: 'src/mod.py', name, bare: name.split('::').pop(), start, end });
   const post = m('Ledger::post_entry', 6, 9), stmt = m('statement', 11, 14), plain = m('plain', 16, 18);
-  it('a file group and a split sub-group carry the module docstring', () => {
+  // mechanisms-record-quality, Part B (Bram's cover, 2026-11-04: 429 of 691
+  // records carried lib.rs's header): the header goes to the whole-file
+  // record or the first sub-group of a split; a later sub-group reads its own
+  // members, then the caller's calls line, and takes the header last,
+  // prefixed so it reads as the file's.
+  it('a file group and the first sub-group of its split carry the module docstring; a later sub-group reads its own members first and takes the header only as `in <file>: …`', () => {
     assert.match(_hp2(index, '[file] mod.py', [stmt, plain]), /^mod\.py -- turns a ledger of entries/);
-    assert.match(_hp2(index, '[file] mod.py / state', [stmt]), /^mod\.py -- turns a ledger/);
+    assert.match(_hp2(index, '[file] mod.py / state', [stmt], null, { first: true }), /^mod\.py -- turns a ledger/);
+    assert.equal(_hp2(index, '[file] mod.py / state', [stmt]), 'One line per entry and the total.');
+    assert.match(_hp2(index, '[file] mod.py / plain', [plain], null, { calls: false }), /^in mod\.py: mod\.py -- turns a ledger/);
+    assert.equal(_hp2(index, '[file] mod.py / plain', [plain], null, { calls: false, hasCalls: true }), '', 'the builder adds its calls line before the borrowed header');
   });
   it('a class group carries the class docstring, ahead of the file header', () => {
     assert.equal(_hp2(index, '[class] Ledger', [post]), 'Holds the entries of one day.');
   });
-  it('a token group reads its namesake\'s docstring when the file has no header', () => {
+  it('a piece of a split class reads its members first and takes the class doc last, as `in class X: …`; the first piece carries it', () => {
+    assert.equal(_hp2(index, '[class] Ledger / post', [post], null, { calls: false, first: true }), 'Holds the entries of one day.');
+    assert.equal(_hp2(index, '[class] Ledger / post', [post], null, { calls: false }), 'in class Ledger: Holds the entries of one day.');
+    assert.equal(_hp2(index, '[file] mod.py / post', [post], null, { calls: false }), 'in class Ledger: Holds the entries of one day.', 'a file piece whose members are one class\'s methods borrows the class doc before the file header');
+  });
+  it('a token group reads its namesake\'s docstring first, whether or not the file has a header, and only when the namesake is a member', () => {
     assert.equal(_hp2(noHeader, 'state (statement)', [stmt, plain]), 'One line per entry and the total. Then more.');
+    assert.equal(_hp2(index, 'state (statement)', [stmt, plain]), 'One line per entry and the total. Then more.');
+    // A piece of a split token group without the namesake never reads it by
+    // name (Bram: 25 pieces of `worklist (…)` all carried one function's
+    // body comment); with nothing of its own it borrows the file header.
+    const asked = [];
+    const spy = { ...index, commentsFor: (t) => { asked.push(t); return []; } };
+    assert.match(_hp2(spy, 'state (statement) / plain', [plain], null, { calls: false }), /^in mod\.py: mod\.py -- turns a ledger/);
+    assert.ok(!asked.includes('statement'), `read by name: ${asked.join(', ')}`);
+  });
+  // Part D (sr_gh: 595 of 1,298 records carried an Apache banner's
+  // continuation lines as their purpose).
+  it('an Apache banner\'s continuation lines are not a purpose', () => {
+    const LIC = ['# Licensed under the Apache License, Version 2.0 (the "License");', '# you may not use this file except in compliance with the License.', '# You may obtain a copy of the License at', '#', '#     http://www.apache.org/licenses/LICENSE-2.0', '#', '# Unless required by applicable law or agreed to in writing, software', '# distributed under the License is distributed on an "AS IS" BASIS,', '# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.', '# See the License for the specific language governing permissions and', '# limitations under the License.', '', 'def plain(x):', '    y = x', '    return y'];
+    const lic = { _ensureFunctionIndex() {}, functionIndex: { 'src/lic.py': { plain: fn(13, 15) } }, fileLines: new Map([['src/lic.py', LIC]]), commentsFor: () => [] };
+    assert.equal(_hp2(lic, '[file] lic.py', [{ file: 'src/lic.py', name: 'plain', bare: 'plain', start: 13, end: 15 }], null, { calls: false }), '');
   });
   it('with nothing of its own, a group takes the first sentence of its dominant members\' docs; a residue still lists its members', () => {
     assert.equal(_hp2(noHeader, '[file] mod.py', [plain, stmt]), 'One line per entry and the total.');

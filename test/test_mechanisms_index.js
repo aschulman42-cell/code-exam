@@ -179,6 +179,17 @@ const FILES = {
     '}',
     '',
   ].join('\n'),
+  // mechanisms-record-quality, Parts B and C: a file big enough for the
+  // splitter (over groupMax), whose header names a thing no member does, so
+  // the cover can show which piece carries the header and which pieces read
+  // their own members (each has one body comment of its own).
+  'lib/jobs.js': [
+    '// jobs.js — the worklist of jobs: queues, runs and retires each job in turn.',
+    ...['A', 'B', 'C', 'D', 'E', 'F', 'G'].map((s) => `export function queueJob${s}(j) {\n  // adds the job to the queue\n  const q = [];\n  q.push(j);\n  return q;\n}`),
+    ...['A', 'B', 'C', 'D', 'E', 'F', 'G'].map((s) => `export function runJob${s}(j) {\n  // runs the job\n  const r = j + 1;\n  const s = r + 1;\n  return s;\n}`),
+    ...['A', 'B', 'C', 'D', 'E', 'F'].map((s) => `export function retireJob${s}(j) {\n  // retires the job\n  const d = j - 1;\n  const e = d - 1;\n  return e;\n}`),
+    '',
+  ].join('\n'),
   'tests/test_parser.py': [
     'from pkg.parser import Tokenizer',
     '',
@@ -228,7 +239,20 @@ describe('the mechanisms index', () => {
   describe('the cover build', () => {
     let data = null;
     before(() => {
-      data = buildMechanismsIndex(idx, { indexName: 'fixture', purposeFor: (l, m, g) => harvestPurpose(idx, l, m, g && g.residue, { calls: false }) });
+      data = buildMechanismsIndex(idx, { indexName: 'fixture', purposeFor: (l, m, g, calls) => harvestPurpose(idx, l, m, g && g.residue, { calls: false, first: !!(g && g.splitFirst), hasCalls: !!(calls && calls.length) }) });
+    });
+
+    // mechanisms-record-quality, Parts B and C (Bram's cover, 2026-11-04: 429
+    // of 691 records carried one file's header as their purpose, and
+    // `--mechanisms worklist` matched 516 of them through it).
+    it('a split file\'s header goes to its first sub-group; the other pieces read their own members, so a filter on a header word finds one record, not every piece', () => {
+      const pieces = data.records.filter((r) => /^\[file\] jobs\.js(?: \/ |$)/.test(r.label));
+      assert.ok(pieces.length >= 3, data.records.map((r) => r.label).join(' | '));
+      const bearers = pieces.filter((r) => /^jobs\.js — the worklist of jobs/.test(r.purpose));
+      assert.equal(bearers.length, 1, pieces.map((r) => `${r.label}: ${r.purpose.slice(0, 60)}`).join(' | '));
+      assert.ok(/^\[file\] jobs\.js \/ /.test(bearers[0].label), 'the split replaced the whole-file record, so a piece carries the header: ' + bearers[0].label);
+      for (const r of pieces) if (r !== bearers[0]) assert.match(r.purpose, /^(adds the job to the queue|runs the job|retires the job)$/, `${r.label}: ${r.purpose}`);
+      assert.deepEqual(filterRecords(data.records, 'retires each job').map((r) => r.label), [bearers[0].label]);
     });
 
     it('every candidate function is in at least one record, and the file carries the format, a coverage block and one record per line', () => {
@@ -285,9 +309,10 @@ describe('the mechanisms index', () => {
       assert.deepEqual(bare.calls, []);
     });
 
-    it('the harvester reads a split sub-group through its file, a namesake\'s docstring, and writes the calls line last', () => {
+    it('the harvester reads the first piece of a split through its file and a later piece through its members, a namesake\'s docstring, and writes the calls line last', () => {
       const parserMembers = ['resolve_element', 'chart_row'].map((n) => memberOf(idx, 'pkg/parser.py', n));
-      assert.match(harvestPurpose(idx, '[file] parser.py / chart', parserMembers), /^parser\.py -- tokenizes/);
+      assert.match(harvestPurpose(idx, '[file] parser.py / chart', parserMembers, null, { first: true }), /^parser\.py -- tokenizes/);
+      assert.equal(harvestPurpose(idx, '[file] parser.py / chart', parserMembers), 'Find the symbol an element names.', 'a later piece: its largest member\'s first sentence, not the file header');
       const gamma = memberOf(idx, 'pkg/nodoc.py', 'gamma_one');
       assert.match(harvestPurpose(idx, 'gamma (gamma_one)', [gamma]), /^Gamma does a thing\. And then another\./, 'the namesake\'s whole docstring');
       const ab = ['alphaOne', 'betaTwo'].map((n) => memberOf(idx, 'lib/bare.js', n));

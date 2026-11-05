@@ -34,7 +34,7 @@ export function buildMechanismsFile(index, { indexName = '?', onProgress = null 
   try { prev = loadMechanismsIndex(index, { cache: false }); } catch { prev = null; }
   const data = buildMechanismsIndex(index, {
     indexName,
-    purposeFor: (label, members, g) => harvestPurpose(index, label, members, g && g.residue, { calls: false }),
+    purposeFor: (label, members, g, calls) => harvestPurpose(index, label, members, g && g.residue, { calls: false, first: !!(g && g.splitFirst), hasCalls: !!(calls && calls.length) }),
     onProgress,
   });
   const carried = prev ? carryDescriptions(prev, data) : 0;

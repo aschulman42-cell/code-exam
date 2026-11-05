@@ -429,11 +429,25 @@ it; [`cli.md`](cli.md) has the commands); the drafting list is the sample, the
 mechanisms index the cover, and the next paragraphs say what that difference means.
 
 Every group's header carries a purpose read from the code's own doc text, in this
-order until one yields: the file's leading comment or docstring for a file group and
-the sub-groups the splitter cut from it; the class's own doc comment or docstring for
-a class group; the command handler's doc for a command group; the first sentence of
-up to three of the largest members' docs; and last a mechanical `calls: a, b, c` line
-naming what the group calls outside itself. Every read is by line range, the file's
+order until one yields: the file's leading comment or docstring for a whole-file group
+and the class's own doc comment or docstring for a whole-class group, and for the first
+piece the splitter cut from either (one piece carries the parent's doc, not every piece:
+on Bram's cover 429 of 691 records had said what `lib.rs` is for, and a filter on a word
+of that header matched them all; mechanisms-record-quality, 2026-11-04); the command
+handler's doc for a command group; the namesake function's doc or body comments for a
+token group, when the namesake is among the members; the first sentence of up to three
+of the largest members' docs; a mechanical `calls: a, b, c` line naming what the group
+calls outside itself; and last, for a later piece, a class or a token group with nothing
+of its own, the parent's doc prefixed so it reads as the parent's, `in class X: …` when
+the members are one class's methods and the class has a doc, else `in <file>: …`. A
+license banner's lines are never a purpose, the Apache, MIT, GPL and BSD continuation
+sentences included (`LICENSE_LINE_RE`; sr_gh had carried "you may not use this file
+except in compliance with the License…" on 595 of 1,298 records); the file seed's gate
+still counts license-free text with the shorter `LICENSE_RE`, so which files seed a
+group is unchanged. A piece is named by the name token its members share, never an
+English function word or an id-shaped token (`/ only`, `/ with`, `/ e7a003fefffec`):
+those never seed a split, and members that share nothing else ride in `/ other`.
+Every read is by line range, the file's
 leading lines or the class's or member's own span, never by resolving a name the
 harvester already has a span for; so is the outbound-call read
 (build-mechanisms-reads-by-span, 2026-11-04). Before 2026-11-03 the harvester read a

@@ -773,11 +773,22 @@ function multiSeedGroups(index, funcs, o) {
 // common leading comment in third-party code and says nothing about the
 // module. Shebangs, encoding lines and `'use strict'` are skipped first.
 export const LICENSE_RE = /\b(copyright|\(c\)\s*\d{4}|licen[cs]ed? (?:under|to)|apache license|mit license|gnu (?:general|lesser)|spdx-license|all rights reserved|permission is hereby granted|redistribution and use|warranty|as-is)\b/i;
+// What a purpose may not say: LICENSE_RE plus the continuation sentences of
+// the Apache, MIT, GPL and BSD banners and the license URLs, which the first
+// list did not know, so sr_gh's cover carried "you may not use this file
+// except in compliance with the License. You may obtain a copy of the
+// License at…" as the purpose of 595 of its 1,298 records
+// (mechanisms-record-quality, Part D, 2026-11-04). LICENSE_RE itself stays
+// as it is: it gates the file seed (a header's license-free text decides
+// whether the file seeds a group, and that count was calibrated with this
+// list; mechanisms-index-prebuild-cli-gui, Part A), so only what a purpose
+// keeps changes, never which files seed.
+export const LICENSE_LINE_RE = /\b(copyright|\(c\)\s*\d{4}|licen[cs]ed? (?:under|to)|apache license|mit license|gnu (?:general|lesser)|spdx-license|all rights reserved|permission is hereby granted|redistribution and use|warrant(?:y|ies)|as-is|you may not use this file|obtain a copy of the licen[cs]e|distributed on an "?as is"? basis|without warranties or conditions|unless required by applicable law|agreed to in writing|governing permissions|limitations under the licen[cs]e|free software foundation|either version \d of the licen[cs]e|this program is free software|any later version|in the hope that it will be useful|without even the implied warranty|merchantability|fitness for a particular purpose|furnished to do so|associated documentation files|without restriction|sublicense|substantial portions of the software|the software is provided|in no event shall|whether in an action of contract|tort or otherwise|dealings in the software|this software is provided by|provided that the following conditions|this list of conditions|consequential damages|procurement of substitute goods|business interruption|theory of liability|strict liability|possibility of such damage|(?:apache|gnu|opensource)\.org\/licen[cs]es|licen[cs]e-2\.0)\b/i;
 // Header lines that describe the file's provenance, not the module: a bare
 // URL, an author or co-author line, a doc-tool tag (`@param`, `@returns`).
 // Out of the descriptive text and the doc text alike.
 const BOILERPLATE_RE = /^(https?:\/\/\S+\s*$|co-?authored(?:-by)?\b|authors?\s*:|@author\b|maintainers?\s*:|@\w+\b)/i;
-const isBoilerplateLine = (s) => LICENSE_RE.test(s) || BOILERPLATE_RE.test(s.trim()) || /^[\s=\-#*~_]+$/.test(s);
+const isBoilerplateLine = (s) => LICENSE_LINE_RE.test(s) || BOILERPLATE_RE.test(s.trim()) || /^[\s=\-#*~_]+$/.test(s);
 
 // Returns { kind, text, chars, descriptive }: `text` is the whole header,
 // `descriptive` the same with the license sentences and rule lines out, which
@@ -978,13 +989,38 @@ export function subTokens(name) {
     .replace(/^_+/, '')
     .split(/[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])/)
     .map((t) => t.toLowerCase())
-    .filter((t) => t.length >= 3 && !SUBTOKEN_STOP.has(t));
+    .filter((t) => t.length >= 3 && !SUBTOKEN_STOP.has(t) && !idShaped(t));
 }
-// Generic enough to group functions that share nothing but a calling
-// convention. Deliberately short: the frequency bounds below do most of the
-// filtering, and an over-eager stop list would suppress real mechanisms
-// (`init`, `run`, `load` can all be the substance of a limitation).
-const SUBTOKEN_STOP = new Set(['get', 'set', 'the', 'for', 'and', 'not', 'self', 'this', 'str', 'obj']);
+// Tokens that never name a sub-group (mechanisms-record-quality, Part A,
+// 2026-11-04). The first list was ten words, on the reasoning that the
+// frequency bounds below do most of the filtering and an over-eager list
+// would suppress real mechanisms; Bram's test names then turned up as
+// `[file] lib.rs / only / other`, `/ with`, `/ are`, `/ from` and eight more
+// records named by an English function word, and sr_gh's as `/ should`. So:
+// determiners, pronouns, prepositions, conjunctions and auxiliaries, which
+// name nothing, plus the few generic nouns the first list carried. Verbs and
+// nouns that can be the substance of a limitation (`init`, `run`, `load`,
+// `test`, `new`) stay, and so does `per`, a preposition that names
+// per-tensor and per-channel scaling in a quantization corpus (AI_Manning's
+// `ch8_fp8_formats.py / rest / per`, three functions, which the first draft
+// of this list dissolved into `/ other`).
+const SUBTOKEN_STOP = new Set([
+  'the', 'this', 'that', 'these', 'those', 'its', 'our', 'your', 'their', 'his', 'her', 'him', 'she', 'they', 'them', 'you',
+  'who', 'whom', 'whose', 'which', 'what', 'any', 'all', 'each', 'every', 'some', 'none', 'both', 'either', 'neither',
+  'one', 'two', 'other', 'another', 'such', 'same', 'self', 'obj', 'str',
+  'for', 'and', 'not', 'nor', 'but', 'yet', 'with', 'without', 'from', 'into', 'onto', 'over', 'under', 'than', 'then',
+  'when', 'where', 'while', 'whether', 'also', 'only', 'just', 'very', 'more', 'most', 'less', 'etc', 'via',
+  'upon', 'about', 'after', 'before', 'during', 'between', 'among', 'within', 'against', 'through', 'across', 'along',
+  'toward', 'towards', 'until', 'since', 'because', 'although', 'though', 'unless', 'off', 'out',
+  'are', 'was', 'were', 'been', 'has', 'have', 'had', 'does', 'did', 'will', 'would', 'shall', 'should', 'can', 'could',
+  'may', 'might', 'must',
+  'get', 'set', 'non',
+]);
+// Id-shaped: a digit string, a hex run with a digit in it (`e7a003fefffec`,
+// the session id in Bram's fixture names), a long alphanumeric run with a
+// digit (a hash). A short token with a digit is usually a word (`int8`,
+// `fp16`, `sha256`, `utf8`) and keeps its place.
+const idShaped = (t) => /^\d+$/.test(t) || /^(?=.*\d)[0-9a-f]{6,}$/.test(t) || /^(?=.*\d)[a-z0-9]{12,}$/.test(t);
 
 // PARTITION an oversized group on the LOCAL vocabulary of its own member names.
 //
@@ -1082,12 +1118,17 @@ export function splitOversizedGroup(index, group, byId, o, depth = 1) {
     return { groups: [group], split: { label: group.label, n: group.members.length, reason: 'depth-cap' } };
   }
   const rebuilt = subTokenPartition(group, o)
-    .map((g) => ({
+    .map((g, i) => ({
       label: `${group.label} / ${g.label}`,
       ids: new Set(g.members.map((m) => m.id)),
       members: g.members,
       ...(group.aliases ? { aliases: group.aliases } : {}),
       ...(group.residue ? { residue: group.residue } : {}),
+      // mechanisms-record-quality, Part B: the piece cut first carries the
+      // parent's file header in the harvester, the other pieces read their
+      // own members. The mark follows the first piece down a nested split;
+      // a sibling's pieces never claim it. Not written to any output.
+      splitFirst: i === 0 && group.splitFirst !== false,
     }))
     .filter((g) => g.members.length > 0);
 

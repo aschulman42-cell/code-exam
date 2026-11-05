@@ -37,7 +37,7 @@ import { claimGenericity, elementClasses } from '../core/claim-genericity.js';
 import { analyzeClaimSet, classifyContribution } from '../core/dep-claims.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, wasLastDraftTruncated, truncationCount, truncationLine, printShownPrompts, localSamplerNote } from '../core/llm-runner.js';
 import { rankCandidates, buildBatchPrompt } from '../core/mechanism-ranker.js';
-import { vendoredExclusionLines, purposeWithAliases, docHeaderOf, docCommentOf, outboundCalls, LICENSE_RE } from '../core/mechanism-grouper.js';
+import { vendoredExclusionLines, purposeWithAliases, docHeaderOf, docCommentOf, outboundCalls, LICENSE_LINE_RE } from '../core/mechanism-grouper.js';
 import { commentsInLines } from '../core/CodeSearchIndex.js';
 import { constantsReferencedBy } from '../core/declarations.js';
 import { groupMechanisms, formatAnchors, scoreGrouping, parseAnchorHeader, docAnchorsForGroup, echoPairs, GROUPER_DEFAULTS } from '../core/mechanism-grouper.js';
@@ -967,7 +967,7 @@ export function computeCandidateGroups(index, args) {
     const match = makeFilterMatcher(args.filter);
     const total = result.groups.length;
     const t1 = Date.now();
-    const kept = result.groups.filter((g) => match(g.label || '', purposeWithAliases(g, harvestPurpose(index, g.label, g.members, g.residue))));
+    const kept = result.groups.filter((g) => match(g.label || '', purposeWithAliases(g, harvestPurpose(index, g.label, g.members, g.residue, { first: !!g.splitFirst }))));
     tPurposes = Date.now() - t1;
     if (kept.length === 0) {
       // "Try a broader term" is wrong advice when every function was excluded:
@@ -998,7 +998,7 @@ function renderCandidates(index, args, result) {
   return withEchoBlock(formatAnchors(result, {
     indexName,
     minComm: GROUPER_DEFAULTS.minComm,
-    purposeFor: (label, members, g) => harvestPurpose(index, label, members, g && g.residue),
+    purposeFor: (label, members, g) => harvestPurpose(index, label, members, g && g.residue, { first: !!(g && g.splitFirst) }),
     ...(args.doc_anchors ? { docAnchorsFor: (label, members) => docAnchorsForGroup(index, label, members) } : {}),
   }), result.groups);
 }
@@ -1375,19 +1375,32 @@ export function firstSentence(text, cap = 200) {
   return out.length > cap ? out.slice(0, cap - 1) + '…' : out;
 }
 
-// In order until one yields text: the file's header (file groups and their
-// split sub-groups); the class's own doc, then its file's header ([class]
-// groups); the handler's doc ([cmd] groups); the namesake-token file's header,
-// then the namesake's doc (token groups); the first sentence of up to three
-// dominant members' docs; then the mechanical last line `calls: a, b, c`
-// (`calls: false` leaves that line to the caller, which the mechanisms index
-// builder does because it computes the calls for the record anyway).
-export function harvestPurpose(index, label, members, residue = null, { calls = true } = {}) {
+// In order until one yields text: the file's header for a whole-file group
+// and the class's own doc for a whole-class group, and for the first piece
+// the splitter cut from either (`first`, which the grouper marks on that
+// piece: a parent's doc is one record's purpose, not every piece's;
+// mechanisms-record-quality, Part B, 2026-11-04, when 429 of Bram's 691
+// records said what lib.rs is for, `--mechanisms worklist` matched 516 of
+// them through it, and the first cut of this rule left CodeSearchIndex's
+// class comment on 16 pieces of that class); the handler's doc ([cmd]
+// groups); the namesake's doc or body comments, when the namesake is a
+// member, read by its span (token groups; the old read by name reached the
+// namesake from every piece of a split token group, so Bram's 25 pieces of
+// `worklist (…)` all said what one function's body comment says); the first
+// sentence of up to three dominant members' docs; then the mechanical line
+// `calls: a, b, c` (`calls: false` leaves that line to the caller, which the
+// mechanisms index builder does because it computes the calls for the
+// record anyway, and says so with `hasCalls`); and last, for a later piece,
+// a class or a token group with nothing of its own, the parent's doc
+// prefixed so it reads as the parent's: `in class X: …` when the members
+// are one class's methods and the class has a doc, else `in <file>: …`.
+export function harvestPurpose(index, label, members, residue = null, { calls = true, first = false, hasCalls = false } = {}) {
   const commentsOf = (target) => _readComments(index, target);
   // Doc-tool tag lines (`@param`, `@returns`) describe a signature, not a
-  // purpose; license sentences describe ownership; a stray leading `*` or
-  // `-` is the comment's own marker.
-  const join = (cs) => cs.map((c) => String(c.text || '').replace(/^[\s*\-]+/, '').trim()).filter((t) => t && !/^@\w+/.test(t) && !LICENSE_RE.test(t)).join(' ').replace(/\s+/g, ' ').trim();
+  // purpose; license sentences describe ownership (the banners' continuation
+  // lines included, Part D); a stray leading `*` or `-` is the comment's own
+  // marker.
+  const join = (cs) => cs.map((c) => String(c.text || '').replace(/^[\s*\-]+/, '').trim()).filter((t) => t && !/^@\w+/.test(t) && !LICENSE_LINE_RE.test(t)).join(' ').replace(/\s+/g, ' ').trim();
   // A file's LEADING doc block = its purpose header: the stored lines first
   // (docstrings included, license lines out), then the comments of its first
   // thirty lines (catches // banners too), read from the stored lines by
@@ -1422,24 +1435,37 @@ export function harvestPurpose(index, label, members, residue = null, { calls = 
     return (own ? `${head}. ${own}` : head).slice(0, HARVEST_CAP);
   }
   let purpose = '';
+  let borrowed = null;   // { cls, file }: the parent's doc, this group's last resort, prefixed
   const lbl = String(label || '');
   const classM = lbl.match(/^\[class\]\s+(\S+)/);
+  const piece = /^\[(?:file|class)\]\s.+? \/ /.test(lbl);   // a sub-group the splitter cut
+  // The class's own doc comment or docstring, else the comments in its span.
+  const classDoc = (cls, f) => {
+    const ce = _classEntry(index, cls, f);
+    return (ce && _symbolDoc(index, ce.file, ce.start, ce.end)) || join((ce && _commentsIn(index, ce.file, ce.start, ce.end)) || commentsOf(cls));
+  };
+  // The one class every member is a method of, when there is one.
+  const ownerClass = () => {
+    const owners = new Set((members || []).map((m) => { const n = String(m.name || '').split('@')[0]; return n.includes('::') ? n.slice(0, n.lastIndexOf('::')) : ''; }));
+    return owners.size === 1 ? [...owners][0] : '';
+  };
   if (/^\[file\]\s/.test(lbl)) {
-    const f = primaryFile(null);                        // the file; a split's sub-groups share it
-    purpose = f ? fileHeader(f) : '';
+    const f = primaryFile(null);                        // the file; a split's pieces share it
+    if (!piece || first) purpose = f ? fileHeader(f) : '';
+    else borrowed = { cls: ownerClass(), file: f };
   } else if (classM) {
     const f = primaryFile(null);
-    const ce = _classEntry(index, classM[1], f);        // the class's own doc comment or docstring
-    purpose = (ce && _symbolDoc(index, ce.file, ce.start, ce.end)) || join((ce && _commentsIn(index, ce.file, ce.start, ce.end)) || commentsOf(classM[1])) || (f ? fileHeader(f) : '');
+    if (!piece || first) purpose = classDoc(classM[1], f);
+    if (!purpose) borrowed = { cls: piece && !first ? classM[1] : '', file: f };
   } else if (/^\[cmd\]\s/.test(lbl)) {
     purpose = members && members.length ? memberDoc(members[0]) : '';   // the handler is the first member
   } else {
     const tokenM = lbl.match(/^(\S+)\s*\(([^)]+)\)/);    // "token (namesakeFn) …"
     const token = tokenM ? tokenM[1] : '';
     const namesake = tokenM ? tokenM[2] : '';
-    const f = primaryFile(token);                       // namesake-token file -> its header
     const ns = namesake ? (members || []).find((m) => (m.bare || m.name) === namesake) : null;
-    purpose = (f && fileHeader(f)) || (ns ? memberDoc(ns) : (namesake ? join(commentsOf(namesake)) : ''));
+    purpose = ns ? memberAny(ns) : '';                  // the namesake, only when it is here
+    borrowed = { cls: '', file: primaryFile(token) };   // the namesake-token file, last
   }
   if (!purpose && members && members.length) {
     // The first sentence of up to three dominant (largest) members' docs.
@@ -1452,6 +1478,12 @@ export function harvestPurpose(index, label, members, residue = null, { calls = 
   if (!purpose && calls && members && members.length) {
     const out = outboundCalls(index, members);
     if (out.length) purpose = `calls: ${out.join(', ')}`;
+  }
+  if (!purpose && borrowed && !(calls === false && hasCalls)) {
+    const c = borrowed.cls ? classDoc(borrowed.cls, borrowed.file) : '';
+    const h = !c && borrowed.file ? fileHeader(borrowed.file) : '';
+    if (c) purpose = `in class ${String(borrowed.cls).split('::').pop()}: ${c}`;
+    else if (h) purpose = `in ${String(borrowed.file).replace(/^.*[\\/]/, '')}: ${h}`;
   }
   return purpose ? purpose.slice(0, HARVEST_CAP) : '';
 }
@@ -2543,7 +2575,7 @@ export async function doEmitCandidates(index, args) {
     for (const g of sorted) {
       const v = vByLabel.get(g.label);
       const tag = v ? `  [P${v.priority} ${v.signal}/${v.fold}${v.note ? ' — ' + v.note : ''}]` : '  [unscored]';
-      const purpose = purposeWithAliases(g, harvestPurpose(index, g.label, g.members, g.residue));
+      const purpose = purposeWithAliases(g, harvestPurpose(index, g.label, g.members, g.residue, { first: !!g.splitFirst }));
       lines.push('', `# ${g.label}  (${g.members.length} fns)${tag}${purpose ? '  — ' + purpose : ''}`);
       // issue-289-doc-anchor-enrichment: doc anchors first (budget-first placement).
       if (args.doc_anchors) for (const d of docAnchorsForGroup(index, g.label, g.members)) lines.push(d);
@@ -2564,7 +2596,7 @@ export async function doEmitCandidates(index, args) {
   const text = withEchoBlock(formatAnchors(result, {
     indexName,
     minComm: GROUPER_DEFAULTS.minComm,
-    purposeFor: (label, members, g) => harvestPurpose(index, label, members, g && g.residue),
+    purposeFor: (label, members, g) => harvestPurpose(index, label, members, g && g.residue, { first: !!(g && g.splitFirst) }),
     ...(args.doc_anchors ? { docAnchorsFor: (label, members) => docAnchorsForGroup(index, label, members) } : {}),
   }), result.groups);
   if (outPath) {
