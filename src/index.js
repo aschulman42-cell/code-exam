@@ -193,7 +193,7 @@ if (args.gui || _wantsTour) {
   // that the CLI parser rejects.
   {
     const _GUI_BOOL = new Set(['--gui', '--tour', ..._GUI_BOOL_FORWARD]);
-    const _GUI_VALUE = new Set(['--port', '--index-path', '--index', '--load-index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--claude-model', '--temperature', '--context-size', '--local-reasoning', '--openai-key', '--openai-model', '--llm']);
+    const _GUI_VALUE = new Set(['--port', '--index-path', '--ndx', '--index', '--load-index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--claude-model', '--temperature', '--context-size', '--local-reasoning', '--openai-key', '--openai-model', '--llm']);
     const _unknown = [];
     for (let i = 0; i < _rawArgvForGui.length; i++) {
       let tok = _rawArgvForGui[i];
@@ -252,14 +252,14 @@ if (args.gui || _wantsTour) {
   const _serverArgv = ['--port', port, '--host', '127.0.0.1'];
   // --index-path / --index are REPEATABLE (server.js loads every occurrence
   // into its index manager); forward all of them, not just the first.
-  for (const flag of ['--index-path', '--index', '--load-index']) {
+  for (const flag of ['--index-path', '--ndx', '--index', '--load-index']) {
     for (let i = 0; i < _rawArgvForGui.length; i++) {
       if (_rawArgvForGui[i].replace(/_/g, '-') === flag) {
         const v = _rawArgvForGui[i + 1];
-        // #249: --load-index is a documented --index-path alias, but the GUI
-        // server's parseServerArgs only knows --index-path/--index — forward it
-        // as --index-path so the named index actually reaches the server.
-        if (v && !v.startsWith('-')) _serverArgv.push(flag === '--load-index' ? '--index-path' : flag, v);
+        // #249: --load-index (and --ndx) are documented --index-path aliases;
+        // the GUI server's parseServerArgs knows --index-path/--index/--ndx —
+        // forward them as --index-path so the named index reaches the server.
+        if (v && !v.startsWith('-')) _serverArgv.push(flag === '--load-index' || flag === '--ndx' ? '--index-path' : flag, v);
       }
     }
   }
@@ -270,7 +270,7 @@ if (args.gui || _wantsTour) {
   // #230 Part B: first-run GUI — if no index path was given and the default
   // index isn't present, point the server at the bundled demo index so `--gui`
   // on a fresh download lands on a populated UI (its Overview auto-pops).
-  const _gaveIndexForGui = ['--index-path', '--index', '--load-index'].some(f => _argAfter(f, null) !== null);
+  const _gaveIndexForGui = ['--index-path', '--ndx', '--index', '--load-index'].some(f => _argAfter(f, null) !== null);
   if (!_gaveIndexForGui && !fs.existsSync('.code_search_index')) {
     const _frzGui = firstRunIndexZip();
     if (fs.existsSync(_frzGui)) _serverArgv.push('--index-path', _frzGui);

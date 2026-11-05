@@ -82,9 +82,9 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Naming**: negation form (`--no-X`) common in Unix CLI tradition. Asymmetric: there's no `--rename` flag — renaming is the default; you opt out only.
 - **Verified against**: `src/argparse.js:344`
 
-#### `--index-path <path>`
+#### `--index-path <path>` (short form: `--ndx`; also `--load-index`)
 
-- **Does**: Path to the index directory. Default: `.code_search_index` in the current working directory.
+- **Does**: Path to the index directory. Default: `.code_search_index` in the current working directory. `--ndx <path>` is the same flag with fewer keystrokes (added 2026-11-05 at Andrew's request; `-i` was not free, it is `--interactive`), accepted by the CLI, by `node src/server.js` and by the MCP server, and forwarded by `--gui`.
 - **Good for**: Working with multiple indexes (one per project, per branch, per investigation). The most-used flag after `--build-index`.
 - **Couples with**: every flag (defines the index that all subsequent operations target). Mutually exclusive with `--multi-index`.
 - **Naming**: `--index-path` (path-shaped form). Could plausibly be `--index` (the most common usage) — *(rationale unknown — investigate)* whether the `-path` suffix was deliberate disambiguation.

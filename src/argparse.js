@@ -473,7 +473,7 @@ export function parseArgs() {
     ['bundle_seams',         'optional_value', ['--bundle-seams']],
     ['seam_verbose',         'flag',           ['--seam-verbose']],
     ['digest',               'value',          ['--digest']],
-    ['index_path',           'value',          ['--index-path', '--load-index']],
+    ['index_path',           'value',          ['--index-path', '--ndx', '--load-index']],   // --ndx: the short form (Andrew, 2026-11-05; -i is --interactive)
     ['port',                 'value',          ['--port']],
     ['multi_index',          'value',          ['--multi-index']],
     // Vestigial (#322): the Python-era semantic index was removed; the flag is
@@ -1202,10 +1202,10 @@ INDEX MANAGEMENT:
                              carry a description too.
   --no-rename                Disable display-time renames for this run
                              (output uses raw obfuscated names)
-  --index-path <path>        Load an existing index (alias: --load-index).
-                             Default .code_search_index. Also accepts a .zip of
-                             an index (e.g. a shipped sample) — extracted to a
-                             temp cache on first load.
+  --index-path <path>        Load an existing index (short form: --ndx; also
+                             --load-index). Default .code_search_index. Also
+                             accepts a .zip of an index (e.g. a shipped sample)
+                             — extracted to a temp cache on first load.
   --multi-index @filelist    Alternative to --index-path: fan the rest of the
                              command across many indexes. @filelist holds one
                              index directory path per line; CodeExam runs the

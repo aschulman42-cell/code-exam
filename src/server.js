@@ -123,7 +123,7 @@ function parseServerArgs() {
   for (i = 0; i < args.length; i++) {
     const a = args[i];
     let v;
-    if (a === '--index-path' || a === '--index') {
+    if (a === '--index-path' || a === '--ndx' || a === '--index') {
       if ((v = takeValue(a)) !== null) result.indexPaths.push(v);
     } else if (a === '--exports-catalog' || a === '--catalog') {
       if ((v = takeValue(a)) !== null) result.catalogPath = v;

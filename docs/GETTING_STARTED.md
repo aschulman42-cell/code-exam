@@ -58,7 +58,11 @@ put the root on your PATH, and the commands above shorten to:
 ```bash
 ce --build-index /path/to/codebase --index-path .myindex
 ce --gui --index-path .myindex          # the GUI, localhost only
+ce --gui --ndx .myindex                 # --ndx is --index-path, shorter
 ```
+
+`--ndx` is the short form of `--index-path` everywhere a path is given (the CLI, `node
+src/server.js`, the MCP server); `-i` is `--interactive`, the REPL.
 
 The bare command-line tools (indexing, search, `--overview`) run *without* `npm install`; the
 GUI, the MCP server, precise tree-sitter parsing (the default once installed), and the local-LLM

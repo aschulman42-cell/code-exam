@@ -50,4 +50,12 @@ describe('help discoverability', () => {
     assert.equal(r.status, 1);
     assert.match(r.stdout, /No index found at "definitely_not_here"/);
   });
+
+  it('--ndx is the short form of --index-path (bad path → No index found), and --help says so', () => {
+    const r = run('--ndx', 'definitely_not_here');
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /No index found at "definitely_not_here"/);
+    const h = run('--help');
+    assert.match(h.stdout, /--index-path <path>\s+Load an existing index \(short form: --ndx;/);
+  });
 });

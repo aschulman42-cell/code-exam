@@ -51,7 +51,7 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const result = { indexPath: '.code_search_index' };
   for (let i = 0; i < args.length; i++) {
-    if ((args[i] === '--index-path' || args[i] === '--index') && args[i + 1]) {
+    if ((args[i] === '--index-path' || args[i] === '--ndx' || args[i] === '--index') && args[i + 1]) {
       result.indexPath = args[++i];
     }
   }
