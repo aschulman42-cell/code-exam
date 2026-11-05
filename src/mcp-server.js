@@ -32,7 +32,7 @@ import { extractReferencedResources } from './core/referenced-resources.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { modelsUsedNegative } from './commands/metrics.js';
 import { filteredEmptyNotice } from './core/filter-match.js';
-import { loadMechanismsIndex, filterRecords, notBuiltLine, coverageLine } from './core/mechanisms-index.js';
+import { loadMechanismsIndex, filterRecords, foldRecords, foldNote, notBuiltLine, coverageLine } from './core/mechanisms-index.js';
 import { maskCredentials } from './core/credential-mask.js';
 import { displayName, parseFuncSpec } from './utils.js';
 import { doCallTree } from './commands/graph.js';
@@ -285,7 +285,7 @@ const TOOLS = [
   },
   {
     name: 'list_mechanisms',
-    description: 'List the mechanism records of the index: one record per file, class, command or shared name token, with its member functions, files, a purpose read from the code\'s own doc text (or a model\'s one-sentence description), and tags (test, vendored, giant). The unit of "what is this codebase made of" between a function and a file; every function sits in at least one record, and records overlap. Built once by `ce --build-mechanisms`; when the index has no mechanisms.json the reply says so with the command to run. Capped; a cap is not absence.',
+    description: 'List the mechanisms of the index: one entry per distinct function set, from the records `ce --build-mechanisms` wrote (one record per file, class, command or shared name token), with its member functions, files, a purpose read from the code\'s own doc text (or a model\'s one-sentence description), and tags (test, vendored, giant). The unit of "what is this codebase made of" between a function and a file; every function sits in at least one entry, entries overlap, and records that are the same functions under two labels (a one-class file as [class] and [file]) are one entry with the other label after "also". When the index has no mechanisms.json the reply says so with the command to run; never builds. Capped; a cap is not absence.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1107,16 +1107,19 @@ function handleToolRaw(name, args) {
       try { data = loadMechanismsIndex(index); } catch (e) { return `mechanisms.json could not be read: ${e.message}`; }
       if (!data) return `${notBuiltLine(index)}. The index itself is loaded: list_functions, list_classes and list_files answer without it.`;
       const max = args.max || 50;
-      const all = data.records;
+      // mechanisms-toc-one-row-per-mechanism: entries, records with identical
+      // member sets folded into one, the other label after "also".
+      const all = foldRecords(data.records);
       const filtered = args.filter ? filterRecords(all, args.filter) : all;
       if (!filtered.length) return (args.filter && all.length) ? filteredEmptyNotice('mechanisms', all.length, args.filter) : 'No mechanisms recorded';
-      const lines = [`${filtered.length} mechanism record(s)${args.filter ? ` matching "${args.filter}"` : ''} (showing ${Math.min(max, filtered.length)}): ${coverageLine(data)}`];
+      const lines = [`${filtered.length} mechanism(s)${foldNote(filtered)}${args.filter ? ` matching "${args.filter}"` : ''} (showing ${Math.min(max, filtered.length)}): ${coverageLine(data)}`];
       const dn = (n) => (typeof index.getDisplayName === 'function' ? index.getDisplayName(n) : n);
       for (const r of filtered.slice(0, max)) {
         const tags = r.tags && r.tags.length ? `  [${r.tags.join(', ')}]` : '';
+        const also = r.aliases && r.aliases.length ? `  also ${r.aliases.map((a) => a.label).join(', ')}` : '';
         const text = r.description || r.purpose || '';
         const nf = r.files.length;
-        lines.push(`  ${r.id}  ${r.label}  (${r.members.length} fns, ${nf} file${nf === 1 ? '' : 's'})${tags}${text ? '  — ' + (text.length > 200 ? text.slice(0, 199) + '…' : text) : ''}`);
+        lines.push(`  ${r.id}  ${r.label}  (${r.members.length} fn${r.members.length === 1 ? '' : 's'}, ${nf} file${nf === 1 ? '' : 's'})${tags}${also}${text ? '  — ' + (text.length > 200 ? text.slice(0, 199) + '…' : text) : ''}`);
         const names = r.members.slice(0, 8).map((m) => dn(m.name));
         lines.push(`      ${names.join(', ')}${r.members.length > 8 ? ` (+${r.members.length - 8} more; extract <file@name> reads one)` : ''}`);
       }

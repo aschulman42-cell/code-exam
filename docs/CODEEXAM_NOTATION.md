@@ -17,6 +17,7 @@ in the AI/ML cells — see [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md) — and th
 | `×N` / `N×` | count of occurrences collapsed into one deduped row (or repeats) | `×3`, `12×  https://api…` |
 | instances vs. rows | the pre-dedup **instance** count (a GUI badge / a CLI header number), shown above the smaller **row** count | badge `23` on 7 rows; `7 unique tools (23 sites)` |
 | `?` | an unknown / unlabeled family or grouping key | `~?` |
+| `also [kind] label` | in a mechanisms row: the other records that are the same functions under another label, folded into this one (the GUI adds `×N`) | `also [file] ledger.py` |
 | `[test]` / dimmed | every site is test / example / demo code | CLI `[test]`; GUI dimmed |
 | `<var>` / "unresolved" | an identifier passed as a variable, not a string literal | `<var>`; "(unresolved variable)" |
 | `ⓘ` | a note in CodeExam's own voice under an AI answer: what it rests on, what CodeExam could or could not check | `ⓘ Based on 8 model tool calls: digest ×3, …` |
@@ -54,7 +55,9 @@ pipelines or duplicate bodies were grouped, or how many times a string occurs wi
 Both the leading (`×N`) and trailing (`N×`) forms appear.
 
 Both surfaces. Examples: a duplicate group as `×3`; a referenced URL as `12×  https://api.example.com`;
-a repeated string in a digest as `×3 here`; a pipeline group badge `×5`.
+a repeated string in a digest as `×3 here`; a pipeline group badge `×5`; a Mechanisms row `×2`
+when two records (a one-class file's `[class]` and `[file]`) are the same functions, the CLI
+naming them on an `also` line instead.
 
 **Seeing what's behind the count.** In the GUI, clicking a deduped row in the left pane drills into
 its full list of sites in the upper-middle pane (clicking a site there jumps to it in the lower

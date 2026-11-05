@@ -163,7 +163,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `src/commands/infrastructure.js` — `--infrastructure`: prints detected Containers/Kubernetes/IaC/CI-CD artifacts, marking heuristic hits
 - `src/commands/inspect_binary.js` — terse per-binary report of format, signing, framework, and embedded source hints before deeper extraction
 - `src/commands/interactive.js` — REPL that keeps the index resident and dispatches slash-commands to the same `do*()` handlers as the CLI
-- `src/commands/mechanisms.js` — `--build-mechanisms` writes `<index>/mechanisms.json` (the grouper in cover mode, optional `--describe` sentences); `--mechanisms` lists it
+- `src/commands/mechanisms.js` — `--build-mechanisms` writes `<index>/mechanisms.json` (the grouper in cover mode, optional `--describe` sentences); `--mechanisms` lists it one row per function set, `--toc` is its table of contents
 - `src/commands/metrics.js` — discovery metrics plus the AI/ML inventory family: hotspots, entry points, gaps, classes, vocabulary, models
 - `src/commands/multisect.js` — multi-term intersection search: parses term syntax, scores by IDF, ranks function/file/folder scopes
 - `src/commands/prompts.js` — `--prompt-catalog`: finds LLM prompt strings by confidence-ranked heuristics and emits them untruncated
@@ -206,7 +206,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `src/core/loop-score.js` — scores a blind claim chart against drafted anchors: recall, mechanism PRESENT, control FPs, dependent grades
 - `src/core/mechanism-grouper.js` — clusters index functions into candidate mechanism groups from token, class, file and command seeds
 - `src/core/mechanism-ranker.js` — one comparative LLM pass assigning each candidate group a bounded exploration-priority verdict
-- `src/core/mechanisms-index.js` — builds, saves and loads `<index>/mechanisms.json`, the persisted cover of an index's functions by mechanism record
+- `src/core/mechanisms-index.js` — builds, saves, loads and folds `<index>/mechanisms.json`, the persisted cover of an index's functions by mechanism record; the entries every consumer lists (records with identical member sets as one) and the `--mechanisms` and `--toc` renderings
 - `src/core/mechanisms-describe.js` — one model sentence per mechanism record: the pack, the prompt, the cleaner, the pass with its cost gate and its failure stop; the CLI's `--describe` and the GUI's Describe button (`/api/describe-mechanisms`) both run it
 - `src/core/multisect.js` — two-phase multi-term intersection search, with per-term file counts and comment-vs-code match weighting
 - `src/core/openai-util.js` — OpenAI-shape helpers: reasoning budget floor, temperature gating, usage/text/finish-reason readers

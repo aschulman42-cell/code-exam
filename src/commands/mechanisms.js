@@ -1,4 +1,4 @@
-// mechanisms.js — --build-mechanisms writes <index>/mechanisms.json (the grouper in cover mode, optional --describe sentences); --mechanisms lists it
+// mechanisms.js — --build-mechanisms writes <index>/mechanisms.json (the grouper in cover mode, optional --describe sentences); --mechanisms lists it one row per function set, --toc is its table of contents
 // Copyright (c) 2026 Andrew Schulman
 // https://github.com/aschulman42-cell/code-exam
 // Co-authored with Claude (Claude Code).
@@ -10,7 +10,7 @@
 // listing reads the file through the same loader the GUI route and the MCP
 // list_mechanisms tool use, so the three surfaces cannot disagree.
 
-import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, formatMechanismsList, notBuiltLine, candidateCount, estimateBuildMinutes, carryDescriptions } from '../core/mechanisms-index.js';
+import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, foldRecords, formatMechanismsList, formatMechanismsToc, notBuiltLine, candidateCount, estimateBuildMinutes, carryDescriptions } from '../core/mechanisms-index.js';
 import { harvestPurpose } from './pseudo-claims.js';
 import { describeMechanisms } from '../core/mechanisms-describe.js';
 import { effectiveMaxResults } from '../argparse.js';
@@ -99,13 +99,20 @@ export async function doBuildMechanisms(index, args, { exe = 'ce', drafter = nul
         saveMechanismsIndex(index, data);
         const scope = filter ? ` matching '${filter}'` : '';
         const skipped = r.skipped ? ` (${nf(r.skipped)} already described, skipped; --redescribe rewrites them)` : '';
+        // mechanisms-toc-one-row-per-mechanism: a pair that is the same
+        // functions under two labels is one call, and a pair described twice
+        // before the fold takes one sentence at no cost.
+        const unified = r.unified ? `; ${nf(r.unified)} record(s) took the sentence of the record with the same functions` : '';
         // A run the model calls cut short (the network dropped, a key expired)
         // keeps what it got and says how to resume: the same command again,
         // which skips the described records.
         const failed = r.failed
           ? `; ${nf(r.failed)} got no description${r.lastError ? ` (${r.lastError})` : ''}${r.stopped ? `, and the run stopped after ${nf(r.stopped)} failures in a row` : ''}; rerun the same command to resume (described records are skipped)`
           : '';
-        describe = { ...r, outcome: `Described ${nf(r.done)} of ${nf(subset.length)} record(s)${scope}${skipped} via ${data.described.engine}; ${nf(data.described.records)} of ${nf(data.records.length)} now carry a description; written to ${mechanismsPath(index)}${failed}` };
+        const carrying = `${nf((data.described && data.described.records) || 0)} of ${nf(data.records.length)} records now carry a description`;
+        describe = { ...r, outcome: r.done
+          ? `Described ${nf(r.done)} of ${nf(r.wanted)} mechanism(s)${scope}${skipped} via ${data.described.engine}; ${carrying}${unified}; written to ${mechanismsPath(index)}${failed}`
+          : `No new descriptions: all ${nf(r.wanted)} mechanism(s)${scope} already carry one${unified}; ${carrying}; written to ${mechanismsPath(index)}` };
       } else {
         // Say so where a reader looks: the refusal itself went to stderr.
         describe = { ...r, outcome: `No descriptions written: ${r.reason}` };
@@ -114,40 +121,72 @@ export async function doBuildMechanisms(index, args, { exe = 'ce', drafter = nul
     console.log(describe.outcome);
     if (!describe.ok) return { describe };
   }
-  if (!(args._explicit && args._explicit.has('mechanisms'))) {
-    console.log(`  ${exe} --index-path ${args.index_path} --mechanisms [filter]   lists them; the GUI's Mechanisms list and the list_mechanisms tool read the same file.`);
+  if (!(args._explicit && (args._explicit.has('mechanisms') || args._explicit.has('toc')))) {
+    console.log(`  ${exe} --index-path ${args.index_path} --mechanisms [filter]   lists them, --toc [filter] is the one-line contents; the GUI's Mechanisms list and the list_mechanisms tool read the same file.`);
   }
   return { describe };
 }
 
-/** The filter a `--describe` run narrows to: the `--mechanisms` value, else `--filter`, else null. */
+/** The filter a `--describe` run narrows to: the `--mechanisms` value, else the `--toc` value, else `--filter`, else null. */
 export function describeFilter(args) {
   if (typeof args.mechanisms === 'string' && args.mechanisms) return args.mechanisms;
+  if (typeof args.toc === 'string' && args.toc) return args.toc;
   return args.filter || null;
 }
 
 /**
- * `--mechanisms [filter]`: the records of the file, or the one not-built line.
+ * The entries a listing shows (mechanisms-toc-one-row-per-mechanism): the
+ * file's records folded by identical member set, then the filter. Returns
+ * { data, entries, kept, filter }, or null after printing the not-built
+ * line, an error, or the empty-filter notice.
+ */
+function listedEntries(index, args, flag, exe) {
+  let data;
+  try { data = loadMechanismsIndex(index); } catch (e) { console.error(`--${flag}: ${e.message}`); process.exitCode = 1; return null; }
+  if (!data) { console.log(notBuiltLine(index, { exe, indexPath: args.index_path })); return null; }
+  const own = args[flag];
+  const filter = typeof own === 'string' && own ? own : (args.filter || null);
+  const entries = foldRecords(data.records);
+  const kept = filter ? filterRecords(entries, filter) : entries;
+  if (!kept.length) {
+    console.log(filter && entries.length ? filteredEmptyNotice('mechanisms', entries.length, filter) : 'No mechanisms recorded.');
+    return null;
+  }
+  return { data, entries, kept, filter };
+}
+
+/**
+ * `--mechanisms [filter]`: the entries of the file, or the one not-built line.
  * `describe` is the outcome a `--describe` in the same command returned; it is
  * repeated after the listing, where a reader of a long list looks, in place
  * of the formatter's own how-to-describe line.
  */
 export function doMechanisms(index, args, { exe = 'ce', describe = null } = {}) {
-  let data;
-  try { data = loadMechanismsIndex(index); } catch (e) { console.error(`--mechanisms: ${e.message}`); process.exitCode = 1; return; }
-  if (!data) { console.log(notBuiltLine(index, { exe, indexPath: args.index_path })); return; }
-  const filter = typeof args.mechanisms === 'string' ? args.mechanisms : (args.filter || null);
-  const all = data.records;
-  const kept = filter ? filterRecords(all, filter) : all;
-  if (!kept.length) {
-    console.log(filter && all.length ? filteredEmptyNotice('mechanisms', all.length, filter) : 'No mechanisms recorded.');
-    return;
-  }
+  const l = listedEntries(index, args, 'mechanisms', exe);
+  if (!l) return;
   // The shared cap contract: 100 by default, --max-results N, and
   // --all-results or --max-results 0 for every record.
   const max = effectiveMaxResults(args, 100);
-  const { lines } = formatMechanismsList(data, kept, {
-    filter, max, verbose: !!args.verbose, exe,
+  const { lines } = formatMechanismsList(l.data, l.kept, {
+    filter: l.filter, max, verbose: !!args.verbose, exe,
+    displayName: typeof index.getDisplayName === 'function' ? (n) => index.getDisplayName(n) : null,
+    describeHint: !describe,
+  });
+  console.log(lines.join('\n'));
+  if (describe && describe.outcome) console.log(`\n${describe.outcome}`);
+}
+
+/**
+ * `--toc [filter]` (#296): the table of contents, one line per entry, the
+ * same entries in the same order as --mechanisms; -v adds each entry's
+ * block. The outcome of a --describe in the same command follows it.
+ */
+export function doToc(index, args, { exe = 'ce', describe = null } = {}) {
+  const l = listedEntries(index, args, 'toc', exe);
+  if (!l) return;
+  const max = effectiveMaxResults(args, 100);
+  const { lines } = formatMechanismsToc(l.data, l.kept, {
+    filter: l.filter, max, verbose: !!args.verbose, exe,
     displayName: typeof index.getDisplayName === 'function' ? (n) => index.getDisplayName(n) : null,
     describeHint: !describe,
   });

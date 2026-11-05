@@ -504,10 +504,14 @@ file seeding whole, every class a record, the command seed uncapped, records of 
 two kept, test and third-party code kept and tagged, and records allowed to overlap,
 then writes `<index>/mechanisms.json` with every candidate function in at least one
 record (100% on every index measured 2026-11-03, against the 22% to 95% of the
-drafting sample above). `--mechanisms` lists it; the GUI and the MCP tool read the
-same file. It is a listing, not a drafting list: a cover record is a file or a class
-as often as a mechanism, and a `giant` or `indivisible` tag says when it is one the
-splitter could not break.
+drafting sample above). `--mechanisms` lists it one row per function set (a one-class
+file's `[class]` and `[file]` records are the same functions and one row, the other
+label after `also`; CodeExam's 390 records are 383 rows), `--toc` is its table of
+contents, one numbered line per row with the model's sentence or a short quote of the
+purpose (#296); the GUI and the MCP tool read the same file and fold the same way. It
+is a listing, not a drafting list: a cover record is a file or a class as often as a
+mechanism, and a `giant` or `indivisible` tag says when it is one the splitter could
+not break.
 
 A candidates contents table reads roughly like this (from the bundled `.demo`, a
 TLS/crypto corpus — trimmed):

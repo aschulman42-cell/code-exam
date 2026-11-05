@@ -16,6 +16,7 @@
 // write come from the same packs and the same prompt.
 
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, projectCloudCost, CLAIMS_COST_GUARD_USD } from './llm-runner.js';
+import { foldGroups, pickRepresentative } from './mechanisms-index.js';
 
 const nf = (x) => Number(x || 0).toLocaleString('en-US');
 
@@ -72,16 +73,53 @@ function costGuardUsd() {
  * guard, overGuard }.
  */
 export function describeProjection(index, data, { records = null, filter = null, redo = false, model = null } = {}) {
-  const wanted = records || data.records;
-  const todo = redo ? wanted : wanted.filter((r) => !r.description);
+  const units = describeUnits(data, records);
+  const todo = redo ? units : units.filter((u) => !u.rep.description);
   const cloud = !!(model && model.kind === 'cloud');
   let usd = 0, inTok = 0, outTok = 0;
   if (cloud && todo.length) {
-    const calls = todo.map((r) => ({ inChars: (DESCRIBE_SYS.length + describePack(index, r).length) * 1.1, outTokens: DESCRIBE_MAX_TOKENS }));
+    const calls = todo.map((u) => ({ inChars: (DESCRIBE_SYS.length + describePack(index, u.rep).length) * 1.1, outTokens: DESCRIBE_MAX_TOKENS }));
     ({ usd, inTok, outTok } = projectCloudCost(model, calls));
   }
   const guard = costGuardUsd();
-  return { wanted: wanted.length, todo: todo.length, skipped: wanted.length - todo.length, filter: filter || null, cloud, usd, inTok, outTok, guard, overGuard: cloud && usd > guard };
+  return { wanted: units.length, todo: todo.length, skipped: units.length - todo.length, records: units.reduce((s, u) => s + u.records.length, 0), unify: countDisagreeing(units), filter: filter || null, cloud, usd, inTok, outTok, guard, overGuard: cloud && usd > guard };
+}
+
+/**
+ * The units a describe pass works in (mechanisms-toc-one-row-per-mechanism):
+ * the file's fold groups, narrowed to those with a record in `records` when
+ * a subset is given, each { rep, records }. One call per unit from the
+ * representative's pack; the sentence goes to every record of the unit, so a
+ * pair that is the same functions under two labels is one call and one
+ * sentence rather than two paraphrases.
+ */
+export function describeUnits(data, records = null) {
+  const want = records ? new Set(records) : null;
+  return foldGroups(data.records)
+    .filter((g) => !want || g.some((r) => want.has(r)))
+    .map((g) => ({ rep: pickRepresentative(g), records: g }));
+}
+
+/** Records of the units whose sentence differs from their representative's (a pass before the fold described each record on its own). */
+function countDisagreeing(units) {
+  let n = 0;
+  for (const u of units) if (u.rep.description) for (const r of u.records) if (r !== u.rep && r.description !== u.rep.description) n++;
+  return n;
+}
+
+/**
+ * Give every record of a unit its representative's sentence, at no cost:
+ * before the fold each record was described on its own, so a pair could
+ * carry two wordings for one function set (2026-11-05: CodeExam 7 pairs,
+ * Bram 4, WinAPI 40, none worded alike). Returns the records changed.
+ */
+export function unifyUnits(units) {
+  let n = 0;
+  for (const u of units) {
+    if (!u.rep.description) continue;
+    for (const r of u.records) if (r !== u.rep && r.description !== u.rep.description) { r.description = u.rep.description; n++; }
+  }
+  return n;
 }
 
 /**
@@ -98,15 +136,20 @@ export function describeProjection(index, data, { records = null, filter = null,
  * wrote it, and names the last run's filter.
  */
 export async function describeMechanisms(index, data, args, { drafter = null, records = null, filter = null, redo = false, model = null, onProgress = null } = {}) {
-  // Already-described records are skipped unless `redo`: a description is
+  // Already-described units are skipped unless `redo`: a description is
   // paid for once, and an unfiltered run after a filtered one fills the gaps.
-  const wanted = records || data.records;
-  const todo = redo ? wanted : wanted.filter((r) => !r.description);
-  const skipped = wanted.length - todo.length;
+  const units = describeUnits(data, records);
+  const wanted = units.length;
+  const todo = redo ? units : units.filter((u) => !u.rep.description);
+  const skipped = wanted - todo.length;
   if (!todo.length) {
-    const reason = `all ${nf(wanted.length)} ${filter ? 'matching ' : ''}record(s) already carry a description (--redescribe rewrites them)`;
-    console.error(`# describe: ${reason}`);
-    return { ok: false, done: 0, failed: 0, skipped, reason };
+    // Nothing to call; a pair described twice before the fold still takes
+    // one sentence, which is a write the caller saves.
+    const unified = unifyUnits(units);
+    const reason = unified ? null : `all ${nf(wanted)} ${filter ? 'matching ' : ''}mechanism(s) already carry a description (--redescribe rewrites them)`;
+    if (reason) console.error(`# describe: ${reason}`);
+    else console.error(`# describe: nothing to call; ${nf(unified)} record(s) took the sentence of the record with the same functions`);
+    return { ok: unified > 0, done: 0, failed: 0, skipped, wanted, unified, reason };
   }
   if (!drafter) {
     model = resolveModel(args);
@@ -118,20 +161,23 @@ export async function describeMechanisms(index, data, args, { drafter = null, re
     }
     try { drafter = makeDrafter(model, 0.2); } catch (e) { console.error(`--describe: ${e.message}`); process.exitCode = 1; return { ok: false, done: 0, failed: 0, skipped, reason: e.message }; }
   }
-  const packs = todo.map((r) => ({ r, user: describePack(index, r) }));
+  const packs = todo.map((u) => ({ u, r: u.rep, user: describePack(index, u.rep) }));
   if (model) {
     const calls = packs.map((p) => ({ inChars: (DESCRIBE_SYS.length + p.user.length) * 1.1, outTokens: DESCRIBE_MAX_TOKENS }));
     const scope = filter ? ` matching '${filter}'` : '';
-    if (!claimsCostGate(model, calls, `describe ${nf(packs.length)} mechanism record(s)${scope}`, args)) {
+    if (!claimsCostGate(model, calls, `describe ${nf(packs.length)} mechanism(s)${scope}`, args)) {
       // The reason stands on its own on stdout: the projection went to stderr,
       // which a redirected run never shows.
       const { usd } = projectCloudCost(model, calls);
-      return { ok: false, done: 0, failed: 0, skipped, reason: `projected ~$${usd.toFixed(2)} for ${nf(packs.length)} record(s)${scope} exceeds the $${costGuardUsd().toFixed(2)} claims cost guard; --force proceeds, --mechanisms <filter> narrows, CE_CLAIMS_COST_GUARD (USD) raises the guard` };
+      return { ok: false, done: 0, failed: 0, skipped, wanted, unified: 0, reason: `projected ~$${usd.toFixed(2)} for ${nf(packs.length)} mechanism(s)${scope} exceeds the $${costGuardUsd().toFixed(2)} claims cost guard; --force proceeds, --mechanisms <filter> narrows, CE_CLAIMS_COST_GUARD (USD) raises the guard` };
     }
     resetCloudUsage();
   }
+  // Past the gate the run writes, so the pairs described twice before the
+  // fold take one sentence now, before any call.
+  const unified = unifyUnits(units.filter((u) => !todo.includes(u)));
   const engine = model ? (model.label || model.model || 'model') : 'stub';
-  console.error(`# describe: ${nf(packs.length)} record(s) via ${engine}…`);
+  console.error(`# describe: ${nf(packs.length)} mechanism(s) via ${engine}…`);
   let done = 0, failed = 0, streak = 0, stopped = 0, lastError = null;
   for (const p of packs) {
     let text = '';
@@ -144,23 +190,24 @@ export async function describeMechanisms(index, data, args, { drafter = null, re
       // keep what succeeded, and let the same command resume.
       if (streak >= DESCRIBE_MAX_STREAK) {
         stopped = streak;
-        console.error(`# describe: stopping after ${nf(streak)} failures in a row (${e.message}); ${nf(packs.length - done - failed)} record(s) not attempted`);
+        console.error(`# describe: stopping after ${nf(streak)} failures in a row (${e.message}); ${nf(packs.length - done - failed)} mechanism(s) not attempted`);
         break;
       }
       continue;
     }
     streak = 0;
     const d = cleanDescription(text);
-    if (d) { p.r.description = d; done++; } else failed++;
+    if (d) { for (const r of p.u.records) r.description = d; done++; } else failed++;
     if (onProgress) onProgress(done, failed, packs.length);
     if (args && args.verbose && (done + failed) % 20 === 0) console.error(`# describe: ${nf(done + failed)}/${nf(packs.length)}`);
   }
   if (model) { const line = actualCostLine(model); if (line) console.error(line); }
-  if (failed) console.error(`# describe: ${nf(failed)} record(s) got no description${failed > 3 ? ' (first three errors shown)' : ''}.`);
-  if (!done) {
-    return { ok: false, done, failed, skipped, stopped, lastError, reason: `every call failed${lastError ? ` (${lastError})` : ''}${stopped ? `; stopped after ${nf(stopped)} failures in a row` : ''}; nothing written. Rerun the same command when the model is reachable.` };
+  if (failed) console.error(`# describe: ${nf(failed)} mechanism(s) got no description${failed > 3 ? ' (first three errors shown)' : ''}.`);
+  if (!done && !unified) {
+    return { ok: false, done, failed, skipped, wanted, unified, stopped, lastError, reason: `every call failed${lastError ? ` (${lastError})` : ''}${stopped ? `; stopped after ${nf(stopped)} failures in a row` : ''}; nothing written. Rerun the same command when the model is reachable.` };
   }
   const carrying = data.records.filter((r) => r.description).length;
-  data.described = { engine, generated: new Date().toISOString(), records: carrying, failed, filter: filter || null };
-  return { ok: true, done, failed, skipped, stopped, lastError, reason: null };
+  if (done) data.described = { engine, generated: new Date().toISOString(), records: carrying, failed, filter: filter || null };
+  else if (data.described) data.described.records = carrying;
+  return { ok: true, done, failed, skipped, wanted, unified, stopped, lastError, reason: null };
 }

@@ -814,19 +814,26 @@ export function renderMechanismList(container, data) {
     const tags = (r.tags || []).join(', ');
     const nFn = r.members_total || (r.members || []).length;
     const counts = `${nFn} function${nFn === 1 ? '' : 's'}, ${r.files} file${r.files === 1 ? '' : 's'}${tags ? `\n[${tags}]` : ''}`;
+    // mechanisms-toc-one-row-per-mechanism: a row is an entry, records with
+    // the same functions folded into one; the other labels follow "also",
+    // and a ×N metric (the notation for a deduped row) carries the count.
+    const aliases = (r.aliases || []).map((a) => a.label);
+    const nRec = r.record_count || 1;
+    const also = aliases.length ? `also ${aliases.join(', ')}` : '';
     // mechanisms-description-leads: a described record leads with the model's
     // sentence (its title) and the label moves to the muted row beneath, with
     // the record id; an undescribed record leads with its label over the
     // harvested purpose, a doc fragment or a `calls:` line, not a title.
     const desc = r.description || '';
     const headline = desc || r.label;
-    const subline = desc ? `${r.id}  ${r.label}` : (r.purpose || '');
+    const subline = desc ? `${r.id}  ${r.label}${also ? ` · ${also}` : ''}` : (r.purpose || '');
     const subHeader = h('div', {
       className: 'sub-accordion-header',
-      title: desc ? `${desc}\n${r.label}\n${counts}` : `${r.label}\n${counts}${subline ? `\n${subline}` : ''}`,
+      title: desc ? `${desc}\n${r.label}${also ? `\n${also}` : ''}\n${counts}` : `${r.label}${also ? `\n${also}` : ''}\n${counts}${subline ? `\n${subline}` : ''}`,
     }, [
-      h('span', { className: 'sub-accordion-toggle', text: '▸' }),
+      h('span', { className: 'sub-accordion-toggle', text: nRec > 1 ? '›' : '▸' }),
       h('span', { className: 'name', text: headline, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
+      nRec > 1 ? h('span', { className: 'metric muted', text: `×${nRec}`, title: `${nRec} records with the same functions: ${r.label}, ${aliases.join(', ')}; click to list them in the upper middle pane`, style: 'white-space:nowrap' }) : null,
       h('span', { className: 'metric', text: `${nFn}f` }),
       h('span', { className: 'metric', text: `${r.files} file${r.files === 1 ? '' : 's'}`, style: 'white-space:nowrap' }),
       tags ? h('span', { className: 'metric muted', text: `[${tags}]`, style: 'white-space:nowrap' }) : null,
@@ -837,6 +844,10 @@ export function renderMechanismList(container, data) {
     const sub = h('div', { className: 'sub-accordion', 'data-mechanism': r.id }, [subHeader, textRow, subContent].filter(Boolean));
     subHeader.addEventListener('click', (e) => {
       e.stopPropagation();
+      // A row standing for several records opens the upper middle pane, as a
+      // ×N row of the AI/ML cells does (Andrew, 2026-11-05); a row standing
+      // for one expands inline to its members, there being no one site to go to.
+      if (nRec > 1) { openMechanismEntryPane(r, headline, also); return; }
       const wasOpen = sub.classList.contains('open');
       sub.classList.toggle('open');
       if (!wasOpen && subContent.children.length === 0) renderMechanismMembers(r, subContent);
@@ -933,8 +944,8 @@ function renderDescribeBar(container, data) {
     btn.title = blocked ? 'Blocked by --air-gapped: set the Workspace engine to Local' : `${engineName}: not available (no key, or no model loaded); pick an engine in the Workspace menu`;
   } else {
     btn.title = redo
-      ? `Every listed record is described; rewrite the ${listed} listed via ${engineName}`
-      : `Describe the ${listed} listed record${listed === 1 ? '' : 's'} via ${engineName}, skipping described ones; a dialog shows the count and cost first`;
+      ? `Every listed row is described; rewrite the ${listed} listed via ${engineName}`
+      : `Describe the ${listed} listed row${listed === 1 ? '' : 's'} via ${engineName}, one call per row and skipping described ones; a dialog shows the count and cost first`;
   }
   btn.addEventListener('click', async (e) => {
     e.stopPropagation();
@@ -945,7 +956,7 @@ function renderDescribeBar(container, data) {
       const p = await api.describeMechanisms({ filter, redo, engine, dryRun: true });
       if (!p.todo || p.reason) { note.textContent = p.reason || 'Nothing to describe.'; note.title = note.textContent; btn.disabled = false; return; }
       const cost = p.cloud ? ` about $${p.usd.toFixed(2)}` : ' free, on the local model';
-      const ok = await showConfirmDialog(`${redo ? 'Redescribe' : 'Describe'} ${p.todo} record${p.todo === 1 ? '' : 's'}${filter ? ` matching "${filter}"` : ''} via ${p.model}:${cost}?${p.skipped ? ` (${p.skipped} already described, skipped)` : ''}`);
+      const ok = await showConfirmDialog(`${redo ? 'Redescribe' : 'Describe'} ${p.todo} mechanism${p.todo === 1 ? '' : 's'}${filter ? ` matching "${filter}"` : ''} via ${p.model}:${cost}?${p.skipped ? ` (${p.skipped} already described, skipped)` : ''}${p.unify ? ` (${p.unify} record${p.unify === 1 ? '' : 's'} with the same functions as a described one will take its sentence)` : ''}`);
       if (!ok) { note.textContent = ''; btn.disabled = false; return; }
       const start = await api.describeMechanisms({ filter, redo, engine });
       note.textContent = `Describing 0 of ${start.total}…`;
@@ -970,6 +981,30 @@ function renderDescribeBar(container, data) {
     }
   });
   return h('div', { className: 'list-placeholder describe-bar', style: 'display:flex;align-items:center;padding:3px 10px;font-size:11px;min-width:0' }, [btn, note]);
+}
+
+// mechanisms-toc-one-row-per-mechanism: the upper middle pane for an entry
+// that folds several records (the drilldownGroupClick shape of app.js): the
+// title is the entry's headline, a header names the records folded and the
+// counts, the purpose follows when there is one, and the members list once
+// (identical sets, so one list), each opening the function as a row's
+// inline members do.
+function openMechanismEntryPane(r, headline, also) {
+  showPane('middle-top');
+  navPush('middle-top');
+  $('#middle-top-title').textContent = headline;
+  const body = $('#middle-top-body');
+  body.innerHTML = '';
+  const nFn = r.members_total || (r.members || []).length;
+  const nRec = r.record_count || 1;
+  body.appendChild(h('div', {
+    text: `${nRec} records with the same ${nFn} function${nFn === 1 ? '' : 's'} in ${r.files} file${r.files === 1 ? '' : 's'}: ${r.label}${also ? `; ${also}` : ''}`,
+    style: 'padding:4px 8px;font-size:11px;color:var(--text-bright);border-bottom:1px solid var(--border,#333);margin-bottom:2px',
+  }));
+  if (r.purpose) body.appendChild(h('div', { text: r.purpose, title: r.purpose, style: 'padding:2px 8px 4px;font-size:10px;color:var(--text-muted)' }));
+  const list = h('div');
+  body.appendChild(list);
+  renderMechanismMembers(r, list);
 }
 
 function renderMechanismMembers(r, container) {

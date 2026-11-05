@@ -1,4 +1,4 @@
-// mechanisms-index.js — builds, saves and loads <index>/mechanisms.json, the persisted cover of an index's functions by mechanism record
+// mechanisms-index.js — builds, saves, loads and folds <index>/mechanisms.json, the persisted cover of an index's functions by mechanism record; the entries every consumer lists (records with identical member sets as one) and the --mechanisms and --toc renderings
 // Copyright (c) 2026 Andrew Schulman
 // https://github.com/aschulman42-cell/code-exam
 // Co-authored with Claude (Claude Code).
@@ -179,11 +179,71 @@ export function loadMechanismsIndex(index, { cache = true } = {}) {
   return data;
 }
 
-/** CE's shared filter contract (substring, `/regex/`) over a record's id, label, purpose, description, tags, files and member names. */
+// mechanisms-toc-one-row-per-mechanism (#296): the cover overlaps by design,
+// and a one-class file comes out as both `[class] Foo` and `[file] foo.py`
+// with the same functions, a token group and a file piece likewise
+// (measured 2026-11-05: CodeExam 7 such pairs among 390 records, Bram 28 of
+// 723, sr_gh 127 of 1,299, WinAPI 1,191 of 13,078). Two rows for one function
+// set is a duplicate in every listing and two paid sentences in a describe
+// pass, so every consumer lists ENTRIES: records with identical member sets
+// folded into one. Nothing looser folds: a class inside a larger file record
+// is its own mechanism. A listing never writes the file.
+
+/** The `file@name` set of a record, sorted, as one string: the identity the fold works on. */
+export function memberKey(r) {
+  return ((r && r.members) || []).map((m) => `${m.file}@${m.name}`).sort().join('\u0001');
+}
+
+/** Records grouped by identical member set, in the records' order (a group sits where its first record sat). */
+export function foldGroups(records) {
+  const groups = new Map();
+  for (const r of records || []) {
+    const k = memberKey(r);
+    const g = groups.get(k);
+    if (g) g.push(r); else groups.set(k, [r]);
+  }
+  return [...groups.values()];
+}
+
+// The representative names the entry: the described record when exactly one
+// is (the sentence a reader paid for), else the record whose kind names a
+// thing rather than a place; ties keep the file's order.
+const KIND_RANK = { cmd: 0, class: 1, token: 2, lit: 2, body: 2, residue: 3, file: 3 };
+export function pickRepresentative(group) {
+  const described = group.filter((r) => r.description);
+  if (described.length === 1) return described[0];
+  const pool = described.length ? described : group;
+  let best = pool[0];
+  for (const r of pool) if ((KIND_RANK[r.kind] ?? 2) < (KIND_RANK[best.kind] ?? 2)) best = r;
+  return best;
+}
+
+/**
+ * The entries every consumer lists: one per distinct member set, the
+ * representative's fields (its id still means what it meant) with `aliases`
+ * ({ id, label, kind } of the other records), `tags` the union and
+ * `recordCount`.
+ */
+export function foldRecords(records) {
+  return foldGroups(records).map((g) => {
+    const rep = pickRepresentative(g);
+    const tags = [...new Set(g.flatMap((r) => r.tags || []))];
+    return { ...rep, tags, aliases: g.filter((r) => r !== rep).map((r) => ({ id: r.id, label: r.label, kind: r.kind })), recordCount: g.length };
+  });
+}
+
+/** "(N records, K folded as the same functions under another label)" for a list of entries, or '' when nothing folded. */
+export function foldNote(entries) {
+  const records = (entries || []).reduce((s, r) => s + (r.recordCount || 1), 0);
+  const folded = records - (entries || []).length;
+  return folded ? ` (${nf(records)} records, ${nf(folded)} folded as the same functions under another label)` : '';
+}
+
+/** CE's shared filter contract (substring, `/regex/`) over a record's id, label, purpose, description, tags, files, member names and, on an entry, its aliases' ids and labels. */
 export function filterRecords(records, filter) {
   if (!filter) return records || [];
   const match = makeFilterMatcher(filter);
-  return (records || []).filter((r) => match(r.id, r.label, r.purpose || '', r.description || '', ...(r.tags || []), ...(r.files || []), ...(r.members || []).map((m) => m.name)));
+  return (records || []).filter((r) => match(r.id, r.label, r.purpose || '', r.description || '', ...(r.tags || []), ...(r.files || []), ...(r.members || []).map((m) => m.name), ...(r.aliases || []).flatMap((a) => [a.id, a.label])));
 }
 
 const nf = (x) => Number(x || 0).toLocaleString('en-US');
@@ -199,15 +259,48 @@ export function coverageLine(data) {
   return `a cover of ${nf(c.inGroups)} of ${nf(c.functions)} functions (${pct}%), ${nf(c.filesRepresented)} of ${nf(c.files)} files; built ${when || 'unknown'} by --build-mechanisms${desc}`;
 }
 
+const countsOf = (r) => {
+  const files = r.files ? r.files.length : 0;
+  return `${nf(r.members.length)} fn${r.members.length === 1 ? '' : 's'}, ${nf(files)} file${files === 1 ? '' : 's'}`;
+};
+const tagsOf = (r) => (r.tags && r.tags.length ? `  [${r.tags.join(', ')}]` : '');
+const alsoOf = (r) => (r.aliases && r.aliases.length ? `also ${r.aliases.map((a) => a.label).join(', ')}` : '');
+
 /**
- * The CLI rendering of a record list (the MCP list_mechanisms tool prints
- * the same lines): a header, then per record its id and, when a model wrote
- * one, its description first with the label, counts and tags on the next
- * line (mechanisms-description-leads: the sentence is the record's title;
- * the harvested purpose is a doc fragment or a `calls:` line, so it stays
- * under the label), else the label line and the purpose beneath it; then
- * the member names (every member as `file@name` under `verbose`, which also
- * lifts the 240-character cut on the text). Returns { lines, shown, total }.
+ * One entry's block: its id and, when a model wrote one, its description
+ * first with the label, counts and tags on the next line
+ * (mechanisms-description-leads: the sentence is the record's title; the
+ * harvested purpose is a doc fragment or a `calls:` line, so it stays under
+ * the label), else the label line and the purpose beneath it; `also` and the
+ * other labels when the entry folds several records; then the member names
+ * (every member as `file@name` under `verbose`). `cut` trims the text.
+ */
+export function recordBlock(r, { verbose = false, dn = (n) => n, cut = (t) => t } = {}) {
+  const labelLine = `${r.label}  (${countsOf(r)})${tagsOf(r)}`;
+  const lines = [];
+  if (r.description) {
+    lines.push(`${r.id.padEnd(6)}${cut(r.description)}`, `      ${labelLine}`);
+  } else {
+    lines.push(`${r.id.padEnd(6)}${labelLine}`);
+    if (r.purpose) lines.push(`      ${cut(r.purpose)}`);
+  }
+  const also = alsoOf(r);
+  if (also) lines.push(`      ${also}`);
+  if (verbose) {
+    for (const m of r.members) lines.push(`      ${m.file}@${dn(m.name)}`);
+  } else {
+    const names = r.members.slice(0, 12).map((m) => dn(m.name));
+    const more = r.members.length > 12 ? ` (+${nf(r.members.length - 12)} more; -v lists every member as file@name)` : '';
+    lines.push(`      ${names.join(', ')}${more}`);
+  }
+  return lines;
+}
+
+/**
+ * The CLI rendering of an entry list (the MCP list_mechanisms tool prints
+ * the same lines): a header with the entry count, the fold note and the
+ * coverage line, then each entry's block (`verbose` also lifts the
+ * 240-character cut on the text). Returns { lines, shown, total }.
  */
 export function formatMechanismsList(data, records, { filter = null, max = 100, verbose = false, displayName = null, exe = process.env.CODEEXAM_INVOKED_AS || 'ce', describeHint = true } = {}) {
   const dn = typeof displayName === 'function' ? displayName : (n) => n;
@@ -215,25 +308,8 @@ export function formatMechanismsList(data, records, { filter = null, max = 100, 
   const shown = Math.min(total, Number.isFinite(max) ? max : total);
   const cut = (text) => (!verbose && text.length > 240) ? text.slice(0, 239) + '…' : text;
   const lines = [];
-  lines.push(`${nf(total)} mechanism record${total === 1 ? '' : 's'}${filter ? ` matching '${filter}'` : ''}${shown < total ? ` (showing ${nf(shown)})` : ''}: ${coverageLine(data)}`);
-  for (const r of records.slice(0, shown)) {
-    const files = r.files ? r.files.length : 0;
-    const tags = r.tags && r.tags.length ? `  [${r.tags.join(', ')}]` : '';
-    const labelLine = `${r.label}  (${nf(r.members.length)} fn${r.members.length === 1 ? '' : 's'}, ${nf(files)} file${files === 1 ? '' : 's'})${tags}`;
-    if (r.description) {
-      lines.push('', `${r.id.padEnd(6)}${cut(r.description)}`, `      ${labelLine}`);
-    } else {
-      lines.push('', `${r.id.padEnd(6)}${labelLine}`);
-      if (r.purpose) lines.push(`      ${cut(r.purpose)}`);
-    }
-    if (verbose) {
-      for (const m of r.members) lines.push(`      ${m.file}@${dn(m.name)}`);
-    } else {
-      const names = r.members.slice(0, 12).map((m) => dn(m.name));
-      const more = r.members.length > 12 ? ` (+${nf(r.members.length - 12)} more; -v lists every member as file@name)` : '';
-      lines.push(`      ${names.join(', ')}${more}`);
-    }
-  }
+  lines.push(`${nf(total)} mechanism${total === 1 ? '' : 's'}${foldNote(records)}${filter ? ` matching '${filter}'` : ''}${shown < total ? ` (showing ${nf(shown)})` : ''}: ${coverageLine(data)}`);
+  for (const r of records.slice(0, shown)) lines.push('', ...recordBlock(r, { verbose, dn, cut }));
   if (shown < total) lines.push('', `${nf(shown)} of ${nf(total)} shown; --all-results or --max-results 0 shows all, --mechanisms <filter> narrows.`);
   // A file nobody has described yet ends by saying how to get descriptions,
   // with the active filter in the command because describing the listed
@@ -244,7 +320,52 @@ export function formatMechanismsList(data, records, { filter = null, max = 100, 
   // reports its own outcome there and turns the line off.
   if (describeHint && total && !(data && data.described)) {
     const ip = quotePathIfNeeded(String((data && data.index) || '<index>'));
-    lines.push('', `No model descriptions yet: ${exe} --index-path ${ip} --mechanisms${filter ? ` ${quotePathIfNeeded(String(filter))}` : ''} --describe --llm claude writes one sentence per listed record (about $0.003 each on Claude; above the $2 claims guard add --force).`);
+    lines.push('', `No model descriptions yet: ${exe} --index-path ${ip} --mechanisms${filter ? ` ${quotePathIfNeeded(String(filter))}` : ''} --describe --llm claude writes one sentence per listed mechanism (about $0.003 each on Claude; above the $2 claims guard add --force).`);
+  }
+  return { lines, shown, total };
+}
+
+/** A purpose as a table-of-contents snippet: whitespace collapsed, cut at `max` characters (the chart TOC's rule). */
+export function purposeSnippet(text, max = 90) {
+  const s = String(text || '').replace(/\s+/g, ' ').trim();
+  return s.length > max ? s.slice(0, max - 1).trimEnd() + '…' : s;
+}
+
+/**
+ * `--toc [filter]` (#296): the table of contents, one numbered line per
+ * entry in the file's order (the order --mechanisms prints, so the two
+ * agree; no rank, since `priority` is null until a ranker exists, so the
+ * number is an ordinal). A described entry leads with its sentence and
+ * carries the label in the parenthesis; an undescribed one leads with its
+ * label and quotes its purpose cut at 90 characters; tags in brackets; a
+ * folded entry ends `also <labels>`. `verbose` follows each line with the
+ * block --mechanisms -v prints, the terminal's "clickable to cites". The
+ * footer counts the entries without a sentence and says how to get them,
+ * with the filter in the command. Returns { lines, shown, total }.
+ */
+export function formatMechanismsToc(data, entries, { filter = null, max = 100, verbose = false, displayName = null, exe = process.env.CODEEXAM_INVOKED_AS || 'ce', describeHint = true } = {}) {
+  const dn = typeof displayName === 'function' ? displayName : (n) => n;
+  const total = entries.length;
+  const shown = Math.min(total, Number.isFinite(max) ? max : total);
+  const width = String(shown).length;
+  const lines = [`${nf(total)} mechanism${total === 1 ? '' : 's'}${foldNote(entries)}${filter ? ` matching '${filter}'` : ''}${shown < total ? ` (showing ${nf(shown)})` : ''}: ${coverageLine(data)}`, ''];
+  let n = 0;
+  for (const r of entries.slice(0, shown)) {
+    n++;
+    const num = `${String(n).padStart(width)}. `;
+    const also = alsoOf(r) ? `  ${alsoOf(r)}` : '';
+    if (r.description) lines.push(`${num}${r.description}  (${r.label}; ${countsOf(r)})${tagsOf(r)}${also}`);
+    else lines.push(`${num}${r.label}  (${countsOf(r)})${r.purpose ? ` — "${purposeSnippet(r.purpose)}"` : ''}${tagsOf(r)}${also}`);
+    if (verbose) {
+      for (const l of recordBlock(r, { verbose: true, dn })) lines.push(`${' '.repeat(width + 2)}${l}`);
+      lines.push('');
+    }
+  }
+  if (shown < total) lines.push('', `${nf(shown)} of ${nf(total)} shown; --all-results or --max-results 0 shows all, --toc <filter> narrows.`);
+  const undescribed = entries.filter((r) => !r.description).length;
+  if (describeHint && undescribed) {
+    const ip = quotePathIfNeeded(String((data && data.index) || '<index>'));
+    lines.push('', `${nf(undescribed)} of ${nf(total)} without a model description: ${exe} --index-path ${ip} --toc${filter ? ` ${quotePathIfNeeded(String(filter))}` : ''} --describe --llm claude writes one sentence per listed mechanism (about $0.003 each on Claude; above the $2 claims guard add --force).`);
   }
   return { lines, shown, total };
 }

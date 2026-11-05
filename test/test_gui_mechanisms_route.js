@@ -81,6 +81,35 @@ describe('/api/list-mechanisms', () => {
       '}',
       '',
     ].join('\n'));
+    // mechanisms-toc-one-row-per-mechanism: a one-class file, so the cover
+    // holds `[class] Vault` and `[file] vault.py` with the same members and
+    // the route lists them as one entry.
+    fs.writeFileSync(path.join(src, 'pkg', 'vault.py'), [
+      '"""vault.py -- keeps secrets under a key and hands them back on demand."""',
+      '',
+      'class Vault:',
+      '    """Holds the secrets of one owner."""',
+      '',
+      '    def __init__(self):',
+      '        self.items = {}',
+      '        self.sealed = False',
+      '',
+      '    def put(self, key, value):',
+      '        self.items[key] = value',
+      '        n = len(self.items)',
+      '        return n',
+      '',
+      '    def take_out(self, key):',
+      '        v = self.items.get(key)',
+      '        w = v if not self.sealed else None',
+      '        return w',
+      '',
+      '    def lock_up(self):',
+      '        self.sealed = True',
+      '        n = len(self.items)',
+      '        return n',
+      '',
+    ].join('\n'));
     const idx = new CodeSearchIndex({ indexPath });
     await idx.buildIndex(src, { showProgress: false });
     port = await freePort();
@@ -180,6 +209,24 @@ describe('/api/list-mechanisms', () => {
   });
 
   // gui-mechanisms-describe-button: the pane's Describe button, at its routes.
+  // mechanisms-toc-one-row-per-mechanism: the pane lists entries; a ×N row
+  // carries its aliases and record_count for the upper middle pane.
+  it('a one-class file is one row: the class entry carries the file record as an alias, the counts say so, and the filter reads the alias', async () => {
+    const body = await (await fetch(q())).json();
+    const vault = body.records.find((r) => r.label === '[class] Vault');
+    assert.ok(vault, body.records.map((r) => r.label).join(' | '));
+    assert.deepEqual(vault.aliases.map((a) => a.label), ['[file] vault.py']);
+    assert.equal(vault.record_count, 2);
+    assert.equal(vault.purpose, 'Holds the secrets of one owner.');
+    assert.ok(!body.records.some((r) => r.label === '[file] vault.py'), 'the file record is not its own row');
+    assert.equal(body.total_all, body.records_all - 1);
+    assert.equal(body.total, body.total_all);
+    assert.ok(body.records.every((r) => r.aliases.length === r.record_count - 1));
+    const f = await (await fetch(q('&filter=vault.py'))).json();
+    assert.deepEqual(f.records.map((r) => r.label), ['[class] Vault']);
+    assert.deepEqual([f.total, f.total_all, f.records_all], [1, body.total_all, body.records_all]);
+  });
+
   it('Describe: a dry run projects the listed records, the run starts, is polled to done, writes the file, and the next dry run has nothing left until redo', async () => {
     const post = (b) => fetch(`http://127.0.0.1:${port}/api/describe-mechanisms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ index: path.basename(indexPath), ...b }) });
     const none = await (await post({ filter: 'zzz-nothing', dryRun: true })).json();
@@ -199,7 +246,7 @@ describe('/api/list-mechanisms', () => {
     }
     assert.equal(s.status, 'done', JSON.stringify(s) + '\n' + log.slice(-1500));
     assert.equal(s.done, dry.todo); assert.equal(s.failed, 0);
-    assert.match(s.outcome, new RegExp(`^Described ${dry.todo} of ${dry.todo} record\\(s\\) matching 'Ledger' via stub; ${dry.todo} of \\d+ now carry a description\\.$`), s.outcome);
+    assert.match(s.outcome, new RegExp(`^Described ${dry.todo} of ${dry.todo} mechanism\\(s\\) matching 'Ledger' via stub; ${dry.todo} of \\d+ records now carry a description\\.$`), s.outcome);
     assert.equal((await fetch(`http://127.0.0.1:${port}/api/describe-mechanisms-status?jobId=${start.jobId}`)).status, 404, 'a delivered job is forgotten');
     const body = await (await fetch(q('&filter=Ledger'))).json();
     assert.ok(body.records.length >= 1 && body.records.every((r) => /does its part\.$/.test(r.description || '')), body.records.map((r) => `${r.label}: ${r.description}`).join(' | '));
@@ -210,6 +257,21 @@ describe('/api/list-mechanisms', () => {
     assert.equal(startNone.ok, false); assert.match(startNone.reason, /already carry a description \(Redescribe rewrites them\)\.$/);
     const redo = await (await post({ filter: 'Ledger', redo: true, dryRun: true })).json();
     assert.equal(redo.todo, dry.todo);
+    // A folded pair is one call and both records take the sentence.
+    const vd = await (await post({ filter: 'Vault', dryRun: true })).json();
+    assert.deepEqual([vd.wanted, vd.todo, vd.records, vd.unify], [1, 1, 2, 0], JSON.stringify(vd));
+    const vs = await (await post({ filter: 'Vault' })).json();
+    let v = null;
+    for (let i = 0; i < 200; i++) {
+      v = await (await fetch(`http://127.0.0.1:${port}/api/describe-mechanisms-status?jobId=${vs.jobId}`)).json();
+      if (v.status !== 'running') break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.equal(v.status, 'done', JSON.stringify(v));
+    assert.match(v.outcome, new RegExp(`^Described 1 of 1 mechanism\\(s\\) matching 'Vault' via stub; ${dry.todo + 2} of \\d+ records now carry a description\\.$`), v.outcome);
+    const vb = await (await fetch(q('&filter=Vault'))).json();
+    assert.equal(vb.records.length, 1); assert.match(vb.records[0].description, /does its part\.$/);
+    assert.equal(vb.described.records, dry.todo + 2, 'the alias record carries the sentence too');
     const bad = await fetch(`http://127.0.0.1:${port}/api/describe-mechanisms`);
     assert.equal(bad.status, 405, 'GET is refused');
   });

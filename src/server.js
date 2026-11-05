@@ -35,7 +35,7 @@ import { makeFilterMatcher } from './core/filter-match.js';
 import { chatSessionOptions, ggufContextOptions, stripLocalArtifacts, draftCloud, getLlamaShared, isNoBinaryError, NO_BINARY_MESSAGE } from './core/llm-runner.js';
 import { extractExports } from './core/exports.js';
 import { extractImports, bomReport } from './core/imports.js';
-import { loadMechanismsIndex, saveMechanismsIndex, filterRecords, notBuiltLine, candidateCount, estimateBuildMinutes } from './core/mechanisms-index.js';
+import { loadMechanismsIndex, saveMechanismsIndex, filterRecords, foldRecords, notBuiltLine, candidateCount, estimateBuildMinutes } from './core/mechanisms-index.js';
 import { describeMechanisms, describeProjection } from './core/mechanisms-describe.js';
 import { copyrightNotices } from './core/copyrights.js';
 import { extractConcepts, INTRINSIC_NAMES, isIntrinsicName } from './core/vocabulary.js';
@@ -3081,10 +3081,12 @@ routes['/api/describe-mechanisms'] = (req, res) => {
     const proj = describeProjection(index, data, { records: subset, filter, redo, model: eng.model });
     const scope = filter ? ` matching '${filter}'` : '';
     const guardNote = proj.overGuard
-      ? `projected ~$${proj.usd.toFixed(2)} for ${proj.todo} record(s)${scope} exceeds the $${proj.guard.toFixed(2)} claims cost guard, and the GUI has no override: narrow the filter, or run the CLI with --force (ce --index-path <X> --mechanisms${filter ? ` ${JSON.stringify(filter)}` : ''} --describe --llm ${eng.engine} --force).`
+      ? `projected ~$${proj.usd.toFixed(2)} for ${proj.todo} mechanism(s)${scope} exceeds the $${proj.guard.toFixed(2)} claims cost guard, and the GUI has no override: narrow the filter, or run the CLI with --force (ce --index-path <X> --mechanisms${filter ? ` ${JSON.stringify(filter)}` : ''} --describe --llm ${eng.engine} --force).`
       : null;
     if (params.dryRun) return jsonResponse(res, { dryRun: true, engine: eng.engine, model: eng.label, ...proj, reason: guardNote });
-    if (!proj.todo) return jsonResponse(res, { ok: false, todo: 0, reason: `all ${proj.wanted} ${filter ? 'matching ' : ''}record(s) already carry a description (Redescribe rewrites them).` });
+    // Nothing to call and nothing to unify: a pair described twice before the
+    // fold still runs, to take one sentence (mechanisms-toc-one-row-per-mechanism).
+    if (!proj.todo && !proj.unify) return jsonResponse(res, { ok: false, todo: 0, reason: `all ${proj.wanted} ${filter ? 'matching ' : ''}mechanism(s) already carry a description (Redescribe rewrites them).` });
     if (proj.overGuard) return errorResponse(res, guardNote, 400);
     if (describeRunning) return errorResponse(res, `A describe run is already in progress (job ${describeRunning}); wait for it to finish.`, 409);
     if (buildMechRunning) return errorResponse(res, `A mechanisms build is in progress (job ${buildMechRunning}); wait for it to finish, then describe the new records.`, 409);
@@ -3093,7 +3095,7 @@ routes['/api/describe-mechanisms'] = (req, res) => {
     describeJobs.set(id, job);
     describeRunning = id;
     jsonResponse(res, { jobId: id, total: proj.todo, engine: eng.engine, model: eng.label });
-    console.log(`  [describe] ${proj.todo} record(s)${scope} via ${eng.label} …`);
+    console.log(`  [describe] ${proj.todo} mechanism(s)${scope} via ${eng.label} …`);
     describeMechanisms(index, data, {}, { drafter: eng.drafter, model: eng.model, records: subset, filter, redo, onProgress: (done, failed) => { job.done = done; job.failed = failed; } })
       .then((r) => {
         if (!r.ok) { job.status = 'error'; job.error = r.reason; return; }
@@ -3102,7 +3104,11 @@ routes['/api/describe-mechanisms'] = (req, res) => {
         const failed = r.failed
           ? `; ${r.failed} got no description${r.lastError ? ` (${r.lastError})` : ''}${r.stopped ? `, and the run stopped after ${r.stopped} failures in a row` : ''}; click Describe again to resume (described records are skipped)`
           : '';
-        job.outcome = `Described ${r.done} of ${proj.todo} record(s)${scope} via ${eng.label}; ${data.described.records} of ${data.records.length} now carry a description${failed}.`;
+        const unified = r.unified ? `; ${r.unified} record(s) took the sentence of the record with the same functions` : '';
+        const carrying = `${(data.described && data.described.records) || 0} of ${data.records.length} records now carry a description`;
+        job.outcome = r.done
+          ? `Described ${r.done} of ${proj.todo} mechanism(s)${scope} via ${eng.label}; ${carrying}${unified}${failed}.`
+          : `No new descriptions: all ${r.wanted} mechanism(s)${scope} already carry one${unified}; ${carrying}.`;
       })
       .catch((e) => { job.status = 'error'; job.error = (e && e.message) ? e.message : String(e); })
       .finally(() => { describeRunning = null; console.log(`  [describe] ${job.status}: ${job.outcome || job.error}`); });
@@ -3193,7 +3199,12 @@ routes['/api/list-mechanisms'] = (req, res) => {
     const functions = candidateCount(index);
     return jsonResponse(res, { built: false, message: notBuiltLine(index), functions, minutes: estimateBuildMinutes(functions), total: 0, total_all: 0, records: [] });
   }
-  const records = q.filter ? filterRecords(data.records, q.filter) : data.records;
+  // mechanisms-toc-one-row-per-mechanism: the pane lists entries, records
+  // with identical member sets folded into one, each with its `aliases`
+  // and `record_count`; `total` and `total_all` count entries, `records_all`
+  // the file's records.
+  const entries = foldRecords(data.records);
+  const records = q.filter ? filterRecords(entries, q.filter) : entries;
   const max = safeMax(q.max, 300);
   const dn = (n) => (typeof index.getDisplayName === 'function' ? index.getDisplayName(n) : n);
   jsonResponse(res, {
@@ -3202,10 +3213,12 @@ routes['/api/list-mechanisms'] = (req, res) => {
     coverage: data.coverage,
     described: data.described || null,
     total: records.length,
-    total_all: data.records.length,
+    total_all: entries.length,
+    records_all: data.records.length,
     records: records.slice(0, max).map((r) => ({
       id: r.id, label: r.label, kind: r.kind, purpose: r.purpose || '', description: r.description || null,
       tags: r.tags || [], calls: r.calls || [], files: (r.files || []).length,
+      aliases: r.aliases || [], record_count: r.recordCount || 1,
       members_total: (r.members || []).length,
       members: (r.members || []).slice(0, 200).map((m) => ({
         name: m.name, display_name: dn(m.name), filepath: m.file, start: m.start, end: m.end,

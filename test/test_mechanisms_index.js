@@ -17,9 +17,9 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
-import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, formatMechanismsList, notBuiltLine, kindOf, estimateBuildMinutes, carryDescriptions, MECHANISMS_FORMAT } from '../src/core/mechanisms-index.js';
+import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, formatMechanismsList, notBuiltLine, kindOf, estimateBuildMinutes, carryDescriptions, MECHANISMS_FORMAT, foldRecords, foldGroups, pickRepresentative, foldNote, formatMechanismsToc, recordBlock, purposeSnippet } from '../src/core/mechanisms-index.js';
 import { harvestPurpose, firstSentence } from '../src/commands/pseudo-claims.js';
-import { describeMechanisms, describePack, cleanDescription } from '../src/commands/mechanisms.js';
+import { describeMechanisms, describeProjection, describePack, cleanDescription } from '../src/commands/mechanisms.js';
 import { handleTool, TOOLS, setIndex } from '../src/mcp-server.js';
 import { CURATED_LOCAL_CHAT_TOOLS } from '../src/core/local-chat-tools.js';
 import { outboundCalls } from '../src/core/mechanism-grouper.js';
@@ -190,6 +190,35 @@ const FILES = {
     ...['A', 'B', 'C', 'D', 'E', 'F'].map((s) => `export function retireJob${s}(j) {\n  // retires the job\n  const d = j - 1;\n  const e = d - 1;\n  return e;\n}`),
     '',
   ].join('\n'),
+  // mechanisms-toc-one-row-per-mechanism (#296): a one-class file, so the
+  // cover holds `[class] Vault` and `[file] vault.py` with the same members
+  // and every consumer lists the pair as one entry.
+  'pkg/vault.py': [
+    '"""vault.py -- keeps secrets under a key and hands them back on demand."""',
+    '',
+    'class Vault:',
+    '    """Holds the secrets of one owner."""',
+    '',
+    '    def __init__(self):',
+    '        self.items = {}',
+    '        self.sealed = False',
+    '',
+    '    def put(self, key, value):',
+    '        self.items[key] = value',
+    '        n = len(self.items)',
+    '        return n',
+    '',
+    '    def take_out(self, key):',
+    '        v = self.items.get(key)',
+    '        w = v if not self.sealed else None',
+    '        return w',
+    '',
+    '    def lock_up(self):',
+    '        self.sealed = True',
+    '        n = len(self.items)',
+    '        return n',
+    '',
+  ].join('\n'),
   'tests/test_parser.py': [
     'from pkg.parser import Tokenizer',
     '',
@@ -354,7 +383,7 @@ describe('the mechanisms index', () => {
       assert.deepEqual(filterRecords(data.records, 'zzz-none'), []);
       const { lines, shown, total } = formatMechanismsList(data, data.records, { max: 2 });
       assert.equal(shown, 2); assert.equal(total, data.records.length);
-      assert.match(lines[0], /^\d+ mechanism records \(showing 2\): a cover of \d+ of \d+ functions \(100%\)/);
+      assert.match(lines[0], /^\d+ mechanisms \(showing 2\): a cover of \d+ of \d+ functions \(100%\)/);
       assert.match(lines.join('\n'), /^m1\s+\[/m);
       assert.match(lines[lines.length - 3], /2 of \d+ shown; --all-results or --max-results 0 shows all/, 'the cap footer, before the how-to line that ends an undescribed file');
       const t = formatMechanismsList(data, [byLabel(data, '[file] test_parser.py')], {}).lines.join('\n');
@@ -405,7 +434,7 @@ describe('the mechanisms index', () => {
       const u = formatMechanismsList(data, [byLabel(data, '[class] Reader')], { filter: 'Reader', exe: 'ce' }).lines; const k = first(u);
       assert.match(u[k], /^m\d+\s+\[class\] Reader  \(\d+ fns?, 1 file\)/, 'an undescribed record still leads with its label');
       assert.match(u[k + 1], /yields values/, 'and its purpose stays beneath the label');
-      assert.match(u[u.length - 1], /^No model descriptions yet: ce --index-path \S+ --mechanisms Reader --describe --llm claude writes one sentence per listed record \(about \$0\.003 each on Claude; above the \$2 claims guard add --force\)\.$/, 'a file nobody has described ends by saying how, with the filter in the command');
+      assert.match(u[u.length - 1], /^No model descriptions yet: ce --index-path \S+ --mechanisms Reader --describe --llm claude writes one sentence per listed mechanism \(about \$0\.003 each on Claude; above the \$2 claims guard add --force\)\.$/, 'a file nobody has described ends by saying how, with the filter in the command');
       assert.ok(!formatMechanismsList(data, [rec], { describeHint: false }).lines.some((l) => /^No model descriptions yet/.test(l)), 'describeHint: false turns the line off (a --describe in the same command reports instead)');
       const capped = formatMechanismsList(data, data.records, { max: 1 }).lines;
       assert.match(capped[capped.length - 3], /^1 of \d+ shown; --all-results or --max-results 0 shows all/, 'the cap footer names --all-results and comes before the how-to line');
@@ -413,6 +442,75 @@ describe('the mechanisms index', () => {
       try {
         assert.ok(!formatMechanismsList(data, [rec], {}).lines.some((l) => /^No model descriptions yet/.test(l)), 'no hint once anything is described');
       } finally { delete data.described; }
+    });
+
+    // mechanisms-toc-one-row-per-mechanism (#296): a one-class file comes out
+    // as `[class] Vault` and `[file] vault.py` with the same members (CodeExam
+    // 7 such pairs of 390 records, sr_gh 127 of 1,299, 2026-11-05); every
+    // consumer lists the pair as one entry.
+    it('records that are the same functions under two labels fold into one entry with the other label as an alias; a subset stays its own entry; the filter reads aliases; the representative is the described one, else the class', () => {
+      const entries = foldRecords(data.records);
+      assert.equal(entries.length, data.records.length - 1, 'one pair in the fixture');
+      const vault = entries.find((e) => e.label === '[class] Vault');
+      assert.ok(vault, entries.map((e) => e.label).join(' | '));
+      assert.deepEqual(vault.aliases.map((a) => a.label), ['[file] vault.py']);
+      assert.equal(vault.recordCount, 2);
+      assert.equal(vault.id, byLabel(data, '[class] Vault').id, 'the entry keeps the representative\'s id');
+      assert.equal(vault.purpose, 'Holds the secrets of one owner.', 'and its purpose');
+      assert.ok(!entries.some((e) => e.label === '[file] vault.py'));
+      assert.ok(entries.some((e) => e.label === '[class] Tokenizer') && entries.some((e) => e.label === '[file] parser.py'), 'a class inside a larger file record is its own entry');
+      assert.ok(entries.every((e) => e.label !== '[class] Vault' ? e.recordCount === 1 && e.aliases.length === 0 : true));
+      assert.deepEqual(filterRecords(entries, 'vault.py').map((e) => e.label), ['[class] Vault'], 'the filter matches an alias label');
+      assert.equal(foldNote(entries), ` (${data.records.length} records, 1 folded as the same functions under another label)`);
+      assert.equal(foldNote(data.records), '', 'raw records carry no note');
+      assert.equal(foldGroups(data.records).length, entries.length);
+      const file = byLabel(data, '[file] vault.py'); const cls = byLabel(data, '[class] Vault');
+      try {
+        file.description = 'Paid for.';
+        assert.equal(pickRepresentative([file, cls]).label, '[file] vault.py', 'the one described record names the entry');
+        assert.equal(foldRecords(data.records).find((e) => e.id === file.id).description, 'Paid for.');
+        cls.description = 'Also paid for.';
+        assert.equal(pickRepresentative([file, cls]).label, '[class] Vault', 'both described: the kind that names a thing, not a place');
+        assert.equal(foldRecords(data.records).find((e) => e.id === cls.id).description, 'Also paid for.');
+      } finally { file.description = null; cls.description = null; }
+      assert.equal(recordBlock(vault, {})[2], '      also [file] vault.py', 'the block names the folded record');
+    });
+
+    it('the TOC: one numbered line per entry, the sentence first when described, else the label and a short quote of the purpose, "also" on a folded entry; -v adds the block; the cap; the footer counts the undescribed and names --toc', () => {
+      const entries = foldRecords(data.records);
+      const t = formatMechanismsToc(data, entries, { exe: 'ce' });
+      assert.equal(t.total, entries.length);
+      assert.match(t.lines[0], /^\d+ mechanisms \(\d+ records, 1 folded as the same functions under another label\): a cover of \d+ of \d+ functions \(100%\)/, t.lines[0]);
+      assert.equal(t.lines[1], '');
+      const body = t.lines.slice(2, 2 + entries.length);
+      body.forEach((l, i) => assert.match(l, new RegExp(`^\\s*${i + 1}\\. `), l));
+      assert.match(body[0], /^ 1\. /, 'numbers right-align to the width of the count shown');
+      const vaultLine = body.find((l) => / \[class\] Vault  \(/.test(l));
+      assert.match(vaultLine, /^\s*\d+\. \[class\] Vault  \(3 fns, 1 file\) — "Holds the secrets of one owner\."  also \[file\] vault\.py$/, vaultLine);
+      assert.ok(!body.some((l) => /\[file\] vault\.py  \(/.test(l)), 'the file record of the pair is not its own line');
+      assert.match(t.lines[t.lines.length - 1], new RegExp(`^${entries.length} of ${entries.length} without a model description: ce --index-path \\S+ --toc --describe --llm claude writes one sentence per listed mechanism \\(about \\$0\\.003 each on Claude; above the \\$2 claims guard add --force\\)\\.$`), t.lines[t.lines.length - 1]);
+      const rec = byLabel(data, '[file] parser.py');
+      const orig = rec.purpose;
+      try {
+        rec.purpose = 'Keeps secrets under a key and hands them back on demand, ' + 'y'.repeat(100);
+        const cutLine = formatMechanismsToc(data, [rec], {}).lines[2];
+        assert.match(cutLine, /^1\. \[file\] parser\.py  \(5 fns, 1 file\) — "Keeps secrets under a key and hands them back on demand, y+…"$/, cutLine);
+        assert.equal(cutLine.split('"')[1].length, 90, 'the quote is cut at 90 characters');
+      } finally { rec.purpose = orig; }
+      assert.equal(purposeSnippet('a  b\n c'), 'a b c');
+      assert.equal(purposeSnippet('x'.repeat(100)).length, 90);
+      const vault = { ...entries.find((e) => e.label === '[class] Vault'), description: 'Vaults keep secrets.' };
+      const d = formatMechanismsToc(data, [vault], { filter: 'Vault', exe: 'ce' }).lines;
+      assert.equal(d[2], '1. Vaults keep secrets.  ([class] Vault; 3 fns, 1 file)  also [file] vault.py');
+      assert.ok(!d.some((l) => /without a model description/.test(l)), 'no footer when every listed entry is described');
+      const v = formatMechanismsToc(data, [vault], { verbose: true }).lines;
+      assert.equal(v[3], `   ${vault.id.padEnd(6)}Vaults keep secrets.`, '-v: the block, indented under the number');
+      assert.equal(v[4], '         [class] Vault  (3 fns, 1 file)');
+      assert.equal(v[5], '         also [file] vault.py');
+      assert.match(v[6], /^         \S*vault\.py@Vault::\w+$/, v[6]);
+      const c = formatMechanismsToc(data, entries, { max: 2 }).lines;
+      assert.match(c.join('\n'), /\n2 of \d+ shown; --all-results or --max-results 0 shows all, --toc <filter> narrows\./);
+      assert.match(c[2], /^1\. /, 'a single-digit count needs no padding');
     });
   });
 
@@ -425,6 +523,7 @@ describe('the mechanisms index', () => {
       const { out } = runCLI(IDX2, ['--mechanisms']);
       assert.match(out, /not built: run .*--index-path .*\.mech_cli_ndx.* --build-mechanisms \(about 1 minute on an index this size\)/, out);
       assert.equal(notBuiltLine(idx2, { exe: 'ce' }).startsWith('not built: run ce --index-path '), true);
+      assert.match(runCLI(IDX2, ['--toc']).out, /not built: run .*--build-mechanisms \(about 1 minute/, '--toc prints the same line');
     });
 
     it('list_mechanisms before the build answers the same line and names the tools that work without it; the tool is registered and in the local core', () => {
@@ -442,10 +541,12 @@ describe('the mechanisms index', () => {
       assert.match(b.out, /Done: \d+ record\(s\) covering (\d+) of \1 functions \(100%\), (\d+) of \2 files, written to .*mechanisms\.json/, b.out);
       assert.ok(fs.existsSync(path.join(IDX2, 'mechanisms.json')));
       const l = runCLI(IDX2, ['--mechanisms']);
-      assert.match(l.out, /\d+ mechanism records: a cover of/, l.out);
+      assert.match(l.out, /\d+ mechanisms \(\d+ records, 1 folded as the same functions under another label\): a cover of/, l.out);
       assert.match(l.out, /\[class\] Tokenizer  \(\d fns, 1 file\)\n\s+Splits claim text into tokens/, l.out);
+      assert.match(l.out, /^m\d+\s+\[class\] Vault  \(3 fns, 1 file\)\n      Holds the secrets of one owner\.\n      also \[file\] vault\.py\n/m, l.out);
+      assert.doesNotMatch(l.out, /^m\d+\s+\[file\] vault\.py/m, 'the pair is one block');
       const f = runCLI(IDX2, ['--mechanisms', 'Reader']);
-      assert.match(f.out, /mechanism records? matching 'Reader'/, f.out);
+      assert.match(f.out, /mechanisms? matching 'Reader'/, f.out);
       assert.doesNotMatch(f.out, /\[file\] parser\.py/);
       const c = runCLI(IDX2, ['--mechanisms', '--max-results', '1']);
       assert.match(c.out, /\(showing 1\)/); assert.match(c.out, /1 of \d+ shown/);
@@ -457,8 +558,11 @@ describe('the mechanisms index', () => {
 
     it('list_mechanisms after the build lists rows with counts, text and members, honors filter and max, and discloses an empty filter', () => {
       const out = handleTool('list_mechanisms', {});
-      assert.match(out, /^\d+ mechanism record\(s\) \(showing \d+\): a cover of/, out);
+      assert.match(out, /^\d+ mechanism\(s\) \(\d+ records, 1 folded as the same functions under another label\) \(showing \d+\): a cover of/, out);
       assert.match(out, /  m\d+  \[class\] Tokenizer  \(\d fns, 1 file\)  — Splits claim text/, out);
+      assert.match(out, /  m\d+  \[class\] Vault  \(3 fns, 1 file\)  also \[file\] vault\.py  — Holds the secrets of one owner\./, out);
+      assert.doesNotMatch(out, /\[file\] vault\.py  \(/, 'the pair is one row');
+      assert.match(handleTool('list_mechanisms', { filter: 'vault.py' }), /\[class\] Vault/, 'the filter reads the alias');
       assert.match(out, /Tokenizer::tokenize/);
       const one = handleTool('list_mechanisms', { max: 1 });
       assert.match(one, /more not shown \(total \d+\)\. Raise "max" or use a filter\./);
@@ -467,7 +571,25 @@ describe('the mechanisms index', () => {
       assert.match(handleTool('list_mechanisms', { filter: 'zzz-nothing' }), /No mechanisms match filter "zzz-nothing"/);
     });
 
-    it('--describe through a stub drafter writes one cleaned sentence per record from a pack that carries members and source, and the listing prefers it', async () => {
+    it('--toc through the CLI: the numbered contents in the file\'s order, the folded pair as one line with "also", -v with the block, the cap, an empty filter, and the footer naming --toc', () => {
+      const t = runCLI(IDX2, ['--toc']);
+      assert.match(t.out, /^\d+ mechanisms \(\d+ records, 1 folded as the same functions under another label\): a cover of/m, t.out);
+      assert.match(t.out, /^ ?1\. \[file\] jobs\.js \/ queue  \(7 fns, 1 file\) — "jobs\.js — the worklist of jobs: queues, runs and retires each job in turn\."$/m, t.out);
+      assert.match(t.out, /^ ?\d+\. \[class\] Vault  \(3 fns, 1 file\) — "Holds the secrets of one owner\."  also \[file\] vault\.py$/m, t.out);
+      assert.doesNotMatch(t.out, /^\s*\d+\. \[file\] vault\.py/m, 'the file record of the pair is not its own line');
+      assert.match(t.out, /^\d+ of \d+ without a model description: .* --toc --describe --llm claude writes one sentence per listed mechanism/m, t.out);
+      const labels = (s) => [...s.matchAll(/^(?:\s*\d+\. |m\d+\s+)(\[(?:file|class)\] \S+)/gm)].map((x) => x[1]);
+      assert.deepEqual(labels(t.out), labels(runCLI(IDX2, ['--mechanisms']).out), 'the same entries in the same order as --mechanisms');
+      const v = runCLI(IDX2, ['--toc', 'Vault', '-v']);
+      assert.match(v.out, /^1\. \[class\] Vault  \(3 fns, 1 file\) — "Holds the secrets of one owner\."  also \[file\] vault\.py\n   m\d+\s+\[class\] Vault  \(3 fns, 1 file\)\n         Holds the secrets of one owner\.\n         also \[file\] vault\.py\n         \S*vault\.py@Vault::\w+\n/m, v.out);
+      const c = runCLI(IDX2, ['--toc', '--max-results', '2']);
+      assert.match(c.out, /\(showing 2\)/); assert.match(c.out, /2 of \d+ shown; --all-results or --max-results 0 shows all, --toc <filter> narrows\./);
+      const z = runCLI(IDX2, ['--toc', 'zzz-nothing']);
+      assert.match(z.out, /No mechanisms match filter "zzz-nothing" \(\d+ exist — omit the filter to see them all\)/, z.out);
+      assert.match(runCLI(IDX2, ['--toc', '--filter', 'nodoc']).out, /^\s*1\. \[file\] nodoc\.py/m, '--filter is honored when the flag carries no value');
+    });
+
+    it('--describe through a stub drafter writes one cleaned sentence per mechanism from a pack that carries members and source, both records of a folded pair take it from one call, and the listing prefers it', async () => {
       const data = loadMechanismsIndex(idx2, { cache: false });
       const seen = [];
       const drafter = async (sys, user) => {
@@ -477,11 +599,15 @@ describe('the mechanisms index', () => {
         return `Description: "${label} reads things."\nSecond line ignored.`;
       };
       const r = await describeMechanisms(idx2, data, {}, { drafter });
-      assert.deepEqual([r.ok, r.done, r.failed, r.reason], [true, data.records.length, 0, null]);
-      assert.equal(data.described.records, data.records.length);
+      const units = foldGroups(data.records);
+      assert.deepEqual([r.ok, r.done, r.failed, r.reason, r.wanted, r.unified], [true, units.length, 0, null, units.length, 0]);
+      assert.equal(seen.length, units.length, 'one call per function set');
+      assert.ok(!seen.some((u) => u.startsWith('MECHANISM: [file] vault.py')), 'the pair\'s pack is the representative\'s');
+      assert.equal(data.described.records, data.records.length, 'every record carries a sentence');
       assert.equal(data.described.filter, null);
       assert.equal(data.described.engine, 'stub');
-      for (const r of data.records) assert.equal(r.description, `${r.label} reads things.`);
+      for (const g of units) { const rep = pickRepresentative(g); for (const rec of g) assert.equal(rec.description, `${rep.label} reads things.`); }
+      assert.equal(byLabel(data, '[file] vault.py').description, '[class] Vault reads things.');
       const pack = seen.find((u) => u.startsWith('MECHANISM: [class] Tokenizer'));
       assert.match(pack, /^KIND: class/m);
       assert.match(pack, /^MEMBERS \(\d\): .*Tokenizer::tokenize/m);
@@ -530,7 +656,7 @@ describe('the mechanisms index', () => {
       let calls = 0;
       const flaky = async (sys, user) => { calls++; if (calls <= 2) throw new Error('fetch failed'); return `${user.split('\n')[0].replace('MECHANISM: ', '')} works.`; };
       const partial = await describeMechanisms(idx2, data, {}, { drafter: flaky });
-      assert.deepEqual([partial.ok, partial.done, partial.failed, partial.stopped, partial.lastError], [true, data.records.length - 2, 2, 0, 'fetch failed'], 'two failures do not stop the run; the rest are written');
+      assert.deepEqual([partial.ok, partial.done, partial.failed, partial.stopped, partial.lastError], [true, foldGroups(data.records).length - 2, 2, 0, 'fetch failed'], 'two failures do not stop the run; the rest are written, one call per mechanism');
       assert.equal(data.described.failed, 2);
       for (const rec of data.records) rec.description = null;
       delete data.described;
@@ -569,21 +695,56 @@ describe('the mechanisms index', () => {
       assert.ok(described.length >= 1 && described.length < data.records.length, 'the filtered run left a mix');
       const calls = [];
       const drafter = async (sys, user) => { calls.push(user.split('\n')[0]); return 'Filled in.'; };
+      const units = foldGroups(data.records);
+      const describedUnits = units.filter((g) => g.some((rec) => rec.description)).length;
       const r = await describeMechanisms(idx2, data, {}, { drafter });
-      assert.deepEqual([r.ok, r.done, r.skipped], [true, data.records.length - described.length, described.length]);
-      assert.equal(calls.length, data.records.length - described.length, 'no call for a record already described');
+      assert.deepEqual([r.ok, r.done, r.skipped], [true, units.length - describedUnits, describedUnits]);
+      assert.equal(calls.length, units.length - describedUnits, 'no call for a mechanism already described');
       for (const rec of data.records) assert.equal(rec.description, described.includes(rec.id) ? 'Reads chunks.' : 'Filled in.');
       assert.equal(data.described.records, data.records.length);
       const none = await describeMechanisms(idx2, data, {}, { drafter });
-      assert.deepEqual([none.ok, none.done, none.skipped], [false, 0, data.records.length]);
-      assert.match(none.reason, /already carry a description \(--redescribe rewrites them\)/);
+      assert.deepEqual([none.ok, none.done, none.skipped, none.unified], [false, 0, units.length, 0]);
+      assert.match(none.reason, /mechanism\(s\) already carry a description \(--redescribe rewrites them\)/);
       const redo = await describeMechanisms(idx2, data, {}, { drafter, redo: true, records: filterRecords(data.records, 'Reader'), filter: 'Reader' });
       assert.equal(redo.ok, true);
       assert.ok(filterRecords(data.records, 'Reader').every((rec) => rec.description === 'Filled in.'));
       saveMechanismsIndex(idx2, data);
       const full = runCLI(IDX2, ['--describe', '--llm', 'claude']);
-      assert.match(full.out, /^No descriptions written: all \d+ record\(s\) already carry a description/m, full.out);
+      assert.match(full.out, /^No descriptions written: all \d+ mechanism\(s\) already carry a description/m, full.out);
       assert.doesNotMatch(full.out, /projected cost|needs a model/, 'the skip comes before any model is resolved');
+    });
+
+    // mechanisms-toc-one-row-per-mechanism: before the fold each record was
+    // described on its own, so a pair could carry two wordings for one
+    // function set (CodeExam 7 pairs, Bram 4, WinAPI 40 on 2026-11-05).
+    it('a pair described twice before the fold takes one sentence at no cost: the projection counts it, a run with nothing to call writes it and says so, and a cleared pair is one call for both records', async () => {
+      const data = loadMechanismsIndex(idx2, { cache: false });
+      const cls = byLabel(data, '[class] Vault'); const file = byLabel(data, '[file] vault.py');
+      assert.ok(cls.description && file.description, 'both described going in');
+      file.description = 'A second wording of the same functions.';
+      const proj = describeProjection(idx2, data, {});
+      assert.deepEqual([proj.wanted, proj.todo, proj.skipped, proj.unify, proj.records], [foldGroups(data.records).length, 0, foldGroups(data.records).length, 1, data.records.length]);
+      let calls = 0;
+      const r = await describeMechanisms(idx2, data, {}, { drafter: async () => { calls++; return 'x'; } });
+      assert.deepEqual([r.ok, r.done, r.unified, calls], [true, 0, 1, 0], 'nothing to call, one record unified, and the caller saves');
+      assert.equal(file.description, cls.description);
+      assert.equal(describeProjection(idx2, data, {}).unify, 0);
+      file.description = 'A second wording of the same functions.';
+      saveMechanismsIndex(idx2, data);
+      const out = runCLI(IDX2, ['--describe', '--llm', 'claude']);
+      assert.match(out.out, /^No new descriptions: all \d+ mechanism\(s\) already carry one; 1 record\(s\) took the sentence of the record with the same functions; \d+ of \d+ records now carry a description; written to /m, out.out);
+      assert.doesNotMatch(out.out, /projected cost|needs a model/, 'no model is resolved for a free write');
+      const after = loadMechanismsIndex(idx2, { cache: false });
+      assert.equal(byLabel(after, '[file] vault.py').description, byLabel(after, '[class] Vault').description, 'the file converged');
+      for (const rec of [cls, file]) rec.description = null;
+      const seen = [];
+      const r2 = await describeMechanisms(idx2, data, {}, { drafter: async (sys, user) => { seen.push(user.split('\n')[0]); return 'One sentence for both.'; } });
+      assert.deepEqual([r2.ok, r2.done, r2.skipped, seen], [true, 1, foldGroups(data.records).length - 1, ['MECHANISM: [class] Vault']]);
+      assert.equal(cls.description, 'One sentence for both.'); assert.equal(file.description, 'One sentence for both.');
+      const only = await describeMechanisms(idx2, data, {}, { drafter: async () => 'Only the file.', records: [file], filter: 'vault.py', redo: true });
+      assert.deepEqual([only.ok, only.done], [true, 1]);
+      assert.equal(cls.description, 'Only the file.', 'a subset that names one record of a pair describes the pair');
+      saveMechanismsIndex(idx2, data);
     });
 
     it('a rebuild carries descriptions over where the record is unchanged, and says how many', () => {

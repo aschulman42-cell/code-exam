@@ -65,19 +65,26 @@ structural lists — **Functions**, **Files**, **Classes**, **Mechanisms**, **Cl
 middle panes. **Mechanisms** is the one list the GUI does not compute on each open: it reads the
 records `ce --index-path <X> --build-mechanisms`, or the pane's own **Build** button, wrote beside
 the index (one per file, class, command or shared name token, every function in at least one,
-records overlapping). A row leads with the
+records overlapping). The list has one row per function set: records that are the same functions
+under two labels (a one-class file as `[class] Foo` and `[file] foo.py`) are one row, the other
+label after `also` in the muted line and a `×2` beside the counts, so the badge counts rows, not
+records (383 on CodeExam's 390 records). A row leads with the
 model's one-sentence description when `--describe` wrote one, the label then sitting beneath it
 with the record id; otherwise it leads with the label, over the purpose read from the code's own
 doc text. Beside either sit its member and file counts and tags (`test`, `vendored`, `giant` for
-a record the splitter could not break); a row expands to its members, and a member opens the
-source viewer as a function row does. A **Describe** button at the top of the list asks the
-Workspace engine for a one-sentence description of each listed record that has none, the same
-sentence `--describe` writes from the same pack: the filter box sets the scope, so a run costs the
+a record the splitter could not break); a row that stands for one record expands to its members,
+and a member opens the source viewer as a function row does; a `×N` row opens the upper middle
+pane instead, as a deduplicated row of the AI/ML cells does, with the records it folds, the
+counts, the purpose and the members once (the sets are identical), each opening the source viewer.
+A **Describe** button at the top of the list asks the
+Workspace engine for a one-sentence description of each listed row that has none, the same
+sentence `--describe` writes from the same pack, one call per row and the sentence written to
+every record of it: the filter box sets the scope, so a run costs the
 rows being read, not the file; a dry run first shows the count and, for a cloud engine, the
 projected cost in a confirm dialog; a cloud run above the claims cost guard is refused with the
 CLI command that `--force` would allow, since the GUI has no override; under `--air-gapped` only
 the local model runs. Progress shows beside the button, the list re-fetches when the run ends,
-and once every listed record is described the button reads **Redescribe**. Until
+and once every listed row is described the button reads **Redescribe**. Until
 the file exists the list is one line saying which command builds it and roughly how long that
 takes, with a **Build** button beside it: the button runs the same build in a server worker
 thread (the Build Index pattern), so the pane keeps answering while a large index groups; the

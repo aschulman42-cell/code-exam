@@ -129,11 +129,13 @@ export function parseArgs() {
     rebuild_functions: false,
     build_rename_map: false,
     // mechanisms-index-prebuild-cli-gui: --build-mechanisms [--describe] writes
-    // <index>/mechanisms.json; --mechanisms [filter] lists it.
+    // <index>/mechanisms.json; --mechanisms [filter] lists it; --toc [filter]
+    // is its table of contents (mechanisms-toc-one-row-per-mechanism, #296).
     build_mechanisms: false,
     describe: false,
     redescribe: false,
     mechanisms: null,
+    toc: null,
     rename_min_lines: 0,
     file_bookends: null,
     bundle_seams: null,
@@ -582,6 +584,7 @@ export function parseArgs() {
     ['domain_fns',           'optional_value', ['--domain-fns']],
     ['list_classes',         'flag',           ['--classes'], ['--list-classes']],
     ['mechanisms',           'optional_value', ['--mechanisms']],
+    ['toc',                  'optional_value', ['--toc']],
     ['data_structs',         'flag',           ['--data-structs'], ['--structs']],
     ['client_server',        'flag',           ['--client-server'], ['--routes']],
     ['referenced_resources', 'optional_value', ['--referenced-resources', '--resources']],
@@ -1182,17 +1185,19 @@ INDEX MANAGEMENT:
                              <index>/mechanisms.json. Minutes on a large index;
                              run once, then --mechanisms, the GUI's Mechanisms
                              list and the list_mechanisms tool read the file.
-  --describe                 One model sentence per mechanism record (--llm
+  --describe                 One model sentence per mechanism (--llm
                              <provider> or --model <gguf>), under the claims
                              cost guard: with --build-mechanisms, every record
-                             just built; with --mechanisms <filter> (or
-                             --filter), only the matching records of the
-                             existing file, which is the cheap way; alone,
-                             every record of the existing file. Records that
-                             already carry a description are skipped, and a
-                             rebuild carries descriptions over when a record's
-                             label and members are unchanged, so a paid
-                             sentence is never paid for twice.
+                             just built; with --mechanisms <filter> or --toc
+                             <filter> (or --filter), only the matching
+                             mechanisms of the existing file, which is the
+                             cheap way; alone, every mechanism of the
+                             existing file. One call per function set, the
+                             sentence written to every record that holds it.
+                             Records that already carry a description are
+                             skipped, and a rebuild carries descriptions over
+                             when a record's label and members are unchanged,
+                             so a paid sentence is never paid for twice.
   --redescribe               With --describe: rewrite records that already
                              carry a description too.
   --no-rename                Disable display-time renames for this run
@@ -1563,12 +1568,21 @@ GRAPH:
 METRICS / DISCOVERY:
   --classes                  List all classes with method counts/sizes
                              (deprecated alias: --list-classes)
-  --mechanisms [filter]      List the mechanism records --build-mechanisms
-                             wrote: label, members, files, purpose or
-                             description, tags. The filter matches label,
-                             purpose, member and file names; --max-results
-                             caps the list (default 100, 0 = all); -v lists
-                             every member as file@name.
+  --mechanisms [filter]      List the mechanisms --build-mechanisms wrote, one
+                             per function set: records that are the same
+                             functions under two labels (a one-class file as
+                             [class] and [file]) fold into one row, the other
+                             label after "also". Per row: label, members,
+                             files, purpose or description, tags. The filter
+                             matches label, purpose, member and file names;
+                             --max-results caps the list (default 100, 0 =
+                             all); -v lists every member as file@name.
+  --toc [filter]             Table of contents of the same mechanisms, one
+                             numbered line each in the file's order: the
+                             model's sentence when --describe wrote one, else
+                             the label and a short quote of the purpose; same
+                             filter, cap and fold as --mechanisms; -v adds
+                             each row's block with its members.
   --data-structs             List data structures (struct/enum/union/typedef/
                              trait/interface/record) ranked by reference count
                              (alias: --structs)
