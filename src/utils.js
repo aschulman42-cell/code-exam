@@ -33,7 +33,7 @@ export class SearchResult {
    * @param {number} opts.lineNumber
    * @param {string} opts.lineText
    * @param {string} opts.context
-   * @param {string} opts.matchType - 'literal', 'semantic', 'inverted', 'hybrid'
+   * @param {string} opts.matchType - 'literal' or 'inverted' (the semantic and hybrid kinds went with the Python-era index, #322)
    * @param {number} opts.score - 0.0 = perfect match, higher = less similar
    * @param {number|null} [opts.chunkIndex]
    * @param {string|null} [opts.functionName]

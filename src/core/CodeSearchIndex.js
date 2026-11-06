@@ -4247,25 +4247,28 @@ export class CodeSearchIndex {
 
 
   // ========================================================================
-  // Search: Hybrid (literal + semantic)
+  // Search: --search, the default mode
   // ========================================================================
 
+  /**
+   * The default search: a literal search over the index, one result per
+   * location. The name is from the Python-era design, where a semantic pass
+   * followed the literal one; that index was removed (#322) and nothing
+   * follows. The subtoken and vocabulary expansion `--search` advertises
+   * happens in the caller (src/commands/search.js, expandRenameQuery), on
+   * the query, before this runs. Kept under its name for the callers and
+   * the orientation pages that cite it.
+   */
   searchHybrid(query, { maxResults = 10, contextLines = 3 } = {}) {
     const results = [];
     const seenLocations = new Set();
-
-    // Literal search first
-    const literalResults = this.searchLiteral(query, { maxResults, contextLines });
-    for (const r of literalResults) {
+    for (const r of this.searchLiteral(query, { maxResults, contextLines })) {
       const loc = `${r.filePath}:${r.lineNumber}`;
       if (!seenLocations.has(loc)) {
         seenLocations.add(loc);
         results.push(r);
       }
     }
-
-    // Semantic search would go here (Phase 8)
-
     return results;
   }
 
@@ -4778,7 +4781,6 @@ export class CodeSearchIndex {
     const stats = {
       files_indexed: this.files.size,
       total_lines: totalLines,
-      semantic_available: false,
       parse_method: this.parseMethod || 'regex',
     };
 

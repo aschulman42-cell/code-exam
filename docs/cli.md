@@ -28,7 +28,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 - **Does**: Builds a CodeExam index from a directory, a single file, a glob pattern, or `@filelist.txt` (one path per line).
 - **Good for**: First-time indexing of a codebase. The entry point for nearly every workflow — every subsequent flag operates against the index produced here.
-- **Couples with**: `--index-path`, `--extensions`, `--exclude-extensions`, `--demangler`, `--regex-parser`, `--skip-semantic`, `--rename-min-lines`, `--no-rename`.
+- **Couples with**: `--index-path`, `--extensions`, `--exclude-extensions`, `--demangler`, `--regex-parser`, `--rename-min-lines`, `--no-rename`.
 - **Naming**: verb-noun form (`--build-index`) keeps the namespace open for sibling actions on indexes (`--rebuild-functions`, `--build-rename-map`, `--indexes`). Without the verb, ambiguity grows fast.
 - **Verified against**: `src/argparse.js:200`
 
@@ -100,10 +100,8 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 #### `--skip-semantic`
 
-- **Does**: Nominally skips semantic/embedding indexing. **Functionally a no-op today** — `skipSemantic` is plumbed through `src/core/CodeSearchIndex.js::buildIndex` (L1997) but no code in the buildIndex body branches on it. Semantic indexing was stubbed but never implemented; the default (`true`) and the flag are vestigial.
-- **Good for**: Forward-compatibility / aspiration only. There is currently no way to *enable* semantic indexing via the CLI — the flag exists in the surface but does nothing. If/when semantic indexing actually lands, this entry needs an honest rewrite.
-- **Couples with**: `--build-index` (nominally).
-- **Naming**: negative-default form (`--skip-X`) signals the user is opting out of a default behavior; consistent with `--no-rename`.
+- **Does**: Nothing. Still accepted, so recipes that pass it keep working, and absent from `--help`: the Python-era semantic index it skipped was removed (#322), and there is no semantic index to skip or to enable.
+- **Verified against**: `src/argparse.js:479-482`
 - **Verified against**: `src/argparse.js:210`
 
 #### `--regex-parser`
@@ -111,7 +109,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Does**: Builds the function index with the regex parser on every file. The default (no flag) parses each file whose language has a shipped tree-sitter grammar (C, C++, C#, Go, Java, JavaScript, PHP, Python, Ruby, Rust, TypeScript, TSX) with that grammar and merges in the regex parser's extra entries; files in other languages, and every file when `web-tree-sitter` is not installed, get the regex parser anyway.
 - **Good for**: Speed on a very large tree, and the pathological single file (a ~400k-line minified bundle) that exhausts Node's heap under the grammar parse — see `example-indexes.md`.
 - **Couples with**: `--build-index`, `--rebuild-functions`. `--use-tree-sitter` is still accepted: it names the default, does nothing extra, and is absent from `--help`; giving both flags is an error.
-- **Naming**: names the parser you get, not the one you leave; opting out of the default (same family as `--no-rename`, `--skip-semantic`).
+- **Naming**: names the parser you get, not the one you leave; opting out of the default (same family as `--no-rename`; `--use-tree-sitter` and `--skip-semantic` are the accepted-and-hidden kind).
 - **Verified against**: `src/argparse.js:468-469`
 
 #### `--extensions <exts>`
@@ -144,8 +142,8 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 #### `--search <query>`
 
-- **Does**: Hybrid search — literal + semantic.
-- **Good for**: Default-mode search when you're not sure whether the query should be literal or semantic.
+- **Does**: Searches the index for the query as literal text (case-insensitive, a substring of any line), lists the files whose paths contain it, and, when the query carries a rename marker (`_KW_`, `_CMD_`, `_IMPORT_`: the display names the rename map gives minified identifiers), expands it to the original identifiers it stands for before searching. Nothing follows the literal pass: the semantic pass of the Python-era design was removed (#322), and `--help`'s "literal, with subtoken and vocabulary expansion" names the rename expansion.
+- **Good for**: The default search when you have a word or a fragment of a name and want every line that contains it; `--literal` is the same text search without the rename expansion, `--fast` looks the query up as a whole token in the inverted index.
 - **Couples with**: `--max-results`, `--context`, `--filter`, `--include-path`, `--exclude-path`, `--full-path`, `--verbose`.
 - **Naming**: bare `--search`; the *type* of search is implicit. Other search modes carry explicit type prefixes (`--literal`, `--fast`, `--regex`).
 - **Verified against**: `src/argparse.js:216`

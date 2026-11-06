@@ -155,13 +155,7 @@ export function printResults(results, { verbose = false, maxResults = null,
 
       // Show match type only when it's not literal
       let typeTag = '';
-      if (!allLiteral) {
-        if (r.matchType === 'semantic' && r.score > 0) {
-          typeTag = `  (semantic, score=${r.score.toFixed(3)})`;
-        } else if (r.matchType !== 'literal') {
-          typeTag = `  (${r.matchType})`;
-        }
-      }
+      if (!allLiteral && r.matchType !== 'literal') typeTag = `  (${r.matchType})`;
 
       const displayLine = index ? index.applyRenames(r.lineText) : r.lineText;
       console.log(`    L${r.lineNumber}  ${displayLine.trim()}${funcTag}${typeTag}`);

@@ -102,6 +102,26 @@ describe('CodeSearchIndex', () => {
     const stats = index.getStats();
     assert.ok(stats.files_indexed >= 3);
     assert.ok(stats.total_lines > 20);
+    // cli-md-search-semantic-vestiges: the Python-era semantic index is gone (#322) and the
+    // stats object no longer carries its flag
+    assert.equal('semantic_available' in stats, false);
+  });
+
+  it('printResults tags a non-literal match by its type and a literal one not at all', async () => {
+    const { printResults } = await import('../src/commands/search.js');
+    const lines = [];
+    const orig = console.log;
+    console.log = (...a) => lines.push(a.join(' '));
+    try {
+      printResults([
+        { filePath: 'a.py', lineNumber: 1, lineText: 'def alpha(): pass', context: '', matchType: 'literal', score: 0, functionName: 'alpha' },
+        { filePath: 'a.py', lineNumber: 2, lineText: 'def alpha_two(): pass', context: '', matchType: 'inverted', score: 0, functionName: 'alpha_two' },
+      ]);
+    } finally { console.log = orig; }
+    const out = lines.join('\n');
+    assert.match(out, /alpha_two\(\): pass.*\(inverted\)/, 'the inverted match carries its type');
+    assert.doesNotMatch(out, /alpha\(\): pass.*\(/, 'the literal match carries no tag');
+    assert.doesNotMatch(out, /semantic/, 'and nothing is ever tagged semantic');
   });
 
   it('listFiles: returns all indexed files', () => {
