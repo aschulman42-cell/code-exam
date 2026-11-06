@@ -895,7 +895,10 @@ Also being considered as a step toward claim/code alignment is semantic searchin
 step as might appear (e.g., it may require placing patent-claim text on the one hand and source
 code on the other into the same embedding space). The measurement that tests it, CodeBERT and
 UniXcoder against the fourteen filings' cited functions beside CodeExam's name search on the
-same names, is on [`embedding-reach.md`](embedding-reach.md), with its results as they land.
+same names, is on [`embedding-reach.md`](embedding-reach.md), and at the mechanism grain,
+where the picture changed, on [`describe-reach.md`](describe-reach.md) (2026-11-06: the
+mechanism entry holding a cited function within 25 for 58% of the names in a record, with the
+entries' labels as the text and no describer; the gap is register, not vocabulary).
 
 ## 9. Some clarifications
 

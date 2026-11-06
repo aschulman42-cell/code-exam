@@ -235,6 +235,24 @@ Solana, go-ethereum, xbmc and Spark, 26 of the 70 names, a GPU job of under half
 runtime table above; on the small indexes those representations are mostly chance, and on the
 large ones the names are already in the thousands.
 
+**2026-11-06, the same answer key at the mechanism grain.** The reading above stands for the
+symbol grain, and the question it answers in the negative, whether an embedding maps claim
+limitations to the functions a litigant cites, has since been answered in the affirmative one
+grain up ([`describe-reach.md`](describe-reach.md), "Phase 2"). With each mechanism entry's
+label and member names as the text, embedded in chunks of eight names with
+nomic-embed-text-v1.5 and no describer, the entry holding a cited function is within 5 for
+32%, within 25 for 58% and within 60 for 70% of the 114 cited names in some mechanism record
+over the same fourteen filings, median rank 15, against BM25 on the same text at 12 / 24 / 33%
+and `--claim-locate`'s committed picks at 17% of names chosen; on the harness's denominator
+of 153 names present in the index, 24 / 43 / 52%, the difference being the 39 cited names of
+four lines or fewer that the mechanism builder keeps in no record. The grain is coarser, an
+entry is about five functions and 25 entries a wider window than 25 symbols, so the two
+tables are not one number; the direction is not in doubt. On the ExoPlayer fixture, 7 of 19
+symbols within 60 and 4 of the independent 7 (0 of 20 for both encoders above). Why the
+encoders over the code did not and a text embedder over the labels does is the register
+finding on that page: the gap between a claim and the code is a translation between two
+vocabularies, which an embedding bridges within a register and not across one.
+
 ## What this does not claim
 
 - One sample per element text; no prompt, so no prompt variance, but one segmentation.

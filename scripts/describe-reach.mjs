@@ -18,7 +18,8 @@
  * Usage:
  *   node scripts/describe-reach.mjs (--hof <dir>[,<dir>...] | --all [--hof-root <root>])
  *        [--index <path>] [--embed-model <gguf>] [--text description|description+purpose|purpose|label+members]
- *        [--k 1,5,10,25] [--top N] [--cpu] [--no-prefix] [--dry] [--render <file.md>]
+ *        [--chunk N] [--fuse] [--k 1,5,10,25] [--top N] [--cpu] [--no-prefix] [--dry] [--render <file.md>]
+ *   node scripts/describe-reach.mjs --compare <a.json>,<b.json> [--render <file.md>]
  *
  *   --hof <dir>        HOF run directories (scripts/hof.mjs output: claims.txt.anchors.json
  *                      and hof_report.json), comma-separated; the report names the index
@@ -31,6 +32,21 @@
  *                      run through node-llama-cpp, no network, CPU is enough
  *   --text             what is embedded per entry (default description; an entry with none
  *                      falls back to its purpose, then its label, and the count is reported)
+ *   --chunk N          the label-and-members text is embedded in chunks of N member names,
+ *                      each with the label, and an entry scores as its best chunk (default 8;
+ *                      0 embeds the whole text, cut at TEXT_MAX_CHARS). One vector per entry
+ *                      sank the big entries (2026-11-05: a 58-function piece of x264 at rank
+ *                      365 of 367 for every element, a 450-function WinAPI entry cut after
+ *                      150 names); chunks never cost on the small indexes
+ *   --fuse             a third method row: the lexical and embedding rankings fused by
+ *                      reciprocal rank (1/(60 + rank), summed), ties broken by the embedding
+ *                      rank; plus its shuffled control. Index-dependent (2026-11-06: +5 points
+ *                      at rank 1 on the Python/JS indexes, a loss on x264 and ffmpeg where
+ *                      BM25's rank is noise on abbreviated C names), so a flag, not the default
+ *   --compare a,b      no model: two --render records of the same runs side by side, per run
+ *                      and pooled, each method's reach@1, reach@25 and strict under each and
+ *                      the difference; the describer's name comes from each record's
+ *                      describedEngine (the index's described.engine at run time)
  *   --k                the reach depths (default 1,5,10,25)
  *   --top N            entries shown per element in the detail (default 3)
  *   --cpu              force the CPU engine
@@ -56,8 +72,11 @@
  * drafter did not paraphrase; the litigants' charts are the honest test (phase 2).
  *
  * Vectors are cached under <hof>/describe-reach/ keyed by the text's hash, so a
- * re-described file re-embeds only what changed. A cache is an artifact of the index
- * (#361's inventory). A VALIDATION HARNESS, beside hof.mjs and hof-stage1.mjs.
+ * re-described file re-embeds only what changed; the cache is written every
+ * CACHE_CHECKPOINT embeddings as well as at the end, so a stopped run keeps what it
+ * paid for (Spinellis's 16,526 entries were a night's work on the CPU, 2026-11-05). A
+ * cache is an artifact of the index (#361's inventory). A VALIDATION HARNESS, beside
+ * hof.mjs and hof-stage1.mjs.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -76,7 +95,7 @@ const nf = (x) => Number(x || 0).toLocaleString('en-US');
 const pct = (n, d) => (d ? `${Math.round(100 * n / d)}%` : '');
 
 export function parseOwnArgs(argv) {
-  const o = { hof: [], all: false, hofRoot: null, index: null, model: DEFAULT_MODEL, text: 'description', k: [1, 5, 10, 25], top: 3, cpu: false, prefix: true, dry: false, render: null };
+  const o = { hof: [], all: false, hofRoot: null, index: null, model: DEFAULT_MODEL, text: 'description', chunk: 8, fuse: false, compare: null, k: [1, 5, 10, 25], top: 3, cpu: false, prefix: true, dry: false, render: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const v = () => argv[++i];
@@ -86,6 +105,9 @@ export function parseOwnArgs(argv) {
     else if (a === '--index') o.index = v();
     else if (a === '--embed-model') o.model = v();
     else if (a === '--text') { o.text = v(); if (!TEXTS.includes(o.text)) throw new Error(`--text takes ${TEXTS.join(' | ')}`); }
+    else if (a === '--chunk') { o.chunk = parseInt(v(), 10); if (!Number.isInteger(o.chunk) || o.chunk < 0) throw new Error('--chunk takes a whole number of member names (0 for the whole text)'); }
+    else if (a === '--fuse') o.fuse = true;
+    else if (a === '--compare') { o.compare = String(v()).split(',').map((s) => s.trim()).filter(Boolean); if (o.compare.length !== 2) throw new Error('--compare takes two record files, a.json,b.json'); }
     else if (a === '--k') o.k = String(v()).split(',').map((s) => parseInt(s, 10)).filter((n) => n > 0);
     else if (a === '--top') o.top = parseInt(v(), 10) || 3;
     else if (a === '--cpu') o.cpu = true;
@@ -117,6 +139,22 @@ export function entryText(e, mode) {
   if (mode === 'description+purpose') return r([d, p].filter(Boolean).join(' ') || lm, d ? 'description' : p ? 'purpose' : 'label');
   if (mode === 'purpose') return p ? r(p, 'purpose') : r(lm, 'label');
   return r(lm, 'label');
+}
+
+/**
+ * The chunks of an entry's text: the label-and-members text as runs of `n` member
+ * names, each led by the label, so an entry of 400 functions is 50 short texts and
+ * not one 1,500-character cut; any other text kind (a description, a purpose) is
+ * its own single chunk. `n` of 0 means one chunk, the whole text. Every chunk is
+ * cut like a whole text would be.
+ */
+export function entryChunks(e, mode, n) {
+  const t = entryText(e, mode);
+  if (t.kind !== 'label' || !n) return [t.text];
+  const names = (e.members || []).map((m) => splitName(m.name));
+  const out = [];
+  for (let c = 0; c * n < Math.max(names.length, 1); c++) out.push(cut(`${e.label}: ${names.slice(c * n, (c + 1) * n).join(', ')}`));
+  return out;
 }
 
 /** An identifier as words: camel, snake, ::, . split, the way the symbol searches split it. */
@@ -163,6 +201,26 @@ export function medianOf(xs) {
   if (!a.length) return null;
   const m = Math.floor(a.length / 2);
   return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+
+/**
+ * Reciprocal-rank fusion of score lists over the same entries: each list is
+ * ranked conservatively and an entry's fused score is the sum of 1/(k + rank).
+ * Two rankings that swap places 1 and 2 tie exactly (1/61 + 1/62 both ways),
+ * and under the conservative rule a tie takes the last place, which charged
+ * the hand-run fusions for agreement they nearly had (2026-11-06); so the
+ * last list's rank breaks ties, at a weight below the smallest fused
+ * difference two distinct rank pairs can produce on any index of this size.
+ */
+export const RRF_K = 60;
+export function rrfFuse(scoreLists, { k = RRF_K } = {}) {
+  const ranks = scoreLists.map((s) => ranksOf(s));
+  const n = ranks[0] ? ranks[0].length : 0;
+  const last = ranks[ranks.length - 1];
+  const out = new Array(n).fill(0);
+  for (const r of ranks) for (let i = 0; i < n; i++) out[i] += 1 / (k + r[i]);
+  for (let i = 0; i < n; i++) out[i] += 1e-12 / (k + last[i]);
+  return out;
 }
 
 /**
@@ -238,12 +296,23 @@ function readCache(file) {
   try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); return j && j.items ? j : { items: {} }; } catch { return { items: {} }; }
 }
 
-/** Embed `texts` (array of { key, text }) with the cache at `file`; returns a Map key -> unit vector. */
-async function embedAll(ctx, texts, file, { prefix = '', label = '' } = {}) {
+/** The cache is written after this many fresh embeddings, and at the end. */
+export const CACHE_CHECKPOINT = 500;
+
+/**
+ * Embed `texts` (array of { key, text }) with the cache at `file`; returns a Map
+ * key -> unit vector. `ctx` is anything with getEmbeddingFor(text) -> { vector }.
+ * Written every CACHE_CHECKPOINT fresh embeddings, so a stop keeps what ran.
+ */
+export async function embedAll(ctx, texts, file, { prefix = '', label = '', quiet = false } = {}) {
   const cache = readCache(file);
   const out = new Map();
   let fresh = 0;
   const t0 = Date.now();
+  const save = () => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ format: 'ce-describe-reach-vectors', generated: new Date().toISOString(), items: cache.items }));
+  };
   for (const { key, text } of texts) {
     const h = sha(prefix + text);
     const hit = cache.items[key];
@@ -253,13 +322,11 @@ async function embedAll(ctx, texts, file, { prefix = '', label = '' } = {}) {
     cache.items[key] = { h, v };
     out.set(key, v);
     fresh++;
-    if (fresh % 100 === 0) process.stderr.write(`  ${label}: ${nf(fresh)} embedded…\n`);
+    if (fresh % CACHE_CHECKPOINT === 0) save();
+    if (!quiet && fresh % 100 === 0) process.stderr.write(`  ${label}: ${nf(fresh)} embedded…\n`);
   }
-  if (fresh) {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ format: 'ce-describe-reach-vectors', generated: new Date().toISOString(), items: cache.items }));
-  }
-  process.stderr.write(`  ${label}: ${nf(texts.length)} texts, ${nf(fresh)} embedded, ${nf(texts.length - fresh)} from cache, ${((Date.now() - t0) / 1000).toFixed(1)} s\n`);
+  if (fresh % CACHE_CHECKPOINT) save();
+  if (!quiet) process.stderr.write(`  ${label}: ${nf(texts.length)} texts, ${nf(fresh)} embedded, ${nf(texts.length - fresh)} from cache, ${((Date.now() - t0) / 1000).toFixed(1)} s\n`);
   return out;
 }
 
@@ -356,6 +423,49 @@ export function renderPooled(runs, ks) {
   return L;
 }
 
+/**
+ * Two --render records of the same runs side by side: per run and pooled, each
+ * method present in both, reach at the first and last common depth and strict,
+ * under A, under B, and B minus A. A method one record lacks shows a dash on
+ * that side and no difference. Runs are matched by name.
+ */
+export function renderCompare(a, b, { nameA = null, nameB = null } = {}) {
+  const describer = (rec) => { const es = [...new Set((rec.runs || []).map((r) => r.describedEngine).filter(Boolean))]; return es.length ? es.join(' / ') : null; };
+  const A = nameA || describer(a) || 'A', B = nameB || describer(b) || 'B';
+  const ks = (a.ks || [1]).filter((k) => (b.ks || []).includes(k));
+  const kLo = ks[0] ?? 1, kHi = ks[ks.length - 1] ?? kLo;
+  const pairs = (a.runs || []).map((ra) => [ra, (b.runs || []).find((rb) => rb.name === ra.name)]).filter(([, rb]) => rb);
+  const L = [`## ${A} against ${B}: ${pairs.length} run${pairs.length === 1 ? '' : 's'} in common${(a.text || b.text) ? ` (text ${a.text || '?'} / ${b.text || '?'})` : ''}`, ''];
+  const cell = (m, anchors, k) => (m ? `${pct(m.reach[k] || 0, anchors)}` : '—');
+  const strictCell = (m) => (m ? pct(m.strict.hit, m.strict.elements) : '—');
+  const delta = (ma, mb, anchorsA, anchorsB, k) => (ma && mb ? `${Math.round(100 * (mb.reach[k] || 0) / anchorsB) - Math.round(100 * (ma.reach[k] || 0) / anchorsA)}` : '');
+  const sdelta = (ma, mb) => (ma && mb ? `${Math.round(100 * mb.strict.hit / (mb.strict.elements || 1)) - Math.round(100 * ma.strict.hit / (ma.strict.elements || 1))}` : '');
+  const header = () => { L.push(`| method | reach@${kLo} ${A} | ${B} | Δ | reach@${kHi} ${A} | ${B} | Δ | strict ${A} | ${B} | Δ |`, '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|'); };
+  const methodNames = (ra, rb) => [...new Set([...Object.keys(ra.methods || {}), ...Object.keys(rb.methods || {})])].filter((m) => !/shuffled/.test(m));
+  for (const [ra, rb] of pairs) {
+    L.push(`### ${ra.name} (${ra.anchors} anchors${ra.describedEngine || rb.describedEngine ? `; described by ${ra.describedEngine || '?'} / ${rb.describedEngine || '?'}` : ''})`, '');
+    header();
+    for (const m of methodNames(ra, rb)) {
+      const ma = ra.methods[m], mb = rb.methods[m];
+      L.push(`| ${m} | ${cell(ma, ra.anchors, kLo)} | ${cell(mb, rb.anchors, kLo)} | ${delta(ma, mb, ra.anchors, rb.anchors, kLo)} | ${cell(ma, ra.anchors, kHi)} | ${cell(mb, rb.anchors, kHi)} | ${delta(ma, mb, ra.anchors, rb.anchors, kHi)} | ${strictCell(ma)} | ${strictCell(mb)} | ${sdelta(ma, mb)} |`);
+    }
+    L.push(`| locator: function rung | ${pct(ra.locator.fn, ra.locator.anchors)} | ${pct(rb.locator.fn, rb.locator.anchors)} | | | | | | | |`, '');
+  }
+  if (pairs.length > 1) {
+    const anchorsA = pairs.reduce((s, [ra]) => s + ra.anchors, 0), anchorsB = pairs.reduce((s, [, rb]) => s + rb.anchors, 0);
+    const names = [...new Set(pairs.flatMap(([ra, rb]) => methodNames(ra, rb)))];
+    L.push(`### Pooled over ${pairs.length} runs, ${nf(anchorsA)} anchors`, '');
+    header();
+    for (const m of names) {
+      const sum = (side) => { const rs = pairs.map(([ra, rb]) => (side === 0 ? ra : rb)).filter((r) => r.methods[m]); if (rs.length !== pairs.length) return null; return { reach: Object.fromEntries(ks.map((k) => [k, rs.reduce((s, r) => s + (r.methods[m].reach[k] || 0), 0)])), strict: { hit: rs.reduce((s, r) => s + r.methods[m].strict.hit, 0), elements: rs.reduce((s, r) => s + r.methods[m].strict.elements, 0) } }; };
+      const ma = sum(0), mb = sum(1);
+      L.push(`| ${m} | ${cell(ma, anchorsA, kLo)} | ${cell(mb, anchorsB, kLo)} | ${delta(ma, mb, anchorsA, anchorsB, kLo)} | ${cell(ma, anchorsA, kHi)} | ${cell(mb, anchorsB, kHi)} | ${delta(ma, mb, anchorsA, anchorsB, kHi)} | ${strictCell(ma)} | ${strictCell(mb)} | ${sdelta(ma, mb)} |`);
+    }
+    L.push('');
+  }
+  return L;
+}
+
 function renderDetail(r, top) {
   const L = [`<details><summary>${r.name}: per element, the top ${top} entries (embedding)</summary>`, ''];
   const m = r.methods[r.primary];
@@ -374,6 +484,14 @@ async function main() {
   let o;
   try { o = parseOwnArgs(process.argv.slice(2)); } catch (e) { console.error(e.message); process.exit(2); }
   if (o.help) { console.log(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').filter((l) => /^ \*( |$)/.test(l)).map((l) => l.slice(3)).join('\n')); return; }
+  if (o.compare) {
+    const [a, b] = o.compare.map((f) => JSON.parse(fs.readFileSync(path.resolve(f), 'utf8')));
+    const [nameA, nameB] = o.compare.map((f) => path.basename(f).replace(/\.json$/i, ''));
+    const text = renderCompare(a, b, { nameA: a.runs && a.runs.some((r) => r.describedEngine) ? null : nameA, nameB: b.runs && b.runs.some((r) => r.describedEngine) ? null : nameB }).join('\n');
+    console.log(text);
+    if (o.render) { fs.mkdirSync(path.dirname(path.resolve(o.render)), { recursive: true }); fs.writeFileSync(o.render, text + '\n'); console.error(`# written ${o.render}`); }
+    return;
+  }
   const root = o.hofRoot || path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), '.local', 'share'), 'CodeExam', 'hof');
   const dirs = o.all ? describedRuns(root) : o.hof.map((d) => path.resolve(d));
   if (!dirs.length) { console.error('no HOF runs: pass --hof <dir> or --all'); process.exit(2); }
@@ -412,23 +530,35 @@ async function main() {
     if (useControl) methods['lexical, shuffled control (another run\'s elements)'] = scoreRun(run.claims, entries, (t) => lex.score(t), { ks: o.k, top: o.top, elementsOf: controlElsOf });
 
     let primary = Object.keys(methods)[0];
+    let chunked = 0;
     if (embedder) {
       const prefixDoc = o.prefix && /nomic/i.test(modelBase) ? 'search_document: ' : '';
       const prefixQ = o.prefix && /nomic/i.test(modelBase) ? 'search_query: ' : '';
       const cacheDir = path.join(run.dir, 'describe-reach');
       const indexName = path.basename(indexPath).replace(/^\./, '');
       const entryVecs = await embedAll(embedder.ctx, entries.map((e, i) => ({ key: `${e.id}:${i}`, text: texts[i].text })), path.join(cacheDir, `${indexName}_${modelBase}_${o.text}.json`), { prefix: prefixDoc, label: `${run.name} entries` });
-      const vecs = entries.map((e, i) => entryVecs.get(`${e.id}:${i}`));
+      // chunks: the label-and-members text as runs of --chunk names; a chunk equal to the whole text reuses its vector
+      const chunkTexts = entries.map((e) => entryChunks(e, o.text, o.chunk));
+      const extra = [];
+      chunkTexts.forEach((cs, i) => { if (cs.length > 1) chunked++; cs.forEach((t, c) => { if (t !== texts[i].text) extra.push({ key: `${entries[i].id}:${i}:${c}`, text: t }); }); });
+      const chunkVecs = extra.length ? await embedAll(embedder.ctx, extra, path.join(cacheDir, `${indexName}_${modelBase}_chunks${o.chunk}.json`), { prefix: prefixDoc, label: `${run.name} chunks` }) : new Map();
+      const vecsOf = entries.map((e, i) => chunkTexts[i].map((t, c) => (t === texts[i].text ? entryVecs.get(`${e.id}:${i}`) : chunkVecs.get(`${e.id}:${i}:${c}`))));
       const elTexts = [];
       for (const c of [...run.claims, ...(useControl ? control.claims : [])]) for (const t of elsOf(c)) elTexts.push({ key: sha(t), text: t });
       const elVecs = await embedAll(embedder.ctx, elTexts, path.join(cacheDir, `elements_${modelBase}.json`), { prefix: prefixQ, label: `${run.name} elements` });
-      const scoreEmbed = (t) => { const q = elVecs.get(sha(t)); return vecs.map((v) => cosine(q, v)); };
-      const label = `embedding (${modelBase}, ${o.text})`;
+      const scoreEmbed = (t) => { const q = elVecs.get(sha(t)); return vecsOf.map((vs) => { let b = -2; for (const v of vs) { const c = cosine(q, v); if (c > b) b = c; } return b; }); };
+      const label = `embedding (${modelBase}, ${o.text}${chunked ? `, best chunk of ${o.chunk}` : ''})`;
       methods[label] = scoreRun(run.claims, entries, scoreEmbed, { ks: o.k, top: o.top, elementsOf: elsOf });
       if (useControl) methods[`embedding, shuffled control`] = scoreRun(run.claims, entries, scoreEmbed, { ks: o.k, top: o.top, elementsOf: controlElsOf });
+      if (o.fuse) {
+        const fused = (t) => rrfFuse([lex.score(t), scoreEmbed(t)]);
+        methods[`lexical + embedding, fused (reciprocal rank, k=${RRF_K}; ties to the embedding)`] = scoreRun(run.claims, entries, fused, { ks: o.k, top: o.top, elementsOf: elsOf });
+        if (useControl) methods['fused, shuffled control'] = scoreRun(run.claims, entries, fused, { ks: o.k, top: o.top, elementsOf: controlElsOf });
+      }
       primary = label;
     }
-    results.push({ name: run.name, index: indexPath, entries: entries.length, textKinds, claims: run.claims, anchors, unmapped: methods[primary].unmapped, methods, locator: locatorBaseline(run.report), ks: o.k, primary });
+    const describedEngine = (data.described && data.described.engine) || null;
+    results.push({ name: run.name, index: indexPath, entries: entries.length, textKinds, chunk: o.chunk, chunked, describedEngine, claims: run.claims, anchors, unmapped: methods[primary].unmapped, methods, locator: locatorBaseline(run.report), ks: o.k, primary });
   }
   if (embedder) await embedder.dispose();
 
@@ -441,7 +571,7 @@ async function main() {
     fs.mkdirSync(path.dirname(path.resolve(o.render)), { recursive: true });
     fs.writeFileSync(o.render, text + '\n');
     const rec = path.resolve(o.render).replace(/\.md$/i, '') + '.json';
-    fs.writeFileSync(rec, JSON.stringify({ format: 'ce-describe-reach', generated: new Date().toISOString(), model: o.dry ? null : modelBase, text: o.text, ks: o.k, runs: results.map((r) => ({ ...r, claims: r.claims.map((c) => ({ n: c.n, label: c.label, anchors: c.anchors.length })) })) }, null, 1));
+    fs.writeFileSync(rec, JSON.stringify({ format: 'ce-describe-reach', generated: new Date().toISOString(), model: o.dry ? null : modelBase, text: o.text, chunk: o.dry ? null : o.chunk, fuse: o.fuse, ks: o.k, runs: results.map((r) => ({ ...r, claims: r.claims.map((c) => ({ n: c.n, label: c.label, anchors: c.anchors.length })) })) }, null, 1));
     console.error(`# written ${o.render} and ${rec}`);
   }
 }
