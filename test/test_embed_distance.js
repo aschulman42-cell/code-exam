@@ -95,6 +95,20 @@ describe('embed-distance', () => {
     assert.match(filtered[2], /^--filter "rate": 1 of 3 match$/);
   });
 
+  it('says "no clear match" when the top row sits within the margin of the median, and shows the margin otherwise', () => {
+    const q = [1, 0];
+    // twelve candidates: a flat field around cosine 0.5 and a top at 0.53 is no match; a top at 0.8 is
+    const flat = Array.from({ length: 11 }, (_, i) => ({ text: `c${i}`, vectors: [[0.5 + i * 0.001, Math.sqrt(1 - (0.5 + i * 0.001) ** 2)]] }));
+    const near = renderListing({ query: 'q', what: '12 candidates', ranked: rankCandidates(q, [...flat, { text: 'top', vectors: [[0.53, Math.sqrt(1 - 0.53 ** 2)]] }]), top: 3, filter: null, verbose: false });
+    assert.match(near[1], /median cosine 0\.50\d\d \(the nearest is 0\.02\d\d above it\)$/);
+    assert.match(near[2], /^no clear match: the nearest candidate is only 0\.02\d\d above the median/);
+    const clear = renderListing({ query: 'q', what: '12 candidates', ranked: rankCandidates(q, [...flat, { text: 'top', vectors: [[0.8, 0.6]] }]), top: 3, filter: null, verbose: false });
+    assert.match(clear[1], /\(the nearest is 0\.29\d\d above it\)$/);
+    assert.equal(clear[2], '', 'no note when the top is clear of the median');
+    const few = renderListing({ query: 'q', what: '3 candidates', ranked: rankCandidates(q, flat.slice(0, 3)), top: 3, filter: null, verbose: false });
+    assert.doesNotMatch(few[1], /above it/, 'a short list has no median worth reading');
+  });
+
   it('the cache lives beside mechanisms.json, one file per model and text, and a wide vector is stored compactly and read back', async () => {
     assert.equal(embedCacheFile('C:/idx', 'nomic-embed-text-v1.5.Q8_0', 'label+members_chunks8'), path.join('C:/idx', 'embeddings', 'nomic-embed-text-v1.5.Q8_0_label+members_chunks8.json'));
     assert.equal(CHUNK, 8);

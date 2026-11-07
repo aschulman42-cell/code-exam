@@ -84,9 +84,27 @@ export function filterRanked(ranked, s) {
   return out;
 }
 
-/** The listing as lines: the query, what was ranked, the median, then the rows. */
+/**
+ * A top row within this much of the median is reported as no clear match. Calibrated
+ * 2026-11-07 (nomic, labels in chunks of 8) on CodeExam's own index, the demo and
+ * ExoPlayer 3: five queries with a known mechanism put their top row 0.15 to 0.30
+ * above the median; six queries the codebase has nothing for ("generate prime
+ * numbers", "verifying a certificate chain" on CodeExam) put theirs 0.08 to 0.14
+ * above it, except one at 0.20 that was a shared-word hit ("chain" in a GL shader
+ * test's name). No statistic separated the two groups cleanly (z-scores overlapped
+ * from 1.7 to 5.7 in both); the margin at 0.14 is the line the data allow, and the
+ * note says "no clear match", never "found": a label-word hit sits above the line.
+ */
+export const NO_MATCH_MARGIN = 0.14;
+/** A listing shorter than this has no median worth reading. */
+export const MEDIAN_MIN = 10;
+
+/** The listing as lines: the query, what was ranked, the median and the top row's margin over it, a note when that margin says no match, then the rows. */
 export function renderListing({ query, what, ranked, top, filter, verbose }) {
-  const L = [`query: ${query}`, `${what}; median cosine ${median(ranked.map((x) => x.cos)).toFixed(4)}`];
+  const med = median(ranked.map((x) => x.cos));
+  const margin = ranked.length ? ranked[0].cos - med : 0;
+  const L = [`query: ${query}`, `${what}; median cosine ${med.toFixed(4)}${ranked.length >= MEDIAN_MIN ? ` (the nearest is ${margin.toFixed(4)} above it)` : ''}`];
+  if (ranked.length >= MEDIAN_MIN && margin < NO_MATCH_MARGIN) L.push(`no clear match: the nearest candidate is only ${margin.toFixed(4)} above the median, about what an unrelated candidate scores; the rows below are the least far, not a find`);
   let shown = ranked;
   if (filter) {
     shown = filterRanked(ranked, filter);
