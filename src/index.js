@@ -436,6 +436,15 @@ if (args.synonymize) {
   process.exit(process.exitCode || 0);
 }
 
+// embed-distance-cli: dispatched before the index is constructed. A pair or a
+// list needs no index; against an index it reads mechanisms.json beside it, not
+// the 65,000-symbol index itself, so a 16,000-entry listing costs the query.
+if (args.embed_distance) {
+  const { doEmbedDistance } = await import('./commands/embed-distance.js');
+  await doEmbedDistance(args);
+  process.exit(process.exitCode || 0);
+}
+
 if (args.extract_js_from_binary) {
   doExtractJsFromBinary(args);
   process.exit(0);

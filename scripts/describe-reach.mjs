@@ -87,6 +87,10 @@ import { loadMechanismsIndex, foldRecords } from '../src/core/mechanisms-index.j
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 import { contentWords, stem } from '../src/core/claim-terms.js';
 import { parseSidecar, baseName } from './hof.mjs';
+// The embedding substrate moved to src/core/embed.js (embed-distance-cli, 2026-11-07) so
+// --embed-distance scores an entry the way this script does; re-exported for the test.
+import { TEXT_MAX_CHARS, splitName, entryText, entryChunks, sha, cosine, embedAll, CACHE_CHECKPOINT, openEmbedder } from '../src/core/embed.js';
+export { TEXT_MAX_CHARS, splitName, entryText, entryChunks, cosine, embedAll, CACHE_CHECKPOINT };
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_MODEL = path.join(ROOT, 'models', 'nomic-embed-text-v1.5.Q8_0.gguf');
@@ -121,46 +125,8 @@ export function parseOwnArgs(argv) {
 }
 
 // ---- the unit -------------------------------------------------------------
-
-// A text longer than the embedding context fails the call (a giant entry's
-// member list on WinAPI did, 2026-11-05); every text is cut here, well under
-// the context the embedder opens below. The cut is reported per entry's kind,
-// not hidden: a description never reaches it, a purpose or a member list can.
-export const TEXT_MAX_CHARS = 1500;
-const cut = (s) => (s.length > TEXT_MAX_CHARS ? s.slice(0, TEXT_MAX_CHARS) : s);
-
-/** The text embedded per entry under `mode`, with `kind` saying which text answered (the description, else the purpose, else the label and members). */
-export function entryText(e, mode) {
-  const d = String(e.description || '').trim();
-  const p = String(e.purpose || '').trim();
-  const lm = `${e.label}: ${(e.members || []).map((m) => splitName(m.name)).join(', ')}`;
-  const r = (text, kind) => ({ text: cut(text), kind });
-  if (mode === 'description') return d ? r(d, 'description') : p ? r(p, 'purpose') : r(lm, 'label');
-  if (mode === 'description+purpose') return r([d, p].filter(Boolean).join(' ') || lm, d ? 'description' : p ? 'purpose' : 'label');
-  if (mode === 'purpose') return p ? r(p, 'purpose') : r(lm, 'label');
-  return r(lm, 'label');
-}
-
-/**
- * The chunks of an entry's text: the label-and-members text as runs of `n` member
- * names, each led by the label, so an entry of 400 functions is 50 short texts and
- * not one 1,500-character cut; any other text kind (a description, a purpose) is
- * its own single chunk. `n` of 0 means one chunk, the whole text. Every chunk is
- * cut like a whole text would be.
- */
-export function entryChunks(e, mode, n) {
-  const t = entryText(e, mode);
-  if (t.kind !== 'label' || !n) return [t.text];
-  const names = (e.members || []).map((m) => splitName(m.name));
-  const out = [];
-  for (let c = 0; c * n < Math.max(names.length, 1); c++) out.push(cut(`${e.label}: ${names.slice(c * n, (c + 1) * n).join(', ')}`));
-  return out;
-}
-
-/** An identifier as words: camel, snake, ::, . split, the way the symbol searches split it. */
-export function splitName(name) {
-  return String(name || '').replace(/[:.]+/g, ' ').replace(/[_\-]+/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/\s+/g, ' ').trim();
-}
+// The text per entry, its chunks and the identifier split live in
+// src/core/embed.js (TEXT_MAX_CHARS, entryText, entryChunks, splitName).
 
 /** The indices of the entries whose members hold the anchor (base name of the file, function name with or without its class). */
 export function entriesHolding(entries, anchor) {
@@ -287,57 +253,8 @@ export function bm25Index(texts, { k1 = 1.2, b = 0.75 } = {}) {
 }
 
 // ---- embedding through node-llama-cpp, cached ------------------------------
-
-const sha = (s) => crypto.createHash('sha256').update(String(s), 'utf8').digest('hex').slice(0, 16);
-const normalize = (v) => { let n = 0; for (const x of v) n += x * x; n = Math.sqrt(n) || 1; return v.map((x) => x / n); };
-export const cosine = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
-
-function readCache(file) {
-  try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); return j && j.items ? j : { items: {} }; } catch { return { items: {} }; }
-}
-
-/** The cache is written after this many fresh embeddings, and at the end. */
-export const CACHE_CHECKPOINT = 500;
-
-/**
- * Embed `texts` (array of { key, text }) with the cache at `file`; returns a Map
- * key -> unit vector. `ctx` is anything with getEmbeddingFor(text) -> { vector }.
- * Written every CACHE_CHECKPOINT fresh embeddings, so a stop keeps what ran.
- */
-export async function embedAll(ctx, texts, file, { prefix = '', label = '', quiet = false } = {}) {
-  const cache = readCache(file);
-  const out = new Map();
-  let fresh = 0;
-  const t0 = Date.now();
-  const save = () => {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ format: 'ce-describe-reach-vectors', generated: new Date().toISOString(), items: cache.items }));
-  };
-  for (const { key, text } of texts) {
-    const h = sha(prefix + text);
-    const hit = cache.items[key];
-    if (hit && hit.h === h && Array.isArray(hit.v)) { out.set(key, hit.v); continue; }
-    const e = await ctx.getEmbeddingFor(prefix + text);
-    const v = normalize([...e.vector]);
-    cache.items[key] = { h, v };
-    out.set(key, v);
-    fresh++;
-    if (fresh % CACHE_CHECKPOINT === 0) save();
-    if (!quiet && fresh % 100 === 0) process.stderr.write(`  ${label}: ${nf(fresh)} embedded…\n`);
-  }
-  if (fresh % CACHE_CHECKPOINT) save();
-  if (!quiet) process.stderr.write(`  ${label}: ${nf(texts.length)} texts, ${nf(fresh)} embedded, ${nf(texts.length - fresh)} from cache, ${((Date.now() - t0) / 1000).toFixed(1)} s\n`);
-  return out;
-}
-
-async function openEmbedder(modelPath, { cpu = false } = {}) {
-  const { getLlamaShared } = await import('../src/core/llm-runner.js');
-  const llama = await getLlamaShared({ cpu });
-  const model = await llama.loadModel({ modelPath });
-  // 2048 tokens holds any text TEXT_MAX_CHARS allows, identifiers included.
-  const ctx = await model.createEmbeddingContext({ contextSize: 2048 });
-  return { ctx, dispose: async () => { await ctx.dispose(); await model.dispose(); } };
-}
+// sha, cosine, embedAll (the checkpointed cache) and openEmbedder come from
+// src/core/embed.js; the cache files keep their format and keys.
 
 // ---- runs -----------------------------------------------------------------
 

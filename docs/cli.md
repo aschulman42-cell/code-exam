@@ -172,6 +172,14 @@ This file is the canonical reference for every CodeExam command-line flag.
 - **Naming**: mechanism name — there's no clearer user-intent alias.
 - **Verified against**: `src/argparse.js:219`
 
+#### `--embed-distance <text>`
+
+- **Does**: Measures how close a text is, under a local embedding model, to one other text (`--against "<text>"`: the cosine and the distance, 1 − cosine), to a list (`--against @file`, one candidate per line, `#` comments skipped, lines cut at 1,500 characters), or, with no `--against`, to every mechanism entry of the index named by `--ndx`, scored as [`describe-reach.md`](describe-reach.md) scores them: the entry's label and member names in chunks of 8, the entry by its best chunk, vectors cached under `<index>/embeddings/` so a second query on a large index costs the query alone. A listing prints the query, what was ranked, the median cosine (what an unrelated candidate scores under this model; raw cosines are not comparable across models), then rows of rank, cosine, distance and the candidate, the `--max-results` nearest (default 20; `0` for all). `--filter <s>` applies after ranking, so every match keeps its overall rank and an entry line names the member that matched: `--filter determineIdealSelectedIndex` on the ExoPlayer index puts `[class] AdaptiveTrackSelection / other` at its rank among 11,000 entries. `--verbose` adds, under each entry, the chunk that scored, which is how to tell a label word's hit ("Receiver" for "reception device") from a mechanism's. Models: `--embed-model nomic` (default, shipped) `| jina | coderank | qwen06 | qwen4 | <path.gguf>`, each with its own query and document prefixes (`--no-prefix` embeds the texts as given); a named model whose file is not under `models/` fails with the path and the download source. Local only: no network, no key, `--cpu` forces the CPU; `--air-gapped` changes nothing. Needs `mechanisms.json` (`--build-mechanisms`, no model) for the index form.
+- **Good for**: Seeing, before any model reads any code, how near a claim element sits to a codebase's mechanisms in a given embedding, which entries it is near and why; comparing two wordings of an element (the claim's and the engineer's) against the same entries; finding where a particular function's entry fell.
+- **Couples with**: `--against`, `--embed-model`, `--max-results`, `--filter`, `--no-prefix`, `--cpu`, `--verbose`, `--ndx`.
+- **Naming**: the measure, not the method; `--against` carries the second operand because the parser takes one value per flag.
+- **Verified against**: `src/argparse.js` (`embed_distance`, `against`, `embed_model`, `no_prefix`), `src/commands/embed-distance.js`, `src/core/embed.js`
+
 #### `--files-search <query>`
 
 - **Does**: Show files containing a term, sorted by hit count.

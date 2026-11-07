@@ -59,7 +59,11 @@ phase 2, not run.
   (1/(60 + rank), summed; ties to the embedding) with its own shuffled control. `--compare
   a.json,b.json` sets two records of the same runs side by side with no model, the describer
   named from each record's `describedEngine`. The vector cache is written every 500
-  embeddings, so a stopped run keeps what it paid for.
+  embeddings, so a stopped run keeps what it paid for. Since 2026-11-07 the text per entry,
+  its chunks, the model registry with each model's prefixes, the cache and the cosine live
+  in `src/core/embed.js`, and `--embed-distance` ([`cli.md`](cli.md)) scores an index's
+  entries through the same code, so a rank it prints and a rank in these tables are one
+  measure.
 
 Runs: the latest 2026-11-03 HOF run of each index described by Claude as of 2026-11-05
 (`--all` takes an index when nine records in ten carry a sentence): CodeExam's own index

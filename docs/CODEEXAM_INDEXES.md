@@ -77,9 +77,12 @@ YAML coverage is what the Infrastructure detectors content-sniff.
 
 A built index is just a directory of JSON files — no database server, no binary store. The choice
 is deliberate: exact and regex code search wants **lexical precision, not nearest-neighbor
-approximation**, and plain JSON stays transparent, diffable, and trivially portable. There is no
-vector / semantic store today; embedding-based retrieval is being explored only as a layer *on
-top* of the lexical index (#201 / #202), not as a replacement — the fuller argument is in
+approximation**, and plain JSON stays transparent, diffable, and trivially portable. No search
+reads a vector store today (the one vector file an index can carry, `<index>/embeddings/`, is
+what `--embed-distance` caches when asked to measure a text against the index's mechanism
+labels, a measurement rather than a retrieval path); embedding-based retrieval is being explored
+only as a layer *on top* of the lexical index (#201 / #202), not as a replacement — the fuller
+argument is in
 [`STRUCTURAL_SEARCH.md`](STRUCTURAL_SEARCH.md). And a vector store useful *here* is a tall order:
 it would need a **joint embedding space of text and code**. Models trained on docstring↔code
 pairs ([[name the reference — e.g. CodeSearchNet / jina-embeddings-v2-base-code; confirm]]) give

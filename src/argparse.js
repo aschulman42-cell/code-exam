@@ -145,6 +145,10 @@ export function parseArgs() {
     port: null,
     multi_index: null,
     skip_semantic: true,
+    embed_distance: null,    // embed-distance-cli: the text to measure from
+    against: null,           // one text, or @file with one candidate per line; none = the index's mechanism entries
+    embed_model: null,       // nomic (default) | jina | coderank | qwen06 | qwen4 | <path.gguf>
+    no_prefix: false,        // embed the texts without the model's retrieval prefixes
     use_tree_sitter: true,     // tree-sitter wherever a grammar ships; --regex-parser opts out
     regex_parser: false,
     extensions: null,
@@ -723,6 +727,11 @@ export function parseArgs() {
     ['no_hunt',              'flag',           ['--no-hunt']],
     ['synonymize',           'value',          ['--synonymize']],
     ['synonymize_out',       'value',          ['--synonymize-out']],
+    // embed-distance-cli (2026-11-07): the cosine instrument of docs/describe-reach.md as a command
+    ['embed_distance',       'value',          ['--embed-distance']],
+    ['against',              'value',          ['--against']],
+    ['embed_model',          'value',          ['--embed-model']],
+    ['no_prefix',            'flag',           ['--no-prefix']],
     // Force the one-claim-per-line reading on a file that carries no format
     // marker (hand-made corpora). --single-claim forces the other way, for a
     // one-line claim that would otherwise be auto-detected as a corpus of one.
@@ -1239,6 +1248,16 @@ SEARCH:
   --literal <query>          Literal/exact text search
   --fast <query>             Fast inverted-index search
   --regex <pattern>          Regex pattern search
+  --embed-distance <text>    Cosine distance under a local embedding model: from <text>
+                             to --against "<text>" (one pair), to --against @file (one
+                             candidate per line), or with no --against to every mechanism
+                             entry of the index (label + member names in chunks of 8,
+                             best chunk; vectors cached beside mechanisms.json). Rows are
+                             rank, cosine, distance, the candidate; the median says what
+                             an unrelated candidate scores. --embed-model nomic (default)
+                             | jina | coderank | qwen06 | qwen4 | <path.gguf>; --max-results
+                             N (0 = all); --filter <s> keeps ranks and names the member
+                             that matched; --no-prefix; --verbose shows the chunk that scored
   --files-search <query>     Show files containing a term, sorted by hit count
   --folders-search <query>   Show folders containing a term, sorted by hit count
   --multisect-search <terms> Multi-term intersection search (semicolon-separated terms)

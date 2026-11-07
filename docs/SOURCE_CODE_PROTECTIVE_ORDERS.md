@@ -396,9 +396,12 @@ against the clauses above:
   The model runs in the CodeExam process on the review machine; prompts, code and answers
   go to the model in memory and nowhere else. The model's weights are not modified by use;
   the context (the KV cache) is memory, discarded when the session ends. CodeExam keeps no
-  vector database (currently; the possibility of semantic / vector / embeddings search is
-  open in issue #322) and does no fine-tuning, so there is no model-side artifact that
-  carries the material; the file-side artifacts are inventoried below.
+  vector database and does no fine-tuning, so there is no model-side artifact that carries
+  the material; the file-side artifacts are inventoried below. One of them is a vector
+  file: `--embed-distance` (2026-11-07; the measurement behind it is issue #322) embeds the
+  index's own mechanism labels and member names with a local model and caches the vectors
+  under the index directory, a file-side artifact of the index that lives and dies with it,
+  not a store that anything outside the process can query.
 - **No transmission to a public system or network** (the *Zelis* parenthetical). Met by
   CodeExam's own code, not by the environment. `--air-gapped`
   ([`AIR_GAPPED.md`](AIR_GAPPED.md)) is a gate on CodeExam's own cloud-provider calls (every
@@ -444,6 +447,7 @@ carries the material in some form:
 | Artifact | What it contains | Where | Deleted how |
 |---|---|---|---|
 | The index directory (`literal_index.json`, `inverted_index.json`, `function_index.json`, `string_table.json`, `func_hashes.json`, `rename_map.json`, `import_map.json`, `vocabulary.json`; [`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md)) | The code itself: `literal_index.json` stores every indexed file's lines; the inverted index maps tokens to locations; the string table holds the distinctive strings; the others hold structure, names and vocabulary derived from the code | The directory you named when building | Delete the directory; nothing else references it |
+| `<index>/embeddings/` (`--embed-distance`) | Unit vectors of the index's mechanism entries' labels and member names under a named local embedding model, keyed by a hash of each text; no source text, no code, and nothing recoverable from a vector beyond the direction it points | Beside `mechanisms.json` in the index directory, one file per model and text | With the index directory; a different model or a rebuilt `mechanisms.json` writes a new file and leaves the old one until the directory goes |
 | The zipped-index cache | An unpacked copy of an index that was loaded from a `.zip` | `codeexam-zip-index/<key>` under the system temporary directory (`os.tmpdir()`); CodeExam names the directory on the terminal when it extracts | `ce --clean-zip-cache` removes every cached extraction and says what it removed; or delete the directory by hand. It is not removed automatically |
 | Files you asked for: GUI pane saves, chat saves, claim-chart HTML or Markdown and verdict sidecars (`--chart-html`, `--chart-md`, `--verdicts-out`), redirected command output | Excerpts, analyses, charts and conversations, which quote the code | Wherever you pointed them; a network drive or a OneDrive / Dropbox-synced folder moves the data off the machine the moment it syncs ([`AIR_GAPPED.md`](AIR_GAPPED.md), "Saving results") | Delete each file; synced copies and backups are the host's to find |
 | Chat and overview text not saved | Lives in the GUI page or the terminal until saved; CodeExam keeps no session log of its own. The generated overview, which quotes code, is also kept in the browser tab's session storage for the life of the tab, and the browser writes that to its profile on disk: Chromium-family browsers under the profile's "Session Storage" folder, Firefox inside its session-store files | Memory; the default browser's profile for the overview, until the tab closes | Chat: gone on reload or exit. Overview: the entry goes when the tab closes, but the browser's storage files may hold the bytes until it compacts them, so clear the browser's site data for the GUI's address (127.0.0.1 and its port) as part of the destruction step, or run the GUI in a private window on a review machine so nothing is written to the profile at all |
