@@ -95,13 +95,39 @@ describe('embed-distance', () => {
     assert.match(filtered[2], /^--filter "rate": 1 of 3 match$/);
   });
 
-  it('says "no clear match" when the top row sits within the margin of the median, and shows the margin otherwise', () => {
+  it('-v prints the entry block under a mechanism row, members as file@name with their line range, then the chunk; a text candidate stays one row', () => {
+    const entry = {
+      id: 'm9', label: '[class] AdaptiveTrackSelection / other', description: 'Picks the track.', files: ['a/Adaptive.java'], tags: ['giant'],
+      members: [{ file: 'a/Adaptive.java', name: 'AdaptiveTrackSelection::determineIdealSelectedIndex', start: 10, end: 48 }, { file: 'a/Adaptive.java', name: 'AdaptiveTrackSelection::updateSelectedTrack' }],
+    };
+    const ranked = rankCandidates([1, 0, 0], [
+      { text: 'near', label: entry.label, members: entry.members, entry, chunks: ['chunk one', 'chunk two'], vectors: [[0, 1, 0], [1, 0, 0]] },
+      { text: 'a plain candidate', vectors: [[0, 1, 0]] },
+    ]);
+    const lines = formatRow(ranked[0], 2, { verbose: true }).split('\n');
+    assert.match(lines[0], /^ 1\. cosine 1\.0000  distance 0\.0000  \[class\] AdaptiveTrackSelection \/ other  \(2 fn\)$/);
+    assert.equal(lines[1], '    m9    Picks the track.');
+    assert.equal(lines[2], '          [class] AdaptiveTrackSelection / other  (2 fns, 1 file)  [giant]');
+    assert.equal(lines[3], '          a/Adaptive.java@AdaptiveTrackSelection::determineIdealSelectedIndex  (L10–48)', 'a member with a range');
+    assert.equal(lines[4], '          a/Adaptive.java@AdaptiveTrackSelection::updateSelectedTrack', 'a member without one prints as before');
+    assert.equal(lines[5], '    chunk: chunk two', 'the chunk line closes the block');
+    assert.equal(lines.length, 6);
+    assert.equal(formatRow(ranked[1], 2, { verbose: true }), ' 2. cosine 0.0000  distance 1.0000  a plain candidate', 'no block for a text candidate');
+  });
+
+  it('says "no clear match" under the band, "borderline" inside it, and only the margin above it', () => {
     const q = [1, 0];
-    // twelve candidates: a flat field around cosine 0.5 and a top at 0.53 is no match; a top at 0.8 is
+    // twelve candidates: a flat field around cosine 0.5; a top at 0.53 is no match, at 0.6455 borderline, at 0.8 clear
     const flat = Array.from({ length: 11 }, (_, i) => ({ text: `c${i}`, vectors: [[0.5 + i * 0.001, Math.sqrt(1 - (0.5 + i * 0.001) ** 2)]] }));
     const near = renderListing({ query: 'q', what: '12 candidates', ranked: rankCandidates(q, [...flat, { text: 'top', vectors: [[0.53, Math.sqrt(1 - 0.53 ** 2)]] }]), top: 3, filter: null, verbose: false });
     assert.match(near[1], /median cosine 0\.50\d\d \(the nearest is 0\.02\d\d above it\)$/);
-    assert.match(near[2], /^no clear match: the nearest candidate is only 0\.02\d\d above the median/);
+    assert.equal(near[2], '', 'a blank line sets the note apart from the header (Andrew, 2026-11-08: it was easy to miss)');
+    assert.match(near[3], /^no clear match: the nearest candidate is only 0\.02\d\d above the median/);
+    const border = renderListing({ query: 'q', what: '12 candidates', ranked: rankCandidates(q, [...flat, { text: 'top', vectors: [[0.6455, Math.sqrt(1 - 0.6455 ** 2)]] }]), top: 3, filter: null, verbose: false });
+    assert.match(border[1], /\(the nearest is 0\.1[34]\d\d above it\)$/);
+    assert.equal(border[2], '');
+    assert.match(border[3], /^borderline: the nearest candidate is 0\.1[34]\d\d above the median, in the band \(0\.12 to 0\.16\)/, 'the band where the 2026-11-08 multisect rewordings landed (0.137 to 0.180, all true matches)');
+    assert.doesNotMatch(border.join('\n'), /no clear match/);
     const clear = renderListing({ query: 'q', what: '12 candidates', ranked: rankCandidates(q, [...flat, { text: 'top', vectors: [[0.8, 0.6]] }]), top: 3, filter: null, verbose: false });
     assert.match(clear[1], /\(the nearest is 0\.29\d\d above it\)$/);
     assert.equal(clear[2], '', 'no note when the top is clear of the median');

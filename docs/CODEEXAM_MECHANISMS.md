@@ -138,7 +138,8 @@ indexes, each followed by how to read it:
 
 `--mechanisms [filter]` prints each row with its record id (`m5`, `m71`: the number of the
 record in the file, the one that names the row when two are folded), its label, counts,
-tags, purpose or description, and its member names; `-v` lists every member as `file@name`.
+tags, purpose or description, and its member names; `-v` lists every member as
+`file@name  (L12–48)`, the function's line range in the index after its anchor.
 `--toc [filter]` prints the same rows one line each, numbered from 1 in the same order (an
 ordinal, not a rank), the header first:
 

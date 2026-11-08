@@ -18,6 +18,7 @@ in the AI/ML cells — see [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md) — and th
 | instances vs. rows | the pre-dedup **instance** count (a GUI badge / a CLI header number), shown above the smaller **row** count | badge `23` on 7 rows; `7 unique tools (23 sites)` |
 | `?` | an unknown / unlabeled family or grouping key | `~?` |
 | `also [kind] label` | in a mechanisms row: the other records that are the same functions under another label, folded into this one (the GUI adds `×N`) | `also [file] ledger.py` |
+| `file@name  (L12–48)` | a member of a mechanism entry under `-v` (`--mechanisms`, `--toc`, `--embed-distance`): the anchor in the `file@func` grammar, then the function's line range in the index, kept outside the anchor so the `file@func` part pastes into any anchor-taking flag | `common/frame.c@x264_frame_delete  (L312–340)` |
 | `[test]` / dimmed | every site is test / example / demo code | CLI `[test]`; GUI dimmed |
 | `<var>` / "unresolved" | an identifier passed as a variable, not a string literal | `<var>`; "(unresolved variable)" |
 | `ⓘ` | a note in CodeExam's own voice under an AI answer: what it rests on, what CodeExam could or could not check | `ⓘ Based on 8 model tool calls: digest ×3, …` |

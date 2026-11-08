@@ -20,11 +20,14 @@
 //        [--filter <s>] [--no-prefix] [--cpu] [--verbose]
 //
 // A high cosine on a shared label word is not relatedness ("Receiver" for
-// "reception device"), which is why --verbose shows the chunk that scored.
+// "reception device"), which is why --verbose shows the chunk that scored, under
+// the entry's block as --mechanisms -v prints it (id, description, label, every
+// member as file@name with its line range): the listing as an ad-hoc claim-chart
+// tester, an element typed in, the functions to open under each nearest entry.
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveEmbedModel, openEmbedder, embedAll, entryChunks, entryText, cosine, median, cut, TEXT_MAX_CHARS, EMBED_MODELS } from '../core/embed.js';
-import { loadMechanismsIndex, foldRecords } from '../core/mechanisms-index.js';
+import { loadMechanismsIndex, foldRecords, recordBlock } from '../core/mechanisms-index.js';
 import { effectiveCount } from '../argparse.js';
 
 export const CHUNK = 8;
@@ -59,14 +62,16 @@ export function rankCandidates(qv, cands) {
   return scored;
 }
 
-/** One listing row, the shape of the 2026-11-07 script: rank, cosine, distance, the candidate. */
+/** One listing row, the shape of the 2026-11-07 script: rank, cosine, distance, the candidate; under `verbose`, a mechanism entry's block (recordBlock) and then the chunk that scored. */
 export function formatRow(x, width, { verbose = false } = {}) {
   const name = x.label != null ? `${x.label}  (${x.members ? x.members.length : 0} fn)` : (x.text.length > 200 ? x.text.slice(0, 200) + '…' : x.text);
   const holds = x.holds && x.holds.length ? `  holds ${x.holds.slice(0, 3).join(', ')}${x.holds.length > 3 ? ` +${x.holds.length - 3}` : ''}` : '';
   const row = `${String(x.rank).padStart(width)}. cosine ${x.cos.toFixed(4)}  distance ${(1 - x.cos).toFixed(4)}  ${name}${holds}`;
   if (!verbose || x.label == null) return row;
+  const pad = ' '.repeat(width + 2);
+  const block = x.entry ? recordBlock(x.entry, { verbose: true }).map((l) => `${pad}${l}`) : [];
   const chunk = x.chunk.length > 200 ? x.chunk.slice(0, 200) + '…' : x.chunk;
-  return `${row}\n${' '.repeat(width + 2)}chunk: ${chunk}`;
+  return [row, ...block, `${pad}chunk: ${chunk}`].join('\n');
 }
 
 /**
@@ -85,26 +90,35 @@ export function filterRanked(ranked, s) {
 }
 
 /**
- * A top row within this much of the median is reported as no clear match. Calibrated
- * 2026-11-07 (nomic, labels in chunks of 8) on CodeExam's own index, the demo and
- * ExoPlayer 3: five queries with a known mechanism put their top row 0.15 to 0.30
- * above the median; six queries the codebase has nothing for ("generate prime
- * numbers", "verifying a certificate chain" on CodeExam) put theirs 0.08 to 0.14
- * above it, except one at 0.20 that was a shared-word hit ("chain" in a GL shader
- * test's name). No statistic separated the two groups cleanly (z-scores overlapped
- * from 1.7 to 5.7 in both); the margin at 0.14 is the line the data allow, and the
- * note says "no clear match", never "found": a label-word hit sits above the line.
+ * The top row's margin over the median, read against a band. Under NO_MATCH_MARGIN
+ * the listing says "no clear match"; from there to BORDERLINE_MARGIN it says
+ * "borderline"; above, nothing. Calibrated 2026-11-07 (nomic, labels in chunks of 8)
+ * on CodeExam's own index, the demo and ExoPlayer 3: five queries with a known
+ * mechanism put their top row 0.15 to 0.30 above the median; six queries the
+ * codebase has nothing for ("generate prime numbers", "verifying a certificate
+ * chain" on CodeExam) put theirs 0.08 to 0.14 above it, except one at 0.20 that was
+ * a shared-word hit ("chain" in a GL shader test's name). No statistic separated the
+ * two groups cleanly (z-scores overlapped from 1.7 to 5.7 in both). The first rule
+ * was a single line at 0.14; on 2026-11-08 four rewordings of one query about
+ * multisect on CodeExam's index landed at 0.137, 0.141, 0.148 and 0.180 with the
+ * multisect mechanisms in every top row, and the first of them fired the note. So
+ * the line is a band: under 0.12 nothing known has matched; 0.12 to 0.16 is where
+ * both groups land; above 0.16 no unrelated query reached but the shared-word one.
+ * Neither note says "found": a label-word hit sits above the band.
  */
-export const NO_MATCH_MARGIN = 0.14;
+export const NO_MATCH_MARGIN = 0.12;
+/** The top of the band where known matches and unrelated queries overlap; a margin from NO_MATCH_MARGIN to here is reported as borderline. */
+export const BORDERLINE_MARGIN = 0.16;
 /** A listing shorter than this has no median worth reading. */
 export const MEDIAN_MIN = 10;
 
-/** The listing as lines: the query, what was ranked, the median and the top row's margin over it, a note when that margin says no match, then the rows. */
+/** The listing as lines: the query, what was ranked, the median and the top row's margin over it, a note (set apart by a blank line, so a reader sees it) when that margin says no match, then the rows. */
 export function renderListing({ query, what, ranked, top, filter, verbose }) {
   const med = median(ranked.map((x) => x.cos));
   const margin = ranked.length ? ranked[0].cos - med : 0;
   const L = [`query: ${query}`, `${what}; median cosine ${med.toFixed(4)}${ranked.length >= MEDIAN_MIN ? ` (the nearest is ${margin.toFixed(4)} above it)` : ''}`];
-  if (ranked.length >= MEDIAN_MIN && margin < NO_MATCH_MARGIN) L.push(`no clear match: the nearest candidate is only ${margin.toFixed(4)} above the median, about what an unrelated candidate scores; the rows below are the least far, not a find`);
+  if (ranked.length >= MEDIAN_MIN && margin < NO_MATCH_MARGIN) L.push('', `no clear match: the nearest candidate is only ${margin.toFixed(4)} above the median, about what an unrelated candidate scores; the rows below are the least far, not a find`);
+  else if (ranked.length >= MEDIAN_MIN && margin < BORDERLINE_MARGIN) L.push('', `borderline: the nearest candidate is ${margin.toFixed(4)} above the median, in the band (${NO_MATCH_MARGIN} to ${BORDERLINE_MARGIN}) where queries with a known mechanism and queries the codebase has nothing for both land; read the rows before calling it a find`);
   let shown = ranked;
   if (filter) {
     shown = filterRanked(ranked, filter);
@@ -165,7 +179,7 @@ export async function doEmbedDistance(args) {
       const extra = [];
       chunks.forEach((cs, i) => cs.forEach((t, c) => { if (t !== texts[i]) extra.push({ key: `${entries[i].id}:${i}:${c}`, text: t }); }));
       const more = extra.length ? await embedAll(embedder.ctx, extra, embedCacheFile(indexPath, model.base, `label+members_chunks${CHUNK}`), { prefix: dp, label: 'chunks', stats: stats.chunks, quiet: !args.verbose }) : new Map();
-      cands = entries.map((e, i) => ({ text: texts[i], label: e.label, members: e.members || [], chunks: chunks[i], vectors: chunks[i].map((t, c) => (t === texts[i] ? whole.get(`${e.id}:${i}`) : more.get(`${e.id}:${i}:${c}`))) }));
+      cands = entries.map((e, i) => ({ text: texts[i], label: e.label, members: e.members || [], entry: e, chunks: chunks[i], vectors: chunks[i].map((t, c) => (t === texts[i] ? whole.get(`${e.id}:${i}`) : more.get(`${e.id}:${i}:${c}`))) }));
       const fresh = (stats.whole.fresh || 0) + (stats.chunks.fresh || 0), cached = (stats.whole.cached || 0) + (stats.chunks.cached || 0);
       what = `${nf(entries.length)} mechanism entries of ${indexPath} (label + member names, best chunk of ${CHUNK}; ${nf(cached)} vectors from cache, ${nf(fresh)} embedded)`;
     }

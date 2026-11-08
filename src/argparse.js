@@ -1254,8 +1254,9 @@ SEARCH:
                              entry of the index (label + member names in chunks of 8,
                              best chunk; vectors cached beside mechanisms.json). Rows are
                              rank, cosine, distance, the candidate; the median says what
-                             an unrelated candidate scores, and a top row within 0.14 of
-                             it is reported as no clear match. --embed-model nomic (default)
+                             an unrelated candidate scores; a top row under 0.12 above
+                             it is reported as no clear match, 0.12 to 0.16 as borderline.
+                             --embed-model nomic (default)
                              | jina | coderank | qwen06 | qwen4 | <path.gguf>; --max-results
                              N (0 = all); --filter <s> keeps ranks and names the member
                              that matched; --no-prefix; --verbose shows the chunk that scored

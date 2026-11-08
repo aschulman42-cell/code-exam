@@ -264,6 +264,8 @@ const countsOf = (r) => {
   return `${nf(r.members.length)} fn${r.members.length === 1 ? '' : 's'}, ${nf(files)} file${files === 1 ? '' : 's'}`;
 };
 const tagsOf = (r) => (r.tags && r.tags.length ? `  [${r.tags.join(', ')}]` : '');
+/** A member's line range as the verbose block prints it, `  (L12–48)`, outside the `file@func` anchor so that part pastes into the anchor-taking flags; empty when the record has no range. */
+const memberRange = (m) => (Number.isFinite(m.start) && Number.isFinite(m.end) ? `  (L${m.start}–${m.end})` : '');
 const alsoOf = (r) => (r.aliases && r.aliases.length ? `also ${r.aliases.map((a) => a.label).join(', ')}` : '');
 
 /**
@@ -273,13 +275,18 @@ const alsoOf = (r) => (r.aliases && r.aliases.length ? `also ${r.aliases.map((a)
  * harvested purpose is a doc fragment or a `calls:` line, so it stays under
  * the label), else the label line and the purpose beneath it; `also` and the
  * other labels when the entry folds several records; then the member names
- * (every member as `file@name` under `verbose`). `cut` trims the text.
+ * (every member as `file@name  (L12–48)` under `verbose`, the range being the
+ * function's lines in the index when the record has them). `cut` trims the
+ * text; `sentence: false` starts a described entry's block at the label line,
+ * for a caller that has just printed the sentence (the TOC's `-v`).
  */
-export function recordBlock(r, { verbose = false, dn = (n) => n, cut = (t) => t } = {}) {
+export function recordBlock(r, { verbose = false, dn = (n) => n, cut = (t) => t, sentence = true } = {}) {
   const labelLine = `${r.label}  (${countsOf(r)})${tagsOf(r)}`;
   const lines = [];
-  if (r.description) {
+  if (r.description && sentence) {
     lines.push(`${r.id.padEnd(6)}${cut(r.description)}`, `      ${labelLine}`);
+  } else if (r.description) {
+    lines.push(`${r.id.padEnd(6)}${labelLine}`);
   } else {
     lines.push(`${r.id.padEnd(6)}${labelLine}`);
     if (r.purpose) lines.push(`      ${cut(r.purpose)}`);
@@ -287,7 +294,7 @@ export function recordBlock(r, { verbose = false, dn = (n) => n, cut = (t) => t 
   const also = alsoOf(r);
   if (also) lines.push(`      ${also}`);
   if (verbose) {
-    for (const m of r.members) lines.push(`      ${m.file}@${dn(m.name)}`);
+    for (const m of r.members) lines.push(`      ${m.file}@${dn(m.name)}${memberRange(m)}`);
   } else {
     const names = r.members.slice(0, 12).map((m) => dn(m.name));
     const more = r.members.length > 12 ? ` (+${nf(r.members.length - 12)} more; -v lists every member as file@name)` : '';
@@ -357,7 +364,7 @@ export function formatMechanismsToc(data, entries, { filter = null, max = 100, v
     if (r.description) lines.push(`${num}${r.description}  (${r.label}; ${countsOf(r)})${tagsOf(r)}${also}`);
     else lines.push(`${num}${r.label}  (${countsOf(r)})${r.purpose ? ` — "${purposeSnippet(r.purpose)}"` : ''}${tagsOf(r)}${also}`);
     if (verbose) {
-      for (const l of recordBlock(r, { verbose: true, dn })) lines.push(`${' '.repeat(width + 2)}${l}`);
+      for (const l of recordBlock(r, { verbose: true, dn, sentence: false })) lines.push(`${' '.repeat(width + 2)}${l}`);
       lines.push('');
     }
   }

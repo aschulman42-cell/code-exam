@@ -390,7 +390,7 @@ describe('the mechanisms index', () => {
       assert.match(t, /\[file\] test_parser\.py  \(2 fns, 1 file\)  \[test\]/);
       assert.match(t, /test_tokenize, test_tally/);
       const v = formatMechanismsList(data, [byLabel(data, '[file] test_parser.py')], { verbose: true }).lines.join('\n');
-      assert.match(v, /test_parser\.py@test_tokenize/);
+      assert.match(v, /test_parser\.py@test_tokenize  \(L\d+–\d+\)/, '-v: every member as file@name with its line range');
     });
 
     it('outboundCalls reads a member by its own span: the second same-named function in a file yields its own callees (build-mechanisms-reads-by-span)', () => {
@@ -504,10 +504,10 @@ describe('the mechanisms index', () => {
       assert.equal(d[2], '1. Vaults keep secrets.  ([class] Vault; 3 fns, 1 file)  also [file] vault.py');
       assert.ok(!d.some((l) => /without a model description/.test(l)), 'no footer when every listed entry is described');
       const v = formatMechanismsToc(data, [vault], { verbose: true }).lines;
-      assert.equal(v[3], `   ${vault.id.padEnd(6)}Vaults keep secrets.`, '-v: the block, indented under the number');
-      assert.equal(v[4], '         [class] Vault  (3 fns, 1 file)');
-      assert.equal(v[5], '         also [file] vault.py');
-      assert.match(v[6], /^         \S*vault\.py@Vault::\w+$/, v[6]);
+      assert.equal(v[3], `   ${vault.id.padEnd(6)}[class] Vault  (3 fns, 1 file)`, '-v: the block, indented under the number, starting at the label (the TOC line has just printed the sentence)');
+      assert.equal(v[4], '         also [file] vault.py');
+      assert.match(v[5], /^         \S*vault\.py@Vault::\w+  \(L\d+–\d+\)$/, v[5]);
+      assert.ok(!v.slice(3, 8).some((l) => /Vaults keep secrets/.test(l)), 'the sentence is not repeated in the block');
       const c = formatMechanismsToc(data, entries, { max: 2 }).lines;
       assert.match(c.join('\n'), /\n2 of \d+ shown; --all-results or --max-results 0 shows all, --toc <filter> narrows\./);
       assert.match(c[2], /^1\. /, 'a single-digit count needs no padding');
@@ -581,7 +581,7 @@ describe('the mechanisms index', () => {
       const labels = (s) => [...s.matchAll(/^(?:\s*\d+\. |m\d+\s+)(\[(?:file|class)\] \S+)/gm)].map((x) => x[1]);
       assert.deepEqual(labels(t.out), labels(runCLI(IDX2, ['--mechanisms']).out), 'the same entries in the same order as --mechanisms');
       const v = runCLI(IDX2, ['--toc', 'Vault', '-v']);
-      assert.match(v.out, /^1\. \[class\] Vault  \(3 fns, 1 file\) — "Holds the secrets of one owner\."  also \[file\] vault\.py\n   m\d+\s+\[class\] Vault  \(3 fns, 1 file\)\n         Holds the secrets of one owner\.\n         also \[file\] vault\.py\n         \S*vault\.py@Vault::\w+\n/m, v.out);
+      assert.match(v.out, /^1\. \[class\] Vault  \(3 fns, 1 file\) — "Holds the secrets of one owner\."  also \[file\] vault\.py\n   m\d+\s+\[class\] Vault  \(3 fns, 1 file\)\n         Holds the secrets of one owner\.\n         also \[file\] vault\.py\n         \S*vault\.py@Vault::\w+  \(L\d+–\d+\)\n/m, v.out);
       const c = runCLI(IDX2, ['--toc', '--max-results', '2']);
       assert.match(c.out, /\(showing 2\)/); assert.match(c.out, /2 of \d+ shown; --all-results or --max-results 0 shows all, --toc <filter> narrows\./);
       const z = runCLI(IDX2, ['--toc', 'zzz-nothing']);
