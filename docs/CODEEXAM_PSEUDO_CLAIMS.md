@@ -409,7 +409,9 @@ numbers).
 
 ## How candidates are identified (and what it does not promise)
 
-The set of candidate mechanisms is produced **deterministically, with no model**:
+The set of candidate mechanisms is produced **deterministically, with no model**
+(the same grouper, run as a cover of every function, is the mechanisms index of
+[`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md)):
 the grouper (`--pseudo-claims --candidates`) clusters the index's functions by
 signals like shared name-tokens, membership in the same class, a module's leading
 doc comment, and the command/handler catalog, then emits each cluster as a

@@ -65,7 +65,7 @@ structural lists — **Functions**, **Files**, **Classes**, **Mechanisms**, **Cl
 middle panes. **Mechanisms** is the one list the GUI does not compute on each open: it reads the
 records `ce --index-path <X> --build-mechanisms`, or the pane's own **Build** button, wrote beside
 the index (one per file, class, command or shared name token, every function in at least one,
-records overlapping). The list has one row per function set: records that are the same functions
+records overlapping; what a mechanism is and how its label reads: [`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md)). The list has one row per function set: records that are the same functions
 under two labels (a one-class file as `[class] Foo` and `[file] foo.py`) are one row, the other
 label after `also` in the muted line and a `×2` beside the counts, so the badge counts rows, not
 records (383 on CodeExam's 390 records). A row leads with the

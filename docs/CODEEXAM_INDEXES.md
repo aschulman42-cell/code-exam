@@ -81,7 +81,11 @@ approximation**, and plain JSON stays transparent, diffable, and trivially porta
 reads a vector store today (the one vector file an index can carry, `<index>/embeddings/`, is
 what `--embed-distance` caches when asked to measure a text against the index's mechanism
 labels, a measurement rather than a retrieval path); embedding-based retrieval is being explored
-only as a layer *on top* of the lexical index (#201 / #202), not as a replacement — the fuller
+only as a layer *on top* of the lexical index (#201 / #202), not as a replacement. Two optional
+files join the index's own after later steps: `mechanisms.json`, the cover of the index's
+functions in mechanism records that `--build-mechanisms` writes and `--describe` adds sentences
+to, and `embeddings/`, the vector cache `--embed-distance` keeps; both are explained on
+[`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md) and both go with the directory. The fuller
 argument is in
 [`STRUCTURAL_SEARCH.md`](STRUCTURAL_SEARCH.md). And a vector store useful *here* is a tall order:
 it would need a **joint embedding space of text and code**. Models trained on docstring↔code

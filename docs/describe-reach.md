@@ -31,7 +31,7 @@ phase 2, not run.
 `scripts/describe-reach.mjs`. For one index and one HOF run:
 
 - the **entries** are `mechanisms.json`'s records folded by identical member set
-  (`foldRecords`), each as its description (an entry with none would fall back to its purpose,
+  (`foldRecords`; what a record is and how it was found: [`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md)), each as its description (an entry with none would fall back to its purpose,
   then its label and member names; none did here); every text is cut at 1,500 characters;
 - the **elements** are the claim's limitations as `--claim-locate` splits them
   (`splitClaimElements`);
