@@ -11,6 +11,10 @@
 > caveats to every pseudo-claims artifact; keep them labeled as drafts, not
 > findings.
 
+*The measurements behind this feature, the self-test, the real-world yardstick, the
+rubric scores, are on [`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](CODEEXAM_PSEUDO_CLAIMS_TESTS.md);
+"How well it works" below is the one-line version of each.*
+
 ## What it is
 
 `--pseudo-claims` drafts one illustrative patent-style claim per **mechanism** — a
@@ -74,10 +78,11 @@ someone else's codebase: "What sort of patent-claim-like sentences might be writ
 from this codebase, and how similar or different are they from my own patent
 claims?"
 
-As explained below at *The real-world yardstick* and *Self-test: "huffing our own
-fumes" (HOF)*, pseudo-claims are also used within CodeExam itself as **"synthetic
-data"** for continued testing and improvement of its ability to match technical
-prose on the one hand with source code on the other hand.
+Pseudo-claims are also used within CodeExam itself as **"synthetic data"** for
+testing and improving its ability to match technical prose with source code: a claim
+drafted from known functions is a test question whose answer is known. That self-test
+and the real-world test beside it are on the
+[tests page](CODEEXAM_PSEUDO_CLAIMS_TESTS.md).
 
 So there are two ways in:
 
@@ -90,28 +95,31 @@ So there are two ways in:
   among multiple candidate pseudo-claims (see *`--rank`: one model pass to order
   the list*, below).
 
-**Terms used on this page**, as the code uses them (2026-10-30):
+## Terms used on this page
 
-| term | meaning here |
-|---|---|
-| anchor | a `file@func` or `file@L<start>-<end>` reference: a specification on input, a citation on output |
-| mechanism | a small group of functions that jointly embody one piece of technology; what one claim is drafted about |
-| group, candidate | the grouper's unit, a `# Label` header plus its anchors; a candidate is a group not yet pruned or drafted |
-| label | the group's header (`cipher (negotiate_cipher)`, `[file] x.js`, `[cmd] --foo`), the name the TOC uses |
-| purpose line | the sentence after the label, harvested from the group's own comments, sent to the drafter as the MECHANISM hint |
-| evidence pack | the fenced, size-capped bodies of a group's resolved anchors, with the constants they name and any documentation excerpts; all the drafter sees |
-| grounding, grounded | the check that a cited anchor resolves to a function or line range in the index; a citation that does not is dropped with its reason |
-| sidecar | `<claims-only>.anchors.json`: the grounded anchors, class and element count per claim; the HOF answer key |
-| residue (`/ rest`) | the functions of a documented file left after other seeds took theirs, drafted as a group of their own |
-| echo | two groups sharing a dominant file, probably one mechanism reached from two seeds; flagged, never merged |
-| seed | a rule the grouper starts a group from: a shared name token, a class, a file's leading doc comment, a command's handler and its callees |
-| grouper | `mechanism-grouper.js`, the deterministic clusterer behind `--candidates` |
-| triage | the deterministic KEEP / REVIEW / DROP cut over a run's sidecar |
-| shape profile | the claim population (litigated by default) whose length, element and dependent bands the shape line measures a draft against |
-| genericity | a score of how claim-generic a group's words are; drafting goes mechanism-specific vocabulary first |
-| notation | the shape a drafter wrote an anchor in (`file@func`, `file@func@L1-9`, `file:12-40`); the known shapes are normalized and the unknown ones counted |
-| pack fill | how a pack spends its budget when its anchors do not fit: `even` (the default) or `first` |
-| claim schema, claim object | the opt-in path where the drafter fills a structured object under a population-derived schema and CodeExam renders the text |
+Each term as this page and the command's output use it, and where you meet it:
+
+| term | what it means | where you see it |
+|---|---|---|
+| mechanism | a small group of functions that together do one thing; what one pseudo-claim is written about | a `# Label` header and its functions in a candidates file |
+| anchor | a `file@func` (or `file@L<start>-<end>`) reference: on input, which functions a mechanism has; on output, a claim element's citation | the lines under a `# Label`; "Anchors:" under each drafted claim |
+| candidate, group | one mechanism CodeExam proposes, before you prune or draft it | each `# Label` block of the `--candidates` file |
+| label | a group's name: a shared name token with a representative function, `[class] Name`, `[file] name.c` or `[cmd] --flag` | the `# Label` header; the contents table of a drafted chart |
+| seeds | the rules the grouper starts a group from: the functions of one documented file, the methods of one class, a command's handler and what it calls, or a distinctive name token shared across files | the four header kinds above; `[file] X / rest` is a file's remainder after other seeds took part of it |
+| grouper | the model-free step that finds candidate mechanisms (`src/core/mechanism-grouper.js`); the same code builds the mechanisms index of [`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md) | `--pseudo-claims --candidates`; `--build-mechanisms` |
+| purpose line | the sentence after the label, read from the code's own comments or docstrings; the drafter's hint to what the mechanism is | the text after the em dash on a header |
+| evidence pack | the fenced, size-capped code of a group's functions, with the constants they name and any documentation excerpts: all the drafter sees | `--show-prompt` or `--dry-run` prints it; the pack line under each draft says how it was spent |
+| grounded, ungrounded | whether a cited anchor resolves to a function or line range in the index; an ungrounded one is dropped with its reason | the anchor list under each claim; the run header counts them |
+| sidecar | `<claims>.anchors.json`, the grounded anchors, class and element count per claim; the answer key the self-test scores against | written beside the output of `--claims-only <file>` |
+| rank tag | `--rank`'s reading of where to look first in an unfamiliar codebase, `[P3]` down to `[P0]`, with its signal and a keep / merge / split verdict | on each header of a ranked list; `--min-rank` reads it |
+| dependent claim | a narrower claim under claim 1, "wherein …" or "further comprising …" | numbered under each claim 1 in the artifact |
+| statutory class | the kind of claim: method, system, apparatus, computer-readable medium | `--claim-class`; the class mix in the run footer |
+| shape line | how a draft's length, element count and dependent count sit against real litigated claims | under each draft |
+| claim schema, claim object | the opt-in path where the drafter fills a structured object and CodeExam renders the text | `--claim-schema`; the `schema` key of the sidecar |
+| echo | two groups sharing a dominant file, probably one mechanism reached from two seeds; flagged, never merged | the `# echo pairs` note at the top of a candidates file |
+| triage | a deterministic KEEP / REVIEW / DROP cut over a run's sidecar | `--triage` |
+| notation | the shape a drafter wrote an anchor in (`file@func`, `file@func@L1-9`, `file:12-40`); known shapes are normalized, unknown ones counted | the anchor list and the run header |
+| HOF, "huffing our own fumes" | CodeExam's self-test: draft a claim from a mechanism, then ask its own claim search to find the mechanism from the claim | `scripts/hof.mjs`; the [tests page](CODEEXAM_PSEUDO_CLAIMS_TESTS.md) |
 
 ## A quick example (illustrative)
 
@@ -142,11 +150,12 @@ or the index rebuilt in between.
 
 Further example pseudo-claims, describing some of CodeExam's own core features, are being
 developed by hand-editing and AI-editing pseudo-claim output from CodeExam, and are available
-in the [`docs/pseudo-claim-rubrics/`](pseudo-claim-rubrics/) folder. The rubrics are being
-developed to score automatically-generated results of the --pseudo-claims feature, and to
-create more-realistic synthetic data for the "HOF" ("huffing our own fumes") test of CodeExam
---claim-chart/-search/-locate features (see [`CODEEXAM_CLAIM_CHARTS.md`](CODEEXAM_CLAIM_CHARTS.md)).
-As a meta example, see the current rubrics for the mechanism within pseudo-claims that identifies
+in the [`docs/pseudo-claim-rubrics/`](pseudo-claim-rubrics/) folder. The rubrics are used to
+score automatically-generated results of the `--pseudo-claims` feature (how, and the scores so
+far, on the [tests page](CODEEXAM_PSEUDO_CLAIMS_TESTS.md)), and to create more-realistic
+synthetic data for the HOF self-test of the `--claim-chart` / `-search` / `-locate` features
+(see [`CODEEXAM_CLAIM_CHARTS.md`](CODEEXAM_CLAIM_CHARTS.md)). As a meta example, see the
+current rubrics for the mechanism within pseudo-claims that identifies
 [candidate mechanism groups in a codebase](pseudo-claim-rubrics/pseudo-claims-candidates.md),
 and for the [pseudo-claims pipeline](pseudo-claim-rubrics/pseudo-claims-drafting.md) as a whole.
 
@@ -237,11 +246,9 @@ long function's body. A pack that fits is the same under both. The pack line und
 says which applied and what it cost, and a dry run's lead line states the budget in force. A
 cut code member's marker goes on to outline the part not shown, from the function's own
 section comments, one entry per comment block with its line number, paid for from the head
-(since 2026-10-31; the form is in [`CODEEXAM_NOTATION.md`](CODEEXAM_NOTATION.md)). A census
-over the 183-group candidates list of CodeExam's own code (no-model dry run, 2026-10-31): 39 of
-183 packs evened; 432 of 1,755 members cut; 64 members in 37 groups over the 8,000 cap, so never
-whole at the defaults; in 28 of the 39 evened packs the largest member shown at under a quarter
-of its length; and 189 of the 416 cut code members carry an outline.
+(since 2026-10-31; the form is in [`CODEEXAM_NOTATION.md`](CODEEXAM_NOTATION.md)). How often
+the budget bites on a real list is measured on the [tests page](CODEEXAM_PSEUDO_CLAIMS_TESTS.md)
+(the pack census).
 
 **What a pack holds besides code (since 2026-10-30).** A function's mechanism often lives in
 a module-level constant it names rather than in its own body: a prompt, a stop list, a tool
@@ -294,27 +301,12 @@ second call recovered, so a run reports the omission rate and the recovery rate 
 `--no-anchors-reask` restores the single call. The cost projection does not count the second
 calls; the actual-cost line does.
 
-**The rubric gate (since 2026-10-30).** Seven hand rubric pages for six CodeExam features live
-under `docs/pseudo-claim-rubrics/` (Overview by AI, vocabulary, concepts, the Overview,
-multisect search, and two for pseudo-claims itself, candidate identification and the drafting
-pipeline): each a claim 1 with lettered elements and a wherein, numbered dependents, and a
-citations table tying every row to file lines. `node scripts/pseudo-claim-rubric-score.mjs
---rubric <page> --run <artifact>` scores a run against one: a row is addressed by the run claim's
-anchors that match the row's cites (file and lines, or the named function); MET is a cite match
-with half the row's content words present in the claim's elements, dependents or anchor notes,
-PARTIAL a cite match with a quarter or the words without the cite, ABSENT neither; the run's
-elements that reach no row are the surplus, binned grounded-substantive, grounded-trivial and
-ungrounded. The overlap is a keyword proxy printed beside every verdict, so the reading, which
-stays the human's, can check it. Since 2026-10-31 a row is also read from up to four of the
-claim's lines as one text (the union rule, the default; `--rule best` reproduces the
-single-line reading of 2026-10-30), after the single line left a draft that names all six
-grouper seeds ABSENT on the seeds row; each page carries a table under each rule, calibrated on
-every page and run in hand. The five pages carry the scores of the six runs in hand as of
-2026-10-30, the before for the drafting changes of #353 (a) to (d); a change to the prompt or
-the packing is measured on the same rows and the same corpus. The two pseudo-claims pages
-(`pseudo-claims-drafting.md`, `pseudo-claims-candidates.md`) carry ten runs as of 2026-10-31,
-those six and the four `--filter pseudo` runs of 2026-10-25, with citations re-keyed that day
-to `1c05834`.
+**Scoring a run against a hand rubric.** Seven hand-written rubric claims for six CodeExam
+features live under `docs/pseudo-claim-rubrics/`, and
+`node scripts/pseudo-claim-rubric-score.mjs --rubric <page> --run <artifact>` scores a run
+against one, row by row, as MET, PARTIAL or ABSENT, with the surplus elements binned. The
+scoring rule, its calibration and the scores of the runs in hand are on the
+[tests page](CODEEXAM_PSEUDO_CLAIMS_TESTS.md).
 
 **Four drafting rules (two since 2026-10-31, #353 (a) and (b), two since 2026-11-01).** The
 drafter is told to introduce each component or step once with "a" or "an" and refer back with
@@ -323,45 +315,20 @@ no example or list of instances inside an element, a dependent claim carrying th
 state in the preamble the purpose of the mechanism, what it does for the system or its operator
 and under what constraint, never the code's activity restated as a gerund; and to end claim 1
 on a "whereby" clause only where the elements bring about a result the preamble does not state,
-about one claim in six. That rate is a choice, not the population's habit: of the 380 litigated
-claim 1s, 28 (7%) close on a result clause and 13 carry "whereby" at all (measured 2026-11-01);
-the Bram drafts of 2026-11-01, before the rule, closed on one in 10 of 150. The artifact reports
-the antecedent rule beside each claim's shape line ("Antecedent basis: 2 unintroduced ("the
-cross-corpus weight" in element 5; …)") and the result clause beside it ("Result clause
+about one claim in six. The artifact reports the antecedent rule beside each claim's shape line
+("Antecedent basis: 2 unintroduced (…)") and the result clause beside it ("Result clause
 (non-limiting): …", or "none"), keyword checks that never rewrite, and sums both on the run
-header, the result clause beside the population's rate. Two samples of the two new rules on
-2026-11-01, 14 Bram groups ($1.01) and CodeExam's eight feature groups ($0.68), both classes:
-the clause closed 16 of 28 and 10 of 16 drafts, well above the prior; the preamble median went
-from 14 words to 21 on Bram and from 12 to 22 on CodeExam, against the population's 12 and the
-rubric pages' own 17; on the rubric pages the scorer moved on multisect (MET 4 to 7, ABSENT 11
-to 6 on the method claim) and little elsewhere, one sample per cell. The wording of both rules
-is still open; `--form-rules 2026-10` drafts on the first two rules alone, the prompt as it
-stood before 2026-11-01, so the same groups can be drafted under both on one flag
-(`scripts/hof.mjs` passes it through). Whether the rules change the drafts is
-measured on the rubric pages: the after, one Claude run over the seven features' groups on
-2026-10-31, is the last row of each page's union-rule table. On the one exact pair, the grouper
-group drafted the same day on the old prompt, it scored 5 / 9 / 9 against 9 / 9 / 5, one draft
-each; the run's antecedent tally is 36 unintroduced references in 8 drafts, most in dependents,
-against 10 on the old prompt's grouper draft. Not yet shown to help; one sample per cell.
+header. `--form-rules 2026-10` drafts on the first two rules alone, the prompt as it stood
+before 2026-11-01, so the same groups can be drafted under both on one flag. Whether the rules
+help is not yet shown; what they did to the drafts that have been measured is on the
+[tests page](CODEEXAM_PSEUDO_CLAIMS_TESTS.md).
 
-**Read the closing clause as an assertion, not a citation (2026-11-02).** Every element of
-claim 1 is grounded to code and charted; the "whereby" clause is not. It has no anchor of its
-own, the chart folds it into the last element's citations, and the only check on it is a note
-when it opens like a step or a component. It is the one place in the claim where the drafter
-states what the code achieves rather than what the code does, and it can state more than the
-code delivers. On the real-world re-run of 2026-11-02, 4 of the 25 clauses did: both
-coin-selection drafts close on "the lowest achievable total weight among all input sets",
-where Bitcoin Core's `coinselection.cpp` says the solution "is not guaranteed to be optimal"
-once the search hits its tries limit; the CCTP v2 draft closes on "delivered to its recipient
-exactly once" where the body establishes at most once; the CMB draft on "preserves insertion
-order across concurrent writers", a guarantee the body does not establish. A trained reader
-takes the clause as non-limiting; the claim is still wrong about the code, and no scorer sees
-it: the judge reads elements, the anchor tests read citations, and a word-overlap check would
-pass the coin-selection clauses, whose every word is in the body. Read each clause against the
-cited code before using the claim, and cut it where the elements already say what it says. The
-milder case is a purpose preamble that enumerates the body ("by checking pause state, balance
-sufficiency, blacklist status, and time-based lockup before allowing a transfer"): four of 42
-on that run.
+**Read the closing clause as an assertion, not a citation.** Every element of claim 1 is
+grounded to code and charted; the "whereby" clause is not. It is the one place in the claim
+where the drafter states what the code achieves rather than what the code does, and it can
+state more than the code delivers (4 of 25 clauses did on the real-world re-run of 2026-11-02;
+the cases are on the [tests page](CODEEXAM_PSEUDO_CLAIMS_TESTS.md)). Read each clause against
+the cited code before using the claim, and cut it where the elements already say what it says.
 
 **Claim schema (`--claim-schema`, experimental).** Three terms first. A **claim
 object** is a claim as structured data rather than text: a preamble form, a
@@ -430,33 +397,16 @@ not the one that picks the mechanisms. The same grouper, run in *cover* mode by
 it; [`cli.md`](cli.md) has the commands); the drafting list is the sample, the
 mechanisms index the cover, and the next paragraphs say what that difference means.
 
-Every group's header carries a purpose read from the code's own doc text, in this
-order until one yields: the file's leading comment or docstring for a whole-file group
-and the class's own doc comment or docstring for a whole-class group, and for the first
-piece the splitter cut from either (one piece carries the parent's doc, not every piece:
-on Bram's cover 429 of 691 records had said what `lib.rs` is for, and a filter on a word
-of that header matched them all; mechanisms-record-quality, 2026-11-04); the command
-handler's doc for a command group; the namesake function's doc or body comments for a
-token group, when the namesake is among the members; the first sentence of up to three
-of the largest members' docs; a mechanical `calls: a, b, c` line naming what the group
-calls outside itself; and last, for a later piece, a class or a token group with nothing
-of its own, the parent's doc prefixed so it reads as the parent's, `in class X: …` when
-the members are one class's methods and the class has a doc, else `in <file>: …`. A
-license banner's lines are never a purpose, the Apache, MIT, GPL and BSD continuation
-sentences included (`LICENSE_LINE_RE`; sr_gh had carried "you may not use this file
-except in compliance with the License…" on 595 of 1,298 records); the file seed's gate
-still counts license-free text with the shorter `LICENSE_RE`, so which files seed a
-group is unchanged. A piece is named by the name token its members share, never an
-English function word or an id-shaped token (`/ only`, `/ with`, `/ e7a003fefffec`):
-those never seed a split, and members that share nothing else ride in `/ other`.
-Every read is by line range, the file's
-leading lines or the class's or member's own span, never by resolving a name the
-harvester already has a span for; so is the outbound-call read
-(build-mechanisms-reads-by-span, 2026-11-04). Before 2026-11-03 the harvester read a
-file's leading *comments* only, so a Python corpus — whose module, class and function
-docs are docstrings — drafted from blank headers (AI_Manning 106 of 182 rows blank,
-sr_gh 73 of 90, Py314_site_pkg 1,739 of 4,257); the regenerated lists of that day
-carry a purpose on every row.
+Every group's header carries a purpose read from the code's own doc text: the file's
+leading comment or docstring for a whole-file group, the class's own doc for a
+whole-class group, the handler's doc for a command group, the namesake function's doc
+for a token group, then the first sentences of up to three of the largest members'
+docs, then a mechanical `calls: a, b, c` line. A license banner's lines are never a
+purpose, and a piece the splitter cut from a larger group is named by the name token
+its members share, never an English function word or an id-shaped token; members that
+share nothing else ride in `/ other`. The full order of sources, and the three findings
+that shaped it, are on [`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md) and the
+[tests page](CODEEXAM_PSEUDO_CLAIMS_TESTS.md).
 
 **`--rank`: one model pass to order the list.** The grouper's list can run to
 hundreds of groups (57 on secp256k1, 959 on Bitcoin Core, 3,465 on Spark,
@@ -470,22 +420,18 @@ observe-only: the anchors are unchanged, the list is reordered and annotated, an
 drafted chart's contents table and claim headings carry the tag. Two things to
 know. With a ranked list, `--min-rank` defaults to P2, so drafting from it with no
 further flag skips every P0 and P1 group; `--min-rank 0` drafts them all. And the
-rubric is not "what a patent would read on": in the real-world test below, the code
-the litigants' claims read on sat at P1 and P2 in the rankings ("standard-pattern",
-"crypto plumbing", "third-party") while the P3s were the codebases' own
-distinctive arithmetic. Cost: $0.12 for 57 groups, $1.62 for 959 (Claude Sonnet
-4.6, 2026-10-24).
+rubric is not "what a patent would read on": in the real-world test, the code
+the litigants' claims read on sat at P1 and P2 in the rankings while the P3s were the
+codebases' own distinctive arithmetic (the [tests page](CODEEXAM_PSEUDO_CLAIMS_TESTS.md)
+has the numbers and the cost).
 
 **The candidate list samples; it does not survey — so it can miss the mechanism you
 care about.** The grouper's default seeds are tuned for drafting, and they land where
 the grouper's own signals point — shared name tokens, one class, a documented module,
 the command catalog — not necessarily where a particular invention lives. Coverage is
-printed on every run (`# coverage: N/M candidate function(s) in a group`): with the
-2026-11-03 defaults it ranged from 22% (Py314_site_pkg, a site-packages tree of
-150,000 candidate functions) and 41% (sr_gh, where most files have no leading doc
-comment) to 95% (CodeExam) of candidate functions across ten indexes, and was measured
-at ~8% of all indexed functions on ExoPlayer3 on 2026-08-02, before the command-catalog
-seed and the doc-header file seed became defaults later that month (issue #302). (These
+printed on every run (`# coverage: N/M candidate function(s) in a group`); with the
+2026-11-03 defaults it ranged from 22% to 95% of candidate functions across ten indexes
+(the per-index figures are on the [tests page](CODEEXAM_PSEUDO_CLAIMS_TESTS.md)). (These
 signals are the grouper's, deterministic and generic. They are not the importance
 estimate of [`MEASURING_IMPORTANCE.md`](MEASURING_IMPORTANCE.md), which ranks terms,
 functions and files for search and the Overview, though the two share one ingredient:
@@ -505,15 +451,11 @@ artifact: `ce --index-path <X> --build-mechanisms` runs the same grouper with ev
 file seeding whole, every class a record, the command seed uncapped, records of one or
 two kept, test and third-party code kept and tagged, and records allowed to overlap,
 then writes `<index>/mechanisms.json` with every candidate function in at least one
-record (100% on every index measured 2026-11-03, against the 22% to 95% of the
-drafting sample above). `--mechanisms` lists it one row per function set (a one-class
-file's `[class]` and `[file]` records are the same functions and one row, the other
-label after `also`; CodeExam's 390 records are 383 rows), `--toc` is its table of
-contents, one numbered line per row with the model's sentence or a short quote of the
-purpose (#296); the GUI and the MCP tool read the same file and fold the same way. It
-is a listing, not a drafting list: a cover record is a file or a class as often as a
-mechanism, and a `giant` or `indivisible` tag says when it is one the splitter could
-not break.
+record. `--mechanisms` lists it one row per function set (CodeExam's 390 records are 383
+rows), `--toc` is its table of contents (#296), and the GUI and the MCP tool read the same
+file; it is a listing, not a
+drafting list, and a cover record is a file or a class as often as a mechanism
+([`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md) has the rest).
 
 A candidates contents table reads roughly like this (from the bundled `.demo`, a
 TLS/crypto corpus — trimmed):
@@ -536,21 +478,30 @@ label, and the first words of the drafted preamble; with `--rank` each line carr
 the `(P<n>)` tag and the claims come in priority order, and a group the ranker
 marked `split` is flagged as over-broad above its claim.
 
-**What the real-world test says about candidate identification (2026-10-24).** On fourteen
-litigated filings, CodeExam's three top-ranked groups per repository, drafted and
-compared with the asserted claims, came as close as the litigants' own cited
-functions on six of twelve pairs and closer on two; on the four pairs whose claim
-turns on one specific mechanism they wrote nothing of it, and the cited code sat
-low in the ranking. Candidate identification finds what is distinctive in a codebase;
-what a patent reads on is often a standard mechanism, or a vendored one. The numbers and
-the reading are in *The real-world yardstick* below and on
-[`claim-chart-drafter-ceiling.md`](claim-chart-drafter-ceiling.md). Run again on 2026-11-02
-after the purpose-preamble and whereby rules, same groups, judge and controls (twelve of the
-fourteen; the two refused by the cost guard stay unrun): the plain read unchanged, twelve
-findings of 42 with three up and three down; the strict read's MET count doubled, 10 to 20,
-and strict findings 2 to 4, all on the finite-field pairs; the preamble median 12 to 17 words
-against attorneys' preambles that are mostly bare; the closing clause on 25 of 42 drafts, the
-same overshoot as the free-text samples. One sample per cell; the page carries the table.
+## How well it works
+
+Dated one-line results; the tables, the method and the limits of each test are on
+[`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](CODEEXAM_PSEUDO_CLAIMS_TESTS.md). Every figure is one
+sample per cell.
+
+- **As a description of code it is given.** Seeded with the functions fourteen litigants
+  cited in public claim charts, the draft reaches met or partial on the asserted claim's
+  mechanism elements, above a floor and a control, on 11 of 15 pairs, and the same
+  limitation in substance on 3 (2026-10-23).
+- **As a way to find, unaided, what a patent reads on.** CodeExam's own top three ranked
+  groups came as close as the litigants' citations on six of twelve pairs and closer on two,
+  and wrote nothing of the claim on four; the cited code sat at P1 or P2 in the ranking
+  (2026-10-24; rerun 2026-11-02 with the strict MET count doubled, 10 to 20).
+- **Coverage of the drafting list.** 22% to 95% of an index's candidate functions land in
+  some candidate group, by index; the mechanisms index covers 100% (2026-11-03).
+- **The self-test (HOF).** One command drafts every candidate group of an index, locates each
+  draft with `--claim-locate` and scores the round trip on a ladder (2026-11-03). At the
+  mechanism grain, the labels and member names under a local embedding model put the right
+  mechanism first for 61% of 332 drafted-claim anchors over eight indexes and within 25 for
+  96%, against 35% at the function rung for the locator (2026-11-05,
+  [`describe-reach.md`](describe-reach.md)).
+- **Against hand rubrics.** The scorer moved on one feature after the 2026-11-01 drafting
+  rules (multisect, MET 4 to 7) and little elsewhere; not yet shown to help (2026-11-01).
 
 ## Notes, roadmap, and related issues
 
@@ -609,7 +560,7 @@ same overshoot as the free-text samples. One sample per cell; the page carries t
   (#278). Until then, run twice and compare by hand.
 - **Self-test (prose↔code bridge).** Pseudo-claims are also how CodeExam tests —
   and manufactures ground truth for — its own claim↔code association; see the
-  *Self-test* section below.
+  *Self-test* section of the [tests page](CODEEXAM_PSEUDO_CLAIMS_TESTS.md).
 - **Pseudo-claims generation on air-gapped local models.** More testing is
   required with `--pseudo-claims` on local GGUF models such as Gemma 4 and
   Qwen 3.x.
@@ -650,99 +601,26 @@ Sections still to write (TODO):
 
 Not yet, also: a ranked one-command `--pseudo-claims --auto` (#284).
 
-## The real-world yardstick (2026-10-23 and 2026-10-24)
+## The self-test, in three sentences
 
-The self-test below manufactures its claims. A second test uses real ones: it
-seeds the drafter with the functions fourteen litigants cited in public claim
-charts, nothing else, and compares each drafted claim element by element to the
-asserted claim, with a floor (a draft from an unrelated group of the same
-codebase) and a control (the same draft against another filing's claim of the same
-art). It measures the drafter's ceiling on real claims: whether, given a party's
-own code, the drafter writes something close to that party's claim. Its other half
-(2026-10-24) seeds the drafter with CodeExam's own top-ranked candidate groups
-instead (`--pseudo-claims --candidates --rank`, the top three per repository) and
-judges them the same way: pseudo-claims as a test bed for claim charts, with the
-public filings as the answer key, which is agreement with a party, never
-correctness.
-
-**How CodeExam did.** With the litigants' references, the pseudo-claim reaches met
-or partial on the asserted claim's mechanism elements, above the floor and the
-control, on 11 of 15 pairs scored; it reaches MET, the same limitation in
-substance, on 3 pairs. Everywhere else the elements are PARTIAL: the drafter
-writes the mechanism at the code's grain and the claim states it at the patent's;
-what a claim asserts beyond the code is not written from any seed. Without the
-references, CodeExam's own top three groups came as close as the citation on six
-of twelve pairs and closer on two, and wrote nothing of the claim on four, the
-ones whose crux is one mechanism in one place; there the cited code sat at P1 or
-P2 in the ranking. Read together: as a description of the code it is given, the
-drafter is confirmed within the test's limits; as a way to find, unaided, the code
-a patent reads on, it is not, and the limit is in the ranking's axis rather than
-in the drafter.
-
-**What follows from it.** A comparison arm (unranked, `--rank`, and a ranking
-built for "what would a hostile party find significant here") on the same pairs is
-the next measurement before any new ranking is built; the sketch is on the ceiling
-page. The `--min-rank` default of P2 on ranked lists deserves a second look, since
-it drops the P1 groups that two of the four misses lived in. The limits of the
-test are stated on the same page: one model as ranker, drafter and judge, one
-sample per row, fourteen filings. Method, tables, the four quoted rows and the
-reading: [`claim-chart-drafter-ceiling.md`](claim-chart-drafter-ceiling.md).
-
-## Self-test: "huffing our own fumes" (HOF)
-
-Pseudo-claims are not only a deliverable — they are one way CodeExam tests its own
-ability to bridge *claim prose* and *code*, and a way to **manufacture ground
-truth on any index**. (The usual claim↔code answer keys are all limited in scope:
-a hand-built set is tiny, `.demo` was LLM-authored, and a real patent may share
-vocabulary with *its own* implementation (only may, because the patent attorney
-will have taken what the developers did, and broadened the claim description to
-try to capture more IP). A "match" may be mere word-overlap rather than real
-claim↔code skill. Usually claim↔code mapping involves one party's patent claim and
-*another* party's code; see issue #322 on CodeBERT.)
-
-The self-test — "huffing our own fumes" (HOF) — runs:
-
-1. **Draft** pseudo-claims from code with their **code references attached** (a
-   candidate mechanism → a pseudo-claim → the anchors it was drafted from).
-2. **Synonymize with a *different* LLM**, *withholding* the code references
-   (`--synonymize`). This is the load-bearing step: it rewords the claim *away*
-   from the code's own identifiers, so any later recovery cannot be mere
-   vocabulary overlap.
-3. **Retrieve**: feed the reworded claim to `--claim-analyze` / multisect and
-   measure whether it lands back on the original references, with each reference
-   attributed to a plausible element of the claim rather than merely found.
-
-Agreement means the claim captured the *mechanism*, not just echoed its names.
-`--claims-loop` repeats draft → retrieve → compare → refine to convergence
-(#290). Full write-ups: [`claims-pipeline-state.md`](claims-pipeline-state.md)
-(§4 / §9 / §10) and
-[`litigated-claims-ground-truth.md`](litigated-claims-ground-truth.md) (the HOF
-section; #310).
-
-**One command (2026-11-03).** `scripts/hof.mjs` runs the test from an index name, with
-`--claim-locate` as the retrieval step and no synonymize step: it drafts every candidate
-group (`--pseudo-claims --candidates`, then `--claims-only` with `--min-rank 0`, so a
-`--rank` tag is reported and never a floor), locates each draft (`--claim-locate
---targets-out`), and scores the drafter's grounded anchors against the located targets on
-the ladder of `scripts/anchor-recall.mjs`: function, class, file or miss per anchor, and
-exact, near or elsewhere per target. `--form-rules 2026-10` drafts on the rules as they
-stood before 2026-11-01; `--claims <file>` locates an existing claims file, so the same
-drafts can be located with a second model; `--include-tests` goes to the locate step only;
-`--dry-run` runs the grouper only and prints the rest with the cost figures. Every step is a `ce` command, echoed, and the report
-(`hof_report.md`, `.json`) lands under `%LOCALAPPDATA%\CodeExam\hof\`. Without the
-synonymize step the drafter's own vocabulary goes back in, so the result is a floor; the
-ladder, not a single number, is what to read. `scripts/hof-stage1.mjs` reads the same run
-directories and asks a different question, with no model: scored by the text a grouper
-group already carries (label, purpose, member and file names), where does the group a claim
-was drafted from rank among all the groups of its index? It is the feasibility check for
-retrieving from a mechanisms index instead of the symbol table (issue #359).
+"Huffing our own fumes" (HOF) drafts a pseudo-claim from a mechanism and then asks CodeExam's
+own claim search to find that mechanism from the claim; because the claim was written from
+the code, the right answer is known, which no public claim chart gives us. One command,
+`scripts/hof.mjs`, runs it for an index: draft every candidate group, locate each draft with
+`--claim-locate`, score each round trip on a ladder from the exact function down to a miss.
+The recipe, the ladder, the runs so far and where the work went next are on
+[`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](CODEEXAM_PSEUDO_CLAIMS_TESTS.md).
 
 ## See also
 
+- [`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](CODEEXAM_PSEUDO_CLAIMS_TESTS.md) — the tests behind
+  this page: the self-test, the real-world yardstick, the rubric scores, the census figures.
 - [`CODEEXAM_SELF_PORTRAIT.md`](CODEEXAM_SELF_PORTRAIT.md) — CodeExam described by its own
   `--pseudo-claims` feature, one claim per feature beside the rubric pages.
 - [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md) — searching and charting
   *real* patent claims against code (pseudo-claims' sibling).
+- [`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md) — the grouper's cover of a whole
+  codebase, how a label is read, the optional descriptions.
 - [`claim-chart-drafter-ceiling.md`](claim-chart-drafter-ceiling.md) — the
   real-world yardstick: the drafter against fourteen asserted claims, with and
   without the litigants' references.

@@ -205,7 +205,7 @@ the one-line version.
   groups for drafting ([`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md)); the same
   grouper, run as a cover rather than as a ranked emission, is the mechanisms index.
 - **The HOF self-test.** "Huffing our own fumes" (`scripts/hof.mjs`; the section of that
-  name on [`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md)) drafts a claim from a
+  name on [`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](CODEEXAM_PSEUDO_CLAIMS_TESTS.md)) drafts a claim from a
   mechanism and asks whether CodeExam's claim search finds its way back to that
   mechanism's functions. The answer is known because the claim was written from the code,
   which is what makes HOF the yardstick for claim features still being improved: claim

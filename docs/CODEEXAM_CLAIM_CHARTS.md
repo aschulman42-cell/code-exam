@@ -422,7 +422,7 @@ limitation is implemented by the method. Since 2026-11-03 `scripts/hof.mjs` runs
 from one index name: it drafts, locates each draft with `--claim-locate`, and scores the
 drafter's anchors against the located targets on that ladder, rank reported and never a
 floor. The write-ups are
-[`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md)'s HOF section,
+[`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](CODEEXAM_PSEUDO_CLAIMS_TESTS.md)'s HOF section,
 [`claims-pipeline-state.md`](claims-pipeline-state.md) §4 and §9, and
 [`litigated-claims-ground-truth.md`](litigated-claims-ground-truth.md); the issue was #310.
 The loop runs on the drafter ceiling's real-code drafts through `scripts/ceiling-to-loop.mjs`,
@@ -976,6 +976,8 @@ Differences from CodeExam's approach include:
   and the tiers of test, at length.
 - [`claims-pipeline-state.md`](claims-pipeline-state.md) — the pipeline notes, the roadmap and
   the measurement ledger.
-- [`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md) — pseudo-claims and the self-test.
+- [`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md) — pseudo-claims;
+  [`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](CODEEXAM_PSEUDO_CLAIMS_TESTS.md) — the self-test and the
+  other tests behind them.
 - [`LOCAL_LLM.md`](LOCAL_LLM.md), [`AIR_GAPPED.md`](AIR_GAPPED.md),
   [`model-support.md`](model-support.md) — local engines and what each can do.
