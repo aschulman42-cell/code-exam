@@ -131,8 +131,9 @@ baked into mechanical detectors.
   against a codebase, and (work in progress) generating
   **"pseudo-claims" from code**: claim-shaped descriptions of what the code
   does. → [`CODEEXAM_PATENT_CLAIMS.md`](docs/CODEEXAM_PATENT_CLAIMS.md);
-  what claim charting can do today, how it is tested against real-world
-  filings, and where it is going → [`CODEEXAM_CLAIM_CHARTS.md`](docs/CODEEXAM_CLAIM_CHARTS.md);
+  what claim charting can do today and where it is going →
+  [`CODEEXAM_CLAIM_CHARTS.md`](docs/CODEEXAM_CLAIM_CHARTS.md), with the tests behind
+  it on [`CODEEXAM_CLAIM_CHARTS_TESTS.md`](docs/CODEEXAM_CLAIM_CHARTS_TESTS.md);
   the pseudo-claims feature run on CodeExam's own source, ten claims across
   nine features quoted as drafted, each beside the page that describes the
   feature → [`CODEEXAM_SELF_PORTRAIT.md`](docs/CODEEXAM_SELF_PORTRAIT.md)
@@ -241,7 +242,8 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`AI_ASSISTED_CODE_EXAM.md`](docs/AI_ASSISTED_CODE_EXAM.md) | Optional LLM assistance (`--analyze`, claim search, input masking) |
 | [`ai-assisted-examination-gotchas.md`](docs/ai-assisted-examination-gotchas.md) | Draft: ways AI-assisted code examination goes wrong and how to catch them, for experts and the attorneys who rely on them |
 | [`CODEEXAM_PATENT_CLAIMS.md`](docs/CODEEXAM_PATENT_CLAIMS.md) | Searching and charting patent claims against a codebase |
-| [`CODEEXAM_CLAIM_CHARTS.md`](docs/CODEEXAM_CLAIM_CHARTS.md) | Claim charts: what CodeExam can do today, the real-world filings it is tested against, the air-gapped goal and the plan |
+| [`CODEEXAM_CLAIM_CHARTS.md`](docs/CODEEXAM_CLAIM_CHARTS.md) | Claim charts, a patent claim against source code one element at a time: how the claim commands fit together, what CodeExam can do today, how well it works in one line per test, the air-gapped goal and the plan |
+| [`CODEEXAM_CLAIM_CHARTS_TESTS.md`](docs/CODEEXAM_CLAIM_CHARTS_TESTS.md) | The tests behind claim charts: the public filings whose charts cite open-source code, the agreement runs on them, the self-test and the Gemma 4 results, with a table of the terms the test pages use |
 | [`real-world-claim-charts.md`](docs/real-world-claim-charts.md), [`claim-chart-agreement.md`](docs/claim-chart-agreement.md), [`claim-chart-drafter-ceiling.md`](docs/claim-chart-drafter-ceiling.md) | The real-world tests: public filings whose charts cite open-source code, whether CodeExam finds the code a litigant charted, and whether the drafter can express the party's theory; a party's chart is advocacy, not an answer key |
 | [`CODEEXAM_PSEUDO_CLAIMS.md`](docs/CODEEXAM_PSEUDO_CLAIMS.md) | Drafting illustrative "pseudo-claims" from code — anchors, candidates, `--filter` |
 | [`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](docs/CODEEXAM_PSEUDO_CLAIMS_TESTS.md) | The tests behind pseudo-claims: the HOF self-test, the real-world yardstick, the rubric scores, with a table of the terms the test pages use |

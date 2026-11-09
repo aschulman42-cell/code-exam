@@ -15,8 +15,9 @@ assertion on #322 is that such models learned functions paired with their own do
 that originated with the code, and that a claim limitation is a different register. This page
 tests the assertion on the one answer key the project has: the functions litigants' public
 claim charts cite, on the fourteen filings of
-[`CODEEXAM_CLAIM_CHARTS.md`](CODEEXAM_CLAIM_CHARTS.md) section 4. A rank is agreement with a
-party, never correctness; a rank within 25 says the window would have contained the name, not
+[`CODEEXAM_CLAIM_CHARTS_TESTS.md`](CODEEXAM_CLAIM_CHARTS_TESTS.md), Table A. A rank is
+agreement with a party, never correctness; a rank within 25 says the window would have
+contained the name, not
 that a model would then have chosen it.
 
 ## Method
