@@ -126,6 +126,13 @@ alternative step 2 over file bodies; pseudo-claims run the arrow backwards.
   symbol name since 2026-10-22; on an index that is nearly all such code, a samples corpus,
   the gate turns itself off and the run says so, since 2026-11-03); `--no-navigate` skips the
   hop (absent from `--help`).
+- `--embed-distance "<claim element>"` (since 2026-11-07) ranks the index's mechanisms
+  (`--build-mechanisms`, no model) by distance to the element under a local embedding model and
+  prints the median as the baseline, what an unrelated mechanism scores; `--filter <function>`
+  shows where a believed implementer's mechanism ranks, `-v` lists each nearest mechanism's
+  functions with their line ranges. No LLM at all, and a measurement rather than a search step:
+  it says how near an element sits to the code's own vocabulary, the gap section 8 measures.
+
 **Chart generation:**
 
 - `--claim-chart <claim>` returns, per target and element, `PRESENT`, `PARTIAL`, `ASSUMED` or
@@ -143,6 +150,7 @@ alternative step 2 over file bodies; pseudo-claims run the arrow backwards.
   from a numbered file; `--dep-synonyms` lets a narrowing dependent donate vocabulary to the
   parent row it narrows (off by default, measured to dilute). `--no-callees` omits callee bodies;
   `--scope-note` states a structural fact once; `--include-op` admits binary string dumps.
+
 **Output and formatting:**
 
 - `--verdicts-out` writes the verdicts file (JSON): the merge's input and what every replay
@@ -900,6 +908,18 @@ where the picture changed, on [`describe-reach.md`](describe-reach.md) (2026-11-
 mechanism entry holding a cited function within 25 for 58% of the names in a record, with the
 entries' labels as the text and no describer; the gap is register, not vocabulary).
 
+The one-command form of that measurement is `--embed-distance` ([`cli.md`](cli.md)):
+`ce --ndx <index> --embed-distance "<claim element>"` ranks the index's mechanisms by distance
+to the element under a local embedding model and prints the median as the baseline, what an
+unrelated mechanism scores, so a reader can see on their own codebase and claim what the
+measurement pages report in aggregate, before any model reads any code. With
+`--filter <function>` it shows where a believed implementer's mechanism ranks: element 6 of the
+'101 claim against ExoPlayer 3 puts `[class] AdaptiveTrackSelection / other`, the class holding
+`determineIdealSelectedIndex`, at 2,319 of 10,828 (2026-11-09, the shipped nomic model; the
+`describe-reach.md` measurement of 2026-11-06 scored the same pairing at 2,465), the register
+gap in one line. With `-v` each nearest mechanism's functions print with their line ranges,
+which makes the listing an ad-hoc claim-chart tester: type an element, open what it is near.
+
 ## 9. Some clarifications
 
 - **No verified claim-to-code answer key exists.** Litigation typically names revenue-generating
@@ -966,6 +986,9 @@ Differences from CodeExam's approach include:
 - [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md) — the concepts, the labels, the
   methodology and defensibility section.
 - [`cli.md`](cli.md) — the flag reference (section 2 says what it lacks).
+- [`embedding-reach.md`](embedding-reach.md), [`describe-reach.md`](describe-reach.md) — the
+  embedding measurements behind section 8; `--embed-distance` ([`cli.md`](cli.md)) runs the
+  same measurement on any index.
 - [`CODEEXAM_CODECLAIM.md`](CODEEXAM_CODECLAIM.md) — CodeClaim, the planned tool pointed at
   patents: infringement and invalidity charts on one engine.
 - [`claim-chart-agreement.md`](claim-chart-agreement.md) — the agreement harness, the fourteen

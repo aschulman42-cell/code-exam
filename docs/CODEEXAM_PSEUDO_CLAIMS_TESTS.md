@@ -264,7 +264,10 @@ anchor ranks first for 61% of 332 anchors over eight indexes and within 25 for 9
 35% at the function rung for `--claim-locate`; a model reading the five nearest labels and
 choosing one (the chooser) lifts the per-anchor figure to 84% on HOF claims but not on the
 litigants' claims, whose gap is register rather than vocabulary. The same page carries the
-litigants' numbers at that grain.
+litigants' numbers at that grain. For one draft, `--embed-distance "<claim>" --filter
+<anchor>` prints the same thing with no model: the claim's distance to every mechanism of
+its index, the median as the baseline, and the row of the mechanism holding the anchor at
+its rank, which is the model-free half of the round trip ([`cli.md`](cli.md)).
 
 ## Related
 

@@ -226,6 +226,18 @@ the filtered candidates and says they are candidates, not claims. On Git Bash, a
 `/regex/` filter's leading slash is rewritten to a Windows path unless
 `MSYS_NO_PATHCONV=1` is set, which matched 0 groups on one run (2026-10-30).
 
+**4. Measure a draft against the code, with no model:**
+
+```
+ce --index-path IDX --embed-distance "<a drafted claim>" --filter <anchor function>
+```
+
+ranks every mechanism of the index by distance to the claim under a local embedding model,
+prints the median as the baseline (what an unrelated mechanism scores), and shows where the
+mechanism holding the anchor ranks; `-v` adds each nearest mechanism's functions with their
+line ranges. The flag's entry on [`cli.md`](cli.md) has the rest (`--against` for two texts
+or a list, the models, the no-match band).
+
 **Models.** Draft with a cloud provider — `--llm claude | openai | gemini` (keys
 from `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY`) — or a local GGUF:
 `--model <path.gguf>` (`--cpu` forces CPU). With **no** model (or `--dry-run`)
