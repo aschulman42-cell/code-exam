@@ -17,7 +17,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
-import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, formatMechanismsList, notBuiltLine, kindOf, estimateBuildMinutes, carryDescriptions, MECHANISMS_FORMAT, foldRecords, foldGroups, pickRepresentative, foldNote, formatMechanismsToc, recordBlock, purposeSnippet } from '../src/core/mechanisms-index.js';
+import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, formatMechanismsList, notBuiltLine, kindOf, estimateBuildMinutes, carryDescriptions, MECHANISMS_FORMAT, foldRecords, foldGroups, pickRepresentative, foldNote, formatMechanismsToc, recordBlock, purposeSnippet, sentenceNamesSubject } from '../src/core/mechanisms-index.js';
 import { harvestPurpose, firstSentence } from '../src/commands/pseudo-claims.js';
 import { describeMechanisms, describeProjection, describePack, cleanDescription } from '../src/commands/mechanisms.js';
 import { handleTool, TOOLS, setIndex } from '../src/mcp-server.js';
@@ -512,6 +512,24 @@ describe('the mechanisms index', () => {
       assert.match(c.join('\n'), /\n2 of \d+ shown; --all-results or --max-results 0 shows all, --toc <filter> narrows\./);
       assert.match(c[2], /^1\. /, 'a single-digit count needs no padding');
     });
+
+    it('mechanisms-descriptions-name-the-subject: a sentence that opens with This, These or The functions follows its label in the TOC line and the block; one that names its subject leads as before', () => {
+      for (const s of ['These functions together implement the guard policy.', 'This is the main Tauri application file.', 'These three helpers wrap the PTY.', 'The functions here parse claims.', "The file's leftovers: formatting and a date helper.", 'Together these route events to the pane.', 'A set of helpers for dates.', 'Functions that read the index.', 'Helpers for the fold.', 'Methods on the ledger.', '"These helpers" wrap the PTY.'])
+        assert.equal(sentenceNamesSubject(s), false, s);
+      for (const s of ['`guard_policy.rs` implements the allow/deny pipeline.', 'lib.rs is the main Tauri application file.', 'Ledger holds the entries of one day.', 'Tests verify the harvester against three fixtures.', 'Test harness for the parser.', 'Thesaurus lookups map a word to its synonyms.', 'The Ledger class posts entries.', '[class] Vault does its part.', ''])
+        assert.equal(sentenceNamesSubject(s), true, s || '(empty)');
+      const entries = foldRecords(data.records);
+      const base = entries.find((e) => e.label === '[class] Vault');
+      const anaphoric = { ...base, description: 'These methods keep the secrets of one owner.' };
+      const named = { ...base, description: 'Vault keeps the secrets of one owner.' };
+      assert.equal(formatMechanismsToc(data, [anaphoric], { exe: 'ce' }).lines[2], '1. [class] Vault  (3 fns, 1 file) — These methods keep the secrets of one owner.  also [file] vault.py', 'the label and counts lead; the sentence follows the dash, unquoted');
+      assert.equal(formatMechanismsToc(data, [named], { exe: 'ce' }).lines[2], '1. Vault keeps the secrets of one owner.  ([class] Vault; 3 fns, 1 file)  also [file] vault.py', 'a sentence that names its subject leads as before');
+      assert.deepEqual(recordBlock(anaphoric, {}).slice(0, 3), [`${base.id.padEnd(6)}[class] Vault  (3 fns, 1 file)`, '      These methods keep the secrets of one owner.', '      also [file] vault.py'], 'the block: the label line, then the sentence, the undescribed shape');
+      assert.equal(recordBlock(named, {})[0], `${base.id.padEnd(6)}Vault keeps the secrets of one owner.`);
+      const v = formatMechanismsToc(data, [anaphoric], { verbose: true }).lines;
+      assert.equal(v[3], `   ${base.id.padEnd(6)}[class] Vault  (3 fns, 1 file)`, '-v: the block starts at the label line either way');
+      assert.equal(v[4], '         also [file] vault.py', 'and does not repeat the sentence the TOC line carried');
+    });
   });
 
   describe('the CLI, the MCP tool and --describe', () => {
@@ -595,6 +613,7 @@ describe('the mechanisms index', () => {
       const drafter = async (sys, user) => {
         seen.push(user);
         assert.match(sys, /ONE plain sentence/);
+        assert.match(sys, /^Open with the subject's name as the MECHANISM line gives it: .*never open with This, These or The functions\.$/m, 'the prompt asks for the name first (mechanisms-descriptions-name-the-subject)');
         const label = user.split('\n')[0].replace('MECHANISM: ', '');
         return `Description: "${label} reads things."\nSecond line ignored.`;
       };

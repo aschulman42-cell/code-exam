@@ -824,12 +824,16 @@ export function renderMechanismList(container, data) {
     // sentence (its title) and the label moves to the muted row beneath, with
     // the record id; an undescribed record leads with its label over the
     // harvested purpose, a doc fragment or a `calls:` line, not a title.
+    // mechanisms-descriptions-name-the-subject: a sentence that opens with
+    // This, These or The functions (the route's `names_subject` false, core's
+    // rule) gets the headline `label — sentence`, so the name reads before
+    // the pronoun; the muted row beneath is unchanged.
     const desc = r.description || '';
-    const headline = desc || r.label;
+    const headline = desc ? (r.names_subject === false ? `${r.label} — ${desc}` : desc) : r.label;
     const subline = desc ? `${r.id}  ${r.label}${also ? ` · ${also}` : ''}` : (r.purpose || '');
     const subHeader = h('div', {
       className: 'sub-accordion-header',
-      title: desc ? `${desc}\n${r.label}${also ? `\n${also}` : ''}\n${counts}` : `${r.label}${also ? `\n${also}` : ''}\n${counts}${subline ? `\n${subline}` : ''}`,
+      title: desc ? `${r.names_subject === false ? `${r.label}\n${desc}` : `${desc}\n${r.label}`}${also ? `\n${also}` : ''}\n${counts}` : `${r.label}${also ? `\n${also}` : ''}\n${counts}${subline ? `\n${subline}` : ''}`,
     }, [
       h('span', { className: 'sub-accordion-toggle', text: nRec > 1 ? '›' : '▸' }),
       h('span', { className: 'name', text: headline, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),

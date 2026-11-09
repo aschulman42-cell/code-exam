@@ -186,6 +186,7 @@ describe('/api/list-mechanisms', () => {
     assert.equal(ledger.files, 1);
     assert.match(ledger.purpose, /^Holds the entries of one day\./);
     assert.equal(ledger.description, null);
+    assert.equal(ledger.names_subject, null, 'no sentence, no verdict on its subject');
     assert.deepEqual(ledger.tags, []);
     assert.equal(ledger.members_total, ledger.members.length);
     const add = ledger.members.find((m) => m.name === 'Ledger::post_entry');
@@ -272,6 +273,20 @@ describe('/api/list-mechanisms', () => {
     const vb = await (await fetch(q('&filter=Vault'))).json();
     assert.equal(vb.records.length, 1); assert.match(vb.records[0].description, /does its part\.$/);
     assert.equal(vb.described.records, dry.todo + 2, 'the alias record carries the sentence too');
+    assert.equal(vb.records[0].names_subject, true, 'the stub opens with the label, so its sentence names its subject');
+    // mechanisms-descriptions-name-the-subject: the route judges each sentence
+    // with core's rule, so the pane carries no copy of it. A sentence that
+    // opens with "These" is written into the file by hand; the loader's
+    // cache is keyed on mtime and size, and both change.
+    const mp = path.join(indexPath, 'mechanisms.json');
+    const file = JSON.parse(fs.readFileSync(mp, 'utf8'));
+    for (const rec of file.records) if (rec.label === '[class] Vault') rec.description = 'These methods keep the secrets of one owner.';
+    await new Promise((r) => setTimeout(r, 20));
+    fs.writeFileSync(mp, JSON.stringify(file));
+    const va = await (await fetch(q('&filter=Vault'))).json();
+    assert.equal(va.records.length, 1);
+    assert.match(va.records[0].description, /^These methods keep/, 'the described class record names the folded row');
+    assert.equal(va.records[0].names_subject, false, 'a sentence opening with These does not name its subject');
     const bad = await fetch(`http://127.0.0.1:${port}/api/describe-mechanisms`);
     assert.equal(bad.status, 405, 'GET is refused');
   });

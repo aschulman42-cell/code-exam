@@ -269,6 +269,28 @@ const memberRange = (m) => (Number.isFinite(m.start) && Number.isFinite(m.end) ?
 const alsoOf = (r) => (r.aliases && r.aliases.length ? `also ${r.aliases.map((a) => a.label).join(', ')}` : '');
 
 /**
+ * Does a description name its subject? True when the sentence opens with a
+ * name (`lib.rs is …`, `guard_policy.rs implements …`, `Ledger holds …`,
+ * `Tests verify …`); false when it opens with a pronoun or a generic noun
+ * whose antecedent is the label it was written for: This, These, Together,
+ * The functions / methods / members / helpers / module / file / class /
+ * group / code / record, A set / collection / group of, Functions, Methods,
+ * Helper(s). Under mechanisms-description-leads such a sentence read before
+ * its antecedent (mechanisms-descriptions-name-the-subject; measured
+ * 2026-11-05: 376 of Bram's 723 sentences, 67 of CodeExam's 390, 267 of
+ * WinAPI_Classic's 735 open that way), so the listings put the label first
+ * when this is false. The rule reads the first words only, past a leading
+ * backtick or quote; an empty text is taken as naming its subject (nothing
+ * to put first). Exported for the tests and the GUI route, which sends it
+ * per record as `names_subject`.
+ */
+export function sentenceNamesSubject(text) {
+  const s = String(text || '').replace(/^[\s`"'“”‘’*_]+/, '');
+  if (!s) return true;
+  return !/^(this|these|together|functions|methods|helpers?)\b|^the (functions|methods|members|helpers|module|file|class|group|code|record)\b|^a (set|collection|group) of\b/i.test(s);
+}
+
+/**
  * One entry's block: its id and, when a model wrote one, its description
  * first with the label, counts and tags on the next line
  * (mechanisms-description-leads: the sentence is the record's title; the
@@ -276,15 +298,20 @@ const alsoOf = (r) => (r.aliases && r.aliases.length ? `also ${r.aliases.map((a)
  * the label), else the label line and the purpose beneath it; `also` and the
  * other labels when the entry folds several records; then the member names
  * (every member as `file@name  (L12–48)` under `verbose`, the range being the
- * function's lines in the index when the record has them). `cut` trims the
+ * function's lines in the index when the record has them). A description
+ * that does not name its subject (sentenceNamesSubject false: it opens with
+ * This, These or The functions) sits beneath the label line instead, the
+ * undescribed shape, so the name reads before the pronoun. `cut` trims the
  * text; `sentence: false` starts a described entry's block at the label line,
  * for a caller that has just printed the sentence (the TOC's `-v`).
  */
 export function recordBlock(r, { verbose = false, dn = (n) => n, cut = (t) => t, sentence = true } = {}) {
   const labelLine = `${r.label}  (${countsOf(r)})${tagsOf(r)}`;
   const lines = [];
-  if (r.description && sentence) {
+  if (r.description && sentence && sentenceNamesSubject(r.description)) {
     lines.push(`${r.id.padEnd(6)}${cut(r.description)}`, `      ${labelLine}`);
+  } else if (r.description && sentence) {
+    lines.push(`${r.id.padEnd(6)}${labelLine}`, `      ${cut(r.description)}`);
   } else if (r.description) {
     lines.push(`${r.id.padEnd(6)}${labelLine}`);
   } else {
@@ -343,9 +370,13 @@ export function purposeSnippet(text, max = 90) {
  * entry in the file's order (the order --mechanisms prints, so the two
  * agree; no rank, since `priority` is null until a ranker exists, so the
  * number is an ordinal). A described entry leads with its sentence and
- * carries the label in the parenthesis; an undescribed one leads with its
- * label and quotes its purpose cut at 90 characters; tags in brackets; a
- * folded entry ends `also <labels>`. `verbose` follows each line with the
+ * carries the label in the parenthesis when the sentence names its subject;
+ * one whose sentence opens with This, These or The functions
+ * (sentenceNamesSubject false) leads with its label and counts and carries
+ * the sentence after a dash, unquoted, since a quote marks a doc fragment;
+ * an undescribed one leads with its label and quotes its purpose cut at 90
+ * characters; tags in brackets; a folded entry ends `also <labels>`.
+ * `verbose` follows each line with the
  * block --mechanisms -v prints, the terminal's "clickable to cites". The
  * footer counts the entries without a sentence and says how to get them,
  * with the filter in the command. Returns { lines, shown, total }.
@@ -361,7 +392,8 @@ export function formatMechanismsToc(data, entries, { filter = null, max = 100, v
     n++;
     const num = `${String(n).padStart(width)}. `;
     const also = alsoOf(r) ? `  ${alsoOf(r)}` : '';
-    if (r.description) lines.push(`${num}${r.description}  (${r.label}; ${countsOf(r)})${tagsOf(r)}${also}`);
+    if (r.description && sentenceNamesSubject(r.description)) lines.push(`${num}${r.description}  (${r.label}; ${countsOf(r)})${tagsOf(r)}${also}`);
+    else if (r.description) lines.push(`${num}${r.label}  (${countsOf(r)}) — ${r.description}${tagsOf(r)}${also}`);
     else lines.push(`${num}${r.label}  (${countsOf(r)})${r.purpose ? ` — "${purposeSnippet(r.purpose)}"` : ''}${tagsOf(r)}${also}`);
     if (verbose) {
       for (const l of recordBlock(r, { verbose: true, dn, sentence: false })) lines.push(`${' '.repeat(width + 2)}${l}`);

@@ -69,9 +69,12 @@ records overlapping; what a mechanism is and how its label reads: [`CODEEXAM_MEC
 under two labels (a one-class file as `[class] Foo` and `[file] foo.py`) are one row, the other
 label after `also` in the muted line and a `×2` beside the counts, so the badge counts rows, not
 records (383 on CodeExam's 390 records). A row leads with the
-model's one-sentence description when `--describe` wrote one, the label then sitting beneath it
-with the record id; otherwise it leads with the label, over the purpose read from the code's own
-doc text. Beside either sit its member and file counts and tags (`test`, `vendored`, `giant` for
+model's one-sentence description when `--describe` wrote one and the sentence names its subject,
+the label then sitting beneath it with the record id; when the sentence opens with This, These or
+The functions the headline is `label — sentence`, so the name reads before the pronoun (the route
+sends `names_subject`, judged by the one rule the CLI listings apply); otherwise it leads with the
+label, over the purpose read from the code's own doc text. Beside either sit its member and file
+counts and tags (`test`, `vendored`, `giant` for
 a record the splitter could not break); a row that stands for one record expands to its members,
 and a member opens the source viewer as a function row does; a `×N` row opens the upper middle
 pane instead, as a deduplicated row of the AI/ML cells does, with the records it folds, the
