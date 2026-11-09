@@ -217,8 +217,9 @@ the one-line version.
   ([`litigated-claims-ground-truth.md`](litigated-claims-ground-truth.md)).
 - **Measuring distance from prose.** `--embed-distance "<text>"` ranks the index's mechanism
   rows by cosine to the text under a local embedding model, each row represented by its label
-  and member names ([`cli.md`](cli.md)); `scripts/describe-reach.mjs` scores the same rows
-  against claims whose answers are known.
+  and member names, and `--embed-distance @<claim file>` does it for every element of a claim
+  in one run, with a table of each element's nearest row ([`cli.md`](cli.md));
+  `scripts/describe-reach.mjs` scores the same rows against claims whose answers are known.
 - **Anchoring claim work.** A mechanism's members are `file@func` references, the grammar
   every claim flag takes ([`CODEEXAM_NOTATION.md`](CODEEXAM_NOTATION.md)), so a mechanism
   found by any of the above is a list of places to open.

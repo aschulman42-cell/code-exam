@@ -11,9 +11,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from '../src/argparse.js';
 import { EMBED_MODELS, DEFAULT_EMBED_MODEL, resolveEmbedModel, entryChunks, embedAll, COMPACT_ABOVE_DIMS, readCache } from '../src/core/embed.js';
-import { readCandidateList, embedCacheFile, rankCandidates, filterRanked, formatRow, renderListing, CHUNK } from '../src/commands/embed-distance.js';
+import { readCandidateList, embedCacheFile, rankCandidates, filterRanked, formatRow, renderListing, CHUNK, resolveQueries, bandWord, listingStats, renderSummary, resolveEmbedModels, bandCalibrated, renderComparison, SMALL_INDEX } from '../src/commands/embed-distance.js';
+import { splitClaimElements } from '../src/commands/claim-locate.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** parseArgs reads process.argv; run it under the given argv and put the real one back. */
 function withArgv(argv, fn) {
@@ -154,5 +159,141 @@ describe('embed-distance', () => {
     assert.equal(calls, 0, 'read back from the compact store');
     assert.ok(Math.abs(again.get('k')[1] - 0.8) < 1e-6);
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  // embed-distance-per-element (2026-11-09)
+  it('@file reads a claim and splits it as the pipeline does; --elements @list supplies the elements verbatim; a plain text is one query', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-embed-elements-'));
+    const claim = path.join(dir, 'claim.txt');
+    const text = '1. A widget, comprising:\n  a first part;\n  a second part coupled to\n  the first part; and\n  a third part that holds the others.\n';
+    fs.writeFileSync(claim, text);
+    const split = resolveQueries(`@${claim}`);
+    assert.equal(split.queries.length, splitClaimElements(text).length, 'the pipeline\'s split');
+    assert.ok(split.queries.length >= 3, split.queries.join(' | '));
+    assert.equal(split.queries[0], 'A widget, comprising:');
+    assert.ok(split.queries.every((q) => !/\s\s|\n/.test(q)), 'whitespace collapsed');
+    assert.match(split.source, /^\d+ elements from .*claim\.txt, split by CodeExam \(--elements @list supplies them verbatim\)$/);
+    const list = path.join(dir, 'elements.txt');
+    fs.writeFileSync(list, '# by hand\nthe first and second parts\n\nthe third part\n');
+    const given = resolveQueries(`@${claim}`, `@${list}`);
+    assert.deepEqual(given.queries, ['the first and second parts', 'the third part']);
+    assert.match(given.source, /^2 elements from .*elements\.txt, supplied verbatim$/);
+    assert.deepEqual(resolveQueries('code rate'), { queries: ['code rate'], source: null });
+    assert.deepEqual(resolveQueries('  ').queries, []);
+    assert.throws(() => resolveQueries(`@${path.join(dir, 'missing.txt')}`), /ENOENT/);
+    assert.equal(withArgv(['--embed-distance', '@claim.txt', '--elements', '@list.txt'], () => parseArgs()).embed_distance, '@claim.txt');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('bandWord and listingStats read the band once for the note and the table; renderSummary is one row per element with the nearest, the margin, the word and, under --filter, the rank of the first match; the per-element heading replaces "query:"', () => {
+    assert.equal(bandWord(0.05, 12), 'no clear match');
+    assert.equal(bandWord(0.13, 12), 'borderline');
+    assert.equal(bandWord(0.3, 12), '');
+    assert.equal(bandWord(0.05, 3), '', 'a short list has no band');
+    const q = [1, 0];
+    const flat = Array.from({ length: 11 }, (_, i) => ({ text: `c${i}`, vectors: [[0.5 + i * 0.001, Math.sqrt(1 - (0.5 + i * 0.001) ** 2)]] }));
+    const ranked = rankCandidates(q, [...flat, { text: 'top', label: '[class] Top', members: [{ name: 'Top::go' }], vectors: [[0.8, 0.6]] }]);
+    const s = listingStats(ranked);
+    assert.ok(Math.abs(s.margin - (0.8 - s.med)) < 1e-9 && s.word === '', JSON.stringify(s));
+    const rows = [
+      { n: 1, element: 'a first part', nearest: '[class] Top', margin: 0.295, word: '', filterRank: 1 },
+      { n: 2, element: 'a second part coupled to the first part, which is a very long element text indeed', nearest: 'c3', margin: 0.02, word: 'no clear match', filterRank: null },
+    ];
+    const t = renderSummary(rows, { filter: 'go' });
+    assert.equal(t.length, 3);
+    assert.match(t[0], /^#  element\s+nearest\s+margin  note\s+--filter "go" rank$/, t[0]);
+    assert.match(t[1], /^1  a first part\s+\[class\] Top\s+0\.295\s+1$/, t[1]);
+    assert.match(t[2], /^2  a second part coupled to the first part, which is a very \S*…\s+c3\s+0\.020  no clear match\s+none$/, t[2]);
+    assert.ok(t[2].indexOf('…') < 70, 'the element is cut at 60');
+    assert.doesNotMatch(renderSummary(rows)[0], /filter/, 'no filter column without --filter');
+    assert.match(renderSummary([{ n: 1, element: 'x', nearest: 'y', margin: null, word: '', filterRank: null }])[1], /^1  x\s+y\s*$/, 'a blank margin for a list too short for a median');
+    const heading = renderListing({ query: 'a first part', what: null, ranked, top: 1, filter: null, verbose: false, heading: 'element 1 of 2' });
+    assert.equal(heading[0], 'element 1 of 2: a first part');
+    assert.match(heading[1], /^median cosine 0\.50\d\d \(the nearest is 0\.29\d\d above it\)$/, 'no "what" when the caller printed it once');
+  });
+
+  // embed-distance-band-small-index (2026-11-09)
+  it('the band reads only under nomic and tells a small index that it under-calls; above SMALL_INDEX candidates the note is as before', () => {
+    assert.equal(bandWord(0.05, 12, { calibrated: false }), '', 'no word under a model the band was not calibrated on');
+    assert.equal(bandWord(0.05, 12, { calibrated: true }), 'no clear match');
+    assert.equal(bandCalibrated({ base: 'nomic-embed-text-v1.5.Q8_0' }), true);
+    assert.equal(bandCalibrated({ base: 'jina-embeddings-v2-base-code-q8_0' }), false);
+    assert.equal(bandCalibrated(null), false);
+    const q = [1, 0];
+    const field = (n) => Array.from({ length: n }, (_, i) => ({ text: `c${i}`, vectors: [[0.5 + (i % 11) * 0.001, Math.sqrt(1 - (0.5 + (i % 11) * 0.001) ** 2)]] }));
+    const top = { text: 'top', vectors: [[0.53, Math.sqrt(1 - 0.53 ** 2)]] };
+    const small = renderListing({ query: 'q', what: '12 candidates', ranked: rankCandidates(q, [...field(11), top]), top: 3, filter: null, verbose: false });
+    assert.match(small[3], /^no clear match: .*; on an index of only 12 entries the band under-calls, since an unrelated query's top row is the best of few draws .*: read the rows$/, small[3]);
+    assert.ok(SMALL_INDEX > 12 && SMALL_INDEX <= 120, `SMALL_INDEX ${SMALL_INDEX}`);
+    const large = renderListing({ query: 'q', what: '120 candidates', ranked: rankCandidates(q, [...field(119), top]), top: 3, filter: null, verbose: false });
+    assert.match(large[3], /^no clear match: /);
+    assert.doesNotMatch(large[3], /under-calls/, 'no small-index clause above SMALL_INDEX');
+    const other = renderListing({ query: 'q', what: '12 candidates', ranked: rankCandidates(q, [...field(11), top]), top: 3, filter: null, verbose: false, calibrated: false, modelName: 'jina' });
+    assert.match(other[1], /\(the nearest is 0\.02\d\d above it; the band is calibrated on nomic and not read under jina\)$/, other[1]);
+    assert.equal(other[2], '', 'no note under another model');
+    assert.match(other[3], /^\s*1\. cosine/, 'the rows follow the blank line directly');
+    assert.equal(listingStats(rankCandidates(q, [...field(11), top]), { calibrated: false }).word, '');
+  });
+
+  // embed-distance-model-column (2026-11-09)
+  it('--embed-model takes a list or "installed", resolving each up front and running a model once; renderComparison is a margin column per model, a rank column under --filter, and one line per model', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-embed-models-'));
+    for (const f of ['nomic-embed-text-v1.5.Q8_0.gguf', 'jina-embeddings-v2-base-code-q8_0.gguf']) fs.writeFileSync(path.join(dir, f), '');
+    const opts = { modelsDir: dir };
+    assert.deepEqual(resolveEmbedModels('installed', opts).map((m) => m.name), ['nomic', 'jina'], 'the registry order, the installed ones');
+    assert.deepEqual(resolveEmbedModels('jina,nomic', opts).map((m) => m.name), ['jina', 'nomic']);
+    assert.deepEqual(resolveEmbedModels('nomic, nomic', opts).map((m) => m.name), ['nomic'], 'a model named twice runs once');
+    assert.deepEqual(resolveEmbedModels(undefined, opts).map((m) => m.name), ['nomic'], 'the default');
+    assert.throws(() => resolveEmbedModels('nomic,qwen06', opts), /embedding model "qwen06" is not installed/, 'a missing file fails before any model loads');
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-embed-none-'));
+    assert.throws(() => resolveEmbedModels('installed', { modelsDir: empty }), /no embedding model is under/);
+    fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(empty, { recursive: true, force: true });
+    const perModel = [
+      { model: { name: 'nomic' }, rows: [{ n: 1, element: 'a first part', nearest: '[class] Top', margin: 0.295, word: '', filterRank: 1 }, { n: 2, element: 'a second part', nearest: 'c3', margin: 0.02, word: 'no clear match', filterRank: 30 }] },
+      { model: { name: 'jina' }, rows: [{ n: 1, element: 'a first part', nearest: '[class] Top', margin: 0.41, word: '', filterRank: 1 }, { n: 2, element: 'a second part', nearest: 'c7', margin: 0.33, word: '', filterRank: null }] },
+    ];
+    const t = renderComparison(perModel);
+    assert.equal(t[0], '#  element        nomic margin  jina margin');
+    assert.equal(t[1], '1  a first part          0.295        0.410');
+    assert.equal(t[2], '2  a second part         0.020        0.330');
+    assert.equal(t[3], '');
+    assert.equal(t[4], "jina: nearest agrees with nomic's on 1 of 2 elements");
+    assert.equal(t.length, 5, 'no line for the first model without a filter');
+    const f = renderComparison(perModel, { filter: 'go' });
+    assert.equal(f[0], '#  element        nomic margin  nomic rank  jina margin  jina rank');
+    assert.equal(f[2], '2  a second part         0.020          30        0.330       none');
+    assert.equal(f[4], 'nomic: --filter "go" first for 1 of 2 elements, within 25 for 1');
+    assert.equal(f[5], 'jina: --filter "go" first for 1 of 2 elements, within 25 for 1');
+    assert.equal(withArgv(['--embed-distance', 'x', '--embed-model', 'nomic,jina'], () => parseArgs()).embed_model, 'nomic,jina');
+  });
+
+  const MODEL = path.join(ROOT, 'models', 'nomic-embed-text-v1.5.Q8_0.gguf');
+  const canRun = fs.existsSync(MODEL) && fs.existsSync(path.join(ROOT, '.demo', 'mechanisms.json')) && fs.existsSync(path.join(ROOT, 'sample_patent_claim.txt'));
+  it('end to end on the sample claim against .demo: the model loads once, one listing per element, what was ranked printed once, the table last', { skip: canRun ? false : 'needs models/nomic-embed-text-v1.5.Q8_0.gguf, .demo/mechanisms.json and sample_patent_claim.txt' }, () => {
+    const r = spawnSync(process.execPath, ['src/index.js', '--ndx', '.demo', '--embed-distance', '@sample_patent_claim.txt', '--max-results', '3'], { cwd: ROOT, encoding: 'utf8', timeout: 240000 });
+    assert.equal(r.status, 0, (r.stderr || '').slice(-800));
+    assert.equal((r.stderr.match(/^# loading /gm) || []).length, 1, 'the model loads once');
+    const n = (r.stdout.match(/^element \d+ of \d+: /gm) || []).length;
+    assert.ok(n >= 10, `elements: ${n}\n${r.stdout.slice(0, 600)}`);
+    assert.match(r.stdout, /^\d+ elements from sample_patent_claim\.txt, split by CodeExam/m);
+    assert.equal((r.stdout.match(/^\d+ mechanism entries of \.demo/gm) || []).length, 1, 'what was ranked prints once');
+    const lines = r.stdout.trimEnd().split('\n');
+    assert.match(lines[lines.length - n - 1], /^\s?#  element\s+nearest\s+margin  note$/, 'the table header above n rows (the # column right-aligns under two-digit numbers)');
+    assert.match(lines[lines.length - 1], new RegExp(`^${n}  `), 'the last row is the last element');
+    assert.match(r.stdout, /on an index of only 34 entries the band under-calls/, 'the demo is a small index');
+  });
+
+  const JINA = path.join(ROOT, 'models', 'jina-embeddings-v2-base-code-q8_0.gguf');
+  it('end to end under two models: each loads once, the listings per model, one comparison table with a margin column per model and the agreement line', { skip: canRun && fs.existsSync(JINA) ? false : 'needs the nomic and jina GGUFs, .demo/mechanisms.json and sample_patent_claim.txt' }, () => {
+    const r = spawnSync(process.execPath, ['src/index.js', '--ndx', '.demo', '--embed-distance', '@sample_patent_claim.txt', '--embed-model', 'nomic,jina', '--max-results', '1'], { cwd: ROOT, encoding: 'utf8', timeout: 300000 });
+    assert.equal(r.status, 0, (r.stderr || '').slice(-800));
+    assert.equal((r.stderr.match(/^# loading /gm) || []).length, 2, 'two model loads');
+    assert.match(r.stdout, /^2 models in turn: nomic, jina$/m);
+    assert.equal((r.stdout.match(/^model /gm) || []).length, 2);
+    assert.equal((r.stdout.match(/^element 1 of \d+: /gm) || []).length, 2, 'the first element listed under each model');
+    assert.match(r.stdout, /the band is calibrated on nomic and not read under jina\)$/m);
+    assert.match(r.stdout, /^\s?#  element\s+nomic margin\s+jina margin$/m, 'the comparison header');
+    assert.match(r.stdout, /^jina: nearest agrees with nomic's on \d+ of \d+ elements$/m);
+    assert.doesNotMatch(r.stdout, /^\s?#  element\s+nearest/m, 'no single-model table');
   });
 });

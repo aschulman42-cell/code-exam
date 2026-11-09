@@ -1248,16 +1248,28 @@ SEARCH:
   --literal <query>          Literal/exact text search
   --fast <query>             Fast inverted-index search
   --regex <pattern>          Regex pattern search
-  --embed-distance <text>    Cosine distance under a local embedding model: from <text>
+  --embed-distance <text|@file>
+                             Cosine distance under a local embedding model: from <text>
                              to --against "<text>" (one pair), to --against @file (one
                              candidate per line), or with no --against to every mechanism
                              entry of the index (label + member names in chunks of 8,
                              best chunk; vectors cached beside mechanisms.json). Rows are
                              rank, cosine, distance, the candidate; the median says what
                              an unrelated candidate scores; a top row under 0.12 above
-                             it is reported as no clear match, 0.12 to 0.16 as borderline.
+                             it is reported as no clear match, 0.12 to 0.16 as borderline
+                             (nomic only, the model the band was calibrated on; under
+                             100 entries the note says the band under-calls).
+                             @file reads a claim and measures every element in one
+                             process (CodeExam's split; --elements @list supplies the
+                             elements verbatim, one per line), one listing per element
+                             and a closing table: nearest, margin, note, and under
+                             --filter the rank of the first match.
                              --embed-model nomic (default)
-                             | jina | coderank | qwen06 | qwen4 | <path.gguf>; --max-results
+                             | jina | coderank | qwen06 | qwen4 | <path.gguf>, a comma
+                             list, or installed (every model under models/): the models
+                             run in turn, one loaded at a time, and the table gets a
+                             margin column per model (a rank column under --filter) and
+                             one line per model; --max-results
                              N (0 = all); --filter <s> keeps ranks and names the member
                              that matched; --no-prefix; --verbose shows the chunk that scored
   --files-search <query>     Show files containing a term, sorted by hit count
@@ -2013,10 +2025,11 @@ LLM ANALYSIS:
                              Omit it to let CE retrieve evidence PER ELEMENT
                              instead (see --elements); supplying it keeps the
                              chart's behaviour exactly as before.
-  --elements @file.txt       --claim-chart: take the claim's element list from a
-                             file, one limitation per line ('#' lines are
-                             comments carried into the provenance header),
-                             instead of splitting the claim heuristically. No
+  --elements @file.txt       --claim-chart (and --embed-distance @file): take the
+                             claim's element list from a file, one limitation per
+                             line ('#' lines are comments carried into the
+                             provenance header), instead of splitting the claim
+                             heuristically. No
                              regex reaches a practitioner's construction of a
                              claim, and letting a MODEL choose rows would make
                              two engines' charts undiffable — a file gives

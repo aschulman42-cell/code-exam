@@ -138,7 +138,7 @@ and the reverse direction.
 | `--claim-chart --targets @file` | one verdict per target per element | the cell verdicts | the chart, its verdicts file, HTML or Markdown | step 3 of the recommended path |
 | `--claim-chart` alone | per element, its own retrieval | code words, then the verdicts | the same chart on targets it found itself | the one-command form: wider, less exact, and what the measurements call "its own retrieval" |
 | `--claim-search`, `--claim-analyze` | one search for the whole claim, over file bodies | regex search terms; an analysis of the top matches | ranked files and functions; with `--claim-text`, one function mapped to the claim | the earlier whole-claim path, kept as the quick screen across indexes and as the GUI's claim surface |
-| `--embed-distance` | one element against every mechanism of the index | nothing; an embedding model ranks, no LLM | the mechanisms by distance, the median as the baseline | a measurement, not a search step (section 8) |
+| `--embed-distance` | one element, or with `@<file>` every element of a claim, against every mechanism of the index | nothing; an embedding model ranks, no LLM | the mechanisms by distance, the median as the baseline; per claim, a table of each element's nearest | a measurement, not a search step (section 8) |
 | `--pseudo-claims`, `--synonymize`, `--claims-loop` | code to claim | the drafted claim; its rewording | pseudo-claims, and the self-test's claims | the reverse direction: [`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md) |
 
 Whole-claim and per-element are the two retrieval mechanisms, with a blind spot each (the
@@ -190,8 +190,10 @@ alternative step 2 over file bodies; pseudo-claims run the arrow backwards.
   (`--build-mechanisms`, no model) by distance to the element under a local embedding model and
   prints the median as the baseline, what an unrelated mechanism scores; `--filter <function>`
   shows where a believed implementer's mechanism ranks, `-v` lists each nearest mechanism's
-  functions with their line ranges. No LLM at all, and a measurement rather than a search step:
-  it says how near an element sits to the code's own vocabulary, the gap section 8 measures.
+  functions with their line ranges, and `@<claim file>` (since 2026-11-09) runs every element
+  of a claim in one process and ends with a table of each element's nearest mechanism and
+  margin. No LLM at all, and a measurement rather than a search step: it says how near an
+  element sits to the code's own vocabulary, the gap section 8 measures.
 
 **Chart generation:**
 
@@ -608,6 +610,13 @@ measurement pages report in aggregate, before any model reads any code. With
 `describe-reach.md` measurement of 2026-11-06 scored the same pairing at 2,465), the register
 gap in one line. With `-v` each nearest mechanism's functions print with their line ranges,
 which makes the listing an ad-hoc claim-chart tester: type an element, open what it is near.
+With `@<claim file>` in place of the quoted element (2026-11-09), every element of the claim
+runs in one process, split as `--claim-chart` splits it or as an `--elements @list` gives it,
+and a table closes the run: each element's nearest mechanism, its margin over the median and
+the band's word, the whole '101 claim against ExoPlayer 3 in eight rows; `--embed-model
+nomic,jina,coderank` runs the same claim under several models in turn and the table gains a
+margin column per model, since which text to embed, and how near it lands, depends on the
+embedding model.
 
 **Where this points (2026-11-09).** The measurements since 2026-11-05 changed the shape of
 step 5. The unit the data support is the mechanism, not the bare name: with the mechanisms'
