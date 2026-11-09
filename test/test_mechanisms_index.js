@@ -17,7 +17,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
-import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, formatMechanismsList, notBuiltLine, kindOf, estimateBuildMinutes, carryDescriptions, MECHANISMS_FORMAT, foldRecords, foldGroups, pickRepresentative, foldNote, formatMechanismsToc, recordBlock, purposeSnippet, sentenceNamesSubject } from '../src/core/mechanisms-index.js';
+import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, formatMechanismsList, notBuiltLine, kindOf, estimateBuildMinutes, carryDescriptions, MECHANISMS_FORMAT, foldRecords, foldGroups, pickRepresentative, foldNote, formatMechanismsToc, recordBlock, purposeSnippet, sentenceNamesSubject, filterMatches, matchNote } from '../src/core/mechanisms-index.js';
 import { harvestPurpose, firstSentence } from '../src/commands/pseudo-claims.js';
 import { describeMechanisms, describeProjection, describePack, cleanDescription } from '../src/commands/mechanisms.js';
 import { handleTool, TOOLS, setIndex } from '../src/mcp-server.js';
@@ -530,6 +530,38 @@ describe('the mechanisms index', () => {
       assert.equal(v[3], `   ${base.id.padEnd(6)}[class] Vault  (3 fns, 1 file)`, '-v: the block starts at the label line either way');
       assert.equal(v[4], '         also [file] vault.py', 'and does not repeat the sentence the TOC line carried');
     });
+
+    it('mechanisms-filter-names-its-match: a filtered row says what matched when it does not print it (a member beyond the names shown, a file, a described row\'s purpose) and nothing when the match is on the row', () => {
+      const big = { id: 'm99', label: '[file] big.py', kind: 'file', files: ['src/deep/big.py'], tags: [], aliases: [], purpose: 'Fourteen helpers for widgets.', description: null, members: Array.from({ length: 14 }, (_, i) => ({ name: `fn${i}`, file: 'src/deep/big.py' })) };
+      const named = { ...big, description: 'big.py keeps the gadgets.' };
+      const twelve = big.members.slice(0, 12).map((m) => m.name);
+      assert.deepEqual(filterMatches(big, 'fn13', { printed: twelve }), { explained: false, members: ['fn13'], files: [], purpose: false });
+      assert.equal(filterMatches(big, 'fn3', { printed: twelve }).explained, true, 'a printed name explains the match');
+      assert.equal(filterMatches(big, 'big.py').explained, true, 'the label explains it');
+      assert.deepEqual(filterMatches(big, 'deep').files, ['src/deep/big.py']);
+      assert.equal(filterMatches(big, 'widgets', { purposeShown: true }).explained, true, 'a printed purpose explains it');
+      assert.deepEqual([filterMatches(named, 'widgets').explained, filterMatches(named, 'widgets').purpose], [false, true], 'a described row hides its purpose');
+      assert.equal(filterMatches(big, '/fn1[3]/').members.join(), 'fn13', 'a /regex/ filter');
+      assert.equal(filterMatches(big, null).explained, true);
+      assert.equal(matchNote(filterMatches(big, 'fn13', { printed: twelve }), big), 'holds fn13');
+      assert.equal(matchNote(filterMatches(named, 'widgets'), named), 'purpose "Fourteen helpers for widgets."');
+      assert.equal(matchNote(filterMatches(big, 'deep'), big), 'in src/deep/big.py');
+      assert.equal(matchNote(filterMatches(big, 'big.py'), big), '', 'nothing when the row explains it');
+      const b = recordBlock(big, { filter: 'fn13' });
+      assert.equal(b[0], 'm99   [file] big.py  (14 fns, 1 file)');
+      assert.equal(b[1], '      Fourteen helpers for widgets.');
+      assert.equal(b[2], '      holds fn13', 'the note follows the text');
+      assert.match(b[3], /^      fn0, fn1, .*fn11 \(\+2 more; -v lists every member as file@name\)$/, b[3]);
+      assert.ok(!recordBlock(big, { filter: 'fn3' }).some((l) => /holds/.test(l)), 'a printed name needs no note');
+      assert.ok(!recordBlock(big, { filter: 'fn13', verbose: true }).some((l) => /holds/.test(l)), '-v prints every member, so no note');
+      assert.ok(!recordBlock(big, { filter: 'deep', verbose: true }).some((l) => /^      in /.test(l)), '-v prints file@name, so no file note');
+      assert.equal(recordBlock(big, { filter: 'deep' })[2], '      in src/deep/big.py');
+      assert.equal(recordBlock(named, { filter: 'widgets' })[2], '      purpose "Fourteen helpers for widgets."');
+      assert.equal(recordBlock(big, {})[2].slice(0, 9), '      fn0', 'no filter, no note');
+      assert.equal(formatMechanismsToc(data, [big], { filter: 'fn13' }).lines[2], '1. [file] big.py  (14 fns, 1 file) — "Fourteen helpers for widgets."  holds fn13');
+      assert.equal(formatMechanismsToc(data, [named], { filter: 'widgets' }).lines[2], '1. big.py keeps the gadgets.  ([file] big.py; 14 fns, 1 file)  purpose "Fourteen helpers for widgets."');
+      assert.equal(formatMechanismsToc(data, [big], { filter: 'widgets' }).lines[2], '1. [file] big.py  (14 fns, 1 file) — "Fourteen helpers for widgets."', 'the quoted purpose explains it');
+    });
   });
 
   describe('the CLI, the MCP tool and --describe', () => {
@@ -586,6 +618,12 @@ describe('the mechanisms index', () => {
       assert.match(one, /more not shown \(total \d+\)\. Raise "max" or use a filter\./);
       const f = handleTool('list_mechanisms', { filter: 'Reader' });
       assert.match(f, /matching "Reader"/); assert.doesNotMatch(f, /\[file\] parser/);
+      // mechanisms-filter-names-its-match: a path segment is in no label, so
+      // every matched line says which file; a label match adds nothing.
+      const inLib = handleTool('list_mechanisms', { filter: 'lib/' });
+      assert.match(inLib, /^  m\d+  \[file\] bare\.js  \(\d fns, 1 file\)(  \[[^\]]+\])?  in lib\/bare\.js/m, inLib);
+      assert.ok(!inLib.split('\n').some((l) => /^  m\d+ /.test(l) && !/  in lib\//.test(l)), 'every listed line names its file');
+      assert.doesNotMatch(handleTool('list_mechanisms', { filter: 'Vault' }), /  in pkg\//, 'a match on the label needs no note');
       assert.match(handleTool('list_mechanisms', { filter: 'zzz-nothing' }), /No mechanisms match filter "zzz-nothing"/);
     });
 

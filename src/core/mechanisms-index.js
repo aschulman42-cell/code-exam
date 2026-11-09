@@ -246,6 +246,49 @@ export function filterRecords(records, filter) {
   return (records || []).filter((r) => match(r.id, r.label, r.purpose || '', r.description || '', ...(r.tags || []), ...(r.files || []), ...(r.members || []).map((m) => m.name), ...(r.aliases || []).flatMap((a) => [a.id, a.label])));
 }
 
+/**
+ * What a filter matched that a row may not print (mechanisms-filter-names-its-match;
+ * Andrew, 2026-11-09: `--mechanisms mask_quoted_spans` listed the 62-function
+ * guard_policy row with twelve other names and no word on why). `printed` is
+ * what the caller's row shows of the member names and `purposeShown` whether
+ * it shows the harvested purpose (a described row prints the sentence
+ * instead). When the id, the label, the description, a tag, a folded label, a
+ * printed name or a shown purpose explains the match, nothing more is
+ * reported; otherwise the matching members not printed, the matching files
+ * (counted on every row, never listed) and whether the hidden purpose matched.
+ * The same matcher as filterRecords, so a row reported here is one it kept.
+ */
+export function filterMatches(r, filter, { printed = [], purposeShown = false } = {}) {
+  const none = { explained: true, members: [], files: [], purpose: false };
+  if (!filter || !r) return none;
+  const match = makeFilterMatcher(filter);
+  const shown = new Set(printed);
+  if (match(r.id, r.label, r.description || '', ...(r.tags || []), ...(r.aliases || []).map((a) => a.label), ...printed, purposeShown ? (r.purpose || '') : '')) return none;
+  return {
+    explained: false,
+    members: (r.members || []).map((m) => m.name).filter((n) => !shown.has(n) && match(n)),
+    files: (r.files || []).filter((f) => match(f)),
+    purpose: !purposeShown && !!(r.purpose && match(r.purpose)),
+  };
+}
+
+/**
+ * The words a filtered row adds when nothing it prints explains the match:
+ * `holds a, b (+2)` for members (the word `--embed-distance --filter` uses),
+ * `in <file>` for files, `purpose "…"` (cut at 90) for a described row's
+ * hidden purpose; joined by `; `, empty when the match is explained. One
+ * phrase for the --mechanisms block, the --toc line, list_mechanisms and the
+ * GUI row, which takes it from the route as `match_note`.
+ */
+export function matchNote(fm, r, { dn = (n) => n } = {}) {
+  if (!fm || fm.explained) return '';
+  const parts = [];
+  if (fm.members.length) parts.push(`holds ${fm.members.slice(0, 3).map(dn).join(', ')}${fm.members.length > 3 ? ` (+${fm.members.length - 3})` : ''}`);
+  if (fm.files.length) parts.push(`in ${fm.files.slice(0, 2).join(', ')}${fm.files.length > 2 ? ` (+${fm.files.length - 2})` : ''}`);
+  if (fm.purpose && r) parts.push(`purpose "${purposeSnippet(r.purpose)}"`);
+  return parts.join('; ');
+}
+
 const nf = (x) => Number(x || 0).toLocaleString('en-US');
 
 /** The one-line summary of a loaded file: what it covers and when it was built. */
@@ -303,10 +346,18 @@ export function sentenceNamesSubject(text) {
  * This, These or The functions) sits beneath the label line instead, the
  * undescribed shape, so the name reads before the pronoun. `cut` trims the
  * text; `sentence: false` starts a described entry's block at the label line,
- * for a caller that has just printed the sentence (the TOC's `-v`).
+ * for a caller that has just printed the sentence (the TOC's `-v`). With
+ * `filter`, a row the filter matched on something the block does not print
+ * adds the matchNote line after its text (mechanisms-filter-names-its-match);
+ * under `verbose` every member prints as `file@name`, so only a hidden
+ * purpose can need one.
  */
-export function recordBlock(r, { verbose = false, dn = (n) => n, cut = (t) => t, sentence = true } = {}) {
+export function recordBlock(r, { verbose = false, dn = (n) => n, cut = (t) => t, sentence = true, filter = null } = {}) {
   const labelLine = `${r.label}  (${countsOf(r)})${tagsOf(r)}`;
+  const shown = verbose ? r.members : r.members.slice(0, 12);
+  let fm = filter ? filterMatches(r, filter, { printed: shown.map((m) => m.name), purposeShown: !r.description }) : null;
+  if (fm && verbose) fm = { ...fm, files: [] };
+  const note = matchNote(fm, r, { dn });
   const lines = [];
   if (r.description && sentence && sentenceNamesSubject(r.description)) {
     lines.push(`${r.id.padEnd(6)}${cut(r.description)}`, `      ${labelLine}`);
@@ -318,12 +369,13 @@ export function recordBlock(r, { verbose = false, dn = (n) => n, cut = (t) => t,
     lines.push(`${r.id.padEnd(6)}${labelLine}`);
     if (r.purpose) lines.push(`      ${cut(r.purpose)}`);
   }
+  if (note) lines.push(`      ${note}`);
   const also = alsoOf(r);
   if (also) lines.push(`      ${also}`);
   if (verbose) {
     for (const m of r.members) lines.push(`      ${m.file}@${dn(m.name)}${memberRange(m)}`);
   } else {
-    const names = r.members.slice(0, 12).map((m) => dn(m.name));
+    const names = shown.map((m) => dn(m.name));
     const more = r.members.length > 12 ? ` (+${nf(r.members.length - 12)} more; -v lists every member as file@name)` : '';
     lines.push(`      ${names.join(', ')}${more}`);
   }
@@ -343,7 +395,7 @@ export function formatMechanismsList(data, records, { filter = null, max = 100, 
   const cut = (text) => (!verbose && text.length > 240) ? text.slice(0, 239) + '…' : text;
   const lines = [];
   lines.push(`${nf(total)} mechanism${total === 1 ? '' : 's'}${foldNote(records)}${filter ? ` matching '${filter}'` : ''}${shown < total ? ` (showing ${nf(shown)})` : ''}: ${coverageLine(data)}`);
-  for (const r of records.slice(0, shown)) lines.push('', ...recordBlock(r, { verbose, dn, cut }));
+  for (const r of records.slice(0, shown)) lines.push('', ...recordBlock(r, { verbose, dn, cut, filter }));
   if (shown < total) lines.push('', `${nf(shown)} of ${nf(total)} shown; --all-results or --max-results 0 shows all, --mechanisms <filter> narrows.`);
   // A file nobody has described yet ends by saying how to get descriptions,
   // with the active filter in the command because describing the listed
@@ -375,8 +427,10 @@ export function purposeSnippet(text, max = 90) {
  * (sentenceNamesSubject false) leads with its label and counts and carries
  * the sentence after a dash, unquoted, since a quote marks a doc fragment;
  * an undescribed one leads with its label and quotes its purpose cut at 90
- * characters; tags in brackets; a folded entry ends `also <labels>`.
- * `verbose` follows each line with the
+ * characters; tags in brackets; a folded entry ends `also <labels>`; with a
+ * `filter`, a line the filter matched on something it does not print ends
+ * with the matchNote (mechanisms-filter-names-its-match). `verbose` follows
+ * each line with the
  * block --mechanisms -v prints, the terminal's "clickable to cites". The
  * footer counts the entries without a sentence and says how to get them,
  * with the filter in the command. Returns { lines, shown, total }.
@@ -391,7 +445,8 @@ export function formatMechanismsToc(data, entries, { filter = null, max = 100, v
   for (const r of entries.slice(0, shown)) {
     n++;
     const num = `${String(n).padStart(width)}. `;
-    const also = alsoOf(r) ? `  ${alsoOf(r)}` : '';
+    const note = filter ? matchNote(filterMatches(r, filter, { printed: [], purposeShown: !r.description }), r, { dn }) : '';
+    const also = `${alsoOf(r) ? `  ${alsoOf(r)}` : ''}${note ? `  ${note}` : ''}`;
     if (r.description && sentenceNamesSubject(r.description)) lines.push(`${num}${r.description}  (${r.label}; ${countsOf(r)})${tagsOf(r)}${also}`);
     else if (r.description) lines.push(`${num}${r.label}  (${countsOf(r)}) — ${r.description}${tagsOf(r)}${also}`);
     else lines.push(`${num}${r.label}  (${countsOf(r)})${r.purpose ? ` — "${purposeSnippet(r.purpose)}"` : ''}${tagsOf(r)}${also}`);

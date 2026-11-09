@@ -19,6 +19,7 @@ in the AI/ML cells — see [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md) — and th
 | `?` | an unknown / unlabeled family or grouping key | `~?` |
 | `also [kind] label` | in a mechanisms row: the other records that are the same functions under another label, folded into this one (the GUI adds `×N`) | `also [file] ledger.py` |
 | `file@name  (L12–48)` | a member of a mechanism entry under `-v` (`--mechanisms`, `--toc`, `--embed-distance`): the anchor in the `file@func` grammar, then the function's line range in the index, kept outside the anchor so the `file@func` part pastes into any anchor-taking flag | `common/frame.c@x264_frame_delete  (L312–340)` |
+| `holds name` / `in file` / `purpose "…"` | on a filtered mechanisms row (`--mechanisms`, `--toc`, `list_mechanisms`, the GUI list): what the filter matched that the row does not print, a member beyond the names shown (`holds`, the word `--embed-distance --filter` uses), a file (counted on every row, never listed), or the harvested purpose a model's sentence replaced; absent when the id, label, text, a tag, a folded label or a printed name explains the match | `holds mask_quoted_spans`; `in src/guard_policy.rs` |
 | `[test]` / dimmed | every site is test / example / demo code | CLI `[test]`; GUI dimmed |
 | `<var>` / "unresolved" | an identifier passed as a variable, not a string literal | `<var>`; "(unresolved variable)" |
 | `ⓘ` | a note in CodeExam's own voice under an AI answer: what it rests on, what CodeExam could or could not check | `ⓘ Based on 8 model tool calls: digest ×3, …` |

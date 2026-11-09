@@ -73,8 +73,11 @@ model's one-sentence description when `--describe` wrote one and the sentence na
 the label then sitting beneath it with the record id; when the sentence opens with This, These or
 The functions the headline is `label — sentence`, so the name reads before the pronoun (the route
 sends `names_subject`, judged by the one rule the CLI listings apply); otherwise it leads with the
-label, over the purpose read from the code's own doc text. Beside either sit its member and file
-counts and tags (`test`, `vendored`, `giant` for
+label, over the purpose read from the code's own doc text. Under a filter, a row matched on
+something it does not show (a member past the names, a file, a purpose a sentence replaced) opens
+its muted line with what matched, `holds <member>`, `in <file>` or `purpose "…"`, the CLI
+listings' words, so the reason is visible before the row is expanded. Beside either sit its
+member and file counts and tags (`test`, `vendored`, `giant` for
 a record the splitter could not break); a row that stands for one record expands to its members,
 and a member opens the source viewer as a function row does; a `×N` row opens the upper middle
 pane instead, as a deduplicated row of the AI/ML cells does, with the records it folds, the

@@ -32,7 +32,7 @@ import { extractReferencedResources } from './core/referenced-resources.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { modelsUsedNegative } from './commands/metrics.js';
 import { filteredEmptyNotice } from './core/filter-match.js';
-import { loadMechanismsIndex, filterRecords, foldRecords, foldNote, notBuiltLine, coverageLine } from './core/mechanisms-index.js';
+import { loadMechanismsIndex, filterRecords, foldRecords, foldNote, notBuiltLine, coverageLine, filterMatches, matchNote } from './core/mechanisms-index.js';
 import { maskCredentials } from './core/credential-mask.js';
 import { displayName, parseFuncSpec } from './utils.js';
 import { doCallTree } from './commands/graph.js';
@@ -1119,7 +1119,11 @@ function handleToolRaw(name, args) {
         const also = r.aliases && r.aliases.length ? `  also ${r.aliases.map((a) => a.label).join(', ')}` : '';
         const text = r.description || r.purpose || '';
         const nf = r.files.length;
-        lines.push(`  ${r.id}  ${r.label}  (${r.members.length} fn${r.members.length === 1 ? '' : 's'}, ${nf} file${nf === 1 ? '' : 's'})${tags}${also}${text ? '  — ' + (text.length > 200 ? text.slice(0, 199) + '…' : text) : ''}`);
+        // mechanisms-filter-names-its-match: a line the filter matched on
+        // something it does not print (a member past the eight names, a file,
+        // a purpose the sentence replaced) says what matched, as the CLI does.
+        const note = args.filter ? matchNote(filterMatches(r, args.filter, { printed: r.members.slice(0, 8).map((m) => m.name), purposeShown: !r.description }), r, { dn }) : '';
+        lines.push(`  ${r.id}  ${r.label}  (${r.members.length} fn${r.members.length === 1 ? '' : 's'}, ${nf} file${nf === 1 ? '' : 's'})${tags}${also}${note ? `  ${note}` : ''}${text ? '  — ' + (text.length > 200 ? text.slice(0, 199) + '…' : text) : ''}`);
         const names = r.members.slice(0, 8).map((m) => dn(m.name));
         lines.push(`      ${names.join(', ')}${r.members.length > 8 ? ` (+${r.members.length - 8} more; extract <file@name> reads one)` : ''}`);
       }

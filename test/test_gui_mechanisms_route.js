@@ -198,6 +198,14 @@ describe('/api/list-mechanisms', () => {
     assert.ok(file.members.some((m) => m.name === 'Ledger::post_entry'), 'overlap: the method is in its file record too');
     const util = body.records.find((r) => r.label === '[file] util.js');
     assert.match(util.purpose, /^util\.js — small helpers/);
+    // mechanisms-filter-names-its-match: a filter that matched what the
+    // collapsed row does not show is explained on the record; a label match
+    // adds nothing, and no filter means no note.
+    assert.equal(ledger.match_note, '', 'no filter, no note');
+    const inPkg = await (await fetch(q('&filter=pkg/'))).json();
+    assert.ok(inPkg.records.length >= 1 && inPkg.records.every((r) => /^in pkg\/\w+\.py$/.test(r.match_note)), JSON.stringify(inPkg.records.map((r) => [r.label, r.match_note])));
+    const byLabel = await (await fetch(q('&filter=Ledger'))).json();
+    assert.ok(byLabel.records.length >= 1 && byLabel.records.every((r) => r.match_note === ''), JSON.stringify(byLabel.records.map((r) => [r.label, r.match_note])));
 
     const filtered = await (await fetch(q('&filter=statement'))).json();
     assert.ok(filtered.total >= 1 && filtered.total < body.total_all, JSON.stringify({ total: filtered.total, all: filtered.total_all }));

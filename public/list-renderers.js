@@ -828,12 +828,16 @@ export function renderMechanismList(container, data) {
     // This, These or The functions (the route's `names_subject` false, core's
     // rule) gets the headline `label — sentence`, so the name reads before
     // the pronoun; the muted row beneath is unchanged.
+    // mechanisms-filter-names-its-match: under a filter the route says what
+    // matched when the collapsed row does not show it (`holds <member>`,
+    // `in <file>`, `purpose "…"`), and the muted line opens with it.
     const desc = r.description || '';
+    const note = r.match_note || '';
     const headline = desc ? (r.names_subject === false ? `${r.label} — ${desc}` : desc) : r.label;
-    const subline = desc ? `${r.id}  ${r.label}${also ? ` · ${also}` : ''}` : (r.purpose || '');
+    const subline = `${note ? `${note} · ` : ''}${desc ? `${r.id}  ${r.label}${also ? ` · ${also}` : ''}` : (r.purpose || '')}`.replace(/ · $/, '');
     const subHeader = h('div', {
       className: 'sub-accordion-header',
-      title: desc ? `${r.names_subject === false ? `${r.label}\n${desc}` : `${desc}\n${r.label}`}${also ? `\n${also}` : ''}\n${counts}` : `${r.label}${also ? `\n${also}` : ''}\n${counts}${subline ? `\n${subline}` : ''}`,
+      title: `${desc ? `${r.names_subject === false ? `${r.label}\n${desc}` : `${desc}\n${r.label}`}${also ? `\n${also}` : ''}\n${counts}` : `${r.label}${also ? `\n${also}` : ''}\n${counts}${r.purpose ? `\n${r.purpose}` : ''}`}${note ? `\n${note}` : ''}`,
     }, [
       h('span', { className: 'sub-accordion-toggle', text: nRec > 1 ? '›' : '▸' }),
       h('span', { className: 'name', text: headline, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),

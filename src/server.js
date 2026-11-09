@@ -35,7 +35,7 @@ import { makeFilterMatcher } from './core/filter-match.js';
 import { chatSessionOptions, ggufContextOptions, stripLocalArtifacts, draftCloud, getLlamaShared, isNoBinaryError, NO_BINARY_MESSAGE } from './core/llm-runner.js';
 import { extractExports } from './core/exports.js';
 import { extractImports, bomReport } from './core/imports.js';
-import { loadMechanismsIndex, saveMechanismsIndex, filterRecords, foldRecords, notBuiltLine, candidateCount, estimateBuildMinutes, sentenceNamesSubject } from './core/mechanisms-index.js';
+import { loadMechanismsIndex, saveMechanismsIndex, filterRecords, foldRecords, notBuiltLine, candidateCount, estimateBuildMinutes, sentenceNamesSubject, filterMatches, matchNote } from './core/mechanisms-index.js';
 import { describeMechanisms, describeProjection } from './core/mechanisms-describe.js';
 import { copyrightNotices } from './core/copyrights.js';
 import { extractConcepts, INTRINSIC_NAMES, isIntrinsicName } from './core/vocabulary.js';
@@ -3221,6 +3221,10 @@ routes['/api/list-mechanisms'] = (req, res) => {
       // record so the pane applies it rather than carrying a copy; null
       // when there is no sentence to judge.
       names_subject: r.description ? sentenceNamesSubject(r.description) : null,
+      // mechanisms-filter-names-its-match: what the filter matched that the
+      // collapsed row does not show (a member, a file, a replaced purpose), in
+      // the CLI listings' words; empty when the label or text explains it.
+      match_note: q.filter ? matchNote(filterMatches(r, q.filter, { printed: [], purposeShown: !r.description }), r, { dn }) : '',
       tags: r.tags || [], calls: r.calls || [], files: (r.files || []).length,
       aliases: r.aliases || [], record_count: r.recordCount || 1,
       members_total: (r.members || []).length,
