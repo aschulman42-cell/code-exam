@@ -267,7 +267,7 @@ ChatGPT API gpt-5.1 drafting and locating, `--force` past the $2 guard: 212 grou
 212 locates, two hours in one process; the preflight projected $6.88 and the two steps' own cost
 lines summed to $7.00. The ladder: 1,175 anchors, function 70%, class 1%, file 25%, miss 3%;
 7,729 located targets, exact 11%, near 16%, elsewhere 73%; two claims not located, the locator's
-"No symbol selections were parseable" exit, which `--hof` does not retry, so 14 of the 41 misses
+"No symbol selections were parseable" exit, which `--hof` did not retry until later that day, so 14 of the 41 misses
 are that exit and not the locator's reach. Two things to read with the figures: the claims were
 located in the drafter's own words, a floor; and the drafts ran long, median 376 words and 191
 of 212 over the litigated population's p90 of 257 (the artifact's shape line flags each),
@@ -275,6 +275,50 @@ where the 2026-11-03 four-claim runs on the same index and rules had Claude at a
 words and ChatGPT at 417, so the length is the model's, and a claim that long carries more of
 the code's vocabulary for the locator to match on. The run's files are under
 `.CE/hof/261110-0017/`, outside the repo.
+
+**The same groups on Claude (2026-11-09, the second `ce --hof` run).** `ce --ndx .CE --hof
+--llm claude --force` on the index the ChatGPT run used, not rebuilt in between: the two runs'
+`cand.lst` are identical, members and rank tags, so what differs is the model (Claude API
+claude-sonnet-4-6 drafting and locating). Between the runs `--hof` gained its retry of a locate
+whose selections did not parse ([`cli.md`](cli.md)), so this run's not-located count is after
+one retry and the first run's before any. Read with the drafter's own shape axes from both
+sidecars and both `hof_report.json`; the report scores each function once per claim where the
+sidecar lists it once per element that cites it, so both anchor counts are given:
+
+| | ChatGPT gpt-5.1 (`261110-0017`) | Claude sonnet-4-6 (`261110-0452`) |
+|---|---|---|
+| words median / p90 / max (band 85–257) | 376 / 515 / 877 | 230 / 301 / 407 |
+| claims over the band / in band on every axis | 191 / 20 | 71 / 114 |
+| elements median (band 3–8); rows median (band 4–11) | 7; 12 | 7; 9 |
+| words per row median (band 15–36); mechanism rows median (band 2–7) | 31; 9 | 25; 6 |
+| anchors cited / distinct per claim (the ladder scores the distinct) | 1,208 / 1,175 | 1,503 / 1,237 |
+| ladder per anchor: function / class / file / miss | 70% / 1% / 25% / 3% | 63% / 2% / 27% / 8% |
+| function / miss, net of the claims the locator did not locate | 70.5% / 2.3% | 66.6% / 3.1% |
+| targets per located claim; exact / near / elsewhere | 37; 11% / 16% / 73% | 27; 14% / 18% / 68% |
+| locates not parseable: first run / recovered by the retry / not located | 2 / no retry / 2 | 16 / 4 / 12 |
+| draft step; locate steps | 48 min, $3.67; 74 min | 81 min, $6.61; 65 min |
+| whole run, actual / projected | 2 h 02, $7.00 / $6.88 | 2 h 26, $13.30 / $12.88 |
+
+What the two questions get. The length is the model's: same prompt, same groups, Claude's
+median is in the band and 114 of its 212 claims are in band on every axis against ChatGPT's
+20; by group the two models' word counts correlate at r = 0.38 and share 7 of their 20
+longest, so a little of it is the group. On both models the words per row are in band and the
+excess is rows (ChatGPT 12 per claim and 9 mechanism rows against bands of 4–11 and 2–7), so a
+long draft says more things, not each thing at length; that is the shape a length re-ask has
+to act on. The ladder does not ride on length: Claude's drafts are 39% shorter and cite more
+anchors (1,503 to 1,208, though only 5% more distinct ones, since Claude cites the same
+function from several elements more often), and net of the claims the locator did not locate
+its function rung is four points lower with the miss rung the same. Not a clean separation,
+since the locator changed with the drafter; `--claims` on the other model's drafts (about $6 a
+run) is what would separate them. The finding not asked for is the locator's: 16 first-run
+locates ended at the "No symbol selections were parseable" exit (ChatGPT, 2) and 12 failed the
+same way on the retry, two thirds of the miss rung; the command keeps nothing of the model's
+reply on that exit, so the cause is unrecorded, as it was for True Return on 2026-10-22
+([`claims-pipeline-state.md`](claims-pipeline-state.md)), and keeping that reply is the next
+change to the locator. The retries (16 calls, about $0.50) are outside the projection, as the
+plan line says; net of them the run came in within 1% of it. Claude's drafts took 23 s each
+against ChatGPT's 14; its locates 16 s median against 21. The run's files are under
+`.CE/hof/261110-0452/`, outside the repo.
 
 **Where HOF went next (2026-11-05 and 11-06).** The mechanism grain the stage1 check asked
 about was measured in full on [`describe-reach.md`](describe-reach.md): with the mechanisms'

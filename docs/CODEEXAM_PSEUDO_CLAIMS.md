@@ -243,7 +243,10 @@ from `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY`) — or a local G
 `--model <path.gguf>` (`--cpu` forces CPU). With **no** model (or `--dry-run`)
 CodeExam prints the evidence packs only. A local GGUF keeps the run air-gapped;
 see [`LOCAL_LLM.md`](LOCAL_LLM.md) and [`AIR_GAPPED.md`](AIR_GAPPED.md). A cost
-estimate is shown before any cloud spend.
+estimate is shown before any cloud spend. On CodeExam's own 212 groups (2026-11-09), Claude
+drafted inside the litigated population's length band and ChatGPT at twice it, with the
+round-trip ladder within a few points of each other
+([`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](CODEEXAM_PSEUDO_CLAIMS_TESTS.md), the HOF section).
 
 **The pack budget.** An evidence pack is 24,000 characters, at most 8,000 per anchor, by
 default; `--pack-budget <chars>` sets the per-group total and `--pack-anchor <chars>` the
