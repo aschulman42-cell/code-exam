@@ -336,6 +336,7 @@ export function planLines(o, cmds, groupCount, counts, { usd = null, modelLabel 
   if (counts.rewrites) parts.push(`about ${counts.rewrites} rewrite(s) (${counts.drafted} claim(s), six limitations each until drafted)`);
   parts.push(`${counts.locates} locate run(s)${o.runs ? ` (${counts.drafted} claim(s) × --runs ${o.runs})` : ''}, two calls each`);
   out.push(`Model calls: ${parts.join('; ')}.`);
+  out.push('A locate run whose selections do not parse is run once more, outside the projection (two more calls for such a claim).');
   if (usd == null) out.push(`Cost: a local model${modelLabel ? ` (${modelLabel})` : ''}; time, not dollars.`);
   else out.push(`Projected: ~$${usd.toFixed(2)}${modelLabel ? ` on ${modelLabel}` : ''}, an estimate from per-call sizes (a draft ${CALL_SIZES.draft.inChars.toLocaleString('en-US')} characters in and ${CALL_SIZES.draft.outTokens} tokens out, a locate call ${CALL_SIZES.locate.inChars.toLocaleString('en-US')} in and ${CALL_SIZES.locate.outTokens} out, a rewrite ${CALL_SIZES.rewrite.inChars.toLocaleString('en-US')} in and ${CALL_SIZES.rewrite.outTokens} out); the drafter projects its own exact figure before its first call. The $2 claims guard stops a run above it unless --force (CE_CLAIMS_COST_GUARD=<usd> raises it); --limit N and --filter <text> narrow the run.`);
   return out;
@@ -345,6 +346,41 @@ export function planLines(o, cmds, groupCount, counts, { usd = null, modelLabel 
 
 const pct = (n, d) => (d ? `${Math.round(100 * n / d)}%` : '-');
 
+// The locator's parse-failure exit, as its stderr line reads
+// (src/commands/claim-locate.js): the model's selection text did not parse, so
+// no targets were written. --hof runs that step once more before the row reads
+// failed (hof-locate-retry-once, 2026-11-09); a model error, a missing key or
+// an unreadable claim would repeat, and are not run again.
+export const LOCATE_PARSE_FAILURE = 'No symbol selections were parseable';
+export const isLocateParseFailure = (logText) => String(logText || '').includes(LOCATE_PARSE_FAILURE);
+
+// One line under each step's echo on the console (hof-console-progress-lines,
+// 2026-11-09): how the step ended, the step's own `# actual cost` line when it
+// printed one, and on a failure the step's last line, the reason, so a
+// failure is read without opening the log. The first full run echoed every
+// step's whole output, 69,035 lines for 212 claims; the logs hold that.
+export function lastLine(text) {
+  const lines = String(text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const l = lines.length ? lines[lines.length - 1] : '';
+  return l.length > 160 ? `${l.slice(0, 157)}…` : l;
+}
+export function resultLine(s, reason = null, logText = '') {
+  const secs = `${(s.ms / 1000).toFixed(1)}s`;
+  if (s.code !== 0) {
+    const last = reason || lastLine(logText);
+    return `  → exit ${s.code}, ${secs}${last ? `: ${last}` : ''}`;
+  }
+  const cost = [...String(logText || '').matchAll(/^# actual cost: .*$/gm)].pop();
+  return `  → exit 0, ${secs}${cost ? `; ${cost[0].trim()}` : ''}`;
+}
+
+// What a row's bracketed tag says, in the table and the report: the error if
+// any, and whether the locate step ran twice.
+export function rowTag(r) {
+  if (r.error) return r.retried ? `${r.error}, retried` : r.error;
+  return r.retried ? 'retried' : null;
+}
+
 export function renderTable(rows) {
   const t = totalsOf(rows);
   const R = (s, w) => String(s).padStart(w);
@@ -353,7 +389,8 @@ export function renderTable(rows) {
   const out = [head, '-'.repeat(head.length)];
   for (const r of rows) {
     const rank = r.priority != null ? `P${r.priority}` : '-';
-    const tag = r.error ? `  [${r.error}]` : '';
+    const tagText = rowTag(r);
+    const tag = tagText ? `  [${tagText}]` : '';
     out.push(`${R(r.n, 3)} ${L(rank, 4)} ${R(r.anchors, 4)} ${R(r.located, 4)}  ${R(r.rungs.function, 3)} ${R(r.rungs.class, 3)} ${R(r.rungs.file, 4)} ${R(r.rungs.miss, 4)}  ${R(r.where.exact, 5)} ${R(r.where.near, 4)} ${R(r.where.elsewhere, 4)}  ${r.label}${tag}`);
   }
   out.push('-'.repeat(head.length));
@@ -400,7 +437,7 @@ export function renderMarkdown(report) {
   out.push('');
   out.push('## Commands', '');
   out.push('```');
-  for (const s of report.steps) out.push(echoLine(s.args), `  → exit ${s.code}, ${(s.ms / 1000).toFixed(1)}s`);
+  for (const s of report.steps) out.push(echoLine(s.args), `  → exit ${s.code}, ${(s.ms / 1000).toFixed(1)}s${s.retried ? ' (the selections did not parse; run once more)' : ''}`);
   out.push('```', '');
   out.push('## Per claim', '');
   out.push('Per anchor, the best rung the locator reached: **fn** same file and function, **cls** the class of an anchor method or another method of it, **file** the same file, **miss** none. Per located target: **exact** an anchor, **near** in an anchor\'s file, **else** in no anchor\'s file. Files match by basename.', '');
@@ -408,7 +445,7 @@ export function renderMarkdown(report) {
   out.push('|--:|:--|:--|--:|--:|--:|--:|--:|--:|--:|--:|--:|');
   for (const r of report.claims) {
     const rank = r.priority != null ? `P${r.priority}` : '';
-    out.push(`| ${r.n} | ${rank} | ${r.label.replace(/\|/g, '\\|')}${r.error ? ` *(${r.error})*` : ''} | ${r.anchors.length} | ${r.targets.length} | ${r.rungs.function} | ${r.rungs.class} | ${r.rungs.file} | ${r.rungs.miss} | ${r.where.exact} | ${r.where.near} | ${r.where.elsewhere} |`);
+    out.push(`| ${r.n} | ${rank} | ${r.label.replace(/\|/g, '\\|')}${rowTag(r) ? ` *(${rowTag(r)})*` : ''} | ${r.anchors.length} | ${r.targets.length} | ${r.rungs.function} | ${r.rungs.class} | ${r.rungs.file} | ${r.rungs.miss} | ${r.where.exact} | ${r.where.near} | ${r.where.elsewhere} |`);
   }
   out.push(`| **all** | | ${t.claims} claim(s)${t.errors ? `, ${t.errors} not located` : ''} | ${t.anchors} | ${t.located} | ${t.function} | ${t.class} | ${t.file} | ${t.miss} | ${t.exact} | ${t.near} | ${t.elsewhere} |`, '');
   out.push(`Per anchor: function ${pct(t.function, t.anchors)}, class ${pct(t.class, t.anchors)}, file ${pct(t.file, t.anchors)}, miss ${pct(t.miss, t.anchors)}. Per target: exact ${pct(t.exact, t.located)}, near ${pct(t.near, t.located)}, elsewhere ${pct(t.elsewhere, t.located)}.`, '');
@@ -418,7 +455,8 @@ export function renderMarkdown(report) {
     out.push(`### ${r.n}.${rank} ${r.label}`, '');
     out.push(`> ${r.claim.length > 400 ? `${r.claim.slice(0, 400)}…` : r.claim}`, '');
     if (r.rewritten) out.push(`Located as rewritten by the synonymizer${r.overlap != null ? ` (${r.overlap}% of the original vocabulary kept)` : ''}:`, '', `> ${r.rewritten.length > 400 ? `${r.rewritten.slice(0, 400)}…` : r.rewritten}`, '');
-    if (r.error) out.push(`Not located: ${r.error}.`, '');
+    if (r.error) out.push(`Not located: ${r.error}${r.retried ? ' (run twice: the selections did not parse either time)' : ''}.`, '');
+    else if (r.retried) out.push('Located on the second run: the first run\'s selections did not parse.', '');
     out.push('Anchors (what the drafter was shown):', '');
     for (const a of r.anchors) out.push(`- \`${a.base}@${a.func || `(${a.kind})`}\` — **${a.rung}**${a.hit ? ` via \`${a.hit}\`` : ''}`);
     if (!r.anchors.length) out.push('- (none grounded)');

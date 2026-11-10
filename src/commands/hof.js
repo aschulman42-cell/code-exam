@@ -42,7 +42,7 @@ import { resolveModel, makeDrafter, claimsCostGate, projectCloudCost, describeEn
 import {
   FORM_RULES, outPaths, runDirFor, buildCommands, echoLine, readClaims, readTargets, parseTargetSpec,
   parseCandidateGroups, limitCandidates, parseSidecar, joinRank, candFromSidecarCommand,
-  scoreClaim, totalsOf, preflightCalls, planLines, renderTable, renderMarkdown, howToReadText,
+  scoreClaim, totalsOf, preflightCalls, planLines, renderTable, renderMarkdown, howToReadText, isLocateParseFailure, resultLine,
 } from '../core/hof.js';
 
 /** The option object from the parsed flags; throws on what cannot run. */
@@ -89,12 +89,17 @@ export async function synonymizeClaim(claimText, draft, { splitClaimElements, sy
 }
 
 /** Run `fn` with stdout and stderr also written to `logPath`, the subprocess log the script kept. */
-async function withLog(logPath, fn) {
+// Every step's output goes to its log. Quiet (the default since
+// hof-console-progress-lines, 2026-11-09) keeps it there, and the step's
+// result line on the console says how the step ended; --verbose echoes it
+// all, for watching one --limit 3 run live.
+async function withLog(logPath, fn, { quiet = false } = {}) {
   const outW = process.stdout.write.bind(process.stdout);
   const errW = process.stderr.write.bind(process.stderr);
   const fd = fs.openSync(logPath, 'w');
   const tap = (orig) => (chunk, ...rest) => {
     try { fs.writeSync(fd, typeof chunk === 'string' ? chunk : Buffer.from(chunk)); } catch { /* the log is a copy */ }
+    if (quiet) { const cb = rest.find((x) => typeof x === 'function'); if (cb) cb(); return true; }
     return orig(chunk, ...rest);
   };
   process.stdout.write = tap(outW);
@@ -128,19 +133,23 @@ export async function doHof(index, args, seams = {}) {
   const { synonymizeElements } = seams.synonymize || await import('./synonymize.js');
 
   const steps = [];
+  const quiet = !args.verbose;
+  const readLog = (name) => { try { return fs.readFileSync(path.join(P.logs, `${name}.txt`), 'utf8'); } catch { return ''; } };
   // Each step: the equivalent ce command echoed, run in-process with its output
-  // also in logs/<name>.txt, its outcome read from process.exitCode and the file
-  // it was to write.
+  // in logs/<name>.txt (echoed too under --verbose), its outcome read from
+  // process.exitCode and the file it was to write, and one result line under
+  // the echo: exit and seconds, the step's cost line, a failure's last line.
   const step = async (name, argv, fn, expectFile = null) => {
     console.log(`\n${echoLine(argv)}`);
     const before = process.exitCode;
     const started = Date.now();
     let threw = null;
-    await withLog(path.join(P.logs, `${name}.txt`), async () => { try { await fn(); } catch (e) { threw = e; console.error(`hof: ${name}: ${e.message}`); } });
+    await withLog(path.join(P.logs, `${name}.txt`), async () => { try { await fn(); } catch (e) { threw = e; console.error(`hof: ${name}: ${e.message}`); } }, { quiet });
     const failed = threw != null || (process.exitCode && process.exitCode !== before) || (expectFile && !fs.existsSync(expectFile));
     process.exitCode = before;
     const s = { name, args: argv, code: failed ? 1 : 0, ms: Date.now() - started };
     steps.push(s);
+    console.log(resultLine(s, threw ? threw.message : null, readLog(name)));
     return s;
   };
 
@@ -232,9 +241,12 @@ export async function doHof(index, args, seams = {}) {
         const r = await synonymizeClaim(c.claim, synDraft, { splitClaimElements, synonymizeElements });
         fs.writeFileSync(P.claim(c.n), `${r.text}\n`, 'utf8');
         rewrites.set(c.n, r);
-        console.log(`hof: claim ${c.n}: ${r.elements} limitation(s) rewritten${r.failed ? `, ${r.failed} kept as drafted` : ''}${r.overlap != null ? `; ${r.overlap}% of the vocabulary kept` : ''}`);
       }, P.claim(c.n));
       if (s.code !== 0) rewrites.set(c.n, { text: c.claim, overlap: null, failed: -1, elements: 0, error: 'synonymize failed' });
+      else {
+        const r = rewrites.get(c.n);
+        console.log(`hof: claim ${c.n}: ${r.elements} limitation(s) rewritten${r.failed ? `, ${r.failed} kept as drafted` : ''}${r.overlap != null ? `; ${r.overlap}% of the vocabulary kept` : ''}`);
+      }
     }
     const synCost = actualCostLine(synModel);
     if (synCost) process.stderr.write(`${synCost} (synonymizer)\n`);
@@ -245,21 +257,30 @@ export async function doHof(index, args, seams = {}) {
   for (const c of claims) {
     if (!synModel) fs.writeFileSync(P.claim(c.n), `${c.claim}\n`, 'utf8');
     if (fs.existsSync(P.locate(c.n))) fs.unlinkSync(P.locate(c.n));
-    const s = await step(`3-locate-${c.n}`, cmds.locate(c.n), () => doClaimLocate(index, {
+    const locateFn = () => doClaimLocate(index, {
       ...args, claim_locate: `@${P.claim(c.n)}`, targets_out: P.locate(c.n), blind: o.blind, runs: o.runs, include_tests: o.includeTests,
       pseudo_claims: null, candidates: null, rank: false, ground_truth: null, filter: null, hof: false, dry_run: false,
-    }));
+    });
+    let s = await step(`3-locate-${c.n}`, cmds.locate(c.n), locateFn);
+    let retried = false;
+    // The locator's parse-failure exit (no targets written) gets one more run,
+    // logged as 3-locate-N.retry.txt; other exits would repeat, and do not.
+    if (s.code !== 0 && !fs.existsSync(P.locate(c.n)) && isLocateParseFailure(readLog(`3-locate-${c.n}`))) {
+      s.retried = true;
+      retried = true;
+      s = await step(`3-locate-${c.n}.retry`, cmds.locate(c.n), locateFn);
+    }
     let error = null;
     if (s.code !== 0) error = 'claim-locate failed';
     const targets = fs.existsSync(P.locate(c.n)) ? readTargets(fs.readFileSync(P.locate(c.n), 'utf8')).map(parseTargetSpec) : [];
     if (!error && !targets.length) error = 'no targets written';
     const sc = scoreClaim(c.anchors, targets);
     const rw = rewrites.get(c.n);
-    rows.push({ ...c, ...sc, located: targets.length, anchorsN: c.anchors.length, error, rewritten: rw && rw.failed >= 0 ? rw.text : null, overlap: rw ? rw.overlap : null });
+    rows.push({ ...c, ...sc, located: targets.length, anchorsN: c.anchors.length, error, retried, rewritten: rw && rw.failed >= 0 ? rw.text : null, overlap: rw ? rw.overlap : null });
   }
 
   // Step 4: the comparison, no model.
-  const tableRows = rows.map((r) => ({ n: r.n, priority: r.priority, label: r.label, anchors: r.anchorsN, located: r.located, rungs: r.rungs, where: r.where, error: r.error }));
+  const tableRows = rows.map((r) => ({ n: r.n, priority: r.priority, label: r.label, anchors: r.anchorsN, located: r.located, rungs: r.rungs, where: r.where, error: r.error, retried: r.retried }));
   const report = {
     format: 'ce-hof-report', version: 2, generated: new Date().toISOString(), tool: 'ce --hof',
     ce: CE_VERSION, index: path.basename(path.resolve(o.indexPath)), indexPath: path.resolve(o.indexPath), runDir: out,
@@ -267,7 +288,7 @@ export async function doHof(index, args, seams = {}) {
     engines: { drafter: o.claims ? (sidecar.engine || 'the claims file\'s') : describeEngine(model), synonymizer: synModel ? describeEngine(synModel) : null, locator: describeEngine(model) },
     preflight: { drafts: counts.drafts, rewrites: counts.rewrites, locates: counts.locates, projectedUsd: projection ? projection.usd : null },
     steps,
-    claims: rows.map((r) => ({ n: r.n, groupN: r.groupN, label: r.label, priority: r.priority, rankFrom: r.rankFrom, claim: r.claim, rewritten: r.rewritten, overlap: r.overlap, truncated: r.truncated, error: r.error, anchors: r.anchors, targets: r.targets, rungs: r.rungs, where: r.where })),
+    claims: rows.map((r) => ({ n: r.n, groupN: r.groupN, label: r.label, priority: r.priority, rankFrom: r.rankFrom, claim: r.claim, rewritten: r.rewritten, overlap: r.overlap, truncated: r.truncated, error: r.error, retried: r.retried, anchors: r.anchors, targets: r.targets, rungs: r.rungs, where: r.where })),
     totals: totalsOf(tableRows),
   };
   fs.writeFileSync(P.reportJson, JSON.stringify(report, null, 2), 'utf8');
@@ -275,5 +296,5 @@ export async function doHof(index, args, seams = {}) {
   console.log(`\n${renderTable(tableRows)}`);
   console.log(`\n${howToReadText()}`);
   console.log(`\nhof: report in ${P.reportMd} (records in ${P.reportJson}; each step's output in ${P.logs})`);
-  if (steps.some((s) => s.code !== 0)) process.exitCode = 1;
+  if (rows.some((r) => r.error) || steps.some((s) => s.code !== 0 && !s.retried)) process.exitCode = 1;
 }

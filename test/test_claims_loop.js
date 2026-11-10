@@ -14,6 +14,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+// A --model path that exists: resolveModel refuses a missing file when the
+// arguments are read (model-path-fail-fast, 2026-11-09), and these tests stub
+// the draft call, so the file is never loaded.
+const FAKE_GGUF = path.join(os.tmpdir(), 'ce-test-fake.gguf');
+fs.writeFileSync(FAKE_GGUF, '');
 import {
   parseChartClaims, parseCandidateGroups, pickAnchors, parseAnalysisLabels,
   detectSponges, hitInGroup, fillChartSection, needsRedraft, doClaimsLoop,
@@ -290,7 +296,7 @@ describe('doClaimsLoop --loop-redraft end-to-end (mock drafter + stub index)', (
     };
 
     const res = await doClaimsLoop(index,
-      { claims_loop: chartPath, candidates: lstPath, model: 'fake.gguf', temperature: 0, loop_redraft: true },
+      { claims_loop: chartPath, candidates: lstPath, model: FAKE_GGUF, temperature: 0, loop_redraft: true },
       { draft: draftShim });
     assert.equal(res.redrafts.accepted.length, 1);
     assert.equal(res.redrafts.accepted[0].label, '[class] Beta');
@@ -329,7 +335,7 @@ describe('doClaimsLoop end-to-end (mock drafter + stub index)', () => {
     const draftShim = async (a, b, mt) => draft(String(a) + String(b), mt);
 
     const res = await doClaimsLoop(index,
-      { claims_loop: chartPath, candidates: lstPath, model: 'fake.gguf', temperature: 0, loop_save_analyses: true },
+      { claims_loop: chartPath, candidates: lstPath, model: FAKE_GGUF, temperature: 0, loop_save_analyses: true },
       { draft: draftShim });
     assert.ok(res && fs.existsSync(res.outPath));
     const out = fs.readFileSync(res.outPath, 'utf8');

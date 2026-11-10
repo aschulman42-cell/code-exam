@@ -21,7 +21,7 @@
 import fs from 'node:fs';
 import { claudeSupportsTemperature } from '../utils.js';
 import { assertLocalOnly, isLocalApiUrl, isAirGapped } from './air-gapped.js';
-import { resolveProvider } from './providers.js';
+import { resolveProvider, canonicalProviderId } from './providers.js';
 import { openaiCompletionBudget, openaiSupportsTemperature, openaiText, openaiUsage, openaiFinishReason } from './openai-util.js';
 import { estimateCost } from './pricing.js';
 import { strictSchema, looseSchema } from './claim-schema.js';
@@ -60,9 +60,28 @@ export function ggufDescriptor({ modelPath, forceCpu = false, contextSize = null
   };
 }
 
+// The message for a --model path that is not a file, shared by resolveModel
+// (argument time) and the loader (for descriptors built elsewhere). The hints
+// earn their keep: the GGUFs live in models/, a bare `--model foo.gguf`
+// resolves against the current directory, and a provider name is the likely
+// wrong value: `--hof --model chatgpt` ran the grouper, then drafted 189
+// groups "via local GGUF chatgpt" and failed each one at load time
+// (model-path-fail-fast, 2026-11-09).
+export function missingModelMessage(modelPath) {
+  const base = String(modelPath).replace(/^.*[\\/]/, '');
+  const alt = ['models', 'gguf'].map((d) => `${d}/${base}`).find((p) => fs.existsSync(p));
+  const provider = canonicalProviderId(modelPath);
+  return `model file not found: ${modelPath}`
+    + (alt ? ` — did you mean ${alt} ?` : ' (a relative --model path resolves against the current directory)')
+    + (provider ? `; "${modelPath}" names a cloud provider: --llm ${modelPath}` : '');
+}
+
 export function resolveModel(args) {
   const modelPath = args.model || args.claim_model || args.analyze_model || null;
   if (modelPath) {
+    // Refused here, when the arguments are read, so no command runs its index
+    // work, prompt build or a loop of calls before the first load fails.
+    if (!fs.existsSync(modelPath)) return { kind: 'error', error: missingModelMessage(modelPath) };
     return ggufDescriptor({
       modelPath, forceCpu: args.cpu, contextSize: args.context_size,
       flashAttention: args.flash_attention, liveTodayDate: args.live_today_date,
@@ -964,12 +983,7 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
       // which cannot help. Check the path first and report the true reason.
       // The hint earns its keep: the GGUFs live in models/, and a bare
       // `--model foo.gguf` resolves against the current directory.
-      if (!fs.existsSync(modelPath)) {
-        const base = String(modelPath).replace(/^.*[\\/]/, "");
-        const alt = ["models", "gguf"].map((d) => `${d}/${base}`).find((p) => fs.existsSync(p));
-        throw new Error(`model file not found: ${modelPath}`
-          + (alt ? ` — did you mean ${alt} ?` : " (a relative --model path resolves against the current directory)"));
-      }
+      if (!fs.existsSync(modelPath)) throw new Error(missingModelMessage(modelPath));
       process.stderr.write(`Loading local model: ${modelPath}…\n`);
       let ctx = forceCpu ? null : await tryLoad(false);
       if (!ctx) {

@@ -40,6 +40,12 @@ import {
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
+
+// A --model path that exists: resolveModel refuses a missing file when the
+// arguments are read (model-path-fail-fast, 2026-11-09), and these tests stub
+// the draft call, so the file is never loaded.
+const FAKE_GGUF = path.join(os.tmpdir(), 'ce-test-fake.gguf');
+fs.writeFileSync(FAKE_GGUF, '');
 import { parseTargets } from '../src/commands/claim-chart.js';
 // Fixtures resolve from THIS FILE, never from the working directory. A bare
 // readFileSync('name.txt') resolves against cwd, which is what made these
@@ -311,7 +317,7 @@ describe('discovery path (default)', () => {
     };
     const index = { functionIndex: fnIndex, _ensureFunctionIndex() {}, findCallers: () => [], findCallees: () => [] };
     const draft = async () => 'ELEMENT 1: transfer';
-    const args = { claim_locate: 'A method, comprising: transferring a token.', model: 'fake.gguf', temperature: 0, no_refine: true, propose_from_priors: true, no_navigate: true };
+    const args = { claim_locate: 'A method, comprising: transferring a token.', model: FAKE_GGUF, temperature: 0, no_refine: true, propose_from_priors: true, no_navigate: true };
     const res = await doClaimLocate(index, args, { draft });
     const row = res.rows.find((r) => r.candidate === 'transfer');
     assert.ok(row && row.verified, 'the proposal resolves');
@@ -421,7 +427,7 @@ describe('discovery path (default)', () => {
       return 'ELEMENT 1: RateChooser::chooseBitrate';
     };
     const res = await doClaimLocate(index,
-      { claim_locate: 'A system, comprising: choosing a rate; sending it.', model: 'f.gguf', no_refine: true },
+      { claim_locate: 'A system, comprising: choosing a rate; sending it.', model: FAKE_GGUF, no_refine: true },
       { draft });
     // Selection POOLS all elements into one call: 1 vocabulary + 1 selection.
     // Splitting it per element was measured on 2026-08-08 and LOST on recall
@@ -453,7 +459,7 @@ describe('discovery path (default)', () => {
       return 'ELEMENT 1: RateChooser::chooseBitrate';
     };
     await doClaimLocate(index,
-      { claim_locate: 'A system, comprising: choosing a rate; sending it.', model: 'f.gguf',
+      { claim_locate: 'A system, comprising: choosing a rate; sending it.', model: FAKE_GGUF,
         no_refine: true, per_element_select: true },
       { draft });
     assert.equal(calls.length, 3, 'words + one selection call per element');
@@ -479,7 +485,7 @@ describe('discovery path (default)', () => {
       return `ELEMENT 1: ${++n === 1 ? 'RateChooser::chooseBitrate' : 'Sender::sendBitrate'}`;
     };
     const res = await doClaimLocate(index,
-      { claim_locate: 'A system, comprising: choosing a rate; sending it.', model: 'f.gguf',
+      { claim_locate: 'A system, comprising: choosing a rate; sending it.', model: FAKE_GGUF,
         no_refine: true, per_element_select: true },
       { draft });
     const byName = Object.fromEntries(res.rows.filter((r) => r.verified).map((r) => [r.match.name, r.element]));
@@ -589,7 +595,7 @@ describe('doClaimLocate end-to-end (mock drafter, stub index)', () => {
       return 'ELEMENT 1: updateSelectedTrack; NoSuchThingHere\nELEMENT 2: AlsoMissing';
     };
     const res = await doClaimLocate(index,
-      { claim_locate: 'A system, comprising: picking a rate; starting playback.', model: 'fake.gguf', temperature: 0, propose_from_priors: true },
+      { claim_locate: 'A system, comprising: picking a rate; starting playback.', model: FAKE_GGUF, temperature: 0, propose_from_priors: true },
       { draft });
     assert.ok(res, 'returns a result');
     assert.equal(round, 2, 'one propose + one refine round');
@@ -619,7 +625,7 @@ describe('doClaimLocate end-to-end (mock drafter, stub index)', () => {
     };
     const draft = async () => 'ELEMENT 1: AdaptiveTrackSelection::updateSelectedTrack';
     const res = await doClaimLocate(index,
-      { claim_locate: 'A system, comprising: picking a rate; starting playback.', model: 'fake.gguf', temperature: 0, no_refine: true, propose_from_priors: true },
+      { claim_locate: 'A system, comprising: picking a rate; starting playback.', model: FAKE_GGUF, temperature: 0, no_refine: true, propose_from_priors: true },
       { draft });
     const navRow = res.rows.find((r) => r.candidate === 'determineIdealSelectedIndex');
     assert.ok(navRow, 'callee promoted to a row');
@@ -659,7 +665,7 @@ describe('doClaimLocate end-to-end (mock drafter, stub index)', () => {
     };
     const draft = async () => 'ELEMENT 1: GenerateRandomKey';
     const res = await doClaimLocate(index,
-      { claim_locate: 'A method, comprising: generating a seed; accepting the output if it is below the order.', model: 'fake.gguf', temperature: 0, no_refine: true, propose_from_priors: true },
+      { claim_locate: 'A method, comprising: generating a seed; accepting the output if it is below the order.', model: FAKE_GGUF, temperature: 0, no_refine: true, propose_from_priors: true },
       { draft });
     const row = (n) => res.rows.find((r) => r.candidate === n);
     assert.ok(row('MakeNewKey'), 'hop 1: callee of the proposal');
@@ -679,7 +685,7 @@ describe('doClaimLocate end-to-end (mock drafter, stub index)', () => {
       findCallees: () => [{ callee_function: 'other' }],
     };
     const res = await doClaimLocate(index,
-      { claim_locate: 'A system, comprising: a thing; another thing.', model: 'f.gguf', no_refine: true, no_navigate: true, propose_from_priors: true },
+      { claim_locate: 'A system, comprising: a thing; another thing.', model: FAKE_GGUF, no_refine: true, no_navigate: true, propose_from_priors: true },
       { draft: async () => 'ELEMENT 1: A::seed' });
     assert.equal(res.rows.filter((r) => r.viaNavigation).length, 0);
   });
@@ -868,7 +874,7 @@ describe('hunt: end-to-end through doClaimLocate', () => {
     const replies = ['SEARCH: balance', 'DONE\nELEMENT 1: Ledger::computeBalance'];
     let i = 0;
     const res = await doClaimLocate(HUNT_INDEX,
-      { claim_locate: 'A method, comprising: totalling the entries; routing them.', model: 'f.gguf', hunt: true, no_refine: true, no_navigate: true },
+      { claim_locate: 'A method, comprising: totalling the entries; routing them.', model: FAKE_GGUF, hunt: true, no_refine: true, no_navigate: true },
       { draft: async () => replies[Math.min(i++, replies.length - 1)] });
     assert.equal(res.hunt.toolCalls, 1);
     const row = res.rows.find((r) => r.candidate === 'Ledger::computeBalance');
@@ -916,7 +922,7 @@ describe('NONE is an answer, not a symbol', () => {
     let i = 0;
     const prevExit = process.exitCode;
     const res = await doClaimLocate(HUNT_INDEX,
-      { claim_locate: 'A method, comprising: doing something absent.', model: 'f.gguf', hunt: true },
+      { claim_locate: 'A method, comprising: doing something absent.', model: FAKE_GGUF, hunt: true },
       { draft: async () => replies[Math.min(i++, replies.length - 1)] });
     assert.equal(res.rows.length, 0);
     assert.equal(process.exitCode, prevExit, 'not treated as a failure');
@@ -1000,7 +1006,7 @@ describe('rejected selections reach the report and not --targets', () => {
     const replies = ['SEARCH: balance', 'DONE\nELEMENT 1: Ledger::computeBalance; Imaginary::fabricated'];
     let i = 0;
     const res = await doClaimLocate(HUNT_INDEX,
-      { claim_locate: 'A method, comprising: totalling the entries; routing them.', model: 'f.gguf', hunt: true, no_refine: true, no_navigate: true },
+      { claim_locate: 'A method, comprising: totalling the entries; routing them.', model: FAKE_GGUF, hunt: true, no_refine: true, no_navigate: true },
       { draft: async () => replies[Math.min(i++, replies.length - 1)] });
     assert.ok(!res.rows.some((r) => r.candidate === 'Imaginary::fabricated'),
       'an unseen name must not become a verified row');
@@ -1096,7 +1102,7 @@ describe('targets provenance', () => {
     try {
       await doClaimLocate(index, {
         claim_locate: 'A system, comprising: picking a rate.',
-        model: 'fake.gguf', temperature: 0, propose_from_priors: true,
+        model: FAKE_GGUF, temperature: 0, propose_from_priors: true,
         no_refine: true, targets_out: path,
       }, { draft });
     } finally { console.log = log; }
@@ -1105,7 +1111,7 @@ describe('targets provenance', () => {
     assert.match(body, /^# Targets-checksum: [0-9a-f]+$/m, 'checksum written');
     assert.match(body, /^AdaptiveTrackSelection\.java@AdaptiveTrackSelection::updateSelectedTrack$/m,
       'targets written one per line');
-    assert.match(body, /local GGUF — fake\.gguf/, 'engine names the actual model');
+    assert.match(body, /local GGUF — ce-test-fake\.gguf/, 'engine names the actual model');
   });
 
   it('derives target specs as basename@symbol', () => {
@@ -2153,7 +2159,7 @@ describe('--runs N unions the discovery cycle instead of sampling it once', () =
 
   it('runs the cycle N times and keeps a target only ONE run proposed', async () => {
     const res = await quiet(() => doClaimLocate(RUNS_INDEX(),
-      { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, runs: 3 },
+      { claim_locate: CLAIM, model: FAKE_GGUF, no_refine: true, runs: 3 },
       { draft: unstableDrafter() }));
     const byName = Object.fromEntries(
       res.rows.filter((r) => r.verified).map((r) => [r.match.name, r.runsFound]));
@@ -2167,7 +2173,7 @@ describe('--runs N unions the discovery cycle instead of sampling it once', () =
     const p = `${process.env.TEMP || '/tmp'}/ce_runs_one.txt`;
     try { fs.unlinkSync(p); } catch { /* fresh */ }
     await quiet(() => doClaimLocate(RUNS_INDEX(),
-      { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, runs: 1, targets_out: p },
+      { claim_locate: CLAIM, model: FAKE_GGUF, no_refine: true, runs: 1, targets_out: p },
       { draft: unstableDrafter() }));
     const body = fs.readFileSync(p, 'utf8');
     assert.ok(!/# Runs-found:/.test(body), 'no per-target frequency at runs=1');
@@ -2185,7 +2191,7 @@ describe('--runs N unions the discovery cycle instead of sampling it once', () =
     const p = `${process.env.TEMP || '/tmp'}/ce_runs_three.txt`;
     try { fs.unlinkSync(p); } catch { /* fresh */ }
     await quiet(() => doClaimLocate(RUNS_INDEX(),
-      { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, runs: 3, targets_out: p },
+      { claim_locate: CLAIM, model: FAKE_GGUF, no_refine: true, runs: 3, targets_out: p },
       { draft: unstableDrafter() }));
     const body = fs.readFileSync(p, 'utf8');
     assert.match(body, /^# Runs-found: 3\/3$/m);
@@ -2214,13 +2220,13 @@ describe('--runs N unions the discovery cycle instead of sampling it once', () =
     const prevExit = process.exitCode;
     try {
       await quiet(() => doClaimLocate(RUNS_INDEX(),
-        { claim_locate: CLAIM, model: 'f.gguf', propose_from_priors: true, runs: 2 },
+        { claim_locate: CLAIM, model: FAKE_GGUF, propose_from_priors: true, runs: 2 },
         { draft: async () => 'ELEMENT 1: RateChooser::chooseBitrate' }));
       assert.ok(seen.some((m) => /--runs 2 applies to the discovery path only/.test(m)),
         'propose-from-priors refuses rather than ignoring');
       seen.length = 0;
       await quiet(() => doClaimLocate(RUNS_INDEX(),
-        { claim_locate: CLAIM, model: 'f.gguf', hunt: true, runs: 2 },
+        { claim_locate: CLAIM, model: FAKE_GGUF, hunt: true, runs: 2 },
         { draft: async () => 'DONE\nELEMENT 1: NONE' }));
       assert.ok(seen.some((m) => /--runs 2 applies to the discovery path only/.test(m)),
         'hunt refuses rather than ignoring');
@@ -2233,7 +2239,7 @@ describe('--runs N unions the discovery cycle instead of sampling it once', () =
     const prevExit = process.exitCode;
     try {
       await quiet(() => doClaimLocate(RUNS_INDEX(),
-        { claim_locate: CLAIM, model: 'f.gguf', runs: 0 },
+        { claim_locate: CLAIM, model: FAKE_GGUF, runs: 0 },
         { draft: unstableDrafter() }));
       assert.ok(seen.some((m) => /--runs takes a whole number/.test(m)));
     } finally { console.error = err; process.exitCode = prevExit; }
@@ -2251,7 +2257,7 @@ describe('--runs N unions the discovery cycle instead of sampling it once', () =
       return 'ELEMENT 1: RateChooser::chooseBitrate';
     };
     const res = await quiet(() => doClaimLocate(RUNS_INDEX(),
-      { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, runs: 3 }, { draft }));
+      { claim_locate: CLAIM, model: FAKE_GGUF, no_refine: true, runs: 3 }, { draft }));
     const row = res.rows.find((r) => r.verified && r.match.name === 'RateChooser::chooseBitrate');
     assert.equal(row.runsFound, 2, 'counted against the runs that actually completed');
   });
@@ -2299,7 +2305,7 @@ describe('the proposal cap cuts by fewest votes, and says what it cut', () => {
 
   it('keeps the most-voted targets and drops the least-voted', async () => {
     const res = await quiet(() => doClaimLocate(MANY(),
-      { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, no_navigate: true, runs: 3 },
+      { claim_locate: CLAIM, model: FAKE_GGUF, no_refine: true, no_navigate: true, runs: 3 },
       { draft: votingDrafter() }));
     const kept = new Map(res.rows.filter((r) => r.verified).map((r) => [r.match.name, r.runsFound]));
     // Every 3-vote and 2-vote target survives; the cut lands entirely on 1-vote.
@@ -2323,7 +2329,7 @@ describe('the proposal cap cuts by fewest votes, and says what it cut', () => {
     process.stderr.write = (m) => { errs.push(String(m)); return true; };
     try {
       await doClaimLocate(MANY(),
-        { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, no_navigate: true, runs: 3 },
+        { claim_locate: CLAIM, model: FAKE_GGUF, no_refine: true, no_navigate: true, runs: 3 },
         { draft: votingDrafter() });
     } finally { console.log = log; process.stderr.write = err; }
     const summary = lines.find((l) => /target\(s\) proposed/.test(l));
@@ -2343,7 +2349,7 @@ describe('the proposal cap cuts by fewest votes, and says what it cut', () => {
     const log = console.log; console.log = (m) => lines.push(String(m ?? ''));
     try {
       await doClaimLocate(MANY(),
-        { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, no_navigate: true, runs: 2 },
+        { claim_locate: CLAIM, model: FAKE_GGUF, no_refine: true, no_navigate: true, runs: 2 },
         { draft: async (sys) => (/WORDS that would appear/.test(sys)
           ? 'ELEMENT 1: bitrate' : `ELEMENT 1: ${names(5, 0)}`) });
     } finally { console.log = log; }
@@ -2360,7 +2366,7 @@ describe('the proposal cap cuts by fewest votes, and says what it cut', () => {
     let res;
     try {
       res = await doClaimLocate(MANY(),
-        { claim_locate: CLAIM, model: 'f.gguf', no_refine: true, no_navigate: true, runs: 1 },
+        { claim_locate: CLAIM, model: FAKE_GGUF, no_refine: true, no_navigate: true, runs: 1 },
         { draft: async (sys) => (/WORDS that would appear/.test(sys)
           ? 'ELEMENT 1: bitrate' : `ELEMENT 1: ${names(6, 0)}`) });
     } finally { console.log = log; }

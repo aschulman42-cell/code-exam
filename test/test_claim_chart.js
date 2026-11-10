@@ -29,6 +29,12 @@ import { createRequire } from 'node:module';
 import { readClaimFile, addLineNumbers, SimpleMasker, detectLanguage } from '../src/commands/analyze.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 import fs from 'node:fs';
+
+// A --model path that exists: resolveModel refuses a missing file when the
+// arguments are read (model-path-fail-fast, 2026-11-09), and these tests stub
+// the draft call, so the file is never loaded. (os and path are imported below.)
+const FAKE_GGUF = path.join(os.tmpdir(), 'ce-test-fake.gguf');
+fs.writeFileSync(FAKE_GGUF, '');
 import { fileURLToPath } from 'node:url';
 // Fixtures resolve from THIS FILE, never from the working directory. A bare
 // readFileSync('name.txt') resolves against cwd, which is what made these
@@ -380,7 +386,7 @@ describe('end to end, mocked model', () => {
     let res;
     try {
       res = await doClaimChart(index,
-        { claim_chart: CLAIM, targets: 'x/A.java@A::one', model: 'f.gguf', no_callees: true },
+        { claim_chart: CLAIM, targets: 'x/A.java@A::one', model: FAKE_GGUF, no_callees: true },
         { draft: async () => analysis });
     } finally { console.log = origLog; }
     const chart = out.join('\n');
@@ -396,7 +402,7 @@ describe('end to end, mocked model', () => {
     const origErr = console.error; console.error = (s) => errs.push(String(s));
     try {
       await doClaimChart(index,
-        { claim_chart: CLAIM, targets: 'nowhere.java@missing', model: 'f.gguf' },
+        { claim_chart: CLAIM, targets: 'nowhere.java@missing', model: FAKE_GGUF },
         { draft: async () => 'x' });
     } finally { console.error = origErr; }
     assert.match(errs.join(' '), /No target produced a parseable analysis/);
@@ -1813,7 +1819,7 @@ describe('dependent claims: scope and --claim-family (issue-311-dep-claim-chart)
     const origLog = console.log; console.log = (s) => out.push(String(s));
     const origErr = process.stderr.write; process.stderr.write = () => true;
     let res;
-    try { res = await doClaimChart(index, { targets: 'x/A.java@A::one', model: 'f.gguf', no_callees: true, ...args }, { draft, ...extraOpts }); }
+    try { res = await doClaimChart(index, { targets: 'x/A.java@A::one', model: FAKE_GGUF, no_callees: true, ...args }, { draft, ...extraOpts }); }
     finally { console.log = origLog; process.stderr.write = origErr; }
     return { res, chart: out.join('\n') };
   };
@@ -2554,7 +2560,7 @@ describe('examiner notes appendix (chart-html-notes-appendix)', () => {
     let drafted = 0;
     try {
       await doClaimChart({ functionIndex: {}, _ensureFunctionIndex() {} },
-        { claim_chart: '1. A method comprising: a step.', chart_notes: 'no_such_notes_file.md', model: 'f.gguf' },
+        { claim_chart: '1. A method comprising: a step.', chart_notes: 'no_such_notes_file.md', model: FAKE_GGUF },
         { draft: async () => { drafted++; return 'x'; } });
     } finally { console.error = origErr; }
     assert.match(errs.join(' '), /--chart-notes: cannot read no_such_notes_file\.md/);
@@ -2571,7 +2577,7 @@ describe('examiner notes appendix (chart-html-notes-appendix)', () => {
     const origErr = console.error; console.error = (s) => errs.push(String(s));
     try {
       await doClaimChart({ functionIndex: {}, _ensureFunctionIndex() {} },
-        { claim_chart: '1. A method comprising: a step.', chart_notes: p, model: 'f.gguf' },
+        { claim_chart: '1. A method comprising: a step.', chart_notes: p, model: FAKE_GGUF },
         { draft: async () => 'x' });
     } finally { console.error = origErr; fsn.unlinkSync(p); }
     assert.match(errs.join(' '), /--chart-notes: .* is empty/);

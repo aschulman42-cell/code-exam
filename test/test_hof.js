@@ -30,9 +30,10 @@ import {
   parseCandidateGroups, limitCandidates, parseSidecar, joinRank, candFromSidecarCommand,
   normName, enclosingClass, sameFunction, scoreClaim, totalsOf,
   renderTable, renderMarkdown, preflightCalls, planLines, CALL_SIZES, HOW_TO_READ, howToReadText, LADDER, WHERE,
+  rowTag, LOCATE_PARSE_FAILURE, isLocateParseFailure, resultLine, lastLine,
 } from '../src/core/hof.js';
 import { parseOwnArgs, dryRunLines } from '../scripts/hof.mjs';
-import { hofOptions, synonymizerArgs, synonymizeClaim } from '../src/commands/hof.js';
+import { hofOptions, synonymizerArgs, synonymizeClaim, doHof } from '../src/commands/hof.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 import { synonymizeElements } from '../src/commands/synonymize.js';
 
@@ -280,6 +281,18 @@ describe('hof: the report', () => {
     assert.match(t, /function 20%, class 20%, file 0%, miss 60%/);
     assert.match(t, /exact 25%, near 50%, elsewhere 25%/);
   });
+  it('a row\'s tag says the error and whether the locate step ran twice, in the table and the report', () => {
+    assert.equal(rowTag({ error: null, retried: false }), null);
+    assert.equal(rowTag({ error: null, retried: true }), 'retried');
+    assert.equal(rowTag({ error: 'claim-locate failed', retried: false }), 'claim-locate failed');
+    assert.equal(rowTag({ error: 'claim-locate failed', retried: true }), 'claim-locate failed, retried');
+    const r = rows();
+    const t = renderTable([{ ...r[0], anchors: r[0].anchorsN, retried: true }, { ...r[1], anchors: r[1].anchorsN, error: 'claim-locate failed', retried: true }]);
+    assert.match(t, /handshake  \[retried\]$/m);
+    assert.match(t, /cert chain  \[claim-locate failed, retried\]$/m);
+    assert.ok(isLocateParseFailure(`Step 3: selecting implementers from real candidates...\n\n${LOCATE_PARSE_FAILURE}.\n`));
+    assert.ok(!isLocateParseFailure('--claim-locate: propose failed: 401 unauthorized\n'), 'a model error is not the parse failure');
+  });
   it('the console footer is one rule per line under the heading, never one line (the first full run printed it so)', () => {
     const lines = howToReadText().split('\n');
     assert.equal(lines.length, HOW_TO_READ.length);
@@ -377,6 +390,7 @@ describe('hof: the command', () => {
     assert.match(lines, /^Model calls: 2 draft\(s\); about 12 rewrite\(s\) \(2 claim\(s\), six limitations each until drafted\); 4 locate run\(s\) \(2 claim\(s\) × --runs 2\), two calls each\.$/m);
     assert.match(lines, /^Projected: ~\$0\.41 on Claude API — m \(cloud LLM\), an estimate from per-call sizes/m);
     assert.match(lines, /\$2 claims guard stops a run above it unless --force/);
+    assert.match(lines, /^A locate run whose selections do not parse is run once more, outside the projection \(two more calls for such a claim\)\.$/m);
     const local = planLines({ indexPath: '.demo', model: 'q.gguf', formRules: 'current' }, buildCommands({ indexPath: '.demo', model: 'q.gguf', formRules: 'current' }, P), 3, preflightCalls({}, 3), { usd: null, modelLabel: 'local GGUF — q.gguf' }).join('\n');
     assert.match(local, /^Cost: a local model \(local GGUF — q\.gguf\); time, not dollars\.$/m);
     assert.doesNotMatch(local, /--synonymize/);
@@ -419,5 +433,122 @@ describe('hof: the command', () => {
     assert.equal(r.status, 2, (r.stdout + r.stderr).slice(-800));
     assert.match(r.stderr, /--hof on a \.zip index needs --hof-out <dir>: FIRST_RUN_INDEX\.zip unpacks to a temporary cache/);
     assert.doesNotMatch(r.stdout, /candidate group/, 'refused before the grouper ran');
+  });
+});
+
+// hof-locate-retry-once (2026-11-09): a whole run through stubs for the three
+// model-calling steps, so the step runner, the retry, the console and the
+// records are exercised with no model. `failLocate` names a claim whose locate
+// step prints the locator's parse-failure exit the first `times` times.
+async function runStubbed({ failLocate = null, verbose = false } = {}) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-hof-run-'));
+  const indexDir = path.join(tmp, '.demo');
+  fs.mkdirSync(indexDir);
+  const out = path.join(tmp, 'run');
+  const locateCalls = new Map();
+  const seams = {
+    pseudoClaims: {
+      doEmitCandidates: async (index, a) => { console.log('grouper body line'); fs.writeFileSync(a.candidates, CAND); },
+      doPseudoClaims: async (index, a) => {
+        console.log('drafter body line');
+        process.stderr.write('# actual cost: ~$0.03 (2 calls, 9k tok in / 400 out)\n');
+        fs.writeFileSync(a.claims_only, `${SIDECAR.claims.map((c) => c.claim).join('\n')}\n`);
+        fs.writeFileSync(`${a.claims_only}.anchors.json`, JSON.stringify(SIDECAR));
+        fs.writeFileSync(a.pseudo_out, '# artifact\n');
+      },
+    },
+    claimLocate: {
+      splitClaimElements,
+      doClaimLocate: async (index, a) => {
+        const n = Number(a.claim_locate.match(/claim_(\d+)\.txt$/)[1]);
+        const k = (locateCalls.get(n) || 0) + 1;
+        locateCalls.set(n, k);
+        console.log(`locator body line ${n}`);
+        if (failLocate && n === failLocate.n && k <= failLocate.times) { console.error(`${LOCATE_PARSE_FAILURE}.`); process.exitCode = 1; return; }
+        fs.writeFileSync(a.targets_out, n === 1 ? TARGETS_1 : TARGETS_2);
+        return { rows: [] };
+      },
+    },
+  };
+  const args = { index_path: indexDir, llm: 'claude', hof: true, hof_out: out, form_rules: 'current', claim_class: 'method', _explicit: new Set(), force: true, verbose };
+  const outChunks = [];
+  const errChunks = [];
+  const ow = process.stdout.write;
+  const ew = process.stderr.write;
+  process.stdout.write = (c) => { outChunks.push(String(c)); return true; };
+  process.stderr.write = (c) => { errChunks.push(String(c)); return true; };
+  const prevExit = process.exitCode;
+  process.exitCode = undefined;
+  let exit;
+  try { await doHof({}, args, seams); exit = process.exitCode; } finally { process.stdout.write = ow; process.stderr.write = ew; process.exitCode = prevExit; }
+  const read = (p) => (fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null);
+  return {
+    out, exit, locateCalls, stdout: outChunks.join(''), stderr: errChunks.join(''),
+    report: JSON.parse(read(path.join(out, 'hof_report.json'))), md: read(path.join(out, 'hof_report.md')),
+    log: (name) => read(path.join(out, 'logs', `${name}.txt`)),
+    cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }),
+  };
+}
+
+describe('hof: a whole run through stubs, no model', () => {
+  it('a locate whose selections do not parse is run once more; located on the second run, the row reads retried and the run exits 0', async () => {
+    const r = await runStubbed({ failLocate: { n: 2, times: 1 } });
+    try {
+      assert.deepEqual([r.locateCalls.get(1), r.locateCalls.get(2)], [1, 2]);
+      const names = r.report.steps.map((s) => `${s.name}:${s.code}${s.retried ? ':retried' : ''}`);
+      assert.deepEqual(names, ['1-candidates:0', '2-draft:0', '3-locate-1:0', '3-locate-2:1:retried', '3-locate-2.retry:0']);
+      assert.deepEqual(r.report.claims.map((c) => [c.error, c.retried]), [[null, false], [null, true]]);
+      assert.equal(r.report.totals.errors, 0);
+      assert.match(r.stdout, /cert chain  \[retried\]$/m, 'the table says so');
+      assert.match(r.md, /\| 2 \| P1 \| cert chain \*\(retried\)\* \|/);
+      assert.match(r.md, /Located on the second run: the first run's selections did not parse\./);
+      assert.match(r.md, /→ exit 1, \d+\.\ds \(the selections did not parse; run once more\)/);
+      assert.ok(isLocateParseFailure(r.log('3-locate-2')), 'the first run\'s log holds the exit');
+      assert.ok(r.log('3-locate-2.retry') != null && !isLocateParseFailure(r.log('3-locate-2.retry')), 'the second run has its own log');
+      assert.equal(r.exit, undefined, 'a retried-then-located run is a complete run');
+    } finally { r.cleanup(); }
+  });
+  it('a locate that does not parse twice is failed, retried, and the run exits 1; a model error would not be retried', async () => {
+    const r = await runStubbed({ failLocate: { n: 1, times: 2 } });
+    try {
+      assert.equal(r.locateCalls.get(1), 2, 'one retry, not more');
+      assert.deepEqual(r.report.claims.map((c) => [c.error, c.retried]), [['claim-locate failed', true], [null, false]]);
+      assert.match(r.stdout, /handshake  \[claim-locate failed, retried\]$/m);
+      assert.match(r.md, /Not located: claim-locate failed \(run twice: the selections did not parse either time\)\./);
+      assert.equal(r.report.totals.errors, 1);
+      assert.equal(r.exit, 1);
+    } finally { r.cleanup(); }
+  });
+
+  // hof-console-progress-lines (2026-11-09)
+  it('a step\'s result line: exit and seconds, the step\'s own cost line, and on a failure the reason or the log\'s last line', () => {
+    assert.equal(resultLine({ code: 0, ms: 21140 }, null, 'Claim: 20 chars\n# actual cost: ~$0.01 (2 calls, 7k tok in / 319 out)\n'), '  → exit 0, 21.1s; # actual cost: ~$0.01 (2 calls, 7k tok in / 319 out)');
+    assert.equal(resultLine({ code: 0, ms: 2600 }, null, 'Wrote 212 candidate group(s)\n'), '  → exit 0, 2.6s');
+    assert.equal(resultLine({ code: 1, ms: 9100 }, null, 'Step 3: selecting...\n\nNo symbol selections were parseable.\n\n'), '  → exit 1, 9.1s: No symbol selections were parseable.');
+    assert.equal(resultLine({ code: 1, ms: 100 }, 'ENOENT: claim_3.txt', 'whatever\n'), '  → exit 1, 0.1s: ENOENT: claim_3.txt', 'a thrown error is the reason');
+    assert.equal(lastLine('x'.repeat(200)), `${'x'.repeat(157)}…`);
+    assert.equal(lastLine(''), '');
+  });
+  it('the console carries the run\'s story only: the echo and one result line per step, the table and the footer; the bodies are in logs/; --verbose echoes them', async () => {
+    const r = await runStubbed({ failLocate: { n: 2, times: 1 } });
+    try {
+      for (const body of ['grouper body line', 'drafter body line', 'locator body line']) assert.doesNotMatch(r.stdout, new RegExp(body), `${body} stays in the log`);
+      assert.match(r.log('2-draft'), /drafter body line/);
+      assert.match(r.log('3-locate-1'), /locator body line 1/);
+      const results = r.stdout.match(/^  → exit \d, \d+\.\ds.*$/gm) || [];
+      assert.equal(results.length, r.report.steps.length, 'one result line per step');
+      assert.match(r.stdout, /--claims-only [^\n]*\n  → exit 0, \d+\.\ds; # actual cost: ~\$0\.03 \(2 calls, 9k tok in \/ 400 out\)$/m, 'the draft step\'s cost line rides on its result line');
+      assert.match(r.stdout, /^  → exit 1, \d+\.\ds: No symbol selections were parseable\.$/m, 'a failure says why');
+      assert.match(r.stdout, /^hof: 2 candidate group\(s\) in /m);
+      assert.match(r.stdout, /\nHow to read this:\n- Per anchor, the best rung/);
+      assert.match(r.stdout, /^hof: report in /m);
+      assert.match(r.stderr, /^# projected cost: /m, 'the preflight stays on stderr, as every claims command prints it');
+    } finally { r.cleanup(); }
+    const v = await runStubbed({ verbose: true });
+    try {
+      assert.match(v.stdout, /grouper body line/);
+      assert.match(v.stdout, /locator body line 2/);
+      assert.match(v.stdout, /^  → exit 0, /m, 'the result line stays under --verbose');
+    } finally { v.cleanup(); }
   });
 });
