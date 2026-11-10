@@ -56,19 +56,22 @@ import { fileURLToPath } from 'node:url';
 import { contentWords, stem } from '../src/core/claim-terms.js';
 import { splitCompoundToken } from '../src/utils.js';
 import { parseAnchorHeader } from '../src/core/mechanism-grouper.js';
-import { parseCandidateGroups, baseName } from './hof.mjs';
+import { parseCandidateGroups, baseName } from '../src/core/hof.js';
 
 export const SCORERS = ['bm25', 'overlap'];
 export const HITS_AT = [1, 5, 20];
 
 const USAGE = [
-  'usage: node scripts/hof-stage1.mjs (--hof <dir>[,<dir>...] | --hof-root [<root>])',
+  'usage: node scripts/hof-stage1.mjs (--hof <dir>[,<dir>...] | --hof-root [<root>] | --index-path <dir>)',
   '            [--index-path <dir>] [--scorer bm25|overlap] [--b <0..1>] [--top N] [--out <file.md>]',
   '            [--records-out <dir>]',
   '',
   '  Scores every claim a HOF run drafted against every group of its candidate',
   '  list by tier-0 text (label, purpose, member and file names; no model) and',
   '  reports where the group the claim was drafted from ranks. Issue #359 E.1.',
+  '  --index-path alone reads the runs `ce --hof` wrote under <index>/hof/ (the',
+  '  tier-0+body variant when it finds exactly one); --hof-root keeps its old',
+  '  default for runs scripts/hof.mjs wrote before 2026-11-09.',
 ].join('\n');
 
 // ---------------------------------------------------------------- arguments
@@ -100,11 +103,16 @@ export function parseOwnArgs(argv) {
     else throw new Error(`unknown option: ${a}`);
   }
   if (o.help) return o;
-  if (!o.hof.length && !o.hofRoot) throw new Error('one of --hof <dir> or --hof-root is required');
+  // hof-cli-command (2026-11-09): `ce --hof` writes its runs under <index>/hof/,
+  // so --index-path alone names the root; the body variant then applies when
+  // exactly one run is found there (decided in main).
+  o.fromIndex = false;
+  if (!o.hof.length && !o.hofRoot && o.indexPath) { o.hofRoot = path.join(o.indexPath, 'hof'); o.fromIndex = true; }
+  if (!o.hof.length && !o.hofRoot) throw new Error('one of --hof <dir>, --hof-root or --index-path <dir> is required');
   if (!SCORERS.includes(o.scorer)) throw new Error(`--scorer must be ${SCORERS.join(' or ')}, got "${o.scorer}"`);
   if (!Number.isFinite(o.top) || o.top < 1) throw new Error('--top needs a positive number');
   if (!Number.isFinite(o.b) || o.b < 0 || o.b > 1) throw new Error('--b needs a number from 0 to 1');
-  if (o.indexPath && (o.hofRoot || o.hof.length !== 1)) throw new Error('--index-path applies to exactly one --hof <dir>');
+  if (o.indexPath && !o.fromIndex && (o.hofRoot || o.hof.length !== 1)) throw new Error('--index-path applies to exactly one --hof <dir>');
   return o;
 }
 
@@ -446,9 +454,11 @@ export async function main(argv) {
   try { o = parseOwnArgs(argv); } catch (e) { console.error(`hof-stage1: ${e.message}\n\n${USAGE}`); return 2; }
   if (o.help) { console.log(USAGE); return 0; }
   const dirs = o.hofRoot ? listRunDirs(o.hofRoot) : o.hof.map((d) => path.resolve(d));
-  if (!dirs.length) { console.error(`hof-stage1: no run directories${o.hofRoot ? ` under ${o.hofRoot}` : ''}`); return 1; }
+  if (!dirs.length) { console.error(`hof-stage1: no run directories${o.hofRoot ? ` under ${o.hofRoot}` : ''}${o.fromIndex ? ' (ce --hof writes them there)' : ''}`); return 1; }
   let bodyOf = null;
-  if (o.indexPath) {
+  if (o.indexPath && o.fromIndex && dirs.length !== 1) {
+    process.stderr.write(`hof-stage1: ${dirs.length} runs under ${o.hofRoot}; scoring tier-0 only (the body variant takes one run: --hof <dir> --index-path <dir>)\n`);
+  } else if (o.indexPath) {
     const { CodeSearchIndex } = await import('../src/core/CodeSearchIndex.js');
     const idx = new CodeSearchIndex({ indexPath: o.indexPath });
     bodyOf = (file, name) => idx.getFunctionSource(file, name);

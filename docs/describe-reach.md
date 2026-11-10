@@ -20,7 +20,8 @@ can read. This page asks whether the entry holding a claim's anchor function is 
 of the claim's elements when that sentence is the text.
 
 **The caveat, first.** The claims here are the HOF pseudo-claims of 2026-11-03
-(`scripts/hof.mjs`), drafted by Claude from the anchor functions, and the descriptions were
+(`scripts/hof.mjs` then; `ce --hof` since 2026-11-09), drafted by Claude from the anchor
+functions, and the descriptions were
 written by Claude from the same functions: two paraphrases of one reading, which can agree for
 reasons that have nothing to do with retrieval. A high number says the unit works, not that it
 finds code the drafter did not paraphrase. The non-circular test is the litigants' charts,

@@ -136,7 +136,9 @@ baked into mechanical detectors.
   it on [`CODEEXAM_CLAIM_CHARTS_TESTS.md`](docs/CODEEXAM_CLAIM_CHARTS_TESTS.md);
   the pseudo-claims feature run on CodeExam's own source, ten claims across
   nine features quoted as drafted, each beside the page that describes the
-  feature → [`CODEEXAM_SELF_PORTRAIT.md`](docs/CODEEXAM_SELF_PORTRAIT.md)
+  feature → [`CODEEXAM_SELF_PORTRAIT.md`](docs/CODEEXAM_SELF_PORTRAIT.md);
+  `ce --hof` runs the self-test on your own index, drafting a claim from each
+  group of its functions and asking the claim features to find their way back
 - **Multisect search** — narrowing a multi-term search to the smallest scope
   in which all the terms co-occur, from file, to function, to the specific
   lines. → [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md)

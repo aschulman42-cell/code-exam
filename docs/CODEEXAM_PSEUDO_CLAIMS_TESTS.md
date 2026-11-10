@@ -86,7 +86,7 @@ and the rubric pages' own 17; on the rubric pages the scorer moved on multisect 
 ABSENT 11 to 6 on the method claim) and little elsewhere, one sample per cell. The wording of
 both rules is still open; `--form-rules 2026-10` drafts on the first two rules alone, the
 prompt as it stood before 2026-11-01, so the same groups can be drafted under both on one
-flag (`scripts/hof.mjs` passes it through). Whether the rules change the drafts is measured
+flag (`--hof` passes it through). Whether the rules change the drafts is measured
 on the rubric pages: the after, one Claude run over the seven features' groups on
 2026-10-31, is the last row of each page's union-rule table. On the one exact pair, the
 grouper group drafted the same day on the old prompt, it scored 5 / 9 / 9 against 9 / 9 / 5,
@@ -238,8 +238,13 @@ write-ups: [`claims-pipeline-state.md`](claims-pipeline-state.md) (§4 / §9 / �
 [`litigated-claims-ground-truth.md`](litigated-claims-ground-truth.md) (the HOF
 section; #310).
 
-**One command (2026-11-03).** `scripts/hof.mjs` runs the test from an index name, with
-`--claim-locate` as the retrieval step and no synonymize step: it drafts every candidate
+**One command (2026-11-03; `ce --hof` since 2026-11-09).** `scripts/hof.mjs` ran the test
+from an index name as `ce` subprocesses; since 2026-11-09 `ce --ndx <index> --hof` runs it in
+one process with a whole-run cost preflight, its files under `<index>/hof/`, an optional
+`--synonymize-with <engine>` step between the drafter and the locator, and a "How to read
+this" footer on every report ([`cli.md`](cli.md)); the script stays until a parity run
+retires it. The test as the script ran it, with `--claim-locate` as the retrieval step and no
+synonymize step: it drafts every candidate
 group (`--pseudo-claims --candidates`, then `--claims-only` with `--min-rank 0`, so a
 `--rank` tag is reported and never a floor), locates each draft (`--claim-locate
 --targets-out`), and scores the drafter's grounded anchors against the located targets on
@@ -256,6 +261,20 @@ no model: scored by the text a grouper group already carries (label, purpose, me
 names), where does the group a claim was drafted from rank among all the groups of its index?
 It is the feasibility check for retrieving from a mechanisms index instead of the symbol
 table (issue #359).
+
+**The first `ce --hof` run (2026-11-09).** CodeExam's own index (140 files, 3,325 symbols),
+ChatGPT API gpt-5.1 drafting and locating, `--force` past the $2 guard: 212 groups, 212 drafts,
+212 locates, two hours in one process; the preflight projected $6.88 and the two steps' own cost
+lines summed to $7.00. The ladder: 1,175 anchors, function 70%, class 1%, file 25%, miss 3%;
+7,729 located targets, exact 11%, near 16%, elsewhere 73%; two claims not located, the locator's
+"No symbol selections were parseable" exit, which `--hof` does not retry, so 14 of the 41 misses
+are that exit and not the locator's reach. Two things to read with the figures: the claims were
+located in the drafter's own words, a floor; and the drafts ran long, median 376 words and 191
+of 212 over the litigated population's p90 of 257 (the artifact's shape line flags each),
+where the 2026-11-03 four-claim runs on the same index and rules had Claude at a p90 of 222
+words and ChatGPT at 417, so the length is the model's, and a claim that long carries more of
+the code's vocabulary for the locator to match on. The run's files are under
+`.CE/hof/261110-0017/`, outside the repo.
 
 **Where HOF went next (2026-11-05 and 11-06).** The mechanism grain the stage1 check asked
 about was measured in full on [`describe-reach.md`](describe-reach.md): with the mechanisms'

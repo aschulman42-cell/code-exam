@@ -175,9 +175,9 @@ HOF **manufactures** ground truth for an arbitrary CE index.
 
 | step | what | status |
 |---|---|---|
-| HOF-a | generate pseudo-claims **with attached code references** for any index | **blocked on anchor DISCOVERY, not on drafting.** `--pseudo-claims` v1 is *explicit-anchor only* — you supply `file@func`, CE does not auto-discover (deferred, #281). Its distractor test measured ~29% precision from a noisy pack: the model drafts confident, coherent claims about the WRONG functions. So the code references are its INPUT, not its output |
-| HOF-b | **synonymize** the pseudo-claims with a *different* LLM, **withholding the code references** | not built |
-| HOF-c | feed synonymized claims to `--claim-search` / `--claim-analyze`; measure (i) did it recover the original references, (ii) were they assigned to reasonable limitations | not built |
+| HOF-a | generate pseudo-claims **with attached code references** for any index | **built**: `--pseudo-claims --candidates` discovers the groups and `--claims-only` keeps every draft's anchors in a sidecar (2026-10); `--hof` runs both (2026-11-09). As first written: **blocked on anchor DISCOVERY, not on drafting.** `--pseudo-claims` v1 is *explicit-anchor only* — you supply `file@func`, CE does not auto-discover (deferred, #281). Its distractor test measured ~29% precision from a noisy pack: the model drafts confident, coherent claims about the WRONG functions. So the code references are its INPUT, not its output |
+| HOF-b | **synonymize** the pseudo-claims with a *different* LLM, **withholding the code references** | **built**: `--synonymize` (2026-08-16), wired into the self-test as `--hof --synonymize-with <engine>` (2026-11-09): every draft rewritten by the second engine, anchors withheld, before the locator sees it |
+| HOF-c | feed synonymized claims to `--claim-search` / `--claim-analyze`; measure (i) did it recover the original references, (ii) were they assigned to reasonable limitations | **built with `--claim-locate` as the retrieval step**: `ce --hof` (2026-11-09; `scripts/hof.mjs` from 2026-11-03) drafts, locates and scores the round trip on the ladder (function, class, file, miss per anchor; exact, near, elsewhere per target), with a whole-run cost preflight and the files under `<index>/hof/`; (ii) is not measured |
 
 **HOF-b is the load-bearing step, and it is the only thing on the board that
 manufactures the vocabulary-translation gap.** Withholding the code references

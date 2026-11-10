@@ -19,7 +19,7 @@ import {
   groupRecord, commentsAndStrings, buildBm25, buildOverlap, rankOf, topOf,
   readSidecarClaims, findDrafted, scoreRun, scoreClaims, summarize, poolRuns, renderMarkdown, renderRecords,
 } from '../scripts/hof-stage1.mjs';
-import { parseCandidateGroups } from '../scripts/hof.mjs';
+import { parseCandidateGroups } from '../src/core/hof.js';
 
 const CAND = [
   '# mechanism-grouper  index=.fixture  group-by=multi  3 groups (>= 3 fns)',
@@ -51,7 +51,7 @@ function fixtureRecords() {
 
 describe('hof-stage1: arguments', () => {
   it('needs --hof or --hof-root, rejects unknown options and a bad scorer', () => {
-    assert.throws(() => parseOwnArgs([]), /--hof <dir> or --hof-root/);
+    assert.throws(() => parseOwnArgs([]), /one of --hof <dir>, --hof-root or --index-path <dir> is required/);
     assert.throws(() => parseOwnArgs(['--hof', 'x', '--bogus']), /unknown option: --bogus/);
     assert.throws(() => parseOwnArgs(['--hof', 'x', '--scorer', 'cosine']), /--scorer must be bm25 or overlap/);
     assert.throws(() => parseOwnArgs(['--hof', 'a,b', '--index-path', 'idx']), /exactly one --hof/);
@@ -67,6 +67,14 @@ describe('hof-stage1: arguments', () => {
     assert.equal(parseOwnArgs(['--hof-root', 'C:/runs']).hofRoot, 'C:/runs');
     const o = parseOwnArgs(['--hof-root', '--top', '2']);
     assert.match(o.hofRoot, /CodeExam[\\/]hof$/);
+  });
+  it('--index-path alone reads the runs ce --hof wrote under <index>/hof/ (hof-cli-command); with --hof it is the body variant as before', () => {
+    const o = parseOwnArgs(['--index-path', 'idx']);
+    assert.equal(o.hofRoot, path.join('idx', 'hof'));
+    assert.equal(o.fromIndex, true);
+    const b = parseOwnArgs(['--index-path', 'idx', '--hof', 'a']);
+    assert.deepEqual([b.hofRoot, b.fromIndex, b.indexPath], [null, false, 'idx']);
+    assert.throws(() => parseOwnArgs(['--index-path', 'idx', '--hof', 'a,b']), /exactly one --hof/);
   });
 });
 

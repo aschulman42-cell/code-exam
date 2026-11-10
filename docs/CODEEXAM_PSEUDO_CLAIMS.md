@@ -506,8 +506,10 @@ sample per cell.
   (2026-10-24; rerun 2026-11-02 with the strict MET count doubled, 10 to 20).
 - **Coverage of the drafting list.** 22% to 95% of an index's candidate functions land in
   some candidate group, by index; the mechanisms index covers 100% (2026-11-03).
-- **The self-test (HOF).** One command drafts every candidate group of an index, locates each
-  draft with `--claim-locate` and scores the round trip on a ladder (2026-11-03). At the
+- **The self-test (HOF).** One command, `--hof` since 2026-11-09 (a script from 2026-11-03),
+  drafts every candidate group of an index, locates each draft with `--claim-locate` and
+  scores the round trip on a ladder, with a cost preflight first and its files beside the
+  index. At the
   mechanism grain, the labels and member names under a local embedding model put the right
   mechanism first for 61% of 332 drafted-claim anchors over eight indexes and within 25 for
   96%, against 35% at the function rung for the locator (2026-11-05,
@@ -618,9 +620,12 @@ Not yet, also: a ranked one-command `--pseudo-claims --auto` (#284).
 "Huffing our own fumes" (HOF) drafts a pseudo-claim from a mechanism and then asks CodeExam's
 own claim search to find that mechanism from the claim; because the claim was written from
 the code, the right answer is known, which no public claim chart gives us. One command,
-`scripts/hof.mjs`, runs it for an index: draft every candidate group, locate each draft with
-`--claim-locate`, score each round trip on a ladder from the exact function down to a miss.
-The recipe, the ladder, the runs so far and where the work went next are on
+`ce --ndx <index> --hof --llm <provider>` ([`cli.md`](cli.md); since 2026-11-09, a script
+before that), runs it for an index: draft every candidate group, locate each draft with
+`--claim-locate`, score each round trip on a ladder from the exact function down to a miss,
+after a preflight that prices the whole run; `--synonymize-with` puts a second engine between
+the drafter and the locator, so the claims are not located in the drafter's own words. The
+recipe, the ladder, the runs so far and where the work went next are on
 [`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](CODEEXAM_PSEUDO_CLAIMS_TESTS.md).
 
 ## See also

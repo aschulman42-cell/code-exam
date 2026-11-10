@@ -45,6 +45,17 @@ describe('help discoverability', () => {
     assert.match(r.stdout, /closing the\s+browser tab leaves the server/);
   });
 
+  it('--help lists --hof, --synonymize-with, --limit, --claims and --hof-out, and --help hof surfaces the self-test (hof-cli-command)', () => {
+    const r = run('--help');
+    assert.equal(r.status, 0);
+    for (const flag of ['--hof', '--synonymize-with', '--hof-out', '--limit', '--claims']) assert.match(r.stdout, new RegExp(`^  ${flag.replace(/-/g, '\\-')}\\b`, 'm'), flag);
+    assert.match(r.stdout, /huffing our own fumes/);
+    assert.doesNotMatch(r.stdout, /scripts\/hof\.mjs/, 'the script is not the way any more');
+    const h = run('--help', 'hof');
+    assert.equal(h.status, 0);
+    assert.match(h.stdout, /--hof\b/);
+  });
+
   it('--load-index is a synonym for --index-path (bad path → No index found)', () => {
     const r = run('--load-index', 'definitely_not_here');
     assert.equal(r.status, 1);

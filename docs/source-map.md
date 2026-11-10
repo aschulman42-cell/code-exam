@@ -56,6 +56,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/commands/fingerprint.js` — builds string+call-name fingerprints per function (hash and Jaccard) for bundling-resistant matching
 - `src/commands/graph.js` — --call-tree/--class-tree/--file-map/--file-tree renderers, with Mermaid diagram output
 - `src/commands/harness.js` — emits a runnable PyTorch forward-hook activation-capture script from static nn.Module analysis
+- `src/commands/hof.js` — --hof: the HOF self-test in one process: the grouper, the drafter, an optional synonymizer and the locator run in-process with a whole-run cost preflight, each step echoed as its ce equivalent and logged, the files under <index>/hof/, the report with its "How to read this" footer
 - `src/commands/imports.js` — --imports resolves imports against a serialized export catalog; --bom emits the dependency bill of materials
 - `src/commands/imports-from.js` — --imports-from: joins this index's imports against a second index's exports (resolved/private/not-found)
 - `src/commands/infrastructure.js` — --infrastructure: prints detected Containers/Kubernetes/IaC/CI-CD artifacts, marking heuristic hits
@@ -101,6 +102,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/core/filter-match.js` — one predicate for GUI/CLI filters: substring by default, /pattern/flags for opt-in regex
 - `src/core/funcstr-corpus.js` — loads external funcstr-hash dumps as a DF corpus, labeling functions common / rare-shared / novel
 - `src/core/function-bounds.js` — language-aware function-end detection for the regex parser: masks strings, comments and regex literals, then finds brace, arrow-expression or indentation ends; dedupes the tree-sitter + regex merge
+- `src/core/hof.js` — the HOF self-test's model-free parts, shared by --hof and scripts/hof.mjs: the parsers of cand.lst, the anchors sidecar and the targets file, the ladder (function/class/file/miss; exact/near/elsewhere), the run layout and directory rule, the preflight arithmetic and plan, the table and Markdown report with its footer
 - `src/core/hotspots.js` — ranks important functions, entry points, domain functions and classes, skipping vendored/minified noise
 - `src/core/import-join.js` — joins one index's imports to another's export catalog, verdicting resolved / private / not-found
 - `src/core/imports.js` — per-language import extractor (Py/JS/C/Java/C#/Go/Rust, plus HTML script/link/importmap tags and run-time dynamic loads) classifying rows internal/stdlib/third-party/vendored; reads manifests, build files and lockfiles
@@ -164,8 +166,8 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `scripts/claim-selftest.mjs` — deterministic offline retrieval regression score against curated anchors
 - `scripts/engine-qualify.mjs` — pass/fails an engine on pinned negative+positive chart sidecars; no model calls
 - `scripts/field-note.mjs` — turns an annotated CE transcript's [[comments]] into a post-ready markdown checklist
-- `scripts/hof.mjs` — runs the HOF test from one index name: draft pseudo-claims, locate each with --claim-locate, score the drafter's anchors against the located targets on the ladder
-- `scripts/hof-stage1.mjs` — scores every HOF claim against every grouper group of its index by tier-0 text (BM25, no model): where does the drafted group rank?
+- `scripts/hof.mjs` — the HOF test as ce subprocesses, the form of 2026-11-03, superseded by `ce --hof` and kept until a parity run retires it; the shared parts come from src/core/hof.js
+- `scripts/hof-stage1.mjs` — scores every HOF claim against every grouper group of its index by tier-0 text (BM25, no model): where does the drafted group rank? --index-path alone reads the runs --hof wrote under <index>/hof/
 - `scripts/hunt-repeat.mjs` — reruns one --claim-locate --hunt command N times and reports the distribution
 - `scripts/litigated-claims-fetch.mjs` — fetches litigated US patents' claim 1 + dependents from Google Patents
 - `scripts/pseudo-claim-loop.mjs` — runs the pseudo-claim loop: synonymize, chart blind, score vs answer key
@@ -226,7 +228,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_har.js` — #161 .har expansion: text/base64 bodies, mime inference, URL dedupe, malformed input
 - `test/test_help_filter.js` — filterHelp: entry blocks and continuation lines, section headers, no-match report
 - `test/test_help_flags.js` — help discoverability: --gui/--port/--load-index in --help; --load-index synonym
-- `test/test_hof.js` — hof script: candidates and targets parsing, the ladder scoring, the command builder, the rank join
+- `test/test_hof.js` — the HOF self-test: the parsers, the ladder, the report and its footer, the run directory rule, the --hof preflight and plan, the synonymize step through a stub engine, and two model-free end-to-end runs (the plan on .demo, the .zip refusal)
 - `test/test_hof_stage1.js` — hof-stage1 script: group records from cand.lst, BM25 and overlap ranking, the control, the report, unreadable runs reported not thrown
 - `test/test_hotspots.js` — #187: hotspots and entry_points skip vendored/minified files that stay indexed
 - `test/test_hunt_repeat.js` — hunt-repeat harness: the run-report parser behind every reported distribution

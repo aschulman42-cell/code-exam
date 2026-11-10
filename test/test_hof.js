@@ -1,28 +1,42 @@
-// test_hof.js — hof script: candidates and targets parsing, the ladder scoring, the command builder, the rank join
+// test_hof.js — the HOF self-test: the parsers of CodeExam's public files, the ladder, the report, the run layout and the --hof command's preflight, plan and refusals
 // Copyright (c) 2026 Andrew Schulman
 // https://github.com/aschulman42-cell/code-exam
 // Co-authored with Claude (Claude Code).
 // Licensed under the Apache License, Version 2.0; see LICENSE.
-// test_hof.js — hof-one-command (2026-11-03).
+// test_hof.js — hof-one-command (2026-11-03); hof-cli-command (2026-11-09).
 //
-// The script drives `ce` as a subprocess; the model calls are the user's.
-// What is tested is everything around them: the parsers that read CodeExam's
-// public files (the candidates list, the --claims-only sidecar, the
-// --targets-out file), the ladder that scores an anchor against the located
-// targets, the command lines the script builds (--min-rank 0 always, --rank
-// only when asked, --form-rules passed through), and the rank join with and
-// without the sidecar's own `priority`. No fixture here encodes an expected
-// answer about any real index.
+// The model calls are the user's. What is tested is everything around them:
+// the parsers that read CodeExam's public files (the candidates list, the
+// --claims-only sidecar, the --targets-out file), the ladder that scores an
+// anchor against the located targets, the command lines each step is the
+// equivalent of (--min-rank 0 always, --rank only when asked, --form-rules
+// passed through), the rank join with and without the sidecar's own
+// `priority`, and, since the command, the run directory rule, the whole-run
+// preflight's arithmetic and plan, the synonymize step through a stub engine,
+// the report's footer, and two end-to-end runs that call no model: the plan
+// on the demo index and the refusal on a .zip index. No fixture here encodes
+// an expected answer about any real index.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import {
-  parseOwnArgs, buildCommands, outPaths, modelArgs, echoLine,
+  buildCommands, outPaths, modelArgs, echoLine, runStamp, runDirFor,
   readClaims, readTargets, parseTargetSpec, baseName,
-  parseCandidateGroups, limitCandidates, parseSidecar, joinRank,
+  parseCandidateGroups, limitCandidates, parseSidecar, joinRank, candFromSidecarCommand,
   normName, enclosingClass, sameFunction, scoreClaim, totalsOf,
-  renderTable, renderMarkdown, dryRunLines, LADDER, WHERE,
-} from '../scripts/hof.mjs';
+  renderTable, renderMarkdown, preflightCalls, planLines, CALL_SIZES, HOW_TO_READ, howToReadText, LADDER, WHERE,
+} from '../src/core/hof.js';
+import { parseOwnArgs, dryRunLines } from '../scripts/hof.mjs';
+import { hofOptions, synonymizerArgs, synonymizeClaim } from '../src/commands/hof.js';
+import { splitClaimElements } from '../src/commands/claim-locate.js';
+import { synonymizeElements } from '../src/commands/synonymize.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const CAND = [
   '# mechanism-grouper  index=demo  group-by=class  2 groups — RANKED by claude (observe-only)',
@@ -119,6 +133,11 @@ describe('hof: reading CodeExam\'s public files', () => {
     assert.equal(c[0].priority, 3);
     assert.equal(c[1].priority, null);
   });
+  it('candFromSidecarCommand finds the candidates list the recorded command drafted from, near the claims file', () => {
+    assert.equal(candFromSidecarCommand(SIDECAR, '/runs/x', (p) => p === path.join('/runs/x', 'cand.lst')), path.join('/runs/x', 'cand.lst'));
+    assert.equal(candFromSidecarCommand(SIDECAR, '/runs/x', () => false), null);
+    assert.equal(candFromSidecarCommand({ command: 'ce --pseudo-claims a.c@f' }, '/runs/x', () => true), null, 'no @list in the command');
+  });
 });
 
 describe('hof: the rank join', () => {
@@ -178,7 +197,7 @@ describe('hof: the ladder', () => {
   });
 });
 
-describe('hof: the commands it builds', () => {
+describe('hof: the commands each step is the equivalent of', () => {
   const P = outPaths('OUT');
   it('draft always carries --min-rank 0 and --form-rules; --rank only with the flag; no --force unless given', () => {
     const o = parseOwnArgs(['--index-path', '.demo', '--llm', 'claude']);
@@ -192,6 +211,7 @@ describe('hof: the commands it builds', () => {
     assert.deepEqual(c.locate(2).slice(0, 4), ['--index-path', '.demo', '--claim-locate', `@${P.claim(2)}`]);
     assert.ok(c.locate(2).includes('--targets-out') && c.locate(2).includes(P.locate(2)));
     assert.ok(!c.locate(2).includes('--blind') && !c.locate(2).includes('--runs'));
+    assert.equal(c.synonymize(1), null, 'no synonymize step unless --synonymize-with');
   });
   it('passes --rank, --form-rules, --claim-class, --filter, --blind, --runs, --include-tests and --force to the step each belongs to', () => {
     const o = parseOwnArgs(['--index-path', '.demo', '--llm', 'chatgpt', '--rank', '--form-rules', '2026-10', '--claim-class', 'both', '--filter', 'tls', '--blind', '--runs', '3', '--force', '--include-tests']);
@@ -217,10 +237,17 @@ describe('hof: the commands it builds', () => {
     assert.ok(c.draft.includes('@OUT/cand_first2.lst') && !c.draft.includes('--llm'));
     assert.ok(c.locate(1).includes('--model'));
   });
+  it('--synonymize-with adds the rewrite step, the equivalent of --synonymize @claim_N.orig.txt with the second engine', () => {
+    const c = buildCommands({ indexPath: '.demo', llm: 'claude', formRules: 'current', synonymizeWith: 'gemini' }, P);
+    assert.deepEqual(c.synonymize(3), ['--synonymize', `@${P.claimOrig(3)}`, '--llm', 'gemini', '--synonymize-out', P.claim(3)]);
+    const g = buildCommands({ indexPath: '.demo', llm: 'claude', formRules: 'current', synonymizeWith: 'q.gguf', force: true }, P);
+    assert.deepEqual(g.synonymize(1).slice(2, 4), ['--model', 'q.gguf']);
+    assert.ok(g.synonymize(1).includes('--force'));
+  });
   it('echoLine quotes an argument with spaces, so the echoed line can be pasted back', () => {
     assert.equal(echoLine(['--filter', 'two words']), '$ ce --filter "two words"');
   });
-  it('refuses what it cannot run', () => {
+  it('the script refuses what it cannot run', () => {
     assert.throws(() => parseOwnArgs(['--llm', 'claude']), /--index-path/);
     assert.throws(() => parseOwnArgs(['--index-path', '.demo']), /--llm <name> or --model/);
     assert.throws(() => parseOwnArgs(['--index-path', '.demo', '--llm', 'a', '--model', 'b']), /alternatives/);
@@ -253,7 +280,13 @@ describe('hof: the report', () => {
     assert.match(t, /function 20%, class 20%, file 0%, miss 60%/);
     assert.match(t, /exact 25%, near 50%, elsewhere 25%/);
   });
-  it('the Markdown report names the commands, the table and each anchor\'s rung', () => {
+  it('the console footer is one rule per line under the heading, never one line (the first full run printed it so)', () => {
+    const lines = howToReadText().split('\n');
+    assert.equal(lines.length, HOW_TO_READ.length);
+    assert.equal(lines[0], 'How to read this:');
+    assert.ok(lines.slice(1).every((l) => l.startsWith('- ')), 'each rule on its own line');
+  });
+  it('the Markdown report names the commands, the table, each anchor\'s rung, the own-words sentence, and ends with the footer', () => {
     const r = rows();
     const report = {
       generated: '2026-11-03T00:00:00Z', ce: '1.2.3', index: 'demo', indexPath: '/x/.demo',
@@ -263,6 +296,7 @@ describe('hof: the report', () => {
     };
     const md = renderMarkdown(report);
     assert.match(md, /^# HOF: demo/m);
+    assert.match(md, /by ce --hof; CodeExam 1\.2\.3/, 'the command is the default tool');
     assert.match(md, /--form-rules 2026-10/);
     assert.match(md, /--rank \(reported, not a floor\)/);
     assert.match(md, /\$ ce --index-path \.demo --pseudo-claims --candidates cand\.lst/);
@@ -271,8 +305,17 @@ describe('hof: the report', () => {
     assert.match(md, /`README\.md@\(lines\)` — \*\*miss\*\*/);
     assert.match(md, /`other\.c@unrelated_fn` — elsewhere/);
     assert.match(md, /Not located: no targets written/);
+    assert.match(md, /^The claims were located in the drafter's own words, which is the easier case/m);
+    assert.match(md, /\n## How to read this\n\n- Per anchor, the best rung/);
+    assert.ok(md.trimEnd().endsWith(HOW_TO_READ[HOW_TO_READ.length - 1]), 'the footer closes the report');
+    assert.ok(HOW_TO_READ.length <= 10, 'under ten lines');
+    const syn = renderMarkdown({ ...report, tool: 'ce --hof', engines: { drafter: 'Claude API — x (cloud LLM)', synonymizer: 'Gemini API — y (cloud LLM)', locator: 'Claude API — x (cloud LLM)' }, options: { ...report.options, synonymizeWith: 'gemini' }, claims: r.map((x) => ({ ...x, rewritten: 'A method of making a session', overlap: 40 })) });
+    assert.match(syn, /- engines: drafter Claude API — x \(cloud LLM\); synonymizer Gemini API — y \(cloud LLM\); locator Claude API/);
+    assert.match(syn, /- synonymizing: --synonymize-with gemini, anchors withheld/);
+    assert.doesNotMatch(syn, /located in the drafter's own words, which is the easier case/, 'the own-words sentence goes when a synonymizer ran');
+    assert.match(syn, /Located as rewritten by the synonymizer \(40% of the original vocabulary kept\):/);
   });
-  it('the dry run names the group count, the commands it would run, and the cost figures with their sources', () => {
+  it('the script\'s dry run names the group count, the commands it would run, and the cost figures with their sources', () => {
     const o = parseOwnArgs(['--index-path', '.demo', '--llm', 'claude', '--rank', '--limit', '2', '--runs', '2']);
     const lines = dryRunLines(o, buildCommands(o, outPaths('OUT')), 5).join('\n');
     assert.match(lines, /5 candidate group\(s\), the first 2 drafted; nothing is sent to a model/);
@@ -280,5 +323,101 @@ describe('hof: the report', () => {
     assert.match(lines, /\$2 guard/);
     assert.match(lines, /4 call\(s\) \(2 claim\(s\) × --runs 2\) ≈ \$0\.08/);
     assert.match(lines, /claim-locate @OUT[\\/]claim_N\.txt/);
+  });
+});
+
+// hof-cli-command (2026-11-09): the command
+describe('hof: the command', () => {
+  const base = { index_path: '.demo', llm: 'claude', form_rules: 'current', claim_class: 'method', _explicit: new Set() };
+  it('hofOptions reads the flags, keeps --claim-class only when given, and refuses what cannot run', () => {
+    const o = hofOptions(base);
+    assert.deepEqual([o.indexPath, o.llm, o.model, o.formRules, o.claimClass, o.limit, o.synonymizeWith, o.hofOut, o.claims], ['.demo', 'claude', null, 'current', null, null, null, null, null]);
+    assert.equal(hofOptions({ ...base, _explicit: new Set(['claim_class']), claim_class: 'both' }).claimClass, 'both');
+    assert.equal(hofOptions({ ...base, limit: 3, runs: 2, synonymize_with: 'gemini', hof_out: 'R', hof_claims: 'c.txt', limit: null, filter: null }).claims, 'c.txt');
+    assert.throws(() => hofOptions({ ...base, llm: null }), /needs a model/);
+    assert.throws(() => hofOptions({ ...base, model: 'q.gguf' }), /alternatives/);
+    assert.throws(() => hofOptions({ ...base, index_path: null }), /needs an index/);
+    assert.throws(() => hofOptions({ ...base, form_rules: '2025' }), /--form-rules must be/);
+    assert.throws(() => hofOptions({ ...base, limit: 0 }), /--limit needs a positive integer/);
+    assert.throws(() => hofOptions({ ...base, runs: 1.5 }), /--runs needs a positive integer/);
+    assert.throws(() => hofOptions({ ...base, hof_claims: 'c.txt', rank: true }), /--claims skips drafting/);
+    assert.throws(() => hofOptions({ ...base, synonymize_with: 'not a provider' }), /--synonymize-with takes/);
+  });
+  it('synonymizerArgs names the second engine as --llm or --model and drops the first', () => {
+    assert.deepEqual([synonymizerArgs(base, 'gemini').llm, synonymizerArgs(base, 'gemini').model], ['gemini', null]);
+    assert.deepEqual([synonymizerArgs(base, 'q.gguf').llm, synonymizerArgs(base, 'q.gguf').model], [null, 'q.gguf']);
+  });
+  it('the run directory: beside the index as hof/<yymmdd-HHMM>, --hof-out elsewhere, refused on a .zip index', () => {
+    const when = new Date(2026, 10, 9, 14, 5);
+    assert.equal(runStamp(when), '261109-1405');
+    assert.equal(runDirFor('.demo', null, when), path.join(path.resolve('.demo'), 'hof', '261109-1405'));
+    assert.equal(runDirFor('.demo', 'elsewhere/run', when), path.resolve('elsewhere/run'));
+    assert.throws(() => runDirFor('samples/FIRST_RUN_INDEX.zip', null, when), /--hof on a \.zip index needs --hof-out <dir>: FIRST_RUN_INDEX\.zip unpacks to a temporary cache/);
+    assert.equal(runDirFor('samples/FIRST_RUN_INDEX.zip', 'R', when), path.resolve('R'), '--hof-out lifts the refusal');
+    assert.equal(outPaths('OUT').claimOrig(2), path.join('OUT', 'claim_2.orig.txt'));
+  });
+  it('the preflight counts one draft per group (the first --limit), one locate run per claim times --runs at two calls each, and six rewrites per claim under --synonymize-with', () => {
+    const c = preflightCalls({ limit: 2, runs: 2, synonymizeWith: 'gemini' }, 5);
+    assert.deepEqual([c.drafted, c.drafts, c.locates, c.rewrites, c.calls.length], [2, 2, 4, 12, 2 + 12 + 8]);
+    assert.deepEqual(c.calls[0], { inChars: CALL_SIZES.draft.inChars, outTokens: CALL_SIZES.draft.outTokens });
+    const plain = preflightCalls({}, 5);
+    assert.deepEqual([plain.drafted, plain.drafts, plain.locates, plain.rewrites, plain.calls.length], [5, 5, 5, 0, 15]);
+    const relocate = preflightCalls({ claims: 'c.txt' }, 7);
+    assert.deepEqual([relocate.drafts, relocate.locates, relocate.calls.length], [0, 7, 14], '--claims drafts nothing');
+  });
+  it('the plan names the counts, each step\'s equivalent command, and the projection or that a local model costs time', () => {
+    const o = { indexPath: '.demo', llm: 'claude', formRules: 'current', limit: 2, runs: 2, synonymizeWith: 'gemini' };
+    const P = outPaths('OUT');
+    const lines = planLines(o, buildCommands(o, P), 5, preflightCalls(o, 5), { usd: 0.41, modelLabel: 'Claude API — m (cloud LLM)' }).join('\n');
+    assert.match(lines, /^dry run: 5 candidate group\(s\), the first 2 drafted; nothing is sent to a model\.$/m);
+    assert.match(lines, /^Each step is the equivalent of:$/m);
+    assert.match(lines, /\$ ce --index-path \.demo --pseudo-claims @OUT[\\/]cand\.lst --llm claude --claims-only/);
+    assert.match(lines, /\$ ce --synonymize @OUT[\\/]claim_N\.orig\.txt --llm gemini --synonymize-out OUT[\\/]claim_N\.txt   \(N = 1\.\.2\)/);
+    assert.match(lines, /\$ ce --index-path \.demo --claim-locate @OUT[\\/]claim_N\.txt --llm claude --targets-out OUT[\\/]locate_N\.txt --runs 2   \(N = 1\.\.2\)/);
+    assert.match(lines, /^Model calls: 2 draft\(s\); about 12 rewrite\(s\) \(2 claim\(s\), six limitations each until drafted\); 4 locate run\(s\) \(2 claim\(s\) × --runs 2\), two calls each\.$/m);
+    assert.match(lines, /^Projected: ~\$0\.41 on Claude API — m \(cloud LLM\), an estimate from per-call sizes/m);
+    assert.match(lines, /\$2 claims guard stops a run above it unless --force/);
+    const local = planLines({ indexPath: '.demo', model: 'q.gguf', formRules: 'current' }, buildCommands({ indexPath: '.demo', model: 'q.gguf', formRules: 'current' }, P), 3, preflightCalls({}, 3), { usd: null, modelLabel: 'local GGUF — q.gguf' }).join('\n');
+    assert.match(local, /^Cost: a local model \(local GGUF — q\.gguf\); time, not dollars\.$/m);
+    assert.doesNotMatch(local, /--synonymize/);
+  });
+  it('synonymizeClaim rewrites every limitation through the second engine, anchors withheld, one per line, and reports the vocabulary kept', async () => {
+    const seen = [];
+    const draft = async (sys, user) => { seen.push(user); return `Rewritten ${user.replace(/^LIMITATION:\n/, '').replace(/handshake|cipher/g, 'greeting')}`; };
+    const r = await synonymizeClaim('A method of establishing a session, comprising: performing a handshake; and negotiating a cipher.', draft, { splitClaimElements, synonymizeElements });
+    assert.equal(r.elements, 3);
+    assert.equal(r.failed, 0);
+    assert.equal(r.text.split('\n').length, 3, 'one limitation per line, so --claim-locate splits it as drafted');
+    assert.ok(seen.every((u) => u.startsWith('LIMITATION:\n') && !/handshake\.c|@/.test(u)), 'the engine sees text only');
+    assert.ok(Number.isInteger(r.overlap) && r.overlap >= 0 && r.overlap <= 100, `overlap ${r.overlap}`);
+    const bad = await synonymizeClaim('A method, comprising: a step.', async () => 'x', { splitClaimElements, synonymizeElements });
+    assert.ok(bad.failed >= 1, 'a trivially short rewrite is a failure, kept as drafted');
+  });
+
+  const demoPlan = fs.existsSync(path.join(ROOT, '.demo', 'literal_index.json'));
+  it('end to end, --dry-run on the demo index: the grouper runs, the plan prints with the projection, nothing else is written, and the run directory sits under .demo/hof/', { skip: demoPlan ? false : 'needs the .demo index' }, () => {
+    const r = spawnSync(process.execPath, ['src/index.js', '--ndx', '.demo', '--hof', '--llm', 'claude', '--dry-run', '--limit', '2'], { cwd: ROOT, encoding: 'utf8', timeout: 120000 });
+    const m = r.stdout.match(/^hof: output under (.*)$/m);
+    try {
+      assert.equal(r.status, 0, (r.stdout + r.stderr).slice(-1200));
+      assert.ok(m, r.stdout.slice(0, 400));
+      assert.match(m[1], /[\\/]\.demo[\\/]hof[\\/]\d{6}-\d{4}$/, 'beside the index');
+      assert.match(r.stdout, /^\$ ce --index-path \.demo --pseudo-claims --candidates /m, 'the grouper step is echoed');
+      assert.match(r.stdout, /^hof: \d+ candidate group\(s\) in /m);
+      assert.match(r.stdout, /^dry run: \d+ candidate group\(s\)(, the first 2 drafted)?; nothing is sent to a model\.$/m);
+      assert.match(r.stdout, /^Projected: ~\$\d+\.\d\d on Claude API/m);
+      assert.ok(fs.existsSync(path.join(m[1], 'cand.lst')) && fs.existsSync(path.join(m[1], 'logs', '1-candidates.txt')));
+      assert.ok(!fs.existsSync(path.join(m[1], 'claims.txt')) && !fs.existsSync(path.join(m[1], 'hof_report.md')), 'a dry run drafts nothing');
+    } finally {
+      if (m) fs.rmSync(m[1], { recursive: true, force: true });
+    }
+  });
+
+  const zip = path.join(ROOT, 'samples', 'FIRST_RUN_INDEX.zip');
+  it('end to end, a .zip index is refused without --hof-out, before any model call', { skip: fs.existsSync(zip) ? false : 'needs samples/FIRST_RUN_INDEX.zip' }, () => {
+    const r = spawnSync(process.execPath, ['src/index.js', '--ndx', 'samples/FIRST_RUN_INDEX.zip', '--hof', '--llm', 'claude'], { cwd: ROOT, encoding: 'utf8', timeout: 180000 });
+    assert.equal(r.status, 2, (r.stdout + r.stderr).slice(-800));
+    assert.match(r.stderr, /--hof on a \.zip index needs --hof-out <dir>: FIRST_RUN_INDEX\.zip unpacks to a temporary cache/);
+    assert.doesNotMatch(r.stdout, /candidate group/, 'refused before the grouper ran');
   });
 });

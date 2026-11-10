@@ -339,6 +339,12 @@ export function parseArgs() {
     no_hunt: false,
     synonymize: null,        // HOF-b: rewrite a claim's wording away from code vocabulary
     synonymize_out: null,
+    // hof-cli-command (2026-11-09): the self-test as a command
+    hof: false,              // --hof: draft every candidate group, locate each draft, score the round trip
+    hof_out: null,           // --hof-out <dir>: the run's files (default <index>/hof/<yymmdd-HHMM>)
+    synonymize_with: null,   // --hof: rewrite each draft with a second engine before locating it
+    limit: null,             // --hof: the first N candidate groups
+    hof_claims: null,        // --hof --claims <file>: locate an existing claims file, no drafting
     claims_per_line: false,  // force the corpus reading; --single-claim forces the other
     single_claim: false,
     claims_only: null,       // --pseudo-claims: machine-readable claims + anchors sidecar
@@ -727,6 +733,12 @@ export function parseArgs() {
     ['no_hunt',              'flag',           ['--no-hunt']],
     ['synonymize',           'value',          ['--synonymize']],
     ['synonymize_out',       'value',          ['--synonymize-out']],
+    // hof-cli-command (2026-11-09): the HOF self-test as a command
+    ['hof',                  'flag',           ['--hof']],
+    ['hof_out',              'value',          ['--hof-out']],
+    ['synonymize_with',      'value',          ['--synonymize-with']],
+    ['limit',                'int',            ['--limit']],
+    ['hof_claims',           'value',          ['--claims']],
     // embed-distance-cli (2026-11-07): the cosine instrument of docs/describe-reach.md as a command
     ['embed_distance',       'value',          ['--embed-distance']],
     ['against',              'value',          ['--against']],
@@ -1881,7 +1893,7 @@ PSEUDO-CLAIMS (illustrative patent-style claim drafting — NOT legal analysis):
                              2026-10: the prompt as it stood before 2026-11-01,
                              antecedent basis and no-example only, so the same
                              groups can be drafted before and after the two
-                             newer rules (scripts/hof.mjs passes it through).
+                             newer rules (--hof passes it through).
                              The artifact still reports the result-clause
                              rate; it reads the drafts.
   --doc-anchors              With --candidates: attach each group's best-
@@ -2171,6 +2183,36 @@ LLM ANALYSIS:
                              per line for a single claim, so it feeds back in via
                              --elements; one CLAIM per line for a corpus, so it feeds
                              back into --synonymize or a retrieval run unchanged.
+  --hof                      The self-test, "huffing our own fumes": draft a pseudo-claim
+                             from every candidate group of the index (--pseudo-claims
+                             --candidates, then --claims-only with --min-rank 0), locate
+                             each draft with --claim-locate, and score the drafter's
+                             anchors against the located targets: function, class, file
+                             or miss per anchor; exact, near or elsewhere per target.
+                             Needs --llm <provider> or --model <gguf>. A preflight runs
+                             the grouper (no model), counts the model calls to come and
+                             projects their cost through the $2 claims guard before the
+                             first call (--force proceeds; --limit N and --filter narrow;
+                             CE_CLAIMS_COST_GUARD raises); --dry-run prints the plan and
+                             calls nothing. Output under <index>/hof/<yymmdd-HHMM>/
+                             (--hof-out <dir> elsewhere; required for a .zip index): the
+                             candidates, the claims and their anchors sidecar, each claim,
+                             each targets file, every step's log, hof_report.md and
+                             .json, ending with a "How to read this" footer. Takes
+                             --rank, --form-rules, --claim-class, --filter, --blind,
+                             --runs and --include-tests as the steps do.
+  --synonymize-with <engine> --hof: rewrite every draft away from the code's vocabulary
+                             with a second engine (claude|chatgpt|gemini, or a .gguf
+                             path) before locating it, anchors withheld, one call per
+                             limitation (counted in the preflight); the report names
+                             drafter, synonymizer and locator. Without it the claims are
+                             located in the drafter's own words, the easier case, and
+                             the report says so.
+  --limit <n>                --hof: draft and locate only the first n candidate groups.
+  --claims <claims.txt>      --hof: skip drafting; locate an existing claims file (its
+                             .anchors.json sidecar beside it), so the same drafts can be
+                             located by a second model and the two reports compared.
+  --hof-out <dir>            --hof: where the run's files go (default beside the index).
   --claims-per-line          --synonymize: read the input as a CORPUS, one claim per
                              line, even when it carries no format marker. Use for a
                              hand-made claims file.

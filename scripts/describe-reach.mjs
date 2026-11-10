@@ -86,7 +86,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadMechanismsIndex, foldRecords } from '../src/core/mechanisms-index.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 import { contentWords, stem } from '../src/core/claim-terms.js';
-import { parseSidecar, baseName } from './hof.mjs';
+import { parseSidecar, baseName } from '../src/core/hof.js';
 // The embedding substrate moved to src/core/embed.js (embed-distance-cli, 2026-11-07) so
 // --embed-distance scores an entry the way this script does; re-exported for the test.
 import { TEXT_MAX_CHARS, splitName, entryText, entryChunks, sha, cosine, embedAll, CACHE_CHECKPOINT, openEmbedder } from '../src/core/embed.js';
