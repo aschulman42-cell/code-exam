@@ -110,7 +110,8 @@ baked into mechanical detectors.
   is only as complete as the index — `--build-index` warns when file types
   weren't included, `ce --help extensions` manages that, and
   `--referenced-resources` finds objects the code references but doesn't contain.)
-  → [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md)
+  → [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md). See "Some current
+  limits" below on using --all-results before concluding absence.
 - **Examining what wasn't shipped as source** — quasi-source recovers
   structure from minified bundles and binaries.
   → [`QUASI_SOURCE.md`](docs/QUASI_SOURCE.md)
@@ -120,7 +121,7 @@ baked into mechanical detectors.
   including files the code references but that aren't in the index (config,
   data, keys, templates), with how often each is referenced.
   → [`CODEEXAM_BROWSING.md`](docs/CODEEXAM_BROWSING.md)
-- **Mapping what the code depends on** — `--bom` classifies every import,
+- **Mapping what the code depends on** — `--bom` classifies imports,
   include and run-time load as internal, standard-library, third-party or
   vendored, each with its evidence (manifests, lockfiles, build files), and
   `--copyrights` adds whose notices are on the files; what an SBOM is and is
@@ -128,9 +129,9 @@ baked into mechanical detectors.
   → [`CODEEXAM_MAPPING_DEPENDENCIES.md`](docs/CODEEXAM_MAPPING_DEPENDENCIES.md)
 - **Working on technical prose, not just code** — searching and charting
   **text (such as patent claims, and portions of technical specifications)**
-  against a codebase, and (work in progress) generating
+  against a codebase, and generating
   **"pseudo-claims" from code**: claim-shaped descriptions of what the code
-  does. → [`CODEEXAM_PATENT_CLAIMS.md`](docs/CODEEXAM_PATENT_CLAIMS.md);
+  does. → [`CODEEXAM_PSEUDO_CLAIMS.md`](docs/CODEEXAM_PSEUDO_CLAIMS.md);
   what claim charting can do today and where it is going →
   [`CODEEXAM_CLAIM_CHARTS.md`](docs/CODEEXAM_CLAIM_CHARTS.md), with the tests behind
   it on [`CODEEXAM_CLAIM_CHARTS_TESTS.md`](docs/CODEEXAM_CLAIM_CHARTS_TESTS.md);
@@ -140,13 +141,13 @@ baked into mechanical detectors.
   `ce --hof` runs the self-test on your own index, drafting a claim from each
   group of its functions and asking the claim features to find their way back
 - **Multisect search** — narrowing a multi-term search to the smallest scope
-  in which all the terms co-occur, from file, to function, to the specific
+  in which all the terms co-occur, from file or class, to function, to the specific
   lines. → [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md)
 - **Helping map the client/server boundary** — `--client-server` finds
   declared server routes and the client calls that consume them, reconciled
   by URL path, and flags client calls with **no matching server route** — the
   "missing server code" signal (e.g. a production that ships the client but
-  withholds the server). It's a heuristic pass over the HTTP surface,
+  withholds the server). It's a heuristic pass over the HTTP surface, currently
   strongest on common JS/Express-style shapes, not a full routing-graph
   analysis. → [`CODEEXAM_BROWSING.md`](docs/CODEEXAM_BROWSING.md)
 
@@ -161,38 +162,38 @@ npm install
 
 **First time?** A fresh download bundles a small demo index, so a bare `ce`
 shows a short welcome and `ce --gui` opens the GUI on the demo — no build
-needed to look around. For the REPL, the MCP server, requirements, and
-network-exposure cautions, see
-[`GETTING_STARTED.md`](docs/GETTING_STARTED.md).
+needed to look around. See
+[`GETTING_STARTED.md`](docs/GETTING_STARTED.md), which also covers the REPL, 
+the MCP server, requirements, and network-exposure cautions. 
 
 Build an index over a codebase — a directory, a zip/tar archive, a single
-file, or an `@filelist` — and give the index a name with `--index-path`:
+file, or an `@filelist` — and give the index a name with `--index-path` or `--ndx`:
 
 ```bash
 # Build an index named .mycode over a codebase
 node src/index.js --build-index /path/to/codebase --index-path .mycode
 ```
 
-Then query it — every command reads the index you name with `--index-path`:
+Then query it — every command reads the index you name with `--index-path` or `--ndx`:
 
 ```bash
 # What is this codebase about? Its top domain-specific terms (TF-IDF)
 node src/index.js --index-path .mycode --vocabulary 25
 
 # One-shot orientation: size, languages, structure, entry points
-node src/index.js --index-path .mycode --overview
+node src/index.js --ndx .mycode --overview
 
 # List functions, largest first
-node src/index.js --index-path .mycode --functions --sort size
+node src/index.js --ndx .mycode --functions --sort size
 
 # List LLM prompts found in the code, with the associated code
-node src/index.js --index-path .mycode --prompt-catalog
+node src/index.js --ndx .mycode --prompt-catalog
 
 # Run several commands on one index in a single invocation (ce shim, below)
-ce --index-path .sr_gh --models --command-catalog
+ce --ndx .sr_gh --models --command-catalog
 
 # Add -v / --verbose for more detail on many commands
-ce --index-path .sr_gh --models -v
+ce --ndx .sr_gh --models -v
 ```
 
 The repo ships shims — **`ce`** (POSIX) / **`ce.bat`** (Windows) — so `ce
@@ -206,15 +207,16 @@ ce --gui --index-path .mycode
 ```
 
 It prints a localhost URL to open in your browser (e.g.
-`http://127.0.0.1:3000/`). Stop it with Ctrl-C in that terminal; closing the
-browser tab leaves the server running.
+`http://127.0.0.1:3000/`). Stop it with Ctrl-C in that terminal; only closing the
+browser tab leaves the server running (and the current index still loaded in memory).
 
 **Some current limits.** Output from many commands is capped by default, to
 simplify output especially in the GUI, so absence in a result can mean "past
-the limit," not "not there" — raise `--max-results` when it matters (#137).
+the limit," not "not there" — raise `--max-results <N>` or `--all-results` when 
+it matters (#137), and before concluding absence. 
 Language coverage is deep for the tree-sitter languages and shallower
 (regex-level) for the rest, so parse gaps are possible — C++ class
-recognition in particular is incomplete. And CodeExam works from an index
+recognition in particular is currently incomplete. And CodeExam works from an index
 *snapshot*: it reflects the code as it stood when the index was built, so
 rebuild the index to pick up later changes. For a more thorough list, see
 [`CODEEXAM_KNOWN_LIMITATIONS.md`](docs/CODEEXAM_KNOWN_LIMITATIONS.md) and the
@@ -230,7 +232,7 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`CODEEXAM_GUI.md`](docs/CODEEXAM_GUI.md) | GUI layout — panes, accordions, Workspace |
 | [`CODEEXAM_MCP.md`](docs/CODEEXAM_MCP.md) | The MCP tool surface as an LLM client sees it |
 | [`CODEEXAM_NOTATION.md`](docs/CODEEXAM_NOTATION.md) | Symbols & notation shared by the CLI and GUI |
-| [`CODEEXAM_KEY_FEATURES.md`](docs/CODEEXAM_KEY_FEATURES.md) | Browse and search, metrics, catalogs — the overview |
+| [`CODEEXAM_KEY_FEATURES.md`](docs/CODEEXAM_KEY_FEATURES.md) | Browse and search, catalogs — the overview |
 | [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md) | Literal / fast / regex search and multisect |
 | [`CODEEXAM_BROWSING.md`](docs/CODEEXAM_BROWSING.md) | Structural lists, cross-reference, and code-surfacing metrics |
 | [`CODEEXAM_MAPPING_DEPENDENCIES.md`](docs/CODEEXAM_MAPPING_DEPENDENCIES.md) | Imports, the bill of materials, and dependencies: every surface in one table, and what is not done |
@@ -242,20 +244,20 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`STRUCTURAL_SEARCH.md`](docs/STRUCTURAL_SEARCH.md) | Non-textual search: fingerprints, structural dupes, deobfuscation |
 | [`CODEEXAM_COMPARING.md`](docs/CODEEXAM_COMPARING.md) | Comparing code: near/structural duplicates, struct-diff, external diff tools (outline) |
 | [`AI_ASSISTED_CODE_EXAM.md`](docs/AI_ASSISTED_CODE_EXAM.md) | Optional LLM assistance (`--analyze`, claim search, input masking) |
-| [`ai-assisted-examination-gotchas.md`](docs/ai-assisted-examination-gotchas.md) | Draft: ways AI-assisted code examination goes wrong and how to catch them, for experts and the attorneys who rely on them |
+| [`ai-assisted-examination-gotchas.md`](docs/ai-assisted-examination-gotchas.md) | Draft: some ways AI-assisted code examination can go wrong and how to catch them, for experts and the attorneys who rely on them |
 | [`CODEEXAM_PATENT_CLAIMS.md`](docs/CODEEXAM_PATENT_CLAIMS.md) | Searching and charting patent claims against a codebase |
-| [`CODEEXAM_CLAIM_CHARTS.md`](docs/CODEEXAM_CLAIM_CHARTS.md) | Claim charts, a patent claim against source code one element at a time: how the claim commands fit together, what CodeExam can do today, how well it works in one line per test, the air-gapped goal and the plan |
-| [`CODEEXAM_CLAIM_CHARTS_TESTS.md`](docs/CODEEXAM_CLAIM_CHARTS_TESTS.md) | The tests behind claim charts: the public filings whose charts cite open-source code, the agreement runs on them, the self-test and the Gemma 4 results, with a table of the terms the test pages use |
+| [`CODEEXAM_CLAIM_CHARTS.md`](docs/CODEEXAM_CLAIM_CHARTS.md) | Claim charts, a patent claim against source code one element at a time: how the claim commands fit together, what CodeExam can do today, a summary of what works/doesn't, the air-gapped goal and the plan |
+| [`CODEEXAM_CLAIM_CHARTS_TESTS.md`](docs/CODEEXAM_CLAIM_CHARTS_TESTS.md) | The tests behind claim charts: the public filings whose charts cite open-source code, the agreement runs on them, the self-test and the Gemma 4 (local LLM) results, with a table of the terms the test pages use |
 | [`real-world-claim-charts.md`](docs/real-world-claim-charts.md), [`claim-chart-agreement.md`](docs/claim-chart-agreement.md), [`claim-chart-drafter-ceiling.md`](docs/claim-chart-drafter-ceiling.md) | The real-world tests: public filings whose charts cite open-source code, whether CodeExam finds the code a litigant charted, and whether the drafter can express the party's theory; a party's chart is advocacy, not an answer key |
 | [`CODEEXAM_PSEUDO_CLAIMS.md`](docs/CODEEXAM_PSEUDO_CLAIMS.md) | Drafting illustrative "pseudo-claims" from code — anchors, candidates, `--filter` |
 | [`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](docs/CODEEXAM_PSEUDO_CLAIMS_TESTS.md) | The tests behind pseudo-claims: the HOF self-test, the real-world yardstick, the rubric scores, with a table of the terms the test pages use |
-| [`CODEEXAM_MECHANISMS.md`](docs/CODEEXAM_MECHANISMS.md) | Mechanisms: how CodeExam groups any codebase's functions, how to read a label, the optional descriptions, and what the groups are used for |
+| [`CODEEXAM_MECHANISMS.md`](docs/CODEEXAM_MECHANISMS.md) | Mechanisms: how CodeExam groups any codebase's functions, how to read a label, the optional descriptions, and what the groups are used for: pseudo-claims and the --toc (Table of Contents) feature |
 | [`CODEEXAM_SELF_PORTRAIT.md`](docs/CODEEXAM_SELF_PORTRAIT.md) | The pseudo-claims feature run on CodeExam's own source: ten claims across nine features, quoted as drafted, each beside the page that describes the feature |
-| [`LOCAL_LLM.md`](docs/LOCAL_LLM.md) | Local GGUF models |
-| [`model-support.md`](docs/model-support.md) | Which local models can be relied on, per LLM-based feature, every verdict with its receipt; and the table of where a model touches CodeExam's output at all |
+| [`LOCAL_LLM.md`](docs/LOCAL_LLM.md) | Local GGUF models, e.g. Gemma4, Qwen |
+| [`model-support.md`](docs/model-support.md) | Which local models can be relied on, per LLM-based feature; and the table of where a model touches CodeExam's output (vs. CE output that isn't model-dependent) |
 | [`AIR_GAPPED.md`](docs/AIR_GAPPED.md) | Enforced no-cloud operation |
-| [`SOURCE_CODE_PROTECTIVE_ORDERS.md`](docs/SOURCE_CODE_PROTECTIVE_ORDERS.md) | Source-code protective orders: the basics, the 2025–2026 AI provisions ("fully containerized"), and where CodeExam fits |
-| [`CODEEXAM_AND_UNDERSTAND.md`](docs/CODEEXAM_AND_UNDERSTAND.md) | CodeExam beside SciTools Understand: where they overlap, the two "Overview" features that share a name, what each does that the other does not, using both in one review |
+| [`SOURCE_CODE_PROTECTIVE_ORDERS.md`](docs/SOURCE_CODE_PROTECTIVE_ORDERS.md) | Source-code protective orders: the basics, the 2025–2026 AI provisions ("fully containerized"), and where CodeExam fits in |
+| [`CODEEXAM_AND_UNDERSTAND.md`](docs/CODEEXAM_AND_UNDERSTAND.md) | CodeExam beside SciTools Understand: where they overlap, the two "Overview" features that share a name, what each does that the other does not, using both in the same source-code exam |
 | [`REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) | Reproducibility of AI-layer answers; pinning the model side (`--reproducible`) |
 | [`CODEEXAM_INDEXES.md`](docs/CODEEXAM_INDEXES.md) | Building and managing indexes; the on-disk format |
 | [`example-indexes.md`](docs/example-indexes.md) | Recipes for trying CodeExam on public code: get the source, build an index, run a few first commands |
@@ -263,7 +265,7 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`CODEEXAM_TESTING.md`](docs/CODEEXAM_TESTING.md) | The test suite |
 | [`CODEEXAM_FAQ.md`](docs/CODEEXAM_FAQ.md) | Behaviors in the CLI and GUI likely to surprise a new user, each with a workaround; entries are removed as they are fixed |
 | [`CODEEXAM_KNOWN_LIMITATIONS.md`](docs/CODEEXAM_KNOWN_LIMITATIONS.md) | Current gaps and limitations |
-| [`CODEEXAM_CODECLAIM.md`](docs/CODEEXAM_CODECLAIM.md) | CodeExam's relation to patent analysis, and the CodeClaim vision |
+| [`CODEEXAM_CODECLAIM.md`](docs/CODEEXAM_CODECLAIM.md) | CodeExam's relation to patent analysis, and possible directions for the CodeClaim product |
 
 ## API costs
 
@@ -292,7 +294,7 @@ the local path.
 
 A patent-focused build, tailored for IP-litigation workflows, is being
 developed using the name **CodeClaim**; it shares the CodeExam engine, and
-CodeExam itself already carries some initial claim-analysis machinery. See
+CodeExam itself already carries some claim-analysis machinery. See
 [`CODEEXAM_CODECLAIM.md`](docs/CODEEXAM_CODECLAIM.md).
 
 ---
@@ -315,13 +317,15 @@ Claude can be seen for the
 and the
 [initial Python-to-Node.js port](https://claude.ai/share/e86c26cf-69d4-454a-94b9-bc9aed7bf523).*
 
-- CodeExam's local-LLM features were developed in part using **two** Claude Code (CC)
-  instances — one on the main development computer, the other on an Asus laptop with an
-  NVIDIA RTX 5080 GPU — communicating via a "blackboard" built on GitHub issues that the two
-  instances periodically checked (see #308, #318).
-- CodeExam was developed under **Bram** ("Bram runs agents mindfully") by Jon Udell, whose name
-  is also reflected in the "jontest-CC" handle seen in the issues. For more on Bram, see
-  [blog.jonudell.net](https://blog.jonudell.net/) and [github.com/judell/bram](https://github.com/judell/bram).
+CodeExam's local-LLM features were developed in part using **two** Claude Code (CC)
+instances — one on the main development computer, the other on an Asus laptop with an
+NVIDIA RTX 5080 GPU — communicating via a "blackboard" built on GitHub issues that the two
+instances periodically checked and wrote to, sometimes at great length and sometimes a bit 
+incomprehensibly, even to the human ostensible main developer (see e.g. #308, #318, #353, #363).
 
-*This documentation was drafted by Claude Code, with substantial editing
+CodeExam was developed under **Bram** ("Bram runs agents mindfully") by Jon Udell, whose name
+is also reflected in the "jontest-CC" handle seen in the issues. For more on Bram, see
+[blog.jonudell.net](https://blog.jonudell.net/) and [github.com/judell/bram](https://github.com/judell/bram).
+
+*The CodeExam documentation was initially drafted by Claude Code, with substantial editing
 ("punch lists") by Schulman.*
