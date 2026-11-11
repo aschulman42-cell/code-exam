@@ -3,7 +3,8 @@
 "What does this code depend on, and how do we know?" is one question with several partial
 answers, and CodeExam has grown a family of features that each answer part of it. This page
 says what the three words the features use mean — **imports**, **bill of materials**,
-**dependencies** — puts every surface in one table, walks through CodeExam's own tree as the
+**dependencies** — puts each dependency command, and the GUI's Imports accordion, in one table,
+walks through CodeExam's own tree as the
 example, and ends with what is not done and how a list that looks complete can still miss
 something. The feature's history is issue #27
 (https://github.com/aschulman42-cell/code-exam/issues/27); a code examiner's version of the

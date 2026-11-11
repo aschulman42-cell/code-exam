@@ -106,10 +106,13 @@ relational database, and assume either beats "plain text in JSON." The choice is
 Exact and regex code search wants **lexical precision, not nearest-neighbor approximation**,
 so embeddings buy little for the core browse-and-cross-reference workload; and keeping the
 index as inverted-index structures serialized to JSON makes it transparent, diffable, and
-trivially portable — no database server to stand up, no opaque binary store. Semantic /
-embedding search (vector similarity, plus lighter-weight retrieval models) is being
-*explored as a layer on top* of the lexical index — the RAG/embedding backlog is issues #201
-and #202 — not as a replacement for it.
+trivially portable — no database server to stand up, no opaque binary store. Where semantic
+search stands (2026-11-10): `--search` is literal; `--embed-distance` measures a text — a claim
+element, say — against the index's mechanisms under a local embedding model, a measurement
+command rather than a search; and prose-to-code search built on that embedding and the
+mechanism labels is being developed on issue #363, not yet shipped. The older RAG/embedding
+backlog is issues #201 and #202. All of it is a layer *on top of* the lexical index, not a
+replacement for it.
 
 ## Current limits on use
 

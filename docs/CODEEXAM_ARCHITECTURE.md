@@ -1,11 +1,16 @@
 # CodeExam architecture
 
-CodeExam is roughly **77,000 lines of JavaScript** (engine + CLI + GUI; over 100,000 counting the
-test suite and dev scripts) running under Node.js, developed in close collaboration with Claude
+CodeExam is roughly **90,000 lines of JavaScript** (engine + CLI + GUI; about 135,000 counting the
+test suite and dev scripts, the scripts mostly `.mjs`) running under Node.js, developed in close collaboration with Claude
 Code: nearly all of the code was written by Claude Code, in several important places building on the
 main author's earlier tooling — the "Opstrings" technique and function digests, the "NiceDbg"
 debugger, and an `ndx`/`find` inverted-index search tool. [[placeholder: add URL links for
 Opstrings, NiceDbg, and ndx/find.]]
+
+See also the orientation site's five architecture diagrams — system, index build, query flow,
+claims pipeline, GUI and agents — under
+[`docs/orientation/architecture/`](orientation/architecture/), each a Mermaid source beside its
+walkthrough.
 
 ## The shape of it
 

@@ -75,7 +75,8 @@ not merely a `file:line`.
   every other holder presumptively third-party), license identifiers and license documents;
   cross-index
   resolution against an export catalog is covered in [`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md).
-  What the three words mean, every surface in one table, and what is not done:
+  What the three words mean, each dependency command (and the GUI's Imports accordion) in one
+  table, and what is not done:
   [`CODEEXAM_MAPPING_DEPENDENCIES.md`](CODEEXAM_MAPPING_DEPENDENCIES.md).
 - **Prompts** (`--prompt-catalog`, alias `--prompts`) — LLM prompt strings found in the code.
 - **AI/ML and LLM-app constructs** — the models, LLM calls, tools, chains, and prompts a codebase

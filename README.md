@@ -52,7 +52,11 @@ baked into mechanical detectors.
 
 *Prompt catalog — LLM prompts recovered from the minified `cli.js` bundled inside `claude.exe`.*
 
-## Six key features
+## Seven key features
+
+These are what sets CodeExam apart from other code-reading tools. The next
+section, "What CodeExam is good at," lists the examiner's tasks, each pointing
+at the feature that serves it.
 
 1. **AI-assisted examination.** An optional set of AI-based features — using a
    cloud model (Claude, ChatGPT, or Gemini), or a local GGUF model on your
@@ -78,7 +82,11 @@ baked into mechanical detectors.
    codebase's "vocabulary" and key concepts, its "breadcrumbs" (telemetry
    markers in code), and referenced-resources (data files, URLs, environment variables, etc.) — and presents initial questions to ask and
    good first places to look, via the Overview and (optional) Overview by AI
-   features. → [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md)
+   features. The `--toc` and `--mechanisms` commands group every function in
+   the index into named "mechanisms" — a table of contents for the codebase —
+   with a one-sentence description of each when a model is run over them.
+   → [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md),
+   [`CODEEXAM_MECHANISMS.md`](docs/CODEEXAM_MECHANISMS.md)
 
 4. **Quasi-source.** A surprising amount of indexable structure can be
    recovered from artifacts never shipped as source — minified/bundled JS,
@@ -98,6 +106,16 @@ baked into mechanical detectors.
    ("funcstrings"), synonym expansion in Multisect search, "searching by counting," and catalogs that
    link commands to their handlers by position in dispatch tables rather
    than by name. → [`STRUCTURAL_SEARCH.md`](docs/STRUCTURAL_SEARCH.md), [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md)
+
+7. **Working between technical prose and code.** Charting a patent claim (or a
+   passage of a technical specification) against a codebase one element at a
+   time, with the code cited for each element; drafting "pseudo-claims" from
+   code — claim-shaped descriptions of what each mechanism does; and
+   `ce --hof`, a self-test that drafts a claim from each group of an index's
+   functions and asks the claim features to find their way back to the code.
+   → [`CODEEXAM_PATENT_CLAIMS.md`](docs/CODEEXAM_PATENT_CLAIMS.md),
+   [`CODEEXAM_CLAIM_CHARTS.md`](docs/CODEEXAM_CLAIM_CHARTS.md),
+   [`CODEEXAM_PSEUDO_CLAIMS.md`](docs/CODEEXAM_PSEUDO_CLAIMS.md)
 
 ## What CodeExam is good at
 
@@ -127,19 +145,13 @@ baked into mechanical detectors.
   `--copyrights` adds whose notices are on the files; what an SBOM is and is
   not, and where such a list can still miss something.
   → [`CODEEXAM_MAPPING_DEPENDENCIES.md`](docs/CODEEXAM_MAPPING_DEPENDENCIES.md)
-- **Working on technical prose, not just code** — searching and charting
-  **text (such as patent claims, and portions of technical specifications)**
-  against a codebase, and generating
-  **"pseudo-claims" from code**: claim-shaped descriptions of what the code
-  does. → [`CODEEXAM_PSEUDO_CLAIMS.md`](docs/CODEEXAM_PSEUDO_CLAIMS.md);
-  what claim charting can do today and where it is going →
-  [`CODEEXAM_CLAIM_CHARTS.md`](docs/CODEEXAM_CLAIM_CHARTS.md), with the tests behind
-  it on [`CODEEXAM_CLAIM_CHARTS_TESTS.md`](docs/CODEEXAM_CLAIM_CHARTS_TESTS.md);
-  the pseudo-claims feature run on CodeExam's own source, ten claims across
-  nine features quoted as drafted, each beside the page that describes the
-  feature → [`CODEEXAM_SELF_PORTRAIT.md`](docs/CODEEXAM_SELF_PORTRAIT.md);
-  `ce --hof` runs the self-test on your own index, drafting a claim from each
-  group of its functions and asking the claim features to find their way back
+- **Working on technical prose, not just code** — charting **text (such as
+  patent claims, and portions of technical specifications)** against a
+  codebase, and describing what the code does in claim-shaped language: key
+  feature 7 above. For a worked example, the pseudo-claims feature run on
+  CodeExam's own source — ten claims across nine features quoted as drafted,
+  each beside the rubric claims the author wrote by hand for that feature →
+  [`CODEEXAM_SELF_PORTRAIT.md`](docs/CODEEXAM_SELF_PORTRAIT.md)
 - **Multisect search** — narrowing a multi-term search to the smallest scope
   in which all the terms co-occur, from file or class, to function, to the specific
   lines. → [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md)
@@ -227,45 +239,46 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | Doc | What's in it |
 |---|---|
 | [`GETTING_STARTED.md`](docs/GETTING_STARTED.md) | Install, requirements, and the ways to run CodeExam (CLI, REPL, GUI, MCP) |
-| [`TOUR.md`](docs/TOUR.md) | A quick tour on the bundled demo index, and the first commands to try on it |
 | [`CODEEXAM_CLI.md`](docs/CODEEXAM_CLI.md) | CLI overview (see also [`docs/cli.md`](docs/cli.md), the per-flag reference) |
 | [`CODEEXAM_GUI.md`](docs/CODEEXAM_GUI.md) | GUI layout — panes, accordions, Workspace |
 | [`CODEEXAM_MCP.md`](docs/CODEEXAM_MCP.md) | The MCP tool surface as an LLM client sees it |
 | [`CODEEXAM_NOTATION.md`](docs/CODEEXAM_NOTATION.md) | Symbols & notation shared by the CLI and GUI |
 | [`CODEEXAM_KEY_FEATURES.md`](docs/CODEEXAM_KEY_FEATURES.md) | Browse and search, catalogs — the overview |
+| [`TOUR.md`](docs/TOUR.md) | A short tour of the bundled demo index: the GUI's AI/ML accordions, then four commands to try on it |
 | [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md) | Literal / fast / regex search and multisect |
 | [`CODEEXAM_BROWSING.md`](docs/CODEEXAM_BROWSING.md) | Structural lists, cross-reference, and code-surfacing metrics |
-| [`CODEEXAM_MAPPING_DEPENDENCIES.md`](docs/CODEEXAM_MAPPING_DEPENDENCIES.md) | Imports, the bill of materials, and dependencies: every surface in one table, and what is not done |
+| [`CODEEXAM_MAPPING_DEPENDENCIES.md`](docs/CODEEXAM_MAPPING_DEPENDENCIES.md) | Imports, the bill of materials, and dependencies: each dependency command (and the GUI's Imports accordion) in one table — what it answers, what it reads, what it does not read — and what is not done |
 | [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md) | Vocabulary, breadcrumbs, Overview / Overview by AI |
 | [`MEASURING_IMPORTANCE.md`](docs/MEASURING_IMPORTANCE.md) | How CodeExam estimates "importance" (rareness, TF-IDF, cross-corpus down-weighting, centrality) and uses it to steer and sort |
-| [`CODEEXAM_SUMMARIZING.md`](docs/CODEEXAM_SUMMARIZING.md) | Summarizing code: overview, digest, analyze, GUI chat (outline) |
+| [`CODEEXAM_SUMMARIZING.md`](docs/CODEEXAM_SUMMARIZING.md) | Summarizing code: overview, digest, analyze, GUI chat, and the mechanisms and `--toc` table of contents (outline) |
 | [`QUASI_SOURCE.md`](docs/QUASI_SOURCE.md) | Binary analysis and bundled-JS extraction |
 | [`DETECTING_AI_ML.md`](docs/DETECTING_AI_ML.md) | The AI/ML, LLM-app, and infrastructure detector suite |
-| [`STRUCTURAL_SEARCH.md`](docs/STRUCTURAL_SEARCH.md) | Non-textual search: fingerprints, structural dupes, deobfuscation |
+| [`STRUCTURAL_SEARCH.md`](docs/STRUCTURAL_SEARCH.md) | Non-textual search: fingerprints, structural dupes, deobfuscation; and where semantic search stands (`--embed-distance` measures; prose-to-code search is being built on #363) |
 | [`CODEEXAM_COMPARING.md`](docs/CODEEXAM_COMPARING.md) | Comparing code: near/structural duplicates, struct-diff, external diff tools (outline) |
 | [`AI_ASSISTED_CODE_EXAM.md`](docs/AI_ASSISTED_CODE_EXAM.md) | Optional LLM assistance (`--analyze`, claim search, input masking) |
-| [`ai-assisted-examination-gotchas.md`](docs/ai-assisted-examination-gotchas.md) | Draft: some ways AI-assisted code examination can go wrong and how to catch them, for experts and the attorneys who rely on them |
 | [`CODEEXAM_PATENT_CLAIMS.md`](docs/CODEEXAM_PATENT_CLAIMS.md) | Searching and charting patent claims against a codebase |
 | [`CODEEXAM_CLAIM_CHARTS.md`](docs/CODEEXAM_CLAIM_CHARTS.md) | Claim charts, a patent claim against source code one element at a time: how the claim commands fit together, what CodeExam can do today, a summary of what works/doesn't, the air-gapped goal and the plan |
 | [`CODEEXAM_CLAIM_CHARTS_TESTS.md`](docs/CODEEXAM_CLAIM_CHARTS_TESTS.md) | The tests behind claim charts: the public filings whose charts cite open-source code, the agreement runs on them, the self-test and the Gemma 4 (local LLM) results, with a table of the terms the test pages use |
-| [`real-world-claim-charts.md`](docs/real-world-claim-charts.md), [`claim-chart-agreement.md`](docs/claim-chart-agreement.md), [`claim-chart-drafter-ceiling.md`](docs/claim-chart-drafter-ceiling.md) | The real-world tests: public filings whose charts cite open-source code, whether CodeExam finds the code a litigant charted, and whether the drafter can express the party's theory; a party's chart is advocacy, not an answer key |
-| [`CODEEXAM_PSEUDO_CLAIMS.md`](docs/CODEEXAM_PSEUDO_CLAIMS.md) | Drafting illustrative "pseudo-claims" from code — anchors, candidates, `--filter` |
+| [`CODEEXAM_PSEUDO_CLAIMS.md`](docs/CODEEXAM_PSEUDO_CLAIMS.md) | Drafting illustrative "pseudo-claims" from code: the mechanisms as candidates, anchors, `--filter`, the optional descriptions and `--embed-distance`, and `ce --hof`, the self-test |
 | [`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](docs/CODEEXAM_PSEUDO_CLAIMS_TESTS.md) | The tests behind pseudo-claims: the HOF self-test, the real-world yardstick, the rubric scores, with a table of the terms the test pages use |
 | [`CODEEXAM_MECHANISMS.md`](docs/CODEEXAM_MECHANISMS.md) | Mechanisms: how CodeExam groups any codebase's functions, how to read a label, the optional descriptions, and what the groups are used for: pseudo-claims and the --toc (Table of Contents) feature |
-| [`CODEEXAM_SELF_PORTRAIT.md`](docs/CODEEXAM_SELF_PORTRAIT.md) | The pseudo-claims feature run on CodeExam's own source: ten claims across nine features, quoted as drafted, each beside the page that describes the feature |
+| [`CODEEXAM_SELF_PORTRAIT.md`](docs/CODEEXAM_SELF_PORTRAIT.md) | The pseudo-claims feature run on CodeExam's own source: ten claims across nine features, quoted as drafted, each beside the rubric claims the author wrote by hand for that feature |
 | [`LOCAL_LLM.md`](docs/LOCAL_LLM.md) | Local GGUF models, e.g. Gemma4, Qwen |
-| [`model-support.md`](docs/model-support.md) | Which local models can be relied on, per LLM-based feature; and the table of where a model touches CodeExam's output (vs. CE output that isn't model-dependent) |
 | [`AIR_GAPPED.md`](docs/AIR_GAPPED.md) | Enforced no-cloud operation |
 | [`SOURCE_CODE_PROTECTIVE_ORDERS.md`](docs/SOURCE_CODE_PROTECTIVE_ORDERS.md) | Source-code protective orders: the basics, the 2025–2026 AI provisions ("fully containerized"), and where CodeExam fits in |
 | [`CODEEXAM_AND_UNDERSTAND.md`](docs/CODEEXAM_AND_UNDERSTAND.md) | CodeExam beside SciTools Understand: where they overlap, the two "Overview" features that share a name, what each does that the other does not, using both in the same source-code exam |
 | [`REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) | Reproducibility of AI-layer answers; pinning the model side (`--reproducible`) |
 | [`CODEEXAM_INDEXES.md`](docs/CODEEXAM_INDEXES.md) | Building and managing indexes; the on-disk format |
-| [`example-indexes.md`](docs/example-indexes.md) | Recipes for trying CodeExam on public code: get the source, build an index, run a few first commands |
-| [`CODEEXAM_ARCHITECTURE.md`](docs/CODEEXAM_ARCHITECTURE.md) | Engine and module layout |
+| [`CODEEXAM_ARCHITECTURE.md`](docs/CODEEXAM_ARCHITECTURE.md) | Engine and module layout; see also the orientation site's five architecture diagrams under [`docs/orientation/architecture`](docs/orientation/architecture) |
 | [`CODEEXAM_TESTING.md`](docs/CODEEXAM_TESTING.md) | The test suite |
 | [`CODEEXAM_FAQ.md`](docs/CODEEXAM_FAQ.md) | Behaviors in the CLI and GUI likely to surprise a new user, each with a workaround; entries are removed as they are fixed |
 | [`CODEEXAM_KNOWN_LIMITATIONS.md`](docs/CODEEXAM_KNOWN_LIMITATIONS.md) | Current gaps and limitations |
 | [`CODEEXAM_CODECLAIM.md`](docs/CODEEXAM_CODECLAIM.md) | CodeExam's relation to patent analysis, and possible directions for the CodeClaim product |
+| *Working records* | *The lower-case pages are the measurements, ledgers and drafts behind the feature pages above, not feature pages themselves* |
+| [`ai-assisted-examination-gotchas.md`](docs/ai-assisted-examination-gotchas.md) | Draft: some ways AI-assisted code examination can go wrong and how to catch them, for experts and the attorneys who rely on them |
+| [`real-world-claim-charts.md`](docs/real-world-claim-charts.md), [`claim-chart-agreement.md`](docs/claim-chart-agreement.md), [`claim-chart-drafter-ceiling.md`](docs/claim-chart-drafter-ceiling.md) | The real-world tests: public filings whose charts cite open-source code, whether CodeExam finds the code a litigant charted, and whether the LLM asked to draft the chart can express the party's theory; a party's chart is advocacy, not an answer key |
+| [`model-support.md`](docs/model-support.md) | Which local models can be relied on, per LLM-based feature; and the table of where a model touches CodeExam's output (vs. CE output that isn't model-dependent) |
+| [`example-indexes.md`](docs/example-indexes.md) | Recipes for trying CodeExam on public code: get the source, build an index, run a few first commands |
 
 ## API costs
 
@@ -299,8 +312,8 @@ CodeExam itself already carries some claim-analysis machinery. See
 
 ---
 
-*CodeExam is roughly 77,000 lines of JavaScript (over 100,000 counting the
-test suite and dev scripts) running under Node.js, nearly all written by
+*CodeExam is roughly 90,000 lines of JavaScript (about 135,000 counting the
+test suite and dev scripts, the scripts mostly `.mjs`) running under Node.js, nearly all written by
 Claude Code in close collaboration with the main author, in several places
 building on his earlier tooling. [[placeholder for URLs to ndx/find C++ and
 awk code; Opstrings code; term-ranking code; module import/export source/sink

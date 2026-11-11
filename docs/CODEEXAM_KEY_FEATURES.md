@@ -62,9 +62,9 @@ eyeballing the top of a sorted catalog to find what matters without knowing its 
 - **Structural search** — finding code by shape rather than text (duplicate and cross-source
   matching): [`STRUCTURAL_SEARCH.md`](STRUCTURAL_SEARCH.md).
 - **Patent-claim analysis** — claim charts and the rest of the patent-claims pipeline:
-  [[placeholder: link to `CODEEXAM_PATENT_CLAIMS` (the larger patent-claim analysis page) once it
-  exists — a distinct page from the small **CodeClaim** feature page. Both still need worklist
-  items.]]
+  [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md) and
+  [`CODEEXAM_CLAIM_CHARTS.md`](CODEEXAM_CLAIM_CHARTS.md); pseudo-claims drafted from code:
+  [`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md).
 
 ## Related
 

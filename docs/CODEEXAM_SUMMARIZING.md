@@ -18,9 +18,20 @@ Planned coverage:
 - **`--comments-only`** — extract just the comments.
 - **`--file-map`** — a structural map of a file.
 - **`--call-tree`** — summarize how code connects, by call relationships.
+- **`--mechanisms`, `--describe`, `--toc`** — the index's functions grouped into named
+  "mechanisms," each described in one sentence when a model is run over them, and a table of
+  contents of the codebase built from them (the paragraph below).
 - **`--analyze`** — an LLM analysis of a function/class/file (in the GUI,
   right-click the target → **Analyze**).
 - **GUI Chat** — ask the LLM to summarize, interactively.
+
+**Mechanisms and the table of contents.** `--build-mechanisms` groups every function in the
+index into named mechanisms — file, class, command and token records — with no model involved;
+`--mechanisms` lists them, and `--toc` prints them as a table of contents of the codebase.
+`--describe` runs a cloud or local model over the groups to give each a one-sentence
+description, after which every listing leads with the sentence. The groups also serve as the
+candidates the pseudo-claims feature drafts from, and as the unit the retrieval measurements
+score against. The feature page is [`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md).
 
 See also the Software Litigation Consulting write-up on AI code summarization:
 [Working with CodeLlama to generate source-code summaries](https://www.softwarelitigationconsulting.com/working-with-codellama-to-generate-source-code-summaries).
