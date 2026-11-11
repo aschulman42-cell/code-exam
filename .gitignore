@@ -97,6 +97,25 @@ Thumbs.db
 !/prompts_from_cli_js_from_claude_exe.jpg
 !/CodeExam_file_map_042526.jpg
 
+# ── Pseudo-claim analysis artifacts — DELIBERATELY EXCLUDED ───────────
+# LLM-generated patent PSEUDO-claims + self-test / ranking analysis.
+# Kept out of the public repo by intent (legal sensitivity: written in a
+# voice that must NOT be mistaken for admissions of what CodeExam or any
+# examined codebase actually practices). Already caught by the /*.md rule
+# above; listed explicitly so no one re-includes them without reading this
+# note. See issues #277 and #278.
+/CodeExam_pseudo_claims.md
+/CodeExam_pseudo_claims_MCP.md
+/CodeExam_claim_roundtrip_selftest.md
+/CodeExam_multisect_reranking_prototype.md
+/CodeExam_selftest_bram.md
+/Bram_pseudo_claims.md
+/Bram_claims_chorus_comparison.md
+/bram-patent-claims-from-jon.md
+/CodeExam_claims_3way_comparison.md
+/GH_CoPilot_on_CE_pseudo_claims_072226.txt
+/GitHub_Copilot_pseudo_claims_for_CodeExam.pdf
+
 # Stray scratch extensions anywhere (also sweeps src/service.xxx).
 # gitignore matching is case-sensitive here, so include upper-case outliers.
 *.awk
