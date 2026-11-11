@@ -163,6 +163,9 @@ export const PSEUDO_CLAIM_CAVEAT_C_PACK =
 // specifics down into dependents, which the `mechanism` axis and the
 // dependents' MODIFICATION share track. A draft that "improves" on words while
 // losing a mechanism element is flagged as a regression by shapeReport.
+// A re-ask for a shorter draft was tried and measured on 2026-11-10 (the HOF
+// section of CODEEXAM_PSEUDO_CLAIMS_TESTS.md): gpt-5.1 reformatted instead of
+// cutting and Claude cut by dropping an element, so it was not shipped.
 export const SHAPE_PROFILES = {
   litigated: {
     label: 'litigated software claim 1s (385 big-tech-drafted, 1963-2020, litigated-claims-fetch.mjs)',

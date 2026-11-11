@@ -320,6 +320,36 @@ plan line says; net of them the run came in within 1% of it. Claude's drafts too
 against ChatGPT's 14; its locates 16 s median against 21. The run's files are under
 `.CE/hof/261110-0452/`, outside the repo.
 
+**A length re-ask, tried on 20 of those groups and not shipped (2026-11-10).**
+`pseudo-claims-length-reask` tried one more call for a draft over the band's words: the pack
+and the draft resent with the figures and the instruction to merge sub-steps and drop restating
+rows, the shorter draft standing only when it kept the element count and the grounded anchors.
+Measured before it could be a default, on 20 of the 212 groups drawn from the 68 over the band
+on both 2026-11-09 runs, the same 20 on each model (`ce --pseudo-claims` on the sample list,
+ChatGPT then Claude), each claim's figures before and after read from the sidecar:
+
+| | ChatGPT (gpt-5.1) | Claude (sonnet-4-6) |
+|---|---|---|
+| first drafts over the band, so re-asked | 18 of 20 | 5 of 20 |
+| second draft replaced the original | 2 (1 and 4 words shorter) | 3 (9, 36 and 6 words shorter) |
+| original kept: the second draft was not shorter | 14 (6,696 words to 7,057 over the 18) | 0 |
+| original kept: the second draft lost an element | 2 | 2 (one lost an anchor too) |
+| words saved by the re-asks that stood | 5 | 51 |
+| the same 20 first drafts, 2026-11-09 to 2026-11-10 | 8,855 to 7,146 words | 5,944 to 4,421 |
+
+Two findings. The re-ask does not shorten: told to merge rows, gpt-5.1 folded sub-steps into
+longer rows (fewer rows in 9 of 18, fewer elements in 10, more words in 14, the anchors kept in
+all 18), and where Claude cut by a quarter it dropped an element, which the rule caught; 56
+words over 40 drafts for 23 calls, so the mechanism was not shipped and the drafter is as it
+was, length a report and not a goal. A words-aimed instruction was not tried; the 2026-08-28
+measurement says length pressure costs elements, which the same rule would reject. And the
+first drafts themselves, with the prompt, the index, the model and the options unchanged, came
+out 19% and 26% shorter than the same groups on 2026-11-09: drawn from the tail of two draws,
+the 20 regressed toward the median on the third, Claude putting 15 of them in band before any
+re-ask. Which groups are over the band is partly the run's, so a per-group length claim wants
+more than one draw. The console's cost lines were not kept; the projection before the run was
+about $0.70 and $1.40.
+
 **Where HOF went next (2026-11-05 and 11-06).** The mechanism grain the stage1 check asked
 about was measured in full on [`describe-reach.md`](describe-reach.md): with the mechanisms'
 labels and member names as the text and a local embedding model, the mechanism holding a HOF
