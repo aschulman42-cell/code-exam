@@ -95,31 +95,14 @@ So there are two ways in:
   among multiple candidate pseudo-claims (see *`--rank`: one model pass to order
   the list*, below).
 
-## Terms used on this page
+## Terms
 
-Each term as this page and the command's output use it, and where you meet it:
-
-| term | what it means | where you see it |
-|---|---|---|
-| mechanism | a small group of functions that together do one thing; what one pseudo-claim is written about | a `# Label` header and its functions in a candidates file |
-| anchor | a `file@func` (or `file@L<start>-<end>`) reference: on input, which functions a mechanism has; on output, a claim element's citation | the lines under a `# Label`; "Anchors:" under each drafted claim |
-| candidate, group | one mechanism CodeExam proposes, before you prune or draft it | each `# Label` block of the `--candidates` file |
-| label | a group's name: a shared name token with a representative function, `[class] Name`, `[file] name.c` or `[cmd] --flag` | the `# Label` header; the contents table of a drafted chart |
-| seeds | the rules the grouper starts a group from: the functions of one documented file, the methods of one class, a command's handler and what it calls, or a distinctive name token shared across files | the four header kinds above; `[file] X / rest` is a file's remainder after other seeds took part of it |
-| grouper | the model-free step that finds candidate mechanisms (`src/core/mechanism-grouper.js`); the same code builds the mechanisms index of [`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md) | `--pseudo-claims --candidates`; `--build-mechanisms` |
-| purpose line | the sentence after the label, read from the code's own comments or docstrings; the drafter's hint to what the mechanism is | the text after the em dash on a header |
-| evidence pack | the fenced, size-capped code of a group's functions, with the constants they name and any documentation excerpts: all the drafter sees | `--show-prompt` or `--dry-run` prints it; the pack line under each draft says how it was spent |
-| grounded, ungrounded | whether a cited anchor resolves to a function or line range in the index; an ungrounded one is dropped with its reason | the anchor list under each claim; the run header counts them |
-| sidecar | `<claims>.anchors.json`, the grounded anchors, class and element count per claim; the answer key the self-test scores against | written beside the output of `--claims-only <file>` |
-| rank tag | `--rank`'s reading of where to look first in an unfamiliar codebase, `[P3]` down to `[P0]`, with its signal and a keep / merge / split verdict | on each header of a ranked list; `--min-rank` reads it |
-| dependent claim | a narrower claim under claim 1, "wherein …" or "further comprising …" | numbered under each claim 1 in the artifact |
-| statutory class | the kind of claim: method, system, apparatus, computer-readable medium | `--claim-class`; the class mix in the run footer |
-| shape line | how a draft's length, element count and dependent count sit against real litigated claims | under each draft |
-| claim schema, claim object | the opt-in path where the drafter fills a structured object and CodeExam renders the text | `--claim-schema`; the `schema` key of the sidecar |
-| echo | two groups sharing a dominant file, probably one mechanism reached from two seeds; flagged, never merged | the `# echo pairs` note at the top of a candidates file |
-| triage | a deterministic KEEP / REVIEW / DROP cut over a run's sidecar | `--triage` |
-| notation | the shape a drafter wrote an anchor in (`file@func`, `file@func@L1-9`, `file:12-40`); known shapes are normalized, unknown ones counted | the anchor list and the run header |
-| HOF, "huffing our own fumes" | CodeExam's self-test: draft a claim from a mechanism, then ask its own claim search to find the mechanism from the claim | `scripts/hof.mjs`; the [tests page](CODEEXAM_PSEUDO_CLAIMS_TESTS.md) |
+**The words on this page are defined once, on [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md).**
+This page leans on: mechanism, grouper, seeds, candidate and group, label, purpose line,
+evidence pack, anchor, grounded and ungrounded, sidecar, rank tag, drafter and HOF. One sense
+matters here: a *candidate* on this page is a mechanism the grouper proposes, before you prune
+or draft it, not the claim-charts page's candidate, which is a `file@function` judged against
+a claim's elements.
 
 ## A quick example (illustrative)
 

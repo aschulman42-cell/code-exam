@@ -243,6 +243,7 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`CODEEXAM_GUI.md`](docs/CODEEXAM_GUI.md) | GUI layout — panes, accordions, Workspace |
 | [`CODEEXAM_MCP.md`](docs/CODEEXAM_MCP.md) | The MCP tool surface as an LLM client sees it |
 | [`CODEEXAM_NOTATION.md`](docs/CODEEXAM_NOTATION.md) | Symbols & notation shared by the CLI and GUI |
+| [`CODEEXAM_JARGON.md`](docs/CODEEXAM_JARGON.md) | The words the claim, pseudo-claim and mechanism pages use — mechanism, grouper, candidate, drafter, locator, anchor, sidecar, HOF, ladder — each defined once, with where you meet it and which pages lean on it |
 | [`CODEEXAM_KEY_FEATURES.md`](docs/CODEEXAM_KEY_FEATURES.md) | Browse and search, catalogs — the overview |
 | [`TOUR.md`](docs/TOUR.md) | A short tour of the bundled demo index: the GUI's AI/ML accordions, then four commands to try on it |
 | [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md) | Literal / fast / regex search and multisect |
@@ -258,9 +259,9 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`AI_ASSISTED_CODE_EXAM.md`](docs/AI_ASSISTED_CODE_EXAM.md) | Optional LLM assistance (`--analyze`, claim search, input masking) |
 | [`CODEEXAM_PATENT_CLAIMS.md`](docs/CODEEXAM_PATENT_CLAIMS.md) | Searching and charting patent claims against a codebase |
 | [`CODEEXAM_CLAIM_CHARTS.md`](docs/CODEEXAM_CLAIM_CHARTS.md) | Claim charts, a patent claim against source code one element at a time: how the claim commands fit together, what CodeExam can do today, a summary of what works/doesn't, the air-gapped goal and the plan |
-| [`CODEEXAM_CLAIM_CHARTS_TESTS.md`](docs/CODEEXAM_CLAIM_CHARTS_TESTS.md) | The tests behind claim charts: the public filings whose charts cite open-source code, the agreement runs on them, the self-test and the Gemma 4 (local LLM) results, with a table of the terms the test pages use |
+| [`CODEEXAM_CLAIM_CHARTS_TESTS.md`](docs/CODEEXAM_CLAIM_CHARTS_TESTS.md) | The tests behind claim charts: the public filings whose charts cite open-source code, the agreement runs on them, the self-test and the Gemma 4 (local LLM) results |
 | [`CODEEXAM_PSEUDO_CLAIMS.md`](docs/CODEEXAM_PSEUDO_CLAIMS.md) | Drafting illustrative "pseudo-claims" from code: the mechanisms as candidates, anchors, `--filter`, the optional descriptions and `--embed-distance`, and `ce --hof`, the self-test |
-| [`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](docs/CODEEXAM_PSEUDO_CLAIMS_TESTS.md) | The tests behind pseudo-claims: the HOF self-test, the real-world yardstick, the rubric scores, with a table of the terms the test pages use |
+| [`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](docs/CODEEXAM_PSEUDO_CLAIMS_TESTS.md) | The tests behind pseudo-claims: the HOF self-test, the real-world yardstick, the rubric scores |
 | [`CODEEXAM_MECHANISMS.md`](docs/CODEEXAM_MECHANISMS.md) | Mechanisms: how CodeExam groups any codebase's functions, how to read a label, the optional descriptions, and what the groups are used for: pseudo-claims and the --toc (Table of Contents) feature |
 | [`CODEEXAM_SELF_PORTRAIT.md`](docs/CODEEXAM_SELF_PORTRAIT.md) | The pseudo-claims feature run on CodeExam's own source: ten claims across nine features, quoted as drafted, each beside the rubric claims the author wrote by hand for that feature |
 | [`LOCAL_LLM.md`](docs/LOCAL_LLM.md) | Local GGUF models, e.g. Gemma4, Qwen |

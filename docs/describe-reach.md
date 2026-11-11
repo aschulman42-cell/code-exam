@@ -1,5 +1,7 @@
 # Does a claim element reach the mechanism entry that holds its anchor, when the entries' descriptions are what is matched?
 
+*The words on this page — locator, register, anchor, HOF, chooser — are defined on [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md).*
+
 *A measurement, not a feature. Nothing in CodeExam changes on its account. Issue
 [#322](https://github.com/aschulman42-cell/code-exam/issues/322) carries the embedding
 history and [#359](https://github.com/aschulman42-cell/code-exam/issues/359) the mechanisms

@@ -1,5 +1,7 @@
 # CodeExam source map
 
+*The words on this page — HOF, mechanism, candidate, rubric, ladder — are defined on [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md).*
+
 A one-line tour of every first-party source file in the repo — what it is,
 where to look, and what to read first. Ordered roughly from the outside in:
 launchers, then the CLI core, then commands, engines, GUI, dev scripts, tests.

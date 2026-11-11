@@ -1,5 +1,7 @@
 # Local GGUF model support, per feature
 
+*The words on this page — verdicts file, mechanism, synonymize, anchor, yardstick — are defined on [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md).*
+
 Which local models can or can't be relied on, per LLM-based CE feature —
 the assessment behind the release (#321). Four verdicts, and a rule:
 **no verdict without a receipt.** Every populated cell cites the issue,

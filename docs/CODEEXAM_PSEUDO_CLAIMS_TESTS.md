@@ -5,41 +5,17 @@
 feature page can stay a plain account of what pseudo-claims are and how to run them. Each
 section below is one test: when it ran, what question it answers, what was measured, and
 where the full tables are. Dates and numbers are as first recorded; a rerun will differ,
-and every figure is one sample per cell unless it says otherwise. The terms table comes
-first because these pages grew their own vocabulary; it maps each term to what a user
-sees on the screen or on disk.*
+and every figure is one sample per cell unless it says otherwise. The words these pages
+grew, sidecar, ladder, yardstick, rubric and the rest, are defined on
+[`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md); the first section names the ones this page
+leans on.*
 
-## Terms used on the test pages
+## Terms
 
-| term | what it means | where you see it |
-|---|---|---|
-| mechanism | a small group of functions that together do one thing; what one pseudo-claim is written about | a `# Label` header and its functions in `cand.lst`; a row of `--mechanisms` |
-| seeds | the four rules the grouper starts a group from: the functions of one file, the methods of one class, a command's handler and what it calls, or a shared name token | the header kinds in `cand.lst`: `[file] x.c`, `[class] X`, `[cmd] --foo`, `token (namesake)` |
-| grouper | the model-free step that finds candidate mechanisms | `--pseudo-claims --candidates`; the same code builds `mechanisms.json` with `--build-mechanisms` |
-| candidate, group | one mechanism the grouper proposes, before you prune or draft it | each `# Label` block of `cand.lst` |
-| coverage | the share of an index's functions that landed in some candidate group | the `# coverage:` line at the top of a candidates file |
-| rank tag | `--rank`'s P0 to P3 reading of where to look first in an unfamiliar codebase, with its signal and fold verdict | `[P3 codebase-specific/keep …]` on a header; `--min-rank` reads it |
-| anchor | a `file@func` (or `file@L10-48`) reference: on input, which functions a mechanism has; on output, a claim element's citation | the lines under a `# Label`; "Anchors:" under each drafted claim |
-| grounded, ungrounded | whether a cited anchor resolves to a function or line range in the index; an ungrounded one is dropped and counted | the anchor list under each claim and the run header |
-| drafter | the model that writes the claim text | `--llm claude`, `--llm gemini`, `--model <gguf>` on `--pseudo-claims` |
-| sidecar, answer key | the anchors each claim was drafted from, saved as `<claims>.anchors.json` beside the claims file; what HOF scores against | written by `--claims-only <file>` |
-| HOF, "huffing our own fumes" | CodeExam drafts a claim from a mechanism, then asks its own claim search to find that mechanism from the claim; because the claim came from the code, the right answer is known | `scripts/hof.mjs` and its `hof_report.md` |
-| round trip | one HOF pass: code to claim to code | each row of a HOF report |
-| locator | `--claim-locate`, which asks a model to name the code a claim reads on and verifies every name against the index | `--claim-locate`, its `--targets-out` file |
-| ladder | how far from the exact function a located answer fell: FUNCTION (the same function), CLASS (its class or another method of it), FILE (the same file), MISS; per located target, EXACT (an anchor), NEAR (in an anchor's file), ELSEWHERE | the columns of `hof_report.md` |
-| synonymize, HOF-b | a different model rewrites the claim away from the code's own words, with the anchors withheld, so a later find cannot be mere word overlap | `--synonymize <claim>` |
-| stage1, tier 0 | a feasibility check: score a claim against every candidate group by the group's own text (label, purpose, member names), no model, and ask where the drafted-from group ranks | `scripts/hof-stage1.mjs` |
-| yardstick, agreement | the functions litigants cited in public claim charts, used as the answer key for real claims; a party's contention, not truth, so a "match" is agreement with that party | [`claim-chart-agreement.md`](claim-chart-agreement.md) |
-| ceiling | the drafter's best case: given the party's own cited functions, how close the draft comes to the party's claim | [`claim-chart-drafter-ceiling.md`](claim-chart-drafter-ceiling.md) |
-| floor | what a draft from an unrelated group of the same codebase scores against the claim; the number a method must beat | the ceiling page's tables |
-| control | the same draft judged against another filing's claim of the same art | the ceiling page's tables |
-| MET, PARTIAL, ABSENT | a judge's reading of one claim element against the asserted claim or a rubric row: the same limitation in substance; part of it; none of it | the ceiling and rubric tables |
-| rubric | a hand-written claim 1 for one CodeExam feature, with lettered elements and a citations table, used as the standard a run is scored against | [`docs/pseudo-claim-rubrics/`](pseudo-claim-rubrics/); `scripts/pseudo-claim-rubric-score.mjs` |
-| union rule, best rule | how a rubric row is read from a run: from up to four of the claim's lines together (the default) or from the single best line | `--rule best` on the scorer |
-| litigated population | the 380 asserted claim 1s and their 3,293 dependents from public filings, the shape a draft is measured against | the shape line under each draft; `--claim-schema` |
-| chooser | in the describe-reach measurement, a second stage in which a model reads the five nearest mechanisms' labels and picks one; a measurement, not a shipped command | [`describe-reach.md`](describe-reach.md), "Retrieve, then choose" |
-| register | the vocabulary a text is written in, a patent claim's against an engineer's; the gap the embedding tests found between real claims and code | [`describe-reach.md`](describe-reach.md); `--embed-distance` |
-| one sample per cell | each number comes from one run of one model; a rerun will differ | every table on these pages |
+**The words on this page are defined once, on [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md).**
+This page leans on: mechanism, grouper, seeds, candidate, anchor, drafter, sidecar, HOF, round
+trip, ladder, synonymize, stage1, yardstick and agreement, ceiling, floor and control,
+`MET` / `PARTIAL` / `ABSENT`, rubric, chooser, register and one sample per cell.
 
 ## Scoring runs against hand rubrics (2026-10-30 and 2026-10-31)
 

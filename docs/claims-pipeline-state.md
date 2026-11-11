@@ -1,4 +1,7 @@
 # Claims pipeline — state at a glance
+
+*The words on this page — HOF, mechanism, anchor, candidate, drafter — are defined on [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md).*
+
 > **Engine qualification**: before trusting a new engine/build, run the two-claim pair in docs/engine-qualification.md (scripts/engine-qualify.mjs scores it mechanically).
 
 

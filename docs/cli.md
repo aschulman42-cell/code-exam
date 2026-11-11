@@ -1,5 +1,7 @@
 # CodeExam CLI Reference
 
+*The words the claims flags use — mechanism, HOF, candidate, synonymize, drafter — are defined on [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md).*
+
 This file is the canonical reference for every CodeExam command-line flag.
 
 **Two purposes**:

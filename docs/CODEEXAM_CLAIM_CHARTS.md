@@ -54,39 +54,15 @@ the dated examples and the self-test. Four working pages,
 length; the intent is to retire those four once the tests page carries what they hold, which
 it does not yet.
 
-## Terms used on this page
+## Terms
 
-Each term as this page and the commands' output use it, and where you meet it. Two kinds of
-model appear on this page; the first two rows tell them apart.
-
-| term | what it means | where you see it |
-|---|---|---|
-| model | an AI language model, an LLM: a cloud one through `--llm` (Claude, ChatGPT, Gemini) or a local one as a GGUF file through `--model` (Gemma 4, Qwen); "engine" on this page means the same thing | `--llm claude`, `--model <path.gguf>`; the Engine line at the top of a chart |
-| embedding model | a model of another kind: it turns a text into a vector so two texts can be compared by distance, and generates no text; nomic is the shipped one | `--embed-model`; `--embed-distance` |
-| GGUF, local model | a model file that runs on your own machine with no network: the air-gapped path | `--model <path.gguf>`; `--air-gapped`; [`LOCAL_LLM.md`](LOCAL_LLM.md) |
-| claim chart | one row per element of a patent claim, each saying whether code was found that meets one reading of that element, with the lines it rests on | the output of `--claim-chart`; section 1 says what a CodeExam chart is and is not |
-| element, limitation | one discrete part of a claim, a step or a component; CodeExam splits a claim into them, or `--elements @file` supplies them | the numbered rows of a chart |
-| locator | `--claim-locate`: asks the model what an implementer would have named things, searches the index's symbol names, verifies every name, navigates callers and callees, and has the model choose | `--claim-locate <claim>` |
-| target | a candidate: one `file@function` from the code under examination, judged against every element | the Targets line of a chart; the targets file |
-| targets file | the list of targets `--claim-locate` writes, each with its provenance, which `--claim-chart --targets` charts | `--targets-out <file>`, `--targets @file` |
-| implementer | a programmer who wrote, or would have written, the kind of code the claim describes; the model is asked what such a person would have named things | the code-words step of `--claim-locate` |
-| nominee | a target that an element's own search put forward, in the order the search ranked it | "nominated by element N at rank R" in the verdicts file |
-| navigation hop | one step along the call graph from a matched name to what it calls and what calls it, up to two hops down | "reached by navigation from X" rows of a targets file |
-| test gate | test, mock, benchmark and example code held back from the candidates unless `--include-tests` admits it | the run's note when the gate turns itself off |
-| candidate cap | at most 25 matched names per element go to the model, with up to 35 more offered by name alone | "at the cap; 35 more offered by name" in a targets file |
-| blind | the model sees no file paths and is not told which codebase it is, so a hit is discovery rather than recall | `--blind` |
-| `PRESENT`, `PARTIAL`, `ASSUMED`, `ABSENT` | the model's verdict on one target for one element, in the prompt's own definitions | every cell of a chart; section 2 quotes the definitions |
-| merge | the deterministic step that turns the per-target verdicts into the one row per element the chart shows | the chart's table |
-| agreement tag | the tally beside a row's label: how many targets earned that label and how many said `ABSENT` | "(1 of 31; 30 ABSENT)" on a row |
-| Support line | the count of rows that rest on a single target, naming the weakest | below a chart's table |
-| provenance header | the engine, the build, the targets checksum, the command, and where the targets came from | the top of every chart |
-| verdicts file | every raw verdict and note, the nominations and the targets that produced none, as JSON; what a re-render and every scorer read | `--verdicts-out`; `--chart-html-from` |
-| whole-claim search | the earlier path: the claim's distinctive terms run as one multisect search over file bodies | `--claim-search`, `--claim-analyze`; the GUI's Claim Search |
-| mechanism, mechanisms index | a small group of functions that together do one thing, with a label read off the code; the index of them that `--build-mechanisms` writes beside an index | `--toc`, `--mechanisms`; [`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md) |
-| register | the vocabulary a text is written in, a patent claim's against an engineer's; the gap the embedding measurements found between real claims and code | `--embed-distance`; section 8 |
-| agreement with a party | what a match with a chart a litigant filed means: that party's contention, not truth | section 4; the tests page |
-| HOF, "huffing our own fumes" | the self-test: draft a claim from a mechanism of the index, then ask CodeExam's own claim search to find the mechanism from the claim | section 5; the tests page |
-| reproducible | a pinned run: a local GGUF at greedy decoding repeats byte for byte, a cloud engine at temperature 0 does not | `--reproducible`; [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) |
+**The words on this page are defined once, on [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md).**
+This page leans on: model and embedding model (two kinds of model appear here; the jargon
+page's first two rows tell them apart), locator, target, nominee, the verdict labels
+`PRESENT` / `PARTIAL` / `ASSUMED` / `ABSENT`, merge, agreement tag, verdicts file, mechanism,
+register, drafter, HOF and reproducible. One sense matters here: a *candidate* on this page is
+a target, a `file@function` judged against the claim's elements, not the pseudo-claims pages'
+candidate, which is a mechanism the grouper proposes.
 
 ## 1. What a CodeExam claim chart is, and is not
 
@@ -702,7 +678,9 @@ Differences from CodeExam's approach include:
 
 - [`CODEEXAM_CLAIM_CHARTS_TESTS.md`](CODEEXAM_CLAIM_CHARTS_TESTS.md) — the tests behind this
   page: the public filings, the agreement runs, the dated examples, the self-test and the
-  Gemma 4 results, with a table of the terms the test pages use.
+  Gemma 4 results.
+- [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md) — the words this page and the tests page use,
+  each defined once.
 - [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md) — the concepts, the labels, the
   methodology and defensibility section.
 - [`cli.md`](cli.md) — the flag reference (section 2 says what it lacks).

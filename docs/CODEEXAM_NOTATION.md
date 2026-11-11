@@ -6,7 +6,9 @@ means, and a concrete example of each. A couple render a little differently on e
 pre-dedup count is a badge in the GUI but a header number on the CLI; test/example code dims in the
 GUI but carries a `[test]` tag on the CLI), and those differences are called out below. Most appear
 in the AI/ML cells — see [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md) — and the GUI's visual form is in
-[`CODEEXAM_GUI.md`](CODEEXAM_GUI.md).
+[`CODEEXAM_GUI.md`](CODEEXAM_GUI.md). The markers are here; the *words* the claim, pseudo-claim and
+mechanism pages use (drafter, locator, anchor, sidecar, HOF) are on
+[`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md).
 
 ## At a glance
 
