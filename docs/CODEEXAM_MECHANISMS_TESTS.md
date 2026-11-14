@@ -10,7 +10,7 @@ here is one entry of the mechanisms index (`mechanisms.json`): a labeled group o
 an entry or a group. Seed, floor and cover are defined on
 [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md).*
 
-## The bottom line (2026-11-14)
+## The bottom line, here at the top (2026-11-14)
 
 Mechanisms are soundly based as a way to divide code into pieces small enough to label,
 describe and search: every function of four lines or more is in one, and a search by a
@@ -23,7 +23,7 @@ several files (72 files for those 119). So a reader should treat one mechanism a
 of what a limitation reads on, not as the whole of it. Where a row cites a single function
 (14 rows), the mechanism holding it is the answer at the granularity the chart gives.
 
-Can the current implementation be improved? Not by tuning it. Its seeds are files, classes,
+Can the *current* implementation be improved? Not simply by tuning it. Its seeds are files, classes,
 commands and shared name words, and no such group holds functions from several files that
 share no name. Nor are the functions of one limitation joined by calling each other: in no
 row do direct calls join them, and 121 functions fall into 95 groups that way. What they
@@ -32,9 +32,10 @@ fall into 43 groups. That points at one addition worth testing, a mechanism buil
 from a calling function to what it calls. The command seed already works that way, but only
 for the handlers of command-line options: CodeExam's command catalog also lists GUI actions,
 server routes, slash commands and events, and the seed does not read those yet. The wider
-form has not been built or tested. Two smaller repairs are known and do not
+form has not yet been built or tested (nor has using other CodeExam catalogs besides the command
+catalog, such as referenced-resources or the AI/ML detectors). Two smaller repairs are known and do not
 change this picture: functions under four lines are in no mechanism, and command mechanisms
-are built from a catalog with wrong joins (the last section).
+are built from a catalog currently with wrong joins (the last section).
 
 ## Do the functions a litigant cites for a claim sit together? (2026-11-14)
 
@@ -140,8 +141,8 @@ v. Foundry).
 
 ### One claim limitation at a time
 
-The table above pools every claim a filing asserts. The link that matters is from one
-limitation to the code closest to it, and eleven of the fourteen filings are charts whose
+The table above pools every claim a filing asserts. The link that ultimately matters is from one
+claim limitation to the code closest to it, and eleven of the fourteen filings are charts whose
 rows give that: a limitation's text and the functions cited for it. The other three (True
 Return, Sookbox, PROGME) are not laid out as charts. The script scores each row the way it
 scores a filing. With `--calls` it also loads the index and asks whether a row's functions
@@ -223,7 +224,7 @@ How far to trust the call figures:
   would put a row's siblings together. Which callers, and how deep, is not known.
 - **Text per function, not per mechanism, is worth testing.** If the code for a limitation
   is a handful of sibling functions, a sentence per function may serve semantic search
-  better than a sentence per group. That has not been tried. Semantic search here means
+  better than a sentence per group. That has not yet been tried. Semantic search here means
   ranking by embedding distance, `--embed-distance`; the fullest account is
   [section 8 of `CODEEXAM_CLAIM_CHARTS.md`](CODEEXAM_CLAIM_CHARTS.md#8-getting-to-the-goal).
 
