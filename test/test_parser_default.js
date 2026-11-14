@@ -28,13 +28,14 @@ function writeCorpus() {
   fs.rmSync(TMP, { recursive: true, force: true });
   fs.mkdirSync(SRC, { recursive: true });
   // A grammar language (C, GNU layout so both parsers start at line 1), a
-  // regex-only language (Swift has no shipped grammar), and a JavaScript file:
+  // regex-only language (Lua has no shipped grammar; Swift, the example until
+  // 2026-11-13, got one), and a JavaScript file:
   // on Windows with Node 24, a tree-sitter build of a tiny JavaScript corpus
   // followed by an immediate process.exit() died in libuv ("Assertion failed:
   // !(handle->flags & UV_HANDLE_CLOSING)", exit 127) while V8 background work
   // was still winding down; the CLI now lets the loop drain after a build.
   fs.writeFileSync(path.join(SRC, 'a.c'), ['static int', 'add(int a, int b)', '{', '  return a + b;', '}', ''].join('\n'));
-  fs.writeFileSync(path.join(SRC, 'b.swift'), ['func greet(name: String) -> String {', '  return name', '}', ''].join('\n'));
+  fs.writeFileSync(path.join(SRC, 'b.lua'), ['function greet(name)', '  return name', 'end', ''].join('\n'));
   fs.writeFileSync(path.join(SRC, 'c.js'), ['function runPipeline(data) {', '  return data.map((d) => d * 2);', '}', 'module.exports = { runPipeline };', ''].join('\n'));
 }
 
@@ -65,9 +66,9 @@ describe('parser default: tree-sitter where a grammar ships, regex otherwise', (
     assert.ok(c && c.add, `a.c must list add; have ${c ? Object.keys(c).join(', ') : '(no file)'}`);
     assert.equal(c.add.parser, undefined, 'a grammar-parsed entry carries no parser label');
     assert.equal(c.add.start, 1);
-    const swift = fileEntries(idx, 'b.swift');
-    assert.ok(swift && Object.keys(swift).length > 0, 'b.swift must have regex entries');
-    for (const [name, e] of Object.entries(swift)) assert.equal(e.parser, 'regex', `${name} in b.swift is a regex entry`);
+    const lua = fileEntries(idx, 'b.lua');
+    assert.ok(lua && Object.keys(lua).length > 0, 'b.lua must have regex entries');
+    for (const [name, e] of Object.entries(lua)) assert.equal(e.parser, 'regex', `${name} in b.lua is a regex entry`);
   });
 
   it('buildIndex with useTreeSitter:false is the regex build on every file', async () => {

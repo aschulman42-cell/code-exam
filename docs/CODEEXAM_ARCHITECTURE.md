@@ -84,7 +84,8 @@ and hold it in memory — which matters for large indexes, where loading is the 
 CodeExam leans on a small set of third-party packages (declared in `package.json`):
 
 - **`web-tree-sitter`** + the vendored grammars in `grammars/` — precise multi-language AST parsing
-  (C, C++, Java, JS, TS, Python, C#, Go, Rust, PHP, Ruby); a regex fallback covers the rest.
+  (C, C++, Java, JS, TS, Python, C#, Go, Rust, PHP, Ruby, Kotlin, Swift, Scala, Objective-C); a
+  regex fallback covers the rest.
 - **`node-llama-cpp`** — local GGUF model inference for the air-gapped LLM path.
 - **`@anthropic-ai/sdk`** — the Claude API client for the cloud LLM path.
 - **`@modelcontextprotocol/sdk`** — the MCP server / protocol layer (it brings its own schema
@@ -100,7 +101,10 @@ fails the suite if a declared dependency goes unimported, or an import goes unde
 
 The `tree-sitter-*` grammar packages are **dev** dependencies that supply the vendored WASM
 grammars (copied from each package, not rebuilt); only `web-tree-sitter` and the vendored grammars
-are needed at runtime.
+are needed at runtime. Two grammars have no npm-published wasm: the Kotlin and Swift files are the
+`tree-sitter-<lang>.wasm` assets of the upstream GitHub releases, pinned by checksum in
+`test/test_function_bounds.js` (the vendored copies must carry a `dylink.0` section; the
+`tree-sitter-wasms` bundle's legacy `dylink` files do not load under `web-tree-sitter` 0.26).
 
 The grammar `.wasm` files and `mermaid.min.js` are the third-party files the repository itself
 **redistributes**, all under MIT. [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md) at the
@@ -181,7 +185,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 
 - `src/core/CodeSearchIndex.js` — core index class: builds/saves/loads indexes, parses functions/classes, serves literal/inverted/regex search
 - `src/core/CSI-helpers.js` — deobfuscates minified JS, infers opaque names, scans string/comment state, classifies command gates
-- `src/core/TreeSitterParser.js` — WASM tree-sitter extraction for 12 grammars, with binary sniffing, a size cap and a per-parse timeout
+- `src/core/TreeSitterParser.js` — WASM tree-sitter extraction for 16 grammars, with binary sniffing, a size cap and a per-parse timeout
 - `src/core/ai-ml-detectors.js` — 17 AI/ML detector methods (models, kernels, training, LLM calls, chains…) mixed onto the index prototype
 - `src/core/ai-overview.js` — agentic prose orientation: drives Claude/OpenAI/Gemini over CE's own MCP tools and sums per-turn cost
 - `src/core/ai-overview-local.js` — runs the Overview by AI on a local GGUF via node-llama-cpp tool-calling, with tool-floor and refusal guards

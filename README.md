@@ -8,8 +8,9 @@ bundles and binary executable files).
 Use CodeExam to first build an index over a codebase, then browse, search,
 and cross-reference (callers, callees, call trees, file/folder coupling) at
 scale — across **C, C++, Java, JavaScript, TypeScript, Python, C#, Go, Rust,
-PHP, and Ruby** (tree-sitter), with regex-level support for a dozen more
-(e.g. Swift, Kotlin, Objective-C); what each language gets from each feature
+PHP, Ruby, Kotlin, Swift, Scala, and Objective-C** (tree-sitter), with
+regex-level support for a half-dozen more (e.g. Lean, Lua, Perl); what each
+language gets from each feature
 is on [`CODEEXAM_PROGRAMMING_LANGUAGES.md`](docs/CODEEXAM_PROGRAMMING_LANGUAGES.md).
 If you've used a code-comprehension tool
 like SciTools Understand, the basic browse and cross-reference features will

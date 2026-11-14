@@ -13,20 +13,22 @@ dependency features' own page is [`CODEEXAM_MAPPING_DEPENDENCIES.md`](CODEEXAM_M
 
 ## The short version
 
-- **The grammar tier (12 grammars, 11 languages, 2026-11-13).** C, C++, Java, JavaScript,
-  TypeScript (with TSX as a second grammar), Python, C#, Go, Rust, PHP and Ruby are parsed with a
-  tree-sitter WASM grammar in the default build, which then merges in whatever the regex parser
-  finds that the grammar did not. Definitions, their kinds and their exact line spans come from
-  the syntax tree.
-- **The regex tier (2026-11-13).** Swift, Kotlin, Scala, Objective-C, Lean, Lua, Perl, AWK,
-  VBScript and CoffeeScript have a table of line patterns each: a definition is a line that looks
-  like one, and its end is found by counting braces on lines with strings and comments masked out
-  (Swift, Kotlin, Scala, Objective-C, Perl, AWK), by indentation under the keyword line (Lean), or,
-  where the language has neither (Lua, VBScript, CoffeeScript), at the next definition. The tier
-  misses whatever a single line does not
-  announce: Swift computed properties and `extension` blocks, Kotlin extension functions (filed
-  under the receiver type instead of the function name), closures, operators, anything whose name
-  is not on the definition line.
+- **The grammar tier (16 grammars, 15 languages, 2026-11-13).** C, C++, Java, JavaScript,
+  TypeScript (with TSX as a second grammar), Python, C#, Go, Rust, PHP, Ruby, and since the
+  evening of 2026-11-13 Kotlin, Swift, Scala and Objective-C, are parsed with a tree-sitter WASM
+  grammar in the default build, which then merges in whatever the regex parser finds that the
+  grammar did not. Definitions, their kinds and their exact line spans come from the syntax tree;
+  where a grammar recovers from a syntax error, the merge supplies what the recovery lost.
+- **The regex tier (2026-11-13).** Lean, Lua, Perl, AWK, VBScript and CoffeeScript have a table
+  of line patterns each, and so do Kotlin, Swift, Scala and Objective-C, whose tables stay as the
+  fallback and as the source of the entries the hybrid build merges in: a definition is a line
+  that looks like one, and its end is found by counting braces on lines with strings and comments
+  masked out (Perl, AWK, and the four former regex languages), by indentation under the keyword
+  line (Lean), or, where the language has neither (Lua, VBScript, CoffeeScript), at the next
+  definition. The tier misses whatever a single line does not announce: closures, operators,
+  anything whose name is not on the definition line. Until 2026-11-13 that included Swift
+  computed properties and `extension` blocks and Kotlin extension functions (filed under the
+  receiver type instead of the function name), which the grammars now take.
 - **The generic fallback.** A file whose extension is indexed but has no pattern table of its own
   (R, Groovy, shell, Cython, resource and config files) is scanned with the C and Python patterns
   together. They find little in those files and occasionally invent a definition.
@@ -60,12 +62,12 @@ as `class` entries). Issue numbers are the open issues that name the language.
 |---|---|---|---|---|---|---|---|---|
 | C | `.c`, `.h` (`.h` goes to the C++ grammar) | grammar | functions, structs, macro-defined and attribute-prefixed names; exact spans | `#include`; `CMakeLists.txt`, `*.cmake`, `Makefile`, `*.mk`, `*.vcxproj` | struct/enum/union/typedef · C family (with `.m`, `.mm`, `.cu`) · no | kernels (CUDA, Triton); endpoint URLs | x264 (85 `.c` + 43 `.h`: 1,813 fn); zlib (43 + 22: 753 fn); llama.cpp | #287, #65, #68, #88 |
 | C++ | `.cpp`, `.hpp`, `.cc`, `.cxx`, `.hxx`, `.c++`, `.h++`, `.h` | grammar | classes, methods, constructors, templates, Google Test macros | as C | as C · C family · no | as C | llama.cpp (566 `.cpp`, 233 `.h`, 32 `.hpp`: 21,000 fn); Notepad++ (415 `.cxx`, 182 `.hpp`, 127 `.cpp`, 315 `.h`: 23,100 fn); Chromium (195K files) | #287, #65, #60 |
-| Objective-C / C++ | `.m`, `.mm` | regex | `- (T)name:` and `+ (T)name:` methods, C functions, `@interface`, `@implementation`, `@protocol`; brace ends | **not read**: the census skips `.m` and `.mm`; headers' `#import` and `@import` are read as C | C family (struct/enum) · C family · no | endpoint URLs (the kernel detector gates on C and C++ extensions, not `.m`) | llama.cpp (2 `.m`: 76 fn); Notepad++ Scintilla Cocoa layer (5 `.mm`: 222 fn) | — |
+| Objective-C / C++ | `.m` (sniffed for Objective-C; a MATLAB `.m` stays at the regex tier), `.mm` | grammar (since 2026-11-13) | `@interface` and `@implementation` as the class, `@protocol`, methods by full selector (`Person::sayHelloTo:withPrefix:`), categories under their class, C functions, structs with bodies | **not read**: the census skips `.m` and `.mm`; headers' `#import` and `@import` are read as C | C family (struct/enum) · C family · no | endpoint URLs (the kernel detector gates on C and C++ extensions, not `.m`) | llama.cpp (2 `.m`: 76 fn, 13 types); Scintilla's Cocoa layer (5 `.mm`: 418 fn, 138 selector-named; the grammar recovers from the C++ in all five) | — |
 | Java | `.java` | grammar | classes, interfaces, enums, methods, constructors | `import`; `pom.xml`, `*.gradle`, `*.gradle.kts` | enum/interface/record · JVM family · no | endpoint URLs | Media3/ExoPlayer (2,433 files: 57,995 fn, 5,852 types); Android 1.5 platform (10,101 files: 150,976 fn); Spark (1,360 files) | #60, #287 |
-| Kotlin | `.kt`, `.kts` | regex | `fun`, `class` (data, sealed, enum), `object`, `companion object`, `interface`; brace ends with triple-quoted strings masked | `import` (via the Java extractor); `*.gradle.kts` | enum/interface/record · JVM family · no | endpoint URLs | Architecture Components samples (263 `.kt`: 942 fn, 294 types); Media3 (161 `.kt`: 1,044 fn); OpenAI Java SDK, Kotlin source (2,741 `.kt`: 100,335 fn, 9,547 types) | — (extension functions, below) |
-| Scala | `.scala` (`.sc` has patterns but is not default) | regex | `def`, `class`, `case class`, `object`, `case object`, `trait`; brace ends | **not read**; `build.sbt` admitted by name but not parsed | none · JVM family · no | endpoint URLs | Apache Spark (6,374 `.scala`: 67,859 fn, 14,885 types) | — |
+| Kotlin | `.kt`, `.kts` | grammar (since 2026-11-13) | classes (data, sealed, enum), interfaces, objects and companion objects, functions under their class, secondary constructors, extension functions under their receiver (`View::fadeIn`, the receiver kept as a field); the regex table's extras merged in | `import` (via the Java extractor); `*.gradle.kts` | enum/interface/record · JVM family · no | endpoint URLs | Architecture Components samples (263 `.kt`: 963 fn, 331 types, 23 extension functions none misfiled); Media3 (161 `.kt`); OpenAI Java SDK, Kotlin source (2,741 `.kt`: 120,156 fn, 10,076 types; grammar recovery in 1,143 files) | — (grammar gap, below) |
+| Scala | `.scala` (`.sc` parses too but is not default) | grammar (since 2026-11-13) | classes, case classes, objects, case objects and traits as types with their kind; `def`s under their type, nested `def`s included; the regex table's extras merged in | **not read**; `build.sbt` admitted by name but not parsed | none · JVM family · no | endpoint URLs | Apache Spark's `sql/catalyst` module (1,164 `.scala`: 18,296 fn, 4,361 types; grammar recovery in 173 files); the whole Spark tree at the regex tier before: 6,374 `.scala`, 67,859 fn | — |
 | Groovy | `.groovy` | generic | the C and Python patterns; little found | not read; `build.gradle` is read as a manifest | none · JVM family · no | endpoint URLs | — | — |
-| Swift | `.swift` | regex | `func`, `init`, `class`, `struct`, `enum`, `protocol`; brace ends | **not read**; `Package.swift` and `Podfile` admitted by name but not parsed; run-time loads read | enum/struct/protocol · own family · no | endpoint URLs | SwiftUI Tutorials (86 files: 99 fn, 169 types); OpenClaw's macOS app (462 files: 2,989 fn, 1,210 types) | — (computed properties, extensions, below) |
+| Swift | `.swift` | grammar (since 2026-11-13) | struct, class, enum, actor and protocol as types with their kind; `func`, `init`, `deinit`, `subscript`; computed properties as functions (`ContentView::body`); extension members under the extended type; the regex table's extras merged in | **not read**; `Package.swift` and `Podfile` admitted by name but not parsed; run-time loads read | enum/struct/protocol · own family · no | endpoint URLs | SwiftUI Tutorials (86 files: 263 fn of which 164 computed properties, 169 types); OpenClaw's apps (463 files: 4,169 fn of which 656 computed properties, 1,306 types; grammar recovery in 35 files) | — |
 | JavaScript | `.js`, `.mjs`, `.cjs`, `.jsx` (`.coffee`, `.hbs` go to the regex tier) | grammar | functions, arrows, generators, methods, class fields, classes; member-assignment definitions (#283) from the regex side, merged in | `import`, `require`, dynamic `import()`; `package.json`, `package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`; `<script>` tags in HTML | none · JS family · no | idiom tier (SDK clients, LangChain, endpoints) | CodeExam itself (215 `.js` + 24 `.mjs`: 3,314 fn); DevOps samples (1,625 `.js`: 13,448 fn); minified bundles, see [`QUASI_SOURCE.md`](QUASI_SOURCE.md) | #283, #352 |
 | TypeScript | `.ts`, `.tsx` (own grammar) | grammar | as JavaScript, plus interfaces and type aliases as types | as JavaScript | interface/enum/type · JS family · no | idiom tier | OpenClaw (3,442 `.ts`: 12,005 fn); llama.cpp's web UI (283 `.ts`) | #352 |
 | Python | `.py`, `.pyw` (`.pyx` generic) | grammar | `def`, `async def`, `class`, decorated definitions; indentation ends in the regex tier | `import`, `from … import`; `requirements*.txt`, `constraints.txt`, `pyproject.toml`; `poetry.lock`, `Pipfile.lock`; cross-index resolution (`--imports-from`) | none · Python family · **yes**: `__all__`, `@keras_export`, `__init__` re-exports (#153) | idiom tier: models, layers, training, inference, pipelines, LLM calls, agents | Spark (1,453 `.py`: 23,277 fn); the AI/ML framework trees on [`DETECTING_AI_ML.md`](DETECTING_AI_ML.md) (PyTorch, Transformers, Keras, scikit-learn, LangChain, …) | #234 |
@@ -117,67 +119,113 @@ URLs).
 
 ### Kotlin
 
-Regex tier. The patterns take `fun`, `class` with its `data`, `sealed`, `inner` and `value`
-modifiers, `object` and `companion object`, `interface` and `enum class`; function ends are found
-by brace counting with Kotlin's triple-quoted strings masked. Imports are read by the Java
-extractor, which accepts Kotlin's semicolon-less form; `*.gradle.kts` is read as a manifest, so
-a Gradle project's declared dependencies reach the bill of materials. The data-structure
-detector takes Kotlin's `enum`, `interface` and `record`-like forms on the Java patterns. Measured
-on the Architecture Components samples (263 `.kt`: 942 functions, 294 types), Media3 (161 `.kt`:
-1,044 functions, 189 types) and the OpenAI Java SDK, whose source is Kotlin (2,741 `.kt`:
-100,335 functions, 9,547 types).
+Grammar tier since 2026-11-13 (`fwcd/tree-sitter-kotlin` 0.3.8, the release's WASM asset; the
+package publishes none). Classes with their `data`, `sealed` and `enum` forms, interfaces,
+objects and companion objects are types; functions are attributed to their class, a companion's
+to the enclosing class (`Repo::create`, as Kotlin calls it); a secondary constructor is
+`Repo::constructor`. An **extension function is recorded under its receiver**, `View::fadeIn`
+with the receiver kept as a field, never as the name: under the regex tier the pattern took the
+first word after `fun`, so `fun Fragment.waitForIdle()` was a function named `Fragment`, and the
+Architecture Components samples listed `Fragment`, `LiveData`, `View` and `Flow` as function
+names, all 23 of their extension functions misfiled. Properties, lambdas and init blocks are not
+definitions, as in the Java extractor. Imports are read by the Java extractor, which accepts
+Kotlin's semicolon-less form; `*.gradle.kts` is read as a manifest, so a Gradle project's declared
+dependencies reach the bill of materials; `enum`, `interface` and `record`-like forms reach the
+data-structure detector.
 
-The one verified defect: an **extension function is filed under its receiver type**. The pattern
-captures the first word after `fun`, so `fun Fragment.waitForIdle()` is a function named
-`Fragment`. The Architecture Components samples declare 23 extension functions, and their
-function list carries `Fragment` (twice), `LiveData` (three times), `View` (twice) and `Flow` as
-function names for that reason; the OpenAI SDK has 28 more. Nothing else distinguishes them from
-functions that happen to be named after a type. A grammar retires this; it is the first item on
-the tree-sitter grammar work (`tree-sitter-kotlin-swift-grammars` on the worklist).
+Before and after on the same files, 2026-11-13:
+
+| corpus | functions and methods | types | extension functions | grammar recovery |
+|---|---|---|---|---|
+| Architecture Components (263 `.kt`) | 942 → 963 | 294 → 331 | 23 misfiled → 23 under their receiver | 9 files |
+| OpenAI Java SDK, Kotlin source (2,741 `.kt`) | 100,335 → 120,156 | 9,547 → 10,076 | 314 | 1,143 files |
+
+The one gap found: the 2024 grammar does not parse a class header whose explicit primary
+constructor carries a modifier or an annotation (`class X` newline `internal constructor(…)`,
+`@MainThread constructor(…)`), which is the SDK's builder-pattern idiom on 4,276 lines. The
+recovery is local to the header, the declarations are still extracted, and the hybrid build's
+regex merge added 11,837 entries and repaired 33,872 ends on that corpus where the recovery had
+lost or truncated them. Media3 (161 `.kt`) was not re-measured.
 
 ### Swift
 
-Regex tier. The patterns take `func` with its modifiers, `init`, and `class`, `struct`, `enum`
-and `protocol` as types; brace counting ends them. Methods inside a type are attributed to it
-(`AppDelegate::application`). What the tier does not see, measured on 2026-11-13:
+Grammar tier since 2026-11-13 (`alex-pinkus/tree-sitter-swift` 0.7.3, the release's WASM asset;
+the package publishes none). Struct, class, enum, actor and protocol are types, each carrying its
+kind; `func`, `init`, `deinit` and `subscript` are functions under their type; a protocol's
+requirements are recorded under the protocol, as Java interface methods are. A **computed
+property** (`var body: some View { … }`, where a SwiftUI view's content lives) is a function
+with `kind: 'computed-property'`, so `--functions body` lists every view's body with its span;
+a stored property, and a closure held in a `let`, are not definitions. An **`extension` block**
+is not a second type entry: its members belong to the type it extends (`Store::add`), which is
+what a reader asking for Store's code wants. Imports are still not extracted (`import SwiftUI`
+is not read; `Package.swift` and `Podfile` are admitted by name but no manifest reader parses
+them), though run-time loads such as `dlopen` are. The data-structure detector takes `enum`,
+`struct` and `protocol` on the Java patterns.
 
-- **Computed properties.** `var body: some View { … }` is where a SwiftUI view's content lives.
-  The SwiftUI Tutorials hold 59 such lines and OpenClaw's macOS app 101; the function index has
-  none of them. The two `body` entries OpenClaw does have are `func body(content:)` methods on
-  view modifiers.
-- **`extension` blocks.** 9 in the tutorials, 121 in OpenClaw; none is recorded as a type, and the
-  methods inside one are listed as free functions, not as the extended type's.
-- **Closures, subscripts, operators, `deinit`, `actor`**: no pattern.
+Before and after on the same files, 2026-11-13:
 
-Imports are not extracted (`import SwiftUI` is not read; `Package.swift` and `Podfile` are
-admitted into the index by name but no manifest reader parses them), though run-time loads
-such as `dlopen` are. The data-structure detector takes `enum`, `struct` and `protocol` on
-the Java patterns. Examined on Apple's SwiftUI Tutorials (86 `.swift` files: 99 functions and
-169 types) and on OpenClaw's macOS app (462 `.swift` files: 2,989 functions and 1,210 types).
-The grammar item above adds Swift's grammar and indexes computed properties as functions.
+| corpus | functions and methods | of which computed properties | types | grammar recovery |
+|---|---|---|---|---|
+| SwiftUI Tutorials (86 `.swift`) | 99 → 263 | 0 → 164 (61 `body`) | 169 → 169 | none |
+| OpenClaw's apps (463 `.swift`) | 2,989 → 4,169 | 0 → 656 (103 `body`) | 1,210 → 1,306 (struct 751, enum 368, class 140, actor 28, protocol 18) | 35 files |
+
+Under the regex tier the tutorials' 59 `var body: some View` lines and OpenClaw's 101 had no
+entry at all, and the 9 and 121 `extension` blocks left their methods as free functions. The
+grammar's 35 recoveries on OpenClaw are expression-level (`as? String ?? "dev"`, an empty tuple
+`()` passed as an argument) and leave the declarations intact; 46 OpenClaw files that had no
+entry at all now have one, being files of computed properties and extensions.
 
 ### Objective-C
 
-Regex tier. The patterns take `- (T)name:` and `+ (T)name:` methods, plain C functions,
-`@interface`, `@implementation` and `@protocol`; the C masking family ends them. Headers (`.h`)
-go to the C++ grammar, as in any C project, and a header's `#import` and `@import Module;` lines
-are read as includes, with Apple's framework names classified as platform SDK. The gap is the
-implementation files: **the import census does not read `.m` or `.mm`**, because the C-file test
-that routes a file to the C extractor lists `.c`, `.h`, `.cc`, `.hh`, `.cpp`, `.hpp`, `.cxx`,
-`.hxx` and `.inl` and not the Objective-C extensions. llama.cpp's `ggml-metal.m` imports
-`<Metal/Metal.h>`, the line is in the index, and the census has no Metal row. Run-time loads are
-read from `.m` and `.mm`. One collision: `.m` is also MATLAB, and the Objective-C patterns are
-applied to every `.m` file. Examined on llama.cpp (2 `.m` files: 76 functions) and the Notepad++
-tree's Scintilla Cocoa layer (5 `.mm` files: 222 functions). No corpus and no issue are
-specific to the language; the grammar item adds its grammar with a sniff for the MATLAB case.
+Grammar tier since 2026-11-13 (`tree-sitter-objc` 3.0.2 from npm, a grammar that extends C).
+`@interface Foo` and `@implementation Foo` are both recorded as the class `Foo` (the second with
+the parser's `@line` suffix, kinds `interface` and `implementation`): the interface is where a
+reader finds the declared surface, the implementation where the bodies are. A category
+(`@implementation Foo (Extras)`) is not a type of its own; its methods belong to `Foo`. A
+method's name is its **full selector**, `Person::sayHelloTo:withPrefix:`, kept whole as a C++
+qualified name is; method definitions are recorded, method declarations only inside a
+`@protocol`, since a class interface's declarations repeat its implementation's definitions.
+C functions are named as the C extractor names them; a struct with a body is a type. **`.m` is
+sniffed** (a directive such as `#import` or `@interface`, or a Foundation type, in the first 400
+lines) and a MATLAB `.m` goes to the regex tier as every `.m` did before; `.mm` always takes the
+grammar. Headers (`.h`) go to the C++ grammar, as in any C project, and a header's `#import` and
+`@import Module;` lines are read as includes, with Apple's framework names classified as platform
+SDK. The gap that remains is the implementation files: **the import census does not read `.m`
+or `.mm`**, because the C-file test that routes a file to the C import extractor lists `.c`,
+`.h`, `.cc`, `.hh`, `.cpp`, `.hpp`, `.cxx`, `.hxx` and `.inl` and not the Objective-C extensions.
+llama.cpp's `ggml-metal.m` imports `<Metal/Metal.h>`, the line is in the index, and the census
+has no Metal row. Run-time loads are read from `.m` and `.mm`.
+
+Before and after on the same files, 2026-11-13:
+
+| corpus | functions and methods | types | grammar recovery |
+|---|---|---|---|
+| llama.cpp's Metal backend (2 `.m`) | 76 → 76 | 2 → 13 (the structs with bodies and the class) | none |
+| Scintilla's Cocoa layer (5 `.mm`) | 222 → 418 (138 selector-named) | 22 → 22 | all 5 files: the C++ side of Objective-C++ (namespaces, templates) |
+
+The grammar is Objective-C, not Objective-C++; on `.mm` it recovers from the C++ constructs and
+still lists nearly twice the entries the regex tier had. No issue names the language.
 
 ### Scala
 
-Regex tier, sharing Kotlin's masking family. The patterns take `def`, `class` and `case class`,
-`object` and `case object`, `trait`. Calls resolve within the JVM family (Java, Kotlin, Scala,
-Groovy). Nothing reads Scala imports, and `build.sbt` is admitted by name but not parsed. The
-corpus is Apache Spark, the largest regex-tier measurement on the machine: 6,374 `.scala` files,
-67,859 functions and 14,885 types. No issue names Scala; the grammar item includes it.
+Grammar tier since 2026-11-13 (`tree-sitter-scala` 0.24.0 from npm). Classes, case classes,
+objects, case objects and traits are types, each carrying its kind; `def`s, including an abstract
+`def` in a trait and `def`s nested in `def`s, are functions under their type; a `val` holding a
+lambda is not a definition. Calls resolve within the JVM family (Java, Kotlin, Scala, Groovy).
+Nothing reads Scala imports, and `build.sbt` is admitted by name but not parsed.
+
+Before and after on the same files, 2026-11-13, on Spark's `sql/catalyst` module (1,164
+`.scala` files, the whole 6,374-file tree being the regex-tier measurement above):
+
+| | functions and methods | of which under a type | types | grammar recovery |
+|---|---|---|---|---|
+| regex → grammar | 18,020 → 18,296 | 15,398 → 17,922 | 4,124 → 4,361 (case class 1,568, object 1,202, class 1,044, trait 321, case object 181) | 173 of 1,449 files |
+
+The names the regex tier had and the grammar does not are its false positives: class names
+inside code-generation strings, `unary_` for `def unary_-`. The grammar's recoveries are on
+constructs such as a brace lambda with a type-ascribed parameter and no parentheses
+(`.map { root: RootField => … }`); the regex merge repaired 1,292 ends and added 70 entries on
+the module where the recovery had lost them. No issue names Scala.
 
 ### Java
 
@@ -320,11 +368,15 @@ What stands behind the table, in two kinds.
 
 - **The test suite.** `test/test_parser_default.js` asserts that a bare `--build-index` is the
   hybrid grammar-plus-regex build and that a `--regex-parser` build marks every entry
-  `parser: 'regex'`; its regex-only example is a `.swift` file, which is what the grammar item
-  changes. `test/test_function_bounds.js` covers the regex tier's masking and ends for the
+  `parser: 'regex'`; its regex-only example is a `.lua` file (Swift, until it got a grammar on
+  2026-11-13). `test/test_function_bounds.js` covers the regex tier's masking and ends for the
   JavaScript, C and Python families, the TSX grammar, macro-defined C and C++ names, the merge
   of grammar and regex entries, and that every vendored grammar in `grammars/` is byte-identical
-  to its npm package. `test/test_treesitter_c_names.js` covers C and C++ naming.
+  to its npm package or, for the Kotlin and Swift files fetched from GitHub releases, matches its
+  pinned checksum. `test/test_treesitter_added_grammars.js` covers the four grammars added on
+  2026-11-13 on inline samples: every declaration kind by name and span, an extension function
+  under its receiver, computed properties and extension members, Objective-C selectors and
+  categories, and the `.m` sniff. `test/test_treesitter_c_names.js` covers C and C++ naming.
   `test/test_imports.js` covers Java and Kotlin imports, C#, Go and Rust with their manifests
   and lockfiles, Objective-C `#import` and `@import` as lines (not the `.m` routing), HTML, and
   the lockfile readers. `test/test_data_structs.js` covers the data-structure patterns.
@@ -340,7 +392,7 @@ What stands behind the table, in two kinds.
   properties, the `extension` blocks, the extension functions). They are measurements of what
   the parser produced, not of what it should have: a recall figure exists only where a grammar
   parse of the same files is available to compare against, which is the C and C++ figure above
-  and what the grammar item will produce for Kotlin, Swift, Scala and Objective-C.
+  and the before/after tables in the Kotlin, Swift, Scala and Objective-C sections.
 
 ## What is not done
 
@@ -354,19 +406,23 @@ What stands behind the table, in two kinds.
   functions, its R and XML files a few dozen).
 - Data structures for Python, JavaScript, Scala, PHP and Ruby; exports for anything but Python;
   the AI/ML idiom tier for Rust and Go (#108).
-- Grammars for Kotlin, Swift, Scala and Objective-C: `tree-sitter-kotlin-swift-grammars` on the
-  worklist, which rewrites the four rows above when it lands.
+- The constructs the four grammars added on 2026-11-13 recover from (a Kotlin class header whose
+  explicit constructor carries a modifier, a Scala brace lambda with a typed parameter, Swift
+  expression-level shapes, the C++ in Objective-C++): the hybrid merge fills what the recovery
+  loses; a grammar bump when upstream parses them. Kotlin and Swift data structures from the parse
+  rather than the Java patterns.
 
 ## Sources
 
-The cells were read from: `src/utils.js` (`EXT_TO_LANG` 120–137, `DEFAULT_EXTENSIONS`
-286–315, `TEXT_EXTENSIONS` 316, `DEPENDENCY_FILE_RE` 328–347);
-`src/core/TreeSitterParser.js` (`GRAMMAR_FILES` 67–84, `EXT_TO_TS_LANG` 87–101);
-`src/core/CodeSearchIndex.js` (`_getPatternsForExt` 2723–2975, the pattern tables and the
-extension switch with its generic default); `src/core/function-bounds.js` (`FAMILIES` 34–45,
-`EXT_FAMILY` 47–58); `src/core/imports.js` (the `is*File` tests 36 and 160–166,
+The cells were read from: `src/utils.js` (`EXT_TO_LANG` 119–138, `DEFAULT_EXTENSIONS`
+288–317, `TEXT_EXTENSIONS` 319, `DEPENDENCY_FILE_RE` 331–348);
+`src/core/TreeSitterParser.js` (`looksObjectiveC` 73, `GRAMMAR_FILES` 81–109, `EXT_TO_TS_LANG`
+112–132, and the four extractors at the end of the class);
+`src/core/CodeSearchIndex.js` (`_getPatternsForExt` 2723–3002, the pattern tables and the
+extension switch with its generic default); `src/core/function-bounds.js` (`FAMILIES` 32–45,
+`EXT_FAMILY` 47–61); `src/core/imports.js` (the `is*File` tests 36 and 160–166,
 `extractFileImports` 462–471, `MANIFEST_BASENAME_RE` 946, `lockfileDeps` 1012);
-`src/core/data-structs.js` (`_LANG_BY_EXT` 27–34, `_PATTERNS` 37–51); `src/core/calls.js`
+`src/core/data-structs.js` (`_LANG_BY_EXT` 27–35, `_PATTERNS` 38–59); `src/core/calls.js`
 (`_LANG_FAMILY` 217–224); `src/core/exports.js` (header); `src/core/ai-ml-detectors.js`
 (`reCppExt` 498, the endpoint regex 1434); `src/commands/inspect_binary.js` (`_detectFormat`
 370–399, the framework priority 573). Indexes: `.SwiftUI_Tutorials`, `.openclaw_src_NEW`,

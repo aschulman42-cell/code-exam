@@ -394,7 +394,7 @@ describe('tree-sitter path (live wasm; skipped without grammars)', () => {
     assert.deepEqual([r.after.start, r.after.end], [6, 8]);
   });
 
-  it('every vendored grammar in grammars/ is byte-identical to its npm package copy', () => {
+  it('every vendored grammar in grammars/ is byte-identical to its npm package copy', async () => {
     // The vendored files are plain copies of the prebuilt wasm the grammar
     // packages ship; a package bump without a re-copy would silently leave
     // users on the old grammar. Skipped per file when the (dev) package is
@@ -412,6 +412,8 @@ describe('tree-sitter path (live wasm; skipped without grammars)', () => {
       'tree-sitter-rust.wasm': 'tree-sitter-rust/tree-sitter-rust.wasm',
       'tree-sitter-typescript.wasm': 'tree-sitter-typescript/tree-sitter-typescript.wasm',
       'tree-sitter-tsx.wasm': 'tree-sitter-typescript/tree-sitter-tsx.wasm',
+      'tree-sitter-scala.wasm': 'tree-sitter-scala/tree-sitter-scala.wasm',
+      'tree-sitter-objc.wasm': 'tree-sitter-objc/tree-sitter-objc.wasm',
     };
     let compared = 0;
     for (const [vendored, npmRel] of Object.entries(PAIRS)) {
@@ -423,6 +425,22 @@ describe('tree-sitter path (live wasm; skipped without grammars)', () => {
       compared++;
     }
     assert.ok(compared > 0 || !fs.existsSync(path.resolve('node_modules', 'tree-sitter-c')), 'compared at least one pair when packages are installed');
+
+    // The Kotlin and Swift packages publish no wasm, so those two vendored
+    // files are the `tree-sitter-<lang>.wasm` assets of the upstream GitHub
+    // releases, pinned here by checksum (tree-sitter-kotlin-swift-grammars,
+    // 2026-11-13). A bump means a new asset, a new checksum, and a new
+    // version in THIRD-PARTY-NOTICES.md, in one change.
+    const { createHash } = await import('node:crypto');
+    const RELEASE_ASSETS = {
+      'tree-sitter-kotlin.wasm': { release: 'fwcd/tree-sitter-kotlin 0.3.8', sha256: 'c624e7443b371c28adc5d81674e73067564c12555ebe3ed96a6c8db814b7602d' },
+      'tree-sitter-swift.wasm': { release: 'alex-pinkus/tree-sitter-swift 0.7.3', sha256: '0258a7ef17303a8079ffe0748b3583d59656b5c3e8653fca7b6451b3e6689eb2' },
+    };
+    for (const [vendored, { release, sha256 }] of Object.entries(RELEASE_ASSETS)) {
+      const v = path.resolve('grammars', vendored);
+      assert.ok(fs.existsSync(v), `${vendored} is vendored`);
+      assert.equal(createHash('sha256').update(fs.readFileSync(v)).digest('hex'), sha256, `${vendored} is the ${release} release asset`);
+    }
   });
 
   it('a --use-tree-sitter build keeps one entry per definition and labels regex-only entries', async () => {

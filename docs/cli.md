@@ -108,7 +108,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 #### `--regex-parser`
 
-- **Does**: Builds the function index with the regex parser on every file. The default (no flag) parses each file whose language has a shipped tree-sitter grammar (C, C++, C#, Go, Java, JavaScript, PHP, Python, Ruby, Rust, TypeScript, TSX) with that grammar and merges in the regex parser's extra entries; files in other languages, and every file when `web-tree-sitter` is not installed, get the regex parser anyway.
+- **Does**: Builds the function index with the regex parser on every file. The default (no flag) parses each file whose language has a shipped tree-sitter grammar (C, C++, C#, Go, Java, JavaScript, Kotlin, Objective-C, PHP, Python, Ruby, Rust, Scala, Swift, TypeScript, TSX) with that grammar and merges in the regex parser's extra entries; files in other languages, and every file when `web-tree-sitter` is not installed, get the regex parser anyway.
 - **Good for**: Speed on a very large tree, and the pathological single file (a ~400k-line minified bundle) that exhausts Node's heap under the grammar parse — see `example-indexes.md`.
 - **Couples with**: `--build-index`, `--rebuild-functions`. `--use-tree-sitter` is still accepted: it names the default, does nothing extra, and is absent from `--help`; giving both flags is an error.
 - **Naming**: names the parser you get, not the one you leave; opting out of the default (same family as `--no-rename`; `--use-tree-sitter` and `--skip-semantic` are the accepted-and-hidden kind).

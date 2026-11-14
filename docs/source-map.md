@@ -77,7 +77,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 
 - `src/core/CodeSearchIndex.js` — core index class: builds/saves/loads indexes, parses functions/classes, serves literal/inverted/regex search
 - `src/core/CSI-helpers.js` — deobfuscates minified JS, infers opaque names, scans string/comment state, classifies command gates
-- `src/core/TreeSitterParser.js` — WASM tree-sitter extraction for 12 grammars, with binary sniffing, a size cap and a per-parse timeout
+- `src/core/TreeSitterParser.js` — WASM tree-sitter extraction for 16 grammars, with binary sniffing, a size cap and a per-parse timeout
 - `src/core/ai-ml-detectors.js` — 17 AI/ML detector methods (models, kernels, training, LLM calls, chains…) mixed onto the index prototype
 - `src/core/ai-overview.js` — agentic prose orientation: drives Claude/OpenAI/Gemini over CE's own MCP tools and sums per-turn cost
 - `src/core/ai-overview-local.js` — runs the Overview by AI on a local GGUF via node-llama-cpp tool-calling, with tool-floor and refusal guards

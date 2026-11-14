@@ -133,6 +133,8 @@ export const EXT_TO_LANG = {
   '.rb': 'ruby',
   '.kt': 'kotlin', '.kts': 'kotlin',
   '.swift': 'swift',
+  '.scala': 'scala', '.sc': 'scala',
+  '.m': 'objc', '.mm': 'objc',
 };
 
 /** Language-appropriate class::method separators for display */
@@ -140,7 +142,7 @@ const LANG_SEPARATOR = {
   'cpp': '::', 'c': '::', 'c_sharp': '.',
   'java': '.', 'python': '.', 'javascript': '.', 'typescript': '.',
   'go': '.', 'rust': '::', 'php': '::', 'ruby': '.',
-  'kotlin': '.', 'swift': '.',
+  'kotlin': '.', 'swift': '.', 'scala': '.', 'objc': '.',
 };
 
 

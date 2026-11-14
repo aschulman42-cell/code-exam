@@ -11,9 +11,12 @@ from what is installed.
 
 ## Tree-sitter grammars (`grammars/`)
 
-The twelve `.wasm` files are unmodified copies of the prebuilt grammar each
-npm package publishes (`test/test_function_bounds.js` asserts byte identity
-against the installed package). They are loaded at run time by
+Sixteen `.wasm` files. Fourteen are unmodified copies of the prebuilt grammar
+each npm package publishes (`test/test_function_bounds.js` asserts byte
+identity against the installed package). The Kotlin and Swift packages
+publish no wasm, so those two files are the `tree-sitter-<lang>.wasm` assets
+of the upstream GitHub releases named in their rows, unmodified, pinned by the
+sha256 the same test asserts. All are loaded at run time by
 `web-tree-sitter`, which npm installs as a dependency; it is not
 redistributed in this repository.
 
@@ -25,10 +28,14 @@ redistributed in this repository.
 | `grammars/tree-sitter-go.wasm` | `tree-sitter-go` 0.25.0 | 2014 Max Brunsfeld | https://github.com/tree-sitter/tree-sitter-go | MIT |
 | `grammars/tree-sitter-java.wasm` | `tree-sitter-java` 0.23.5 | 2017 Ayman Nadeem | https://github.com/tree-sitter/tree-sitter-java | MIT |
 | `grammars/tree-sitter-javascript.wasm` | `tree-sitter-javascript` 0.25.0 | 2014 Max Brunsfeld | https://github.com/tree-sitter/tree-sitter-javascript | MIT |
+| `grammars/tree-sitter-kotlin.wasm` | `tree-sitter-kotlin` 0.3.8 (the GitHub release's `tree-sitter-kotlin.wasm` asset; sha256 c624e7443b371c28adc5d81674e73067564c12555ebe3ed96a6c8db814b7602d) | 2019 fwcd | https://github.com/fwcd/tree-sitter-kotlin | MIT |
+| `grammars/tree-sitter-objc.wasm` | `tree-sitter-objc` 3.0.2 | 2023 Amaan Qureshi | https://github.com/tree-sitter-grammars/tree-sitter-objc | MIT |
 | `grammars/tree-sitter-php.wasm` | `tree-sitter-php` 0.24.2 | 2017 Josh Vera, GitHub | https://github.com/tree-sitter/tree-sitter-php | MIT |
 | `grammars/tree-sitter-python.wasm` | `tree-sitter-python` 0.25.0 | 2016 Max Brunsfeld | https://github.com/tree-sitter/tree-sitter-python | MIT |
 | `grammars/tree-sitter-ruby.wasm` | `tree-sitter-ruby` 0.23.1 | 2016 Rob Rix | https://github.com/tree-sitter/tree-sitter-ruby | MIT |
 | `grammars/tree-sitter-rust.wasm` | `tree-sitter-rust` 0.24.0 | 2017 Maxim Sokolov | https://github.com/tree-sitter/tree-sitter-rust | MIT |
+| `grammars/tree-sitter-scala.wasm` | `tree-sitter-scala` 0.24.0 | 2018 Max Brunsfeld and GitHub | https://github.com/tree-sitter/tree-sitter-scala | MIT |
+| `grammars/tree-sitter-swift.wasm` | `tree-sitter-swift` 0.7.3 (the GitHub release's `tree-sitter-swift.wasm` asset; sha256 0258a7ef17303a8079ffe0748b3583d59656b5c3e8653fca7b6451b3e6689eb2) | 2021 alex-pinkus | https://github.com/alex-pinkus/tree-sitter-swift | MIT |
 | `grammars/tree-sitter-typescript.wasm` | `tree-sitter-typescript` 0.23.2 | 2017 Max Brunsfeld | https://github.com/tree-sitter/tree-sitter-typescript | MIT |
 | `grammars/tree-sitter-tsx.wasm` | `tree-sitter-typescript` 0.23.2 (its `tree-sitter-tsx.wasm` build) | 2017 Max Brunsfeld | https://github.com/tree-sitter/tree-sitter-typescript | MIT |
 

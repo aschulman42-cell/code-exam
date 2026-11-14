@@ -66,9 +66,9 @@ routine; the other caveat is *pathological single files* — both are in
 [`CODEEXAM_KNOWN_LIMITATIONS.md`](CODEEXAM_KNOWN_LIMITATIONS.md).)
 
 **Languages.** Precise structure comes from tree-sitter WASM grammars for **C, C++, Java,
-JavaScript, TypeScript, Python, C#, Go, Rust, PHP, Ruby** — the default build, with the regex
-parser's extra entries merged in; a regex fallback covers **Swift, Kotlin, Scala, Lua,
-Objective-C, Lean, CoffeeScript, Perl, VBScript, AWK**, and `--regex-parser` (or the Build Index
+JavaScript, TypeScript, Python, C#, Go, Rust, PHP, Ruby, Kotlin, Swift, Scala, Objective-C** —
+the default build, with the regex parser's extra entries merged in; a regex fallback covers
+**Lean, Lua, CoffeeScript, Perl, VBScript, AWK**, and `--regex-parser` (or the Build Index
 dialog's "Regex parser only" box) builds every file that way. Non-code text — **YAML**
 (`.yaml` / `.yml`), Markdown, plain text — is indexed as searchable text (not AST-parsed); the
 YAML coverage is what the Infrastructure detectors content-sniff. What each language gets from

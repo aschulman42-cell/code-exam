@@ -63,6 +63,20 @@ export function looksMpegTs(sourceLines) {
   return first.charCodeAt(0) === 0x47 && first.charCodeAt(188) === 0x47 && first.charCodeAt(376) === 0x47;
 }
 
+// `.m` is Objective-C or MATLAB. An Objective-C file announces itself in its
+// first lines: a directive (`#import`, `@interface`, `@implementation`,
+// `@protocol`, `@end`, `@import`, `@class`, `@property`, `@autoreleasepool`)
+// or a Foundation type. MATLAB has none of these (its comments start with
+// `%`). Checked over the first 400 lines; a `.m` that fails goes to the regex
+// tier, as every `.m` did before the grammar (tree-sitter-kotlin-swift-grammars,
+// 2026-11-13).
+export function looksObjectiveC(sourceLines) {
+  const lines = Array.isArray(sourceLines) ? sourceLines : String(sourceLines || '').split('\n');
+  const head = lines.slice(0, 400).join('\n');
+  return /^\s*(?:#import|@interface|@implementation|@protocol|@end|@import|@class|@property|@autoreleasepool)\b/m.test(head)
+    || /\bNS(?:String|Object|Array|Dictionary|Log|Integer|Number|Error)\b/.test(head);
+}
+
 // Map from language name (as used in EXT_TO_LANG) to grammar .wasm filename
 const GRAMMAR_FILES = {
   c:          'tree-sitter-c.wasm',
@@ -81,6 +95,17 @@ const GRAMMAR_FILES = {
   c_sharp:    'tree-sitter-c-sharp.wasm',
   php:        'tree-sitter-php.wasm',
   ruby:       'tree-sitter-ruby.wasm',
+  // Added 2026-11-13 (tree-sitter-kotlin-swift-grammars). Scala and
+  // Objective-C are copies of the wasm their npm packages publish, like the
+  // twelve above. The Kotlin and Swift packages publish no wasm, so those two
+  // are the `tree-sitter-<lang>.wasm` assets of the upstream GitHub releases,
+  // pinned by sha256 in test_function_bounds.js. The `tree-sitter-wasms`
+  // bundle was tried first and rejected: its files carry the legacy `dylink`
+  // custom section, and web-tree-sitter 0.26 loads only `dylink.0`.
+  kotlin:     'tree-sitter-kotlin.wasm',
+  swift:      'tree-sitter-swift.wasm',
+  scala:      'tree-sitter-scala.wasm',
+  objc:       'tree-sitter-objc.wasm',
 };
 
 // Map file extension → language name (mirrors EXT_TO_LANG from utils.js)
@@ -98,6 +123,12 @@ const EXT_TO_TS_LANG = {
   '.rs': 'rust',
   '.php': 'php',
   '.rb': 'ruby',
+  '.kt': 'kotlin', '.kts': 'kotlin',
+  '.swift': 'swift',
+  '.scala': 'scala', '.sc': 'scala',
+  // `.m` is also MATLAB: parseFunctions sniffs for Objective-C first, and a
+  // MATLAB file goes to the regex tier as before.
+  '.m': 'objc', '.mm': 'objc',
 };
 
 
@@ -186,6 +217,7 @@ export class TreeSitterParser {
     const ext = path.extname(filepath).toLowerCase();
     const langName = EXT_TO_TS_LANG[ext];
     if (!langName) return null;
+    if (ext === '.m' && !looksObjectiveC(sourceLines)) return null;   // MATLAB: regex tier
 
     // #299: binary content must never reach a language grammar (the ExoPlayer
     // MPEG-TS-as-TypeScript 2-hour build). Callers also pre-check via the
@@ -249,6 +281,18 @@ export class TreeSitterParser {
           break;
         case 'ruby':
           result = this._extractRuby(tree.rootNode, sourceLines);
+          break;
+        case 'kotlin':
+          result = this._extractKotlin(tree.rootNode, sourceLines);
+          break;
+        case 'swift':
+          result = this._extractSwift(tree.rootNode, sourceLines);
+          break;
+        case 'scala':
+          result = this._extractScala(tree.rootNode, sourceLines);
+          break;
+        case 'objc':
+          result = this._extractObjC(tree.rootNode, sourceLines);
           break;
         default:
           result = null;
@@ -1073,6 +1117,274 @@ export class TreeSitterParser {
     };
 
     walk(rootNode, []);
+    return result;
+  }
+
+
+  // ========================================================================
+  // Kotlin (tree-sitter-kotlin-swift-grammars, 2026-11-13)
+  // ========================================================================
+  //
+  // The fwcd grammar names no fields, so names come from child positions: a
+  // declaration's name is its first `type_identifier` (types) or
+  // `simple_identifier` (functions) child. An extension function
+  // (`fun View.fadeIn()`) carries its receiver as a `user_type` child before
+  // the name; it is recorded as `View::fadeIn`, the receiver a qualifier and
+  // never the name, which is the defect the regex tier had (the Architecture
+  // Components samples listed `Fragment`, `LiveData`, `View` and `Flow` as
+  // function names). Members of a class, object or companion object are
+  // attributed to the enclosing class (`Repo::create` for a companion's
+  // function, since that is how Kotlin code calls it); a secondary
+  // constructor is `Repo::constructor`. Properties, lambdas and init blocks
+  // are not definitions here, as in the Java extractor.
+
+  _extractKotlin(rootNode, sourceLines) {
+    const result = {};
+    const firstChild = (node, ...types) => {
+      for (let i = 0; i < node.childCount; i++) {
+        const c = node.child(i);
+        if (types.includes(c.type)) return c;
+      }
+      return null;
+    };
+
+    const walk = (node, owner) => {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        const type = child.type;
+        const startLine = child.startPosition.row + 1;
+        const endLine = child.endPosition.row + 1;
+
+        if (type === 'class_declaration' || type === 'object_declaration') {
+          const nameNode = firstChild(child, 'type_identifier');
+          const name = nameNode ? nameNode.text : null;
+          if (name) {
+            this._addFunction(result, name, startLine, endLine, 'class');
+            walk(child, name);
+          } else {
+            walk(child, owner);
+          }
+        } else if (type === 'companion_object') {
+          const nameNode = firstChild(child, 'type_identifier');
+          const name = nameNode ? nameNode.text : 'Companion';
+          this._addFunction(result, owner ? `${owner}::${name}` : name, startLine, endLine, 'class');
+          walk(child, owner);
+        } else if (type === 'function_declaration') {
+          const nameNode = firstChild(child, 'simple_identifier');
+          const funcName = nameNode ? nameNode.text : null;
+          if (funcName) {
+            // A receiver type precedes the name in an extension function.
+            // (Nodes are compared by position: web-tree-sitter returns a new
+            // object on every child() call, so identity never matches.)
+            let receiver = null;
+            for (let j = 0; j < child.childCount; j++) {
+              const c = child.child(j);
+              if (c.startIndex >= nameNode.startIndex) break;
+              if (c.type === 'user_type' || c.type === 'nullable_type') {
+                receiver = c.text.replace(/<[\s\S]*$/, '').replace(/\?$/, '');
+              }
+            }
+            const qualifier = owner || receiver;
+            const fullName = qualifier ? `${qualifier}::${funcName}` : funcName;
+            this._addFunction(result, fullName, startLine, endLine, 'function', receiver ? { receiver } : null);
+          }
+          walk(child, owner);
+        } else if (type === 'secondary_constructor') {
+          this._addFunction(result, owner ? `${owner}::constructor` : 'constructor', startLine, endLine, 'function');
+        } else {
+          walk(child, owner);
+        }
+      }
+    };
+
+    walk(rootNode, null);
+    return result;
+  }
+
+
+  // ========================================================================
+  // Swift (tree-sitter-kotlin-swift-grammars, 2026-11-13)
+  // ========================================================================
+  //
+  // `class_declaration` covers struct, class, enum, actor and extension by
+  // its `declaration_kind` field. An extension is not a type of its own: its
+  // members are attributed to the type it extends (`Store::add`), which is
+  // what a reader asking for Store's code wants. A computed property
+  // (`var body: some View { … }`, where a SwiftUI view's content lives) is
+  // recorded as a function with `kind: 'computed-property'`; a stored
+  // property, and a closure stored in a `let`, are not definitions. `init`,
+  // `deinit` and `subscript` take those words as names. Protocol requirements
+  // are recorded under the protocol, as Java interface methods are.
+
+  _extractSwift(rootNode, sourceLines) {
+    const result = {};
+
+    const walk = (node, owner) => {
+      const qualified = (n) => (owner ? `${owner}::${n}` : n);
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        const type = child.type;
+        const startLine = child.startPosition.row + 1;
+        const endLine = child.endPosition.row + 1;
+
+        if (type === 'class_declaration' || type === 'protocol_declaration') {
+          const kindNode = child.childForFieldName('declaration_kind');
+          const kind = kindNode ? kindNode.text : (type === 'protocol_declaration' ? 'protocol' : 'class');
+          const nameNode = child.childForFieldName('name');
+          const name = nameNode ? nameNode.text.replace(/<[\s\S]*$/, '') : null;
+          if (!name) { walk(child, owner); continue; }
+          if (kind !== 'extension') this._addFunction(result, name, startLine, endLine, 'class', { kind });
+          const body = child.childForFieldName('body');
+          if (body) walk(body, name);
+        } else if (type === 'function_declaration' || type === 'protocol_function_declaration') {
+          const nameNode = child.childForFieldName('name');
+          const funcName = nameNode ? nameNode.text : null;
+          if (funcName) this._addFunction(result, qualified(funcName), startLine, endLine, 'function');
+          const body = child.childForFieldName('body');
+          if (body) walk(body, owner);
+        } else if (type === 'init_declaration' || type === 'deinit_declaration' || type === 'subscript_declaration') {
+          this._addFunction(result, qualified(type.split('_')[0]), startLine, endLine, 'function');
+        } else if (type === 'property_declaration') {
+          const computed = child.childForFieldName('computed_value');
+          const nameNode = child.childForFieldName('name');
+          if (computed && nameNode) {
+            this._addFunction(result, qualified(nameNode.text), startLine, endLine, 'function', { kind: 'computed-property' });
+          }
+        } else {
+          walk(child, owner);
+        }
+      }
+    };
+
+    walk(rootNode, null);
+    return result;
+  }
+
+
+  // ========================================================================
+  // Scala (tree-sitter-kotlin-swift-grammars, 2026-11-13)
+  // ========================================================================
+  //
+  // `class_definition`, `object_definition` and `trait_definition` are types
+  // (a `case` keyword child marks a case class or case object, kept as
+  // `kind`); `function_definition` and `function_declaration` (an abstract
+  // `def` in a trait) are functions attributed to the enclosing type, nested
+  // `def`s included. A `val` holding a lambda is not a definition, as in the
+  // Kotlin and Java extractors; Scala 3 `given` and `extension` definitions
+  // are walked through, not recorded.
+
+  _extractScala(rootNode, sourceLines) {
+    const result = {};
+    const hasCase = (node) => {
+      for (let i = 0; i < node.childCount; i++) if (node.child(i).type === 'case') return true;
+      return false;
+    };
+
+    const walk = (node, owner) => {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        const type = child.type;
+        const startLine = child.startPosition.row + 1;
+        const endLine = child.endPosition.row + 1;
+
+        if (type === 'class_definition' || type === 'object_definition' || type === 'trait_definition' || type === 'enum_definition') {
+          const nameNode = child.childForFieldName('name');
+          const name = nameNode ? nameNode.text : null;
+          if (name) {
+            const base = type.replace('_definition', '');
+            this._addFunction(result, name, startLine, endLine, 'class', { kind: hasCase(child) ? `case ${base}` : base });
+            walk(child, name);
+          } else {
+            walk(child, owner);
+          }
+        } else if (type === 'function_definition' || type === 'function_declaration') {
+          const nameNode = child.childForFieldName('name');
+          const funcName = nameNode ? nameNode.text : null;
+          if (funcName) this._addFunction(result, owner ? `${owner}::${funcName}` : funcName, startLine, endLine, 'function');
+          walk(child, owner);
+        } else {
+          walk(child, owner);
+        }
+      }
+    };
+
+    walk(rootNode, null);
+    return result;
+  }
+
+
+  // ========================================================================
+  // Objective-C (tree-sitter-kotlin-swift-grammars, 2026-11-13)
+  // ========================================================================
+  //
+  // The grammar extends C, so C functions are named as the C extractor names
+  // them, and a struct with a body is a type. `@interface Foo` and
+  // `@implementation Foo` are both recorded as the class `Foo` (the second
+  // takes the `@line` suffix): the interface is where a reader finds the
+  // declared surface, the implementation where the bodies are. A category
+  // (`@implementation Foo (Extras)`) is not a type of its own; its methods
+  // belong to `Foo`. A method's name is its full selector,
+  // `sayHelloTo:withPrefix:`, kept whole as a C++ qualified name is; the `+`
+  // or `-` is not part of it. Method definitions are recorded; method
+  // declarations only inside a `@protocol`, since a class interface's
+  // declarations repeat its implementation's definitions.
+
+  _extractObjC(rootNode, sourceLines) {
+    const result = {};
+    const selectorOf = (node) => {
+      let sel = '';
+      let afterIdent = false;
+      for (let i = 0; i < node.childCount; i++) {
+        const c = node.child(i);
+        if (c.type === 'identifier') { sel += c.text; afterIdent = true; }
+        else if (c.type === 'method_parameter' && afterIdent) { sel += ':'; afterIdent = false; }
+        else if (c.type === 'compound_statement') break;
+      }
+      return sel || null;
+    };
+    const firstIdentifier = (node) => {
+      for (let i = 0; i < node.childCount; i++) {
+        const c = node.child(i);
+        if (c.type === 'identifier') return c.text;
+      }
+      return null;
+    };
+
+    const walk = (node, owner, inProtocol) => {
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i);
+        const type = child.type;
+        const startLine = child.startPosition.row + 1;
+        const endLine = child.endPosition.row + 1;
+
+        if (type === 'class_interface' || type === 'class_implementation') {
+          const name = firstIdentifier(child);
+          if (!name) { walk(child, owner, false); continue; }
+          if (!child.childForFieldName('category')) {
+            this._addFunction(result, name, startLine, endLine, 'class', { kind: type === 'class_interface' ? 'interface' : 'implementation' });
+          }
+          walk(child, name, false);
+        } else if (type === 'protocol_declaration') {
+          const name = firstIdentifier(child);
+          if (name) this._addFunction(result, name, startLine, endLine, 'class', { kind: 'protocol' });
+          walk(child, name || owner, true);
+        } else if (type === 'method_definition' || (type === 'method_declaration' && inProtocol)) {
+          const sel = selectorOf(child);
+          if (sel) this._addFunction(result, owner ? `${owner}::${sel}` : sel, startLine, endLine, 'function');
+        } else if (type === 'function_definition') {
+          const funcName = this._extractCFuncName(child.childForFieldName('declarator'));
+          if (funcName) this._addFunction(result, funcName, startLine, endLine, 'function');
+        } else if (type === 'struct_specifier') {
+          const nameNode = child.childForFieldName('name');
+          if (nameNode && child.childForFieldName('body')) this._addFunction(result, nameNode.text, startLine, endLine, 'class');
+          walk(child, owner, inProtocol);
+        } else {
+          walk(child, owner, inProtocol);
+        }
+      }
+    };
+
+    walk(rootNode, null, false);
     return result;
   }
 }
