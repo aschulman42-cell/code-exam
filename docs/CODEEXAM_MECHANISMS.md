@@ -282,7 +282,9 @@ Dated one-line results; the tables are on the linked pages.
   the public claim charts that cite code row by row, 22 rows cite two or more functions that
   are in a record; one row fits in a single record, and the 119 functions of those rows sit
   in 72 files and take 94 records. They do not call each other (121 functions, 95 groups by
-  direct calls) but often share a caller (43 groups). A row citing one function, 14 rows, is
+  direct calls). They often share a caller (43 groups), but about half of those callers are
+  test code and the rest small helpers, and a caller with what it calls holds no more of a
+  row than the best record does (42 functions against 41). A row citing one function, 14 rows, is
   answered by the record holding it (2026-11-14,
   [`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md)).
 

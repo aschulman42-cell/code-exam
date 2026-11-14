@@ -15,7 +15,7 @@ import {
   functionsByFile, functionsAt, recordsByMember, scorePage, summaryRow, SUMMARY_HEAD,
   renderMarkdown, renderText, parseOwnArgs,
   scoreCited, scoreFiling, harnessCounts, filingsOf, filingRow, FILING_HEAD, renderFilings,
-  callComponents, oneFunctionIds, rowLines, renderRows, ROW_HEAD,
+  callComponents, oneFunctionIds, rowLines, renderRows, ROW_HEAD, callerReading, isTestPath,
 } from '../scripts/mechanism-containment.mjs';
 
 const PAGE = [
@@ -406,14 +406,51 @@ describe("a litigant's filing as the ground truth", () => {
     assert.deepEqual(callComponents([], out), { functions: 0, direct: 0, chain: 0, commonCaller: 0 });
   });
 
+  it('tells test, benchmark and example files from the rest by path', () => {
+    for (const f of ['src/tests.c', 'src/tests_exhaustive.c', 'src/bench_internal.c', 'src/modules/recovery/tests_impl.h', 'sql/core/src/test/scala/X.scala', 'a/FooTest.java', 'a/FooSuite.scala', 'web/app.test.js', 'examples/demo.c']) assert.equal(isTestPath(f), true, f);
+    for (const f of ['src/key.cpp', 'src/ecdsa_impl.h', 'src/attestation.c', 'src/contest/main.go', 'src/latest.js']) assert.equal(isTestPath(f), false, f);
+  });
+
+  it('reads which callers join: test callers apart, the best caller outside test code', () => {
+    const nodes = ['src/a.c@a', 'src/a.c@b', 'src/b.c@c', 'src/b.c@d'];
+    const out = new Map([
+      ['src/tests.c@run_all', new Set(nodes)],                              // a test calls all four
+      ['src/x.c@helper', new Set(['src/a.c@a', 'src/a.c@b', 'src/z.c@z'])], // a helper calls a and b
+      ['src/b.c@c', new Set(['src/b.c@d'])],                                // c calls d directly
+    ]);
+    const callers = new Map([
+      ['src/a.c@a', new Set(['src/tests.c@run_all', 'src/x.c@helper'])],
+      ['src/a.c@b', new Set(['src/tests.c@run_all', 'src/x.c@helper', 'src/y.c@lone'])],
+      ['src/b.c@c', new Set(['src/tests.c@run_all'])],
+      ['src/b.c@d', new Set(['src/tests.c@run_all', 'src/b.c@c'])],
+    ]);
+    const k = callerReading(nodes, out, callers);
+    assert.equal(k.joiners, 2);            // run_all and helper; lone calls one and joins nothing
+    assert.equal(k.testJoiners, 1);
+    assert.equal(k.groups, 1);             // the test joins everything
+    assert.equal(k.groupsNoTest, 2);       // {a, b} by the helper, {c, d} by the direct call
+    assert.deepEqual({ caller: k.best.caller, calls: k.best.calls, callees: k.best.callees, cited: k.best.cited }, { caller: 'src/x.c@helper', calls: 2, callees: 3, cited: false });
+    assert.equal(k.list[0].caller, 'src/tests.c@run_all');
+    const none = callerReading(['src/a.c@a'], out, callers);
+    assert.equal(none.best, null);
+    assert.equal(none.groups, 1);
+  });
+
+  it('shows the callers reading in a chart row line when it is there', () => {
+    const score = scoreFiling(['CKey::Sign', 'Verify'], [], fns, byMember);
+    const results = [{ id: 'f-1', repo: 'o/r', rows: [{ label: '1[a]', score, calls: { functions: 2, direct: 2, chain: 2, commonCaller: 1 }, callers: { groupsNoTest: 2, best: { calls: 1, cited: true } } }] }];
+    assert.deepEqual(rowLines(results)[0].slice(-2), [2, 2]);   // a cited caller counts itself
+    assert.ok(renderRows(results).includes('2 with test callers left out; best non-test caller holds 2'));
+  });
+
   it('lists the one-function names of a score and renders a line per chart row', () => {
     const score = scoreFiling(['CKey::Sign', 'Verify', 'Helper'], [], fns, byMember);
     assert.deepEqual(oneFunctionIds(score).sort(), ['src/key.cpp@CKey::Sign', 'src/key.cpp@Verify']);   // the class name is not one function
     const results = [{ id: 'f-1', repo: 'o/r', rows: [{ label: '1[a]', score, calls: { functions: 2, direct: 2, chain: 1, commonCaller: 1 } }] }];
     const [line] = rowLines(results);
     assert.equal(line.length, ROW_HEAD.length);
-    assert.deepEqual(line, ['f-1', 'o/r', '1[a]', 3, 3, 3, 2, 2, 2, 2, 1, 1]);
-    assert.ok(renderRows(results, { md: true }).includes('| f-1 | o/r | 1[a] | 3 | 3 | 3 | 2 | 2 | 2 | 2 | 1 | 1 |'));
+    assert.deepEqual(line, ['f-1', 'o/r', '1[a]', 3, 3, 3, 2, 2, 2, 2, 1, 1, '', '']);
+    assert.ok(renderRows(results, { md: true }).includes('| f-1 | o/r | 1[a] | 3 | 3 | 3 | 2 | 2 | 2 | 2 | 1 | 1 |  |  |'));
     assert.equal(renderRows([{ id: 'f-2', repo: 'o/q', rows: [] }]), '');
   });
 });

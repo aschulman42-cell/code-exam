@@ -28,9 +28,18 @@ commands and shared name words, and no such group holds functions from several f
 share no name. Nor are the functions of one limitation joined by calling each other: in no
 row do direct calls join them, and 121 functions fall into 95 groups that way. What they
 more often share is a caller. Counting a function that calls two of them as a link, the 121
-fall into 43 groups. That points at one addition worth testing, a mechanism built downward
-from a calling function to what it calls. The command seed already works that way, but only
-for the handlers of command-line options: CodeExam's command catalog also lists GUI actions,
+fall into 43 groups. The callers were then read, and they do not carry the weight: about
+half are test or benchmark code, the rest are mostly small helpers that happen to call two
+library primitives, and a caller together with what it calls would hold no more of a chart
+row than today's best mechanism does (42 functions against 41, over 19 rows). So nothing
+structural measured here, whether file, class, shared name, direct call or shared caller,
+gathers what a litigant cites for one limitation. What a row's functions have in common is
+what the limitation says. That points away from a better grouping and toward finding
+functions, or small mechanisms, by meaning, and scoring what is found as a set per
+limitation. A mechanism built downward from a calling function to what it calls may still
+suit application code: over whole filings it beat the best mechanism in 3 of 9, a servlet's
+request handler calling 6 of 16 cited functions. The command seed already works that way,
+but only for the handlers of command-line options: CodeExam's command catalog also lists GUI actions,
 server routes, slash commands and events, and the seed does not read those yet. The wider
 form has not yet been built or tested (nor has using other CodeExam catalogs besides the command
 catalog, such as referenced-resources or the AI/ML detectors). Two smaller repairs are known and do not
@@ -187,8 +196,9 @@ What this says:
    the two secp256k1 filings with five functions per row, no function calls another.
 3. **They often share a caller.** The nine functions of one Foundry row join into one group
    through functions that call them. Over the whole PROGME filing, which has no rows, the
-   sixteen cited getters do the same. The chart seems to walk down from one function and
-   cite what it calls, without always citing that function.
+   sixteen cited getters do the same. The first reading of this was that a chart walks down
+   from one function and cites what it calls. Reading the callers (below) does not bear
+   that out for chart rows.
 4. **A row with one cited function is already answered**: 14 rows, a quarter of the chart
    rows that cite a function.
 
@@ -198,13 +208,58 @@ How far to trust the call figures:
   71 a caller. A function with no edge read cannot join anything, so some groups are too
   many; the direct-call result is too lopsided for that to explain it.
 - **A common caller is a weak link.** A test, a `main` or a dispatcher calls many unrelated
-  things. The script does not say which callers joined a row, and that has to be read before
-  a seed is built on it.
+  things. Which callers joined each row is read in the next part.
 - **Callees are CodeExam's own resolution** of a call to one definition; a caller counts
   only when its resolved callees include the cited function. Calls through macros, function
   pointers and interfaces are missed.
 - **One limitation can read on code no chart row names.** A row is what the litigant chose
   to cite, not everything the limitation covers.
+
+### Which callers do the joining (2026-11-14)
+
+A joining caller is a function that calls two or more of a row's firmly matched functions.
+`--calls` now reports them; `-v` lists them per chart row.
+
+```
+node scripts/mechanism-containment.mjs --filings <work dir> --calls -v
+```
+
+Over the same 21 rows (15 distinct lists):
+
+| | all rows | distinct lists |
+|---|--:|--:|
+| joining callers | 259 | 159 |
+| of those, in test or benchmark code | 127 | 79 |
+| groups by direct calls or a common caller | 45 | 33 |
+| the same with test callers left out | 54 | 41 |
+| rows joined into one group, test callers left out | 0 | 0 |
+| rows with a joining caller outside test code | 19 | 13 |
+| functions of those rows the best such caller holds, with what it calls | 42 | 30 |
+| functions of those rows today's best mechanism holds | 41 | 29 |
+| rows where the caller holds more / the same / fewer | 2 / 16 / 1 | 2 / 10 / 1 |
+
+(The 45 here is direct calls plus a common caller; the 43 above also counts one function
+between two of them.)
+
+1. **About half the joining callers are tests or benchmarks.** `run_proper_context_tests`
+   and `bench_setup` call many cited functions because they exercise the library, not
+   because those functions belong together.
+2. **The callers outside test code are small helpers, not orchestrators.** The best one for
+   a row has 3 callees at the median and 9 at most, and calls 2 of the row's functions. In
+   secp256k1 it is `secp256k1_eckey_pubkey_serialize`, which calls `secp256k1_fe_get_b32`
+   and `secp256k1_fe_is_odd`. The litigants cite library primitives, and many functions call
+   two primitives.
+3. **A caller with what it calls is no better a unit for a chart row** than the best
+   mechanism the index already has: 42 against 41.
+4. **Whole filings of application code are different.** In Comcast's cmb, `doGet` of
+   `AdminServlet` calls 6 of the 16 cited getters, against 2 for the best mechanism; in
+   bitcoin, `CKey::MakeNewKey` with its three cited callees holds 4 of 7, against 2. Over
+   the 9 filings with a joining caller outside test code, the caller holds more in 3, the
+   same in 5, fewer in 1. These pool a filing's claims and are not per limitation.
+
+Limits: 21 rows, 15 distinct, most of them secp256k1 or bitcoin. Test code is told by file
+name and path (`tests.c`, `bench_internal.c`, a `test` folder, `FooTest.java`). A caller of
+one cited function joins nothing and is not counted.
 
 ### What it does not say
 
@@ -220,8 +275,10 @@ How far to trust the call figures:
 - **The target for a limitation is usually a set of mechanisms.** A retrieval test on these
   charts should be scored per row, on how many of the row's set the limitation's words
   reach, not on one target. The rows and their functions are in the script's `--json`.
-- **The link worth testing is the caller.** A mechanism made of a function and what it calls
-  would put a row's siblings together. Which callers, and how deep, is not known.
+- **No structural link gathers a limitation's functions.** Not a file, a class, a shared
+  name, a direct call or a shared caller. A mechanism made of a function and what it calls
+  held no more of a chart row than the mechanisms already there; it may still suit
+  application code, where one handler calls what a feature needs.
 - **Text per function, not per mechanism, is worth testing.** If the code for a limitation
   is a handful of sibling functions, a sentence per function may serve semantic search
   better than a sentence per group. That has not yet been tried. Semantic search here means
@@ -294,8 +351,8 @@ figures above use the first order. The repair is the worklist item
 
 ## Sections to come
 
-Which callers join a chart row's functions, read by hand, and a retrieval test scored per
-chart row. The grouper's cover and split measurements, the two describers compared as a
+A retrieval test scored per chart row, and a sentence per function tried against a sentence
+per mechanism. The grouper's cover and split measurements, the two describers compared as a
 table of contents, the no-match calibration of `--embed-distance`, and local describe
 timings. The measurements of descriptions as search text are on
 [`describe-reach.md`](describe-reach.md).

@@ -45,7 +45,11 @@
  *   --calls            with --filings: load each index and report, per chart
  *                      row and per filing, how many groups the names matching
  *                      one function fall into when linked by calls: direct,
- *                      with one function between, and with a common caller
+ *                      with one function between, and with a common caller.
+ *                      Also the callers that join (a function calling two or
+ *                      more of them): how many, how many in test code, the
+ *                      groups with test callers left out, and the best caller
+ *                      outside test code; -v lists them per chart row
  *   --index <dir>      the index directory (function_index.json, mechanisms.json)
  *   page.md ...        ground-truth pages; default docs/pseudo-claim-rubrics/*.md
  *   --keyed-at <rev>   the commit the page's line numbers were true at. auto
@@ -500,7 +504,46 @@ export function callComponents(nodes, out, callers = new Map()) {
 /** The ids of the names of a scored filing or row that matched exactly one function. */
 export const oneFunctionIds = (score) => score.detail.filter((d) => d.fn).map((d) => `${d.fn.file}@${d.fn.name}`);
 
-export const ROW_HEAD = ['filing', 'repository', 'row', 'cited', 'one function', 'in a mechanism', 'files', 'best holds', 'to hold all', 'groups by direct calls', 'with one step between', 'with a common caller'];
+/** A test, benchmark or example file, judged by its path alone. */
+export const isTestPath = (file) => /(^|\/)(tests?|testing|bench|benchmarks?|examples?)(\/|_|\.)|(^|\/)[^/]*(_tests?|tests?_|_bench|bench_)[^/]*$|Test\.(java|scala|kt)$|Suite\.scala$|\.(test|spec)\.[a-z]+$/i.test(slash(file));
+
+/**
+ * Which callers do the joining? For the cited functions `nodes`: every
+ * function that calls two or more of them (a joining caller), how many of
+ * those are test code, the groups the nodes fall into by direct calls plus a
+ * common caller with test callers counted and left out, and the best caller
+ * outside test code: the one calling the most of the nodes, the fewest callees
+ * of its own breaking a tie. `calls` is how many nodes it calls, `cited`
+ * whether it is itself one of them, `callees` everything it calls. A caller
+ * of one node joins nothing and is not counted.
+ */
+export function callerReading(nodes, out, callers = new Map()) {
+  const O = (id) => out.get(id) || new Set();
+  const C = (id) => callers.get(id) || new Set();
+  const fileOf = (id) => id.slice(0, id.lastIndexOf('@'));
+  const tally = new Map();
+  for (const id of nodes) for (const x of C(id)) (tally.get(x) || tally.set(x, []).get(x)).push(id);
+  const joiners = [...tally].filter(([, held]) => held.length >= 2)
+    .map(([caller, held]) => ({ caller, calls: held.length, callees: O(caller).size, test: isTestPath(fileOf(caller)), cited: nodes.includes(caller), holds: held }))
+    .sort((a, b) => b.calls - a.calls || a.callees - b.callees || a.caller.localeCompare(b.caller));
+  const groups = (allow) => {
+    const p = new Map(nodes.map((x) => [x, x]));
+    const find = (x) => { while (p.get(x) !== x) x = p.get(x); return x; };
+    for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i];
+      const b = nodes[j];
+      if (O(a).has(b) || O(b).has(a) || [...C(a)].some((x) => C(b).has(x) && allow(x))) p.set(find(a), find(b));
+    }
+    return new Set(nodes.map(find)).size;
+  };
+  return {
+    functions: nodes.length, joiners: joiners.length, testJoiners: joiners.filter((j) => j.test).length,
+    groups: groups(() => true), groupsNoTest: groups((x) => !isTestPath(fileOf(x))),
+    best: joiners.find((j) => !j.test) || null, list: joiners,
+  };
+}
+
+export const ROW_HEAD = ['filing', 'repository', 'row', 'cited', 'one function', 'in a mechanism', 'files', 'best holds', 'to hold all', 'groups by direct calls', 'with one step between', 'with a common caller', 'common caller, tests left out', 'best non-test caller calls'];
 
 /** One table row per chart row (a claim limitation) of each filing-repository pair. */
 export function rowLines(results) {
@@ -508,8 +551,10 @@ export function rowLines(results) {
   for (const f of results) for (const r of f.rows || []) {
     const t = r.score.strict;
     const c = r.calls;
+    const k = r.callers;
     lines.push([f.id, f.repo, r.label, r.score.names, t.functions, t.inRecord, t.files, t.best ? t.best.held : 'none', t.cover.length,
-      c ? c.direct : '', c ? c.chain : '', c ? c.commonCaller : '']);
+      c ? c.direct : '', c ? c.chain : '', c ? c.commonCaller : '',
+      k ? k.groupsNoTest : '', k ? (k.best ? k.best.calls + (k.best.cited ? 1 : 0) : 0) : '']);
   }
   return lines;
 }
@@ -518,7 +563,7 @@ export function renderRows(results, { md = false } = {}) {
   const lines = rowLines(results);
   if (!lines.length) return '';
   if (md) return [`| ${ROW_HEAD.join(' | ')} |`, `|${ROW_HEAD.map((_, i) => (i < 3 ? '---' : '--:')).join('|')}|`, ...lines.map((r) => `| ${r.map((c) => String(c).replace(/\|/g, '\\|')).join(' | ')} |`)].join('\n');
-  return lines.map((r) => `${String(r[0]).padEnd(22)} ${String(r[1]).padEnd(38)} ${String(r[2]).padEnd(8)} cited ${String(r[3]).padStart(2)}; one function ${String(r[4]).padStart(2)}; in a mechanism ${String(r[5]).padStart(2)}, in ${r[6]} file(s); best holds ${r[7]}; to hold all ${r[8]}${r[9] !== '' ? `; groups by calls ${r[9]} / ${r[10]} / ${r[11]} (direct / one step / common caller)` : ''}`).join('\n');
+  return lines.map((r) => `${String(r[0]).padEnd(22)} ${String(r[1]).padEnd(38)} ${String(r[2]).padEnd(8)} cited ${String(r[3]).padStart(2)}; one function ${String(r[4]).padStart(2)}; in a mechanism ${String(r[5]).padStart(2)}, in ${r[6]} file(s); best holds ${r[7]}; to hold all ${r[8]}${r[9] !== '' ? `; groups by calls ${r[9]} / ${r[10]} / ${r[11]} (direct / one step / common caller)` : ''}${r[12] !== '' ? `; ${r[12]} with test callers left out; best non-test caller holds ${r[13]}` : ''}`).join('\n');
 }
 
 /**
@@ -752,7 +797,8 @@ async function mainFilings(o) {
       const ids = oneFunctionIds(score);
       res.calls.withCallee = ids.filter((id) => (edges.out.get(id) || new Set()).size).length;
       res.calls.withCaller = ids.filter((id) => (edges.callers.get(id) || new Set()).size).length;
-      for (const r of rows) r.calls = callComponents(oneFunctionIds(r.score), edges.out, edges.callers);
+      res.callers = callerReading(ids, edges.out, edges.callers);
+      for (const r of rows) { r.calls = callComponents(oneFunctionIds(r.score), edges.out, edges.callers); r.callers = callerReading(oneFunctionIds(r.score), edges.out, edges.callers); }
       process.stderr.write(`# ${f.id} ${f.repo}: call edges read for ${edges.out.size} functions\n`);
     }
     results.push(res);
@@ -763,6 +809,19 @@ async function mainFilings(o) {
   if (rowsOut) console.log(`\n${o.md ? '' : 'per chart row (one claim limitation each):\n'}${rowsOut}`);
   if (o.calls) {
     console.log(`\n${o.md ? '' : 'per filing, the one-function names by calls:\n'}${results.map((f) => (o.md ? `| ${f.id} | ${f.repo} | ${f.calls.functions} | ${f.calls.direct} | ${f.calls.chain} | ${f.calls.commonCaller} |` : `${f.id.padEnd(22)} ${f.repo.padEnd(38)} functions ${String(f.calls.functions).padStart(2)}; groups by calls ${f.calls.direct} / ${f.calls.chain} / ${f.calls.commonCaller} (direct / one step / common caller); with a callee read ${f.calls.withCallee}, with a caller read ${f.calls.withCaller}`)).join('\n')}`);
+  }
+  if (o.calls && !o.md) {
+    // Which callers join: per filing, then per chart row with -v.
+    const line = (name, k, bestHeld) => `${name} joining callers ${k.joiners} (${k.testJoiners} in test code); groups with a common caller ${k.groups}, test callers left out ${k.groupsNoTest}; best non-test caller ${k.best ? `${k.best.caller.split('@').pop()} holds ${k.best.calls + (k.best.cited ? 1 : 0)} (${k.best.callees} callees${k.best.cited ? ', itself cited' : ''})` : 'none'}; best mechanism holds ${bestHeld}`;
+    const held = (s) => (s.strict.best ? s.strict.best.held : 0);
+    console.log('\nthe callers that join (a function calling two or more of the one-function names):');
+    for (const f of results) {
+      console.log(line(`${f.id.padEnd(22)} ${f.repo.padEnd(38)}`, f.callers, held(f.score)));
+      if (o.verbose) for (const r of f.rows) if (r.callers.functions >= 2) {
+        console.log(`  ${line(r.label.padEnd(8), r.callers, held(r.score))}`);
+        for (const j of r.callers.list.slice(0, 6)) console.log(`      ${j.test ? 'test  ' : '      '}${j.caller}: calls ${j.calls} of ${r.callers.functions}, ${j.callees} callees${j.cited ? ', itself cited' : ''}`);
+      }
+    }
   }
   const h = results.reduce((a, r) => ({ inIndex: a.inIndex + r.harness.inIndex, inRecord: a.inRecord + r.harness.inRecord }), { inIndex: 0, inRecord: 0 });
   console.log(`\ncheck, by the 2026-11-06 reach run's rule (any symbol of that name, no narrowing): ${h.inIndex} names in the indexes, ${h.inRecord} in a mechanism`);
