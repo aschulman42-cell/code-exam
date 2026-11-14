@@ -278,8 +278,15 @@ Dated one-line results; the tables are on the linked pages.
   chunked labels on four small indexes, Gemini's buy nothing; sentences written in a patent
   claim's register do better still on the drafted test claims (79% at rank 1 on x264) but not
   on the litigants' claims, where the labels stay ahead (2026-11-05 to 11-06, same page).
+- Whether the functions cited for one claim limitation sit in one record: they do not. In
+  the public claim charts that cite code row by row, 22 rows cite two or more functions that
+  are in a record; one row fits in a single record, and the 119 functions of those rows sit
+  in 72 files and take 94 records. They do not call each other (121 functions, 95 groups by
+  direct calls) but often share a caller (43 groups). A row citing one function, 14 rows, is
+  answered by the record holding it (2026-11-14,
+  [`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md)).
 
-Results about mechanisms themselves that have no page yet (the grouper's cover and split
+Results about mechanisms themselves that have no section yet (the grouper's cover and split
 measurements, the two describers compared as a table of contents, the no-match calibration
-of `--embed-distance`, local describe timings) go to `CODEEXAM_MECHANISMS_TESTS.md` when it
-is written, not here.
+of `--embed-distance`, local describe timings) go to
+[`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md), not here.

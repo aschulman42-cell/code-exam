@@ -172,6 +172,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `scripts/hof-stage1.mjs` — scores every HOF claim against every grouper group of its index by tier-0 text (BM25, no model): where does the drafted group rank? --index-path alone reads the runs --hof wrote under <index>/hof/
 - `scripts/hunt-repeat.mjs` — reruns one --claim-locate --hunt command N times and reports the distribution
 - `scripts/litigated-claims-fetch.mjs` — fetches litigated US patents' claim 1 + dependents from Google Patents
+- `scripts/mechanism-containment.mjs` — do the mechanism records hold the functions cited for a claim or a feature: against the names litigants cite in public claim charts (--filings) or the lines a hand-written rubric page cites; per filing or page, the records holding each cited function, the best record, how many records hold them all; no model
 - `scripts/pseudo-claim-loop.mjs` — runs the pseudo-claim loop: synonymize, chart blind, score vs answer key
 - `scripts/pseudo-claim-rubric-score.mjs` — scores --pseudo-claims runs against a hand rubric page: MET / PARTIAL / ABSENT per row, surplus binned
 - `scripts/rank-eval.mjs` — scores a candidate ordering against tiered ground truth (Spearman, recall@k, purity)
@@ -243,6 +244,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_loop_score.js` — loop-score: target keys, answer-key anchors, chart/control scoring, dependent grades
 - `test/test_rubric_score.js` — rubric-score: the page and artifact parsers, cite matching, MET/PARTIAL/ABSENT, surplus bins, the sidecar read
 - `test/test_mcp_tools.js` — MCP handleTool: digest, call_tree, command_catalog, models_used, absence disclosure
+- `test/test_mechanism_containment.js` — the containment script with no index and no git: the citations-table parser, carrying a line across diff hunks, a cited range to its function, the best record's recall and purity, the cover; a filing's cited names matched, narrowed and scored
 - `test/test_mechanism_grouper.js` — #284 candidate emitter: seeds, group splitting, vendored-subtree exclusion; cover mode and the doc readers
 - `test/test_mechanisms_index.js` — the mechanisms index: the cover build (every function in a record, overlap, tags, labels), the harvester's doc readers on real files, save/load, --build-mechanisms and --mechanisms through the CLI, the list_mechanisms tool, --describe on a stub drafter
 - `test/test_mechanism_ranker.js` — #284 ranker: tolerant verdict parsing, priors, chunked batches with a P3 playoff

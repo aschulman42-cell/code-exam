@@ -266,6 +266,7 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`CODEEXAM_PSEUDO_CLAIMS.md`](docs/CODEEXAM_PSEUDO_CLAIMS.md) | Drafting illustrative "pseudo-claims" from code: the mechanisms as candidates, anchors, `--filter`, the optional descriptions and `--embed-distance`, and `ce --hof`, the self-test |
 | [`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](docs/CODEEXAM_PSEUDO_CLAIMS_TESTS.md) | The tests behind pseudo-claims: the HOF self-test, the real-world yardstick, the rubric scores |
 | [`CODEEXAM_MECHANISMS.md`](docs/CODEEXAM_MECHANISMS.md) | Mechanisms: how CodeExam groups any codebase's functions, how to read a label, the optional descriptions, and what the groups are used for: pseudo-claims and the --toc (Table of Contents) feature |
+| [`CODEEXAM_MECHANISMS_TESTS.md`](docs/CODEEXAM_MECHANISMS_TESTS.md) | The tests behind mechanisms: whether the functions litigants cite for a claim sit in one mechanism, measured on fourteen public claim charts |
 | [`CODEEXAM_SELF_PORTRAIT.md`](docs/CODEEXAM_SELF_PORTRAIT.md) | The pseudo-claims feature run on CodeExam's own source: ten claims across nine features, quoted as drafted, each beside the rubric claims the author wrote by hand for that feature |
 | [`LOCAL_LLM.md`](docs/LOCAL_LLM.md) | Local GGUF models, e.g. Gemma4, Qwen |
 | [`AIR_GAPPED.md`](docs/AIR_GAPPED.md) | Enforced no-cloud operation |
