@@ -173,6 +173,12 @@ independently-operable panels that redesign is built toward.
   arrow assigned to an existing property (`console.log = () => {}`). Tree-sitter, the default
   build, is still the precise parser; these shapes matter for `--regex-parser` builds and for the
   languages without a grammar. Rebuild an existing index to get the new entries.
+- **Which languages have a grammar and which rely on the regex parser**, and what the regex tier
+  misses in each — Swift computed properties and `extension` blocks, Kotlin extension functions
+  filed under their receiver type, Objective-C `.m` files absent from the import census, phantom
+  definitions in R and other files with no pattern table of their own — is on
+  [`CODEEXAM_PROGRAMMING_LANGUAGES.md`](CODEEXAM_PROGRAMMING_LANGUAGES.md), per language, with
+  the corpora each was measured on.
 - **Macro-defined functions in C/C++** — a macro that *opens* a function (`BEGIN_FN(name) ...
   END_FN`, a common Chromium and kernel idiom) is invisible to both parsers: its body is credited to
   the previous function on a regex index and to file scope on a tree-sitter index. A macro *with*

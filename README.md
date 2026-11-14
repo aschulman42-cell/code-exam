@@ -9,7 +9,9 @@ Use CodeExam to first build an index over a codebase, then browse, search,
 and cross-reference (callers, callees, call trees, file/folder coupling) at
 scale — across **C, C++, Java, JavaScript, TypeScript, Python, C#, Go, Rust,
 PHP, and Ruby** (tree-sitter), with regex-level support for a dozen more
-(e.g. Swift, Kotlin, Objective-C). If you've used a code-comprehension tool
+(e.g. Swift, Kotlin, Objective-C); what each language gets from each feature
+is on [`CODEEXAM_PROGRAMMING_LANGUAGES.md`](docs/CODEEXAM_PROGRAMMING_LANGUAGES.md).
+If you've used a code-comprehension tool
 like SciTools Understand, the basic browse and cross-reference features will
 feel familiar. CodeExam goes beyond standard code navigation in important
 ways, briefly described below and detailed in the individual doc pages linked
@@ -270,6 +272,7 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`CODEEXAM_AND_UNDERSTAND.md`](docs/CODEEXAM_AND_UNDERSTAND.md) | CodeExam beside SciTools Understand: where they overlap, the two "Overview" features that share a name, what each does that the other does not, using both in the same source-code exam |
 | [`REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) | Reproducibility of AI-layer answers; pinning the model side (`--reproducible`) |
 | [`CODEEXAM_INDEXES.md`](docs/CODEEXAM_INDEXES.md) | Building and managing indexes; the on-disk format |
+| [`CODEEXAM_PROGRAMMING_LANGUAGES.md`](docs/CODEEXAM_PROGRAMMING_LANGUAGES.md) | Which languages get a grammar and which the regex parser, and what each feature reads per language: one table, then the detail for Swift, Kotlin, Rust, Objective-C, Scala and the rest, with the corpora each was measured on |
 | [`CODEEXAM_ARCHITECTURE.md`](docs/CODEEXAM_ARCHITECTURE.md) | Engine and module layout; see also the orientation site's five architecture diagrams under [`docs/orientation/architecture`](docs/orientation/architecture) |
 | [`CODEEXAM_TESTING.md`](docs/CODEEXAM_TESTING.md) | The test suite |
 | [`CODEEXAM_FAQ.md`](docs/CODEEXAM_FAQ.md) | Behaviors in the CLI and GUI likely to surprise a new user, each with a workaround; entries are removed as they are fixed |

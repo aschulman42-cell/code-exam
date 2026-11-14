@@ -71,7 +71,9 @@ parser's extra entries merged in; a regex fallback covers **Swift, Kotlin, Scala
 Objective-C, CoffeeScript, Perl, VBScript, AWK**, and `--regex-parser` (or the Build Index
 dialog's "Regex parser only" box) builds every file that way. Non-code text — **YAML**
 (`.yaml` / `.yml`), Markdown, plain text — is indexed as searchable text (not AST-parsed); the
-YAML coverage is what the Infrastructure detectors content-sniff.
+YAML coverage is what the Infrastructure detectors content-sniff. What each language gets from
+each feature, and what the regex tier misses in each, is on
+[`CODEEXAM_PROGRAMMING_LANGUAGES.md`](CODEEXAM_PROGRAMMING_LANGUAGES.md).
 
 ## The on-disk format — plain JSON, not a database
 
