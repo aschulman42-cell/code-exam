@@ -41,6 +41,7 @@ const FAMILIES = {
   perl:   { line: ['#'], block: [], quotes: ["'", '"'], braces: true },
   hash:   { line: ['#'], block: [], quotes: ["'", '"'] },                    // Ruby, CoffeeScript: masking only, ends fall back
   lua:    { line: ['--'], block: [['--[[', ']]']], quotes: ["'", '"'] },      // `end`-delimited: ends fall back
+  lean:   { line: ['--'], block: [['/-', '-/']], quotes: ['"'], indent: true }, // Lean 4: a prime is an identifier character, so no single-quote strings; a `/--` doc comment opens like a block comment; bodies are indented under the keyword line, so ends follow the Python rule
 };
 
 const EXT_FAMILY = {
@@ -56,6 +57,7 @@ const EXT_FAMILY = {
   '.pl': 'perl', '.pm': 'perl', '.awk': 'perl',
   '.rb': 'hash', '.coffee': 'hash',
   '.lua': 'lua',
+  '.lean': 'lean',
 };
 
 /** Family name for a lowercase extension, or null when the file is left unmasked (e.g. VBScript, whose comments start with a quote). */

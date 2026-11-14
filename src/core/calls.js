@@ -220,7 +220,7 @@ const _LANG_FAMILY = {
   c: ['.c', '.h', '.cc', '.cpp', '.cxx', '.hpp', '.hxx', '.h++', '.c++', '.m', '.mm', '.cu', '.cuh'],
   jvm: ['.java', '.kt', '.kts', '.scala', '.groovy'],
   cs: ['.cs'], go: ['.go'], rs: ['.rs'], php: ['.php'], rb: ['.rb'], swift: ['.swift'],
-  lua: ['.lua'], perl: ['.pl', '.pm'],
+  lua: ['.lua'], perl: ['.pl', '.pm'], lean: ['.lean'],
 };
 const _EXT_FAMILY = new Map();
 for (const [fam, exts] of Object.entries(_LANG_FAMILY)) for (const e of exts) _EXT_FAMILY.set(e, fam);

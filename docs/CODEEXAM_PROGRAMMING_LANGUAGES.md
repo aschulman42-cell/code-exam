@@ -18,11 +18,12 @@ dependency features' own page is [`CODEEXAM_MAPPING_DEPENDENCIES.md`](CODEEXAM_M
   tree-sitter WASM grammar in the default build, which then merges in whatever the regex parser
   finds that the grammar did not. Definitions, their kinds and their exact line spans come from
   the syntax tree.
-- **The regex tier (2026-11-13).** Swift, Kotlin, Scala, Objective-C, Lua, Perl, AWK, VBScript
-  and CoffeeScript have a table of line patterns each: a definition is a line that looks like one,
-  and its end is found by counting braces on lines with strings and comments masked out (Swift,
-  Kotlin, Scala, Objective-C, Perl, AWK), or, where the language has no braces to count (Lua,
-  VBScript, CoffeeScript), at the next definition. The tier misses whatever a single line does not
+- **The regex tier (2026-11-13).** Swift, Kotlin, Scala, Objective-C, Lean, Lua, Perl, AWK,
+  VBScript and CoffeeScript have a table of line patterns each: a definition is a line that looks
+  like one, and its end is found by counting braces on lines with strings and comments masked out
+  (Swift, Kotlin, Scala, Objective-C, Perl, AWK), by indentation under the keyword line (Lean), or,
+  where the language has neither (Lua, VBScript, CoffeeScript), at the next definition. The tier
+  misses whatever a single line does not
   announce: Swift computed properties and `extension` blocks, Kotlin extension functions (filed
   under the receiver type instead of the function name), closures, operators, anything whose name
   is not on the definition line.
@@ -36,8 +37,8 @@ dependency features' own page is [`CODEEXAM_MAPPING_DEPENDENCIES.md`](CODEEXAM_M
   [`QUASI_SOURCE.md`](QUASI_SOURCE.md) and the first section of
   [`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md).
 - **Not indexed by default.** An extension outside the default set is left out of a directory
-  build: BrightScript (`.brs`), Lean (`.lean`), CUDA (`.cu`, `.cuh`), OpenCL, shaders, Svelte,
-  XMLUI. `--add-extensions .brs,.lean` admits them; dependency and build files (`package.json`,
+  build: BrightScript (`.brs`), CUDA (`.cu`, `.cuh`), OpenCL, shaders, Svelte, XMLUI.
+  `--add-extensions .brs,.cu` admits them; dependency and build files (`package.json`,
   `Cargo.lock`, `Podfile`, `build.sbt`, …) are admitted by name whatever their extension.
 - **Language-blind features.** Literal, fast and regex search and multisect; `--strings`,
   `--vocabulary`, `--hotspots`, `--overview`, `--toc`, the file digests, mechanisms and
@@ -82,7 +83,7 @@ as `class` entries). Issue numbers are the open issues that name the language.
 | Shell | `.sh`, `.bash`, `.zsh` | generic | functions not reliably found | not read | none | endpoint URLs | — | — |
 | CUDA | `.cu`, `.cuh` (**not default**) | generic | the C patterns do find kernels and host functions; ends at the next definition (no masking family) | not read (`.cu` is outside the C-file test) | struct/enum/union · C family · no | **kernels**: `__global__`, `<<<…>>>`, `cudaLaunchKernel` | llama.cpp (185 `.cu`, 66 with definitions: 680 fn; 27 `.cuh`: 517 fn) | — |
 | BrightScript (Roku) | `.brs` (**not default**, no patterns) | — | nothing: the file is left out of a directory build, and admitted it would get the generic patterns | not read | none | — | — | — |
-| Lean 4 | `.lean` (**not default**, no patterns) | generic | by accident: `def name (` through the Python pattern, a `theorem` or `lemma` only when its binder list closes the line, and tactic lines (`exact lemma (…)`) as functions; ends fall to the next entry | not read (`lakefile.lean`, `lake-manifest.json` not parsed) | none · no family (resolves to any language) · no | endpoint URLs | a Lean 4 number-theory corpus (17,511 files: 125,406 declarations, 36% found; 39% of the entries are tactic lines) | — |
+| Lean 4 | `.lean` | regex | `theorem`, `lemma`, `def`, `abbrev`, `instance` (an anonymous one is named `instance`), `axiom`, `opaque`; `structure`, `inductive`, `class` as types; modifiers and a same-line attribute allowed; names keep dots, primes and Unicode; ends by indentation under the keyword line | not read (`lakefile.lean`, `lake-manifest.json` not parsed) | structure/inductive/class · own family · no | endpoint URLs | a Lean 4 number-theory corpus (23,402 files: 153,218 declarations, 100% of those in the source, no tactic lines; 96% of ends exact) | — |
 | Resource, config, IaC | `.xml`, `.json`, `.plist`, `.rc`, `.resx`, `.tf`, `.tfvars`, `.bicep` | generic | searchable; the generic patterns occasionally invent a definition (Spark: 6 in 5 `.xml` files) | `package.json`, `*.csproj`, `pom.xml`, `plist` are read as manifests where named above | — | infrastructure detectors (#168) | — | — |
 | Text | `.md`, `.txt`, `.rst`, `.yaml`, `.yml` | text | never parsed | — | — | YAML content-sniffed by the infrastructure detectors | — | — |
 
@@ -260,30 +261,51 @@ follow-up, not grammar work.
 
 ### Lean 4
 
-Not indexed by default and unknown to every parser: no pattern table, no masking family, no call
-family. Admitted with `--add-extensions .lean`, a file gets the generic C and Python patterns,
-and the result looks like function-level support (`--functions riemann` lists theorems by name)
-until it is counted. Measured on 2026-11-13 on a Lean 4 number-theory corpus of 17,511 files,
-every entry's first line read from the source:
+Regex tier since 2026-11-13, indexed by default. The table takes `theorem`, `lemma`, `def`,
+`abbrev`, `instance`, `axiom` and `opaque` as functions and `structure`, `inductive` and `class`
+as types, after the modifiers (`private`, `protected`, `noncomputable`, `partial`, `unsafe`,
+`nonrec`, `scoped`, `local`) and a same-line `@[…]` attribute; an attribute on its own line above
+is not part of the entry, as a Java annotation is not. An anonymous instance (`instance : Foo`,
+`instance {K : Type*} [Field K] : Foo K`) is named `instance`, the next one in the file
+`instance@line`. Names run to the first space, binder bracket or colon, so `Nat.foo_bar'`, `hζ`
+and `riemannZeta₁_ne_zero_of_one_le_re` are listed as written. Ends follow the indentation rule
+Python uses: the last line indented under the keyword line, which covers `:= by` blocks, `calc`
+steps, `where` clauses, `structure` fields and `inductive` constructors, and ends a one-line
+`theorem t : True := trivial` on its own line. Declarations are not nested in a type by
+indentation, since a Lean declaration's namespace is already in its name. `example`, `macro`,
+`syntax`, `notation`, `namespace` and `section` are not definitions; `--` and `/- -/` comments
+and `"strings"` are masked, and a prime is an identifier character, not a string delimiter.
+`structure`, `inductive` and `class` reach the Data Structures view, which reads raw lines and
+so requires a binder, a colon, `where`, `extends` or `:=` after the name (a docstring line that
+begins "class of actual discrete windows" is prose).
 
-| Measure | Result |
-|---|---|
-| Entries in the function index | 73,417 |
-| Entries whose first line is a declaration | 45,077 (61%) |
-| Entries whose first line is a tactic or other line (`exact`, `apply`, `have`, `let`, `open`, an applied lemma's name) | 28,340 (39%) |
-| Declarations in the source (`theorem`, `lemma`, `def`, `abbrev`, `instance`, `structure`, `inductive`, `class`) | 125,406 |
-| Declarations found | 36%: `def` 68%, `theorem` 27%, `lemma` 24%, `instance` 10%, `structure` 13% |
-| Entry end within a line of the next declaration | 61% |
+Before the table, `.lean` was unknown to CodeExam: not indexed by default, and when admitted,
+scanned with the generic C and Python patterns, which made `--functions riemann` list theorems
+by name and looked like support until it was counted. Measured both ways on 2026-11-13 on a Lean
+4 number-theory corpus (23,530 files, 3,015,961 lines; 153,236 declarations in the source, every
+entry's first line read from the source files):
 
-The mechanism explains the shape. The Python pattern takes `def name (` whenever the binders are
-parenthesized, so most `def`s are found. A `theorem` or `lemma` is found only when its binder
-list happens to close the line, which the C function pattern then reads as a definition; the
-same pattern reads `exact mul_le_mul_of_nonneg_left (…)` as a function named after the lemma,
-which is where the phantoms come from, and because an end falls to the next entry, a phantom
-inside a proof truncates the real theorem above it. A Lean pattern table with indentation ends
-(the declaration keywords with their modifiers and attributes, the name, `namespace` and
-`section` as containers) is the fix, and `.lean` joins the default extension set with it:
-`lean-regex-patterns` on the worklist.
+| Measure | Generic patterns (before) | Lean table (after) |
+|---|---|---|
+| Entries in the function index | 73,417 | 153,218 |
+| Entries whose first line is a declaration | 45,077 (61%) | 153,218 (100%) |
+| Entries whose first line is a tactic or other line (`exact`, `apply`, `have`, `let`, an applied lemma's name) | 28,340 (39%) | 0 |
+| Declarations found | 29%: `def` 59%, `theorem` 21%, `lemma` 22%, `instance` 9%, `abbrev` 10%, `structure` 12% | 100%: every `theorem` (83,045), `def` (34,913), `abbrev`, `structure` and `inductive`; 31,089 of 31,090 `lemma`s; 2,475 of 2,476 `instance`s |
+| Entry end exactly at the last body line | 1.9% | 96.0% |
+| Entry end running into the next declaration | 26.5% | 0.1% |
+| `--functions riemann` | 6 hits, 2 of them applied lemmas | 24 theorems |
+| Build time | — | 91 seconds |
+
+The 18 declarations not found are the 11 `example`s, left out by design, five docstring lines
+that begin with the word "class", one with "lemma", and one instance. Of the ends, 3.9% stop
+before a docstring, `variable`, `end` or `section` line that the measure could not attribute, a
+few of them genuine column-0 continuation lines, and the 0.1% that run on are declarations
+followed by one indented deeper than itself inside a `section`. The mechanism behind the before
+column: the Python pattern took `def name (` when the binders were parenthesized; a `theorem` was
+found only when its binder list happened to close the line, which the C function pattern then
+read as a definition; the same pattern read `exact mul_le_mul_of_nonneg_left (…)` as a function
+named after the lemma, and because an end fell to the next entry, each such phantom truncated
+the theorem above it. Imports (`import Mathlib.…`) and the Lake manifests are still not read.
 
 ### Perl, Lua, AWK, VBScript, CoffeeScript
 
@@ -306,6 +328,11 @@ What stands behind the table, in two kinds.
   `test/test_imports.js` covers Java and Kotlin imports, C#, Go and Rust with their manifests
   and lockfiles, Objective-C `#import` and `@import` as lines (not the `.m` routing), HTML, and
   the lockfile readers. `test/test_data_structs.js` covers the data-structure patterns.
+  `test/test_lean_patterns.js` covers the Lean table: every declaration kind by keyword, names
+  with dots, primes and Unicode, ends by indentation, an attribute on its own line, an indented
+  declaration not nested under the type above it, anonymous instances with bracketed binders,
+  tactic lines and comments never definitions, and structures and inductives in the Data
+  Structures view with a docstring line that begins "class of" left out.
   `test/test_third_party_notices.js` requires a notices row for every grammar. No test exercises the Go, C#, PHP or Ruby grammar extractor by language.
 - **The corpora.** The counts in the table and the sections were read on 2026-11-13 from the
   `function_index.json` of the named indexes (files with at least one definition; `class`
@@ -321,8 +348,7 @@ What stands behind the table, in two kinds.
   (`build.sbt`), and Ruby's (`require`, `Gemfile`).
 - Routing `.m` and `.mm` files to the C import extractor, so Objective-C implementation files'
   `#import` lines reach the census and the bill of materials.
-- Pattern tables for R, Lean (`lean-regex-patterns` on the worklist) and BrightScript; `.brs`
-  and `.lean` in the default extension set.
+- Pattern tables for R and BrightScript; `.brs` in the default extension set.
 - A pattern-less fallback: a file with no table of its own should get no definitions rather than
   the generic C and Python patterns (Spark's `.out` SQL test outputs carry 19,625 invented
   functions, its R and XML files a few dozen).
@@ -346,8 +372,9 @@ extension switch with its generic default); `src/core/function-bounds.js` (`FAMI
 370–399, the framework priority 573). Indexes: `.SwiftUI_Tutorials`, `.openclaw_src_NEW`,
 `.Android_Arch`, `.AndroidX_Media_ExoPlayer3`, `.openai_from_gh`, `.anthropic_from_gh`,
 `.codex_from_gh_zip_2`, `.bram-src-ndx`, `.spark`, `.llama_cpp`, `.notepadpp_win`, `.x264`,
-`.zlib`, `.awk`, `.Infra_Devops`, `.android-1.5-java`, `.CE`, and a Lean 4 number-theory index
-built with `--add-extensions .lean`, all on the project's machine.
+`.zlib`, `.awk`, `.Infra_Devops`, `.android-1.5-java`, `.CE`, and a Lean 4 number-theory index,
+measured once as built before the Lean table and once rebuilt with it on 2026-11-13, all on the
+project's machine.
 
 ## Related
 

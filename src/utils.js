@@ -305,6 +305,7 @@ export const DEFAULT_EXTENSIONS = new Set([
   '.cs',
   '.scala', '.groovy',
   '.lua', '.r', '.R',
+  '.lean',
   // Resource / config
   '.rc', '.resx', '.plist', '.xml', '.json',
   // Infrastructure as code (#168 — Terraform + Azure Bicep; YAML/JSON above)

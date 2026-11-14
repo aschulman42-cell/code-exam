@@ -31,6 +31,7 @@ const _LANG_BY_EXT = {
   '.hh': 'c', '.hxx': 'c', '.cu': 'c', '.cuh': 'c', '.m': 'c', '.mm': 'c',
   '.ts': 'ts', '.tsx': 'ts', '.mts': 'ts', '.cts': 'ts',
   '.java': 'java', '.kt': 'java', '.cs': 'java', '.swift': 'java',
+  '.lean': 'lean',
 };
 
 // kind keyword + name; group order documented inline.
@@ -48,6 +49,13 @@ const _PATTERNS = {
   ts: [{ re: /^\s*(?:export\s+)?(?:declare\s+)?(interface|enum|type)\s+([A-Za-z_]\w*)/, kind: 1, name: 2 }],
   // enum Foo / interface Foo / record Foo (Java/Kotlin/C#/Swift-ish)
   java: [{ re: /^\s*(?:(?:public|private|protected|internal|sealed|static|final|abstract)\s+)*(enum|interface|record|struct|protocol)\s+([A-Za-z_]\w*)/, kind: 1, name: 2 }],
+  // structure Foo / inductive Foo / class Foo (Lean 4), after modifiers and a
+  // same-line attribute; the name runs to the first space, binder or colon,
+  // since Lean names carry dots, primes and Unicode letters. The name must be
+  // followed by a binder, a colon, `where`, `extends`, `:=` or the line's end:
+  // these lines are read raw, and a docstring line that happens to begin
+  // "class of actual discrete windows" is prose, not a class named `of`.
+  lean: [{ re: /^\s*(?:@\[[^\]]*\]\s*)?(?:(?:private|protected)\s+)*(structure|inductive|class)\s+([^\s(:{\[⟨⦃|]+)(?=\s*(?:[(\[{⦃:]|:=|$)|\s+(?:where|extends)\b)/, kind: 1, name: 2 }],
 };
 
 const _ext = (fp) => { const i = fp.lastIndexOf('.'); return i < 0 ? '' : fp.slice(i).toLowerCase(); };
