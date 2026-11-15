@@ -623,7 +623,16 @@ export function renderCommandCatalog(container, catalog, filter) {
   makeSection('Commands', primaryCmds, 'name', 'description');
   makeSection('Other switch/case values', secondaryCmds, 'name', 'type');
   makeSection('API Routes', catalog.routes, 'path');
-  makeSection('GUI Actions', catalog.guiActions, 'name', 'type');
+  // A control is shown by the text a user sees, with its code name beside it.
+  makeSection('GUI Actions', (catalog.guiActions || []).map(a => ({ ...a, shown: a.label ? `${a.label}  (${a.name})` : a.name })), 'shown', 'type');
+  // What the GUI list could not see (HTML left out of the index): said, not left as a short list.
+  if (catalog.guiNote && !filter) {
+    const note = document.createElement('div');
+    note.className = 'list-placeholder';
+    note.style.cssText = 'white-space:normal;text-align:left;color:var(--text-muted)';
+    note.textContent = `GUI Actions: ${catalog.guiNote}`;
+    container.appendChild(note);
+  }
 
   if (container.children.length === 0) {
     container.innerHTML = '<div class="list-placeholder">No commands detected</div>';

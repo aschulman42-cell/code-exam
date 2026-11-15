@@ -777,6 +777,21 @@ if (args.add_extensions) {
   }
 }
 
+// A build-only option given without --build-index used to be ignored without a word
+// (`--index-path .CE --add-extensions .html` loaded the index and changed nothing).
+{
+  const buildOnly = [['extensions', '--extensions'], ['add_extensions', '--add-extensions'], ['exclude_extensions', '--exclude-extensions'], ['regex_parser', '--regex-parser']]
+    .filter(([k]) => args._explicit.has(k));
+  if (buildOnly.length && !args.build_index && !args.gui) {
+    const many = buildOnly.length > 1;
+    const flags = buildOnly.map(([, f]) => f).join(', ');
+    const given = buildOnly.map(([k, f]) => (k === 'regex_parser' ? f : `${f} "${args[k]}"`)).join(' ');
+    process.stderr.write(`Note: ${flags} ${many ? 'apply' : 'applies'} only while an index is being built, and no --build-index was given, so ${many ? 'they have' : 'it has'} no effect on this run.\n` +
+      `      To build an index with ${many ? 'them' : 'it'}:  ${exeBase()} --build-index <source folder> --index-path <index> ${given}\n` +
+      `      (--index-path names the index to write; an existing index of that name is replaced.)\n\n`);
+  }
+}
+
 // pseudo-claim-triage: `--triage <sidecar>` reads a claims sidecar and needs
 // neither an index nor a model, so it runs before the index is even opened --
 // a triage on another machine's run must not fail on a missing local index.
@@ -1285,13 +1300,15 @@ if (args.command_catalog) {
     ['Commands', primaryCmds, cmdFmt],
     ['Other switch/case values', secondaryCmds, cmdFmt],
     ['API Routes', catalog.routes, r => `  ${r.path}  [${r.filepath}:${r.line}]`],
-    ['GUI Actions', catalog.guiActions, a => `  ${a.name} (${a.type})${a.handler ? '  → ' + a.handler.filepath + ':' + a.handler.line : ''}  [${a.filepath}:${a.line}]`],
+    ['GUI Actions', catalog.guiActions, a => `  ${a.label ? a.label + '  — ' : ''}${a.name} (${a.type})${a.handler ? (a.handler.kind === 'selector' ? '  used at ' : '  → ') + (a.handler.handlerFunc || a.handler.func ? (a.handler.handlerFunc || a.handler.func) + '  ' : '') + a.handler.filepath + ':' + a.handler.line : ''}  [${a.filepath}:${a.line}]`],
   ];
   for (const [title, items, fmt] of sections) {
     if (items.length === 0) continue;
     console.log(`\n${title} (${items.length}):`);
     for (const item of items) console.log(fmt(item));
+    if (title === 'GUI Actions') console.log('  (read from markup in the index: buttons, inputs, selects and links that carry an id or a data-* name, and any element a script attaches a listener to by id; controls a script creates are not listed)');
   }
+  if (catalog.guiNote) console.log(`\n${catalog.guiActions.length ? '' : 'GUI Actions: none read. '}Note: ${catalog.guiNote}`);
 }
 
 if (args._explicit.has('string_table') || args.string_table) {

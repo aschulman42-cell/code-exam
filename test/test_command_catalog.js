@@ -180,3 +180,190 @@ describe('command catalog: one answer whatever the file order', () => {
     assert.equal(handlerOf(cat, 'stats'), 'doStats');
   });
 });
+
+describe('command catalog: GUI actions', () => {
+  const HTML = [
+    '<div class="menu">',
+    '  <button data-action="search-fast">Fast search</button> <button data-action="help">Help</button>',
+    '  <button data-action="reset-layout">Reset</button>',
+    '</div>',
+    '<div class="accordion-section" data-section="overview"></div>',
+    '<div class="accordion-section" data-section="stats"></div>',
+  ].join('\n');
+  const MENU = [
+    'function openReadme() { return 1; }',
+    'function showSearchDialog(a) { return a; }',
+    'function handleMenuAction(action) {',
+    '  switch (action) {',
+    "    case 'help':",
+    '      openReadme();',
+    '      break;',
+    "    case 'search-fast': {",
+    "      const label = 'Fast';",
+    '      const r = await showSearchDialog(label);',
+    '      break;',
+    '    }',
+    '  }',
+    '}',
+    "for (const btn of document.querySelectorAll('button[data-action]')) btn.addEventListener('click', () => handleMenuAction(btn.dataset.action));",
+  ].join('\n');
+  const LAYOUT = ['function resetLayout() { return 1; }', "const resetBtn = document.querySelector('[data-action=\"reset-layout\"]');", 'resetBtn.addEventListener(\'click\', resetLayout);'].join('\n');
+  const TOURS = ["const steps = [{ sel: '.accordion-section[data-section=\"overview\"]', open: true }];"].join('\n');
+  // Server-side code that happens to compare against the same words.
+  const SERVER = ['function doHelp() { return 1; }', "if (cmd === 'help') doHelp();", "if (cmd === 'stats') doHelp();", "const opts = ['overview', 'flag'];"].join('\n');
+  // The catalog's own kind of source: the attribute inside a regex, a template and a comment.
+  const NOISE = [
+    '/**',
+    ' *   - HTML data-* attributes: data-action="name", data-section="name"',
+    ' */',
+    'const m = line.match(/data-action="([^"]+)"/);',
+    'const s = document.querySelector(`.accordion-section[data-section="${sectionId}"]`);',
+  ].join('\n');
+  const files = { 'public/index.html': HTML, 'public/menu-bar.js': MENU, 'public/layout.js': LAYOUT, 'public/tours.js': TOURS, 'src/server.js': SERVER, 'src/catalog.js': NOISE };
+  const fns = { 'public/menu-bar.js': ['openReadme', 'showSearchDialog', 'handleMenuAction'], 'public/layout.js': ['resetLayout'], 'src/server.js': ['doHelp'] };
+  const build = (order = Object.keys(files), drop = []) => extractCommandCatalog(indexOf(Object.fromEntries(order.filter((f) => !drop.includes(f)).map((f) => [f, files[f]])), fns), false);
+  const act = (cat, name) => cat.guiActions.find((a) => a.name === name);
+  const names = (cat) => cat.guiActions.map((a) => a.name).sort();
+
+  it('lists every action and section of the markup, two on one line included', () => {
+    assert.deepEqual(names(build()), ['help', 'overview', 'reset-layout', 'search-fast', 'stats']);
+  });
+  it('drops a regex source, a template placeholder and a word in a comment', () => {
+    const got = names(build());
+    for (const bad of ['([^', '${sectionId}', 'name']) assert.ok(!got.includes(bad), `${bad} is not an action`);
+  });
+  it('cites the markup that defines an action, not a script that mentions it', () => {
+    const cat = build(['public/tours.js', 'public/layout.js', 'public/menu-bar.js', 'src/server.js', 'src/catalog.js', 'public/index.html']);
+    assert.equal(act(cat, 'overview').filepath, 'public/index.html');
+    assert.equal(act(cat, 'reset-layout').filepath, 'public/index.html');
+  });
+  it('joins an action to the client-side case that dispatches it, and names the call in that case', () => {
+    const cat = build();
+    assert.equal(act(cat, 'help').handler.filepath, 'public/menu-bar.js');
+    assert.equal(act(cat, 'help').handler.line, 5);
+    assert.equal(act(cat, 'help').handler.handlerFunc, 'openReadme');
+    assert.equal(act(cat, 'search-fast').handler.handlerFunc, 'showSearchDialog');
+  });
+  it('falls back to the script that selects the control when nothing dispatches on its name', () => {
+    const h = act(build(), 'reset-layout').handler;
+    assert.equal(h.filepath, 'public/layout.js');
+    assert.equal(h.line, 2);
+  });
+  it('gives no handler when the only matches are server-side code or a plain list', () => {
+    assert.equal(act(build(), 'stats').handler, undefined);
+    assert.equal(act(build(undefined, ['public/tours.js']), 'overview').handler, undefined);
+  });
+  it('gives the same rows and joins whatever the file order', () => {
+    const view = (cat) => cat.guiActions.map((a) => `${a.name}|${a.type}|${a.filepath}:${a.line}|${a.handler ? `${a.handler.filepath}:${a.handler.line}:${a.handler.handlerFunc}` : '-'}`);
+    const a = view(build());
+    assert.deepEqual(view(build(['src/server.js', 'src/catalog.js', 'public/tours.js', 'public/menu-bar.js', 'public/index.html', 'public/layout.js'])), a);
+    assert.deepEqual(view(build(['public/layout.js', 'public/index.html', 'src/catalog.js', 'public/menu-bar.js', 'src/server.js', 'public/tours.js'])), a);
+  });
+  it('says so when scripts drive a page but no markup is in the index', () => {
+    const cat = build(undefined, ['public/index.html']);
+    assert.match(cat.guiNote, /No HTML in this index/);
+    assert.match(cat.guiNote, /--build-index .*--add-extensions \.html,\.htm/);
+    assert.ok(act(cat, 'reset-layout'), 'a name seen only in a script selector is still listed');
+  });
+  it('counts the HTML an archive build recorded as skipped', () => {
+    const idx = indexOf(Object.fromEntries(Object.entries(files).filter(([f]) => f !== 'public/index.html')), fns);
+    idx.skippedExtensions = { '.html': 3 };
+    assert.match(extractCommandCatalog(idx, false).guiNote, /^3 HTML file\(s\) were not indexed/);
+  });
+  it('has no note when the markup is indexed, or when nothing in the index drives a page', () => {
+    assert.equal(build().guiNote, null);
+    assert.equal(extractCommandCatalog(base(), false).guiNote, null);
+  });
+});
+
+describe('command catalog: GUI controls beyond data-action and data-section', () => {
+  const HTML = [
+    '<button data-action="search-regex">Regex Search</button>',
+    '<button class="pane-tab active" data-tab="analysis">Analysis</button> <button class="pane-tab" data-tab="chat">Chat</button>',
+    '<div class="workspace-handle" id="workspace-toggle">',
+    '  <span>Claim / Multisect Workspace</span>',
+    '</div>',
+    '<div id="plain-box"><span>Just a box</span></div>',
+    '<button id="ws-browse-model" class="btn-secondary" title="Browse for GGUF model">Browse GGUFs</button>',
+    '<label><input type="checkbox" id="ws-vocab-tight"> Vocab-Tight</label>',
+    '<button id="chat-send" class="pane-action" title="Send message">&#10148;</button>',
+    '<input type="text" id="console-input" placeholder="Type command">',
+    '<label for="chat-engine">Engine</label> <select id="chat-engine"><option value="a">A</option></select>',
+    '<input type="hidden" id="csrf" value="x">',
+    '<a href="/docs">Docs</a>',
+  ].join('\n');
+  const APP = [
+    'function openModelBrowser() { return 1; }',
+    'function sendChatMessage() { return 1; }',
+    'function toggleWorkspace() { return 1; }',
+    'function switchTab(t) { return t; }',
+    'function setup() {',
+    "  $('#workspace-toggle').addEventListener('click', (e) => {",
+    '    toggleWorkspace();',
+    '  });',
+    "  $('#ws-browse-model').addEventListener('click', openModelBrowser);",
+    "  const vocabTight = $('#ws-vocab-tight')?.checked || false;",
+    "  const send = document.getElementById('chat-send');",
+    "  send.addEventListener('click', sendChatMessage);",
+    "  for (const tab of $$('.pane-tab')) tab.addEventListener('click', () => {",
+    "    if (tab.dataset.tab === 'chat') switchTab('chat');",
+    '  });',
+    "  $('#plain-box').textContent = 'x';",
+    '}',
+  ].join('\n');
+  const files = { 'public/index.html': HTML, 'public/app.js': APP };
+  const fns = { 'public/app.js': ['openModelBrowser', 'sendChatMessage', 'toggleWorkspace', 'switchTab', 'setup'] };
+  const cat = () => extractCommandCatalog(indexOf(files, fns), false);
+  const act = (c, name) => c.guiActions.find((a) => a.name === name);
+
+  it('labels a control with the text a user sees', () => {
+    const c = cat();
+    assert.equal(act(c, 'search-regex').label, 'Regex Search');
+    assert.equal(act(c, 'ws-browse-model').label, 'Browse GGUFs');
+    assert.equal(act(c, 'ws-vocab-tight').label, 'Vocab-Tight');
+    assert.equal(act(c, 'chat-send').label, 'Send message');
+    assert.equal(act(c, 'console-input').label, 'Type command');
+    assert.equal(act(c, 'chat-engine').label, 'Engine');
+  });
+  it('lists a control named by another data attribute, each one on the line', () => {
+    const c = cat();
+    assert.equal(act(c, 'analysis').type, 'tab');
+    assert.equal(act(c, 'analysis').label, 'Analysis');
+    assert.equal(act(c, 'chat').type, 'tab');
+  });
+  it('lists buttons, checkboxes, inputs and selects that have an id, by kind', () => {
+    const c = cat();
+    assert.equal(act(c, 'ws-browse-model').type, 'button');
+    assert.equal(act(c, 'ws-vocab-tight').type, 'checkbox');
+    assert.equal(act(c, 'console-input').type, 'input');
+    assert.equal(act(c, 'chat-engine').type, 'select');
+  });
+  it('lists a plain element only when a script attaches a listener to it, labeled from the line under it', () => {
+    const c = cat();
+    assert.equal(act(c, 'workspace-toggle').label, 'Claim / Multisect Workspace');
+    assert.equal(act(c, 'plain-box'), undefined);
+  });
+  it('leaves out a hidden input and a link with no id', () => {
+    const c = cat();
+    assert.equal(act(c, 'csrf'), undefined);
+    assert.ok(!c.guiActions.some((a) => a.label === 'Docs'));
+  });
+  it('joins a control to the listener a script attaches by id, directly or through a variable', () => {
+    const c = cat();
+    assert.equal(act(c, 'ws-browse-model').handler.handlerFunc, 'openModelBrowser');
+    assert.equal(act(c, 'workspace-toggle').handler.handlerFunc, 'toggleWorkspace');
+    assert.equal(act(c, 'chat-send').handler.handlerFunc, 'sendChatMessage');
+    assert.equal(act(c, 'chat-send').handler.line, 12);
+    assert.equal(act(c, 'chat-send').handler.kind, 'dispatch');
+  });
+  it('marks a control a script only reads as used there, not handled', () => {
+    const h = act(cat(), 'ws-vocab-tight').handler;
+    assert.equal(h.kind, 'selector');
+    assert.equal(h.line, 10);
+  });
+  it('joins a tab to the comparison that dispatches on its value', () => {
+    const h = act(cat(), 'chat').handler;
+    assert.equal(h.line, 14);
+    assert.equal(h.handlerFunc, 'switchTab');
+  });
+});

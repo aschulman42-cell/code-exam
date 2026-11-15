@@ -1373,7 +1373,8 @@ function handleToolRaw(name, args) {
         ['Commands', primary.filter(c => ff(c.name)), cmdFmt],
         ['Other switch/case values', secondary.filter(c => ff(c.name)), cmdFmt],
         ['API Routes', catalog.routes.filter(r => ff(r.path)), r => `  ${r.path}  [${r.filepath}:${r.line}]`],
-        ['GUI Actions', catalog.guiActions.filter(a => ff(a.name)), a => `  ${a.name} (${a.type})`],
+        ['GUI Actions', catalog.guiActions.filter(a => ff(a.name) || ff(a.label)), a => `  ${a.label ? a.label + '  — ' : ''}${a.name} (${a.type})` +
+          (a.handler ? (a.handler.kind === 'selector' ? '  used at ' : '  -> ') + (a.handler.handlerFunc || a.handler.func ? (a.handler.handlerFunc || a.handler.func) + '  ' : '') + a.handler.filepath + ':' + a.handler.line : '')],
       ];
       const lines = [];
       for (const [title, items, fmt] of sections) {
@@ -1382,6 +1383,8 @@ function handleToolRaw(name, args) {
         for (const it of items.slice(0, max)) lines.push(fmt(it));
         lines.push('');
       }
+      // GUI actions come from markup, which the index may not hold.
+      if (catalog.guiNote && !filter) lines.push(`Note on GUI actions: ${catalog.guiNote}`);
       return lines.length ? lines.join('\n').trim()
         : `No commands/options/routes/GUI actions detected${filter ? ` matching "${args.filter}"` : ''}.`;
     }

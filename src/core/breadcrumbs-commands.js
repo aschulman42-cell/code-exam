@@ -233,6 +233,37 @@ const _catalogCache = new WeakMap();
 // patterns blow up on them (same guard practice as the AI/ML detectors).
 const MAX_SCAN_LINE = 500;
 
+// GUI actions: the attributes and tags read, what counts as a name, and the files
+// that define controls (markup) as against scripts that only mention them.
+const GUI_ATTR = /data-(action|section)=["']([^"']+)["']/g;
+const GUI_NAME = /^[A-Za-z0-9][\w.:-]*$/;
+const GUI_COMMENT_LINE = /^\s*(?:\/\/|\/?\*|#|<!--)/;
+const GUI_MARKUP_FILE = /\.(?:html?|xhtml|vue|svelte|jsx|tsx|erb|ejs|hbs|jinja2?|tmpl|php|cshtml|razor)$/i;
+const GUI_HTML_FILE = /\.(?:html?|xhtml)$/i;
+const GUI_DOM_USE = /\b(?:getElementById|querySelector(?:All)?|addEventListener)\s*\(/;
+const GUI_SCRIPT_FILE = /\.(?:[cm]?jsx?|tsx?)$/i;
+const GUI_QUOTED = /(['"`])([A-Za-z0-9][\w.:-]*)\1/g;
+
+const GUI_TAG = /<([A-Za-z][\w-]*)\b([^<>]*)>/g;
+const GUI_CONTROL_TAG = /^(?:button|a|input|select|textarea|summary)$/;
+const GUI_VOID_TAG = /^(?:input|img|br|hr)$/;
+const GUI_DATA_ATTR = /\bdata-([a-z][\w-]*)=["']([^"']+)["']/g;
+const GUI_LABEL_FOR = /<label\b[^>]*\bfor=["']([^"']+)["'][^>]*>([^<]+)/g;
+const GUI_ID_REF = /#([A-Za-z][\w-]*)|getElementById\(\s*['"]([\w-]+)['"]/g;
+const guiAttr = (attrs, k) => { const m = attrs.match(new RegExp('(?:^|\\s)' + k + '=(["\'])(.*?)\\1')); return m ? m[2].trim() : null; };
+// Visible text of a markup fragment, without tags, entities, or the arrows and glyphs at its ends.
+const guiText = (t) => t.replace(/<[^>]*>/g, ' ').replace(/&#?\w+;/g, ' ').replace(/\s+/g, ' ')
+  .replace(/^[^\x21-\x7E\p{L}\p{N}]+|[^\x21-\x7E\p{L}\p{N}]+$/gu, '').trim();
+const kebab = (s) => s.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
+
+/** How many leading directories two paths share: a control's handler usually lives beside its page. */
+function sharedDirs(a, b) {
+  const x = a.split(/[\\/]/).slice(0, -1); const y = b.split(/[\\/]/).slice(0, -1);
+  let n = 0;
+  while (n < x.length && n < y.length && x[n] === y[n]) n++;
+  return n;
+}
+
 export function extractCommandCatalog(idx, showProgress = true) {
   const cached = _catalogCache.get(idx);
   if (cached) return cached;
@@ -244,6 +275,8 @@ export function extractCommandCatalog(idx, showProgress = true) {
     events: [],        // Event handler registrations
   };
 
+  const guiSeen = { dom: false };
+  const guiLabelFor = Object.create(null);   // 'file|id' -> text of <label for="id">, for a control with no text of its own
   for (const [filepath, lines] of idx.fileLines) {
     const funcBounds = idx._getFuncBoundaries(filepath);
 
@@ -327,22 +360,76 @@ export function extractCommandCatalog(idx, showProgress = true) {
       }
 
       // --- Pattern 4: HTML data-action / data-section attributes ---
-      const dataActionMatch = line.match(/data-action="([^"]+)"/);
-      if (dataActionMatch) {
-        catalog.guiActions.push({
-          name: dataActionMatch[1],
-          type: 'action',
-          filepath, line: lineNum, func,
-        });
+      // Every occurrence on the line, in markup or in a script's selector string. A value
+      // that is not a plain attribute value (a regex source, a template placeholder) is
+      // not a name, and an occurrence on a comment line defines nothing.
+      if (line.includes('data-') && !GUI_COMMENT_LINE.test(line)) {
+        const markup = GUI_MARKUP_FILE.test(filepath);
+        let gm;
+        GUI_ATTR.lastIndex = 0;
+        while ((gm = GUI_ATTR.exec(line))) {
+          if (!GUI_NAME.test(gm[2])) continue;
+          catalog.guiActions.push({ name: gm[2], type: gm[1], markup, filepath, line: lineNum, func });
+        }
       }
-      const dataSectionMatch = line.match(/data-section="([^"]+)"/);
-      if (dataSectionMatch) {
-        catalog.guiActions.push({
-          name: dataSectionMatch[1],
-          type: 'section',
-          filepath, line: lineNum, func,
-        });
+      // --- Pattern 4b: the page's controls, by what a user sees ---
+      // In markup: a button, input, select, textarea, link or summary that carries an id or
+      // a data-* name is a control, labeled by its visible text (else aria-label, title,
+      // placeholder). Any other element with an id is kept only if a script later proves
+      // to attach a listener to it. Opening tags that span lines are not read.
+      if (GUI_MARKUP_FILE.test(filepath) && line.includes('<')) {
+        let tm;
+        GUI_TAG.lastIndex = 0;
+        while ((tm = GUI_TAG.exec(line))) {
+          const tag = tm[1].toLowerCase();
+          const attrs = tm[2] || '';
+          const interactive = GUI_CONTROL_TAG.test(tag);
+          const id = guiAttr(attrs, 'id');
+          const inputType = (guiAttr(attrs, 'type') || '').toLowerCase();
+          if (tag === 'input' && inputType === 'hidden') continue;
+          const datas = [];
+          let dm;
+          GUI_DATA_ATTR.lastIndex = 0;
+          while ((dm = GUI_DATA_ATTR.exec(attrs))) if (GUI_NAME.test(dm[2])) datas.push([dm[1], dm[2]]);
+          if (!id && !datas.length) continue;
+          if (!interactive && !id && !datas.some(([k]) => k === 'action' || k === 'section')) continue;
+          // Visible text: up to the element's closing tag, or, for a void element, to the next tag.
+          const rest = line.slice(tm.index + tm[0].length);
+          const close = rest.toLowerCase().indexOf('</' + tag);
+          const inner = guiText(GUI_VOID_TAG.test(tag) ? rest.split('<')[0] : (close >= 0 ? rest.slice(0, close) : rest));
+          let label = [inner, guiAttr(attrs, 'aria-label'), guiAttr(attrs, 'title'), guiAttr(attrs, 'placeholder'),
+            /^(?:button|submit|reset)$/.test(inputType) ? guiAttr(attrs, 'value') : null]
+            .find((t) => t && /[A-Za-z0-9]{2}/.test(t)) || null;
+          if (!label && !interactive && close < 0) {
+            const under = guiText(lines[lineIdx + 1] || '');
+            if (/[A-Za-z0-9]{2}/.test(under)) label = under;
+          }
+          if (label && label.length > 70) label = label.slice(0, 67) + '...';
+          const named = datas.filter(([k]) => k === 'action' || k === 'section');
+          if (named.length) {
+            // Already a row from Pattern 4: give it the label.
+            for (const [k, v] of named) {
+              const row = catalog.guiActions.findLast((a) => a.filepath === filepath && a.line === lineNum && a.name === v && a.type === k);
+              if (row && label && !row.label) row.label = label;
+            }
+          } else if (interactive && datas.length) {
+            const [k, v] = datas[0];
+            catalog.guiActions.push({ name: v, type: k, label, markup: true, filepath, line: lineNum, func });
+          } else if (id && GUI_NAME.test(id)) {
+            const kind = !interactive ? 'element'
+              : tag === 'input' ? (inputType === 'checkbox' || inputType === 'radio' ? inputType : /^(?:button|submit|reset)$/.test(inputType) ? 'button' : 'input')
+              : tag === 'textarea' ? 'input' : tag === 'a' ? 'link' : tag;
+            catalog.guiActions.push({ name: id, type: kind, label, byId: true, needsListener: !interactive, markup: true, filepath, line: lineNum, func });
+          }
+        }
+        if (line.includes('<label')) {
+          let lm;
+          GUI_LABEL_FOR.lastIndex = 0;
+          while ((lm = GUI_LABEL_FOR.exec(line))) guiLabelFor[filepath + '|' + lm[1]] = guiText(lm[2]);
+        }
       }
+      // Does a script here drive a page? Decides whether a missing-HTML note is worth printing.
+      if (!guiSeen.dom && GUI_SCRIPT_FILE.test(filepath) && GUI_DOM_USE.test(line)) guiSeen.dom = true;
 
       // --- Pattern 5: Declarative command registries ---
       // Objects with name + description fields: { name: "compact", description: "...", type: "local" }
@@ -708,28 +795,205 @@ export function extractCommandCatalog(idx, showProgress = true) {
     }
   }
 
-  // Resolve GUI action handlers: find where the action name appears in JS dispatch
-  // (e.g. case 'search-fast': or data-action="search-fast" handler wiring)
-  for (const action of catalog.guiActions) {
-    const actionName = action.name;
-    for (const [fp, flines] of idx.fileLines) {
-      if (fp === action.filepath) continue; // skip the HTML definition
-      for (let li = 0; li < flines.length; li++) {
-        const fline = flines[li];
-        if (!fline || fline.length > MAX_SCAN_LINE) continue;
-        // Match: case 'action-name': or 'action-name' in a switch/dispatch context
-        if (fline.includes("'" + actionName + "'") || fline.includes('"' + actionName + '"')) {
-          const handlerFunc = idx._findContainingFunctionFromBounds(
-            idx._getFuncBoundaries(fp), li + 1
-          );
-          action.handler = {
-            filepath: fp, line: li + 1,
-            func: handlerFunc,
-          };
-          break;
+  // One row per GUI action name and kind, chosen the same way whatever the file order:
+  // the markup that defines the control over a script that mentions it, then path, then line.
+  {
+    const best = Object.create(null);
+    for (const a of catalog.guiActions) {
+      if (a.type === 'menu-group') { best[a.name + '|' + a.type + '|' + a.filepath + '|' + a.line] = a; continue; }
+      const key = a.name + '|' + a.type;
+      const b = best[key];
+      if (!b || (a.markup !== b.markup ? a.markup : (a.filepath !== b.filepath ? a.filepath < b.filepath : a.line < b.line))) best[key] = a;
+    }
+    catalog.guiActions = Object.values(best);
+  }
+
+  // Resolve GUI action handlers. One pass gathers every script line that either dispatches
+  // on the name (case 'x':, === 'x', a quoted map key 'x':) or selects the control
+  // ([data-action="x"]). A line that merely contains the word is not a candidate. A file
+  // qualifies if it reads the attribute (dataset.action, data-action) or sits beside the
+  // defining file; server-side code that compares against the same word does not. Among the
+  // qualifying lines: dispatch over selection, the nearer file, the file that dispatches
+  // the most names, then path and line.
+  {
+    // A control found by id is joined through the script lines that fetch it by that id
+    // ('#id', getElementById('id')): a listener attached there, directly or to the variable
+    // it is assigned to, handles it; any other mention only uses it.
+    const byName = Object.create(null);
+    const byId = Object.create(null);
+    for (const a of catalog.guiActions) {
+      if (a.type === 'menu-group') continue;
+      if (a.byId && !a.label && guiLabelFor[a.filepath + '|' + a.name]) a.label = guiLabelFor[a.filepath + '|' + a.name];
+      ((a.byId ? byId : byName)[a.name] ||= []).push(a);
+    }
+    const wanted = Object.keys(byName).length + Object.keys(byId).length > 0;
+    const attrLines = Object.create(null);   // attribute kind -> script lines that read it
+    // A data-* value that is the id of another element (data-copy="left-body") points at
+    // what the control acts on; it is not a name a script dispatches on.
+    const isTarget = (a) => !a.byId && a.type !== 'action' && a.type !== 'section' && !!byId[a.name];
+    const LISTENS =/\??\.addEventListener\s*\(|\.on[a-z]+\s*=(?!=)/;
+    const cands = new Map();             // action -> [{fp, li, tier}]
+    const reads = Object.create(null);   // fp -> Set of attribute kinds the file reads
+    const leads = Object.create(null);   // fp -> number of dispatch lines
+    if (wanted) {
+      for (const [fp, flines] of idx.fileLines) {
+        if (GUI_HTML_FILE.test(fp)) continue;
+        for (let li = 0; li < flines.length; li++) {
+          const fline = flines[li];
+          if (!fline || fline.length > MAX_SCAN_LINE) continue;
+          if (fline.includes('data')) {
+            for (const rd of fline.matchAll(/dataset\.([A-Za-z]\w*)|data-([a-z][\w-]*)/g)) {
+              const k = rd[1] ? kebab(rd[1]) : rd[2];
+              (reads[fp] ||= new Set()).add(k);
+              // A generic read (dataset.copy, [data-copy], getAttribute('data-copy')), not a
+              // selector for one particular value.
+              const next = fline[rd.index + rd[0].length];
+              if (!GUI_COMMENT_LINE.test(fline) && (rd[1] || next === ']' || next === "'" || next === '"')) (attrLines[k] ||= []).push({ fp, li });
+            }
+          }
+          if (GUI_COMMENT_LINE.test(fline)) continue;
+          if (fline.indexOf("'") < 0 && fline.indexOf('"') < 0 && fline.indexOf('`') < 0) continue;
+          let qm;
+          if (fline.includes('#') || fline.includes('getElementById')) {
+            GUI_ID_REF.lastIndex = 0;
+            while ((qm = GUI_ID_REF.exec(fline))) {
+              const acts = byId[qm[1] || qm[2]];
+              if (!acts) continue;
+              const after = fline.slice(qm.index + qm[0].length);
+              let at = li; let tier = 1;
+              if (LISTENS.test(after)) tier = 0;
+              else {
+                const v = fline.match(/^\s*(?:const|let|var)\s+([\w$]+)\s*=/);
+                if (v) {
+                  const use = new RegExp('(?<![\\w$.])' + v[1].replace(/\$/g, '\\$') + '(?:\\??\\.addEventListener\\s*\\(|\\.on[a-z]+\\s*=(?!=))');
+                  for (let j = li + 1; j < Math.min(li + 6, flines.length); j++) {
+                    if (flines[j] && flines[j].length <= MAX_SCAN_LINE && use.test(flines[j])) { at = j; tier = 0; break; }
+                  }
+                }
+              }
+              for (const a of acts) {
+                if (!cands.has(a)) cands.set(a, []);
+                cands.get(a).push({ fp, li: at, tier, byId: true });
+              }
+            }
+          }
+          GUI_QUOTED.lastIndex = 0;
+          while ((qm = GUI_QUOTED.exec(fline))) {
+            const acts = byName[qm[2]];
+            if (!acts) continue;
+            const before = fline.slice(0, qm.index);
+            const after = fline.slice(qm.index + qm[0].length);
+            const sel = before.match(/data-([a-z][\w-]*)=$/);
+            let tier = -1;
+            if (sel) tier = 1;
+            else if (/\bcase\s*$/.test(before) && /^\s*:/.test(after)) tier = 0;
+            else if (/[=!]==?\s*$/.test(before) || /^\s*[=!]==?/.test(after)) tier = 0;
+            else if (/^\s*:(?!:)/.test(after) && /(?:^|[{,])\s*$/.test(before)) tier = 0;
+            if (tier < 0) continue;
+            for (const a of acts) {
+              if (sel && sel[1] !== a.type) continue;
+              if (isTarget(a)) continue;
+              if (fp === a.filepath && li + 1 === a.line && tier === 1) continue;
+              if (!cands.has(a)) cands.set(a, []);
+              cands.get(a).push({ fp, li, tier });
+            }
+            if (tier === 0) leads[fp] = (leads[fp] || 0) + 1;
+          }
         }
       }
-      if (action.handler) break;
+    }
+    // The call a dispatch line leads to: on the line, or in the case body under it. Only a
+    // call made at statement level counts, not one passed as an argument to another call
+    // (`api.list({ n: getMaxResults() })` names nothing), and not a one- or two-letter helper.
+    const callIn = (flines, li) => {
+      const re = /(?<![.\w$])([A-Za-z_$][\w$]*)\s*\(/g;
+      let depth = 0;
+      for (let j = li; j < Math.min(li + 20, flines.length); j++) {
+        let text = flines[j] || '';
+        if (text.length > MAX_SCAN_LINE) continue;
+        if (j > li && (/^\s*(?:case\b|default\s*:)/.test(text) || (text.trim() && text.search(/\S/) < flines[li].search(/\S/)))) break;
+        if (j === li) text = text.replace(/^.*\bcase\b[^:]*:/, '');
+        text = text.replace(/\s\/\/.*$/, '');   // a trailing comment calls nothing
+        const depthAt = new Array(text.length + 1);
+        for (let k = 0; k < text.length; k++) {
+          depthAt[k] = depth;
+          const ch = text[k];
+          if (ch === '(') depth++;
+          else if (ch === ')') depth = Math.max(0, depth - 1);
+        }
+        re.lastIndex = 0;
+        let m;
+        while ((m = re.exec(text))) {
+          if (depthAt[m.index] === 0 && m[1].length > 2 && knownFuncs.has(m[1]) && !CALL_NOISE.test(m[1])) return m[1];
+        }
+        if (j > li && depth === 0 && /^\s*(?:break\b|return\b)/.test(text)) break;
+      }
+      return null;
+    };
+    // The function a listener line runs: the one passed by name, else the first call in its body.
+    const listenerCall = (flines, li) => {
+      const line = flines[li] || '';
+      const named = line.match(/addEventListener\s*\(\s*['"][\w-]+['"]\s*,\s*([A-Za-z_$][\w$]*)\s*[,)]/) || line.match(/\.on[a-z]+\s*=\s*([A-Za-z_$][\w$]*)\s*;?\s*$/);
+      if (named && knownFuncs.has(named[1])) return named[1];
+      const arrow = line.search(/=>|\bfunction\b/);
+      if (arrow < 0) return null;
+      const body = [line.slice(arrow).replace(/^(?:=>\s*\{?|function\s*\([^)]*\)\s*\{?)/, '')];
+      const indent = line.search(/\S/);
+      for (let j = li + 1; j < Math.min(li + 20, flines.length); j++) {
+        const t = flines[j] || '';
+        if (t.trim() && t.search(/\S/) <= indent) break;
+        body.push(t);
+      }
+      return callIn(body, 0);
+    };
+    for (const [a, list] of cands) {
+      const ok = list
+        .map((c) => ({ ...c, near: sharedDirs(c.fp, a.filepath), reads: c.byId || !!(reads[c.fp] && reads[c.fp].has(a.type)) }))
+        .filter((c) => c.reads || c.near > 0);
+      if (!ok.length) continue;
+      ok.sort((x, y) => (x.tier - y.tier) || (y.near - x.near) || ((y.reads ? 1 : 0) - (x.reads ? 1 : 0))
+        || ((leads[y.fp] || 0) - (leads[x.fp] || 0)) || (x.fp < y.fp ? -1 : x.fp > y.fp ? 1 : 0) || (x.li - y.li));
+      const c = ok[0];
+      a.handler = {
+        filepath: c.fp, line: c.li + 1,
+        func: idx._findContainingFunctionFromBounds(idx._getFuncBoundaries(c.fp), c.li + 1),
+        handlerFunc: c.tier !== 0 ? null : c.byId ? listenerCall(idx.fileLines.get(c.fp), c.li) : callIn(idx.fileLines.get(c.fp), c.li),
+        kind: c.tier === 0 ? 'dispatch' : 'selector',
+      };
+    }
+    // A control named by a data-* attribute that nothing dispatches on by value: point at
+    // the nearest script line that reads the attribute, where all such controls are handled.
+    for (const a of catalog.guiActions) {
+      if (a.handler || a.byId || a.type === 'menu-group' || !attrLines[a.type]) continue;
+      const c = attrLines[a.type]
+        .map((x) => ({ ...x, near: sharedDirs(x.fp, a.filepath) }))
+        .filter((x) => x.fp !== a.filepath && x.near > 0)
+        .sort((x, y) => (y.near - x.near) || (x.fp < y.fp ? -1 : x.fp > y.fp ? 1 : 0) || (x.li - y.li))[0];
+      if (!c) continue;
+      a.handler = { filepath: c.fp, line: c.li + 1, func: idx._findContainingFunctionFromBounds(idx._getFuncBoundaries(c.fp), c.li + 1), handlerFunc: null, kind: 'selector' };
+    }
+    // An element that is not a control by its tag is one only if a script listens on it.
+    catalog.guiActions = catalog.guiActions.filter((a) => !a.needsListener || (a.handler && a.handler.kind === 'dispatch'));
+  }
+
+  // What the GUI list could not see. Answered from the index alone, as the imports
+  // report's HTML note is: an archive build records the extensions it skipped; otherwise,
+  // scripts that drive a page with no markup in the index get the conditional form.
+  {
+    const skipped = idx.skippedExtensions || {};
+    const nSkipped = ['.html', '.htm', 'html', 'htm'].reduce((n, k) => n + (Number(skipped[k]) || 0), 0);
+    let hasHtml = false;
+    for (const fp of idx.fileLines.keys()) if (GUI_HTML_FILE.test(fp)) { hasHtml = true; break; }
+    const rebuild = 'rebuild with --build-index <source> --index-path <index> --add-extensions .html,.htm';
+    if (nSkipped) {
+      catalog.guiNote = nSkipped + ' HTML file(s) were not indexed at build (not in the default extensions), so the controls they define were not read; ' + rebuild + '.';
+    } else if (!hasHtml && (guiSeen.dom || catalog.guiActions.some((a) => a.type !== 'menu-group'))) {
+      const listed = catalog.guiActions.some((a) => a.type !== 'menu-group');
+      catalog.guiNote = 'No HTML in this index, though scripts in it drive a page: controls defined in markup were not read' +
+        (listed ? ', and each name listed here was seen only in a script. ' : '. ') +
+        'If the source has HTML, ' + rebuild + '.';
+    } else {
+      catalog.guiNote = null;
     }
   }
 
@@ -799,12 +1063,7 @@ export function extractCommandCatalog(idx, showProgress = true) {
   }
   catalog.routes = Object.values(routeGroups);
 
-  const actionGroups = Object.create(null);
-  for (const a of catalog.guiActions) {
-    const key = a.name + '|' + a.type;
-    if (!actionGroups[key]) actionGroups[key] = a;
-  }
-  catalog.guiActions = Object.values(actionGroups);
+  // (GUI actions were reduced to one row per name and kind before their handlers were resolved.)
 
   // Assign tiers to commands:
   // primary = looks like a user-facing command (has action-like description, slash-command, etc.)
@@ -853,7 +1112,7 @@ export function extractCommandCatalog(idx, showProgress = true) {
     return a.name.localeCompare(b.name);
   });
   catalog.routes.sort((a, b) => a.path.localeCompare(b.path));
-  catalog.guiActions.sort((a, b) => a.name.localeCompare(b.name));
+  catalog.guiActions.sort((a, b) => a.name.localeCompare(b.name) || a.type.localeCompare(b.type));
 
   if (showProgress) {
     const total = catalog.cliOptions.length + catalog.commands.length +

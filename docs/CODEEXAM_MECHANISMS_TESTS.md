@@ -597,19 +597,149 @@ renames: 30 more option rows appear on each, deprecated spellings are listed bes
 current flag, and the handler shown changes for the options above. The digest and rename
 output were not read after the change.
 
-**Not repaired: the catalog's GUI Actions.** This change is to CLI options only. On
-CodeExam's own index `--command-catalog` lists 13 GUI actions, and the list is neither
-complete nor clean: `public/index.html`, which holds 52 of the GUI's 58 `data-section`
-attributes, is not indexed (`.html` is not a default extension), so only names that also
-appear in a JavaScript string are found; 5 of the 13 are not actions at all (the catalog's
-own regex source, a template placeholder, a word in a comment); and several handlers point
-at an unrelated file. With `index.html` added the list has 68 rows. The repair is the
-worklist item `command-catalog-gui-actions`.
+**The catalog's GUI Actions** were not touched by this change, which is to CLI options
+only. They are the next section.
 
 ```
 node --test test/test_command_catalog.js
 node src/index.js --index-path <index> --command-catalog --all-results
 node src/index.js --index-path <index> --build-mechanisms
+```
+
+## The catalog's GUI actions: before and after (2026-11-15)
+
+**What was wrong.** Andrew ran `--command-catalog` on CodeExam's own index and found the
+GUI Actions section "a small random-looking selection of features available from GUI". It
+listed 13 rows. Three causes:
+
+1. **The page's HTML is not in the index.** GUI actions are read from two attributes,
+   `data-action` and `data-section`. `public/index.html` holds 52 of the GUI's 58
+   `data-section` attributes, and `.html` is not a default extension. What was listed was
+   whichever name also sits in a JavaScript string (a tour step, a selector). Nothing said
+   the HTML had been left out.
+2. **Rows that are not actions**, 5 of the 13: the catalog's own regex source (`([^`), a
+   template placeholder (`${sectionId}`), and `name`, from a comment giving the attribute
+   as an example.
+3. **Wrong handlers.** The handler was the first line anywhere holding the name in quotes:
+   `overview (section)` joined `src/argparse.js:520`, the row that declares the
+   `--overview` option.
+
+**What changed** (`src/core/breadcrumbs-commands.js`).
+
+- A value that is not a plain attribute value is not a name, and a comment line defines
+  nothing. Every occurrence on a line is read, where one per line was.
+- One row per name, the same whatever the file order: the markup that defines the control
+  over a script that mentions it.
+- A handler is a script line that dispatches on the name (`case 'x':`, `=== 'x'`, a quoted
+  map key) or, failing that, one that selects the control (`[data-action="x"]`, printed as
+  "used at"). The file must read the attribute (`dataset.action`) or sit beside the
+  defining file; server-side code that compares against the same word is not a candidate.
+  The row names the first call made at statement level in that `case`.
+- When no HTML is in the index and its scripts drive a page, or an archive build recorded
+  HTML as skipped, the section ends with a note saying so and giving the whole rebuild
+  command. The CLI, the `command_catalog` MCP tool and the GUI's Commands list print it.
+- The section says what it reads.
+
+**Measured** on `.CE` (CodeExam's source, 265 files, no HTML), as built and with
+`public/index.html` added to the loaded index in memory. A real rebuild with
+`--add-extensions .html` was not run.
+
+| | before | after |
+|---|--:|--:|
+| rows, index as built | 13 | 7, and the note |
+| of them not actions | 5 | 0 |
+| rows, `index.html` added | 68 | 63 |
+| of them not actions | 5 | 0 |
+| handlers in a file outside `public/` | 41 | 0 |
+| rows with a handler | 67 | 63 |
+| handlers that name a function | 0 (file and line only) | 60 |
+
+- **The 63 rows** are the 52 accordion sections and 11 menu actions of the page. All 52
+  sections join their `case` in `loadSectionData` (`public/app.js`), and
+  the 10 dispatched menu actions their `case` in `handleMenuAction`
+  (`public/menu-bar.js`); `reset-layout` is "used at" `public/layout.js:254`, which
+  wires its click.
+- **No function named, 3**: `load-index` and `build-index`, whose `case` opens a dialog
+  inline, and `reset-layout`.
+- **The function named is the first statement-level call, not always the best one.** 18
+  sections name `renderDrilldownList`, a shared renderer; the call that fetches the data is
+  a method (`api.listArtifacts`) and is not named. `stats` names `showMiddleTopLoading`,
+  the line before `renderStats`. Eight rows were read against the source by hand, not all 63.
+
+**Second pass, the same day: controls beyond the two attributes.** Andrew rebuilt an index
+with `index.html`, read the list in the GUI, and found it still missing the Analysis,
+Console and Chat tabs, the Claim / Multisect Workspace and its options (Browse GGUFs,
+Vocab-Tight), and menu items under the names he knows (Regex Search was listed, as
+`search-regex`). The catalog was extended by the conventions of HTML, not by CodeExam's
+attribute names:
+
+- **A label.** Every control carries the text a user sees: its visible text, else
+  `aria-label`, `title`, `placeholder`, or a `<label for>`. The row prints the label, then
+  the code name.
+- **Any `data-*` name** on a button, input, select, textarea, link or summary is a control
+  of that kind (`data-tab="chat"` is `chat (tab)`), joined as the two attributes were.
+  When the value is the id of another element (`data-copy="left-body"`), it names what the
+  control acts on, not a command: it is joined to the script line that reads the attribute
+  (`closest('[data-copy]')`), "used at".
+- **A control with an id** is listed by its kind (button, checkbox, input, select) and
+  joined to the script line that fetches it by that id (`'#id'`, `getElementById`): a
+  listener attached there, directly or to the variable it is assigned to, handles it and
+  the function passed is named; any other mention is "used at", which is what a checkbox a
+  script only reads gets.
+- **Any other element with an id** is listed only if a script attaches a listener to it.
+
+| with `index.html` added | two attributes | all controls |
+|---|--:|--:|
+| rows | 63 | 198 |
+| with a handler line | 63 | 193 |
+| of them a dispatch or a listener | 62 | 136 |
+| of them "used at" | 1 | 57 |
+| that name a function | 60 | 116 |
+| with no label | 63 (labels were not read) | 19 |
+| handler outside `public/` | 0 | 0 |
+
+By kind: 52 sections, 48 buttons, 22 checkboxes, 16 inputs, 11 menu actions, 9
+context-menu entries, 7 elements with a listener, 5 selects, 5 menus, 3 tabs, and 16
+pane buttons (save, find, copy, close, pop out). Everything Andrew named is in the list.
+Read by hand: the rows he named and about twenty others, not all 198.
+
+What is wrong or thin in it:
+
+- **Labels are sometimes not what a user would call the control.** An input with only a
+  placeholder is labeled by it (`.index_of_mycode`), a long tooltip is cut at 70
+  characters, and a container with a listener takes the first text under it
+  (`context-menu` is labeled "Find Uses", its first entry). 19 controls have no label:
+  icon-only buttons with no title, and selects.
+- **57 rows are "used at", not handled**: checkboxes and inputs a script reads when
+  something else runs, and controls wired in a loop over a class of elements, which no
+  rule here follows. 5 rows have no line at all (the Window menu's checkboxes among them).
+- **The list is long and flat**: dialog Cancel and Close buttons sit beside commands. No
+  grouping by dialog or pane is attempted.
+- **Not read**: an opening tag that spans lines, a control a script creates
+  (`createElement`, an HTML string in JavaScript), and frameworks' own event syntax
+  (`onClick={…}`, `@click`, `(click)`). CodeExam's page has none of the first; the
+  second and third are untested.
+- **Measured on one page, CodeExam's own.** The rules are general HTML conventions, but no
+  other index at hand holds a web page, so nothing shows how the list reads on another
+  GUI. The figures are from `index.html` added to the loaded index in memory.
+
+**On other codebases.** No index at hand holds HTML, so the rules are shown on CodeExam's
+GUI alone. What the other indexes show is the
+note: `.AI_Manning_recent` "1 HTML file(s) were not indexed at build", `.Bram_103126`,
+`.sr_gh` and `.dspy` the conditional form, `.x264` (C, no scripts) nothing. For `.dspy`,
+a Python library, the note is triggered by a script in its docs and is of little use.
+
+**A build-only option given without a build.** Following the old wording of such notes,
+Andrew ran `--index-path .CE --add-extensions ".htm,.html,.css"` and got "No command
+given": the option acts only during `--build-index` and was ignored without a word. Now
+`--extensions`, `--add-extensions`, `--exclude-extensions` and `--regex-parser` given
+without `--build-index` print that they have no effect on the run, and the build command.
+Six older notes elsewhere (`--imports`, `--browse`, the census, two in the GUI) still say
+"rebuild with --add-extensions …" without the build command; they were left as they are.
+
+```
+node --test test/test_command_catalog.js
+node src/index.js --index-path <index> --command-catalog
 ```
 
 ## Sections to come

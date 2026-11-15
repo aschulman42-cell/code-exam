@@ -50,6 +50,16 @@ plainly:
   different one depending on the order files were indexed in, was repaired on 2026-11-15.
   What remains of that kind: an option whose handler call sits more than 20 lines into its
   block, or is a plain method call that is neither `do`-named nor awaited, shows no handler.
+  The catalog's **GUI Actions** are read from markup in the index: buttons, inputs, selects
+  and links that carry an id or a `data-*` name, and any element a script attaches a
+  listener to by id. HTML is not indexed by default, so build with
+  `--add-extensions .html,.htm` or the list holds just the names a script happens to
+  mention (the section says so when that is the case). Not listed: a control a script
+  creates, an opening tag that spans lines, and frameworks' own event syntax
+  (`onClick={…}`, `@click`). A control wired in a loop over a class shows "used at" or no
+  line. The label is the visible text, else a tooltip or placeholder, and can be a poor
+  name; the function shown is the first call in the code that handles the control, which
+  can be a shared helper. Shown on CodeExam's own GUI only.
 - **AI/ML detection is heuristic** (#98 et al.) — the detectors favor recall, so counts are
   presence *signals*, not exact site counts; expect some false positives and misses. Treat the
   accordions as leads to verify in source, not an inventory. See

@@ -118,7 +118,7 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 - **Does**: Comma-separated file extensions to index. Overrides the default extension list, and turns off the by-name rule that indexes dependency and build files (manifests, lockfiles, `Makefile`, ...) whatever their extension: an explicit list means exactly that list.
 - **Good for**: Indexing files that aren't in the default extensions set, or restricting to a specific language family.
-- **Couples with**: `--build-index`, `--exclude-extensions`. Interaction with `--scan-extensions` / `--index-extensions` is read-only inspection of extension data.
+- **Couples with**: `--build-index`, `--exclude-extensions`. Build-only: given with `--index-path` and no `--build-index` (as are `--add-extensions`, `--exclude-extensions`, `--regex-parser`) it changes nothing, and CodeExam prints a note with the build command. Interaction with `--scan-extensions` / `--index-extensions` is read-only inspection of extension data.
 - **Naming**: noun-only — implies "the extensions to include." Asymmetric with `--exclude-extensions` (explicitly negated).
 - **Verified against**: `src/argparse.js:212`
 
@@ -1121,7 +1121,7 @@ Deprecated alias for `--deep 1`. Continues to work; post-parse, sets `args.deep 
 
 #### `--command-catalog`
 
-- **Does**: List CLI options, commands, switch/case branches, API routes, and GUI actions discovered in the codebase.
+- **Does**: List CLI options, commands, switch/case branches, API routes, and GUI actions discovered in the codebase. GUI actions are the page's controls as its markup declares them: buttons, inputs, selects and links that carry an id or a `data-*` name, and any element a script attaches a listener to by id. Each row gives the label a user sees, the code name and kind, and the script line that handles the control (`→`) or merely reads it (`used at`). Controls a script creates are not listed. HTML is not indexed by default, so for a web GUI build the index with `--add-extensions .html,.htm`; without it the section lists only names a script mentions and ends with a note saying the HTML was not read.
 - **Good for**: Understanding the command surface of an unfamiliar codebase. Especially useful in reverse-engineering bundled tools.
 - **Couples with**: `--filter`.
 - **Naming**: noun-noun.
