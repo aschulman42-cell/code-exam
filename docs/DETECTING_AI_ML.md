@@ -79,7 +79,7 @@ Pipelines view above is synthesized from their co-occurrence.
 | LLM Calls | `--llm-calls` | SDK calls / endpoints (`messages.create`, `ChatOpenAI`, `LlamaChatSession`; hosted hosts, Ollama's `localhost:11434` and its `/api/chat` family in a file that names Ollama) |
 | Tools | `--tools` | tool / function-calling defs and dispatch (`@tool`, `input_schema`, MCP) |
 | Chains / Agents | `--chains` (`--agents`) | orchestration (LangChain / LangGraph / DSPy / CrewAI) |
-| Embeddings / Vectors | `--embeddings` (`--vectors`) | embedding + vector-search sites (FAISS / Chroma, similarity search) |
+| Embeddings / Vectors | `--embeddings` (`--vectors`) | embedding + vector-search sites: cloud SDKs and frameworks (`OpenAIEmbeddings`, `embeddings.create`, `SentenceTransformer`), local runtimes (node-llama-cpp `createEmbeddingContext`, llama.cpp `llama_get_embeddings`, Ollama `/api/embed`, an OpenAI-compatible `/v1/embeddings`), an embedding model named by file or id (`nomic-embed-text-v1.5.Q8_0.gguf`, `BAAI/bge-small-en-v1.5`), vector stores (FAISS / Chroma), similarity search |
 | Structured Output | `--structured-output` | schema-constrained output (`with_structured_output`, `response_format`) |
 | Inference | `--inference` | local generation / prediction (`generate`, `no_grad`, `.predict`) |
 | Training | `--training` | training sites (PyTorch loops, HF `Trainer`, `.fit`) |
@@ -90,6 +90,71 @@ Pipelines view above is synthesized from their co-occurrence.
 | Multimodal / Vision | `--multimodal` (`--vision`) | vision encoders (CLIP/ViT), CNNs (ResNet), detection/segmentation (YOLO/U-Net), generative (diffusion/VAE) |
 | Post-training | `--post-training` (`--finetuning`) | fine-tuning / alignment (LoRA/PEFT, SFT/DPO/PPO/GRPO, distillation) |
 | Reasoning / CoT | `--reasoning` | chain-of-thought *prompt language* (`step by step`, reflection) — a signal over prompt text, not a structural detector |
+
+**Embeddings: local runtimes and named models (2026-11-15).** Until this date the Embeddings
+detector knew cloud SDKs and Python frameworks only, so a codebase that embeds with a local
+runtime showed nothing: CodeExam's own source (node-llama-cpp, five GGUF models named in
+`src/core/embed.js`) reported 10 sites, none of them the real ones, and the index of
+node-llama-cpp's own source reported none. Three changes:
+
+- **Local runtimes and more providers** are in the marker table, taken from the runtimes'
+  public APIs: node-llama-cpp, llama.cpp and llama-cpp-python, Ollama, an
+  OpenAI-compatible `/v1/embeddings` endpoint, transformers' `feature-extraction`
+  pipeline, fastembed, LlamaIndex (`OpenAIEmbedding`, `get_text_embedding`), Google
+  (`embed_content`), the AI SDK (`embedMany`), and a fixed list of providers' classes
+  (`BedrockEmbeddings`, `VoyageEmbeddings`, …). It is a list, not any `…Embeddings` name:
+  in a model library `BertEmbeddings` is a layer.
+- **An embedding model named in a string** is a site with the name as its id, from the
+  families that are embedding models by name (nomic-embed, jina-embeddings, bge, e5, gte,
+  MiniLM / mpnet sentence models, text-embedding-3 / ada, EmbeddingGemma, Qwen3-Embedding,
+  mxbai, arctic-embed, voyage, Cohere embed, titan-embed). Models Used lists them, local
+  or api by family.
+- **A marker word inside quoted prose is not a site**: a help line, an error message, a
+  docstring opener. A string that is one token (`"pgvector"` as a config value, a name in
+  an export list) still counts, and so does every line of a notebook, where code is
+  itself a JSON string. A `.search(` given a regex literal is a string search.
+
+Rows before and after on twelve indexes at hand (the same index, the detector alone
+changed):
+
+| index | before | after | lost | gained |
+|---|--:|--:|--:|--:|
+| CodeExam's own source | 10 | 27 | 5 | 22 |
+| node-llama-cpp | 0 | 8 | 0 | 8 |
+| llama.cpp | 10 | 61 | 3 | 54 |
+| LM Studio (bundled JS) | 1 | 19 | 1 | 19 |
+| LlamaIndex | 1,583 | 1,606 | 704 | 727 |
+| LangChain | 3,529 | 3,180 | 575 | 226 |
+| CrewAI | 379 | 525 | 125 | 271 |
+| AutoGen | 72 | 121 | 4 | 53 |
+| a set of agent-book sources | 79 | 102 | 5 | 28 |
+| sentence-transformers | 580 | 553 | 31 | 4 |
+| DSPy | 23 | 17 | 8 | 2 |
+| a set of LLM-book notebooks | 8 | 8 | 0 | 0 |
+
+Four more indexes had no row before or after (x264, a Qwen3 repository, a RAG-book
+source set, GhostArch); the last three were not read to see whether they should have one.
+
+What a hand read of samples found (about 10 to 20 rows lost and gained per index, not
+every row):
+
+- **Lost rows are prose**: error messages and docstrings (`raise ValueError("… Weaviate
+  Python client …")`), the Discord chat dumps under LlamaIndex's docs (9 of the 14 sampled from its 704),
+  string constants in decompiled `.pyc` listings that repeat the `.py` beside them. A
+  codebase present only as such listings loses the docstring mentions and keeps the names.
+- **Gained rows that are thin**: recorded HTTP exchanges in test cassettes
+  (`uri: https://api.openai.com/v1/embeddings`, the kind most of CrewAI's 53 new endpoint rows were in the sample) and model names in
+  tests are evidence of use but not sites of it; a model id quoted inside a docstring is
+  listed; in a minified bundle the match is a line of a string table.
+- **Still missed**: an embedding call through a wrapper with none of these names; a model
+  id held in a variable or a config file that is not indexed; the families list is a list
+  and a model outside it is not seen.
+
+```
+node --test test/test_ai_ml_self_detect.js
+node src/index.js --index-path <index> --embeddings -v
+node src/index.js --index-path <index> --models-used
+```
 
 ## Infrastructure and DevOps
 

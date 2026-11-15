@@ -1800,6 +1800,25 @@ class _AIMLMethods {
       { re: /\bembed_query\b/,             kind: 'embedding', fw: 'LangChain', m: 'embed_query' },
       { re: /\bembed_documents\b/,         kind: 'embedding', fw: 'LangChain', m: 'embed_documents' },
       { re: /\bembeddings\.create\b/,      kind: 'embedding', fw: 'OpenAI', m: 'embeddings.create', idArg: 'model' },
+      // Other providers' embedding classes, by the frameworks' naming (LangChain XEmbeddings,
+      // LlamaIndex XEmbedding). A fixed provider list, not any \w+Embeddings: in a model
+      // library BertEmbeddings is a layer, not a call to an embedding model.
+      { re: /\b(?:AzureOpenAI|Bedrock|VertexAI|GoogleGenerativeAI|MistralAI|Voyage(?:AI)?|Nomic|Jina|Ollama|LlamaCpp|FastEmbed|Together|Fireworks|GPT4All|Gemini)Embeddings?\b/, kind: 'embedding', fw: '?', m: 'XEmbeddings', own: true, idArg: 'model|model_name' },
+      { re: /\b(?:OpenAI|HuggingFace|Cohere)Embedding\b/, kind: 'embedding', fw: 'LlamaIndex', m: 'XEmbedding', own: true, idArg: 'model|model_name' },
+      { re: /\bget_text_embedding(?:_batch)?\b|\bget_query_embedding\b/, kind: 'embedding', fw: 'LlamaIndex', m: 'get_text_embedding' },
+      { re: /\bembed_content\b|\bembedContent\b/, kind: 'embedding', fw: 'Google', m: 'embed_content', idArg: 'model' },
+      { re: /\bembedMany\b/,               kind: 'embedding', fw: 'AI SDK', m: 'embedMany', idArg: 'model' },
+      // Local runtimes (#embeddings-detector-local-models): an air-gapped codebase embeds
+      // with these, and none was in the table.
+      { re: /\bcreateEmbeddingContext\b/,  kind: 'embedding', fw: 'node-llama-cpp', m: 'createEmbeddingContext' },
+      { re: /\bgetEmbeddingFor\b/,         kind: 'embedding', fw: 'node-llama-cpp', m: 'getEmbeddingFor' },
+      { re: /\bllama_get_embeddings(?:_ith|_seq)?\b|\bllama_set_embeddings\b/, kind: 'embedding', fw: 'llama.cpp', m: 'llama_get_embeddings' },
+      { re: /\bcreate_embedding\b/,        kind: 'embedding', fw: 'llama.cpp', m: 'create_embedding' },
+      { re: /\bollama\.embed(?:dings)?\b/, kind: 'embedding', fw: 'Ollama', m: 'ollama.embed', idArg: 'model' },
+      { re: /\/api\/embed(?:dings)?\b/,    kind: 'embedding', fw: 'Ollama', m: '/api/embed', str: true },
+      { re: /\/v1\/embeddings\b/,          kind: 'embedding', fw: 'OpenAI-compatible', m: '/v1/embeddings', str: true },
+      { re: /\bpipeline\s*\(\s*["']feature-extraction["']/, kind: 'embedding', fw: 'HF', m: 'feature-extraction', str: true },
+      { re: /\bfastembed\b.*\bTextEmbedding\b|\bTextEmbedding\s*\(/, kind: 'embedding', fw: 'fastembed', m: 'TextEmbedding', idArg: 'model_name|pos' },
       // vector-store — idArg: the index/collection name where the ctor takes one.
       { re: /\bFAISS\b/,                   kind: 'vector-store', fw: 'FAISS', m: 'FAISS' },
       { re: /\bPinecone\b/,                kind: 'vector-store', fw: 'Pinecone', m: 'Pinecone', idArg: 'index_name' },
@@ -1822,11 +1841,44 @@ class _AIMLMethods {
       { re: /\bsplit_text\b/,              kind: 'chunking', fw: 'LangChain', m: 'split_text' },
       { re: /\bchunk_overlap\b/,           kind: 'chunking', fw: '?', m: 'chunk_overlap' },
     ];
-    const reEmbAny = /\bOpenAIEmbeddings\b|\bHuggingFaceEmbeddings\b|\bCohereEmbeddings\b|\bSentenceTransformer\b|\bembed_query\b|\bembed_documents\b|\bembeddings\.create\b/;
-    const reVecAny = /\bFAISS\b|\bPinecone\b|\bQdrant\b|\bWeaviate\b|\bMilvus\b|\bLanceDB\b|\bpgvector\b|\bVectorStore\b|\bIndexFlat(?:L2|IP)\b|\bchromadb\b/;
+    // An embedding model named in a string, by file or id: the families that are embedding
+    // models by name. Lower precedence than a call marker on the same line, whose own id
+    // argument usually carries the same name.
+    const reEmbModel = /(["'`])([\w./:@-]*(?:nomic-embed|jina-embeddings?-|jina-clip|bge-(?:small|base|large|m3)|(?:multilingual-)?e5-(?:small|base|large|mistral)|gte-(?:small|base|large|multilingual|Qwen)|all-MiniLM|all-mpnet|paraphrase-(?:multilingual-)?(?:MiniLM|mpnet)|text-embedding-(?:3|ada|00\d)|embeddinggemma|Qwen3-Embedding|mxbai-embed|snowflake-arctic-embed|voyage-(?:\d|code|large|lite)|embed-(?:english|multilingual)-|coderankembed|codesage-|granite-embedding|embed-text-v\d)[\w.:-]*)\1/i;
+    // Is position at of the line inside quoted prose? A marker word in a help line, a
+    // message or a docstring names the thing; it is not a use of it. A string that is one
+    // token ("pgvector" as a config value, a name in an export list) is not prose and counts.
+    const inProse = (line, at) => {
+      let q = null; let start = -1;
+      for (let k = 0; k < at; k++) {
+        const ch = line[k];
+        if (ch === '\\') { k++; continue; }
+        if (q) { if (ch === q) q = null; } else if (ch === '"' || ch === "'" || ch === '`') { q = ch; start = k; }
+      }
+      if (q === null) return false;
+      let end = line.length;
+      for (let k = at; k < line.length; k++) { if (line[k] === '\\') { k++; continue; } if (line[k] === q) { end = k; break; } }
+      return /\s/.test(line.slice(start + 1, end).trim());
+    };
+    // One cheap test for "any marker at all on this line", so the per-marker scan runs on few lines.
+    const reAnyMarker = new RegExp(tierA.map((d) => d.re.source).join('|'));
+    // First match of a marker that is code, not quoted prose (endpoint and model-id markers are strings by nature).
+    // In a notebook every code line is itself a JSON string, so the prose test does not apply there.
+    let proseApplies = true;
+    const codeMatch = (d, line) => {
+      if (d.str || !proseApplies) return d.re.exec(line);
+      const g = d.reG || (d.reG = new RegExp(d.re.source, d.re.flags.includes('g') ? d.re.flags : d.re.flags + 'g'));
+      g.lastIndex = 0;
+      let m;
+      while ((m = g.exec(line))) { if (!inProse(line, m.index)) return m; if (m[0].length === 0) g.lastIndex++; }
+      return null;
+    };
+    const embDefs = tierA.filter((d) => d.kind === 'embedding');
+    const vecDefs = tierA.filter((d) => d.kind === 'vector-store').concat([{ re: /\bchromadb\b/ }]);
     const reEncode = /\.encode\s*\(/;
     const reChroma = /\bChroma\b|\bchromadb\b/;
-    const reVecOp = /\.query\s*\(|\.search\s*\(|\.upsert\s*\(/;
+    // .search( with a regex literal is String.prototype.search, not a vector search.
+    const reVecOp = /\.query\s*\(|\.search\s*\((?!\s*\/)|\.upsert\s*\(/;
     // Distance measures are co-occurrence-gated (below), so the set can be
     // comprehensive without FP risk — these are heavily used in plain ML
     // (clustering/classification), but only count alongside an embedding/vector
@@ -1838,10 +1890,11 @@ class _AIMLMethods {
     const out = [];
     for (const [filepath, lines] of this._scanLines()) {
       if (reDocFile.test(filepath)) continue;
+      proseApplies = !/\.ipynb$/i.test(filepath);
       const hasST = lines.some(l => /\b(?:import|from)\s+sentence_transformers\b/.test(l));
       const hasChromadb = lines.some(l => /\bchromadb\b/i.test(l) || (/\b(?:import|from)\b/.test(l) && /\bChroma\b/.test(l)));
-      const embFound = lines.some(l => reEmbAny.test(l));
-      const vecFound = lines.some(l => reVecAny.test(l));
+      const embFound = lines.some(l => l && ((reAnyMarker.test(l) && embDefs.some(d => codeMatch(d, l))) || reEmbModel.test(l)));
+      const vecFound = lines.some(l => l && (reAnyMarker.test(l) || /chromadb/.test(l)) && vecDefs.some(d => codeMatch(d, l)));
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -1851,15 +1904,16 @@ class _AIMLMethods {
         const push = (kind, fw, tier, m, tag, id = null, resolved = true) =>
           out.push({ name: m, filepath, line: i + 1, kind, framework: fw, tier, marker: m, tag, id, resolved, snippet: trimmed.slice(0, 200) });
 
-        const a = tierA.find(d => d.re.test(line));
+        let mm = null;
+        const a = reAnyMarker.test(line) ? tierA.find(d => (mm = codeMatch(d, line))) : null;
         if (a) {
           let id = null, resolved = true;
-          if (a.idArg) {
-            const mm = a.re.exec(line);
-            ({ id, resolved } = this._extractCallId(line, mm.index + mm[0].length, lines, i, a.idArg));
-          }
-          push(a.kind, a.fw, 'A', a.m, 'mechanical', id, resolved); continue;
+          if (a.idArg) ({ id, resolved } = this._extractCallId(line, mm.index + mm[0].length, lines, i, a.idArg));
+          // A provider-list marker reports the class it matched (BedrockEmbeddings), not the pattern's name.
+          push(a.kind, a.fw, 'A', a.own ? mm[0] : a.m, 'mechanical', id, resolved); continue;
         }
+        const em = reEmbModel.exec(line);
+        if (em) { push('embedding', '?', 'A', 'embedding-model', 'mechanical', em[2], true); continue; }
         // Tier B gated
         if (hasST && reEncode.test(line)) { push('embedding', 'sentence-transformers', 'B', '.encode', 'heuristic'); continue; }
         if (hasChromadb && reChroma.test(line)) {
@@ -2060,7 +2114,12 @@ class _AIMLMethods {
       add(a.path, a.pathResolved, 'local', 'artifact', a.marker, a.filepath, a.line);
     for (const e of this.listEmbeddings())
       if (e.kind === 'embedding')
-        add(e.id, e.resolved, (e.framework === 'OpenAI' || e.framework === 'Cohere') ? 'api' : 'local', 'embedding', e.marker, e.filepath, e.line);
+        // Access: the provider's own SDK is api; for a model named in a string or reached
+        // through a generic marker, the hosted embedding families are api and the rest
+        // (a GGUF file, a Hugging Face id, a local runtime) local.
+        add(e.id, e.resolved, (e.framework === 'OpenAI' || e.framework === 'Cohere' || e.framework === 'Google'
+          || /(?:^|[:/])(?:text-embedding-|voyage-|embed-(?:english|multilingual)-|gemini-embedding|amazon\.titan-embed|cohere\.embed)/i.test(e.id || '')) ? 'api' : 'local',
+          'embedding', e.marker, e.filepath, e.line);
     for (const inf of this.listInference())
       add(inf.id, inf.resolved, 'local', 'inference', inf.marker, inf.filepath, inf.line);
 
@@ -2823,7 +2882,8 @@ export const CHAINS_DRILLDOWN = {
   row:   t => ({ framework: t.framework, kind: t.kind, marker: t.marker, name: t.name, tier: t.tier, tag: t.tag }),
 };
 export const EMBEDDINGS_DRILLDOWN = {
-  keyFn: t => `${t.framework}|${t.kind}|${t.marker}`,   // name === marker for embeddings
+  // name === marker for embeddings; a model named in a string groups by the model, so each one has its own row
+  keyFn: t => `${t.framework}|${t.kind}|${t.marker}${t.marker === 'embedding-model' ? '|' + (t.id || '') : ''}`,
   pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
   row:   t => ({ framework: t.framework, kind: t.kind, marker: t.marker, name: t.name, id: t.id, tier: t.tier, tag: t.tag }),
 };

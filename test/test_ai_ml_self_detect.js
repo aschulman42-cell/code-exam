@@ -68,3 +68,54 @@ describe('#227 — inference detector does not self-detect its pattern table', (
       'real generation usage must still be detected: ' + JSON.stringify(rows));
   });
 });
+
+describe('embeddings detector: local runtimes, named models, and a marker inside a message', () => {
+  const emb = (files) => indexOf(files).listEmbeddings();
+  const kinds = (rows) => rows.map((r) => `${r.kind}|${r.framework}|${r.marker}`);
+
+  it('finds a node-llama-cpp embedding context and the call that embeds', () => {
+    const rows = emb({ 'embed.js': [
+      "import { getLlama } from 'node-llama-cpp';",
+      'const ctx = await model.createEmbeddingContext({ contextSize: 2048 });',
+      'const e = await ctx.getEmbeddingFor(prefix + text);',
+    ].join('\n') });
+    assert.deepEqual(kinds(rows), ['embedding|node-llama-cpp|createEmbeddingContext', 'embedding|node-llama-cpp|getEmbeddingFor']);
+  });
+  it('finds llama.cpp and llama-cpp-python embedding calls', () => {
+    const rows = emb({ 'a.cpp': 'const float * e = llama_get_embeddings_seq(ctx, 0);', 'b.py': 'out = llm.create_embedding("hello")' });
+    assert.deepEqual(rows.map((r) => r.framework), ['llama.cpp', 'llama.cpp']);
+  });
+  it('finds an Ollama or OpenAI-compatible embedding endpoint, which is a string by nature', () => {
+    const rows = emb({ 'c.js': "const r = await fetch(base + '/api/embeddings', { method: 'POST' });\nconst q = await fetch(`${base}/v1/embeddings`, opts);\nconst v = await ollama.embed({ model: 'nomic-embed-text', input });" });
+    assert.deepEqual(rows.map((r) => r.framework), ['Ollama', 'Ollama', 'OpenAI-compatible']);
+    assert.ok(rows.every((r) => r.kind === 'embedding'));
+  });
+  it('lists an embedding model named by file or id, with the name as its id', () => {
+    const rows = emb({ 'models.js': [
+      "  nomic: { file: 'nomic-embed-text-v1.5.Q8_0.gguf', query: 'search_query: ' },",
+      "  jina: { file: 'jina-embeddings-v2-base-code-q8_0.gguf' },",
+      '  other = "BAAI/bge-small-en-v1.5"',
+      "  const chat = 'llama-3.1-8b-instruct.gguf';",
+    ].join('\n') });
+    assert.deepEqual(rows.map((r) => r.id), ['nomic-embed-text-v1.5.Q8_0.gguf', 'jina-embeddings-v2-base-code-q8_0.gguf', 'BAAI/bge-small-en-v1.5']);
+    assert.ok(rows.every((r) => r.kind === 'embedding' && r.marker === 'embedding-model'));
+  });
+  it('does not take a marker word inside a help line or a message for a site', () => {
+    const rows = emb({ 'help.js': [
+      "console.log('No embeddings/vector search found (no OpenAIEmbeddings/SentenceTransformer/'",
+      "  + 'embed_query, FAISS/Chroma/Pinecone/VectorStore, similarity_search, text-splitters, or '",
+      "  --embeddings               Embeddings & vector search (FAISS/Chroma, similarity_search, distance)",
+    ].join('\n'), 'fixture.js': "const grounded = [{ file: 'x/embeddings.py', func: 'embed_documents' }];" });
+    // The fixture's 'embed_documents' is a whole string, a name used as a value, and stays; prose does not.
+    assert.deepEqual(kinds(rows), ['embedding|LangChain|embed_documents', 'vector-store|FAISS|FAISS'], JSON.stringify(rows));
+  });
+  it('still finds the same markers used as code', () => {
+    const rows = emb({ 'app.py': 'from langchain_openai import OpenAIEmbeddings\nemb = OpenAIEmbeddings(model="text-embedding-3-small")\ndb = FAISS.from_documents(docs, emb)\nhits = db.similarity_search(q)' });
+    assert.deepEqual(rows.map((r) => r.marker).sort(), ['FAISS', 'OpenAIEmbeddings', 'OpenAIEmbeddings', 'similarity_search']);
+    assert.equal(rows.find((r) => r.marker === 'OpenAIEmbeddings' && r.id).id, 'text-embedding-3-small');
+  });
+  it('does not take a string search with a regex for a vector search', () => {
+    const rows = emb({ 's.js': "class VectorStore {}\nconst stop = rest.search(/_end|## /);\nconst hits = store.search(queryVector, 5);" });
+    assert.deepEqual(rows.filter((r) => r.kind === 'search').map((r) => r.line), [3]);
+  });
+});

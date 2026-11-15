@@ -472,7 +472,9 @@ export function doListEmbeddings(index, args) {
   const items = dropTests(index.listEmbeddings(args.filter), args);
   if (!items.length) {
     console.log('No embeddings/vector search found (no OpenAIEmbeddings/SentenceTransformer/'
-      + 'embed_query, FAISS/Chroma/Pinecone/VectorStore, similarity_search, text-splitters, or '
+      + 'embed_query, no local runtime call such as createEmbeddingContext, llama_get_embeddings or an '
+      + '/api/embed or /v1/embeddings endpoint, no embedding model named by file or id, '
+      + 'FAISS/Chroma/Pinecone/VectorStore, similarity_search, text-splitters, or '
       + 'co-occurrence-gated distance). Embeddings/vectors here are RAG-agnostic; distance alone '
       + '(clustering/attention math) is intentionally excluded.');
     return;
