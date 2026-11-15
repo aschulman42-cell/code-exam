@@ -424,7 +424,10 @@ records, and not yet in the repo.
 
 ## Not run
 
-- The `purpose` and `description+purpose` texts.
+- The `description+purpose` text. The `purpose` line alone has since been run, beside text
+  built per function, class and file: about level with the label on self-test claims, well
+  behind it on litigants' chart rows
+  ([`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md), 2026-11-14).
 - A local describer, synonymizer and chooser (Gemma 4 on asus-CC), the air-gapped question,
   phase 3: the chooser and the synonymizer first, since both run on the cached candidates
   with only the model swapped.

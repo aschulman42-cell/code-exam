@@ -209,6 +209,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `src/core/extension-census.js` — unions archive-internal and on-disk skips into the "present but not indexed" extension report
 - `src/core/filter-match.js` — one predicate for GUI/CLI filters: substring by default, `/pattern/flags` for opt-in regex
 - `src/core/funcstr-corpus.js` — loads external funcstr-hash dumps as a DF corpus, labeling functions common / rare-shared / novel
+- `src/core/function-text.js` — text for one function, class or file built from the index alone, no model: the name as words, the body's identifiers that are rare in the index, comments and string literals, and the names of the file, class, callees and callers; a class or file as chunks of its ranked vocabulary; the roll-up of function scores to a unit and the reading of a set at a depth; for scripts/function-text-reach.mjs
 - `src/core/hof.js` — the HOF self-test's model-free parts, shared by `--hof` and `scripts/hof.mjs`: the parsers of `cand.lst`, the anchors sidecar and the targets file, the ladder (function/class/file/miss; exact/near/elsewhere), the run layout and directory rule, the preflight arithmetic and plan, the table and Markdown report with its footer
 - `src/core/hotspots.js` — ranks important functions, entry points, domain functions and classes, skipping vendored/minified noise
 - `src/core/import-join.js` — joins one index's imports to another's export catalog, verdicting resolved / private / not-found
@@ -273,6 +274,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `scripts/hunt-repeat.mjs` — reruns one `--claim-locate --hunt` command N times and reports the distribution
 - `scripts/litigated-claims-fetch.mjs` — fetches litigated US patents' claim 1 + dependents from Google Patents
 - `scripts/mechanism-containment.mjs` — do the mechanism records hold the functions cited for a claim or a feature: against the names litigants cite in public claim charts (--filings) or the lines a hand-written rubric page cites; per filing or page, the records holding each cited function, the best record, how many records hold them all; no model
+- `scripts/function-text-reach.mjs` — does that mechanical text sit near a claim limitation under the local embedding model: every function, class, file and mechanism of an index ranked per chart row of the public claim charts (--filings) or per claim of a self-test run (--hof, --claims-file for other wording), the mechanism's label and members as baseline, each function text rolled up to the coarser units, a shuffled control; large indexes sampled (--pool)
 - `scripts/pseudo-claim-loop.mjs` — runs the pseudo-claim loop: synonymize, chart blind, score vs answer key
 - `scripts/rank-eval.mjs` — scores a candidate ordering against tiered ground truth (Spearman, recall@k, purity)
 - `scripts/splitter-compare.mjs` — prints CE's claim-element split beside the attorney's rows for one patent
@@ -312,6 +314,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `test/test_file_resolution.js` — #238 file-target resolution: exact match wins, leading `/` anchors to repo root
 - `test/test_first_run.js` — first-run UX: bare `ce` welcome, demo auto-load, bad `--index-path`, no auto-REPL
 - `test/test_follow_calls.js` — `--follow-calls` (`--deep`) and `--comments-only` over extracted functions
+- `test/test_function_text.js` — the mechanical function text and the reach script's scoring with no index and no model: source split into code, comments and literals, the ranked vocabulary, the four arms, class and file chunks, the roll-up, the set reading, the pool, the tallies and the control
 - `test/test_har.js` — #161 `.har` expansion: text/base64 bodies, mime inference, URL dedupe, malformed input
 - `test/test_help_filter.js` — `filterHelp`: entry blocks and continuation lines, section headers, no-match report
 - `test/test_help_flags.js` — help discoverability: `--gui`/`--port`/`--load-index` in `--help`; `--load-index` synonym

@@ -103,6 +103,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/core/extension-census.js` — unions archive-internal and on-disk skips into the "present but not indexed" extension report
 - `src/core/filter-match.js` — one predicate for GUI/CLI filters: substring by default, /pattern/flags for opt-in regex
 - `src/core/funcstr-corpus.js` — loads external funcstr-hash dumps as a DF corpus, labeling functions common / rare-shared / novel
+- `src/core/function-text.js` — text for one function, class or file built from the index alone, no model: the name as words, the body's identifiers that are rare in the index, comments and string literals, and the names of the file, class, callees and callers; a class or file as chunks of its ranked vocabulary; the roll-up of function scores to a unit and the reading of a set at a depth; for scripts/function-text-reach.mjs
 - `src/core/function-bounds.js` — language-aware function-end detection for the regex parser: masks strings, comments and regex literals, then finds brace, arrow-expression or indentation ends; dedupes the tree-sitter + regex merge
 - `src/core/hof.js` — the HOF self-test's model-free parts, shared by --hof and scripts/hof.mjs: the parsers of cand.lst, the anchors sidecar and the targets file, the ladder (function/class/file/miss; exact/near/elsewhere), the run layout and directory rule, the preflight arithmetic and plan, the table and Markdown report with its footer
 - `src/core/hotspots.js` — ranks important functions, entry points, domain functions and classes, skipping vendored/minified noise
@@ -173,6 +174,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `scripts/hunt-repeat.mjs` — reruns one --claim-locate --hunt command N times and reports the distribution
 - `scripts/litigated-claims-fetch.mjs` — fetches litigated US patents' claim 1 + dependents from Google Patents
 - `scripts/mechanism-containment.mjs` — do the mechanism records hold the functions cited for a claim or a feature: against the names litigants cite in public claim charts (--filings) or the lines a hand-written rubric page cites; per filing or page, the records holding each cited function, the best record, how many records hold them all; no model
+- `scripts/function-text-reach.mjs` — does that mechanical text sit near a claim limitation under the local embedding model: every function, class, file and mechanism of an index ranked per chart row of the public claim charts (--filings) or per claim of a self-test run (--hof, --claims-file for other wording), the mechanism's label and members as baseline, each function text rolled up to the coarser units, a shuffled control; large indexes sampled (--pool)
 - `scripts/pseudo-claim-loop.mjs` — runs the pseudo-claim loop: synonymize, chart blind, score vs answer key
 - `scripts/pseudo-claim-rubric-score.mjs` — scores --pseudo-claims runs against a hand rubric page: MET / PARTIAL / ABSENT per row, surplus binned
 - `scripts/rank-eval.mjs` — scores a candidate ordering against tiered ground truth (Spearman, recall@k, purity)
@@ -226,6 +228,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_first_run.js` — first-run UX: bare `ce` welcome, demo auto-load, bad --index-path, no auto-REPL
 - `test/test_follow_calls.js` — --follow-calls (--deep) and --comments-only over extracted functions
 - `test/test_function_bounds.js` — function-end detection: masked tokenizer, brace / arrow / indentation ends, prose-in-template guard, hybrid-merge dedupe, tree-sitter macro names and parse-error counts
+- `test/test_function_text.js` — the mechanical function text and the reach script's scoring with no index and no model: source split into code, comments and literals, the ranked vocabulary, the four arms, class and file chunks, the roll-up, the set reading, the pool, the tallies and the control
 - `test/test_gui_imports_route.js` — /api/imports answers for a corpus with no Python (the Imports accordion is not Python-only)
 - `test/test_gui_mechanisms_route.js` — /api/list-mechanisms answers the not-built line before --build-mechanisms and the records, with members a click can open, after it
 - `test/test_har.js` — #161 .har expansion: text/base64 bodies, mime inference, URL dedupe, malformed input

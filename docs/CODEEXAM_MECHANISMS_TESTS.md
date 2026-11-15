@@ -46,6 +46,17 @@ catalog, such as referenced-resources or the AI/ML detectors). Two smaller repai
 change this picture: functions under four lines are in no mechanism, and command mechanisms
 are built from a catalog currently with wrong joins (the last section).
 
+Finding by meaning has now had a first test with text CodeExam builds from the code itself,
+no model: a function's name, its ranked vocabulary, its comments and its surroundings. On
+the chart rows such text finds the part of the code a patent is about (two to three times
+chance) and does not tell one limitation from another: the cited functions rank as well
+under a different limitation of the same chart. Ranking single functions is the weakest
+form. On CodeExam's self-test claims the same text works, and after a second model rewords
+the claims a mechanism is found within 5 more often through its functions' text than
+through its label (95% against 78%, and 85% against 59%, over two runs of 212 claims). So
+the text embedded for a mechanism can likely be improved without a model; the link from one
+limitation to its code is still not made by any text measured here.
+
 ## Do the functions a litigant cites for a claim sit together? (2026-11-14)
 
 **The question.** A mechanism is the unit CodeExam describes, embeds for `--embed-distance`
@@ -279,9 +290,11 @@ one cited function joins nothing and is not counted.
   name, a direct call or a shared caller. A mechanism made of a function and what it calls
   held no more of a chart row than the mechanisms already there; it may still suit
   application code, where one handler calls what a feature needs.
-- **Text per function, not per mechanism, is worth testing.** If the code for a limitation
-  is a handful of sibling functions, a sentence per function may serve semantic search
-  better than a sentence per group. That has not yet been tried. Semantic search here means
+- **Text per function, not per mechanism, was worth testing**, and has been: see
+  [the section on text built from the code](#does-text-built-from-the-code-with-no-model-reach-a-claim-limitation-2026-11-14).
+  Ranking single functions fails; finding a mechanism or a file through its functions' text
+  does better than the label, but no text tells the limitations of one chart apart.
+  Semantic search here means
   ranking by embedding distance, `--embed-distance`; the fullest account is
   [section 8 of `CODEEXAM_CLAIM_CHARTS.md`](CODEEXAM_CLAIM_CHARTS.md#8-getting-to-the-goal).
 
@@ -332,6 +345,158 @@ land in that function for 31; carried through the diffs from the right commit, f
 right commit is not the last one to touch the page; the script picks, of the page's commits,
 the one where the most named cites land by line.
 
+## Does text built from the code, with no model, reach a claim limitation? (2026-11-14)
+
+**The question.** The sections above end by pointing at text per function. A model's
+sentence per function is ruled out: too costly on a cloud model, too unreliable on a local
+one, and no use unless it works air-gapped. So the text has to be built by CodeExam from the
+index alone. Does such text sit near a claim limitation under the local embedding model, and
+nearer than a mechanism's label does? Asked per function, per class, per file, and per
+mechanism scored by its best member function.
+
+**What was built.** `src/core/function-text.js` makes four texts for a function, each
+holding the one before:
+
+1. `name`: the name split to words.
+2. `vocab`: plus the body's identifiers split to words, ranked against the whole index the
+   way `--vocabulary` ranks terms, top 24.
+3. `comments`: plus the comment above the function, comments inside it and words from its
+   string literals.
+4. `context`: plus its class and file names, the names it calls and the names that call it
+   (matched by name, not resolved).
+
+A class or a file gets one text of the same kind over all its functions, in chunks when it
+is large, and is scored by its best chunk. `scripts/function-text-reach.mjs` embeds every
+text with the local embedder (nomic, the model `--embed-distance` ships with), ranks all
+units of an index against each query, and reports where the cited functions land. A unit
+above the function (mechanism, class, file) is scored two ways: by its own text, and by the
+best score among its member functions.
+
+**Two controls stand beside every figure.** *Other query*: the same answer read under the
+next query's text. On a claim chart that is another limitation of the same patent. *Chance*:
+as many functions as the answer has, drawn from the index by a fixed seed. The first says
+whether a text tells one limitation from another; the second, whether it finds anything.
+
+**Two sets of queries.**
+
+- **Chart rows from the public filings.** Each row's limitation text against the index of
+  the repository the chart cites. 12 filings, 39 rows, 139 cited functions. Five filings
+  have no row with both limitation text and a cited function the index holds, and are left
+  out (the script names them). **These charts are a party's advocacy: a hit is agreement
+  with a party, not correctness.**
+- **CodeExam's self-test claims** (`--hof`): pseudo-claims a model drafted from a mechanism
+  of the index, scored on the functions the draft was anchored to. Two full runs over
+  CodeExam's own index (212 claims each, one drafted by Claude, one by ChatGPT) and eight
+  earlier runs of four claims on eight indexes. **This set is circular in the mechanism's
+  favor**, since each claim was written from one. So each claim was also reworded by the
+  other model with `--synonymize`, which sees the claim only and writes it away from the
+  code's words.
+
+```
+node scripts/function-text-reach.mjs --filings <work folder>
+node scripts/function-text-reach.mjs --hof <index>/hof/<run> --k 1,5,25
+node scripts/function-text-reach.mjs --hof <index>/hof/<run> --claims-file <reworded claims>
+```
+
+### Chart rows: the texts find the patent's part of the code, not the limitation's
+
+Share of the 139 cited functions ranked within 25, pooled over the 12 indexes:
+
+| unit and text | units | right limitation | other limitation | chance |
+|---|--:|--:|--:|--:|
+| function: `name` | 22,577 | 13% | 14% | 1% |
+| function: `vocab` | 22,577 | 6% | 8% | 1% |
+| function: `context` | 22,577 | 3% | 6% | 1% |
+| mechanism: label and members (what `--embed-distance` uses) | 8,148 | 46% | 42% | 19% |
+| mechanism: its `purpose` line | 8,148 | 23% | 22% | 14% |
+| mechanism: best function, `vocab` | 8,148 | 50% | 45% | 16% |
+| file: its own vocabulary | 5,394 | 59% | 50% | 23% |
+| file: best function, `vocab` | 5,394 | 77% | 69% | 29% |
+| class: its own vocabulary (9 rows, 26 functions) | 4,890 | 65% | 36% | 0% |
+
+- **Every text beats chance and almost none beats another limitation of the same chart.**
+  The texts say which part of a codebase a patent is about. They do not say which code goes
+  with which limitation, and that is the link an examiner needs.
+- **Per function is the weakest unit, and more text made it worse.** No arm puts a cited
+  function in the top 5 for more than 6 of the 39 rows. This is the outcome predicted before
+  the run, only worse: the prediction was that the function carrying a limitation's idea
+  would be found and the primitives it leans on would not. Neither was.
+- **A file's vocabulary string is ahead of a mechanism's label** (59% against 46%), and a
+  file scored by its best function is ahead of both (77%). Files are coarser and chance
+  rises with them, so the gain is smaller than it looks: about 2.5 times chance in each
+  case.
+- **Class vocabulary is the one text that separates limitations** (65% against 36%), on 9
+  rows; 112 of the 139 cited functions are in no class. A larger sample is needed before
+  this is a finding.
+- **All of a row within 25**, of 21 rows citing two or more: 1 by mechanism label, 12 by
+  file scored on best function with `vocab`.
+
+Limits: 39 rows, most from secp256k1 and bitcoin filings that cite overlapping functions;
+four indexes (Spark, Solana, two of bitcoin) were sampled to 3,500 functions, keeping every
+cited function and every function of the files that hold one; one embedder.
+
+### Self-test claims: the texts work, and rewording hurts the label more than the code's own words
+
+CodeExam's own index, 3,325 functions, 426 mechanisms, 239 files. Share of anchored
+functions ranked first / within 5, in percent. At rank one both controls are 0% to 1% for
+functions and 1% to 10% for mechanisms throughout.
+
+| unit and text | Claude draft | reworded by ChatGPT | ChatGPT draft | reworded by Claude |
+|---|--:|--:|--:|--:|
+| function: `name` | 22 / 42 | 12 / 28 | 28 / 52 | 9 / 21 |
+| function: `vocab` | 36 / 60 | 21 / 41 | 48 / 71 | 15 / 31 |
+| function: `comments` | 46 / 67 | 28 / 51 | 54 / 76 | 17 / 37 |
+| function: `context` | 45 / 71 | 29 / 52 | 56 / 80 | 17 / 38 |
+| mechanism: label and members | 73 / 90 | 52 / 78 | 81 / 92 | 41 / 59 |
+| mechanism: its `purpose` line | 70 / 85 | 55 / 75 | 77 / 88 | 36 / 62 |
+| mechanism: best function, `comments` | 65 / 99 | 56 / 95 | 70 / 99 | 46 / 85 |
+| file: its own vocabulary | 87 / 97 | 74 / 92 | 91 / 99 | 62 / 87 |
+| file: best function, `comments` | 95 / 99 | 88 / 97 | 98 / 99 | 72 / 94 |
+
+1,202 anchored functions for the Claude draft and 1,143 for the ChatGPT draft (35 and 32
+anchors name a function the index does not hold). ChatGPT's rewording kept 30% of content
+words on average; Claude's kept 10% and left 244 of 2,536 elements as they were.
+
+- **Here the texts do tell one claim from another**, unlike the chart rows. Each added layer
+  of text helps a function: 42% within 5 on the name alone, 71% with all four, among 3,325.
+- **The self-test was a gimme and still is not high once reworded.** The mechanism's own
+  label puts the right mechanism first for 73% and 81% of anchors on the drafts, 52% and 41%
+  after rewording.
+- **Reworded, a mechanism is found better through its functions' mechanical text than
+  through its label**: within 5, 95% against 78%, and 85% against 59%. At rank one the two
+  are close (56 against 52, 46 against 41). On the unreworded drafts the label wins at rank
+  one and loses within 5.
+- **The `purpose` line, left on the not-run list of
+  [`describe-reach.md`](describe-reach.md), is about level with the label** here and well
+  behind it on the chart rows (23% against 46% within 25).
+- **The eight small runs** (32 claims, 341 anchors, three indexes sampled) agree within 5
+  (reworded: 94% by best function with `context`, 83% by label) and disagree at rank one
+  (33% against 57%).
+- Classes are unreadable on this index: 11 classes, and the controls reach 50% to 100%.
+- Spinellis, the ninth self-test index, was left out to spare memory on the test machine.
+
+Rewording cost $7.11 in all (ChatGPT $1.81 for 1,994 calls, Claude $4.98 for 2,536, the
+small runs $0.32), against a projection of $27.48 plus the small runs: the gate assumes
+every call fills its output allowance.
+
+### What it means
+
+- **Distance is not the whole problem; register is.** The same texts, embedder and scoring
+  separate one claim from another when the claim was written by a model that read the code,
+  even after a second model rewrote it, and fail to separate limitations a patent attorney
+  wrote about code the patent never saw. A reworded pseudo-claim is still a description of
+  this code. Synthetic claims are useful for comparing texts with each other; they are not a
+  stand-in for the litigants' rows.
+- **For `--embed-distance`, the candidate change is the text embedded for a mechanism**: the
+  mechanical text of its member functions, scored by the best one, in place of or beside the
+  label and member names. It held up better under rewording in every run. It is not adopted
+  here; it wants the fused form tried (label and function text together) and the no-match
+  calibration redone.
+- **Per-function ranking is not the way to a limitation's code.** A mechanism or a file
+  found through its functions is.
+- **Nothing here links a limitation to its code among the limitations of one claim.** That
+  remains the open problem, and it is the one that matters for a chart.
+
 ## Found on the way: command mechanisms depend on file order (2026-11-14)
 
 Building CodeExam's own index three times from the same source gave three sets of command
@@ -351,8 +516,7 @@ figures above use the first order. The repair is the worklist item
 
 ## Sections to come
 
-A retrieval test scored per chart row, and a sentence per function tried against a sentence
-per mechanism. The grouper's cover and split measurements, the two describers compared as a
+The label and the function text fused as one score for a mechanism. The grouper's cover and split measurements, the two describers compared as a
 table of contents, the no-match calibration of `--embed-distance`, and local describe
 timings. The measurements of descriptions as search text are on
 [`describe-reach.md`](describe-reach.md).

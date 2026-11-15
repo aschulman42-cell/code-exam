@@ -287,6 +287,11 @@ Dated one-line results; the tables are on the linked pages.
   row than the best record does (42 functions against 41). A row citing one function, 14 rows, is
   answered by the record holding it (2026-11-14,
   [`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md)).
+- Whether text built from the code with no model reaches a claim: for a record, yes, through
+  its member functions. On self-test claims reworded by a second model the right record is
+  within 5 for 95% and 85% of anchored functions by its functions' text, against 78% and 59%
+  by its label. On litigants' chart rows no such text tells one limitation of a chart from
+  another, and ranking single functions is the weakest form (2026-11-14, same page).
 
 Results about mechanisms themselves that have no section yet (the grouper's cover and split
 measurements, the two describers compared as a table of contents, the no-match calibration
