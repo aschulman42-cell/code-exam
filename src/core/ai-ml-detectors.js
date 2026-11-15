@@ -254,7 +254,7 @@ class _AIMLMethods {
     // Ordered detectors — first match on a line wins, so a mechanical marker
     // (A/B) always beats the heuristic extension (C) on the same line.
     const L = 'load', S = 'save';
-    const A = 'HF/PyTorch', B = 'node-llama-cpp', C = 'format-ref', Q = 'quantization', M = 'MLOps';
+    const A = 'HF/PyTorch', B = 'node-llama-cpp', C = 'format-ref', Q = 'quantization', M = 'MLOps', LC = 'llama.cpp';
     const detectors = [
       // ── Family A: HF / PyTorch ──────────────────────────────────────────
       { re: /\bsave_pretrained\s*\(/,                fam: A, dir: S, fmt: 'hf',          tag: 'mechanical' },
@@ -282,6 +282,8 @@ class _AIMLMethods {
       // masquerade as model loads. (Verified false positives on a cli.js index.)
       { re: /\.loadModel\s*\(/,     gated: true,     fam: B, dir: L, fmt: 'gguf',        tag: 'mechanical' },
       { re: /\.createContext\s*\(/, gated: true,     fam: B, dir: L, fmt: 'gguf',        tag: 'mechanical' },
+      // ── llama.cpp C API: the call that loads a model file ──────────────
+      { re: /\bllama_(?:model_load_from_file|load_model_from_file|model_load_from_splits)\s*\(/, fam: LC, dir: L, fmt: 'gguf', tag: 'mechanical' },
       // ── Family D: quantization (load-side) ──────────────────────────────
       // Quantized-checkpoint load markers. Placed BEFORE Family C (the bare
       // extension family, which runs as the extRe fallback below) so they win
@@ -1207,6 +1209,17 @@ class _AIMLMethods {
    */
   listInference(filter = null) {
     const HF = 'HF', PT = 'PyTorch', VL = 'vLLM', ONX = 'ONNX', SK = 'scikit-learn', KT = 'Keras/TF', ML = 'ML';
+    const LC = 'llama.cpp', MX = 'MLX', CT = 'ctranslate2';
+    // Local runtimes outside the Python-ML import gate: the llama.cpp C API (any language
+    // that links it), MLX and ctranslate2 (each gated on its own import, since generate(
+    // and load( mean nothing alone).
+    const lcA = [
+      { re: /\bllama_(?:decode|encode)\s*\(/, m: 'llama_decode' },
+      { re: /\bllama_sampler_(?:sample|chain_init)\s*\(/, m: 'llama_sampler' },
+    ];
+    // A bare generate( / load( as imported from mlx_lm, or mlx_lm.load(; never json.load( or x.generate(.
+    const reMlx = /(?<![.\w])(?:mlx_lm\.)?(stream_generate|generate|load)\s*\(/;
+    const reCt2 = /\bctranslate2\.(Generator|Translator)\b|\.(generate_batch|translate_batch|generate_tokens)\s*\(/;
     const genA = [
       { re: /\bmax_new_tokens\b/, fam: HF, m: 'max_new_tokens' },
       { re: /\bdo_sample\b/,      fam: HF, m: 'do_sample' },
@@ -1241,7 +1254,10 @@ class _AIMLMethods {
       // Gate the whole unit on the file importing an ML framework — this IS
       // local model inference (Python ML); keeps cli.js / JS / configs at 0.
       const fileHasML = lines.some(l => /\b(?:import|from)\s+(?:sklearn|keras|tensorflow|tf|torch|transformers|vllm|onnxruntime|onnx|xgboost|lightgbm|diffusers)\b/.test(l));
-      if (!fileHasML) continue;
+      const hasLlamaC = lines.some(l => l && lcA.some(d => d.re.test(l)));
+      const hasMlx = lines.some(l => /\b(?:import|from)\s+mlx_lm\b/.test(l));
+      const hasCt2 = lines.some(l => /\b(?:import|from)\s+ctranslate2\b/.test(l));
+      if (!fileHasML && !hasLlamaC && !hasMlx && !hasCt2) continue;
       const hasTransformers = lines.some(l => /\b(?:import|from)\s+transformers\b/.test(l));
       const hasTorch = lines.some(l => /\b(?:import|from)\s+torch\b/.test(l));
       const fileHasGen = lines.some(l => reGenAny.test(l));
@@ -1262,6 +1278,21 @@ class _AIMLMethods {
         const push = (kind, family, tier, marker, tag, name, id = null, resolved = true) =>
           out.push({ name: name || marker, filepath, line: i + 1, kind, family, tier, marker, tag, id, resolved, snippet: trimmed.slice(0, 200) });
 
+        // Local runtimes first; their files usually carry no Python-ML import.
+        if (hasLlamaC) {
+          const lm = lcA.find(d => { const hit = d.re.exec(line); return hit && !quotedProse(line, hit.index); });
+          if (lm) { push('generation', LC, 'A', lm.m, 'mechanical'); continue; }
+        }
+        if (hasMlx && !/^\s*def\s/.test(line)) {
+          const mx = reMlx.exec(line);
+          if (mx) {
+            let id = null, resolved = true;
+            if (mx[1] === 'load') ({ id, resolved } = this._extractCallId(line, mx.index, lines, i, 'pos'));
+            push(mx[1] === 'load' ? 'inference' : 'generation', MX, 'A', 'mlx_lm.' + (mx[1] === 'load' ? 'load' : 'generate'), 'mechanical', null, id, resolved); continue;
+          }
+        }
+        if (hasCt2) { const cm = reCt2.exec(line); if (cm) { push(cm[1] ? 'inference' : 'generation', CT, 'A', 'ctranslate2.' + (cm[1] || cm[2]), 'mechanical'); continue; } }
+        if (!fileHasML) continue;
         // Tier A mechanical — generation then inference.
         let m = genA.find(d => d.re.test(line));
         if (m) { push('generation', m.fam, 'A', m.m, 'mechanical'); continue; }
@@ -1420,6 +1451,11 @@ class _AIMLMethods {
       { re: /\bcreate_completion\s*\(/,           prov: 'local',     kind: 'call',   m: 'create_completion' },
       { re: /\bco\.chat\s*\(/,                    prov: 'Cohere',    kind: 'call',   m: 'co.chat' },
       { re: /\bLlamaChatSession\s*\(/,            prov: 'local',     kind: 'call',   m: 'LlamaChatSession', lvc: true },
+      { re: /\bllama_chat_apply_template\s*\(/,   prov: 'local',     kind: 'call',   m: 'llama_chat_apply_template' },
+      // LM Studio's SDK: the client constructed or imported. In LM Studio's own bundle the bare
+      // name sits in dozens of error messages, some inside multi-line templates no quote test
+      // can see, so the name alone is not a marker.
+      { re: /\bnew\s+LMStudioClient\b|@lmstudio\/sdk|\bimport\b[^;]*\bLMStudioClient\b/, prov: 'LM Studio', kind: 'client', m: 'LMStudioClient', prose: true },
       // clients — NO space before `(` (an instantiation `OpenAI(api_key=…)`),
       // so "OpenAI (Inc.)" in a LICENSE/EULA prose line does NOT match.
       { re: /\b(?:Async)?Anthropic\(/,            prov: 'Anthropic', kind: 'client', m: 'Anthropic()' },
@@ -1514,6 +1550,11 @@ class _AIMLMethods {
       // are a generic verb → recall gap, tracked in #98.)
       const hasLlamaCpp = lines.some(l => /\b(?:from|import)\s+llama_cpp\b/.test(l));
       const hasOllama = lines.some(l => reOllamaMarker.test(l));
+      // node-llama-cpp: the session object's .prompt( is where the model is asked. A generic
+      // method name (inquirer.prompt, click.prompt), so only in a file that names the library.
+      const hasNodeLlama = lines.some(l => /node-llama-cpp|\bLlamaChatSession\b|\bLlamaCompletion\b|\bgetLlama\s*\(/.test(l));
+      // LM Studio's local server port is a common dev port: only in a file that names LM Studio.
+      const hasLmStudio = lines.some(l => /\blm[\s_-]?studio\b/i.test(l));
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -1526,8 +1567,16 @@ class _AIMLMethods {
         };
 
         // Tier A — provider-specific (first match wins).
-        const a = tierA.find(d => d.re.test(line));
+        const a = tierA.find(d => { const hit = d.re.exec(line); return hit && !(d.prose && quotedProse(line, hit.index)); });
         if (a) { push(a.kind, a.prov, 'A', a.m, 'mechanical', a.lvc); continue; }
+        if (hasNodeLlama) {
+          const pm = /\.(prompt(?:WithMeta)?|generateCompletion(?:WithMeta)?)\s*\(/.exec(line);
+          if (pm) { push('call', 'local', 'A', pm[1].startsWith('prompt') ? 'session.prompt' : 'generateCompletion', 'mechanical'); continue; }
+        }
+        if (hasLmStudio) {
+          const lm = /(?:localhost|127\.0\.0\.1):1234\b/.exec(line);
+          if (lm && !quotedProse(line, lm.index)) { push('endpoint', 'LM Studio', 'C', lm[0], 'heuristic'); continue; }
+        }
         // llama-cpp-python client (gated on its import).
         if (hasLlamaCpp && /\bLlama\(/.test(line)) { push('client', 'local', 'A', 'Llama()', 'mechanical'); continue; }
         // Tier B — gated generic verbs.
@@ -1834,6 +1883,10 @@ class _AIMLMethods {
       { re: /\bmax_marginal_relevance_search\b/,     kind: 'search', fw: 'LangChain', m: 'mmr_search' },
       { re: /\bas_retriever\b/,            kind: 'search', fw: 'LangChain', m: 'as_retriever' },
       { re: /\bsemantic_search\b/,         kind: 'search', fw: '?', m: 'semantic_search' },
+      // rerankers: a second-stage relevance model over retrieved candidates
+      { re: /\bCrossEncoder\b/,            kind: 'search', fw: 'rerank', m: 'CrossEncoder', idArg: 'pos' },
+      { re: /\bcreateRankingContext\b/,    kind: 'search', fw: 'rerank', m: 'createRankingContext' },
+      { re: /\brerank\s*\(/,               kind: 'search', fw: 'rerank', m: 'rerank' },
       // chunking (RAG-flavored document prep)
       { re: /\b(?:Recursive)?CharacterTextSplitter\b/, kind: 'chunking', fw: 'LangChain', m: 'TextSplitter' },
       { re: /\bTokenTextSplitter\b/,       kind: 'chunking', fw: 'LangChain', m: 'TokenTextSplitter' },
@@ -1848,18 +1901,7 @@ class _AIMLMethods {
     // Is position at of the line inside quoted prose? A marker word in a help line, a
     // message or a docstring names the thing; it is not a use of it. A string that is one
     // token ("pgvector" as a config value, a name in an export list) is not prose and counts.
-    const inProse = (line, at) => {
-      let q = null; let start = -1;
-      for (let k = 0; k < at; k++) {
-        const ch = line[k];
-        if (ch === '\\') { k++; continue; }
-        if (q) { if (ch === q) q = null; } else if (ch === '"' || ch === "'" || ch === '`') { q = ch; start = k; }
-      }
-      if (q === null) return false;
-      let end = line.length;
-      for (let k = at; k < line.length; k++) { if (line[k] === '\\') { k++; continue; } if (line[k] === q) { end = k; break; } }
-      return /\s/.test(line.slice(start + 1, end).trim());
-    };
+    const inProse = quotedProse;
     // One cheap test for "any marker at all on this line", so the per-marker scan runs on few lines.
     const reAnyMarker = new RegExp(tierA.map((d) => d.re.source).join('|'));
     // First match of a marker that is code, not quoted prose (endpoint and model-id markers are strings by nature).
@@ -2105,11 +2147,11 @@ class _AIMLMethods {
       // it is counted, never listed, so the model-shape gate does not apply to it
       // (`<getModel()>` carries parens that would otherwise reject it).
       if (unres ? !id : !looksLikeModel(id)) return;
-      raw.push({ id, unresolved: unres, access, cell, marker, filepath, line });
+      raw.push({ id, unresolved: unres, access, cell, marker, filepath, line, family: unres ? null : weightsFamily(id) });
     };
 
     for (const t of this.listLlmCalls())
-      add(t.model, t.modelResolved, (t.provider === 'local' || t.provider === 'Ollama') ? 'local' : 'api', 'llm-call', t.marker, t.filepath, t.line);
+      add(t.model, t.modelResolved, (t.provider === 'local' || t.provider === 'Ollama' || t.provider === 'LM Studio') ? 'local' : 'api', 'llm-call', t.marker, t.filepath, t.line);
     for (const a of this.listArtifacts())
       add(a.path, a.pathResolved, 'local', 'artifact', a.marker, a.filepath, a.line);
     for (const e of this.listEmbeddings())
@@ -2149,15 +2191,16 @@ class _AIMLMethods {
       let m = byId.get(key);
       if (!m) { m = { model: key, access: r.access, cells: new Set(), sites: [], count: 0 }; byId.set(key, m); }
       if (m.access !== r.access) m.access = 'mixed';
+      if (r.family && !m.family) m.family = r.family;
       m.cells.add(r.cell);
       m.sites.push({ filepath: r.filepath, line: r.line, marker: r.marker, cell: r.cell, function: funcAt(r.filepath, r.line) });
       m.count++;
     }
 
-    let result = [...byId.values()].map(m => ({ model: m.model, access: m.access, cells: [...m.cells], count: m.count, sites: m.sites }));
+    let result = [...byId.values()].map(m => ({ model: m.model, family: m.family || null, access: m.access, cells: [...m.cells], count: m.count, sites: m.sites }));
     if (filter) {
       const match = makeFilterMatcher(filter);
-      result = result.filter(m => match(m.model, m.access, m.cells.join(',')));
+      result = result.filter(m => match(m.model, m.access, m.cells.join(','), m.family || ''));
     }
     const accessRank = { api: 0, local: 1, mixed: 2 };
     result.sort((a, b) =>
@@ -2187,6 +2230,9 @@ class _AIMLMethods {
     const reJsonMode = /["']json_object["']|["']json_schema["']/;
     const reParser = /\b(Pydantic|Json|Structured|OutputFixing)OutputParser\b/;
     const reConstrained = /\b(outlines|guidance)\s*[.(]/;
+    // Grammar-constrained output of the local runtimes: the model can only emit what the
+    // grammar (often compiled from a JSON schema) allows.
+    const reGrammar = /\b(createGrammarForJsonSchema)\s*\(|\b(LlamaJsonSchemaGrammar|LlamaGrammar)\b|\b(json_schema_to_grammar)\s*\(/;
     // First arg of marker( …) — schema class ref or string, AS-IS (no resolution:
     // a schema name is a class identity, not a path/var to resolve).
     const firstArg = (line, fromIdx) => {
@@ -2199,6 +2245,7 @@ class _AIMLMethods {
     const out = [];
     for (const [filepath, lines] of this._scanLines()) {
       if (reDocFile.test(filepath)) continue;
+      if (/\.map$/i.test(filepath)) continue;   // a source map restates its source in one JSON line
       const hasConstrainedImport = lines.some(l => /\b(?:import|from|require)\b/.test(l) && /\b(?:outlines|guidance)\b/.test(l));
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -2216,6 +2263,11 @@ class _AIMLMethods {
         if (reJsonMode.test(line)) { push('format', 'OpenAI', 'json-mode', 'mechanical'); continue; }
         const pm = line.match(reParser);
         if (pm) { push('parser', 'LangChain', pm[1] + 'OutputParser', 'mechanical'); continue; }
+        const gr = reGrammar.exec(line);
+        if (gr && !quotedProse(line, gr.index)) {
+          const js = /\.(?:[cm]?[jt]sx?)$/i.test(filepath);
+          push('constrained', gr[3] ? 'llama.cpp' : (gr[1] || gr[2] === 'LlamaJsonSchemaGrammar' || js) ? 'node-llama-cpp' : 'llama.cpp', gr[1] || gr[2] || gr[3], 'mechanical'); continue;
+        }
         if (hasConstrainedImport && reConstrained.test(line)) {
           push('constrained', 'outlines/guidance', (line.match(/\b(outlines|guidance)\b/) || [])[1] || 'constrained', 'heuristic'); continue;
         }
@@ -2892,3 +2944,39 @@ export const STRUCTURED_OUTPUT_DRILLDOWN = {
   pick:  t => ({ name: t.name, filepath: t.filepath, line: t.line, snippet: t.snippet, tag: t.tag }),
   row:   t => ({ framework: t.framework, kind: t.kind, marker: t.marker, name: t.name, id: t.id, tag: t.tag }),
 };
+
+/**
+ * Is position at of a line inside quoted prose? A marker word in a help line, a message or
+ * a docstring opener names the thing; it is not a use of it. A string that is one token
+ * ("pgvector" as a config value, a name in an export list) is not prose.
+ */
+function quotedProse(line, at) {
+  let q = null; let start = -1;
+  for (let k = 0; k < at; k++) {
+    const ch = line[k];
+    if (ch === '\\') { k++; continue; }
+    if (q) { if (ch === q) q = null; } else if (ch === '"' || ch === "'" || ch === '`') { q = ch; start = k; }
+  }
+  if (q === null) return false;
+  let end = line.length;
+  for (let k = at; k < line.length; k++) { if (line[k] === '\\') { k++; continue; } if (line[k] === q) { end = k; break; } }
+  return /\s/.test(line.slice(start + 1, end).trim());
+}
+
+/**
+ * The model family of a weights file, where it can be told without guessing: from the
+ * file's naming convention (whisper.cpp's ggml-small.en.bin) or from a folder of its path
+ * (whisper-models/). Null when the base name already says it, or nothing does.
+ */
+const _FAMILY_LABEL = { whisper: 'Whisper', piper: 'Piper', bark: 'Bark', kokoro: 'Kokoro', llava: 'LLaVA', clip: 'CLIP', 'stable-diffusion': 'Stable Diffusion', sdxl: 'SDXL', flux: 'FLUX', yolo: 'YOLO', llama: 'Llama', mistral: 'Mistral', qwen: 'Qwen', gemma: 'Gemma', deepseek: 'DeepSeek', nomic: 'Nomic', jina: 'Jina', bert: 'BERT' };
+function weightsFamily(id) {
+  if (!id || typeof id !== 'string') return null;
+  const base = id.split(/[\\/]/).pop() || '';
+  if (/^ggml-(?:tiny|base|small|medium|large)(?:[-.][\w.-]*)?\.bin$/i.test(base)) return 'Whisper';
+  const dir = id.slice(0, id.length - base.length);
+  if (!dir) return null;
+  const m = /(?:^|[\\/._-])(whisper|piper|bark|kokoro|llava|clip|stable-diffusion|sdxl|flux|yolo|llama|mistral|qwen|gemma|deepseek|nomic|jina|bert)(?=[\\/._-]|$)/i.exec(dir);
+  if (!m) return null;
+  const word = m[1].toLowerCase();
+  return base.toLowerCase().includes(word) ? null : _FAMILY_LABEL[word];
+}

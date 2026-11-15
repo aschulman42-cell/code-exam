@@ -76,15 +76,15 @@ Pipelines view above is synthesized from their co-occurrence.
 
 | Detector | Flag | What it finds |
 |---|---|---|
-| LLM Calls | `--llm-calls` | SDK calls / endpoints (`messages.create`, `ChatOpenAI`, `LlamaChatSession`; hosted hosts, Ollama's `localhost:11434` and its `/api/chat` family in a file that names Ollama) |
+| LLM Calls | `--llm-calls` | SDK calls / endpoints (`messages.create`, `ChatOpenAI`, `LlamaChatSession` and the `session.prompt(` that asks it, llama.cpp's `llama_chat_apply_template`; hosted hosts, Ollama's `localhost:11434` and its `/api/chat` family in a file that names Ollama, LM Studio's client and its `localhost:1234` in a file that names LM Studio) |
 | Tools | `--tools` | tool / function-calling defs and dispatch (`@tool`, `input_schema`, MCP) |
 | Chains / Agents | `--chains` (`--agents`) | orchestration (LangChain / LangGraph / DSPy / CrewAI) |
 | Embeddings / Vectors | `--embeddings` (`--vectors`) | embedding + vector-search sites: cloud SDKs and frameworks (`OpenAIEmbeddings`, `embeddings.create`, `SentenceTransformer`), local runtimes (node-llama-cpp `createEmbeddingContext`, llama.cpp `llama_get_embeddings`, Ollama `/api/embed`, an OpenAI-compatible `/v1/embeddings`), an embedding model named by file or id (`nomic-embed-text-v1.5.Q8_0.gguf`, `BAAI/bge-small-en-v1.5`), vector stores (FAISS / Chroma), similarity search |
-| Structured Output | `--structured-output` | schema-constrained output (`with_structured_output`, `response_format`) |
-| Inference | `--inference` | local generation / prediction (`generate`, `no_grad`, `.predict`) |
+| Structured Output | `--structured-output` | schema-constrained output (`with_structured_output`, `response_format`) and grammar-constrained output of the local runtimes (`createGrammarForJsonSchema`, `LlamaGrammar`, `json_schema_to_grammar`) |
+| Inference | `--inference` | local generation / prediction (`generate`, `no_grad`, `.predict`; the llama.cpp C API `llama_decode` / `llama_sampler_sample`; MLX and ctranslate2 in a file that imports them) |
 | Training | `--training` | training sites (PyTorch loops, HF `Trainer`, `.fit`) |
 | Datasets | `--datasets` | dataset defs and loaders (`Dataset` / `IterableDataset`, `tf.data`) |
-| Artifacts | `--artifacts` | model load/save (`from_pretrained`, GGUF, safetensors) + quantization (BitsAndBytes / GPTQ / AWQ) |
+| Artifacts | `--artifacts` | model load/save (`from_pretrained`, GGUF, safetensors, llama.cpp's `llama_model_load_from_file`) + quantization (BitsAndBytes / GPTQ / AWQ) |
 | Models (defined) | `--models` | model classes by inheritance (`nn.Module` / Keras / scikit-learn) |
 | Kernels | `--kernels` | GPU kernels (CUDA `__global__`, Triton `@triton.jit`, numba) |
 | Multimodal / Vision | `--multimodal` (`--vision`) | vision encoders (CLIP/ViT), CNNs (ResNet), detection/segmentation (YOLO/U-Net), generative (diffusion/VAE) |
@@ -155,6 +155,60 @@ node --test test/test_ai_ml_self_detect.js
 node src/index.js --index-path <index> --embeddings -v
 node src/index.js --index-path <index> --models-used
 ```
+
+**Local runtimes in the other cells (2026-11-15).** The same gap, looked for in every
+detector: 27 local-runtime calls from the runtimes' public APIs were counted on ten indexes
+against the lines any detector reported. What no detector reported is now a marker in the
+cell where it belongs:
+
+| what | cell | rows gained |
+|---|---|---|
+| llama.cpp C API that generates and samples: `llama_decode`, `llama_encode`, `llama_sampler_sample`, `llama_sampler_chain_init` | Inference | 167 in llama.cpp, 4 in node-llama-cpp |
+| llama.cpp C API that loads a model: `llama_model_load_from_file` | Artifacts | 33 in llama.cpp, 2 in node-llama-cpp |
+| `llama_chat_apply_template` | LLM Calls | 10 in llama.cpp |
+| node-llama-cpp, where the model is asked: `.prompt(`, `.promptWithMeta(`, `.generateCompletion(`, only in a file that names the library | LLM Calls | 15 in CodeExam, 4 in node-llama-cpp |
+| LM Studio: the client constructed or imported; `localhost:1234` only in a file that names LM Studio | LLM Calls | 11 in LM Studio's bundle, 2 in GhostArch, 1 in LlamaIndex |
+| grammar-constrained output: `createGrammarForJsonSchema`, `LlamaJsonSchemaGrammar`, `LlamaGrammar`, `json_schema_to_grammar` | Structured Output | 52 in node-llama-cpp, 9 in llama.cpp, 6 in LangChain, 1 in CodeExam |
+| rerankers: `CrossEncoder`, `rerank(`, `createRankingContext` | Embeddings (search) | 17 in LangChain, 16 in LlamaIndex, 2 in node-llama-cpp |
+| MLX (`load(`, `generate(` as imported from `mlx_lm`) and ctranslate2, each in a file that imports it | Inference | 10 in LangChain, 4 in the notebooks, 2 in LlamaIndex |
+
+No row was lost on any of the eleven indexes in any of the six cells. Before this, on
+CodeExam's own source the `LlamaChatSession` constructor was an LLM call and the lines
+that ask the model were not; and a C or C++ program embedding llama.cpp showed no
+inference, no model load and no LLM call.
+
+What was tightened after reading the rows, and what is still loose:
+
+- `LMStudioClient` as a bare name gave 63 rows in LM Studio's own bundle, nearly all its
+  error messages, some inside multi-line templates that no quote test sees. The marker is
+  now the client constructed or imported: 8 rows.
+- `llama_decode(` inside a log message was a row; a marker in quoted prose is not a site
+  in these cells either (32 rows fewer in llama.cpp).
+- In a file that imports MLX, `json.load(` and `librosa.load(` were taken for model
+  loads; only a bare `load(` or `mlx_lm.load(` counts.
+- **Loose**: a function *definition* counts as a site (`int32_t llama_chat_apply_template(`
+  in `llama.h`, `def rerank(`); node-llama-cpp's own source gains 52 Structured Output
+  rows that are its implementation and re-exports of `LlamaGrammar`, not uses; decompiled
+  `.pyc` listings repeat the `.py` rows. The file gate on `.prompt(` held on CodeExam: all
+  15 session prompts are reported and the 7 other `.prompt(` lines, readline's
+  `rl.prompt()`, are not. A session prompt in a file that never names the library would
+  be missed.
+- **Not added**: local fine-tuning tools, and speech and image runtimes beyond what the
+  Multimodal cell already has (too few lines in these indexes to measure).
+
+**Models Used names the family of a weights file.** A weights file is listed by its base
+name, which can hide what it is: Bram's Whisper model is
+`~/.local/share/whisper-models/ggml-small.en.bin` and was listed as `ggml-small.en.bin`,
+with nothing saying Whisper and no match for `--filter whisper`. The row now reads
+`ggml-small.en.bin (Whisper)` and the filter matches. The family is shown only where it
+can be told without guessing: from the file's naming convention (whisper.cpp's
+`ggml-{tiny,base,small,medium,large}….bin`) or from a folder of the path that names a
+model family the base name does not. On eleven indexes 6 of 148 weights-file rows gain
+one (`model.bin (Llama)`, `model.Q4_K_M.gguf (Mistral)`, `model.onnx (BERT)`). Limits:
+the key that holds the path (`engines.whisper`) is not read; a base name that occurs
+under two folders takes the family of the first; the CLI shows the family, the GUI and
+the MCP tool carry it as a field and do not yet print it; the Multimodal cell's models
+(Whisper by name, 29 sites on Bram) are still not offered to Models Used.
 
 ## Infrastructure and DevOps
 

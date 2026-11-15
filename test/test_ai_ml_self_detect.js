@@ -119,3 +119,87 @@ describe('embeddings detector: local runtimes, named models, and a marker inside
     assert.deepEqual(rows.filter((r) => r.kind === 'search').map((r) => r.line), [3]);
   });
 });
+
+describe('local runtimes in the other AI/ML cells', () => {
+  const ix = (files) => indexOf(files);
+  const L = (...lines) => lines.join('\n');
+
+  it('Inference: the llama.cpp C API that generates and samples', () => {
+    const rows = ix({ 'run.cpp': L(
+      '#include "llama.h"',
+      'if (llama_decode(ctx, batch) != 0) return 1;',
+      'llama_sampler * smpl = llama_sampler_chain_init(sparams);',
+      'const llama_token id = llama_sampler_sample(smpl, ctx, -1);',
+      'int n = other.generate(x);',
+    ) }).listInference();
+    assert.deepEqual(rows.map((r) => `${r.family}|${r.marker}|${r.line}`), ['llama.cpp|llama_decode|2', 'llama.cpp|llama_sampler|3', 'llama.cpp|llama_sampler|4']);
+  });
+  it('Inference: MLX and ctranslate2 generation, in a file that imports them', () => {
+    const mlx = ix({ 'm.py': L('from mlx_lm import load, generate', 'model, tok = load("mlx-community/Mistral-7B-4bit")', 'text = generate(model, tok, prompt=p)') }).listInference();
+    assert.deepEqual(mlx.map((r) => `${r.family}|${r.marker}|${r.line}`).sort(), ['MLX|mlx_lm.generate|3', 'MLX|mlx_lm.load|2']);
+    assert.equal(mlx.find((r) => r.marker === 'mlx_lm.load').id, 'mlx-community/Mistral-7B-4bit');
+    const ct = ix({ 'c.py': L('import ctranslate2', 'gen = ctranslate2.Generator("ct2-model", device="cpu")', 'out = gen.generate_batch([tokens])') }).listInference();
+    assert.deepEqual(ct.map((r) => `${r.family}|${r.line}`).sort(), ['ctranslate2|2', 'ctranslate2|3']);
+    const none = ix({ 'x.py': L('def generate(a, b):', '    return load(a)') }).listInference();
+    assert.equal(none.length, 0, 'generate( and load( mean nothing without the import');
+  });
+  it('Artifacts: the llama.cpp call that loads a model file', () => {
+    const rows = ix({ 'load.cpp': 'llama_model * model = llama_model_load_from_file("models/q.gguf", mparams);' }).listArtifacts();
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].family, 'llama.cpp');
+    assert.equal(rows[0].direction, 'load');
+    assert.equal(rows[0].path, 'models/q.gguf');
+  });
+  it('LLM Calls: where node-llama-cpp is asked, not only where the session is made', () => {
+    const rows = ix({ 'chat.js': L(
+      "import { getLlama, LlamaChatSession } from 'node-llama-cpp';",
+      'const session = new LlamaChatSession({ contextSequence });',
+      'const response = await session.prompt(combinedPrompt, { maxTokens });',
+      'const meta = await session.promptWithMeta(q);',
+    ), 'cli.js': L("import inquirer from 'inquirer';", 'const { name } = await inquirer.prompt([{ type: "input" }]);') }).listLlmCalls();
+    assert.deepEqual(rows.filter((r) => r.marker === 'session.prompt').map((r) => `${r.filepath}:${r.line}`), ['chat.js:3', 'chat.js:4']);
+    assert.ok(rows.every((r) => r.filepath !== 'cli.js'), 'inquirer.prompt is not an LLM call');
+    assert.ok(rows.filter((r) => r.marker === 'session.prompt').every((r) => r.provider === 'local'));
+  });
+  it('LLM Calls: llama.cpp chat templating, and LM Studio by client or by its port in a file that names it', () => {
+    const rows = ix({
+      't.cpp': 'const int res = llama_chat_apply_template(tmpl.c_str(), chat, 1, true, nullptr, 0);',
+      'lm.ts': L("import { LMStudioClient } from '@lmstudio/sdk';", 'const client = new LMStudioClient();'),
+      'cfg.js': L('// LM Studio default', "const base = 'http://localhost:1234/v1';"),
+      'dev.js': "const dev = 'http://localhost:1234/app';",
+      'msg.js': "throw new Error('You cannot create a local LMStudioClient in a plugin context.');",
+    }).listLlmCalls();
+    const at = rows.map((r) => `${r.provider}|${r.filepath}:${r.line}`).sort();
+    assert.deepEqual(at, ['LM Studio|cfg.js:2', 'LM Studio|lm.ts:1', 'LM Studio|lm.ts:2', 'local|t.cpp:1']);
+  });
+  it('Structured Output: grammar-constrained output', () => {
+    const rows = ix({ 'g.js': L(
+      "import { getLlama } from 'node-llama-cpp';",
+      'const grammar = await llama.createGrammarForJsonSchema(schema);',
+      'const g2 = new LlamaJsonSchemaGrammar(llama, schema);',
+    ), 'p.py': L('from llama_cpp import Llama, LlamaGrammar', 'g = LlamaGrammar.from_json_schema(json.dumps(schema))') }).listStructuredOutput();
+    assert.deepEqual(rows.map((r) => `${r.kind}|${r.filepath}:${r.line}`).sort(), ['constrained|g.js:2', 'constrained|g.js:3', 'constrained|p.py:1', 'constrained|p.py:2']);
+  });
+  it('Embeddings: a reranker is a search site', () => {
+    const rows = ix({ 'r.py': L(
+      'from sentence_transformers import CrossEncoder',
+      'model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")',
+      'results = self._client.rerank(query=q, documents=docs)',
+    ), 'n.js': 'const ctx = await model.createRankingContext();' }).listEmbeddings();
+    assert.deepEqual(rows.filter((r) => r.kind === 'search').map((r) => `${r.framework}|${r.filepath}:${r.line}`).sort(), ['rerank|n.js:1', 'rerank|r.py:1', 'rerank|r.py:2', 'rerank|r.py:3']);
+  });
+  it('Models Used: a weights file carries its family when the name or the folder says it', () => {
+    const rows = ix({ 'voice.js': L(
+      'const engines = { whisper: {',
+      '  modelPath: "~/.local/share/whisper-models/ggml-small.en.bin",',
+      '} };',
+      'const other = "models/custom-weights.gguf";',
+      'const direct = "ggml-base.bin";',
+    ) }).listModelsUsed();
+    const by = Object.fromEntries(rows.map((r) => [r.model, r.family || null]));
+    assert.equal(by['ggml-small.en.bin'], 'Whisper');
+    assert.equal(by['ggml-base.bin'], 'Whisper');
+    assert.equal(by['custom-weights.gguf'], null, 'no family is shown where nothing says one');
+    assert.deepEqual(ix({ 'voice.js': 'const p = "~/x/whisper-models/ggml-small.en.bin";' }).listModelsUsed('whisper').map((r) => r.model), ['ggml-small.en.bin']);
+  });
+});

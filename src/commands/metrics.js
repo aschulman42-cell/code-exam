@@ -576,7 +576,7 @@ export function doListModelsUsed(index, args) {
 
   if (args.verbose) {
     for (const m of shown) {
-      console.log(`${m.access.padEnd(6)} ${basenameIfPath(m.model)}  (${m.cells.join(', ')}, ${m.count} site${m.count > 1 ? 's' : ''})${testTag(m)}`);
+      console.log(`${m.access.padEnd(6)} ${basenameIfPath(m.model)}${m.family ? ` (${m.family})` : ''}  (${m.cells.join(', ')}, ${m.count} site${m.count > 1 ? 's' : ''})${testTag(m)}`);
       for (const s of m.sites.slice(0, 12)) console.log(`        ${quotePathIfNeeded((s.filepath || '').replace(/\\/g, '/') + ':' + s.line)}  [${s.cell}]`);
     }
     return;
@@ -585,7 +585,8 @@ export function doListModelsUsed(index, args) {
   console.log(`${'Access'.padEnd(6)}  ${'Model'.padEnd(52)}  ${'Cells'.padEnd(26)}  Sites`);
   console.log('='.repeat(98));
   for (const m of shown) {
-    console.log(`${m.access.padEnd(6)}  ${(basenameIfPath(m.model) || '').slice(0, 52).padEnd(52)}  ${m.cells.join(',').slice(0, 26).padEnd(26)}  ${m.count}`);
+    // A weights file's family, where the path or the naming convention says it (ggml-small.en.bin is Whisper).
+    console.log(`${m.access.padEnd(6)}  ${((basenameIfPath(m.model) || '') + (m.family ? ` (${m.family})` : '')).slice(0, 52).padEnd(52)}  ${m.cells.join(',').slice(0, 26).padEnd(26)}  ${m.count}`);
   }
   console.log(`\n  (Models USED — named models the code loads/calls, deduped & tagged api=hosted / local=loaded.`
     + ` Cell "declared" = a model-shaped literal in code (a config default, a || fallback, a candidate list):`
