@@ -44,7 +44,7 @@ server routes, slash commands and events, and the seed does not read those yet. 
 form has not yet been built or tested (nor has using other CodeExam catalogs besides the command
 catalog, such as referenced-resources or the AI/ML detectors). Two smaller repairs are known and do not
 change this picture: functions under four lines are in no mechanism, and command mechanisms
-are built from a catalog currently with wrong joins (the last section).
+were built from a catalog with wrong joins, since repaired (the catalog sections below).
 
 Finding by meaning has now had a first test with text CodeExam builds from the code itself,
 no model: a function's name, its ranked vocabulary, its comments and its surroundings. On
@@ -511,8 +511,106 @@ tests an option's name:
 
 All three are wrong for `--overview`, and eighteen command mechanisms of the first build
 (`--search`, `--callers`, `--extract` among them) are absent from the third. The rubric
-figures above use the first order. The repair is the worklist item
-`command-catalog-handler-resolution`; its before and after will be a section of this page.
+figures above use the first order. The repair is the next section.
+
+## The command catalog's joins repaired: before and after (2026-11-15)
+
+**What was wrong.** A command mechanism is seeded from the command catalog: each CLI option
+with a resolved handler becomes `[cmd] <flag>`, the handler and what it calls. So every
+catalog error is a missing or mislabeled mechanism. Four kinds of error were found by reading
+the catalog of CodeExam's own index against `src/index.js`:
+
+1. **Rows dropped.** An option row with a fourth element (deprecated spellings) was not
+   read at all: `--vocabulary`, `--files`, `--functions`, `--models` and 26 more.
+2. **The handler taken from the next option's dispatch.** The resolver read 20 lines on
+   from the test of an option and took the first `do…(` call, even past the end of that
+   option's own line or block: `--overview` got `doStats`.
+3. **Non-handlers taken.** With no `do…(` call, the first awaited call won: five options
+   got `import`, from `await import(`.
+4. **The join changed with file order**, the table above.
+
+**What changed** (`src/core/breadcrumbs-commands.js`). All lines that test an option are
+gathered first and one is chosen: a line whose condition opens with the option over one
+that mentions it; the file that opens the most conditions that way, the program's dispatch
+file, over any other; the option tested alone over the option tested with another. The
+handler is the call on that line, or a call in the block under it and no further. A
+dispatch table row (`['list_models', 'models', doListModels]`) is read. An option that is
+only negated, or tested behind another condition, gets no handler: it is a modifier.
+
+**Measured** on the same tree before and after (`.CE_111426`, CodeExam's tracked source at
+`c9b15fd`, 2,213 functions), and on the two other file orders of that tree:
+
+| | before | after |
+|---|--:|--:|
+| CLI option rows | 281 | 311 |
+| rows with a handler | 97 (86 and 87 on the other two orders) | 114 on all three |
+| joins that differ between the three orders | 32 options | 0 |
+| handlers wrong by a hand read | 17 | 0 found; 3 arguable, below |
+| `[cmd]` mechanisms | 76 | 109 |
+| all mechanisms | 438 | 471 |
+| functions in some mechanism | 2,157 | 2,157 |
+
+- **The 17 wrong joins before**: `--overview` (`doStats`), `--air-gapped`
+  (`doScanExtensions`), `--clean-zip-cache` (`doSynonymize`), `--add-extensions`
+  (`doTriage`), `--no-rename` (`doBuildFpRenames`), `--mermaid` (`doCallTree`),
+  `--claims-loop` and `--hof` (`doPseudoClaims`), `--emit-catalog` and `--exports`
+  (`doEmitCatalogMulti`), five options to `import`, two to `draft` (a closure that calls
+  the model). After: six of them have the right handler or a defensible one, eleven have
+  none, which is right for a modifier or for an option whose dispatch is a few inline lines.
+- **Arguable after**: `--overview` joins `formatOverview`, the first call on its line,
+  when `buildOverview` on the same line does the work; `--air-gapped` joins the startup
+  check its block awaits; `--doc-anchors`, a modifier, joins the one function it switches
+  on.
+- **Still missed**: `--overview-by-ai`, whose call sits 62 lines into its block (the window
+  is 20); `--rebuild-functions`, whose block calls a method that is neither `do`-named
+  nor awaited.
+- **Mechanisms gained, 34**: `--vocabulary` (13 functions), `--hof` and `--claims-loop`
+  (40 each, both formerly folded into `--pseudo-claims`), `--build-index` (33),
+  `--exports` (19), `--client-server` (15), the 23 listing commands, `--overview` (2).
+  One lost: `--rebuild-functions`.
+
+**The rubric rows, rerun.** Same command as the rubric section above, after rebuilding the
+index's mechanisms:
+
+| page | best mechanism before | holds | best mechanism after | holds |
+|---|---|--:|---|--:|
+| concepts | `[file] vocabulary.js / other` | 2 of 4 | `[cmd] --vocabulary` | 4 of 4 |
+| vocabulary | `[file] vocabulary.js / corpus` | 3 of 10 | `[cmd] --vocabulary` | 4 of 10 |
+| overview | `[file] overview.js` | 6 of 8 | `[file] overview.js` | 6 of 8 |
+| the other four | unchanged | | | |
+
+The expected `[cmd] --vocabulary` appeared and is the one page of seven where a single
+mechanism now holds a feature's core. The expected gain for the overview did not: its
+command mechanism holds two functions, because the catalog names one handler and the work
+is in the function passed to it.
+
+**On other codebases.** Indexes with no option dispatch are unchanged: `.dspy` and
+`.x264` have no CLI rows before or after, `.AI_Manning_recent` 96 rows and no handler
+both times, `.Bram_103126` 41 and none. `.sr_gh` (217 rows) had three handlers, all
+modifiers of one script joined to `warmup_models`; it now has none. So the change is shown
+on CodeExam and shown harmless elsewhere; it is not shown to *help* on a third-party CLI,
+since no index at hand has one whose options resolved before.
+
+**Beyond mechanisms.** The same catalog feeds `--command-catalog`, the command section of
+`--digest`, the GUI's Commands list, the `command_catalog` MCP tool and the `_CMD_`
+renames: 30 more option rows appear on each, deprecated spellings are listed beside the
+current flag, and the handler shown changes for the options above. The digest and rename
+output were not read after the change.
+
+**Not repaired: the catalog's GUI Actions.** This change is to CLI options only. On
+CodeExam's own index `--command-catalog` lists 13 GUI actions, and the list is neither
+complete nor clean: `public/index.html`, which holds 52 of the GUI's 58 `data-section`
+attributes, is not indexed (`.html` is not a default extension), so only names that also
+appear in a JavaScript string are found; 5 of the 13 are not actions at all (the catalog's
+own regex source, a template placeholder, a word in a comment); and several handlers point
+at an unrelated file. With `index.html` added the list has 68 rows. The repair is the
+worklist item `command-catalog-gui-actions`.
+
+```
+node --test test/test_command_catalog.js
+node src/index.js --index-path <index> --command-catalog --all-results
+node src/index.js --index-path <index> --build-mechanisms
+```
 
 ## Sections to come
 

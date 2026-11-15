@@ -46,7 +46,10 @@ plainly:
 
 - **Command-catalog false positives** (#66) — `--command-catalog` and the command section of
   `--digest` can surface regex fragments or example strings as if they were commands. Being
-  tightened.
+  tightened. A second kind of catalog error, a CLI option joined to the wrong handler or to a
+  different one depending on the order files were indexed in, was repaired on 2026-11-15.
+  What remains of that kind: an option whose handler call sits more than 20 lines into its
+  block, or is a plain method call that is neither `do`-named nor awaited, shows no handler.
 - **AI/ML detection is heuristic** (#98 et al.) — the detectors favor recall, so counts are
   presence *signals*, not exact site counts; expect some false positives and misses. Treat the
   accordions as leads to verify in source, not an inventory. See

@@ -255,14 +255,20 @@ export function extractCommandCatalog(idx, showProgress = true) {
 
       // --- Pattern 1a: JS argparse option definitions ---
       // ['option_name', 'type', ['--flag', '--alias']]
-      const argMatch = line.match(/\[\s*'(\w+)'\s*,\s*'(\w+)'\s*,\s*\[([^\]]+)\]\s*\]/);
+      // ['option_name', 'type', ['--flag'], ['--deprecated-flag']]: the fourth
+      // element lists forms that still resolve, with a warning; the third may
+      // then be empty.
+      const argMatch = line.match(/\[\s*'(\w+)'\s*,\s*'(\w+)'\s*,\s*\[([^\]]*)\]\s*(?:,\s*\[([^\]]*)\]\s*)?\]/);
       if (argMatch) {
-        const aliases = argMatch[3].match(/'([^']+)'/g)?.map(s => s.slice(1, -1)) || [];
+        const quotedIn = (t) => (t || '').match(/'([^']+)'/g)?.map(s => s.slice(1, -1)) || [];
+        const deprecated = quotedIn(argMatch[4]);
+        const aliases = [...quotedIn(argMatch[3]), ...deprecated];
         if (aliases.some(a => a.startsWith('--') || a.startsWith('-'))) {
           catalog.cliOptions.push({
             name: argMatch[1],
             type: argMatch[2],
             flags: aliases,
+            ...(deprecated.length ? { deprecatedFlags: deprecated } : {}),
             filepath, line: lineNum, func,
           });
         }
@@ -444,86 +450,220 @@ export function extractCommandCatalog(idx, showProgress = true) {
     return true;
   });
 
-  // Resolve CLI option handlers: find where args.option_name is checked
+  // Resolve CLI option handlers: find where args.option_name is tested and what
+  // that test runs.
   // JS: if (args.hotspots) / args._explicit.has('hotspots')
   // Python: if args.hotspots: / elif args.hotspots:
   //
-  // digest-perf (#90): ONE pass over the index matching all options at once.
-  // The old shape (full index scan PER option) was quadratic — 331 options ×
-  // 942k lines ≈ 62s on .plugins_from_gh, ~85% of digest time. Same
-  // first-match-in-file-order result: dispatch lines are visited in the same
-  // order, and each option takes the first line that matches it.
+  // One pass over the index gathers every line that tests an option (#90: a
+  // scan per option was quadratic); the choice among them is made afterwards,
+  // so the join does not depend on the order files were indexed in. An option
+  // used to take the first such line anywhere, which gave `--overview` three
+  // different handlers on three builds of one tree.
+  //
+  // The choice, in order: a line whose condition opens with a positive test of
+  // the option (`if (args.x`, `args._explicit.has('x')`, `case 'x':`) over any
+  // other mention; the file that opens the most conditions that way (the
+  // program's dispatch file) over a file that tests the option in passing;
+  // then path and line. A line that only negates the option, or tests it
+  // behind another condition, marks a modifier: where it is tested is kept,
+  // and no handler is claimed for it.
   const optsByName = new Map();
   for (const opt of catalog.cliOptions) {
     if (!optsByName.has(opt.name)) optsByName.set(opt.name, []);
     optsByName.get(opt.name).push(opt);
   }
-  let unresolvedOpts = catalog.cliOptions.length;
-  const reArgsDot = /\bargs\.(\w+)/g;
-  const reQuoted = /'(\w+)'/g;
-  for (const [fp, flines] of idx.fileLines) {
-    if (!unresolvedOpts) break;
-    let funcBounds = null;   // lazy — most files have no dispatch lines
-    for (let li = 0; li < flines.length && unresolvedOpts; li++) {
-      const fline = flines[li];
-      if (!fline || fline.length > MAX_SCAN_LINE) continue;
-      // Check it looks like a dispatch (if/elif/case), not just a reference
-      const trimmed = fline.trim();
-      const isDispatch = /^(if|elif|else if|case)\b/.test(trimmed) ||
-                         trimmed.includes('_explicit.has');
-      if (!isDispatch) continue;
-      // Candidate option names on this dispatch line — JS `args.X`,
-      // quoted 'X' (covers _explicit.has('X') and Python dict forms).
-      const cands = new Set();
-      let mm;
-      reArgsDot.lastIndex = 0;
-      while ((mm = reArgsDot.exec(fline))) cands.add(mm[1]);
-      reQuoted.lastIndex = 0;
-      while ((mm = reQuoted.exec(fline))) cands.add(mm[1]);
-      for (const name of cands) {
-        const optList = optsByName.get(name);
-        if (!optList) continue;
-        for (const opt of optList) {
-          if (opt.handler) continue;
-          // Skip the argparse definition lines themselves
-          if (fp === opt.filepath && Math.abs(li + 1 - opt.line) < 5) continue;
-          if (!funcBounds) funcBounds = idx._getFuncBoundaries(fp);
-          const handlerFunc = idx._findContainingFunctionFromBounds(funcBounds, li + 1);
-          // Look for the called function. Scan a 20-line window (was 3)
-          // so we catch dispatches where the real handler call is several
-          // lines below the `if (args.X)` guard — e.g. --build-index has
-          // ~10 lines of option-formatting before the actual
-          // `await index.buildIndex(...)`.
-          const snippet = flines.slice(li, Math.min(li + 20, flines.length)).join(' ');
-          // Priority 1: do-prefixed standalone call — the strongest
-          // convention-based signal (`doFoo(` / `do_foo(` / `await doFoo(`).
-          // Priority 2: any awaited call, including method calls
-          // (`await x.buildIndex(` captures "buildIndex"). This catches
-          // options whose handler uses method-call dispatch rather than
-          // the doXxx() naming convention.
-          let handlerName = null;
-          const doMatch = snippet.match(/\b(do[_A-Z]\w+)\s*\(|await\s+(do[_A-Z]\w+)\s*\(/);
-          if (doMatch) {
-            handlerName = doMatch[1] || doMatch[2];
-          } else {
-            const awaitMatch = snippet.match(/await\s+(?:\w+\.)?(\w+)\s*\(/);
-            if (awaitMatch) {
-              const candidate = awaitMatch[1];
-              // Filter out stdlib/builtin noise — these are never user
-              // handlers. Keep the list small and high-confidence; better
-              // to miss a handler than to tag the wrong function.
-              const NOISE = /^(?:write|log|warn|error|info|debug|then|catch|stringify|parse|split|join|map|filter|forEach|readFile|readFileSync|writeFile|writeFileSync|exists|existsSync|stat|statSync|mkdir|rmdir|readdir)$/;
-              if (!NOISE.test(candidate)) handlerName = candidate;
-            }
+  const knownFuncs = new Set();
+  for (const funcs of Object.values(idx.functionIndex || {})) {
+    for (const full of Object.keys(funcs || {})) {
+      const bare = full.replace(/@\d+$/, '');
+      knownFuncs.add(bare);
+      knownFuncs.add(bare.split(/[.:#]+/).pop());
+    }
+  }
+  const reArgsDot = /(!\s*)?\bargs\.(\w+)/g;
+  const reExplicit = /(!\s*)?(?:\bargs\.)?_explicit\.has\(\s*['"](\w+)['"]/g;
+  const reQuoted = /['"](\w+)['"]/g;
+  // The options a condition opens with: `if (args.a || args.b)` opens with
+  // both, and `if (!args.hof && (args.a || args.b))` still does, since a
+  // negated test in front only keeps another command out. `if (model &&
+  // args.a)` opens with none.
+  const reNeg = /^(?:!\s*|not\s+)args\.[\w.]+(?:\([^)]*\))?\s*(?:&&|and\b)/;
+  const rePos = /^(?:typeof\s+)?(?:args\._explicit\.has\(\s*['"](\w+)['"]\s*\)|_explicit\.has\(\s*['"](\w+)['"]\s*\)|args\[\s*['"](\w+)['"]\s*\]|args\.(\w+)(?:\.length)?(?![\w.(]))/;
+  const reOr = /^\s*(?:(?:[!=]==?|[<>]=?)\s*(?:'[^']*'|"[^"]*"|[\w.]+))?\s*\)*\s*(?:\|\||or\b)/;
+  const leadNames = (trimmed) => {
+    const out = [];
+    const head = trimmed.match(/^(?:\}\s*)?(?:if|elif|else\s+if)\b/);
+    if (!head) return out;
+    let t = trimmed.slice(head[0].length);
+    for (let guard = 0; guard < 40; guard++) {
+      t = t.replace(/^[\s(]+/, '');
+      const neg = t.match(reNeg);
+      if (neg) { t = t.slice(neg[0].length); continue; }
+      const pos = t.match(rePos);
+      if (!pos) break;
+      out.push(pos[1] || pos[2] || pos[3] || pos[4]);
+      t = t.slice(pos[0].length);
+      const or = t.match(reOr);
+      if (!or) {
+        // `if (args.a && args.b)`: a tested together with something else.
+        if (/^\s*(?:(?:[!=]==?|[<>]=?)\s*(?:'[^']*'|"[^"]*"|[\w.]+))?\s*\)*\s*(?:&&|and\b)/.test(t)) out.joint = true;
+        break;
+      }
+      t = t.slice(or[0].length);
+    }
+    return out;
+  };
+  // A dispatch table row: ['list_models', 'models', doListModels],
+  const reTableRow = /^\[\s*['"](\w+)['"]\s*,.*,\s*([A-Za-z_$][\w$]*)\s*\]\s*,?$/;
+  const reCase = /^case\s+['"](\w+)['"]\s*:/;
+  const candsByName = new Map();   // option name -> [{ fp, li, tier }]
+  const leadsByFile = new Map();   // file -> Set of option names it opens a condition with
+  if (optsByName.size) {
+    for (const [fp, flines] of idx.fileLines) {
+      for (let li = 0; li < flines.length; li++) {
+        const fline = flines[li];
+        if (!fline || fline.length > MAX_SCAN_LINE) continue;
+        // It has to look like a dispatch (if/elif/case), not just a reference
+        const trimmed = fline.trim();
+        const isDispatch = /^(?:\}\s*)?(if|elif|else if|case)\b/.test(trimmed) ||
+                           trimmed.includes('_explicit.has');
+        if (!isDispatch) {
+          const row = trimmed.match(reTableRow);
+          if (row && optsByName.has(row[1]) && (/^do[_A-Z]/.test(row[2]) || knownFuncs.has(row[2]))) {
+            if (!candsByName.has(row[1])) candsByName.set(row[1], []);
+            candsByName.get(row[1]).push({ fp, li, tier: 0, direct: row[2] });
+            if (!leadsByFile.has(fp)) leadsByFile.set(fp, new Set());
+            leadsByFile.get(fp).add(row[1]);
           }
-          opt.handler = {
-            filepath: fp, line: li + 1,
-            func: handlerFunc,
-            handlerFunc: handlerName,
-          };
-          unresolvedOpts--;
+          continue;
+        }
+        // tier 0: opens the condition, positive. 1: positive, behind another
+        // condition. 2: negated. 3: the bare word in quotes (Python dict forms,
+        // and, as noise, any `if (tab === 'x')`).
+        const tiers = new Map();
+        const note = (name, tier) => { if (optsByName.has(name) && (!tiers.has(name) || tier < tiers.get(name))) tiers.set(name, tier); };
+        let mm;
+        reQuoted.lastIndex = 0;
+        while ((mm = reQuoted.exec(fline))) note(mm[1], 3);
+        reExplicit.lastIndex = 0;
+        while ((mm = reExplicit.exec(fline))) { if (optsByName.has(mm[2])) tiers.set(mm[2], mm[1] ? 2 : 1); }
+        reArgsDot.lastIndex = 0;
+        while ((mm = reArgsDot.exec(fline))) note(mm[2], mm[1] ? 2 : 1);
+        const cm = trimmed.match(reCase);
+        const leads = cm ? [cm[1]] : leadNames(trimmed);
+        for (const leadName of leads) {
+          if (optsByName.has(leadName)) tiers.set(leadName, 0);
+        }
+        for (const [name, tier] of tiers) {
+          if (!candsByName.has(name)) candsByName.set(name, []);
+          candsByName.get(name).push({ fp, li, tier, joint: tier === 0 && !!leads.joint });
+          if (tier === 0) { if (!leadsByFile.has(fp)) leadsByFile.set(fp, new Set()); leadsByFile.get(fp).add(name); }
         }
       }
+    }
+  }
+  const leadCount = (fp) => (leadsByFile.get(fp) || { size: 0 }).size;
+  let maxLeads = 0;
+  for (const set of leadsByFile.values()) if (set.size > maxLeads) maxLeads = set.size;
+  // Never a handler: keywords, `await import(`, and stdlib or builtin calls.
+  // Kept small and high-confidence; better to miss a handler than to tag the
+  // wrong function.
+  const CALL_NOISE = /^(?:if|for|while|switch|return|function|typeof|catch|await|import|require|write|log|warn|error|info|debug|then|stringify|parse|split|join|map|filter|forEach|readFile|readFileSync|writeFile|writeFileSync|exists|existsSync|stat|statSync|mkdir|rmdir|readdir|exit|has|get|set|push|includes|test|String|Number|Boolean|Array|Object|parseInt|parseFloat)$/;
+  // With a function index, a handler is a function the index defines.
+  const isHandlerName = (n) => !CALL_NOISE.test(n) && (knownFuncs.size === 0 || knownFuncs.has(n));
+  const indentOf = (s) => s.length - s.trimStart().length;
+  // What follows the condition on the guard line: `if (c) foo();` -> ` foo();`
+  const afterCondition = (line) => {
+    const t = line.trim();
+    const cm = t.match(reCase);
+    if (cm) return t.slice(cm[0].length);
+    const open = t.indexOf('(');
+    if (!/^(?:\}\s*)?(?:if|else\s+if)\b/.test(t) || open < 0 || /^(?:if|elif)\s+[^(]/.test(t)) {
+      const colon = t.lastIndexOf(':');            // Python: `if args.x: do_x()`
+      return /^(?:if|elif)\b/.test(t) && colon >= 0 ? t.slice(colon + 1) : '';
+    }
+    let depth = 0;
+    for (let i = open; i < t.length; i++) {
+      if (t[i] === '(') depth++;
+      else if (t[i] === ')' && --depth === 0) return t.slice(i + 1);
+    }
+    return '';
+  };
+  // Priority 1: a do-prefixed call (`doFoo(` / `do_foo(`), the strongest
+  // convention. Priority 2: on a one-line dispatch, the first call that can be
+  // a handler; in a block, the first awaited one (`await x.buildIndex(`).
+  // Mode 'do' stops after priority 1.
+  const firstCall = (text, mode) => {
+    const doMatch = text.match(/\b(do[_A-Z]\w+)\s*\(/);
+    if (doMatch) return doMatch[1];
+    if (mode === 'do') return null;
+    const re = mode === 'await' ? /\bawait\s+(?:[\w$]+\.)*([\w$]+)\s*\(/g : /(?<![\w$])([A-Za-z_$][\w$]*)\s*\(/g;
+    let m;
+    while ((m = re.exec(text))) if (isHandlerName(m[1])) return m[1];
+    return null;
+  };
+  const handlerNameAt = (flines, li, tier, inDispatchFile, name) => {
+    if (tier === 2) return null;                   // only negated: a modifier
+    const rest = afterCondition(flines[li]).replace(/^\s*\{/, '').trim();
+    // A one-line dispatch is its own whole window: `if (args.x) foo(bar());`
+    if (rest) return firstCall(rest, 'line');
+    if (tier === 1) return null;                   // behind another condition, in that condition's block
+    // The option's own block: the lines indented under the guard, 20 at most
+    // (--build-index calls its handler ten lines down). The window used to be
+    // a flat 20 lines and ran into the next option's dispatch.
+    const guardIndent = indentOf(flines[li]);
+    const body = [];
+    for (let j = li + 1; j < Math.min(li + 20, flines.length); j++) {
+      const l = flines[j];
+      if (l == null || l.length > MAX_SCAN_LINE) continue;
+      if (l.trim() && indentOf(l) <= guardIndent) break;
+      // Another option's guard nested in this block is that option's
+      // dispatch, not this one's: `if (args.emit_catalog) doEmitCatalog(..)`
+      // inside the --exports block. Its line, and its block, are passed over.
+      const nested = leadNames(l.trim());
+      if (nested.length && !nested.includes(name) && nested.some((n) => optsByName.has(n))) {
+        const nestIndent = indentOf(l);
+        while (j + 1 < Math.min(li + 20, flines.length) && (!flines[j + 1] || !flines[j + 1].trim() || indentOf(flines[j + 1]) > nestIndent)) j++;
+        continue;
+      }
+      body.push(l);
+    }
+    // The awaited-call fallback is trusted only in the dispatch file. In a
+    // command's own file an option tested at the top of a block is a mode of
+    // that command, and the first awaited call there is whatever the command
+    // does next (`--loop-redraft` took the model-call closure `draft`).
+    return firstCall(body.join(' '), inDispatchFile ? 'await' : 'do');
+  };
+  for (const [name, optList] of optsByName) {
+    const all = candsByName.get(name);
+    if (!all) continue;
+    for (const opt of optList) {
+      // Skip the argparse definition lines themselves
+      const cands = all.filter((c) => !(c.fp === opt.filepath && Math.abs(c.li + 1 - opt.line) < 5));
+      if (!cands.length) continue;
+      cands.sort((a, b) => (a.tier === 0 ? 0 : 1) - (b.tier === 0 ? 0 : 1)
+        || leadCount(b.fp) - leadCount(a.fp)
+        || a.tier - b.tier
+        || (a.fp < b.fp ? -1 : a.fp > b.fp ? 1 : 0)
+        || (a.joint ? 1 : 0) - (b.joint ? 1 : 0)   // the option tested alone before the option tested with another
+        || a.li - b.li);
+      // In the chosen file, the first opening test that runs something: an
+      // early `if (args.index_path || args.build_index) return false;` is not
+      // where --build-index is dispatched.
+      let c = cands[0];
+      let handlerFunc = null;
+      for (const k of cands) {
+        if (k.fp !== c.fp || k.tier !== c.tier) break;
+        const h = k.direct || handlerNameAt(idx.fileLines.get(k.fp), k.li, k.tier, leadCount(k.fp) === maxLeads, name);
+        if (h) { c = k; handlerFunc = h; break; }
+        if (c.tier !== 0) break;
+      }
+      opt.handler = {
+        filepath: c.fp, line: c.li + 1,
+        func: idx._findContainingFunctionFromBounds(idx._getFuncBoundaries(c.fp), c.li + 1),
+        handlerFunc,
+      };
     }
   }
 

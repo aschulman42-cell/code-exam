@@ -64,7 +64,11 @@ records every time. Run as a cover, it seeds groups four ways, then adjusts them
   class reads `[class] AdaptiveTrackSelection::Factory`.
 - **Command seed.** When the codebase has a command catalog (a CLI whose flags map to
   handlers, as CodeExam's own does), each command seeds a record of its handler and the
-  callees the handler reaches, `[cmd] --interactive`.
+  callees the handler reaches, `[cmd] --interactive`. The handler is the call on the line
+  that tests the option, or in the block under it; an option only tested inside another
+  command's code is a modifier and seeds nothing. On CodeExam's own index this gives 109
+  command records (2026-11-15; 76 before the catalog's joins were repaired, see
+  [`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md)).
 - **Token seed.** A name token shared by a distinctive set of functions across files seeds a
   record, labelled by the token and a namesake function so the reader can place it:
   `packet (AVPacket)`, `tls (tls_send_encrypted)`, `rowset (DBPROP_IRowsetChange)`. A token

@@ -291,6 +291,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `test/test_binstrings.js` — binstrings: string extraction, noise filter, mangled names, `.op` pseudo-source gate
 - `test/test_call_inventory.js` — `--call-inventory`: in-index vs external callee split, provenance labels, `--filter`
 - `test/test_catalog.js` — #162 catalog emit: `buildCatalogEntry` root aliasing, `mergeCatalog` de-dupe and refresh
+- `test/test_command_catalog.js` — the command catalog's CLI rows and option-to-handler joins on in-memory indexes: four-element argparse rows, one-line and block dispatch, modifiers, dispatch tables, and one answer whatever the file order
 - `test/test_claim_analyze.js` — claim-analyze: claim scope, term probes, multisect scope ladder, per-element arm
 - `test/test_claim_ballpark.js` — claim-ballpark script: distinctive-term selection, row reduction, ranking
 - `test/test_claim_chart.js` — claim-chart pipeline: table structure, target budget, verdict merge, provenance, HTML
