@@ -297,3 +297,18 @@ describe('embed-distance', () => {
     assert.doesNotMatch(r.stdout, /^\s?#  element\s+nearest/m, 'no single-model table');
   });
 });
+
+describe('embedModelRows: the registry as a listing', () => {
+  it('gives one row per known model, with its file, prefixes and source, and whether the file is there', async () => {
+    const { embedModelRows, EMBED_MODELS, DEFAULT_EMBED_MODEL } = await import('../src/core/embed.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-embed-list-'));
+    fs.writeFileSync(path.join(dir, EMBED_MODELS.jina.file), '');
+    const rows = embedModelRows({ modelsDir: dir });
+    assert.deepEqual(rows.map((r) => r.name), Object.keys(EMBED_MODELS));
+    assert.equal(rows.find((r) => r.name === 'jina').installed, true);
+    assert.equal(rows.find((r) => r.name === 'nomic').installed, false);
+    assert.equal(rows.find((r) => r.name === DEFAULT_EMBED_MODEL).isDefault, true);
+    assert.equal(rows.find((r) => r.name === 'nomic').query, 'search_query: ');
+    assert.ok(rows.every((r) => r.file && r.source));
+  });
+});

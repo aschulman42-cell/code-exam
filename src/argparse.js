@@ -1276,14 +1276,27 @@ SEARCH:
                              elements verbatim, one per line), one listing per element
                              and a closing table: nearest, margin, note, and under
                              --filter the rank of the first match.
-                             --embed-model nomic (default)
-                             | jina | coderank | qwen06 | qwen4 | <path.gguf>, a comma
-                             list, or installed (every model under models/): the models
-                             run in turn, one loaded at a time, and the table gets a
-                             margin column per model (a rank column under --filter) and
-                             one line per model; --max-results
-                             N (0 = all); --filter <s> keeps ranks and names the member
-                             that matched; --no-prefix; --verbose shows the chunk that scored
+                             --max-results N (0 = all); --filter <s> keeps ranks and names
+                             the member that matched; --verbose shows the chunk that scored.
+                             Its own options, each below: --against, --embed-model,
+                             --no-prefix.
+  --against <text|@file>     With --embed-distance: what to measure to. One text, or
+                             @file with one candidate per line ('#' lines skipped).
+                             Without it, the candidates are the index's mechanism entries.
+  --embed-model <name|path|list>
+                             With --embed-distance: the local embedding model.
+                             nomic (default) | jina | coderank | qwen06 | qwen4 |
+                             <path.gguf>, a comma list, or installed (every model under
+                             models/): the models run in turn, one loaded at a time, and
+                             the table gets a margin column per model (a rank column
+                             under --filter) and one line per model. The no-match band is
+                             calibrated on nomic only.
+                             --embed-model list prints the models CodeExam knows by
+                             name, which are installed, the prefixes each is run with
+                             and where to download it; it needs no index.
+  --no-prefix                With --embed-distance: embed the texts without the model's
+                             retrieval prefixes (nomic's search_query: / search_document:,
+                             the instruction line of coderank and qwen).
   --files-search <query>     Show files containing a term, sorted by hit count
   --folders-search <query>   Show folders containing a term, sorted by hit count
   --multisect-search <terms> Multi-term intersection search (semicolon-separated terms)
@@ -1681,7 +1694,10 @@ AI/ML DETECTORS (list AI/ML constructs; each has a --list-<name> alias):
                              scratchpad) — HEURISTIC (prompt prose, not constructs); misses Tree-of-Thoughts
   --tools                    Tool defs / function-calling (@tool, input_schema, MCP, tool_use)
   --chains                   Chains/agents (LangChain/LangGraph/DSPy/CrewAI; framework-based only)
-  --embeddings               Embeddings & vector search (FAISS/Chroma, similarity_search, distance)
+  --embeddings               Embedding & vector-search use in the examined code (cloud SDKs,
+                             local runtimes, named embedding models, FAISS/Chroma,
+                             similarity_search, distance). Not CodeExam's own embedding
+                             models: for those, --embed-model list.
   --structured-output        Structured output / schemas (with_structured_output, response_format, parsers)
   --inference                Local inference/generation (generate, no_grad, .predict)
   --training                 Training sites (PyTorch loop, Trainer, .fit)

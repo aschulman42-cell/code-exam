@@ -49,15 +49,45 @@ export function resolveEmbedModel(nameOrPath = DEFAULT_EMBED_MODEL, { modelsDir 
   const spec = EMBED_MODELS[nameOrPath];
   if (spec) {
     const p = path.join(modelsDir, spec.file);
-    if (!fs.existsSync(p)) throw new Error(`embedding model "${nameOrPath}" is not installed: expected ${p}; download it from ${spec.source}, or pass --embed-model <path.gguf>`);
+    if (!fs.existsSync(p)) throw new Error(`embedding model "${nameOrPath}" is not installed: expected ${p}; download it from ${spec.source}, or pass --embed-model <path.gguf> (--embed-model list shows what is installed)`);
     return { name: nameOrPath, path: p, base: spec.file.replace(/\.gguf$/i, ''), query: spec.query, doc: spec.doc };
   }
   const p = path.resolve(nameOrPath);
-  if (!/\.gguf$/i.test(p)) throw new Error(`--embed-model takes one of ${Object.keys(EMBED_MODELS).join(', ')} or a path to a .gguf file; got "${nameOrPath}"`);
+  if (!/\.gguf$/i.test(p)) throw new Error(`--embed-model takes one of ${Object.keys(EMBED_MODELS).join(', ')} or a path to a .gguf file; got "${nameOrPath}" (--embed-model list shows them)`);
   if (!fs.existsSync(p)) throw new Error(`embedding model not found: ${p}`);
   const base = path.basename(p).replace(/\.gguf$/i, '');
   const nomic = /nomic-embed-text/i.test(base);
   return { name: base, path: p, base, query: nomic ? 'search_query: ' : '', doc: nomic ? 'search_document: ' : '' };
+}
+
+/**
+ * The registry as rows, for `--embed-model list`: every model CodeExam knows by a short
+ * name, whether its file is under models/, the prefixes it is run with and where to get it.
+ */
+export function embedModelRows({ modelsDir = MODELS_DIR } = {}) {
+  return Object.entries(EMBED_MODELS).map(([name, spec]) => {
+    const p = path.join(modelsDir, spec.file);
+    return { name, file: spec.file, path: p, installed: fs.existsSync(p), isDefault: name === DEFAULT_EMBED_MODEL, query: spec.query, doc: spec.doc, source: spec.source };
+  });
+}
+
+/** The listing `--embed-model list` prints. */
+export function formatEmbedModelList(opts = {}) {
+  const rows = embedModelRows(opts);
+  const dir = opts.modelsDir || MODELS_DIR;
+  const show = (s) => (s ? JSON.stringify(s.length > 44 ? s.slice(0, 41) + '...' : s) : 'none');
+  const out = [`Embedding models CodeExam knows by name (${rows.filter((r) => r.installed).length} of ${rows.length} installed under ${dir}):`, ''];
+  for (const r of rows) {
+    out.push(`  ${r.name.padEnd(9)} ${r.installed ? 'installed    ' : 'not installed'}${r.isDefault ? '  (default)' : ''}`);
+    out.push(`            file    ${r.file}`);
+    out.push(`            prefix  query ${show(r.query)}, document ${show(r.doc)}`);
+    out.push(`            source  ${r.source}`);
+  }
+  out.push('', 'Use: --embed-distance "<text>" --embed-model <name> | <path.gguf> | a,b (a comma list) | installed (every installed one).',
+    'A model not installed: download its file from the source above into the models folder. Any other .gguf embedding',
+    'model runs by path, with no prefixes. This lists the models CodeExam itself embeds with; for embedding use in the',
+    'code being examined, see --embeddings.');
+  return out.join('\n');
 }
 
 // ---- the text per entry --------------------------------------------------------

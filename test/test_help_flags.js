@@ -70,3 +70,35 @@ describe('help discoverability', () => {
     assert.match(h.stdout, /--index-path <path>\s+Load an existing index \(short form: --ndx;/);
   });
 });
+
+describe('the embed options each have a help entry, and --embed-model list', () => {
+  // A help ENTRY is a line that starts, two spaces in, with the flag: what a reader scanning the left margin sees.
+  const entry = (out, flag) => out.split(/\r?\n/).some((l) => l.startsWith('  ' + flag + ' ') || l === '  ' + flag);
+
+  it('--help embed shows --embed-model, --against and --no-prefix as entries, not only inside --embed-distance', () => {
+    const r = run('--help', 'embed');
+    assert.equal(r.status, 0);
+    assert.ok(entry(r.stdout, '--embed-distance'), r.stdout.slice(0, 400));
+    assert.ok(entry(r.stdout, '--embed-model'), 'no entry headed --embed-model');
+    assert.match(r.stdout, /--embed-model list/);
+  });
+  it('--help has the entries for --against and --no-prefix', () => {
+    const r = run('--help');
+    assert.ok(entry(r.stdout, '--against'));
+    assert.ok(entry(r.stdout, '--no-prefix'));
+  });
+  it('the --embeddings line says it is about the examined code, and points at --embed-model list', () => {
+    const r = run('--help', 'embeddings');
+    const line = r.stdout.split(/\r?\n/).findIndex((l) => l.startsWith('  --embeddings '));
+    assert.ok(line >= 0);
+    assert.match(r.stdout.split(/\r?\n/).slice(line, line + 4).join(' '), /examined code[\s\S]*--embed-model list/);
+  });
+  it('--embed-model list names every known model, needs no index, and marks the default', () => {
+    const r = run('--embed-model', 'list');
+    assert.equal(r.status, 0, r.stderr);
+    for (const name of ['nomic', 'jina', 'coderank', 'qwen06', 'qwen4']) assert.match(r.stdout, new RegExp('^\\s*' + name + '\\b', 'm'), name);
+    assert.match(r.stdout, /nomic\s.*\(default\)/);
+    assert.match(r.stdout, /installed|not installed/);
+    assert.doesNotMatch(r.stdout + r.stderr, /No index found/);
+  });
+});

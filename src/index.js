@@ -439,6 +439,13 @@ if (args.synonymize) {
 // embed-distance-cli: dispatched before the index is constructed. A pair or a
 // list needs no index; against an index it reads mechanisms.json beside it, not
 // the 65,000-symbol index itself, so a 16,000-entry listing costs the query.
+// --embed-model list: the embedding models CodeExam knows, which are installed, their
+// prefixes and sources. A listing of CodeExam's own models, so it needs no index.
+if (String(args.embed_model || '').trim().toLowerCase() === 'list') {
+  const { formatEmbedModelList } = await import('./core/embed.js');
+  console.log(formatEmbedModelList());
+  process.exit(0);
+}
 if (args.embed_distance) {
   const { doEmbedDistance } = await import('./commands/embed-distance.js');
   await doEmbedDistance(args);
