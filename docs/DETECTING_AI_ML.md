@@ -206,9 +206,75 @@ can be told without guessing: from the file's naming convention (whisper.cpp's
 model family the base name does not. On eleven indexes 6 of 148 weights-file rows gain
 one (`model.bin (Llama)`, `model.Q4_K_M.gguf (Mistral)`, `model.onnx (BERT)`). Limits:
 the key that holds the path (`engines.whisper`) is not read; a base name that occurs
-under two folders takes the family of the first; the CLI shows the family, the GUI and
-the MCP tool carry it as a field and do not yet print it; the Multimodal cell's models
-(Whisper by name, 29 sites on Bram) are still not offered to Models Used.
+under two folders takes the family of the first. The CLI, the GUI and the MCP tool all
+print the family.
+
+**Models Used takes model families from the Multimodal cell (2026-11-15).** Models Used
+was built from four cells (LLM Calls, Artifacts, Embeddings, Inference) and declared
+literals; a model only the Multimodal cell saw was missing from it. That cell is not fed in
+whole, because of what it holds: every row is a word matched on a line with no model id,
+and many of the words are not models (`multimodal` is 216 of LlamaIndex's 268 rows;
+`vision_tower`, `pixel_values`, `bbox`, `Conv2d`, the dataset ImageNet). What is fed:
+
+- **Only markers that name a model family**: CLIP, ViT, ResNet, VGG, Inception,
+  EfficientNet, SSD, YOLO, R-CNN, RetinaNet, DETR, U-Net, DALL-E, Stable Diffusion, Imagen,
+  Midjourney, Whisper, wav2vec, HuBERT, EnCodec, SpeechT5, AudioCLIP.
+- **Only where the family is used, not mentioned**: the identifier it belongs to is
+  called, constructed, subclassed, imported or reached as an attribute (`CLIP(cfg)`,
+  `models.ResNet`, `class WhisperAdapter`), or it is a one-token string that is more than
+  the bare word (`'resnet50'`, `"openai/whisper-large-v3"`). A help line listing
+  "CLIP/ViT/ResNet", a message, running text and a bare label in a list are mentions.
+  The quoted-prose test alone was not enough: CodeExam's own index got CLIP, ResNet and
+  SSD rows from its help text, a test and the detector's own word list. With the
+  used-as-code rule it gets one, ResNet, from a test that passes 'resnet50' as a value;
+  the CLI marks that row [test] and --no-tests hides it.
+- **A family joins the concrete model that carries it** as a second cell, with no second
+  row: on Bram, `ggml-small.en.bin (Whisper)  artifact,multimodal`.
+- **Otherwise one row for the family**, shown as `Whisper (family named, no model id)`,
+  with access `?`: the word does not say whether it is the local model or a hosted
+  endpoint. Families that are hosted only (DALL-E, Imagen, Midjourney) are `api`. The
+  header counts these rows apart.
+
+On eleven indexes: of the Multimodal rows that name a family, the share used as code is
+small (Bram 1 of 29, llama.cpp 1 of 43, LangChain 17 of 70, the notebooks 46 of 221), and
+they give 15 family rows in all and 4 merges into a concrete model:
+
+| index | family rows added | merged into a concrete model |
+|---|---|---|
+| node-llama-cpp, GhostArch, the Qwen repository | none | none |
+| CodeExam | ResNet (one site, in a test) | none |
+| Bram | none | `ggml-small.en.bin` (Whisper) |
+| llama.cpp | Whisper | none |
+| LM Studio's bundle | YOLO, CLIP, Whisper | none |
+| LlamaIndex | DALL-E (api), Whisper, ViT, CLIP | none |
+| LangChain | DALL-E (api), ViT, Stable Diffusion | `whisper-medium` |
+| CrewAI | DALL-E (api), ViT | none |
+| the LLM-book notebooks | ViT | `resnet18_fp32.onnx`, `whisper-tiny` |
+
+Limits, from reading one site per family row:
+
+- **The model id beside the word is not captured.** `WhisperReader(model="whisper-1")`,
+  `model: str = "dall-e-3"` and `DEFAULT_CLIP_MODEL = "ViT-B/32"` give a family row,
+  where the line names the exact model.
+- **A string that contains the word is taken as a model named as a value**:
+  `'sunsmarterjieleaf/yolov12'` is one; `"dalle-image-generator"` (a tool's name) and
+  `'TiC-CLIP'` (a label) are not.
+- **An identifier that contains the word counts** when it is called or assigned from:
+  `t.WhisperEngine = "whisper_engine"` in LM Studio's bundle is an enum member.
+- The Multimodal cell reports one marker per line, so a line naming two families gives one.
+- Cost: Models Used now runs the Multimodal scan too, about 2 of 7 seconds on the
+  llama.cpp index (2,801 files).
+
+**`--models` and `--models-used` point at each other.** The two flags are one word apart:
+`--models` is model classes the code *defines*, by inheritance; `--models-used` is named
+models it *loads or calls*. On Bram `--models` said "No model classes found", true and
+easily read as "no models here", while `--models-used` lists 12. An empty `--models` now
+adds: "--models lists model classes this code DEFINES. For named models it loads or
+calls, see --models-used (12 found in this index)." An empty `--models-used` points the
+other way when `--models` has rows. The GUI's empty Models section says the same without
+the count. Other pairs a reader could confuse are not cross-pointed (`--embeddings` and
+`--models-used`; `--inference` and `--llm-calls`; `--artifacts` and `--models-used`); the
+general answer is the command of issue #304.
 
 ## Infrastructure and DevOps
 

@@ -1041,7 +1041,9 @@ function renderMechanismMembers(r, container) {
 export function renderModelList(container, models, total) {
   container.innerHTML = '';
   if (!models || !models.length) {
-    container.innerHTML = '<div class="list-placeholder">No model classes found</div>';
+    container.innerHTML = '<div class="list-placeholder" style="white-space:normal;text-align:left">No model classes found. '
+      + 'This section lists model classes the code DEFINES (by inheritance). For named models it loads or calls, '
+      + 'open the Models Used section.</div>';
     return;
   }
   for (const m of models) {
@@ -1536,7 +1538,8 @@ export function renderModelsUsedList(container, models, total, unresolved, onMod
       title: `${m.model}\naccess: ${m.access}\ncells: ${(m.cells || []).join(', ')}\n${m.count} site${m.count > 1 ? 's' : ''}${site0.filepath ? `\nfirst: ${(site0.filepath || '').replace(/\\/g, '/')}:${site0.line}` : ''}${(m.cells || []).includes('declared') ? '\ndeclared = a model-shaped literal in code (config default / fallback / candidate list); declared, not necessarily called' : ''}${m.isTest ? '\n[test/example code — all sites]' : ''}`,
     }, [
       h('span', { className: 'metric', text: m.access, style: `min-width:54px;color:${accColor};font-size:10px` }),
-      h('span', { className: 'name clickable', text: basenameIfPath(m.model) || '', style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
+      // A weights file's family (ggml-small.en.bin is Whisper), or a family the code names with no model id.
+      h('span', { className: 'name clickable', text: (basenameIfPath(m.model) || '') + (m.familyOnly ? ' (family named, no model id)' : m.family ? ` (${m.family})` : ''), style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright);font-size:11px' }),
       h('span', { className: 'metric', text: (m.cells || []).join(','), style: 'flex-shrink:0;max-width:160px;color:var(--text-muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;margin-right:10px' }),
       h('span', { className: 'metric', text: '×' + m.count, style: 'flex-shrink:0;color:var(--text-muted);font-size:10px' }),
     ]);

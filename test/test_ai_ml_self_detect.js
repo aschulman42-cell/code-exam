@@ -20,6 +20,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
+import { modelsPointer } from '../src/commands/metrics.js';
 
 // Build an index over synthetic in-memory files (mirrors test_explainability.js).
 function indexOf(files) {
@@ -201,5 +202,79 @@ describe('local runtimes in the other AI/ML cells', () => {
     assert.equal(by['ggml-base.bin'], 'Whisper');
     assert.equal(by['custom-weights.gguf'], null, 'no family is shown where nothing says one');
     assert.deepEqual(ix({ 'voice.js': 'const p = "~/x/whisper-models/ggml-small.en.bin";' }).listModelsUsed('whisper').map((r) => r.model), ['ggml-small.en.bin']);
+  });
+});
+
+describe('Models Used: model families the Multimodal cell names', () => {
+  const L = (...lines) => lines.join('\n');
+  const used = (files, f) => indexOf(files).listModelsUsed(f);
+  const row = (rows, model) => rows.find((r) => r.model === model);
+
+  it('adds the sites of a named family to the concrete model that carries it, as a second cell', () => {
+    const rows = used({ 'voice.js': L(
+      'const modelPath = "~/.local/share/whisper-models/ggml-small.en.bin";',
+      'const server = startWhisperServer(modelPath);',
+      'class WhisperAdapter { transcribe() {} }',
+    ) });
+    assert.equal(rows.length, 1, JSON.stringify(rows.map((r) => r.model)));
+    assert.deepEqual(rows[0].cells.slice().sort(), ['artifact', 'multimodal']);
+    assert.equal(rows[0].family, 'Whisper');
+    assert.equal(rows[0].access, 'local', 'the concrete model keeps its access');
+    assert.equal(rows[0].count, 2, 'the artifact site and the one line where the family word stands alone');
+  });
+  it('lists a family with no concrete model as a family, access unknown', () => {
+    const rows = used({ 'a.py': L('import torchvision', 'net = torchvision.models.ResNet(block, layers)', 'enc = CLIP(config)') });
+    const resnet = row(rows, 'ResNet');
+    assert.ok(resnet, JSON.stringify(rows.map((r) => r.model)));
+    assert.equal(resnet.familyOnly, true);
+    assert.equal(resnet.access, '?');
+    assert.deepEqual(resnet.cells, ['multimodal']);
+    assert.equal(row(rows, 'CLIP').access, '?');
+  });
+  it('marks a hosted-only family as api', () => {
+    const rows = used({ 'img.py': 'img = DALLE(prompt)' });
+    assert.equal(row(rows, 'DALL-E').access, 'api');
+  });
+  it('offers no row for a marker that is not a model', () => {
+    const rows = used({ 'b.py': L('is_multimodal = multimodal and True', 'x = Conv2d(3, 8, 3)', 'boxes = bbox(a, b) + pixel_values', 'data = ImageNet(root)', 'y = ViT(cfg)') });
+    assert.deepEqual(rows.map((r) => r.model), ['ViT']);
+  });
+  it('does not count a family named in quoted prose, and keeps the Multimodal cell itself unchanged', () => {
+    const files = { 'm.js': L('log("Whisper server is not ready yet");', 'const help = "Uses CLIP and ResNet for images";') };
+    assert.deepEqual(used(files).map((r) => r.model), []);
+    assert.equal(indexOf(files).listMultimodal().length, 2, 'the Multimodal listing still shows both lines');
+  });
+  it('takes a family as used only where it is code or a model named as a value', () => {
+    const mention = used({ 'help.js': L(
+      '  --multimodal               Multimodal/vision (CLIP/ViT/ResNet/YOLO/diffusion/VLM) [alias: --vision]',
+      "const AMBIGUOUS = new Set(['YOLO', 'SSD', 'bbox']);",
+      'net uses ResNet for the backbone',
+    ) });
+    assert.deepEqual(mention.map((r) => r.model), [], 'a help line, a list of labels and running text are mentions');
+    // (The Multimodal cell reports one marker per line, so each family gets its own line here.)
+    const value = used({ 'cfg.py': L("backbone = 'resnet50'", 'from torchvision.models import alexnet, ResNet', 'from torchvision.models import VGG') });
+    assert.deepEqual(value.map((r) => r.model).sort(), ['ResNet', 'VGG']);
+    assert.equal(row(value, 'ResNet').count, 2);
+  });
+  it('matches a filter on the family row', () => {
+    assert.deepEqual(used({ 'a.py': 'net = ResNet(block)' }, 'resnet').map((r) => r.model), ['ResNet']);
+  });
+});
+
+describe('--models and --models-used point at each other when one is empty', () => {
+  // A stub index: the pointer only needs the two listings' lengths.
+  const stub = (defined, usedN) => ({ listModels: () => new Array(defined).fill({}), listModelsUsed: () => new Array(usedN).fill({}) });
+
+  it('an empty --models says what --models-used holds, with the count', () => {
+    const text = modelsPointer(stub(0, 12), 'models');
+    assert.match(text, /model classes this code DEFINES/);
+    assert.match(text, /--models-used \(12 found in this index\)/);
+  });
+  it('an empty --models still explains the difference when --models-used is empty too', () => {
+    assert.match(modelsPointer(stub(0, 0), 'models'), /--models-used \(it finds none in this index either\)/);
+  });
+  it('an empty --models-used points at --models only when that has rows', () => {
+    assert.match(modelsPointer(stub(7, 0), 'models-used'), /see --models \(7 found in this index\)/);
+    assert.equal(modelsPointer(stub(0, 0), 'models-used'), '');
   });
 });

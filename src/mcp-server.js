@@ -1424,14 +1424,19 @@ function handleToolRaw(name, args) {
       const declaredOnly = models.filter(m => (m.cells || []).length === 1 && m.cells[0] === 'declared').length;
       const max = args.max || 50;
       const shown = models.slice(0, max);
+      // A model family named with no model id (Whisper, CLIP): access "?", said in the header
+      // so the model reading this does not report it as a loaded checkpoint.
+      const familyOnly = models.filter(m => m.familyOnly).length;
       const lines = [`${models.length} models used — ${api} api, ${local} local`
         + (mixed ? `, ${mixed} mixed` : '')
+        + (familyOnly ? `; ${familyOnly} famil${familyOnly > 1 ? 'ies' : 'y'} named with no model id (access ?: the code names the family, no checkpoint or id at those sites)` : '')
         + (declaredOnly ? `; ${declaredOnly} declared only (a literal in code, no call site)` : '')
         + (models.unresolved ? ` (+${models.unresolved} unresolved)` : '')
         + (models.length > max ? `; showing ${max}` : '') + ':'];
       for (const m of shown) {
         const name = (m.model || '').split(/[\\/]/).pop();
-        lines.push(`  ${(m.access || '').padEnd(6)} ${name}  (${(m.cells || []).join(',')}, ${m.count} site${m.count > 1 ? 's' : ''})`);
+        const fam = m.familyOnly ? ' (family named, no model id)' : m.family ? ` (${m.family})` : '';
+        lines.push(`  ${(m.access || '').padEnd(6)} ${name}${fam}  (${(m.cells || []).join(',')}, ${m.count} site${m.count > 1 ? 's' : ''})`);
       }
       return lines.join('\n');
     }

@@ -548,6 +548,23 @@ export function modelsUsedNegative(unresolved = 0) {
     + `shows nothing here even when it loads models. ${recover}`;
 }
 
+/**
+ * --models and --models-used are one word apart and answer different questions: model
+ * classes this code DEFINES (by inheritance) against named models it LOADS OR CALLS. When
+ * one is empty, say what the other holds, counted now. Shared by the CLI and the MCP tools.
+ */
+export function modelsPointer(index, emptyOne) {
+  if (emptyOne === 'models') {
+    let n = 0;
+    try { n = index.listModelsUsed().length; } catch { /* the pointer is still worth giving */ }
+    return '--models lists model classes this code DEFINES. For named models it loads or calls, see --models-used'
+      + (n ? ` (${n} found in this index).` : ' (it finds none in this index either).');
+  }
+  let n = 0;
+  try { n = index.listModels().length; } catch { /* nothing to point at */ }
+  return n ? `--models-used lists named models the code loads or calls. For model classes it DEFINES, see --models (${n} found in this index).` : '';
+}
+
 export function doListModelsUsed(index, args) {
   const models = dropTests(index.listModelsUsed(args.filter), args);
   if (!models.length) {
@@ -557,11 +574,14 @@ export function doListModelsUsed(index, args) {
       if (all.length) { console.log(filteredEmptyNotice('models', all.length, args.filter)); return; }
     }
     console.log(modelsUsedNegative(models.unresolved || 0));
+    const ptr = modelsPointer(index, 'models-used');
+    if (ptr) console.log(ptr);
     return;
   }
   const api = models.filter(m => m.access === 'api').length;
   const local = models.filter(m => m.access === 'local').length;
   const mixed = models.filter(m => m.access === 'mixed').length;
+  const familyOnly = models.filter(m => m.familyOnly).length;
   // #345: say how many rows are declared in code with no call site behind them,
   // so "N models used" is not read as N calls.
   const declaredOnly = models.filter(m => m.cells.length === 1 && m.cells[0] === 'declared').length;
@@ -570,13 +590,14 @@ export function doListModelsUsed(index, args) {
   const shown = max > 0 ? models.slice(0, max) : models;
 
   console.log(`\n${models.length} models used — ${api} api, ${local} local${mixed ? `, ${mixed} mixed` : ''}`
+    + `${familyOnly ? `; ${familyOnly} famil${familyOnly > 1 ? 'ies' : 'y'} named with no model id (access ?)` : ''}`
     + `${declaredOnly ? `; ${declaredOnly} declared only (no call site)` : ''}`
     + `${models.unresolved ? ` (+${models.unresolved} unresolved refs)` : ''}`
     + `${max > 0 && models.length > max ? `; showing ${shown.length}` : ''}:\n`);
 
   if (args.verbose) {
     for (const m of shown) {
-      console.log(`${m.access.padEnd(6)} ${basenameIfPath(m.model)}${m.family ? ` (${m.family})` : ''}  (${m.cells.join(', ')}, ${m.count} site${m.count > 1 ? 's' : ''})${testTag(m)}`);
+      console.log(`${m.access.padEnd(6)} ${basenameIfPath(m.model)}${m.familyOnly ? ' (family named, no model id)' : m.family ? ` (${m.family})` : ''}  (${m.cells.join(', ')}, ${m.count} site${m.count > 1 ? 's' : ''})${testTag(m)}`);
       for (const s of m.sites.slice(0, 12)) console.log(`        ${quotePathIfNeeded((s.filepath || '').replace(/\\/g, '/') + ':' + s.line)}  [${s.cell}]`);
     }
     return;
@@ -586,11 +607,13 @@ export function doListModelsUsed(index, args) {
   console.log('='.repeat(98));
   for (const m of shown) {
     // A weights file's family, where the path or the naming convention says it (ggml-small.en.bin is Whisper).
-    console.log(`${m.access.padEnd(6)}  ${((basenameIfPath(m.model) || '') + (m.family ? ` (${m.family})` : '')).slice(0, 52).padEnd(52)}  ${m.cells.join(',').slice(0, 26).padEnd(26)}  ${m.count}`);
+    console.log(`${m.access.padEnd(6)}  ${((basenameIfPath(m.model) || '') + (m.familyOnly ? ' (family named, no model id)' : m.family ? ` (${m.family})` : '')).slice(0, 52).padEnd(52)}  ${m.cells.join(',').slice(0, 26).padEnd(26)}  ${m.count}`);
   }
   console.log(`\n  (Models USED — named models the code loads/calls, deduped & tagged api=hosted / local=loaded.`
     + ` Cell "declared" = a model-shaped literal in code (a config default, a || fallback, a candidate list):`
     + ` declared, not necessarily called; its api/local tag is inferred from the id's shape.`
+    + ` A row marked "family named, no model id" is a model family (Whisper, CLIP, ResNet) the code names with no`
+    + ` checkpoint or id at those sites; its access is ? unless the family is hosted only.`
     + ` Distinct from models DEFINED (--models, class inheritance).`
     + ` Non-model artifacts (optimizer/vocab/config, device strings) are filtered out.`
     + (models.unresolved ? ` ${models.unresolved} refs were unresolved <var> and excluded.` : '') + `)`);
@@ -601,7 +624,8 @@ export function doListStructuredOutput(index, args) {
   const items = dropTests(index.listStructuredOutput(args.filter), args);
   if (!items.length) {
     console.log('No structured output found (no with_structured_output / response_model / '
-      + 'response_format / JSON mode, output parsers, or outlines/guidance). Bare Pydantic '
+      + 'response_format / JSON mode, output parsers, outlines/guidance, or a local runtime\'s '
+      + 'grammar such as createGrammarForJsonSchema / LlamaGrammar). Bare Pydantic '
       + 'BaseModel / Zod schemas are intentionally not counted — only schemas bound to an LLM call.');
     return;
   }
@@ -834,7 +858,8 @@ export function doListInference(index, args) {
   const inf = dropTests(index.listInference(args.filter), args);
   if (!inf.length) {
     console.log('No inference/generation found (no generate()/max_new_tokens/do_sample/'
-      + 'GenerationConfig, no_grad/inference_mode/InferenceSession, or gated .predict()). '
+      + 'GenerationConfig, no_grad/inference_mode/InferenceSession, gated .predict(), the '
+      + 'llama.cpp C API llama_decode / llama_sampler_sample, or MLX / ctranslate2 generation). '
       + 'API-client LLM usage (remote calls) is a separate unit, not counted here.');
     return;
   }
@@ -1178,7 +1203,8 @@ export function doListArtifacts(index, args) {
   const artifacts = dropTests(index.listArtifacts(args.filter), args);
   if (!artifacts.length) {
     console.log('No model artifacts found (no load/save sites for HF from_pretrained/'
-      + 'state_dict, torch.save/load, safetensors, node-llama-cpp GGUF, or .gguf/'
+      + 'state_dict, torch.save/load, safetensors, node-llama-cpp GGUF, llama.cpp '
+      + 'llama_model_load_from_file, or .gguf/'
       + '.safetensors/.onnx/.ckpt paths).');
     return;
   }
@@ -1240,6 +1266,7 @@ export function doListModels(index, args) {
   if (!models.length) {
     console.log('No model classes found (no class inheritance reaches a known ML '
       + 'model base: nn.Module, tf.Module, keras Layer/Model, sklearn BaseEstimator, ...).');
+    console.log(modelsPointer(index, 'models'));
     return;
   }
   // Group/sort by framework, then by method count (desc).

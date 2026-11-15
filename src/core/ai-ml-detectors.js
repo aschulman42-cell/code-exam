@@ -620,10 +620,13 @@ class _AIMLMethods {
   listMultimodal(filter = null) {
     // [regex, family, kind, marker-label]. First match on a line wins (the
     // table is ordered most-specific → most-generic within each theme).
+    // model:true marks a marker that names a MODEL FAMILY (Whisper, CLIP, ResNet); the rest
+    // are concepts, tensor and argument names, a dataset. Only the first kind is offered to
+    // Models Used (listModelsUsed), and only from a site that is not quoted prose.
     const table = [
       // ---- encoder (vision encoders / VLM image stacks) ----
-      { re: /\bCLIP\b/,                          fam: 'CLIP',         kind: 'encoder',       m: 'CLIP' },
-      { re: /\bViT\b/,                           fam: 'ViT',          kind: 'encoder',       m: 'ViT' },
+      { re: /\bCLIP\b/,                          fam: 'CLIP',         kind: 'encoder',       m: 'CLIP', model: true },
+      { re: /\bViT\b/,                           fam: 'ViT',          kind: 'encoder',       m: 'ViT', model: true },
       { re: /\bvision_tower\b/,                  fam: 'VLM',          kind: 'encoder',       m: 'vision_tower' },
       { re: /\bvision_model\b/,                  fam: 'VLM',          kind: 'encoder',       m: 'vision_model' },
       { re: /\bpixel_values\b/,                  fam: 'VLM',          kind: 'encoder',       m: 'pixel_values' },
@@ -631,20 +634,20 @@ class _AIMLMethods {
       { re: /\bimage_embeds\b/,                  fam: 'VLM',          kind: 'encoder',       m: 'image_embeds' },
       { re: /\bfeature_extractor\b/,             fam: 'vision',       kind: 'encoder',       m: 'feature_extractor' },
       // ---- cnn-arch (classic CNN architectures) ----
-      { re: /\bResNet\b|\bresnet\d+\b/,          fam: 'ResNet',       kind: 'cnn-arch',      m: 'ResNet' },
-      { re: /\bVGG\b|\bvgg\d+\b/,                fam: 'VGG',          kind: 'cnn-arch',      m: 'VGG' },
-      { re: /\bInception(?:V\d)?\b/,             fam: 'Inception',    kind: 'cnn-arch',      m: 'Inception' },
-      { re: /\bEfficientNet\b/,                  fam: 'EfficientNet', kind: 'cnn-arch',      m: 'EfficientNet' },
+      { re: /\bResNet\b|\bresnet\d+\b/,          fam: 'ResNet',       kind: 'cnn-arch',      m: 'ResNet', model: true },
+      { re: /\bVGG\b|\bvgg\d+\b/,                fam: 'VGG',          kind: 'cnn-arch',      m: 'VGG', model: true },
+      { re: /\bInception(?:V\d)?\b/,             fam: 'Inception',    kind: 'cnn-arch',      m: 'Inception', model: true },
+      { re: /\bEfficientNet\b/,                  fam: 'EfficientNet', kind: 'cnn-arch',      m: 'EfficientNet', model: true },
       { re: /\bImageNet\b/,                      fam: 'ImageNet',     kind: 'cnn-arch',      m: 'ImageNet' },
       { re: /\bConv2[dD]\b|\bConv2D\b/,          fam: 'CNN',          kind: 'cnn-arch',      m: 'Conv2d' },
       { re: /\bconvolutional\b/i,                fam: 'CNN',          kind: 'cnn-arch',      m: 'convolutional' },
       // ---- detection-seg (object detection + segmentation) ----
-      { re: /\bSSD\b/,                           fam: 'SSD',          kind: 'detection-seg', m: 'SSD' },
-      { re: /\bYOLO\b|\byolo\w*\b/,              fam: 'YOLO',         kind: 'detection-seg', m: 'YOLO' },
-      { re: /\b(?:Faster|Mask)\s*R-?CNN\b/i,     fam: 'R-CNN',        kind: 'detection-seg', m: 'R-CNN' },
-      { re: /\bRetinaNet\b/,                     fam: 'RetinaNet',    kind: 'detection-seg', m: 'RetinaNet' },
-      { re: /\bDETR\b/,                          fam: 'DETR',         kind: 'detection-seg', m: 'DETR' },
-      { re: /\bU-?Net\b/,                        fam: 'U-Net',        kind: 'detection-seg', m: 'U-Net' },
+      { re: /\bSSD\b/,                           fam: 'SSD',          kind: 'detection-seg', m: 'SSD', model: true },
+      { re: /\bYOLO\b|\byolo\w*\b/,              fam: 'YOLO',         kind: 'detection-seg', m: 'YOLO', model: true },
+      { re: /\b(?:Faster|Mask)\s*R-?CNN\b/i,     fam: 'R-CNN',        kind: 'detection-seg', m: 'R-CNN', model: true },
+      { re: /\bRetinaNet\b/,                     fam: 'RetinaNet',    kind: 'detection-seg', m: 'RetinaNet', model: true },
+      { re: /\bDETR\b/,                          fam: 'DETR',         kind: 'detection-seg', m: 'DETR', model: true },
+      { re: /\bU-?Net\b/,                        fam: 'U-Net',        kind: 'detection-seg', m: 'U-Net', model: true },
       { re: /\b(?:semantic|instance)\s+segmentation\b/i, fam: 'segmentation', kind: 'detection-seg', m: 'segmentation' },
       { re: /\bbounding\s*box\b|\bbbox\b/i,      fam: 'detection',    kind: 'detection-seg', m: 'bbox' },
       { re: /\banchor[_\s]?box\w*\b|\bAnchorBoxes\b/i, fam: 'detection', kind: 'detection-seg', m: 'anchor box' },
@@ -658,10 +661,10 @@ class _AIMLMethods {
       // actually called (DALL·E via images.generate) or loaded (SD via
       // from_pretrained) it independently reaches Models-Used through the
       // LLM-Calls / Artifacts harvest.
-      { re: /\bDALL[·\-]?E\b/i,                   fam: 'DALL-E',       kind: 'generative',    m: 'DALL-E' },
-      { re: /\bStable[\s_]?Diffusion\w*|\bSDXL\b/i, fam: 'Stable Diffusion', kind: 'generative', m: 'Stable Diffusion' },
-      { re: /\bImagen\b/,                         fam: 'Imagen',       kind: 'generative',    m: 'Imagen' },
-      { re: /\bMidjourney\b/i,                    fam: 'Midjourney',   kind: 'generative',    m: 'Midjourney' },
+      { re: /\bDALL[·\-]?E\b/i,                   fam: 'DALL-E',       kind: 'generative',    m: 'DALL-E', model: true },
+      { re: /\bStable[\s_]?Diffusion\w*|\bSDXL\b/i, fam: 'Stable Diffusion', kind: 'generative', m: 'Stable Diffusion', model: true },
+      { re: /\bImagen\b/,                         fam: 'Imagen',       kind: 'generative',    m: 'Imagen', model: true },
+      { re: /\bMidjourney\b/i,                    fam: 'Midjourney',   kind: 'generative',    m: 'Midjourney', model: true },
       // NOTE: U-Net is claimed above by detection-seg; the generative U-Net
       // (UNet, no hyphen) is caught here so the diffusion arch still surfaces.
       { re: /\bdiffusion\b/i,                    fam: 'diffusion',    kind: 'generative',    m: 'diffusion' },
@@ -674,12 +677,12 @@ class _AIMLMethods {
       // ---- audio (speech / audio encoders & features) ----
       // Multimodal-as-in-audio. Loaded audio models (Whisper via from_pretrained)
       // reach Models-Used through the Artifacts harvest, same as vision models.
-      { re: /\bWhisper\w*\b/,                     fam: 'Whisper',      kind: 'audio',         m: 'Whisper' },
-      { re: /\bwav2vec2?\b/i,                     fam: 'wav2vec',      kind: 'audio',         m: 'wav2vec' },
-      { re: /\bHuBERT\b/i,                        fam: 'HuBERT',       kind: 'audio',         m: 'HuBERT' },
-      { re: /\bEnCodec\b/i,                       fam: 'EnCodec',      kind: 'audio',         m: 'EnCodec' },
-      { re: /\bSpeechT5\w*\b/,                    fam: 'SpeechT5',     kind: 'audio',         m: 'SpeechT5' },
-      { re: /\bAudioCLIP\b/i,                     fam: 'audio',        kind: 'audio',         m: 'AudioCLIP' },
+      { re: /\bWhisper\w*\b/,                     fam: 'Whisper',      kind: 'audio',         m: 'Whisper', model: true },
+      { re: /\bwav2vec2?\b/i,                     fam: 'wav2vec',      kind: 'audio',         m: 'wav2vec', model: true },
+      { re: /\bHuBERT\b/i,                        fam: 'HuBERT',       kind: 'audio',         m: 'HuBERT', model: true },
+      { re: /\bEnCodec\b/i,                       fam: 'EnCodec',      kind: 'audio',         m: 'EnCodec', model: true },
+      { re: /\bSpeechT5\w*\b/,                    fam: 'SpeechT5',     kind: 'audio',         m: 'SpeechT5', model: true },
+      { re: /\bAudioCLIP\b/i,                     fam: 'audio',        kind: 'audio',         m: 'AudioCLIP', model: true },
       { re: /\b(?:Mel)?Spectrogram\b|\bmel_spectrogram\b/, fam: 'audio', kind: 'audio',      m: 'spectrogram' },
       { re: /\bMFCC\b/,                           fam: 'audio',        kind: 'audio',         m: 'MFCC' },
       { re: /\btorchaudio\b/,                     fam: 'audio',        kind: 'audio',         m: 'torchaudio' },
@@ -713,9 +716,11 @@ class _AIMLMethods {
         if (!line) continue;
         const trimmed = line.trimStart();
         if (reComment(trimmed)) continue;
-        const d = table.find(e => e.re.test(line));
+        let dm = null;
+        const d = table.find(e => (dm = e.re.exec(line)));
         if (d) {
-          fileHits.push({ name: d.m, filepath, line: i + 1, kind: d.kind, family: d.fam, marker: d.m, tag: 'heuristic', snippet: trimmed.slice(0, 200) });
+          fileHits.push({ name: d.m, filepath, line: i + 1, kind: d.kind, family: d.fam, marker: d.m, tag: 'heuristic', snippet: trimmed.slice(0, 200),
+            isModel: !!d.model, asCode: !!d.model && familyUsedAsCode(line, dm.index, dm[0].length, d.m) });
           if (!AMBIGUOUS.has(d.m)) anchored = true;
         }
       }
@@ -2197,12 +2202,50 @@ class _AIMLMethods {
       m.count++;
     }
 
-    let result = [...byId.values()].map(m => ({ model: m.model, family: m.family || null, access: m.access, cells: [...m.cells], count: m.count, sites: m.sites }));
+    // Model families the Multimodal cell names (Whisper, CLIP, ResNet): word matches with no
+    // model id. A family joins the concrete model that carries it (the weights file whose
+    // family it is, or an id containing the word) as a second cell; otherwise it is one row
+    // for the family, marked familyOnly, access '?' unless the family is hosted only. A site
+    // is offered only where the family is used as code (familyUsedAsCode): a help line that
+    // lists "CLIP/ViT/ResNet" and a message that mentions Whisper name it, they do not use it.
+    {
+      const norm = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const HOSTED_ONLY = new Set(['DALL-E', 'Imagen', 'Midjourney']);
+      const byFamily = new Map();
+      for (const t of this.listMultimodal()) {
+        if (!t.isModel || !t.asCode) continue;
+        if (!byFamily.has(t.family)) byFamily.set(t.family, []);
+        byFamily.get(t.family).push(t);
+      }
+      for (const [fam, sites] of byFamily) {
+        const key = norm(fam);
+        let host = null;
+        for (const m of byId.values()) {
+          if (!(norm(m.family) === key || norm(m.model).includes(key))) continue;
+          if (!host || m.count > host.count) host = m;
+        }
+        if (!host) {
+          host = { model: fam, access: HOSTED_ONLY.has(fam) ? 'api' : '?', cells: new Set(), sites: [], count: 0, familyOnly: true };
+          byId.set('family:' + key, host);
+        }
+        const have = new Set(host.sites.map(x => x.filepath + ':' + x.line));
+        for (const t of sites) {
+          const k = t.filepath + ':' + t.line;
+          if (have.has(k)) continue;
+          have.add(k);
+          host.cells.add('multimodal');
+          host.sites.push({ filepath: t.filepath, line: t.line, marker: t.marker, cell: 'multimodal', function: funcAt(t.filepath, t.line) });
+          host.count++;
+        }
+      }
+    }
+
+    let result = [...byId.values()].map(m => ({ model: m.model, family: m.family || null, familyOnly: !!m.familyOnly, access: m.access, cells: [...m.cells], count: m.count, sites: m.sites }));
     if (filter) {
       const match = makeFilterMatcher(filter);
       result = result.filter(m => match(m.model, m.access, m.cells.join(','), m.family || ''));
     }
-    const accessRank = { api: 0, local: 1, mixed: 2 };
+    const accessRank = { api: 0, local: 1, mixed: 2, '?': 3 };
     result.sort((a, b) =>
       (accessRank[a.access] - accessRank[b.access]) || (b.count - a.count) || a.model.localeCompare(b.model));
     result.unresolved = unresolved;
@@ -2961,6 +3004,40 @@ function quotedProse(line, at) {
   let end = line.length;
   for (let k = at; k < line.length; k++) { if (line[k] === '\\') { k++; continue; } if (line[k] === q) { end = k; break; } }
   return /\s/.test(line.slice(start + 1, end).trim());
+}
+
+/**
+ * Is a model-family word at [at, at+len) of a line a USE of the family, as against a
+ * mention? A use is code-shaped: the identifier it belongs to is called, constructed,
+ * subclassed, imported or reached as an attribute (`CLIP(cfg)`, `models.ResNet`,
+ * `class WhisperAdapter`, `from x import ViT`), or it is a one-token string longer than the
+ * bare word (`'resnet50'`, `"openai/whisper-large-v3"`: a model named as a value). A bare
+ * word in running text, in a slash-separated list, or alone in a string (`'SSD'` in a list
+ * of labels) is a mention.
+ */
+function familyUsedAsCode(line, at, len, bare) {
+  let q = null; let start = -1;
+  for (let k = 0; k < at; k++) {
+    const ch = line[k];
+    if (ch === '\\') { k++; continue; }
+    if (q) { if (ch === q) q = null; } else if (ch === '"' || ch === "'" || ch === '`') { q = ch; start = k; }
+  }
+  if (q !== null) {
+    let end = line.length;
+    for (let k = at; k < line.length; k++) { if (line[k] === '\\') { k++; continue; } if (line[k] === q) { end = k; break; } }
+    const body = line.slice(start + 1, end).trim();
+    // (Not a backtick string: in Python and in docstrings a backticked word is markup.)
+    return q !== '`' && !/\s/.test(body) && body.toLowerCase() !== String(bare || '').toLowerCase() && /^[\w./:@-]+$/.test(body);
+  }
+  // Outside a string: widen to the whole identifier, then look at what touches it.
+  let a = at; let b = at + len;
+  while (a > 0 && /[\w$]/.test(line[a - 1])) a--;
+  while (b < line.length && /[\w$]/.test(line[b])) b++;
+  const before = line.slice(0, a); const after = line.slice(b);
+  // Touching, with no space: "ViT (used by the smaller models)" in a trailing comment is prose.
+  if (/^[(\[<]/.test(after) || /^\.[A-Za-z_$]/.test(after)) return true;
+  if (/(?:\.|\bnew\s+|\bclass\s+|\bextends\s+|\bimport\s+(?:\{\s*)?(?:[\w$]+\s*,\s*)*|\bfrom\s+[\w.]+\s+import\s+(?:\(\s*)?(?:[\w$]+\s*,\s*)*)$/.test(before)) return true;
+  return false;
 }
 
 /**
