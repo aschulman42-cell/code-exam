@@ -742,6 +742,25 @@ node --test test/test_command_catalog.js
 node src/index.js --index-path <index> --command-catalog
 ```
 
+## Would GUI actions, or routes, seed better mechanisms? (2026-11-15)
+
+Tried and not adopted. A command mechanism is seeded from a CLI option; the catalog's GUI
+actions and routes seed nothing. On the index of CodeExam's source that includes
+`public/index.html` (`.CE_111426`, 471 mechanisms), four kinds of record were built outside
+the grouper, laid beside the existing ones and scored on the seven rubric pages (first
+claim and whole page, fourteen rows): a GUI row's handler and its callees (63 records),
+the functions called in the row's own `case` body (95), the same extended through the API
+route that body calls into the route's body (100), and a route's body with no GUI row
+(79). No GUI variant produced the best holder of any row. The route variant did on three:
+two ties with `[cmd] --vocabulary`, and one gain, `[route] /api/overview-deep` holding 21 of
+55 cited functions on the overview-by-ai page against 12. The grouper is unchanged. The
+result is weaker than it reads: the rubric pages describe features from the command line
+and the server (12 of their file references are under `public/`, 82 under `src/`), so they
+cannot reward a record of client code, whose possible value, the control's label as a name
+for that code, was not measured; the records sat beside the existing ones, so their sizes
+are upper bounds; and it is one codebase, with route bodies read by a rule that fits this
+codebase's own route table. Routes are the lead, on one row.
+
 ## A second embedding model: EmbeddingGemma beside nomic (2026-11-15)
 
 Every figure above this section was computed under one embedding model, nomic. Andrew asked
