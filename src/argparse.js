@@ -150,6 +150,8 @@ export function parseArgs() {
     embed_model: null,       // nomic (default) | jina | coderank | qwen06 | qwen4 | gemma | gemma-search | gemma2 | <path.gguf> | list
     no_prefix: false,        // embed the texts without the model's retrieval prefixes
     function_text: false,    // --embed-distance on an index: score each entry by its label and its best member function's text together
+    toward_code: null,       // --embed-distance on an index: restate | label (a model rewords each element toward the index's names) | @file (saved rewrites)
+    spec: null,              // --toward-code: a file holding the patent's specification, given to the rewriting model
     use_tree_sitter: true,     // tree-sitter wherever a grammar ships; --regex-parser opts out
     regex_parser: false,
     extensions: null,
@@ -749,6 +751,9 @@ export function parseArgs() {
     ['no_prefix',            'flag',           ['--no-prefix']],
     // embed-distance-function-text-option (2026-11-15): rank entries by label and best member function together
     ['function_text',        'flag',           ['--function-text']],
+    // vocab-rewrite-to-embed-distance (2026-11-16): reword each element toward the index's names, rank by the rewording
+    ['toward_code',          'value',          ['--toward-code']],
+    ['spec',                 'value',          ['--spec']],
     // Force the one-claim-per-line reading on a file that carries no format
     // marker (hand-made corpora). --single-claim forces the other way, for a
     // one-line claim that would otherwise be auto-detected as a corpus of one.
@@ -1284,7 +1289,7 @@ SEARCH:
                              --max-results N (0 = all); --filter <s> keeps ranks and names
                              the member that matched; --verbose shows the chunk that scored.
                              Its own options, each below: --against, --embed-model,
-                             --no-prefix, --function-text.
+                             --no-prefix, --function-text, --toward-code, --spec.
   --against <text|@file>     With --embed-distance: what to measure to. One text, or
                              @file with one candidate per line ('#' lines skipped).
                              Without it, the candidates are the index's mechanism entries.
@@ -1320,6 +1325,42 @@ SEARCH:
                              claims it put the right entry first far more often, on
                              litigants' chart rows it gained nothing
                              (docs/CODEEXAM_MECHANISMS_TESTS.md).
+  --toward-code <restate|label|@file>
+                             With --embed-distance on an index (not with --against), for
+                             testing: a model rewords each claim element toward the names
+                             this codebase uses, one call per element, and the entries
+                             are ranked by the rewording. A claim says things in a
+                             patent's words and code in an engineer's, and the embedding
+                             does not cross between them on its own. Needs a model
+                             (--llm <provider> or --model <gguf>; a cloud model prints
+                             its projected cost first, stops above $2 unless --force, and
+                             is refused under --air-gapped). The model is shown the
+                             element, the whole claim, 150 words from the index's names
+                             (80 for a local model; from the index's vocabulary.json, which
+                             --vocabulary writes) and --spec's file; no source code.
+                               restate   one sentence saying what the element requires,
+                                         in an implementing engineer's words
+                               label     a mechanism label and function names as the
+                                         model expects the code to be named, the shape of
+                                         the entries ranked; the model is also shown 40
+                                         of the index's entries, taken at even steps
+                               @file     rewrites an earlier run saved; no model call
+                             Each listing prints the element as written, then "searched
+                             as:" and the rewording. With @claim the rewrites are saved
+                             beside the claim file, the path named on stderr.
+                             --show-prompt prints what would be sent and calls no model.
+                             A rewording is a model's search query, not a reading of the
+                             claim, and the no-match band is not read under it. A model
+                             told a codebase's words uses them whether or not the code
+                             is there: a good rank under this option has not been shown
+                             to tell code that practises an element from code that does
+                             not. Off by default.
+  --spec <file>              With --embed-distance --toward-code restate|label: the
+                             patent's specification as text, given to the rewriting
+                             model with every element as the source for what the
+                             claim's terms mean. A long specification is sent once per
+                             element and is most of the cost; the projection says how
+                             much.
   --files-search <query>     Show files containing a term, sorted by hit count
   --folders-search <query>   Show folders containing a term, sorted by hit count
   --multisect-search <terms> Multi-term intersection search (semicolon-separated terms)
@@ -2223,7 +2264,7 @@ LLM ANALYSIS:
                              Reports how much of the original vocabulary survived, and
                              warns when a rewrite changed too little to test anything.
                              NOT the reverse tool: it moves wording AWAY from code, not
-                             toward it.
+                             toward it (--embed-distance --toward-code does that).
                              A CORPUS of claims — one claim per line, as written by
                              --pseudo-claims --claims-only — is rewritten claim by
                              claim, IN ORDER, each with its own re-split verdict.

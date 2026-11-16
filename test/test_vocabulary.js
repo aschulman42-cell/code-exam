@@ -367,3 +367,33 @@ test('base64 guard: getTopVocabulary withholds the blob, keeps the real token', 
   assert.ok(!top.includes(PNG_BLOB), 'the base64 blob must be withheld from top vocabulary');
   assert.ok(top.includes('AdaptiveTrackSelection'), 'the real token must survive the filter');
 });
+
+// vocab-rewrite-to-embed-distance (2026-11-16): the prompt vocabulary from the cached
+// vocabulary.json alone, for --embed-distance --toward-code, which runs before an index
+// is constructed.
+import { cachedVocabularyWords, VOCAB_CACHE_VERSION } from '../src/core/vocabulary.js';
+
+test('cachedVocabularyWords: the same words a loaded index gives, read from vocabulary.json by path', () => {
+  const tokens = { AdaptiveTrackSelection: 1000, DecoderInputBuffer: 900, checkNotNull: 800, bitrateEstimate: 700 };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vocab-cache-'));
+  const cache = { _version: VOCAB_CACHE_VERSION, _file_count: 12, _generated: '2026-11-01T00:00:00.000Z', tokens: Object.fromEntries(Object.entries(tokens).map(([t, score]) => [t, { score, top_files: [] }])) };
+  fs.writeFileSync(path.join(dir, 'vocabulary.json'), JSON.stringify(cache));
+  const opts = { topN: 15000, maxSubTokens: 150, maxFuncNames: 0 };
+  const viaIndex = getVocabularyForPrompt(fakeIdx(tokens), opts).subTokens.map((s) => s.token);
+  const r = cachedVocabularyWords(dir, opts);
+  assert.deepEqual(r.words, viaIndex);
+  assert.ok(r.words.includes('bitrate') && r.words.includes('track'), r.words.join(' '));
+  assert.equal(r.fileCount, 12);
+  assert.equal(r.generated, '2026-11-01T00:00:00.000Z');
+});
+
+test('cachedVocabularyWords: no cache, an unreadable one or another version names the command that writes it', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vocab-cache-none-'));
+  assert.throws(() => cachedVocabularyWords(dir), /has no cached vocabulary \(vocabulary\.json\); write it with: ce --ndx .* --vocabulary/);
+  fs.writeFileSync(path.join(dir, 'vocabulary.json'), '{ not json');
+  assert.throws(() => cachedVocabularyWords(dir), /could not be read .*write it with: ce --ndx/);
+  fs.writeFileSync(path.join(dir, 'vocabulary.json'), JSON.stringify({ _version: VOCAB_CACHE_VERSION - 1, tokens: { a: { score: 1 } } }));
+  assert.throws(() => cachedVocabularyWords(dir), /empty or from another version of the vocabulary cache/);
+  fs.writeFileSync(path.join(dir, 'vocabulary.json'), JSON.stringify({ _version: VOCAB_CACHE_VERSION, tokens: {} }));
+  assert.throws(() => cachedVocabularyWords(dir), /empty or from another version/);
+});

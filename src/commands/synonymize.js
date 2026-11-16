@@ -18,9 +18,10 @@
 //
 //   HARDER (this file)  claim wording AWAY from the codebase's identifiers,
 //                       to MANUFACTURE a gap. Never sees the index.
-//   EASIER (not built)  claim wording TOWARD them -- `change the code rate` ->
-//                       `adaptive bitrate` -- to CLOSE a gap at retrieval time.
-//                       Needs the index by definition.
+//   EASIER (toward-code.js, since 2026-11-16: --embed-distance --toward-code, a
+//                       testing option)  claim wording TOWARD them -- `change the
+//                       code rate` -> `adaptive bitrate` -- to CLOSE a gap at
+//                       retrieval time. Needs the index by definition.
 //
 // They share a mechanism (patent-register <-> programmer-register translation)
 // which is exactly why they get conflated. They are separate commands on

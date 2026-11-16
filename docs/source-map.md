@@ -64,7 +64,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/commands/infrastructure.js` — --infrastructure: prints detected Containers/Kubernetes/IaC/CI-CD artifacts, marking heuristic hits
 - `src/commands/inspect_binary.js` — terse per-binary report of format, signing, framework, and embedded source hints before deeper extraction
 - `src/commands/interactive.js` — REPL that keeps the index resident and dispatches slash-commands to the same do*() handlers as the CLI
-- `src/commands/embed-distance.js` — --embed-distance: cosine distance under a local embedding model from a text to one other text, to a list, or to every mechanism entry of the index (label and member names in chunks of 8, best chunk, vectors cached beside mechanisms.json); rows of rank, cosine, distance and candidate, the median as the baseline, --filter keeping ranks; with --function-text each entry scored by its label and its best member function's mechanical text together (functionTexts, rankFused; a second cache file of per-function vectors)
+- `src/commands/embed-distance.js` — --embed-distance: cosine distance under a local embedding model from a text to one other text, to a list, or to every mechanism entry of the index (label and member names in chunks of 8, best chunk, vectors cached beside mechanisms.json); rows of rank, cosine, distance and candidate, the median as the baseline, --filter keeping ranks; with --function-text each entry scored by its label and its best member function's mechanical text together (functionTexts, rankFused; a second cache file of per-function vectors); with --toward-code the elements are reworded by a model first and ranked by the rewording, each listing printing "searched as:" under the element (toward-code.js)
 - `src/commands/mechanisms.js` — --build-mechanisms writes <index>/mechanisms.json (the grouper in cover mode, optional --describe sentences); --mechanisms lists it one row per function set, --toc is its table of contents
 - `src/commands/metrics.js` — discovery metrics plus the AI/ML inventory family: hotspots, entry points, gaps, classes, vocabulary, models
 - `src/commands/multisect.js` — multi-term intersection search: parses term syntax, scores by IDF, ranks function/file/folder scopes
@@ -72,6 +72,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/commands/pseudo-claims.js` — drafts illustrative pseudo-claims from anchor-function evidence packs, with grounding and fixed caveats
 - `src/commands/search.js` — --search/--literal/--fast/--regex/--files-search/--folders-search plus rename-marker query expansion
 - `src/commands/synonymize.js` — rewrites claim wording away from a codebase's identifiers to manufacture a retrieval gap; never reads an index
+- `src/commands/toward-code.js` — --embed-distance --toward-code: reword each claim element toward an index's own names with a model, one call per element, as the search query --embed-distance ranks by
 
 ## src/core — the engine room
 
@@ -282,6 +283,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_third_party_notices.js` — every shipped third-party file (grammars/*.wasm, public/vendor/*) has a row in THIRD-PARTY-NOTICES.md naming the installed version
 - `test/test_treesitter_c_names.js` — a C/C++ function's name never carries the token before it (CALLBACK, APIENTRY, a type the grammar could not place), on tree-sitter and the regex fallback
 - `test/test_vocab_extract.js` — vocabulary-guided terms: splitCompoundToken, prompt concordance, claim keywords
+- `test/test_toward_code.js` — --embed-distance --toward-code with a stub model: the two prompts and what each is given, a failed call keeping the element, the saved rewrites file read back, the sample entries, the option end to end
 - `test/test_vocabulary.js` — vocabulary corpus: noise-doc exclusion, cross-corpus weights, claim-filter guards
 - `test/test_whousedby.js` — catalog v2 annotateUsedBy: named imports credited per library, self-imports excluded
 - `test/test_zip_index_load.js` — #176 zipped-index loading: extractZipToDir over hand-built ZIPs, resolveIndexDir

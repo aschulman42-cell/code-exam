@@ -227,6 +227,9 @@ export function _vocabularyPath(idx) {
   return path.join(idx.indexPath, 'vocabulary.json');
 }
 
+/** The format of vocabulary.json; a cache of another version is rebuilt, or refused by a reader that cannot rebuild. */
+export const VOCAB_CACHE_VERSION = 7;
+
 // ----------------------------------------------------------------
 // #180: cross-corpus down-weighting. A token in MANY indexes (function, the,
 // get, main, error, …) is corpus-universal noise, not domain vocabulary — but a
@@ -355,7 +358,7 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
         const raw = fs.readFileSync(cachePath, 'utf-8');
         const cached = JSON.parse(raw);
         const cachedTokenCount = Object.keys(cached.tokens || {}).length;
-        if (cached._version === 7 && cached._file_count === idx.files.size && cachedTokenCount > 0) {
+        if (cached._version === VOCAB_CACHE_VERSION && cached._file_count === idx.files.size && cachedTokenCount > 0) {
           idx._vocabulary = new Map();
           for (const [token, entry] of Object.entries(cached.tokens || {})) {
             idx._vocabulary.set(token, entry);
@@ -436,7 +439,7 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
     const cachePath = _vocabularyPath(idx);
     try {
       const cacheObj = {
-        _version: 7,
+        _version: VOCAB_CACHE_VERSION,
         _file_count: idx.files.size,
         _generated: new Date().toISOString(),
         tokens: {},
@@ -1296,6 +1299,31 @@ export function getVocabularyForPrompt(idx, opts = {}) {
       relevanceMatched: subTokensSorted.filter((st) => (st.relevance || 0) > 0).length,
     },
   };
+}
+
+/**
+ * The prompt vocabulary of an index read from its cached vocabulary.json alone, for a
+ * command that runs before any index is constructed (vocab-rewrite-to-embed-distance,
+ * 2026-11-16: --embed-distance --toward-code; ExoPlayer 3's index is 300 MB to load and
+ * its vocabulary cache 6 MB). The words are getVocabularyForPrompt's sub-tokens under
+ * `opts`, the same list a loaded index gives, since that function reads nothing of the
+ * index but its vocabulary. What this reader cannot do is notice that the index was
+ * rebuilt since the cache was written (the loaded path compares file counts), so it
+ * returns the cache's own file count and date for the caller to print. Throws, naming
+ * the command that writes the cache, when there is none or it is of another version.
+ * Returns { words, totalVocab, fileCount, generated }.
+ */
+export function cachedVocabularyWords(indexPath, opts = {}) {
+  const cachePath = path.join(indexPath, 'vocabulary.json');
+  const remedy = `write it with: ce --ndx ${indexPath} --vocabulary`;
+  if (!fs.existsSync(cachePath)) throw new Error(`${indexPath} has no cached vocabulary (vocabulary.json); ${remedy}`);
+  let cached;
+  try { cached = JSON.parse(fs.readFileSync(cachePath, 'utf-8')); } catch (e) { throw new Error(`${cachePath} could not be read (${e.message}); ${remedy}`); }
+  const tokens = Object.entries((cached && cached.tokens) || {});
+  if (!cached || cached._version !== VOCAB_CACHE_VERSION || !tokens.length) throw new Error(`${cachePath} is empty or from another version of the vocabulary cache; ${remedy}`);
+  const idx = { indexPath, _vocabulary: new Map(tokens) };
+  const { subTokens, stats } = getVocabularyForPrompt(idx, opts);
+  return { words: subTokens.map((s) => s.token), totalVocab: stats.totalVocab, fileCount: cached._file_count ?? null, generated: cached._generated || null };
 }
 
 

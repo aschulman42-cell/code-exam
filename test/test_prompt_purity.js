@@ -31,6 +31,7 @@ import {
   buildHuntPrompt,
 } from '../src/commands/claim-locate.js';
 import { buildClaimAnalyzePrompt, buildAnalyzePrompt } from '../src/commands/analyze.js';
+import { buildTowardCodePrompt } from '../src/commands/toward-code.js';
 
 // Vocabulary from the domains CE has been developed against. If a template
 // mentions any of these, an author has leaked the corpus into the question.
@@ -63,6 +64,10 @@ const PROMPTS = {
   'claim-locate refine': () => buildRefinePrompt(NEUTRAL.notFound, NEUTRAL.table),
   'claim-analyze rubric': () => buildClaimAnalyzePrompt(NEUTRAL.source, 'beta', 'dir/Alpha.ext', 'A method, comprising: doing a thing.', false),
   'analyze': () => buildAnalyzePrompt(NEUTRAL.source, 'beta', 'dir/Alpha.ext', false),
+  // --embed-distance --toward-code: these two are GIVEN a codebase's vocabulary, as data in
+  // the user message; the templates themselves must still name no domain.
+  'toward-code restate': () => buildTowardCodePrompt('restate'),
+  'toward-code label': () => buildTowardCodePrompt('label'),
 };
 
 describe('prompt purity — no domain knowledge in shipped templates', () => {

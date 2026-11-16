@@ -11,7 +11,8 @@
 // are its mechanism entries scored exactly as scripts/describe-reach.mjs scores
 // them: label and member names in chunks of 8, the entry by its best chunk, the
 // vectors cached beside mechanisms.json so a second query on a 16,000-entry index
-// costs the query alone. No network, no key; --air-gapped changes nothing.
+// costs the query alone. No network, no key; --air-gapped changes nothing, except under
+// --toward-code, whose rewriting model may be a cloud one and is then refused as everywhere.
 //
 //   ce --embed-distance "<text>" --against "<text>"               one pair
 //   ce --embed-distance "<text>" --against @candidates.txt         a list, one per line
@@ -21,6 +22,8 @@
 //        [--embed-model nomic|jina|coderank|qwen06|qwen4|<path.gguf>] [--max-results N]
 //        [--filter <s>] [--no-prefix] [--cpu] [--verbose]
 //        [--function-text]   on an index: label and best member function's text as one score (functionTexts, rankFused)
+//        [--toward-code restate|label|@saved [--spec <file>]]   on an index: a model rewords each element
+//                            toward the index's names and the ranking is by the rewording (toward-code.js)
 //
 // embed-distance-per-element (2026-11-09): `@<file>` reads a claim, splits it as
 // --claim-locate and --claim-chart do (--elements @list overrides the split, the
@@ -256,11 +259,17 @@ export function listingStats(ranked, { calibrated = true } = {}) {
 }
 
 /** The listing as lines: the query (under `heading`, as `heading: query`, the per-element form), what was ranked (omitted when null: the caller printed it once), the median and the top row's margin over it (with a word that the band is not read under `modelName` when `calibrated` is false), a note (set apart by a blank line, so a reader sees it) when that margin says no match, with the small-index clause under SMALL_INDEX candidates, then the rows. */
-export function renderListing({ query, what, ranked, top, filter, verbose, heading = null, calibrated = true, modelName = null, fused = false }) {
-  const { med, margin, word } = listingStats(ranked, { calibrated: calibrated && !fused });
+export function renderListing({ query, what, ranked, top, filter, verbose, heading = null, calibrated = true, modelName = null, fused = false, searchedAs = null, notReworded = null }) {
+  const reworded = searchedAs != null;
+  const { med, margin, word } = listingStats(ranked, { calibrated: calibrated && !fused && !reworded });
   // The band was calibrated on the label text's cosine; a fused score is on another scale.
-  const unread = fused ? '; the band is calibrated on the label text alone and not read under --function-text' : calibrated ? '' : `; the band is calibrated on nomic and not read under ${modelName || 'this model'}`;
-  const L = [`${heading ? `${heading}: ` : 'query: '}${query}`, `${what ? `${what}; ` : ''}median ${fused ? 'score' : 'cosine'} ${med.toFixed(4)}${ranked.length >= MEDIAN_MIN ? ` (the nearest is ${margin.toFixed(4)} above it${unread})` : ''}`];
+  // It was also calibrated on queries as a person wrote them: a rewording made with the
+  // codebase's own words sits nearer every entry, and what margin it earns is not measured.
+  const unread = fused ? '; the band is calibrated on the label text alone and not read under --function-text' : reworded ? '; the band is calibrated on text as written and not read under --toward-code' : calibrated ? '' : `; the band is calibrated on nomic and not read under ${modelName || 'this model'}`;
+  const L = [`${heading ? `${heading}: ` : 'query: '}${query}`];
+  // --toward-code: the element as written stays the heading; the line under it is what was embedded.
+  if (reworded) L.push(notReworded ? `searched as written: not reworded (${notReworded})` : `searched as: ${searchedAs}`);
+  L.push(`${what ? `${what}; ` : ''}median ${fused ? 'score' : 'cosine'} ${med.toFixed(4)}${ranked.length >= MEDIAN_MIN ? ` (the nearest is ${margin.toFixed(4)} above it${unread})` : ''}`);
   const small = ranked.length < SMALL_INDEX ? `; on an index of only ${nf(ranked.length)} entries the band under-calls, since an unrelated query's top row is the best of few draws and sits lower above the median (on the 34-entry demo three true matches scored 0.107 to 0.119): read the rows` : '';
   if (word === 'no clear match') L.push('', `no clear match: the nearest candidate is only ${margin.toFixed(4)} above the median, about what an unrelated candidate scores; the rows below are the least far, not a find${small}`);
   else if (word === 'borderline') L.push('', `borderline: the nearest candidate is ${margin.toFixed(4)} above the median, in the band (${NO_MATCH_MARGIN} to ${BORDERLINE_MARGIN}) where queries with a known mechanism and queries the codebase has nothing for both land; read the rows before calling it a find${small}`);
@@ -344,6 +353,13 @@ export async function doEmbedDistance(args) {
   const fused = !!args.function_text;
   if (fused && against != null) { console.error('--function-text scores an index\'s mechanism entries by their member functions, and --against gives texts that have none: use it with --ndx <index> and no --against'); process.exitCode = 2; return; }
 
+  // --toward-code (vocab-rewrite-to-embed-distance, 2026-11-16): the elements are reworded
+  // toward the index's names by a model, and ranked by the rewording. It reads the index's
+  // vocabulary and entries, which a text or a list given with --against does not have.
+  const toward = args.toward_code != null;
+  if (toward && against != null) { console.error('--toward-code rewords a claim element toward the names of an index, and --against gives texts with no index behind them: use it with --ndx <index> and no --against'); process.exitCode = 2; return; }
+  if (args.spec != null && !toward) { console.error('--spec gives the patent\'s specification to the model that --toward-code restate|label asks for rewrites; without --toward-code nothing reads it'); process.exitCode = 2; return; }
+
   let entries = null, data = null, fnPlan = null;
   if (indexPath) {
     data = loadMechanismsIndex({ indexPath }, { cache: false });
@@ -361,7 +377,19 @@ export async function doEmbedDistance(args) {
       if (!fnPlan.texts.length) { console.error(`--function-text: none of the ${nf(entries.length)} mechanism entries of ${indexPath} has a member the index holds as a function; without --function-text the entries are ranked by label`); process.exitCode = 2; return; }
     }
   }
+  // The rewrites are made once, before any embedding model loads, and every model ranks by
+  // the same ones. `searched` is what is embedded; `queries` stays what is printed as the element.
+  let reworded = null;
+  if (toward) {
+    const { towardCode } = await import('./toward-code.js');
+    const spec0 = String(args.embed_distance || '').trim();
+    const r = await towardCode(args, { queries, claimFile: spec0.startsWith('@') ? spec0.slice(1) : null, entries, indexPath });
+    if (!r || r.shown) return;
+    reworded = r;
+  }
+  const searched = reworded ? reworded.rows.map((r) => r.rewritten) : queries;
   if (multi) console.log(source);
+  if (reworded) console.log(reworded.header);
   if (models.length > 1) console.log(`${models.length} models in turn: ${models.map((m) => m.name).join(', ')}`);
 
   // embed-distance-model-column: the models run one at a time, each loaded, used
@@ -382,7 +410,7 @@ export async function doEmbedDistance(args) {
     try {
       if (models.length > 1) console.log('');
       console.log(`model ${path.basename(model.path)}${noPrefix ? ', no prefixes' : (qp || dp) ? `, prefixes: query ${JSON.stringify(qp)}, document ${JSON.stringify(dp)}` : ''}`);
-      const qvs = await embedAll(embedder.ctx, queries.map((t, i) => ({ key: `q${i}`, text: t })), null, { prefix: qp, quiet: true });
+      const qvs = await embedAll(embedder.ctx, searched.map((t, i) => ({ key: `q${i}`, text: t })), null, { prefix: qp, quiet: true });
 
       if (against != null && !against.startsWith('@')) {
         const bv = (await embedAll(embedder.ctx, [{ key: 'b', text: cut(against) }], null, { prefix: dp, quiet: true })).get('b');
@@ -430,8 +458,9 @@ export async function doEmbedDistance(args) {
       queries.forEach((query, i) => {
         const ranked = fnVecs ? rankFused(qvs.get(`q${i}`), cands, fnVecs, FUSE_LABEL_WEIGHT, fnPlan.short) : rankCandidates(qvs.get(`q${i}`), cands);
         if (multi) console.log('');
-        for (const line of renderListing({ query, what: multi ? null : what, ranked, top, filter, verbose: !!args.verbose, heading: multi ? `element ${i + 1} of ${queries.length}` : null, calibrated, modelName: model.name, fused: !!fnVecs })) console.log(line);
-        const { margin, word } = listingStats(ranked, { calibrated: calibrated && !fnVecs });
+        const row = reworded ? reworded.rows[i] : null;
+        for (const line of renderListing({ query, what: multi ? null : what, ranked, top, filter, verbose: !!args.verbose, heading: multi ? `element ${i + 1} of ${queries.length}` : null, calibrated, modelName: model.name, fused: !!fnVecs, searchedAs: row ? row.rewritten : null, notReworded: row ? row.error : null })) console.log(line);
+        const { margin, word } = listingStats(ranked, { calibrated: calibrated && !fnVecs && !reworded });
         const first = ranked[0];
         const hit = filter ? filterRanked(ranked, filter)[0] : null;
         rows.push({ n: i + 1, element: query, nearest: first ? (first.label != null ? first.label : first.text) : '', margin: ranked.length >= MEDIAN_MIN ? margin : null, word, filterRank: hit ? hit.rank : null });

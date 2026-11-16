@@ -93,6 +93,16 @@ describe('the embed options each have a help entry, and --embed-model list', () 
     assert.match(r.stdout, /--function-text[\s\S]*Off by default/);
     assert.match(r.stdout, /--function-text[\s\S]*45,000 functions/);
   });
+  it('--toward-code and --spec have entries, shown under --help embed, that say what the model is shown and what a rank under it does not show', () => {
+    const r = run('--help', 'embed');
+    assert.ok(entry(r.stdout, '--toward-code'), 'no entry headed --toward-code');
+    assert.ok(entry(r.stdout, '--spec'), 'no entry headed --spec');
+    assert.match(r.stdout, /--toward-code[\s\S]*restate[\s\S]*label[\s\S]*@file/);
+    assert.match(r.stdout, /--toward-code[\s\S]*no source code/);
+    assert.match(r.stdout, /--toward-code[\s\S]*not a reading of the\s+claim/);
+    assert.match(r.stdout, /--toward-code[\s\S]*Off by default/);
+    assert.match(r.stdout, /--embed-distance[\s\S]*--function-text, --toward-code, --spec\./, '--embed-distance lists them among its own options');
+  });
   it('the --embeddings line says it is about the examined code, and points at --embed-model list', () => {
     const r = run('--help', 'embeddings');
     const line = r.stdout.split(/\r?\n/).findIndex((l) => l.startsWith('  --embeddings '));

@@ -301,6 +301,28 @@ Dated one-line results; the tables are on the linked pages.
   text) and gains nothing on the chart rows; `--embed-distance` still scores the label
   by default (2026-11-15, same page), and `--function-text` beside it scores the two
   together, for testing.
+- Whether rewording the claim toward the code's words reaches it: not known yet.
+  `--embed-distance --toward-code` (2026-11-16, for testing) has a model reword each claim
+  element, shown the index's vocabulary and no source code, and ranks the records by the
+  rewording. It has been run on one claim: claim 1 of US 8,752,101 against ExoPlayer 3 under
+  EmbeddingGemma, reworded by Claude Sonnet, read against a class Andrew suspects
+  (`AdaptiveTrackSelection`), not a party's citation. On the three elements about choosing
+  the rate, the nearest record labelled with that class is at rank 151, 1,109 and 342 of
+  10,828 for the claim as written; 78, 229 and 103 for the element restated; 7, 190 and 25
+  for the label form. Two things qualify those ranks:
+  - The first prompt made nearly every element sound like the claim's main idea. Shown the
+    whole claim, the label form wrote "bitrate selection" for the claim's opening element,
+    a system with a transmitter and a receiver, and the class ranked 7th for it. The prompt
+    was changed once, to say that an element gets only what it itself requires; that
+    element then put the class at 575 and the rate elements kept their ranks. The change
+    was made after seeing this claim's results and has been tried on no other.
+  - The first rows of most rankings, in both forms, are `Builder / bitrate` records,
+    setters that share the word and do not choose a rate. The class is not in the first
+    five rows for any element.
+
+  The two controls that would say whether a good rank means anything (another limitation
+  of the same claim, and a codebase without the feature) have not been run. Until they
+  are, a rank under this option is not evidence that code practises an element.
 
 Results about mechanisms themselves that have no section yet (the grouper's cover and split
 measurements, the two describers compared as a table of contents, the no-match calibration

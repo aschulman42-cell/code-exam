@@ -436,3 +436,46 @@ describe('--function-text: an entry scored by its label and its best member func
     assert.equal(embedEta(8400), '2 h 20 min');
   });
 });
+
+describe('--toward-code: the elements reworded toward the index\'s names, ranked by the rewording', () => {
+  const cands = [
+    { label: 'alpha', members: [{ name: 'run' }], vectors: [[0.6, 0.8]], chunks: ['c'] },
+    ...Array.from({ length: 12 }, (_, i) => ({ label: 'e' + i, members: [], vectors: [[0.4, 0.9165]], chunks: ['c'] })),
+  ];
+
+  it('parses --toward-code and --spec as values, absent by default', () => {
+    const a = withArgv(['--embed-distance', '@claim.txt', '--toward-code', 'label', '--spec', 'spec.txt'], () => parseArgs());
+    assert.equal(a.toward_code, 'label');
+    assert.equal(a.spec, 'spec.txt');
+    const b = withArgv(['--embed-distance', 'x'], () => parseArgs());
+    assert.equal(b.toward_code, null);
+    assert.equal(b.spec, null);
+  });
+
+  it('a listing prints the element as written, then "searched as:" and the rewording, and says the band is not read', () => {
+    const L = renderListing({ query: 'a unit for doing a thing', what: 'w', ranked: rankCandidates([1, 0], cands), top: 3, filter: null, verbose: false, heading: 'element 1 of 2', searchedAs: 'compute the widget' });
+    assert.equal(L[0], 'element 1 of 2: a unit for doing a thing');
+    assert.equal(L[1], 'searched as: compute the widget');
+    assert.ok(L[2].includes('median cosine') && L[2].includes('not read under --toward-code'), L[2]);
+    assert.ok(!L.some((l) => l.startsWith('no clear match') || l.startsWith('borderline')), 'no band note under a rewording');
+  });
+
+  it('an element the model did not reword says so in place of the rewording; a run without the option has no such line', () => {
+    const L = renderListing({ query: 'a unit', what: 'w', ranked: rankCandidates([1, 0], cands), top: 3, filter: null, verbose: false, searchedAs: 'a unit', notReworded: 'HTTP 529' });
+    assert.equal(L[1], 'searched as written: not reworded (HTTP 529)');
+    const plain = renderListing({ query: 'a unit', what: 'w', ranked: rankCandidates([1, 0], cands), top: 3, filter: null, verbose: false });
+    assert.ok(plain[1].startsWith('w; median cosine'), plain[1]);
+    assert.ok(!plain.some((l) => l.startsWith('searched as')));
+  });
+
+  it('refuses --toward-code with --against, and --spec without --toward-code, in one line, exit 2', () => {
+    const a = spawnSync(process.execPath, [path.join(ROOT, 'src', 'index.js'), '--embed-distance', 'x', '--against', 'y', '--toward-code', 'restate'], { encoding: 'utf8' });
+    assert.equal(a.status, 2);
+    assert.ok(a.stderr.includes('--toward-code') && a.stderr.includes('--against'), a.stderr);
+    assert.equal(a.stdout.trim(), '');
+    const b = spawnSync(process.execPath, [path.join(ROOT, 'src', 'index.js'), '--embed-distance', 'x', '--against', 'y', '--spec', 'spec.txt'], { encoding: 'utf8' });
+    assert.equal(b.status, 2);
+    assert.ok(b.stderr.includes('--spec') && b.stderr.includes('--toward-code'), b.stderr);
+    assert.equal(b.stdout.trim(), '');
+  });
+});
